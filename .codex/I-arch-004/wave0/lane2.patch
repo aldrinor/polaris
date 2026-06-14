@@ -1,0 +1,642 @@
+diff --git a/src/polaris_graph/generator/contract_section_runner.py b/src/polaris_graph/generator/contract_section_runner.py
+index 224cd8ec..d08d2a5f 100644
+--- a/src/polaris_graph/generator/contract_section_runner.py
++++ b/src/polaris_graph/generator/contract_section_runner.py
+@@ -513,6 +513,11 @@ async def run_contract_section(
+     payloads: list[SlotFillPayload] = []
+     total_in_tok = 0
+     total_out_tok = 0
++    # I-arch-004 F02(c) (#1255): count narrative paragraphs that came back empty so an
++    # empty narrative is SURFACED (warned + counted), never silently dropped at the
++    # `if narr_text and narr_text.strip()` guard below. Supplementary stream → counted,
++    # not fatal (deterministic slot prose remains the primary deliverable).
++    _empty_narrative_slots = 0
+     all_entity_ids: list[str] = []
+ 
+     # entity_id -> slot_id so kept sentences can be regrouped into
+@@ -710,6 +715,24 @@ async def run_contract_section(
+                         if narr_text and narr_text.strip():
+                             # Narrative stream — rescue-INELIGIBLE (Fix B).
+                             slot_narrative_prose.append(narr_text.strip())
++                        else:
++                            # I-arch-004 F02(c) (#1255): do NOT silently drop an empty
++                            # narrative. Pre-fix, an empty `narr_text` (the degenerate
++                            # blank-completion proximate cause — the LLM produced no
++                            # narrative after consuming wall-clock) fell through this guard
++                            # INVISIBLY: no log, no counter, the gap untraceable. Surface it
++                            # loud + count it so A1's gap-stub / a re-run handles it visibly.
++                            # The narrative is SUPPLEMENTARY (the deterministic slot prose is
++                            # the primary deliverable), so this does NOT hard-fail the
++                            # section — a blank narrative must not regress a section whose
++                            # deterministic stream is fine.
++                            _empty_narrative_slots += 1
++                            logger.warning(
++                                "[m63] I-arch-004 F02(c): empty narrative paragraph for "
++                                "slot %r (entity_id=%r) — surfaced, not silently dropped "
++                                "(deterministic slot prose unaffected).",
++                                slot.slot_id, entity_id,
++                            )
+                     except Exception as exc:
+                         logger.warning(
+                             "[m63] narrative-paragraph LLM call "
+@@ -724,6 +747,16 @@ async def run_contract_section(
+         if slot_narrative_prose:
+             narrative_body_blocks.append(" ".join(slot_narrative_prose))
+ 
++    # I-arch-004 F02(c) (#1255): surface the section-level empty-narrative count once so
++    # the gap is visible in the run log (per-slot warnings above give the detail). Not
++    # fatal — the deterministic stream is the primary deliverable.
++    if _empty_narrative_slots:
++        logger.warning(
++            "[m63] I-arch-004 F02(c): %d narrative paragraph(s) came back empty in "
++            "section %r — surfaced (not silently dropped); deterministic prose unaffected.",
++            _empty_narrative_slots, plan.title,
++        )
++
+     # Body-only raw drafts (no `### headings` — they'd poison
+     # strict_verify's content-overlap check), ONE PER STREAM.
+     # I-faith-001 Fix B / Fix C: the deterministic, regulatory, and narrative
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 612ea81f..d9317b8d 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -230,6 +230,44 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+ )
+ 
++# I-arch-004 F02 (#1255) — contract-slot reasoning + stall budgets.
++#
++# WHY: the V30 contract-slot calls (JSON slot-fill / regulatory synthesis / the
++# <=3-sentence narrative paragraph) ran through `generate()` with the full
++# PG_SECTION_MAX_TOKENS=64000 ceiling. deepseek-v4-pro is reasoning-first and (per
++# openrouter_client.py:1721) reasons until the OVERALL max_tokens ceiling, so these
++# TERSE calls burned ~8k+ reasoning tokens for a 3-sentence output — wasteful and, on
++# a slow provider band, a runaway that ends in a degenerate blank (the drb_72 death).
++#
++# These calls are extraction/short-narrative — they do NOT need deep reasoning. Cap the
++# REASONING sub-budget tight (PG_CONTRACT_SLOT_REASONING_MAX_TOKENS) so the model stops
++# planning early, while keeping the CONTENT budget ample (PG_CONTRACT_SLOT_MIN_MAX_TOKENS
++# floor preserved) — this SERVES operator-lock §9.1.8 ("never starve content"), it does
++# NOT relax it: content stays generous, only the wasteful reasoning runaway is bounded.
++# The global reasoning-first floor/cap and the section-writer/judge budgets are UNTOUCHED.
++#
++# A per-call STALL timeout WELL UNDER the section wall (GENERATOR_TIMEOUT_SECONDS=6500s)
++# bounds a hung terse call so it cannot consume the whole section budget on a stall.
++#
++# CRITICAL (default sizing): `_m63_llm_call` serves ALL three contract-slot uses — slot-fill
++# extraction, REGULATORY SYNTHESIS, and the ≤3-sentence narrative. The regulatory case echoes
++# long regulatory prose spans (the FDA Mounjaro-label 25K-char case, see the `_m63_llm_call`
++# docstring + the PG_CONTRACT_SLOT_MIN_MAX_TOKENS=6000 floor): at the slow token band cited in
++# openrouter_client.py these LEGITIMATELY run 400-545s (the drb_72 contract-slot call itself
++# consumed ~473s). So the stall timeout MUST comfortably exceed real contract-slot duration or a
++# legitimate clinical regulatory slot would false-time-out → degrade to not_extractable → MISSING
++# FDA-label content in the clinical cert report (a §-1.1 completeness regression). The harness-level
++# blank-raise (F02a) already kills the ACTUAL degenerate signature INSTANTLY (a blank 200 returns
++# immediately — no timeout needed), so the stall timeout only ever bounds a TRUE hang; a generous
++# value loses nothing. 1200s = generous headroom over the ~473-545s real ceiling, still well under
++# the 6500s section wall. Env-tunable.
++PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
++    os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
++)
++PG_CONTRACT_SLOT_STALL_TIMEOUT_S: float = float(
++    os.getenv("PG_CONTRACT_SLOT_STALL_TIMEOUT_S", "1200")
++)
++
+ # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
+ #
+ # WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
+@@ -5571,6 +5609,14 @@ async def generate_multi_section_report(
+                 ),
+                 max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
+                 temperature=section_temperature,
++                # I-arch-004 F02 (#1255): bound the REASONING runaway on these terse
++                # extraction / <=3-sentence narrative calls. reasoning_max_tokens lands in
++                # body['reasoning']['max_tokens'] (openrouter_client branch 3) so the model
++                # stops planning early; the CONTENT budget (max_tokens above) stays ample —
++                # serves operator-lock §9.1.8 (never starve content), does not relax it. The
++                # tight stall timeout caps a hung terse call well under the section wall.
++                reasoning_max_tokens=PG_CONTRACT_SLOT_REASONING_MAX_TOKENS,
++                timeout=PG_CONTRACT_SLOT_STALL_TIMEOUT_S,
+             )
+         finally:
+             if hasattr(client, "close"):
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 98cc6aaa..e44f0fd3 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -253,6 +253,27 @@ class ReasoningFirstTruncationError(RuntimeError):
+     RuntimeError still propagates as a real fault."""
+ 
+ 
++class BlankCompletionError(RuntimeError):
++    """I-arch-004 F02 (#1255): a generator/judge stream ended with the
++    degenerate "provider-died" signature — empty content, a NULL usage block,
++    AND finish_reason=None (the proximate cause of the drb_72 death: a blank
++    HTTP 200 logged status=ok, then silently skipped at
++    contract_section_runner.py:710 after consuming ~473s of wall-clock).
++
++    Subclasses ``RuntimeError`` so the existing ``except RuntimeError`` retry
++    branch in ``_call_impl`` catches it and re-POSTs — but the retry FIRST
++    excludes the blanking provider (``body['provider']['ignore']``) because the
++    generator is pinned ``allow_fallbacks=false`` and OpenRouter does NOT
++    auto-advance off an empty 200, so a same-provider retry would re-stall.
++    After ``MAX_RETRIES`` it re-raises (status stays fail-CLOSED, never ``ok``)
++    so no blank completion is ever consumed as content.
++
++    Typed (not bare RuntimeError) so callers / F07 side-judge handlers can
++    distinguish a degenerate-blank from a generic transport fault if they need
++    to; the default handling is identical to any other RuntimeError (the
++    consumer maps the terminal raise to its fail-closed sentinel)."""
++
++
+ def reset_run_cost() -> None:
+     """Reset the current task's run-cost accumulator to 0. Call at the
+     start of a run. Uses ContextVar so concurrent async tasks each get
+@@ -1381,10 +1402,16 @@ class OpenRouterClient:
+             chunk_count += 1
+ 
+             # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
+-            # Gate-flagged: skip entirely when the Path-B capture is inactive (off-mode pays
+-            # one contextvar read, not three dict lookups per chunk).
++            # I-arch-004 F02 (#1255): the served `provider` is captured UNCONDITIONALLY now — the
++            # degenerate-blank rotation in _call_impl needs it to exclude the blanking provider on
++            # retry, and that path runs in NORMAL (non-Path-B) generator runs where is_active() is
++            # False. Capturing one extra string per chunk is negligible; `model` /
++            # `system_fingerprint` stay gated (only the Path-B benchmark capture consumes them).
++            _sv_provider = chunk.get("provider")
++            if _sv_provider:
++                served["provider"] = _sv_provider
+             if _pathb_capture.is_active():
+-                for _sk in ("provider", "model", "system_fingerprint"):
++                for _sk in ("model", "system_fingerprint"):
+                     _sv = chunk.get(_sk)
+                     if _sv:
+                         served[_sk] = _sv
+@@ -1835,12 +1862,18 @@ class OpenRouterClient:
+                 )
+                 actual_timeout = timeout or _default_timeout
+ 
++                # I-arch-004 F02 (#1255): the genuinely-served provider for THIS attempt
++                # (display name), used by the degenerate-blank rotation below to exclude
++                # the blanking provider from the retry. Stream path: from the SSE served
++                # stash; non-stream path: top-level `provider` of the parsed body.
++                _served_provider: Optional[str] = None
+                 if body.get("stream", True):
+                     # Streaming path — accumulate SSE chunks
+                     content_text, reasoning_text, stream_usage, stream_served = await asyncio.wait_for(
+                         self._read_stream(body, actual_timeout),
+                         timeout=actual_timeout + 30,
+                     )
++                    _served_provider = (stream_served or {}).get("provider")
+                     data = {
+                         "choices": [{
+                             "message": {
+@@ -1875,6 +1908,7 @@ class OpenRouterClient:
+                     )
+                     resp.raise_for_status()
+                     data = resp.json()
++                    _served_provider = data.get("provider")
+                     # FIX-QWEN-2: Detect provider errors in non-streaming response
+                     if data.get("error") and not data.get("choices"):
+                         err = data["error"]
+@@ -1923,6 +1957,87 @@ class OpenRouterClient:
+                             f"API returned no choices in response for {call_type} "
+                             f"(model={data.get('model', '?')}) — empty HTTP 200"
+                         )
++
++                # I-arch-004 F02 (#1255): the SHARED degenerate-blank-stream guard (covers
++                # generate AND judge call_types — one harness-level raise; F07 builds on it).
++                # The drb_72 death: a stream ends with content='' (or None), a NULL usage block,
++                # AND finish_reason=None, yet it was logged status=ok at the success capture below
++                # (:2319) and then SILENTLY skipped at contract_section_runner.py:710 after ~473s.
++                # Detect that EXACT degenerate signature INSIDE the loop (before `break`) so a
++                # first occurrence is RETRYABLE — and FIRST exclude the blanking provider, because
++                # the generator is pinned allow_fallbacks=false and OpenRouter does NOT auto-advance
++                # off an empty 200 (a same-provider retry re-stalls). After MAX_RETRIES the
++                # BlankCompletionError re-raises -> the call FAILS (status=error, never ok), so no
++                # blank completion is ever consumed as content.
++                #
++                # The signature is deliberately NARROW — the CONJUNCTION (empty content AND
++                # usage-was-null AND finish_reason is None) — so it does NOT shadow:
++                #   - the both-empty 0-token degenerate (FIX-H2 below already raises non-retryably);
++                #   - the </think>-recoverable misroute (content empty, reasoning present, usage
++                #     PRESENT -> generate() recovers; usage non-null fails this gate);
++                #   - the token-ceiling truncation (finish_reason='length', usage present -> the
++                #     FX-01 / ReasoningFirstTruncationError path owns it).
++                # reason()'s reasoning-only output carries valid usage + finish_reason, so this
++                # gate never fires on a healthy planning call.
++                _ch = (data.get("choices") or [{}])[0]
++                _msg = _ch.get("message", {}) if isinstance(_ch, dict) else {}
++                _content_blank = not ((_msg.get("content") or "").strip())
++                # "usage was null" = the provider reported NO real token accounting. On the STREAM
++                # path `_accumulate_sse` always synthesizes a `{"finish_reason": ...}`-only dict even
++                # when the stream dies blank, so dict-emptiness is NOT the right test; check for the
++                # PRESENCE of the actual token-count keys (a blank-death stream carries none; a
++                # genuine completion always carries prompt/completion/total tokens). Key-PRESENCE
++                # (not truthiness) so a real-but-zero-valued usage block — e.g. completion_tokens=0 on
++                # a legitimately-empty-but-accounted completion — is NOT misclassified as null and
++                # keeps its own (FIX-H2 / FX-01) path; this stays EXACTLY narrow.
++                _usage = data.get("usage") or {}
++                _usage_was_null = not any(
++                    _k in _usage
++                    for _k in ("prompt_tokens", "completion_tokens", "total_tokens")
++                )
++                _fr = _ch.get("finish_reason")
++                if _fr is None:
++                    _fr = _usage.get("finish_reason")
++                if _content_blank and _usage_was_null and _fr is None:
++                    # I-obs-001 #1141 AC3: capture the degenerate blank 200 forensic signal.
++                    _io_sink = current_raw_io_sink()
++                    if _io_sink is not None:
++                        try:
++                            _io_sink.record(
++                                call_id=uuid.uuid4().hex, call_type=call_type,
++                                role=_pathb_capture.current_llm_role(),
++                                request={**body, "messages": sanitized_messages},
++                                raw_response=data, duration_ms=None, status="blank",
++                            )
++                        except Exception:  # noqa: BLE001
++                            pass
++                    # Exclude the blanking provider from the NEXT attempt (mirrors the 4-role
++                    # seam idiom, openrouter_role_transport.py:1157-1161): map the served DISPLAY
++                    # name back to the routing SLUG so `ignore` uses the SAME identity as `order`.
++                    if _served_provider and isinstance(body.get("provider"), dict):
++                        try:
++                            from src.polaris_graph.roles.provider_routing import (
++                                slug_for_provider,
++                            )
++                            _blanked_slug = slug_for_provider(_served_provider)
++                        except Exception:  # noqa: BLE001 — routing helper must never mask the blank
++                            _blanked_slug = (_served_provider or "").lower() or None
++                        if _blanked_slug:
++                            _ignore_list = body["provider"].setdefault("ignore", [])
++                            if _blanked_slug not in _ignore_list:
++                                _ignore_list.append(_blanked_slug)
++                    logger.warning(
++                        "[polaris graph] I-arch-004 F02: degenerate BLANK stream for %s "
++                        "(model=%s, served=%s, finish_reason=None, usage=null) — RAISING "
++                        "(not status=ok); excluded provider on retry (attempt %d/%d).",
++                        call_type, data.get("model", self.model), _served_provider,
++                        attempt + 1, MAX_RETRIES + 1,
++                    )
++                    raise BlankCompletionError(
++                        f"Degenerate blank completion for {call_type} "
++                        f"(model={data.get('model', '?')}, served={_served_provider!r}): "
++                        f"content empty, usage null, finish_reason None — provider stall."
++                    )
+                 break
+ 
+             except asyncio.TimeoutError:
+diff --git a/tests/polaris_graph/test_f02_blank_completion_runaway.py b/tests/polaris_graph/test_f02_blank_completion_runaway.py
+new file mode 100644
+index 00000000..ae205532
+--- /dev/null
++++ b/tests/polaris_graph/test_f02_blank_completion_runaway.py
+@@ -0,0 +1,347 @@
++"""I-arch-004 F02 (#1255) — generator empty-completion reasoning-runaway + silent skip.
++
++PROVES the three F02 harness behaviors that fix the drb_72 death (a blank HTTP 200 logged
++``status=ok`` then silently skipped after consuming ~473s of wall-clock):
++
++  (a) HARNESS RAISE — a degenerate blank stream (content empty + usage NULL + finish_reason
++      None) RAISES ``BlankCompletionError`` (a ``RuntimeError``) — it is NEVER returned as a
++      ``status=ok`` LLMResponse. After ``MAX_RETRIES`` it re-raises (fail-CLOSED). One
++      harness-level guard covers BOTH generate and judge call_types.
++  (b) RETRY ROTATION — the retry does NOT reuse the blanking provider: the served provider is
++      mapped to its routing slug and added to ``body['provider']['ignore']`` BEFORE the re-POST
++      (the generator is pinned ``allow_fallbacks=false`` so OpenRouter will not auto-advance off
++      an empty 200; a same-provider retry would re-stall).
++  (c) NARROWNESS (no faithfulness/recovery regression) — the gate fires ONLY on the exact
++      degenerate CONJUNCTION. A blank-content response that carries a usage block (the
++      ``</think>``-recoverable misroute / truncation shape) does NOT trip the BlankCompletionError
++      guard, so the existing recovery + FX-01 paths are untouched.
++  (d) CONTRACT-SLOT REASONING CAP — the V30 ``_m63_llm_call`` lowers the reasoning sub-budget for
++      its terse extraction / <=3-sentence narrative calls (``PG_CONTRACT_SLOT_REASONING_MAX_TOKENS``)
++      and bounds them with a stall timeout — it does NOT starve the content budget.
++
++HERMETIC / OFFLINE: every test monkeypatches ``client._client.post`` (the non-stream seam, forced
++via ``response_format=json_object`` + ``reasoning_enabled=False``) or inspects request bodies. NO
++socket is opened, NO live LLM is called. This is a RELIABILITY/COST fix — NO faithfulness gate is
++relaxed (the terminal raise stays fail-CLOSED; the contract-slot CONTENT budget stays ample).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import copy
++
++import httpx
++import pytest
++
++from src.polaris_graph.llm import openrouter_client
++from src.polaris_graph.llm.openrouter_client import BlankCompletionError
++
++_GEN_REQUEST = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
++
++
++# --------------------------------------------------------------------------------------------- env
++@pytest.fixture(autouse=True)
++def _hermetic_env(monkeypatch):
++    """Fix the OpenRouter key + generator model; zero the backoff sleeps so retries don't sleep."""
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-hermetic")
++    # The blanking-provider rotation maps the served display name -> routing slug; keep that
++    # deterministic regardless of any ambient provider-routing config fixture.
++    yield
++
++
++async def _noop_async_sleep(*_a, **_k):
++    return None
++
++
++# --------------------------------------------------------------------------------------------- payloads
++def _blank_degenerate_response(provider: str = "DeepInfra") -> httpx.Response:
++    """The drb_72 degenerate signature on the non-stream seam: a 200 whose single choice has EMPTY
++    content, NO ``usage`` block (null usage), and NO ``finish_reason``. Carries a ``provider`` so the
++    rotation has an identity to exclude."""
++    return httpx.Response(
++        200,
++        json={
++            "choices": [{"message": {"content": ""}}],  # no finish_reason, content blank
++            "model": "deepseek/deepseek-v4-pro",
++            "provider": provider,
++            # NOTE: NO "usage" key -> data.get("usage") is falsy -> usage_was_null is True.
++        },
++        request=_GEN_REQUEST,
++    )
++
++
++def _ok_response() -> httpx.Response:
++    return httpx.Response(
++        200,
++        json={
++            "choices": [{"message": {"content": "the answer"}, "finish_reason": "stop"}],
++            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
++            "model": "deepseek/deepseek-v4-pro",
++            "provider": "Novita",
++        },
++        request=_GEN_REQUEST,
++    )
++
++
++def _blank_but_has_usage_response() -> httpx.Response:
++    """A blank-CONTENT 200 that DOES carry a usage block + a finish_reason — the
++    ``</think>``-recoverable misroute / truncation shape. Must NOT trip BlankCompletionError (the
++    gate is the degenerate CONJUNCTION only); the EXISTING empty-content+empty-reasoning FIX-H2
++    guard (ValueError) owns this both-empty case instead."""
++    return httpx.Response(
++        200,
++        json={
++            "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
++            "usage": {"prompt_tokens": 10, "completion_tokens": 0, "cost": 0.0001},
++            "model": "deepseek/deepseek-v4-pro",
++            "provider": "DeepInfra",
++        },
++        request=_GEN_REQUEST,
++    )
++
++
++def _make_client(monkeypatch, post_side_effects):
++    """OpenRouterClient whose ``_client.post`` returns/raises queued side effects in order, and
++    records each request body for the rotation assertion. ``response_format=json_object`` +
++    ``reasoning_enabled=False`` forces the NON-STREAM path (a single mockable ``post`` coroutine)."""
++    client = openrouter_client.OpenRouterClient(api_key="test-key-hermetic")
++    state = {"n": 0, "bodies": []}
++
++    async def _fake_post(*args, **kwargs):
++        i = state["n"]
++        state["n"] += 1
++        # DEEP-COPY the body sent on THIS attempt — `_call_impl` mutates the SAME
++        # body['provider']['ignore'] list in place across attempts, so a shallow capture would show
++        # every snapshot with the final mutated state. The rotation assertion reads body[1].
++        state["bodies"].append(copy.deepcopy(kwargs.get("json")))
++        effect = post_side_effects[min(i, len(post_side_effects) - 1)]
++        if isinstance(effect, Exception):
++            raise effect
++        return effect
++
++    monkeypatch.setattr(client._client, "post", _fake_post)
++    monkeypatch.setattr(openrouter_client.asyncio, "sleep", _noop_async_sleep)
++    return client, state
++
++
++def _run(client, **overrides):
++    kwargs = dict(
++        messages=[{"role": "user", "content": "q"}],
++        call_type="contract_slot",
++        reasoning_enabled=False,
++        response_format={"type": "json_object"},
++    )
++    kwargs.update(overrides)
++    return asyncio.run(client._call_impl(**kwargs))
++
++
++# --------------------------------------------------------------------------------------------- (a) RAISE
++def test_blank_degenerate_stream_raises_not_status_ok(monkeypatch):
++    """(a) EVERY attempt returns the degenerate blank 200 -> after MAX_RETRIES the
++    BlankCompletionError re-raises (fail-CLOSED). The blank is NEVER returned as a status=ok
++    LLMResponse, and BlankCompletionError IS a RuntimeError (caught by generic transport handlers)."""
++    client, state = _make_client(monkeypatch, [_blank_degenerate_response()])
++    with pytest.raises(BlankCompletionError):
++        _run(client)
++    assert issubclass(BlankCompletionError, RuntimeError)
++    # MAX_RETRIES+1 attempts were made (each blank retried until the cap), then re-raised.
++    assert state["n"] == openrouter_client.MAX_RETRIES + 1
++
++
++def test_blank_degenerate_then_success_recovers(monkeypatch):
++    """(a)+(b) ONE degenerate blank 200 then a valid 200 -> the call RECOVERS (the response is
++    returned), proving the blank was RETRIED in-loop, not consumed as content."""
++    client, state = _make_client(monkeypatch, [_blank_degenerate_response(), _ok_response()])
++    resp = _run(client)
++    assert resp.content == "the answer"
++    assert state["n"] == 2  # one blank attempt + one success
++
++
++# --------------------------------------------------------------------------------------------- (b) ROTATION
++def test_retry_excludes_the_blanking_provider(monkeypatch):
++    """(b) The retry MUST NOT reuse the blanking provider: the served provider ('WandB') is mapped to
++    its routing slug ('wandb') and added to body['provider']['ignore'] BEFORE the re-POST. (The
++    generator is allow_fallbacks=false; OpenRouter does not auto-advance off a blank 200, so without
++    this the retry re-stalls on the same provider.)
++
++    'WandB' is chosen because it is in the generator's `order` chain but NOT in its base `ignore`, so
++    the assertion proves the ROTATION added it (absent on attempt 1, present on the retry) — not a
++    pre-existing config exclusion."""
++    client, state = _make_client(
++        monkeypatch, [_blank_degenerate_response(provider="WandB"), _ok_response()]
++    )
++    resp = _run(client)
++    assert resp.content == "the answer"
++    assert state["n"] == 2
++    # The first request did NOT exclude wandb; the RETRY request excludes the blanking provider.
++    first_ignore = (state["bodies"][0].get("provider", {}) or {}).get("ignore", [])
++    retry_ignore = (state["bodies"][1].get("provider", {}) or {}).get("ignore", [])
++    assert "wandb" not in first_ignore
++    assert "wandb" in retry_ignore
++
++
++# --------------------------------------------------------------------------------------------- (a) STREAM PATH
++def test_blank_degenerate_STREAM_raises(monkeypatch):
++    """(a) The PRIMARY drb_72 path is STREAMING. ``_accumulate_sse`` always synthesizes a
++    ``{"finish_reason": None}``-only usage dict even when the stream dies blank, so the guard must
++    test for the ABSENCE of real token-count keys (not dict-emptiness). A streaming blank-death
++    (content='' + usage carrying NO token counts + finish_reason None) RAISES BlankCompletionError —
++    proving the gate fires on the streaming seam, not only the non-stream seam."""
++    client = openrouter_client.OpenRouterClient(api_key="test-key-hermetic")
++    monkeypatch.setattr(openrouter_client.asyncio, "sleep", _noop_async_sleep)
++    state = {"n": 0}
++
++    async def _fake_read_stream(body, timeout):
++        state["n"] += 1
++        # (content, reasoning, usage, served) — the blank-death shape: only the synthetic
++        # finish_reason key, NO prompt/completion/total tokens, finish_reason None.
++        return "", "", {"finish_reason": None}, {"provider": "WandB"}
++
++    monkeypatch.setattr(client, "_read_stream", _fake_read_stream)
++    with pytest.raises(BlankCompletionError):
++        asyncio.run(
++            client._call_impl(
++                messages=[{"role": "user", "content": "q"}],
++                call_type="contract_slot",
++                reasoning_enabled=False,
++            )
++        )
++    # MAX_RETRIES+1 streaming attempts, then fail-CLOSED (never status=ok).
++    assert state["n"] == openrouter_client.MAX_RETRIES + 1
++
++
++# ----------------------------------------------- (b) REAL SSE-PATH rotation (NON-Path-B, real _accumulate_sse)
++class _FakeStreamResponse:
++    """Minimal async-context-manager fake of an httpx streaming response that drives the REAL
++    ``_accumulate_sse`` — so the test exercises the actual served-provider capture gate (NOT a
++    monkeypatched _read_stream). ``aiter_lines`` replays the queued SSE lines."""
++
++    def __init__(self, lines):
++        self._lines = lines
++        self.headers = {"content-type": "text/event-stream"}
++
++    async def __aenter__(self):
++        return self
++
++    async def __aexit__(self, *a):
++        return False
++
++    def raise_for_status(self):
++        return None
++
++    async def aiter_lines(self):
++        for ln in self._lines:
++            yield ln
++
++
++def _sse_blank_death_lines(provider: str) -> list[str]:
++    """SSE chunks for a degenerate blank-death stream: a chunk carrying ONLY the served `provider`
++    (no content delta, no usage, no finish_reason) then a clean [DONE]. _accumulate_sse will return
++    content='' + a usage dict with NO token keys + served={'provider': provider}."""
++    return [
++        f'data: {{"provider": "{provider}", "choices": [{{"delta": {{}}}}]}}',
++        "data: [DONE]",
++    ]
++
++
++def _sse_ok_lines() -> list[str]:
++    """SSE chunks for a healthy completion: a content delta + a usage chunk + [DONE]."""
++    return [
++        'data: {"provider": "Novita", "choices": [{"delta": {"content": "the answer"}, '
++        '"finish_reason": "stop"}]}',
++        'data: {"usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
++        "data: [DONE]",
++    ]
++
++
++def test_REAL_sse_path_rotation_excludes_blanking_provider(monkeypatch):
++    """(b) REAL streaming-seam regression (Codex diff-gate P1): in a NORMAL (non-Path-B) run, the
++    served-provider capture must be available so the rotation excludes the blanking provider. Drives
++    the REAL ``_accumulate_sse`` (the served-provider capture is now UNCONDITIONAL, not Path-B-gated)
++    by mocking only ``self._client.stream``. Proves the FIRST attempt blanks on 'WandB' and the RETRY
++    request carries 'wandb' in body['provider']['ignore'] — then recovers."""
++    client = openrouter_client.OpenRouterClient(api_key="test-key-hermetic")
++    monkeypatch.setattr(openrouter_client.asyncio, "sleep", _noop_async_sleep)
++    # Confirm Path-B is INACTIVE for this run (the gate the P1 was about).
++    assert not openrouter_client._pathb_capture.is_active()
++    state = {"n": 0, "bodies": []}
++
++    def _fake_stream(method, url, **kwargs):
++        i = state["n"]
++        state["n"] += 1
++        state["bodies"].append(copy.deepcopy(kwargs.get("json")))
++        lines = _sse_blank_death_lines("WandB") if i == 0 else _sse_ok_lines()
++        return _FakeStreamResponse(lines)
++
++    monkeypatch.setattr(client._client, "stream", _fake_stream)
++    resp = asyncio.run(
++        client._call_impl(
++            messages=[{"role": "user", "content": "q"}],
++            call_type="contract_slot",
++            reasoning_enabled=False,
++        )
++    )
++    assert resp.content == "the answer"
++    assert state["n"] == 2
++    # The blanking provider 'WandB' -> slug 'wandb' was NOT excluded on attempt 1, but IS on retry —
++    # proving the rotation works on the REAL streaming path in a non-Path-B run.
++    first_ignore = (state["bodies"][0].get("provider", {}) or {}).get("ignore", [])
++    retry_ignore = (state["bodies"][1].get("provider", {}) or {}).get("ignore", [])
++    assert "wandb" not in first_ignore
++    assert "wandb" in retry_ignore
++
++
++# --------------------------------------------------------------------------------------------- (c) NARROWNESS
++def test_blank_with_usage_does_not_trip_degenerate_guard(monkeypatch):
++    """(c) A blank-CONTENT response that DOES carry a usage block + finish_reason is NOT the
++    degenerate signature -> it must NOT raise BlankCompletionError. (The both-empty case is owned by
++    the existing FIX-H2 ValueError instead — proving the new gate is the narrow CONJUNCTION and does
++    not shadow the recovery/truncation paths.)"""
++    client, _state = _make_client(monkeypatch, [_blank_but_has_usage_response()])
++    with pytest.raises(Exception) as exc_info:
++        _run(client)
++    # It is NOT the degenerate-blank guard (usage was present) — it is the FIX-H2 both-empty
++    # ValueError (content empty AND reasoning empty), which is a distinct fail-closed terminal.
++    assert not isinstance(exc_info.value, BlankCompletionError)
++    assert isinstance(exc_info.value, ValueError)
++
++
++# --------------------------------------------------------------------------------------------- (d) CONTRACT-SLOT CAP
++def test_contract_slot_reasoning_cap_is_lowered_and_content_not_starved():
++    """(d) The V30 contract-slot call lowers the reasoning sub-budget (so the terse extraction /
++    <=3-sentence narrative does not burn a deep-reasoning runaway) while keeping the CONTENT budget
++    ample. Asserts the module constants are the lowered reasoning value + a stall timeout well under
++    the section wall, and that the content floor stays generous (no §9.1.8 content starvation)."""
++    from src.polaris_graph.generator import multi_section_generator as msg
++
++    # Reasoning sub-budget is the LOWERED value (terse calls don't need deep reasoning) ...
++    assert msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS <= 4096
++    assert msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS > 0
++    # ... while the CONTENT budget floor stays ample (serves §9.1.8 "never starve content").
++    assert msg.PG_CONTRACT_SLOT_MIN_MAX_TOKENS >= msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS
++    # ... and the per-call stall timeout is WELL UNDER the section wall (generator timeout) BUT
++    # comfortably ABOVE the observed legitimate contract-slot duration (the drb_72 slot ran ~473s; a
++    # 25K-char FDA-label regulatory echo runs 400-545s on the slow band). A too-tight stall timeout
++    # would false-time-out a legitimate clinical regulatory slot → not_extractable → missing
++    # FDA-label content (a §-1.1 completeness regression). 600s floor guards against re-tightening it.
++    assert 600 <= msg.PG_CONTRACT_SLOT_STALL_TIMEOUT_S < openrouter_client.GENERATOR_TIMEOUT_SECONDS
++
++
++def test_contract_slot_reasoning_cap_reaches_the_request_body(monkeypatch):
++    """(d) The lowered reasoning budget actually REACHES the OpenRouter body: a reasoning-first
++    model with reasoning_enabled=False + reasoning_max_tokens set lands the cap in
++    body['reasoning']['max_tokens'] (openrouter_client branch 3). Proves the knob is wired, not a
++    dead constant."""
++    from src.polaris_graph.generator import multi_section_generator as msg
++
++    client, state = _make_client(monkeypatch, [_ok_response()])
++    # Mirror the _m63_llm_call shape: reasoning-OFF + an explicit tight reasoning_max_tokens.
++    _run(
++        client,
++        reasoning_max_tokens=msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS,
++    )
++    body = state["bodies"][0]
++    assert body["reasoning"]["max_tokens"] == msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS
++    # The CONTENT budget (overall max_tokens) is NOT clamped down to the reasoning value — it stays
++    # at the reasoning-first floor (ample content headroom), proving content is not starved.
++    assert body["max_tokens"] >= msg.PG_CONTRACT_SLOT_MIN_MAX_TOKENS

@@ -37,8 +37,16 @@ from src.providers.llm_provider import (
 
 
 @pytest.fixture(autouse=True)
-def clean_semaphore():
-    """Reset the global semaphore singleton before and after every test."""
+def clean_semaphore(monkeypatch):
+    """Reset the global semaphore singleton before and after every test.
+
+    F16 (A3): get_semaphore() now reads PG_MAX_CONCURRENT_LLM from the live env at
+    creation time (so the Gate-B slate can set the cap). These tests exercise the
+    MODULE-ATTR fallback (`_MAX_CONCURRENT_LLM`, monkeypatched per test), so the env
+    override must be UNSET — otherwise an ambient/leaked PG_MAX_CONCURRENT_LLM (e.g.
+    from a sibling test that applies the benchmark slate) would win over the
+    monkeypatched module attribute. Clearing it keeps these tests hermetic."""
+    monkeypatch.delenv("PG_MAX_CONCURRENT_LLM", raising=False)
     reset_semaphore()
     yield
     reset_semaphore()

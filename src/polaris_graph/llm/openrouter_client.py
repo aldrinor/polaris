@@ -253,6 +253,27 @@ class ReasoningFirstTruncationError(RuntimeError):
     RuntimeError still propagates as a real fault."""
 
 
+class BlankCompletionError(RuntimeError):
+    """I-arch-004 F02 (#1255): a generator/judge stream ended with the
+    degenerate "provider-died" signature — empty content, a NULL usage block,
+    AND finish_reason=None (the proximate cause of the drb_72 death: a blank
+    HTTP 200 logged status=ok, then silently skipped at
+    contract_section_runner.py:710 after consuming ~473s of wall-clock).
+
+    Subclasses ``RuntimeError`` so the existing ``except RuntimeError`` retry
+    branch in ``_call_impl`` catches it and re-POSTs — but the retry FIRST
+    excludes the blanking provider (``body['provider']['ignore']``) because the
+    generator is pinned ``allow_fallbacks=false`` and OpenRouter does NOT
+    auto-advance off an empty 200, so a same-provider retry would re-stall.
+    After ``MAX_RETRIES`` it re-raises (status stays fail-CLOSED, never ``ok``)
+    so no blank completion is ever consumed as content.
+
+    Typed (not bare RuntimeError) so callers / F07 side-judge handlers can
+    distinguish a degenerate-blank from a generic transport fault if they need
+    to; the default handling is identical to any other RuntimeError (the
+    consumer maps the terminal raise to its fail-closed sentinel)."""
+
+
 def reset_run_cost() -> None:
     """Reset the current task's run-cost accumulator to 0. Call at the
     start of a run. Uses ContextVar so concurrent async tasks each get
@@ -1381,10 +1402,16 @@ class OpenRouterClient:
             chunk_count += 1
 
             # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
-            # Gate-flagged: skip entirely when the Path-B capture is inactive (off-mode pays
-            # one contextvar read, not three dict lookups per chunk).
+            # I-arch-004 F02 (#1255): the served `provider` is captured UNCONDITIONALLY now — the
+            # degenerate-blank rotation in _call_impl needs it to exclude the blanking provider on
+            # retry, and that path runs in NORMAL (non-Path-B) generator runs where is_active() is
+            # False. Capturing one extra string per chunk is negligible; `model` /
+            # `system_fingerprint` stay gated (only the Path-B benchmark capture consumes them).
+            _sv_provider = chunk.get("provider")
+            if _sv_provider:
+                served["provider"] = _sv_provider
             if _pathb_capture.is_active():
-                for _sk in ("provider", "model", "system_fingerprint"):
+                for _sk in ("model", "system_fingerprint"):
                     _sv = chunk.get(_sk)
                     if _sv:
                         served[_sk] = _sv
@@ -1835,12 +1862,18 @@ class OpenRouterClient:
                 )
                 actual_timeout = timeout or _default_timeout
 
+                # I-arch-004 F02 (#1255): the genuinely-served provider for THIS attempt
+                # (display name), used by the degenerate-blank rotation below to exclude
+                # the blanking provider from the retry. Stream path: from the SSE served
+                # stash; non-stream path: top-level `provider` of the parsed body.
+                _served_provider: Optional[str] = None
                 if body.get("stream", True):
                     # Streaming path — accumulate SSE chunks
                     content_text, reasoning_text, stream_usage, stream_served = await asyncio.wait_for(
                         self._read_stream(body, actual_timeout),
                         timeout=actual_timeout + 30,
                     )
+                    _served_provider = (stream_served or {}).get("provider")
                     data = {
                         "choices": [{
                             "message": {
@@ -1875,6 +1908,7 @@ class OpenRouterClient:
                     )
                     resp.raise_for_status()
                     data = resp.json()
+                    _served_provider = data.get("provider")
                     # FIX-QWEN-2: Detect provider errors in non-streaming response
                     if data.get("error") and not data.get("choices"):
                         err = data["error"]
@@ -1923,6 +1957,101 @@ class OpenRouterClient:
                             f"API returned no choices in response for {call_type} "
                             f"(model={data.get('model', '?')}) — empty HTTP 200"
                         )
+
+                # I-arch-004 F02 (#1255): the SHARED degenerate-blank-stream guard (covers
+                # generate AND judge call_types — one harness-level raise; F07 builds on it).
+                # The drb_72 death: a stream ends with content='' (or None), a NULL usage block,
+                # AND finish_reason=None, yet it was logged status=ok at the success capture below
+                # (:2319) and then SILENTLY skipped at contract_section_runner.py:710 after ~473s.
+                # Detect that EXACT degenerate signature INSIDE the loop (before `break`) so a
+                # first occurrence is RETRYABLE — and FIRST exclude the blanking provider, because
+                # the generator is pinned allow_fallbacks=false and OpenRouter does NOT auto-advance
+                # off an empty 200 (a same-provider retry re-stalls). After MAX_RETRIES the
+                # BlankCompletionError re-raises -> the call FAILS (status=error, never ok), so no
+                # blank completion is ever consumed as content.
+                #
+                # The signature is deliberately NARROW — the CONJUNCTION (empty content AND
+                # usage-was-null AND finish_reason is None) — so it does NOT shadow:
+                #   - the both-empty 0-token degenerate (FIX-H2 below already raises non-retryably);
+                #   - the </think>-recoverable misroute (content empty, reasoning present, usage
+                #     PRESENT -> generate() recovers; usage non-null fails this gate);
+                #   - the token-ceiling truncation (finish_reason='length', usage present -> the
+                #     FX-01 / ReasoningFirstTruncationError path owns it).
+                # reason()'s reasoning-only output carries valid usage + finish_reason, so this
+                # gate never fires on a healthy planning call.
+                _ch = (data.get("choices") or [{}])[0]
+                _msg = _ch.get("message", {}) if isinstance(_ch, dict) else {}
+                _content_blank = not ((_msg.get("content") or "").strip())
+                # "usage was null" = the provider reported NO real token accounting. On the STREAM
+                # path `_accumulate_sse` always synthesizes a `{"finish_reason": ...}`-only dict even
+                # when the stream dies blank, so dict-emptiness is NOT the right test; check for the
+                # PRESENCE of the actual token-count keys (a blank-death stream carries none; a
+                # genuine completion always carries prompt/completion/total tokens). Key-PRESENCE
+                # (not truthiness) so a real-but-zero-valued usage block — e.g. completion_tokens=0 on
+                # a legitimately-empty-but-accounted completion — is NOT misclassified as null and
+                # keeps its own (FIX-H2 / FX-01) path; this stays EXACTLY narrow.
+                _usage = data.get("usage") or {}
+                _usage_was_null = not any(
+                    _k in _usage
+                    for _k in ("prompt_tokens", "completion_tokens", "total_tokens")
+                )
+                _fr = _ch.get("finish_reason")
+                if _fr is None:
+                    _fr = _usage.get("finish_reason")
+                if _content_blank and _usage_was_null and _fr is None:
+                    # I-obs-001 #1141 AC3: capture the degenerate blank 200 forensic signal.
+                    _io_sink = current_raw_io_sink()
+                    if _io_sink is not None:
+                        try:
+                            _io_sink.record(
+                                call_id=uuid.uuid4().hex, call_type=call_type,
+                                role=_pathb_capture.current_llm_role(),
+                                request={**body, "messages": sanitized_messages},
+                                raw_response=data, duration_ms=None, status="blank",
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                    # Exclude the blanking provider from the NEXT attempt (mirrors the 4-role
+                    # seam idiom, openrouter_role_transport.py:1157-1161): map the served DISPLAY
+                    # name back to the routing SLUG so `ignore` uses the SAME identity as `order`.
+                    # I-arch-004 F02 (#1255, Codex diff-gate P1): if the served provider is UNKNOWN
+                    # (a fully-dead stream emits no `provider` field — the EXACT drb_72 signature),
+                    # FALL BACK to the pinned CURRENT provider = the first request `order` entry
+                    # (already a slug). With allow_fallbacks=false OpenRouter serves order[0], so
+                    # excluding it forces the retry onto the NEXT provider instead of re-POSTing the
+                    # same stalled one (unconditional-capture alone can't rotate a no-provider-field
+                    # dead stream). Single-entry order -> the retry fails loud, not loops on the stall.
+                    _prov_block = body.get("provider")
+                    if isinstance(_prov_block, dict):
+                        _blanked_slug = None
+                        if _served_provider:
+                            try:
+                                from src.polaris_graph.roles.provider_routing import (
+                                    slug_for_provider,
+                                )
+                                _blanked_slug = slug_for_provider(_served_provider)
+                            except Exception:  # noqa: BLE001 — routing helper must never mask the blank
+                                _blanked_slug = (_served_provider or "").lower() or None
+                        if not _blanked_slug:
+                            _order = _prov_block.get("order") or []
+                            if _order:
+                                _blanked_slug = _order[0]  # order entries are routing slugs already
+                        if _blanked_slug:
+                            _ignore_list = _prov_block.setdefault("ignore", [])
+                            if _blanked_slug not in _ignore_list:
+                                _ignore_list.append(_blanked_slug)
+                    logger.warning(
+                        "[polaris graph] I-arch-004 F02: degenerate BLANK stream for %s "
+                        "(model=%s, served=%s, finish_reason=None, usage=null) — RAISING "
+                        "(not status=ok); excluded provider on retry (attempt %d/%d).",
+                        call_type, data.get("model", self.model), _served_provider,
+                        attempt + 1, MAX_RETRIES + 1,
+                    )
+                    raise BlankCompletionError(
+                        f"Degenerate blank completion for {call_type} "
+                        f"(model={data.get('model', '?')}, served={_served_provider!r}): "
+                        f"content empty, usage null, finish_reason None — provider stall."
+                    )
                 break
 
             except asyncio.TimeoutError:

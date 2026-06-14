@@ -230,6 +230,44 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
 )
 
+# I-arch-004 F02 (#1255) — contract-slot reasoning + stall budgets.
+#
+# WHY: the V30 contract-slot calls (JSON slot-fill / regulatory synthesis / the
+# <=3-sentence narrative paragraph) ran through `generate()` with the full
+# PG_SECTION_MAX_TOKENS=64000 ceiling. deepseek-v4-pro is reasoning-first and (per
+# openrouter_client.py:1721) reasons until the OVERALL max_tokens ceiling, so these
+# TERSE calls burned ~8k+ reasoning tokens for a 3-sentence output — wasteful and, on
+# a slow provider band, a runaway that ends in a degenerate blank (the drb_72 death).
+#
+# These calls are extraction/short-narrative — they do NOT need deep reasoning. Cap the
+# REASONING sub-budget tight (PG_CONTRACT_SLOT_REASONING_MAX_TOKENS) so the model stops
+# planning early, while keeping the CONTENT budget ample (PG_CONTRACT_SLOT_MIN_MAX_TOKENS
+# floor preserved) — this SERVES operator-lock §9.1.8 ("never starve content"), it does
+# NOT relax it: content stays generous, only the wasteful reasoning runaway is bounded.
+# The global reasoning-first floor/cap and the section-writer/judge budgets are UNTOUCHED.
+#
+# A per-call STALL timeout WELL UNDER the section wall (GENERATOR_TIMEOUT_SECONDS=6500s)
+# bounds a hung terse call so it cannot consume the whole section budget on a stall.
+#
+# CRITICAL (default sizing): `_m63_llm_call` serves ALL three contract-slot uses — slot-fill
+# extraction, REGULATORY SYNTHESIS, and the ≤3-sentence narrative. The regulatory case echoes
+# long regulatory prose spans (the FDA Mounjaro-label 25K-char case, see the `_m63_llm_call`
+# docstring + the PG_CONTRACT_SLOT_MIN_MAX_TOKENS=6000 floor): at the slow token band cited in
+# openrouter_client.py these LEGITIMATELY run 400-545s (the drb_72 contract-slot call itself
+# consumed ~473s). So the stall timeout MUST comfortably exceed real contract-slot duration or a
+# legitimate clinical regulatory slot would false-time-out → degrade to not_extractable → MISSING
+# FDA-label content in the clinical cert report (a §-1.1 completeness regression). The harness-level
+# blank-raise (F02a) already kills the ACTUAL degenerate signature INSTANTLY (a blank 200 returns
+# immediately — no timeout needed), so the stall timeout only ever bounds a TRUE hang; a generous
+# value loses nothing. 1200s = generous headroom over the ~473-545s real ceiling, still well under
+# the 6500s section wall. Env-tunable.
+PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
+    os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
+)
+PG_CONTRACT_SLOT_STALL_TIMEOUT_S: float = float(
+    os.getenv("PG_CONTRACT_SLOT_STALL_TIMEOUT_S", "1200")
+)
+
 # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
 #
 # WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
@@ -5571,6 +5609,14 @@ async def generate_multi_section_report(
                 ),
                 max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
                 temperature=section_temperature,
+                # I-arch-004 F02 (#1255): bound the REASONING runaway on these terse
+                # extraction / <=3-sentence narrative calls. reasoning_max_tokens lands in
+                # body['reasoning']['max_tokens'] (openrouter_client branch 3) so the model
+                # stops planning early; the CONTENT budget (max_tokens above) stays ample —
+                # serves operator-lock §9.1.8 (never starve content), does not relax it. The
+                # tight stall timeout caps a hung terse call well under the section wall.
+                reasoning_max_tokens=PG_CONTRACT_SLOT_REASONING_MAX_TOKENS,
+                timeout=PG_CONTRACT_SLOT_STALL_TIMEOUT_S,
             )
         finally:
             if hasattr(client, "close"):

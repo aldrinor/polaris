@@ -1,0 +1,1160 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 5e33c1fd..776fc1e9 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -458,6 +458,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     "PG_LIVE_CONTENT_MAX": "50000",
+     "PG_LIVE_HTTP_TIMEOUT": "30",
+     "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
++    # F01/F16 (A3): the global LLM concurrency cap. llm_provider.get_semaphore() reads this at
++    # CALL time (per-loop rebind), so the slate value lands without an import-time freeze. FLOOR
++    # semantics (max(existing, 5)): an operator may RAISE it but never silently drop below the
++    # safe default of 5 (cloud rate-limit / GPU-OOM guard). NOT part of the ~1000-URL fetch sum —
++    # it caps concurrent LLM calls, not URLs.
++    "PG_MAX_CONCURRENT_LLM": "5",
+     # I-ready-003 (#1074) P1: scale the post-fetch loop budget to the ~1000-URL cap. The live_retriever
+     # now takes max(this, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET) so the loop never silently truncates
+     # the corpus mid-classification. 1000 URLs * 4s = 4000s.
+@@ -1616,6 +1622,43 @@ def _resolve_benchmark_upload(
+     return allowed, len(blocked)
+ 
+ 
++def gate_b_allow_partial() -> bool:
++    """F03 (A3) part 2: whether Gate-B treats a ``partial*`` (or any non-`success`)
++    status as a PASS. Default FALSE — a non-success status makes the run FAIL
++    (rc != 0). Set ``PG_GATE_B_ALLOW_PARTIAL=1`` to restore the legacy behavior
++    where a ``partial*`` status returned rc=0 (a gap-stubbed clinical report
++    shipping GREEN). Operator-gated escape hatch, not the default."""
++    return os.getenv("PG_GATE_B_ALLOW_PARTIAL", "0").strip() in ("1", "true", "True")
++
++
++def query_status_ok(status: str, *, allow_partial: bool) -> bool:
++    """F03 (A3) part 2: pure predicate — does this per-query status count as a
++    Gate-B PASS (overall_rc stays 0)? ``success`` always passes. A ``partial*``
++    status passes ONLY when ``allow_partial`` is set; every other status
++    (abort_*/error_*/fail_*) fails. Extracted so the rc policy is unit-testable
++    without running a real query.
++
++    Behavior change vs the pre-F03 code: previously ANY ``partial*`` status
++    returned rc=0 unconditionally — so a mostly-gap-stubbed report (now
++    ``abort_excessive_gap`` after F03 part 1, which is NOT a ``partial`` prefix)
++    AND a genuine ``partial_saturation`` both shipped GREEN. Now non-`success`
++    fails unless the operator explicitly opts into partials."""
++    if status == "success":
++        return True
++    if allow_partial and str(status).startswith("partial"):
++        return True
++    return False
++
++
++def abort_query_error_propagates() -> bool:
++    """F25 (A3): whether a per-query EXCEPTION aborts the whole ``--all`` sweep.
++    Default FALSE — one crashed question is logged, written as a failed-manifest
++    record, counted as a failure (rc != 0), and the sweep CONTINUES to the next
++    cert question. Set ``PG_ABORT_ON_QUERY_ERROR=1`` to re-raise and stop the
++    sweep on the first exception (the legacy no-isolation behavior)."""
++    return os.getenv("PG_ABORT_ON_QUERY_ERROR", "0").strip() in ("1", "true", "True")
++
++
+ def main(argv: list[str] | None = None) -> int:
+     """Gate-B CLI launcher (I-meta-008 #1014). The ONLY entrypoint that runs the 4-role
+     benchmark pipeline. NO SPEND / NO NETWORK at import — all runtime work is here.
+@@ -1714,6 +1757,9 @@ def main(argv: list[str] | None = None) -> int:
+ 
+     # --- REAL RUN (--only / --all): operator-authorized spend. `.env` may load normally. ---
+     import asyncio
++    import logging
++    import time
++    import traceback
+ 
+     out_root = Path(args.out_root)
+     # Codex diff-gate iter-2 P1-2: apply the full-capability FLOOR slate HERE — BEFORE
+@@ -1761,6 +1807,40 @@ def main(argv: list[str] | None = None) -> int:
+     print("=" * 72)
+ 
+     overall_rc = 0
++    _allow_partial = gate_b_allow_partial()           # F03 (A3) part 2
++    _abort_on_error = abort_query_error_propagates()   # F25 (A3)
++    _sweep_records: list[dict] = []                    # F25: incremental sweep summary
++    out_root.mkdir(parents=True, exist_ok=True)
++    _sweep_summary_path = out_root / "sweep_summary.json"
++
++    def _persist_sweep_summary() -> None:
++        # F25 (A3): write the running per-query roster after EVERY question (success,
++        # non-success, or crash) so a sweep killed mid-run still leaves a durable
++        # record of which cert questions ran and how each ended. Best-effort — a
++        # summary-write failure must not mask a query result.
++        try:
++            _sweep_summary_path.write_text(
++                json.dumps(
++                    {
++                        "out_root": str(out_root),
++                        "total_questions": len(questions),
++                        "completed": len(_sweep_records),
++                        "overall_rc": overall_rc,
++                        "allow_partial": _allow_partial,
++                        "queries": _sweep_records,
++                    },
++                    indent=2,
++                    sort_keys=True,
++                    default=str,
++                )
++                + "\n",
++                encoding="utf-8",
++            )
++        except OSError as _exc:
++            logging.getLogger("run_gate_b").warning(
++                "sweep_summary write failed: %s", _exc,
++            )
++
+     # I-obs-001 #1141 AC1: enumerate so the heartbeat can report "query N of 5".
+     for query_index, q in enumerate(questions, 1):
+         slug = q["slug"]
+@@ -1777,15 +1857,68 @@ def main(argv: list[str] | None = None) -> int:
+         print(f"\n>>> {domain} / {slug}")
+         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
+         # runs). Each delegates entirely to the existing 4-role entrypoint.
+-        summary = asyncio.run(
+-            run_gate_b_query(
+-                q, out_root, query_index=query_index, query_total=len(questions)
++        #
++        # F25 (A3): per-query exception ISOLATION. asyncio.run(run_gate_b_query) had NO
++        # try/except, so a single escaped exception (e.g. a transport RuntimeError) aborted
++        # ALL remaining cert questions — the `--all` 5-Q run could not complete. Each query is
++        # now wrapped: an exception is logged with traceback, written as a durable
++        # failed-manifest record under out_root, counted as a FAILURE (rc!=0), and the sweep
++        # CONTINUES (PG_ABORT_ON_QUERY_ERROR=1 re-raises after recording, for the strict mode).
++        try:
++            summary = asyncio.run(
++                run_gate_b_query(
++                    q, out_root, query_index=query_index, query_total=len(questions)
++                )
+             )
+-        )
+-        status = summary.get("status", "<no-status>")
+-        print(f"<<< {domain} / {slug}: status={status}")
+-        if not (status == "success" or str(status).startswith("partial")):
++            status = summary.get("status", "<no-status>")
++            print(f"<<< {domain} / {slug}: status={status}")
++            if not query_status_ok(status, allow_partial=_allow_partial):
++                overall_rc = 1
++            _sweep_records.append({
++                "query_index": query_index,
++                "slug": slug,
++                "domain": domain,
++                "status": status,
++                "ok": query_status_ok(status, allow_partial=_allow_partial),
++                "cost_usd": summary.get("cost_usd"),
++            })
++        except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently
++            tb = traceback.format_exc()
+             overall_rc = 1
++            logging.getLogger("run_gate_b").error(
++                "query %d/%d %s/%s CRASHED: %s\n%s",
++                query_index, len(questions), domain, slug, exc, tb,
++            )
++            print(f"<<< {domain} / {slug}: CRASHED ({type(exc).__name__}: {exc})")
++            # Durable failed-manifest record so a crashed query is NOT indistinguishable
++            # from one that never started (LAW II fail-loud; mirrors run_one_query's
++            # BUG-B-101 exception-path manifest write).
++            _fail_record = {
++                "query_index": query_index,
++                "slug": slug,
++                "domain": domain,
++                "status": "error_query_crashed",
++                "ok": False,
++                "error": str(exc)[:500],
++                "traceback": tb[-4000:],
++                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++            }
++            _sweep_records.append(_fail_record)
++            try:
++                _fail_dir = out_root / domain / slug
++                _fail_dir.mkdir(parents=True, exist_ok=True)
++                (_fail_dir / "manifest.json").write_text(
++                    json.dumps(_fail_record, indent=2, sort_keys=True, default=str) + "\n",
++                    encoding="utf-8",
++                )
++            except OSError as _werr:
++                logging.getLogger("run_gate_b").warning(
++                    "failed-manifest write failed for %s/%s: %s", domain, slug, _werr,
++                )
++            if _abort_on_error:
++                _persist_sweep_summary()
++                raise
++        _persist_sweep_summary()
+     return overall_rc
+ 
+ 
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index bb12bbe9..4c755ef1 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -230,6 +230,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+     "abort_corpus_inadequate",
+     "abort_corpus_approval_denied",
+     "abort_no_verified_sections",
++    "abort_excessive_gap",           # F03 (A3): below PG_MIN_VERIFIED_SECTION_FRACTION of sections produced verified prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (clinical-safety: a report whose body is mostly gap disclosures must not ship green)
+     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
+     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
+     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
+@@ -266,6 +267,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     "abort_corpus_inadequate": "abort_corpus_inadequate",
+     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+     "abort_no_verified_sections": "abort_no_verified_sections",
++    # F03 (A3): the verified-section-fraction floor abort is already an `abort_` unified name — map
++    # it to itself so to_unified_status passes it through (NOT error_unexpected).
++    "abort_excessive_gap": "abort_excessive_gap",
+     "abort_evaluator_critical": "abort_evaluator_critical",
+     # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
+     "partial_saturation": "partial_saturation",
+@@ -1398,6 +1402,75 @@ def filter_verified_sections(sections) -> list:
+     ]
+ 
+ 
++# F03 (A3): STRICT-BY-DEFAULT clinical-safety floor (Codex diff-gate iter-1 P0:
++# a 0.0 default was fail-open — a mostly-gap-stubbed clinical report shipped green
++# unless an operator opted in). The governed default requires a MAJORITY of the
++# attempted sections to produce verified prose: a report whose body is more gap
++# disclosures than verified findings must NOT ship as success. This is enforced
++# WITHOUT any env opt-in; the env var only ever lets an operator move the floor
++# (with sign-off, per the verdict artifact's "Suggested next steps"). A malformed
++# value falls back to the STRICT default (never to 0.0 / fail-open).
++DEFAULT_MIN_VERIFIED_SECTION_FRACTION = 0.5
++
++
++def min_verified_section_fraction() -> float:
++    """F03 (A3): the success floor on the fraction of attempted sections that
++    must produce verified prose. ``PG_MIN_VERIFIED_SECTION_FRACTION`` is a FLOAT
++    in [0, 1]; default ``DEFAULT_MIN_VERIFIED_SECTION_FRACTION`` (0.5) ⇒ the floor
++    is ENFORCED BY DEFAULT (a mostly-gap-stubbed report aborts with no env opt-in
++    required). A malformed value falls back to the STRICT default (NOT 0.0 — never
++    fail-open to shipping a gap-stubbed report) and is logged.
++
++    The floor STRENGTHENS the success gate: it only ever turns a would-be
++    success/partial into a NON-success abort; it never relaxes any faithfulness
++    gate (strict_verify / NLI / 4-role / D8 are upstream and unchanged)."""
++    raw = os.getenv("PG_MIN_VERIFIED_SECTION_FRACTION")
++    if raw is None or raw.strip() == "":
++        return DEFAULT_MIN_VERIFIED_SECTION_FRACTION
++    try:
++        value = float(raw)
++    except (TypeError, ValueError):
++        logging.getLogger(__name__).warning(
++            "PG_MIN_VERIFIED_SECTION_FRACTION=%r is not a float; "
++            "using the strict default %.2f (floor stays ENFORCED, never fail-open)",
++            raw, DEFAULT_MIN_VERIFIED_SECTION_FRACTION,
++        )
++        return DEFAULT_MIN_VERIFIED_SECTION_FRACTION
++    # Clamp to [0, 1]; a value > 1 would abort EVERY run (no report can exceed
++    # 100% verified sections), which is a misconfiguration, not a policy. A
++    # negative value is the only way to explicitly disable the floor, and it
++    # requires a deliberate operator setting (it can never arise from "unset").
++    if value < 0.0:
++        logging.getLogger(__name__).warning(
++            "PG_MIN_VERIFIED_SECTION_FRACTION=%r < 0 explicitly DISABLES the "
++            "F03 clinical-safety floor (operator override).", raw,
++        )
++        return 0.0
++    if value > 1.0:
++        return 1.0
++    return value
++
++
++def is_excessive_gap(
++    verified_count: int, total_sections: int, min_fraction: float,
++) -> bool:
++    """F03 (A3): pure predicate — does this report fall BELOW the verified-section
++    floor? Mirrors ``filter_verified_sections`` so the policy is unit-testable
++    without running the giant ``run_one_query``.
++
++    ``verified_count`` = ``len(filter_verified_sections(sections))`` (sections
++    that produced verified prose); ``total_sections`` = ``len(sections)`` (every
++    section the generator ATTEMPTED, including gap stubs). Returns True only when
++    the floor is ACTIVE (``min_fraction > 0``), at least one section was attempted,
++    AND ``verified_count / total_sections < min_fraction``. The zero-verified case
++    (``verified_count == 0``) is handled by the existing ``abort_no_verified_sections``
++    gate, so this predicate covers the "mostly-gap-stubbed but not totally empty"
++    band that previously shipped as success."""
++    if min_fraction <= 0.0 or total_sections <= 0:
++        return False
++    return (verified_count / total_sections) < min_fraction
++
++
+ def build_no_verified_sections_abort_body(
+     research_question: str,
+     sections,
+@@ -1432,6 +1505,52 @@ def build_no_verified_sections_abort_body(
+     return head + rows + tail
+ 
+ 
++def build_excessive_gap_abort_body(
++    research_question: str,
++    sections,
++    verified_count: int,
++    min_fraction: float,
++) -> str:
++    """F03 (A3): build the pipeline-verdict markdown body used when SOME but too
++    few sections survived strict_verify (the verified-section fraction is below
++    PG_MIN_VERIFIED_SECTION_FRACTION). Pure function so a behavior test can call
++    it without mocking run_one_query. The report is a verdict artifact, NOT a
++    findings report — we refuse to ship a mostly-gap-stubbed body as if it were a
++    complete answer (clinical-safety: a reader must not mistake a 2-of-8-section
++    report for a comprehensive one)."""
++    total = len(sections)
++    frac = (verified_count / total) if total else 0.0
++    head = (
++        f"# Research report: {research_question}\n\n"
++        "## Pipeline verdict\n\n"
++        f"DeepSeek V3.2-Exp generated {total} section(s), but only "
++        f"{verified_count} ({frac:.0%}) produced Phase-4 strict_verify'd "
++        f"prose — below the required floor of {min_fraction:.0%}. The remaining "
++        "sections are gap disclosures (no cited evidence supported their "
++        "claims), so the report is mostly gaps and is NOT shipped as a complete "
++        "findings report.\n\n"
++        "### Per-section verdict\n\n"
++    )
++    rows = "\n".join(
++        f"- **{sr.title}** — verified={getattr(sr, 'sentences_verified', 0)}, "
++        f"dropped={getattr(sr, 'sentences_dropped', 0)}, "
++        f"gap_stub={getattr(sr, 'is_gap_stub', False)}, "
++        f"regen_attempted={getattr(sr, 'regen_attempted', False)}, "
++        f"error={getattr(sr, 'error', None)!r}"
++        for sr in sections
++    )
++    tail = (
++        "\n\n### Suggested next steps\n\n"
++        "- Widen retrieval so the gap-stubbed sections have anchor evidence "
++        "to cite.\n"
++        "- Lower PG_MIN_VERIFIED_SECTION_FRACTION only with explicit operator "
++        "sign-off (it is a clinical-safety floor).\n"
++        "- Abort and refine the research question / outline so fewer sections "
++        "go uncovered.\n"
++    )
++    return head + rows + tail
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # 8-query manifest. Two per domain. Deliberately diverse within each
+ # domain so novel failure modes have a chance to appear.
+@@ -6576,24 +6695,67 @@ async def run_one_query(
+         # refuse to ship report.md. The old code would write a Methods
+         # + Bibliography file with an empty findings body, and only then
+         # mark status=fail_no_verified_prose as a post-hoc flag.
++        #
++        # F03 (A3): EXTEND the zero-verified gate with a verified-section-FRACTION
++        # floor (PG_MIN_VERIFIED_SECTION_FRACTION, STRICT default 0.5 — ENFORCED
++        # with no env opt-in, per Codex diff-gate iter-1 P0). The zero-verified case
++        # shipped abort_no_verified_sections, but a report where N-2 of N sections
++        # are gap stubs (only a couple verify) previously shipped as success/partial
++        # — a mostly-gap-stubbed clinical report going GREEN. The floor now fires by
++        # default; below it, abort with a NON-`partial` status (abort_excessive_gap)
++        # so Gate-B fails it (F03 part 2).
++        # Both branches share the same fail-closed report+manifest write below.
+         verified_sections = filter_verified_sections(multi.sections)
+-        if not verified_sections:
+-            _log(f"[ABORT]       All {len(multi.sections)} sections "
+-                 f"failed verification. Refusing to write a report body.")
+-            summary["status"] = "abort_no_verified_sections"
+-            summary["error"] = (
+-                f"all {len(multi.sections)} sections dropped at strict_verify"
+-            )
+-            (run_dir / "report.md").write_text(
+-                build_no_verified_sections_abort_body(q["question"], multi.sections),
+-                encoding="utf-8",
+-            )
++        _total_sections = len(multi.sections)
++        _verified_count = len(verified_sections)
++        _min_frac = min_verified_section_fraction()
++        _excessive_gap = (
++            bool(verified_sections)
++            and is_excessive_gap(_verified_count, _total_sections, _min_frac)
++        )
++        if not verified_sections or _excessive_gap:
++            if _excessive_gap:
++                _abort_status = "abort_excessive_gap"
++                _abort_error = (
++                    f"only {_verified_count}/{_total_sections} sections produced "
++                    f"verified prose ({_verified_count / _total_sections:.2%}) — "
++                    f"below the PG_MIN_VERIFIED_SECTION_FRACTION floor "
++                    f"({_min_frac:.2%}); the report is mostly gap disclosures"
++                )
++                _abort_body = build_excessive_gap_abort_body(
++                    q["question"], multi.sections, _verified_count, _min_frac,
++                )
++                _abort_dropped = _total_sections - _verified_count
++                _abort_verified = sum(
++                    getattr(sr, "sentences_verified", 0) or 0
++                    for sr in verified_sections
++                )
++                _log(
++                    f"[ABORT]       Only {_verified_count}/{_total_sections} "
++                    f"sections verified < floor {_min_frac:.2%}. Refusing to "
++                    f"ship a mostly-gap-stubbed report as success."
++                )
++            else:
++                _abort_status = "abort_no_verified_sections"
++                _abort_error = (
++                    f"all {_total_sections} sections dropped at strict_verify"
++                )
++                _abort_body = build_no_verified_sections_abort_body(
++                    q["question"], multi.sections,
++                )
++                _abort_dropped = _total_sections
++                _abort_verified = 0
++                _log(f"[ABORT]       All {_total_sections} sections "
++                     f"failed verification. Refusing to write a report body.")
++            summary["status"] = _abort_status
++            summary["error"] = _abort_error
++            (run_dir / "report.md").write_text(_abort_body, encoding="utf-8")
+             run_cost = current_run_cost()
+             manifest = _base_manifest_envelope(
+                 run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+             )
+             manifest.update({
+-                "status": "abort_no_verified_sections",
++                "status": _abort_status,
+                 "adequacy": asdict(adequacy),
+                 "corpus": {
+                     "count": dist.total_sources,
+@@ -6602,9 +6764,11 @@ async def run_one_query(
+                 },
+                 "generator": {
+                     "outline_sections": [p.title for p in multi.outline],
+-                    "sections_total": len(multi.sections),
+-                    "sections_dropped": len(multi.sections),
+-                    "sentences_verified": 0,
++                    "sections_total": _total_sections,
++                    "sections_dropped": _abort_dropped,
++                    "sections_verified": _verified_count,
++                    "sentences_verified": _abort_verified,
++                    "min_verified_section_fraction": _min_frac,
+                 },
+             })
+             manifest = augment_v6_manifest(
+@@ -6625,7 +6789,7 @@ async def run_one_query(
+             if q.get("v6_mode") and q.get("external_run_id"):
+                 emit_terminal_event(
+                     q.get("external_run_id"),
+-                    "abort_no_verified_sections",
++                    _abort_status,
+                     error_msg=summary.get("error"),
+                 )
+             set_current_run_id(None)
+diff --git a/src/providers/llm_provider.py b/src/providers/llm_provider.py
+index aaf384ab..91e6a8f4 100644
+--- a/src/providers/llm_provider.py
++++ b/src/providers/llm_provider.py
+@@ -76,33 +76,83 @@ _LLM_RETRY_BASE_DELAY = float(os.getenv("PG_LLM_RETRY_BASE_DELAY", "1.0"))
+ # GPU memory threshold for auto-throttle (sovereign mode)
+ _GPU_MEMORY_THRESHOLD = float(os.getenv("PG_GPU_MEMORY_THRESHOLD", "0.90"))
+ 
+-# Singleton semaphore — initialized lazily
++# Singleton semaphore — initialized lazily, KEYED to the event loop it was
++# created in. A module-global asyncio.Semaphore binds to the loop that first
++# touched it; under the Gate-B `--all` cert run each question is driven by its
++# own asyncio.run() (a FRESH loop per query), so a semaphore created in query 1's
++# loop and reused in query 2 raises "bound to a different event loop" and kills
++# Q2..Q5 (F01 / A3 master fix list). We therefore store the loop the semaphore
++# belongs to and recreate it whenever the running loop differs.
+ _LLM_SEMAPHORE: Optional[asyncio.Semaphore] = None
++_LLM_SEMAPHORE_LOOP: Optional[asyncio.AbstractEventLoop] = None
+ _SEMAPHORE_LOCK = asyncio.Lock() if hasattr(asyncio, "Lock") else None
+ 
+ 
++def _max_concurrent_llm() -> int:
++    """Resolve the concurrency cap at CALL time (LAW VI / F16).
++
++    Reads ``PG_MAX_CONCURRENT_LLM`` from the live environment, falling back to
++    the import-time module default. This lets the Gate-B full-capability slate
++    (which mutates ``os.environ`` AFTER this module is imported) set the cap
++    without a stale import-time freeze — the same class of fix as
++    ``set_max_cost_per_run``. A malformed value falls back to the default
++    rather than crashing the run. Default unchanged ⇒ byte-identical when unset.
++    """
++    raw = os.getenv("PG_MAX_CONCURRENT_LLM")
++    if raw is None:
++        return _MAX_CONCURRENT_LLM
++    try:
++        value = int(raw)
++    except (TypeError, ValueError):
++        logger.warning(
++            "[llm_provider] PG_MAX_CONCURRENT_LLM=%r is not an int; "
++            "falling back to default %d", raw, _MAX_CONCURRENT_LLM,
++        )
++        return _MAX_CONCURRENT_LLM
++    return value if value > 0 else _MAX_CONCURRENT_LLM
++
++
+ def get_semaphore() -> asyncio.Semaphore:
+-    """Get or create the global LLM concurrency semaphore.
++    """Get or create the global LLM concurrency semaphore for the CURRENT loop.
+ 
+-    Thread-safe lazy initialization. The semaphore limits the number of
+-    concurrent LLM API calls across all pipeline nodes to prevent:
++    Lazy initialization, rebound per event loop. The semaphore limits the number
++    of concurrent LLM API calls across all pipeline nodes to prevent:
+     - 429 rate limit errors on cloud APIs
+     - GPU OOM crashes on local vLLM deployments
++
++    F01 (A3): an ``asyncio.Semaphore`` is bound to the loop it is created in.
++    The Gate-B ``--all`` run drives each question with a separate ``asyncio.run``
++    (a fresh loop), so reusing a query-1 semaphore in query 2 raises
++    ``RuntimeError: ... bound to a different event loop``. We detect the running
++    loop and recreate the semaphore whenever it differs (or no loop was recorded),
++    so every query gets a semaphore on its own loop. The check + set has no
++    ``await`` between them, so it is race-free within a single loop.
+     """
+-    global _LLM_SEMAPHORE
+-    if _LLM_SEMAPHORE is None:
+-        _LLM_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
++    global _LLM_SEMAPHORE, _LLM_SEMAPHORE_LOOP
++    try:
++        running_loop: Optional[asyncio.AbstractEventLoop] = (
++            asyncio.get_running_loop()
++        )
++    except RuntimeError:
++        # No running loop (e.g. a sync caller); fall back to the legacy
++        # lazy-singleton behavior so the semaphore is still usable.
++        running_loop = None
++    if _LLM_SEMAPHORE is None or _LLM_SEMAPHORE_LOOP is not running_loop:
++        cap = _max_concurrent_llm()
++        _LLM_SEMAPHORE = asyncio.Semaphore(cap)
++        _LLM_SEMAPHORE_LOOP = running_loop
+         logger.info(
+-            "[llm_provider] Concurrency semaphore initialized: max=%d",
+-            _MAX_CONCURRENT_LLM,
++            "[llm_provider] Concurrency semaphore (re)initialized: max=%d loop=%r",
++            cap, running_loop,
+         )
+     return _LLM_SEMAPHORE
+ 
+ 
+ def reset_semaphore() -> None:
+     """Reset the global semaphore (for testing or config changes)."""
+-    global _LLM_SEMAPHORE
++    global _LLM_SEMAPHORE, _LLM_SEMAPHORE_LOOP
+     _LLM_SEMAPHORE = None
++    _LLM_SEMAPHORE_LOOP = None
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -271,7 +321,7 @@ def validate_llm_provider() -> dict:
+             "base_url": config["base_url"],
+             "model": config["model"],
+             "sovereign_mode": config.get("sovereign_mode", False),
+-            "max_concurrent_llm": _MAX_CONCURRENT_LLM,
++            "max_concurrent_llm": _max_concurrent_llm(),
+             "status": "configured",
+             "error": None,
+         }
+@@ -281,7 +331,7 @@ def validate_llm_provider() -> dict:
+             "base_url": None,
+             "model": None,
+             "sovereign_mode": PG_SOVEREIGN_MODE,
+-            "max_concurrent_llm": _MAX_CONCURRENT_LLM,
++            "max_concurrent_llm": _max_concurrent_llm(),
+             "status": "error",
+             "error": str(e),
+         }
+diff --git a/tests/dr_benchmark/test_gate_b_query_isolation_f25_f03.py b/tests/dr_benchmark/test_gate_b_query_isolation_f25_f03.py
+new file mode 100644
+index 00000000..c937add7
+--- /dev/null
++++ b/tests/dr_benchmark/test_gate_b_query_isolation_f25_f03.py
+@@ -0,0 +1,189 @@
++"""F25 + F03 (A3) regression for the Gate-B ``--all`` loop.
++
++F25: per-query EXCEPTION isolation. Pre-fix ``asyncio.run(run_gate_b_query)`` had no
++try/except, so one escaped exception aborted ALL remaining cert questions — the
++5-Q ``--all`` run could not complete. Post-fix a crashed query is logged, written
++as a durable failed-manifest record under out_root, counted as a failure (rc!=0),
++and the sweep CONTINUES (``PG_ABORT_ON_QUERY_ERROR=1`` re-raises after recording).
++
++F03 part 2: a non-``success`` per-query status now makes the run FAIL (rc!=0) unless
++``PG_GATE_B_ALLOW_PARTIAL=1`` — pre-fix ANY ``partial*`` status returned rc=0, so a
++mostly-gap-stubbed clinical report (and the new ``abort_excessive_gap`` from F03
++part 1) shipped GREEN.
++
++NO network, NO spend: ``run_gate_b_query`` is monkeypatched per case.
++"""
++from __future__ import annotations
++
++import json
++import os
++from pathlib import Path
++
++import pytest
++
++from scripts.dr_benchmark import run_gate_b
++from scripts.dr_benchmark.run_gate_b import (
++    LOCKED_BENCHMARK_SLUGS,
++    abort_query_error_propagates,
++    gate_b_allow_partial,
++    main,
++    query_status_ok,
++)
++
++
++@pytest.fixture(autouse=True)
++def _isolate_env():
++    snap = dict(os.environ)
++    try:
++        yield
++    finally:
++        os.environ.clear()
++        os.environ.update(snap)
++
++
++# ── pure predicate: query_status_ok (F03 part 2) ─────────────────────────────
++
++def test_query_status_ok_success_always_passes() -> None:
++    assert query_status_ok("success", allow_partial=False) is True
++    assert query_status_ok("success", allow_partial=True) is True
++
++
++def test_query_status_ok_partial_fails_by_default() -> None:
++    """The F03 part-2 flip: partial* is a FAILURE unless explicitly allowed."""
++    assert query_status_ok("partial_saturation", allow_partial=False) is False
++    assert query_status_ok("partial_thin_corpus", allow_partial=False) is False
++
++
++def test_query_status_ok_partial_passes_only_when_allowed() -> None:
++    assert query_status_ok("partial_saturation", allow_partial=True) is True
++
++
++def test_query_status_ok_abort_and_error_always_fail() -> None:
++    for status in (
++        "abort_excessive_gap",
++        "abort_no_verified_sections",
++        "abort_corpus_inadequate",
++        "error_unexpected",
++        "error_query_crashed",
++        "<no-status>",
++    ):
++        assert query_status_ok(status, allow_partial=False) is False
++        assert query_status_ok(status, allow_partial=True) is False
++
++
++def test_allow_partial_reader_default_false(monkeypatch) -> None:
++    monkeypatch.delenv("PG_GATE_B_ALLOW_PARTIAL", raising=False)
++    assert gate_b_allow_partial() is False
++    monkeypatch.setenv("PG_GATE_B_ALLOW_PARTIAL", "1")
++    assert gate_b_allow_partial() is True
++
++
++def test_abort_on_error_reader_default_false(monkeypatch) -> None:
++    monkeypatch.delenv("PG_ABORT_ON_QUERY_ERROR", raising=False)
++    assert abort_query_error_propagates() is False
++    monkeypatch.setenv("PG_ABORT_ON_QUERY_ERROR", "1")
++    assert abort_query_error_propagates() is True
++
++
++# ── F03 part 2: loop-level rc on a partial status ────────────────────────────
++
++def test_partial_status_makes_run_fail_by_default(monkeypatch, tmp_path) -> None:
++    async def _partial(q, out_root, **kwargs):
++        return {"status": "partial_saturation", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _partial)
++    monkeypatch.delenv("PG_GATE_B_ALLOW_PARTIAL", raising=False)
++    rc = main(["--only", "drb_72_ai_labor", "--out-root", str(tmp_path)])
++    assert rc == 1  # pre-fix this was 0
++
++
++def test_partial_status_allowed_with_flag(monkeypatch, tmp_path) -> None:
++    async def _partial(q, out_root, **kwargs):
++        return {"status": "partial_saturation", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _partial)
++    monkeypatch.setenv("PG_GATE_B_ALLOW_PARTIAL", "1")
++    rc = main(["--only", "drb_72_ai_labor", "--out-root", str(tmp_path)])
++    assert rc == 0  # operator opted into partials
++
++
++def test_excessive_gap_status_fails_run(monkeypatch, tmp_path) -> None:
++    """F03 wired end-to-end: abort_excessive_gap (NOT a partial) fails Gate-B even
++    with PG_GATE_B_ALLOW_PARTIAL=1 (it is not a partial)."""
++    async def _gap(q, out_root, **kwargs):
++        return {"status": "abort_excessive_gap", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _gap)
++    monkeypatch.setenv("PG_GATE_B_ALLOW_PARTIAL", "1")
++    rc = main(["--only", "drb_72_ai_labor", "--out-root", str(tmp_path)])
++    assert rc == 1
++
++
++# ── F25: per-query exception isolation ───────────────────────────────────────
++
++def test_q1_crash_does_not_abort_remaining_questions(monkeypatch, tmp_path) -> None:
++    """Inject a fault in the FIRST question; every later cert question MUST still
++    run, and the overall rc reflects the failure (not a silent green)."""
++    seen = []
++
++    async def _faulty_first(q, out_root, **kwargs):
++        seen.append(q["slug"])
++        if q["slug"] == LOCKED_BENCHMARK_SLUGS[0]:
++            raise RuntimeError("simulated transport blowup in Q1")
++        return {"status": "success", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _faulty_first)
++    monkeypatch.delenv("PG_ABORT_ON_QUERY_ERROR", raising=False)
++
++    rc = main(["--all", "--out-root", str(tmp_path)])
++
++    # Every question was attempted despite Q1 crashing.
++    assert seen == list(LOCKED_BENCHMARK_SLUGS)
++    # The crash counts as a failure — NOT a silent rc=0.
++    assert rc == 1
++    # A durable failed-manifest record was written for the crashed question.
++    crashed_slug = LOCKED_BENCHMARK_SLUGS[0]
++    matches = list(Path(tmp_path).rglob(f"**/{crashed_slug}/manifest.json"))
++    assert matches, "no failed-manifest record written for the crashed query"
++    record = json.loads(matches[0].read_text(encoding="utf-8"))
++    assert record["status"] == "error_query_crashed"
++    assert "simulated transport blowup" in record["error"]
++
++
++def test_incremental_sweep_summary_persisted(monkeypatch, tmp_path) -> None:
++    """A sweep_summary.json roster is written under out_root after the run, so a
++    sweep killed mid-run leaves a durable record of what ran."""
++    async def _ok(q, out_root, **kwargs):
++        return {"status": "success", "slug": q["slug"], "cost_usd": 0.0}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _ok)
++    rc = main(["--all", "--out-root", str(tmp_path)])
++    assert rc == 0
++    summary_path = Path(tmp_path) / "sweep_summary.json"
++    assert summary_path.exists()
++    data = json.loads(summary_path.read_text(encoding="utf-8"))
++    assert data["completed"] == len(LOCKED_BENCHMARK_SLUGS)
++    assert data["overall_rc"] == 0
++    assert len(data["queries"]) == len(LOCKED_BENCHMARK_SLUGS)
++    assert all(row["ok"] for row in data["queries"])
++
++
++def test_abort_on_query_error_reraises(monkeypatch, tmp_path) -> None:
++    """With PG_ABORT_ON_QUERY_ERROR=1 the sweep STOPS on the first crash, but only
++    AFTER writing the failed-manifest + sweep_summary (no silent loss)."""
++    seen = []
++
++    async def _faulty_first(q, out_root, **kwargs):
++        seen.append(q["slug"])
++        raise RuntimeError("boom")
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _faulty_first)
++    monkeypatch.setenv("PG_ABORT_ON_QUERY_ERROR", "1")
++
++    with pytest.raises(RuntimeError):
++        main(["--all", "--out-root", str(tmp_path)])
++
++    # Stopped after the first question.
++    assert seen == [LOCKED_BENCHMARK_SLUGS[0]]
++    # The record was still durably written before re-raising.
++    assert (Path(tmp_path) / "sweep_summary.json").exists()
+diff --git a/tests/polaris_graph/test_b3_no_verified_sections.py b/tests/polaris_graph/test_b3_no_verified_sections.py
+index ba244132..0cc053a1 100644
+--- a/tests/polaris_graph/test_b3_no_verified_sections.py
++++ b/tests/polaris_graph/test_b3_no_verified_sections.py
+@@ -118,8 +118,10 @@ def test_b3_orchestrator_uses_extracted_helpers() -> None:
+     src = inspect.getsource(sweep.run_one_query)
+     assert "filter_verified_sections(multi.sections)" in src
+     assert "build_no_verified_sections_abort_body(" in src
+-    # The abort branch must still return BEFORE Methods assembly
+-    abort_idx = src.find("if not verified_sections:")
++    # The abort branch must still return BEFORE Methods assembly. F03 (A3) folded the
++    # verified-section-FRACTION floor into the SAME branch, so the guard is now
++    # `if not verified_sections or _excessive_gap:` — anchor on the common prefix.
++    abort_idx = src.find("if not verified_sections or _excessive_gap:")
+     # I-ready-016 (#1086): re-anchor the "abort returns BEFORE generation/Methods assembly" marker.
+     # PG_GENERATOR_MODEL is now referenced EARLY (STORM/agentic/quantified blocks) — before the abort —
+     # so it no longer marks the post-abort generation step. PG_EVALUATOR_MODEL first appears only in the
+@@ -129,17 +131,22 @@ def test_b3_orchestrator_uses_extracted_helpers() -> None:
+ 
+ 
+ def test_b3_manifest_records_zero_verified() -> None:
+-    """Source check: the abort manifest still records sentences_verified=0
+-    and sections_dropped == sections_total, so downstream telemetry is honest."""
++    """Source check: the abort manifest still records the verified-sentence count
++    and the dropped-section count, so downstream telemetry is honest. F03 (A3)
++    computes both from the shared `_abort_verified` / `_abort_dropped` (=0 /
++    =all sections for the zero-verified branch), so anchor on those names."""
+     import inspect
+     import scripts.run_honest_sweep_r3 as sweep
+     src = inspect.getsource(sweep.run_one_query)
+-    abort_idx = src.find("if not verified_sections:")
++    abort_idx = src.find("if not verified_sections or _excessive_gap:")
+     # I-ready-016 (#1086): re-anchor the "abort returns BEFORE generation/Methods assembly" marker.
+     # PG_GENERATOR_MODEL is now referenced EARLY (STORM/agentic/quantified blocks) — before the abort —
+     # so it no longer marks the post-abort generation step. PG_EVALUATOR_MODEL first appears only in the
+     # success-path generation/manifest block (after the abort), so it is the stable post-abort anchor.
+     methods_idx = src.find("PG_EVALUATOR_MODEL")
+     branch = src[abort_idx:methods_idx]
+-    assert '"sentences_verified": 0' in branch
++    assert '"sentences_verified": _abort_verified' in branch
+     assert "sections_dropped" in branch
++    # The zero-verified branch must still pin verified=0 / dropped=all sections.
++    assert "_abort_verified = 0" in branch
++    assert "_abort_dropped = _total_sections" in branch
+diff --git a/tests/polaris_graph/test_f03_min_verified_section_fraction.py b/tests/polaris_graph/test_f03_min_verified_section_fraction.py
+new file mode 100644
+index 00000000..7a652eaf
+--- /dev/null
++++ b/tests/polaris_graph/test_f03_min_verified_section_fraction.py
+@@ -0,0 +1,178 @@
++"""F03 (A3) regression: the success gate must abort a MOSTLY-gap-stubbed report,
++not just a totally-empty one.
++
++Pre-fix: ``run_one_query`` aborted (``abort_no_verified_sections``) only when ZERO
++sections survived strict_verify. A report where N-2 of N sections are gap stubs
++(only a couple verify) shipped as ``ok``/``success`` — a mostly-gap clinical
++report going GREEN.
++
++Post-fix: ``PG_MIN_VERIFIED_SECTION_FRACTION`` (float) adds a verified-section
++fraction floor that is STRICT BY DEFAULT (``DEFAULT_MIN_VERIFIED_SECTION_FRACTION``
++= 0.5) — Codex diff-gate iter-1 caught that a 0.0 default was fail-open (a
++mostly-gap clinical report shipped green unless an operator opted in). The floor
++fires with NO env opt-in; below it the run aborts with the NON-``partial`` status
++``abort_excessive_gap`` and a verdict report body. Only an explicit negative env
++value disables it (deliberate operator override). The policy lives in the pure
++helpers ``min_verified_section_fraction`` / ``is_excessive_gap`` /
++``build_excessive_gap_abort_body`` so it is unit-testable without the async
++orchestrator.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import pytest
++
++
++@dataclass
++class _FakeSection:
++    title: str
++    verified_text: str
++    dropped_due_to_failure: bool
++    sentences_verified: int = 0
++    sentences_dropped: int = 0
++    regen_attempted: bool = False
++    is_gap_stub: bool = False
++    error: str | None = None
++
++
++# ── pure predicate: is_excessive_gap ─────────────────────────────────────────
++
++def test_is_excessive_gap_inert_when_floor_explicitly_zero() -> None:
++    """An EXPLICIT 0.0 floor ⇒ never fires (only reachable via deliberate override,
++    no longer the default)."""
++    from scripts.run_honest_sweep_r3 import is_excessive_gap
++    assert is_excessive_gap(verified_count=1, total_sections=8, min_fraction=0.0) is False
++
++
++def test_is_excessive_gap_fires_below_floor() -> None:
++    """N-2 of N gap-stubbed (2 of 8 verify = 25%) is below a 0.5 floor ⇒ excessive."""
++    from scripts.run_honest_sweep_r3 import is_excessive_gap
++    assert is_excessive_gap(verified_count=2, total_sections=8, min_fraction=0.5) is True
++
++
++def test_is_excessive_gap_passes_at_or_above_floor() -> None:
++    from scripts.run_honest_sweep_r3 import is_excessive_gap
++    # exactly at floor is NOT excessive (>= floor passes)
++    assert is_excessive_gap(verified_count=4, total_sections=8, min_fraction=0.5) is False
++    assert is_excessive_gap(verified_count=6, total_sections=8, min_fraction=0.5) is False
++
++
++def test_is_excessive_gap_no_sections_is_safe() -> None:
++    from scripts.run_honest_sweep_r3 import is_excessive_gap
++    assert is_excessive_gap(verified_count=0, total_sections=0, min_fraction=0.5) is False
++
++
++# ── env reader: min_verified_section_fraction ────────────────────────────────
++
++def test_min_verified_section_fraction_default_is_strict(monkeypatch) -> None:
++    """Codex iter-1 P0: unset MUST enforce the strict floor (0.5), NOT 0.0."""
++    from scripts.run_honest_sweep_r3 import (
++        DEFAULT_MIN_VERIFIED_SECTION_FRACTION,
++        min_verified_section_fraction,
++    )
++    monkeypatch.delenv("PG_MIN_VERIFIED_SECTION_FRACTION", raising=False)
++    assert min_verified_section_fraction() == DEFAULT_MIN_VERIFIED_SECTION_FRACTION
++    assert DEFAULT_MIN_VERIFIED_SECTION_FRACTION == 0.5
++
++
++def test_min_verified_section_fraction_blank_is_strict(monkeypatch) -> None:
++    """An empty/whitespace value is treated as unset ⇒ strict default, never 0.0."""
++    from scripts.run_honest_sweep_r3 import (
++        DEFAULT_MIN_VERIFIED_SECTION_FRACTION,
++        min_verified_section_fraction,
++    )
++    monkeypatch.setenv("PG_MIN_VERIFIED_SECTION_FRACTION", "   ")
++    assert min_verified_section_fraction() == DEFAULT_MIN_VERIFIED_SECTION_FRACTION
++
++
++def test_strict_default_aborts_mostly_gap_report(monkeypatch) -> None:
++    """End-to-end policy with NO env opt-in: the strict default flags a 1-of-3
++    gap-stubbed report (33% < 50%) as excessive gap. This is the behavioral proof
++    that the floor is enforced by default (Codex iter-1 P0 + P2)."""
++    from scripts.run_honest_sweep_r3 import (
++        is_excessive_gap,
++        min_verified_section_fraction,
++    )
++    monkeypatch.delenv("PG_MIN_VERIFIED_SECTION_FRACTION", raising=False)
++    floor = min_verified_section_fraction()
++    # 1 of 3 sections verified (the drb_72 contract shape) → below the strict floor.
++    assert is_excessive_gap(verified_count=1, total_sections=3, min_fraction=floor) is True
++    # 2 of 3 verified (one disclosed gap) → above the floor, still ships.
++    assert is_excessive_gap(verified_count=2, total_sections=3, min_fraction=floor) is False
++
++
++def test_min_verified_section_fraction_reads_env(monkeypatch) -> None:
++    from scripts.run_honest_sweep_r3 import min_verified_section_fraction
++    monkeypatch.setenv("PG_MIN_VERIFIED_SECTION_FRACTION", "0.7")
++    assert min_verified_section_fraction() == pytest.approx(0.7)
++
++
++def test_min_verified_section_fraction_clamps_and_falls_back(monkeypatch) -> None:
++    from scripts.run_honest_sweep_r3 import (
++        DEFAULT_MIN_VERIFIED_SECTION_FRACTION,
++        min_verified_section_fraction,
++    )
++    monkeypatch.setenv("PG_MIN_VERIFIED_SECTION_FRACTION", "1.5")
++    assert min_verified_section_fraction() == 1.0
++    # An EXPLICIT negative is the deliberate operator disable → 0.0.
++    monkeypatch.setenv("PG_MIN_VERIFIED_SECTION_FRACTION", "-0.2")
++    assert min_verified_section_fraction() == 0.0
++    # Garbage is NOT a disable — it falls back to the STRICT default (never fail-open).
++    monkeypatch.setenv("PG_MIN_VERIFIED_SECTION_FRACTION", "garbage")
++    assert min_verified_section_fraction() == DEFAULT_MIN_VERIFIED_SECTION_FRACTION
++
++
++# ── verdict body builder ─────────────────────────────────────────────────────
++
++def test_excessive_gap_body_is_verdict_not_content() -> None:
++    from scripts.run_honest_sweep_r3 import build_excessive_gap_abort_body
++    sections = [
++        _FakeSection("Efficacy", "## Efficacy\n\nReal.", False, sentences_verified=4),
++        _FakeSection("Safety", "(gap)", False, sentences_verified=0, is_gap_stub=True),
++        _FakeSection("Contraindications", "(gap)", False, sentences_verified=0,
++                     is_gap_stub=True),
++        _FakeSection("Dosing", "(gap)", False, sentences_verified=0, is_gap_stub=True),
++    ]
++    body = build_excessive_gap_abort_body(
++        "What is the efficacy and safety of drug X?", sections,
++        verified_count=1, min_fraction=0.5,
++    )
++    assert "Pipeline verdict" in body
++    assert "below the required floor" in body
++    # Per-section verdict surfaces the gap-stub flag so an operator can triage.
++    assert "Contraindications" in body
++    assert "gap_stub=True" in body
++    # Must NOT look like a complete findings report.
++    assert "## Methods" not in body
++    assert "## Bibliography" not in body
++
++
++# ── status registration (couples to the manifest contract) ───────────────────
++
++def test_abort_excessive_gap_is_registered_status() -> None:
++    from scripts.run_honest_sweep_r3 import (
++        UNIFIED_STATUS_VALUES,
++        to_unified_status,
++    )
++    assert "abort_excessive_gap" in UNIFIED_STATUS_VALUES
++    # maps to itself (already an abort_ unified name), not error_unexpected
++    assert to_unified_status("abort_excessive_gap") == "abort_excessive_gap"
++
++
++def test_abort_excessive_gap_is_not_a_partial() -> None:
++    """Critical for F03 part 2: the status must NOT start with 'partial' or Gate-B
++    would treat the mostly-gap report as a PASS (rc=0)."""
++    assert not "abort_excessive_gap".startswith("partial")
++
++
++# ── source-anchor: the floor is wired into the orchestrator branch ───────────
++
++def test_orchestrator_wires_the_floor() -> None:
++    import inspect
++    import scripts.run_honest_sweep_r3 as sweep
++    src = inspect.getsource(sweep.run_one_query)
++    assert "min_verified_section_fraction()" in src
++    assert "is_excessive_gap(" in src
++    assert 'summary["status"] = _abort_status' in src
++    assert "abort_excessive_gap" in src
+diff --git a/tests/polaris_graph/test_manifest_contract.py b/tests/polaris_graph/test_manifest_contract.py
+index 4d29944f..377de856 100644
+--- a/tests/polaris_graph/test_manifest_contract.py
++++ b/tests/polaris_graph/test_manifest_contract.py
+@@ -50,6 +50,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
+         "abort_corpus_inadequate",
+         "abort_corpus_approval_denied",
+         "abort_no_verified_sections",
++        "abort_excessive_gap",         # F03 (A3): verified-section fraction below PG_MIN_VERIFIED_SECTION_FRACTION
+         "abort_evaluator_critical",    # added by BUG-M-205 (R5)
+         "abort_budget_exceeded",       # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach (generator OR 4-role verifier)
+         "abort_verifier_degraded",     # I-ready-002 (#1071): binding verifier judge_error_rate over cap
+diff --git a/tests/providers/__init__.py b/tests/providers/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/providers/test_llm_semaphore_loop_rebind_f01.py b/tests/providers/test_llm_semaphore_loop_rebind_f01.py
+new file mode 100644
+index 00000000..5a3c99d2
+--- /dev/null
++++ b/tests/providers/test_llm_semaphore_loop_rebind_f01.py
+@@ -0,0 +1,157 @@
++"""F01 (A3) regression: the global LLM concurrency semaphore must REBIND to the
++running event loop, so the Gate-B ``--all`` cert run (one ``asyncio.run`` per
++question = a fresh loop per query) does not raise
++``RuntimeError: ... bound to a different event loop`` on Q2..Q5.
++
++Pre-fix: ``get_semaphore()`` cached a single ``asyncio.Semaphore`` created in the
++first loop that touched it. Query 1 ran fine; query 2's ``asyncio.run`` created a
++NEW loop, and ``async with semaphore`` against the query-1-loop semaphore raised
++RuntimeError, killing every remaining cert question.
++
++Post-fix: the semaphore is keyed to the loop it was created in and recreated when
++the running loop differs. Also covers F16 (PG_MAX_CONCURRENT_LLM read at call time).
++"""
++from __future__ import annotations
++
++import asyncio
++import importlib
++
++import pytest
++
++
++@pytest.fixture()
++def provider_mod():
++    mod = importlib.import_module("src.providers.llm_provider")
++    mod.reset_semaphore()
++    yield mod
++    mod.reset_semaphore()
++
++
++# Forensic NEW-1: the bug fires on the CONTENDED acquire (>cap calls in flight),
++# which binds _LoopBoundMixin._loop. A fanout above the cap forces that contention,
++# matching the generation fan-out on the real run. cap default = 5, so 12 contends.
++_FANOUT = 12
++
++
++def _query_with_fanout(mod) -> int:
++    """Mirror the Gate-B per-query pattern: one fresh asyncio.run() that drives a
++    CONTENDED fanout through the module-global semaphore (forces the loop binding
++    that the bug trips over). Returns the semaphore id() so a rebind is observable."""
++
++    async def _worker(sem) -> None:
++        async with sem:
++            await asyncio.sleep(0)
++
++    async def _inner() -> int:
++        sem = mod.get_semaphore()
++        await asyncio.gather(*[_worker(sem) for _ in range(_FANOUT)])
++        return id(sem)
++
++    return asyncio.run(_inner())
++
++
++def test_module_global_semaphore_genuinely_poisons_across_loops() -> None:
++    """Ground-truth (control): a NON-rebinding module-global Semaphore — the exact
++    pre-fix shape — DOES raise 'bound to a different event loop' on the second query.
++    This proves the fix is load-bearing, and the repro is faithful (cap=5 fanout=12)."""
++    stale = {"sem": None}
++
++    async def _q() -> None:
++        if stale["sem"] is None:
++            stale["sem"] = asyncio.Semaphore(5)  # pre-fix: no per-loop rebind
++
++        async def _w() -> None:
++            async with stale["sem"]:
++                await asyncio.sleep(0.001)
++
++        await asyncio.gather(*[_w() for _ in range(_FANOUT)])
++
++    asyncio.run(_q())  # query 1 binds the loop
++    with pytest.raises(RuntimeError, match="different event loop"):
++        asyncio.run(_q())  # query 2 fresh loop -> contended acquire RAISES
++
++
++def test_get_semaphore_rebind_survives_two_queries(provider_mod) -> None:
++    """The fix: the SAME contended 2-query repro through get_semaphore() must NOT
++    raise — each query gets a semaphore bound to its own loop. This is the
++    'Codex 2-query repro RAISE -> pass' acceptance for F01."""
++    id1 = _query_with_fanout(provider_mod)
++    id2 = _query_with_fanout(provider_mod)  # pre-fix: RuntimeError here
++    assert id1 != id2  # rebound for the second loop
++
++
++def test_acquire_within_same_loop_reuses_one_semaphore(provider_mod) -> None:
++    """Within ONE loop the semaphore is reused (not recreated each call), so the
++    concurrency cap is honored across all calls in a query."""
++
++    async def _inner() -> None:
++        a = provider_mod.get_semaphore()
++        b = provider_mod.get_semaphore()
++        assert a is b  # same loop => same semaphore object
++        # Two concurrent acquisitions within the cap succeed without deadlock.
++        async with a:
++            async with b:
++                await asyncio.sleep(0)
++
++    asyncio.run(_inner())
++
++
++def test_get_semaphore_rebinds_loop_reference(provider_mod) -> None:
++    """The rebind is load-bearing: get_semaphore() records the loop it created the
++    semaphore in and recreates it whenever the running loop differs. We assert the
++    recorded loop reference tracks each fresh asyncio.run() loop, which is exactly
++    what prevents the 'bound to a different event loop' RuntimeError.
++
++    (Note: a stale Semaphore does not raise on an UNCONTENDED acquire under some
++    CPython versions — the loop binding is lazy/contention-dependent — so we assert
++    the rebind mechanism directly rather than relying on the stale object raising.)"""
++    captured = {}
++
++    async def _capture(key: str) -> None:
++        provider_mod.get_semaphore()
++        captured[key] = provider_mod._LLM_SEMAPHORE_LOOP
++
++    asyncio.run(_capture("loop1"))
++    loop1_ref = captured["loop1"]
++    asyncio.run(_capture("loop2"))
++    loop2_ref = captured["loop2"]
++
++    # Each query's get_semaphore() bound to that query's OWN loop (different objects).
++    assert loop1_ref is not None
++    assert loop2_ref is not None
++    assert loop1_ref is not loop2_ref
++
++    # And a real acquire in a fresh loop never raises (the end-user guarantee).
++    async def _fresh() -> None:
++        async with provider_mod.get_semaphore():
++            await asyncio.sleep(0)
++
++    asyncio.run(_fresh())  # must not raise
++
++
++def test_max_concurrent_llm_read_at_call_time_f16(provider_mod, monkeypatch) -> None:
++    """F16: PG_MAX_CONCURRENT_LLM is read when the semaphore is CREATED, not frozen
++    at import — so the Gate-B slate (which mutates os.environ after import) lands."""
++    monkeypatch.setenv("PG_MAX_CONCURRENT_LLM", "9")
++    provider_mod.reset_semaphore()
++
++    async def _inner() -> int:
++        sem = provider_mod.get_semaphore()
++        return sem._value  # initial permits == the configured cap
++
++    assert asyncio.run(_inner()) == 9
++    assert provider_mod._max_concurrent_llm() == 9
++
++
++def test_max_concurrent_llm_malformed_falls_back(provider_mod, monkeypatch) -> None:
++    """A malformed cap must fall back to the default, never crash the run."""
++    monkeypatch.setenv("PG_MAX_CONCURRENT_LLM", "not-an-int")
++    assert provider_mod._max_concurrent_llm() == provider_mod._MAX_CONCURRENT_LLM
++    monkeypatch.setenv("PG_MAX_CONCURRENT_LLM", "0")
++    assert provider_mod._max_concurrent_llm() == provider_mod._MAX_CONCURRENT_LLM
++
++
++def test_max_concurrent_llm_unset_is_default(provider_mod, monkeypatch) -> None:
++    """Byte-identical when unset: the default cap is preserved."""
++    monkeypatch.delenv("PG_MAX_CONCURRENT_LLM", raising=False)
++    assert provider_mod._max_concurrent_llm() == provider_mod._MAX_CONCURRENT_LLM

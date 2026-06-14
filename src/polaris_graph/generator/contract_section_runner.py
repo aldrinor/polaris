@@ -513,6 +513,11 @@ async def run_contract_section(
     payloads: list[SlotFillPayload] = []
     total_in_tok = 0
     total_out_tok = 0
+    # I-arch-004 F02(c) (#1255): count narrative paragraphs that came back empty so an
+    # empty narrative is SURFACED (warned + counted), never silently dropped at the
+    # `if narr_text and narr_text.strip()` guard below. Supplementary stream → counted,
+    # not fatal (deterministic slot prose remains the primary deliverable).
+    _empty_narrative_slots = 0
     all_entity_ids: list[str] = []
 
     # entity_id -> slot_id so kept sentences can be regrouped into
@@ -710,6 +715,24 @@ async def run_contract_section(
                         if narr_text and narr_text.strip():
                             # Narrative stream — rescue-INELIGIBLE (Fix B).
                             slot_narrative_prose.append(narr_text.strip())
+                        else:
+                            # I-arch-004 F02(c) (#1255): do NOT silently drop an empty
+                            # narrative. Pre-fix, an empty `narr_text` (the degenerate
+                            # blank-completion proximate cause — the LLM produced no
+                            # narrative after consuming wall-clock) fell through this guard
+                            # INVISIBLY: no log, no counter, the gap untraceable. Surface it
+                            # loud + count it so A1's gap-stub / a re-run handles it visibly.
+                            # The narrative is SUPPLEMENTARY (the deterministic slot prose is
+                            # the primary deliverable), so this does NOT hard-fail the
+                            # section — a blank narrative must not regress a section whose
+                            # deterministic stream is fine.
+                            _empty_narrative_slots += 1
+                            logger.warning(
+                                "[m63] I-arch-004 F02(c): empty narrative paragraph for "
+                                "slot %r (entity_id=%r) — surfaced, not silently dropped "
+                                "(deterministic slot prose unaffected).",
+                                slot.slot_id, entity_id,
+                            )
                     except Exception as exc:
                         logger.warning(
                             "[m63] narrative-paragraph LLM call "
@@ -723,6 +746,16 @@ async def run_contract_section(
             regulatory_body_blocks.append(" ".join(slot_reg_prose))
         if slot_narrative_prose:
             narrative_body_blocks.append(" ".join(slot_narrative_prose))
+
+    # I-arch-004 F02(c) (#1255): surface the section-level empty-narrative count once so
+    # the gap is visible in the run log (per-slot warnings above give the detail). Not
+    # fatal — the deterministic stream is the primary deliverable.
+    if _empty_narrative_slots:
+        logger.warning(
+            "[m63] I-arch-004 F02(c): %d narrative paragraph(s) came back empty in "
+            "section %r — surfaced (not silently dropped); deterministic prose unaffected.",
+            _empty_narrative_slots, plan.title,
+        )
 
     # Body-only raw drafts (no `### headings` — they'd poison
     # strict_verify's content-overlap check), ONE PER STREAM.

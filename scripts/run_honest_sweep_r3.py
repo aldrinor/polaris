@@ -230,6 +230,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_corpus_inadequate",
     "abort_corpus_approval_denied",
     "abort_no_verified_sections",
+    "abort_excessive_gap",           # F03 (A3): below PG_MIN_VERIFIED_SECTION_FRACTION of sections produced verified prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (clinical-safety: a report whose body is mostly gap disclosures must not ship green)
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
@@ -266,6 +267,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_inadequate": "abort_corpus_inadequate",
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
+    # F03 (A3): the verified-section-fraction floor abort is already an `abort_` unified name — map
+    # it to itself so to_unified_status passes it through (NOT error_unexpected).
+    "abort_excessive_gap": "abort_excessive_gap",
     "abort_evaluator_critical": "abort_evaluator_critical",
     # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
     "partial_saturation": "partial_saturation",
@@ -1398,6 +1402,74 @@ def filter_verified_sections(sections) -> list:
     ]
 
 
+# F03 (A3): STRICT-BY-DEFAULT clinical-safety floor (Codex diff-gate P0: a 0.0
+# default was fail-open — a mostly-gap-stubbed clinical report shipped green unless
+# an operator opted in). The governed default requires a MAJORITY of the attempted
+# sections to produce verified prose: a report whose body is more gap disclosures
+# than verified findings must NOT ship as success. Enforced WITHOUT any env opt-in;
+# the env var only lets an operator move the floor (with sign-off, per the verdict
+# artifact's "Suggested next steps"). A malformed value falls back to the STRICT
+# default (never to 0.0 / fail-open). It STRENGTHENS the success gate only — it never
+# relaxes any faithfulness gate (strict_verify / NLI / 4-role / D8 are upstream).
+DEFAULT_MIN_VERIFIED_SECTION_FRACTION = 0.5
+
+
+def min_verified_section_fraction() -> float:
+    """F03 (A3): the success floor on the fraction of attempted sections that
+    must produce verified prose. ``PG_MIN_VERIFIED_SECTION_FRACTION`` is a FLOAT
+    in [0, 1]; default ``DEFAULT_MIN_VERIFIED_SECTION_FRACTION`` (0.5) ⇒ the floor
+    is ENFORCED BY DEFAULT (a mostly-gap-stubbed report aborts with no env opt-in).
+    A malformed value falls back to the STRICT default (NOT 0.0 — never fail-open to
+    shipping a gap-stubbed report) and is logged. An EXPLICIT value of 0 or below
+    (e.g. ``0.0`` or a negative) disables the floor — a deliberate operator override,
+    never the default."""
+    raw = os.getenv("PG_MIN_VERIFIED_SECTION_FRACTION")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_MIN_VERIFIED_SECTION_FRACTION
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "PG_MIN_VERIFIED_SECTION_FRACTION=%r is not a float; using the strict "
+            "default %.2f (floor stays ENFORCED, never fail-open)",
+            raw, DEFAULT_MIN_VERIFIED_SECTION_FRACTION,
+        )
+        return DEFAULT_MIN_VERIFIED_SECTION_FRACTION
+    # Clamp to [0, 1]; a value > 1 would abort EVERY run (no report can exceed
+    # 100% verified sections), which is a misconfiguration, not a policy. A negative
+    # value <= 0 (0.0 or negative) is the only way to explicitly DISABLE the floor
+    # (is_excessive_gap treats min_fraction <= 0 as inert) — a deliberate override.
+    if value <= 0.0:
+        logging.getLogger(__name__).warning(
+            "PG_MIN_VERIFIED_SECTION_FRACTION=%r <= 0 explicitly DISABLES the F03 "
+            "clinical-safety floor (operator override).", raw,
+        )
+        return 0.0
+    if value > 1.0:
+        return 1.0
+    return value
+
+
+def is_excessive_gap(
+    verified_count: int, total_sections: int, min_fraction: float,
+) -> bool:
+    """F03 (A3): pure predicate — does this report fall BELOW the verified-section
+    floor? Mirrors ``filter_verified_sections`` so the policy is unit-testable
+    without running the giant ``run_one_query``.
+
+    ``verified_count`` = ``len(filter_verified_sections(sections))`` (sections
+    that produced verified prose); ``total_sections`` = ``len(sections)`` (every
+    section the generator ATTEMPTED, including gap stubs). Returns True only when
+    the floor is ACTIVE (``min_fraction > 0``), at least one section was attempted,
+    AND ``verified_count / total_sections < min_fraction``. The zero-verified case
+    (``verified_count == 0``) is handled by the existing ``abort_no_verified_sections``
+    gate, so this predicate covers the "mostly-gap-stubbed but not totally empty"
+    band that previously shipped as success."""
+    if min_fraction <= 0.0 or total_sections <= 0:
+        return False
+    return (verified_count / total_sections) < min_fraction
+
+
 def build_no_verified_sections_abort_body(
     research_question: str,
     sections,
@@ -1428,6 +1500,52 @@ def build_no_verified_sections_abort_body(
         "- Tune the generator prompt for stricter citation "
         "discipline.\n"
         "- Abort and refine the research question.\n"
+    )
+    return head + rows + tail
+
+
+def build_excessive_gap_abort_body(
+    research_question: str,
+    sections,
+    verified_count: int,
+    min_fraction: float,
+) -> str:
+    """F03 (A3): build the pipeline-verdict markdown body used when SOME but too
+    few sections survived strict_verify (the verified-section fraction is below
+    PG_MIN_VERIFIED_SECTION_FRACTION). Pure function so a behavior test can call
+    it without mocking run_one_query. The report is a verdict artifact, NOT a
+    findings report — we refuse to ship a mostly-gap-stubbed body as if it were a
+    complete answer (clinical-safety: a reader must not mistake a 2-of-8-section
+    report for a comprehensive one)."""
+    total = len(sections)
+    frac = (verified_count / total) if total else 0.0
+    head = (
+        f"# Research report: {research_question}\n\n"
+        "## Pipeline verdict\n\n"
+        f"DeepSeek V3.2-Exp generated {total} section(s), but only "
+        f"{verified_count} ({frac:.0%}) produced Phase-4 strict_verify'd "
+        f"prose — below the required floor of {min_fraction:.0%}. The remaining "
+        "sections are gap disclosures (no cited evidence supported their "
+        "claims), so the report is mostly gaps and is NOT shipped as a complete "
+        "findings report.\n\n"
+        "### Per-section verdict\n\n"
+    )
+    rows = "\n".join(
+        f"- **{sr.title}** — verified={getattr(sr, 'sentences_verified', 0)}, "
+        f"dropped={getattr(sr, 'sentences_dropped', 0)}, "
+        f"gap_stub={getattr(sr, 'is_gap_stub', False)}, "
+        f"regen_attempted={getattr(sr, 'regen_attempted', False)}, "
+        f"error={getattr(sr, 'error', None)!r}"
+        for sr in sections
+    )
+    tail = (
+        "\n\n### Suggested next steps\n\n"
+        "- Widen retrieval so the gap-stubbed sections have anchor evidence "
+        "to cite.\n"
+        "- Lower PG_MIN_VERIFIED_SECTION_FRACTION only with explicit operator "
+        "sign-off (it is a clinical-safety floor).\n"
+        "- Abort and refine the research question / outline so fewer sections "
+        "go uncovered.\n"
     )
     return head + rows + tail
 
@@ -6576,24 +6694,67 @@ async def run_one_query(
         # refuse to ship report.md. The old code would write a Methods
         # + Bibliography file with an empty findings body, and only then
         # mark status=fail_no_verified_prose as a post-hoc flag.
+        #
+        # F03 (A3): EXTEND the zero-verified gate with a verified-section-FRACTION
+        # floor (PG_MIN_VERIFIED_SECTION_FRACTION, STRICT default 0.5 — ENFORCED with
+        # no env opt-in, per Codex diff-gate P0). The zero-verified case shipped
+        # abort_no_verified_sections, but a report where N-2 of N sections are gap
+        # stubs (only a couple verify) previously shipped as success/partial — a
+        # mostly-gap-stubbed clinical report going GREEN. The floor now fires by
+        # default; below it, abort with a NON-`partial` status (abort_excessive_gap)
+        # so Gate-B fails it (F03 part 2).
+        # Both branches share the same fail-closed report+manifest write below.
         verified_sections = filter_verified_sections(multi.sections)
-        if not verified_sections:
-            _log(f"[ABORT]       All {len(multi.sections)} sections "
-                 f"failed verification. Refusing to write a report body.")
-            summary["status"] = "abort_no_verified_sections"
-            summary["error"] = (
-                f"all {len(multi.sections)} sections dropped at strict_verify"
-            )
-            (run_dir / "report.md").write_text(
-                build_no_verified_sections_abort_body(q["question"], multi.sections),
-                encoding="utf-8",
-            )
+        _total_sections = len(multi.sections)
+        _verified_count = len(verified_sections)
+        _min_frac = min_verified_section_fraction()
+        _excessive_gap = (
+            bool(verified_sections)
+            and is_excessive_gap(_verified_count, _total_sections, _min_frac)
+        )
+        if not verified_sections or _excessive_gap:
+            if _excessive_gap:
+                _abort_status = "abort_excessive_gap"
+                _abort_error = (
+                    f"only {_verified_count}/{_total_sections} sections produced "
+                    f"verified prose ({_verified_count / _total_sections:.2%}) — "
+                    f"below the PG_MIN_VERIFIED_SECTION_FRACTION floor "
+                    f"({_min_frac:.2%}); the report is mostly gap disclosures"
+                )
+                _abort_body = build_excessive_gap_abort_body(
+                    q["question"], multi.sections, _verified_count, _min_frac,
+                )
+                _abort_dropped = _total_sections - _verified_count
+                _abort_verified = sum(
+                    getattr(sr, "sentences_verified", 0) or 0
+                    for sr in verified_sections
+                )
+                _log(
+                    f"[ABORT]       Only {_verified_count}/{_total_sections} "
+                    f"sections verified < floor {_min_frac:.2%}. Refusing to "
+                    f"ship a mostly-gap-stubbed report as success."
+                )
+            else:
+                _abort_status = "abort_no_verified_sections"
+                _abort_error = (
+                    f"all {_total_sections} sections dropped at strict_verify"
+                )
+                _abort_body = build_no_verified_sections_abort_body(
+                    q["question"], multi.sections,
+                )
+                _abort_dropped = _total_sections
+                _abort_verified = 0
+                _log(f"[ABORT]       All {_total_sections} sections "
+                     f"failed verification. Refusing to write a report body.")
+            summary["status"] = _abort_status
+            summary["error"] = _abort_error
+            (run_dir / "report.md").write_text(_abort_body, encoding="utf-8")
             run_cost = current_run_cost()
             manifest = _base_manifest_envelope(
                 run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
             )
             manifest.update({
-                "status": "abort_no_verified_sections",
+                "status": _abort_status,
                 "adequacy": asdict(adequacy),
                 "corpus": {
                     "count": dist.total_sources,
@@ -6602,9 +6763,11 @@ async def run_one_query(
                 },
                 "generator": {
                     "outline_sections": [p.title for p in multi.outline],
-                    "sections_total": len(multi.sections),
-                    "sections_dropped": len(multi.sections),
-                    "sentences_verified": 0,
+                    "sections_total": _total_sections,
+                    "sections_dropped": _abort_dropped,
+                    "sections_verified": _verified_count,
+                    "sentences_verified": _abort_verified,
+                    "min_verified_section_fraction": _min_frac,
                 },
             })
             manifest = augment_v6_manifest(
@@ -6625,7 +6788,7 @@ async def run_one_query(
             if q.get("v6_mode") and q.get("external_run_id"):
                 emit_terminal_event(
                     q.get("external_run_id"),
-                    "abort_no_verified_sections",
+                    _abort_status,
                     error_msg=summary.get("error"),
                 )
             set_current_run_id(None)

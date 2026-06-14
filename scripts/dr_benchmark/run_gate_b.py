@@ -458,6 +458,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_LIVE_CONTENT_MAX": "50000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
     "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
+    # F01/F16 (A3): the global LLM concurrency cap. llm_provider.get_semaphore() reads this at
+    # CALL time (per-loop rebind), so the slate value lands without an import-time freeze. FLOOR
+    # semantics (max(existing, 5)): an operator may RAISE it but never silently drop below the
+    # safe default of 5 (cloud rate-limit / GPU-OOM guard). NOT part of the ~1000-URL fetch sum —
+    # it caps concurrent LLM calls, not URLs.
+    "PG_MAX_CONCURRENT_LLM": "5",
     # I-ready-003 (#1074) P1: scale the post-fetch loop budget to the ~1000-URL cap. The live_retriever
     # now takes max(this, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET) so the loop never silently truncates
     # the corpus mid-classification. 1000 URLs * 4s = 4000s.
@@ -533,6 +539,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
+    # F03 (A3): verified-section-FRACTION floor. The success gate aborts at ZERO verified sections
+    # (abort_no_verified_sections), but a report where most sections are gap stubs (only a couple
+    # verify) previously shipped GREEN — a mostly-gap clinical report misrepresented as complete.
+    # This is a COVERAGE-HONESTY floor (a sibling of the §9.2 per-section "≥40% sentences verified"
+    # gate, lifted to the SECTION granularity): below it, run_one_query emits the NON-`partial`
+    # abort_excessive_gap and Gate-B fails the run (query_status_ok). It is NOT a §-1.3 breadth
+    # TARGET — it never forces a number up, it only refuses to call a gap report "complete". 0.4 =
+    # the §9.2 0.40 per-unit honesty threshold at section granularity (grounded, not tuned). FLOAT in
+    # [0,1] -> force-EXACT (the int FLOOR path would coerce 0.4 -> 0, silently disabling it, the exact
+    # PG_RELEVANCE_FLOOR gotcha). Code default 0.0 => slate-absent runs are byte-identical; the slate
+    # ACTIVATES it for the cert run (the PG_LIVE_MAX_EV_TO_GEN "built-it-then-left-it-off" lesson).
+    "PG_MIN_VERIFIED_SECTION_FRACTION": "0.4",
     # I-ready-013 (#1080): benchmark report.md must be a verified-only surface.
     # The legacy Analyst Synthesis layer is interpretive and not span-verified /
     # 4-role gated, so Gate-B force-disables it instead of turning on the planner
@@ -920,6 +938,11 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # I-perm-004 #1180: the empirically-picked widening-aware entailment prompt variant (widen_c).
     # Force-exact so a stray PG_ENTAILMENT_PROMPT_VARIANT=baseline cannot silently revert the fix.
     "PG_ENTAILMENT_PROMPT_VARIANT",
+    # F03 (A3): the verified-section-FRACTION floor is a FLOAT (0.4) — force-EXACT (the int FLOOR
+    # path would coerce 0.4 -> 0 and silently disable the coverage-honesty gate, the PG_RELEVANCE_FLOOR
+    # gotcha). A stray operator PG_MIN_VERIFIED_SECTION_FRACTION=0 must not survive the slate and let a
+    # mostly-gap clinical report ship GREEN. Validated as a float in (0,1] in preflight_full_capability.
+    "PG_MIN_VERIFIED_SECTION_FRACTION",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -1032,6 +1055,24 @@ def apply_full_capability_benchmark_slate() -> None:
 def preflight_full_capability() -> None:
     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
     silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+    # F03 (A3): the verified-section-FRACTION coverage-honesty floor must be ACTIVE (a float in (0, 1])
+    # for the cert run — a 0/absent value disables the gate and lets a mostly-gap clinical report ship
+    # GREEN (the "built-it-then-left-it-off" failure). Checked FIRST (fail-fast on a faithfulness gate;
+    # the slate force-sets it to 0.4). Code default is 0.0/inert for non-benchmark callers; this preflight
+    # only runs on the Gate-B path.
+    try:
+        _msvf = float(os.getenv("PG_MIN_VERIFIED_SECTION_FRACTION", "0"))
+    except ValueError:
+        raise RuntimeError(
+            "benchmark preflight FAILED: PG_MIN_VERIFIED_SECTION_FRACTION="
+            f"{os.getenv('PG_MIN_VERIFIED_SECTION_FRACTION')!r} is not a float."
+        )
+    if not (0.0 < _msvf <= 1.0):
+        raise RuntimeError(
+            f"benchmark preflight FAILED: PG_MIN_VERIFIED_SECTION_FRACTION={_msvf} is not in (0, 1] — the "
+            f"F03 coverage-honesty floor is DISABLED, so a mostly-gap-stubbed report would ship as success. "
+            f"The slate force-sets it to 0.4; set it >0 (and <=1) before the run."
+        )
     for name, floor in _BENCHMARK_PREFLIGHT_FLOORS.items():
         # mirror run_one_query's read of the real PG_SWEEP_* knob (defaults 12/12/40 if absent).
         _defaults = {"PG_SWEEP_FETCH_CAP": "40", "PG_SWEEP_MAX_SERPER": "12", "PG_SWEEP_MAX_S2": "12"}
@@ -1616,6 +1657,43 @@ def _resolve_benchmark_upload(
     return allowed, len(blocked)
 
 
+def gate_b_allow_partial() -> bool:
+    """F03 (A3) part 2: whether Gate-B treats a ``partial*`` (or any non-`success`)
+    status as a PASS. Default FALSE — a non-success status makes the run FAIL
+    (rc != 0). Set ``PG_GATE_B_ALLOW_PARTIAL=1`` to restore the legacy behavior
+    where a ``partial*`` status returned rc=0 (a gap-stubbed clinical report
+    shipping GREEN). Operator-gated escape hatch, not the default."""
+    return os.getenv("PG_GATE_B_ALLOW_PARTIAL", "0").strip() in ("1", "true", "True")
+
+
+def query_status_ok(status: str, *, allow_partial: bool) -> bool:
+    """F03 (A3) part 2: pure predicate — does this per-query status count as a
+    Gate-B PASS (overall_rc stays 0)? ``success`` always passes. A ``partial*``
+    status passes ONLY when ``allow_partial`` is set; every other status
+    (abort_*/error_*/fail_*) fails. Extracted so the rc policy is unit-testable
+    without running a real query.
+
+    Behavior change vs the pre-F03 code: previously ANY ``partial*`` status
+    returned rc=0 unconditionally — so a mostly-gap-stubbed report (now
+    ``abort_excessive_gap`` after F03 part 1, which is NOT a ``partial`` prefix)
+    AND a genuine ``partial_saturation`` both shipped GREEN. Now non-`success`
+    fails unless the operator explicitly opts into partials."""
+    if status == "success":
+        return True
+    if allow_partial and str(status).startswith("partial"):
+        return True
+    return False
+
+
+def abort_query_error_propagates() -> bool:
+    """F25 (A3): whether a per-query EXCEPTION aborts the whole ``--all`` sweep.
+    Default FALSE — one crashed question is logged, written as a failed-manifest
+    record, counted as a failure (rc != 0), and the sweep CONTINUES to the next
+    cert question. Set ``PG_ABORT_ON_QUERY_ERROR=1`` to re-raise and stop the
+    sweep on the first exception (the legacy no-isolation behavior)."""
+    return os.getenv("PG_ABORT_ON_QUERY_ERROR", "0").strip() in ("1", "true", "True")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Gate-B CLI launcher (I-meta-008 #1014). The ONLY entrypoint that runs the 4-role
     benchmark pipeline. NO SPEND / NO NETWORK at import — all runtime work is here.
@@ -1714,6 +1792,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- REAL RUN (--only / --all): operator-authorized spend. `.env` may load normally. ---
     import asyncio
+    import logging
+    import time
+    import traceback
 
     out_root = Path(args.out_root)
     # Codex diff-gate iter-2 P1-2: apply the full-capability FLOOR slate HERE — BEFORE
@@ -1761,6 +1842,40 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 72)
 
     overall_rc = 0
+    _allow_partial = gate_b_allow_partial()           # F03 (A3) part 2
+    _abort_on_error = abort_query_error_propagates()   # F25 (A3)
+    _sweep_records: list[dict] = []                    # F25: incremental sweep summary
+    out_root.mkdir(parents=True, exist_ok=True)
+    _sweep_summary_path = out_root / "sweep_summary.json"
+
+    def _persist_sweep_summary() -> None:
+        # F25 (A3): write the running per-query roster after EVERY question (success,
+        # non-success, or crash) so a sweep killed mid-run still leaves a durable
+        # record of which cert questions ran and how each ended. Best-effort — a
+        # summary-write failure must not mask a query result.
+        try:
+            _sweep_summary_path.write_text(
+                json.dumps(
+                    {
+                        "out_root": str(out_root),
+                        "total_questions": len(questions),
+                        "completed": len(_sweep_records),
+                        "overall_rc": overall_rc,
+                        "allow_partial": _allow_partial,
+                        "queries": _sweep_records,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                    default=str,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError as _exc:
+            logging.getLogger("run_gate_b").warning(
+                "sweep_summary write failed: %s", _exc,
+            )
+
     # I-obs-001 #1141 AC1: enumerate so the heartbeat can report "query N of 5".
     for query_index, q in enumerate(questions, 1):
         slug = q["slug"]
@@ -1777,15 +1892,79 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n>>> {domain} / {slug}")
         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
         # runs). Each delegates entirely to the existing 4-role entrypoint.
-        summary = asyncio.run(
-            run_gate_b_query(
-                q, out_root, query_index=query_index, query_total=len(questions)
+        #
+        # F25 (A3): per-query exception ISOLATION. asyncio.run(run_gate_b_query) had NO
+        # try/except, so a single escaped exception (e.g. a transport RuntimeError) aborted
+        # ALL remaining cert questions — the `--all` 5-Q run could not complete. Each query is
+        # now wrapped: an exception is logged with traceback, written as a durable
+        # failed-manifest record under out_root, counted as a FAILURE (rc!=0), and the sweep
+        # CONTINUES (PG_ABORT_ON_QUERY_ERROR=1 re-raises after recording, for the strict mode).
+        try:
+            summary = asyncio.run(
+                run_gate_b_query(
+                    q, out_root, query_index=query_index, query_total=len(questions)
+                )
             )
-        )
-        status = summary.get("status", "<no-status>")
-        print(f"<<< {domain} / {slug}: status={status}")
-        if not (status == "success" or str(status).startswith("partial")):
+            status = summary.get("status", "<no-status>")
+            print(f"<<< {domain} / {slug}: status={status}")
+            if not query_status_ok(status, allow_partial=_allow_partial):
+                overall_rc = 1
+            _sweep_records.append({
+                "query_index": query_index,
+                "slug": slug,
+                "domain": domain,
+                "status": status,
+                "ok": query_status_ok(status, allow_partial=_allow_partial),
+                "cost_usd": summary.get("cost_usd"),
+            })
+        except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently
+            tb = traceback.format_exc()
             overall_rc = 1
+            logging.getLogger("run_gate_b").error(
+                "query %d/%d %s/%s CRASHED: %s\n%s",
+                query_index, len(questions), domain, slug, exc, tb,
+            )
+            print(f"<<< {domain} / {slug}: CRASHED ({type(exc).__name__}: {exc})")
+            # Durable failed-manifest record so a crashed query is NOT indistinguishable
+            # from one that never started (LAW II fail-loud; mirrors run_one_query's
+            # BUG-B-101 exception-path manifest write).
+            _fail_record = {
+                "query_index": query_index,
+                "slug": slug,
+                "domain": domain,
+                "status": "error_query_crashed",
+                "ok": False,
+                "error": str(exc)[:500],
+                "traceback": tb[-4000:],
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            _sweep_records.append(_fail_record)
+            try:
+                _fail_dir = out_root / domain / slug
+                _fail_dir.mkdir(parents=True, exist_ok=True)
+                # Codex diff-gate P2: the crash record ALWAYS goes to a dedicated SIDECAR
+                # (gate_b_query_crash.json) — never collides with run_one_query's manifest.json.
+                # We write manifest.json ONLY if run_one_query did not already produce one: if an
+                # exception escaped AFTER run_one_query wrote a richer error manifest, that richer
+                # artifact is PRESERVED (don't clobber it with this thinner outer record).
+                (_fail_dir / "gate_b_query_crash.json").write_text(
+                    json.dumps(_fail_record, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
+                )
+                _manifest_path = _fail_dir / "manifest.json"
+                if not _manifest_path.exists():
+                    _manifest_path.write_text(
+                        json.dumps(_fail_record, indent=2, sort_keys=True, default=str) + "\n",
+                        encoding="utf-8",
+                    )
+            except OSError as _werr:
+                logging.getLogger("run_gate_b").warning(
+                    "failed-manifest write failed for %s/%s: %s", domain, slug, _werr,
+                )
+            if _abort_on_error:
+                _persist_sweep_summary()
+                raise
+        _persist_sweep_summary()
     return overall_rc
 
 

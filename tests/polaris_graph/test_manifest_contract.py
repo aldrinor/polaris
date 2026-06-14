@@ -50,6 +50,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_corpus_inadequate",
         "abort_corpus_approval_denied",
         "abort_no_verified_sections",
+        "abort_excessive_gap",         # F03 (A3): verified-section fraction below PG_MIN_VERIFIED_SECTION_FRACTION
         "abort_evaluator_critical",    # added by BUG-M-205 (R5)
         "abort_budget_exceeded",       # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach (generator OR 4-role verifier)
         "abort_verifier_degraded",     # I-ready-002 (#1071): binding verifier judge_error_rate over cap

@@ -76,33 +76,83 @@ _LLM_RETRY_BASE_DELAY = float(os.getenv("PG_LLM_RETRY_BASE_DELAY", "1.0"))
 # GPU memory threshold for auto-throttle (sovereign mode)
 _GPU_MEMORY_THRESHOLD = float(os.getenv("PG_GPU_MEMORY_THRESHOLD", "0.90"))
 
-# Singleton semaphore — initialized lazily
+# Singleton semaphore — initialized lazily, KEYED to the event loop it was
+# created in. A module-global asyncio.Semaphore binds to the loop that first
+# touched it; under the Gate-B `--all` cert run each question is driven by its
+# own asyncio.run() (a FRESH loop per query), so a semaphore created in query 1's
+# loop and reused in query 2 raises "bound to a different event loop" and kills
+# Q2..Q5 (F01 / A3 master fix list). We therefore store the loop the semaphore
+# belongs to and recreate it whenever the running loop differs.
 _LLM_SEMAPHORE: Optional[asyncio.Semaphore] = None
+_LLM_SEMAPHORE_LOOP: Optional[asyncio.AbstractEventLoop] = None
 _SEMAPHORE_LOCK = asyncio.Lock() if hasattr(asyncio, "Lock") else None
 
 
-def get_semaphore() -> asyncio.Semaphore:
-    """Get or create the global LLM concurrency semaphore.
+def _max_concurrent_llm() -> int:
+    """Resolve the concurrency cap at CALL time (LAW VI / F16).
 
-    Thread-safe lazy initialization. The semaphore limits the number of
-    concurrent LLM API calls across all pipeline nodes to prevent:
+    Reads ``PG_MAX_CONCURRENT_LLM`` from the live environment, falling back to
+    the import-time module default. This lets the Gate-B full-capability slate
+    (which mutates ``os.environ`` AFTER this module is imported) set the cap
+    without a stale import-time freeze — the same class of fix as
+    ``set_max_cost_per_run``. A malformed value falls back to the default
+    rather than crashing the run. Default unchanged ⇒ byte-identical when unset.
+    """
+    raw = os.getenv("PG_MAX_CONCURRENT_LLM")
+    if raw is None:
+        return _MAX_CONCURRENT_LLM
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "[llm_provider] PG_MAX_CONCURRENT_LLM=%r is not an int; "
+            "falling back to default %d", raw, _MAX_CONCURRENT_LLM,
+        )
+        return _MAX_CONCURRENT_LLM
+    return value if value > 0 else _MAX_CONCURRENT_LLM
+
+
+def get_semaphore() -> asyncio.Semaphore:
+    """Get or create the global LLM concurrency semaphore for the CURRENT loop.
+
+    Lazy initialization, rebound per event loop. The semaphore limits the number
+    of concurrent LLM API calls across all pipeline nodes to prevent:
     - 429 rate limit errors on cloud APIs
     - GPU OOM crashes on local vLLM deployments
+
+    F01 (A3): an ``asyncio.Semaphore`` is bound to the loop it is created in.
+    The Gate-B ``--all`` run drives each question with a separate ``asyncio.run``
+    (a fresh loop), so reusing a query-1 semaphore in query 2 raises
+    ``RuntimeError: ... bound to a different event loop``. We detect the running
+    loop and recreate the semaphore whenever it differs (or no loop was recorded),
+    so every query gets a semaphore on its own loop. The check + set has no
+    ``await`` between them, so it is race-free within a single loop.
     """
-    global _LLM_SEMAPHORE
-    if _LLM_SEMAPHORE is None:
-        _LLM_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
+    global _LLM_SEMAPHORE, _LLM_SEMAPHORE_LOOP
+    try:
+        running_loop: Optional[asyncio.AbstractEventLoop] = (
+            asyncio.get_running_loop()
+        )
+    except RuntimeError:
+        # No running loop (e.g. a sync caller); fall back to the legacy
+        # lazy-singleton behavior so the semaphore is still usable.
+        running_loop = None
+    if _LLM_SEMAPHORE is None or _LLM_SEMAPHORE_LOOP is not running_loop:
+        cap = _max_concurrent_llm()
+        _LLM_SEMAPHORE = asyncio.Semaphore(cap)
+        _LLM_SEMAPHORE_LOOP = running_loop
         logger.info(
-            "[llm_provider] Concurrency semaphore initialized: max=%d",
-            _MAX_CONCURRENT_LLM,
+            "[llm_provider] Concurrency semaphore (re)initialized: max=%d loop=%r",
+            cap, running_loop,
         )
     return _LLM_SEMAPHORE
 
 
 def reset_semaphore() -> None:
     """Reset the global semaphore (for testing or config changes)."""
-    global _LLM_SEMAPHORE
+    global _LLM_SEMAPHORE, _LLM_SEMAPHORE_LOOP
     _LLM_SEMAPHORE = None
+    _LLM_SEMAPHORE_LOOP = None
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +321,7 @@ def validate_llm_provider() -> dict:
             "base_url": config["base_url"],
             "model": config["model"],
             "sovereign_mode": config.get("sovereign_mode", False),
-            "max_concurrent_llm": _MAX_CONCURRENT_LLM,
+            "max_concurrent_llm": _max_concurrent_llm(),
             "status": "configured",
             "error": None,
         }
@@ -281,7 +331,7 @@ def validate_llm_provider() -> dict:
             "base_url": None,
             "model": None,
             "sovereign_mode": PG_SOVEREIGN_MODE,
-            "max_concurrent_llm": _MAX_CONCURRENT_LLM,
+            "max_concurrent_llm": _max_concurrent_llm(),
             "status": "error",
             "error": str(e),
         }

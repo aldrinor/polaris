@@ -1,0 +1,6 @@
+verdict: APPROVE
+novel_p0: []
+p1: []
+p2:
+  - "F03 comments/docstring say only a negative value disables the floor, but explicit 0.0 also makes the fraction floor inert by design/test. This is a wording inconsistency, not a blocker."
+remaining_blockers_for_execution: []

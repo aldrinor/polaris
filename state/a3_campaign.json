@@ -11,6 +11,7 @@
   "checkpoint_gate": "F04 must be APPROVE+committed BEFORE the full Q1 --all run",
   "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) §-1.1-audited end-to-end",
   "status": "executing",
+  "wave0_recovery_note_2026_06_14": "Overnight Wave-0 Workflow (wf_7ed8eebf-4e3) STALLED ~7h on hung codex (no-timeout). Both lane builds were complete as uncommitted changes in the locked worktrees; salvaged to main (same HEAD 3af0168e), 77/77 tests green, durable patches at .codex/I-arch-004/wave0/{lane1,lane2}.patch. Codex diff-gates relaunched via file-read (large piped stdin kills codex exec rc=127). Lane1=F01+F25+F03, Lane2=F02.",
   "done": ["A1 (#1248, 8415d496)", "A2 (#1248, 11db8204)", "I-arch-003 model/token lock (#1253)"],
   "serialize_set": {
     "multi_section_generator.py": ["F02-contract", "F06-adj", "F10", "F21", "F26", "F29", "F32"],
@@ -26,10 +27,10 @@
   },
   "ordering_locks": ["F01 before F16(merged)", "F05 before F06", "F10 with/before F05", "F07 before F17/F19", "F02 shared-blank-stream before F07"],
   "fixes": [
-    {"id": "F01", "wave": 0, "sev": "P0", "title": "cross-query semaphore poisoning (--all crashes Q2); MERGE F16 cap-split", "files": ["src/providers/llm_provider.py", "run_gate_b.py"], "status": "todo", "issue": null},
-    {"id": "F25", "wave": 0, "sev": "P0", "title": "Gate-B --all no per-query exception isolation", "files": ["run_gate_b.py"], "status": "todo", "issue": null},
-    {"id": "F02", "wave": 0, "sev": "P0", "title": "generator empty-completion runaway + silent skip; provider-rotate retry", "files": ["openrouter_client.py", "contract_section_runner.py", "multi_section_generator.py"], "status": "todo", "issue": 1255},
-    {"id": "F03", "wave": 0, "sev": "P0", "title": "A1 partial-success coverage floor (non-partial status + Gate-B exit-code)", "files": ["run_honest_sweep_r3.py", "run_gate_b.py"], "status": "todo", "issue": null},
+    {"id": "F01", "wave": 0, "sev": "P0", "title": "cross-query semaphore poisoning (--all crashes Q2); MERGE F16 cap-split", "files": ["src/providers/llm_provider.py", "run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow 3-iter APPROVE + reconcile-delta APPROVE; F16 split deferred (P2)"},
+    {"id": "F25", "wave": 0, "sev": "P0", "title": "Gate-B --all no per-query exception isolation", "files": ["run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow 3-iter APPROVE"},
+    {"id": "F02", "wave": 0, "sev": "P0", "title": "generator empty-completion runaway + silent skip; provider-rotate retry", "files": ["openrouter_client.py", "contract_section_runner.py", "multi_section_generator.py"], "status": "done_codex_approved", "issue": 1255, "lane": 2, "gate": "workflow 3-iter APPROVE + order[0] fallback added (reconcile-delta APPROVE)"},
+    {"id": "F03", "wave": 0, "sev": "P0", "title": "A1 partial-success coverage floor (non-partial status + Gate-B exit-code)", "files": ["run_honest_sweep_r3.py", "run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow APPROVE had fail-open 0.0; corrected to STRICT 0.5 default (reconcile-delta APPROVE)"},
     {"id": "F05", "wave": 1, "sev": "P0", "title": "D8 Judge rubber-stamp (strengthen GROUNDED path at judge_adapter; KEEP unconditional UNGROUNDED downgrade)", "files": ["roles/judge_adapter.py", "roles/role_pipeline.py"], "status": "todo", "issue": 1254},
     {"id": "F12", "wave": 1, "sev": "P0", "title": "doi.org->T4 demotion false-aborts clinical (GLOBAL bug)", "files": ["retrieval/tier_classifier", "nodes/corpus_adequacy_gate.py"], "status": "todo", "issue": null},
     {"id": "F06", "wave": 1, "sev": "P1", "title": "Sentinel atom-completeness floor", "files": ["roles/sentinel_contract.py", "roles/role_pipeline.py"], "status": "todo", "issue": null},
