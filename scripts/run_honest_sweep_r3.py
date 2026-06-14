@@ -1799,6 +1799,476 @@ def build_excessive_gap_abort_body(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# B11 + B20 (I-arch-005 #1257, LANE-SWEEP) — the ALWAYS-EMIT invariant.
+#
+# "Nothing shall hold the report." Operator-locked 2026-06-14 (CLAUDE.md §-1.3 +
+# DUAL_AGREED_PLAN). Two mechanical halves, BOTH required:
+#   HALF A — NEVER SILENCE: B11 (this finalizer, catches every exit that wrote a
+#            manifest-only / no human artifact) + B20 (the run-level wall-clock at
+#            the call site, the ONLY fix for a permanent-silence HANG — a `finally`
+#            cannot fire if the process hangs).
+#   HALF B — VERIFY = LABEL NEVER HOLD: B12–B19 convert each post-success
+#            judge/infra HOLD into a per-claim / per-source disclosed LABEL.
+#
+# NON-NEGOTIABLE (constraint 1): the finalizer NEVER touches a faithfulness gate.
+# It only GUARANTEES a human-readable artifact exists on disk on every exit path;
+# it NEVER overwrites a real report.md, never widens a span, never makes a failing
+# claim pass. The faithfulness CHECK upstream is byte-equivalent — the finalizer
+# is a pure artifact-emission backstop.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Env name for the run-level wall-clock (B20). LAW VI: no hardcode — env-overridable.
+_RUN_WALL_CLOCK_ENV = "PG_RUN_WALL_CLOCK_SEC"
+# Generous default: a real Q1 clinical run with the 4-role D8 seam (many sequential
+# reasoning-ON verifier calls) can run long; the wall-clock only catches a true HANG,
+# not a slow-but-progressing run. B24 (drb_76 forensic): this is the OUTER backstop and
+# MUST sit above the inner timeouts — observed retrieval alone was ~42min, and the
+# ordering is per-call(600s) < section-wall(1800s) < run-wall(7200s) so a stalled
+# SECTION gap-stubs in ~30min and the report still completes, rather than the run-level
+# kill firing first. 7200s (2h) is generous insurance, not a target; env-overridable.
+_RUN_WALL_CLOCK_DEFAULT_SEC = 7200.0
+
+
+def run_wall_clock_seconds() -> float:
+    """B20: the per-query run-level wall-clock (seconds). A HANG anywhere in the
+    run body produces PERMANENT silence — a `finally` cannot fire on a hang — so the
+    call site wraps the whole `run_one_query` in `asyncio.wait_for(..., this)` and
+    the B11 finalizer emits a labeled timeout artifact on TimeoutError.
+
+    LAW VI: env-overridable (PG_RUN_WALL_CLOCK_SEC); generous default. A non-positive
+    or unparseable value falls back to the generous default (never disables the guard
+    silently — a disabled wall-clock would re-open the permanent-silence class)."""
+    raw = os.environ.get(_RUN_WALL_CLOCK_ENV, "").strip()
+    if not raw:
+        return _RUN_WALL_CLOCK_DEFAULT_SEC
+    try:
+        val = float(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "%s=%r is not a number; using default %.0fs",
+            _RUN_WALL_CLOCK_ENV, raw, _RUN_WALL_CLOCK_DEFAULT_SEC,
+        )
+        return _RUN_WALL_CLOCK_DEFAULT_SEC
+    return val if val > 0 else _RUN_WALL_CLOCK_DEFAULT_SEC
+
+
+# B20 P1-1 (Codex iter-2): the run-scoped wall-clock DEADLINE (a monotonic-clock instant).
+# The call site (main_async) sets this to ``time.monotonic() + wall`` immediately BEFORE wrapping
+# run_one_query in ``asyncio.wait_for(..., timeout=wall)``. When wait_for times out it CANCELS
+# run_one_query, so run_one_query's OWN inner `finally` (the B11 finalizer call) runs DURING the
+# CancelledError unwind — BEFORE control returns to the call-site `except TimeoutError` handler.
+# Without a signal, that inner finalizer would write a *degraded* report.md (status="started"),
+# and the call-site timeout finalizer would then NO-OP on the now-present report.md -> the run is
+# mislabeled `degraded` instead of `timeout`. ``run_wall_clock_cancellation_active()`` lets the
+# inner finally DETECT the wall-clock cancellation and pass ``timed_out=True``, so a HUNG run that
+# never produced a real report.md gets a deterministically TIMEOUT-labeled artifact. A
+# ContextVar is per-Task isolated (the v6 Dramatiq worker runs sibling runs in the same process),
+# so one run's deadline can never leak into another's finalizer decision.
+_RUN_WALL_CLOCK_DEADLINE_CTX: "contextvars.ContextVar[float | None]" = contextvars.ContextVar(
+    "pg_run_wall_clock_deadline", default=None
+)
+
+
+def run_wall_clock_cancellation_active() -> bool:
+    """B20 P1-1: True iff the CURRENT asyncio task is being cancelled AND the run-scoped
+    wall-clock deadline has elapsed — i.e. this CancelledError unwind is the B20 wall-clock
+    timeout (not a user cancel, which returns normally without asyncio-cancelling the task).
+
+    Two ANDed signals make the classification provably specific (so the inner finalizer can
+    never mislabel a non-timeout exit as a timeout):
+      1. ``asyncio.current_task().cancelling() > 0`` — a cancellation request is in flight
+         (3.11+; wait_for calls ``task.cancel()`` on timeout). The ONLY asyncio-cancel of
+         run_one_query is the call-site wait_for (``_abort_if_cancelled`` returns a bool; it
+         never raises/cancels), so this alone is already specific — the deadline AND is belt-
+         and-suspenders, not a crutch.
+      2. ``time.monotonic() >= deadline`` — the run-scoped wall-clock instant has passed.
+    Defensive: any failure (no running loop, no current task, 3.10 without ``cancelling``)
+    returns False — the finalizer then falls back to its normal status-driven body, which is
+    still NEVER silent (it just may carry the degraded label, the pre-fix behavior — fail safe)."""
+    try:
+        deadline = _RUN_WALL_CLOCK_DEADLINE_CTX.get()
+        if deadline is None or time.monotonic() < deadline:
+            return False
+        import asyncio as _asyncio  # local: keep module import-time cost unchanged
+        task = _asyncio.current_task()
+        if task is None:
+            return False
+        cancelling = getattr(task, "cancelling", None)
+        if cancelling is None:  # pragma: no cover — 3.13 has it; guard for <3.11
+            return False
+        return cancelling() > 0
+    except Exception:  # noqa: BLE001 — a finalizer-helper must never raise into a `finally`
+        return False
+
+
+def render_reliability_header_md(header: "dict | None") -> str:
+    """SECTION-lane cross-wire (I-arch-005 #1257): render the SECTION lane's
+    ``MultiSectionResult.reliability_header`` (a dict of per-claim corroboration COUNTS) into a
+    small markdown block to PREPEND to the report.md ARTIFACT.
+
+    DEFENSIVE: the field does NOT exist on MultiSectionResult at this base (8002392e) — it is
+    added by the SECTION lane. Callers pass ``getattr(multi, "reliability_header", None)``; this
+    returns "" for None / a non-dict / an empty dict, so a base run is byte-identical (no prepend).
+
+    FAITHFULNESS: this rendered block is prepended ONLY to the bytes written to report.md — it is
+    NEVER spliced into ``final_report`` (the text the evaluator/PT11 + judge read), so its integer
+    counts can never be mistaken for uncited numeric CLAIMS and trip an evaluator gate. It is a
+    reader-facing disclosure SIGNAL (corroboration strength), not an asserted finding."""
+    if not isinstance(header, dict) or not header:
+        return ""
+    # Read each count defensively (the lane owns the exact keys; tolerate partial dicts).
+    total = header.get("claims_total")
+    with_verified = header.get("claims_with_verified_support")
+    corroborated = header.get("claims_multi_source_corroborated")
+    single = header.get("claims_single_origin")
+    contested = header.get("claims_contested")
+    basis = header.get("corroboration_basis", "verified_support_origin_count")
+    lines = [
+        "## Reliability header",
+        "",
+        "_Per-claim corroboration strength (a disclosure signal, not a gate — no claim is "
+        "kept or dropped by these counts):_",
+        "",
+    ]
+    if total is not None:
+        lines.append(f"- Claims total: {total}")
+    if with_verified is not None:
+        lines.append(f"- Claims with independently span-verified support: {with_verified}")
+    if corroborated is not None:
+        lines.append(f"- Multi-source corroborated (>= 2 verified origins): {corroborated}")
+    if single is not None:
+        lines.append(f"- Single-origin (exactly 1 verified origin): {single}")
+    if contested is not None:
+        lines.append(f"- Contested (>= 1 refuting cluster): {contested}")
+    lines.append(f"- Corroboration basis: `{basis}`")
+    lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# B11 artifact-kind taxonomy. Maps a terminal manifest.status (unified taxonomy)
+# to the human-artifact KIND the finalizer emits when no report.md exists. This is
+# the discriminator the forensic doc requires: report.md on success, else a NAMED
+# refusal / degraded / insufficient-evidence / disclosed-gaps / timeout artifact.
+# The mapping is descriptive ONLY — it never decides faithfulness, only chooses the
+# wording of the backstop artifact. Unknown statuses fall to a generic degraded body.
+_ARTIFACT_KIND_REFUSAL = "honest-refusal"
+_ARTIFACT_KIND_INSUFFICIENT = "insufficient-evidence"
+_ARTIFACT_KIND_DEGRADED = "degraded"
+_ARTIFACT_KIND_DISCLOSED_GAPS = "disclosed-gaps"
+_ARTIFACT_KIND_TIMEOUT = "timeout"
+
+# status -> artifact kind. Keys are UNIFIED statuses (manifest.status), plus the
+# legacy summary labels that can reach the finalizer before unification.
+_STATUS_ARTIFACT_KIND: dict[str, str] = {
+    # honest refusal — the pipeline declined to research / had no usable inputs
+    "abort_scope_rejected": _ARTIFACT_KIND_REFUSAL,
+    "abort_safety_refused": _ARTIFACT_KIND_REFUSAL,
+    "abort_corpus_approval_denied": _ARTIFACT_KIND_REFUSAL,
+    "abort_journal_only_contract_conflict": _ARTIFACT_KIND_REFUSAL,
+    # insufficient evidence — sources/verification too thin to ship findings
+    "abort_no_sources": _ARTIFACT_KIND_INSUFFICIENT,
+    "abort_corpus_inadequate": _ARTIFACT_KIND_INSUFFICIENT,
+    "abort_no_verified_sections": _ARTIFACT_KIND_INSUFFICIENT,
+    "abort_excessive_gap": _ARTIFACT_KIND_INSUFFICIENT,
+    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+    # disclosed-gaps — a judge/infra signal could not be obtained; disclose + ship
+    "abort_conflict_judge_unavailable": _ARTIFACT_KIND_DISCLOSED_GAPS,
+    "abort_credibility_coverage_gap": _ARTIFACT_KIND_DISCLOSED_GAPS,
+    "released_with_disclosed_gaps": _ARTIFACT_KIND_DISCLOSED_GAPS,
+    "released_insufficient_safety_evidence": _ARTIFACT_KIND_DISCLOSED_GAPS,
+    # degraded — a run-level / infra failure (verifier, evaluator, redaction, ledger,
+    # discovery, budget, journal-leak, unexpected error). Still emits an artifact.
+    "abort_verifier_degraded": _ARTIFACT_KIND_DEGRADED,
+    "abort_evaluator_critical": _ARTIFACT_KIND_DEGRADED,
+    "abort_report_redaction_failed": _ARTIFACT_KIND_DEGRADED,
+    "abort_required_entity_ledger_failed": _ARTIFACT_KIND_DEGRADED,
+    "abort_discovery_degraded": _ARTIFACT_KIND_DEGRADED,
+    "abort_four_role_release_held": _ARTIFACT_KIND_DEGRADED,
+    "abort_budget_exceeded": _ARTIFACT_KIND_DEGRADED,
+    "error_journal_only_leak": _ARTIFACT_KIND_DEGRADED,
+    "error_corpus_population_mismatch": _ARTIFACT_KIND_DEGRADED,
+    "error_unexpected": _ARTIFACT_KIND_DEGRADED,
+    "cancelled": _ARTIFACT_KIND_DEGRADED,
+}
+
+_ARTIFACT_KIND_HEADINGS: dict[str, str] = {
+    _ARTIFACT_KIND_REFUSAL: "Honest refusal",
+    _ARTIFACT_KIND_INSUFFICIENT: "Insufficient evidence",
+    _ARTIFACT_KIND_DEGRADED: "Degraded run — no findings report produced",
+    _ARTIFACT_KIND_DISCLOSED_GAPS: "Report shipped with disclosed gaps",
+    _ARTIFACT_KIND_TIMEOUT: "Run timed out (wall-clock)",
+}
+
+
+def artifact_kind_for_status(status: "str | None", *, timed_out: bool = False) -> str:
+    """B11: choose the human-artifact KIND for a terminal status. ``timed_out`` (B20)
+    forces the timeout kind regardless of status. Unknown statuses fall to a generic
+    degraded body (loud, never silent). PURE — no faithfulness decision."""
+    if timed_out:
+        return _ARTIFACT_KIND_TIMEOUT
+    if not status:
+        return _ARTIFACT_KIND_DEGRADED
+    # Map a legacy summary label through unification first if it is not already unified.
+    unified = status if status in _STATUS_ARTIFACT_KIND else to_unified_status(status)
+    return _STATUS_ARTIFACT_KIND.get(
+        unified, _STATUS_ARTIFACT_KIND.get(status, _ARTIFACT_KIND_DEGRADED)
+    )
+
+
+def build_finalizer_artifact_body(
+    *,
+    research_question: str,
+    status: "str | None",
+    error: "str | None",
+    timed_out: bool = False,
+    wall_clock_seconds: "float | None" = None,
+) -> str:
+    """B11 / B20: build the NAMED backstop human artifact for a run that exited WITHOUT
+    writing a report.md (a pre-success abort, an exception, or a HANG). PURE function so
+    a behavior test can call it without driving the pipeline.
+
+    This is the artifact the §-1.1 forensic audit reads when no findings report exists —
+    it must be self-documenting (what happened, why, the terminal status), never empty.
+    It carries NO claims and asserts NO findings, so it can never relax faithfulness."""
+    kind = artifact_kind_for_status(status, timed_out=timed_out)
+    heading = _ARTIFACT_KIND_HEADINGS.get(kind, "Pipeline verdict")
+    lines = [
+        f"# Research report: {research_question}",
+        "",
+        "## Pipeline verdict",
+        "",
+        f"**Artifact kind:** {kind}",
+        f"**Terminal status:** `{status or 'unknown'}`",
+    ]
+    if timed_out and wall_clock_seconds is not None:
+        lines.append(
+            f"**Wall-clock:** the run exceeded the {wall_clock_seconds:.0f}s "
+            f"run-level wall-clock ({_RUN_WALL_CLOCK_ENV}) and was terminated. "
+            "A hang produces no findings; this artifact is emitted so the run is "
+            "never silent."
+        )
+    lines.append("")
+    lines.append(f"### {heading}")
+    lines.append("")
+    if kind == _ARTIFACT_KIND_TIMEOUT:
+        lines.append(
+            "The pipeline did not complete within the run-level wall-clock. No "
+            "findings report was produced. This is a degraded-run disclosure, not a "
+            "findings report — no claim is asserted and none is silently dropped."
+        )
+    elif kind == _ARTIFACT_KIND_REFUSAL:
+        lines.append(
+            "The pipeline declined to produce a findings report for this query "
+            "(scope / safety / corpus-approval / contract refusal). No findings are "
+            "asserted; this is an honest refusal, not a silent failure."
+        )
+    elif kind == _ARTIFACT_KIND_INSUFFICIENT:
+        lines.append(
+            "The retrieved evidence was insufficient to ship verified findings "
+            "(no sources, inadequate corpus, or no section survived strict_verify). "
+            "No unverified claim is shipped; this is an insufficient-evidence "
+            "disclosure, not a silent drop."
+        )
+    elif kind == _ARTIFACT_KIND_DISCLOSED_GAPS:
+        lines.append(
+            "A judge / verifier signal could not be obtained for part of this run. "
+            "The gap is DISCLOSED here rather than silently treated as 'no problem'. "
+            "No conflict / finding is asserted and none is silently dropped — the "
+            "judge simply could not decide."
+        )
+    else:  # degraded
+        lines.append(
+            "The run hit a run-level or infrastructure failure before a findings "
+            "report could be assembled. This artifact is emitted so the run is never "
+            "silent. No findings are asserted."
+        )
+    if error:
+        lines.append("")
+        lines.append("### Detail")
+        lines.append("")
+        lines.append(f"```\n{str(error)[:1000]}\n```")
+    lines.append("")
+    lines.append("### Suggested next steps")
+    lines.append("")
+    lines.append("- Inspect `manifest.json` (terminal status + cost) next to this file.")
+    lines.append("- Re-run after addressing the disclosed cause; widen retrieval or "
+                 "raise the wall-clock if the run was truncated.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def finalize_run_artifact(
+    run_dir: "Path | None",
+    summary: dict,
+    q: dict,
+    *,
+    timed_out: bool = False,
+    wall_clock_seconds: "float | None" = None,
+    log=None,
+) -> "str | None":
+    """B11 keystone — the Universal Artifact Finalizer. Guarantees EXACTLY ONE non-empty
+    human artifact exists in ``run_dir`` on EVERY exit path of a run.
+
+    Contract:
+      * If a NON-EMPTY ``report.md`` already exists (the success path, or any abort path
+        that wrote its own verdict body) -> NO-OP. NEVER overwrites a real report.md.
+      * Else -> write a NAMED backstop artifact (``report.md``) whose body matches the
+        already-computed terminal ``summary['status']`` (or the B20 timeout). The status
+        is READ, never decided here.
+
+    Idempotent + crash-safe: called from the run body's `finally` (catches exceptions /
+    pre-success aborts that wrote a manifest only) AND from the call-site timeout handler
+    (B20 — a hang the `finally` cannot reach). Whichever fires first wins; the second
+    no-ops on the now-present report.md.
+
+    MUST NEVER RAISE (it runs inside a `finally`): all IO is wrapped. Returns the artifact
+    kind written, or None if it no-op'd / could not write.
+
+    Faithfulness: PURE backstop. It asserts no claim and emits no findings — it can only
+    ADD a disclosure artifact, never relax a span / provenance / verdict check."""
+    def _emit_log(msg: str) -> None:
+        try:
+            if log is not None:
+                log(msg)
+            else:
+                logging.getLogger(__name__).info(msg)
+        except Exception:  # noqa: BLE001 — logging must never break the finalizer
+            pass
+
+    try:
+        if run_dir is None:
+            return None
+        report_path = Path(run_dir) / "report.md"
+        # NEVER overwrite a real (non-empty) report.md — the success path and the
+        # self-documenting abort bodies already wrote their artifact.
+        try:
+            if report_path.is_file() and report_path.stat().st_size > 0:
+                return None
+        except OSError:
+            # stat failed; fall through to a best-effort write (better an artifact
+            # than risk silence). A subsequent write replaces only an unreadable/empty file.
+            pass
+        status = summary.get("status") if isinstance(summary, dict) else None
+        error = summary.get("error") if isinstance(summary, dict) else None
+        body = build_finalizer_artifact_body(
+            research_question=q.get("question", "") if isinstance(q, dict) else "",
+            status=status,
+            error=error,
+            timed_out=timed_out,
+            wall_clock_seconds=wall_clock_seconds,
+        )
+        try:
+            Path(run_dir).mkdir(parents=True, exist_ok=True)
+            report_path.write_text(body, encoding="utf-8")
+        except OSError as exc:
+            _emit_log(f"[finalizer]   FAILED to write backstop artifact: {exc}")
+            return None
+        kind = artifact_kind_for_status(status, timed_out=timed_out)
+        _emit_log(
+            f"[finalizer]   B11 emitted backstop artifact kind={kind} "
+            f"status={status!r} timed_out={timed_out} (no report.md existed)"
+        )
+        return kind
+    except Exception as exc:  # noqa: BLE001 — a finally-callable finalizer must NEVER raise
+        _emit_log(f"[finalizer]   unexpected finalizer error (suppressed): {exc}")
+        return None
+
+
+# Attribute / dict-key names the JUDGES lane (B12 credibility-side + B13 conflict-side) attaches
+# its PER-SOURCE / PER-PAIR labeled returns under. The JUDGES lane is NOT in this base (8002392e),
+# so the run-side glue detects these by NAME and tolerates their total absence. Listed as constants
+# so the JUDGES lane's eventual field name has ONE place to reconcile against.
+_CREDIBILITY_UNSCORED_ATTR = "credibility_unscored"
+_CONFLICT_UNSCORED_ATTR = "conflict_unscored"
+
+
+def _collect_judge_unscored_labels(multi, retrieval) -> dict:
+    """B12/B13 run-side glue (I-arch-005 #1257). DEFENSIVELY collect the JUDGES-lane PER-SOURCE
+    (``credibility_unscored``) and PER-PAIR (``conflict_unscored``) labeled returns from whichever
+    object the lane attaches them to (the generator result ``multi`` or the ``retrieval`` bundle),
+    tolerant of their TOTAL absence at this base (the lane is not integrated yet).
+
+    Detection is by ATTRIBUTE then dict-KEY name on each candidate carrier; a found value is
+    normalized to a list (a scalar/str is wrapped). Returns
+    ``{"credibility_unscored": [...], "conflict_unscored": [...]}`` with empty lists when absent.
+    Pure read-only; never raises into the run (the caller also guards)."""
+    def _read(carrier, name):
+        if carrier is None:
+            return None
+        val = getattr(carrier, name, None)
+        if val is None and isinstance(carrier, dict):
+            val = carrier.get(name)
+        return val
+
+    def _as_list(val):
+        if val is None:
+            return []
+        if isinstance(val, (list, tuple, set)):
+            return [v for v in val if v is not None]
+        return [val]
+
+    out = {_CREDIBILITY_UNSCORED_ATTR: [], _CONFLICT_UNSCORED_ATTR: []}
+    for carrier in (multi, retrieval):
+        for key in (_CREDIBILITY_UNSCORED_ATTR, _CONFLICT_UNSCORED_ATTR):
+            found = _as_list(_read(carrier, key))
+            if found:
+                out[key].extend(found)
+    return out
+
+
+# B18 + B19 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): the RUN-LEVEL / META advisory HOLD
+# statuses that, under always-release, convert into a disclosed LABEL (the shipped report.md is
+# already strict_verify-clean span-grounded prose, so disclosing the run-level degradation and
+# SHIPPING keeps every per-claim faithfulness CHECK byte-unchanged). The binding 4-role D8 hold
+# (`abort_four_role_release_held`) is DELIBERATELY ABSENT from this map so a real fabrication /
+# coverage hold is NEVER converted — the faithfulness gate always wins.
+_B18_B19_CONVERTIBLE_HOLDS: dict[str, str] = {
+    # B18 — the LEGACY single-evaluator gate's PT08/PT11/PT12 advisory integrity HOLD. Under the
+    # D8-binding path it is already demoted to advisory metadata; here we make it ship.
+    "abort_evaluator_critical": (
+        "evaluator_critical: the advisory evaluator gate flagged a rule-integrity concern "
+        "(PT08/PT11/PT12). The binding faithfulness gates (strict_verify + 4-role D8) passed the "
+        "shipped prose; this advisory flag is DISCLOSED rather than withheld."
+    ),
+    # B19 — a FORCE-ENABLED discovery feature silently degraded to baseline (run-health /
+    # quantified-empty backstop). The corpus is the baseline corpus; disclose the degradation.
+    "abort_discovery_degraded": (
+        "discovery_degraded: a force-enabled discovery feature (STORM / agentic / quantified) did "
+        "not fire or produced no verified output, so the run used the baseline corpus. The "
+        "degradation is DISCLOSED; the shipped report is the strict_verify'd baseline run."
+    ),
+    # B19 — the strict-gate required-entity ledger raised (its honest 'Coverage gaps' disclosure
+    # could not be built). Disclose the ledger failure rather than hold the run.
+    "abort_required_entity_ledger_failed": (
+        "required_entity_ledger_failed: the required-entity coverage ledger could not be "
+        "built/rendered, so the explicit 'Coverage gaps' disclosure may be incomplete. The ledger "
+        "failure is DISCLOSED; the shipped report is otherwise strict_verify'd prose."
+    ),
+}
+
+
+def b18_b19_disposition(
+    summary_status: str, *, always_release: bool
+) -> "tuple[str, str | None]":
+    """B18/B19 PURE disposition (I-arch-005 #1257). Decide the terminal status for a run-level
+    META HOLD under the always-release reframe, so a behavior test can exercise every status +
+    both ON/OFF without driving the pipeline.
+
+    Returns ``(new_status, disclosure_or_None)``:
+      * always-release ON + ``summary_status`` is a convertible META HOLD ->
+        ``("released_with_disclosed_gaps", <disclosure text>)`` (LABEL + SHIP).
+      * otherwise -> ``(summary_status, None)`` (UNCHANGED — OFF byte-identical, and a
+        non-convertible status such as the binding `abort_four_role_release_held` is untouched).
+
+    Faithfulness: PURE. It never converts the binding D8 hold (absent from the map) and never
+    touches a per-claim check — the shipped report.md is already strict_verify-clean."""
+    if always_release and summary_status in _B18_B19_CONVERTIBLE_HOLDS:
+        return "released_with_disclosed_gaps", _B18_B19_CONVERTIBLE_HOLDS[summary_status]
+    return summary_status, None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 8-query manifest. Two per domain. Deliberately diverse within each
 # domain so novel failure modes have a chance to appear.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7514,7 +7984,21 @@ async def run_one_query(
         # same deduped text. Default ON via PG_SWEEP_LIMITATIONS_DEDUP; OFF leaves report byte-identical.
         if _env_flag(_LIMITATIONS_DEDUP_ENV, default=True):
             final_report = dedup_identical_paragraphs(final_report)
-        (run_dir / "report.md").write_text(final_report, encoding="utf-8")
+        # SECTION-lane cross-wire (I-arch-005 #1257): PREPEND the SECTION lane's reliability
+        # header (corroboration-strength counts) to the report.md ARTIFACT only. The field does
+        # NOT exist on MultiSectionResult at this base -> getattr None -> render "" -> byte-
+        # identical report.md until the SECTION lane integrates. CRITICAL: we prepend to the
+        # ARTIFACT BYTES, never to `final_report` (the evaluator/PT11 + judge text) — a counts
+        # block is a disclosure signal, not an asserted numeric claim, so it must not reach the
+        # uncited-numeric gate. `final_report` was already consumed by the evaluator above is
+        # FALSE here (the evaluator runs LATER, ~L8260, off `final_report`), so keeping the header
+        # out of `final_report` is what preserves the faithfulness-gate input byte-for-byte.
+        _reliability_md = render_reliability_header_md(
+            getattr(multi, "reliability_header", None)
+        )
+        (run_dir / "report.md").write_text(
+            _reliability_md + final_report, encoding="utf-8"
+        )
         (run_dir / "bibliography.json").write_text(
             json.dumps(multi.bibliography, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -7753,37 +8237,81 @@ async def run_one_query(
         # run cannot later be overwritten back to success by the D8 status path. Each errored sentence
         # already failed closed (its claim was dropped); this gates the whole RUN's release.
         if verif_details.get("judge_error_degraded"):
-            _jerr_status = to_unified_status("abort_verifier_degraded")
-            summary["status"] = "abort_verifier_degraded"
-            summary["error"] = (
+            # B15 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD) — Codex iter-3 P0 FIX
+            # (faithfulness-preserving): the BINDING verifier's judge_error_RATE exceeded the cap.
+            # This is a META-degradation of the judge's reliability — NOT a per-claim faithfulness
+            # failure of the shipped prose: every ERRORED sentence already failed CLOSED (its claim
+            # was dropped at strict_verify). A credibility/side-judge reliability failure is
+            # ADVISORY: it may LABEL (disclosed gap) but it MUST NOT short-circuit a FINDINGS report
+            # past the binding 4-role D8 gate. The PRIOR iter-2 code set
+            # status=released_with_disclosed_gaps AND `return summary` HERE — shipping a findings
+            # report.md that NEVER passed D8 (a D8-bypass = faithfulness RELAXATION). The fix:
+            #   * ALWAYS-RELEASE -> set the disclosed-gap LABEL on `summary` only and CONTINUE the
+            #     normal flow THROUGH the binding 4-role D8 seam below (no terminal manifest, no
+            #     `return summary`). If D8 PASSES, the findings report ships WITH this disclosed
+            #     reliability LABEL (the surfacing hook near the B18/B19 disclosed-gaps section reads
+            #     summary["verifier_degraded_disclosed_gap"] into manifest["disclosed_gaps"]). If D8
+            #     HOLDS, that hold is BINDING and the B16/B17 redaction + B11 finalizer ship a
+            #     NON-findings disclosure artifact — never a findings report.md that skipped D8.
+            #   * OFF (PG_ALWAYS_RELEASE=0) -> reproduce the legacy terminal abort byte-identical:
+            #     status=abort_verifier_degraded, write the terminal manifest, `return summary`. This
+            #     terminal exit is what keeps a degraded run from later being overwritten back to
+            #     success by the D8 status path (#1071); the abort branch MUST stay terminal.
+            # The faithfulness CHECK is byte-unchanged either way: nothing is made to pass, no span
+            # widened, D8 stays the single binding gate (it is no longer bypassed).
+            from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                always_release_enabled as _b15_always_release,
+            )
+            _jerr_degraded_detail = (
                 f"judge_error_rate={verif_details.get('judge_error_rate')} > cap "
                 f"{verif_details.get('judge_error_rate_cap')} "
                 f"({verif_details.get('judge_error_count')}/"
                 f"{verif_details.get('judge_calls')} judge calls)"
             )
-            _jerr_manifest = {
-                "run_id": run_id,
-                "slug": q.get("slug", ""),
-                "domain": q.get("domain", ""),
-                "question": q.get("question", ""),
-                "status": _jerr_status,
-                "release_allowed": False,
-                "verifier_judge_error_rate": verif_details.get("judge_error_rate"),
-                "verifier_judge_error_count": verif_details.get("judge_error_count"),
-                "verifier_judge_error_cap": verif_details.get("judge_error_rate_cap"),
-                "budget_cap_usd": get_max_cost_per_run(),
-            }
-            _jerr_manifest = _attach_tool_utilization(_jerr_manifest, run_dir)
-            (run_dir / "manifest.json").write_text(
-                json.dumps(_jerr_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8",
-            )
-            summary["manifest"] = _jerr_manifest
-            _log(
-                f"[verifier]    ABORT abort_verifier_degraded — release BLOCKED before D8 "
-                f"(judge_error_rate {verif_details.get('judge_error_rate')} > cap "
-                f"{verif_details.get('judge_error_rate_cap')})"
-            )
-            return summary
+            if _b15_always_release():
+                # LABEL ONLY — do NOT set a terminal status, do NOT `return summary`. The disclosed
+                # gap rides on `summary` (which persists) and is surfaced into manifest["disclosed
+                # _gaps"] after the binding D8 seam decides the headline status. We fall THROUGH to
+                # the 4-role D8 gate; D8 owns the release decision (no pre-D8 findings ship).
+                summary["verifier_degraded_disclosed_gap"] = (
+                    "verifier_degraded: the binding per-sentence verifier reported a judge-error "
+                    f"rate above the trust cap ({_jerr_degraded_detail}). Each errored sentence "
+                    "already failed CLOSED (its claim was dropped at strict_verify); this run "
+                    "continues THROUGH the binding 4-role D8 gate and the degradation is DISCLOSED "
+                    "as a reliability LABEL on the D8-released report. The 4-role D8 gate is NOT "
+                    "bypassed — if it holds, the findings body is withheld. No claim is made to pass."
+                )
+                _log(
+                    "[verifier]    LABEL verifier_degraded (always-release) -> disclosed gap; "
+                    f"CONTINUE through binding 4-role D8 gate ({_jerr_degraded_detail})"
+                )
+            else:
+                # LEGACY terminal abort (byte-identical): release BLOCKED before D8 spend.
+                summary["status"] = "abort_verifier_degraded"
+                summary["error"] = _jerr_degraded_detail
+                _log(
+                    f"[verifier]    ABORT abort_verifier_degraded — release BLOCKED before D8 "
+                    f"(judge_error_rate {verif_details.get('judge_error_rate')} > cap "
+                    f"{verif_details.get('judge_error_rate_cap')})"
+                )
+                _jerr_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": to_unified_status("abort_verifier_degraded"),
+                    "release_allowed": False,
+                    "verifier_judge_error_rate": verif_details.get("judge_error_rate"),
+                    "verifier_judge_error_count": verif_details.get("judge_error_count"),
+                    "verifier_judge_error_cap": verif_details.get("judge_error_rate_cap"),
+                    "budget_cap_usd": get_max_cost_per_run(),
+                }
+                _jerr_manifest = _attach_tool_utilization(_jerr_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(_jerr_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+                )
+                summary["manifest"] = _jerr_manifest
+                return summary
 
         # Evaluator rule checks
         # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
@@ -8524,20 +9052,64 @@ async def run_one_query(
                         "artifact can leak)"
                     )
                 elif not _audit_map_path.is_file():
-                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
-                    # is missing -> fail closed rather than ship an unreconciled report.
-                    summary_status = "report_redaction_failed"
-                    unified_status = to_unified_status(summary_status)
-                    manifest["status"] = unified_status
-                    manifest["release_allowed"] = False
-                    manifest["report_redaction_error"] = (
-                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
-                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
-                    )
-                    _log(
-                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
-                        "verdicts -> abort_report_redaction_failed"
-                    )
+                    # Non-VERIFIED verdicts exist but the audit_map needed to locate them is missing.
+                    # B16/B17 (I-arch-005 #1257): the legacy HOLD here leaves the leaking report.md on
+                    # disk (the §-1.1 audit reads report.md, not the manifest) — a hold ships the leak.
+                    # Without the audit_map we cannot surgically quarantine the specific claims, so
+                    # under always-release WITHHOLD the leaking findings body and ship a degraded
+                    # disclosure (preserve the unredacted body as a curator sidecar). Over-conservative
+                    # but FAITHFUL: no unverified claim ships. OFF (PG_ALWAYS_RELEASE=0) keeps the
+                    # legacy fail-closed HOLD byte-identical.
+                    if always_release_enabled():
+                        try:
+                            (run_dir / "report_unredacted.md").write_text(
+                                _redact_report_path.read_text(encoding="utf-8"),
+                                encoding="utf-8",
+                            )
+                        except OSError:
+                            pass
+                        summary_status = "released_with_disclosed_gaps"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = True
+                        manifest["report_redaction_error"] = (
+                            "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                            "cannot locate the claims to quarantine"
+                        )
+                        manifest.setdefault("disclosed_gaps", []).append(
+                            "report_redaction_audit_map_missing: the 4-role audit map needed to "
+                            "locate non-VERIFIED claims for quarantine was absent, so the leaking "
+                            "findings body was withheld and replaced by this disclosure (unredacted "
+                            "body kept as report_unredacted.md). No unverified claim ships."
+                        )
+                        _redact_report_path.write_text(
+                            build_finalizer_artifact_body(
+                                research_question=q.get("question", ""),
+                                status="released_with_disclosed_gaps",
+                                error=(
+                                    "four_role_claim_audit.json missing with non-VERIFIED verdicts "
+                                    "present; findings body withheld for faithfulness"
+                                ),
+                            ),
+                            encoding="utf-8",
+                        )
+                        _log(
+                            "[label]       B16/B17 audit_map missing (always-release) -> withheld "
+                            "leaking body, shipped disclosed-gaps degraded artifact"
+                        )
+                    else:
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = (
+                            "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                            "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                        )
+                        _log(
+                            "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                            "verdicts -> abort_report_redaction_failed"
+                        )
                 elif always_release_enabled():
                     # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
                     # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
@@ -8573,15 +9145,115 @@ async def run_one_query(
                             _marker_by_claim,
                         )
                     except ReportRedactionError as _annot_exc:
-                        summary_status = "report_redaction_failed"
-                        unified_status = to_unified_status(summary_status)
-                        manifest["status"] = unified_status
-                        manifest["release_allowed"] = False
-                        manifest["report_redaction_error"] = str(_annot_exc)
+                        # B16/B17 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): annotate could not
+                        # TIER-1-pin one or more non-VERIFIED claims to label them in place. The
+                        # OLD behavior HELD (status=report_redaction_failed) — but the report.md at
+                        # L~7517 is STILL on disk WITH the unverified claim asserted as fact, and the
+                        # §-1.1 audit reads report.md not the manifest, so a HOLD here SHIPS the leak
+                        # under an abort label. That is the leak, not the safe state. The
+                        # faithfulness-safe move is to QUARANTINE the unpinnable claim: fall back to
+                        # reconcile, which over-redacts via TIER-2 (DELETE the smallest containing
+                        # unit, KEEP every verified neighbor) — strictly MORE conservative than
+                        # annotate's keep+label (it deletes rather than labels), so nothing is made
+                        # to pass and no span is widened. Ship the redacted body + disclosed gap.
                         _log(
-                            f"[label]       FAIL-CLOSED: {_annot_exc} -> "
-                            "abort_report_redaction_failed"
+                            f"[label]       annotate could not pin a claim ({_annot_exc}); "
+                            "falling back to reconcile (quarantine + ship the rest)"
                         )
+                        try:
+                            _b16_redaction = reconcile_report_against_verdicts(
+                                _redact_report_path.read_text(encoding="utf-8"),
+                                _final_verdicts,
+                                _audit_map,
+                            )
+                        except ReportRedactionError as _b16_exc:
+                            # ABSOLUTE residue: a non-VERIFIED claim's prose is present but cannot be
+                            # bounded by ANY redactable unit (it straddles a heading/bib line, etc.).
+                            # We cannot surgically quarantine it, so we must not ship the leaking body.
+                            # Replace report.md with a degraded disclosure body (asserts NO claim) and
+                            # preserve the unredacted body as a curator sidecar (the 8631 affordance).
+                            # Over-conservative (drops verified content too) but FAITHFUL, and rare.
+                            try:
+                                (run_dir / "report_unredacted.md").write_text(
+                                    _redact_report_path.read_text(encoding="utf-8"),
+                                    encoding="utf-8",
+                                )
+                            except OSError:
+                                pass
+                            summary_status = "released_with_disclosed_gaps"
+                            unified_status = to_unified_status(summary_status)
+                            manifest["status"] = unified_status
+                            manifest["release_allowed"] = True
+                            manifest["report_redaction_error"] = str(_b16_exc)
+                            manifest.setdefault("disclosed_gaps", []).append(
+                                "report_redaction_unpinnable: one or more 4-role non-VERIFIED claims "
+                                "could not be bounded to any redactable unit for surgical "
+                                f"quarantine ({_b16_exc}); the leaking findings body was withheld and "
+                                "replaced by this disclosure (unredacted body kept as "
+                                "report_unredacted.md for the curator). No unverified claim ships."
+                            )
+                            _degraded_body = build_finalizer_artifact_body(
+                                research_question=q.get("question", ""),
+                                status="released_with_disclosed_gaps",
+                                error=(
+                                    "post-gate redaction could not surgically quarantine a non-"
+                                    f"VERIFIED claim ({_b16_exc}); the findings body was withheld."
+                                ),
+                            )
+                            _redact_report_path.write_text(_degraded_body, encoding="utf-8")
+                            _log(
+                                f"[label]       B16/B17 unpinnable residue ({_b16_exc}) -> "
+                                "withheld leaking body, shipped disclosed-gaps degraded artifact "
+                                "(unredacted body -> report_unredacted.md)"
+                            )
+                        else:
+                            _b16_reconciled = _b16_redaction.report_text
+                            if _b16_redaction.redacted:
+                                from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+                                    refilter_key_findings_block,
+                                )
+                                _b16_reconciled = refilter_key_findings_block(_b16_reconciled)
+                            _redact_report_path.write_text(_b16_reconciled, encoding="utf-8")
+                            summary_status = "released_with_disclosed_gaps"
+                            unified_status = to_unified_status(summary_status)
+                            manifest["status"] = unified_status
+                            manifest["release_allowed"] = True
+                            manifest["report_redaction"] = {
+                                "redacted_count": _b16_redaction.redacted_count,
+                                "redacted_claim_ids": [
+                                    rc.claim_id for rc in _b16_redaction.redacted
+                                ],
+                                "already_absent_claim_ids": _b16_redaction.already_absent,
+                                "fallback_from": "annotate_unpinnable",
+                            }
+                            manifest.setdefault("disclosed_gaps", []).append(
+                                "report_redaction_quarantine: one or more non-VERIFIED claims could "
+                                "not be labeled in place, so they were QUARANTINED (removed) from "
+                                f"report.md ({_b16_redaction.redacted_count} removed); the verified "
+                                "remainder ships. No unverified claim is asserted."
+                            )
+                            if _b16_redaction.redacted:
+                                _b16_gaps_path = run_dir / "gaps.json"
+                                _b16_existing_gaps: list = []
+                                if _b16_gaps_path.is_file():
+                                    try:
+                                        _b16_loaded = json.loads(
+                                            _b16_gaps_path.read_text(encoding="utf-8")
+                                        )
+                                        if isinstance(_b16_loaded, list):
+                                            _b16_existing_gaps = _b16_loaded
+                                    except Exception:  # noqa: BLE001 — corrupt sidecar must not lose gaps
+                                        _b16_existing_gaps = []
+                                _b16_existing_gaps.extend(_b16_redaction.gaps_json())
+                                _b16_gaps_path.write_text(
+                                    json.dumps(_b16_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                    encoding="utf-8",
+                                )
+                            _log(
+                                "[label]       B16 quarantine fallback: reconcile removed "
+                                f"{_b16_redaction.redacted_count} unpinnable non-VERIFIED claim(s) + "
+                                "shipped the verified remainder (released_with_disclosed_gaps)"
+                            )
                     else:
                         _redact_report_path.write_text(
                             _annotation.report_text, encoding="utf-8"
@@ -8856,6 +9528,16 @@ async def run_one_query(
             manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
         except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
             pass
+
+        # SECTION-lane cross-wire (I-arch-005 #1257): record the SECTION lane's per-section
+        # BUDGET TAIL-DROP telemetry into the manifest. The field does NOT exist on
+        # MultiSectionResult at this base (8002392e) -> getattr returns [] -> the key is ABSENT
+        # (only added when a non-empty list is present), so a base run keeps a byte-identical
+        # manifest. Telemetry-only (an honest record of which evidence ids a per-section budget
+        # cap trimmed) — it never gates a claim or touches a faithfulness check.
+        _budget_tail_drops = getattr(multi, "budget_tail_drops", None)
+        if _budget_tail_drops:
+            manifest["budget_tail_drops"] = list(_budget_tail_drops)
 
         # I-meta-007b (#meta-007): write run_dir/tool_summary.json and add the
         # additive manifest['tool_utilization'] summary via the shared helper
@@ -9154,6 +9836,48 @@ async def run_one_query(
                 "simple_routed": _simple_routed,
                 "fetch_cap": _fetch_cap,
             }
+        # B18 + B19 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): convert the RUN-LEVEL / META
+        # advisory HOLD statuses into a disclosed LABEL under always-release, via the PURE
+        # `b18_b19_disposition` helper (behavior-tested for every status + ON/OFF). This runs AFTER
+        # all status reconciliation (legacy evaluator gate, the binding 4-role D8 seam, FL-05, the
+        # strict-gate backstops, and the required-entity-ledger hold) AND none of those set-sites
+        # `return summary` for a convertible status before reaching here, so the flip is REACHED at
+        # runtime (asserted by the test's no-intervening-`return summary` reachability check). The
+        # binding D8 hold (`abort_four_role_release_held`) is absent from the convertible map, so a
+        # real fabrication / coverage hold is never overridden. OFF (PG_ALWAYS_RELEASE=0) => the
+        # helper returns the status UNCHANGED => byte-identical legacy aborts.
+        from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+            always_release_enabled as _b18_always_release,
+        )
+        _b18_new_status, _b18_disclosed_gap = b18_b19_disposition(
+            summary_status, always_release=_b18_always_release(),
+        )
+        if _b18_disclosed_gap is not None:
+            _b18_prior_status = summary_status
+            _log(
+                f"[label]       LABEL+SHIP {_b18_prior_status} (always-release) -> "
+                f"{_b18_new_status}"
+            )
+            summary_status = _b18_new_status
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            manifest["release_allowed"] = True
+            # Surface BOTH the converted-from status and the disclosure so the audit trail shows the
+            # degradation was disclosed, never silently relaxed.
+            manifest["released_with_disclosed_gaps_from"] = _b18_prior_status
+            manifest.setdefault("disclosed_gaps", []).append(_b18_disclosed_gap)
+        # B15 (I-arch-005 #1257, Codex iter-3 P0 fix): surface the verifier-degraded reliability
+        # LABEL that the always-release B15 branch set on `summary` BEFORE it fell THROUGH the
+        # binding 4-role D8 gate (it no longer short-circuits past D8). This runs AFTER D8 decided
+        # the headline status, so a D8 HOLD already withheld the findings body (B16/B17 + B11) — the
+        # disclosed gap then rides on the NON-findings artifact; a D8 RELEASE ships the findings body
+        # WITH this reliability disclosure. Either way the degradation is auditable, never silent,
+        # and D8 — not this label — owns the release decision. Faithfulness: PURE disclosure (no
+        # status flip here, no span/verdict touched).
+        _b15_verifier_gap = summary.get("verifier_degraded_disclosed_gap")
+        if _b15_verifier_gap is not None:
+            manifest["verifier_degraded_disclosed_gap"] = _b15_verifier_gap
+            manifest.setdefault("disclosed_gaps", []).append(_b15_verifier_gap)
         # B5/B7 (operator-locked 2026-06-14): surface the conflict-side-judge LABEL+SHIP disclosure
         # (the run continued past an unavailable cross-document conflict judge under always-release
         # instead of aborting). Auditable + never silent. Only appears when the fail-soft fired.
@@ -9165,6 +9889,33 @@ async def run_one_query(
         _cred_disclosed_gap = getattr(multi, "credibility_disclosed_gap", None)
         if _cred_disclosed_gap is not None:
             manifest["credibility_disclosed_gap"] = _cred_disclosed_gap
+        # B12/B13 run-side glue (I-arch-005 #1257): consume the JUDGES-lane PER-SOURCE
+        # (`credibility_unscored`) and PER-PAIR (`conflict_unscored`) labeled returns and route them
+        # into the disclosed-gaps section instead of an abort. The JUDGES lane (which ADDS these label
+        # fields) is NOT in this base, so this glue is written DEFENSIVELY: it detects the markers by
+        # attribute / dict-key NAME tolerant of their absence at 8002392e (it activates only after the
+        # JUDGES integration lands). It imports NO symbol that does not exist at this base. Extends the
+        # B5/B7 `conflict_judge_disclosed_gap` / `credibility_disclosed_gap` surfacing — does not
+        # duplicate it. Faithfulness: a per-source/per-pair `*_unscored` LABEL only DISCLOSES "could
+        # not score this source / adjudicate this pair"; it never asserts a finding or drops a check.
+        try:
+            _b12_collected = _collect_judge_unscored_labels(multi, retrieval)
+            if _b12_collected.get("credibility_unscored"):
+                manifest["credibility_unscored"] = _b12_collected["credibility_unscored"]
+                manifest.setdefault("disclosed_gaps", []).append(
+                    "credibility_unscored: "
+                    f"{len(_b12_collected['credibility_unscored'])} source(s) could not be scored "
+                    "by the credibility judge; they ship at neutral weight, disclosed (not dropped)."
+                )
+            if _b12_collected.get("conflict_unscored"):
+                manifest["conflict_unscored"] = _b12_collected["conflict_unscored"]
+                manifest.setdefault("disclosed_gaps", []).append(
+                    "conflict_unscored: "
+                    f"{len(_b12_collected['conflict_unscored'])} evidence pair(s) could not be "
+                    "adjudicated by the conflict judge; disclosed (no conflict asserted, none dropped)."
+                )
+        except Exception as _b12_exc:  # noqa: BLE001 — defensive glue must never abort the run
+            _log(f"[label]       B12/B13 unscored-label glue skipped (fail-open): {_b12_exc}")
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -9317,6 +10068,38 @@ async def run_one_query(
         # context. Replaces the iter-3 wrapper split (which broke the run_one_query source-introspection
         # contract gates) — the body stays in run_one_query per Codex iter-4's first-listed fix.
         _FEATURE_TELEMETRY_CTX.set(None)
+        # B11 (I-arch-005 #1257, P0 keystone): the Universal Artifact Finalizer. This `finally`
+        # is the ONE choke point EVERY non-hang exit of the run body passes through — success
+        # (its report.md was written at L~7517 -> finalizer no-ops), every early abort-return
+        # (each wrote its own verdict body OR only a manifest), AND the budget / journal / generic
+        # excepts above (which wrote a manifest ONLY, never a report.md = the TRUE-SILENCE class
+        # the forensic doc identified). The finalizer guarantees exactly ONE non-empty human
+        # artifact exists: it NO-OPs when a real report.md already exists, else writes a NAMED
+        # backstop artifact matching the already-computed summary['status']. It NEVER overwrites a
+        # real report.md and NEVER touches a faithfulness gate. (The HANG case the `finally` cannot
+        # reach is covered by B20's call-site wall-clock + the same finalizer at the call site.)
+        # Runs FIRST in the finally so a later teardown failure cannot leave the run silent.
+        #
+        # B20 P1-1 (Codex iter-2): when this `finally` is running DURING a B20 wall-clock
+        # cancellation (asyncio.wait_for cancelled run_one_query because the run HUNG), pass
+        # timed_out=True so a hung run that never wrote a real report.md gets a deterministically
+        # TIMEOUT-labeled artifact HERE — instead of a `degraded` body (summary['status'] is still
+        # "started"/partial on a hang) that would NO-OP the call-site timeout finalizer. If a REAL
+        # report.md already exists (a hang in the post-report 4-role seam — the known xhigh stall),
+        # the finalizer NO-OPs and the genuine verified report is preserved untouched (the no-op
+        # guard is the faithfulness-critical invariant the operator's "nothing shall hold" relies
+        # on — we never swap a real deliverable for a timeout stub). Faithfulness: the timeout flag
+        # only changes the BACKSTOP artifact's wording; it never touches a span/provenance check.
+        try:
+            _wall_cancelled = run_wall_clock_cancellation_active()
+            finalize_run_artifact(
+                run_dir, summary, q,
+                timed_out=_wall_cancelled,
+                wall_clock_seconds=run_wall_clock_seconds() if _wall_cancelled else None,
+                log=_log,
+            )
+        except Exception:  # noqa: BLE001 — finalizer is itself defensive; double-guard in the finally
+            pass
         # I-obs-001 #1141 AC1: terminal heartbeat stamp. This finally is the ONE choke point
         # every exit passes through — success, every early abort-return (incl. the three
         # _abort_if_cancelled returns + abort_verifier_degraded), AND the budget/journal/error
@@ -9624,10 +10407,93 @@ async def main_async() -> int:
             _pathb_run_dir = out_root / q["domain"] / q["slug"]
             _pathb_run_dir.mkdir(parents=True, exist_ok=True)
             from src.polaris_graph.benchmark.pathB_runner import gate_around_question
-            with gate_around_question(
-                enabled=args.pathB_gate, run_dir=_pathb_run_dir,
-            ):
-                summary = await run_one_query(q, out_root, resume=args.resume)
+            # B20 (I-arch-005 #1257, P0): the run-level wall-clock. The top run path has ZERO
+            # asyncio.wait_for, so a HANG anywhere in run_one_query (a wedged fetch, a judge that
+            # never returns) = PERMANENT silence: the run body's `finally` (B11) can NEVER fire on a
+            # hang. Wrap the whole call in asyncio.wait_for; on TimeoutError emit the B11 timeout
+            # artifact + a labeled manifest for THIS query and continue the sweep (one hung query
+            # must not silence the rest). The faithfulness engine is untouched — a timeout asserts
+            # no findings. Generous, env-overridable cap (run_wall_clock_seconds / PG_RUN_WALL_CLOCK_SEC).
+            _wall = run_wall_clock_seconds()
+            # B20 P1-1 (Codex iter-2): publish the run-scoped wall-clock DEADLINE BEFORE wait_for
+            # wraps run_one_query, so that when wait_for times out and cancels run_one_query, the
+            # run body's inner `finally` (the B11 finalizer) can DETECT the wall-clock cancellation
+            # (run_wall_clock_cancellation_active) and emit a TIMEOUT-labeled artifact rather than a
+            # degraded one. asyncio.wait_for copies the current context into the awaited task, so the
+            # task sees this value. The token is reset in a finally so it never leaks to the next
+            # query in the sweep loop.
+            _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(time.monotonic() + _wall)
+            try:
+                with gate_around_question(
+                    enabled=args.pathB_gate, run_dir=_pathb_run_dir,
+                ):
+                    summary = await asyncio.wait_for(
+                        run_one_query(q, out_root, resume=args.resume),
+                        timeout=_wall,
+                    )
+            except (asyncio.TimeoutError, TimeoutError):
+                # PERMANENT-SILENCE HANG caught (B20). Reconstruct run_dir as the CLI sweep nesting
+                # (the v6 UUID override is never used on this CLI loop path) and emit a labeled,
+                # non-empty timeout artifact + manifest so the run is NEVER silent.
+                _to_run_dir = _pathb_run_dir
+                _to_status = "error_unexpected"  # downstream-registered; a hang IS an unexpected exit
+                _timeout_summary = {
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": _to_status,
+                    "error": (
+                        f"run-level wall-clock exceeded: run_one_query did not complete within "
+                        f"{_wall:.0f}s ({_RUN_WALL_CLOCK_ENV}); the run was terminated (hang)"
+                    ),
+                    "cost_usd": 0.0,
+                    "wall_time_seconds": round(time.time() - t0, 1),
+                    "run_dir": str(_to_run_dir),
+                    "run_id": "timeout",
+                }
+                print(
+                    f"<<< status={_to_status} (TIMEOUT after {_wall:.0f}s; "
+                    f"{_RUN_WALL_CLOCK_ENV}) — B11 timeout artifact emitted\n"
+                )
+                try:
+                    finalize_run_artifact(
+                        _to_run_dir,
+                        _timeout_summary,
+                        q,
+                        timed_out=True,
+                        wall_clock_seconds=_wall,
+                    )
+                except Exception as _fin_exc:  # noqa: BLE001 — never let the backstop break the sweep
+                    print(f"[finalizer]   timeout-artifact write failed: {_fin_exc}")
+                try:
+                    _to_manifest = _base_manifest_envelope(
+                        run_id="timeout", q=q, retrieval=None, run_cost=0.0,
+                    )
+                    _to_manifest["status"] = _to_status
+                    _to_manifest["release_allowed"] = False
+                    _to_manifest["run_wall_clock_timeout"] = True
+                    _to_manifest["run_wall_clock_seconds"] = _wall
+                    _to_manifest["error"] = _timeout_summary["error"]
+                    (_to_run_dir / "manifest.json").write_text(
+                        json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
+                        encoding="utf-8",
+                    )
+                    _timeout_summary["manifest"] = _to_manifest
+                except Exception as _man_exc:  # noqa: BLE001 — manifest is best-effort; artifact already shipped
+                    print(f"[finalizer]   timeout-manifest write failed: {_man_exc}")
+                all_summaries.append(_timeout_summary)
+                # B20 P1-1: reset the run-scoped deadline so it never leaks into the next query.
+                try:
+                    _RUN_WALL_CLOCK_DEADLINE_CTX.reset(_deadline_token)
+                except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
+                    pass
+                continue
+            # B20 P1-1: clear the run-scoped wall-clock deadline on the NORMAL (non-timeout) path
+            # too, so a later in-iteration cancellation cannot be misread as a wall-clock timeout.
+            try:
+                _RUN_WALL_CLOCK_DEADLINE_CTX.reset(_deadline_token)
+            except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
+                pass
             dt = time.time() - t0
             summary["wall_time_seconds"] = round(dt, 1)
             # M-INT-0b: capture a ModelPin for every run so later
