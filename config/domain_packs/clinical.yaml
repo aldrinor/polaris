@@ -1,0 +1,71 @@
+# B9 domain pack — CLINICAL (the DETECTED specialization).
+#
+# Activated ONLY when the clinical domain is positively detected
+# (domain="clinical", or a blank domain over a clinically-signalled corpus —
+# drug / clinical-population present). Layers FULL clinical rigor ON TOP of the
+# general default: PICO framing, the clinical present-vs-absent NegEx lexicon,
+# clinical contradiction predicates, the S0 clinical-safety categories, and
+# clinical report sections. Clinical rigor is NEVER lost and NEVER forced onto a
+# non-clinical run. See general.yaml for the shared schema.
+
+domain: clinical
+is_clinical: true
+
+sections:
+  - Efficacy
+  - Safety
+  - Regulatory
+  - Comparative
+  - Mechanism
+  - Dose Response
+  - Population Subgroups
+  - Long-term Outcomes
+
+# Clinical efficacy + safety endpoints (the clinical predicate union used by
+# contradiction_detector when is_clinical is true).
+contradiction_predicates:
+  - weight loss
+  - hba1c reduction
+  - a1c reduction
+  - systolic blood pressure reduction
+  - ldl reduction
+  - cardiovascular risk reduction
+  - mace reduction
+  - mortality reduction
+  - stroke rate
+  - major bleeding
+  - hazard ratio
+  - relative risk
+  - incidence of nausea
+  - discontinuation rate
+  - adverse event rate
+  - serious adverse event rate
+  - all-cause mortality
+
+# The clinical present-vs-absent cue lexicon lives in the dedicated SME-editable
+# config; the pack points to it rather than duplicating it.
+qualitative_lexicon:
+  lexicon_path: config/clinical_safety/qualitative_conflict_lexicon.yaml
+
+source_tier_priors:
+  T1: 1.0   # RCT / primary clinical study
+  T2: 0.95  # systematic review / meta-analysis (clinical hierarchy)
+  T3: 0.9   # regulatory label / guideline body
+  T4: 0.7   # preprint / conference abstract
+  T5: 0.55  # industry / sponsor material
+  T6: 0.45  # medical trade press
+  T7: 0.25  # patient forum / social (low weight, never dropped)
+
+safety_policy:
+  # Clinical keeps the safety floor: a contradicted/unsupported clinical
+  # recommendation is rendered WITH its contradiction label, never asserted as
+  # fact. The report is always released, but the report TYPE changes (disclose
+  # the evidence state) — clinical safety is preserved by disclosure, not hold.
+  always_release: true
+  clinical_s0_categories:
+    - contraindications
+    - dosing
+    - pregnancy
+    - renal_impairment
+    - drug_interactions
+  abstain_on_zero_grounding: true

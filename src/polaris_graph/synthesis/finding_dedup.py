@@ -137,6 +137,7 @@ def dedup_by_finding(
     rows: list[dict[str, Any]],
     *,
     gov_suffixes: tuple[str, ...],
+    domain: str | None = None,
 ) -> FindingDedupResult:
     """Cluster `rows` by numeric finding, collapse rehashes, count corroboration.
 
@@ -179,10 +180,24 @@ def dedup_by_finding(
     rows = list(rows or [])
 
     # 1. Extract claims per row, group by conservative finding key.
+    #
+    # B9 domain-generalization: `extract_numeric_claims` now routes a NON-clinical
+    # row (deterministic is_clinical signal) to the DOMAIN-AGNOSTIC extractor, so
+    # an economics/labor numeric yields a REAL finding key instead of nothing —
+    # closing the documented "non-clinical -> singleton" residual (RESIDUAL 2
+    # above) so corroborating non-clinical sources can consolidate into a basket.
+    # `domain` defaults to None: the per-row is_clinical probe then classifies
+    # each row by its own text, so a CLINICAL row still takes the clinical
+    # extractor and is byte-identical. A caller MAY pass the run-level `domain`
+    # to pin the whole pass. The conservative-singleton + unknown-subject guards
+    # below are UNCHANGED in both modes — no merge predicate is relaxed.
     groups: dict[tuple, list[int]] = {}
     row_has_finding: list[bool] = [False] * len(rows)
     for ri, row in enumerate(rows):
-        claims = extract_numeric_claims([row])
+        claims = (
+            extract_numeric_claims([row], domain=domain)
+            if domain is not None else extract_numeric_claims([row])
+        )
         if claims:
             row_has_finding[ri] = True
         ev_id = str(row.get("evidence_id", ri))

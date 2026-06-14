@@ -1,0 +1,44 @@
+# B9 domain pack — SCIENCE (non-clinical specialization).
+#
+# Schema-valid pack (see general.yaml for the shared schema). is_clinical is
+# false. NO clinical logic fires on a science run (a physics/materials/climate
+# question that happens to mention "mortality" must not route clinical).
+
+domain: science
+is_clinical: false
+
+sections:
+  - Overview
+  - Key Findings
+  - Methods and Measurements
+  - Mechanism
+  - Comparative
+  - Limitations
+
+contradiction_predicates:
+  - measured value
+  - emissions
+  - temperature
+  - efficiency
+  - yield
+  - concentration
+  - energy density
+  - error rate
+  - accuracy
+  - rate
+
+qualitative_lexicon: {}
+
+source_tier_priors:
+  T1: 1.0   # peer-reviewed primary science
+  T2: 0.95  # systematic reviews / assessment reports (e.g. IPCC)
+  T3: 0.9   # national labs / standards bodies
+  T4: 0.85  # preprints (arXiv etc. — a major science primary channel)
+  T5: 0.6   # industry R&D reports
+  T6: 0.5   # science journalism
+  T7: 0.3   # blogs / commentary (low weight, never dropped)
+
+safety_policy:
+  always_release: true
+  clinical_s0_categories: []
+  abstain_on_zero_grounding: true

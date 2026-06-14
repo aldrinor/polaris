@@ -184,12 +184,17 @@ def test_unknown_subject_is_a_singleton():
 
 
 def test_raw_claims_are_always_distinct_singletons():
-    """Non-clinical rows fall back to RAW claims, each keyed by its own text -> never
-    merged, never dropped (field-agnostic coverage guarantee)."""
+    """Non-clinical rows are now extracted by the B9 domain-agnostic numeric
+    extractor (the documented residual is fixed): each distinct GDP/emissions
+    finding yields its own claim, keyed by its own subject/predicate/value ->
+    never merged, never dropped (field-agnostic coverage guarantee). Two
+    DIFFERENT findings stay distinct singletons (no false merge)."""
     graph = build_claim_graph(_rows("non_clinical_numeric"))
-    raw = [c for c in graph.claims if c.kind == "raw"]
-    assert len(raw) == 2, "each non-clinical row must yield exactly one raw claim"
-    assert len({c.claim_cluster_id for c in raw}) == 2, "raw claims are distinct singletons"
+    # Each non-clinical row yields exactly one claim (numeric now, not raw).
+    assert len(graph.claims) == 2, "each non-clinical row must yield exactly one claim"
+    assert len({c.claim_cluster_id for c in graph.claims}) == 2, (
+        "two distinct non-clinical findings stay distinct singletons"
+    )
 
 
 # ── field-agnostic coverage: every row yields >=1 atomic claim ─────────────────
@@ -211,11 +216,17 @@ def test_every_row_yields_at_least_one_claim(case):
 
 
 def test_non_clinical_numeric_produces_claims_finding_dedup_would_miss():
-    """The motivating gap: finding_dedup's clinical-numeric extractor returns NOTHING
-    on GDP/emissions rows. The claim-graph still produces atomic claims for them."""
+    """The motivating gap is now CLOSED by B9: the domain-agnostic numeric
+    extractor produces structured numeric claims on GDP/emissions rows (the
+    clinical-only extractor used to return nothing -> raw singletons). Every
+    non-clinical row still yields >=1 atomic claim; nothing is dropped."""
     claims = extract_atomic_claims(_rows("non_clinical_numeric"))
     assert len(claims) == 2
-    assert all(c.kind == "raw" for c in claims)
+    # B9: these are NUMERIC claims now (the residual is fixed), not raw
+    # fallbacks. Each row is still covered (field-agnostic coverage guarantee).
+    assert all(c.kind == "numeric" for c in claims)
+    covered = {c.evidence_id for c in claims}
+    assert covered == {"e_econ_1", "e_econ_2"}
 
 
 # ── INVARIANT 2: recall-first on contradictions ────────────────────────────────

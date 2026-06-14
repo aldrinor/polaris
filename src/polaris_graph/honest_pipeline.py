@@ -270,8 +270,13 @@ def run_honest_pipeline(
         )
 
     # ── Phase 3: contradiction detection ───────────────────────────────
-    num_claims = extract_numeric_claims(evidence)
-    contradictions = detect_contradictions(num_claims)
+    # B9: route + label by the deterministic is_clinical signal so a non-clinical
+    # run uses the domain-agnostic extractor and possible_metric_mismatch
+    # labeling. Clinical (domain="clinical") is byte-identical.
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain
+    _is_clinical_hp = is_clinical_domain(domain, evidence)
+    num_claims = extract_numeric_claims(evidence, domain=domain)
+    contradictions = detect_contradictions(num_claims, is_clinical=_is_clinical_hp)
     contradictions_path = run_dir_path / "contradictions.json"
     contradictions_path.write_text(
         json.dumps(

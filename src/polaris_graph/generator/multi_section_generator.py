@@ -5534,6 +5534,30 @@ async def generate_multi_section_report(
     from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL
     gen_model = model or PG_GENERATOR_MODEL
 
+    # B9 domain-generalization (SG3 — clinical few-shot leakage): a NON-clinical
+    # run must NOT receive the clinical few-shot exemplars baked into the legacy
+    # `SECTION_SYSTEM_PROMPT_TEMPLATE` (the AUC-550% / mortality-117% leak). The
+    # field-agnostic section template carries the SAME structural rules with ZERO
+    # clinical literal. Historically it was selected ONLY when the planner ran
+    # (`research_plan is not None`), so a non-clinical OFF-mode run still leaked
+    # clinical exemplars. Derive the deterministic is_clinical signal from the
+    # domain here and force field-agnostic for non-clinical runs. CLINICAL runs
+    # keep `research_plan is not None` selection unchanged → byte-identical when
+    # the planner is off. domain="" (legacy default) probes nothing -> treated as
+    # clinical-unknown by is_clinical_domain (returns False over no evidence), so
+    # to preserve the legacy clinical-default OFF behavior we only force field-
+    # agnostic on a POSITIVELY non-clinical domain token.
+    from src.polaris_graph.domain.domain_signal import (
+        CLINICAL_DOMAIN as _B9_CLINICAL,
+        normalize_domain as _b9_normalize_domain,
+    )
+    _b9_domain = _b9_normalize_domain(domain)
+    # Force field-agnostic ONLY when the domain is a positively-named
+    # NON-clinical token. A blank/"general" domain with no positive signal stays
+    # on the legacy selection (research_plan-gated) so the locked clinical
+    # benchmark (domain="" today) is byte-identical.
+    _b9_force_field_agnostic = bool(domain) and (_b9_domain != _B9_CLINICAL)
+
     # I-meta-005 Phase 6 (#990, Codex ruling A1): resolve the domain advisory
     # writing-guidance ONCE from the frame's answer_type (the explicit domain
     # signal) + claim_type. ON-mode only (research_plan present); OFF -> "" (no
@@ -5970,7 +5994,12 @@ async def generate_multi_section_report(
                 # I-meta-005 Phase 1 FIX 4 (Codex diff-gate iter-1 P1 #4):
                 # on-mode the base section prompt is field-agnostic. OFF:
                 # research_plan is None -> the unchanged clinical template.
-                use_field_agnostic_prompt=research_plan is not None,
+                # B9 SG3: ALSO force field-agnostic for a positively non-clinical
+                # domain so clinical few-shots never leak into non-clinical prose
+                # (clinical / blank stay on the unchanged research_plan gate).
+                use_field_agnostic_prompt=(
+                    research_plan is not None or _b9_force_field_agnostic
+                ),
                 # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
                 # resolved once above (closure-captured; "" OFF -> no append).
                 advisory_text=advisory_text,

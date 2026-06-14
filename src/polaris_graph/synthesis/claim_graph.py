@@ -872,7 +872,12 @@ def build_contradiction_edges(
             else numeric_extractor(rows)
     except TypeError:
         numeric_claims = numeric_extractor(rows)
-    for rec in detect_contradictions(numeric_claims):
+    # B9: thread the deterministic is_clinical signal so a non-clinical numeric
+    # gap with unconfirmed scope is labeled possible_metric_mismatch, not a hard
+    # contradiction. Clinical (default True) is byte-identical.
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain
+    _is_clinical_cg = is_clinical_domain(domain, rows)
+    for rec in detect_contradictions(numeric_claims, is_clinical=_is_clinical_cg):
         _add(
             "numeric",
             getattr(rec, "subject", ""),

@@ -5098,7 +5098,17 @@ async def run_one_query(
         numeric_claims = extract_numeric_claims(
             retrieval.evidence_rows, domain=q["domain"],
         )
-        contradictions = detect_contradictions(numeric_claims)
+        # B9 domain-generalization: thread the deterministic is_clinical signal
+        # so a non-clinical numeric gap with differing scope is labeled
+        # `possible_metric_mismatch`, not asserted as a hard contradiction. The
+        # clinical path is byte-identical (is_clinical True -> default rule).
+        from src.polaris_graph.domain.domain_signal import is_clinical_domain
+        _is_clinical_run = is_clinical_domain(
+            q["domain"], retrieval.evidence_rows,
+        )
+        contradictions = detect_contradictions(
+            numeric_claims, is_clinical=_is_clinical_run,
+        )
         # Qualitative present-vs-absent clinical-safety conflict detection (I-meta-002-q1d #944).
         # Default ON (no-spend, additive, rule-cue only); kill-switch PG_SWEEP_QUALITATIVE_CONFLICT.
         # Merged into the SAME contradictions.json list (a `type:"qualitative"` discriminator +
@@ -6467,8 +6477,13 @@ async def run_one_query(
                 dedup_by_finding,
             )
             _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
+            # B9: thread the run-level domain so a NON-clinical pool uses the
+            # domain-agnostic claim-atom extractor consistently (real non-clinical
+            # finding keys -> non-singleton baskets). Clinical pins the clinical
+            # extractor; byte-identical for clinical runs.
             _dedup = dedup_by_finding(
-                evidence_for_gen, gov_suffixes=_gov_suffixes
+                evidence_for_gen, gov_suffixes=_gov_suffixes,
+                domain=q["domain"],
             )
             # I-arch-002 (#1246) P3.3 (member-drop bypass): under the redesign flag,
             # SKIP replacing evidence_for_gen with the deduped (member-DROPPED) rows so

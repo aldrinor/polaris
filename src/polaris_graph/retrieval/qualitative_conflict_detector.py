@@ -494,7 +494,27 @@ def extract_qualitative_assertions(
     evidence: list[dict[str, Any]], domain: str | None = None,
 ) -> list[QualitativeAssertion]:
     """Extract qualitative clinical-safety assertions from evidence rows. One row may yield several
-    (one per concept occurrence per sentence). `no_assertion` pseudo cues skip the span entirely."""
+    (one per concept occurrence per sentence). `no_assertion` pseudo cues skip the span entirely.
+
+    B9 domain-generalization (the spine): this detector's cue lexicon
+    (`config/clinical_safety/qualitative_conflict_lexicon.yaml`) is CLINICAL —
+    contraindication / drug-interaction / adverse-event present-vs-absent cues.
+    Running it on a NON-clinical corpus produced the 2,738 junk
+    contradiction baskets on the labor-displacement report (the clinical cue
+    set fired on every topic). The `domain` param is now READ and gated through
+    the deterministic `is_clinical_domain` backbone: on a non-clinical run the
+    clinical lexicon does NOT apply, so we return no qualitative assertions and
+    the (numeric/NLI) detectors + the span-grounding faithfulness gate remain
+    the backstops. Clinical runs (`domain="clinical"`, or a blank domain over a
+    clinically-signalled corpus) keep the FULL clinical behavior byte-identical.
+    """
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain
+    if not is_clinical_domain(domain, evidence):
+        # Non-clinical corpus: the clinical present-vs-absent cue lexicon does
+        # not apply. Skip clinical extraction entirely (no junk clinical
+        # baskets); non-clinical claim consolidation + faithfulness run on the
+        # numeric/atomic path. Never raises, never holds.
+        return []
     lex = _load_lexicon()
     from src.polaris_graph.retrieval.contradiction_detector import _normalize_subject
     out: list[QualitativeAssertion] = []

@@ -1,0 +1,45 @@
+# B9 domain pack — TECHNOLOGY (non-clinical specialization).
+#
+# Schema-valid pack (see general.yaml for the shared schema). is_clinical is
+# false. NO clinical logic fires on a technology run.
+
+domain: technology
+is_clinical: false
+
+sections:
+  - Overview
+  - Capabilities and Benchmarks
+  - Architecture and Mechanism
+  - Adoption and Impact
+  - Comparative
+  - Limitations
+
+contradiction_predicates:
+  - accuracy
+  - f1 score
+  - precision
+  - recall
+  - auc
+  - error rate
+  - latency
+  - throughput
+  - inference time
+  - model size
+  - perplexity
+  - exact match
+
+qualitative_lexicon: {}
+
+source_tier_priors:
+  T1: 1.0   # peer-reviewed CS / ML research
+  T2: 0.9   # systematic surveys / benchmarks
+  T3: 0.85  # standards bodies (IEEE / NIST / W3C)
+  T4: 0.85  # preprints (arXiv — a major tech primary channel)
+  T5: 0.65  # vendor whitepapers / model cards
+  T6: 0.5   # tech press
+  T7: 0.3   # blogs / forum posts (low weight, never dropped)
+
+safety_policy:
+  always_release: true
+  clinical_s0_categories: []
+  abstain_on_zero_grounding: true

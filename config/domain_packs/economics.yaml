@@ -1,0 +1,47 @@
+# B9 domain pack — ECONOMICS (non-clinical specialization).
+#
+# Schema-valid pack (see general.yaml for the shared schema). Owns the
+# economics-specific contradiction predicates + tier priors. is_clinical is
+# false: NO clinical predicates / NegEx lexicon / S0 safety categories fire on
+# an economics run. The general default applies for everything not specialized
+# here.
+
+domain: economics
+is_clinical: false
+
+sections:
+  - Overview
+  - Key Estimates
+  - Drivers and Mechanisms
+  - Distributional Effects
+  - Comparative
+  - Limitations
+
+contradiction_predicates:
+  - gdp growth
+  - inflation rate
+  - unemployment rate
+  - wage growth
+  - productivity growth
+  - market share
+  - cost savings
+  - revenue growth
+  - employment effect
+  - labor displacement
+  - participation rate
+
+qualitative_lexicon: {}
+
+source_tier_priors:
+  T1: 1.0   # peer-reviewed economics journals
+  T2: 0.9   # NBER / systematic literature
+  T3: 0.9   # central banks / statistical agencies / CBO / PBO
+  T4: 0.8   # working papers (a major economics primary channel)
+  T5: 0.65  # bank / consultancy research
+  T6: 0.5   # business press
+  T7: 0.3   # blogs / commentary (low weight, never dropped)
+
+safety_policy:
+  always_release: true
+  clinical_s0_categories: []
+  abstain_on_zero_grounding: true

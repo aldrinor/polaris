@@ -59,20 +59,39 @@ except ImportError:  # pragma: no cover — yaml is in requirements.txt
 
 logger = logging.getLogger("polaris_graph.scope_gate")
 
+# B9 domain-generalization: the general-domain constant. Imported at top so the
+# classifier helpers reference it cleanly. domain_signal imports scope_gate ONLY
+# lazily inside functions, so there is no import cycle at module load.
+from src.polaris_graph.domain.domain_signal import GENERAL_DOMAIN  # noqa: E402
+
 # Repo root for locating config/scope_templates/.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
 
-# Supported domain hints. Determines which scope template is loaded.
-# BUG-B-102 R2b: `custom` added for pipeline-B UI path (graph_v4) so
-# free-form UI queries don't all route through clinical/tech/etc.
+# Supported domain hints. Determines which scope template is loaded. This is the
+# CANONICAL-8 set (tests/v6/test_template_canonical_set.py enforces exact
+# set-equality across scope_templates / SUPPORTED_DOMAINS / v6 templates /
+# frontend / actors). B9 does NOT add a 9th template here — the B9 "general"
+# concept lives in the SEPARATE domain-pack layer (config/domain_packs/, governed
+# by src/polaris_graph/domain/). The domain-agnostic SCOPE TEMPLATE is the
+# existing `custom` (free-form, tier-permissive) entry of the canonical 8.
+# BUG-B-102 R2b: `custom` is the pipeline-B UI free-form path.
 SUPPORTED_DOMAINS = frozenset({
     "clinical", "policy", "tech", "due_diligence", "custom",
     # Carney delivery templates (I-tpl-006/7/8 trio complete).
     "ai_sovereignty", "canada_us", "workforce",
 })
 
-DEFAULT_DOMAIN = "clinical"
+# B9 domain-generalization (the spine): the DEFAULT is the domain-AGNOSTIC
+# `custom` template, NOT clinical. The historical "clinical" default silently ran
+# the clinical PICO path on every domain-less call (SG1). A domain-less / blank
+# caller now routes to `custom` (the canonical free-form, tier-permissive
+# template) — NEVER clinical, never abort. A clinical question is DETECTED
+# (positive drug/clinical-population signal) or supplied explicitly
+# (`domain="clinical"`), never assumed. (The B9 conceptual "general" domain is
+# the domain-pack default in config/domain_packs/general.yaml; `custom` is its
+# scope-template realization within the locked canonical-8.)
+DEFAULT_DOMAIN = "custom"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -619,6 +638,150 @@ def extract_research_frame_heuristic(query: str) -> dict[str, list[str]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# B9 domain-generalization (the spine) — cheap domain/intent classifier.
+#
+# SG1 fix: POLARIS historically DEFAULTED to clinical and never INFERRED the
+# domain, so a non-clinical question silently ran the clinical path. This adds a
+# lightweight, INJECTABLE domain/intent classifier that returns a free-text
+# domain (NOT a closed enum — avoids re-introducing the closed-set trap one
+# level up), the deterministic capability flags `is_clinical` / `is_quantitative`,
+# and `key_entity_types`. It DEGRADES gracefully: a wrong/blank classification
+# falls to `general` (weight, never abort, never clinical). The output is
+# ADVISORY routing context — it is NOT serialized into the immutable
+# `protocol.json`, so adding it does NOT change the protocol bytes/hash (clinical
+# byte-identity preserved).
+#
+# The LLM seam is OPTIONAL + injectable. The DEFAULT is a deterministic, NO-SPEND
+# heuristic (reuses the `is_clinical_domain` backbone + the field-agnostic frame
+# heuristic), so build/smoke never hit a live LLM. A caller may inject an LLM
+# callable (`Callable[[str], str]` returning JSON) to refine the free-text domain
+# label; an LLM error/garbage output FAILS OPEN to the heuristic (general).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class DomainIntent:
+    """Advisory domain/intent classification (B9 SG1). NOT serialized into
+    protocol.json — pure routing context."""
+
+    domain: str                  # free-text domain label; "general" when unknown
+    is_clinical: bool            # the deterministic clinical specialization signal
+    is_quantitative: bool        # the question asks for a measured quantity
+    key_entity_types: list[str]  # advisory entity-type hints (free text)
+    source: str = "heuristic"    # "heuristic" | "llm" — provenance of the label
+
+
+def _heuristic_domain_label(question: str, is_clinical: bool) -> str:
+    """Deterministic free-text domain label from cheap keyword cues. NO LLM.
+
+    Returns a free-text label (NOT a closed enum) — `clinical` when the clinical
+    signal fired, else the first matching coarse bucket, else `general`. The
+    label is advisory only; the hard scope-template route uses the SUPPORTED set
+    with `general` as the safe default, so an unrecognised label never aborts."""
+    if is_clinical:
+        return "clinical"
+    q = (question or "").lower()
+    # Coarse, additive cue buckets (free text, not a gate). Order = priority.
+    buckets: list[tuple[str, tuple[str, ...]]] = [
+        ("economics", ("gdp", "inflation", "unemployment", "labor", "labour",
+                        "wage", "economic", "economy", "productivity", "market",
+                        "trade", "fiscal", "monetary", "recession")),
+        ("policy", ("policy", "regulation", "regulatory", "legislation", "bill ",
+                    "statute", "governance", "compliance", "subsidy", "tariff")),
+        ("technology", ("ai ", "artificial intelligence", "machine learning",
+                        "software", "algorithm", "model ", "semiconductor",
+                        "compute", "neural", "llm")),
+        ("science", ("physics", "chemistry", "biology", "climate", "emissions",
+                     "materials", "genome", "experiment", "quantum")),
+    ]
+    for label, cues in buckets:
+        if any(cue in q for cue in cues):
+            return label
+    return GENERAL_DOMAIN
+
+
+def _is_quantitative_question(question: str) -> bool:
+    """Deterministic: does the question ask for a measured quantity? Reuses the
+    field-agnostic metric-cue regex (no domain literal)."""
+    return bool(_FRAME_METRIC_CUES_RE.search(question or ""))
+
+
+def classify_domain_intent(
+    question: str,
+    *,
+    evidence: Optional[list[dict[str, Any]]] = None,
+    domain_hint: Optional[str] = None,
+    llm: Optional[Any] = None,
+) -> DomainIntent:
+    """Classify the question's domain + intent (B9 SG1). Deterministic by
+    default; an optional injected `llm` callable (``Callable[[str], str]``
+    returning a JSON object with a ``domain`` key) only REFINES the free-text
+    label. Never raises, never aborts, FAILS OPEN to `general`.
+
+    Args:
+        question: the raw research question.
+        evidence: optional evidence rows; used by the deterministic clinical
+            signal when `domain_hint` is blank.
+        domain_hint: optional caller-supplied domain (e.g. the sweep's
+            `q["domain"]`). An explicit non-blank hint is authoritative for the
+            clinical signal (so `domain="clinical"` -> is_clinical True).
+        llm: optional injectable seam (``Callable[[str], str]``). Tests inject a
+            deterministic fake; production may inject a real Writer call. An LLM
+            error or unparseable output is swallowed -> heuristic label.
+
+    Returns:
+        DomainIntent. `is_clinical` is the deterministic backbone signal;
+        `domain` is a free-text label degrading to `general`.
+    """
+    from src.polaris_graph.domain.domain_signal import (
+        GENERAL_DOMAIN as _GENERAL,
+        is_clinical_domain,
+        normalize_domain,
+    )
+    is_clinical = is_clinical_domain(domain_hint, evidence)
+    is_quant = _is_quantitative_question(question)
+    frame = extract_research_frame_heuristic(question)
+    key_entity_types = frame.get("entities", [])[:6]
+
+    # Default deterministic label.
+    label = _heuristic_domain_label(question, is_clinical)
+    source = "heuristic"
+
+    # Optional LLM refinement (fail-open). The LLM may only OVERRIDE the
+    # free-text label for a non-clinical question; it NEVER overrides the
+    # deterministic clinical signal (clinical safety stays deterministic).
+    if llm is not None and not is_clinical:
+        try:
+            raw = llm(question)
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            llm_domain = normalize_domain(str(parsed.get("domain", "")))
+            # Codex P2.2: the LLM may refine a NON-clinical free-text label but
+            # must NEVER set the label to "clinical" when the deterministic
+            # is_clinical signal is False — clinical routing stays deterministic
+            # (a clinical label with is_clinical False would be inconsistent and
+            # could reactivate clinical routing in a downstream consumer).
+            if (
+                llm_domain
+                and llm_domain != _GENERAL
+                and llm_domain != "clinical"
+            ):
+                label = llm_domain
+                source = "llm"
+        except Exception:
+            # Garbage / error -> keep the deterministic heuristic label.
+            label = _heuristic_domain_label(question, is_clinical)
+            source = "heuristic"
+
+    return DomainIntent(
+        domain=label or _GENERAL,
+        is_clinical=is_clinical,
+        is_quantitative=is_quant,
+        key_entity_types=list(key_entity_types),
+        source=source,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -661,9 +824,18 @@ def run_scope_gate(
     scope_rejection_code: Optional[str] = None
     scope_reasons: list[str] = []
 
-    # Hard reject #1: unsupported domain. Previously silently fell back
-    # to DEFAULT_DOMAIN ("clinical") — that's a silent category error
-    # for any query that legitimately should route elsewhere.
+    # B9 (Codex P1.1): a BLANK / whitespace-only domain is NOT an "unsupported
+    # domain" error — it is the domain-LESS case that must route to the
+    # domain-agnostic general default (operator-locked: "" -> general, never
+    # abort). Normalize it to DEFAULT_DOMAIN (general) BEFORE the unsupported
+    # check so it proceeds. A genuinely malformed explicit literal (e.g.
+    # "made_up_domain") still falls through to the fail-loud reject below.
+    if not (domain or "").strip():
+        domain = DEFAULT_DOMAIN
+
+    # Hard reject #1: unsupported domain. A blank domain was normalized to
+    # general above; only a non-blank UNRECOGNISED literal reaches here and
+    # rejects loudly (fail-loud, never a silent clinical fallback).
     if domain not in SUPPORTED_DOMAINS:
         scope_decision = "reject"
         scope_rejected = True

@@ -1,0 +1,41 @@
+# B9 domain pack — POLICY (non-clinical specialization).
+#
+# Schema-valid pack (see general.yaml for the shared schema). is_clinical is
+# false. NO clinical logic fires on a policy run.
+
+domain: policy
+is_clinical: false
+
+sections:
+  - Overview
+  - Policy Mechanism
+  - Evidence and Impact Estimates
+  - Stakeholders and Jurisdictions
+  - Comparative
+  - Limitations
+
+contradiction_predicates:
+  - compliance rate
+  - adoption rate
+  - enforcement rate
+  - coverage rate
+  - participation rate
+  - emissions reduction
+  - cost savings
+  - penalty rate
+
+qualitative_lexicon: {}
+
+source_tier_priors:
+  T1: 1.0   # peer-reviewed policy research
+  T2: 0.9   # systematic policy reviews
+  T3: 0.95  # legislation / regulators / official impact analyses
+  T4: 0.8   # working papers / think-tank primaries
+  T5: 0.65  # advocacy / industry submissions
+  T6: 0.5   # policy journalism
+  T7: 0.3   # opinion / commentary (low weight, never dropped)
+
+safety_policy:
+  always_release: true
+  clinical_s0_categories: []
+  abstain_on_zero_grounding: true

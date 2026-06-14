@@ -1,0 +1,76 @@
+# B9 domain pack — GENERAL (the domain-agnostic default).
+#
+# POLARIS is GENERAL by default; clinical rigor is a DETECTED specialization
+# (clinical.yaml). A blank / unknown / unrecognised domain uses THIS pack —
+# never the clinical pack. A domain pack owns the domain-specific WEIGHTS and
+# LABELS (source-tier priors, contradiction predicates, qualitative lexicon,
+# safety policy, report sections); it is NEVER a hard DROP/CAP. The faithfulness
+# engine (strict_verify / span-grounding / NLI / 4-role) remains the only hard
+# gate.
+#
+# Schema (shared by every pack):
+#   domain                  : the pack's canonical domain token.
+#   is_clinical             : whether this pack activates the clinical
+#                             specialization (clinical predicates / NegEx
+#                             lexicon / PICO / S0 safety categories). Only
+#                             clinical.yaml sets this true.
+#   sections                : the report section titles for this domain.
+#   contradiction_predicates: metric/endpoint cues used to group numeric claims
+#                             for contradiction detection in this domain.
+#   qualitative_lexicon     : present-vs-absent qualitative cue config. EMPTY for
+#                             non-clinical domains (the clinical NegEx lexicon is
+#                             clinical-only — running it elsewhere produced the
+#                             2,738 junk flags).
+#   source_tier_priors      : per-tier credibility WEIGHT priors (advisory; never
+#                             a drop).
+#   safety_policy           : the release / safety policy for this domain.
+
+domain: general
+is_clinical: false
+
+sections:
+  - Overview
+  - Key Findings
+  - Evidence and Analysis
+  - Comparative
+  - Limitations
+
+# Field-agnostic metric cues (same family as the generic numeric extractor).
+contradiction_predicates:
+  - rate
+  - ratio
+  - cost
+  - price
+  - share
+  - level
+  - score
+  - index
+  - growth
+  - change
+  - reduction
+  - increase
+  - probability
+  - risk
+  - return
+
+# Non-clinical: NO clinical present-vs-absent lexicon. Qualitative conflict
+# detection on a general corpus relies on the span-grounding / NLI backstop, not
+# a clinical cue list.
+qualitative_lexicon: {}
+
+source_tier_priors:
+  T1: 1.0   # peer-reviewed primary research
+  T2: 0.9   # systematic reviews / meta-analyses
+  T3: 0.85  # government / regulatory / standards / reputable institutes
+  T4: 0.7   # preprints / working papers
+  T5: 0.6   # industry / analyst research
+  T6: 0.5   # trade press / quality journalism
+  T7: 0.3   # blogs / opinion / social (low weight, NEVER dropped)
+
+safety_policy:
+  # General domain has no clinical safety floor. Always release a labeled
+  # artifact (operator-locked: nothing holds the report); disclose the evidence
+  # state, never assert a confident claim on contradicted/thin evidence.
+  always_release: true
+  clinical_s0_categories: []
+  abstain_on_zero_grounding: true

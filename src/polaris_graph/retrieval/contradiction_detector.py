@@ -73,6 +73,263 @@ _DURATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# B9 domain-generalization — DOMAIN-AGNOSTIC numeric extraction.
+#
+# The clinical extractor (`extract_numeric_claims` clinical path) keys a claim
+# on a CLINICAL predicate lexicon (`_EFFICACY_PREDICATES` / `_SAFETY_PREDICATES`)
+# and a CLINICAL subject (`_DRUG_NAME_RE`). For a non-clinical corpus
+# (economics / AI-labor / policy / science / tech) both return nothing, so
+# `extract_numeric_claims` emits ZERO claims → every non-clinical numeric row
+# becomes a SINGLETON in `finding_dedup` / `claim_graph` (the documented
+# residual that blocks B6/B8 non-clinical baskets). The generic path below
+# extracts a claim-atom WITHOUT any clinical literal: a generic metric cue (the
+# SAME field-agnostic cues as `scope_gate.extract_research_frame_heuristic`) is
+# the predicate, a generic number+unit is the value, and a generic content-word
+# entity is the subject. This yields a REAL claim-key for non-clinical numerics
+# (so corroborating sources can consolidate into a basket) WITHOUT loosening the
+# clinical merge rule — clinical runs are byte-identical (gated on is_clinical).
+# Faithfulness is unchanged: span-grounding / strict_verify remain the hard gate.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Any number with an OPTIONAL trailing unit token. Generic — no clinical
+# vocabulary. Captures percent / currency-magnitude / plain counts so an
+# economics or labor numeric ("GDP grew 3.2%", "$13 trillion", "75.5 percent")
+# is extractable. The unit is normalized so two sources stating the same
+# quantity in the same unit can consolidate.
+_GENERIC_VALUE_RE = re.compile(
+    r"(?P<value>-?\d+(?:,\d{3})*(?:\.\d+)?)\s*"
+    r"(?P<unit>%|percent|percentage\s*points?|pp|bps|basis\s*points?|"
+    r"trillion|billion|million|thousand|"
+    r"usd|eur|gbp|cad|jpy|"
+    r"gw|mw|kw|kwh|mwh|twh|tonnes?|tons?|"
+    r"jobs?|workers?|people|users?|points?|x|×)?"
+    r"(?=\s|[,.;:)\]!?]|$)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_generic_unit(unit: str) -> str:
+    """Canonicalize a generic unit token so equivalent spellings consolidate.
+
+    '%'/'percent' -> 'percent'; magnitude words and currencies stay as the
+    lowercased token. Empty/None -> '' (a unit-less count). Pure."""
+    u = (unit or "").strip().lower()
+    if not u:
+        return ""
+    u = re.sub(r"\s+", " ", u)
+    if u in ("%", "percent"):
+        return "percent"
+    if u in ("pp", "percentage point", "percentage points"):
+        return "percentage_points"
+    if u in ("bps", "basis point", "basis points"):
+        return "basis_points"
+    return u
+
+
+def _normalize_predicate_generic(text: str) -> Optional[str]:
+    """Return a field-agnostic predicate (a generic metric cue) present in the
+    text, or None. Reuses `scope_gate.extract_research_frame_heuristic`'s
+    metric-cue vocabulary (rate/ratio/cost/share/level/score/growth/emissions/
+    accuracy/...). NO clinical literal. Pure, no LLM."""
+    from src.polaris_graph.nodes.scope_gate import _FRAME_METRIC_CUES_RE
+    m = _FRAME_METRIC_CUES_RE.search(text or "")
+    if m:
+        return m.group(1).lower()
+    return None
+
+
+# Generic stopwords for content-word subject extraction (no domain literal).
+# Includes statistical / temporal / measurement FILLER words that are NOT real
+# entities — a generic claim whose only nearby content word is filler resolves
+# to "unknown" (a SAFE SINGLETON, never a false merge — the conservative rule).
+_GENERIC_SUBJECT_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "of",
+    "in", "on", "at", "to", "for", "with", "by", "from", "as", "that", "this",
+    "these", "those", "it", "its", "be", "been", "has", "have", "had", "will",
+    "would", "could", "should", "may", "can", "about", "into", "than", "such",
+    "between", "over", "under", "per", "more", "most", "some", "all", "each",
+    # Statistical / measurement / temporal filler — not an entity subject.
+    "mean", "median", "average", "total", "observed", "reported", "estimated",
+    "measured", "approximately", "roughly", "about", "value", "values",
+    "rate", "ratio", "level", "amount", "number", "result", "results",
+    "week", "weeks", "month", "months", "year", "years", "day", "days",
+    "baseline", "change", "reduction", "increase", "decrease", "growth",
+    "compared", "versus", "relative", "respectively", "overall", "general",
+})
+
+
+def _subject_generic(
+    text: str, anchor_pos: int, predicate: str = "", window: int = 120,
+) -> str:
+    """Extract a generic content-word subject for a non-clinical claim — the
+    noun that names WHAT the metric measures, NOT a drug name and NOT the metric
+    cue itself.
+
+    Strategy (deterministic, no clinical regex):
+      1. Anchor on the metric-cue (`predicate`) occurrence nearest the numeric
+         value when available; the subject of "X rate" / "X growth" / "X share"
+         is the content noun IMMEDIATELY PRECEDING the cue ("unemployment rate"
+         -> "unemployment"). This makes two sources stating the SAME metric on
+         the SAME entity agree on the subject (so they can consolidate).
+      2. Fall back to the nearest non-stopword, non-cue content token to the
+         numeric anchor.
+    Returns the lowercased token, or "unknown" when no content word is found
+    (keeps the claim a SAFE SINGLETON — the conservative default, never a false
+    merge)."""
+    if not text:
+        return "unknown"
+    pred = (predicate or "").strip().lower()
+    # 1. Noun immediately preceding the metric cue nearest the value.
+    if pred:
+        cue_pos = None
+        best_cue_dist = 10 ** 9
+        for m in re.finditer(re.escape(pred), text, flags=re.IGNORECASE):
+            dist = abs(m.start() - anchor_pos)
+            if dist < best_cue_dist:
+                best_cue_dist = dist
+                cue_pos = m.start()
+        if cue_pos is not None:
+            preceding = text[max(0, cue_pos - 60):cue_pos]
+            toks = re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", preceding)
+            for tok in reversed(toks):
+                low = tok.lower()
+                if low in _GENERIC_SUBJECT_STOPWORDS or low == pred:
+                    continue
+                return low
+    # 2. Nearest content token to the numeric anchor (excluding the cue word).
+    lo = max(0, anchor_pos - window)
+    hi = min(len(text), anchor_pos + window)
+    local = text[lo:hi]
+    anchor_local = anchor_pos - lo
+    best_tok: Optional[str] = None
+    best_dist = 10 ** 9
+    for m in re.finditer(r"[A-Za-z][A-Za-z0-9\-]{2,}", local):
+        tok = m.group(0)
+        low = tok.lower()
+        if low in _GENERIC_SUBJECT_STOPWORDS or low == pred:
+            continue
+        center = (m.start() + m.end()) // 2
+        dist = abs(center - anchor_local)
+        if dist < best_dist or (dist == best_dist and tok[:1].isupper()):
+            best_dist = dist
+            best_tok = tok
+    return best_tok.lower() if best_tok else "unknown"
+
+
+# Generic year / count reject: a bare 4-digit year or a number that is the
+# obvious sample-size / date is NOT the measured metric value. Used to avoid
+# keying a generic claim on a date or N when a real metric value is present.
+_GENERIC_YEAR_RE = re.compile(r"^(19|20)\d{2}$")
+
+
+def _looks_like_year_or_count(value: float, unit: str, window: str, pos: int) -> bool:
+    """Heuristic: True if this number is most likely a YEAR or a bare sample
+    count rather than a measured metric value. A unit-bearing number (percent /
+    currency / magnitude) is always a real value. A bare 4-digit year, or a
+    number immediately preceded by 'N=' / 'n=' / 'in 20YY' / 'sample of', is
+    rejected so it cannot become the claim value/key."""
+    if unit:
+        return False  # a unit-bearing number is a real metric value
+    s = str(int(value)) if value == int(value) else str(value)
+    if _GENERIC_YEAR_RE.match(s):
+        return True
+    near = window[max(0, pos - 12):pos].lower()
+    if "n=" in near or "n =" in near or "sample of" in near or "in 20" in near:
+        return True
+    return False
+
+
+def _find_value_generic(
+    text: str, cue_pos: Optional[int] = None,
+) -> Optional[tuple[float, str, str, int]]:
+    """Find the generic numeric value tied to the metric cue. Returns
+    (value, normalized_unit, context_window, anchor_position) or None.
+
+    B9 (Codex P1.4): pick the number NEAREST the metric cue (``cue_pos``) rather
+    than the first number in the row, so a leading date / sample-size does not
+    become the claim value/dedup key. A unit-bearing number is always preferred;
+    bare years / 'N=' counts are skipped. When ``cue_pos`` is None, fall back to
+    the first non-year/non-count number. NO clinical reject contexts. Pure."""
+    if not text:
+        return None
+    candidates: list[tuple[float, str, str, int]] = []
+    for m in _GENERIC_VALUE_RE.finditer(text):
+        raw = (m.group("value") or "").replace(",", "")
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        unit = _normalize_generic_unit(m.group("unit") or "")
+        start_win = max(0, m.start() - 60)
+        end_win = min(len(text), m.end() + 60)
+        window = text[start_win:end_win]
+        if _looks_like_year_or_count(value, unit, window, m.start() - start_win):
+            continue
+        candidates.append((value, unit, window, m.start()))
+    if not candidates:
+        return None
+    if cue_pos is None:
+        return candidates[0]
+    # Nearest candidate to the metric cue; a unit-bearing number wins a near tie.
+    def _key(c: tuple[float, str, str, int]) -> tuple[int, int]:
+        dist = abs(c[3] - cue_pos)
+        return (dist, 0 if c[1] else 1)
+    return min(candidates, key=_key)
+
+
+def _extract_numeric_claims_generic(
+    evidence: list[dict[str, Any]],
+) -> list["ExtractedNumericClaim"]:
+    """DOMAIN-AGNOSTIC numeric claim extraction for NON-clinical corpora.
+
+    One claim per row at most (the first generic metric value), keyed on a
+    generic predicate + generic subject + value + unit. A row with no generic
+    metric cue OR no extractable number yields NO claim (kept as a safe
+    singleton upstream). The clinical discriminator fields (dose / arm / Wave-3)
+    stay at their UNKNOWN defaults so they never anchor a non-clinical merge —
+    a non-clinical merge is anchored ONLY by a confidently-extracted
+    subject+predicate+value+unit (the conservative rule). NO clinical literal.
+    """
+    claims: list[ExtractedNumericClaim] = []
+    for ev in evidence:
+        quote = ev.get("direct_quote") or ev.get("statement") or ""
+        if not quote:
+            continue
+        predicate = _normalize_predicate_generic(quote)
+        if not predicate:
+            continue
+        # Anchor the value on the number nearest the metric cue (Codex P1.4) so
+        # a leading date / sample-size cannot become the claim value/key.
+        _cue_m = re.search(re.escape(predicate), quote, flags=re.IGNORECASE)
+        _cue_pos = _cue_m.start() if _cue_m else None
+        found = _find_value_generic(quote, cue_pos=_cue_pos)
+        if found is None:
+            continue
+        value, unit, ctx_window, anchor_pos = found
+        subject = _subject_generic(quote, anchor_pos, predicate=predicate)
+        # Codex iter-3 P1: do NOT set endpoint_phrase=predicate. The metric cue
+        # IS the predicate, not a time-window/endpoint. Stamping it as
+        # endpoint_phrase would make _shared_metric_axes read two same-predicate
+        # generic claims as POSITIVELY-confirmed shared scope -> a hard
+        # contradiction, when in fact their comparator/population/time-window are
+        # UNCONFIRMED. Leaving the discriminator axes empty means an unconfirmed
+        # generic numeric gap is correctly labeled possible_metric_mismatch
+        # (conservative non-clinical default); a true contradiction needs a
+        # positively-extracted shared scope axis. The predicate itself still
+        # groups the claims (grouping key includes predicate).
+        claims.append(ExtractedNumericClaim(
+            evidence_id=str(ev.get("evidence_id", "")),
+            subject=subject,
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            context_snippet=ctx_window[:200],
+            source_url=ev.get("source_url", ""),
+            source_tier=ev.get("tier", ""),
+        ))
+    return claims
+
 
 # Predicate keywords — the ones we most want to catch contradictions on.
 # BUG-M-202 fix (deep-dive R7): expanded coverage beyond the original
@@ -812,7 +1069,20 @@ def extract_numeric_claims(
     BUG-M-202 fix (deep-dive R7): `domain` parameter routes to a
     broader predicate set for non-clinical queries. Default None
     preserves the union-fallback (original behavior).
+
+    B9 domain-generalization: for a NON-clinical run (deterministic
+    `is_clinical_domain` over `domain` + the evidence text) the clinical
+    predicate union + `_DRUG_NAME_RE` subject extract NOTHING, so this
+    historically returned zero claims and every non-clinical numeric became a
+    singleton. We now route non-clinical corpora to the DOMAIN-AGNOSTIC
+    extractor (generic metric cue + generic subject + value + unit), which
+    yields a real claim-key so corroborating sources can consolidate. The
+    CLINICAL path (is_clinical True — `domain="clinical"`, or a blank domain
+    over a clinically-signalled corpus) is byte-identical to before.
     """
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain
+    if not is_clinical_domain(domain, evidence):
+        return _extract_numeric_claims_generic(evidence)
     claims: list[ExtractedNumericClaim] = []
     for ev in evidence:
         quote = ev.get("direct_quote") or ev.get("statement") or ""
@@ -915,11 +1185,43 @@ def _severity(rel: float, abs_: float) -> str:
     return "low"
 
 
+def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
+    """B9 (Codex P1.3): return True only when the group's scope is POSITIVELY
+    confirmed shared — a TRUE non-clinical contradiction. The plan requires a
+    generic numeric contradiction to share endpoint + unit + population +
+    comparator + time-window; otherwise it is a `possible_metric_mismatch`.
+
+    Rule:
+      * If ANY scope axis (comparator / population / endpoint_phrase) carries
+        more than one distinct non-empty value -> the claims measure different
+        things -> NOT shared (mismatch).
+      * If NO scope axis is positively confirmed (every axis uniformly empty /
+        UNKNOWN) -> we CANNOT confirm a shared metric -> NOT shared (mismatch).
+        This is the conservative non-clinical default: unconfirmed scope is a
+        possible_metric_mismatch, never a hard contradiction.
+      * Otherwise (no conflicting axis AND at least one axis positively
+        confirmed shared) -> shared metric -> a true contradiction.
+    Pure helper."""
+    def _axis(field_name: str) -> set[str]:
+        return {(getattr(c, field_name, "") or "").strip().lower() for c in group}
+    confirmed_shared = False
+    for axis in ("comparator", "population", "endpoint_phrase"):
+        vals = _axis(axis)
+        non_empty = {v for v in vals if v}
+        if len(non_empty) > 1:
+            return False  # conflicting scope -> different metrics
+        if len(non_empty) == 1 and "" not in vals:
+            # every claim positively carries the SAME value on this axis
+            confirmed_shared = True
+    return confirmed_shared
+
+
 def detect_contradictions(
     claims: list[ExtractedNumericClaim],
     *,
     rel_threshold: Optional[float] = None,
     abs_threshold: Optional[float] = None,
+    is_clinical: bool = True,
 ) -> list[ContradictionRecord]:
     """Group claims by (subject, predicate, unit, dose) and flag discrepancies.
 
@@ -928,6 +1230,15 @@ def detect_contradictions(
     expected dose-response differences. They will only be grouped
     together if both happen to have no dose tag (e.g., a narrative
     review that doesn't specify dose).
+
+    B9 domain-generalization (`is_clinical`, default True = byte-identical):
+    on a NON-clinical run a generic numeric discrepancy is only a TRUE
+    contradiction when the two numbers measure the SAME thing — same
+    comparator, population, and endpoint/time-window. When those discriminators
+    differ (or cannot be confirmed shared), the pair is labeled
+    `possible_metric_mismatch` (severity downgraded, never silently dropped)
+    rather than asserted as a hard contradiction. Clinical runs keep the full
+    clinical contradiction rule unchanged (this branch never fires on them).
     """
     if rel_threshold is None:
         rel_threshold = PG_CONTRADICTION_REL_THRESHOLD
@@ -952,14 +1263,40 @@ def detect_contradictions(
             predicate_display = predicate
             if dose:
                 predicate_display = f"{predicate} ({dose})"
-            records.append(ContradictionRecord(
-                subject=subject,
-                predicate=predicate_display,
-                claims=sorted(group, key=lambda c: c.value),
-                relative_difference=round(rel, 4),
-                absolute_difference=round(abs_diff, 4),
-                severity=_severity(rel, abs_diff),
-            ))
+            # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
+            # only when the claims share comparator/population/time-window. If
+            # those discriminators differ or cannot be confirmed, label it a
+            # `possible_metric_mismatch` (downgraded, surfaced, never dropped).
+            metric_mismatch = (
+                not is_clinical and not _shared_metric_axes(group)
+            )
+            if metric_mismatch:
+                predicate_display = f"{predicate_display} [possible_metric_mismatch]"
+                severity = "low"
+                action = (
+                    "Possible metric mismatch (B9): these numbers may not measure "
+                    "the same quantity — comparator, population, or time-window "
+                    "could differ. Disclose both with their scope; do NOT assert a "
+                    "contradiction without a confirmed shared metric."
+                )
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=predicate_display,
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=round(rel, 4),
+                    absolute_difference=round(abs_diff, 4),
+                    severity=severity,
+                    recommended_action=action,
+                ))
+            else:
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=predicate_display,
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=round(rel, 4),
+                    absolute_difference=round(abs_diff, 4),
+                    severity=_severity(rel, abs_diff),
+                ))
 
     # Sort by severity (high first), then predicate
     severity_rank = {"high": 0, "medium": 1, "low": 2}

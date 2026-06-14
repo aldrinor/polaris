@@ -341,8 +341,14 @@ def test_missing_lexicon_section_fails_loud(tmp_path, monkeypatch):
                    encoding="utf-8")
     monkeypatch.setenv("PG_QUALITATIVE_CONFLICT_LEXICON", str(bad))
     monkeypatch.setattr(qcd, "_lexicon_cache", None)
+    # B9: the clinical lexicon load only runs on a CLINICAL corpus now (the
+    # domain is READ + gated). Pass an explicit clinical domain so the malformed
+    # lexicon is loaded and the fail-loud contract fires.
     with pytest.raises(RuntimeError, match="missing/empty required sections"):
-        extract_qualitative_assertions([_ev("ev_000", "x is contraindicated in y.", "https://a")])
+        extract_qualitative_assertions(
+            [_ev("ev_000", "x is contraindicated in y.", "https://a")],
+            domain="clinical",
+        )
     monkeypatch.setattr(qcd, "_lexicon_cache", None)  # reset for other tests
 
 
