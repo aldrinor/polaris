@@ -152,7 +152,9 @@ def test_sends_pinned_slug_and_max_reasoning(role, slug):
     # sends a BOUNDED numeric reasoning cap (effort=xhigh is a no-op on GLM and unbounded thinking
     # exhausted the budget -> 47 blanks), so its reasoning block is a fixed max_tokens cap.
     if role == "mirror":
-        assert body["reasoning"] == {"max_tokens": 4000}
+        # I-arch-003 (#1253): Mirror reasoning cap raised 4000 -> 100000 (kept << total max_tokens so
+        # it never re-blanks; bake-off verified clean on all 5 fp8 providers).
+        assert body["reasoning"] == {"max_tokens": 100000}
     else:
         assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
     # require_parameters=True makes OpenRouter only route to a provider that HONORS reasoning
@@ -655,9 +657,11 @@ def test_preflight_dispatcher_routes_to_self_host(monkeypatch):
 
 # --------------------------------------------------------------------------------------
 # (f) I-meta-008 FULL-POWER (CORRECTS #1017): a reasoning verifier must carry a GENEROUS top-level
-# max_tokens (default 16384), NOT have it popped — effort=xhigh allocates ~95% to reasoning and
-# max_tokens must be strictly higher so the bare verdict has room (popping it starved the verdict to
-# empty). Sentinel gets an explicit classifier budget instead of pop-and-hope on the provider default.
+# max_tokens, NOT have it popped — effort=xhigh allocates ~95% to reasoning and max_tokens must be
+# strictly higher so the bare verdict has room (popping it starved the verdict to empty). Sentinel gets
+# an explicit classifier budget instead of pop-and-hope on the provider default. I-arch-003 (#1253):
+# the per-role defaults are now the MIN max_completion_tokens of each role's pinned provider chain
+# (Mirror/Sentinel 131072, Judge 262140) so "max" never 400s under allow_fallbacks:false.
 # --------------------------------------------------------------------------------------
 @pytest.mark.parametrize("role,slug", [("judge", _JUDGE_SLUG), ("mirror", _MIRROR_SLUG)])
 def test_reasoning_role_sets_generous_max_tokens(role, slug):
@@ -671,10 +675,13 @@ def test_reasoning_role_sets_generous_max_tokens(role, slug):
         # I-run11-008 (#1053): the Mirror uses BOUNDED reasoning — a NUMERIC reasoning.max_tokens cap
         # (effort=xhigh is a no-op on GLM, so unbounded thinking exhausted the budget -> 47 blanks) and
         # a generous total budget STRICTLY above the cap so the <co>+JSON verdict always has room.
-        assert seen["body"]["reasoning"] == {"max_tokens": 4000}
-        assert seen["body"]["max_tokens"] == 24000
+        # I-arch-003 (#1253, "max max"): reasoning cap 4000 -> 100000, total 24000 -> 131072 (the
+        # min max_completion_tokens across the re-pinned fp8 Mirror chain; invariant cap << total holds).
+        assert seen["body"]["reasoning"] == {"max_tokens": 100000}
+        assert seen["body"]["max_tokens"] == 131072
     else:
-        assert seen["body"]["max_tokens"] == 16384, f"{role}: reasoning role must get the generous verifier budget"
+        # I-arch-003 (#1253): Judge total 16384 -> 262140 (min of wandb 262144 / io-net 262140 chain).
+        assert seen["body"]["max_tokens"] == 262140, f"{role}: reasoning role must get the generous verifier budget"
         # the Judge still requests MAX effort.
         assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
 
@@ -687,6 +694,46 @@ def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
         RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide", params={"max_tokens": 16})
     )
     assert seen["body"]["max_tokens"] == 8192
+
+
+def test_env_override_clamped_to_provider_chain_min(monkeypatch):
+    """I-arch-003 (#1253) Codex gate P2 hardening: a too-LARGE env override must clamp DOWN to the
+    role's chain-min ceiling so it can never reintroduce a provider-cap 400 ("requested N > max M")."""
+    # Judge: bad override 999_999 -> clamp to 262140 (wandb/io-net chain min).
+    monkeypatch.setenv("PG_VERIFIER_REASONING_MAX_TOKENS", "999999")
+    handler, seen = _recording_handler(served_model=_JUDGE_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide", params={"max_tokens": 16})
+    )
+    assert seen["body"]["max_tokens"] == 262140
+    monkeypatch.delenv("PG_VERIFIER_REASONING_MAX_TOKENS", raising=False)
+
+    # Mirror: bad total override 999_999 -> clamp to 131072; reasoning cap stays < total.
+    monkeypatch.setenv("PG_MIRROR_MAX_TOKENS", "999999")
+    monkeypatch.setenv("PG_MIRROR_REASONING_MAX_TOKENS", "999999")
+    handler, seen = _recording_handler(served_model=_MIRROR_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide", params={"max_tokens": 16})
+    )
+    assert seen["body"]["max_tokens"] == 131072
+    assert seen["body"]["reasoning"]["max_tokens"] < seen["body"]["max_tokens"], (
+        "Mirror reasoning cap must stay strictly below the (clamped) total so the verdict has room"
+    )
+    monkeypatch.delenv("PG_MIRROR_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("PG_MIRROR_REASONING_MAX_TOKENS", raising=False)
+
+    # Sentinel decomposition: bad override 999_999 -> clamp to 131072.
+    monkeypatch.setenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "999999")
+    handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(
+            role="sentinel",
+            model_slug=_SENTINEL_SLUG,
+            messages=[{"role": "user", "content": "decompose"}],
+            params={"response_format": {"type": "json_object"}},
+        )
+    )
+    assert seen["body"]["max_tokens"] == 131072
 
 
 def test_decomposition_sentinel_gets_reasoning_and_generous_max_tokens():
@@ -705,7 +752,9 @@ def test_decomposition_sentinel_gets_reasoning_and_generous_max_tokens():
         )
     )
     assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
-    assert seen["body"]["max_tokens"] == 16384
+    # I-arch-003 (#1253): decomposition Sentinel default 16384 -> 131072 (min of the minimax-m2 chain
+    # google/atlas=196608, novita/minimax=131072 -> safe-on-all 131072).
+    assert seen["body"]["max_tokens"] == 131072
     # The certified JSON response_format is forwarded to the body (the robust parser also handles
     # non-JSON-mode output, but the request asks for JSON).
     assert seen["body"]["response_format"] == {"type": "json_object"}
@@ -729,7 +778,8 @@ def test_decomposition_sentinel_max_tokens_floored_at_3000(monkeypatch):
 
 def test_sentinel_classifier_budget_when_reasoning_disabled(monkeypatch):
     # When the Sentinel mode is NOT decomposition (e.g. PG_SENTINEL_REASONING=0 forces it OFF), the
-    # classifier path holds: an explicit 256 output budget and no reasoning param.
+    # classifier path holds: an explicit output budget and no reasoning param. I-arch-003 (#1253)
+    # raised the label budget 256 -> 4096 so a slightly verbose label can never truncate.
     monkeypatch.setenv("PG_SENTINEL_REASONING", "0")
     handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "<score>no</score>"})
     _make_transport(handler).complete(
@@ -743,7 +793,7 @@ def test_sentinel_classifier_budget_when_reasoning_disabled(monkeypatch):
             params={"documents": [{"doc_id": "d1", "text": "ev"}], "max_tokens": 16},
         )
     )
-    assert seen["body"]["max_tokens"] == 256
+    assert seen["body"]["max_tokens"] == 4096
     assert "reasoning" not in seen["body"]
 
 
