@@ -639,6 +639,14 @@ _STATUS_TIERS: dict[str, int] = {
     # evidence has no credibility/origin coverage — fail-loud, no trustworthy report (tier 2).
     # MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
     "abort_credibility_coverage_gap": 2,
+    # F03 (I-arch-004 A3): below PG_MIN_VERIFIED_SECTION_FRACTION of sections produced verified
+    # prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (tier 2,
+    # no trustworthy report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
+    "abort_excessive_gap": 2,
+    # I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge errored under the strict-
+    # gate benchmark slate — FAIL CLOSED, the run HOLDS for human review (tier 2, no trustworthy
+    # report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
+    "abort_conflict_judge_unavailable": 2,
     # error — unhandled exception
     "error_unexpected": 3,
     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a

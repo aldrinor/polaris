@@ -240,6 +240,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only — a non-journal row reached the generator past the source-filter (should never happen); fail-closed backstop, never synthesize
     "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
     "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
+    "abort_conflict_judge_unavailable",  # I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge ERRORED under the strict-gate benchmark slate — FAIL CLOSED, the run HOLDS for human review rather than the judge's fail-open ('neutral', 0.0) silently dropping a possible real contradiction. NO conflict is fabricated; "could not adjudicate", not "a conflict exists".
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
@@ -300,6 +301,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "error_corpus_population_mismatch": "error_corpus_population_mismatch",
     # I-cred-008b (#1162): credibility-disclosure coverage gap — fail-loud named abort.
     "abort_credibility_coverage_gap": "abort_credibility_coverage_gap",
+    # I-arch-004 F07 (#1249/#1252): strict-gate conflict-judge unavailable hold — already a
+    # unified `abort_` name; map to itself so to_unified_status passes it through.
+    "abort_conflict_judge_unavailable": "abort_conflict_judge_unavailable",
     "error": "error_unexpected",
 }
 
@@ -650,6 +654,87 @@ def _benchmark_strict_gates_on() -> bool:
     fail-open run-sweep gates (#1235/#1238/#1226/#1237) fail LOUD instead of silently
     accepting/degrading. OFF == byte-identical to the legacy behavior. PURE env read."""
     return _env_flag(_BENCHMARK_STRICT_GATES_ENV, default=False)
+
+
+# --- I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate preflight ----------
+# The benchmark certification run must run with EVERY faithfulness gate BINDING, not
+# advisory. Forensic dual-audit (#1249/#1252) found the gates could silently fall to
+# advisory/fail-open on a benchmark run: PG_BENCHMARK_STRICT_GATES unset (gates advisory),
+# the NLI entailment judge in 'warn'/'off' (non-binding), the NLI cross-document conflict
+# detector OFF, and the entailment model drifted off the locked mirror. This preflight is
+# the fail-CLOSED assertion: when the operator asks for strict gates, it REFUSES to start
+# the paid run unless the whole slate is correctly set. It STRENGTHENS the hard gate (it can
+# only abort a misconfigured run); it never relaxes one. NOT auto-on — it fires only when
+# PG_BENCHMARK_STRICT_GATES is truthy, so a non-benchmark / OFF run is byte-identical.
+_LOCKED_ENTAILMENT_MIRROR_MODEL = "z-ai/glm-5.1"  # the 4-role MIRROR (CLAUDE.md §9.1.8)
+_TRUE_ENV_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+
+class FaithfulnessSlatePreflightError(RuntimeError):
+    """Raised when PG_BENCHMARK_STRICT_GATES is on but a binding faithfulness gate is
+    unset/misconfigured. Fail-CLOSED — the paid run is REFUSED, never started advisory."""
+
+
+def assert_faithfulness_slate_or_fail() -> None:
+    """Fail-CLOSED preflight for the strict-gate benchmark slate (I-arch-004 F07).
+
+    No-op unless PG_BENCHMARK_STRICT_GATES is truthy. When strict gates are requested,
+    assert the FULL binding-faithfulness slate and RAISE
+    FaithfulnessSlatePreflightError listing every misconfiguration, so the run aborts
+    before a single generator/judge token is billed against an advisory gate:
+
+      * PG_STRICT_VERIFY_ENTAILMENT == 'enforce'  (the NLI entailment judge is BINDING —
+        'warn'/'off' make it advisory: a NEUTRAL/CONTRADICTED verdict would not drop).
+      * PG_SWEEP_NLI_CONFLICT truthy              (the cross-document NLI conflict detector
+        is ON — the lethal prose-only contradiction class is covered).
+      * effective entailment model == the locked MIRROR (z-ai/glm-5.1)  (no stale Gemma
+        default; PG_ENTAILMENT_MODEL, if set, must equal the mirror).
+
+    PURE env read; raises or returns None. Re-run on --resume too (a strict run must not
+    resume into a non-strict env)."""
+    if not _benchmark_strict_gates_on():
+        return
+    problems: list[str] = []
+
+    ent_mode = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "enforce").strip().lower()
+    if ent_mode != "enforce":
+        problems.append(
+            f"PG_STRICT_VERIFY_ENTAILMENT={ent_mode!r} — must be 'enforce' so the NLI "
+            f"entailment judge is BINDING (a non-ENTAILED verdict drops the sentence); "
+            f"'warn'/'off' make it advisory."
+        )
+
+    nli_conflict = os.environ.get("PG_SWEEP_NLI_CONFLICT", "").strip().lower()
+    if nli_conflict not in _TRUE_ENV_TOKENS:
+        problems.append(
+            f"PG_SWEEP_NLI_CONFLICT={nli_conflict!r} — must be truthy so the cross-document "
+            f"NLI contradiction detector runs (the prose-only lethal-miss class)."
+        )
+
+    ent_model = os.environ.get("PG_ENTAILMENT_MODEL", _LOCKED_ENTAILMENT_MIRROR_MODEL).strip()
+    if ent_model != _LOCKED_ENTAILMENT_MIRROR_MODEL:
+        problems.append(
+            f"PG_ENTAILMENT_MODEL={ent_model!r} — must be the locked 4-role MIRROR "
+            f"{_LOCKED_ENTAILMENT_MIRROR_MODEL!r} (CLAUDE.md §9.1.8; NO gemma)."
+        )
+
+    if problems:
+        raise FaithfulnessSlatePreflightError(
+            "I-arch-004 F07 strict-gate faithfulness preflight FAILED (fail-closed; "
+            "refusing to start a paid run with an advisory/misconfigured faithfulness "
+            "gate):\n  - " + "\n  - ".join(problems)
+        )
+
+
+def _conflict_judge_strict_fail_closed() -> bool:
+    """I-arch-004 F07 (#1249/#1252): under the strict-gate benchmark slate, a cross-document
+    NLI conflict-judge ERROR must FAIL CLOSED — the run HOLDS for human review instead of the
+    judge's fail-open ('neutral', 0.0) silently dropping a possible real contradiction. The
+    'hold' is a RUN-LEVEL status, NEVER a fabricated SemanticConflictRecord (fabricating a
+    phantom conflict would itself be a faithfulness bug + a false PT08 abort). OFF (no strict
+    gates) => False => the detector keeps its additive fail-open behavior, byte-identical.
+    PURE env read."""
+    return _benchmark_strict_gates_on()
 
 
 def _corpus_skew_blocks_ready(strict: bool, has_material_deviation: bool) -> bool:
@@ -2581,6 +2666,7 @@ async def run_one_query(
     four_role_input_builder=None,
     query_index: int | None = None,
     query_total: int | None = None,
+    resume: bool = False,
 ) -> dict:
     """Run the full honest pipeline on one query. Returns a summary dict.
 
@@ -2797,8 +2883,31 @@ async def run_one_query(
         except Exception as _io_exc:  # noqa: BLE001 — telemetry must not abort the run
             print(f"[llm_io] raw-IO sink init skipped: {_io_exc}")
 
+    # I-arch-004 F04 (#539/#629): resume-state load. When --resume and this query's
+    # run_dir holds a corpus_snapshot.json, reload the EVIDENCE (data only — no verdict)
+    # so the retrieval + merge + selection lanes are skipped and we re-enter at generation,
+    # re-running every faithfulness gate on the reloaded corpus. A missing snapshot under
+    # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
+    # landed before its snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
+    # LOUD (no silent fresh-restart that re-bills retrieval). _resume_active gates the
+    # retrieval/merge/selection short-circuits below; OFF (no --resume / no snapshot) keeps
+    # every one of those branches byte-identical.
+    from src.polaris_graph.generator.corpus_snapshot import (
+        CorpusSnapshotError as _CorpusSnapshotError,
+        load_corpus_snapshot as _load_corpus_snapshot,
+        save_corpus_snapshot as _save_corpus_snapshot,
+        snapshot_path as _snapshot_path,
+    )
+    _resume_active = False
+    _resume_payload: dict | None = None
+    if resume and _snapshot_path(run_dir).exists():
+        _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+        _resume_active = True
+
     log_path = run_dir / "run_log.txt"
-    log_f = log_path.open("w", encoding="utf-8")
+    # I-arch-004 F04: on resume, APPEND so the pre-kill artifacts (retrieval/adequacy log
+    # lines) are preserved, not clobbered by the "w" truncation that a fresh run uses.
+    log_f = log_path.open("a" if _resume_active else "w", encoding="utf-8")
 
     def _log(msg: str) -> None:
         print(msg)
@@ -3418,7 +3527,7 @@ async def run_one_query(
         # direct_quote/evidence rows here). A STORM failure NEVER aborts the run (logged loud, fall
         # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
-        if os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+        if (not _resume_active) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
             _storm_telemetry["enabled"] = True
             _storm_telemetry["firing_status"] = "attempted_empty"
             import asyncio as _storm_asyncio
@@ -3581,19 +3690,40 @@ async def run_one_query(
             if (_use_research_planner and _research_plan is not None)
             else None
         )
-        retrieval = run_live_retrieval(
-            research_question=q["question"],
-            amplified_queries=_amplified_effective,
-            protocol=_retrieval_protocol,
-            max_serper=_max_serper,
-            max_s2=_max_s2,
-            fetch_cap=_fetch_cap,
-            enable_openalex_enrich=True,
-            enable_prefetch_filter=False,
-            domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
-            seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
-            research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
-        )
+        # I-arch-004 F04 (#539/#629): on resume, RECONSTRUCT the corpus from the snapshot
+        # instead of re-running the (expensive, network-bound) live retrieval. The
+        # reconstructed LiveRetrievalResult carries the SAME classified_sources +
+        # evidence_rows + counts the live run had at the pre-generation seam, so the
+        # downstream adequacy/distribution gates + manifest envelope see an identical corpus
+        # and RE-RUN on the reloaded data. The deepener/agentic/STORM/saturation merge lanes
+        # are network lanes guarded by `and not _resume_active` below, and selection loads
+        # evidence_for_gen from the snapshot — so NO re-retrieval happens on resume. OFF-path
+        # (no resume) is byte-identical: this branch is skipped entirely.
+        if _resume_active:
+            from src.polaris_graph.generator.corpus_snapshot import (
+                reconstruct_retrieval as _reconstruct_retrieval,
+            )
+            retrieval = _reconstruct_retrieval(_resume_payload)
+            _log(
+                f"[resume]      reloaded corpus snapshot: "
+                f"sources={len(retrieval.classified_sources)} "
+                f"evidence_rows={len(retrieval.evidence_rows)} (NO re-retrieval; "
+                f"all faithfulness gates re-run on reloaded data)"
+            )
+        else:
+            retrieval = run_live_retrieval(
+                research_question=q["question"],
+                amplified_queries=_amplified_effective,
+                protocol=_retrieval_protocol,
+                max_serper=_max_serper,
+                max_s2=_max_s2,
+                fetch_cap=_fetch_cap,
+                enable_openalex_enrich=True,
+                enable_prefetch_filter=False,
+                domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
+                seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
+                research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
+            )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
              f"fetched={retrieval.candidates_fetched}, "
@@ -3843,7 +3973,7 @@ async def run_one_query(
             os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
             and not _use_research_planner
         )
-        if (enable_expansion and completeness.expand_queries
+        if (not _resume_active and enable_expansion and completeness.expand_queries
                 and completeness.total_uncovered > 0):
             _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
                  f"expansion queries")
@@ -3934,7 +4064,7 @@ async def run_one_query(
             run_deepener_sync,
             should_trigger_deepener,
         )
-        if should_trigger_deepener(
+        if (not _resume_active) and should_trigger_deepener(
             flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
             has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
             has_seed_evidence=len(retrieval.evidence_rows) > 0,
@@ -4038,7 +4168,7 @@ async def run_one_query(
         # is booked + the cap ENFORCED BEFORE the loop (STORM pattern); the loop runs in an ISOLATED
         # context so its real spend is discarded (the envelope IS the parent's accounting). Fail-open:
         # any agentic/fetch/merge error leaves the post-deepener corpus untouched.
-        if os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
+        if (not _resume_active) and os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
             "1", "true", "True",
         ):
             _agentic_telemetry["enabled"] = True
@@ -4234,7 +4364,8 @@ async def run_one_query(
         # ADDITIVE to the four-lane budget and surfaced for the operator's ~1000-fetch accounting.
         # Default OFF (PG_STORM_INGEST_WEB_RESULTS) -> _storm_seed_urls is empty -> this whole block is
         # a no-op = byte-identical. Fail-open: any error leaves the pre-STORM corpus untouched.
-        if _storm_seed_urls:
+        # I-arch-004 F04: skip the STORM URL-fetch lane on resume (network retrieval).
+        if (not _resume_active) and _storm_seed_urls:
             try:
                 from src.polaris_graph.retrieval.agentic_url_harvester import (
                     merge_seed_url_evidence,
@@ -4838,15 +4969,75 @@ async def run_one_query(
         # contradictions.json list with a `type:"semantic"` discriminator; routed to a dedicated
         # report disclosure block + the PT08 evaluator gate below (the numeric renderer is untouched).
         semantic_records = []
+        # I-arch-004 F07 (#1249/#1252): under the strict-gate benchmark slate, a conflict-judge
+        # ERROR FAILS CLOSED — the run HOLDS for human review instead of the additive fail-open
+        # ('neutral', 0.0) silently dropping a possible real contradiction. The hold is RUN-LEVEL;
+        # NO phantom SemanticConflictRecord is fabricated.
+        _conflict_strict = _conflict_judge_strict_fail_closed()
         try:
             from src.polaris_graph.retrieval.semantic_conflict_detector import (
+                ConflictJudgeUnavailableError,
                 detect_semantic_conflicts_for_rows,
                 semantic_conflict_enabled,
             )
             if semantic_conflict_enabled():
                 semantic_records = detect_semantic_conflicts_for_rows(
                     retrieval.evidence_rows,
+                    strict_fail_closed=_conflict_strict,
                 )
+        except ConflictJudgeUnavailableError as _cj_exc:
+            # F07 strict fail-CLOSED: the judge could not adjudicate a pair under strict gates.
+            # HOLD the run (no fabricated conflict, no silent drop) and return a verdict artifact.
+            _log(f"[semantic-conflict] judge unavailable under strict gates -> HOLD: {_cj_exc}")
+            summary["status"] = "abort_conflict_judge_unavailable"
+            summary["error"] = f"conflict_judge_unavailable: {_cj_exc}"
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The cross-document NLI contradiction judge could not adjudicate one or more "
+                "same-subject evidence pairs while the strict-gate benchmark slate was active. "
+                "Under strict gates POLARIS FAILS CLOSED: rather than silently treat the "
+                "unadjudicated pair as 'no conflict' (which could ship a real contradiction "
+                "undisclosed), the run is HELD for human review. No conflict is asserted — the "
+                "judge simply could not decide.\n\n"
+                "### Suggested next steps\n\n"
+                "- Re-run once the evaluator model/provider is reachable.\n"
+                "- Inspect `retrieval_trace.jsonl` / `llm_io/` for the judge transport error.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
+                "status": "abort_conflict_judge_unavailable",
+                "conflict_judge_hold": {"reason": str(_cj_exc), "strict_gates": True},
+            })
+            manifest = augment_v6_manifest(
+                manifest,
+                external_run_id=q.get("external_run_id"),
+                decision_id=q.get("decision_id"),
+                query_slug=q.get("slug"),
+            )
+            manifest = _attach_tool_utilization(manifest, run_dir)
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "abort_conflict_judge_unavailable",
+                    error_msg=summary.get("error"),
+                )
+            set_current_run_id(None)
+            set_reasoning_sink(None)
+            log_f.close()
+            return summary
         except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
             _log(f"[semantic-conflict] detector error (skipped, fail-open): {exc}")
             semantic_records = []
@@ -4990,17 +5181,42 @@ async def run_one_query(
                                 skip.add(anchor)
                                 break
             return skip
-        evidence_selection = select_evidence_for_generation(
-            research_question=q["question"],
-            protocol=protocol,
-            classified_sources=retrieval.classified_sources,
-            evidence_rows=retrieval.evidence_rows,
-            max_rows=max_ev,
-            primary_trial_anchors=_primary_anchors,
-            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
-            sub_queries=_subquery_texts,        # I-perm-011: flag-gated facet floor
-        )
-        evidence_for_gen = evidence_selection.selected_rows
+        # I-arch-004 F04 (#539/#629): on resume, the snapshot already holds the FINAL,
+        # post-selection, post-saturation, post-prepend evidence_for_gen — that IS the
+        # authoritative billed pool. Load it directly (do NOT re-select: re-selecting the
+        # reconstructed saturated pool could diverge from what the live saturation loop
+        # produced). Synthesize a minimal EvidenceSelection so the downstream [select] log +
+        # manifest['evidence_selection'] telemetry stay populated. The contract/upload/req-
+        # entity PREPENDS + the capped-dedup/topic-gate/prefer-journal transforms are all
+        # SKIPPED on resume (their rows are already baked into the snapshot pool) via the
+        # `not _resume_active` guards below; the V30 contract COMPILE re-fires to rebuild the
+        # generator plans (gate-safe: any frame-row drift fails strict_verify against the
+        # snapshot span and is dropped fail-closed). OFF-path is byte-identical.
+        if _resume_active:
+            from src.polaris_graph.retrieval.evidence_selector import (
+                EvidenceSelection as _EvidenceSelection,
+            )
+            evidence_for_gen = list(_resume_payload.get("evidence_for_gen") or [])
+            evidence_selection = _EvidenceSelection(
+                selected_rows=evidence_for_gen,
+                full_counts={},
+                selected_counts={},
+                dropped_count=0,
+                selection_strategy="resume_snapshot",
+                notes=["I-arch-004 F04: reloaded from corpus_snapshot.json (no re-selection)"],
+            )
+        else:
+            evidence_selection = select_evidence_for_generation(
+                research_question=q["question"],
+                protocol=protocol,
+                classified_sources=retrieval.classified_sources,
+                evidence_rows=retrieval.evidence_rows,
+                max_rows=max_ev,
+                primary_trial_anchors=_primary_anchors,
+                relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+                sub_queries=_subquery_texts,        # I-perm-011: flag-gated facet floor
+            )
+            evidence_for_gen = evidence_selection.selected_rows
         # I-pipe-002 (#1228, Codex iter-1 REQUEST_CHANGES): capture the REAL relevance-floor drop
         # count from the FLOOR selection object BEFORE the capped-finding-dedup block below may
         # REASSIGN `evidence_selection` to the dedup object (whose dropped_count is from the
@@ -5023,7 +5239,8 @@ async def run_one_query(
         # flow to composition bounded only by the per-section token budget + the
         # faithfulness gate (CONSOLIDATE-keep-all, DNA §-1.3). OFF => the cap holds.
         if (
-            _use_finding_dedup
+            not _resume_active  # I-arch-004 F04: snapshot is already post-dedup
+            and _use_finding_dedup
             and _capped_dedup
             and _relevance_floor is not None
             and not _cred_redesign_on
@@ -5067,7 +5284,7 @@ async def run_one_query(
         # `_planner_llm` (thread-driven coroutine + _RUN_COST_CTX write-back) so the
         # topic-gate spend is NOT lost from the parent run cost. Fail-OPEN: any LLM
         # error / count mismatch / unparseable verdict keeps the batch.
-        if topic_gate_enabled() and evidence_for_gen:
+        if (not _resume_active) and topic_gate_enabled() and evidence_for_gen:
             def _topic_llm(prompt: str) -> str:
                 import asyncio as _asyncio
                 import concurrent.futures as _futures
@@ -5146,7 +5363,7 @@ async def run_one_query(
         # Gate 3: arXiv -> journal version preference. Drop an arxiv.org twin when
         # the same (normalized-title) paper appears as a journal/DOI row; never
         # drop a twinless arXiv row. Default-OFF (PG_SCOPE_PREFER_JOURNAL).
-        if _prefer_journal_enabled() and evidence_for_gen:
+        if (not _resume_active) and _prefer_journal_enabled() and evidence_for_gen:
             evidence_for_gen, _arxiv_dropped, _arxiv_titles = (
                 prefer_journal_over_arxiv(evidence_for_gen)
             )
@@ -5253,7 +5470,10 @@ async def run_one_query(
                     # filter_to_citeable seam). The two modes are mutually
                     # exclusive by intent — journal_only would prune drug labels
                     # anyway — so the lane is skipped (fail-safe).
-                    if _req_lane_enabled() and not _jo_active:
+                    # I-arch-004 F04: skip the open-ended required-entity DISCOVERY lane on
+                    # resume (it networks search+fetch). Its rows are already merged into the
+                    # snapshot corpus, so the reloaded evidence_for_gen carries them.
+                    if (not _resume_active) and _req_lane_enabled() and not _jo_active:
                         from src.agents.search_agent import (
                             _serper_search_sync as _req_search_fn,
                         )
@@ -5482,13 +5702,21 @@ async def run_one_query(
                     # Prepend the contract rows onto the existing
                     # evidence list so the generator's evidence_pool
                     # includes them keyed by entity_id.
-                    evidence_for_gen = (
-                        _contract_evidence_rows + list(evidence_for_gen)
-                    )
+                    # I-arch-004 F04: on resume the snapshot evidence_for_gen ALREADY contains
+                    # the contract rows (they were prepended in the live run and captured in the
+                    # final snapshot), so re-prepending here would DOUBLE them. The V30 plans are
+                    # still rebuilt above (re-fetch is gate-safe); only the row-injection is
+                    # skipped. OFF-path (fresh run) prepends exactly as before.
+                    if not _resume_active:
+                        evidence_for_gen = (
+                            _contract_evidence_rows + list(evidence_for_gen)
+                        )
                     _log(
                         f"[V30-P2]      prepared {len(_phase2_contract_plans)} "
                         f"contract sections + {len(_contract_evidence_rows)} "
                         f"contract evidence rows"
+                        + (" (resume: rows already in snapshot, not re-prepended)"
+                           if _resume_active else "")
                     )
                 else:
                     _log(
@@ -5541,11 +5769,14 @@ async def run_one_query(
                         f"{len(_ur.excluded)} non-journal uploaded row(s)"
                     )
                 _upload_rows = _ur.citeable
-            if _upload_rows:
+            # I-arch-004 F04: on resume the uploaded rows are already in the snapshot
+            # evidence_for_gen; re-prepending would double them. Skip the injection only.
+            if _upload_rows and not _resume_active:
                 evidence_for_gen = _upload_rows + list(evidence_for_gen)
             _log(
                 f"[upload]      injected {len(_upload_rows)} evidence row(s) "
                 f"from {len(_upload_docs)} uploaded document(s)"
+                + (" (resume: already in snapshot, not re-prepended)" if _resume_active else "")
             )
         summary["uploaded_documents_used"] = len(_upload_docs)
         summary["uploaded_documents_blocked"] = int(
@@ -5626,7 +5857,10 @@ async def run_one_query(
             _gen_plan = _research_plan          # full plan on PROCEED.
             _partial_mode = False
             _dropped_sections: list[str] = []
-            if _suff.verdict != "proceed":
+            # I-arch-004 F04: on resume the snapshot corpus is ALREADY post-saturation, so
+            # the gap-retrieval saturation loop must NOT re-fire (that would re-bill retrieval
+            # the ACCEPT forbids). The reloaded evidence_for_gen IS the saturated set.
+            if (not _resume_active) and _suff.verdict != "proceed":
                 from src.polaris_graph.retrieval.saturation import (
                     RoundOutcome,
                     canonical_source_url,
@@ -6205,6 +6439,32 @@ async def run_one_query(
                     "psl_gov_suffixes is empty (fail-closed preflight)"
                 )
             _cred_judge = _mk_judge(_mk_caller())
+
+        # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
+        # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
+        # V30 contract / req-entity / upload prepends all applied) and NOTHING further mutates
+        # it before the generator bills at the call below. The snapshot carries DATA ONLY (the
+        # billed evidence rows + the retrieval corpus/counts); it stores NO faithfulness
+        # verdict (HARD INVARIANT §-1.3). A --resume reload re-enters at THIS point and re-runs
+        # strict_verify / NLI / 4-role / D8 on the reloaded rows from scratch. On a fresh run
+        # this writes the checkpoint; on resume we already loaded it, so re-writing the same
+        # data is skipped. Best-effort: a snapshot write failure must NOT abort the paid run
+        # (the run still completes; resume just won't be available for it).
+        if not _resume_active:
+            try:
+                _snap_path = _save_corpus_snapshot(
+                    run_dir,
+                    run_id=run_id,
+                    question=q["question"],
+                    slug=q.get("slug", ""),
+                    domain=q.get("domain", ""),
+                    evidence_for_gen=evidence_for_gen,
+                    retrieval=retrieval,
+                )
+                _log(f"[checkpoint]  corpus snapshot saved: {_snap_path.name} "
+                     f"(evidence_for_gen={len(evidence_for_gen)} rows; --resume re-runs all gates)")
+            except Exception as _snap_exc:  # noqa: BLE001 — checkpoint is best-effort
+                _log(f"[checkpoint]  snapshot save skipped (fail-open): {_snap_exc}")
 
         _pathb_gen_tok = _pathb.set_role("generator")
         try:
@@ -8795,6 +9055,17 @@ async def main_async() -> int:
         help="Output directory root. Default: outputs/honest_sweep_r3",
     )
     parser.add_argument(
+        "--resume", action="store_true",
+        help=(
+            "I-arch-004 F04 (#539/#629): resume an interrupted run on a deterministic "
+            "--out-root. For each query whose run_dir holds a corpus_snapshot.json, RELOAD "
+            "the retrieved/selected EVIDENCE (no re-retrieval) and re-enter at generation, "
+            "RE-RUNNING strict_verify / NLI / 4-role / D8 on the reloaded corpus from scratch "
+            "(checkpoints carry DATA, never a verdict). A query with no snapshot runs fresh. "
+            "The resumed run_log is appended, not clobbered."
+        ),
+    )
+    parser.add_argument(
         "--pathB-gate", action="store_true",
         help=(
             "I-safety-002b (#925): enable the Path-B DR head-to-head benchmark gate. "
@@ -8840,6 +9111,17 @@ async def main_async() -> int:
     else:
         out_root = ROOT / "outputs" / "honest_sweep_r3"
     out_root.mkdir(parents=True, exist_ok=True)
+
+    # I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate preflight. When the
+    # operator requests strict gates (PG_BENCHMARK_STRICT_GATES), REFUSE to start the paid
+    # run unless the binding-faithfulness slate is fully set (enforce-mode NLI + NLI conflict
+    # detector ON + entailment model == locked mirror). Runs on BOTH a fresh run AND --resume
+    # (a strict run must never resume into a non-strict env). No-op when strict gates are off.
+    try:
+        assert_faithfulness_slate_or_fail()
+    except FaithfulnessSlatePreflightError as _slate_exc:
+        print(f"ERROR: {_slate_exc}")
+        return 2
 
     queries_to_run = SWEEP_QUERIES
     if args.only:
@@ -9004,7 +9286,7 @@ async def main_async() -> int:
             with gate_around_question(
                 enabled=args.pathB_gate, run_dir=_pathb_run_dir,
             ):
-                summary = await run_one_query(q, out_root)
+                summary = await run_one_query(q, out_root, resume=args.resume)
             dt = time.time() - t0
             summary["wall_time_seconds"] = round(dt, 1)
             # M-INT-0b: capture a ModelPin for every run so later

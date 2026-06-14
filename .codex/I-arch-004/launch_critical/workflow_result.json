@@ -1,0 +1,70 @@
+{
+  "summary": "A3 launch-critical wave: F05 Judge rubber-stamp, F12 clinical doi.org abort, F07 fail-open gates + F04 checkpoints/resume — each implemented surgically, tested, Codex-inline-gated (cap 3), faithfulness STRENGTHENED never relaxed",
+  "agentCount": 3,
+  "logs": [
+    "launch-critical wave: 3 lanes returned: F05=APPROVE, F12=APPROVE, F07+F04=APPROVE"
+  ],
+  "result": {
+    "fixes": [
+      {
+        "fix_id": "F05",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\src\\polaris_graph\\roles\\judge_adapter.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\src\\polaris_graph\\roles\\role_pipeline.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\src\\polaris_graph\\roles\\sentinel_contract.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\tests\\roles\\test_sentinel_contract.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\tests\\roles\\test_judge_sentinel_atoms.py"
+        ],
+        "tests_summary": "172 touched-area role tests pass (incl. 9 new F05 tests in tests/roles/test_judge_sentinel_atoms.py); 39 Gate-B seam + sweep-integration tests pass; full tests/roles = 500 pass with 3 PRE-EXISTING baseline failures (test_mirror_routing_excludes_parasail_iready018.py x2 + test_native_gate_b_inputs::test_module_never_references_dr_benchmark_or_rubric) confirmed failing on the clean stashed baseline and unrelated to F05. Run cmd: PYTHONPATH=src python -m pytest <files> -q -p no:cacheprovider -o cache_dir=/tmp/ptcache_*.",
+        "diff_path": "C:\\POLARIS\\.claude\\worktrees\\wf_197bbbcd-0a3-1\\.codex\\I-arch-004\\F05\\my.diff",
+        "faithfulness_note": "No gate relaxed. The unconditional Sentinel-override in role_pipeline._compose_final_verdict (UNGROUNDED/parsed_ok=False + Judge VERIFIED/PARTIAL -> forced UNSUPPORTED) is byte-untouched, and NO 'unless Judge rebuts' escape clause was added (verified by regression-lock test: flag-ON, Sentinel-UNGROUNDED + confidently-VERIFIED Judge STILL resolves UNSUPPORTED). The fix is informational-only: it threads the Sentinel decomposition's per-atom why into the Judge prompt behind a NEW flag PG_JUDGE_SENTINEL_ATOMS (default OFF => build_judge_request byte-identical to the locked benchmark; proven by existing + new byte-identity tests). No verdict path changes; the new SentinelResult.atoms field is read-only metadata that never feeds a verdict (verdict/parsed_ok logic unchanged). Empirically confirmed the EXISTING override already blocks the 02-003 'implemented'-vs-'study' claim (its Sentinel output unsupported_atoms=1 vetoes to UNGROUNDED), so the fix adds per-atom transparency on the GROUNDED path where the Judge is sole arbiter, not a verdict flip. Codex diff-gate APPROVE iter 1 (zero novel P0, zero continuing P0, zero P1).",
+        "residual": [
+          "The flag PG_JUDGE_SENTINEL_ATOMS is default OFF (byte-identical) and must be enabled by the Gate-B/cert run slate for the threading to take effect at runtime - the slate-enablement is a separate run-config wiring step (not part of this diff).",
+          "F06 (Sentinel atom-completeness floor) is the ORDERING-LOCKED follow-on per the A3 master list (F05 before F06; both edit the Sentinel-override region) and is out of scope here.",
+          "Effectiveness against a LIVE model Judge (does threading the per-atom why actually stop a real Qwen rubber-stamp) is only fully provable on the COMPLETED --all cert run that is the campaign certification target; offline tests prove the wiring + the no-relaxation property, not live model behavior."
+        ]
+      },
+      {
+        "fix_id": "F12",
+        "verdict": "APPROVE",
+        "codex_iters": 2,
+        "files_changed": [
+          "C:/POLARIS/.claude/worktrees/wf_197bbbcd-0a3-2/src/polaris_graph/retrieval/tier_classifier.py",
+          "C:/POLARIS/.claude/worktrees/wf_197bbbcd-0a3-2/src/polaris_graph/retrieval/live_retriever.py",
+          "C:/POLARIS/.claude/worktrees/wf_197bbbcd-0a3-2/tests/polaris_graph/test_f12_doi_org_journal_venue_trust.py"
+        ],
+        "tests_summary": "152 passed across all touched-area suites (PYTHONPATH=src python -m pytest, no:cacheprovider, unique cache dir). New test file test_f12_doi_org_journal_venue_trust.py = 12 tests, all pass: ACCEPT case (JEP 10.1257 + JPE 10.1086 doi.org + journal venue -> T1), dx.doi.org variant -> T1, plus faithfulness-preservation negatives (SR/MA title -> T2, narrative -> T4, MDPI 10.3390 + venue -> T4 via low-quality-OA, empty venue -> T4, repository source_type -> T4, non-doi.org host + venue -> T4, doi.org embedded in path/query of another host -> T4, helper unit tests). Adjacent regression: test_bug771_tier_authority_and_oa_ceiling (25), test_tier_classifier_stat_agency_t3_iready017, test_tier_classifier_denylist_expansion, test_m10/test_m7 tier overrides, test_openalex_authority_tier_t7, test_corpus_adequacy_r6_gap1, test_arch002_no_dumping, test_breadth_collapse_beatboth_fix_000 — all green, zero regressions. (Copied gitignored fixture dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS into the worktree to satisfy the conftest audit-IR registry autouse fixture.)",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_197bbbcd-0a3-2/.codex/I-arch-004/F12/my.diff",
+        "faithfulness_note": "No faithfulness gate touched or relaxed. The tier classifier is the WEIGHTING layer (CLAUDE.md §-1.3: \"the tier classifier IS the weighting system\"), not one of the faithfulness gates (strict_verify / NLI / 4-role D8 / provenance / span-grounding). The fix corrects a MISCLASSIFICATION (doi.org journals wrongly demoted to T4) feeding the corpus-adequacy gate; it does NOT relax any adequacy threshold (clinical min_t1_count=3 / min_t1_plus_t2=5 are UNCHANGED) and corpus_adequacy_gate.py has NO code change (pure function of tier_counts). The new clause only ADDS an exemption to R9's unverified-host demotion, and only when parsed host is doi.org/*.doi.org AND OpenAlex source_type==journal AND a non-empty venue is present. Ordering is safe: SR/MA->T2, narrative->T4, guideline/explainer->T4, conference-abstract->T7 all fire BEFORE the exemption; _is_low_quality_oa (MDPI 10.3390) fires AFTER it (still -> T4). OFF/default byte-identical: openalex_venue defaulted \"\" and was never read by the legacy rule body, so existing venue-less callers behave identically. Scope held to the PARSED host (Codex iter-1 P1 fix) so the BUG-M-11 trade-content guard on non-doi.org hosts is intact. Even a mis-weighted source cannot inject an unsupported claim — the faithfulness engine still validates every span.",
+        "residual": [
+          "live_retriever.py is the live cert path that was wired; honest_pipeline.py _build_tier_signals (offline path, lines 113-125) similarly does not pass openalex_venue — not the run-killer path and out of this fix's surgical scope, but if any offline clinical run uses doi.org-resolved journals it would still under-credit them. Flagged for a follow-up if the offline path is ever used for clinical adequacy.",
+          "The pre-existing helper _has_peer_reviewed_doi_prefix (line 708) uses the same substring 'doi.org/' pattern that the iter-1 P1 flagged for my new helper; left unchanged to stay surgical (it is pre-existing behavior gated by a hardcoded prefix allowlist, not part of this fix), but it shares the same theoretical path-embedded-redirect weakness."
+        ]
+      },
+      {
+        "fix_id": "F07+F04",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "scripts/run_honest_sweep_r3.py",
+          "scripts/dr_benchmark/run_gate_b.py",
+          "src/polaris_graph/retrieval/semantic_conflict_detector.py",
+          "src/polaris_graph/generator/corpus_snapshot.py",
+          "src/polaris_graph/audit_ir/regression_lab.py",
+          "tests/polaris_graph/test_f07_f04_faithfulness_resume_iarch004.py",
+          "tests/polaris_graph/test_manifest_contract.py"
+        ],
+        "tests_summary": "162 tests pass across all touched areas (PYTHONPATH=src python -m pytest ... -q). New file tests/polaris_graph/test_f07_f04_faithfulness_resume_iarch004.py = 18 tests: F07 conflict-judge strict fail-closed (raises ConflictJudgeUnavailableError, holds run, NEVER fabricates a record), production-judge raises under strict vs fail-open-neutral when not strict, F07 preflight fail-closed on advisory NLI / conflict-detector-off / wrong-entailment-model + pass on correct slate + no-op when strict off, F04 snapshot DATA-not-verdict assertion (no verdict-shaped key), lossless round-trip + reconstruct, fail-loud loads (missing/version-mismatch/empty), atomic write, AND an INTEGRATION test calling run_one_query(resume=True) end-to-end asserting the MAIN run_live_retrieval is NEVER called AND the generator receives the snapshot rows. Existing test_semantic_conflict_detector_iready012.py (16), test_manifest_contract.py (14), and the taxonomy-mirror suites (192) all stay green. Copied gitignored fixture outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS for the conftest registry. Codex diff-gate iter 1 = APPROVE (novel_p0:[], p1:[], p2:[], remaining_blockers:[]).",
+        "diff_path": "C:\\POLARIS\\.codex\\I-arch-004\\f07_f04_combined.diff",
+        "faithfulness_note": "No gate relaxed; both fixes STRENGTHEN faithfulness and are byte-identical on OFF/default paths. F07: the fail-closed slate preflight REFUSES a strict-gate paid run unless NLI is binding (enforce), the cross-document conflict detector is on, and the entailment model is the locked mirror; the conflict-judge fail-closed (gated on _benchmark_strict_gates_on()) converts a judge error into a RUN-LEVEL hold (abort_conflict_judge_unavailable) and NEVER fabricates a SemanticConflictRecord (no phantom conflict, no false PT08 abort) — verified by test_conflict_strict_hold_does_not_fabricate_a_conflict. Already-on-branch F07 pieces (PG_ENTAILMENT_MODEL=mirror, judge_error sentinel fail-closed at both consumers, F02 blank-stream raise) were VERIFIED not re-coded. F04 HARD INVARIANT honored ABSOLUTELY: corpus_snapshot.py serializes EVIDENCE DATA ONLY (evidence rows + retrieval corpus/counts) and stores NO verdict/verified-flag (test_snapshot_saves_data_not_a_verdict scans for and forbids verdict/verified/strict_verify/entailed/release_allowed/faithful/nli_label keys); on --resume the gates strict_verify/NLI/4-role/D8 RE-RUN on the reloaded corpus because resume re-enters at the generation rejoin (the integration test proves the generator receives the snapshot rows and the gates live downstream). V30 contract frame re-fetch on resume is bounded/contract-pinned and GATE-SAFE: any drift fails strict_verify against the snapshot span and drops fail-closed (over-drop only, never fabricate). The conflict-strict path is wired through to run_one_query and arms on the gate_b cert run via the now-set PG_BENCHMARK_STRICT_GATES=1.",
+        "residual": [
+          "Per-section draft resume NOT implemented: save_corpus_snapshot passes no section_drafts, so --resume regenerates ALL sections from the pre-generation snapshot. This is the advisor-blessed faithful fallback and still meets the F04 ACCEPT (a mid-generation kill regenerates all sections; all gates re-run on reloaded data). The section_drafts param exists (carries draft prose only, re-verified on resume, never a verified flag) but is unused.",
+          "--resume CLI is on the run_honest_sweep_r3.py main_async path only; the gate_b 4-role cert entry (run_gate_b.py run_gate_b_query) calls run_one_query directly and does NOT thread resume=True. The F07 conflict-strict path AND the strict-gate slate arming DO fire on the gate_b path (they live inside run_one_query / the slate + preflight_full_capability), but to use F04 --resume for the gate_b cert run, resume must be threaded through run_gate_b.py in a follow-up (run_gate_b.py is not a file named in the F04 spec).",
+          "F04 V30 contract resume re-fires the bounded contract-pinned frame fetch (compile_frame + fetch_compiled_frame) to rebuild generator plans — gate-safe (drift drops fail-closed) but is a small bounded re-fetch, distinct from the discovery/saturation skips. Documented in-diff and in the Codex brief."
+        ]
+      }
+    ]
+  }
+}

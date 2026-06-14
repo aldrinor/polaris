@@ -60,6 +60,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed (material non-VERIFIED claim present-but-unredactable)
         "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only required contract slot non-journal
         "abort_credibility_coverage_gap",  # I-cred-008b (#1162): activated credibility-disclosure pass found an uncovered cited token
+        "abort_conflict_judge_unavailable",  # I-arch-004 F07 (#1249/#1252): strict-gate conflict-judge error -> run holds (fail-closed)
         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
         "error_unexpected",
         "error_journal_only_leak",     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop

@@ -333,6 +333,11 @@ def run_claim_pipeline(
         evidence_text = "\n\n".join(doc.text for doc in evidence_documents)
         # Judge fails LOUD by design: a non-enum token raises JudgeEnumError, which we do NOT
         # catch — a missing/garbage arbiter verdict must propagate, never coerce to a default.
+        # F05 (GH #1254): thread the Sentinel's per-atom "why" detail into the Judge prompt (not
+        # just the compressed `verdict.value` token). With PG_JUDGE_SENTINEL_ATOMS OFF (default)
+        # this is a no-op — the request builder ignores `sentinel_atoms`. The Sentinel-override
+        # block below is UNTOUCHED and still fires unconditionally on the UNGROUNDED/unparsed path;
+        # the atom detail only enriches the GROUNDED-path prompt where the Judge is sole arbiter.
         raw_judge_verdict, _judge_records = run_judge(
             recording,
             claim,
@@ -340,6 +345,7 @@ def run_claim_pipeline(
             mirror_verdict=str(mirror_result.classification),
             sentinel_verdict=sentinel_result.verdict.value,
             model_slug=judge_slug,
+            sentinel_atoms=sentinel_result.atoms,
         )
         judge_result = raw_judge_verdict
 

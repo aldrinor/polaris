@@ -3409,6 +3409,13 @@ def run_live_retrieval(
             openalex_publication_type=oa.get("openalex_pub_type", "") or "",
             openalex_source_type=oa.get("openalex_source_type", "") or "",
             openalex_is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
+            # F12 (GH #1245 / D12): wire the resolved OpenAlex venue into the
+            # classifier so a doi.org-hosted canonical-DOI journal (JEP/JPE) is
+            # trusted by _is_doi_org_journal_with_venue instead of being demoted
+            # to T4 by R9's unverified-host guard. Without this line the
+            # classifier fix is INERT on the live cert path (the run-killer
+            # path). "" when OpenAlex returned no venue (demotion preserved).
+            openalex_venue=oa.get("openalex_venue", "") or "",
             doi=str(_jo_doi or ""),
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.

@@ -1055,6 +1055,19 @@ def apply_full_capability_benchmark_slate() -> None:
 def preflight_full_capability() -> None:
     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
     silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+    # I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate assertion on the cert entry. The
+    # Gate-B 4-role run goes through run_one_query (NOT run_honest_sweep_r3.main_async), so its
+    # fail-closed preflight lives HERE. The slate above force-sets the binding-faithfulness env
+    # (PG_BENCHMARK_STRICT_GATES / PG_SWEEP_NLI_CONFLICT / PG_STRICT_VERIFY_ENTAILMENT=enforce); this
+    # REFUSES the paid run if an operator .env / mis-set left any of them advisory/misconfigured.
+    from scripts.run_honest_sweep_r3 import (
+        FaithfulnessSlatePreflightError as _FaithSlateErr,
+        assert_faithfulness_slate_or_fail as _assert_faith_slate,
+    )
+    try:
+        _assert_faith_slate()
+    except _FaithSlateErr as _fse:
+        raise RuntimeError(f"benchmark preflight FAILED: {_fse}") from _fse
     # F03 (A3): the verified-section-FRACTION coverage-honesty floor must be ACTIVE (a float in (0, 1])
     # for the cert run — a 0/absent value disables the gate and lets a mostly-gap clinical report ship
     # GREEN (the "built-it-then-left-it-off" failure). Checked FIRST (fail-fast on a faithfulness gate;
@@ -1371,6 +1384,14 @@ async def run_gate_b_query(
     # downgrade the run (operator no-downgrade directive); validated fail-closed by preflight below.
     os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    # I-arch-004 F07 (#1249/#1252): ARM the shared benchmark strict-gates master flag. It turns the
+    # four fail-open run-sweep gates (#1235/#1238/#1226/#1237) LOUD AND arms the cross-document
+    # conflict-judge fail-CLOSED hold (a judge error -> run holds, never the fail-open 'neutral' 0.0
+    # that silently drops a possible real contradiction). Without this the strict slate is only
+    # CHECKED by the F07 preflight, never SET — the spec says the benchmark slate SETS strict gates
+    # ON. Force-on (an operator .env=0 must not silently downgrade the cert run); the F07 preflight in
+    # run_honest_sweep_r3.main_async fails closed if any binding-faithfulness env is misconfigured.
+    os.environ["PG_BENCHMARK_STRICT_GATES"] = "1"          # force-on (F07: arm strict faithfulness gates)
     os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-perm-016 (#1209) KEYSTONE: activate the map-reduce evidence distiller for
     # the benchmark/paid run ONLY here (gate-B entry), never globally. The

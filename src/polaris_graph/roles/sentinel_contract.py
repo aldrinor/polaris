@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 from enum import Enum
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 
 class SentinelVerdict(Enum):
@@ -38,10 +38,21 @@ class SentinelResult(NamedTuple):
     Returned on EVERY path. `parsed_ok` is True only on a clean, unambiguous parse;
     on any malformed/missing/ambiguous input it is False and `verdict` is forced to the
     safe (UNGROUNDED) side so the caller can escalate rather than trust a bad score.
+
+    `atoms` (F05, GH #1254) carries the per-atom DECOMPOSITION detail — the model's own
+    `[{atom, type, status, why}, ...]` list — when the decomposition parser produced one,
+    else None. It is an APPENDED OPTIONAL field with a `None` default so the two non-
+    decomposition parsers and EVERY positional `SentinelResult(verdict, parsed_ok)` call
+    site stay byte-identical. It is READ-ONLY metadata threaded into the Judge prompt so the
+    terminal arbiter sees the Sentinel's per-atom "why" (not just the compressed
+    grounded/ungrounded token) and cannot rubber-stamp a doc-level "unsupported" without a
+    per-atom span-grounded rebuttal. It NEVER feeds a verdict decision — `verdict`/`parsed_ok`
+    are computed exactly as before, so no composition or override behaviour changes.
     """
 
     verdict: SentinelVerdict
     parsed_ok: bool
+    atoms: list[dict[str, Any]] | None = None
 
 
 # The canonical Granite Guardian score tokens (LOCKED polarity, F3).
@@ -258,6 +269,19 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
     if verdict is None:
         # Missing/odd/off-enum verdict -> fail CLOSED (never a silent GROUNDED).
         return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    # F05 (GH #1254): carry the model's per-atom decomposition list through to the result so the
+    # Judge prompt can show the per-atom "why" (NOT just the compressed grounded/ungrounded token).
+    # This is READ-ONLY metadata — it does NOT participate in the verdict/parsed_ok decision below,
+    # which is computed byte-for-byte as before. `_atom_list` is the model's `atoms` list iff it is a
+    # list of atom dicts, else None (so a malformed/absent atoms field never threads garbage). Every
+    # `parsed_ok=True` return below carries it; the contract-fail (`parsed_ok=False`) returns above
+    # already returned and carry None (a failed parse has no trustworthy atom detail to surface).
+    _raw_atoms = parsed.get("atoms")
+    _atom_list: list[dict[str, Any]] | None = (
+        [a for a in _raw_atoms if isinstance(a, dict)]
+        if isinstance(_raw_atoms, list) and any(isinstance(a, dict) for a in _raw_atoms)
+        else None
+    )
     # SAFETY cross-check (Codex diff-gate iter-3 P1): a top-level "supported" verdict that
     # SIMULTANEOUSLY reports unsupported atoms is an INTERNALLY CONTRADICTORY output. Trusting the
     # top-level "supported" there is a fail-OPEN path — a fabricated claim laundered to VERIFIED.
@@ -301,14 +325,20 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
         else:
             count = None  # null (None), list, dict, ... -> present-but-invalid
         if count is None or count != 0:
-            return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+            return SentinelResult(
+                SentinelVerdict.UNGROUNDED, parsed_ok=True, atoms=_atom_list
+            )
         # atoms is a non-empty list with >=1 atom object (contract gate): veto if ANY atom is unsupported.
         for atom in atoms:
             if not isinstance(atom, dict):
                 continue
             status = atom.get("status") or atom.get("verdict")
             if isinstance(status, str) and status.strip().lower() == "unsupported":
-                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+                return SentinelResult(
+                    SentinelVerdict.UNGROUNDED, parsed_ok=True, atoms=_atom_list
+                )
             if atom.get("supported") is False:
-                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-    return SentinelResult(verdict, parsed_ok=True)
+                return SentinelResult(
+                    SentinelVerdict.UNGROUNDED, parsed_ok=True, atoms=_atom_list
+                )
+    return SentinelResult(verdict, parsed_ok=True, atoms=_atom_list)

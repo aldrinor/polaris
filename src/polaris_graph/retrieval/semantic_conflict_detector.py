@@ -104,6 +104,16 @@ class SemanticConflictRecord:
     nli_confidence: float = 0.0
 
 
+class ConflictJudgeUnavailableError(RuntimeError):
+    """I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge ERRORED while the
+    strict-gate benchmark slate is active. Under strict gates a judge error must FAIL CLOSED
+    — the run HOLDS for human review (the caller maps this to a run-level hold status) instead
+    of the detector's additive fail-open silently dropping a POSSIBLE real contradiction as
+    ('neutral', 0.0). This carries NO fabricated conflict: it signals "could not adjudicate",
+    never "a conflict exists" — fabricating a phantom SemanticConflictRecord would itself be a
+    faithfulness bug (and a false PT08 abort). Default (non-strict) path NEVER raises this."""
+
+
 def semantic_conflict_enabled() -> bool:
     """True unless ``PG_SWEEP_NLI_CONFLICT`` is unset/falsey. Default OFF — flag-off
     is byte-identical (no judge constructed, no network)."""
@@ -207,15 +217,26 @@ def _shared_subject(row_a: dict, row_b: dict) -> str:
     return " ".join(uniq[:4]) if uniq else "cross-document claim"
 
 
-def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = None) -> list:
+def detect_semantic_conflicts(
+    pairs, judge, *, min_confidence: float | None = None,
+    strict_fail_closed: bool = False,
+) -> list:
     """Judge each pair; keep ``contradict`` pairs above ``min_confidence``.
 
     ``judge`` is a ``(claim_a, claim_b) -> (label, confidence)`` callable, label in
-    {"contradict","entail","neutral"}. Fail-open:
+    {"contradict","entail","neutral"}. Fail-open (default):
       * a per-pair judge error skips THAT pair (never fabricates a conflict);
       * a ``BudgetExceededError`` stops judging, KEEPS records found so far, and
         propagates as a clean stop signal (caught by the caller's fail-open block)
         — it never aborts mid-record.
+
+    I-arch-004 F07 (#1249/#1252) — ``strict_fail_closed`` (the strict-gate benchmark
+    slate): a per-pair judge error must NOT silently skip (that could drop a real
+    contradiction). Instead RAISE ``ConflictJudgeUnavailableError`` so the caller HOLDS
+    the run for human review. This signals "could not adjudicate", NOT "a conflict
+    exists" — no phantom record is ever fabricated. ``BudgetExceededError`` still
+    propagates to keep-partial regardless of the flag (it is a clean stop, not an
+    unadjudicated pair).
     """
     from src.polaris_graph.llm.openrouter_client import BudgetExceededError
 
@@ -232,6 +253,12 @@ def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = No
             )
             break
         except Exception as exc:  # noqa: BLE001 — per-pair fail-open; never fabricate a conflict
+            if strict_fail_closed:
+                # I-arch-004 F07: under strict gates, an unadjudicable pair FAILS CLOSED ->
+                # the caller holds the run for review (no silent drop, no fabricated conflict).
+                raise ConflictJudgeUnavailableError(
+                    f"conflict judge errored on an evidence pair under strict gates: {exc}"
+                ) from exc
             logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
             continue
         if str(label).strip().lower() != "contradict":
@@ -274,11 +301,19 @@ def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = No
     return records
 
 
-def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
+def detect_semantic_conflicts_for_rows(
+    evidence_rows, judge=None, *, strict_fail_closed: bool = False,
+) -> list:
     """End-to-end convenience: cluster -> pairs -> judge. Used by the sweep block.
 
     If ``judge`` is None the production default judge is lazily constructed
     (``get_default_judge``). Returns ``list[SemanticConflictRecord]``.
+
+    I-arch-004 F07 (#1249/#1252): ``strict_fail_closed`` (the strict-gate benchmark
+    slate) makes the default production judge RAISE on a transport/parse error rather
+    than return its additive fail-open ('neutral', 0.0), and makes the pair loop RAISE
+    ``ConflictJudgeUnavailableError`` so the caller HOLDS the run (never a silent drop,
+    never a fabricated conflict). Default False => byte-identical additive fail-open.
     """
     clusters = cluster_candidate_rows(
         evidence_rows,
@@ -291,10 +326,11 @@ def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
     if not pairs:
         return []
     if judge is None:
-        judge = get_default_judge()
+        judge = get_default_judge(strict_fail_closed=strict_fail_closed)
     return detect_semantic_conflicts(
         pairs, judge,
         min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+        strict_fail_closed=strict_fail_closed,
     )
 
 
@@ -329,11 +365,15 @@ class _SemanticContradictionJudge:
     faithfulness-critical strict_verify entailment path is never touched.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, strict_fail_closed: bool = False) -> None:
         import httpx
 
         from src.polaris_graph.llm.openrouter_client import check_family_segregation
 
+        # I-arch-004 F07 (#1249/#1252): under the strict-gate benchmark slate, a
+        # transport/parse error must RAISE (caller holds the run) instead of returning the
+        # additive fail-open ('neutral', 0.0) that silently drops a possible real conflict.
+        self._strict_fail_closed = bool(strict_fail_closed)
         api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise RuntimeError("PG_SWEEP_NLI_CONFLICT requires OPENROUTER_API_KEY")
@@ -475,6 +515,17 @@ class _SemanticContradictionJudge:
             exc = sys.exc_info()[1]
             if isinstance(exc, BudgetExceededError):
                 raise
+            # I-arch-004 F07 (#1249/#1252): under strict gates, a transport/parse failure must
+            # FAIL CLOSED — RAISE so detect_semantic_conflicts converts it to a run-level HOLD
+            # (ConflictJudgeUnavailableError) instead of returning the fail-open ('neutral',
+            # 0.0) that silently drops a possible real contradiction. NO conflict is fabricated:
+            # the raise means "could not adjudicate", not "a conflict exists".
+            if self._strict_fail_closed:
+                logger.warning(
+                    "[semantic-conflict] judge call failed under strict gates -> "
+                    "FAIL CLOSED (run holds for review): %s", exc,
+                )
+                raise
             logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
             # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
             # silently drops a possible real conflict on a transient/parse failure (drb_72-class
@@ -497,12 +548,19 @@ class _SemanticContradictionJudge:
 _JUDGE_SINGLETON = None
 
 
-def get_default_judge():
+def get_default_judge(*, strict_fail_closed: bool = False):
     """Lazy singleton production judge callable ``(a, b) -> (label, confidence)``.
 
     Constructed only when ``PG_SWEEP_NLI_CONFLICT`` is ON and first used — off-mode
-    never instantiates it (no network, no httpx client)."""
+    never instantiates it (no network, no httpx client).
+
+    I-arch-004 F07 (#1249/#1252): ``strict_fail_closed`` propagates to the judge so a
+    transport/parse error RAISES (fail-closed hold) instead of the additive fail-open
+    ('neutral', 0.0). The singleton is keyed on the flag so a strict caller never reuses
+    a non-strict judge instance (and vice-versa)."""
     global _JUDGE_SINGLETON
-    if _JUDGE_SINGLETON is None:
-        _JUDGE_SINGLETON = _SemanticContradictionJudge()
+    if _JUDGE_SINGLETON is None or getattr(
+        _JUDGE_SINGLETON, "_strict_fail_closed", False
+    ) != bool(strict_fail_closed):
+        _JUDGE_SINGLETON = _SemanticContradictionJudge(strict_fail_closed=strict_fail_closed)
     return _JUDGE_SINGLETON.judge

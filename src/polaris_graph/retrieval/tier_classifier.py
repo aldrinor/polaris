@@ -722,6 +722,41 @@ def _has_peer_reviewed_doi_prefix(url: str) -> bool:
         return False
 
 
+def _is_doi_org_journal_with_venue(signals: "ClassificationSignals") -> bool:
+    """F12 (GH #1245 / D12): True when a doi.org-hosted canonical DOI resolves
+    to a real OpenAlex JOURNAL venue.
+
+    THE BUG (run-killer): a canonical-DOI journal hosted on doi.org (e.g. JEP
+    10.1257, JPE 10.1086) is NOT on PEER_REVIEWED_JOURNAL_DOMAINS (host is
+    `doi.org`, not the publisher), and its DOI prefix may not be in the
+    hard-coded PEER_REVIEWED_DOI_PREFIXES allowlist. R9's unverified-host guard
+    then demotes it to T4. ~50 such sources fell to T4 on the workforce corpus,
+    collapsing the resolved-venue tier and false-firing abort_corpus_inadequate.
+
+    THE FIX: instead of whack-a-mole prefix expansion, TRUST the resolved
+    OpenAlex venue. A doi.org host with OpenAlex `source_type == "journal"` AND
+    a non-empty venue name IS a peer-reviewed journal — count it as such rather
+    than defaulting to the doi.org-host prior. This widens R9's unverified-host
+    EXEMPTION only; it never relaxes a faithfulness gate and is scoped strictly
+    to doi.org-hosted canonical DOIs so the BUG-M-11 trade-content guard on
+    non-DOI hosts is untouched. SR/MA, narrative, guideline, conference-abstract
+    and low-quality-OA branches all run BEFORE / AFTER this exemption and still
+    win (e.g. a doi.org/10.3390 MDPI work still hits _is_low_quality_oa -> T4).
+
+    Scope is enforced on the PARSED HOST (host == doi.org or *.doi.org, e.g.
+    dx.doi.org), NOT a substring of the URL — a non-doi.org trade host that
+    embeds `doi.org/` in its path or query (e.g.
+    `https://trade.example/redirect/https://doi.org/10.x`) must NOT pass, so the
+    BUG-M-11 trade-content guard stays intact (Codex diff-gate iter-1 P1).
+    """
+    host = _normalize_domain(signals.url)
+    if not (host == "doi.org" or host.endswith(".doi.org")):
+        return False
+    src_type = (signals.openalex_source_type or "").strip().lower()
+    venue = (signals.openalex_venue or "").strip()
+    return src_type == "journal" and bool(venue)
+
+
 def _is_low_quality_oa(domain: str, url: str) -> bool:
     """I-bug-771 (#812): True if the source is a low-quality / high-volume OA
     publisher (MDPI) by domain OR by URL-embedded DOI prefix. Used to deny T1
@@ -1754,7 +1789,8 @@ def _classify_source_tier_rules(
             # allowlist route to T4 narrative instead.
             if not (_domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS)
                     or _domain_matches(domain, NIH_LITERATURE_HOSTS)
-                    or _has_peer_reviewed_doi_prefix(signals.url)):
+                    or _has_peer_reviewed_doi_prefix(signals.url)
+                    or _is_doi_org_journal_with_venue(signals)):
                 result.tier = TierLevel.T4
                 result.confidence = 0.65
                 result.matched_rules.append(
@@ -1765,7 +1801,8 @@ def _classify_source_tier_rules(
                     f"but domain {domain!r} is NOT on the known "
                     f"peer-reviewed-journal allowlist "
                     f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS "
-                    f"or PEER_REVIEWED_DOI_PREFIXES). "
+                    f"or PEER_REVIEWED_DOI_PREFIXES) and is not a doi.org-hosted "
+                    f"canonical DOI with a resolved OpenAlex journal venue. "
                     f"Routing to T4 to avoid overclassifying industry / "
                     f"trade / web content as primary research. Add the "
                     f"domain to the allowlist if it is genuinely a "

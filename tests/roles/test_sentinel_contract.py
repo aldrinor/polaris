@@ -315,16 +315,20 @@ def test_sentinel_mode_invalid_env_raises(monkeypatch):
 # off-enum / non-string fails CLOSED to UNGROUNDED parsed_ok=False. NO silent GROUNDED on bad input.
 def test_decomposition_supported_json_maps_grounded() -> None:
     # Full decomposition contract (non-empty atoms + unsupported_atoms == 0) -> GROUNDED.
+    # F05 (GH #1254): the parser now ALSO carries the per-atom `atoms` list as appended metadata, so
+    # assert on the SAFETY contract fields (verdict + parsed_ok), not full-tuple equality.
     raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
            '"atoms": [{"atom": "x", "status": "supported"}]}')
-    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.GROUNDED
+    assert result.parsed_ok is True
 
 
 def test_decomposition_unsupported_json_maps_ungrounded() -> None:
     raw = '{"verdict": "unsupported", "unsupported_atoms": 2, "atoms": [{"atom": "x"}]}'
-    assert parse_sentinel_decomposition(raw) == SentinelResult(
-        SentinelVerdict.UNGROUNDED, parsed_ok=True
-    )
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.UNGROUNDED
+    assert result.parsed_ok is True
 
 
 @pytest.mark.parametrize(
@@ -346,7 +350,9 @@ def test_decomposition_verdict_case_and_whitespace_tolerant(raw, verdict) -> Non
 def test_decomposition_fenced_json_parses() -> None:
     raw = ('```json\n{"verdict": "supported", "unsupported_atoms": 0, '
            '"atoms": [{"atom": "x", "status": "supported"}]}\n```')
-    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.GROUNDED  # F05: atoms metadata appended; check contract.
+    assert result.parsed_ok is True
 
 
 def test_decomposition_bare_fence_no_lang_parses() -> None:
@@ -360,7 +366,9 @@ def test_decomposition_trailing_comma_json_parses() -> None:
     # The certified _strip_json repairs a trailing comma before the closing brace.
     raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
            '"atoms": [{"atom": "x", "status": "supported"}],}')
-    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.GROUNDED  # F05: atoms metadata appended; check contract.
+    assert result.parsed_ok is True
 
 
 def test_decomposition_reasoning_prefix_then_json_parses() -> None:
@@ -406,16 +414,28 @@ def test_decomposition_supported_verdict_with_unsupported_atom_vetoes_to_ungroun
     # trusting the top-level "supported" would be a fail-OPEN path (a fabricated claim -> VERIFIED).
     raw = ('{"atoms": [{"atom": "a", "status": "unsupported"}], '
            '"unsupported_atoms": 1, "verdict": "supported"}')
-    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.UNGROUNDED  # F05: atoms metadata appended; check contract.
+    assert result.parsed_ok is True
 
 
 def test_decomposition_supported_verdict_clean_atoms_stays_grounded() -> None:
     # The complement: a "supported" verdict with NO unsupported atoms is a clean GROUNDED parse.
     raw = '{"atoms": [{"atom": "a", "status": "supported"}], "unsupported_atoms": 0, "verdict": "supported"}'
-    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.GROUNDED  # F05: atoms metadata appended; check contract.
+    assert result.parsed_ok is True
 
 
 _ATOMS = '"atoms":[{"atom":"x","status":"supported"}]'  # full-contract atoms list (isolates count logic)
+
+
+def _verdict_ok(raw: str) -> tuple[SentinelVerdict, bool]:
+    """The SAFETY-contract projection of a parse result: (verdict, parsed_ok). F05 appends an
+    `atoms` metadata field that does NOT affect groundedness, so these count/contract tests assert
+    on the two safety fields, not full-tuple equality (which would now spuriously diff on atoms)."""
+    r = parse_sentinel_decomposition(raw)
+    return (r.verdict, r.parsed_ok)
 
 
 def test_decomposition_quoted_unsupported_atoms_count_vetoes_to_ungrounded() -> None:
@@ -423,15 +443,15 @@ def test_decomposition_quoted_unsupported_atoms_count_vetoes_to_ungrounded() -> 
     # A bare numeric check would miss it -> fail-OPEN. The parser coerces int-like strings and
     # vetoes, and fail-closes on a present-but-non-coercible count under a "supported" verdict.
     # (Full-contract atoms present so these reach the count veto, not the contract gate.)
-    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"1",%s}' % _ATOMS) == \
-        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"abc",%s}' % _ATOMS) == \
-        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":1.5,%s}' % _ATOMS) == \
-        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    assert _verdict_ok('{"verdict":"supported","unsupported_atoms":"1",%s}' % _ATOMS) == \
+        (SentinelVerdict.UNGROUNDED, True)
+    assert _verdict_ok('{"verdict":"supported","unsupported_atoms":"abc",%s}' % _ATOMS) == \
+        (SentinelVerdict.UNGROUNDED, True)
+    assert _verdict_ok('{"verdict":"supported","unsupported_atoms":1.5,%s}' % _ATOMS) == \
+        (SentinelVerdict.UNGROUNDED, True)
     # A quoted clean zero with full-contract atoms is still GROUNDED.
-    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"0",%s}' % _ATOMS) == \
-        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    assert _verdict_ok('{"verdict":"supported","unsupported_atoms":"0",%s}' % _ATOMS) == \
+        (SentinelVerdict.GROUNDED, True)
 
 
 def test_decomposition_non_numeric_unsupported_atoms_vetoes_to_ungrounded() -> None:
@@ -442,11 +462,10 @@ def test_decomposition_non_numeric_unsupported_atoms_vetoes_to_ungrounded() -> N
     # count veto, parsed_ok=True, is reached rather than the contract gate).
     for present_value in ("true", "false", "null", "[]", '["a"]', "{}"):
         payload = '{"verdict":"supported","unsupported_atoms":%s,%s}' % (present_value, _ATOMS)
-        assert parse_sentinel_decomposition(payload) == \
-            SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True), present_value
+        assert _verdict_ok(payload) == (SentinelVerdict.UNGROUNDED, True), present_value
     # PRESENT clean numeric zero with full-contract atoms stays GROUNDED.
-    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":0,%s}' % _ATOMS) == \
-        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    assert _verdict_ok('{"verdict":"supported","unsupported_atoms":0,%s}' % _ATOMS) == \
+        (SentinelVerdict.GROUNDED, True)
 
 
 def test_decomposition_supported_without_full_contract_fails_closed() -> None:
