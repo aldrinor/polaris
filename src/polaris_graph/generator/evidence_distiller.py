@@ -241,9 +241,25 @@ def _render_map_user(
     statement: str,
     direct_quote: str,
     atom_rows: str,
+    research_question: str = "",
 ) -> str:
-    """Render the MAP user prompt (spec Â§3)."""
+    """Render the MAP user prompt (spec Â§3).
+
+    I-arch-004 F21 (#1255): when `research_question` is supplied, a FRAMING-ONLY
+    line is prepended so the per-source extractor can decide on-topic relevance
+    against the actual question (the _MAP_SYSTEM rules already turn on
+    "what THIS section is about"). It is NOT a citable source: findings are still
+    extracted ONLY from DIRECT_QUOTE and validated against it. Empty (the default)
+    => byte-identical to pre-F21."""
+    _rq = (research_question or "").strip()
+    rq_line = (
+        "RESEARCH_QUESTION (framing only — extract findings ONLY from "
+        f"DIRECT_QUOTE, never from this line): {_rq}\n"
+        if _rq
+        else ""
+    )
     return (
+        f"{rq_line}"
         f"SECTION_TITLE: {section_title}\n"
         f"SECTION_FOCUS: {section_focus}\n"
         f"EVIDENCE_ID: {evidence_id}\n"
@@ -331,13 +347,22 @@ def render_reduce_user(
     *,
     advisory_text: str = "",
     cross_trial_summaries: list[str] | None = None,
+    research_question: str = "",
 ) -> str:
     """Render the REDUCE user prompt (spec Â§3): the validated findings ledger,
     one line per finding, plus contradiction clusters.
 
     I-perm-018 (#1210): when `advisory_text` / `cross_trial_summaries` are supplied,
     a FRAMING-ONLY narrative-context block is appended (see
-    `_render_reduce_narrative_context`). Both empty (the default) → byte-identical."""
+    `_render_reduce_narrative_context`). Both empty (the default) → byte-identical.
+
+    I-arch-004 F21 (#1255): when `research_question` is supplied, a single
+    FRAMING-ONLY line is prepended so the REDUCE writer knows what the report is
+    about. It is NOT a finding and NOT a citable source — every sentence still
+    comes from the VALIDATED_FINDINGS_LEDGER and carries its [[finding:]] marker
+    (the distill filter drops any sentence lacking one, and strict_verify is
+    unchanged), so the question text can never publish as an unsupported claim.
+    Empty (the default) => byte-identical to pre-F21."""
     ledger_lines: list[str] = []
     for f in distillate.findings:
         atom_ids = ",".join(f.atom_ids)
@@ -362,7 +387,17 @@ def render_reduce_user(
     narrative = _render_reduce_narrative_context(advisory_text, cross_trial_summaries)
     narrative_section = f"{narrative}\n\n" if narrative else ""
 
+    # F21 (#1255): framing-only research-question line. Empty => byte-identical.
+    _rq = (research_question or "").strip()
+    rq_section = (
+        "RESEARCH_QUESTION (framing only — NOT a finding, NOT a citable source): "
+        f"{_rq}\n\n"
+        if _rq
+        else ""
+    )
+
     return (
+        f"{rq_section}"
         f"SECTION_TITLE: {distillate.section_title}\n"
         f"SECTION_FOCUS: {distillate.section_focus}\n\n"
         f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"
@@ -948,6 +983,175 @@ def _atom_rows_for_evidence(
 # MAP â€” one LLM call per source (or 1..3 micro-batch)
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+def _findings_to_cache_dicts(validated: list[DistilledFinding]) -> list[dict]:
+    """Serialize VALIDATED findings to the per-source cache dict shape."""
+    return [
+        {
+            "claim": f.claim,
+            "support_quote": f.support_quote,
+            "span_start": f.span_start,
+            "span_end": f.span_end,
+            "numbers": f.numbers,
+            "entities": f.entities,
+            "caveat": f.caveat,
+            "contradiction_key": f.contradiction_key,
+            "source_tier": f.source_tier,
+            "atom_ids": f.atom_ids,
+        }
+        for f in validated
+    ]
+
+
+def _cache_lookup_one(
+    ev: dict[str, Any],
+    *,
+    section_title: str,
+    section_focus: str,
+    cache_dir: Path,
+    finding_id_prefix: str,
+) -> Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]:
+    """Per-source cache lookup. Returns the cache-hit 5-tuple, or None on miss.
+
+    F28 (#1255): the cache is PER SOURCE (key = section + evidence_id + quote
+    hash). Both the single-source and micro-batch MAP paths reuse this so caching
+    granularity is UNCHANGED by batching — only sources that miss the cache are
+    sent to a live MAP call, batched or not."""
+    evidence_id = ev.get("evidence_id", "") or ""
+    direct_quote = ev.get("direct_quote", "") or ""
+    tier = str(ev.get("tier", "") or "")
+    if not evidence_id or not direct_quote:
+        return None
+    key = _cache_key(
+        section_title=section_title, section_focus=section_focus,
+        evidence_id=evidence_id, direct_quote=direct_quote,
+    )
+    cached = _cache_load(cache_dir, key)
+    if cached is None:
+        return None
+    findings = [
+        DistilledFinding(
+            finding_id=f"{finding_id_prefix}{i:03d}",
+            evidence_id=evidence_id,
+            claim=d["claim"],
+            span_start=d["span_start"],
+            span_end=d["span_end"],
+            support_quote=d["support_quote"],
+            numbers=list(d.get("numbers", [])),
+            entities=list(d.get("entities", [])),
+            caveat=d.get("caveat", ""),
+            contradiction_key=d.get("contradiction_key", ""),
+            source_tier=d.get("source_tier", tier),
+            atom_ids=list(d.get("atom_ids", [])),
+        )
+        for i, d in enumerate(cached)
+    ]
+    if findings:
+        return (
+            findings,
+            CoverageRow(
+                evidence_id=evidence_id, status="mapped",
+                n_findings=len(findings), reason="cache_hit",
+            ),
+            0, 0, 1,
+        )
+    return (
+        [],
+        CoverageRow(
+            evidence_id=evidence_id, status="no_relevant_findings",
+            n_findings=0, reason="cache_hit_empty",
+        ),
+        0, 0, 1,
+    )
+
+
+def _validate_and_store_one_source(
+    *,
+    ev: dict[str, Any],
+    raw_findings: list,
+    no_relevant: bool,
+    no_relevant_reason: str,
+    section_title: str,
+    section_focus: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    section_atoms: dict[str, Any],
+    cache_dir: Path,
+    finding_id_prefix: str,
+) -> tuple[list[DistilledFinding], CoverageRow]:
+    """Validate ONE source's raw MAP findings fail-closed AGAINST THAT SOURCE'S
+    OWN direct_quote (F28 cross-source-contamination guard), store the VALIDATED
+    cache entry, and return (findings, coverage_row).
+
+    This is the SOLE validation entrypoint for both the single-source and the
+    micro-batch MAP paths, so a batched finding can NEVER be located/validated
+    against another source's text — `direct_quote` here is always THIS ev's quote,
+    routed by `evidence_id`. The faithfulness gates downstream are unchanged."""
+    evidence_id = ev.get("evidence_id", "") or ""
+    direct_quote = ev.get("direct_quote", "") or ""
+    tier = str(ev.get("tier", "") or "")
+
+    if no_relevant:
+        return (
+            [],
+            CoverageRow(
+                evidence_id=evidence_id, status="no_relevant_findings",
+                n_findings=0,
+                reason=(no_relevant_reason or "no_relevant_findings")[:200],
+            ),
+        )
+
+    if not isinstance(raw_findings, list):
+        return (
+            [],
+            CoverageRow(
+                evidence_id=evidence_id, status="map_failed",
+                n_findings=0, reason="findings_not_a_list",
+            ),
+        )
+
+    validated: list[DistilledFinding] = []
+    for i, rf in enumerate(raw_findings):
+        if not isinstance(rf, dict):
+            continue
+        finding = _validate_finding(
+            rf,
+            evidence_id=evidence_id,
+            direct_quote=direct_quote,  # F28: THIS source's quote, never the batch's
+            tier=tier,
+            evidence_pool=evidence_pool,
+            section_atoms=section_atoms,
+            finding_id=f"{finding_id_prefix}{len(validated):03d}",
+            raw_index=i,
+        )
+        if finding is not None:
+            validated.append(finding)
+
+    if not validated:
+        # The model proposed findings but NONE survived validation. Fail-closed
+        # coverage so the source is visible, not silently dropped.
+        return (
+            [],
+            CoverageRow(
+                evidence_id=evidence_id, status="validation_failed",
+                n_findings=0,
+                reason=f"{len(raw_findings)} proposed, 0 validated",
+            ),
+        )
+
+    # Cache VALIDATED outputs only, under THIS source's per-source key.
+    key = _cache_key(
+        section_title=section_title, section_focus=section_focus,
+        evidence_id=evidence_id, direct_quote=direct_quote,
+    )
+    _cache_store(cache_dir, key, _findings_to_cache_dicts(validated))
+    return (
+        validated,
+        CoverageRow(
+            evidence_id=evidence_id, status="mapped",
+            n_findings=len(validated), reason="",
+        ),
+    )
+
+
 async def _map_one_source(
     ev: dict[str, Any],
     *,
@@ -958,9 +1162,13 @@ async def _map_one_source(
     section_atoms: dict[str, Any],
     cache_dir: Path,
     finding_id_prefix: str,
+    research_question: str = "",
 ) -> tuple[list[DistilledFinding], CoverageRow, int, int, int]:
     """Distill ONE source. Returns (findings, coverage_row, in_tok, out_tok,
-    cache_hit). Cache stores VALIDATED finding dicts only."""
+    cache_hit). Cache stores VALIDATED finding dicts only.
+
+    This is the micro-batch-size-1 path (byte-identical to the pre-F28 single
+    call). The micro-batch (size>1) path is `_map_microbatch`."""
     evidence_id = ev.get("evidence_id", "") or ""
     direct_quote = ev.get("direct_quote", "") or ""
     tier = str(ev.get("tier", "") or "")
@@ -977,46 +1185,12 @@ async def _map_one_source(
         )
 
     # â”€â”€ cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    key = _cache_key(
-        section_title=section_title, section_focus=section_focus,
-        evidence_id=evidence_id, direct_quote=direct_quote,
+    cached = _cache_lookup_one(
+        ev, section_title=section_title, section_focus=section_focus,
+        cache_dir=cache_dir, finding_id_prefix=finding_id_prefix,
     )
-    cached = _cache_load(cache_dir, key)
     if cached is not None:
-        findings = [
-            DistilledFinding(
-                finding_id=f"{finding_id_prefix}{i:03d}",
-                evidence_id=evidence_id,
-                claim=d["claim"],
-                span_start=d["span_start"],
-                span_end=d["span_end"],
-                support_quote=d["support_quote"],
-                numbers=list(d.get("numbers", [])),
-                entities=list(d.get("entities", [])),
-                caveat=d.get("caveat", ""),
-                contradiction_key=d.get("contradiction_key", ""),
-                source_tier=d.get("source_tier", tier),
-                atom_ids=list(d.get("atom_ids", [])),
-            )
-            for i, d in enumerate(cached)
-        ]
-        if findings:
-            return (
-                findings,
-                CoverageRow(
-                    evidence_id=evidence_id, status="mapped",
-                    n_findings=len(findings), reason="cache_hit",
-                ),
-                0, 0, 1,
-            )
-        return (
-            [],
-            CoverageRow(
-                evidence_id=evidence_id, status="no_relevant_findings",
-                n_findings=0, reason="cache_hit_empty",
-            ),
-            0, 0, 1,
-        )
+        return cached
 
     # â”€â”€ live MAP call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
@@ -1026,6 +1200,7 @@ async def _map_one_source(
         section_title=section_title, section_focus=section_focus,
         evidence_id=evidence_id, tier=tier, statement=statement,
         direct_quote=direct_quote, atom_rows=atom_rows,
+        research_question=research_question,
     )
     messages = [
         {"role": "system", "content": _MAP_SYSTEM},
@@ -1079,85 +1254,279 @@ async def _map_one_source(
             in_tok, out_tok, 0,
         )
 
-    if parsed.get("no_relevant_findings") is True:
-        reason = str(parsed.get("no_relevant_reason", "") or "no_relevant_findings")
-        return (
-            [],
-            CoverageRow(
-                evidence_id=evidence_id, status="no_relevant_findings",
-                n_findings=0, reason=reason[:200],
-            ),
-            in_tok, out_tok, 0,
-        )
-
-    raw_findings = parsed.get("findings") or []
-    if not isinstance(raw_findings, list):
-        return (
-            [],
-            CoverageRow(
-                evidence_id=evidence_id, status="map_failed",
-                n_findings=0, reason="findings_not_a_list",
-            ),
-            in_tok, out_tok, 0,
-        )
-
-    validated: list[DistilledFinding] = []
-    for i, rf in enumerate(raw_findings):
-        if not isinstance(rf, dict):
-            continue
-        finding = _validate_finding(
-            rf,
-            evidence_id=evidence_id,
-            direct_quote=direct_quote,
-            tier=tier,
-            evidence_pool=evidence_pool,
-            section_atoms=section_atoms,
-            finding_id=f"{finding_id_prefix}{len(validated):03d}",
-            raw_index=i,
-        )
-        if finding is not None:
-            validated.append(finding)
-
-    if not validated:
-        # The model proposed findings but NONE survived validation. Fail-closed
-        # coverage so the source is visible, not silently dropped.
-        return (
-            [],
-            CoverageRow(
-                evidence_id=evidence_id, status="validation_failed",
-                n_findings=0,
-                reason=f"{len(raw_findings)} proposed, 0 validated",
-            ),
-            in_tok, out_tok, 0,
-        )
-
-    # Cache VALIDATED outputs only.
-    _cache_store(
-        cache_dir, key,
-        [
-            {
-                "claim": f.claim,
-                "support_quote": f.support_quote,
-                "span_start": f.span_start,
-                "span_end": f.span_end,
-                "numbers": f.numbers,
-                "entities": f.entities,
-                "caveat": f.caveat,
-                "contradiction_key": f.contradiction_key,
-                "source_tier": f.source_tier,
-                "atom_ids": f.atom_ids,
-            }
-            for f in validated
-        ],
+    findings, cov = _validate_and_store_one_source(
+        ev=ev,
+        raw_findings=parsed.get("findings") or [],
+        no_relevant=parsed.get("no_relevant_findings") is True,
+        no_relevant_reason=str(parsed.get("no_relevant_reason", "") or ""),
+        section_title=section_title, section_focus=section_focus,
+        evidence_pool=evidence_pool, section_atoms=section_atoms,
+        cache_dir=cache_dir, finding_id_prefix=finding_id_prefix,
     )
+    return (findings, cov, in_tok, out_tok, 0)
+
+
+def _render_map_batch_user(
+    *,
+    section_title: str,
+    section_focus: str,
+    sources: list[dict[str, str]],
+    research_question: str = "",
+) -> str:
+    """Render the MAP user prompt for a MICRO-BATCH of 2..3 sources (F28 #1255).
+
+    Each source is presented with its OWN EVIDENCE_ID + DIRECT_QUOTE + atoms, and
+    the model returns a JSON object keyed by evidence_id. The per-source extraction
+    rules are byte-identical to the single-source prompt; only the envelope groups
+    several sources to amortize the request. Findings are STILL routed back to
+    each source's own direct_quote for validation (see `_validate_and_store_one_
+    source`), so batching never crosses provenance between sources."""
+    _rq = (research_question or "").strip()
+    rq_line = (
+        "RESEARCH_QUESTION (framing only — extract findings ONLY from each "
+        f"source's DIRECT_QUOTE, never from this line): {_rq}\n\n"
+        if _rq
+        else ""
+    )
+    blocks: list[str] = []
+    for s in sources:
+        blocks.append(
+            f"=== SOURCE evidence_id={s['evidence_id']} (SOURCE_TIER={s['tier']}) ===\n"
+            f"STATEMENT: {s['statement']}\n"
+            f"DIRECT_QUOTE:\n{s['direct_quote']}\n\n"
+            f"NUMERIC_ATOMS_AVAILABLE:\n{s['atom_rows']}\n"
+        )
+    sources_block = "\n".join(blocks)
+    ids = ", ".join(s["evidence_id"] for s in sources)
     return (
-        validated,
-        CoverageRow(
-            evidence_id=evidence_id, status="mapped",
-            n_findings=len(validated), reason="",
-        ),
-        in_tok, out_tok, 0,
+        f"{rq_line}"
+        f"SECTION_TITLE: {section_title}\n"
+        f"SECTION_FOCUS: {section_focus}\n\n"
+        f"You are given {len(sources)} sources. Extract findings for EACH one "
+        "INDEPENDENTLY, using ONLY that source's own DIRECT_QUOTE.\n\n"
+        f"{sources_block}\n"
+        "Return JSON of the form:\n"
+        "{\n"
+        '  "by_source": {\n'
+        '    "<evidence_id>": {\n'
+        '      "no_relevant_findings": false,\n'
+        '      "no_relevant_reason": "",\n'
+        '      "findings": [\n'
+        "        {\n"
+        '          "claim": "single atomic claim",\n'
+        '          "support_quote": "exact substring from THIS source DIRECT_QUOTE",\n'
+        '          "span_start": 0,\n'
+        '          "span_end": 0,\n'
+        '          "numbers": [],\n'
+        '          "entities": [],\n'
+        '          "caveat": "",\n'
+        '          "contradiction_key": "",\n'
+        '          "source_tier": "T1"\n'
+        "        }\n"
+        "      ]\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        f"Provide a key for EVERY one of these evidence_ids: {ids}. "
+        "Each finding's support_quote MUST be an EXACT contiguous substring of "
+        "THAT SAME source's DIRECT_QUOTE (never another source's). Every number "
+        "in a claim must appear in its support_quote; do not round; do not combine "
+        "multiple claims; split scattered numbers into separate findings. If a "
+        "source has no section-relevant finding, set no_relevant_findings=true "
+        "with a reason."
     )
+
+
+async def _map_microbatch(
+    evs: list[dict[str, Any]],
+    *,
+    section_title: str,
+    section_focus: str,
+    model: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    section_atoms: dict[str, Any],
+    cache_dir: Path,
+    finding_id_prefixes: list[str],
+    research_question: str = "",
+) -> list[tuple[list[DistilledFinding], CoverageRow, int, int, int]]:
+    """Distill a MICRO-BATCH of 2..3 CACHE-MISS sources in ONE MAP call (F28).
+
+    Returns one 5-tuple PER input source (index-aligned to `evs`), so the caller's
+    "no source disappears" invariant holds even when a whole batch fails. Each
+    source's findings are validated against ITS OWN direct_quote and stored under
+    ITS OWN per-source cache key. A batch-level MAP/parse failure yields a
+    map_failed CoverageRow for EVERY source in the batch (fail-closed)."""
+    # Defensive: an empty batch maps to nothing.
+    if not evs:
+        return []
+    # A size-1 batch is exactly the single-source path (byte-identical).
+    if len(evs) == 1:
+        one = await _map_one_source(
+            evs[0],
+            section_title=section_title, section_focus=section_focus,
+            model=model, evidence_pool=evidence_pool, section_atoms=section_atoms,
+            cache_dir=cache_dir, finding_id_prefix=finding_id_prefixes[0],
+            research_question=research_question,
+        )
+        return [one]
+
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+    # Drop rows with no id/quote up front so the live call only sees valid sources;
+    # they get their own no_relevant_findings coverage row (never silently dropped).
+    valid_idx: list[int] = []
+    sources: list[dict[str, str]] = []
+    for j, ev in enumerate(evs):
+        eid = ev.get("evidence_id", "") or ""
+        dq = ev.get("direct_quote", "") or ""
+        if not eid or not dq:
+            continue
+        valid_idx.append(j)
+        sources.append({
+            "evidence_id": eid,
+            "tier": str(ev.get("tier", "") or ""),
+            "statement": ev.get("statement", "") or "",
+            "direct_quote": dq,
+            "atom_rows": _atom_rows_for_evidence(eid, section_atoms),
+        })
+
+    results: list[Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]] = [
+        None
+    ] * len(evs)
+
+    # Empty-evidence rows -> no_relevant_findings coverage row.
+    for j, ev in enumerate(evs):
+        if j not in valid_idx:
+            results[j] = (
+                [],
+                CoverageRow(
+                    evidence_id=ev.get("evidence_id", "") or "",
+                    status="no_relevant_findings",
+                    n_findings=0, reason="empty evidence_id or direct_quote",
+                ),
+                0, 0, 0,
+            )
+
+    if not sources:
+        # All rows were empty-evidence; every index is already filled above.
+        return [r for r in results]  # type: ignore[misc]
+
+    user = _render_map_batch_user(
+        section_title=section_title, section_focus=section_focus,
+        sources=sources, research_question=research_question,
+    )
+    messages = [
+        {"role": "system", "content": _MAP_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    client = OpenRouterClient(model=model)
+    in_tok = out_tok = 0
+    parsed: Optional[dict] = None
+    map_error: Optional[str] = None
+    try:
+        resp = await client._call(
+            messages=messages,
+            call_type="distill_map",
+            reasoning_enabled=False,
+            temperature=0.1,
+            max_tokens=_map_max_tokens(),
+            response_format={"type": "json_object"},
+            reasoning_max_tokens=_map_reasoning_tokens(),
+        )
+        in_tok = getattr(resp, "input_tokens", 0) or 0
+        out_tok = getattr(resp, "output_tokens", 0) or 0
+        parsed = _parse_map_json(
+            getattr(resp, "content", None), getattr(resp, "reasoning", None),
+        )
+    except Exception as exc:  # noqa: BLE001 — a MAP failure must not crash the section
+        map_error = str(exc)[:200]
+        logger.warning(
+            "[evidence_distiller] MAP micro-batch call failed for %s: %s — "
+            "map_failed for the whole batch",
+            ",".join(s["evidence_id"] for s in sources), exc,
+        )
+    finally:
+        if hasattr(client, "close"):
+            try:
+                await client.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    by_source: dict[str, Any] = {}
+    parse_failed = parsed is None
+    if not parse_failed:
+        bs = parsed.get("by_source")  # type: ignore[union-attr]
+        if isinstance(bs, dict):
+            by_source = bs
+        else:
+            parse_failed = True
+
+    # The batch's token cost is recorded ONCE, on the first valid source, so the
+    # section totals are not double-counted across the batch members.
+    cost_assigned = False
+    for j in valid_idx:
+        ev = evs[j]
+        # locate this source's prefix
+        prefix = finding_id_prefixes[j]
+        eid = ev.get("evidence_id", "") or ""
+        this_in = in_tok if not cost_assigned else 0
+        this_out = out_tok if not cost_assigned else 0
+
+        if map_error is not None or parse_failed:
+            reason = map_error if map_error is not None else "unparseable_json"
+            results[j] = (
+                [],
+                CoverageRow(
+                    evidence_id=eid, status="map_failed",
+                    n_findings=0, reason=reason,
+                ),
+                this_in, this_out, 0,
+            )
+            cost_assigned = True
+            continue
+
+        entry = by_source.get(eid)
+        if not isinstance(entry, dict):
+            # The model omitted this source's key entirely -> fail-closed map_failed
+            # (the source is visible, never silently dropped).
+            results[j] = (
+                [],
+                CoverageRow(
+                    evidence_id=eid, status="map_failed",
+                    n_findings=0, reason="missing_in_batch_response",
+                ),
+                this_in, this_out, 0,
+            )
+            cost_assigned = True
+            continue
+
+        findings, cov = _validate_and_store_one_source(
+            ev=ev,
+            raw_findings=entry.get("findings") or [],
+            no_relevant=entry.get("no_relevant_findings") is True,
+            no_relevant_reason=str(entry.get("no_relevant_reason", "") or ""),
+            section_title=section_title, section_focus=section_focus,
+            evidence_pool=evidence_pool, section_atoms=section_atoms,
+            cache_dir=cache_dir, finding_id_prefix=prefix,
+        )
+        results[j] = (findings, cov, this_in, this_out, 0)
+        cost_assigned = True
+
+    # Index-aligned to `evs`: every index is filled (valid sources above + empty-
+    # evidence rows earlier), so a defensive fill guards any unexpected gap so the
+    # caller's "one tuple per source" contract (and LAW II no-disappear) holds.
+    for j, ev in enumerate(evs):
+        if results[j] is None:
+            results[j] = (
+                [],
+                CoverageRow(
+                    evidence_id=ev.get("evidence_id", "") or "",
+                    status="map_failed", n_findings=0,
+                    reason="unaccounted_in_batch",
+                ),
+                0, 0, 0,
+            )
+    return [r for r in results]  # type: ignore[misc]
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1199,6 +1568,7 @@ async def distill_section_evidence(
     max_parallel: int | None = None,
     microbatch_size: int | None = None,
     cache_dir: str | Path | None = None,
+    research_question: str = "",
 ) -> SectionDistillate:
     """MAP per-source -> validate fail-closed -> build the validated findings
     ledger for ONE section.
@@ -1206,6 +1576,17 @@ async def distill_section_evidence(
     Every input row in ``ev_subset`` yields either >=1 accepted finding OR a
     CoverageRow (no source silently disappears â€” LAW II). A runtime assertion at
     the end enforces this invariant.
+
+    F28 (#1255): cache-MISS sources are grouped into MICRO-BATCHES of size
+    ``PG_DISTILL_MICROBATCH_SIZE`` (clamped 1..3) and distilled in ONE MAP call
+    per batch (a real >1 batch, not the prior size-1-only path). Each batched
+    finding is still validated against ITS OWN source's direct_quote and cached
+    under ITS OWN per-source key, so batching changes ONLY request packing —
+    never provenance routing or cache granularity. Cache HITS bypass batching
+    entirely (no live call). The bounded ``asyncio.Semaphore`` pool (F18) caps
+    concurrent batch calls at ``PG_DISTILL_MAX_PARALLEL``.
+    F21 (#1255): ``research_question`` is threaded into the MAP prompt as
+    framing-only context (extraction stays bound to each source's direct_quote).
     """
     section_title = getattr(section, "title", "") or ""
     section_focus = getattr(section, "focus", "") or ""
@@ -1218,34 +1599,76 @@ async def distill_section_evidence(
     resolved_cache_dir = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
     parallel = max_parallel if max_parallel is not None else _max_parallel()
     parallel = max(1, parallel)
-    # microbatch_size is read for API/spec completeness; per-source (size 1) is the
-    # default and the only path currently exercised â€” clamp 1..3 per spec.
+    # F28: micro-batch size, clamped 1..3 per spec. size==1 keeps the byte-identical
+    # single-source path; size>1 groups cache-miss sources into a shared MAP call.
     _mb = microbatch_size if microbatch_size is not None else _microbatch_size()
     _mb = min(3, max(1, _mb))
 
+    # Stable per-source finding-id prefix keyed by ORIGINAL ev_subset index, so
+    # finding ids do not depend on batching/cache order.
+    prefixes = [f"f{idx:03d}_" for idx in range(len(ev_subset))]
+
+    # ── Pass 1: resolve the per-source cache FIRST. Hits never enter a batch. ──
+    results_by_idx: list[Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]] = [
+        None
+    ] * len(ev_subset)
+    miss_indices: list[int] = []
+    for i, ev in enumerate(ev_subset):
+        hit = _cache_lookup_one(
+            ev, section_title=section_title, section_focus=section_focus,
+            cache_dir=resolved_cache_dir, finding_id_prefix=prefixes[i],
+        )
+        if hit is not None:
+            results_by_idx[i] = hit
+        else:
+            miss_indices.append(i)
+
+    # ── Pass 2: batch the cache MISSES into groups of _mb; one MAP call each. ──
+    batches: list[list[int]] = [
+        miss_indices[k:k + _mb] for k in range(0, len(miss_indices), _mb)
+    ]
     semaphore = asyncio.Semaphore(parallel)
 
-    async def _guarded(idx: int, ev: dict[str, Any]):
+    async def _guarded_batch(idx_group: list[int]):
         async with semaphore:
-            return await _map_one_source(
-                ev,
+            batch_evs = [ev_subset[i] for i in idx_group]
+            batch_prefixes = [prefixes[i] for i in idx_group]
+            return idx_group, await _map_microbatch(
+                batch_evs,
                 section_title=section_title,
                 section_focus=section_focus,
                 model=model,
                 evidence_pool=evidence_pool,
                 section_atoms=section_atoms,
                 cache_dir=resolved_cache_dir,
-                finding_id_prefix=f"f{idx:03d}_",
+                finding_id_prefixes=batch_prefixes,
+                research_question=research_question,
             )
 
-    results = await asyncio.gather(
-        *[_guarded(i, ev) for i, ev in enumerate(ev_subset)]
+    batch_results = await asyncio.gather(
+        *[_guarded_batch(group) for group in batches]
     )
+    for idx_group, tuples in batch_results:
+        # _map_microbatch returns one tuple per input source, index-aligned.
+        for local_i, idx in enumerate(idx_group):
+            results_by_idx[idx] = tuples[local_i]
 
     all_findings: list[DistilledFinding] = []
     coverage: list[CoverageRow] = []
     total_in = total_out = cache_hits = 0
-    for findings, cov, in_tok, out_tok, hit in results:
+    for i, res in enumerate(results_by_idx):
+        if res is None:
+            # Defensive: a row that produced no tuple in either pass (should not
+            # happen — every miss is batched and every batch index is filled).
+            # Emit a fail-closed coverage row so no source silently disappears
+            # (LAW II), rather than dropping it.
+            eid = ev_subset[i].get("evidence_id", "") or ""
+            coverage.append(CoverageRow(
+                evidence_id=eid, status="map_failed", n_findings=0,
+                reason="unaccounted_after_dispatch",
+            ))
+            continue
+        findings, cov, in_tok, out_tok, hit = res
         all_findings.extend(findings)
         coverage.append(cov)
         total_in += in_tok

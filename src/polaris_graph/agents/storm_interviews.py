@@ -23,7 +23,11 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import (
+    NoEndpointError,
+    OpenRouterClient,
+    get_generator_timeout_seconds,
+)
 from src.polaris_graph.state import ResearchState, STORM_PERSPECTIVES
 from src.polaris_graph.tracing import get_tracer
 
@@ -40,6 +44,31 @@ PG_STORM_ROUNDS_PER_PERSPECTIVE = int(os.getenv("PG_STORM_ROUNDS_PER_PERSPECTIVE
 PG_STORM_MAX_TIME_SECONDS = int(os.getenv("PG_STORM_MAX_TIME_SECONDS", "600"))
 PG_STORM_QUESTIONS_MAX_TOKENS = int(os.getenv("PG_STORM_QUESTIONS_MAX_TOKENS", "1024"))
 PG_STORM_ANSWER_MAX_TOKENS = int(os.getenv("PG_STORM_ANSWER_MAX_TOKENS", "2048"))
+
+# I-arch-004 F20 (#1255): historical per-interview wall (FIX-058F) — the floor the
+# generator-sized default can only grow above, never regress below.
+_STORM_INTERVIEW_TIMEOUT_FLOOR = 300
+
+
+def _resolve_interview_timeout() -> int:
+    """Per-interview wall timeout for one STORM persona conversation.
+
+    A STORM interview is a WALL around PG_STORM_ROUNDS_PER_PERSPECTIVE sequential reasoning LLM
+    rounds (persona Q&A on a reasoning-first model — DeepSeek V4 Pro / GLM-5.1). The historical
+    flat 300s default was sized off a SINGLE cheap call: ONE reasoning round on a reasoning-first
+    model can approach the generator budget, so a multi-round interview was killed mid-conversation
+    by the cheap clock -> truncated/empty interview (F20).
+
+    Resolution (CLAUDE.md §9.1.8 — never starve a reasoning-first call):
+      * env PG_STORM_INTERVIEW_TIMEOUT set -> that value (LAW VI operator override, wins outright),
+      * else -> max(300 floor, LIVE generator timeout) so the default can only GROW (honors the
+        Gate-B slate's set_generator_timeout_seconds), never regress below the historical 300s.
+    The $ hard cap, not this clock, is the spend backstop.
+    """
+    explicit = os.getenv("PG_STORM_INTERVIEW_TIMEOUT")
+    if explicit is not None:
+        return int(explicit)
+    return max(_STORM_INTERVIEW_TIMEOUT_FLOOR, get_generator_timeout_seconds())
 # I-arch-003 (#1253): the outline call is the ONE STORM call with reasoning_enabled=True, so it takes
 # the openrouter_client reasoning-ON branch which (pre-fix) had NO 32768 floor. The old default 4096
 # sat below V4-Pro's ~17-18k reasoning footprint, so the multi-perspective outline JSON could truncate.
@@ -1340,8 +1369,9 @@ async def run_storm_interviews(
                 per_persona_budget,
             )
 
-            # FIX-058F: Per-interview timeout to prevent hung interviews blocking pipeline
-            interview_timeout = int(os.getenv("PG_STORM_INTERVIEW_TIMEOUT", "300"))
+            # FIX-058F: Per-interview timeout to prevent hung interviews blocking pipeline.
+            # I-arch-004 F20 (#1255): see _resolve_interview_timeout — sized off the generator budget.
+            interview_timeout = _resolve_interview_timeout()
             try:
                 conversation, interview_results = await asyncio.wait_for(
                     _conduct_interview(

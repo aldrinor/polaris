@@ -61,6 +61,63 @@ def parse_relevance_floor(
         )
     return value
 
+
+# ── I-arch-004 F24 (#1255): generator-facing evidence cap default ────────────
+# THE BUG: every direct entry point (run_honest_sweep_r3, run_honest_on_prerebuild_corpus,
+# run_live_honest_cycle) read ``int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))`` — a hardcoded
+# default of 20. The Gate-B cert slate overrides it to 1500, so the starvation is LATENT on the
+# certification path; but a DIRECT / bypass / flags-OFF caller silently capped the generator at
+# 20 evidence rows regardless of how large the corpus was. A 20-evidence generation off a
+# multi-hundred-source corpus is a starved generation (CLAUDE.md §-1.3: a silent thinner).
+#
+# THE FIX (§-1.3 WEIGHT-AND-CONSOLIDATE, not a bigger silent cap): when the env is UNSET, default
+# to the FULL pool — i.e. NO cap (the selector already keeps everything when ``pool_size <=
+# max_rows``, see the ``len(scored) <= max_rows`` keep-all branch). When the env IS set, honor it
+# (LAW VI) but emit a LOUD WARNING whenever the cap actually BINDS (cap < pool_size) so a direct
+# caller is never SILENTLY truncated. Truncation is always observable; it is never silent.
+_MAX_EV_TO_GEN_ENV = "PG_LIVE_MAX_EV_TO_GEN"
+
+
+def resolve_max_ev_to_gen(pool_size: int) -> int:
+    """Resolve the generator-facing evidence cap for a corpus of ``pool_size`` rows.
+
+    Returns the effective ``max_rows`` to hand the tier-balanced selector:
+
+    * Env UNSET  -> ``pool_size`` (full-corpus floor; the selector keeps every row, NO silent
+      20-cap). A non-positive/empty corpus returns 0 (the selector's own
+      ``max_rows <= 0`` short-circuit handles it).
+    * Env SET    -> the parsed integer (LAW VI operator override). If that cap is smaller than the
+      corpus (it BINDS), log a LOUD WARNING naming the drop count, so a direct caller can SEE the
+      truncation. A non-binding or absurd (<=0) value still defers to the selector's own guards.
+
+    This is a CAPABILITY FLOOR, not a thinner: the default path delivers the full pool; any
+    reduction is operator-chosen AND announced.
+    """
+    safe_pool = max(0, int(pool_size))
+    raw = os.getenv(_MAX_EV_TO_GEN_ENV)
+    if raw is None or not str(raw).strip():
+        # Full-corpus floor: feed every available row to the selector (keep-all).
+        return safe_pool
+    try:
+        cap = int(str(raw).strip())
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "[evidence_selector] F24: %s=%r is not an integer — defaulting to the "
+            "full-corpus floor (%d rows, no cap) rather than a silent starve.",
+            _MAX_EV_TO_GEN_ENV, raw, safe_pool,
+        )
+        return safe_pool
+    if 0 < cap < safe_pool:
+        _LOGGER.warning(
+            "[evidence_selector] F24: %s=%d BINDS on a %d-row corpus — the generator will see "
+            "only %d of %d rows (%d dropped). This is an operator-set cap, NOT a silent default; "
+            "unset %s to feed the full corpus.",
+            _MAX_EV_TO_GEN_ENV, cap, safe_pool, cap, safe_pool, safe_pool - cap,
+            _MAX_EV_TO_GEN_ENV,
+        )
+    return cap
+
+
 _STOPWORDS = frozenset({
     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
     "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",

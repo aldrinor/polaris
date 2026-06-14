@@ -2178,6 +2178,7 @@ async def _call_section(
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",
     distillate: Any | None = None,
+    research_question: str = "",
 ) -> tuple[str, int, int, dict[str, Any]]:
     """Single LLM call for one section.
 
@@ -2247,6 +2248,7 @@ async def _call_section(
             distillate,
             advisory_text=advisory_text,
             cross_trial_summaries=_cross_trial_summaries,
+            research_question=research_question,
         )
         client = OpenRouterClient(model=model)
         try:
@@ -2552,8 +2554,23 @@ async def _call_section(
                 "sources or drop the claim."
             )
 
+    # I-arch-004 F21 (#1255): thread the REAL research_question into the legacy
+    # section prompt as FRAMING-ONLY context. The previous hardcoded placeholder
+    # "(see overall corpus)" told the writer nothing about what the report is
+    # about, so a generic section title ("Safety") had to guess the intervention/
+    # population from the evidence blocks alone. The question is framing only —
+    # NOT a citable source and NOT a finding: every sentence still cites a real
+    # [ev_XXX] marker and is re-checked by the UNCHANGED strict_verify, so the
+    # research_question text can never enter the report as an unsupported claim.
+    # Empty (the caller default) => byte-identical to the prior placeholder.
+    _rq = (research_question or "").strip()
+    _rq_line = (
+        f"Research question (framing only — do NOT cite it as a source): {_rq}\n\n"
+        if _rq
+        else "Research question context: (see overall corpus)\n\n"
+    )
     prompt = (
-        f"Research question context: (see overall corpus)\n\n"
+        f"{_rq_line}"
         f"Evidence available for this section ({len(evidence_subset)} rows):\n\n"
         f"{evidence_section}\n\n"
         f"Write the {section.title} paragraph now, following the rules."
@@ -2845,6 +2862,7 @@ async def _run_section(
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
+    research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -2904,6 +2922,7 @@ async def _run_section(
         )
         distillate = await distill_section_evidence(
             section, ev_subset, evidence_pool, model=model,
+            research_question=research_question,
         )
         total_in_tok += distillate.input_tokens
         total_out_tok += distillate.output_tokens
@@ -2920,6 +2939,7 @@ async def _run_section(
         use_field_agnostic_prompt=use_field_agnostic_prompt,
         advisory_text=advisory_text,
         distillate=distillate,
+        research_question=research_question,
     )
     total_in_tok += in_tok
     total_out_tok += out_tok
@@ -3048,6 +3068,7 @@ async def _run_section(
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
             advisory_text=advisory_text,
+            research_question=research_question,
         )
         total_in_tok += in_tok2
         total_out_tok += out_tok2
@@ -5688,8 +5709,20 @@ async def generate_multi_section_report(
             # (research_plan present) the PRE-generation injection routes on
             # archetype, not clinical title/focus. OFF: use_archetype=False
             # keeps title routing byte-identical.
+            # I-arch-004 F29 (#1255): honor PG_MAX_EV_PER_SECTION at the M-44
+            # injection site. The helper's default (20) was a stale literal that
+            # ignored the env, so M-44 swapped primaries in at a 20-row ceiling
+            # while the rest of the section pipeline (outline trim, fallback
+            # selection) used PG_MAX_EV_PER_SECTION (default 30). That mismatch
+            # silently EVICTED a non-primary row whenever a section already held
+            # 20 rows even though the configured per-section ceiling was higher —
+            # a hidden recall thinner (§-1.3 weight-not-filter). Read at CALL time
+            # (LAW VI idiom used throughout this file) so monkeypatch/env take
+            # effect per call. Unset => "30" => the effective cap RISES 20->30
+            # (never narrows), so this is a correctness raise, not a new filter.
             plans, m44_injection_log = _m44_inject_primaries_into_outline(
                 plans, m44_primary_by_anchor,
+                max_ev_per_section=int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),
                 use_archetype=research_plan is not None,
             )
             injected_count = sum(
@@ -5943,6 +5976,9 @@ async def generate_multi_section_report(
                 advisory_text=advisory_text,
                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
                 credibility_analysis=credibility_analysis,
+                # I-arch-004 F21 (#1255): thread the real research_question
+                # (framing-only) into legacy section prompts + distill MAP/REDUCE.
+                research_question=research_question,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

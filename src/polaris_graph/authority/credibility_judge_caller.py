@@ -31,9 +31,26 @@ _ENV_MAX_TOKENS = "PG_CREDIBILITY_JUDGE_MAX_TOKENS"
 # a truncation-error string, not JSON -> per-row judge_error -> fail-loud (or, vs a slow provider, the SYNC
 # call stalled in ssl.recv and FROZE the asyncio loop). Operator directive 2026-06-13: reasoning effort
 # stays MAX, NEVER disabled. The fix is to UN-STARVE the budget so high-effort reasoning COMPLETES and then
-# emits the JSON (measured: effort=high + 8000 tokens -> finish=stop, 4070 reasoning chars + valid JSON,
-# ~24s). Env-overridable per LAW VI.
-_DEFAULT_MAX_TOKENS = 8000
+# emits the JSON. Env-overridable per LAW VI.
+#
+# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
+# free, billed by usage not pre-allocated"): the old default 8000 was still a SMALL hardcode relative to the
+# model REAL cap — one high-effort reasoning pass from a finish=length truncation -> a per-row judge_error.
+# This judge is the SAME GLM-5.1 model pinned to the SAME LOCKED mirror provider chain
+# (`get_role_provider("mirror")`, allow_fallbacks=False — see call_llm below) as the main Mirror role, so its
+# binding output cap is the SAME chain MIN the Mirror transport derived from a LIVE OpenRouter read 2026-06-14
+# (openrouter_role_transport.py:295, `_MIRROR_MAX_TOKENS_CHAIN_MIN`): mirror chain
+# order=[atlas-cloud, z-ai, baidu, novita, gmicloud] -> MIN max_completion_tokens 131072. A budget ABOVE
+# 131072 would hard-400 on the z-ai/baidu/novita fallbacks under allow_fallbacks=False; so the default IS the
+# chain MIN (the model REAL max for this pinned chain), env-overridable but CLAMPED DOWN to that ceiling. The
+# event-loop-freeze risk is already prevented STRUCTURALLY by the caller's asyncio.to_thread offload (see the
+# module docstring + the timeout note below), so the raise only ADDS verdict headroom, never re-introduces the
+# freeze. Effort stays "high" (NOT xhigh): the Mirror GLM bake-off (openrouter_role_transport.py:700-705,
+# mirror_glm_provider_bakeoff.py, 2026-06-14) proved xhigh is a NO-OP on GLM that lets reasoning eat the whole
+# budget -> blank content. RE-DERIVE if the mirror chain is re-pinned in
+# config/settings/openrouter_provider_routing.yaml to higher-cap-only providers.
+_CREDIBILITY_MAX_TOKENS_CHAIN_MIN = 131072
+_DEFAULT_MAX_TOKENS = _CREDIBILITY_MAX_TOKENS_CHAIN_MIN
 _ENV_TIMEOUT_S = "PG_CREDIBILITY_JUDGE_TIMEOUT_S"
 # Read-gap timeout (httpx). A completing high-reasoning call is ~24s; 120s leaves headroom for a slow
 # provider while still bounding a no-bytes stall. The freeze itself is now prevented structurally by the
@@ -91,7 +108,10 @@ def make_openrouter_credibility_caller(
     chosen_model = (model or "").strip() or credibility_judge_model()
     _orc.check_family_segregation(evaluator_model=chosen_model)
 
-    cap_tokens = max_tokens or _int_env(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS)
+    # I-arch-004 F19 (§9.1.8): default to the GLM-5.1 mirror-chain MIN (model REAL max for the pinned chain),
+    # env-overridable but CLAMPED DOWN to that ceiling so a bad override (or a future explicit max_tokens arg)
+    # can never hard-400 the judge under allow_fallbacks=False. A generous cap is usage-billed, never starves.
+    cap_tokens = min(max_tokens or _int_env(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS), _CREDIBILITY_MAX_TOKENS_CHAIN_MIN)
     call_timeout = timeout or _float_env(_ENV_TIMEOUT_S, _DEFAULT_TIMEOUT_S)
     # Reasoning effort (operator: MAX, never disabled). An off/disabled value is coerced UP to the default
     # so a stray env can never strip the judge's reasoning.

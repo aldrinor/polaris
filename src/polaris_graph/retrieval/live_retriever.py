@@ -1470,6 +1470,49 @@ def _post_fetch_loop_budget(fetch_cap: int) -> float:
     )
 
 
+class CorpusTruncationError(RuntimeError):
+    """I-arch-004 F18b (#1255): raised when the post-fetch loop budget breaks
+    mid-corpus AND ``PG_CORPUS_TRUNCATION_POLICY=fail_closed``.
+
+    The post-fetch loop can hit its wall-clock deadline before classifying every
+    fetched candidate; the legacy behavior set a fail-loud ``corpus_truncated``
+    flag and BROKE, leaving a PARTIAL corpus to flow into generation (§-1.3: a
+    silent recall degradation — a "1000-URL" run could be composed from the first
+    few hundred sources with no in-run gate). ``fail_closed`` raises this BEFORE
+    any generator token is billed so a truncated corpus never ships. The post-hoc
+    scorer backstop (``score_run._check_polaris_gate``) still rejects a truncated
+    manifest under the default ``warn`` policy; this error is the additive in-run
+    gate."""
+
+
+def _corpus_truncation_policy() -> str:
+    """Read ``PG_CORPUS_TRUNCATION_POLICY`` (LAW VI). One of:
+
+      - ``warn``   (DEFAULT): legacy behavior — set ``corpus_truncated`` and BREAK.
+                   Byte-identical to pre-F18b. The post-hoc scorer backstop is the
+                   gate; the in-run report still composes over the partial corpus.
+      - ``repair``: do NOT break at the deadline; CONTINUE processing the remaining
+                   candidates so recall is preserved (§-1.3 weight-not-filter). The
+                   per-candidate Layer-1 bound (``_bounded_openalex_enrich``,
+                   PG_OPENALEX_ENRICH_DEADLINE) still prevents a single wedged
+                   candidate from hanging the run, so dropping the loop-level
+                   deadline does not reintroduce the #554 hang.
+      - ``fail_closed``: RAISE ``CorpusTruncationError`` at the deadline so a
+                   truncated corpus never reaches generation (no tokens billed).
+
+    Unknown / empty value falls back to ``warn`` (byte-identical default)."""
+    raw = (os.getenv("PG_CORPUS_TRUNCATION_POLICY", "") or "").strip().lower()
+    if raw in ("warn", "repair", "fail_closed"):
+        return raw
+    if raw:
+        logger.warning(
+            "[live_retriever] PG_CORPUS_TRUNCATION_POLICY=%r is not one of "
+            "warn/repair/fail_closed — using 'warn' (legacy default)",
+            raw,
+        )
+    return "warn"
+
+
 def _bounded_openalex_enrich(
     url: str, title: str, stats: Optional[dict[str, int]] = None,
 ) -> dict[str, Any]:
@@ -3692,19 +3735,55 @@ def run_live_retrieval(
     _candidates_total = len(candidates)
     _candidates_processed = len(candidates)
 
+    # I-arch-004 F18b (#1255): how to treat a mid-corpus budget break. Read ONCE
+    # before the loop (LAW VI). Default 'warn' = legacy flag+break (byte-identical).
+    _trunc_policy = _corpus_truncation_policy()
+    _repair_logged = False
+
     for i, cand in enumerate(candidates):
         if time.monotonic() > _loop_deadline:
-            logger.warning(
-                "[live_retriever] post-fetch loop budget exceeded — stopping "
-                "at candidate %d/%d (%d already classified)",
-                i, len(candidates), len(classified_sources),
-            )
-            # #958: record the truncation as a fail-loud signal (was log-only).
-            # candidates_processed = the zero-based break index i = post-filter
-            # candidates whose loop iteration began before the cutoff (Codex P2).
-            _corpus_truncated = True
-            _candidates_processed = i
-            break
+            if _trunc_policy == "repair":
+                # §-1.3: do NOT ship a thinned corpus. Keep processing the
+                # remaining candidates so recall is preserved. The per-candidate
+                # Layer-1 bound (_bounded_openalex_enrich) still prevents a single
+                # wedged candidate from hanging the run, so the loop-level deadline
+                # can be advisory here. Log once to avoid per-iteration spam.
+                if not _repair_logged:
+                    logger.warning(
+                        "[live_retriever] post-fetch loop budget exceeded at "
+                        "candidate %d/%d — PG_CORPUS_TRUNCATION_POLICY=repair: "
+                        "continuing to process the remaining corpus (no truncation)",
+                        i, len(candidates),
+                    )
+                    _repair_logged = True
+                # fall through (no break) — corpus_truncated stays False.
+            elif _trunc_policy == "fail_closed":
+                # Raise BEFORE generation bills any token so a partial corpus
+                # never ships. The caller surfaces this as a loud run failure.
+                logger.error(
+                    "[live_retriever] post-fetch loop budget exceeded at "
+                    "candidate %d/%d — PG_CORPUS_TRUNCATION_POLICY=fail_closed: "
+                    "aborting (refusing to ship a truncated corpus)",
+                    i, len(candidates),
+                )
+                raise CorpusTruncationError(
+                    f"corpus truncated at candidate {i}/{len(candidates)} "
+                    f"(post-fetch loop budget exceeded); "
+                    f"PG_CORPUS_TRUNCATION_POLICY=fail_closed"
+                )
+            else:
+                # 'warn' (default, legacy): record the truncation as a fail-loud
+                # signal (was log-only) and BREAK. candidates_processed = the
+                # zero-based break index i = post-filter candidates whose loop
+                # iteration began before the cutoff (Codex P2).
+                logger.warning(
+                    "[live_retriever] post-fetch loop budget exceeded — stopping "
+                    "at candidate %d/%d (%d already classified)",
+                    i, len(candidates), len(classified_sources),
+                )
+                _corpus_truncated = True
+                _candidates_processed = i
+                break
         logger.info(
             "[live_retriever] post-fetch candidate %d/%d %s",
             i + 1, len(candidates), cand.url[:60],

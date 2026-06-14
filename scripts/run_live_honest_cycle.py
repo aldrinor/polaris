@@ -241,8 +241,12 @@ async def main_async() -> int:
     # ── Phase 4: Live DeepSeek generation ────────────────────────────
     _log("")
     _log("[5/7] DEEPSEEK V3.2-EXP LIVE GENERATION")
-    # Cap evidence passed to generator (token budget)
-    max_ev_to_generator = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+    # Cap evidence passed to generator (token budget).
+    # I-arch-004 F24 (#1255): resolve off the ACTUAL corpus size — env UNSET feeds the full
+    # corpus (no silent 20-cap on this direct caller), env SET honors the operator cap (LAW VI)
+    # with a LOUD WARNING when it binds. Replaces the hardcoded default of 20.
+    from src.polaris_graph.retrieval.evidence_selector import resolve_max_ev_to_gen
+    max_ev_to_generator = resolve_max_ev_to_gen(len(evidence_rows))
     evidence_for_gen = evidence_rows[:max_ev_to_generator]
     t0 = time.time()
     try:

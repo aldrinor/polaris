@@ -1,0 +1,93 @@
+{
+  "summary": "A3 Wave-4 throughput/governance: F17+F19 judge async+token-max, F18+F21+F29 pools+distill+ev-cap, F20+F24 timeouts+ev-floor, F22 atomic budget — surgical, tested, Codex-inline-gated cap 3, faithfulness STRENGTHENED never relaxed",
+  "agentCount": 4,
+  "logs": [
+    "wave4: 4 lanes: F17+F19=APPROVE, F18+F21+F29=APPROVE, F20+F24=APPROVE, F22=APPROVE"
+  ],
+  "result": {
+    "fixes": [
+      {
+        "fix_id": "F17+F19",
+        "verdict": "APPROVE",
+        "codex_iters": 2,
+        "files_changed": [
+          "src/polaris_graph/llm/entailment_judge.py",
+          "src/polaris_graph/retrieval/semantic_conflict_detector.py",
+          "src/polaris_graph/authority/credibility_judge_caller.py",
+          "tests/polaris_graph/llm/test_entailment_judge_cost.py",
+          "tests/polaris_graph/authority/test_credibility_judge_caller_012a.py",
+          "tests/polaris_graph/test_semantic_conflict_detector_iready012.py"
+        ],
+        "tests_summary": "All target suites green. F19 suite: 45/45 passed (tests/polaris_graph/llm/test_entailment_judge_cost.py + tests/polaris_graph/authority/test_credibility_judge_caller_012a.py + tests/polaris_graph/test_semantic_conflict_detector_iready012.py), run as PYTHONPATH=src python -m pytest -q -p no:cacheprovider. Broader regression (tests/roles/test_openrouter_role_transport_meta007.py + tests/polaris_graph/llm/ + tests/polaris_graph/authority/) = 162/162 passed. 8 new F19 tests added (per side-judge: defaults-to-mirror-chain-model-max asserting body max_tokens==131072 AND reasoning=={\"effort\":\"high\"}; env-override clamped-to-chain-ceiling 999999->131072 and 4096->4096; credibility also asserts an explicit max_tokens arg above the ceiling is clamped). NOTE: copied the gitignored allowlist artifact dir outputs/full_scale_v30_phase2_run14 from C:/POLARIS into the worktree so the conftest registry fixture loads (test-only, not part of the diff).",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-1/.codex/I-arch-004/F17_F19_my.diff",
+        "faithfulness_note": "F19 STRENGTHENS faithfulness, never relaxes: raising the three GLM-5.1 side-judge max_tokens caps to the verified model-max (131072 = MIN max_completion_tokens across the pinned mirror chain atlas-cloud/z-ai/baidu/novita/gmicloud, live OpenRouter read 2026-06-14, matching the existing _MIRROR_MAX_TOKENS_CHAIN_MIN) reduces finish=length truncations that previously returned the fail-open ('ENTAILED','judge_error') / ('neutral',0.0) starvation sentinels — fewer salvageable verdicts are lost. No fail-open/fail-closed branch was loosened; effort stays high (NOT xhigh, which the repo's own GLM bake-off proved blanks). Each cap is env-overridable but CLAMPED DOWN to the chain ceiling so a bad override cannot hard-400 under allow_fallbacks=False. max_tokens is usage-billed so the larger default never over-bills; §-1.3 recall is not affected (this is a per-call output budget, not a corpus/source thinner). Not flag-gated (these side-judges are already active), but the change is strictly a larger default + a new downward clamp — no verdict semantics change. The chain-min constant is duplicated as a LOCAL module constant per file (not imported from roles) to preserve the off-mode zero-import-cost contract.",
+        "residual": [
+          "F17-entailment NON-BLOCKING (liveness, not faithfulness): the sync _EntailmentJudge.judge() with sync httpx.Client + time.sleep runs INLINE on the asyncio event loop via strict_verify() inside async _run_section (multi_section_generator.py:2945) and _verify_one_stream (contract_section_runner.py:62,181), so it can stall the loop. The correct, codebase-proven fix is caller-side `await asyncio.to_thread(strict_verify, rewritten, evidence_pool)` at multi_section_generator.py:2945 + the async frame above _verify_one_stream, PLUS an async test asserting strict_verify ran off the main thread. NOT done here because those files are (a) outside F17's campaign-assigned file set ['entailment_judge.py','roles/openrouter_role_transport.py'] and (b) in the multi_section_generator.py serialize-set owned by still-todo F21+F29 — a forbidden serialize-set collision from this lane. Codex iter-2 APPROVED this as a coordinated residual (P2) owned by the async-caller-file lane. AsyncClient conversion was rejected (ripples async through 4 out-of-lane functions, breaks the documented no-async-in-async invariant credibility_judge_caller.py:3-4,40; the #1226 wall-clock watchdog + per-POST timeout already bound a wedged call).",
+          "F17-role_transport: NO change required and none made — OpenRouterRoleTransport.complete is dispatched off-loop via concurrent.futures.ThreadPoolExecutor (sweep_integration.py:403, role_pipeline.py:159), so its sync httpx/time.sleep do not block the event loop. Codex confirmed (iter-1 P2, iter-2 APPROVE)."
+        ]
+      },
+      {
+        "fix_id": "F18+F21+F29",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "src/polaris_graph/generator/evidence_distiller.py",
+          "src/polaris_graph/generator/multi_section_generator.py",
+          "src/polaris_graph/retrieval/live_retriever.py",
+          "tests/polaris_graph/generator/test_distiller_microbatch_and_threading_f18_f21_f28.py"
+        ],
+        "tests_summary": "16 new tests PASS (test_distiller_microbatch_and_threading_f18_f21_f28.py) covering all 5 fixes: F28 micro-batch issues ONE call for N sources, cross-source support_quote REJECTED (provenance-contamination guard), batch-failure/omitted-key fail-closed coverage for every source, cache-hit bypasses batching, size-1 byte-identical; F18 bounded-pool concurrency cap (max-inflight==1 at PG_DISTILL_MAX_PARALLEL=1); F21 research_question framing-only in MAP/REDUCE/legacy prompts + empty=>placeholder; F18b policy helper warn/repair/fail_closed + CorpusTruncationError + loop-wiring guard; F29 call-site env-read cap + call-time semantics. Regression GREEN: 103 (iperm016 22, corpus_truncation_gate 6, m44_primary 35, live_retriever_env_knobs 24) + 86 (planning/adequacy/multi_section) + 23 (reduce_narrative_iperm018, offline_distill_replay, m33, m31). 176 of generator-dir passed; the only 3 failures (test_disclosure_failloud_wiring_icred008b.py inspect.getsource guards) are PRE-EXISTING — they fail identically on clean HEAD a9cfd1d1 without this diff (inspect.getsource collapses the ~7k-line module) and are unrelated to this lane.",
+        "diff_path": "C:\\POLARIS\\.claude\\worktrees\\wf_8e42382b-a30-2\\.codex\\I-arch-004\\F18_F21_F29_diff.patch",
+        "faithfulness_note": "Faithfulness gates UNCHANGED and never relaxed (C1). _validate_finding signature/logic is byte-identical; strict_verify/provenance/NLI/4-role untouched and remain the SOLE publication authority. F28 only changes MAP REQUEST PACKING — every distilled finding is still located+validated against ITS OWN source's direct_quote routed by evidence_id (proven by test_f28_cross_source_support_quote_rejected: a support_quote from source B claimed under source A is rejected), so batching cannot cross provenance. strict_verify is left synchronous (NOT parallelized) so keep/drop verdicts and ordering are unchanged. research_question is framing-only in every prompt (explicitly 'NOT a citable source'), never a finding. §-1.3 (weight-not-filter): F29 RAISES the effective M-44 cap 20->30 (never narrows); F18b never silently ships a truncated corpus (repair preserves recall via the existing per-candidate Layer-1 bound; fail_closed raises before tokens billed); both default to byte-identical behavior when env unset. No token caps touched (C2 N/A).",
+        "residual": [
+          "F18 headline 'serial strict_verify/conflict/discovery/enrich -> async pools' was scoped to the testable deliverable per advisor guidance: the distiller's existing Semaphore+gather pool now bounds the F28 batch calls, and strict_verify was deliberately NOT parallelized (it is the faithfulness gate; parallelizing it risks changing verdicts/ordering against C1). Conflict/discovery/enrich retrieval-side parallelization was not added in this lane (F14/F15 already landed retrieval changes); if a future lane wants those parallelized, it is additive and verdict-neutral.",
+          "F18b repair/fail_closed branches are unit-tested at the helper + source-wiring level (the full post-fetch loop requires live network so no offline end-to-end driver exists); the default 'warn' path is byte-identical and the existing test_corpus_truncation_gate.py post-hoc scorer backstop remains the gate under default.",
+          "3 pre-existing inspect.getsource guard-test failures in test_disclosure_failloud_wiring_icred008b.py are environmental (Python 3.13 collapsing a ~7k-line function) and predate this diff; my own source-wiring guards read the file directly to avoid that fragility."
+        ]
+      },
+      {
+        "fix_id": "F20+F24",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/src/polaris_graph/llm/openrouter_client.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/src/polaris_graph/agents/storm_interviews.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/src/polaris_graph/agents/evidence_deepener.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/src/polaris_graph/retrieval/evidence_selector.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/scripts/run_honest_sweep_r3.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/scripts/run_honest_on_prerebuild_corpus.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/scripts/run_live_honest_cycle.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/tests/polaris_graph/test_reason_structured_timeout_f20_iarch004.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/tests/polaris_graph/test_pipeline_timeouts_off_generator_f20_iarch004.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/tests/polaris_graph/test_max_ev_to_gen_resolver_f24_iarch004.py"
+        ],
+        "tests_summary": "78 passed, 0 failed (29 new F20/F24 tests + 49 existing regression/adjacent). New: test_reason_structured_timeout_f20_iarch004.py (10) proves the _resolve_call_timeout helper + reason()/generate_structured() wire-timeout derivation (reasoning-first -> live generator budget; non-reasoning -> original floor; explicit wins; live set_generator_timeout_seconds honored). test_pipeline_timeouts_off_generator_f20_iarch004.py (12) proves STORM/deepener/4-role-seam wall derivations (unset->generator-sized; floor never regresses below 300/120/7200; env override wins; live generator timeout read). test_max_ev_to_gen_resolver_f24_iarch004.py (7) proves env-unset->full corpus (not 20), env honored (LAW VI), binding cap warns loud, garbage->full+warn. Regression green: test_m201_evidence_selection (9), test_selection_scale_iperm003 (7), test_evidence_to_generation_cap_iready001 (4), test_capped_finding_dedup_iready004 (9), test_section_timeout_token_sizing_iarch004 (8), test_deepener_sweep_adapter (8), test_storm_query_extractor (4). Command: PYTHONPATH=src python -m pytest <files> -q -p no:cacheprovider -o cache_dir=/tmp/ptcache_*. Required copying gitignored fixture outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS (audit_ir registry import dependency).",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-3/.codex/I-arch-004/f20f24_full.diff",
+        "faithfulness_note": "NO faithfulness gate touched. Diff self-check confirms zero faithfulness LOGIC added (no strict_verify / NLI / 4-role D8 verdict / provenance / span-grounding changes — keyword grep on added lines returns only comments/context). The only functional changes are (a) timeout-WALL derivations sized off the LIVE generator timeout via floor-guarded helpers (reason/structured/STORM/deepener-LLM-ops/4-role-seam), each floor guaranteeing the default can only GROW never regress, and non-reasoning verifier/judge calls keeping their original floor (no regression); and (b) the F24 evidence-cap resolver which is a CAPABILITY FLOOR not a thinner (env unset = full corpus, env set+binding = LOUD warning, never a silent 20-cap). Gate-B cert path byte-identical (slate sets both PG_LIVE_MAX_EV_TO_GEN=1500 and the generator timeout explicitly, which the resolvers honor). All env knobs overridable (LAW VI). §9.1.8 satisfied: a reasoning-first call is never killed by a cheap clock; $ hard cap remains the spend backstop.",
+        "residual": [
+          "PG_VERIFIER_LLM_TIMEOUT_SECONDS (openrouter_role_transport.py:407, default 900s) is the per-POST httpx timeout wrapping ONE 4-role verifier reasoning call; a single big xhigh reasoning verdict at the slow band could exceed 900s. NOT in this lane's 4 named files, so flagged for a follow-up issue rather than silently expanded (it is governed separately and has the #1226 wall-clock watchdog). Codex agreed this is not a P1.",
+          "Pre-existing stale-stub failure in tests/polaris_graph/test_generator_writer_timeout_meta008.py (3 tests): its _fake_read_stream returns a 4-tuple whose 4th element is a STRING but current _call_impl expects a dict (stream_served or {}).get(...). Fails IDENTICALLY on pristine HEAD a9cfd1d1 — NOT caused by this diff, out of lane scope. My new test file uses the correct dict stub.",
+          "Codex iter-1 P2 (non-blocking): explicit zero/negative timeout env overrides are still honored in the new resolvers; this preserves LAW VI override-wins behavior but could operator-starve if misconfigured. Codex classified non-blocking because env overrides are explicitly allowed to win."
+        ]
+      },
+      {
+        "fix_id": "F22",
+        "verdict": "APPROVE",
+        "codex_iters": 2,
+        "files_changed": [
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-4/src/polaris_graph/roles/sweep_integration.py",
+          "C:/POLARIS/.claude/worktrees/wf_8e42382b-a30-4/tests/roles/test_seam_parallel.py"
+        ],
+        "tests_summary": "65/65 passed across the relevant suite: tests/roles/test_seam_parallel.py (18, incl. new F22 tests), tests/roles/test_four_role_budget_cap.py (9), tests/roles/test_sweep_integration.py (17), tests/dr_benchmark/test_gate_b_seam.py (8), tests/dr_benchmark/test_offline_e2e.py (13). New/changed tests: test_parallel_reservation_is_a_HARD_cap_serializes_to_what_cap_affords (reservation throttles admission to what the cap affords: max_concurrent<=K even with workers=n -> observable proof settled+reserved<=cap), test_parallel_reservation_legacy_path_runs_all_claims_concurrently (flag OFF -> max_concurrent==n contrast), test_single_claim_over_cap_blocked_pre_spend (anticipated>cap -> raise pre-spend, current_run_cost==0), test_parallel_reservation_admits_all_when_headroom (no spurious starvation), test_parallel_reservation_off_reverts_to_bounded_overshoot, test_sequential_path_still_overshoots_cap_by_one_call (sequential soft-by-one unchanged), test_cap_trip_is_bounded_in_flight (re-pinned to the OFF legacy path). Rewrote the old test_parallel_and_sequential_trip_cap_at_same_total (its assertion 'parallel==sequential, both over cap' is mutually exclusive with a hard parallel cap). NOTE: 3 pre-existing failures in untouched files (tests/roles/test_mirror_routing_excludes_parasail_iready018.py provider-routing-order, tests/roles/test_native_gate_b_inputs.py::test_module_never_references_dr_benchmark_or_rubric docstring-string-check) fail identically on the pristine branch — not caused by this diff.",
+        "diff_path": "C:/POLARIS/.codex/I-arch-004/F22_my.diff",
+        "faithfulness_note": "Faithfulness gates (strict_verify / NLI / 4-role D8 / provenance / span-grounding) are completely untouched — F22 is a budget-accounting fix only. The cap fix FAILS LOUD (raises BudgetExceededError pre-spend) and NEVER silently drops or thins claims (§-1.3 WEIGHT-AND-CONSOLIDATE preserved). §9.1.8 token governance honored: max_tokens stay at the model real max (chain-mins 131072/262140); the reservation is a CAP on SPEND, not a token starvation — it never lowers any max_tokens, and the anticipated bound prices the FULL context window so it never under-reserves. Sequential path (workers==1 / n<=1) is byte-identical; flag PG_FOUR_ROLE_BUDGET_RESERVE OFF reverts the parallel path to the pre-F22 behaviour byte-equivalently (the same _settle reduction logic, extracted to a helper). Anticipated >= actual is a genuine upper bound (context_window * output_rate >= (prompt+completion+reasoning) priced at <= output_rate; output_rate >= input_rate verified for every price-table entry), so the hard cap is real in production, not just in the test.",
+        "residual": [
+          "Codex iter-2 left a single cosmetic P2 (the _settle nested closure was annotated -> None but now returns the settled idx); FIXED in the worktree after APPROVE by changing the annotation to -> int (non-functional).",
+          "PG_FOUR_ROLE_RESERVE_CONTEXT_TOKENS defaults to 400000 (covers the largest pinned verifier context, deepseek-v4-pro 384000). If a future verifier is re-pinned to a larger-context model, this env must be raised so the reservation stays a true upper bound; documented inline at the constant.",
+          "The reservation is deliberately conservative (full context priced at output rate), so near the cap boundary admission may serialize/throttle concurrency or block a claim whose actual would have fit — the correct fail-loud tradeoff for a hard cap; steady-state utilization is fine because settle releases the unused reservation down to actual.",
+          "Changes left UNCOMMITTED in the isolated worktree per task instructions; diff at C:/POLARIS/.codex/I-arch-004/F22_my.diff."
+        ]
+      }
+    ]
+  }
+}

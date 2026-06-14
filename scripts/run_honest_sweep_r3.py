@@ -84,6 +84,8 @@ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     # so the manifest/log never report a stale $10 cap while Gate-B's slate set the guard to $25 — the
     # slate's set_max_cost_per_run() runs AFTER this module is imported by the CLI's SWEEP_QUERIES load.
     get_max_cost_per_run,
+    # I-arch-004 F20 (#1255): read the LIVE generator timeout to size the 4-role seam WALL off it.
+    get_generator_timeout_seconds,
     reset_run_cost,
     set_current_run_id,
 )
@@ -321,6 +323,39 @@ def to_unified_status(summary_status: str) -> str:
     manifest.status taxonomy. Unknown labels become error_unexpected
     (fail loudly for the reader; still a valid taxonomy value)."""
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+# I-arch-004 F20 (#1255): historical 4-role seam WALL floor (I-run11-004). The generator-sized
+# default can only grow above this, never regress below.
+_FOUR_ROLE_SEAM_TIMEOUT_FLOOR = 7200.0
+
+
+def _resolve_four_role_seam_timeout() -> float:
+    """Wall timeout for the WHOLE 4-role D8 seam (brackets MANY sequential per-claim reasoning-ON
+    verifier calls — MiniMax-M2 Sentinel + xhigh GLM-5.1 Mirror / Qwen Judge).
+
+    The historical default was a flat 7200 hardcode with NO relation to how generous a single
+    reasoning call is allowed to be (F20). Size it off the generator budget instead:
+      * env PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS set -> that value (LAW VI override, wins outright),
+      * else -> max(7200 floor, PG_FOUR_ROLE_SEAM_GEN_MULTIPLE x LIVE generator timeout) so the
+        default can only GROW (honors the Gate-B slate's set_generator_timeout_seconds), never
+        regress below the historical 7200. The multiple encodes "the seam needs room for many
+        claims, each up to ~a generator-budget's worth of reasoning."
+    The per-call budget (PG_VERIFIER_LLM_TIMEOUT_SECONDS) and the $ hard cap are separate backstops.
+    """
+    explicit = os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS")
+    if explicit is not None:
+        return float(explicit)
+    try:
+        multiple = float(os.environ.get("PG_FOUR_ROLE_SEAM_GEN_MULTIPLE", "4"))
+    except (ValueError, TypeError):
+        multiple = 4.0
+    if not (multiple > 0):
+        multiple = 4.0
+    return max(
+        _FOUR_ROLE_SEAM_TIMEOUT_FLOOR,
+        multiple * float(get_generator_timeout_seconds()),
+    )
 
 
 def _credibility_abort_status(exc: BaseException) -> str | None:
@@ -5190,9 +5225,15 @@ async def run_one_query(
         # generator saw evidence_rows[:20] in retrieval order, diverging
         # from what the gates certified.
         from src.polaris_graph.retrieval.evidence_selector import (
+            resolve_max_ev_to_gen,
             select_evidence_for_generation,
         )
-        max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+        # I-arch-004 F24 (#1255): resolve the generator-facing evidence cap off the ACTUAL corpus
+        # size instead of a hardcoded default of 20. Env UNSET -> full-corpus floor (no silent
+        # 20-cap on a direct/bypass/OFF caller); env SET -> the operator cap (LAW VI) with a LOUD
+        # WARNING whenever it binds. The Gate-B slate still sets the env explicitly (1500), so the
+        # cert path is unchanged; only the previously-starved direct callers are fixed.
+        max_ev = resolve_max_ev_to_gen(len(retrieval.evidence_rows))
         # I-arch-002 (#1246) P-KEY: hoist the master WEIGHT-AND-CONSOLIDATE flag ONCE
         # (CLAUDE.md §-1.3) and reuse it at every selection-boundary site below (floor
         # keep-all, capped re-cap, finding-dedup member-drop, generator caps). Until
@@ -8147,9 +8188,11 @@ async def run_one_query(
             # Mirror/Judge) takes minutes per claim, and a 2400s cap fired mid-run and held a
             # truncated manifest. PG_VERIFIER_LLM_TIMEOUT_SECONDS (the per-call budget) stays 900.
             # LAW VI: env-overridable.
-            _seam_timeout = float(
-                os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS", "7200")
-            )
+            # I-arch-004 F20 (#1255): the seam is a WALL bracketing MANY sequential per-claim
+            # reasoning-ON verifier calls — it must be sized off the generator budget, not a flat
+            # 7200 hardcode. See _resolve_four_role_seam_timeout (floored at the historical 7200 so
+            # the default can only grow, never regress; env override wins outright).
+            _seam_timeout = _resolve_four_role_seam_timeout()
             _seam_kg_path = out_root / "verified_claim_graph_campaign.db"
             _seam_parent_cost = _seam_cost_ctx.get()
             _seam_cost_holder = [_seam_parent_cost]

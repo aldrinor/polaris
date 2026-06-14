@@ -334,3 +334,40 @@ def test_entailment_judge_retired_evaluator_key_does_not_free_route(monkeypatch)
     assert body["provider"]["order"] == ["novita"]
     assert body["provider"]["allow_fallbacks"] is False
     assert body["provider"]["require_parameters"] is True
+
+
+# ───────────────── I-arch-004 F19 (§9.1.8): token cap == the GLM-5.1 mirror-chain model max ────────
+
+
+def test_entailment_judge_max_tokens_defaults_to_mirror_chain_model_max(monkeypatch):
+    # F19: the posted body MUST carry the model REAL max (the pinned mirror-chain MIN
+    # max_completion_tokens = 131072, live OpenRouter read 2026-06-14), NOT the old small 2000 hardcode.
+    monkeypatch.delenv("PG_ENTAILMENT_MAX_TOKENS", raising=False)
+    payload = {
+        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+    }
+    judge = _make_judge_with_mock_response(monkeypatch, payload)
+    judge.judge("sentence", "span")
+    body = _posted_body(judge)
+    assert body["max_tokens"] == entailment_judge._ENTAILMENT_MAX_TOKENS_CHAIN_MIN == 131072
+    # Reasoning effort stays "high" (NOT xhigh — the GLM bake-off proved xhigh blanks). Never starved.
+    assert body["reasoning"] == {"effort": "high"}
+
+
+def test_entailment_judge_max_tokens_env_override_clamped_to_chain_ceiling(monkeypatch):
+    # F19: an env override ABOVE the chain MIN is CLAMPED DOWN (would otherwise hard-400 under
+    # allow_fallbacks=False); a value BELOW is honored verbatim (cost/testing lever).
+    payload = {
+        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+    }
+    monkeypatch.setenv("PG_ENTAILMENT_MAX_TOKENS", "999999")
+    judge = _make_judge_with_mock_response(monkeypatch, payload)
+    judge.judge("sentence", "span")
+    assert _posted_body(judge)["max_tokens"] == 131072  # clamped to the chain ceiling
+
+    monkeypatch.setenv("PG_ENTAILMENT_MAX_TOKENS", "4096")
+    judge2 = _make_judge_with_mock_response(monkeypatch, payload)
+    judge2.judge("sentence", "span")
+    assert _posted_body(judge2)["max_tokens"] == 4096  # below ceiling -> honored

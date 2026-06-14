@@ -137,6 +137,44 @@ def test_family_segregation_is_checked_at_construction(monkeypatch):
     assert called.get("evaluator_model") == "z-ai/glm-5.1"
 
 
+# ───────────────── I-arch-004 F19 (§9.1.8): token cap == the GLM-5.1 mirror-chain model max ────────
+
+
+def test_credibility_max_tokens_defaults_to_mirror_chain_model_max(monkeypatch):
+    # F19: the posted body MUST carry the model REAL max (the pinned mirror-chain MIN
+    # max_completion_tokens = 131072, live OpenRouter read 2026-06-14), NOT the old small 8000 hardcode.
+    from src.polaris_graph.authority import credibility_judge_caller as _cjc
+    monkeypatch.delenv("PG_CREDIBILITY_JUDGE_MAX_TOKENS", raising=False)
+    captured = {}
+    monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
+    make_openrouter_credibility_caller()("hi")
+    assert captured["body"]["max_tokens"] == _cjc._CREDIBILITY_MAX_TOKENS_CHAIN_MIN == 131072
+    # Reasoning effort stays "high" (NOT xhigh — the GLM bake-off proved xhigh blanks). Never starved.
+    assert captured["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_credibility_max_tokens_env_override_clamped_to_chain_ceiling(monkeypatch):
+    # F19: an env override ABOVE the chain MIN is CLAMPED DOWN (would otherwise hard-400 under
+    # allow_fallbacks=False); a value BELOW is honored verbatim.
+    captured = {}
+    monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
+    monkeypatch.setenv("PG_CREDIBILITY_JUDGE_MAX_TOKENS", "999999")
+    make_openrouter_credibility_caller()("hi")
+    assert captured["body"]["max_tokens"] == 131072  # clamped to the chain ceiling
+
+    monkeypatch.setenv("PG_CREDIBILITY_JUDGE_MAX_TOKENS", "4096")
+    make_openrouter_credibility_caller()("hi")
+    assert captured["body"]["max_tokens"] == 4096  # below ceiling -> honored
+
+
+def test_credibility_explicit_max_tokens_arg_also_clamped(monkeypatch):
+    # F19: a caller-supplied max_tokens arg above the chain ceiling is clamped too (defense in depth).
+    captured = {}
+    monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
+    make_openrouter_credibility_caller(max_tokens=500000)("hi")
+    assert captured["body"]["max_tokens"] == 131072
+
+
 def test_pathb_capture_raw_io_and_ledger_recorded(monkeypatch):
     # P2: the caller must FEED the gate surface — Path-B capture, raw-IO sink, and the cost ledger.
     captured = {}

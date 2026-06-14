@@ -31,7 +31,10 @@ from urllib.parse import quote as _url_quote
 import aiohttp
 from dotenv import load_dotenv
 
-from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import (
+    OpenRouterClient,
+    get_generator_timeout_seconds,
+)
 from src.polaris_graph.state import ResearchState
 from src.polaris_graph.tracing import get_tracer
 
@@ -68,6 +71,24 @@ PG_DEEPENER_EVIDENCE_CAP = int(os.getenv("PG_DEEPENER_EVIDENCE_CAP", "150"))
 
 # Time budget for entire deepening pass (seconds)
 PG_DEEPENER_TIMEOUT = int(os.getenv("PG_DEEPENER_TIMEOUT", "720"))
+
+
+def _resolve_llm_op_timeout(op_timeout_floor: int) -> int:
+    """I-arch-004 F20 (#1255): per-operation wall for the LLM-bound deepener ops (OP-1 named-study
+    extraction, OP-5 mechanism keyword-gen — both ``client.reason()`` on a reasoning-first model).
+
+    The shared ``_OP_TIMEOUT`` (default 120s) is an HTTP/S2 clock; using it for an LLM op killed a
+    reasoning-first extraction mid-reasoning (one such call can take MINUTES). Size the LLM-op wall
+    off the generator budget instead:
+      * env PG_DEEPENER_LLM_OP_TIMEOUT set -> that value (LAW VI override, wins outright),
+      * else -> max(op_timeout_floor, LIVE generator timeout) so the default can only GROW above the
+        historical 120s, never regress (honors the Gate-B slate's set_generator_timeout_seconds).
+    The pass is still bounded overall by PG_DEEPENER_TIMEOUT (_over_budget checks) + the $ hard cap.
+    """
+    explicit = os.getenv("PG_DEEPENER_LLM_OP_TIMEOUT")
+    if explicit is not None:
+        return int(explicit)
+    return max(int(op_timeout_floor), get_generator_timeout_seconds())
 
 # S2 rate limit (requests per second) — free tier = 1, with key = 10
 _S2_RPS = float(os.getenv("PG_S2_RPS", "1.0"))
@@ -140,17 +161,22 @@ async def deepen_evidence(
     # Per-operation timeout (seconds) — prevents one hung operation
     # from consuming the entire budget. E2E1 failure: OP-1 LLM retry
     # consumed 928s out of 720s budget, leaving 0 papers.
+    # This HTTP/S2 clock bounds the network-bound ops (OP-2 ID resolve, OP-3 citation
+    # chase, OP-4 recommendations, OP-6 PDF fetch) — those are S2/aiohttp calls, NOT LLM.
     _OP_TIMEOUT = int(os.getenv("PG_DEEPENER_OP_TIMEOUT", "120"))
+    # I-arch-004 F20 (#1255): see _resolve_llm_op_timeout — the LLM-bound ops (OP-1, OP-5) are
+    # sized off the generator budget so a reasoning-first call is not killed by the cheap HTTP clock.
+    _LLM_OP_TIMEOUT = _resolve_llm_op_timeout(_OP_TIMEOUT)
 
     try:
         # OP-1: Named study extraction (LLM call — can hang on retries)
         try:
             named_studies = await asyncio.wait_for(
                 _extract_named_studies(client, evidence, query),
-                timeout=_OP_TIMEOUT,
+                timeout=_LLM_OP_TIMEOUT,  # F20: generator-sized (reasoning-first LLM call)
             )
         except asyncio.TimeoutError:
-            logger.warning("[deepener] OP-1: Timed out after %ds", _OP_TIMEOUT)
+            logger.warning("[deepener] OP-1: Timed out after %ds", _LLM_OP_TIMEOUT)
             named_studies = []
         stats["named_studies_extracted"] = len(named_studies)
         logger.info("[deepener] OP-1: Extracted %d named studies", len(named_studies))
@@ -211,13 +237,17 @@ async def deepen_evidence(
             return _finalize(all_new_papers, stats, t0, tracer, existing_urls)
 
         # OP-5: Mechanism keyword search (LLM + multiple S2 calls)
+        # F20: the LLM keyword-gen leg is reasoning-first; size off the generator timeout. The
+        # `+ _OP_TIMEOUT` adds back the original HTTP slack for the trailing multi-S2 calls so a
+        # generator-sized run never regresses below the prior `_OP_TIMEOUT * 2` wall.
+        _op5_timeout = _LLM_OP_TIMEOUT + _OP_TIMEOUT
         try:
             mechanism_papers = await asyncio.wait_for(
                 _mechanism_search(client, query, s2_api_key),
-                timeout=_OP_TIMEOUT * 2,
+                timeout=_op5_timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning("[deepener] OP-5: Timed out after %ds", _OP_TIMEOUT * 2)
+            logger.warning("[deepener] OP-5: Timed out after %ds", _op5_timeout)
             mechanism_papers = []
         all_new_papers.extend(mechanism_papers)
         stats["mechanism_papers_found"] = len(mechanism_papers)

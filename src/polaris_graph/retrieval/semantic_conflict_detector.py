@@ -68,6 +68,24 @@ _DEFAULT_MIN_CONFIDENCE = 0.7
 _DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
 _JUDGE_TIMEOUT_S = 30.0
 
+# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
+# free, billed by usage not pre-allocated"): the NLI conflict judge is the SAME GLM-5.1 model pinned to the
+# SAME LOCKED mirror provider chain (`get_role_provider("mirror")`, allow_fallbacks=False — see judge() below)
+# as the main Mirror role, so its binding output cap is the SAME chain MIN the Mirror transport derived from a
+# LIVE OpenRouter read 2026-06-14 (openrouter_role_transport.py:295, `_MIRROR_MAX_TOKENS_CHAIN_MIN`): mirror
+# chain order=[atlas-cloud, z-ai, baidu, novita, gmicloud] -> MIN max_completion_tokens 131072. A budget ABOVE
+# 131072 would hard-400 on the z-ai/baidu/novita fallbacks under allow_fallbacks=False; so the default IS the
+# chain MIN (the model REAL max for this pinned chain), env-overridable but CLAMPED DOWN to that ceiling. The
+# old 2000 was the SMALL hardcode §9.1.8 prohibits — one provider hiccup from a finish=length truncation that
+# returns the fail-open ('neutral', 0.0) and SILENTLY MISSES a real cross-document contradiction (the F19
+# starvation class). Effort stays "high" (NOT xhigh): the Mirror GLM bake-off
+# (openrouter_role_transport.py:700-705, mirror_glm_provider_bakeoff.py, 2026-06-14) proved xhigh is a NO-OP on
+# GLM that lets reasoning eat the whole budget -> blank content -> the very collapse F19 closes. Kept as a
+# LOCAL constant (NOT imported from roles) so this leaf retrieval module stays import-light. RE-DERIVE if the
+# mirror chain is re-pinned in config/settings/openrouter_provider_routing.yaml to higher-cap-only providers.
+_CONFLICT_MAX_TOKENS_CHAIN_MIN = 131072
+_DEFAULT_CONFLICT_MAX_TOKENS = _CONFLICT_MAX_TOKENS_CHAIN_MIN
+
 # Small, domain-aware stopword set. Salient-word overlap (NOT all words) keys the
 # clustering, so generic connectives never group unrelated rows.
 _STOPWORDS = frozenset({
@@ -406,10 +424,15 @@ class _SemanticContradictionJudge:
                       or "high")
         if _sc_effort not in ("high", "xhigh"):
             _sc_effort = "high"
+        # I-arch-004 F19 (§9.1.8): default to the GLM-5.1 mirror-chain MIN (model REAL max for the pinned
+        # chain), env-overridable but CLAMPED DOWN to that ceiling so a bad override can never hard-400 the
+        # judge under allow_fallbacks=False (the old hardcoded 2000 was the starvation-class small cap).
         try:
-            _sc_maxtok = max(256, int(os.environ.get("PG_SEMANTIC_CONFLICT_MAX_TOKENS", "2000") or "2000"))
+            _sc_maxtok = max(256, int(os.environ.get("PG_SEMANTIC_CONFLICT_MAX_TOKENS", _DEFAULT_CONFLICT_MAX_TOKENS)
+                                      or _DEFAULT_CONFLICT_MAX_TOKENS))
         except (TypeError, ValueError):
-            _sc_maxtok = 2000
+            _sc_maxtok = _DEFAULT_CONFLICT_MAX_TOKENS
+        _sc_maxtok = min(_sc_maxtok, _CONFLICT_MAX_TOKENS_CHAIN_MIN)
         json_body: dict = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],

@@ -144,9 +144,14 @@ def _build_honest_rebuild_evidence(pre: dict) -> tuple[list[CorpusSource], list[
     # Collect evidence rows — re-key to simple ev_NNN IDs so the
     # generator + verifier see clean tokens. Keep back-references.
     evidence_rows: list[dict] = []
-    # Cap evidence count so prompt stays within budget
-    max_evidence = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
-    for i, ev in enumerate(pre.get("evidence", [])[:max_evidence]):
+    # Cap evidence count so prompt stays within budget.
+    # I-arch-004 F24 (#1255): resolve off the ACTUAL corpus size — env UNSET feeds the full
+    # corpus (no silent 20-cap on this direct caller), env SET honors the operator cap (LAW VI)
+    # with a LOUD WARNING when it binds. Replaces the hardcoded default of 20.
+    from src.polaris_graph.retrieval.evidence_selector import resolve_max_ev_to_gen
+    _pre_evidence = pre.get("evidence", []) or []
+    max_evidence = resolve_max_ev_to_gen(len(_pre_evidence))
+    for i, ev in enumerate(_pre_evidence[:max_evidence]):
         quote = ev.get("direct_quote", "") or ""
         statement = ev.get("statement", "") or ""
         if not (quote or statement):

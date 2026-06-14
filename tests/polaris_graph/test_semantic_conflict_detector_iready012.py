@@ -288,3 +288,36 @@ def test_conflict_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
     assert judge._client.body["provider"]["order"] == ["novita"]
     assert judge._client.body["provider"]["allow_fallbacks"] is False
     assert judge._client.body["provider"]["require_parameters"] is True
+
+
+# ───────────────── I-arch-004 F19 (§9.1.8): token cap == the GLM-5.1 mirror-chain model max ────────
+
+
+def test_conflict_judge_max_tokens_defaults_to_mirror_chain_model_max(monkeypatch):
+    # F19: the posted body MUST carry the model REAL max (the pinned mirror-chain MIN
+    # max_completion_tokens = 131072, live OpenRouter read 2026-06-14), NOT the old small 2000 hardcode.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.delenv("PG_SEMANTIC_CONFLICT_MAX_TOKENS", raising=False)
+    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
+    judge._client = _CaptureClient()
+    judge.judge("claim a", "claim b")
+    assert judge._client.body["max_tokens"] == scd._CONFLICT_MAX_TOKENS_CHAIN_MIN == 131072
+    # Reasoning effort stays "high" (NOT xhigh — the GLM bake-off proved xhigh blanks). Never starved.
+    assert judge._client.body["reasoning"] == {"effort": "high"}
+
+
+def test_conflict_judge_max_tokens_env_override_clamped_to_chain_ceiling(monkeypatch):
+    # F19: an env override ABOVE the chain MIN is CLAMPED DOWN (would otherwise hard-400 under
+    # allow_fallbacks=False); a value BELOW is honored verbatim.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
+    judge._client = _CaptureClient()
+    monkeypatch.setenv("PG_SEMANTIC_CONFLICT_MAX_TOKENS", "999999")
+    judge.judge("claim a", "claim b")
+    assert judge._client.body["max_tokens"] == 131072  # clamped to the chain ceiling
+
+    monkeypatch.setenv("PG_SEMANTIC_CONFLICT_MAX_TOKENS", "4096")
+    judge.judge("claim a", "claim b")
+    assert judge._client.body["max_tokens"] == 4096  # below ceiling -> honored

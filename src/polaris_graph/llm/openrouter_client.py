@@ -843,6 +843,41 @@ def set_generator_timeout_seconds(value: int) -> int:
     return GENERATOR_TIMEOUT_SECONDS
 
 
+def _resolve_call_timeout(
+    model: str,
+    explicit: Optional[float],
+    nonreasoning_floor: float,
+) -> float:
+    """I-arch-004 F20 (#1255): size a per-call LLM timeout off the GENERATOR budget for
+    reasoning-first models, instead of a small per-method default that SHADOWS it.
+
+    The bug this closes: ``reason()`` capped at ``LONG_TIMEOUT_SECONDS`` (180s) and
+    ``generate_structured()`` at ``DEFAULT_TIMEOUT_SECONDS`` (90s) via a ``timeout or <small>``
+    fallback. A reasoning-first model (DeepSeek V4 Pro, GLM-5.1, MiniMax-M2 — :data:`_REASONING_FIRST_MODELS`)
+    needs MINUTES per call; the small per-method clock killed the call long before the model
+    finished reasoning -> truncated/empty content. ``generate()`` already passes ``None`` through
+    so ``_call_impl`` resolves :data:`GENERATOR_TIMEOUT_SECONDS`; this helper gives ``reason()`` /
+    ``generate_structured()`` the SAME generous derivation WITHOUT regressing the non-reasoning
+    floor (each method keeps its own ``nonreasoning_floor`` — LONG for reason, DEFAULT for
+    structured) for the verifier / judge / side-judge calls that also flow through them.
+
+    Resolution order (CLAUDE.md §9.1.8 — never starve a reasoning-first call):
+      1. An EXPLICIT caller timeout always wins (caller knows best; LAW VI override).
+      2. Reasoning-first model + no explicit timeout -> the LIVE generator budget
+         (``get_generator_timeout_seconds()`` so the Gate-B slate's
+         ``set_generator_timeout_seconds()`` is honored, NOT a value frozen at import).
+      3. Otherwise (non-reasoning-first, no explicit) -> the method's existing floor
+         -> byte-identical to the pre-F20 behavior for those calls.
+
+    The $ hard cap (``PG_MAX_COST_PER_RUN``), NOT the clock, is the spend backstop.
+    """
+    if explicit is not None:
+        return explicit
+    if model in _REASONING_FIRST_MODELS:
+        return get_generator_timeout_seconds()
+    return nonreasoning_floor
+
+
 # Retry
 MAX_RETRIES = 2
 RETRY_BACKOFF_BASE = 2.0
@@ -2582,7 +2617,10 @@ class OpenRouterClient:
             temperature=0.7,
             max_tokens=max_tokens,
             response_format=response_format,
-            timeout=timeout or LONG_TIMEOUT_SECONDS,
+            # I-arch-004 F20 (#1255): a reasoning-first model gets the generous generator
+            # budget here instead of the 180s LONG default that used to kill it mid-reasoning;
+            # non-reasoning-first verifier/judge calls keep the LONG floor (no regression).
+            timeout=_resolve_call_timeout(self.model, timeout, LONG_TIMEOUT_SECONDS),
             reasoning_max_tokens=reasoning_max_tokens,
             reasoning_exclude=reasoning_exclude,
         )
@@ -2689,7 +2727,8 @@ class OpenRouterClient:
                     temperature=0.7,
                     max_tokens=max_tokens,
                     response_format=response_format,
-                    timeout=timeout or LONG_TIMEOUT_SECONDS,
+                    # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+                    timeout=_resolve_call_timeout(self.model, timeout, LONG_TIMEOUT_SECONDS),
                 )
                 result._parsed = None  # type: ignore[attr-defined]
                 # Try extraction on retry
@@ -2791,7 +2830,8 @@ class OpenRouterClient:
                     temperature=0.5,
                     max_tokens=max_tokens,
                     response_format=response_format,
-                    timeout=timeout or LONG_TIMEOUT_SECONDS,
+                    # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+                    timeout=_resolve_call_timeout(self.model, timeout, LONG_TIMEOUT_SECONDS),
                 )
                 if result.content:
                     cleaned = _clean_json(result.content)
@@ -3305,7 +3345,11 @@ class OpenRouterClient:
             temperature=0.5,
             max_tokens=max_tokens,
             response_format=response_format,
-            timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+            # I-arch-004 F20 (#1255): a reasoning-first model (incl. those where _call forces
+            # reasoning ON regardless of reasoning_enabled) gets the generous generator budget
+            # instead of the 90s DEFAULT that used to truncate its structured-output reasoning;
+            # non-reasoning-first calls keep the DEFAULT floor (no regression).
+            timeout=_resolve_call_timeout(self.model, timeout, DEFAULT_TIMEOUT_SECONDS),
             reasoning_max_tokens=reasoning_max_tokens,
             reasoning_exclude=reasoning_exclude,
         )
@@ -3510,7 +3554,8 @@ class OpenRouterClient:
                 temperature=0.3,
                 max_tokens=max_tokens,
                 response_format=response_format,
-                timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+                # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+                timeout=_resolve_call_timeout(self.model, timeout, DEFAULT_TIMEOUT_SECONDS),
             )
 
             # FIX-QM1 + FIX-QM11c + FIX-V6: Extract JSON from reasoning on retry too

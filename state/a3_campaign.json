@@ -344,8 +344,9 @@
         "entailment_judge.py",
         "roles/openrouter_role_transport.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter2 (entailment async = coordinated P2 residual, owned by the multi_section lane; sync judge already bounded by watchdog+per-POST timeout)"
     },
     {
       "id": "F18",
@@ -357,8 +358,9 @@
         "retrieval/live_retriever.py",
         "generator/evidence_distiller.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; bounded distill pool + F18b corpus-truncation policy (warn/repair/fail_closed, CorpusTruncationError) + F28 provenance-safe microbatch"
     },
     {
       "id": "F19",
@@ -370,8 +372,9 @@
         "semantic_conflict_detector.py",
         "credibility_judge_caller.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter2; §9.1.8 side-judge max_tokens raised to verified model-max 131072 (mirror-chain min, live OpenRouter read), effort high (NOT xhigh); env-override clamped down to ceiling"
     },
     {
       "id": "F20",
@@ -384,8 +387,9 @@
         "agents/evidence_deepener.py",
         "run_honest_sweep_r3.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE; reason/structured/STORM/deepener/4-role-seam timeouts sized off the generator budget, not a cheap hardcode"
     },
     {
       "id": "F21",
@@ -396,8 +400,9 @@
         "generator/evidence_distiller.py",
         "multi_section_generator.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; research_question threaded (framing-only, never a finding) into MAP/REDUCE + legacy _call_section"
     },
     {
       "id": "F22",
@@ -418,8 +423,9 @@
       "files": [
         "run_honest_sweep_r3.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE; PG_LIVE_MAX_EV_TO_GEN default raised to full-corpus floor / fail-loud (direct callers no longer starved at 20; Gate-B slate unaffected)"
     },
     {
       "id": "F29",
@@ -429,8 +435,9 @@
       "files": [
         "multi_section_generator.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; M-44 injection reads PG_MAX_EV_PER_SECTION (cap 20->30, never narrows)"
     },
     {
       "id": "F04",

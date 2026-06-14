@@ -91,10 +91,31 @@ _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
 # I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
 # the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
 # error -> fail-open, which the consumers DROP -> the drb_72-class COVERAGE COLLAPSE. Operator 2026-06-13:
-# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict
-# (measured: 2000 tok + effort=high -> finish=stop, valid JSON, ~11.7s). Env-overridable per LAW VI.
+# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict.
+#
+# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap
+# is free, billed by usage not pre-allocated"): the old default 2000 was the SMALL hardcode the governance
+# rule prohibits — it left the GLM-5.1 judge one provider hiccup away from a finish=length truncation. This
+# side-judge pins to the LOCKED mirror provider chain (`get_role_provider("mirror")`, allow_fallbacks=False —
+# see judge() below) exactly like the main Mirror role, so its binding output cap is the SAME chain MIN the
+# Mirror transport derived from a LIVE OpenRouter read 2026-06-14 (openrouter_role_transport.py:295,
+# `_MIRROR_MAX_TOKENS_CHAIN_MIN`): GLM-5.1 mirror chain order=[atlas-cloud, z-ai, baidu, novita, gmicloud]
+# -> max_completion_tokens atlas-cloud 202752 / z-ai|baidu|novita 131072 / gmicloud(ctx 202752) -> MIN 131072.
+# A budget ABOVE 131072 would hard-400 ("requested N > max M") on the z-ai/baidu/novita fallbacks under
+# allow_fallbacks=False; so the default IS the chain MIN (the model REAL max for this pinned chain), and any
+# env override is CLAMPED DOWN to that ceiling (env can lower for cost/testing, never raise past the provider
+# cap). max_tokens is a usage-billed CAP not a target, so this generous default never starves AND never over-
+# bills. Effort stays "high" (NOT xhigh): the Mirror GLM bake-off (openrouter_role_transport.py:700-705,
+# scripts/diagnostics/mirror_glm_provider_bakeoff.py, 2026-06-14) proved xhigh is a NO-OP on GLM that lets
+# reasoning eat the whole budget -> blank content -> the very collapse F19 closes; "high" completes
+# (finish=stop, valid JSON). RE-DERIVE _ENTAILMENT_MAX_TOKENS_CHAIN_MIN if the mirror chain is re-pinned in
+# config/settings/openrouter_provider_routing.yaml to higher-cap-only providers.
 _ENV_ENTAILMENT_MAX_TOKENS = "PG_ENTAILMENT_MAX_TOKENS"
-_DEFAULT_ENTAILMENT_MAX_TOKENS = 2000
+# Mirror GLM-5.1 chain MIN max_completion_tokens (live OpenRouter read 2026-06-14; mirrors
+# openrouter_role_transport._MIRROR_MAX_TOKENS_CHAIN_MIN — kept as a LOCAL constant so this leaf llm module
+# does not import the heavy roles/benchmark transport stack at import time, per the off-mode zero-cost rule).
+_ENTAILMENT_MAX_TOKENS_CHAIN_MIN = 131072
+_DEFAULT_ENTAILMENT_MAX_TOKENS = _ENTAILMENT_MAX_TOKENS_CHAIN_MIN
 _ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
 _DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
 
@@ -249,6 +270,10 @@ class _EntailmentJudge:
                                        or _DEFAULT_ENTAILMENT_MAX_TOKENS))
         except (TypeError, ValueError):
             _ent_maxtok = _DEFAULT_ENTAILMENT_MAX_TOKENS
+        # I-arch-004 F19 (§9.1.8): clamp DOWN to the pinned mirror-chain MIN so a future bad env override can
+        # never push max_tokens past the provider cap and hard-400 the judge under allow_fallbacks=False (the
+        # default already IS the chain MIN; env can only lower it for cost/testing, never raise past the cap).
+        _ent_maxtok = min(_ent_maxtok, _ENTAILMENT_MAX_TOKENS_CHAIN_MIN)
         json_body: dict = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],
