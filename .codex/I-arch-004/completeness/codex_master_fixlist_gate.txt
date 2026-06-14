@@ -1,0 +1,33 @@
+verdict: GAPS_OR_ERRORS_REMAIN
+confirmed_gaps:
+  - {finding: "G1: PG_LIVE_MAX_EV_TO_GEN default 20 remains at run_honest_sweep_r3.py:4758; Gate-B overrides to 1500 at run_gate_b.py:498, so latent for direct/bypass callers, not active cert-run starvation.", severity: "P1", must-add-as: "F24"}
+  - {finding: "G2: Gate-B --all lacks per-query exception isolation at run_gate_b.py:1780; one escaped query exception aborts remaining cert questions.", severity: "P1", must-add-as: "F25"}
+  - {finding: "G3: atom-refusal strict mode fails open in multi_section_generator.py:6230-6283: skips empty catalogs, catches validator exceptions, and recomputes only total_words after replacement.", severity: "P2", must-add-as: "F26"}
+  - {finding: "G4: required-entity ledger is fail-soft in run_honest_sweep_r3.py:8061-8113 even when Gate-B forces PG_REQUIRED_ENTITY_LEDGER=1 at run_gate_b.py:715.", severity: "P2", must-add-as: "F27"}
+  - {finding: "G5: distiller microbatch knob is unused; evidence_distiller.py:116-120 reads PG_DISTILL_MICROBATCH_SIZE but :1221-1243 still maps one LLM call per evidence row.", severity: "P2", must-add-as: "F28"}
+  - {finding: "G6: M-44 injection has bare cap max_ev_per_section=20 at multi_section_generator.py:4543-4547; call at :5455-5458 does not pass governed PG_MAX_EV_PER_SECTION.", severity: "P3", must-add-as: "F29"}
+  - {finding: "G7: frey_osborne remains grounded on ORA landing/abstract page per combined_dual_sourced_ledger.md:105; F14 short-stub gate does not catch landing pages over min-body threshold.", severity: "P3", must-add-as: "F30"}
+  - {finding: "G8: malformed provenance token [ev_brynjolfsson_genai_at_work] survives in shipped prose; forensic claim 05-004 plus provenance_generator.py:343-376/:2673 confirm parser strips only canonical tokens.", severity: "P2", must-add-as: "F31"}
+  - {finding: "Fresh scan: V30 narrative prose reuses JSON-only _m63_llm_call wrapper; multi_section_generator.py:5536-5578 conflicts with contract_section_runner.py:697-705 and slot_fill.py:644-660.", severity: "P2", must-add-as: "F32"}
+confirmed_spec_errors:
+  - {fix_id: "F02", problem: "Retry acceptance does not require provider escape after empty/null/stall under allow_fallbacks=false.", correction: "Retry must exclude/rotate failed provider instance and acceptance must assert no same-provider retry after empty/stall."}
+  - {fix_id: "F03", problem: "F03 allows partial status while run_gate_b.py:1785-1789 returns rc=0 for partial*.", correction: "Use non-partial abort status; Gate-B fails any non-success unless PG_GATE_B_ALLOW_PARTIAL=1; accept on exit code."}
+  - {fix_id: "F18", problem: "Under-scoped as bounded pools only; misses corpus_truncated pre-generation policy and C7 microbatch.", correction: "Split PG_CORPUS_TRUNCATION_POLICY fail-before-generation/repair and separate distiller microbatch fix."}
+  - {fix_id: "F12", problem: "Clinical-only acceptance for global doi.org tier bug.", correction: "Add domain-independent DOI journal T1/weight_basis acceptance on workforce corpus."}
+  - {fix_id: "F07", problem: "File list omits openrouter_client.py blank-stream status site at :167-173 and :2314-2320.", correction: "Add openrouter_client.py and serialize with F02."}
+  - {fix_id: "F16", problem: "Semaphore fix location mis-cited; openrouter_client.py only acquires, llm_provider.py:79-105 defines/caps.", correction: "Move cap/split/rebind work citation to src/providers/llm_provider.py."}
+  - {fix_id: "F04", problem: "Resume acceptance omits run_log overwrite; run_honest_sweep_r3.py:2682-2683 opens deterministic run_log.txt with w mode.", correction: "Add append/rotate/preserve-log acceptance for same out-root resume/rerun."}
+  - {fix_id: "F21", problem: "Scoped only to distill MAP/REDUCE; legacy _call_section still hardcodes research question placeholder at multi_section_generator.py:2479.", correction: "Thread research_question through _run_section/_call_section and test legacy prompts."}
+refuted_or_dup:
+  - "R-F05/F10 file-collision mechanism refuted; keep logical F10-before/with-F05 ordering lock."
+  - "G9 is not a separate gap; it is the F02 provider-rotation spec defect."
+  - "G1 active cert-run starvation framing refuted; canonical Gate-B sets 1500, latent direct-entry gap confirmed."
+  - "S-F18 'only telemetry' wording overstated: pathB/scorer can fail post-run, but Gate-B generation still consumes partial corpus first."
+  - "outline_max_tokens=2500 fresh-scan candidate is duplicate-covered by F23 hardcoded outline token-literal bucket."
+faithfulness_safety: "F03 as written relaxes the harness faithfulness/coverage gate via partial* rc=0; no other reviewed fix intentionally relaxes strict_verify/NLI/4-role/D8, but F02/F18/F21/F32 need tightened acceptance."
+remaining_to_lock:
+  - "Add F24-F32 or equivalent subitems for confirmed gaps."
+  - "Patch F02, F03, F04, F07, F12, F16, F18, and F21 acceptance text before execution."
+  - "Record F10-before/with-F05 as an ordering lock."
+  - "Codex could not write .codex/I-arch-004/completeness/codex_master_fixlist_gate.txt: target remains 0 bytes because inherited DENY Write/Delete/ReadControl ACL from .codex blocks this sandbox."
+convergence_call: continue

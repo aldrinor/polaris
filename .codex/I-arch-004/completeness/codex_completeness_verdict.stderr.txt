@@ -1,0 +1,128 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ec542-1a42-7c02-88f6-6b505a1787d4
+--------
+user
+# I-arch-004 COMPLETENESS — Codex render brief (evidence pack, VERIFY not hunt)
+
+You are CODEX. Render the COMPLETENESS verdict for the POLARIS DR-path chokepoint inventory.
+A Claude pre-pass already spot-verified every candidate against the REAL code/data at C:\POLARIS
+(file:line opened, run-data artifacts re-run). Your job: weigh the pack, assign final severities,
+and decide COMPLETE_ENOUGH_TO_PROCEED vs MATERIAL_GAPS_REMAIN. This is §-1.1 line-by-line work,
+clinical-safety-critical. Output the schema at the bottom EXACTLY.
+
+## HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic.
+- The verdict is a render of the evidence below; do not re-hunt the whole tree. Spot-check any line you doubt.
+
+## The known inventory
+Combined dual-sourced ledger: `.codex/I-arch-004/combined_dual_sourced_ledger.md` (150 lines).
+Claude 74-finding static forensic + 9 Codex sessions (g1-g5 verify, h1-h4 hunt) + TIER-D 27 run-data
+findings from the drb72 dead run. The dead run was SINGLE-QUERY (`--only drb_72_ai_labor`), WORKFORCE
+domain, and DIED AT COMPOSITION (600s wall killed DeepSeek mid-stream; gather without return_exceptions
+discarded 3h20m). So nothing downstream of composition, nothing multi-query, nothing clinical-domain ever executed.
+
+## VERIFIED EVIDENCE FOR EACH NEW CANDIDATE (Claude pre-pass, all citations opened)
+
+### NEW-1 (P0) Cross-query event-loop semaphore poisoning — CONFIRMED, deterministic on canonical `--all`
+- `src/providers/llm_provider.py:80` `_LLM_SEMAPHORE: Optional[asyncio.Semaphore] = None` (module global).
+- `:93-94` lazy-init `if _LLM_SEMAPHORE is None: _LLM_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_LLM)` — NO per-loop rebind.
+- `:102-105` `reset_semaphore()` — grep confirms ZERO non-test callers (only its own def + a pyc match).
+- `src/polaris_graph/llm/openrouter_client.py:1598-1600` — `from src.providers.llm_provider import get_semaphore; semaphore = get_semaphore(); async with semaphore:` — SAME module global is the acquire used by every LLM call.
+- `scripts/dr_benchmark/run_gate_b.py:1779-1783` — `for query_index, q in enumerate(questions, 1): ... summary = asyncio.run(run_gate_b_query(...))` — a NEW event loop per query, SAME process, SAME module global.
+- `load_locked_questions(None)` -> all 5 LOCKED_BENCHMARK_SLUGS (run_gate_b.py:1411,1443). Canonical launch confirmed in `state/vm_beatboth_run.md:9`: `run_gate_b --all`.
+- asyncio internals VERIFIED via inspect.getsource on THIS machine's Python 3.13:
+  - `Semaphore.acquire()` calls `self._get_loop()` ONLY in the contended branch (`if not self.locked()` returns early WITHOUT touching `_get_loop`). So `_loop` binds the first time >5 LLM calls are in flight (always true in generation fan-out).
+  - `_LoopBoundMixin._get_loop` raises `RuntimeError('... is bound to a different event loop')` when running loop != bound `_loop`.
+- CONSEQUENCE: query 1 binds `_loop`; queries 2-5 each run under a fresh `asyncio.run` loop -> first contended acquire RAISES RuntimeError -> deterministic crash of queries 2..5 on the canonical beat-both sweep. The candidate independently REPRODUCED this with a 2-query module-global-Semaphore(5) fanout=12 script.
+- DISTINCT from ledger C1 (same object, but C1 frames it ONLY as a throughput cap = slowness) and from ledger A1 (single-query gather-without-return_exceptions). This is a cross-QUERY correctness crash, different root cause (loop-bound primitive reuse). INVISIBLE to the inventory because every audited run was single-query.
+
+### NEW-2 (P1) A1 gap-stub fix -> SILENT PARTIAL-SUCCESS, no min-coverage floor — CONFIRMED
+- `scripts/run_honest_sweep_r3.py:1376-1398` `filter_verified_sections` excludes gap-stubs (`is_gap_stub`) and 0-verified sections.
+- `:6580` `if not verified_sections:` -> `abort_no_verified_sections` ONLY when the list is EMPTY (ALL sections gap-stubbed).
+- grep for `gap_stub_ratio | PG_*_GAP_STUB | abort_excessive_gap | min_non_stub | min_coverage` -> NONE. No gate on the FRACTION of gap-stubbed sections.
+- A1 maps each timed-out/transport-failed section to is_gap_stub=True and CONTINUES, so e.g. 2-of-10 verified + 8 gap-stubbed ships as `status=success`. A1's crash-isolation made timeout-driven gap-stubbing a NORMAL recoverable path, materially raising the exposure AFTER the fix. This is the §-1.3 "a fix that introduces a new chokepoint" pattern (loud crash -> quiet partial pass).
+
+### NEW-3 (P1) Sentinel atom decomposition has no completeness/granularity floor — MECHANISM CONFIRMED, run-data EXAMPLE REFUTED
+- CODE (confirmed): `src/polaris_graph/roles/sentinel_contract.py:277-280` GROUNDED gate accepts ANY atoms list with >=1 dict + presence of `unsupported_atoms`; per-atom status checked (:286-313) but the atom SET is NEVER checked to COVER every assertion in the claim. `src/polaris_graph/roles/role_pipeline.py:273-274` — Sentinel grounded+parsed_ok -> "the Judge's verdict stands" (path 3). The decomposition prompt only ASKS "list every atom; do not merge" (sentinel_adapter.py:213) — no enforcement. `claim_atom_extractor.py` (deterministic) lives ONLY under generator/, NOT imported into roles/, so no independent atom-completeness cross-check is wired into the 4-role gate.
+- RUN-DATA (candidate's specific example REFUTED): candidate cited claim 05-000 split into 8 atoms vs 05-001 bundling 8 numbers into 2 atoms, with "0.48% per year / college earnings premium" text. The ACTUAL artifact (`tests/fixtures/drb72/four_role_role_calls.jsonl`, role=sentinel) shows 05-000 = 3 atoms (AI-intensity-index text), 05-001 = 2 atoms ("5,851 firms" + "409 (about 7%) were AI users"), both verdict=supported, unsupported_atoms=0. So the candidate's quoted text + "8 atoms" figure are MIS-CITED. Granularity IS model-discretionary (3 vs 2, both supported), and 05-001 genuinely bundles 2 assertions, but there is NO demonstrated instance of an actually-omitted UNSUPPORTED assertion. This is a code-level absence-of-floor finding, not a proven leak. Weigh P1 (clinical multi-assertion risk, real and un-floored) vs P2 (no demonstrated escape).
+
+### NEW-4 (P1, NARROW) Post-composition redactor locates non-VERIFIED claims via stale pre-resolve sentence; interior-mutation -> registers already_absent while shipping — CONFIRMED but NARROWER than claimed
+- CODE (confirmed): `provenance_generator.py:2678` `re.sub(r"\s+([.!?,;])", r"\1", stripped)` collapses space-before-punctuation in the RENDERED report. `report_redactor.py:163-169` `_normalize` applies `_prose_stem` + `_WHITESPACE_RE` (`\s+`->` `) + `rstrip(".")` — does NOT collapse space-before-punctuation. So an audit_map `sentence` captured PRE-render (with ` ,`) normalizes to keep ` ,` while the body renders `,` -> `_prose_present` False -> reconcile records the claim under `already_absent` (:283) while the sentence physically ships.
+- RUN-DATA (Claude re-ran the redactor's OWN `_normalize`+`_prose_present` over the real `four_role_claim_audit.json` vs `report.md` in `.../I-redact-001/vm_data/drb_72/`): 19/95 audit claims NOT locatable by `_normalize`. DECISIVE follow-up: applying the renderer's own interior-collapse transform to the audit sentence before searching RECOVERS only **2 of 19** (claims 06-006-0c9a1e18 and 07-001-b4d1ee0d) — these PHYSICALLY SHIP but register as absent. The other 17 are genuinely absent (resolver-dropped = ledger B3 territory; `already_absent` is CORRECT there, no leak). So the true silent-leak surface is 2/95, not 19/95. For 07-001 the audit prose has `China , Norway , and the United States ,` (space-before-comma) collapsed in the body. Mechanism is real; magnitude is small.
+- MASKED TODAY by D1 (Judge rubber-stamps VERIFIED -> _nonverified_verdicts near-empty -> redactor barely runs). The bug only BITES once D1 (the ledger's #1 fix) lands. Tests (test_report_redactor_*) construct audit sentences that MATCH the report by construction, so they cannot surface this. Distinct from ledger B3 (verified-COUNT pre-resolve telemetry) — same stale source, different action (redact vs count).
+
+### NEW-5 (P1) Completeness gate is advisory-only: contraindications/DDI can be 0%-covered and ship as `ok` — CONFIRMED
+- `run_honest_sweep_r3.py:7254-7258`: `elif completeness.total_applicable > 0 and completeness.covered_fraction < 0.5: summary_status = "ok_incomplete_corpus"` (an ok_*/success-class label) else `"ok"`. Sits AFTER the abort branches (:7230 abort_evaluator_critical, :7235 not release_allowed) so reaching it means release already allowed.
+- Criticality UNWEIGHTED: `contraindications` is 1 of ~7 topics in `config/completeness_checklists/clinical.yaml`; if it is the ONLY uncovered topic, covered_fraction stays >0.5 -> plain `ok`. A 0%-contraindication clinical report ships as success. drb_72 (workforce) has no contraindication topic, so never exercised.
+
+### NEW-6 (P1) Clinical corpus-adequacy floor is strictest (no clinical.yaml override) + ledger-D12 doi.org bug -> false abort_corpus_inadequate — CONFIRMED
+- `config/scope_templates/clinical.yaml` has `expected_tier_distribution` but NO `corpus_adequacy` key (grep confirmed), so `_get_thresholds` falls to `_DEFAULT_DOMAIN_THRESHOLDS['clinical']` (`corpus_adequacy_gate.py:72-78`): min_t1_count=3, min_t1_plus_t2=5, min_total_sources=10 — strictest row. Critical-abort math (:203-207): observed <= threshold*0.5 -> 'critical' -> 'abort' -> `run_honest_sweep_r3.py:4408` -> abort_corpus_inadequate. For min_t1_count=3 that hard-aborts at T1<=1.
+- CROSS with in-ledger D12 (R9 demotes canonical-DOI journals to T4 because host=doi.org; 50 sources in drb_72, weight_basis=tier_prior 803/803): a clinical question whose pivotal trials resolve via doi.org misclassifies real T1->T4 and FALSE-FIRES this abort on adequate REAL T1. drb_72 ran domain=workforce (min_t1_count=0), structurally immune. The clinical-strict-floor x D12 interaction is NEW (D12 alone is in-ledger; the run-abort consequence is not).
+
+### NEW-7 (P2) Scope-gate clinical hard-reject via hardcoded ~25-drug regex — CONFIRMED
+- `scope_gate.py:541-552`: domain=clinical with neither extractable population NOR intervention after overrides -> scope_decision='reject', code='clinical_pico_unscoped' -> abort_scope_rejected before retrieval. `:231-242` `_DRUG_NAME_RE` is a hardcoded ~25-name list (semaglutide|tirzepatide|...|imatinib|osimertinib); any off-list drug -> intervention=None.
+- Benchmark Qs drb_75/76/78 carry scope_overrides {population,intervention} (run_honest_sweep_r3.py:1751,1778,1800) threaded via run_scope_gate(user_overrides=...) which pre-fills PICO, so the locked DRB set DODGES this. Any non-benchmark clinical query (operator/UI) with an off-list drug + no overrides false-aborts. Invisible to any run over the locked DRB set.
+
+## LEDGER META-DEFECTS (ledger-coherence, NOT pipeline chokepoints — Claude verified each cited line)
+- META-A (P1, DUP of ledger B2): qualitative present-vs-absent (contraindication/DDI) records omitted from PT08 evaluator gate. `run_honest_sweep_r3.py:7133-7134` passes `contradictions + semantic_records` only; `:4738` writes qualitative_records to contradictions.json but they never reach the gate. This IS ledger B2 (line 48 cites :7126 same omission). Candidate self-flags already_in_ledger=true. DUP, not a miss; line refined to 7133-7134.
+- META-B (P1): TWO contradictory land-orders. Ledger line 126 (post-fold-in reshaped: D1 first, then D5/D6, then B-tier...) vs line 150 DISCIPLINE (A1->A2->A3->B1->B2->B3->...) — disagree on everything after A2; an operator executing line 150 skips the #1 faithfulness fix (D1) and the P0 run-killer (D5). Verified: line 126 and 150 read exactly as cited. Append-only fold-in left a stale authoritative-looking order.
+- META-C (P2): A3 (corpus_snapshot checkpoint) — line 147 RESUME makes it a parenthetical then bolds "GATED behind A1+A2"; line 126 omits A3 entirely; line 150 keeps it step 3; line 30 calls it "highest value." Three sections disagree whether A3 is required pre-resume. Verified.
+- META-D (P2): D5 labelled P0 (line 108 "(P0, NEW fix A4)") but SEQUENCED behind D1 (P1, line 102/126) with no stated ordering axis. Two implicit severity axes (run-impact vs clinical-risk) never reconciled. Verified.
+- META-E (P1/axis): D1 (terminal Judge stamps Sentinel-unsupported -> VERIFIED, 12/12) rated P1 (line 102) but under §-1.1 "lethal in clinical context" it is P0-class — a terminal arbiter that overrides every unsupported signal reaching the user. Severity-axis conflict, not a new chokepoint. Verified in run data (four_role_role_calls.jsonl: Judge VERIFIED 69/69 incl all 12 sentinel-unsupported).
+
+## THE QUESTION TO RENDER
+Is the chokepoint inventory now COMPLETE for the live DR path, or what is the single biggest residual blind spot?
+Be specific about what can ONLY be found by completing a run.
+
+Output EXACTLY this schema and nothing else after it:
+
+```yaml
+verdict: COMPLETE_ENOUGH_TO_PROCEED | MATERIAL_GAPS_REMAIN
+confirmed_new:
+  - {title: ..., location: ..., severity: ...}
+refuted_or_dup:
+  - {title: ..., disposition: REFUTED|DUP, why: ...}
+biggest_residual_gap: <one paragraph>
+completable_only_by_running:
+  - <chokepoint class>
+convergence_call: continue | accept_remaining
+```
+
+codex
+```yaml
+verdict: MATERIAL_GAPS_REMAIN
+confirmed_new:
+  - {title: "Cross-query event-loop semaphore poisoning on canonical --all", location: "src/providers/llm_provider.py:80; scripts/dr_benchmark/run_gate_b.py:1779", severity: "P0"}
+  - {title: "Gap-stub isolation can silently ship partial success with no minimum non-stub coverage floor", location: "scripts/run_honest_sweep_r3.py:1376; scripts/run_honest_sweep_r3.py:6580", severity: "P1"}
+  - {title: "Sentinel atom decomposition has no enforced completeness or granularity floor", location: "src/polaris_graph/roles/sentinel_contract.py:277; src/polaris_graph/roles/role_pipeline.py:273", severity: "P2"}
+  - {title: "Post-composition redactor can miss non-VERIFIED claims after renderer punctuation normalization", location: "src/polaris_graph/provenance_generator.py:2678; src/polaris_graph/report_redactor.py:163", severity: "P2"}
+  - {title: "Completeness gate is advisory-only, allowing critical clinical topics to ship uncovered", location: "scripts/run_honest_sweep_r3.py:7254", severity: "P1"}
+  - {title: "Clinical corpus adequacy strict default combines with DOI demotion into false abort risk", location: "src/polaris_graph/corpus_adequacy_gate.py:72; scripts/run_honest_sweep_r3.py:4408", severity: "P1"}
+  - {title: "Scope gate hard-rejects off-list clinical drugs without overrides", location: "src/polaris_graph/scope_gate.py:231; src/polaris_graph/scope_gate.py:541", severity: "P2"}
+  - {title: "Ledger contains contradictory authoritative remediation orders", location: ".codex/I-arch-004/combined_dual_sourced_ledger.md:126; .codex/I-arch-004/combined_dual_sourced_ledger.md:150", severity: "P1"}
+  - {title: "Ledger severity axis conflict understates terminal Judge override of Sentinel unsupported signals", location: ".codex/I-arch-004/combined_dual_sourced_ledger.md:102", severity: "P1"}
+refuted_or_dup:
+  - {title: "Qualitative present-vs-absent records omitted from PT08 evaluator gate", disposition: "DUP", why: "This is ledger B2; the refined citation is scripts/run_honest_sweep_r3.py:7133-7134."}
+  - {title: "Sentinel run-data example showing omitted unsupported assertion", disposition: "REFUTED", why: "The cited fixture does not contain the quoted claim text or 8-atom split; only the code-level absence of an atom-completeness floor remains."}
+  - {title: "19/95 redactor-locatable failures physically ship", disposition: "REFUTED", why: "Only 2/95 are recovered by applying the renderer punctuation transform; the other 17 are genuinely absent and fall under ledger B3."}
+biggest_residual_gap: "The inventory is not complete enough because every audited execution is still bounded by a dead single-query workforce run that stopped at composition. The biggest blind spot is post-composition and multi-query behavior under a completed canonical beat-both sweep, especially after the known P0/P1 run-killers are fixed: evaluator gates, redaction, completeness accounting, resume/checkpoint semantics, and clinical-domain topic/source floors have not all executed together against real downstream artifacts."
+completable_only_by_running:
+  - "Cross-query failures across the full canonical --all sweep after event-loop primitive fixes"
+  - "Post-composition evaluator/redactor behavior on fully rendered reports"
+  - "Clinical-domain corpus adequacy and completeness behavior on completed clinical questions"
+  - "Multi-query resume/checkpoint integrity after partial failures and wall-clock interruption"
+  - "Downstream metric and release-status interactions after composition succeeds"
+convergence_call: continue
+```
+tokens used
+7,190

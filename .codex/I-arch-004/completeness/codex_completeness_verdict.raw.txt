@@ -1,0 +1,25 @@
+```yaml
+verdict: MATERIAL_GAPS_REMAIN
+confirmed_new:
+  - {title: "Cross-query event-loop semaphore poisoning on canonical --all", location: "src/providers/llm_provider.py:80; scripts/dr_benchmark/run_gate_b.py:1779", severity: "P0"}
+  - {title: "Gap-stub isolation can silently ship partial success with no minimum non-stub coverage floor", location: "scripts/run_honest_sweep_r3.py:1376; scripts/run_honest_sweep_r3.py:6580", severity: "P1"}
+  - {title: "Sentinel atom decomposition has no enforced completeness or granularity floor", location: "src/polaris_graph/roles/sentinel_contract.py:277; src/polaris_graph/roles/role_pipeline.py:273", severity: "P2"}
+  - {title: "Post-composition redactor can miss non-VERIFIED claims after renderer punctuation normalization", location: "src/polaris_graph/provenance_generator.py:2678; src/polaris_graph/report_redactor.py:163", severity: "P2"}
+  - {title: "Completeness gate is advisory-only, allowing critical clinical topics to ship uncovered", location: "scripts/run_honest_sweep_r3.py:7254", severity: "P1"}
+  - {title: "Clinical corpus adequacy strict default combines with DOI demotion into false abort risk", location: "src/polaris_graph/corpus_adequacy_gate.py:72; scripts/run_honest_sweep_r3.py:4408", severity: "P1"}
+  - {title: "Scope gate hard-rejects off-list clinical drugs without overrides", location: "src/polaris_graph/scope_gate.py:231; src/polaris_graph/scope_gate.py:541", severity: "P2"}
+  - {title: "Ledger contains contradictory authoritative remediation orders", location: ".codex/I-arch-004/combined_dual_sourced_ledger.md:126; .codex/I-arch-004/combined_dual_sourced_ledger.md:150", severity: "P1"}
+  - {title: "Ledger severity axis conflict understates terminal Judge override of Sentinel unsupported signals", location: ".codex/I-arch-004/combined_dual_sourced_ledger.md:102", severity: "P1"}
+refuted_or_dup:
+  - {title: "Qualitative present-vs-absent records omitted from PT08 evaluator gate", disposition: "DUP", why: "This is ledger B2; the refined citation is scripts/run_honest_sweep_r3.py:7133-7134."}
+  - {title: "Sentinel run-data example showing omitted unsupported assertion", disposition: "REFUTED", why: "The cited fixture does not contain the quoted claim text or 8-atom split; only the code-level absence of an atom-completeness floor remains."}
+  - {title: "19/95 redactor-locatable failures physically ship", disposition: "REFUTED", why: "Only 2/95 are recovered by applying the renderer punctuation transform; the other 17 are genuinely absent and fall under ledger B3."}
+biggest_residual_gap: "The inventory is not complete enough because every audited execution is still bounded by a dead single-query workforce run that stopped at composition. The biggest blind spot is post-composition and multi-query behavior under a completed canonical beat-both sweep, especially after the known P0/P1 run-killers are fixed: evaluator gates, redaction, completeness accounting, resume/checkpoint semantics, and clinical-domain topic/source floors have not all executed together against real downstream artifacts."
+completable_only_by_running:
+  - "Cross-query failures across the full canonical --all sweep after event-loop primitive fixes"
+  - "Post-composition evaluator/redactor behavior on fully rendered reports"
+  - "Clinical-domain corpus adequacy and completeness behavior on completed clinical questions"
+  - "Multi-query resume/checkpoint integrity after partial failures and wall-clock interruption"
+  - "Downstream metric and release-status interactions after composition succeeds"
+convergence_call: continue
+```
