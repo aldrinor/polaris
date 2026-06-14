@@ -53,6 +53,14 @@ PipelineStatus = Literal[
     "abort_four_role_release_held",  # 4-role D8 held release
     "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation fail-closed — the v6 actor loads manifest.status into pipeline_status, so omitting this would 500 RunStatusResponse on a redaction-failure abort
     "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — required contract slot bound to a non-journal entity
+    # I-arch-005 B23 (#1257): close the status-schema parity drift — these are real terminal manifest
+    # statuses the v6 actor can load into pipeline_status, so omitting them 500s RunStatusResponse
+    # Pydantic validation on a real run. Each mirrors runner.UNIFIED_STATUS_VALUES (status-schema-parity gate).
+    "abort_excessive_gap",                   # F03 (A3): verified-section-fraction floor abort
+    "abort_critical_topic_uncovered",        # F11 (A3): uncovered critical clinical topic hold
+    "abort_credibility_coverage_gap",        # I-cred-008b (#1162): credibility-disclosure coverage gap
+    "abort_conflict_judge_unavailable",      # I-arch-004 F07 (#1249/#1252): conflict-judge unavailable hold
+    "abort_required_entity_ledger_failed",   # I-arch-004 F27 (#1213): RequiredEntityLedger raised under strict gates
     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",
     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only fail-closed no-leak backstop

@@ -1,0 +1,55 @@
+name: status-schema-parity-required
+
+# LANE-CI (B23) — I-arch-005 Phase-2/3 (umbrella #1257).
+#
+# Asserts STATUS-SCHEMA PARITY: every terminal status that
+# scripts/run_honest_sweep_r3.py can write into manifest.status
+# (UNIFIED_STATUS_VALUES + the to_unified_status / _SUMMARY_TO_UNIFIED map) is
+# present in the shared downstream registries that consume that field
+# (PipelineStatus in src/polaris_v6/schemas/run_status.py and KNOWN_STATUS_VALUES
+# in src/polaris_graph/audit_ir/regression_lab.py). A runner status missing
+# downstream = CI FAIL (it 500s RunStatusResponse on a real run).
+#
+# Read-only STATIC scan: AST-parses all three source files (the runner producer
+# set + both downstream registries) and imports NOTHING from src/ or scripts/.
+# No pipeline run, no LLM/network, no secrets, no production import chain — so the
+# gate cannot ImportError under a minimal CI dependency set.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # The producer of manifest.status.
+      - 'scripts/run_honest_sweep_r3.py'
+      # The downstream consumers (registries) this gate checks parity against.
+      - 'src/polaris_v6/schemas/run_status.py'
+      - 'src/polaris_graph/audit_ir/regression_lab.py'
+      # The gate itself.
+      - 'tests/architecture/test_status_schema_parity_b23.py'
+      - '.github/workflows/status-schema-parity.yml'
+  workflow_dispatch:
+
+jobs:
+  status-schema-parity:
+    name: status-schema-parity-required
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal deps
+        # The gate AST-parses all three source files and imports nothing from
+        # src/ or scripts/, so it needs only the stdlib (ast) + pytest.
+        run: python -m pip install -U pytest
+
+      - name: Run status-schema parity gate (static scan, no pipeline run)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -m pytest tests/architecture/test_status_schema_parity_b23.py \
+            -q -p no:cacheprovider

@@ -651,6 +651,11 @@ _STATUS_TIERS: dict[str, int] = {
     # gate benchmark slate — FAIL CLOSED, the run HOLDS for human review (tier 2, no trustworthy
     # report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
     "abort_conflict_judge_unavailable": 2,
+    # I-arch-004 F27 (#1213) / I-arch-005 B23 (#1257): under the strict-gate benchmark slate the
+    # FORCE-ON RequiredEntityLedger raised — HOLD instead of silently dropping the honest
+    # "Coverage gaps" disclosure (tier 2, no trustworthy report). MUST stay mirrored with
+    # runner.UNIFIED_STATUS_VALUES (closes the last status-schema-parity drift entry).
+    "abort_required_entity_ledger_failed": 2,
     # error — unhandled exception
     "error_unexpected": 3,
     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a
