@@ -1696,7 +1696,11 @@ class OpenRouterClient:
             # → 200, 16385 → 404 "No endpoints found"). Operators with higher-tier
             # endpoints can override via env. The 20000 floor produced a deterministic
             # 404 on every generation call against the default provider configuration.
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "16384"))
+            # I-arch-003 (#1253, operator 2026-06-14 "go max max"): the generator chain is now pinned to fp8
+            # FULL-CAP providers (WandB/Parasail 1,048,576; rest >= 384,000) with require_parameters:true, so
+            # the reasoning-first model gets real headroom. Floor raised 16384 -> 32768 so V4 Pro's ~17-18k
+            # reasoning tokens + content never truncate (the old 16384 starved content on long sections).
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
             # Hard ceiling at DeepInfra's verified cap for deepseek-v4-pro. The runner's
@@ -1722,7 +1726,12 @@ class OpenRouterClient:
             # change behavior for EVERY reasoning-first model — both forbidden. Jurisdiction
             # rationale: Novita = Singapore (non-US / non-China), operator-chosen for the
             # sovereign generation provider. Exact run-env slate is in the I-provider-001 brief.
-            _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "16384"))
+            # I-arch-003 (#1253, operator 2026-06-14 "deepseek go 384,000 on a full-cap provider"): default
+            # ceiling raised 16384 -> 384000. The generator chain is pinned to fp8 full-cap providers
+            # (WandB/Parasail 1,048,576; StreamLake/SiliconFlow/Baidu/Novita >= 384,000; DeepInfra fp4/16384
+            # EXCLUDED) and require_parameters:true only routes to providers that honor the requested budget,
+            # so 384000 never 404s on this chain. Env-tunable up to the provider max (1,048,576).
+            _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "384000"))
             if body.get("max_tokens", 0) > _hard_cap:
                 body["max_tokens"] = _hard_cap
 

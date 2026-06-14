@@ -6,8 +6,13 @@
 roles:
   generator:
     model: deepseek/deepseek-v4-pro
-    order: [streamlake, siliconflow, baidu, novita, gmicloud, deepseek]
-    ignore: [atlas-cloud, parasail, fireworks, digitalocean, together]
+    # I-arch-003 (#1253, operator 2026-06-14): pin the fp8 FULL-CAP providers first so the generator gets the
+    # MAX output budget (WandB/Parasail = 1,048,576; the rest >= 384,000). All fp8 (better than DeepInfra fp4,
+    # which is excluded). Verified live: WandB + Parasail both serve deepseek-v4-pro @ max_tokens=384000,
+    # finish=stop, valid content (2026-06-14). WandB first (also the reliable Judge provider); the prior
+    # health-ranked chain stays as fallback. Parasail removed from `ignore`.
+    order: [wandb, parasail, streamlake, siliconflow, baidu, novita, gmicloud, deepseek]
+    ignore: [fireworks, digitalocean, together]
   mirror:
     model: z-ai/glm-5.1
     # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run
