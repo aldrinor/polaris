@@ -40,7 +40,7 @@ os.environ.setdefault("POLARIS_V6_QUEUE_USE_STUB", "1")
 import yaml  # noqa: E402  (third-party; project dependency)
 
 DEFAULT_GENERATOR = "deepseek/deepseek-v4-pro"
-DEFAULT_EVALUATOR = "google/gemma-4-31b-it"
+DEFAULT_EVALUATOR = "z-ai/glm-5.1"  # I-arch-003 #1253: sovereign mirror (was stale gemma)
 DEFAULT_MAX_COST = "5.00"
 PROMPTS_PATH = Path(__file__).resolve().parents[2] / "tests" / "v6" / "fixtures" / "rehearsal_prompts.yaml"
 

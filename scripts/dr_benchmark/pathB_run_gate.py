@@ -279,8 +279,8 @@ def preflight(
     # entailment model equals the effective evaluator model. Compare EFFECTIVE values
     # (with their defaults) so a single env override that diverges from the default still
     # fails closed — not only the "both env vars set divergently" case.
-    _DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"  # mirror entailment_judge.py:79
-    _DEFAULT_EVALUATOR_MODEL = "google/gemma-4-31b-it"   # mirror pathB_runner.py:37
+    _DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"  # I-arch-003 #1253: sovereign mirror (was stale gemma)
+    _DEFAULT_EVALUATOR_MODEL = "z-ai/glm-5.1"   # I-arch-003 #1253: sovereign mirror (was stale gemma)
     eff_entail = (os.environ.get("PG_ENTAILMENT_MODEL") or _DEFAULT_ENTAILMENT_MODEL).strip()
     eff_eval = (os.environ.get("PG_EVALUATOR_MODEL") or _DEFAULT_EVALUATOR_MODEL).strip()
     if eff_entail != eff_eval:
