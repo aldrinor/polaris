@@ -443,6 +443,14 @@ class LiveRetrievalResult:
     #     which is empty on a normal sweep).
     prefetch_offtopic: dict[str, Any] | None = None
     drop_reasons: dict[str, int] = field(default_factory=dict)
+    # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-threshold + fetch-budget
+    # selection telemetry. Populated ONLY on the B4 ON path
+    # (PG_RETRIEVAL_RELEVANCE_GATE=1); None when OFF => byte-identical. Records the
+    # unfetched-but-relevant tail (above-threshold candidates the fetch BUDGET
+    # could not afford) so the recall cost is measurable, never dropped-and-
+    # forgotten. A plain dict (RelevanceGateResult.to_dict()) so the manifest
+    # write is a no-op getattr with a None default for pre-B4 callers.
+    relevance_gate: dict[str, Any] | None = None
     #   extraction_finding_rows: the EXTRACTION-stage finding-row count captured
     #     at run_live_retrieval RETURN time (== len(evidence_rows) here), frozen
     #     as an int. Codex diff-gate iter-1 P1: run_one_query MUTATES
@@ -3089,6 +3097,287 @@ def _rerank_and_reserve(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-THRESHOLD + fetch-BUDGET
+# ─────────────────────────────────────────────────────────────────────────────
+# THE BUG (PHASE2_3_LANE_SPECS.md LANE-RETRIEVAL): the fetch-time cut above is a
+# fixed top-N COUNT cut keyed on a PURE-LEXICAL relevance score
+# (`_lexical_relevance_score` = content-word overlap / len(question_tokens)). The
+# denominator scales with QUESTION LENGTH, so a long multi-part research question
+# (the drb_76 shape) makes an on-topic paper whose domain vocabulary does not
+# lexically match the question's exact words score near-zero and get cut purely
+# because the cap could not afford it — and the cut count was lumped into the
+# generic `rerank_not_selected` reason, dropped-and-forgotten.
+#
+# THE FIX (surgical, §-1.3 weight-not-filter for credibility; topical relevance
+# MAY gate): replace the COUNT cut with a relevance THRESHOLD by REUSING B1's
+# semantic relevance scorer WHOLESALE —
+# `evidence_selector._semantic_relevance_scores(research_question, sub_queries,
+# evidence_rows)`. B4 does NOT re-implement the scoring loop: it shapes its
+# pre-fetch candidates into the row-dicts B1's `_row_embed_text` reads, calls B1's
+# scorer ONCE, and applies B1's IDENTICAL keep predicate (`score >= floor`). One
+# scorer, one relevance story across B1+B4 — the scorer contract CANNOT drift
+# because there is only one implementation (Codex B4 iter-2 P1). Then the
+# `fetch_cap` stays purely a COST budget on how many of the on-topic survivors we
+# actually fetch — but the above-threshold-but-beyond-budget tail is RECORDED
+# (count + reason + scores) instead of silently discarded. Each kept candidate's
+# relevance score is carried FORWARD as a weight onto its evidence row.
+#
+# B1's scorer returns ``None`` when the embedder is unavailable / scoring fails /
+# there is no usable anchor — and B4 falls back LOUDLY to the legacy lexical
+# `_rerank_and_reserve` on that ``None`` (LAW II: no silent degrade, never a silent
+# keep-all). That ``None`` IS the shared infra-failure signal: B4 no longer
+# hand-rolls a self-similarity canary (deleted in iter-3) — the canary would have
+# been a B4-private divergence from B1's contract, the exact drift Codex flagged.
+# RECONCILIATION NOTE (conscious, iter-3): `prefetch_offtopic_filter._similarity_scores`
+# SWALLOWS its three internal infra failures (no embedder interface / zero-norm
+# query / encode exception) and returns all-zeros WITHOUT raising, so neither B1 NOR
+# B4 returns ``None`` on that rare loaded-embedder-but-zeroed case — both return an
+# all-0.0 score set and drop every non-seed. That degrades LOUDLY to a downstream
+# corpus-adequacy abort (a visible empty-corpus failure, never a confidently-wrong
+# report), and it matches B1's own behavior exactly. A canary belongs in B1's SHARED
+# scorer (one place, one story) if it is wanted at all — it is NOT re-added here.
+#
+# CREDIBILITY/TIER IS NEVER A DROP HERE — only TOPICAL relevance gates (off-topic
+# is useless at any weight). The faithfulness engine (strict_verify / 4-role D8 /
+# provenance) lives in the generator/evaluator and is UNTOUCHED: this lane only
+# changes the pre-fetch candidate menu + adds an additive weight + telemetry.
+#
+# GATING: `PG_RETRIEVAL_RELEVANCE_GATE` (default OFF). OFF => the legacy
+# `_rerank_and_reserve` count-cut runs byte-identically (the embedder is never
+# even imported — preserving `test_no_embedder_model_loaded`). ON + embedder
+# unavailable => LOUD fallback to the legacy lexical path (LAW II: no silent
+# degrade, never a silent keep-all).
+
+# B4 relevance floor — ONE relevance story across B1+B4 (Codex iter-1 P1.1).
+# The threshold is NOT a B4-private constant; it is B1's `PG_RELEVANCE_FLOOR`
+# (default 0.30, `evidence_selector._DEFAULT_RELEVANCE_FLOOR`), parsed by B1's
+# `evidence_selector.parse_relevance_floor`. B4 and B1 therefore gate on the
+# IDENTICAL floor against the IDENTICAL [0,1]-clamped semantic cosine — a candidate
+# B1's selector would keep (`item[1] >= relevance_floor` at evidence_selector.py
+# _relevance_floor_selection) is never pre-fetch-dropped here by a tighter B4-only
+# number. A cosine below this floor against EVERY anchor (question + each sub-query)
+# = off-topic. The floor is consumed only on the B4 ON path
+# (PG_RETRIEVAL_RELEVANCE_GATE=1); OFF => the legacy count-cut runs byte-identically
+# and the floor is never even read. `parse_relevance_floor` is imported lazily
+# inside `_relevance_gate_threshold` so the OFF path never imports evidence_selector.
+
+def _relevance_gate_enabled() -> bool:
+    """Kill-switch `PG_RETRIEVAL_RELEVANCE_GATE` (default OFF). ON only on an
+    explicit truthy ('1'/'true'/'yes'/'on'). OFF (incl. unset / any other value)
+    => the legacy `_rerank_and_reserve` count-cut runs byte-identically AND the
+    semantic embedder is never imported."""
+    raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _relevance_gate_threshold() -> float:
+    """Topical-relevance floor — B1's `PG_RELEVANCE_FLOOR` (default 0.30), parsed by
+    B1's `evidence_selector.parse_relevance_floor` so B1 and B4 share ONE floor and
+    ONE relevance story (Codex iter-1 P1.1). A candidate whose MAX cosine over
+    {research_question} ∪ {sub-queries} is below this floor is OFF-TOPIC and gated
+    out (topical filter, the one axis §-1.3 permits to filter). The comparison is
+    the IDENTICAL `score >= floor` on the IDENTICAL [0,1]-clamped cosine that B1
+    applies at `_relevance_floor_selection` (`item[1] >= relevance_floor`).
+
+    FAIL LOUD on a garbage / out-of-range `PG_RELEVANCE_FLOOR`: `parse_relevance_floor`
+    raises `ValueError` (range (0.0, 1.0]) — identical to B1's behaviour — so a
+    misconfigured floor can never silently pass an unbounded, off-topic pool. The
+    import is lazy so the OFF path never imports evidence_selector."""
+    from src.polaris_graph.retrieval.evidence_selector import parse_relevance_floor
+
+    return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+
+
+@dataclass
+class RelevanceGateResult:
+    """B4 telemetry for the relevance-threshold + fetch-budget selection.
+
+    Emitted on `LiveRetrievalResult.relevance_gate` ONLY on the B4 ON path (None
+    when OFF => byte-identical). Records the unfetched-but-relevant tail (the
+    above-threshold candidates the fetch BUDGET could not afford) so the recall
+    cost is MEASURABLE + auditable, never dropped-and-forgotten.
+
+    Fields:
+      - threshold: the topical-relevance floor used.
+      - total_scored: non-seed candidates scored (seeds bypass scoring).
+      - kept_on_topic: above-threshold candidates (the on-topic survivors).
+      - dropped_off_topic: below-threshold candidates (true off-topic, gated out).
+      - fetched_budget: on-topic candidates the fetch BUDGET could afford to keep.
+      - unfetched_relevant_tail: on-topic candidates BEYOND the budget — RELEVANT
+        but unfetched for COST reasons (a real resource bound, not a relevance/
+        credibility drop). This is the recall cost the operator must see.
+      - tail_score_min / tail_score_max: the relevance-score band of that tail.
+      - scorer: 'semantic_v2' (B1 embedder) or 'lexical_fallback' (embedder
+        unavailable — LOUD degrade per LAW II).
+    """
+
+    threshold: float
+    total_scored: int = 0
+    kept_on_topic: int = 0
+    dropped_off_topic: int = 0
+    fetched_budget: int = 0
+    unfetched_relevant_tail: int = 0
+    tail_score_min: float | None = None
+    tail_score_max: float | None = None
+    scorer: str = "semantic_v2"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "threshold": self.threshold,
+            "total_scored": self.total_scored,
+            "kept_on_topic": self.kept_on_topic,
+            "dropped_off_topic": self.dropped_off_topic,
+            "fetched_budget": self.fetched_budget,
+            "unfetched_relevant_tail": self.unfetched_relevant_tail,
+            "tail_score_min": self.tail_score_min,
+            "tail_score_max": self.tail_score_max,
+            "scorer": self.scorer,
+        }
+
+
+def _candidate_relevance_scores(
+    research_question: str,
+    sub_queries: list[str],
+    candidates: list["SearchCandidate"],
+) -> Optional[list[float]]:
+    """Per-candidate topical relevance, computed by REUSING B1's scorer wholesale
+    (`evidence_selector._semantic_relevance_scores`) — NO B4-private scoring loop,
+    NO B4-private canary, so the scorer contract cannot drift (Codex B4 iter-2 P1).
+
+    Each candidate is shaped into the row-dict B1's `_row_embed_text` reads. That
+    helper embeds the row's ``statement`` + ``direct_quote`` fields, so a
+    candidate's text surface (`snippet_text` = title + snippet — the SAME surface
+    the lexical scorer reads) is mapped onto ``statement``. B1 then returns
+    ``{row_index -> max cosine over {research_question} ∪ {sub_queries}}`` clamped
+    to [0, 1], or ``None`` (embedder unavailable / scoring failed / no anchor).
+
+    Returns a per-candidate score list aligned to ``candidates`` (in [0, 1]), or
+    ``None`` — the caller falls back LOUDLY to the legacy lexical cut on ``None``
+    (LAW II: no silent keep-all). The import is INSIDE this function so the OFF path
+    (which never calls it) never imports the embedder / evidence_selector."""
+    try:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _semantic_relevance_scores,
+        )
+    except Exception as exc:  # import-path failure
+        logger.warning(
+            "[live_retriever] B4 relevance scorer import failed (%s) — falling "
+            "back LOUDLY to the lexical count-cut.",
+            str(exc)[:200],
+        )
+        return None
+    # Shape each candidate as the row-dict B1's `_row_embed_text` reads: it embeds
+    # `statement` + `direct_quote`, so the candidate's title+snippet surface goes
+    # onto `statement` (an empty-snippet candidate therefore embeds to ~0.0, exactly
+    # as B1 scores a row with no text — no B4-private bypass).
+    rows = [
+        {"statement": (getattr(c, "snippet_text", "") or "")}
+        for c in candidates
+    ]
+    score_map = _semantic_relevance_scores(research_question, sub_queries, rows)
+    if score_map is None:
+        # B1's None = embedder unavailable / scoring failed / no usable anchor.
+        return None
+    # `_semantic_relevance_scores` keys by row index; project back to list order.
+    return [float(score_map.get(i, 0.0)) for i in range(len(candidates))]
+
+
+def _relevance_threshold_select(
+    candidates: list["SearchCandidate"],
+    *,
+    research_question: str,
+    sub_queries: list[str],
+    fetch_cap: int,
+    n_seed_injected: int,
+) -> tuple[list["SearchCandidate"], dict[str, float], Optional[RelevanceGateResult]]:
+    """B4 ON-path selection: relevance THRESHOLD (topical gate) + fetch BUDGET
+    (cost cap), using B1's semantic embedding-cosine scorer.
+
+    Pipeline:
+      1. Split seeds (`source in _SEED_SOURCE_LABELS`) — NEVER scored, NEVER
+         dropped, prepended exactly as `_rerank_and_reserve` does (seed lane
+         preserved: primary-trial DOI seeds carry empty title/snippet).
+      2. Score every non-seed by REUSING B1's `_semantic_relevance_scores` (max
+         cosine over {question} ∪ {sub-queries}) — no B4-private scoring loop.
+      3. THRESHOLD: drop BELOW-threshold (off-topic) candidates with B1's IDENTICAL
+         `score >= floor` predicate (no empty-snippet bypass) — topical relevance is
+         the only axis allowed to gate (§-1.3). Credibility/tier is NEVER consulted.
+      4. BUDGET: keep the on-topic survivors in DESCENDING relevance up to
+         `fetch_cap` (a pure COST budget). The above-threshold-but-beyond-budget
+         tail is RECORDED in `RelevanceGateResult.unfetched_relevant_tail` (count
+         + score band), not silently discarded.
+      5. Carry each kept candidate's relevance score forward as a WEIGHT
+         (`relevance_weight` on the returned score map, keyed by url).
+
+    Returns `(selected_candidates, url_to_relevance_weight, gate_telemetry)`.
+    Selected order: seeds first (arrival order), then on-topic survivors in
+    ARRIVAL order among the budget-selected set (a stable corpus, mirroring
+    `_rerank_and_reserve`'s stable-order emit). On any scorer failure returns
+    `(None, {}, None)` so the caller falls back LOUDLY to the legacy lexical cut.
+
+    `n_seed_injected` is accepted for SIGNATURE PARITY with `_rerank_and_reserve`
+    (the caller passes the same args to either path); seeds are handled here by the
+    `source in _SEED_SOURCE_LABELS` split, so the count itself is not read.
+    """
+    seeds = [c for c in candidates if getattr(c, "source", "") in _SEED_SOURCE_LABELS]
+    non_seeds = [c for c in candidates if getattr(c, "source", "") not in _SEED_SOURCE_LABELS]
+    threshold = _relevance_gate_threshold()
+
+    if not non_seeds:
+        # Only seeds present — nothing to score; budget bounds the (empty) non-seeds.
+        gate = RelevanceGateResult(threshold=threshold, scorer="semantic_v2")
+        return seeds + non_seeds[:max(fetch_cap, 0)], {}, gate
+
+    scores = _candidate_relevance_scores(research_question, sub_queries, non_seeds)
+    if scores is None:
+        # LOUD fallback: signal the caller to run the legacy lexical count-cut.
+        return None, {}, None  # type: ignore[return-value]
+
+    budget = max(0, int(fetch_cap))
+    # (score, arrival_index, candidate) for stable, deterministic ordering.
+    scored = list(zip(scores, range(len(non_seeds)), non_seeds))
+    # IDENTICAL B1 keep predicate (Codex B4 iter-2 P1): `score >= floor`, exactly the
+    # `item[1] >= relevance_floor` B1 applies at `_relevance_floor_selection`. NO
+    # B4-private empty-snippet bypass: a candidate with no embeddable text scores 0.0
+    # under B1's scorer and therefore drops below the floor — the SAME way B1 treats a
+    # row with no text. Seeds (the floor-EXEMPT lane, B1's primary-trial-anchor
+    # analogue) are already split out above and never scored, so they are never
+    # dropped here; the only thing this floor drops is a genuinely text-less non-seed,
+    # which is the documented reconciliation (do not diverge from B1's predicate).
+    on_topic = [t for t in scored if t[0] >= threshold]
+    off_topic = [t for t in scored if t[0] < threshold]
+
+    # BUDGET: rank on-topic survivors by (-score, arrival_index); the top `budget`
+    # are fetched, the rest are the unfetched-but-relevant tail (a COST drop).
+    on_topic_ranked = sorted(on_topic, key=lambda t: (-t[0], t[1]))
+    fetched = on_topic_ranked[:budget]
+    tail = on_topic_ranked[budget:]
+
+    selected_idx = {t[1] for t in fetched}
+    # Stable corpus: emit fetched non-seeds in ARRIVAL order among the selected set.
+    selected_non_seeds = [c for i, c in enumerate(non_seeds) if i in selected_idx]
+
+    # Carry the relevance score forward as a weight, keyed by url (kept set only).
+    url_weight: dict[str, float] = {}
+    for score, idx, cand in fetched:
+        url_weight[cand.url] = float(score)
+
+    tail_scores = [t[0] for t in tail]
+    gate = RelevanceGateResult(
+        threshold=threshold,
+        total_scored=len(non_seeds),
+        kept_on_topic=len(on_topic),
+        dropped_off_topic=len(off_topic),
+        fetched_budget=len(fetched),
+        unfetched_relevant_tail=len(tail),
+        tail_score_min=(min(tail_scores) if tail_scores else None),
+        tail_score_max=(max(tail_scores) if tail_scores else None),
+        scorer="semantic_v2",
+    )
+    return seeds + selected_non_seeds, url_weight, gate
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3470,30 +3759,78 @@ def run_live_retrieval(
     # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
     # ranking so relevance scoring can never drop them — they remain additive.
     _pre_rerank_urls = {c.url for c in candidates}
-    candidates = _rerank_and_reserve(
-        candidates,
-        research_question=research_question,
-        fetch_cap=fetch_cap,
-        n_seed_injected=_n_seed_injected,
-    )
+    # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-THRESHOLD + fetch-BUDGET
+    # selection (PG_RETRIEVAL_RELEVANCE_GATE=1). Replaces the fixed top-N COUNT cut
+    # with a topical-relevance THRESHOLD scored by B1's semantic embedder, carrying
+    # each kept source's relevance score forward as a weight and RECORDING the
+    # unfetched-but-relevant tail instead of dropping-and-forgetting. OFF (default)
+    # => the legacy `_rerank_and_reserve` count-cut runs byte-identically AND the
+    # semantic embedder is never imported. ON + embedder unavailable => LOUD
+    # fallback to the SAME legacy cut (LAW II: no silent degrade).
+    _b4_relevance_weights: dict[str, float] = {}
+    _b4_gate: Optional[RelevanceGateResult] = None
+    _b4_selected: Optional[list[SearchCandidate]] = None
+    if _relevance_gate_enabled():
+        _b4_selected, _b4_relevance_weights, _b4_gate = _relevance_threshold_select(
+            candidates,
+            research_question=research_question,
+            sub_queries=list(effective_queries),
+            fetch_cap=fetch_cap,
+            n_seed_injected=_n_seed_injected,
+        )
+        if _b4_selected is None:
+            logger.warning(
+                "[live_retriever] B4 relevance gate ON but semantic scorer "
+                "unavailable — falling back LOUDLY to the legacy lexical cut."
+            )
+    if _b4_selected is not None:
+        candidates = _b4_selected
+    else:
+        candidates = _rerank_and_reserve(
+            candidates,
+            research_question=research_question,
+            fetch_cap=fetch_cap,
+            n_seed_injected=_n_seed_injected,
+        )
     _rerank_dropped_urls = _pre_rerank_urls - {c.url for c in candidates}
-    for _dropped_url in _rerank_dropped_urls:
-        _trace_drop(_dropped_url, "rerank_not_selected")
-        drop_reasons["rerank_not_selected"] += 1
-    # F15 (GH #1245 / D11): surface the REAL rerank-cut count honestly. The bug
-    # was a `dropped=0` line printed while 539 candidates were cut by the
-    # fetch-cap rerank — the count existed in `drop_reasons` but was never
-    # surfaced to the operator. This LOUD note makes the cut auditable. These
-    # are candidates the fetch_cap could not afford to fetch (a real resource
-    # bound, not a credibility filter); they are reported, not hidden as 0.
-    if _rerank_dropped_urls:
+    # B4: split the topical OFF-topic drops from the cost-bound RELEVANT tail so
+    # the recall cost is attributable. On the B4 ON path, the unfetched-but-
+    # relevant tail is a COST drop (above threshold, beyond budget) recorded under
+    # `relevance_budget_tail`; truly off-topic drops are `offtopic_below_threshold`.
+    if _b4_gate is not None:
+        drop_reasons.setdefault("relevance_budget_tail", 0)
+        drop_reasons.setdefault("offtopic_below_threshold", 0)
+        drop_reasons["relevance_budget_tail"] += _b4_gate.unfetched_relevant_tail
+        drop_reasons["offtopic_below_threshold"] += _b4_gate.dropped_off_topic
+        for _dropped_url in _rerank_dropped_urls:
+            _trace_drop(_dropped_url, "relevance_gate_not_fetched")
         _msg = (
-            f"rerank_not_selected: cut {len(_rerank_dropped_urls)} of "
-            f"{len(_pre_rerank_urls)} candidates to fit fetch_cap={fetch_cap} "
-            f"(kept {len(candidates)})"
+            f"relevance_gate: threshold={_b4_gate.threshold:.2f} scored="
+            f"{_b4_gate.total_scored} on_topic={_b4_gate.kept_on_topic} "
+            f"off_topic={_b4_gate.dropped_off_topic} fetched={_b4_gate.fetched_budget} "
+            f"unfetched_relevant_tail={_b4_gate.unfetched_relevant_tail} "
+            f"(fetch_cap={fetch_cap} scorer={_b4_gate.scorer})"
         )
         logger.info("[live_retriever] %s", _msg)
         notes.append(_msg)
+    else:
+        for _dropped_url in _rerank_dropped_urls:
+            _trace_drop(_dropped_url, "rerank_not_selected")
+            drop_reasons["rerank_not_selected"] += 1
+        # F15 (GH #1245 / D11): surface the REAL rerank-cut count honestly. The bug
+        # was a `dropped=0` line printed while 539 candidates were cut by the
+        # fetch-cap rerank — the count existed in `drop_reasons` but was never
+        # surfaced to the operator. This LOUD note makes the cut auditable. These
+        # are candidates the fetch_cap could not afford to fetch (a real resource
+        # bound, not a credibility filter); they are reported, not hidden as 0.
+        if _rerank_dropped_urls:
+            _msg = (
+                f"rerank_not_selected: cut {len(_rerank_dropped_urls)} of "
+                f"{len(_pre_rerank_urls)} candidates to fit fetch_cap={fetch_cap} "
+                f"(kept {len(candidates)})"
+            )
+            logger.info("[live_retriever] %s", _msg)
+            notes.append(_msg)
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -3998,6 +4335,17 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # B4 (b1b10 redesign, I-arch-005 Phase-2/3): carry the source's
+                # topical-relevance score FORWARD as a weight. ON-path only
+                # (`_b4_relevance_weights` is empty when PG_RETRIEVAL_RELEVANCE_GATE
+                # is OFF), so the key is ABSENT on the OFF path => byte-identical.
+                # This is a topical-relevance WEIGHT surfaced to composition; it is
+                # NOT a credibility/authority weight (those stay the tier/authority
+                # surface) and it NEVER gates here — the gate already happened
+                # pre-fetch. Seeds carry empty text so they are not in the map.
+                _b4_rw = _b4_relevance_weights.get(cand.url)
+                if _b4_rw is not None:
+                    _row["relevance_weight"] = float(_b4_rw)
                 # F15/F30 (§-1.3 WEIGHT-not-FILTER): under the redesign flag, a
                 # content-starved or landing-page source is DOWN-WEIGHTED (kept in
                 # the pool carrying a low retrieval weight + an honest flag) rather
@@ -4070,6 +4418,10 @@ def run_live_retrieval(
         # I-ready-017 Task 2a (#1204): additive source-funnel telemetry.
         prefetch_offtopic=prefetch_offtopic,
         drop_reasons=drop_reasons,
+        # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-gate telemetry,
+        # including the unfetched-but-relevant tail. None when the B4 gate is OFF
+        # (PG_RETRIEVAL_RELEVANCE_GATE unset) => byte-identical.
+        relevance_gate=(_b4_gate.to_dict() if _b4_gate is not None else None),
         # Codex diff-gate iter-1 P1: freeze the extraction-stage count HERE (at
         # return), before run_one_query mutates evidence_rows via the expansion/
         # deepener/agentic lanes.
