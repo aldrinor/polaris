@@ -1664,6 +1664,23 @@ class OpenRouterClient:
             if reasoning_exclude is not None:
                 reasoning_dict["exclude"] = reasoning_exclude
             body["reasoning"] = reasoning_dict
+            # I-arch-003 (#1253): ROOT-CAUSE floor for the reasoning-ON path. This elif chain means a
+            # reasoning-first model (deepseek-v4-pro/flash) reaching branch 2 via reason() or
+            # generate_structured(reasoning_enabled=True) SKIPS the 32768 floor that branch 3 applies on
+            # the generate()/reasoning-off path. deepseek-v4-pro emits ~5-18k reasoning tokens BEFORE
+            # content (in-code evidence below, lines ~1685-1702), so a small caller max_tokens
+            # (deepener 2000/500, STORM outline 4096) is consumed entirely by reasoning -> empty content
+            # -> silent capability loss (the #1253 forensic land mines). Mirror branch 3's SAME floor+cap
+            # here so the explicit-reasoning path is protected too. GLM (_ALWAYS_REASON) never reaches
+            # branch 2 (branch 1 catches it), so this targets exactly the deepseek reasoning-first set and
+            # leaves GLM's 4096 floor untouched. Env knobs shared with branch 3 (LAW VI).
+            if self.model in _REASONING_FIRST_MODELS:
+                _rf_min = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
+                if body.get("max_tokens", 0) < _rf_min:
+                    body["max_tokens"] = _rf_min
+                _rf_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "384000"))
+                if body.get("max_tokens", 0) > _rf_cap:
+                    body["max_tokens"] = _rf_cap
         elif self.model in _REASONING_FIRST_MODELS:
             # I-bug-089: caller wants reasoning_enabled=False but this model
             # (e.g. DeepSeek V4 Pro/Flash) routes to reasoning_content anyway.

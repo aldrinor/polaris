@@ -40,7 +40,11 @@ PG_STORM_ROUNDS_PER_PERSPECTIVE = int(os.getenv("PG_STORM_ROUNDS_PER_PERSPECTIVE
 PG_STORM_MAX_TIME_SECONDS = int(os.getenv("PG_STORM_MAX_TIME_SECONDS", "600"))
 PG_STORM_QUESTIONS_MAX_TOKENS = int(os.getenv("PG_STORM_QUESTIONS_MAX_TOKENS", "1024"))
 PG_STORM_ANSWER_MAX_TOKENS = int(os.getenv("PG_STORM_ANSWER_MAX_TOKENS", "2048"))
-PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "4096"))
+# I-arch-003 (#1253): the outline call is the ONE STORM call with reasoning_enabled=True, so it takes
+# the openrouter_client reasoning-ON branch which (pre-fix) had NO 32768 floor. The old default 4096
+# sat below V4-Pro's ~17-18k reasoning footprint, so the multi-perspective outline JSON could truncate.
+# Default raised 4096 -> 32768 to match the reasoning-first floor (branch-2 floor now backstops too).
+PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "32768"))
 PG_STORM_PERSONA_MAX_TOKENS = int(os.getenv("PG_STORM_PERSONA_MAX_TOKENS", "2048"))
 PG_STORM_SEARCH_QUERIES_PER_QUESTION = int(os.getenv("PG_STORM_SEARCH_QUERIES_PER_QUESTION", "3"))
 PG_STORM_WEB_RESULTS_PER_QUERY = int(os.getenv("PG_STORM_WEB_RESULTS_PER_QUERY", "5"))

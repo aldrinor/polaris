@@ -294,7 +294,12 @@ async def _extract_named_studies(
         result = await client.reason(
             prompt=prompt,
             effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
-            max_tokens=2000,
+            # I-arch-003 (#1253): reason() takes the reasoning-ON branch which (pre-fix) had NO 32768
+            # floor, so the old max_tokens=2000 was eaten by V4-Pro's ~17-18k reasoning tokens -> empty
+            # study list -> silent snowball loss. Floored to the reasoning-first minimum; the
+            # openrouter_client branch-2 floor now also backstops this, but the explicit value documents
+            # intent and protects a non-reasoning-first PG_SWEEP_DEEPENER_MODEL override (LAW VI).
+            max_tokens=int(os.getenv("PG_DEEPENER_EXTRACT_MAX_TOKENS", "32768")),
         )
         text = result.content.strip()
 
@@ -815,7 +820,11 @@ async def _mechanism_search(
         result = await client.reason(
             prompt=prompt,
             effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
-            max_tokens=500,
+            # I-arch-003 (#1253): same reasoning-ON / no-floor land mine as _extract_named_studies — the
+            # old max_tokens=500 was the MOST starved site on the live path (500 total vs ~17-18k V4-Pro
+            # reasoning -> guaranteed empty -> silent fallback to deterministic mechanism queries).
+            # Floored to the reasoning-first minimum (LAW VI; branch-2 floor backstops too).
+            max_tokens=int(os.getenv("PG_DEEPENER_MECHANISM_MAX_TOKENS", "32768")),
         )
         text = result.content.strip()
     except Exception as exc:
