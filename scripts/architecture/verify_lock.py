@@ -24,6 +24,7 @@ Until then the gate refuses to PASS smokes that consume the lock.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import subprocess
 import sys
@@ -39,6 +40,17 @@ class LockMismatch(Exception):
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LOCK_PATH = REPO_ROOT / "config" / "architecture" / "polaris_runtime_lock.yaml"
 CANONICAL_PIN_PATH = REPO_ROOT / "docs" / "canonical_pin.txt"
+SRC_ROOT = REPO_ROOT / "src"
+
+# B10 conformance gate (2026-06-14): the locked Mirror slug. Any inline
+# PG_EVALUATOR_MODEL default in live src/ must equal this (the evaluator role
+# maps to the Mirror per the lock's legacy_compat). Read from the lock at call
+# time, not hardcoded, so it tracks the operator-signed truth.
+_GEMMA_PREFIX = "google/gemma"
+
+# Frozen pipeline-C (src/orchestration/**) is governed separately (CLAUDE.md §5);
+# its config is not on the live faithfulness path. Scope the gate to live src/.
+_GEMMA_GATE_EXCLUDE_DIRS = ("orchestration",)
 
 
 def load_lock() -> dict:
@@ -139,6 +151,134 @@ def verify_lock_against_code() -> dict:
         }
 
     return results
+
+
+def _mirror_slug_from_lock() -> str:
+    """Return the locked Mirror model_slug (the evaluator's legacy_compat target)."""
+    lock = load_lock()
+    return lock["required_roles"]["mirror"]["model_slug"]
+
+
+def _getenv_default_literal(call: ast.Call) -> tuple[str | None, str | None]:
+    """If ``call`` is os.getenv / os.environ.get with a string-literal default,
+    return (env_var_name_or_None, default_literal_or_None); else (None, None).
+
+    Recognizes both ``os.getenv("X", "default")`` and
+    ``os.environ.get("X", "default")``. The default is the 2nd POSITIONAL arg.
+    Dict literals (cost table, family registry) and comments are NOT ast.Call
+    nodes of this shape, so they are structurally excluded — zero false positives.
+    """
+    func = call.func
+    is_getenv = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "getenv"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "os"
+    )
+    is_environ_get = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "get"
+        and isinstance(func.value, ast.Attribute)
+        and func.value.attr == "environ"
+        and isinstance(func.value.value, ast.Name)
+        and func.value.value.id == "os"
+    )
+    if not (is_getenv or is_environ_get):
+        return None, None
+
+    def _const_str(node: ast.AST | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    # The default may be the 2nd POSITIONAL arg OR a `default=` keyword
+    # (os.getenv supports both; os.environ.get's mapping .get default is
+    # positional, but a kwarg form is still parsed here defensively so the gate
+    # cannot be bypassed by os.getenv("X", default="google/gemma-...")). Codex
+    # B10 iter-1 P2.
+    default_node: ast.AST | None = None
+    if len(call.args) >= 2:
+        default_node = call.args[1]
+    else:
+        for kw in call.keywords:
+            if kw.arg == "default":
+                default_node = kw.value
+                break
+    if default_node is None:
+        return None, None  # no default supplied
+
+    env_name = _const_str(call.args[0]) if call.args else None
+    default_lit = _const_str(default_node)
+    return env_name, default_lit
+
+
+def scan_gemma_defaults() -> list[str]:
+    """Scan live src/ for forbidden gemma model defaults + bad evaluator defaults.
+
+    Returns a list of human-readable violation strings (empty = clean). Two checks
+    via AST (so comments/docstrings/cost-table/family-registry never false-positive):
+
+      1. NO live src/ os.getenv/os.environ.get may default a model env var to a
+         ``google/gemma*`` slug. This is the structural close that stops the
+         transparency.py / llm_provider.py class of bug from recurring.
+      2. Any inline ``PG_EVALUATOR_MODEL`` default MUST equal the locked Mirror slug
+         (the evaluator role maps to the Mirror per the lock's legacy_compat). A
+         PG_EVALUATOR_MODEL with NO string default (e.g. ``os.getenv(...) or X``)
+         passes — there is no literal default to be wrong.
+    """
+    violations: list[str] = []
+    if not SRC_ROOT.exists():
+        return violations
+    try:
+        mirror_slug = _mirror_slug_from_lock()
+    except Exception as exc:  # noqa: BLE001
+        return [f"could not load lock mirror slug: {exc}"]
+
+    for py_path in sorted(SRC_ROOT.rglob("*.py")):
+        rel = py_path.relative_to(REPO_ROOT).as_posix()
+        if any(f"/{d}/" in f"/{rel}" for d in _GEMMA_GATE_EXCLUDE_DIRS):
+            continue
+        try:
+            tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            env_name, default_lit = _getenv_default_literal(node)
+            if default_lit is None:
+                continue
+            # Check 1: forbidden gemma default for any model env var.
+            if default_lit.lower().startswith(_GEMMA_PREFIX):
+                violations.append(
+                    f"{rel}:{node.lineno}: forbidden gemma default "
+                    f"{default_lit!r} for env {env_name!r} — repoint to the locked "
+                    f"GLM mirror (no google/gemma* runtime default; CLAUDE.md §9.1.8)"
+                )
+            # Check 2: inline PG_EVALUATOR_MODEL default must equal the mirror.
+            if env_name == "PG_EVALUATOR_MODEL" and default_lit != mirror_slug:
+                violations.append(
+                    f"{rel}:{node.lineno}: PG_EVALUATOR_MODEL inline default "
+                    f"{default_lit!r} != locked mirror {mirror_slug!r} — the "
+                    f"evaluator role maps to the Mirror (lock legacy_compat)"
+                )
+    return violations
+
+
+def gemma_gate(stream=sys.stdout) -> int:
+    """CI conformance gate: 0 iff no forbidden gemma/evaluator default in live src/."""
+    violations = scan_gemma_defaults()
+    if violations:
+        print("Gemma conformance gate: FAIL", file=stream)
+        for v in violations:
+            print(f"  - {v}", file=stream)
+        return 1
+    print(
+        "Gemma conformance gate: OK — no google/gemma* model default and no "
+        "mis-pointed PG_EVALUATOR_MODEL default in live src/",
+        file=stream,
+    )
+    return 0
 
 
 def check_propagation_manifest() -> dict:
@@ -255,12 +395,26 @@ def verify_consistency(stream=sys.stdout) -> int:
         )
         return 1
 
+    # B10 (2026-06-14): the gemma conformance gate is part of consistency — no live
+    # src/ path may default a model to a google/gemma* slug, and inline
+    # PG_EVALUATOR_MODEL defaults must equal the mirror. Makes B10 self-enforcing:
+    # the transparency.py / llm_provider.py class of drift fails CI on re-introduction.
+    gemma_violations = scan_gemma_defaults()
+    if gemma_violations:
+        print("Consistency: FAIL — gemma conformance gate:", file=stream)
+        for v in gemma_violations:
+            print(f"  - {v}", file=stream)
+        return 1
+
     print("Consistency: OK — families registered, family_policy holds, "
-          "code defaults match lock, canonical_pin includes lock file", file=stream)
+          "code defaults match lock, canonical_pin includes lock file, "
+          "no gemma model default in live src/", file=stream)
     return 0
 
 
 if __name__ == "__main__":
+    if "--gemma-gate" in sys.argv:
+        sys.exit(gemma_gate())
     if "--consistency" in sys.argv:
         sys.exit(verify_consistency())
     sys.exit(report())

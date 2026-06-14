@@ -32,6 +32,15 @@ from src.polaris_graph.tracing import _current_tracer
 # I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
 # all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
 from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+# B10 (2026-06-14): token-limit resolver — module-top import (stdlib-only module, no
+# circular import; same `from src.polaris_graph...` convention as the imports above).
+# Imported here (not lazily inside _call_impl) so an import failure is LOUD at module
+# load — never silently swallowed by the call-site guard, which would leave the
+# qwen-judge HTTP-400 unfixed (Codex B10 diff-gate iter-1 P1).
+from src.polaris_graph.llm.token_limit_resolver import (
+    compute_allowed_max_tokens as _resolve_allowed_max_tokens,
+    estimate_prompt_tokens as _estimate_prompt_tokens,
+)
 
 load_dotenv()
 
@@ -1835,6 +1844,42 @@ class OpenRouterClient:
             _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "384000"))
             if body.get("max_tokens", 0) > _hard_cap:
                 body["max_tokens"] = _hard_cap
+
+        # B10 TOKEN-LIMIT RESOLVER (governance, 2026-06-14): the FINAL mutation of
+        # body["max_tokens"] before send. The model's context window is
+        # prompt_tokens + max_tokens; a generous max_tokens (correct per §9.1.8)
+        # that, added to a large prompt, overruns the window makes OpenRouter return
+        # HTTP-400 ("max_tokens exceeds context") — exactly the qwen-judge 400 that
+        # HELD the A1/A2 report. The resolver clamps max_tokens DOWN to
+        # min(provider_completion_cap, context_length - prompt_tokens - safety_margin)
+        # so it never consumes the whole window. It is clamp-DOWN-only and
+        # PASS-THROUGH on unknown models / offline / disabled, so the generator's
+        # full-cap budget (validated provider) and every flag-OFF path stay
+        # byte-identical. Reasoning EFFORT is untouched (§9.1.8 stays MAX); we do NOT
+        # re-apply the reasoning-first floor after this clamp (re-flooring would
+        # re-introduce the 400). Kill-switch: PG_TOKEN_LIMIT_RESOLVER=0.
+        # The resolver helpers are imported at module top so an IMPORT failure is loud
+        # at load (Codex B10 iter-1 P1) — no broad guard hides it. A PromptTooLargeError
+        # is a deterministic, loud, prompt-too-large failure (iter-1 P1-3): a tiny
+        # max_tokens could NOT make an over-window prompt well-formed, so we surface it
+        # explicitly rather than firing a doomed request or silently starving.
+        _requested_mt = int(body.get("max_tokens", 0) or 0)
+        if _requested_mt > 0:
+            _prompt_tokens = _estimate_prompt_tokens(sanitized_messages)
+            # The provider-pinned reasoning-first GENERATOR family (#1253: Novita/
+            # WandB >= 384k, DeepInfra EXCLUDED) must NOT honor OpenRouter's
+            # top_provider.max_completion_tokens — that popularity-ranked field can
+            # report DeepInfra's 16384 and would clamp a 32k-64k section request back
+            # to 16384, re-introducing the #1253 starvation. Only the context_length
+            # bound applies to them; the judge/verifier roles (NOT reasoning-first)
+            # keep the completion-cap clamp that is the actual HTTP-400 fix.
+            _apply_completion_cap = self.model not in _REASONING_FIRST_MODELS
+            _allowed_mt = _resolve_allowed_max_tokens(
+                self.model, _prompt_tokens, _requested_mt,
+                apply_completion_cap=_apply_completion_cap,
+            )
+            if _allowed_mt != _requested_mt:
+                body["max_tokens"] = _allowed_mt
 
         if response_format:
             body["response_format"] = response_format

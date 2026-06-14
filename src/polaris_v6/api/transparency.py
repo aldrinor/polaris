@@ -215,7 +215,18 @@ def transparency() -> TransparencyResponse:
         sovereignty_filter=_sovereignty_policy(),
         evaluator_models={
             "generator": os.environ.get("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro"),
-            "evaluator": os.environ.get("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it"),
+            # B10 (2026-06-14): emit the RESOLVED live evaluator model, never a stale
+            # default. The evaluator role resolves to PG_EVALUATOR_MODEL, else the
+            # Mirror (PG_MIRROR_MODEL), else the locked GLM-5.1 — mirroring
+            # openrouter_client.PG_EVALUATOR_MODEL = (PG_EVALUATOR_MODEL or PG_MIRROR_MODEL).
+            # The old "google/gemma-4-31b-it" default made /transparency LIE about
+            # which model actually ran (sovereignty/transparency violation): the live
+            # path is GLM, the API reported gemma. "gemma" must NEVER appear here.
+            "evaluator": (
+                os.environ.get("PG_EVALUATOR_MODEL")
+                or os.environ.get("PG_MIRROR_MODEL")
+                or "z-ai/glm-5.1"
+            ),
         },
         egress_allowlist=_load_egress_allowlist(),
         build_time_hosts_pruned=pruned_flag.exists(),

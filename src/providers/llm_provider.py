@@ -47,7 +47,16 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-pro")
 
 # vLLM (local GPU server)
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8200/v1")
-VLLM_MODEL = os.getenv("VLLM_MODEL", "ebircak/gemma-4-31B-it-4bit-W4A16-AWQ")
+# B10 (2026-06-14): repointed off the gemma default. This is the DORMANT sovereign
+# vLLM path (only get_semaphore is imported into pipeline-A, so this default never
+# reaches the live faithfulness path), but a google/gemma-* default here pins gemma
+# into the sovereign stack against the locked stack
+# (config/architecture/polaris_runtime_lock.yaml: mirror/evaluator = z-ai/glm-5.1,
+# NO gemma) and trips the verify_lock conformance gate. The default is the locked
+# GLM-5.1 slug; the operator's sovereign box must serve a GLM-5.1 weight at this
+# endpoint (the exact local HF/AWQ artifact is deployment-specific — override
+# VLLM_MODEL with the served path on the sovereign box). LAW VI: env-overridable.
+VLLM_MODEL = os.getenv("VLLM_MODEL", "z-ai/glm-5.1")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
 
 # Ollama (local, lightweight)
