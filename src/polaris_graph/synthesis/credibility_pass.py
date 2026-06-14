@@ -7,13 +7,27 @@ evidence pool and returns the disclosure inputs (``credibility_by_evidence``, ``
 the 4-role D8 release policy stay the ONLY binding gates — nothing here keeps/drops a sentence or flips
 release.
 
-FAIL-LOUD (the drb_72 silent-downgrade lesson, locked in the I-cred-012 architecture iter-1/4 resolutions):
-a dead production judge (P2 ``judge_error``) or a row missing ``evidence_id`` ABORTS the pass
-(``CredibilityPassError``) rather than degrading to a false-green advisory. The activation orchestrator
-escalates the modules' OFFLINE fail-soft into a hard abort.
+FAIL-LOUD vs LABEL (I-arch-005 B12, operator-locked 2026-06-14 "VERIFY = LABEL, NEVER HOLD"):
+a row missing ``evidence_id``, a P4 independence-annotation gap, or a wired-module crash still ABORT the
+pass (``CredibilityPassError``) — those are real, unrecoverable integrity holes. But the two INFRA
+conditions that used to abort the WHOLE report no longer hold it (I-arch-005 B12-P1, operator-locked
+2026-06-14 "nothing shall hold the report"):
+  * a PER-SOURCE P2 ``judge_error`` — ``score_source_credibility`` isolates it to ONE row and falls back
+    to that source's DETERMINISTIC priors (a real weight, never fabricated);
+  * a MISSING production credibility judge (``judge=None``) — an infra/config condition, NOT a
+    faithfulness finding: the chain runs priors-only and every source carries its real deterministic
+    authority weight.
+In both cases the affected sources are LABELED ``credibility_unscored`` (a disclosed gap, surfaced LOUD
+per LAW II — never a silent downgrade) and the rest keep scoring; the report SHIPS with the gap rather
+than HELD. The genuine cited-evidence coverage gap (a CITED evidence_id with NO credibility row at all)
+stays fail-loud — that is a real provenance hole, caught downstream by ``apply_disclosure_to_svs``'s
+coverage assertion. The credibility WEIGHT math is untouched; only the abort-the-basket reaction on
+those two infra conditions became a per-source label (the pass is ADVISORY — the binding gates are
+``strict_verify`` + the 4-role D8 release policy).
 
 Order (locked): P4 copied-annotated rows (fail-loud on missing eid) → P3 supersession → P2 score
-(fail-loud on judge_error) → POST-P3 credibility = P2 × P3 multiplier (certainty carried) → P5 claim graph
+(LABEL credibility_unscored on judge_error / judge=None, never abort) → POST-P3 credibility =
+P2 × P3 multiplier (certainty carried) → P5 claim graph
 → P6 weight-mass over the POST-P3 judgments. P10 dissent + the M-52 effective-pool hoist + the P8
 render-site wrapper are the per-hook sub-issues; this module is the chain core they consume.
 """
@@ -53,6 +67,11 @@ class EvidenceCredibility:
     is_canonical_origin: bool
     certainty_downgrade: bool       # carried explicitly from P3 (supersession), not folded into the number
     soft_warning: str | None
+    # I-arch-005 B12 (#1257): True iff THIS source's credibility judge errored (the priors-only
+    # fallback weight was used). A DISCLOSED LABEL — the source is still scored (priors), the rest
+    # of the corpus keeps its LLM judgments, and the WHOLE report no longer aborts on one judge
+    # error. Defaulted False so every legacy construction + the flag-OFF path is byte-identical.
+    credibility_unscored: bool = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -338,22 +357,34 @@ def run_credibility_analysis(
     judge: Callable | None = None,
     now_year: int | None = None,
 ) -> CredibilityAnalysis:
-    """Run the P4→P3→P2→P5→P6 chain over the EFFECTIVE evidence pool. Fail-loud on judge_error / missing eid.
+    """Run the P4→P3→P2→P5→P6 chain over the EFFECTIVE evidence pool.
 
-    ``rows`` MUST already be the generator's effective pool (post-M-52, post-dissent); ``gov_suffixes`` is
-    the PSL gov-suffix tuple the rest of the pipeline uses (dependency-injected, no global). ``judge`` is the
-    production credibility judge (injected); None ⇒ priors-only, which the runner forbids under activation.
+    Fail-loud on a MISSING evidence_id, a P4 independence-annotation gap, or a wired-module crash (real
+    integrity holes). The two INFRA conditions that used to abort the WHOLE report no longer hold it
+    (I-arch-005 B12-P1, operator-locked 2026-06-14 "nothing shall hold the report"): a PER-SOURCE P2
+    ``judge_error`` and a MISSING production judge (``judge=None``) each LABEL the affected sources
+    ``credibility_unscored`` (priors-only weight — a real, honest deterministic weight, never fabricated)
+    and the rest keep scoring, so the report ships with the disclosed gap. ``rows`` MUST already be the
+    generator's effective pool (post-M-52, post-dissent); ``gov_suffixes`` is the PSL gov-suffix tuple the
+    rest of the pipeline uses (dependency-injected, no global). ``judge`` is the production credibility
+    judge (injected); None ⇒ the whole pool ships priors-only + LABELED ``credibility_unscored`` (a
+    disclosed gap surfaced LOUD per LAW II), NOT a silent false-green and NOT a hold.
     """
     if not rows:
         return CredibilityAnalysis({}, {}, [], [], [])
     if judge is None:
-        # Codex I-cred-012 iter-5 P1: activation requires the PRODUCTION judge. P2 with judge=None returns
-        # priors-only with judge_error=False, so a miswired master-on run would ship a false-green advisory.
-        # The orchestrator is only ever called under activation, so a missing judge is fail-closed.
-        raise CredibilityPassError(
-            "abort_credibility_pass_error: the activated credibility pass requires a callable production "
-            "judge; refusing to run priors-only (a false-green advisory). Wire the production judge or "
-            "leave PG_SWEEP_CREDIBILITY_REDESIGN off."
+        # I-arch-005 B12-P1 (#1257, operator-locked 2026-06-14 "VERIFY = LABEL, NEVER HOLD"): a missing
+        # production credibility judge is an INFRA/config condition (the pass is ADVISORY — strict_verify
+        # + the 4-role D8 release policy stay the ONLY binding gates), NOT a faithfulness finding. It must
+        # NOT abort the whole report. The chain runs priors-only (every source carries its real
+        # deterministic authority weight, never fabricated) and LABELS every source credibility_unscored —
+        # a disclosed gap. LOUD log (LAW II: no silent downgrade) so the operator sees it.
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility-pass] no production credibility judge wired (judge=None); running priors-only "
+            "and LABELING all %d source(s) credibility_unscored (disclosed gap) — the report ships with "
+            "the gap, never aborts (operator-locked 'nothing shall hold the report').",
+            len(rows),
         )
     from src.polaris_graph.llm.openrouter_client import BudgetExceededError
     try:
@@ -406,13 +437,35 @@ def _run_chain(
         for i, row in enumerate(annotated)
     }
 
-    # ── P2: credibility judgments — FAIL-LOUD on any judge_error under activation ──
+    # ── P2: credibility judgments — judge_error / judge=None LABEL the source, never abort ──
+    # I-arch-005 B12 (#1257, operator-locked 2026-06-14 "VERIFY = LABEL, NEVER HOLD"): the pass
+    # is ADVISORY (its own docstring). The two INFRA conditions must NOT abort the WHOLE report —
+    # each LABELS the affected source(s) ``credibility_unscored`` (a disclosed gap) and KEEPS the
+    # rest scoring with real weights:
+    #   * a PER-SOURCE judge_error — ``score_source_credibility`` already isolates the error to ONE
+    #     row and falls back to that source's DETERMINISTIC priors (a real, honest weight, never
+    #     fabricated), flagging it ``judge_error=True``;
+    #   * judge=None (no production judge wired) — ``score_source_credibility(judge=None)`` returns
+    #     priors-only for EVERY row but with ``judge_error=False`` (it is not a per-source error, it
+    #     is a global infra condition). So the ``errored_ids`` set is EMPTY in that case; we OR in
+    #     ``judge_missing`` below so EVERY source is correctly labeled ``credibility_unscored`` (NOT a
+    #     silent priors-only false-green — that EXACT trap is why the explicit OR exists).
+    # The credibility WEIGHT math is unchanged — a labeled row simply carries its priors-only weight +
+    # the disclosed label. (The genuine provenance hole — a CITED evidence_id with NO credibility row
+    # at all — is still fail-loud, caught downstream by ``apply_disclosure_to_svs``'s coverage
+    # assertion; that is a real coverage gap, NOT a recoverable infra condition.)
+    judge_missing = judge is None
     judgments = score_source_credibility(research_question, annotated, domain=domain, judge=judge)
-    errored = [j.evidence_id for j in judgments if getattr(j, "judge_error", False)]
-    if errored:
-        raise CredibilityPassError(
-            f"abort_credibility_pass_error: the production credibility judge failed for "
-            f"{len(errored)} source(s) (e.g. {errored[:5]}); refusing to ship a priors-only false-green"
+    errored_ids = {j.evidence_id for j in judgments if getattr(j, "judge_error", False)}
+    if errored_ids:
+        example = sorted(errored_ids)[:5]
+        # LOUD log (LAW II: no silent downgrade) — the run still ships, but the operator sees it.
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility-pass] credibility judge errored for %d/%d source(s) (e.g. %s); "
+            "LABELING them credibility_unscored (priors-only weight) and continuing to score the "
+            "rest — the report ships with the disclosed gap (never aborts the basket).",
+            len(errored_ids), len(judgments), example,
         )
 
     # ── POST-P3 credibility = P2 weight × supersession multiplier (certainty carried, not folded away) ──
@@ -430,6 +483,10 @@ def _run_chain(
             is_canonical_origin=bool(row.get("is_canonical_origin")),
             certainty_downgrade=bool(supersession.certainty_downgrade) if supersession else False,
             soft_warning=(supersession.soft_warning if supersession else None),
+            # OR in ``judge_missing``: with judge=None EVERY source is priors-only with
+            # judge_error=False, so ``errored_ids`` is empty — without the OR every source would ship
+            # credibility_unscored=False (a silent priors-only false-green, the EXACT trap B12-P1 fixes).
+            credibility_unscored=(eid in errored_ids) or judge_missing,
         )
 
     # POST-P3 judgments for downstream — P6 disclosure must use the post-P3 credibility, not raw P2.

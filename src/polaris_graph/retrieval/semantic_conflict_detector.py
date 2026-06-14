@@ -122,6 +122,39 @@ class SemanticConflictRecord:
     nli_confidence: float = 0.0
 
 
+# I-arch-005 B13 (#1257): the conflict side-judge's EMPTY-CONTENT collapse (a reasoning
+# model returns a 200 with empty/None content) used to raise → the caller HELD the report.
+# Operator-locked 2026-06-14 ("nothing shall hold the report"): on PERSISTENT empty (after
+# the B14 retry) the unadjudicated pair is LABELED ``conflict_unscored`` and the run SHIPS.
+# This is a DISCLOSED GAP, never an assertion: the judge could NOT adjudicate this pair — it
+# does NOT say "no conflict" and it does NOT fabricate one. The faithfulness contract is
+# unchanged; this only converts a HOLD into a disclosed label.
+#
+# The sentinel label the production judge returns when content stays empty after the B14
+# retry. ``detect_semantic_conflicts`` recognizes it and emits a ``ConflictUnscoredRecord``
+# (a disclosed-gap label) instead of skipping silently or raising.
+CONFLICT_UNSCORED_LABEL = "unscored"
+
+
+@dataclass
+class ConflictUnscoredRecord:
+    """A cross-document evidence PAIR the NLI conflict judge could NOT adjudicate.
+
+    Emitted (alongside the ``contradict`` records) when the side judge returns persistent
+    empty content for the pair after the B14 retry. It is a DISCLOSED GAP, not a finding:
+    it asserts nothing about whether the two claims conflict — only that the judge could not
+    decide. The run-side glue (SWEEP lane) routes these into the disclosed-gaps artifact so
+    the report ships with the gap surfaced rather than HELD. ``severity`` is fixed to the
+    label so a consumer never mistakes it for a real ``review`` contradiction.
+    """
+
+    subject: str
+    evidence_ids: list = field(default_factory=list)  # the two pair members' evidence_ids
+    reason: str = "conflict_judge_unavailable: empty judge content (could not adjudicate)"
+    type: str = "conflict_unscored"
+    severity: str = "unscored"
+
+
 class ConflictJudgeUnavailableError(RuntimeError):
     """I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge ERRORED while the
     strict-gate benchmark slate is active. Under strict gates a judge error must FAIL CLOSED
@@ -238,6 +271,7 @@ def _shared_subject(row_a: dict, row_b: dict) -> str:
 def detect_semantic_conflicts(
     pairs, judge, *, min_confidence: float | None = None,
     strict_fail_closed: bool = False,
+    unscored_out: list | None = None,
 ) -> list:
     """Judge each pair; keep ``contradict`` pairs above ``min_confidence``.
 
@@ -255,6 +289,16 @@ def detect_semantic_conflicts(
     exists" — no phantom record is ever fabricated. ``BudgetExceededError`` still
     propagates to keep-partial regardless of the flag (it is a clean stop, not an
     unadjudicated pair).
+
+    I-arch-005 B13 (#1257) — ``unscored_out`` (optional collector, operator-locked
+    2026-06-14 "nothing shall hold the report"): the production judge returns the
+    ``CONFLICT_UNSCORED_LABEL`` when its content stayed EMPTY after the B14 retry (the
+    GLM reasoning-model collapse). When ``unscored_out`` is provided, that pair is appended
+    as a ``ConflictUnscoredRecord`` (a DISCLOSED GAP — never a fabricated conflict, never a
+    dropped one) and the loop CONTINUES. When ``unscored_out`` is None the unscored label is
+    simply skipped (byte-identical to the pre-B13 "not contradict -> skip" path). This
+    converts the empty-content HOLD into a label and is INDEPENDENT of ``strict_fail_closed``
+    (an empty judge is always a label, never a hold).
     """
     from src.polaris_graph.llm.openrouter_client import BudgetExceededError
 
@@ -278,6 +322,20 @@ def detect_semantic_conflicts(
                     f"conflict judge errored on an evidence pair under strict gates: {exc}"
                 ) from exc
             logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
+            continue
+        # I-arch-005 B13: the EMPTY-CONTENT collapse arrives here as CONFLICT_UNSCORED_LABEL
+        # (the B14 guard already retried and returned a sentinel rather than raising). LABEL
+        # the pair conflict_unscored (disclosed gap) and continue — never hold, never drop a
+        # real conflict (none was adjudicated), never fabricate one.
+        if str(label).strip().lower() == CONFLICT_UNSCORED_LABEL:
+            if unscored_out is not None:
+                unscored_out.append(ConflictUnscoredRecord(
+                    subject=_shared_subject(row_a, row_b),
+                    evidence_ids=[
+                        str(row_a.get("evidence_id") or ""),
+                        str(row_b.get("evidence_id") or ""),
+                    ],
+                ))
             continue
         if str(label).strip().lower() != "contradict":
             continue
@@ -350,6 +408,43 @@ def detect_semantic_conflicts_for_rows(
         min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
         strict_fail_closed=strict_fail_closed,
     )
+
+
+def detect_semantic_conflicts_for_rows_with_unscored(
+    evidence_rows, judge=None, *, strict_fail_closed: bool = False,
+) -> tuple:
+    """I-arch-005 B13 (#1257): cluster -> pairs -> judge, returning BOTH the contradict
+    records AND the ``conflict_unscored`` disclosed-gap labels.
+
+    Returns ``(list[SemanticConflictRecord], list[ConflictUnscoredRecord])``. The unscored
+    list carries the pairs whose judge content stayed EMPTY after the B14 retry — a DISCLOSED
+    GAP the run-side glue (SWEEP lane) routes into the disclosed-gaps artifact so the report
+    SHIPS rather than HELD. Identical clustering/pairing/threshold logic as
+    ``detect_semantic_conflicts_for_rows``; the ONLY difference is it threads the
+    ``unscored_out`` collector through so the empty-content label is surfaced rather than
+    silently skipped. The legacy ``detect_semantic_conflicts_for_rows`` stays byte-identical
+    (no collector) so its existing caller is untouched until SWEEP opts into this entry point.
+    """
+    clusters = cluster_candidate_rows(
+        evidence_rows,
+        min_overlap=_int_env(_ENV_MIN_OVERLAP, _DEFAULT_MIN_OVERLAP),
+        max_rows=_int_env(_ENV_MAX_ROWS, _DEFAULT_MAX_ROWS),
+    )
+    if not clusters:
+        return [], []
+    pairs = extract_pairs(clusters, max_pairs=_int_env(_ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS))
+    if not pairs:
+        return [], []
+    if judge is None:
+        judge = get_default_judge(strict_fail_closed=strict_fail_closed)
+    unscored: list = []
+    records = detect_semantic_conflicts(
+        pairs, judge,
+        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+        strict_fail_closed=strict_fail_closed,
+        unscored_out=unscored,
+    )
+    return records, unscored
 
 
 # --- production judge (isolated; reuses the openrouter cost/family substrate) ---
@@ -482,9 +577,14 @@ class _SemanticContradictionJudge:
             except Exception:  # noqa: BLE001
                 pass
 
-        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
-        # the served response (post ok, parse failed) over the exception string.
-        try:
+        from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+
+        def _post_once() -> dict:
+            """ONE real POST + cost-ledger + budget check. Returns the raw provider JSON.
+
+            Billed per ACTUAL call (each B14 retry that re-invokes this is a real call), so
+            the cost ledger stays honest. ``BudgetExceededError`` propagates unchanged (the
+            B14 guard re-raises it via ``propagate``) so the caller's keep-partial fires."""
             response = self._client.post(
                 self._endpoint,
                 headers={
@@ -494,8 +594,8 @@ class _SemanticContradictionJudge:
                 json=json_body,
             )
             response.raise_for_status()
-            data = response.json()
-            usage = data.get("usage", {}) or {}
+            served = response.json()
+            usage = served.get("usage", {}) or {}
             input_tokens = int(usage.get("prompt_tokens", 0) or 0)
             output_tokens = int(usage.get("completion_tokens", 0) or 0)
             api_cost = float(usage.get("cost", 0) or 0)
@@ -529,6 +629,48 @@ class _SemanticContradictionJudge:
             except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
                 pass
             _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+            return served
+
+        # I-arch-005 B13 (#1257): route the call through the B14 empty-content guard so a
+        # GLM-5.1 empty/None ``message.content`` (the reasoning-model collapse class) is
+        # RETRIED before it ever reaches ``json.loads(None)``. On a NON-empty response the
+        # guard returns it on the first attempt (byte-equivalent to the old single POST for
+        # the happy path); on PERSISTENT empty it returns a ``JudgeUnavailable`` sentinel
+        # (it does NOT raise) which we translate to the ``CONFLICT_UNSCORED_LABEL`` so the
+        # pair is LABELED ``conflict_unscored`` (disclosed gap) rather than HELD. The guard
+        # captures every attempt's raw request/response to the active raw-IO sink (the
+        # empty-content upstream cause is confirmed, not inferred). ``BudgetExceededError``
+        # is re-raised unchanged via ``propagate`` so keep-partial still fires.
+        from src.polaris_graph.llm.side_judge_guard import (  # noqa: PLC0415
+            call_side_judge_with_guard,
+        )
+
+        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
+        # the served response (post ok, parse failed) over the exception string.
+        try:
+            _guard = call_side_judge_with_guard(
+                _post_once,
+                extract_content=lambda r: r["choices"][0]["message"]["content"],
+                call_type="nli_conflict_judge",
+                role="evaluator",
+                build_request=lambda: {
+                    **json_body, "messages": [{"role": "user", "content": prompt}],
+                },
+                propagate=(BudgetExceededError,),
+            )
+            if _guard.is_unavailable:
+                # PERSISTENT empty content after the B14 retry → LABEL the pair
+                # conflict_unscored, never HOLD (operator-locked "nothing shall hold the
+                # report"). This is a disclosed gap: no conflict asserted, none dropped — the
+                # judge could not adjudicate. Strict-fail-closed does NOT raise here: the B13
+                # contract is that an EMPTY judge is always a LABEL, never a hold.
+                logger.warning(
+                    "[semantic-conflict] judge content empty after retry -> "
+                    "conflict_unscored LABEL (could not adjudicate): %s",
+                    _guard.unavailable.reason if _guard.unavailable else "",
+                )
+                return CONFLICT_UNSCORED_LABEL, 0.0
+            data = _guard.value
             content = data["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             verdict = str(parsed.get("verdict", "")).strip().upper()
