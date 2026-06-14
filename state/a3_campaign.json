@@ -269,8 +269,9 @@
       "files": [
         "run_honest_sweep_r3.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter2; ledger build/render/write exception -> release-blocking HOLD (abort_required_entity_ledger_failed) under strict gates, not silent success"
     },
     {
       "id": "F26",
@@ -280,8 +281,9 @@
       "files": [
         "multi_section_generator.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; strict + empty atom catalog/validator-raise -> degraded (fail-closed) + per-section isolation + honest verified-count decrement"
     },
     {
       "id": "F13",
@@ -291,8 +293,9 @@
       "files": [
         "nodes/scope_gate.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter2; config-driven INN-stem intervention recognizer (intervention_recognition.yaml), NO hardcoded ~25-drug allowlist (LAW VI); gate stays strict for contentless Qs"
     },
     {
       "id": "F14",
@@ -303,8 +306,9 @@
         "retrieval/live_retriever.py",
         "tools/access_bypass.py"
       ],
-      "status": "todo",
-      "issue": 1245
+      "status": "done_codex_approved",
+      "issue": 1245,
+      "gate": "Codex APPROVE; paywall->Zyte-first (PG_ZYTE_PAYWALL_FIRST) + min-body stub gate (PG_FETCH_MIN_BODY_CHARS, slate=1000) fail-loud; loud warn if no ZYTE_API_KEY; default OFF byte-identical"
     },
     {
       "id": "F15",
@@ -315,8 +319,9 @@
         "retrieval/live_retriever.py",
         "retrieval/evidence_selector.py"
       ],
-      "status": "todo",
-      "issue": 1245
+      "status": "done_codex_approved",
+      "issue": 1245,
+      "gate": "Codex APPROVE; §-1.3 DOWN-WEIGHT not hard-drop (PG_SWEEP_CREDIBILITY_REDESIGN) + honest drop counts + per-URL refetch cap/negative-cache on FAILED fetches only (not a breadth thinner)"
     },
     {
       "id": "F30",
@@ -326,8 +331,9 @@
       "files": [
         "retrieval/live_retriever.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE; landing/abstract-page detection -> weight down + flag (cannot ground methods)"
     },
     {
       "id": "F17",

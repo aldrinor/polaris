@@ -244,6 +244,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_conflict_judge_unavailable",  # I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge ERRORED under the strict-gate benchmark slate — FAIL CLOSED, the run HOLDS for human review rather than the judge's fail-open ('neutral', 0.0) silently dropping a possible real contradiction. NO conflict is fabricated; "could not adjudicate", not "a conflict exists".
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+    "abort_required_entity_ledger_failed",  # I-arch-004 F27 (#1213/h3 forensic): under the strict-gate benchmark slate, the FORCE-ON RequiredEntityLedger raised (build/render/write) — the legacy fail-soft would silently DROP the honest "Coverage gaps" disclosure and ship as success, overstating completeness; HOLD instead (release-blocking). Only fires under PG_BENCHMARK_STRICT_GATES + PG_REQUIRED_ENTITY_LEDGER (both forced-on by Gate-B). Off => byte-identical fail-soft.
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
     "error_unexpected",
@@ -289,6 +290,10 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
     # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
     "report_redaction_failed": "abort_report_redaction_failed",
+    # I-arch-004 F27 (#1213/h3 forensic): the FORCE-ON RequiredEntityLedger raised under the
+    # strict-gate benchmark slate — already a unified `abort_` name; identity map so
+    # to_unified_status passes it through (NOT error_unexpected).
+    "abort_required_entity_ledger_failed": "abort_required_entity_ledger_failed",
     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
     # clean budget abort, NOT error_unexpected.
     "abort_budget_exceeded": "abort_budget_exceeded",
@@ -802,6 +807,50 @@ def _quantified_readiness_failed(
         # Force-enabled yet no telemetry object at all == the silent no-op this guards.
         return True
     return not bool(telemetry.get("fired"))
+
+
+def _required_entity_ledger_failed_under_strict(
+    strict: bool, ledger_forced_on: bool, ledger_failed: bool
+) -> bool:
+    """I-arch-004 F27 (#1213 ledger / h3 forensic): under the strict-gate benchmark slate,
+    a FAILURE of the FORCE-ON RequiredEntityLedger must FAIL LOUD (release-blocking HOLD)
+    instead of the legacy fail-soft (a bare WARN log that silently DROPS the honest
+    "Coverage gaps" disclosure — overstating completeness on the very run whose differentiator
+    is honest gap-surfacing). Gate-B force-sets BOTH PG_REQUIRED_ENTITY_LEDGER=1 and
+    PG_BENCHMARK_STRICT_GATES=1, so on the benchmark certification run a ledger build/render/
+    write exception now holds the run rather than shipping a gap-disclosure-less report as
+    success. Returns True iff the strict guard must convert a would-be success into a loud hold.
+    PURE — touches NO faithfulness gate (strict_verify / NLI / 4-role D8 / provenance) and adds
+    NO cap/target; it only forbids mislabeling a ledger-failed run as success. Off (no strict
+    gates) OR ledger not forced-on OR ledger succeeded => False => byte-identical fail-soft."""
+    return bool(strict and ledger_forced_on and ledger_failed)
+
+
+def _apply_required_entity_ledger_hold(
+    manifest: dict, error: "str | None"
+) -> "tuple[str, str]":
+    """I-arch-004 F27 (#1213/h3 forensic): apply the FAIL-LOUD HOLD for a strict-gate
+    required-entity-ledger failure to ``manifest`` IN PLACE, and return the new
+    ``(summary_status, unified_status)`` for the caller to thread into its local status vars
+    (so the success-path re-stamp + the summary mirror both carry the HOLD).
+
+    Surfacing contract (the F27 ACCEPT: a ledger failure is SURFACED, not a silent ok):
+      * manifest['status'] = 'abort_required_entity_ledger_failed' (release-blocking abort)
+      * manifest['release_allowed'] = False (a held status can never read as releasable)
+      * manifest['strict_gate_required_entity_ledger_failed'] = True (auditable boolean signal)
+      * manifest['required_entity_ledger_error'] = the captured exception string
+
+    PURE wrt faithfulness: touches NO gate; it only converts a would-be success into a loud,
+    auditable HOLD. The caller GUARDS this on _required_entity_ledger_failed_under_strict(...)
+    AND unified_status == 'success', so OFF / non-strict / non-forced / succeeded => never
+    called => byte-identical."""
+    summary_status = "abort_required_entity_ledger_failed"
+    unified_status = to_unified_status(summary_status)
+    manifest["status"] = unified_status
+    manifest["release_allowed"] = False
+    manifest["strict_gate_required_entity_ledger_failed"] = True
+    manifest["required_entity_ledger_error"] = error
+    return summary_status, unified_status
 
 
 def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
@@ -8608,9 +8657,17 @@ async def run_one_query(
         # credit and touches NO gate (strict_verify / 4-role / D8 unchanged). A gap is disclosed as
         # an honest "could not verify X" statement, NEVER filled with an unsupported claim. Appended
         # AFTER the redaction + V30 disclosure so it reflects the final shipped body. Fail-soft.
-        if os.environ.get("PG_REQUIRED_ENTITY_LEDGER", "0").strip() in (
+        # I-arch-004 F27 (#1213/h3 forensic): track whether the FORCE-ON ledger raised so the
+        # strict-gate backstop below (in the #1226/#1237 cluster) can FAIL LOUD instead of the
+        # legacy fail-soft silently dropping the honest "Coverage gaps" disclosure. Default:
+        # forced_on reflects the env (Gate-B sets it to "1"); failed stays False on the happy
+        # path so a non-strict / OFF run is byte-identical (the WARN log below is preserved).
+        _re_ledger_forced_on = os.environ.get("PG_REQUIRED_ENTITY_LEDGER", "0").strip() in (
             "1", "true", "True",
-        ):
+        )
+        _re_ledger_failed = False
+        _re_ledger_error: "str | None" = None
+        if _re_ledger_forced_on:
             try:
                 from src.polaris_graph.generator.required_entity_ledger import (  # noqa: PLC0415
                     build_ledger as _build_req_ledger,
@@ -8652,8 +8709,14 @@ async def run_one_query(
                             f"coverage gaps disclosed (verified "
                             f"{len(_re_ledger.verified_slots())}/{len(_re_ledger.slots)})"
                         )
-            except Exception as _re_exc:  # noqa: BLE001 — fail-soft: never abort the run
+            except Exception as _re_exc:  # noqa: BLE001 — fail-soft log preserved; strict backstop holds
                 _log(f"[req_entity]  WARN required-entity ledger failed: {_re_exc}")
+                # I-arch-004 F27 (#1213/h3 forensic): record the failure so the strict-gate
+                # backstop below converts it to a loud HOLD (under PG_BENCHMARK_STRICT_GATES).
+                # Off (no strict gates) => the flag is read but the backstop no-ops => the legacy
+                # fail-soft (this same WARN, no abort) is byte-identical.
+                _re_ledger_failed = True
+                _re_ledger_error = f"{type(_re_exc).__name__}: {str(_re_exc)[:200]}"
 
         # I-bug-111: surface synthesis [N] scrub alert in manifest.
         # `synthesis_n_scrub_alert: bool` is True iff any single
@@ -8930,6 +8993,29 @@ async def run_one_query(
             manifest["status"] = unified_status
             manifest["release_allowed"] = False
             manifest["strict_gate_quantified_empty"] = True
+
+        # I-arch-004 F27 (#1213/h3 forensic): if the FORCE-ON RequiredEntityLedger RAISED, the legacy
+        # fail-soft logged a WARN and silently DROPPED the honest "Coverage gaps" disclosure — the run
+        # would ship as success while OVERSTATING completeness (the very signal the ledger exists to
+        # surface). Under the strict-gate benchmark slate (Gate-B force-sets BOTH the ledger flag AND
+        # PG_BENCHMARK_STRICT_GATES), HOLD instead: convert a would-be success into a loud,
+        # release-blocking abort. Mirrors the #1226/#1237 pattern — touches NO faithfulness gate, adds
+        # NO cap, and only ever demotes a `success`. Off (no strict gates) => the legacy fail-soft
+        # (the WARN above, no abort) is byte-identical.
+        if (
+            _required_entity_ledger_failed_under_strict(
+                _strict_gates, _re_ledger_forced_on, _re_ledger_failed
+            )
+            and unified_status == "success"
+        ):
+            _log(
+                "[strict-gate] ABORT (F27): the force-enabled required-entity ledger FAILED "
+                f"({_re_ledger_error}) — refusing to ship a benchmark run as success with the honest "
+                "'Coverage gaps' disclosure silently dropped (fail-soft would overstate completeness)."
+            )
+            summary_status, unified_status = _apply_required_entity_ledger_hold(
+                manifest, _re_ledger_error
+            )
 
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when

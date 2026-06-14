@@ -89,6 +89,51 @@ _ZYTE_MIN_CONTENT_CHARS = int(os.getenv("PG_ZYTE_MIN_CONTENT_CHARS", "500"))
 # Zyte API endpoint (override only for testing against a mock server).
 _ZYTE_API_ENDPOINT = os.getenv("PG_ZYTE_API_ENDPOINT", "https://api.zyte.com/v1/extract")
 
+# F14 (GH #1245 / D9, D10): paywalled-publisher hosts. The free fetch chain
+# (Crawl4AI/Jina/Firecrawl) returns a short abstract SHELL for these hosts; they
+# are routed to Zyte FIRST when PG_ZYTE_PAYWALL_FIRST=1 and a key is present, and
+# a LOUD warning fires when the key is absent (the Zyte fallback is otherwise a
+# silent no-op). Env-extendable via PG_PAYWALL_PUBLISHER_HOSTS (comma-sep,
+# additive). Never a hard DROP — only a routing + loud-warning signal.
+_PAYWALL_PUBLISHER_HOSTS = (
+    "sciencedirect.com",
+    "elsevier.com",
+    "linkinghub.elsevier.com",
+    "onlinelibrary.wiley.com",
+    "link.springer.com",
+    "nature.com",
+    "tandfonline.com",
+    "journals.sagepub.com",
+    "academic.oup.com",
+    "nejm.org",
+    "thelancet.com",
+    "jamanetwork.com",
+    "bmj.com",
+    "cell.com",
+    "ahajournals.org",
+    "annualreviews.org",
+)
+
+
+def _is_paywall_publisher_host(url: str) -> bool:
+    """F14: True iff the URL host is a known paywalled publisher (substring
+    match on the lowercased netloc; default list + env-additive). Pure, no
+    network."""
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse as _urlparse
+        netloc = (_urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    if not netloc:
+        return False
+    hosts = list(_PAYWALL_PUBLISHER_HOSTS)
+    extra = os.getenv("PG_PAYWALL_PUBLISHER_HOSTS", "").strip()
+    if extra:
+        hosts.extend(h.strip().lower() for h in extra.split(",") if h.strip())
+    return any(h in netloc for h in hosts)
+
 # ---------------------------------------------------------------------------
 # Crawl4AI availability flag (set on first import attempt)
 # ---------------------------------------------------------------------------
@@ -1133,6 +1178,40 @@ class AccessBypass:
                     url[:60], str(pdf_exc)[:100],
                 )
 
+        # F14 (GH #1245 / D9, D10): route paywalled publishers to Zyte FIRST.
+        # The free scraper group (Crawl4AI/Jina/Firecrawl) reliably returns a
+        # few-hundred-char ABSTRACT SHELL for these hosts, which then gets logged
+        # as an "ok" source — a dead fetch masquerading as good content. For a
+        # known paywalled-publisher host, try Zyte (the paid browser fetch) FIRST
+        # so a REAL body is fetched instead of a shell. This runs AFTER the free
+        # LEGAL OA chain (PMC-BioC / Unpaywall / direct PDF) above — a legally
+        # free full-text copy always wins over a paid call. Gated by
+        # PG_ZYTE_PAYWALL_FIRST (default OFF => byte-identical: the early Zyte
+        # attempt never fires). When ON but ZYTE_API_KEY is UNSET, a LOUD warning
+        # fires (the Zyte path is otherwise a silent no-op without the key) so a
+        # Zyte-blind run on paywalled journals is auditable. Zyte content still
+        # flows through the SAME extractor + strict_verify / 4-role gates — no
+        # faithfulness gate is bypassed (§-1.3: the only hard gate is untouched).
+        if (
+            os.getenv("PG_ZYTE_PAYWALL_FIRST", "0") == "1"
+            and _is_paywall_publisher_host(url)
+        ):
+            if os.getenv("ZYTE_API_KEY"):
+                logger.info(
+                    "[ACCESS] F14: paywalled publisher %s — trying Zyte FIRST "
+                    "(before the free scraper group)", url[:60],
+                )
+                _zyte_first = await self._try_zyte(url)
+                if _zyte_first.success:
+                    return _zyte_first
+            else:
+                logger.warning(
+                    "[ACCESS] F14: paywalled publisher %s but ZYTE_API_KEY is "
+                    "UNSET — Zyte-first routing is a silent no-op; the free "
+                    "scraper group will likely return only an abstract shell. "
+                    "Set ZYTE_API_KEY to recover full text.", url[:80],
+                )
+
         # FIX-QM2: Run Crawl4AI, Jina and Firecrawl concurrently -- first success wins
         logger.info("[ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for %s", url[:60])
 
@@ -1325,6 +1404,18 @@ class AccessBypass:
 
         # SF-40: Log total failure at WARNING (was completely silent)
         logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
+        # F14 (GH #1245 / D9, D10): when a PAYWALLED-publisher URL exhausts every
+        # method and ZYTE_API_KEY is UNSET, surface a LOUD diagnostic — this is
+        # exactly the case where the Zyte paid fallback (the one method that
+        # could recover the body) was a silent no-op. Makes a Zyte-blind run on
+        # paywalled journals auditable instead of a quiet exhaustion.
+        if _is_paywall_publisher_host(url) and not os.getenv("ZYTE_API_KEY"):
+            logger.warning(
+                "[ACCESS] F14: paywalled publisher %s exhausted ALL free "
+                "methods and ZYTE_API_KEY is UNSET — the Zyte paid fallback "
+                "was never invoked (silent no-op). Set ZYTE_API_KEY to recover "
+                "full text for paywalled journals.", url[:80],
+            )
         return AccessResult(
             url=url,
             content="",

@@ -240,6 +240,242 @@ _DRUG_NAME_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+# NOTE: `_DRUG_NAME_RE` (the literal canonical-drug allowlist above) is
+# DELIBERATELY left unchanged. Three modules import it for subject extraction
+# in conflict/contradiction detection and completeness token substitution
+# (completeness_checker, contradiction_detector, qualitative_conflict_detector)
+# — that is a SEPARATE concern from the scope false-abort fixed by F13. The
+# A3-F13 fix adds a config-driven *recognizer* (`_intervention_present`) used by
+# the scope gate's PICO heuristic so an OFF-LIST drug no longer false-aborts;
+# the literal regex stays as the canonical-name fast path + the consumers' API.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A3 fix F13 (GH I-arch-002) — config-driven intervention recognizer.
+#
+# The scope gate previously recognised a clinical *intervention* ONLY via the
+# ~25-entry hard-coded `_DRUG_NAME_RE` allowlist above. A clinical question about
+# any drug NOT in that list whose population also could not be extracted read
+# BOTH PICO anchors as None and was hard-rejected (abort_scope_rejected /
+# clinical_pico_unscoped) — a false abort on a perfectly well-scoped question.
+#
+# LAW VI (zero hard-coding): the recognizer below is fully config-driven from
+# `config/clinical_safety/intervention_recognition.yaml` — WHO/USAN INN class
+# stems (generative drug recognition) + a seed list of stemless legacy names.
+# No closed per-drug allowlist gates the decision. The gate stays STRICT: a
+# genuinely contentless clinical question (no stem, no known name, no
+# population) still rejects. This touches NO faithfulness gate.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_INTERVENTION_RECOGNITION_CONFIG = (
+    _REPO_ROOT / "config" / "clinical_safety" / "intervention_recognition.yaml"
+)
+
+
+@dataclass(frozen=True)
+class _InterventionRecognizer:
+    """Compiled config-driven recognizer for a clinical intervention name."""
+
+    inn_stem_re: "_MinLenStemPattern"
+    known_names_re: re.Pattern[str]
+    exclude_words: frozenset[str]
+
+    def _known_search(self, text: str) -> Optional[re.Match[str]]:
+        """Earliest known-name match whose token is not in the denylist."""
+        for m in self.known_names_re.finditer(text):
+            if m.group(0).lower() not in self.exclude_words:
+                return m
+        return None
+
+    def find(self, text: str) -> Optional[str]:
+        """Return the first recognised intervention token (lowercased) or None.
+
+        The token that appears EARLIEST in the text wins; on an exact-position
+        tie the known-name (exact, seed legacy list) is preferred over the
+        generative INN-stem match so a stemless legacy drug is reported by its
+        full name. (Any single intervention anchor is sufficient for the scope
+        decision, so the tie-break only affects which token is *reported*, never
+        whether the gate proceeds.) Tokens in `exclude_words` (common-English
+        collisions, e.g. accept/except for the `-cept` stem) are never
+        recognised.
+        """
+        if not text:
+            return None
+        known = self._known_search(text)
+        stem = self.inn_stem_re.search(text)  # already denylist-filtered
+        if known and stem:
+            chosen = known if known.start() <= stem.start() else stem
+        else:
+            chosen = known or stem
+        if chosen is None:
+            return None
+        return chosen.group(0).lower()
+
+
+def _build_intervention_recognizer(
+    config_path: Path,
+) -> _InterventionRecognizer:
+    """Compile the INN-stem + known-name recognizer from YAML (fail-loud).
+
+    Raises RuntimeError if PyYAML is unavailable, the config file is missing,
+    or a required section is absent/empty. No silent fallback (LAW II).
+    """
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required for intervention recognition. Install via "
+            "`pip install pyyaml`."
+        )
+    if not config_path.exists():
+        raise RuntimeError(
+            f"Intervention-recognition config {config_path} does not exist. "
+            f"A3 fix F13 requires this file (LAW VI: no hard-coded allowlist)."
+        )
+    with config_path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Intervention-recognition config {config_path} did not parse to a "
+            f"dict (got {type(data).__name__}). Check the YAML syntax."
+        )
+
+    inn = data.get("inn_stems") or {}
+    if not isinstance(inn, dict):
+        raise RuntimeError(
+            f"{config_path}: 'inn_stems' must be a mapping, got "
+            f"{type(inn).__name__}."
+        )
+    stems = inn.get("stems") or []
+    stems = [str(s).strip().lower() for s in stems if str(s).strip()]
+    if not stems:
+        raise RuntimeError(
+            f"{config_path}: 'inn_stems.stems' must be a non-empty list."
+        )
+    try:
+        min_prefix_len = int(inn.get("min_prefix_len", 2))
+        min_token_len = int(inn.get("min_token_len", 6))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"{config_path}: min_prefix_len/min_token_len must be integers: {exc}"
+        ) from exc
+    if min_prefix_len < 1 or min_token_len < 1:
+        raise RuntimeError(
+            f"{config_path}: min_prefix_len and min_token_len must be >= 1."
+        )
+
+    # Precision guard: every stem must be preceded, within the SAME word, by at
+    # least `min_prefix_len` alphabetic characters, and the whole token must be
+    # at least `min_token_len` chars long. This stops common English words that
+    # merely end in a stem-looking substring (machine/April/pine) from matching.
+    # Longest-stem-first so "-tinib" wins over "-nib", "-navir" over "-vir".
+    stems_sorted = sorted(set(stems), key=len, reverse=True)
+    stem_alt = "|".join(re.escape(s) for s in stems_sorted)
+    # \b[a-z]{>=min_prefix_len}(?:stem)\b — then enforce min_token_len in code.
+    inn_stem_re = re.compile(
+        rf"\b([a-z]{{{min_prefix_len},}}(?:{stem_alt}))\b",
+        re.IGNORECASE,
+    )
+
+    known = data.get("known_names") or []
+    known = [str(n).strip().lower() for n in known if str(n).strip()]
+    if not known:
+        raise RuntimeError(
+            f"{config_path}: 'known_names' must be a non-empty seed list."
+        )
+    known_sorted = sorted(set(known), key=len, reverse=True)
+    known_alt = "|".join(re.escape(n) for n in known_sorted)
+    known_names_re = re.compile(rf"\b({known_alt})\b", re.IGNORECASE)
+
+    # exclude_words is OPTIONAL (a denylist of common-English collisions). An
+    # absent/empty section is valid — the anchoring + min-length guards still
+    # apply; the denylist only adds precision for residual collisions like the
+    # `-cept` stem vs accept/except/concept/intercept.
+    exclude_raw = data.get("exclude_words") or []
+    if not isinstance(exclude_raw, list):
+        raise RuntimeError(
+            f"{config_path}: 'exclude_words' must be a list when present, got "
+            f"{type(exclude_raw).__name__}."
+        )
+    exclude_words = frozenset(
+        str(w).strip().lower() for w in exclude_raw if str(w).strip()
+    )
+
+    return _InterventionRecognizer(
+        inn_stem_re=_MinLenStemPattern(inn_stem_re, min_token_len, exclude_words),
+        known_names_re=known_names_re,
+        exclude_words=exclude_words,
+    )
+
+
+class _MinLenStemPattern:
+    """Wrap an INN-stem regex to enforce min token length + a denylist.
+
+    `re.Pattern` cannot express "the captured token must be >= N chars and not
+    in this denylist" cleanly alongside a stem alternation, so we post-filter
+    matches. The denylist removes residual common-English collisions that the
+    stem anchoring + min-length cannot separate (e.g. accept/except/concept/
+    intercept for the `-cept` fusion-protein stem). Exposes the subset of the
+    `re.Pattern` API the recognizer uses (`search`).
+    """
+
+    def __init__(
+        self,
+        pattern: re.Pattern[str],
+        min_token_len: int,
+        exclude_words: frozenset[str],
+    ) -> None:
+        self._pattern = pattern
+        self._min_token_len = min_token_len
+        self._exclude_words = exclude_words
+
+    def search(self, text: str) -> Optional[re.Match[str]]:
+        for m in self._pattern.finditer(text):
+            token = m.group(0)
+            if len(token) < self._min_token_len:
+                continue
+            if token.lower() in self._exclude_words:
+                continue
+            return m
+        return None
+
+
+# Module-level cache: the config is read once per process (deterministic, no I/O
+# on the hot path after first use). Reset in tests via _reset_intervention_cache.
+_intervention_recognizer_cache: Optional[_InterventionRecognizer] = None
+
+
+def _get_intervention_recognizer() -> _InterventionRecognizer:
+    global _intervention_recognizer_cache
+    if _intervention_recognizer_cache is None:
+        _intervention_recognizer_cache = _build_intervention_recognizer(
+            _INTERVENTION_RECOGNITION_CONFIG
+        )
+    return _intervention_recognizer_cache
+
+
+def _reset_intervention_cache() -> None:
+    """Test hook: clear the compiled-recognizer cache."""
+    global _intervention_recognizer_cache
+    _intervention_recognizer_cache = None
+
+
+def _intervention_present(query: str) -> Optional[str]:
+    """Return a recognised intervention token (lowercased) from `query` or None.
+
+    Two layers, both config-driven (LAW VI):
+      1. The canonical `_DRUG_NAME_RE` literal fast path (exact known names) —
+         preserves byte-for-byte the prior matches/case for those drugs.
+      2. The config-driven INN-stem + known-name recognizer (off-list drugs).
+
+    Returns None when no intervention is recognised, so a genuinely unscoped
+    clinical question still reads intervention=None and the gate stays strict.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None
+    canonical = _DRUG_NAME_RE.search(q)
+    if canonical:
+        return canonical.group(1).lower()
+    return _get_intervention_recognizer().find(q)
+
 
 _POPULATION_MARKERS_RE = re.compile(
     r"\b("
@@ -273,9 +509,12 @@ def extract_pico_heuristic(query: str) -> dict[str, Optional[str]]:
     pop = _POPULATION_MARKERS_RE.search(q)
     if pop:
         result["population"] = pop.group(1).lower()
-    drug = _DRUG_NAME_RE.search(q)
-    if drug:
-        result["intervention"] = drug.group(1).lower()
+    # F13: config-driven recognizer (canonical fast path + INN stems + known
+    # names) instead of the bare ~25-drug `_DRUG_NAME_RE` allowlist, so an
+    # off-list drug is recognised and no longer false-aborts the scope gate.
+    intervention = _intervention_present(q)
+    if intervention:
+        result["intervention"] = intervention
 
     # Outcome detection is weak; look for standard trial outcomes
     q_l = q.lower()

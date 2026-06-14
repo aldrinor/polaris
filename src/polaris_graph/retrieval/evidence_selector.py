@@ -1638,6 +1638,18 @@ def _relevance_floor_selection(
         a = row.get("authority_score")
         return 1.0 if a is None else float(a)
 
+    # F15 (GH #1245 / D11, §-1.3 WEIGHT-not-FILTER): honor the per-row
+    # `retrieval_weight` set by live_retriever's DOWN-WEIGHT path (content-starved
+    # / landing-page sources kept in the pool at a low weight rather than hard-
+    # dropped). It multiplies the ranking score so a down-weighted source sorts
+    # LAST while still being present — the source flows to composition carrying
+    # its weight (§-1.3), never silently filtered. Default 1.0 ONLY when absent/
+    # None (a real full-text row), so a normal row is byte-identical. ON-path
+    # only: a down-weighted row only exists when the redesign flag is set.
+    def _retrieval_weight(row: dict[str, Any]) -> float:
+        w = row.get("retrieval_weight")
+        return 1.0 if w is None else float(w)
+
     # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
     # below-floor marquee / required-entity row is also floor-EXEMPT. OFF =>
     # `_preserve_marquee` is False => predicate is byte-identical to the prior
@@ -1660,20 +1672,34 @@ def _relevance_floor_selection(
     # loss). Flag OFF => the exact prior `>= floor OR floor-exempt` keep-filter =>
     # byte-identical. Ranking + selection_relevance stamp are unchanged either way, so
     # they become the weight surface (re-wire, not build).
-    if _credibility_redesign_enabled():
+    _redesign_on = _credibility_redesign_enabled()
+    if _redesign_on:
         kept = list(scored)
     else:
         kept = [
             item for item in scored
             if item[1] >= relevance_floor or _floor_exempt(item[3])
         ]
-    kept.sort(
-        key=lambda s: (
-            -(s[1] * _authority(s[3])),
-            _TIER_PRIORITY.get(s[2], 9),
-            s[0],
+    # F15: under the redesign, multiply the ranking score by the per-row
+    # retrieval weight so a DOWN-WEIGHTED (content-starved / landing-page) source
+    # sorts LAST while still being kept. OFF path is byte-identical (the prior
+    # sort key); a normal row's weight is 1.0 so ranking is unchanged for it.
+    if _redesign_on:
+        kept.sort(
+            key=lambda s: (
+                -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])),
+                _TIER_PRIORITY.get(s[2], 9),
+                s[0],
+            )
         )
-    )
+    else:
+        kept.sort(
+            key=lambda s: (
+                -(s[1] * _authority(s[3])),
+                _TIER_PRIORITY.get(s[2], 9),
+                s[0],
+            )
+        )
     selected_rows: list[dict[str, Any]] = []
     selected_counts: dict[str, int] = {}
     for idx, score, tier, row in kept:

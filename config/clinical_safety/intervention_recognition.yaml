@@ -1,0 +1,197 @@
+# Clinical-intervention recognition config (A3 fix F13, GH I-arch-002).
+#
+# PURPOSE
+# -------
+# The scope gate (src/polaris_graph/nodes/scope_gate.py) must recognise that a
+# clinical research question names a *specific intervention* (a drug / biologic /
+# procedure) WITHOUT relying on a closed, hard-coded ~25-drug allowlist. The old
+# `_DRUG_NAME_RE` literal allowlist false-rejected (abort_scope_rejected) any
+# clinical question about an off-list drug whose population also could not be
+# extracted — both PICO anchors read None and the gate hard-rejected as
+# clinical_pico_unscoped. That is a category error: the question IS well-scoped,
+# the extractor merely didn't know the drug's name.
+#
+# DESIGN (LAW VI — zero hard-coding)
+# ----------------------------------
+# Intervention recognition is now config-driven, in TWO layers, both editable
+# here by a domain expert without touching code:
+#
+#   1. inn_stems — WHO/USAN International Nonproprietary Name (INN) class stems.
+#      Modern small-molecule + biologic drug names are coined from a fixed set of
+#      pharmacological-class suffix/infix stems (e.g. -mab = monoclonal antibody,
+#      -gliptin = DPP-4 inhibitor, -sartan = angiotensin-II antagonist). Matching
+#      these stems recognises a drug GENERATIVELY — any current-or-future drug in
+#      the class is recognised, on-list or off-list, with no per-drug entry.
+#      This is a WEIGHTED RECOGNITION cue, not a closed allowlist.
+#
+#   2. known_names — a SEED list of clinically important legacy drugs whose names
+#      predate the INN stem system and carry NO recognisable class stem (warfarin,
+#      aspirin, heparin, insulin, digoxin, ...). Without seeding these, a question
+#      about a stemless legacy drug with no population marker would still reject.
+#      This list is additive and expected to grow; it is NOT a gate — it only
+#      RAISES recognition, never lowers it.
+#
+# PRECISION (avoid common-English collisions)
+# -------------------------------------------
+# Two complementary precision mechanisms:
+#   (a) Every stem is anchored at a word boundary and requires a minimum
+#       drug-like prefix length + minimum total token length, so most common
+#       English words that merely END in a stem-looking substring do NOT match
+#       (e.g. "machine"/"caffeine" !~ "-ine"; "April" !~ "-pril";
+#       "pine"/"alpine" !~ "-dipine").
+#   (b) `exclude_words` — an explicit denylist for the residual collisions that
+#       length/prefix alone cannot separate. The classic case is the fusion-
+#       protein stem `-cept` (etanercept, abatacept), which collides with the
+#       common English words "accept" / "except" / "concept" / "intercept" —
+#       all of length >= 6 and all of the form <prefix>cept. A token whose
+#       lowercase form is in `exclude_words` is NEVER recognised as an
+#       intervention, even if it matches a stem. This denylist RAISES precision;
+#       it never drops a real drug (no real INN drug name is an English word).
+#
+# SCOPE OF THIS CONFIG
+# --------------------
+# This file ONLY affects intervention *recognition* in the scope gate's PICO
+# heuristic. It does NOT touch any faithfulness gate (strict_verify / NLI /
+# 4-role D8 / provenance / span-grounding) — those are unchanged. The scope gate
+# stays STRICT: a genuinely contentless clinical question (no intervention stem,
+# no known name, no population marker) still hard-rejects as clinical_pico_unscoped.
+
+# WHO/USAN INN class stems. Each stem matches a token of the form
+#   <alphabetic prefix of >= min_prefix_len chars><stem>
+# at a word boundary, case-insensitively. Keep stems lowercase.
+inn_stems:
+  # Minimum number of leading alphabetic characters BEFORE the stem for a token
+  # to count as a drug name. Guards against short English collisions.
+  min_prefix_len: 2
+  # Minimum total token length (prefix + stem) for a match to count.
+  min_token_len: 6
+  stems:
+    # Monoclonal antibodies / biologics
+    - mab          # -mab  monoclonal antibody (pembrolizumab, adalimumab, ...)
+    - cept         # -cept receptor fusion protein (etanercept, abatacept).
+                   #       Collides with accept/except/concept/intercept — those
+                   #       are filtered by `exclude_words` below.
+    # Kinase / enzyme inhibitors
+    - tinib        # -tinib tyrosine-kinase inhibitor (imatinib, osimertinib)
+    - nib          # -nib  small-molecule kinase inhibitor (broader than -tinib)
+    - ciclib       # -ciclib CDK inhibitor (palbociclib, ribociclib)
+    - zomib        # -zomib proteasome inhibitor (bortezomib, carfilzomib)
+    - parib        # -parib PARP inhibitor (olaparib, niraparib)
+    - vastatin     # -vastatin HMG-CoA reductase inhibitor (atorvastatin, rosuvastatin)
+    - prazole      # -prazole proton-pump inhibitor (omeprazole, esomeprazole)
+    - gliptin      # -gliptin DPP-4 inhibitor (sitagliptin, linagliptin)
+    - gliflozin    # -gliflozin SGLT2 inhibitor (empagliflozin, dapagliflozin)
+    - glitazone    # -glitazone PPAR agonist (pioglitazone, rosiglitazone)
+    # Cardiovascular / antihypertensive / anticoagulant
+    - sartan       # -sartan angiotensin-II antagonist (losartan, valsartan)
+    - dipine       # -dipine dihydropyridine Ca-channel blocker (amlodipine)
+    - xaban        # -xaban factor-Xa inhibitor (apixaban, rivaroxaban)
+    - parin        # -parin heparin-derivative anticoagulant (enoxaparin)
+    - gatran       # -gatran direct thrombin inhibitor (dabigatran)
+    # Receptor agonists / antagonists / others
+    - glutide      # -glutide GLP-1 analogue (semaglutide, dulaglutide)
+    - tide         # -tide peptide (broader; min_token_len guards short tokens)
+    - afil         # -afil PDE5 inhibitor (sildenafil, tadalafil)
+    - oxetine      # -oxetine antidepressant (fluoxetine, paroxetine)
+    - olol         # -olol beta-blocker (propranolol, metoprolol)
+    - pril         # -pril ACE inhibitor (lisinopril, enalapril)
+    - cycline      # -cycline tetracycline antibiotic (doxycycline, minocycline)
+    - cillin       # -cillin penicillin antibiotic (amoxicillin, ampicillin)
+    - floxacin     # -floxacin fluoroquinolone antibiotic (ciprofloxacin)
+    - conazole     # -conazole antifungal (fluconazole, itraconazole)
+    - vir          # -vir antiviral (acyclovir, oseltamivir; min_token_len guards)
+    - navir        # -navir protease inhibitor (ritonavir, atazanavir)
+    - mustine      # -mustine alkylating agent (lomustine, carmustine)
+    - rubicin      # -rubicin anthracycline (doxorubicin, epirubicin)
+    - taxel        # -taxel taxane (paclitaxel, docetaxel)
+    - platin       # -platin platinum agent (cisplatin, carboplatin)
+
+# Explicit denylist for residual common-English collisions that anchoring +
+# min-length cannot separate from a stem. A token whose lowercase form appears
+# here is NEVER recognised as an intervention. Keep lowercase. This RAISES
+# precision (fewer false positives); it never drops a real drug — no genuine INN
+# drug name is an everyday English word. Primary case: the `-cept` fusion-protein
+# stem vs. accept/except/concept/intercept.
+exclude_words:
+  - accept
+  - except
+  - concept
+  - intercept
+  - precept
+  - susceptible        # -cept substring guard (defensive; not a token match today)
+  - imperceptible
+  - perceptible
+  - acceptable
+  - exception
+  - reception
+  - deception
+  - inception
+  - conception
+  - interception
+  - contraception
+
+# Seed list of clinically important stemless legacy drug names. Additive only.
+# Keep lowercase. This RAISES recognition; it is never used to drop anything.
+known_names:
+  - warfarin
+  - aspirin
+  - acetaminophen
+  - paracetamol
+  - ibuprofen
+  - naproxen
+  - heparin
+  - insulin
+  - digoxin
+  - furosemide
+  - spironolactone
+  - prednisone
+  - prednisolone
+  - dexamethasone
+  - hydrocortisone
+  - levothyroxine
+  - amiodarone
+  - clopidogrel
+  - allopurinol
+  - methotrexate
+  - azathioprine
+  - cyclophosphamide
+  - cyclosporine
+  - tacrolimus
+  - lithium
+  - gabapentin
+  - pregabalin
+  - levodopa
+  - carbidopa
+  - amoxicillin
+  - vancomycin
+  - azithromycin
+  - rifampin
+  - isoniazid
+  - colchicine
+  - hydroxychloroquine
+  - chloroquine
+  - omeprazole
+  - ranitidine
+  - ondansetron
+  - morphine
+  - oxycodone
+  - fentanyl
+  - ketamine
+  - propofol
+  - midazolam
+  - diazepam
+  - lorazepam
+  - haloperidol
+  - clozapine
+  - olanzapine
+  - risperidone
+  - lamotrigine
+  - valproate
+  - phenytoin
+  - carbamazepine
+  - tamoxifen
+  - cisplatin
+  - carboplatin
+  - fluorouracil
+  - gemcitabine
+  - rituximab

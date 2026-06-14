@@ -148,6 +148,90 @@ def test_1237_quantified_force_on_and_fired_passes():
     assert sweep._quantified_readiness_failed(True, True, {"fired": True}) is False
 
 
+# ── F27 (#1213/h3) required-entity ledger fail-soft -> strict HOLD ────────────────
+def test_f27_ledger_off_never_holds():
+    # strict OFF -> the force-on ledger's fail-soft is the legacy behavior: a ledger failure
+    # is a bare WARN, NEVER a hold (byte-identical), regardless of forced_on / failed.
+    assert sweep._required_entity_ledger_failed_under_strict(False, True, True) is False
+    assert sweep._required_entity_ledger_failed_under_strict(False, True, False) is False
+    assert sweep._required_entity_ledger_failed_under_strict(False, False, True) is False
+
+
+def test_f27_ledger_on_holds_only_when_forced_on_and_failed():
+    # strict ON -> HOLD ONLY when the ledger was FORCE-ON (Gate-B) AND it actually FAILED.
+    # The honest "Coverage gaps" disclosure must not be silently dropped on the benchmark run.
+    assert sweep._required_entity_ledger_failed_under_strict(True, True, True) is True
+
+
+def test_f27_ledger_on_not_forced_never_holds():
+    # strict ON but the ledger was NOT forced-on (an operator did not enable it) -> nothing to
+    # surface; no hold. Guards against holding a run that never ran the ledger.
+    assert sweep._required_entity_ledger_failed_under_strict(True, False, True) is False
+    assert sweep._required_entity_ledger_failed_under_strict(True, False, False) is False
+
+
+def test_f27_ledger_on_forced_but_succeeded_never_holds():
+    # strict ON + force-on + the ledger SUCCEEDED -> the disclosure was produced; no hold.
+    assert sweep._required_entity_ledger_failed_under_strict(True, True, False) is False
+
+
+def test_f27_new_status_is_registered_and_release_blocking_abort():
+    # The F27 status must be a valid unified abort_ value that maps to ITSELF (not error_unexpected)
+    # and reads as a release-blocking abort class (a HOLD, never a shippable success/partial).
+    assert "abort_required_entity_ledger_failed" in sweep.UNIFIED_STATUS_VALUES
+    assert (
+        sweep.to_unified_status("abort_required_entity_ledger_failed")
+        == "abort_required_entity_ledger_failed"
+    )
+    assert sweep.to_unified_status("abort_required_entity_ledger_failed").startswith("abort_")
+
+
+def test_f27_apply_hold_surfaces_the_failure_in_the_manifest():
+    # BEHAVIORAL (the F27 ACCEPT: an injected ledger exception is SURFACED, not a silent ok).
+    # Pre-fix the manifest stayed status="success" / release_allowed=True (the fail-soft dropped
+    # the disclosure silently); this asserts the post-fix HOLD lands in the manifest the run writes.
+    # Start from a would-be SUCCESS manifest (what the success path built before this backstop).
+    manifest = {"status": "success", "release_allowed": True, "slug": "demo"}
+    injected_error = "ValueError: build_ledger blew up on a malformed required_entities row"
+    summary_status, unified_status = sweep._apply_required_entity_ledger_hold(
+        manifest, injected_error
+    )
+    # The persisted manifest now SURFACES the failure as a release-blocking HOLD.
+    assert manifest["status"] == "abort_required_entity_ledger_failed"
+    assert manifest["release_allowed"] is False
+    assert manifest["strict_gate_required_entity_ledger_failed"] is True
+    assert manifest["required_entity_ledger_error"] == injected_error
+    # The returned local status vars (threaded into the re-stamp + summary mirror) agree.
+    assert summary_status == "abort_required_entity_ledger_failed"
+    assert unified_status == "abort_required_entity_ledger_failed"
+    # The unrelated field is preserved (surgical mutation, not a manifest rebuild).
+    assert manifest["slug"] == "demo"
+
+
+def test_f27_inject_ledger_exception_flips_success_to_hold_only_under_strict():
+    # BEHAVIORAL end-to-end of the wiring contract WITHOUT the live pipeline: simulate the exact
+    # decision the run-sweep block makes when build_ledger RAISES (forced_on True, failed True),
+    # and assert the manifest is HELD under strict gates but LEFT a silent success when strict OFF
+    # (the legacy fail-soft) — proving the fix is gated, not unconditional.
+    for strict, expect_hold in ((True, True), (False, False)):
+        manifest = {"status": "success", "release_allowed": True}
+        # The ledger raised -> the run-sweep block sets these (forced_on=True, failed=True).
+        if (
+            sweep._required_entity_ledger_failed_under_strict(strict, True, True)
+            and manifest["status"] == "success"
+        ):
+            sweep._apply_required_entity_ledger_hold(manifest, "RuntimeError: injected")
+        if expect_hold:
+            assert manifest["status"] == "abort_required_entity_ledger_failed"
+            assert manifest["release_allowed"] is False
+            assert manifest["required_entity_ledger_error"] == "RuntimeError: injected"
+        else:
+            # strict OFF -> the legacy fail-soft: the run still reads success (byte-identical).
+            assert manifest["status"] == "success"
+            assert manifest["release_allowed"] is True
+            assert "required_entity_ledger_error" not in manifest
+
+
 # ── #1242 tier-disclosure single source of truth ─────────────────────────────────
 def test_1242_tier_mix_summary_byte_identical_to_inline_builder():
     # The helper must reproduce the prior inline ", ".join(f"{k}={v*100:.0f}%" ...) builder EXACTLY,

@@ -125,6 +125,276 @@ _EXTRACT_EMPTY_FLOOR = int(
     os.getenv("PG_FETCH_EMPTY_EXTRACT_FLOOR", "50")
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F14 (GH #1245 / D9, D10): paywall-stub min-body gate.
+#
+# A fetch that returns a short body from a demanded paywalled journal was
+# logged status="ok" with an empty refetch ledger — a DEAD fetch masquerading
+# as a good source. This gate makes a sub-floor body a `stub` (fail-LOUD,
+# ok=False), NOT `ok`, so the refetch ladder / down-weight semantics kick in
+# instead of admitting an empty shell to the evidence pool.
+#
+# DEFAULT 0 = OFF = byte-identical to prior behavior (every existing fetch that
+# returned non-empty content stays ok=True). The live cert sweep sets this to
+# 1000 (a real journal article is tens of thousands of chars; a paywall shell
+# is a few hundred). A CAP-not-target: it never drops a long body, only flags a
+# short one. Set PG_FETCH_MIN_BODY_CHARS=1000 on the run slate. The OA resolver
+# (Unpaywall / PMC-BioC / Zyte) gets first chance to upgrade the body ABOVE the
+# floor before the stub verdict is rendered — so this STRENGTHENS honesty,
+# never relaxes it (LAW II fail-loud; §-1.3 the faithfulness path is untouched).
+# Read at CALL time (LAW VI — env-overridable per run; not frozen at import).
+def _fetch_min_body_chars() -> int:
+    try:
+        return int(os.getenv("PG_FETCH_MIN_BODY_CHARS", "0"))
+    except ValueError:
+        return 0
+
+# F14: publisher hosts that overwhelmingly serve paywalled article bodies via
+# the free fetch chain (the free backends 403 / return a few-hundred-char
+# abstract shell). When ZYTE_API_KEY is present, these are routed to Zyte FIRST
+# (a real body instead of a shell); when it is ABSENT, a LOUD warning fires so
+# a Zyte-blind run is auditable instead of a silent no-op (the access_bypass
+# Zyte fallback was a SILENT no-op without the key). Substring match on the
+# lowercased netloc; env-extendable via PG_PAYWALL_PUBLISHER_HOSTS (comma-sep,
+# additive). Never a hard DROP — only a routing + loud-warning signal.
+_PAYWALL_PUBLISHER_HOSTS_DEFAULT = (
+    "sciencedirect.com",
+    "elsevier.com",
+    "linkinghub.elsevier.com",
+    "onlinelibrary.wiley.com",
+    "link.springer.com",
+    "nature.com",
+    "tandfonline.com",
+    "journals.sagepub.com",
+    "academic.oup.com",
+    "nejm.org",
+    "thelancet.com",
+    "jamanetwork.com",
+    "bmj.com",
+    "cell.com",
+    "ahajournals.org",
+    "annualreviews.org",
+)
+
+
+def _paywall_publisher_hosts() -> tuple[str, ...]:
+    """F14: the paywalled-publisher host list (default + env-additive). Read at
+    call time so PG_PAYWALL_PUBLISHER_HOSTS can extend it per run (LAW VI)."""
+    extra = os.getenv("PG_PAYWALL_PUBLISHER_HOSTS", "").strip()
+    hosts = list(_PAYWALL_PUBLISHER_HOSTS_DEFAULT)
+    if extra:
+        hosts.extend(
+            h.strip().lower() for h in extra.split(",") if h.strip()
+        )
+    return tuple(hosts)
+
+
+def _is_paywall_publisher_url(url: str) -> bool:
+    """F14: True iff the URL's host is a known paywalled publisher (substring
+    match on the lowercased netloc). Pure, no network."""
+    if not url:
+        return False
+    try:
+        netloc = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    if not netloc:
+        return False
+    return any(h in netloc for h in _paywall_publisher_hosts())
+
+
+# F30 (GH #1245): repository / landing / abstract-page markers. A source whose
+# fetched body is a publication-record / landing / abstract page (NOT the full
+# article text) cannot ground a methods/results claim — methods do not live on
+# a landing page. These are the literal markers the free fetch backends emit
+# when they land on a repository record page (Jina's "URL Source:" header, an
+# APA-style citation block, a "Publication status:" record field). Detection
+# DOWN-WEIGHTS + FLAGS the row (it stays in the pool at low weight per §-1.3),
+# it NEVER hard-drops. Matched case-insensitively on the body head only.
+_LANDING_PAGE_MARKERS = (
+    "url source:",
+    "## apa style",
+    "apa style",
+    "publication status:",
+    "this record",
+    "view record",
+    "full text not available",
+    "request full text",
+    "abstract only",
+)
+# Defaults for the landing-marker head window + max body length. Read at CALL
+# time (Codex diff-gate P2 iter-2 — env-overridable per run, not frozen at
+# import). A real full-text body may quote a marker deep in its references, so we
+# only inspect the head; and a landing/abstract page is short AND marker-bearing,
+# so a long body with a head-of-body citation is NOT flagged unless it is short.
+_LANDING_MARKER_HEAD_CHARS_DEFAULT = 1500
+_LANDING_PAGE_MAX_CHARS_DEFAULT = 3000
+
+
+def _is_landing_or_abstract_page(content: str) -> bool:
+    """F30: True iff the fetched body looks like a repository/landing/abstract
+    RECORD page rather than full article text. Keys on SPECIFIC landing markers
+    AND a short body so a long full-text article that merely cites one of these
+    phrases is never false-flagged. Pure heuristic; no network. Thresholds are
+    read at CALL time via `_env_int` (Codex diff-gate P2 iter-2 — env-overridable
+    per run, not frozen at import)."""
+    if not content:
+        return False
+    stripped = content.strip()
+    if len(stripped) > _env_int(
+        "PG_LANDING_PAGE_MAX_CHARS", _LANDING_PAGE_MAX_CHARS_DEFAULT
+    ):
+        return False
+    head = stripped[
+        : _env_int("PG_LANDING_MARKER_HEAD_CHARS", _LANDING_MARKER_HEAD_CHARS_DEFAULT)
+    ].lower()
+    return any(marker in head for marker in _LANDING_PAGE_MARKERS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F15 (GH #1245 / D11): per-URL refetch cap + negative cache.
+#
+# A DEAD DOI / URL was refetched ~5.5x per URL across the expansion / deepener /
+# agentic stages because `refetch_for_extraction_with_diagnostics` had NO memory
+# of prior failures — every section that wanted to ground a claim re-paid the
+# full AccessBypass cascade (Crawl4AI / Jina / Firecrawl / proxy) for the SAME
+# dead URL. This adds:
+#   - a per-URL attempt counter so a FAILING URL is fetched at most _REFETCH_CAP
+#     times (cap=2 => up to two real attempts before a permanent skip — a
+#     transient failure still gets its retry budget), and
+#   - a negative cache that a URL enters ONLY once it has both FAILED and reached
+#     the cap, so subsequent requests short-circuit with NO network call and the
+#     skip is honestly attributable to the cap.
+# Codex diff-gate P1 (#1245): the attempt budget — NOT a mark-dead-on-first-
+# failure — is the cap. A URL is refetched up to `cap` times; only at exhaustion
+# is it cached. This preserves the retry budget the spec requires ("refetched at
+# most the cap") while still killing the ~5.5x re-fetch storm.
+#
+# Codex diff-gate P1 iter-2 + iter-3 (#1245): the SKIP decision gates ONLY on
+# SETTLED FAILURES reaching the cap (the negative cache). It does NOT gate on
+# in-flight/concurrent reservations. Rationale (iter-3 P1): gating on in-flight
+# would HARD-SKIP a concurrent caller of a LIVE URL whose reserved fetches will
+# SUCCEED — wrongly suppressing a fetch that could succeed, which violates the
+# §-1.3 "never suppress a fetch that could succeed" / successes-uncapped
+# constraint. A SUCCESS never counts toward the cap. Only FAILED fetches count;
+# once a URL has FAILED `cap` times it is cached and permanently short-circuited.
+#
+# Concurrency honesty: in the real call topology the refetch loop is SERIAL (the
+# `for anchor in primary_trial_anchors` grounding loop), so a dead URL is fetched
+# exactly `cap` times. Under hypothetical TRUE concurrency a dead URL could see a
+# small bounded OVERSHOOT (callers already in-flight when the cap-th failure
+# populates the cache) — that is an acceptable perf trade-off; it NEVER over-
+# suppresses (the iter-3 constraint), and it still kills the ~5.5x storm. A
+# threading lock guards every read/write of the shared dicts.
+#
+# The cache is process-local + bounded; it is a PERFORMANCE de-dup, NOT a
+# faithfulness gate — it only stops repeating a fetch that ALREADY failed cap
+# times, never suppresses a fetch that could succeed. Default cap 2; env-tunable.
+_REFETCH_CAP_DEFAULT = 2
+# Per-URL count of SETTLED failed attempts (a success never counts toward the cap).
+_refetch_failures: dict[str, int] = {}
+# URLs whose SETTLED failures have reached the cap (the permanent-skip set).
+_refetch_negative_cache: set[str] = set()
+_refetch_cache_lock = threading.Lock()
+
+
+def _refetch_cap() -> int:
+    """F15: per-URL refetch cap, read at CALL time (LAW VI — env-overridable per
+    run). <= 0 disables the cap (a failing URL may be retried without bound — the
+    legacy pre-F15 behavior)."""
+    try:
+        return int(os.getenv("PG_REFETCH_PER_URL_CAP", str(_REFETCH_CAP_DEFAULT)))
+    except ValueError:
+        return _REFETCH_CAP_DEFAULT
+
+
+def reset_refetch_cache() -> None:
+    """F15: clear the per-URL failure counters + negative cache. Called at the
+    start of each retrieval run (and by tests) so the bounded cache does not leak
+    across independent runs/vectors in a long-lived process."""
+    with _refetch_cache_lock:
+        _refetch_failures.clear()
+        _refetch_negative_cache.clear()
+
+
+def _refetch_try_acquire(url: str) -> bool:
+    """F15: True => caller MAY fetch; False => skip because the URL has FAILED the
+    cap number of times (it is in the negative cache). Gates ONLY on settled
+    failures — NEVER on in-flight/concurrent reservations — so a concurrent caller
+    of a LIVE URL is never wrongly skipped (Codex diff-gate iter-3 P1: never
+    suppress a fetch that could succeed). Thread-safe (single lock)."""
+    if not url:
+        return True
+    with _refetch_cache_lock:
+        return url not in _refetch_negative_cache
+
+
+def _refetch_settle(url: str, *, succeeded: bool) -> None:
+    """F15: settle the outcome of a fetch. A SUCCESS is a no-op (a live URL never
+    counts toward the cap and may be re-grounded by many sections). A FAILURE
+    increments the settled-failure count and, at the cap, caches the URL so
+    further requests short-circuit. Thread-safe (single lock)."""
+    if not url or succeeded:
+        return
+    _cap = _refetch_cap()
+    with _refetch_cache_lock:
+        n = _refetch_failures.get(url, 0) + 1
+        _refetch_failures[url] = n
+        if _cap > 0 and n >= _cap:
+            _refetch_negative_cache.add(url)
+
+
+def _refetch_should_skip(url: str) -> bool:
+    """F15: True iff this URL has SETTLED-failed to the cap (permanently cached).
+    Equivalent to `not _refetch_try_acquire(url)`; kept as a pure read for tests /
+    diagnostics. Thread-safe."""
+    if not url:
+        return False
+    with _refetch_cache_lock:
+        return url in _refetch_negative_cache
+
+
+def _refetch_record_failure(url: str) -> None:
+    """F15: record a failure for a URL acquired OUTSIDE the try/settle protocol
+    (e.g. a test or a non-reserved path). Increments the settled-failure count and
+    caches at the cap. Thread-safe."""
+    if not url:
+        return
+    _cap = _refetch_cap()
+    with _refetch_cache_lock:
+        n = _refetch_failures.get(url, 0) + 1
+        _refetch_failures[url] = n
+        if _cap > 0 and n >= _cap:
+            _refetch_negative_cache.add(url)
+
+
+def _credibility_redesign_enabled() -> bool:
+    """F15/F30: master switch for the WEIGHT-AND-CONSOLIDATE redesign (§-1.3 /
+    I-arch-002 #1246), mirroring ``evidence_selector._credibility_redesign_enabled``.
+    Default OFF — when ``PG_SWEEP_CREDIBILITY_REDESIGN`` is unset, the
+    content-starved / landing-page rows stay on the legacy HARD-DROP path so the
+    OFF path is byte-identical. When ON, those rows are DOWN-WEIGHTED (kept in the
+    pool at low weight) instead of dropped."""
+    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+# F15/F30: the low retrieval weight stamped on a down-weighted (content-starved
+# or landing-page) row so the composition layer can rank it last while still
+# carrying it (§-1.3 WEIGHT-not-FILTER). A small positive float so it never ties
+# with a real full-text row but is never zero (zero would let a falsy `or`
+# launder it back to a default). Read at CALL time (Codex diff-gate P2 iter-2 —
+# env-overridable per run, not frozen at import). LAW VI — no magic number.
+_DOWN_WEIGHT_RETRIEVAL_DEFAULT = 0.05
+
+
+def _down_weight_retrieval() -> float:
+    try:
+        return float(os.getenv("PG_DOWN_WEIGHT_RETRIEVAL", str(_DOWN_WEIGHT_RETRIEVAL_DEFAULT)))
+    except (TypeError, ValueError):
+        return _DOWN_WEIGHT_RETRIEVAL_DEFAULT
+
 
 @dataclass
 class LiveRetrievalResult:
@@ -1676,65 +1946,100 @@ def refetch_for_extraction_with_diagnostics(
     if not url:
         diagnostics["failure_mode"] = "empty_url"
         return "", diagnostics
-    diagnostics["attempted"] = True
-    try:
-        content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
-    except Exception as exc:
-        logger.warning(
-            "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
+    # F15 (GH #1245 / D11): per-URL refetch cap + negative cache. A dead URL was
+    # refetched ~5.5x across expansion/deepener/agentic stages, re-paying the
+    # full AccessBypass cascade each time. `_refetch_try_acquire` returns False
+    # ONLY when the URL has SETTLED-FAILED the cap number of times (it is in the
+    # negative cache) — it gates on settled failures, NOT in-flight reservations,
+    # so a concurrent caller of a LIVE URL is never wrongly skipped (Codex diff-
+    # gate iter-3 P1). False => short-circuit with NO network call (cap is the
+    # reason). This is a PERFORMANCE de-dup; it never suppresses a fetch that
+    # could succeed (only a URL that has already FAILED cap times is cached), so
+    # no faithfulness gate is touched. `attempted` stays False so the caller sees
+    # this was skipped. The reserved-slot settle below counts a FAILURE toward the
+    # cap and leaves a SUCCESS uncapped.
+    if not _refetch_try_acquire(url):
+        logger.info(
+            "[refetch_for_extraction] skipping refetch of %s — failed the "
+            "per-URL cap=%d times (negative-cached, no further refetch)",
+            url[:80], _refetch_cap(),
         )
-        diagnostics["failure_mode"] = "exception"
-        diagnostics["exception_type"] = type(exc).__name__
-        # M-45 pass-2: read any telemetry recorded before the exception.
-        te = _m45_pop_fetch_telemetry(url)
-        diagnostics["method"] = te.get("method", "none")
+        diagnostics["failure_mode"] = "refetch_capped"
         return "", diagnostics
+    # A slot is reserved; it MUST be settled exactly once. `_settled` tracks the
+    # success/failure outcome so the finally below settles correctly on EVERY
+    # post-acquire return path (success counts a slot release; a failure converts
+    # it into a recorded failure toward the cap).
+    _fetch_succeeded = False
+    try:
+        diagnostics["attempted"] = True
+        try:
+            content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
+        except Exception as exc:
+            logger.warning(
+                "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
+            )
+            diagnostics["failure_mode"] = "exception"
+            diagnostics["exception_type"] = type(exc).__name__
+            # M-45 pass-2: read any telemetry recorded before the exception.
+            te = _m45_pop_fetch_telemetry(url)
+            diagnostics["method"] = te.get("method", "none")
+            return "", diagnostics  # failure (settled in finally)
 
-    diagnostics["raw_char_count"] = len(content) if content else 0
-    diagnostics["body_type"] = body_type or ""
-    # M-45 pass-2 (Codex audit HIGH): read the winning AccessBypass
-    # method + failure reason that `_fetch_content` recorded. Pre-
-    # pass-2 the method was always "none" because `_fetch_content`
-    # discarded `result.access_method` before returning.
-    tele = _m45_pop_fetch_telemetry(url)
-    if tele:
-        diagnostics["method"] = tele.get("method", "none")
-        reason = tele.get("failure_reason", "")
-        if reason and "timeout" in reason:
-            diagnostics["failure_mode"] = "timeout"
+        diagnostics["raw_char_count"] = len(content) if content else 0
+        diagnostics["body_type"] = body_type or ""
+        # M-45 pass-2 (Codex audit HIGH): read the winning AccessBypass
+        # method + failure reason that `_fetch_content` recorded. Pre-
+        # pass-2 the method was always "none" because `_fetch_content`
+        # discarded `result.access_method` before returning.
+        tele = _m45_pop_fetch_telemetry(url)
+        if tele:
+            diagnostics["method"] = tele.get("method", "none")
+            reason = tele.get("failure_reason", "")
+            if reason and "timeout" in reason:
+                diagnostics["failure_mode"] = "timeout"
 
-    if not ok or not content:
-        # M-45 pass-2: preserve timeout classification from telemetry
-        # (set above) instead of overwriting with generic fetch_failed.
-        if diagnostics["failure_mode"] != "timeout":
-            diagnostics["failure_mode"] = "fetch_failed"
-        return "", diagnostics
-    if len(content) < 100:
-        if diagnostics["failure_mode"] != "timeout":
-            diagnostics["failure_mode"] = "thin_content"
-        return "", diagnostics
-    # Paywall-shell detection: body_type marker set by
-    # _detect_article_type_from_body. We still build a provenance
-    # quote from the content but tag the diagnostic so downstream
-    # audits can filter these out if they want only full-text sources.
-    if body_type == "paywall_shell":
-        diagnostics["failure_mode"] = "paywall_shell"
-        # Continue to build the quote — the shell may still contain
-        # enough abstract text to hit ≥100 chars. Eligibility is
-        # determined by the provenance-quote length check below.
-    quote = _build_provenance_quote(
-        content, head_chars=min(1500, max_chars), window_chars=500,
-        max_total_chars=max_chars,
-    )
-    if not quote or len(quote) < 100:
-        if not diagnostics["failure_mode"]:
-            diagnostics["failure_mode"] = "thin_content"
-        return "", diagnostics
-    diagnostics["eligible"] = True
-    if diagnostics["failure_mode"] == "paywall_shell":
-        # Eligible despite shell marker — abstract-only case.
-        diagnostics["failure_mode"] = ""
-    return quote, diagnostics
+        if not ok or not content:
+            # M-45 pass-2: preserve timeout classification from telemetry
+            # (set above) instead of overwriting with generic fetch_failed.
+            if diagnostics["failure_mode"] != "timeout":
+                diagnostics["failure_mode"] = "fetch_failed"
+            return "", diagnostics  # failure (settled in finally)
+        if len(content) < 100:
+            if diagnostics["failure_mode"] != "timeout":
+                diagnostics["failure_mode"] = "thin_content"
+            return "", diagnostics  # failure (settled in finally)
+        # Paywall-shell detection: body_type marker set by
+        # _detect_article_type_from_body. We still build a provenance
+        # quote from the content but tag the diagnostic so downstream
+        # audits can filter these out if they want only full-text sources.
+        if body_type == "paywall_shell":
+            diagnostics["failure_mode"] = "paywall_shell"
+            # Continue to build the quote — the shell may still contain
+            # enough abstract text to hit ≥100 chars. Eligibility is
+            # determined by the provenance-quote length check below.
+        quote = _build_provenance_quote(
+            content, head_chars=min(1500, max_chars), window_chars=500,
+            max_total_chars=max_chars,
+        )
+        if not quote or len(quote) < 100:
+            if not diagnostics["failure_mode"]:
+                diagnostics["failure_mode"] = "thin_content"
+            return "", diagnostics  # failure (settled in finally)
+        diagnostics["eligible"] = True
+        if diagnostics["failure_mode"] == "paywall_shell":
+            # Eligible despite shell marker — abstract-only case.
+            diagnostics["failure_mode"] = ""
+        # A real fetch produced usable content — the URL is LIVE. This is NOT a
+        # failure and must NOT count toward the cap (other sections may re-ground
+        # on it). Mark success so the finally releases the reservation cleanly.
+        _fetch_succeeded = True
+        return quote, diagnostics
+    finally:
+        # Settle the reserved slot exactly once: success releases without counting
+        # toward the cap; any failure converts the reservation into a recorded
+        # failure and, at the cap, caches the URL.
+        _refetch_settle(url, succeeded=_fetch_succeeded)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2327,6 +2632,76 @@ def _fetch_content(
             error="fetched_200_but_empty_extract",
         )
         return content, bool(content), extracted_title, body_type, jsonld
+    # ──────────────────────────────────────────────────────────────────────
+    # F14 (GH #1245 / D9, D10): paywall-stub min-body gate. A backend that
+    # returns success=True with a SHORT body (a paywall/abstract shell) was
+    # previously logged status="ok" — a dead fetch masquerading as a good
+    # source, and the OA resolver (which only fires on a hard miss above) never
+    # got a chance. Here, when the extracted body is below the configured floor
+    # AND a DOI is resolvable, give the OA resolver (Unpaywall / PMC-BioC / Zyte)
+    # a chance to UPGRADE the body above the floor; if it cannot, render a LOUD
+    # `stub` verdict (ok=False) instead of a silent ok. DEFAULT floor 0 = OFF =
+    # byte-identical (the gate never fires); the cert sweep sets 1000.
+    _min_body = _fetch_min_body_chars()
+    if _min_body > 0 and len(content) < _min_body:
+        # Give the OA resolver a chance to upgrade a short shell to full text.
+        if _oa_resolver_enabled():
+            _oa_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+            if _oa_doi:
+                _oa_content = _try_oa_resolution(
+                    url=url,
+                    extracted_doi=_oa_doi,
+                    pmid=(pmid_hint or "").strip(),
+                    max_chars=max_chars,
+                )
+                if _oa_content and len(_oa_content) >= _min_body:
+                    logger.info(
+                        "[live_retriever] fetch_oa_upgrade %s (doi=%s "
+                        "short_body=%d -> oa_body=%d) — short shell upgraded "
+                        "to full text via OA resolver",
+                        url[:80], _oa_doi, len(content), len(_oa_content),
+                    )
+                    _m45_record_fetch_telemetry(url, "oa_resolver", "")
+                    _trace_tool(
+                        "fetch_content", target=url, status="ok",
+                        latency_ms=(time.time() - _t0) * 1000.0,
+                        backend_used="oa_resolver",
+                        bytes_received=len(_oa_content),
+                        content_length=len(_oa_content),
+                    )
+                    return _oa_content, True, extracted_title, body_type, jsonld
+        # Still short after the OA attempt — this is a STUB, not an ok source.
+        # Fail LOUD: a paywalled-publisher short body with no key is logged so a
+        # Zyte-blind run is auditable (the Zyte fallback is a silent no-op
+        # without ZYTE_API_KEY). We KEEP returning the content (so a down-weight
+        # consumer can still inspect it) but with ok=False + status="stub" so it
+        # never enters the pool as a verified full-text source.
+        _is_paywall_pub = _is_paywall_publisher_url(url)
+        if _is_paywall_pub and not os.getenv("ZYTE_API_KEY"):
+            logger.warning(
+                "[live_retriever] PAYWALL_STUB_NO_ZYTE %s (method=%s chars=%d "
+                "< floor=%d) — paywalled publisher returned a short shell and "
+                "ZYTE_API_KEY is UNSET; the Zyte paid fallback was a silent "
+                "no-op. Set ZYTE_API_KEY to recover full text.",
+                url[:80], method, len(content), _min_body,
+            )
+        else:
+            logger.warning(
+                "[live_retriever] PAYWALL_STUB %s (method=%s chars=%d < "
+                "floor=%d, paywall_publisher=%s) — short body treated as a "
+                "stub, NOT ok (fail-loud).",
+                url[:80], method, len(content), _min_body,
+                _is_paywall_pub,
+            )
+        _m45_record_fetch_telemetry(url, method, "paywall_stub_short_body")
+        _trace_tool(
+            "fetch_content", target=url, status="stub",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used=method, bytes_received=len(content),
+            content_length=len(content),
+            error="paywall_stub_short_body",
+        )
+        return content, False, extracted_title, body_type, jsonld
     logger.info(
         "[live_retriever] fetch_ok %s (method=%s chars=%d)",
         url[:80], method, len(content),
@@ -2738,17 +3113,31 @@ def run_live_retrieval(
     """
     api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
     notes: list[str] = []
+    # F15 (GH #1245 / D11): clear the per-URL refetch counters + negative cache at
+    # the START of each run so a dead URL from a prior run/vector does not stay
+    # poisoned, and so the per-URL cap is per-run (not per-process). Cheap, no
+    # network.
+    reset_refetch_cache()
     # I-ready-017 Task 2a (#1204): ADDITIVE source-funnel telemetry. Local
     # aggregate of every _trace_drop call by reason, mirrored onto the result so
     # the per-stage source loss is persisted (not just the pathB trace, which is
     # empty on a normal sweep). Pre-seed the four statically-known reasons to 0
     # so the manifest schema is stable; incrementing beside each _trace_drop
     # leaves _trace_drop itself byte-identical (no behavior change).
+    #
+    # F15/F30 (GH #1245 / D11): two ADDITIVE WEIGHT-not-FILTER counters. Under the
+    # PG_SWEEP_CREDIBILITY_REDESIGN master flag, a content-starved / landing-page
+    # source is DOWN-WEIGHTED (kept in the pool at low weight) instead of hard-
+    # dropped (§-1.3). `down_weighted` counts those kept-at-low-weight rows so the
+    # operator sees the REAL disposition; the legacy hard-drop reasons still carry
+    # the honest count. Pre-seeded to 0 so the schema is stable on the OFF path.
     drop_reasons: dict[str, int] = {
         "offtopic": 0,
         "rerank_not_selected": 0,
         "fetch_failed": 0,
         "content_starved": 0,
+        "landing_page": 0,
+        "down_weighted": 0,
     }
     # Populated inside the Step-3 off-topic block; stays None when the filter is
     # disabled or only seeds are present (honest absence, never a faked count).
@@ -3044,9 +3433,24 @@ def run_live_retrieval(
         fetch_cap=fetch_cap,
         n_seed_injected=_n_seed_injected,
     )
-    for _dropped_url in _pre_rerank_urls - {c.url for c in candidates}:
+    _rerank_dropped_urls = _pre_rerank_urls - {c.url for c in candidates}
+    for _dropped_url in _rerank_dropped_urls:
         _trace_drop(_dropped_url, "rerank_not_selected")
         drop_reasons["rerank_not_selected"] += 1
+    # F15 (GH #1245 / D11): surface the REAL rerank-cut count honestly. The bug
+    # was a `dropped=0` line printed while 539 candidates were cut by the
+    # fetch-cap rerank — the count existed in `drop_reasons` but was never
+    # surfaced to the operator. This LOUD note makes the cut auditable. These
+    # are candidates the fetch_cap could not afford to fetch (a real resource
+    # bound, not a credibility filter); they are reported, not hidden as 0.
+    if _rerank_dropped_urls:
+        _msg = (
+            f"rerank_not_selected: cut {len(_rerank_dropped_urls)} of "
+            f"{len(_pre_rerank_urls)} candidates to fit fetch_cap={fetch_cap} "
+            f"(kept {len(candidates)})"
+        )
+        logger.info("[live_retriever] %s", _msg)
+        notes.append(_msg)
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -3480,11 +3884,18 @@ def run_live_retrieval(
         # Nature paper). Without this, strict_verify drops real data
         # because the number it's looking for is outside the head window.
         if content:
-            # R-5 Fix D: skip content-starved evidence (PDF metadata,
-            # empty body, formatting noise). Passing these to the
-            # generator wastes tokens and produces "no extractable
-            # text" admissions in the output.
-            if is_content_starved(content):
+            # R-5 Fix D: content-starved evidence (PDF metadata, empty body,
+            # formatting noise). F30 (#1245): landing/abstract RECORD pages —
+            # methods cannot ground on a landing page. Both are computed once
+            # here; the disposition below depends on the §-1.3 redesign flag.
+            _starved = is_content_starved(content)
+            # F30: a landing/abstract page is full-text-incapable. Only flag it
+            # when it is NOT already starved (avoid double-counting) so the two
+            # signals are disjoint in the telemetry.
+            _is_landing = (not _starved) and _is_landing_or_abstract_page(content)
+            _redesign_on = _credibility_redesign_enabled()
+            if _starved and not _redesign_on:
+                # LEGACY OFF path — byte-identical hard-drop (no row appended).
                 logger.info(
                     "[live_retriever] skipping content-starved evidence "
                     "for %r (len=%d)", cand.url, len(content),
@@ -3508,6 +3919,41 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # F15/F30 (§-1.3 WEIGHT-not-FILTER): under the redesign flag, a
+                # content-starved or landing-page source is DOWN-WEIGHTED (kept in
+                # the pool carrying a low retrieval weight + an honest flag) rather
+                # than hard-dropped — every relevant source flows to composition
+                # carrying its weight. These additive keys are ABSENT on the OFF
+                # path AND on a normal full-text row, so a normal row stays
+                # byte-identical. The flags let the composition layer rank these
+                # last + refuse to ground a METHODS claim on a landing page.
+                if _redesign_on and (_starved or _is_landing):
+                    _dw = _down_weight_retrieval()
+                    _row["retrieval_weight"] = _dw
+                    _row["down_weighted"] = True
+                    if _starved:
+                        _row["content_starved"] = True
+                    if _is_landing:
+                        # methods/results cannot be grounded on a landing page.
+                        _row["landing_page"] = True
+                        _row["full_text_capable"] = False
+                    logger.info(
+                        "[live_retriever] DOWN-WEIGHT evidence for %r "
+                        "(len=%d starved=%s landing=%s weight=%.3f) — kept in "
+                        "the pool at low weight, NOT dropped (§-1.3)",
+                        cand.url, len(content), _starved, _is_landing, _dw,
+                    )
+                    _trace_drop(cand.url, "down_weighted")
+                    drop_reasons["down_weighted"] += 1
+                    if _starved:
+                        drop_reasons["content_starved"] += 1
+                    if _is_landing:
+                        drop_reasons["landing_page"] += 1
+                # NOTE: on the OFF path (redesign flag unset) a landing page is
+                # NOT flagged or mutated — the row stays byte-identical to the
+                # pre-F30 row. F30's flag+down-weight is ON-path only (the weight
+                # surface only exists under the redesign), preserving the binding
+                # "byte-identical when the flag is OFF" constraint.
                 # I-meta-005 Phase 3 (#987): per-row AUTHORITY sidecar. ON-mode
                 # ONLY (research_frame present), and INDEPENDENT of the legacy
                 # `PG_USE_AUTHORITY_MODEL` tier switch — the plan-sufficiency gate

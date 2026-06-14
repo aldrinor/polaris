@@ -21,7 +21,18 @@ import pytest
 from src.polaris_graph.retrieval.live_retriever import (
     refetch_for_extraction,
     refetch_for_extraction_with_diagnostics,
+    reset_refetch_cache,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_refetch_cache_between_tests():
+    """F15 (#1245): the per-URL refetch cap + negative cache is process-global;
+    these tests reuse the same URL across methods, so clear the cache before
+    each test to isolate them (the production code resets it per run)."""
+    reset_refetch_cache()
+    yield
+    reset_refetch_cache()
 
 
 class TestM45DiagnosticSchema:

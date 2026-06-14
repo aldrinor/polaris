@@ -687,6 +687,14 @@ class SectionResult:
     refusal_count: int = 0
     soft_mismatch_count: int = 0
     atom_validation_mode: str = "off"
+    # F26 (I-arch-004 A3, P2): strict-mode fail-CLOSED signal. In strict mode an
+    # empty atom_catalog or a validator exception leaves the section
+    # UN-VALIDATED — it must NOT silently pass as "ok". This flag marks such a
+    # section as explicitly DEGRADED (not validated) so downstream telemetry /
+    # manifest consumers can see strict mode could not certify it, instead of
+    # the prior silent "skipped_empty_catalog" / swallowed-exception fail-open.
+    # Default False -> OFF and log_only paths are byte-identical.
+    atom_validation_degraded: bool = False
     # I-meta-005 Phase 1 (#985, Codex P2 build-note B): field-invariant
     # archetype tag carried from the originating SectionPlan so the on-mode
     # post-generation M-44/M-47 checks resolve the archetype from the plan
@@ -5232,6 +5240,149 @@ def _m47_validate_mechanism_clamp_extraction(
     return result
 
 
+def _apply_atom_refusal_validation(
+    section_results: list["SectionResult"],
+    atom_mode: str,
+) -> tuple[int, int]:
+    """Post-hoc atom-refusal validation hook (PG_ATOM_REFUSAL_MODE).
+
+    Extracted from generate_multi_section_report so the strict-mode
+    fail-CLOSED behavior is directly unit-testable (F26).
+
+    Mutates each eligible SectionResult in place:
+      - log_only: records gap_records / counts; never touches verified_text.
+      - strict:   records counts AND replaces verified_text with the
+        validator's rendered_text (refusal blocks inline) when refusals fire,
+        AND decrements sentences_verified by that section's refusal_count so the
+        verified tally is HONEST (a refused sentence is no longer verified prose).
+
+    F26 (P2) — strict-mode fail-CLOSED:
+      The prior implementation was fail-OPEN: in strict mode an empty
+      atom_catalog was silently SKIPPED (mode="skipped_empty_catalog") and a
+      validator exception was swallowed for the WHOLE loop — either way a
+      refused/un-validatable section shipped as if it passed. Now, in strict
+      mode, an empty catalog OR a per-section validator exception marks THAT
+      section `atom_validation_degraded = True` (distinct, testable signal,
+      with no atom_validation_result so it stays out of the "validated" tally)
+      and the loop continues for the remaining sections (per-section isolation).
+      log_only keeps its original fail-soft semantics (advisory mode).
+
+    Returns (refusal_replacements, degraded_section_count).
+    """
+    refusal_replacements = 0
+    degraded_count = 0
+    if atom_mode not in ("log_only", "strict"):
+        return (refusal_replacements, degraded_count)
+
+    strict = atom_mode == "strict"
+    try:
+        from src.polaris_graph.generator.atom_refusal_validator import (
+            validate_section,
+        )
+    except Exception as _import_exc:
+        # Import failure: log_only stays fail-soft (advisory). strict
+        # fail-CLOSED — every eligible section is un-validatable, so mark
+        # each one degraded rather than silently shipping un-validated prose.
+        logger.warning(
+            "[multi_section] I-gen-005 Step 3b atom validator import failed: "
+            "%s (mode=%s)",
+            _import_exc,
+            atom_mode,
+        )
+        if strict:
+            for sr in section_results:
+                if sr.dropped_due_to_failure or not sr.verified_text:
+                    continue
+                sr.atom_validation_mode = "strict_degraded_import_error"
+                sr.atom_validation_degraded = True
+                degraded_count += 1
+        return (refusal_replacements, degraded_count)
+
+    for sr in section_results:
+        if sr.dropped_due_to_failure or not sr.verified_text:
+            continue
+        # Empty atom_catalog: the contract/V30 path (PG_V30_PHASE2_ENABLED)
+        # produces SectionResults without an atom catalog. Validating with an
+        # empty catalog would refuse EVERY claim sentence (false-positive
+        # storm), so we do NOT validate. But in strict mode that section is
+        # un-validatable -> fail-CLOSED: flag it degraded (NOT silent ok).
+        # log_only stays advisory: record the benign skip and move on.
+        if not sr.atom_catalog:
+            if strict:
+                sr.atom_validation_mode = "strict_degraded_empty_catalog"
+                sr.atom_validation_degraded = True
+                degraded_count += 1
+                logger.warning(
+                    "[multi_section] F26: strict-mode atom validation could "
+                    "NOT certify section %r (empty atom_catalog) — marked "
+                    "DEGRADED (fail-closed), not silently passed",
+                    sr.title,
+                )
+            else:
+                sr.atom_validation_mode = "skipped_empty_catalog"
+                logger.info(
+                    "[multi_section] I-gen-005 Step 3e: skipping atom "
+                    "validation for section %r (empty catalog)",
+                    sr.title,
+                )
+            continue
+        section_id = sr.title.lower().replace(" ", "_")
+        # Per-section isolation: a validator exception degrades ONLY this
+        # section (strict) and the loop continues. Previously the try wrapped
+        # the whole loop, so one section's failure aborted validation for ALL.
+        try:
+            val_result = validate_section(
+                sr.verified_text,
+                section_id=section_id,
+                section_title=sr.title,
+                catalog=sr.atom_catalog,
+            )
+        except Exception as _val_exc:
+            if strict:
+                sr.atom_validation_mode = "strict_degraded_validator_error"
+                sr.atom_validation_degraded = True
+                degraded_count += 1
+                logger.warning(
+                    "[multi_section] F26: strict-mode atom validation RAISED "
+                    "for section %r: %s — marked DEGRADED (fail-closed), not "
+                    "silently passed",
+                    sr.title,
+                    _val_exc,
+                )
+            else:
+                logger.warning(
+                    "[multi_section] I-gen-005 Step 3b atom validation raised "
+                    "for section %r (non-fatal, log_only): %s",
+                    sr.title,
+                    _val_exc,
+                )
+            continue
+        sr.atom_validation_result = val_result
+        sr.refusal_count = val_result.refusal_count
+        sr.soft_mismatch_count = val_result.soft_mismatch_count
+        sr.atom_validation_mode = atom_mode
+        if strict and val_result.refusal_count > 0:
+            sr.verified_text = val_result.rendered_text
+            refusal_replacements += val_result.refusal_count
+            # Honest count recompute (F26 + spec): a refused sentence was
+            # replaced with a refusal block, so it is no longer verified
+            # prose. Decrement this section's verified tally (clamped at 0)
+            # so the aggregate total_sentences_verified is not overcounted.
+            sr.sentences_verified = max(
+                0, sr.sentences_verified - val_result.refusal_count
+            )
+
+    logger.info(
+        "[multi_section] I-gen-005 Step 3b atom validation: mode=%s "
+        "sections_validated=%d refusal_replacements=%d degraded=%d",
+        atom_mode,
+        sum(1 for sr in section_results if sr.atom_validation_result),
+        refusal_replacements,
+        degraded_count,
+    )
+    return (refusal_replacements, degraded_count)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
@@ -6380,70 +6531,30 @@ async def generate_multi_section_report(
     #               verified_text with rendered_text from validator
     #               (refusal blocks inline) AND recompute total_words
     _atom_mode = os.environ.get("PG_ATOM_REFUSAL_MODE", "off").lower().strip()
-    if _atom_mode in ("log_only", "strict"):
-        try:
-            from src.polaris_graph.generator.atom_refusal_validator import (
-                validate_section,
-            )
-            _refusal_replacements = 0
-            for sr in section_results:
-                if sr.dropped_due_to_failure or not sr.verified_text:
-                    continue
-                # Step 3e fix (Codex PR #906 iter-5 P2): skip sections
-                # with empty atom_catalog. Contract-section path
-                # (PG_V30_PHASE2_ENABLED) and any other path that
-                # produces SectionResults without going through
-                # _call_section's atom-catalog build will have an
-                # empty dict. In strict mode, validating with empty
-                # catalog refuses EVERY claim sentence — false positive
-                # storm. Better to skip and let those sections ship
-                # un-validated until they atom-enable.
-                if not sr.atom_catalog:
-                    sr.atom_validation_mode = "skipped_empty_catalog"
-                    logger.info(
-                        "[multi_section] I-gen-005 Step 3e: skipping "
-                        "atom validation for section %r (empty catalog)",
-                        sr.title,
-                    )
-                    continue
-                section_id = sr.title.lower().replace(" ", "_")
-                val_result = validate_section(
-                    sr.verified_text,
-                    section_id=section_id,
-                    section_title=sr.title,
-                    catalog=sr.atom_catalog,
-                )
-                sr.atom_validation_result = val_result
-                sr.refusal_count = val_result.refusal_count
-                sr.soft_mismatch_count = val_result.soft_mismatch_count
-                sr.atom_validation_mode = _atom_mode
-                if _atom_mode == "strict" and val_result.refusal_count > 0:
-                    sr.verified_text = val_result.rendered_text
-                    _refusal_replacements += val_result.refusal_count
-            # Codex iter-2 P2.3: recompute total_words after strict-mode
-            # replacement so report telemetry reflects post-validation
-            # state, not the pre-replacement count.
-            if _atom_mode == "strict" and _refusal_replacements > 0:
-                total_words = sum(
-                    len(sr.verified_text.split())
-                    for sr in section_results
-                    if not sr.dropped_due_to_failure and sr.verified_text
-                )
-            logger.info(
-                "[multi_section] I-gen-005 Step 3b atom validation: mode=%s "
-                "sections_validated=%d refusal_replacements=%d",
-                _atom_mode,
-                sum(1 for sr in section_results if sr.atom_validation_result),
-                _refusal_replacements,
-            )
-        except Exception as _validation_exc:
-            # Fail-soft per atom-first design: validator error must not
-            # crash the run. Log loud + continue with un-validated text.
-            logger.warning(
-                "[multi_section] I-gen-005 Step 3b atom validation failed "
-                "(non-fatal): %s — proceeding without validation",
-                _validation_exc,
-            )
+    # I-gen-005 Step 3b + F26 (I-arch-004 A3): post-hoc atom-refusal validation.
+    # Extracted into _apply_atom_refusal_validation so the strict-mode
+    # fail-CLOSED path (empty catalog / validator raise -> section marked
+    # DEGRADED, not silently passed) is directly unit-testable. The helper
+    # mutates section_results in place and returns the refusal-replacement and
+    # degraded-section counts. OFF mode is a no-op (byte-identical).
+    _refusal_replacements, _atom_degraded_count = _apply_atom_refusal_validation(
+        section_results, _atom_mode
+    )
+    # Codex iter-2 P2.3 + F26: recompute the post-validation aggregates so
+    # report telemetry reflects the POST-replacement state honestly — not the
+    # pre-replacement count. total_words: refusal blocks change the rendered
+    # text. total_verified: a refused sentence is no longer verified prose, and
+    # the helper already decremented each section's sentences_verified, so the
+    # aggregate must be re-summed (it was first computed BEFORE this hook).
+    if _atom_mode == "strict" and _refusal_replacements > 0:
+        total_words = sum(
+            len(sr.verified_text.split())
+            for sr in section_results
+            if not sr.dropped_due_to_failure and sr.verified_text
+        )
+        total_verified = sum(
+            sr.sentences_verified for sr in section_results
+        )
 
     # R-1: Limitations synthesis — one extra LLM call with only the
     # pipeline telemetry as input. Falls back to deterministic text

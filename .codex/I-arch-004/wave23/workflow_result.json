@@ -1,0 +1,78 @@
+{
+  "summary": "A3 Wave-2 clinical-domain (F13 scope-gate, F27 required-entity, F26 atom-refusal) + Wave-3 retrieval weight-not-filter (F14 paywall/Zyte, F15 hard-drops->down-weight, F30 landing-page) — surgical, tested, Codex-inline-gated cap 3, faithfulness STRENGTHENED never relaxed",
+  "agentCount": 4,
+  "logs": [
+    "wave2+3: 4 lanes: F13=APPROVE, F27=APPROVE, F26=APPROVE, F14+F15+F30=APPROVE"
+  ],
+  "result": {
+    "fixes": [
+      {
+        "fix_id": "F13",
+        "verdict": "APPROVE",
+        "codex_iters": 2,
+        "files_changed": [
+          "src/polaris_graph/nodes/scope_gate.py",
+          "config/clinical_safety/intervention_recognition.yaml",
+          "tests/polaris_graph/test_scope_gate_f13_offlist_drug.py"
+        ],
+        "tests_summary": "All green. New tests/polaris_graph/test_scope_gate_f13_offlist_drug.py = 54 tests passed (off-list INN-stem + legacy known-name ACCEPT directions; precision-collision REJECT discriminators incl machine/April/pine/caffeine AND the -cept English collisions accept/except/concept/intercept; real -cept fusion proteins etanercept/abatacept/aflibercept/rilonacept still recognised; fail-loud config-loader contract; 3 clinical golden questions still reject without overrides). Existing tests/polaris_graph/test_scope_gate.py = 26 passed (no regression). Broader run: scope_gate + qualitative_conflict_detector + contradiction_detector + planning/test_research_planner_phase1 (incl P1-9 _DRUG_NAME_RE compat) = 89 passed; scope/ + consumers = 135 passed; contradiction_detector full + P1-9 = 11 passed. Required gitignored fixture outputs/full_scale_v30_phase2_run14 (599K) copied from C:/POLARIS for the audit_ir registry conftest.",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-1/.codex/I-arch-002-F13/f13_my.diff",
+        "faithfulness_note": "No faithfulness gate touched. strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding are all unchanged — this is a scope-gate intervention-RECOGNITION change only, upstream of any faithfulness check. Per §-1.3 (WEIGHT-AND-CONSOLIDATE not FILTER-AND-CAP): no cap/target/thinner was added; the recognizer only ADDS recognised off-list drugs vs the old ~25-name allowlist (it raises recognition, never drops a source). The exclude_words denylist is a precision guard for common-English false positives (accept/except/concept/intercept vs the -cept stem); no real INN drug name is an everyday English word, so it never drops a real drug. Per LAW VI: stems + known_names + exclude_words all live in config YAML; no hard-coded per-drug allowlist gates the decision. The gate STAYS STRICT — a genuinely contentless clinical question (no stem, no known name, no population marker) still hard-rejects as clinical_pico_unscoped, proven by discriminator tests. _DRUG_NAME_RE literal is deliberately unchanged so its 3 importers + the P1-9 compat test remain green (surgical, not rewrite).",
+        "residual": [
+          "Stem-based recognition catches generatively-named drugs (INN class stems) plus the seeded legacy known_names; a stemless legacy drug NOT in the known_names seed and with no population marker would still reject. The known_names seed (~60 important legacy drugs) is additive and expected to grow via config edits, not code changes. The 3 clinical golden questions (drb_75/76/78) are non-drug review-style questions and intentionally still rely on the existing #1171 per-question scope_overrides — F13 is the drug axis only and did not (and must not) flip those."
+        ]
+      },
+      {
+        "fix_id": "F27",
+        "verdict": "APPROVE",
+        "codex_iters": 2,
+        "files_changed": [
+          "scripts/run_honest_sweep_r3.py",
+          "tests/polaris_graph/blockers/test_g2_runsweep_blockers.py",
+          "tests/polaris_graph/test_manifest_contract.py"
+        ],
+        "tests_summary": "55 passed (PYTHONPATH=src python -m pytest on tests/polaris_graph/blockers/test_g2_runsweep_blockers.py + tests/polaris_graph/test_manifest_contract.py + tests/polaris_graph/generator/test_required_entity_ledger_iperm021.py). 7 new F27 tests: 5 pure-helper (gating logic) + 2 BEHAVIORAL injection tests proving an injected ledger exception SURFACES the manifest HOLD (status=abort_required_entity_ledger_failed, release_allowed=False, error field present) under strict gates and stays a silent success when strict OFF — these fail on pre-fix code (LAW II Definition of Fixed). Updated manifest-contract lock-step taxonomy + mapping for the new status. Required a one-time copy of the gitignored fixture dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS into the worktree for the audit_ir registry to import.",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-2/.codex/I-arch-004/f27_my.diff",
+        "faithfulness_note": "Faithfulness STRENGTHENED, never relaxed. The fix touches NO faithfulness gate (strict_verify / NLI / 4-role D8 release decision / provenance / span-grounding are all unmodified). It only forbids MISLABELING a ledger-failed benchmark run as success: under the strict-gate slate (Gate-B force-sets BOTH PG_BENCHMARK_STRICT_GATES=1 and PG_REQUIRED_ENTITY_LEDGER=1), a ledger build/render/write exception now converts a would-be success into a loud, release-blocking HOLD (abort_required_entity_ledger_failed, release_allowed=False) instead of the legacy fail-soft that silently dropped the honest 'Coverage gaps' disclosure. Reuses the EXACT _benchmark_strict_gates_on() mechanism and HOLD pattern already used by F07/#1226/#1235/#1237/#1238; matches the h3 forensic finding verbatim ('In Gate-B, treat ledger failure as release-blocking or write an explicit degraded status'). No cap / target / thinner / hard-filter added — §-1.3 DNA respected (no retrieval/selection/weighting touched). Byte-identical OFF: doubly assured (ledger flag default-OFF => block does not run; strict flag default-OFF => helper returns False, backstop no-ops) and the existing WARN log is preserved verbatim, so a non-benchmark operator run that enables only the ledger keeps the legacy fail-soft. The status override lands: the F27 backstop sets manifest['status'] directly AND threads the local summary_status/unified_status (re-stamped at the success write + mirrored to summary); it sits before the manifest.json write with no later unconditional status re-assignment. Codex diff-gate APPROVE iter 2 (zero NOVEL P0, zero P1).",
+        "residual": [
+          "Scope is the EXCEPTION path (build/render/write raise), per the spec ACCEPT. The sibling fail-soft 'if _re_audit_path.is_file()' skip (a MISSING four_role_claim_audit.json silently producing no disclosure) is deliberately NOT treated as a failure here and is already defended under strict gates by #1226 (_d8_success_without_audit forbids a success manifest without the D8 audit, the seam writes that file when it runs, and a seam-timeout already HOLDs) — confirmed sound, not an unexamined gap.",
+          "No full live-pipeline end-to-end test (scope->retrieve->generate->4-role seam->ledger) — the post-4-role-seam ledger block is unreachable by the existing offline AST/source-inspection manifest-contract harness without a real paid generation. The fix wiring (except -> _re_ledger_failed flag -> backstop -> _apply_required_entity_ledger_hold -> persisted manifest) is proven by the 2 behavioral injection unit tests on the extracted pure manifest-mutation helper plus claim-by-claim Codex review; this matches the untested-live-wiring convention of the approved siblings #1226/#1237."
+        ]
+      },
+      {
+        "fix_id": "F26",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "src/polaris_graph/generator/multi_section_generator.py",
+          "tests/polaris_graph/test_atom_refusal_strict_failclosed_f26.py"
+        ],
+        "tests_summary": "New tests/polaris_graph/test_atom_refusal_strict_failclosed_f26.py: 8 tests, all PASS (strict+empty-catalog->degraded [ACCEPT criterion]; log_only+empty->benign skip; strict+validator-raise->only failing section degraded, healthy still validated [per-section isolation]; log_only+raise->fail-soft; strict+refusal->sentences_verified decremented honestly 5-2=3; decrement clamped at 0; off-mode no-op byte-identical; dropped/empty skipped). Regression: 98 adjacent (test_atom_refusal_validator.py, test_strict_verify_cleaned_text_integration.py, test_section_crash_isolation_iarch004.py) + 19 multi_section consumer (test_multi_section_gap4.py, test_m53_custody_telemetry.py) all PASS. Run: PYTHONPATH=src python -m pytest ... -q -p no:cacheprovider. Required copying gitignored fixture outputs/full_scale_v30_phase2_run14/ from C:/POLARIS for the conftest audit-IR registry.",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-3/f26.diff",
+        "faithfulness_note": "STRENGTHENS, never relaxes. The prior strict-mode behavior was fail-OPEN: empty atom_catalog -> silent \"skipped_empty_catalog\" pass; a validator exception -> swallowed for the whole loop, all sections shipping un-validated; and the verified tally (total_sentences_verified) over-counted refused sentences. The fix converts each of these silent-pass paths into an explicit DEGRADED signal (atom_validation_degraded=True, distinct mode string, no atom_validation_result so it stays out of the validated tally) and decrements sentences_verified by refusal_count (clamped at 0) so total_sentences_verified is re-summed honestly. Per spec ACCEPT and advisor guidance, fail-closed = flag-degraded-and-continue (NOT abort, NOT drop/stub) so it does not re-break the contract/V30 path that produces empty atom_catalog by design (validating empty catalog would refuse every sentence). OFF mode and log_only are byte-identical at the dataclass-construction and behavioral level (new field defaults False; whole hook gated on PG_ATOM_REFUSAL_MODE in {log_only,strict}). No faithfulness gate (strict_verify/NLI/4-role/provenance/span-grounding) is relaxed; no retrieval cap/target/thinner added. Codex diff-gate APPROVE iter 1 (zero P0, zero P1, empty p2).",
+        "residual": []
+      },
+      {
+        "fix_id": "F14+F15+F30",
+        "verdict": "APPROVE",
+        "codex_iters": 3,
+        "files_changed": [
+          "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/src/polaris_graph/retrieval/live_retriever.py",
+          "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/src/tools/access_bypass.py",
+          "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/src/polaris_graph/retrieval/evidence_selector.py",
+          "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/tests/polaris_graph/test_retrieval_weight_not_filter_f14_f15_f30.py",
+          "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/tests/polaris_graph/test_m45_refetch_diagnostics.py"
+        ],
+        "tests_summary": "37 new/updated tests pass (test_retrieval_weight_not_filter_f14_f15_f30.py 22 + test_m45_refetch_diagnostics.py 15). Broader adjacent regression suite all green: 124 passed across test_fetch_access_bypass_wiring, test_m23_access_bypass_fixes, test_m201_evidence_selection, test_fx20_discovery_funnel_iready017, test_live_retriever_rerank, test_live_retriever_env_knobs, test_post_fetch_loop_budget_iready003, test_arch002_no_dumping, test_subquery_floor_relevance, test_m42e_primary_trial_floor, synthesis/test_finding_dedup_phase5. Required copying gitignored fixture dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS into the worktree for the conftest registry allowlist (not a deliverable). Codex diff-gate: iter1 REQUEST_CHANGES (P1: negative cache after first failure, not a retry budget) -> iter2 REQUEST_CHANGES (P1: concurrency unsafe) -> iter3 REQUEST_CHANGES (P1: in-flight gating wrongly skips concurrent live URL) -> confirmation gate APPROVE (zero P0, zero P1; one cosmetic P2 stale comment fixed).",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_a5e40b76-a4f-4/.codex/F14_F15_F30/F14_F15_F30_final.diff",
+        "faithfulness_note": "No faithfulness gate (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is touched by this diff -- they do not appear in any changed file. All new behavior STRENGTHENS honesty or is byte-identical when its flag/env is OFF: F14 min-body stub gate is gated by PG_FETCH_MIN_BODY_CHARS default 0 (OFF=byte-identical; a short paywall shell stays ok=True as before; the cert sweep sets 1000 to turn a dead-fetch-masquerading-as-ok into a loud ok=False stub AFTER giving the OA resolver a chance to upgrade). F14 access_bypass Zyte-first routing is gated by PG_ZYTE_PAYWALL_FIRST default OFF and the free legal OA chain (PMC-BioC/Unpaywall/PDF) still runs first; Zyte content still flows through the SAME extractor + downstream gates (no gate bypassed); the only un-gated change is added LOUD warnings (pure logging) when a paywalled-publisher URL has no ZYTE_API_KEY. F15 down-weight (content_starved/landing -> kept at low weight instead of hard-dropped) and F30 landing-page flag are gated by the EXISTING I-arch-002 master flag PG_SWEEP_CREDIBILITY_REDESIGN (default OFF); the OFF path keeps the exact prior hard-drop + prior selector sort key and adds NO new row keys, so a normal full-text row is byte-identical. The F15 refetch cap + negative cache is a PERFORMANCE de-dup on FAILED fetches only -- a SUCCESS never counts toward the cap and a live URL is never wrongly skipped (gates on settled failures only), so it never suppresses a fetch that could succeed; it is NOT a breadth cap/thinner. Honest drop counts (rerank_not_selected, content_starved, landing_page, down_weighted) are now surfaced loudly in notes/diagnostics, replacing the dishonest dropped=0.",
+        "residual": [
+          "F14 min-body stub gate (PG_FETCH_MIN_BODY_CHARS) and F14 Zyte-first routing (PG_ZYTE_PAYWALL_FIRST) default OFF for byte-identical safety -- the run slate must set PG_FETCH_MIN_BODY_CHARS=1000 (and PG_ZYTE_PAYWALL_FIRST=1 with ZYTE_API_KEY present) to activate the fixes on the live cert run; documented in code comments.",
+          "F15/F30 down-weight + landing-page flag only activate under PG_SWEEP_CREDIBILITY_REDESIGN (the I-arch-002 master flag); on the legacy OFF path content_starved still hard-drops (byte-identical) -- by design per the operator-locked migration flag.",
+          "Codex confirmation-gate P2 (cosmetic): one stale comment about in-flight cap accounting was fixed post-approval; no functional residual.",
+          "Under hypothetical TRUE concurrency a DEAD url could see a small bounded refetch overshoot above the cap (callers already in-flight when the cap-th failure caches); the real refetch loop is SERIAL so it is exactly cap there. This trade-off favors the §-1.3 'never suppress a fetch that could succeed' constraint and is documented in code."
+        ]
+      }
+    ]
+  }
+}

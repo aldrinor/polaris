@@ -5610,3 +5610,12 @@
 - EVIDENCE/FINDINGS: 233 merged-tree tests pass. All 4 STRENGTHEN (F06 only-downgrades; F09 pins routing; F10/F31 stricter counting+grounding; F08/F11 binding gate). Audit trail .codex/I-arch-004/wave1_rest/.
 - STATUS: 12 of 32 A3 fixes done+Codex-gated+committed (Wave-0 4 + launch-critical 4 + Wave-1-rest 4). F32 + remaining 19 pending.
 - NEXT_STEP: commit -> apply F32 narrative-wrapper on the committed F10+F31 base + delta-gate -> continue Wave 2/3/4 -> full --all launch.
+
+[2026-06-14 13:20:00]
+- ACTION: A3 Wave-2+3 — 4 lanes (6 fixes F13/F27/F26/F14/F15/F30) ALL Codex-APPROVE, merged clean (no collision), committed.
+- RATIONALE: 3rd Claude Codex Workflow (wf_a5e40b76-a4f). All 4 lanes disjoint this time (applied merge-lesson: copied L1's new config/clinical_safety/intervention_recognition.yaml). 172 composed tests pass.
+- FIXES: F13 config-driven INN-stem intervention recognizer (NO hardcoded ~25-drug allowlist, LAW VI; gate stays strict for contentless Qs). F27 required-entity ledger exception -> release-blocking HOLD (abort_required_entity_ledger_failed) under strict gates. F26 atom-refusal strict+empty/raise -> degraded (fail-closed) + per-section isolation + honest verified-count decrement. F14 paywall->Zyte-first + min-body stub fail-loud (PG_ZYTE_PAYWALL_FIRST/PG_FETCH_MIN_BODY_CHARS, slate=1000). F15 §-1.3 DOWN-WEIGHT not hard-drop + honest drop counts + per-URL refetch cap on FAILED fetches only (NOT a breadth thinner) (PG_SWEEP_CREDIBILITY_REDESIGN). F30 landing-page detection -> weight down + flag.
+- AFFECTED_FILES: nodes/scope_gate.py + config/clinical_safety/intervention_recognition.yaml, scripts/run_honest_sweep_r3.py, generator/multi_section_generator.py, retrieval/{evidence_selector,live_retriever}.py, tools/access_bypass.py + 6 test files.
+- EVIDENCE/FINDINGS: 172 composed tests pass. All STRENGTHEN or are OFF-byte-identical; §-1.3 weight-not-filter respected (down-weight, honest counts, no breadth cap). NEW slate flags for the cert run added to the runbook launch slate. Audit trail .codex/I-arch-004/wave23/.
+- STATUS: 21 of 32 A3 fixes done+Codex-gated+committed (Wave-0 4 + launch-critical 4 + Wave-1-rest 4 + F32 + Wave-2+3 6 = 21... actually 4+4+6+1+6=21). Remaining: Wave-4 F17/F18/F19/F20/F21/F22/F24/F29 + Wave-5 F23 = ~9.
+- NEXT_STEP: commit -> Wave-4 throughput/governance + Wave-5 hygiene -> redeploy VM -> full --all launch (env slate per runbook) -> §-1.1 audit + beat-both.
