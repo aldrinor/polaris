@@ -5925,7 +5925,9 @@ class ReactAnalysisAgent:
                     prompt=prompt,
                     system=system,
                     schema=InterpretationCritique,
-                    effort="medium",
+                    # I-arch-003 (#1253): reasoning effort to MAX (was medium). max_tokens routes through
+                    # openrouter_client so the reasoning-first floor (>=4096/16384) applies.
+                    effort=os.environ.get("PG_CRITIQUE_REASONING_EFFORT", "high") or "high",
                     max_tokens=2048,
                     timeout=_CRITIQUE_TIMEOUT,
                 ),

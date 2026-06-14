@@ -47,7 +47,9 @@ _OPENROUTER_BASE_URL = os.environ.get(
 OPENROUTER_ENDPOINT = f"{_OPENROUTER_BASE_URL}/chat/completions"
 DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_TEMPERATURE = 0.2
-DEFAULT_MAX_TOKENS = 800
+# I-arch-003 (#1253): deepseek-v4-pro is a reasoning-first model; 800 truncated mid-reasoning -> empty
+# content -> RuntimeError. Un-starve to the reasoning-first floor (DeepInfra-safe deepseek cap); env-overridable.
+DEFAULT_MAX_TOKENS = int(os.environ.get("PG_REAL_COMPLETION_MAX_TOKENS", "16384") or "16384")
 
 # Cap evidence excerpts in the prompt to keep total tokens manageable.
 # Each source contributes its first MAX_EVIDENCE_CHARS_PER_SOURCE chars.
@@ -184,6 +186,11 @@ class RealCompletion:
             ],
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
+            # I-arch-003 (#1253): reasoning-first model needs reasoning ON at max effort so it completes
+            # thinking AND emits content (the un-starved max_tokens gives it room). Env-overridable.
+            "reasoning": {
+                "effort": os.environ.get("PG_REAL_COMPLETION_REASONING_EFFORT", "high") or "high"
+            },
         }
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
