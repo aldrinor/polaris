@@ -6129,8 +6129,15 @@ async def run_one_query(
             # content regardless. The real D-1 fix is a higher-cap provider/model for
             # V4 Pro (see follow-up issue) — this raise removes the misleading 5000 and
             # gives content the full available provider budget.
+            # I-arch-004 A2 (#1248): default raised 16384 -> 64000. The 16384 above is STALE — it was
+            # the old DeepInfra fp4 ceiling, which I-arch-003 (#1253) EXCLUDED from the generator chain.
+            # Verified live (2026-06-14): the pinned chain [wandb, siliconflow, baidu, novita, streamlake,
+            # gmicloud, deepseek] all serve max_completion_tokens >= 384000, so 64000 is safe on every
+            # provider and is ~4x the largest section observed in the drb_72 run (~16000 total tokens) =>
+            # generous "never truncate" headroom. This module default no longer shadows the 64000 sizing
+            # the generator was meant to get; Gate-B also floors it via the slate + preflight.
             section_max_tokens=int(os.environ.get(
-                "PG_SECTION_MAX_TOKENS", "16384",
+                "PG_SECTION_MAX_TOKENS", "64000",
             )),
             # I-cap-001 (#1059) Part A: the Limitations section default (400) was
             # not passed here, so a run used the throttled 400-token cap. Wire it

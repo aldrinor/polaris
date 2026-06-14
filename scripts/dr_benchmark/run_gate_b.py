@@ -464,6 +464,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_POST_FETCH_LOOP_BUDGET": "4000",
     "PG_POST_FETCH_PER_URL_BUDGET": "4",
     "PG_LLM_TIMEOUT_SECONDS": "180",
+    # I-arch-004 A2 (#1248): section generation timeout + token budget, sized off the REAL 64000-token
+    # section budget at the slow-band rate observed in the drb_72 run data (~15 tok/s for big sections).
+    # These were ABSENT from the slate, so a real Gate-B run got the stale module defaults (section
+    # wall-clock OFF -> hang-forever risk; generator timeout 1800s sized for the old 16384 ceiling). The
+    # drb_72 death was the SMOKE wall-clock (600s) killing the V30 section mid-stream x2. FLOOR semantics
+    # (max(existing, slate)): an operator may raise these but never lower below the legit floor.
+    "PG_SECTION_MAX_TOKENS": "64000",            # generator chain serves >=384000 (I-arch-003 pin); 64000 = ~4x observed max
+    "PG_GENERATOR_LLM_TIMEOUT_SECONDS": "6500",  # 1.5 x (64000 / 15 tok/s) ~= 6500s inner LLM timeout
+    "PG_SECTION_WALLCLOCK_SECONDS": "9000",      # outer per-attempt section backstop (LLM 6500 + verify/rewrite headroom)
     # Evidence-extraction depth.
     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
     "PG_DEEPENER_EVIDENCE_CAP": "500",
@@ -956,6 +965,11 @@ _BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS = (
     ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_CONTENT_MAX_CHARS", 50000),
     ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_HTTP_TIMEOUT", 30),
     ("src.polaris_graph.state", "PG_AGENTIC_WEB_PER_ROUND", 10),
+    # I-arch-004 A2 (#1248): GENERATOR_TIMEOUT_SECONDS is read at openrouter_client IMPORT (before the
+    # slate runs), so a stale .env value freezes the module constant and the slate env cannot fix it.
+    # Fail CLOSED if the live constant is below the data-grounded 6500s floor (the drb_72 generator
+    # timeout class). Module default is now 6500, so an UNSET .env passes; an explicit low value fails.
+    ("src.polaris_graph.llm.openrouter_client", "GENERATOR_TIMEOUT_SECONDS", 6500),
 )
 # Codex diff-gate iter-2 P1-1: additional CALL-TIME env floors that .env was silently winning over.
 _BENCHMARK_EXTRA_ENV_FLOORS = {
@@ -965,6 +979,12 @@ _BENCHMARK_EXTRA_ENV_FLOORS = {
     # original 98%-drop at 20, or the interim ~90%-drop at 150). The pool must equal the extracted corpus
     # so no source is dropped before per-section selection.
     "PG_LIVE_MAX_EV_TO_GEN": 1500,
+    # I-arch-004 A2 (#1248): fail CLOSED if section sizing resolves below the data-grounded floor — this
+    # is what makes a smoke value (e.g. PG_SECTION_WALLCLOCK_SECONDS=600, the drb_72 killer) impossible
+    # to inherit into a paid run. The floor-slate raises them; these validate so a regression can't undo it.
+    "PG_SECTION_MAX_TOKENS": 64000,
+    "PG_GENERATOR_LLM_TIMEOUT_SECONDS": 6500,
+    "PG_SECTION_WALLCLOCK_SECONDS": 9000,
 }
 
 
@@ -1001,6 +1021,12 @@ def apply_full_capability_benchmark_slate() -> None:
     # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
     set_max_cost_per_run(float(os.environ["PG_MAX_COST_PER_RUN"]))
+    # I-arch-004 A2 (#1248) Codex A2-gate iter-1 P1: GENERATOR_TIMEOUT_SECONDS is ALSO an import-time
+    # constant frozen before this slate runs; sync the live module global (same fix as the cost cap) so a
+    # stale low PG_GENERATOR_LLM_TIMEOUT_SECONDS in .env cannot survive as the generator's ACTUAL timeout
+    # while preflight's env check passes (the openrouter_client constant, not os.environ, is what _call uses).
+    from src.polaris_graph.llm.openrouter_client import set_generator_timeout_seconds
+    set_generator_timeout_seconds(int(os.environ["PG_GENERATOR_LLM_TIMEOUT_SECONDS"]))
 
 
 def preflight_full_capability() -> None:
@@ -1068,6 +1094,19 @@ def preflight_full_capability() -> None:
             f"benchmark preflight FAILED: effective PG_MAX_COST_PER_RUN=${_eff_cap:.2f} < "
             f"${_BENCHMARK_MIN_COST_CAP_USD:.2f} floor — a full-depth run would abort early on the "
             f"stale default. The slate must call set_max_cost_per_run() before the guard enforces it."
+        )
+    # I-arch-004 A2 (#1248) Codex A2-gate iter-1 P1: validate the LIVE generator-timeout CONSTANT (synced
+    # by the slate via set_generator_timeout_seconds), NOT just the env — a stale low value frozen at
+    # openrouter_client import would otherwise pass the env-based _BENCHMARK_EXTRA_ENV_FLOORS check while
+    # the generator still uses the frozen low timeout and dies mid-stream (the exact drb_72 class).
+    from src.polaris_graph.llm.openrouter_client import get_generator_timeout_seconds
+    _eff_gen_timeout = get_generator_timeout_seconds()
+    _gen_timeout_floor = _BENCHMARK_EXTRA_ENV_FLOORS["PG_GENERATOR_LLM_TIMEOUT_SECONDS"]
+    if _eff_gen_timeout < _gen_timeout_floor:
+        raise RuntimeError(
+            f"benchmark preflight FAILED: live GENERATOR_TIMEOUT_SECONDS={_eff_gen_timeout} < floor "
+            f"{_gen_timeout_floor} — a stale PG_GENERATOR_LLM_TIMEOUT_SECONDS in .env froze the import-time "
+            f"constant; the slate must call set_generator_timeout_seconds() to sync it before any spend."
         )
     # Codex diff-gate iter-2 P1-1: extra CALL-TIME env floors that .env was silently winning over the
     # slate (e.g. PG_MOST_MAX_EVIDENCE=300 in .env survived the old setdefault). The floor-slate raised

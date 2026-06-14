@@ -798,7 +798,29 @@ LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
 # per-attempt timeout so it never inherits the cheap 90s shared default (which also governs verifier /
 # retrieval / embedding calls). The $ hard cap (PG_MAX_COST_PER_RUN), NOT this timeout, is the spend
 # backstop (operator directive 2026-06-02: full power; wasted time >> token cost).
-GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "1800"))
+# I-arch-004 A2 (#1248): the stale 1800s default was sized for the OLD ~16384-token ceiling. With the
+# real 64000-token section budget at the slow-band rate observed in the drb_72 run data (~15 tok/s for
+# big reasoning-first sections), a legit large section needs 64000/15 ~= 4267s; 1.5x margin -> 6500s.
+# 1800s would truncate it. Gate-B floors this via the slate + a fail-loud preflight (import-time const).
+GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "6500"))
+
+
+def get_generator_timeout_seconds() -> int:
+    """Return the CURRENT effective generator LLM timeout (the live module global)."""
+    return int(GENERATOR_TIMEOUT_SECONDS)
+
+
+def set_generator_timeout_seconds(value: int) -> int:
+    """I-arch-004 A2 (#1248), Codex A2-gate iter-1 P1: set the live generator LLM timeout (updates the
+    module global that ``_call_impl`` reads), mirroring :func:`set_max_cost_per_run`.
+    ``GENERATOR_TIMEOUT_SECONDS`` is an import-time constant frozen BEFORE Gate-B's slate runs, so a stale
+    low ``PG_GENERATOR_LLM_TIMEOUT_SECONDS`` in ``.env`` cannot be fixed by the slate setting ``os.environ``
+    alone — the slate calls THIS so the generator actually gets the floored timeout REGARDLESS of import
+    order, and ``preflight_full_capability`` reads it back via :func:`get_generator_timeout_seconds`."""
+    global GENERATOR_TIMEOUT_SECONDS
+    GENERATOR_TIMEOUT_SECONDS = int(value)
+    return GENERATOR_TIMEOUT_SECONDS
+
 
 # Retry
 MAX_RETRIES = 2
