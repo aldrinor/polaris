@@ -5635,3 +5635,11 @@
 - EVIDENCE/FINDINGS: 18 test_seam_parallel tests (parallel HARD cap via reservation: admit only while settled+reserved+anticipated<=cap; sequential soft-by-one contrast) + 26 budget/sweep tests pass. Flag PG_FOUR_ROLE_BUDGET_RESERVE default ON; OFF = pre-F22 bounded behavior. §-1.3: fail-loud pre-spend BudgetExceededError, no silent thin.
 - STATUS: 30 of 32 A3 fixes done+Codex-gated+committed. Remaining: F23 (hygiene grab-bag, P2/P3). THEN full --all launch.
 - NEXT_STEP: commit F22 -> F23 hygiene -> redeploy VM -> full --all launch (env slate) -> §-1.1 audit + beat-both.
+
+[2026-06-14 14:35:00]
+- ACTION: A3 CAMPAIGN COMPLETE — ALL 32 chokepoint fixes done, Codex-gated, committed. F23 (e19d699b) was the last.
+- RATIONALE: operator mandate "fix ALL 32 chokepoints production-grade, no more half-ass runs." Delivered across 8 commits via 4 Claude Codex Workflows + targeted inline reconciliation. Every fix Codex-APPROVE, faithfulness gates STRENGTHENED never relaxed (§-1.3), §9.1.8 token-governance respected, §-1.3 weight-not-filter respected.
+- COMMITS: a59b0dd6 Wave-0 (F01/F25/F03/F02) | 0cf44c3a launch-critical (F05/F12/F07/F04) | 10bcf395 Wave-1-rest (F06/F09/F10/F31/F08/F11) | b65e74bf F32 | a9cfd1d1 Wave-2+3 (F13/F27/F26/F14/F15/F30) | 9b5da46d Wave-4 (F17/F19/F18/F21/F29/F20/F24) | 6569fb09 F22 | e19d699b F23.
+- EVIDENCE/FINDINGS: 150 representative cross-wave tests pass (every wave green together). Per-wave each lane's composed suite passed before commit. state/a3_campaign.json status=ALL_32_DONE.
+- STATUS: ALL 32 done. NEXT PHASE = redeploy VM to e19d699b + the launch env slate -> NO-SPEND --list dry-run -> full --all Q1 run (resumable via F04) -> §-1.1 audit + beat-both vs gpt_5_5_pro/gemini_3_1_pro.
+- NEXT_STEP: redeploy VM (git fetch + reset to e19d699b) + verify the 32 fixes present + the launch env slate; NO-SPEND --list dry-run.
