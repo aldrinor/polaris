@@ -95,8 +95,35 @@ Source tags: `CLD`=Claude static; `g1..g5`=Codex verify; `h1..h4`=Codex hunt. Mu
 
 ---
 
-## TIER D — RUN-DATA-VISIBLE (pending: `drb72-deadrun-forensic` Workflow wf_91694fcf-778)
-*To be filled from the 6-slice Claude forensic + Codex cross-audit of the actual run data: death mechanics, ~25 length-capped llm_io truncations, faithfulness-leak hunt over 276 D8 role calls, retrieval quality (S2 15.8%, 7 empty-extract 200s), provider-lock conformance (served_model per role), cost breakdown of $6.74.*
+## TIER D — RUN-DATA-VISIBLE (COMPLETE: `drb72-deadrun-forensic` wf_91694fcf-778 — 6 Claude slices + Codex cross-audit APPROVE; 27 findings, 25 novel)
+Both Claude (6 slices) and Codex (independent re-derivation) APPROVED. Codex corrections: "185 paywall journals" → ~162-169 (host-policy dependent); "80-98% reasoning/call" → range 33-100%. Substance + priorities unchanged.
+
+### D-FAITHFULNESS (the §-1.1 core — clinical-safety-critical, NEW #1 priority)
+- **D1. The D8 terminal Judge is a RUBBER STAMP** — Judge (qwen) returned `VERIFIED` on **69/69** claims; for the **12/12** claims where the Sentinel (minimax) said `unsupported`, the Judge OVERRODE every one, its reasoning calling the sentinel signal "a distractor"/"red herring"/"metadata." Root cause: the Judge receives only a compressed `grounded`/`ungrounded` token, NOT the Sentinel's atom-level "why." Claim_ids: 00-021,00-023,00-028,02-003,02-004,03-003,03-004,03-007,04-001,04-002,04-003,08-002. All 12 in `kept`, none `dropped`. **Fix:** pass the Sentinel's full atom-level output to the Judge; a document-level `unsupported` BLOCKS `VERIFIED` (fail-closed) unless the Judge span-grounds a rebuttal of each unsupported atom. **(P1, the primary clinical risk; NEW issue.)**
+- **D2.** Claim 02-003 VERIFIED on a methodology misattribution — claim says researchers "implemented" a staggered design; cited span says they "study" it (observational). Verb-mismatch (implement/conduct vs study/observe) = qualitative-faithfulness gap. (P1)
+- **D3.** Multi-citation claim 07-000 VERIFIED with one of two cited spans (ev_009) NOT supporting the 40% WEF figure — decorative co-citation riding on a strong span. Need per-citation span grounding. (P2)
+- **D4.** frey_osborne grounded on the ORA repository **metadata/abstract page**, not the paper body (claims 01-002,03-003,04-001). Flag landing/metadata pages; abstract can't ground methods specifics. (P3, weight not drop.)
+
+### D-DEATH / TOKEN (sharpen A1/A2 + new fixes)
+- **D5. (P0, NEW fix "A4") Empty-completion reasoning-runaway** — call 268e2f24: 473.5s, `content=''`, 19797 chars reasoning stuck self-counting, `finish_reason=None`, billed $0, logged `status=ok`, then **silently skipped** at `contract_section_runner.py:710` (`if narr_text and narr_text.strip()`) after eating ~half the section budget. **Fix:** detect `content='' + finish_reason=None` → FAIL the call (raise/retry); reasoning-runaway guard; per-call stall timeout (~120-180s) << section wall.
+- **D6. (P0) reasoning.max_tokens silently ignored by providers** — requested 1000 → served 5599 (5.6×); requested 6553 → 7997. Advisory field not honored. **Fix:** enforce client-side / pin a provider that honors it / **lower reasoning effort for contract_slot calls** (they need ≤3 sentences, not 8k reasoning tokens). Confirms I-arch-003 token-governance concern in DATA.
+- **D7. (P1) Token caps not model-max** (Codex add) — deepseek 32768, entailment 2000, credibility 8000, Storm 409/819 → §9.1.8 violation, data-visible.
+- **D8.** 600s wall architecturally incompatible (a clean 2-narrative section = 643s) — **A2's 9000s wall already fixes this**; per-section sizing (N_slots × per-call) is an A2 refinement.
+
+### D-RETRIEVAL (§-1.3 weight-not-filter violations — belong under I-arch-001 #1245)
+- **D9. (P0) 185 demanded journals fetched ONLY paywall stubs** — incl. the two flagship papers for THIS question (Acemoglu-Restrepo "Robots and Jobs" / "Automation and New Tasks"); academic.oup=34, uchicago=34, sciencedirect=25, doi.org=22; S2 success 15.8%. **Fix:** route paywalled publishers to Zyte FIRST + min-body-length fail-loud gate (the operator's Zyte key unlocks these).
+- **D10. (P0) `status='ok'` masks stubs** — Zyte (1651×) + crawl4ai (1297×) returned ok on 304-374 char paywall bodies; `refetch_diagnostics.json=[]` (zero escalations despite 185 stubs). **Fix:** decouple fetch-success from content-success; record <1000-char body as `stub`/fail → trigger refetch ladder.
+- **D11. (P1) §-1.3 HARD-DROP** — `content_starved=49` (44 reputable: Research Policy, Tech Forecasting, World Development) + `rerank_not_selected=539` (457 journal/DOI incl. REStat, Brookings). Log says "select dropped=0" — misleading; the real drops happened upstream. **Fix:** down-weight, don't drop; surface in the dropped count.
+- **D12. (P1) R9 demotes canonical-DOI journals to T4** just because host=doi.org — JEP/JPE → T4 (50 sources); `weight_basis=tier_prior` for 803/803, so a tier bug IS a credibility bug. **Fix:** trust OpenAlex venue / resolve DOI to publisher host.
+- **D13. (P2)** Duplicate refetch of dead paywall DOIs (mean 5.5 attempts/URL, worst 35×, single fetches 150-210s) — contributed to the section-gen wall pressure. Per-URL cap + negative cache.
+
+### D-PROVIDER / COST
+- **D14. (P1) Empty-content/null-usage streams logged `status=ok`** (the harness accepts blank 200s — both a generate AND a credibility_judge). Fail loud on `content==None + null usage`.
+- **D15. (P2)** Side-judges free-route (`provider=None`, fanned across AtlasCloud/DeepInfra/Baidu/GMICloud) — **confirms g3's `evaluator`-role-key leak in DATA**; GMICloud blank-200 credibility_judge logged ok.
+- **D16. (P2/P3 cost)** cost_ledger under-reports $0.30 (4.5%); `entailment_judge` = 47% of spend (full 11k-char span re-sent per call → trim to cited window); `credibility_judge` = 43% (verbose rationale → tighten schema).
+
+### TIER-D → reshaped fix priority
+After A1 (done) + A2 (in gate): **(1) D1 Judge rubber-stamp [faithfulness #1]**, (2) D5/D6 empty-completion + reasoning-effort [run-killer "A4"], (3) B-tier static faithfulness (B1 side-judge routing = D15, B2 fail-open = D14), (4) D9-D12 retrieval under I-arch-001 #1245, (5) the rest. The **minimal A1+A2 resume** still proves the pipeline completes; the **trustworthy** resume needs D1+D5+D14 at minimum.
 
 ---
 

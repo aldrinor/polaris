@@ -1,4 +1,33 @@
-## ⚡ RESUME NOW (2026-06-07) — observability COMPLETE; Q1 paid run prepped ONE go-ahead away (operator asleep, autonomous, do NOT launch paid spend)
+## ⚡ RESUME NOW (2026-06-14) — I-arch-004 dual-sourced forensic COMPLETE; A1 crash-isolation committed; A2 in gate; resume cache-reuse plan ready
+
+**I-arch-004 (#1248) pipeline chokepoint forensic = COMPLETE + dual-sourced.** Static (9 Codex sessions g1-g5 verify + h1-h4 hunt) + run-data (`drb72-deadrun-forensic` workflow, 6 Claude slices + Codex cross-audit APPROVE, 27 findings / 25 novel over the REAL 1622-capture run). Combined ledger = `.codex/I-arch-004/combined_dual_sourced_ledger.md` (TIER A-E; **THE resume map**). Resume plan = `.codex/I-arch-004/resume_plan.md`. Run-data copy = `.codex/I-arch-004/deadrun_artifacts/` (gitignored).
+
+**FIXES (branch `bot/I-arch-002-no-dumping`, each Codex-gated):**
+- **A1 crash isolation — DONE, Codex diff-gate APPROVE iter-4, committed `8415d496`.** `_gather_sections_isolated` catches the EXACT httpx transient set the client re-raises → visible gap-stub; hard gates (`CredibilityPassError`/`BudgetExceededError`) + programming/config defects propagate + explicitly cancel siblings (fail-fast). 11 + 62 tests green. Follow-up P2s: M-47 `is_gap_stub` skip, M-44 fail-fast.
+- **A2 timeout/token sizing — code+tests done, Codex diff-gate IN FLIGHT (`b5916a7ww`).** Slate floors `PG_SECTION_MAX_TOKENS=64000` / `PG_GENERATOR_LLM_TIMEOUT_SECONDS=6500` / `PG_SECTION_WALLCLOCK_SECONDS=9000` + fail-loud preflight (smoke value can never reach a paid run). Files: `run_gate_b.py`, `run_honest_sweep_r3.py:6132`, `openrouter_client.py:801`. On APPROVE → commit **A2 files only** (A1 already committed; diff via `git diff --cached <A2 files>`).
+- **NEXT (reshaped by TIER-D):** (1) **#1254 D8 Judge rubber-stamp** [FAITHFULNESS #1, clinical-critical — VERIFIED 69/69, overrode Sentinel 12/12, dismissed it as "metadata"], (2) empty-completion/reasoning-runaway "A4" (`contract_section_runner.py:710` silent-skip of `content=''`; lower reasoning effort for contract_slot calls), (3) B-tier static faithfulness (g3 side-judge `evaluator`-key routing = D15; fail-open NLI/conflict = D14), (4) retrieval §-1.3 drops + paywall stubs under I-arch-001 #1245 (D9-D13), (5) rest.
+
+**RESUME the dead drb_72 run (operator-agreed 2026-06-14): minimal A1+A2 resume FIRST (proves the pipeline completes + salvages the corpus), then B-tier → trustworthy re-run.**
+- GATED behind A1+A2 committed + VM redeployed. Do NOT fire a paid resume on the broken 600s wall (it would die again).
+- VM `51.79.90.35` (`ssh -i ~/.ssh/polaris_orchestrator_key ubuntu@`): drb_72 out-root (37M) + `state/pg_search_cache.sqlite` (231M retrieval cache) + `cache/authority_enrich.sqlite` + Zyte key — ALL intact → retrieval replays near-free. VM at `f174692`, needs `git pull` to new HEAD + container rebuild (`arch002_runner`, currently unhealthy). Run env = full `/home/ubuntu/polaris_run/.env` (NOT the smoke slate).
+- Launch: same query, same `--out-root`, `python -m scripts.dr_benchmark.run_gate_b --only drb_72_ai_labor` (built-in canary + $25 cap). Monitor `tail run_status.json` + `<run_dir>/retrieval_trace.jsonl`. Acceptance = §-1.1 line-by-line audit of `report.md` vs cited spans.
+
+---
+
+## ⚡ RESUME NOW (2026-06-12) — keystone map-reduce COLLAPSE fixed+committed; thinness #1218 forensic running via the Workflow function
+
+**#1217 (I-perm-025) keystone map-reduce live collapse: RESOLVED + committed** — `8d74d1bb` (fix) + `bd6bb0a9` (doc) on `origin/bot/I-ready-017-faithfulness`. Three stacked bugs: Bug A orphaned-citation reattach + tightened REDUCE prompt; Bug B `_fuzzy_locate_span` paraphrase recovery (negation-safe expand-to-sentence) + fuzzy-only blocking entailment; Bug C `DISTILLER_VERSION` v2→v4 cache-invalidation (stale cache had masked the fix). Codex diff-gate iter1+iter2 APPROVE (`faithfulness_fuzzy_gate_sound=true`). Live: distill drop_rate 1.00→0.33, faithful verified contraindications, §-1.1 zero fabrication. 21/21 distiller + 100/100 generator tests. Forensic: `docs/keystone_collapse_forensic_consolidated.md` (PART 1/2/3); harness `scripts/dr_benchmark/offline_distill_replay.py` + `scripts/dr_benchmark/probe_source_map.py`.
+
+**OPERATOR PROGRAM (2026-06-12), every task via the Claude Codex Workflow (the Workflow FUNCTION as engine, Codex the only gate), dual Claude+Codex line-by-line forensic to clear all land mines, small fast PAID VM verify after each fix:**
+1. **#1218 (I-perm-026) THINNESS — IN PROGRESS.** distill 2 < legacy 6 on drb_76 Safety = MAP under-extracts on-topic safety numerics + REDUCE packs multi-number sentences strict_verify can't bind. NOT a faithfulness defect. Forensic workflow `wf_8d9b3d59-f84` (dual Claude+Codex) running. NEXT: consolidate → fix (denser MAP prompt + one-number-per-sentence REDUCE; extraction/shaping-side ONLY, strict_verify/4-role/D8 byte-untouched) → cheap MAXEV=8 VM verify (announce paid launch; OR_KEY_OVERRIDE from local .env NEVER written to a VM file) → Codex diff-gate → commit. Acceptance: distill verified >= legacy on Safety, §-1.1 clean.
+2. **Then the 5 downstream (#1213/#1214/#1215/#1216/#1210) via PARALLEL workflows** (same method, faster).
+3. **Then a broad all-sections live run** (not just Safety) to see how the fixed keystone behaves.
+
+**VM:** ssh -i ~/.ssh/polaris_orchestrator_key ubuntu@51.79.90.35; replay dir ~/polaris-replay-019; launcher ~/vm_launch_replay.sh (MAXEV/PG_DISTILL_DEBUG/OR_KEY_OVERRIDE envs); venv ~/polaris-beatboth/.venv/bin/python. Clear `~/polaris-replay-019/.cache/polaris/evidence_distiller/*.json` between logic changes (or rely on the DISTILLER_VERSION bump).
+
+---
+
+## ⚡ RESUME (2026-06-07) — observability COMPLETE; Q1 paid run prepped ONE go-ahead away (operator asleep, autonomous, do NOT launch paid spend)
 
 **I-obs-001 (#1141) full-run observability is COMPLETE** — AC1 heartbeat / AC2 retrieval-trace / AC3 raw-LLM-IO all Codex diff-gate APPROVE; 113/113 §5.2 faithfulness-guard + obs unit tests green (faithfulness untouched); commits `c8bc5ef5`..`2e247098` pushed to `origin/bot/I-ready-017-faithfulness`. Ledger `state/iobs001_observability.json`.
 
