@@ -1,0 +1,38 @@
+verdict: REQUEST_CHANGES
+confirmed:
+  - "src/polaris_graph/llm/openrouter_client.py:801,1809-1814 — GENERATOR_TIMEOUT_SECONDS defaults to 1800 and is selected for reasoning-first models only when caller passes no timeout through to _call."
+  - "src/polaris_graph/llm/openrouter_client.py:1678,1720 — PG_REASONING_FIRST_MIN_MAX_TOKENS default is 32768, so the 1800s generator-timeout comment is stale against the current token floor."
+  - "src/polaris_graph/retrieval/semantic_conflict_detector.py:69,349,417 — semantic conflict judge uses hardcoded 30.0s httpx timeout while sending GLM-5.1 high-reasoning JSON calls."
+  - "src/polaris_graph/roles/openai_compatible_transport.py:56,489 — self-host role transport uses generic PG_LLM_TIMEOUT_SECONDS instead of verifier-scoped PG_VERIFIER_LLM_TIMEOUT_SECONDS."
+  - "src/polaris_graph/retrieval/llm_throttle.py:42,88-91 — throttled_llm_call has a 300s PG_LLM_CALL_TIMEOUT wrapper; current consumers are synthesis/verifier_v2, not multi_section_generator."
+  - "src/polaris_graph/agents/synthesizer.py:2660,2886 and src/polaris_graph/synthesis/section_writer.py:2191 — pipeline-B section write/revision timeouts are 300s and out of the live DR multi_section path."
+  - "src/polaris_graph/tools/react_agent.py:48,3559,7914-7916,8162 — hardcoded 60/75 decision timeout and inconsistent PG_REACT_INTERPRET_TIMEOUT defaults are present."
+  - "src/polaris_graph/retrieval/live_retriever.py:1882,1950 — Unpaywall/PubMed metadata fetches use hardcoded 10.0/15.0 timeouts while nearby fetch timeouts are env-driven."
+  - "src/polaris_graph/generator/multi_section_generator.py:5509,5550,6432 — the contract, legacy, and M-50 gathers omit return_exceptions=True."
+  - "scripts/run_honest_sweep_r3.py:8484-8500 — uncaught section TimeoutError is caught by the broad outer exception path and becomes error_unexpected."
+  - "scripts/dr_benchmark/run_gate_b.py:426-716,720-735 — PG_SECTION_WALLCLOCK_SECONDS and PG_GENERATOR_LLM_TIMEOUT_SECONDS are absent from the benchmark slate and preflight floors."
+refuted: []
+partial:
+  - location: ".smoke_env.sh + src/polaris_graph/generator/multi_section_generator.py:66-96"
+    correction: "The code-side mechanism is verified: PG_SECTION_WALLCLOCK_SECONDS defaults to 0, wraps each section in wait_for when set, retries once, then raises TimeoutError. I could not line-verify .smoke_env.sh because no such file is present under C:\\POLARIS; if the operator smoke slate exported PG_SECTION_WALLCLOCK_SECONDS=600, the death mechanism is confirmed."
+  - location: "src/polaris_graph/agents/searcher.py:1672,2061; src/polaris_graph/state.py:250"
+    correction: "The 300s cap is real and can prematurely stop agentic search, but Claude's 'outer 300 < inner 1800' rationale is inaccurate. _agentic_round_analysis passes timeout=300 into generate_structured, so the inner OpenRouter call is also capped at 300, with the outer wait_for preempting the client's +30s grace."
+  - location: "src/polaris_graph/agents/verifier.py:398,1060"
+    correction: "The 300s verifier cap is real, but this path uses OpenRouterClient.generate_structured(timeout=300), not openrouter_role_transport.py's PG_VERIFIER_LLM_TIMEOUT_SECONDS=900 role transport. PG_VERIFY_PER_CALL_TIMEOUT is both the gather estimator and the actual per-call cap here."
+novel_chokepoints:
+  - location: "src/polaris_graph/llm/openrouter_client.py:2434,2541,3157,3362"
+    what: "reason() and generate_structured() replace timeout=None with generic LONG/DEFAULT timeouts before _call can select GENERATOR_TIMEOUT_SECONDS for reasoning-first models."
+    why_it_chokes: "DeepSeek V4 Pro structured/reasoning calls without explicit timeout get capped by PG_LLM_LONG_TIMEOUT_SECONDS/PG_LLM_TIMEOUT_SECONDS (live .env 900/600), not the generator timeout, and far below the recalculated ~4500s budget."
+    fix: "Pass timeout=None through unchanged like generate(), or choose GENERATOR_TIMEOUT_SECONDS for _REASONING_FIRST_MODELS inside reason()/generate_structured(); add regression tests for DeepSeek structured and reason calls."
+    severity: P1
+  - location: "src/polaris_graph/agents/storm_interviews.py:1344-1356; .env:319-325; scripts/dr_benchmark/run_gate_b.py:426-716"
+    what: "Gate-B force-enables STORM, but STORM interview timeout remains 300s and the slate/preflight does not size STORM timeouts against generator calls."
+    why_it_chokes: "One interview contains multiple DeepSeek generate_structured calls; 300s is below even one realistic reasoning-first call. Timeouts skip interviews, causing attempted_empty/under-fire STORM and run-health abort_discovery_degraded."
+    fix: "Add PG_STORM_INTERVIEW_TIMEOUT and PG_STORM_MAX_TIME_SECONDS to the Gate-B slate/preflight with floors derived from generator timeout, rounds, and per-interview call count."
+    severity: P1
+  - location: "src/polaris_graph/agents/evidence_deepener.py:143-231,294-303,820-828; scripts/run_honest_sweep_r3.py:3819-3911"
+    what: "The forced-on benchmark deepener has 120s/240s OP wait_for caps and 720s total budget around high-effort DeepSeek reason calls."
+    why_it_chokes: "The LLM deepener asks for 32768-token reasoning-first outputs but is cut off well below the generator budget, then fails open to empty/fallback discoveries, leaving a borderline corpus unrepaired."
+    fix: "Split LLM vs HTTP deepener timeouts; set PG_DEEPENER_LLM_TIMEOUT_SECONDS >= generator timeout and add Gate-B slate/preflight floors for PG_DEEPENER_OP_TIMEOUT/PG_DEEPENER_TIMEOUT."
+    severity: P1
+notes: "No novel P0 found. Claude's root-cause gather diagnosis is sound, but the timeout audit is incomplete because OpenRouterClient structured/reason helpers and forced-on STORM/deepener paths still impose sub-generator caps."

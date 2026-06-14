@@ -272,3 +272,7 @@ outputs/codex_findings/round_*/last_message.txt
 # I-meta-001 (#933) Step 12: drift reports must stay tracked for audit history.
 !state/drift_reports/
 !state/drift_reports/**
+
+# Legal/business NDA drafts — local only, never push (company + director details)
+nda/
+.codex/I-arch-004/deadrun_artifacts/

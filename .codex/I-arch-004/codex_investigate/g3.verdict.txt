@@ -1,0 +1,49 @@
+verdict: REQUEST_CHANGES
+confirmed:
+  - "providers: src/polaris_graph/llm/openrouter_client.py:1751-1753 + config/settings/openrouter_provider_routing.yaml:14 — generator has only PG_REASONING_FIRST_HARD_CAP and no generator chain-min cap."
+  - "providers: src/polaris_graph/llm/openrouter_client.py:1762-1797 — env provider order keeps OPENROUTER_ALLOW_FALLBACKS default true; routing-disabled path can leave unrestricted fallback routing."
+  - "providers: scripts/deploy.sh:664-665 — deploy template sets OPENROUTER_PROVIDER_ORDER=Chutes,DeepInfra,Fireworks and OPENROUTER_ALLOW_FALLBACKS=true."
+  - "providers: config/settings/openrouter_provider_routing.yaml:42-45 — sentinel chain leads with google-vertex; benchmark-only sovereignty caveat is real."
+  - "models: src/polaris_graph/clinical_generator/strict_verify.py:37-39 — stale Gemma default docstring; actual imported default is z-ai/glm-5.1."
+  - "models: src/polaris_graph/evaluator/external_evaluator.py:29 — stale Gemma default docstring; code imports PG_EVALUATOR_MODEL from openrouter_client."
+  - "models: src/polaris_graph/retrieval/nli_benchmark_annotator.py:107-110 — stale Gemma default docstring; backend calls llm.entailment_judge default z-ai/glm-5.1."
+  - "models: src/polaris_graph/llm/openrouter_client.py:689-690 — family error text still recommends Gemma."
+  - "models: .env:419 + src/polaris_graph/agents/nli_verifier.py:34,64 — legacy PG_NLI_MODEL=flan-t5-large / FaithLens path exists and is not the live Gate-B LLM NLI path."
+  - "schemas: src/polaris_graph/llm/openrouter_client.py:3118 — strict:true is hardcoded when json_schema mode is attached."
+  - "schemas: src/polaris_graph/llm/openrouter_client.py:3110 and 768-782 — strict-json guard relies on hardcoded _REASONING_FIRST_MODELS membership."
+  - "schemas: src/polaris_graph/schemas.py — no model_config/extra='forbid'; emitted schemas lack additionalProperties:false, omit defaulted fields from required, and use $defs/anyOf."
+  - "schemas: src/polaris_graph/llm/openrouter_client.py:3060 — generate_structured default max_tokens=8192 is a hardcoded literal and not all callers override it."
+refuted: []
+partial:
+  - location: "scripts/dr_benchmark/pathB_run_gate.py:420-471"
+    correction: "The resolver really checks status only and ignores max_completion_tokens, but Claude overstated the primary run_gate_b path: run_gate_b.py uses preflight_four_role_transport() plus behavioral_canary(), not this preflight resolver. The bug remains real for the legacy run_honest_sweep_r3 --pathB-gate path."
+  - location: "scripts/dr_benchmark/smoke.md:27-29"
+    correction: "The forbidden PG_EVALUATOR_MODEL=google/gemma-4-31b-it instruction is real. Correction: the current 4-role OpenRouter transport reads PG_MIRROR_MODEL, not PG_EVALUATOR_MODEL, so this does not directly rebind the primary Mirror transport; it still poisons legacy evaluator/live_judge/report-method surfaces and can conflict with Path-B model equality checks."
+  - location: ".env.example:75-76"
+    correction: "The forbidden PG_EVALUATOR_MODEL template value is real. Correction: primary Gate-B verifier slugs are PG_MIRROR_MODEL/PG_SENTINEL_MODEL/PG_JUDGE_MODEL, so this mainly affects legacy evaluator compatibility paths and misleading bootstraps rather than the OpenRouterRoleTransport mirror directly."
+  - location: "src/polaris_graph/llm/openrouter_client.py:3354-3363"
+    correction: "It does resend the same response_format on a parse retry, but not after a strict-schema provider 400/404: _call raises HTTPStatusError/NoEndpointError before generate_structured reaches the parse-retry block. The deterministic provider-rejection rationale is wrong; downgrade-on-retry is only relevant after a successful but unparsable response."
+  - location: "src/polaris_graph/schemas.py:703-759"
+    correction: "helpfulness is the lone ge/le field, but it already has a before validator for string/float coercion. The remaining issue is narrower: floats are truncated without scaling/clamping, and out-of-range values like 250 still fail validation."
+novel_chokepoints:
+  - location: "src/polaris_graph/llm/entailment_judge.py:230-264; src/polaris_graph/retrieval/semantic_conflict_detector.py:382-397; src/polaris_graph/authority/credibility_judge_caller.py:126-147; src/polaris_graph/benchmark/pathB_runner.py:76-109"
+    what: "Side judges look up a retired role key, evaluator, for provider pinning, while the 4-role pin set contains generator/mirror/sentinel/judge."
+    why_it_chokes: "In both current run_gate_b and legacy 4-role pins, get_role_provider('evaluator') returns None, so active GLM side judges free-route with no provider order, no ignore list, and no allow_fallbacks:false. That reintroduces excluded GLM providers into strict_verify/NLI/conflict/credibility calls; judge errors fail closed in strict_verify enforce mode and can collapse verified sentence coverage."
+    fix: "Map side-judge provider routing to mirror, or add an explicit evaluator->mirror compatibility alias in pathB_capture/provider routing; use the mirror chain with allow_fallbacks:false and require_parameters:true."
+    severity: P1
+  - location: "src/polaris_graph/benchmark/pathB_runner.py:76-109; scripts/dr_benchmark/pathB_run_gate.py:248-259; scripts/dr_benchmark/run_gate_b.py:1213-1320"
+    what: "Legacy --pathB-gate pins lock serving_route self-host semantics while run_gate_b’s default verifier transport is OpenRouter."
+    why_it_chokes: "A legacy run_honest_sweep_r3 --pathB-gate invocation can demand PG_MIRROR_BASE_URL/PG_SENTINEL_BASE_URL/PG_JUDGE_BASE_URL or later miss 4-role captures, while the real benchmark entrypoint uses mode-aware run_gate_b preflight. The two gates disagree about the active transport."
+    fix: "Make pathB_runner/preflight mode-aware using PG_FOUR_ROLE_TRANSPORT and verifier_model_slugs(), or retire the legacy --pathB-gate instructions."
+    severity: P2
+  - location: "src/polaris_graph/llm/entailment_judge.py:236-251; src/polaris_graph/retrieval/semantic_conflict_detector.py:365-379; src/polaris_graph/authority/credibility_judge_caller.py:42-46,117-125"
+    what: "Side-judge reasoning defaults are not max-output/max-effort: high effort with 2000/8000 max_tokens, not xhigh plus the model/provider cap."
+    why_it_chokes: "This violates the I-arch-003 max-budget rule for live LLM calls and can recreate reasoning starvation on longer spans/pairs, producing judge_error drops or missed conflicts."
+    fix: "Default these side-judge calls to the lock-compatible max effort and an env-governed cap reconciled against the mirror provider chain; keep lower values only as explicit operator test overrides."
+    severity: P2
+  - location: "src/polaris_graph/llm/entailment_judge.py:28-30,186-187; src/polaris_graph/retrieval/semantic_conflict_detector.py:29-32; scripts/dr_benchmark/run_gate_b.py:1283-1285"
+    what: "Additional live-path comments still state Gemma is the default entailment/evaluator model."
+    why_it_chokes: "No immediate runtime choke, but it is stale guidance on active faithfulness/NLI surfaces and can lead an operator to restore the forbidden Gemma default."
+    fix: "Update these comments to z-ai/glm-5.1 and reference the runtime lock legacy_compat mapping."
+    severity: P3
+notes: "Read local code/config line-by-line and checked OpenRouter provider routing + structured-output docs/API. Sources consulted: https://openrouter.ai/docs/guides/routing/provider-selection, https://openrouter.ai/docs/guides/features/structured-outputs, https://openrouter.ai/api/v1/models"

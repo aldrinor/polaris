@@ -1,0 +1,27 @@
+verdict: REQUEST_CHANGES
+confirmed:
+  - "prompts: src/polaris_graph/generator/multi_section_generator.py:1992-2001,2378-2383,2658-2746 - legacy _call_section has no research_question parameter and emits the literal placeholder 'Research question context: (see overall corpus)'."
+  - "prompts: src/polaris_graph/generator/multi_section_generator.py:5436-5474 + src/polaris_graph/generator/contract_section_runner.py:697-706 + src/polaris_graph/generator/slot_fill.py:644-671 - the V30 narrative prose call reuses the JSON-only _m63_llm_call system message."
+  - "citation_traceability: src/polaris_graph/generator/provenance_generator.py:2668-2700 + src/polaris_graph/generator/multi_section_generator.py:2915-2959 - resolve_provenance_to_citations can drop a strict-verified sentence after verification without adding it to dropped_sentences, while SectionResult.sentences_verified still uses report.total_kept."
+  - "citation_traceability: src/polaris_graph/generator/fact_dedup.py:65-203 - PG_SPAN_PER_SOURCE_CITE_CAP > 0 drops already-verified citing sentences; default is off."
+  - "citation_traceability: src/polaris_graph/generator/provenance_generator.py:590-657,1748-1839 - dose-shaped values are stripped from sentence and span before numeric matching, so a dose value need not appear in the cited span."
+  - "citation_traceability: src/polaris_graph/generator/provenance_generator.py:2402-2530 + src/polaris_graph/generator/multi_section_generator.py:2768,2878 - strict_verify defaults telemetry_block=None and live multi_section calls pass no telemetry, so Limitations sentences pass through verified."
+refuted: []
+partial:
+  - location: "prompts: src/polaris_graph/generator/multi_section_generator.py:1655-1729,1810-1949,2206-2268"
+    correction: "The length-maximizer vs atom-OMIT contradiction is real on the legacy raw-evidence prompt when PG_ANTI_VERBOSITY is off, but the code also has a PG_ANTI_VERBOSITY concise variant, and Gate-B forces PG_SECTION_DISTILL=1 so this exact legacy prompt is bypassed for distill-enabled legacy sections."
+  - location: "citation_traceability: src/polaris_graph/llm/entailment_judge.py:398-403 + src/polaris_graph/clinical_generator/strict_verify.py:170-196 + src/polaris_graph/generator/provenance_generator.py:1952-2168 + scripts/dr_benchmark/run_gate_b.py:523,926-935,1016-1033"
+    correction: "The judge_error sentinel and off/warn non-binding modes exist, but 'off is the literal module default' is false in current code: default is enforce, and Gate-B force-sets and preflights PG_STRICT_VERIFY_ENTAILMENT=enforce. This is an explicit-config escape hazard, not a missing-env live Gate-B P1."
+  - location: "citation_traceability: src/polaris_graph/generator/provenance_generator.py:1048-1066,1196-1298,1378,1966-2133 + scripts/dr_benchmark/run_gate_b.py:675,792,868"
+    correction: "PG_PROVENANCE_REANCHOR and PG_VERIFICATION_MODE default off, but PG_SPAN_RESOLVER is forced on and required by Gate-B. With resolver on, numeric local-window entailment pass-through re-points single-token citations; PG_PROVENANCE_REANCHOR off mainly disables recovery of otherwise-dropped sentences."
+  - location: "citation_traceability: src/polaris_graph/generator/live_deepseek_generator.py:380-396 + src/polaris_graph/generator/multi_section_generator.py:2764 + src/polaris_graph/generator/contract_section_runner.py:175"
+    correction: "The discarded _unver telemetry is real. However, an unknown evidence id is not stripped at the rewriter site; it is left as a bare marker and later fails strict_verify. Empty direct_quote markers are stripped immediately."
+  - location: "citation_traceability: src/polaris_graph/synthesis/finding_dedup.py:18-41,92-112,241-256 + src/polaris_graph/retrieval/contradiction_detector.py:170-205"
+    correction: "The legacy representative-drop path is live because Gate-B does not set PG_SWEEP_CREDIBILITY_REDESIGN. The current extractor now has comparator/population fields, but finding_dedup._finding_key still omits them, so the over-merge/drop risk remains with a corrected root-cause description."
+novel_chokepoints:
+  - location: "src/polaris_graph/generator/evidence_distiller.py:207-232,235-256,329-377 + src/polaris_graph/generator/multi_section_generator.py:2716-2746 + scripts/dr_benchmark/run_gate_b.py:691,1301"
+    what: "Gate-B force-enables PG_SECTION_DISTILL, but the distiller MAP and REDUCE prompts never receive the research_question; they receive only section_title/section_focus, and some planner assignment paths set focus=title."
+    why_it_chokes: "Fixing the legacy _call_section placeholder still leaves the paid distill path without the full query scope. MAP decides what is on-topic from generic section context, and REDUCE is ordered to cover every validated finding, so scoped population/comparator/jurisdiction constraints can be missed or over-included before strict_verify sees only local sentence faithfulness."
+    fix: "Thread research_question and mapped sub-query/facet text into distill_section_evidence, SectionDistillate, _render_map_user, and render_reduce_user; keep strict_verify unchanged."
+    severity: P1
+notes: "Continuing confirmed P1s remain in prompts and citation rendering; several Claude P1 citation claims are real lower-level hazards but overstated for current Gate-B because defaults/preflight force entailment enforce and span_resolver on."

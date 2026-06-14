@@ -1,0 +1,85 @@
+verdict: REQUEST_CHANGES
+confirmed:
+  - location: "scripts/run_honest_sweep_r3.py:8826-8851, 8484-8533"
+    verified: "Sweep calls run_one_query unconditionally; generic exceptions write only an error manifest, with no resume/skip/checkpoint read."
+  - location: "scripts/run_honest_sweep_r3.py:7025-7065, 7527-8397"
+    verified: "verification_details/evidence_pool and the D8 seam are post-composition; there is no resumable composed-report or verification checkpoint."
+  - location: "src/polaris_graph/retrieval/live_retriever.py:77-83, 871-957, 1061-1066; scripts/run_honest_sweep_r3.py:1862-1918, 8707-8729"
+    verified: "authority_enrich.sqlite and retrieval_cache.sqlite are caches/accelerators only, not reloadable stage checkpoints."
+  - location: "scripts/run_honest_sweep_r3.py:2817-2820, 5909-5912, 7106-7110"
+    verified: "The named checkpoint sites are cooperative cancel probes; they write terminal cancelled manifests only."
+  - location: "scripts/run_honest_sweep_r3.py:6099"
+    verified: "section_temperature is a bare call-site literal with no PG_SECTION_TEMPERATURE override."
+  - location: "src/polaris_graph/retrieval/live_retriever.py:90-104, 279, 1347, 3137-3143"
+    verified: "live retriever defaults/worker auto-scaling/page/jsonld caps are env-wrapped only in part; worker floor/ceiling/divisor and two caps are bare constants."
+  - location: "src/polaris_graph/llm/openrouter_client.py:804-805, 1563/1592, 2697/2734, 3060"
+    verified: "retry policy and core client default max_tokens/temperature/reasoning_effort are hardcoded method/module defaults."
+  - location: "src/polaris_graph/generator/live_deepseek_generator.py:411-412"
+    verified: "generate_live_draft has hardcoded temperature/max_tokens defaults and appears latent in this sweep."
+  - location: "src/polaris_graph/agents/searcher.py:194, 705, 746, 850, 938"
+    verified: "agentic-search API waits use bare 30/45 second timeouts."
+
+refuted: []
+
+partial:
+  - location: "scripts/run_honest_sweep_r3.py:3466-3479, 3596-3602, 7059-7065"
+    correction: "Claude is right that there is no reloadable final retrieval checkpoint, but not literally zero pre-composition writes: live_corpus_dump.json is written before composition. It only dumps classified_sources, omits evidence_rows/final selection and later expansion/deepener/agentic/STORM mutations, and is never read on resume."
+  - location: "src/polaris_graph/generator/multi_section_generator.py:73-96, 5509-5552"
+    correction: "The first-pass section gather has no return_exceptions and no per-section persistence, so results are lost on failure. However asyncio.gather does not automatically cancel sibling tasks on first exception; siblings may continue orphaned rather than being cleanly cancelled."
+  - location: "src/polaris_graph/generator/multi_section_generator.py:5844-5848, 6011-6063"
+    correction: "Claude's M-44 regen all-or-nothing claim is stale: M-44 already uses return_exceptions=True and M-47 catches non-credibility exceptions. There is still no durable per-section regen checkpoint, but this is not the same gather-crash blocker."
+  - location: "scripts/run_honest_sweep_r3.py:3021-3065"
+    correction: "The direct sweep defaults are still throttled at 12/12/40, but Gate-B applies a full-capability floor slate before importing the sweep. This is a P1 for direct/bypassing callers and stale defaults, not for Gate-B main when the slate runs."
+  - location: "scripts/run_honest_sweep_r3.py:6107; src/polaris_graph/generator/multi_section_generator.py:5070"
+    correction: "outline_max_tokens is hardcoded/no-PG at both call site and module default. The 'clobbers env-overridable module default' wording is wrong because the module default is not env-wrapped either."
+  - location: "src/polaris_graph/generator/multi_section_generator.py:2793-2794, 5098, 5110, 5607-5608"
+    correction: "These are real non-PG literals, but the current DeepSeek path is partly protected by OpenRouterClient's reasoning-first floor to PG_REASONING_FIRST_MIN_MAX_TOKENS. The starvation rationale is stale for the locked generator, though the tunability defect remains."
+
+novel_chokepoints:
+  - location: "scripts/run_honest_sweep_r3.py:6132-6134 vs src/polaris_graph/generator/multi_section_generator.py:220"
+    what: "section_max_tokens call-site default is stale 16384 while the module default is 64000"
+    why_it_chokes: "The runner clobbers the current 64000-token section budget; the client may floor to 32768, but the live section writer still does not get the intended 64k budget."
+    fix: "Default the runner to PG_SECTION_MAX_TOKENS=64000 or omit the override and use the module constant; add a conformance gate that fails below the governed floor."
+    severity: P1
+  - location: "src/polaris_graph/llm/openrouter_client.py:801, 1814-1821"
+    what: "generator LLM timeout default remains 1800s"
+    why_it_chokes: "1800s is sized around the old ~16k/32k budget, not a 64000-token section at slow-band throughput; a legitimate long section can still time out below the operator sizing rule."
+    fix: "Make the default unlimited-with-watchdog or raise/floor PG_GENERATOR_LLM_TIMEOUT_SECONDS from the configured section budget and slow-band tokens/sec."
+    severity: P1
+  - location: "scripts/run_honest_sweep_r3.py:4758, 4875-4884"
+    what: "generator-visible evidence pool defaults to PG_LIVE_MAX_EV_TO_GEN=20"
+    why_it_chokes: "A direct run can retrieve hundreds/thousands of rows and still silently feed only 20 into generation before per-section selection."
+    fix: "Raise the default to the full extracted corpus floor used by Gate-B, or fail startup if it is below full-capability without an explicit downgrade token."
+    severity: P1
+  - location: "scripts/run_honest_sweep_r3.py:3733-3746"
+    what: "R-6 expansion defaults are still 4 queries, 5/5 results, fetch_cap 15"
+    why_it_chokes: "The secondary retrieval lane remains breadth-throttled for non-Gate-B callers and can leave coverage gaps unresolved."
+    fix: "Promote the Gate-B full-capability floors into governed defaults or startup conformance."
+    severity: P2
+  - location: "scripts/run_honest_sweep_r3.py:3142-3144"
+    what: "research planner writer call hardcodes max_tokens=2000 and temperature=0.2"
+    why_it_chokes: "Planner output budget/temperature cannot be changed via PG_ env; if planner mode is enabled, this can truncate or destabilize the plan stage."
+    fix: "Add PG_RESEARCH_PLANNER_MAX_TOKENS and PG_RESEARCH_PLANNER_TEMPERATURE."
+    severity: P2
+  - location: "scripts/run_honest_sweep_r3.py:4973-4975"
+    what: "topic relevance gate writer call hardcodes max_tokens=1200 and temperature=0.0"
+    why_it_chokes: "When the optional topic gate is enabled, its classifier budget is not operator-tunable and failure falls open."
+    fix: "Add PG_SCOPE_TOPIC_MAX_TOKENS and PG_SCOPE_TOPIC_TEMPERATURE."
+    severity: P2
+  - location: "src/polaris_graph/generator/multi_section_generator.py:4443-4447, 5355-5358"
+    what: "M-44 primary injection uses hardcoded max_ev_per_section=20 and call site does not pass PG_MAX_EV_PER_SECTION"
+    why_it_chokes: "Primary-study injection can swap/drop as if sections were capped at 20 even when the run config raises section evidence capacity."
+    fix: "Pass int(os.getenv('PG_MAX_EV_PER_SECTION','40')) or share the existing section cap resolver."
+    severity: P2
+  - location: "scripts/run_honest_sweep_r3.py:6493-6498"
+    what: "quantified ModelSpec writer call hardcodes max_tokens=4000 and temperature=0.0"
+    why_it_chokes: "Gate-B force-enables quantified analysis, but this paid LLM call has no PG budget/temperature knob; empty output later trips readiness instead of being configurable."
+    fix: "Add PG_QUANTIFIED_SPEC_MAX_TOKENS and PG_QUANTIFIED_SPEC_TEMPERATURE."
+    severity: P2
+  - location: "src/polaris_graph/agents/evidence_deepener.py:483, 568, 759, 860; src/polaris_graph/agents/searcher.py:1003, 2424"
+    what: "additional search/deepener aiohttp timeouts are bare 15/30 second constants"
+    why_it_chokes: "Optional breadth lanes can cut slow S2/Exa/deepener calls without a PG_ lever."
+    fix: "Route through PG_DEEPENER_HTTP_TIMEOUT_SECONDS and PG_SEARCH_API_TIMEOUT_SECONDS or lane-specific PG_ knobs."
+    severity: P3
+
+notes: "No code changes made. Main verdict is REQUEST_CHANGES because continuing P0/P1 checkpoint risks are confirmed and novel P1 hardcoded defaults remain."

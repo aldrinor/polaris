@@ -1,0 +1,31 @@
+verdict: REQUEST_CHANGES
+confirmed:
+  - "src/polaris_graph/retrieval/semantic_conflict_detector.py:373-380: raw GLM side-judge body uses one max_tokens=2000 pool plus reasoning effort, no numeric reasoning cap."
+  - "src/polaris_graph/llm/entailment_judge.py:97,245-252: same single-pool GLM pattern with default max_tokens=2000."
+  - "src/polaris_graph/authority/credibility_judge_caller.py:36,117-125: same single-pool GLM pattern with default max_tokens=8000."
+  - "src/polaris_graph/roles/openrouter_role_transport.py:270-278: four-role transport defaults to xhigh and explicitly documents high as lower than max."
+  - "src/polaris_graph/tools/react_agent.py:2381-2386: ReAct scaffold hardcodes effort=\"high\" and max_tokens=4096."
+  - "src/polaris_graph/tools/react_agent.py:5924-5931: ReAct critique uses env effort default high but hardcodes max_tokens=2048."
+  - "src/polaris_graph/agents/analyzer.py:2063-2072,2226-2233: extraction uses PG_EXTRACTION_MAX_TOKENS=16384 and PG_EXTRACTION_REASONING_MAX_TOKENS=2048."
+  - "src/polaris_graph/roles/judge_adapter.py:35,98,122,140: Judge default max_tokens=16; src/polaris_graph/roles/openai_compatible_transport.py:279-307 only floors self-host Sentinel, not Judge."
+  - "src/polaris_graph/roles/openrouter_role_transport.py:630-631 vs 681-736: docstring still says old 16384/256 defaults while code uses 131072/262140/4096-era budgets."
+refuted: []
+partial:
+  - location: "src/polaris_graph/generator/evidence_distiller.py:100-109; src/polaris_graph/generator/evidence_distiller.py:1035-1049; src/polaris_graph/generator/multi_section_generator.py:2074-2088"
+    correction: "Claude is right that MAP/REDUCE send small explicit reasoning_max_tokens values, but 'hard-caps V4-Pro reasoning' is stronger than the code supports: src/polaris_graph/llm/openrouter_client.py:1699-1701 says V4 Pro provider-side reasoning.max_tokens is not enforced. Treat as a bad/deceptive budget request plus total-budget risk, not a proven hard cap."
+  - location: "src/polaris_graph/generator/multi_section_generator.py:5070,5091,5098,5110,5607,6192,6349,6424"
+    correction: "The small generator caps are real/dead under the DeepSeek floor, but the live runner overrides limitations_max_tokens to PG_LIMITATIONS_MAX_TOKENS default 1500 at scripts/run_honest_sweep_r3.py:6138-6140, so the live limitation cap is not the function default 400 unless called outside that runner."
+  - location: "src/polaris_graph/generator/multi_section_generator.py:220 and legacy section call"
+    correction: "Module default is PG_SECTION_MAX_TOKENS=64000, but the live runner passes section_max_tokens=int(os.environ.get('PG_SECTION_MAX_TOKENS','16384')) at scripts/run_honest_sweep_r3.py:6132-6134. Absent env, the live path does not consume the 64000 module default; OpenRouter floors 16384 to 32768, still below the intended 64000 section budget."
+novel_chokepoints:
+  - location: "scripts/run_honest_sweep_r3.py:6132-6134"
+    what: "Live runner has stale PG_SECTION_MAX_TOKENS default 16384, shadowing multi_section_generator.py's 64000 default."
+    why_it_chokes: "With DeepSeek V4 Pro, the client floors this to 32768, not 64000. After ~17-18k reasoning tokens, large sections can lose content headroom; this directly contradicts the 64000-token sizing directive."
+    fix: "Change the runner default to 64000 or import/use the module constant; keep it PG_SECTION_MAX_TOKENS-governed and update stale comments."
+    severity: P1
+  - location: "scripts/run_honest_sweep_r3.py:3142-3144,4973-4975,6493-6498"
+    what: "Planner, topic-gate, and quantified-analysis helper calls hardcode max_tokens=2000/1200/4000."
+    why_it_chokes: "On locked DeepSeek these are silently floored, but they are non-PG budget literals and can starve if the helper model is overridden to a non-reasoning-first model."
+    fix: "Replace with PG_RESEARCH_PLANNER_MAX_TOKENS, PG_SCOPE_TOPIC_MAX_TOKENS, and PG_QUANTIFIED_ANALYSIS_MAX_TOKENS defaults sized above the floor."
+    severity: P2
+notes: "Used local code plus OpenRouter model list https://openrouter.ai/api/v1/models. Endpoint detail fetch was not available through the tool, so provider-chain min caps are verified from in-repo comments/config rather than live endpoint JSON."
