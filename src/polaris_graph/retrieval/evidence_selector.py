@@ -506,9 +506,20 @@ def _row_relevance(
 
 def _subquery_floor_enabled() -> bool:
     """Kill-switch `PG_SELECT_SUBQUERY_FLOOR` (default OFF). OFF => the
-    whole-question `_row_relevance` score is used unchanged (byte-identical)."""
+    whole-question `_row_relevance` score is used unchanged (byte-identical).
+
+    B1 (b1b10 redesign): the semantic scorer (`PG_RELEVANCE_SCORER=semantic_v2`)
+    implies the sub-query floor for the LEXICAL FALLBACK path — it is MONOTONIC-UP
+    (max over per-sub-query scores, each with a small denominator) so it can only
+    OPEN the floor, never tighten it, mitigating the long-question denominator if
+    the embedder is unavailable and selection degrades to the lexical scorer. Safe
+    because: (a) the semantic path itself takes the per-sub-query max in cosine
+    space, so this only affects the lexical fallback; (b) when semantic_v2 is OFF
+    the env still governs => byte-identical default behavior."""
     raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "0").strip().lower()
-    return raw not in ("0", "false", "no", "off", "")
+    if raw not in ("0", "false", "no", "off", ""):
+        return True
+    return _semantic_scorer_enabled()
 
 
 def _subquery_token_sets(sub_queries: list[str] | None) -> list[set[str]]:
@@ -551,6 +562,166 @@ def _row_relevance_facet(
         if score > best:
             best = score
     return min(1.0, best)
+
+
+# ── B1 (b1b10 redesign, 2026-06-14): SEMANTIC relevance scorer ───────────────
+# THE BUG (claude_plan.md B1 / DUAL_AGREED_PLAN.md): `_row_relevance` =
+# len(overlap)/max(1,len(anchors)) — lexical word-overlap divided by QUESTION
+# LENGTH. The denominator scales with question length, so a ~73-token multi-part
+# research question makes a 0.30 floor demand >=22 exact-word matches; an on-topic
+# T1 paper whose domain vocab (Fusobacterium, butyrate) doesn't lexically match
+# the question's words (predominant, mitigate) is dropped (the live 236/589 loss;
+# the code comment at `_row_relevance` documents the same drb_76 collapse). No
+# single float is safe on that scorer — the SCORER is wrong.
+#
+# THE FIX: embedding-cosine relevance (synonym/paraphrase aware) reusing the
+# ALREADY-LOADED embedder from `prefetch_offtopic_filter` (no new model cost).
+# Relevance stays a FILTER (topical, orthogonal axis); credibility/authority/
+# retrieval_weight stay the WEIGHT in the sort. This is the relevance HALF of
+# §-1.3 (the one axis "weight don't filter" does NOT govern — off-topic is
+# useless at any weight); the faithfulness engine is untouched.
+#
+# GATING: `PG_RELEVANCE_SCORER` (default "lexical"). Only "semantic_v2" activates
+# the embedding scorer AND the restored relevance filter. Unset / any other value
+# => byte-identical lexical behavior (the `_row_relevance_facet` path).
+
+
+def _relevance_scorer_mode() -> str:
+    """Read `PG_RELEVANCE_SCORER` (default "lexical"). "semantic_v2" => the
+    embedding-cosine scorer + restored relevance filter; anything else (incl.
+    unset) => the legacy lexical `_row_relevance_facet` scorer, byte-identical."""
+    return os.environ.get("PG_RELEVANCE_SCORER", "lexical").strip().lower()
+
+
+def _semantic_scorer_enabled() -> bool:
+    """True iff `PG_RELEVANCE_SCORER == semantic_v2`. Default OFF => byte-identical
+    lexical selection (no embedder load, no filter change)."""
+    return _relevance_scorer_mode() == "semantic_v2"
+
+
+def _relevance_drop_ledger_enabled() -> bool:
+    """Kill-switch `PG_RELEVANCE_DROP_LEDGER` (default ON under semantic_v2). When
+    ON, every below-floor relevance drop is logged with its cosine score + url so
+    the operator can audit the filter. Telemetry-only — never changes the keep
+    set. Default-ON is harmless when the semantic scorer is OFF (no drops are made
+    by the semantic filter on the legacy path)."""
+    raw = os.environ.get("PG_RELEVANCE_DROP_LEDGER", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+# Module-level cache: `prefetch_offtopic_filter._load_embedder()` constructs a
+# fresh `EmbeddingService` per call (it does NOT use the singleton), so cache the
+# handle here to reuse the already-resident MiniLM weights across rows / sections.
+# Sentinel `False` = "tried and failed to load" (distinct from `None` = "not yet
+# tried") so the loud-fallback path fires exactly once, not on every section.
+_SEMANTIC_EMBEDDER_CACHE: Any = None
+
+
+def _get_semantic_embedder() -> Any:
+    """Return the cached embedder (reusing `prefetch_offtopic_filter`'s loader so
+    we share the same MiniLM weights / model cost). Returns the embedder, or None
+    if it could not be loaded — the caller MUST handle None with a LOUD fallback
+    to the lexical scorer (LAW II: no silent degrade)."""
+    global _SEMANTIC_EMBEDDER_CACHE
+    if _SEMANTIC_EMBEDDER_CACHE is None:
+        try:
+            from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+                _load_embedder,
+            )
+            loaded = _load_embedder()
+        except Exception as exc:  # import-path failure
+            _LOGGER.warning(
+                "[select] semantic relevance: embedder import failed (%s) — "
+                "the caller will fall back LOUDLY to the lexical scorer.",
+                str(exc)[:200],
+            )
+            loaded = None
+        # False sentinel = "load attempted, unavailable" so we don't retry per row.
+        _SEMANTIC_EMBEDDER_CACHE = loaded if loaded is not None else False
+    return _SEMANTIC_EMBEDDER_CACHE if _SEMANTIC_EMBEDDER_CACHE else None
+
+
+def _row_embed_text(row: dict[str, Any]) -> str:
+    """The text embedded for a row's relevance — statement + direct_quote, the
+    SAME fields the lexical scorer reads (`_row_relevance`), so the two scorers
+    rank the same content surface."""
+    return " ".join(
+        str(row.get(k, "") or "") for k in ("statement", "direct_quote")
+    )
+
+
+def _semantic_relevance_scores(
+    research_question: str,
+    sub_queries: list[str] | None,
+    evidence_rows: list[dict[str, Any]],
+) -> dict[int, float] | None:
+    """Batch embedding-cosine relevance for every row.
+
+    Returns ``{row_index -> max cosine over {research_question} ∪ {sub_queries}}``
+    clamped to [0, 1], or ``None`` if the embedder is unavailable / scoring fails
+    (the caller then falls back LOUDLY to the lexical scorer — never a silent
+    keep-all, LAW II).
+
+    The MAX over the question AND each sub-query is the cosine-space analogue of
+    `_row_relevance_facet`'s max-over-subqueries: a row matching ONE focused facet
+    clears the floor instead of being diluted. Because the score is cosine (not a
+    fraction over the whole-question token set), the long-question denominator that
+    buried on-topic papers is gone at the root — but we still take the per-subquery
+    max so a multi-facet question routes each row to its best-matching facet. All
+    anchors are embedded in the SAME cosine space (no scale-mixing — the silent bug
+    `_row_relevance_facet` would have if base became cosine while subquery stayed
+    lexical).
+    """
+    embedder = _get_semantic_embedder()
+    if embedder is None:
+        return None
+    anchors: list[str] = []
+    q = (research_question or "").strip()
+    if q:
+        anchors.append(q)
+    for sq in sub_queries or []:
+        s = str(sq or "").strip()
+        if s:
+            anchors.append(s)
+    if not anchors:
+        # No usable anchor text — cannot score semantically; fall back loudly.
+        _LOGGER.warning(
+            "[select] semantic relevance: empty research_question AND no "
+            "sub-queries — falling back to the lexical scorer."
+        )
+        return None
+    row_texts = [_row_embed_text(row) for row in evidence_rows]
+    try:
+        from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+            _similarity_scores,
+        )
+        # One embed pass per anchor over ALL row texts (batched inside
+        # `_similarity_scores`); take the per-row MAX across anchors. Rows are
+        # embedded once per anchor (anchors are few: 1 question + a handful of
+        # sub-queries), NEVER once per row.
+        per_anchor: list[list[float]] = [
+            _similarity_scores(embedder, anchor, row_texts) for anchor in anchors
+        ]
+    except Exception as exc:
+        _LOGGER.warning(
+            "[select] semantic relevance scoring failed (%s) — falling back to "
+            "the lexical scorer.",
+            str(exc)[:200],
+        )
+        return None
+    scores: dict[int, float] = {}
+    for i in range(len(evidence_rows)):
+        best = 0.0
+        for sims in per_anchor:
+            if i < len(sims):
+                v = sims[i]
+                if v > best:
+                    best = v
+        # Clamp to [0, 1]: cosine can be negative (off-topic); a negative score is
+        # floored to 0.0 so it reads as "no relevance" and a row with no embeddable
+        # text (empty statement+quote) scores 0.0 rather than being laundered up.
+        scores[i] = min(1.0, max(0.0, float(best)))
+    return scores
 
 
 # ── #955 (S2, 2026-05-30): within-tier-band recency tiebreaker ──────────────
@@ -1658,6 +1829,9 @@ def _relevance_floor_selection(
     relevance_floor: float,
     full_counts: dict[str, int],
     primary_trial_anchors: list[str] | None,
+    semantic_mode: bool = False,
+    semantic_requested: bool = False,
+    semantic_fell_back: bool = False,
 ) -> EvidenceSelection:
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
 
@@ -1668,6 +1842,16 @@ def _relevance_floor_selection(
     row is stamped with the additive ``selection_relevance`` float so
     ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
     drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
+
+    B1 (b1b10 redesign): when ``semantic_mode`` (the score in each tuple is the
+    embedding-cosine relevance, PG_RELEVANCE_SCORER=semantic_v2), the keep set is
+    the RESTORED relevance FILTER (``score >= floor OR floor-exempt``) — reversing
+    the credibility-redesign keep-all over-correction that had let off-topic noise
+    through. Relevance FILTERS; credibility/authority/retrieval_weight WEIGHT the
+    sort (orthogonal axes). ``semantic_requested`` / ``semantic_fell_back`` are
+    telemetry only. When ``semantic_mode`` is False every branch is byte-identical
+    to the prior behavior (the lexical keep-all under PG_SWEEP_CREDIBILITY_REDESIGN,
+    or the lexical floor filter otherwise).
     """
     # I-scope-001 (#1244) gate 1: low-cred domain denylist. Default-OFF — when
     # `PG_SCOPE_DENYLIST_DOMAINS` is empty, `_apply_scope_denylist` returns
@@ -1721,22 +1905,55 @@ def _relevance_floor_selection(
         return False
 
     # I-arch-002 (#1246) P-W1 — WEIGHT, don't FILTER (DNA §-1.3). Under the master
-    # redesign flag the relevance "floor" stops HARD-DROPPING below-floor rows: every
-    # scored row is KEPT carrying its relevance score as the surfaced
-    # `selection_relevance` weight (stamped at the loop below). Confidently-off-topic
-    # removal stays the separate LLM topic gate, not this lexical-overlap cut — the
-    # cut whose long-question denominator buried on-topic T1 papers (the live 236/589
-    # loss). Flag OFF => the exact prior `>= floor OR floor-exempt` keep-filter =>
-    # byte-identical. Ranking + selection_relevance stamp are unchanged either way, so
-    # they become the weight surface (re-wire, not build).
+    # redesign flag the relevance "floor" stopped HARD-DROPPING below-floor rows:
+    # every scored row was KEPT carrying its LEXICAL relevance score. That keep-all
+    # was right for CREDIBILITY (a low-tier source may carry a real finding) but
+    # WRONG for topical RELEVANCE — it let off-topic noise into the pot because the
+    # lexical scorer was the only filter and it was broken (the long-question
+    # denominator buried on-topic T1 papers, so keep-all was the lesser evil).
+    #
+    # B1 (b1b10 redesign): with a SEMANTIC scorer (`semantic_mode`), relevance is a
+    # trustworthy filter again, so RESTORE it — keep rows whose cosine relevance
+    # >= floor OR floor-exempt. This is the relevance/credibility axis split: the
+    # SEMANTIC score FILTERS here; credibility/authority/retrieval_weight still only
+    # WEIGHT the sort below. Off-topic is genuinely useless at any weight (the one
+    # axis §-1.3 "weight don't filter" does not govern). The faithfulness engine is
+    # untouched.
+    #
+    # B1 fallback (Codex diff-gate P0): whenever the operator REQUESTED the semantic
+    # scorer (`semantic_requested`), the filter MUST be restored — even when the
+    # embedder was unavailable and we degraded to the lexical score
+    # (`semantic_requested and not semantic_mode`). Otherwise, under
+    # PG_SWEEP_CREDIBILITY_REDESIGN, an embedder-unavailable run would silently fall
+    # into the keep-all branch (`_redesign_on and ...`), violating the hard
+    # constraint "embedder-unavailable must LOUDLY fall back to the lexical FILTER,
+    # never a silent keep-all". So keep-all is preserved ONLY when semantic was NOT
+    # requested at all (the true legacy path) => byte-identical default.
     _redesign_on = _credibility_redesign_enabled()
-    if _redesign_on:
+    _restore_filter = semantic_mode or semantic_requested
+    if _redesign_on and not _restore_filter:
         kept = list(scored)
     else:
         kept = [
             item for item in scored
             if item[1] >= relevance_floor or _floor_exempt(item[3])
         ]
+    # B1: drop ledger — log every below-floor relevance drop (score + url) so the
+    # operator can audit the semantic filter. Only emits in semantic_mode (the
+    # legacy lexical-floor path already has its own honest-drop log below) and only
+    # when PG_RELEVANCE_DROP_LEDGER is ON. Telemetry only — does not change `kept`.
+    if semantic_mode and _relevance_drop_ledger_enabled():
+        for item in scored:
+            if item[1] < relevance_floor and not _floor_exempt(item[3]):
+                _row = item[3]
+                _url = (
+                    _row.get("source_url") or _row.get("url") or "<no-url>"
+                )
+                _LOGGER.info(
+                    "[select] relevance_drop_ledger: cosine=%.4f < floor=%.4f "
+                    "DROP url=%s tier=%s",
+                    item[1], relevance_floor, _url, item[2],
+                )
     # F15: under the redesign, multiply the ranking score by the per-row
     # retrieval weight so a DOWN-WEIGHTED (content-starved / landing-page) source
     # sorts LAST while still being kept. OFF path is byte-identical (the prior
@@ -1800,12 +2017,27 @@ def _relevance_floor_selection(
     # default (OFF) note is byte-identical to the prior behavior.
     if _preserve_marquee:
         note += f"; marquee_floor_exempt={marquee_exempt}"
+    # B1: surface the semantic-scorer state in telemetry. Strategy id flips to
+    # `relevance_floor_semantic_v1` ONLY when the semantic score actually drove the
+    # filter (the falsifiable manifest check). A requested-but-fell-back run keeps
+    # the legacy strategy id and discloses the LOUD degrade in the note. When the
+    # scorer is OFF (the default), strategy + note are byte-identical to the prior
+    # behavior.
+    strategy = "relevance_floor_v1"
+    if semantic_mode:
+        strategy = "relevance_floor_semantic_v1"
+        note += "; relevance_scorer=semantic_v2 (embedding-cosine FILTER)"
+    elif semantic_requested and semantic_fell_back:
+        note += (
+            "; relevance_scorer=semantic_v2 REQUESTED but embedder unavailable "
+            "— LOUD fallback to lexical scorer (filtered on lexical score)"
+        )
     return EvidenceSelection(
         selected_rows=selected_rows,
         full_counts=full_counts,
         selected_counts=selected_counts,
         dropped_count=dropped_count,
-        selection_strategy="relevance_floor_v1",
+        selection_strategy=strategy,
         notes=[note],
     )
 
@@ -1894,13 +2126,42 @@ def select_evidence_for_generation(
         _subquery_token_sets(sub_queries) if relevance_floor is not None else []
     )
 
+    # B1 (b1b10 redesign): SEMANTIC relevance scorer (PG_RELEVANCE_SCORER=
+    # semantic_v2, default OFF). CONFINED to the relevance-floor path (the same
+    # `relevance_floor is not None` guard as the sub-query floor) so the legacy
+    # tier-balanced TRUNCATING path stays byte-identical (lifting a row's score
+    # there could displace a kept row). When ON, every row's `score` is the
+    # embedding-cosine relevance (max over the question + sub-queries) instead of
+    # the lexical-overlap-÷-question-length fraction. Embedder unavailable / scoring
+    # failure => `_semantic_scores` is None => LOUD fallback to the lexical scorer
+    # (LAW II: no silent degrade). The restored relevance FILTER on this score lives
+    # in `_relevance_floor_selection`; credibility/authority/retrieval_weight keep
+    # their WEIGHT role in the sort there.
+    _semantic_scores: dict[int, float] | None = None
+    _semantic_fell_back = False
+    if relevance_floor is not None and _semantic_scorer_enabled():
+        _semantic_scores = _semantic_relevance_scores(
+            research_question, sub_queries, evidence_rows,
+        )
+        if _semantic_scores is None:
+            _semantic_fell_back = True
+            _LOGGER.warning(
+                "[select] PG_RELEVANCE_SCORER=semantic_v2 requested but the "
+                "embedder/scoring was unavailable — FELL BACK to the lexical "
+                "scorer for this selection (relevance still filtered, on the "
+                "lexical score). This is a LOUD degrade, not a silent keep-all."
+            )
+
     # Score every row and tag with tier + original index.
     scored: list[tuple[int, float, str, dict[str, Any]]] = []
     for idx, row in enumerate(evidence_rows):
         tier = _row_tier(row, url_to_tier)
-        score = _row_relevance_facet(
-            row, question_tokens, protocol_tokens, _subq_token_sets,
-        )
+        if _semantic_scores is not None:
+            score = _semantic_scores.get(idx, 0.0)
+        else:
+            score = _row_relevance_facet(
+                row, question_tokens, protocol_tokens, _subq_token_sets,
+            )
         scored.append((idx, score, tier, row))
 
     # Full tier counts (FROM evidence_rows, the selectable universe).
@@ -1919,6 +2180,9 @@ def select_evidence_for_generation(
             relevance_floor=relevance_floor,
             full_counts=full_counts,
             primary_trial_anchors=primary_trial_anchors,
+            semantic_mode=(_semantic_scores is not None),
+            semantic_requested=_semantic_scorer_enabled(),
+            semantic_fell_back=_semantic_fell_back,
         )
 
     # I-perm-003 (#1197): corpus-size-scaled budget (default OFF). Fixed-cap
