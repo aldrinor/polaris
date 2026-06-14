@@ -733,6 +733,14 @@ class MultiSectionResult:
     # I-cred-012a (#1164): CredibilityAnalysis from the activated pass (None when the master flag is off
     # => byte-identical). 008b consumes it for per-claim disclosure rendering.
     credibility_analysis: Any = None
+    # B5/B7 (operator-locked 2026-06-14): when the activated credibility pass FAILS (judge_error /
+    # independence gap — the side-judge failure that aborted drb_72) AND always-release is ON, the
+    # pass DEGRADES to the flag-OFF path (credibility_analysis=None, sources ship unscored at neutral
+    # weight) and the failure is surfaced HERE as a LOUD disclosed gap rather than aborting the
+    # question. None when the pass succeeded or the flag is OFF (byte-identical). The faithfulness
+    # gates (strict_verify + 4-role D8) are untouched — only the ADVISORY credibility disclosure is
+    # degraded, never a binding gate.
+    credibility_disclosed_gap: str | None = None
     # I-ready-017 FX-07b leg-2 (#1111): per-(slot_id, entity_id) strict_verify
     # telemetry aggregated from every contract SectionResult.slot_strict_verify,
     # keyed (slot_id, entity_id) -> {sentences_kept, sentences_generated_content,
@@ -5770,6 +5778,10 @@ async def generate_multi_section_report(
     # but no production judge/gov_suffixes threaded => abort, never a priors-only false-green. READ-ONLY:
     # the pass annotates row COPIES; evidence_pool is unchanged (no capability downgrade / pool shrink).
     credibility_analysis = None
+    # B5/B7 (operator-locked 2026-06-14): carries the LOUD disclosed gap when the activated
+    # credibility pass FAILS under always-release (degrade-to-OFF-path instead of aborting). None
+    # when the pass succeeded or the flag is OFF (byte-identical).
+    _credibility_disclosed_gap: str | None = None
     if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
         from ..synthesis import credibility_pass as _credibility_pass  # gated import: inert when flag OFF
         if credibility_pass_judge is None or not credibility_pass_gov_suffixes:
@@ -5784,6 +5796,7 @@ async def generate_multi_section_report(
         # in the process-global cost ledger but NOT this task's _RUN_COST_CTX (a copy), so reconcile the
         # delta back after so the run-budget gate stays inclusive for the rest of generation.
         from ..llm import openrouter_client as _orc_cred
+        from ..roles.release_policy import always_release_enabled as _always_release_enabled
         _cred_sid = _orc_cred.current_run_id() or ""
         _cred_cost_before = _orc_cred.ledger_cumulative(_cred_sid)
         try:
@@ -5798,6 +5811,27 @@ async def generate_multi_section_report(
                 # None when unset.
                 gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
                 judge=credibility_pass_judge,
+            )
+        except _credibility_pass.CredibilityPassError as _cred_exc:
+            # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
+            # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /
+            # independence gap — the drb_72 killer) must NOT abort the question. Under always-release
+            # DEGRADE to the byte-identical flag-OFF path (credibility_analysis stays None -> the four
+            # apply_disclosure_to_svs sites are all `is not None`-guarded, so sources ship UNSCORED at
+            # neutral weight = "weight don't filter") and surface the failure as a LOUD disclosed gap.
+            # OFF (legacy) re-raises -> the existing fail-loud abort, byte-identical.
+            if not _always_release_enabled():
+                raise
+            logger.warning(
+                "[credibility] activated pass FAILED under always-release -> degrade to "
+                "unscored + LABEL (no abort): %s", _cred_exc,
+            )
+            credibility_analysis = None
+            _credibility_disclosed_gap = (
+                "credibility_pass_unavailable: the activated credibility analysis could not "
+                f"complete ({_cred_exc}); sources ship UNSCORED at neutral credibility weight and "
+                "this gap is disclosed. The binding faithfulness gates (strict_verify, 4-role D8, "
+                "span-grounding) are unaffected — only the advisory credibility disclosure is degraded."
             )
         finally:
             # Reconcile the offloaded credibility spend into THIS task's run-cost EVEN on abort (Codex P2):
@@ -6982,6 +7016,9 @@ async def generate_multi_section_report(
         limitations_output_tokens=lim_out_tok,
         # I-cred-012a (#1164): advisory credibility analysis (None when the master flag is off)
         credibility_analysis=credibility_analysis,
+        # B5/B7 (operator-locked 2026-06-14): LOUD disclosed gap if the activated credibility pass
+        # failed under always-release (degrade-to-OFF-path, no abort). None otherwise.
+        credibility_disclosed_gap=_credibility_disclosed_gap,
         # I-bug-105 two-layer report
         analyst_synthesis_text=analyst_synth_text,
         analyst_synthesis_input_tokens=analyst_synth_in_tok,

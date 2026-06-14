@@ -59,7 +59,12 @@ def test_on_releases_drb76_as_insufficient_safety():
 # --- the no-fabrication hard line (synthetic) -----------------------------------------------
 
 
-def test_fabricated_is_always_hard_block():
+def test_fabricated_hard_blocks_when_redaction_off():
+    """B5/B7 (operator-ratified 2026-06-14) SUPERSEDES the I-perm-001 "fabricated is ALWAYS a hard
+    block" rule. The narrowing (drop the fabricated claim + disclose + ship) is SAFE only because
+    the report_redactor excises the fabricated claim's prose. When redaction is DISABLED
+    (redaction_active=False, the test/offline kill-switch), the fabricated claim could ship as
+    asserted prose, so FABRICATED REMAINS a hard block — the coupling guard."""
     out = compute_release_outcome(
         _decision(release_allowed=False, held_reasons=["d8_fabricated_occurrence"], fabricated=True),
         zero_verified=False,
@@ -67,11 +72,54 @@ def test_fabricated_is_always_hard_block():
         safety_floor_insufficient=False,
         coverage_fraction=0.9,
         always_release=True,
+        redaction_active=False,
     )
     assert out.hard_block is True
     assert out.released is False
     assert "d8_fabricated_occurrence" in out.hard_block_reasons
     assert out.status != "released_with_disclosed_gaps"
+
+
+def test_fabricated_ships_minus_claim_when_redaction_active():
+    """B5/B7 (operator-ratified 2026-06-14): with redaction ACTIVE (production default), a FABRICATED
+    occurrence is NO LONGER a whole-report block. The report ships MINUS the fabricated claim (the
+    redactor excises its prose) with a LOUD disclosed-gap label — "nothing shall hold the report".
+    This is NOT a faithfulness relaxation: fabricated is still detected and still excised from
+    asserted prose; only the report-level disposition changes from withhold-all to ship-minus-claim.
+    """
+    out = compute_release_outcome(
+        _decision(release_allowed=False, held_reasons=["d8_fabricated_occurrence"], fabricated=True),
+        zero_verified=False,
+        zero_usable_evidence=False,
+        safety_floor_insufficient=False,
+        coverage_fraction=0.9,
+        always_release=True,
+        redaction_active=True,
+    )
+    assert out.hard_block is False
+    assert out.released is True
+    assert out.status == "released_with_disclosed_gaps"
+    # The hard-block token is NOT surfaced; the explicit ship-minus-claim disclosure IS.
+    assert "d8_fabricated_occurrence" not in out.disclosed_gaps
+    assert "d8_fabricated_citation_dropped_and_disclosed" in out.disclosed_gaps
+    assert out.hard_block_reasons == []
+
+
+def test_fabricated_off_path_still_hard_blocks():
+    """Flag OFF (legacy regression) keeps fabricated as a hard withhold, byte-identical — the
+    narrowing is strictly an always-release behaviour."""
+    out = compute_release_outcome(
+        _decision(release_allowed=False, held_reasons=["d8_fabricated_occurrence"], fabricated=True),
+        zero_verified=False,
+        zero_usable_evidence=False,
+        safety_floor_insufficient=False,
+        coverage_fraction=0.9,
+        always_release=False,
+        redaction_active=True,
+    )
+    assert out.released is False
+    assert out.hard_block is True
+    assert "d8_fabricated_occurrence" in out.hard_block_reasons
 
 
 def test_zero_grounding_is_hard_block():

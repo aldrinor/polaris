@@ -24,7 +24,9 @@ def _decision(monkeypatch, *, always_release: bool):
     if always_release:
         monkeypatch.setenv("PG_ALWAYS_RELEASE", "1")
     else:
-        monkeypatch.delenv("PG_ALWAYS_RELEASE", raising=False)
+        # B5/B7 (2026-06-14): PG_ALWAYS_RELEASE default is now ON. The legacy OFF path is reached
+        # only by an EXPLICIT off token — pin it here (delenv would now resolve to the default ON).
+        monkeypatch.setenv("PG_ALWAYS_RELEASE", "0")
     # One material, non-VERIFIED claim -> populates needs_rewrite (rewrite_already_attempted=False,
     # as every production call site hardcodes).
     rows = [D8ClaimRow(claim_id="c1", severity="S1", verdict="UNSUPPORTED")]

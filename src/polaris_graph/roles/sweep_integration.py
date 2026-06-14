@@ -826,12 +826,22 @@ def run_four_role_evaluation(
     }
     _required_s0 = set(required_s0_categories)
     _safety_floor_insufficient = bool(_required_s0) and _required_s0 <= _missing_s0
+    # B5/B7 (operator-ratified 2026-06-14): the FABRICATED narrowing (ship-minus-the-claim instead
+    # of whole-report block) is SAFE only because the report_redactor excises the fabricated claim's
+    # prose. The redactor is gated by PG_REDACT_HELD_UNSUPPORTED (default ON; the kill-switch is
+    # "0"/"false"/"False" for offline-test isolation only — same predicate as the runner at the
+    # reconcile_report_against_verdicts call site). When redaction is OFF, FABRICATED stays a hard
+    # block (is_hard_block) so a fabricated claim can never ship as asserted prose.
+    _redaction_active = os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+        "0", "false", "False",
+    )
     release_outcome = compute_release_outcome(
         decision,
         zero_verified=_zero_verified,
         zero_usable_evidence=_zero_usable_evidence,
         safety_floor_insufficient=_safety_floor_insufficient,
         coverage_fraction=internal_ledger.fraction(),
+        redaction_active=_redaction_active,
     )
 
     return FourRoleEvaluationResult(

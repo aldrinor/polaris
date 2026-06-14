@@ -337,13 +337,26 @@ def to_gaps_json(decision: ReleaseDecision) -> list[dict]:
 # gaps / zero VERIFIED safety content) does not HARD-block, but it blocks the NORMAL render and
 # ships an honest "insufficient safety evidence" report instead (operator decision, blueprint R2).
 #
-# DEFAULT OFF: PG_ALWAYS_RELEASE unset/0/false/no/off -> compute_release_outcome reproduces the
-# legacy `release_allowed` decision verbatim (byte-identical; no status/label change).
+# B5/B7 (2026-06-14): DEFAULT ON. ONLY an EXPLICIT off token ('0'/'false'/'no'/'off') reproduces
+# the legacy `release_allowed` decision verbatim (byte-identical). Unset / empty / unrecognized ->
+# ON. The legacy-regression callers pass the off state EXPLICITLY (compute_release_outcome's
+# `always_release=False` arg, or env '0') — never an empty string.
 
-# Master flag (default OFF -> legacy withhold behaviour, byte-identical). ON only on an EXPLICIT
-# truthy token (Codex slice-1 P2: a stray value like "garbage" must NOT silently enable it).
+# Master flag.
+#
+# B5/B7 (DUAL_AGREED_PLAN, operator-locked 2026-06-14) — "nothing shall hold the report":
+# the production DEFAULT is now ON (always-release). Holds become DISPLAYED disclosed-gap labels;
+# every run ships an honest artifact. The OFF switch is retained for the byte-identical legacy
+# regression: an EXPLICIT off token (``0`` / ``false`` / ``off`` / ``no``) restores the legacy
+# withhold decision verbatim. UNSET, EMPTY (``""``), and any UNRECOGNIZED value resolve to the
+# default ON — a default-ON flag must never SILENTLY withhold a report on an unset/stray/empty
+# value. The legacy-regression callers never pass ``""``; they pass ``"0"`` (env) or
+# ``always_release=False`` (the explicit arg to ``compute_release_outcome``).
 _ENV_ALWAYS_RELEASE = "PG_ALWAYS_RELEASE"
 _ON_VALUES = frozenset({"1", "true", "yes", "on"})
+# Explicit OFF tokens — the ONLY way to restore the legacy withhold path. Anything else (unset,
+# unrecognized) resolves to the default-ON always-release behaviour.
+_OFF_VALUES = frozenset({"0", "false", "no", "off"})
 
 # Held reasons that are NON-hard: under always-release they become disclosed-gap labels, not
 # release blockers. A FABRICATED occurrence is the one held reason that is NEVER a mere label.
@@ -363,17 +376,41 @@ STATUS_ABORT_NO_VERIFIED = "abort_no_verified_sections"
 STATUS_ABORT_FOUR_ROLE_HELD = "abort_four_role_release_held"
 STATUS_ABORT_FABRICATED = "abort_evaluator_critical"
 
+# B5/B7 (DUAL_AGREED_PLAN §B5/B7, operator-RATIFIED 2026-06-14): a FABRICATED citation is an
+# INVENTED source not in the evidence pool — it can never be honestly LABELED (there is no real
+# basket to disclose). The ratified disposition is: DROP that one claim with a LOUD disclosure and
+# still SHIP the report, rather than HARD-blocking the whole report. The fabricated claim's prose
+# is removed by the report_redactor (verdict set includes FABRICATED); this gap reason surfaces the
+# drop as a DISPLAYED label so the drop is never silent. This is NOT a faithfulness relaxation: the
+# fabricated claim is still detected and still excised from asserted prose — only the REPORT-LEVEL
+# disposition changes from withhold-everything to ship-minus-the-bad-claim.
+_GAP_FABRICATED_CITATION_DROPPED = "d8_fabricated_citation_dropped_and_disclosed"
+
 
 def is_hard_block(
     *,
     fabricated_occurrence_latched: bool,
     zero_verified: bool,
     zero_usable_evidence: bool,
+    redaction_active: bool = True,
 ) -> bool:
-    """The canonical no-fabrication hard line (blueprint R1): a report is HARD-blocked iff a
-    FABRICATED occurrence latched OR there is true zero-grounding (no VERIFIED claim AND no usable
-    evidence). Everything else releases (with labels) under always-release."""
-    return bool(fabricated_occurrence_latched or (zero_verified and zero_usable_evidence))
+    """The canonical no-fabrication hard line — narrowed per B5/B7 (operator-ratified 2026-06-14).
+
+    A report is HARD-blocked iff there is true zero-grounding (no VERIFIED claim AND no usable
+    evidence), OR a FABRICATED occurrence latched WHILE per-claim redaction is NOT active.
+
+    ``redaction_active`` (default True — production leaves ``PG_REDACT_HELD_UNSUPPORTED`` ON, the
+    kill-switch is test/offline-only) is the SAFETY COUPLING the narrowing depends on: a fabricated
+    claim is allowed to ship-minus-itself ONLY because the redactor guarantees the fabricated claim's
+    prose is excised. If redaction is disabled, the fabricated claim could ship as asserted prose, so
+    FABRICATED REMAINS a hard block — the narrowing is gated on the excision being guaranteed.
+    Zero-grounding is ALWAYS a hard block regardless of redaction.
+    """
+    if zero_verified and zero_usable_evidence:
+        return True
+    if fabricated_occurrence_latched and not redaction_active:
+        return True
+    return False
 
 
 @dataclass
@@ -400,10 +437,17 @@ class ReleaseOutcome:
 
 
 def always_release_enabled() -> bool:
-    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+    """PG_ALWAYS_RELEASE — production DEFAULT ON (B5/B7: "nothing shall hold the report").
+
+    OFF only on an EXPLICIT off token ('0'/'false'/'no'/'off'). Unset, EMPTY (''), OR any
+    unrecognized value resolves to the default (ON) — a default-ON flag must never SILENTLY
+    withhold a report on an unset/empty/typo value. The OFF switch is the byte-identical
+    legacy-regression escape hatch; legacy callers pass it explicitly ('0' via env, or
+    always_release=False to compute_release_outcome) and never as an empty string.
+    """
     import os
 
-    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() in _ON_VALUES
+    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() not in _OFF_VALUES
 
 
 def compute_release_outcome(
@@ -414,47 +458,75 @@ def compute_release_outcome(
     safety_floor_insufficient: bool,
     coverage_fraction: float,
     always_release: bool | None = None,
+    redaction_active: bool = True,
 ) -> ReleaseOutcome:
     """Map a D8 ``ReleaseDecision`` to a release outcome under the always-release reframe.
 
-    When always-release is OFF (default), reproduce the LEGACY decision verbatim: ``released`` ==
+    When always-release is OFF, reproduce the LEGACY decision verbatim: ``released`` ==
     ``decision.release_allowed``, the held reasons stay blockers, and the status is the legacy
     held/success label — byte-identical behaviour. When ON, convert non-hard holds to disclosed
-    gaps and release, keeping only the fabricated/zero-grounding hard line and the clinical
-    safety-floor normal-render block (blueprint R1/R2).
+    gaps and release, keeping only the zero-grounding hard line and the clinical safety-floor
+    normal-render block.
+
+    ``redaction_active`` (default True — production default; the kill-switch is test/offline-only):
+    B5/B7 (operator-ratified 2026-06-14) NARROWS the FABRICATED block. With redaction active, a
+    latched FABRICATED occurrence ships the report MINUS the fabricated claim (excised by the
+    report_redactor) with a LOUD disclosed-gap label, rather than hard-blocking the whole report.
+    Only TRUE zero-grounding remains a whole-report hard block. If redaction is disabled, FABRICATED
+    stays a hard block (the fabricated prose could otherwise ship) — see ``is_hard_block``.
     """
     enabled = always_release_enabled() if always_release is None else always_release
     hard_block = is_hard_block(
         fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
         zero_verified=zero_verified,
         zero_usable_evidence=zero_usable_evidence,
+        redaction_active=redaction_active,
     )
     hard_block_reasons: list[str] = []
-    if decision.fabricated_occurrence_latched:
-        hard_block_reasons.append(_REASON_FABRICATED_OCCURRENCE)
     if zero_verified and zero_usable_evidence:
         hard_block_reasons.append("zero_grounding")
+    # The fabricated reason is a HARD-block reason ONLY while it actually hard-blocks (redaction
+    # off). When the narrowing applies (always-release ON + redaction active) it is surfaced as a
+    # disclosed-gap label below, never as a hard_block_reason.
+    if decision.fabricated_occurrence_latched and not redaction_active:
+        hard_block_reasons.append(_REASON_FABRICATED_OCCURRENCE)
     safety_floor = "insufficient" if safety_floor_insufficient else "ok"
 
     if not enabled:
         # Legacy withhold path — byte-identical to `decision.release_allowed`.
+        # Legacy hard_block surfacing is independent of the B5/B7 narrowing (redaction param),
+        # so recompute it here on the pre-narrowing fabricated/zero-grounding line to preserve the
+        # exact OFF-path fields (Codex slice-1 P2).
+        legacy_hard_block = bool(
+            decision.fabricated_occurrence_latched
+            or (zero_verified and zero_usable_evidence)
+        )
+        legacy_hard_reasons: list[str] = []
+        if decision.fabricated_occurrence_latched:
+            legacy_hard_reasons.append(_REASON_FABRICATED_OCCURRENCE)
+        if zero_verified and zero_usable_evidence:
+            legacy_hard_reasons.append("zero_grounding")
         status = STATUS_SUCCESS if decision.release_allowed else STATUS_ABORT_FOUR_ROLE_HELD
         return ReleaseOutcome(
             released=decision.release_allowed,
-            hard_block=not decision.release_allowed and hard_block,
+            hard_block=not decision.release_allowed and legacy_hard_block,
             normal_release_blocked=not decision.release_allowed,
             status=status,
             disclosed_gaps=[],
-            hard_block_reasons=hard_block_reasons if not decision.release_allowed else [],
+            hard_block_reasons=legacy_hard_reasons if not decision.release_allowed else [],
             release_quality_score=coverage_fraction,
             safety_floor=safety_floor,
         )
 
     # --- always-release ON ---
     if hard_block:
+        # Under the B5/B7 narrowing, the ONLY thing that reaches here is true zero-grounding (a
+        # fabricated occurrence with redaction active is NOT a hard block). Zero-grounding is
+        # statuses-abort_no_verified; a fabricated-with-redaction-OFF hard block keeps the legacy
+        # abort_evaluator_critical label.
         status = (
             STATUS_ABORT_FABRICATED
-            if decision.fabricated_occurrence_latched
+            if (decision.fabricated_occurrence_latched and not redaction_active)
             else STATUS_ABORT_NO_VERIFIED
         )
         return ReleaseOutcome(
@@ -473,7 +545,15 @@ def compute_release_outcome(
         )
 
     # Every remaining held reason is a DISPLAYED disclosed-gap label, not a blocker.
-    disclosed_gaps = list(decision.held_reasons)
+    # The fabricated occurrence (now narrowed to ship-minus-the-claim) is NOT in
+    # decision.held_reasons as a label — it lives there as the hard `_REASON_FABRICATED_OCCURRENCE`
+    # blocker token. Replace it with the explicit "dropped and disclosed" gap so the disclosure is
+    # LOUD and never mistaken for the hard-block token.
+    disclosed_gaps = [
+        r for r in decision.held_reasons if r != _REASON_FABRICATED_OCCURRENCE
+    ]
+    if decision.fabricated_occurrence_latched:
+        disclosed_gaps.append(_GAP_FABRICATED_CITATION_DROPPED)
     if safety_floor_insufficient:
         # Clinical safety floor: ship the honest insufficient-safety report, block normal render.
         return ReleaseOutcome(

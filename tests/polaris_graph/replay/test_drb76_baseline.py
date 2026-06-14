@@ -38,6 +38,17 @@ _CONTRAINDICATIONS_HOLD = "d8_s0_must_cover_missing:contraindications"
 _CONTRAINDICATION_EVIDENCE = "probiotic_immunocompromised_contraindication"
 
 
+@pytest.fixture(autouse=True)
+def _legacy_off_for_baseline_lock(monkeypatch):
+    """B5/B7 (2026-06-14): PG_ALWAYS_RELEASE default is now ON. These BASELINE-LOCK tests must
+    reproduce the saved drb_76 run's D8 *decision* exactly — and that run was recorded under the
+    legacy default-OFF (so ``d8_pending_rewrite`` is in its held_reasons). `apply_d8_release_policy`
+    reads `always_release_enabled()` for the pending-rewrite block; pin the explicit OFF token so
+    the replay faithfully reproduces the recorded baseline. The always-release RELABEL of this same
+    run is covered separately in test_iperm001_release.py (which passes always_release explicitly)."""
+    monkeypatch.setenv("PG_ALWAYS_RELEASE", "0")
+
+
 @pytest.fixture(scope="module")
 def saved_run():
     return load_saved_run()

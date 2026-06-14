@@ -39,6 +39,15 @@ from src.polaris_graph.roles.release_policy import (
 _THRESHOLD = 0.70
 
 
+@pytest.fixture(autouse=True)
+def _legacy_withhold_path(monkeypatch):
+    """B5/B7 (2026-06-14): PG_ALWAYS_RELEASE default is now ON. These are LEGACY-policy contract
+    tests of the WITHHOLD decision (pending-rewrite phantom block, coverage holds) — pin the
+    explicit OFF token so they assert the legacy path. `apply_d8_release_policy` reads
+    `always_release_enabled()` only for the pending-rewrite block; OFF restores it."""
+    monkeypatch.setenv("PG_ALWAYS_RELEASE", "0")
+
+
 def _full_ledger() -> CoverageLedger:
     """A ledger at fraction 1.0 (all required elements covered)."""
     return CoverageLedger(

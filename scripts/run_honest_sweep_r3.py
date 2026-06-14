@@ -5142,10 +5142,13 @@ async def run_one_query(
         # contradictions.json list with a `type:"semantic"` discriminator; routed to a dedicated
         # report disclosure block + the PT08 evaluator gate below (the numeric renderer is untouched).
         semantic_records = []
-        # I-arch-004 F07 (#1249/#1252): under the strict-gate benchmark slate, a conflict-judge
-        # ERROR FAILS CLOSED — the run HOLDS for human review instead of the additive fail-open
-        # ('neutral', 0.0) silently dropping a possible real contradiction. The hold is RUN-LEVEL;
-        # NO phantom SemanticConflictRecord is fabricated.
+        # B5/B7 (DUAL_AGREED_PLAN, operator-locked 2026-06-14): "nothing shall hold the report".
+        # The conflict side-judge being UNAVAILABLE is a side-judge failure, NOT a faithfulness
+        # finding — under always-release it must LABEL the unscored pairs as a disclosed gap and
+        # SHIP, never abort the question (this is the gate that aborted drb_75). The faithfulness
+        # engine (strict_verify + 4-role D8 + provenance) is unchanged: we are NOT asserting "no
+        # conflict", we are DISCLOSING "the cross-document conflict judge could not adjudicate".
+        _conflict_judge_disclosed_gap: str | None = None
         _conflict_strict = _conflict_judge_strict_fail_closed()
         try:
             from src.polaris_graph.retrieval.semantic_conflict_detector import (
@@ -5159,58 +5162,78 @@ async def run_one_query(
                     strict_fail_closed=_conflict_strict,
                 )
         except ConflictJudgeUnavailableError as _cj_exc:
-            # F07 strict fail-CLOSED: the judge could not adjudicate a pair under strict gates.
-            # HOLD the run (no fabricated conflict, no silent drop) and return a verdict artifact.
-            _log(f"[semantic-conflict] judge unavailable under strict gates -> HOLD: {_cj_exc}")
-            summary["status"] = "abort_conflict_judge_unavailable"
-            summary["error"] = f"conflict_judge_unavailable: {_cj_exc}"
-            (run_dir / "report.md").write_text(
-                f"# Research report: {q['question']}\n\n"
-                "## Pipeline verdict\n\n"
-                "The cross-document NLI contradiction judge could not adjudicate one or more "
-                "same-subject evidence pairs while the strict-gate benchmark slate was active. "
-                "Under strict gates POLARIS FAILS CLOSED: rather than silently treat the "
-                "unadjudicated pair as 'no conflict' (which could ship a real contradiction "
-                "undisclosed), the run is HELD for human review. No conflict is asserted — the "
-                "judge simply could not decide.\n\n"
-                "### Suggested next steps\n\n"
-                "- Re-run once the evaluator model/provider is reachable.\n"
-                "- Inspect `retrieval_trace.jsonl` / `llm_io/` for the judge transport error.\n",
-                encoding="utf-8",
+            from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                always_release_enabled as _always_release_enabled,
             )
-            run_cost = current_run_cost()
-            manifest = _base_manifest_envelope(
-                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
-            )
-            manifest.update({
-                "status": "abort_conflict_judge_unavailable",
-                "conflict_judge_hold": {"reason": str(_cj_exc), "strict_gates": True},
-            })
-            manifest = augment_v6_manifest(
-                manifest,
-                external_run_id=q.get("external_run_id"),
-                decision_id=q.get("decision_id"),
-                query_slug=q.get("slug"),
-            )
-            manifest = _attach_tool_utilization(manifest, run_dir)
-            (run_dir / "manifest.json").write_text(
-                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-            summary["manifest"] = manifest
-            summary["cost_usd"] = run_cost
-            try: write_per_run_cost_ledger(run_dir, run_id)
-            except Exception: pass
-            if q.get("v6_mode") and q.get("external_run_id"):
-                emit_terminal_event(
-                    q.get("external_run_id"),
-                    "abort_conflict_judge_unavailable",
-                    error_msg=summary.get("error"),
+            if _always_release_enabled():
+                # FAIL-SOFT + LABEL (B5/B7): record the disclosed gap, drop NO real contradiction
+                # silently (none was adjudicated, none is asserted), and FALL THROUGH to generation
+                # so the report still ships. The disclosed gap is surfaced on the manifest below.
+                _log(
+                    "[semantic-conflict] judge unavailable -> LABEL+SHIP (always-release): "
+                    f"{_cj_exc}"
                 )
-            set_current_run_id(None)
-            set_reasoning_sink(None)
-            log_f.close()
-            return summary
+                _conflict_judge_disclosed_gap = (
+                    "conflict_judge_unavailable: the cross-document NLI contradiction judge could "
+                    f"not adjudicate one or more same-subject evidence pairs ({_cj_exc}). The run "
+                    "ships with this disclosed gap; no conflict is asserted and none is silently "
+                    "dropped — the judge simply could not decide."
+                )
+                semantic_records = []
+            else:
+                # F07 strict fail-CLOSED (legacy / OFF path, byte-identical): the judge could not
+                # adjudicate a pair under strict gates. HOLD the run (no fabricated conflict, no
+                # silent drop) and return a verdict artifact.
+                _log(f"[semantic-conflict] judge unavailable under strict gates -> HOLD: {_cj_exc}")
+                summary["status"] = "abort_conflict_judge_unavailable"
+                summary["error"] = f"conflict_judge_unavailable: {_cj_exc}"
+                (run_dir / "report.md").write_text(
+                    f"# Research report: {q['question']}\n\n"
+                    "## Pipeline verdict\n\n"
+                    "The cross-document NLI contradiction judge could not adjudicate one or more "
+                    "same-subject evidence pairs while the strict-gate benchmark slate was active. "
+                    "Under strict gates POLARIS FAILS CLOSED: rather than silently treat the "
+                    "unadjudicated pair as 'no conflict' (which could ship a real contradiction "
+                    "undisclosed), the run is HELD for human review. No conflict is asserted — the "
+                    "judge simply could not decide.\n\n"
+                    "### Suggested next steps\n\n"
+                    "- Re-run once the evaluator model/provider is reachable.\n"
+                    "- Inspect `retrieval_trace.jsonl` / `llm_io/` for the judge transport error.\n",
+                    encoding="utf-8",
+                )
+                run_cost = current_run_cost()
+                manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                manifest.update({
+                    "status": "abort_conflict_judge_unavailable",
+                    "conflict_judge_hold": {"reason": str(_cj_exc), "strict_gates": True},
+                })
+                manifest = augment_v6_manifest(
+                    manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                manifest = _attach_tool_utilization(manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = manifest
+                summary["cost_usd"] = run_cost
+                try: write_per_run_cost_ledger(run_dir, run_id)
+                except Exception: pass
+                if q.get("v6_mode") and q.get("external_run_id"):
+                    emit_terminal_event(
+                        q.get("external_run_id"),
+                        "abort_conflict_judge_unavailable",
+                        error_msg=summary.get("error"),
+                    )
+                set_current_run_id(None)
+                set_reasoning_sink(None)
+                log_f.close()
+                return summary
         except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
             _log(f"[semantic-conflict] detector error (skipped, fail-open): {exc}")
             semantic_records = []
@@ -7448,9 +7471,42 @@ async def run_one_query(
             _key_findings = build_key_findings(getattr(multi, "sections", []))
         except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[key-findings] skipped (fail-open): {_exc}")
+        # B5/B7 (operator-locked 2026-06-14) — strict_verify SILENT-DROP HOLE closure. Aggregate the
+        # per-section dropped-sentence dispositions into a DISCLOSED block so a claim that failed span
+        # verification against its own source is never SILENTLY deleted. Counts + reasons ONLY — the
+        # raw failed sentence (generator-hallucinated / unsupported) is NEVER rendered as asserted
+        # prose (the faithfulness invariant). Default-ON under always-release; legacy (OFF) appends
+        # nothing so report.md is byte-identical.
+        _drop_disclosure_md = ""
+        try:
+            from src.polaris_graph.roles.release_policy import always_release_enabled as _alw_rel
+            if _alw_rel():
+                from src.polaris_graph.generator.provenance_generator import build_drop_disclosure
+                _all_dropped: list = []
+                for _sr in getattr(multi, "sections", []) or []:
+                    _all_dropped.extend(getattr(_sr, "dropped_sentences_final", None) or [])
+                _drop_summary = build_drop_disclosure(_all_dropped)
+                if _drop_summary["support_failed_count"] > 0:
+                    # Reasons SPLIT by disposition (Codex diff-gate P2): the support-failed claim
+                    # count uses ONLY the support-failed reason tally, never the un-provenanced
+                    # hygiene reasons — so the disclosed count and reasons match exactly.
+                    _reason_md = ", ".join(
+                        f"{k}: {v}"
+                        for k, v in sorted(_drop_summary["support_failed_reason_counts"].items())
+                    )
+                    _drop_disclosure_md = (
+                        "\n\n## Evidence-support disclosure\n\n"
+                        f"{_drop_summary['support_failed_count']} claim(s) were generated but did not "
+                        "pass span/numeric/entailment verification against their own cited source and "
+                        "were REMOVED from the findings above (not asserted as fact). They are "
+                        "disclosed here rather than silently dropped. "
+                        f"Drop reasons: {_reason_md}.\n"
+                    )
+        except Exception as _dd_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+            _log(f"[drop-disclosure] skipped (fail-open): {_dd_exc}")
         final_report = (
             f"# Research report: {q['question']}\n\n"
-            + _key_findings + sections_concat + methods + biblio_section
+            + _key_findings + sections_concat + methods + biblio_section + _drop_disclosure_md
         )
         # BB5-P03 (#1179): de-dup content-identical paragraphs (after citation-marker stripping) and
         # drop any header orphaned by that drop, before render. Keeps the FIRST occurrence, so every
@@ -9098,6 +9154,17 @@ async def run_one_query(
                 "simple_routed": _simple_routed,
                 "fetch_cap": _fetch_cap,
             }
+        # B5/B7 (operator-locked 2026-06-14): surface the conflict-side-judge LABEL+SHIP disclosure
+        # (the run continued past an unavailable cross-document conflict judge under always-release
+        # instead of aborting). Auditable + never silent. Only appears when the fail-soft fired.
+        if _conflict_judge_disclosed_gap is not None:
+            manifest["conflict_judge_disclosed_gap"] = _conflict_judge_disclosed_gap
+        # B5/B7: surface the credibility-pass LABEL+SHIP disclosure (the run shipped sources unscored
+        # at neutral weight because the activated credibility pass failed under always-release, rather
+        # than aborting). Only appears when the credibility fail-soft fired.
+        _cred_disclosed_gap = getattr(multi, "credibility_disclosed_gap", None)
+        if _cred_disclosed_gap is not None:
+            manifest["credibility_disclosed_gap"] = _cred_disclosed_gap
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

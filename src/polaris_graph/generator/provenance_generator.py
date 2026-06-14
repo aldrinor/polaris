@@ -2298,6 +2298,94 @@ class StrictVerificationReport:
     total_dropped: int
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# B5/B7 (DUAL_AGREED_PLAN §B5/B7, operator-locked 2026-06-14) — strict_verify drop
+# DISPOSITION classifier + report-body disclosure.
+#
+# The plan's "FIX THE LIVE SILENT-DROP HOLE": strict_verify silently deletes failing
+# sentences. Distinguish two dispositions so the drop is NEVER silent — without ever
+# rendering a generator-hallucinated sentence as asserted prose:
+#
+#   * UN-PROVENANCED HARD DROP — the sentence carried no usable [#ev] provenance (or was
+#     content-empty). It is not a grounded claim; it is correctly DROPPED with no body
+#     content (only counted). These are hygiene drops.
+#   * SUPPORT-FAILED DISCLOSED DROP — the sentence DID carry provenance but failed span /
+#     numeric / overlap / entailment verification against its own source. This is the
+#     "unsupported/contradicted by source" class. The faithfulness rule is ABSOLUTE: the
+#     original (hallucinated/unsupported) sentence text MUST NOT render as a finding. The
+#     drop is surfaced as a DISCLOSED COUNT + reason, never as the raw failed sentence.
+#
+# This is faithfulness-NEUTRAL: no failed sentence is resurrected, no asserted prose is
+# added. It only converts a silent deletion into a counted, reasoned disclosure.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Reasons where the sentence had NO grounded claim to begin with -> hard hygiene drop.
+_UNPROVENANCED_DROP_REASONS = frozenset({
+    "no_provenance_token",
+    "empty_or_contentless_sentence",
+})
+
+DROP_DISPOSITION_UNPROVENANCED = "unprovenanced_hard_drop"
+DROP_DISPOSITION_SUPPORT_FAILED = "support_failed_disclosed"
+
+
+def classify_drop_disposition(sv: SentenceVerification) -> str:
+    """Classify a strict_verify-dropped ``SentenceVerification`` (B5/B7).
+
+    Returns ``DROP_DISPOSITION_UNPROVENANCED`` when the sentence had no usable provenance
+    (``no_provenance_token`` / ``empty_or_contentless_sentence``) — a hygiene drop with no
+    grounded claim. Returns ``DROP_DISPOSITION_SUPPORT_FAILED`` for EVERY other failure
+    reason (numeric_mismatch / overlap_too_low / entailment_failed / invalid_token /
+    span_out_of_range / calc_* / judge-error fail-closed): the sentence cited provenance but
+    failed verification against its own source — the "unsupported/contradicted by source"
+    class that must be DISCLOSED (count) but NEVER rendered as asserted prose.
+
+    Fail-safe: a sentence with NO failure_reasons but is_verified=False is treated as
+    support-failed (the stricter, disclosed bucket) — it is never silently nothing.
+    """
+    reasons = list(getattr(sv, "failure_reasons", None) or [])
+    # A dropped sentence is UN-provenanced only if EVERY reason is an unprovenanced reason
+    # (and there is at least one). Any support-grounding failure -> the disclosed bucket.
+    if reasons and all(r.split(":", 1)[0] in _UNPROVENANCED_DROP_REASONS for r in reasons):
+        return DROP_DISPOSITION_UNPROVENANCED
+    return DROP_DISPOSITION_SUPPORT_FAILED
+
+
+def build_drop_disclosure(dropped_sentences: list[SentenceVerification]) -> dict:
+    """Summarize strict_verify drops into a DISCLOSURE record (B5/B7) — counts + reasons only.
+
+    NEVER includes the raw dropped sentence text (a support-failed sentence is
+    generator-hallucinated / unsupported and must not ship as prose). Returns a dict:
+    ``{support_failed_count, unprovenanced_count, support_failed_reason_counts,
+    unprovenanced_reason_counts}``. Reason counts are SPLIT BY DISPOSITION (Codex diff-gate P2) so
+    the support-failed disclosure's reasons match its claim count exactly and are never conflated
+    with hygiene (un-provenanced) reasons. Reason keys collapse parameterized detail
+    (``reason:detail`` -> ``reason``). Both reason maps are empty when there are no drops of that
+    disposition.
+    """
+    support_failed = 0
+    unprovenanced = 0
+    support_failed_reason_counts: dict[str, int] = {}
+    unprovenanced_reason_counts: dict[str, int] = {}
+    for sv in (dropped_sentences or []):
+        disposition = classify_drop_disposition(sv)
+        if disposition == DROP_DISPOSITION_SUPPORT_FAILED:
+            support_failed += 1
+            target = support_failed_reason_counts
+        else:
+            unprovenanced += 1
+            target = unprovenanced_reason_counts
+        for r in (getattr(sv, "failure_reasons", None) or []):
+            key = r.split(":", 1)[0]
+            target[key] = target.get(key, 0) + 1
+    return {
+        "support_failed_count": support_failed,
+        "unprovenanced_count": unprovenanced,
+        "support_failed_reason_counts": support_failed_reason_counts,
+        "unprovenanced_reason_counts": unprovenanced_reason_counts,
+    }
+
+
 def split_findings_and_limitations(text: str) -> tuple[str, str]:
     """Split a draft into (findings_text, limitations_text).
 
