@@ -5628,3 +5628,10 @@
 - EVIDENCE/FINDINGS: 90 composed tests pass. All STRENGTHEN or OFF-byte-identical; §9.1.8 token-max respected (read live OpenRouter, never guess); §-1.3 (F18b never silently ships truncated corpus, F24/F29 raise never narrow). Audit trail .codex/I-arch-004/wave4/.
 - STATUS: 28 of 32 A3 fixes done+Codex-gated+committed. Remaining: F22 (re-implement inline) + F23 (hygiene). THEN full --all launch.
 - NEXT_STEP: commit -> re-implement F22 inline + inline-gate -> F23 hygiene -> redeploy VM -> full --all launch (env slate) -> §-1.1 audit + beat-both.
+
+[2026-06-14 14:20:00]
+- ACTION: A3 F22 — salvaged from the sparse-base L4 worktree (LF-normalized), verified clean, committed. 30 of 32 done.
+- RATIONALE: L4's F22 looked corrupted (811->955 lines, 1766-line diff) but that was CRLF; the NORMALIZED diff is 189/45 = the exact Codex-APPROVE'd F22 (atomic budget reservation), removed lines all = the old parallel-loop body now extracted into _settle(). Copied LF-normalized onto the clean a9cfd1d1 base + brought over the F22 atomicity test (test_seam_parallel.py).
+- EVIDENCE/FINDINGS: 18 test_seam_parallel tests (parallel HARD cap via reservation: admit only while settled+reserved+anticipated<=cap; sequential soft-by-one contrast) + 26 budget/sweep tests pass. Flag PG_FOUR_ROLE_BUDGET_RESERVE default ON; OFF = pre-F22 bounded behavior. §-1.3: fail-loud pre-spend BudgetExceededError, no silent thin.
+- STATUS: 30 of 32 A3 fixes done+Codex-gated+committed. Remaining: F23 (hygiene grab-bag, P2/P3). THEN full --all launch.
+- NEXT_STEP: commit F22 -> F23 hygiene -> redeploy VM -> full --all launch (env slate) -> §-1.1 audit + beat-both.

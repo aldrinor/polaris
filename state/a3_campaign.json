@@ -412,8 +412,9 @@
       "files": [
         "roles/sweep_integration.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE in wf_8e42382b-a30; salvaged byte-clean onto a9cfd1d1 (sparse-base worktree -> LF-normalized; diff=189/45 all F22, removed=old loop body); 18 atomicity tests (parallel HARD cap via reservation, sequential soft-by-one) + 26 budget tests pass"
     },
     {
       "id": "F24",

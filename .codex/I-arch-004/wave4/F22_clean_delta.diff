@@ -1,0 +1,271 @@
+diff --git a/src/polaris_graph/roles/sweep_integration.py b/src/polaris_graph/roles/sweep_integration.py
+index 40aa3cd4..2e224619 100644
+--- a/src/polaris_graph/roles/sweep_integration.py
++++ b/src/polaris_graph/roles/sweep_integration.py
+@@ -43,9 +43,11 @@ from dataclasses import dataclass, field, replace
+ from pathlib import Path
+ from typing import Callable
+ 
++import src.polaris_graph.llm.openrouter_client as _orc
+ from src.polaris_graph.llm.openrouter_client import (
+     BudgetExceededError,
+     _add_run_cost,
++    _impute_cost_from_tokens,
+     check_run_budget,
+     current_run_cost,
+     reset_run_cost,
+@@ -94,6 +96,74 @@ _CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS", "6")))
+ FOUR_ROLE_COMPUTE_PROGRESS_FILENAME = "four_role_compute_progress.json"
+ 
+ 
++# I-arch-004 F22 (#1255, h4): HARD cap under parallel 4-role via ATOMIC budget RESERVATION.
++#
++# ROOT CAUSE: the prior parallel path submitted ALL claim futures up front and only re-added each
++# worker's verifier spend to the parent run counter AFTER its future completed (Codex iter-2 P1.1).
++# That BOUNDS the overshoot to ~(workers in flight) but is NOT a hard cap — up to `_CLAIM_WORKERS`
++# claims each run (and spend) before any of their deltas reconcile into `current_run_cost()` and the
++# cap fires. So a near-cap run could overshoot `PG_MAX_COST_PER_RUN` by ~workers * per-claim spend.
++#
++# FIX (parent-thread admission control, no new global / no lock / `RecordingTransport` untouched):
++# the PARENT reserves a conservative per-claim ANTICIPATED cost BEFORE submitting a claim's worker,
++# and admits a claim ONLY while
++#     current_run_cost() (settled) + reserved (in-flight) + anticipated(claim) <= cap.
++# A worker SETTLES on completion: the parent re-adds the worker's ACTUAL verifier delta and releases
++# that claim's reservation. Because anticipated >= actual for every claim, even if EVERY in-flight
++# claim bills its FULL reservation the total can never exceed the cap — a HARD cap. When a claim
++# cannot fit AND nothing is in flight to free headroom, the seam raises `BudgetExceededError`
++# pre-spend (fail LOUD, no silent thin — §-1.3). The SEQUENTIAL path (workers==1 / single claim) is
++# UNTOUCHED and byte-identical: it keeps the live per-call `RecordingTransport` budget (soft-by-one,
++# exactly as today). Flag-gated by PG_FOUR_ROLE_BUDGET_RESERVE (default ON); OFF reverts the parallel
++# path to the pre-F22 submit-all + reconcile-on-completion behaviour (still bounded, not hard).
++_BUDGET_RESERVE_ENABLED = os.getenv("PG_FOUR_ROLE_BUDGET_RESERVE", "1") != "0"
++
++# I-arch-004 F22 (#1255, h4): a TRUE per-call token upper bound for the reservation, covering BOTH the
++# prompt (input) and the completion+reasoning (output) sides. For any one OpenRouter call the provider
++# bills `prompt + completion + reasoning` tokens, and the SUM is bounded by the model's CONTEXT WINDOW
++# (the provider rejects a request whose prompt+max_completion exceeds context_length). So
++# `context_tokens` is a hard ceiling on a call's TOTAL billable tokens — pricing that whole budget at
++# the model's OUTPUT rate (>= its input rate for every verifier model in the price table) makes the
++# per-call estimate >= the real `_impute_cost_from_tokens` for ANY in-spec call, INCLUDING a maximal
++# prompt (Codex F22 iter-1 P1: the prior bound only allowed `max_tokens` worth of input, which a long
++# prompt could exceed). Default 400_000 covers the largest pinned context window (deepseek-v4-pro
++# 384_000 per §9.1.8 / OpenRouter `/api/v1/models`); LAW VI override for a re-pin to a larger-context
++# verifier. This is a CAP on the reservation, not a token starvation — it never lowers any max_tokens.
++_RESERVE_CONTEXT_TOKENS = max(1, int(os.getenv("PG_FOUR_ROLE_RESERVE_CONTEXT_TOKENS", "400000")))
++
++
++def _anticipated_claim_cost(model_slugs: dict[str, str]) -> float:
++    """A conservative UPPER BOUND on one claim's 4-role verifier spend, for budget RESERVATION.
++
++    A claim runs Mirror (pass-1 + pass-2 == 2 calls), Sentinel (1) and Judge (1). For ONE call the
++    provider bills `prompt + completion + reasoning` tokens, and that SUM is bounded by the model's
++    CONTEXT WINDOW (`_RESERVE_CONTEXT_TOKENS`, default 400_000 — >= the largest pinned verifier context).
++    Pricing the WHOLE context budget at the model's OUTPUT rate (>= its INPUT rate for every verifier
++    in the price table) makes the per-call estimate >= the real `_impute_cost_from_tokens` for ANY
++    in-spec call, including a maximal prompt: actual `(prompt + completion + reasoning) <= context`, and
++    every one of those tokens bills at <= output_rate, so `actual_call_cost <= context * output_rate ==
++    anticipated_call_cost`. Therefore anticipated >= actual per call, which is what makes the
++    reservation a HARD ceiling. Uses the SAME price table / impute function the budget guard bills with
++    (genuineness: the bound is not a test-known constant — LAW II). Reasoning bills at the output rate,
++    so `_impute_cost_from_tokens(slug, 0, context, 0)` == context * output_rate (Opus-tier default for an
++    unpriced slug — the safe, conservative direction for a budget ceiling).
++    """
++    # (call_count, model_slug) per role the pipeline invokes (Mirror is two calls: pass-1 + pass-2).
++    legs = (
++        (2, model_slugs.get("mirror", "")),
++        (1, model_slugs.get("sentinel", "")),
++        (1, model_slugs.get("judge", "")),
++    )
++    total = 0.0
++    for call_count, slug in legs:
++        # Price the ENTIRE context-window token budget at the slug's OUTPUT rate (the highest of its
++        # input/output rates). Passing it as `output_tokens` bills it at the output rate via the impute
++        # function — a single term that upper-bounds the prompt + completion + reasoning of any one call.
++        per_call = _impute_cost_from_tokens(slug, 0, _RESERVE_CONTEXT_TOKENS, 0)
++        total += call_count * per_call
++    return total
++
++
+ @dataclass
+ class FourRoleClaim:
+     """One claim handed to the 4-role evaluation, carrying its EXISTING identity.
+@@ -372,15 +442,26 @@ def _compute_claim_results(
+             out.append((result, None))
+         return out
+ 
+-    # PARALLEL path (Codex iter-2 P1.1 + P1.2): enforce the run budget DURING compute, not after the
+-    # whole pool drains. Each claim is submitted with its OWN parent-captured context snapshot so the
+-    # worker inherits the Path-B capture sink/role registered on the parent. We iterate
+-    # `as_completed` and, for each completed future, re-add the worker's per-claim verifier delta to
+-    # the SINGLE parent run counter and re-check the cap — so a cumulative cap breach raises after
+-    # only ~(workers-in-flight) claims have spent, NOT all n. The pool is managed MANUALLY (not via
+-    # `with`, whose `__exit__` waits for ALL pending futures) so on a breach / worker exception we
+-    # `shutdown(wait=False, cancel_futures=True)` to cancel still-queued claims, then re-raise
+-    # (P2.2 cancel-on-fail).
++    # PARALLEL path (Codex iter-2 P1.1 + P1.2; I-arch-004 F22 HARD cap): each claim is submitted with
++    # its OWN parent-captured context snapshot so the worker inherits the Path-B capture sink/role
++    # registered on the parent. The PARENT is the single coordinator: it submits, drains completed
++    # futures via `as_completed`, re-adds each worker's per-claim verifier delta to the SINGLE parent
++    # run counter, writes the progress marker, and forwards the heartbeat — ALL on the parent thread in
++    # claim order. The pool is managed MANUALLY (not via `with`, whose `__exit__` waits for ALL pending
++    # futures) so on a breach / worker exception we `shutdown(wait=False, cancel_futures=True)` to
++    # cancel still-queued claims, then re-raise (P2.2 cancel-on-fail).
++    #
++    # F22 (#1255, h4) — HARD cap via ATOMIC budget RESERVATION (default ON, PG_FOUR_ROLE_BUDGET_RESERVE):
++    # the PARENT reserves a conservative `_anticipated_claim_cost(...)` for a claim BEFORE submitting its
++    # worker, and admits a claim ONLY while
++    #     current_run_cost() (settled) + reserved (in-flight) + anticipated <= cap.
++    # On settle the parent re-adds the worker's ACTUAL delta and RELEASES that claim's reservation
++    # (net change to settled+reserved is actual-anticipated <= 0, so headroom only grows). Because
++    # anticipated >= actual, the cap holds HARD even if every in-flight claim bills its full reservation.
++    # When the next claim cannot fit AND nothing is in flight to free headroom, we raise
++    # `BudgetExceededError` PRE-SPEND (fail loud, no silent thin — §-1.3). With the flag OFF the parent
++    # submits ALL futures up front and reconciles cost on completion (the pre-F22 bounded-overshoot
++    # behaviour); the cap then bounds overspend to ~(workers in flight), NOT a hard ceiling.
+     #
+     # P2.1 (aborted-run cost under-accounting — documented, not over-engineered): on a worker
+     # exception the worker's partial paid spend lives in the worker's isolated copied context and is
+@@ -400,44 +481,107 @@ def _compute_claim_results(
+     run_dir.mkdir(parents=True, exist_ok=True)
+     progress_path = run_dir / FOUR_ROLE_COMPUTE_PROGRESS_FILENAME
+     done = 0
++
++    def _settle(future) -> int:
++        """Drain ONE completed future on the parent thread: record the result, write the progress
++        marker, re-add the worker's ACTUAL verifier delta to the single parent counter, re-check the
++        cap, and forward the heartbeat. Returns the settled claim index so the reservation caller can
++        release the matching reservation WITHOUT a second `future.result()`. `nonlocal done` so the
++        marker counts across calls."""
++        nonlocal done
++        # `future.result()` re-raises any worker exception (fail closed) — handled by the caller.
++        idx, result, delta = future.result()
++        computed[idx] = (result, delta)
++        # P2.3 + Codex iter-2 P2 (observability): write the tiny on-disk progress marker BEFORE the
++        # budget enforcement below, so the just-completed claim — INCLUDING a cap-breaching one — is
++        # reflected in four_role_compute_progress.json even when the very next check_run_budget(0)
++        # raises. Parent-only write — never inside a worker.
++        done += 1
++        progress_path.write_text(
++            json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
++            encoding="utf-8",
++        )
++        # Re-add this claim's verifier spend to the SINGLE parent run counter and re-check the cap.
++        # With reservation ON this is the SETTLE step (the reservation for this claim is released by
++        # the caller AFTER this returns); the check is a belt-and-suspenders guard — admission already
++        # bounded the spend, but actual could differ and a generator pre-seed change between admit and
++        # settle would still be caught.
++        if delta is not None:
++            _add_run_cost(delta)
++            check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
++        # I-obs-001 #1141 AC1 (Codex AC1-gate P2): forward done/total to the run-status heartbeat AFTER
++        # _add_run_cost so running_cost_usd reflects the just-completed claim. Opaque callback — the
++        # seam stays ignorant of the heartbeat schema; additive, never raises.
++        if heartbeat_claims_cb is not None:
++            try:
++                heartbeat_claims_cb(done, n)
++            except Exception:  # noqa: BLE001
++                pass
++        return idx
++
+     pool = concurrent.futures.ThreadPoolExecutor(max_workers=_CLAIM_WORKERS)
+     try:
+-        futures = [
+-            pool.submit(_compute_one, idx, claim, contextvars.copy_context())
+-            for idx, claim in enumerate(claims)
+-        ]
+-        for future in concurrent.futures.as_completed(futures):
+-            # `future.result()` re-raises any worker exception (fail closed) — handled below.
+-            idx, result, delta = future.result()
+-            computed[idx] = (result, delta)
+-            # P2.3 + Codex iter-2 P2 (observability): write the tiny on-disk progress marker BEFORE
+-            # the budget enforcement below, so the just-completed claim — INCLUDING a cap-breaching
+-            # one — is reflected in four_role_compute_progress.json even when the very next
+-            # check_run_budget(0) raises BudgetExceededError. `done` counts completed claims
+-            # including the current one. Parent-only write — never inside a worker. A hung compute
+-            # is thus visible on disk DURING compute (the role_call_log only grows during the later,
+-            # parent-only reduction).
+-            done += 1
+-            progress_path.write_text(
+-                json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
+-                encoding="utf-8",
+-            )
+-            # Enforce the run budget DURING compute (P1.1): thread this claim's verifier spend into
+-            # the SINGLE parent run counter and re-check the cap immediately. A `BudgetExceededError`
+-            # here bounds overspend to the workers in-flight at the breach (~workers-1), not all n.
+-            if delta is not None:
+-                _add_run_cost(delta)
+-                check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
+-            # I-obs-001 #1141 AC1 (Codex AC1-gate P2): forward done/total to the run-status heartbeat
+-            # AFTER _add_run_cost so running_cost_usd reflects the just-completed claim. The progress
+-            # marker above already recorded this claim BEFORE the budget check (cap-breach visibility);
+-            # if check_run_budget raised, the terminal heartbeat captures the abort. Opaque callback —
+-            # sweep_integration stays ignorant of the heartbeat schema; additive, never raises.
+-            if heartbeat_claims_cb is not None:
+-                try:
+-                    heartbeat_claims_cb(done, n)
+-                except Exception:  # noqa: BLE001
+-                    pass
++        if not _BUDGET_RESERVE_ENABLED:
++            # Legacy (flag OFF): submit ALL futures up front, reconcile cost on completion. Bounded
++            # overspend (~workers in flight), NOT a hard cap. Byte-equivalent to the pre-F22 path.
++            futures = [
++                pool.submit(_compute_one, idx, claim, contextvars.copy_context())
++                for idx, claim in enumerate(claims)
++            ]
++            for future in concurrent.futures.as_completed(futures):
++                _settle(future)
++        else:
++            # HARD cap (flag ON): parent-thread admission control with budget RESERVATION + bounded
++            # in-flight submission. `reserved` is the sum of anticipated costs for admitted-but-not-yet-
++            # settled claims (parent-local; never touched off the parent thread). A claim is admitted
++            # only while settled + reserved + anticipated <= cap AND in-flight < _CLAIM_WORKERS.
++            cap = _orc.get_max_cost_per_run()
++            reserved = 0.0
++            # claim index -> its reserved anticipated cost (so settle releases the exact amount).
++            reservation_by_idx: dict[int, float] = {}
++            inflight: set = set()  # Futures submitted but not yet settled.
++            next_idx = 0
++            while next_idx < n or inflight:
++                # Admit as many affordable claims as the cap headroom + worker slots allow.
++                admitted_any = False
++                while next_idx < n and len(inflight) < _CLAIM_WORKERS:
++                    anticipated = _anticipated_claim_cost(model_slugs)
++                    if current_run_cost() + reserved + anticipated > cap:
++                        break  # cannot afford the next claim right now — fall through to wait/raise.
++                    reserved += anticipated
++                    reservation_by_idx[next_idx] = anticipated
++                    future = pool.submit(
++                        _compute_one, next_idx, claims[next_idx], contextvars.copy_context()
++                    )
++                    inflight.add(future)
++                    next_idx += 1
++                    admitted_any = True
++                if inflight:
++                    # Wait for the NEXT settle so its actual delta (<= its reservation) can free
++                    # headroom, then re-evaluate admission.
++                    done_set, _ = concurrent.futures.wait(
++                        inflight, return_when=concurrent.futures.FIRST_COMPLETED
++                    )
++                    for future in done_set:
++                        inflight.discard(future)
++                        # Settle (record result, re-add the ACTUAL delta) and get the settled claim
++                        # index back, then RELEASE that claim's reservation by the SAME index the
++                        # admission loop keyed it on. `_settle` reads `future.result()` exactly once
++                        # (Codex F22 iter-1 P2) — no second extraction here.
++                        s_idx = _settle(future)
++                        reserved -= reservation_by_idx.pop(s_idx, 0.0)
++                elif not admitted_any and next_idx < n:
++                    # Nothing in flight to free headroom AND the next claim still cannot fit -> the run
++                    # budget genuinely cannot cover even a single remaining claim. Fail LOUD, pre-spend
++                    # (no silent thin — §-1.3): this is the HARD cap blocking the overshoot.
++                    anticipated = _anticipated_claim_cost(model_slugs)
++                    raise BudgetExceededError(
++                        f"PG_MAX_COST_PER_RUN cap reservation: claim index {next_idx} needs an "
++                        f"anticipated ${anticipated:.4f} but only "
++                        f"${cap - current_run_cost():.4f} headroom remains "
++                        f"(settled=${current_run_cost():.4f}, cap=${cap:.4f}); blocked pre-spend so "
++                        f"the parallel 4-role spend cannot overshoot the cap (hard ceiling)."
++                    )
+     except BaseException:
+         # On ANY failure (BudgetExceededError from the cap OR a propagated worker exception) cancel
+         # still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the

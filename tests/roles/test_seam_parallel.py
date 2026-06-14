@@ -384,61 +384,210 @@ def _cost_claims(n):
     return claims, ledger
 
 
-def test_parallel_and_sequential_trip_cap_at_same_total(monkeypatch, tmp_path):
-    # (b) CUMULATIVE cap, same trip total on both paths. n=2; the LAST claim (claim-1) is the
-    # tripping claim and its JUDGE (the LAST call of its pipeline) carries the tipping usage
-    # (~$0.1207). Conditions (advisor): every claim is individually UNDER the cap (so NO worker
-    # pre-trips in its reset context), and a parent pre-seed makes the CUMULATIVE — not a single
-    # claim — cross the cap. With n=2 and the tip on the last claim, BOTH workers fully spend and
-    # BOTH deltas are reduced, so the parent total equals the true spend (clean equality).
-    #
-    #   cap = 0.20; parent pre-seed 0.10.
-    #   claim-0 total ~= 0.00911 ; claim-1 total ~= 0.00911 - 0.00011 + 0.1207 ~= 0.12970 (< cap,
-    #     so claim-1's worker does NOT in-worker-trip).
-    #   SEQUENTIAL live: 0.10 + 0.00911 (claim-0) + 0.009 (claim-1 mirror+sentinel) = 0.11811 < cap,
-    #     then + Judge 0.1207 -> 0.23881 > cap -> trips AT claim-1's Judge call.
-    #   PARALLEL boundary: parent re-adds claim-0 -> 0.10911 ok; claim-1 -> 0.23881 > cap -> trips.
-    #   Both report 0.23881. The tip on claim-1's LAST call is what makes the totals identical.
+def test_sequential_path_still_overshoots_cap_by_one_call(monkeypatch, tmp_path):
+    # F22 (#1255, h4): the SEQUENTIAL path is UNCHANGED and byte-identical — it keeps the live
+    # per-call RecordingTransport budget, which is soft-by-ONE-call (the breaching call spends, the
+    # NEXT check_run_budget(0) raises). This documents the accepted sequential semantics so the
+    # contrast with the now-HARD parallel path (next test) is explicit: F22 hardens ONLY parallel.
+    #   cap = 0.20; parent pre-seed 0.10; the LAST claim's JUDGE carries the tipping usage (~$0.1207).
+    #   live: 0.10 + claim-0 (~0.00911) + claim-1 mirror+sentinel (~0.009) = ~0.11811 < cap,
+    #         then + Judge 0.1207 -> ~0.23881 > cap -> trips AT claim-1's Judge call (spend already in).
     n = 2
     usage = {(1, "judge"): dict(_BIG_JUDGE_USAGE)}
-
-    def run_path(workers, sub_dir):
-        monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", workers)
-        monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.20)
-        openrouter_client.reset_run_cost()
-        openrouter_client._add_run_cost(0.10)  # near-cap generator pre-seed (shared accumulator).
-        run_dir = tmp_path / sub_dir
-        run_dir.mkdir()
-        claims, ledger = _cost_claims(n)
-        transport = _DelayedFakeTransport(usage_by_index_role=usage)
-        with pytest.raises(BudgetExceededError):
-            _run(transport, claims, run_dir=run_dir, ledger=ledger)
-        return openrouter_client.current_run_cost()
-
-    seq_total = run_path(1, "seq")
-    par_total = run_path(2, "par")
-    # Same accumulated spend at the trip on BOTH paths (deterministic — no floor noise).
-    assert seq_total > 0.20 and par_total > 0.20
-    assert seq_total == pytest.approx(par_total, rel=1e-9)
-
-
-def test_single_claim_over_cap_trips_in_worker_fail_closed(monkeypatch, tmp_path):
-    # The SECOND parallel enforcement point (honest documentation): when a SINGLE claim's own cost
-    # exceeds the FULL cap, its worker trips LIVE inside RecordingTransport (the per-worker reset
-    # context baselines at 0, so the claim's own spend alone crosses the cap) and raises
-    # BudgetExceededError BEFORE returning a delta — the parent never re-adds it. This is
-    # fail-closed and correct; we assert it RAISES but do NOT assert an equal parent total (the
-    # parent counter stays at the pre-seed because the worker aborted before reduction).
-    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 4)
-    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.05)
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 1)  # sequential fast path.
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.20)
     openrouter_client.reset_run_cost()
-    n = 2
-    # claim-0's Judge alone (~$0.1207) exceeds the 0.05 cap -> its worker trips in-worker.
-    usage = {(0, "judge"): dict(_BIG_JUDGE_USAGE)}
+    openrouter_client._add_run_cost(0.10)  # near-cap generator pre-seed (shared accumulator).
     claims, ledger = _cost_claims(n)
     transport = _DelayedFakeTransport(usage_by_index_role=usage)
     with pytest.raises(BudgetExceededError):
         _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+    # Sequential overshoots by the breaching call (the spend was billed, then the next check raised).
+    assert openrouter_client.current_run_cost() > 0.20
+
+
+class _ConcurrencyTrackingTransport:
+    """Thread-safe fake that records the MAX number of claims whose pipeline ran CONCURRENTLY.
+
+    Each claim's Mirror PASS-1 (its first call) increments a live in-flight counter, sleeps so several
+    claims would overlap if admitted together, then decrements — so `max_concurrent` captures the peak
+    overlap. Used to prove the F22 reservation SERIALIZES admission down to what the cap affords (the
+    mechanism that makes the cap a HARD ceiling), regardless of `_CLAIM_WORKERS`. Verdicts fixed
+    VERIFIED; NEVER a socket.
+    """
+
+    def __init__(self, *, overlap_delay: float = 0.05) -> None:
+        self._delay = overlap_delay
+        self._lock = threading.Lock()
+        self._live = 0
+        self.max_concurrent = 0
+        self.completions = 0
+
+    def complete(self, request: RoleRequest) -> RoleResponse:
+        with self._lock:
+            self.completions += 1
+        if request.role == "mirror":
+            if "pass2_input" in (request.params or {}):
+                content_hash = request.params["pass2_input"]["content_hash"]
+                return RoleResponse(
+                    raw_text=json.dumps(
+                        {"content_hash": content_hash, "classification": "supported"}
+                    ),
+                    served_model=request.model_slug,
+                    usage=None,
+                )
+            idx = _DelayedFakeTransport._index_from_request(request)
+            with self._lock:
+                self._live += 1
+                self.max_concurrent = max(self.max_concurrent, self._live)
+            try:
+                time.sleep(self._delay)  # hold the claim "in flight" so overlap is observable.
+            finally:
+                with self._lock:
+                    self._live -= 1
+            return RoleResponse(
+                raw_text="grounded answer",
+                served_model=request.model_slug,
+                citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(f"doc-{idx}",))],
+                usage=None,
+            )
+        if request.role == "sentinel":
+            return RoleResponse(
+                raw_text=_sentinel_raw_for_mode(request, grounded=True),
+                served_model=request.model_slug,
+                usage=None,
+            )
+        if request.role == "judge":
+            return RoleResponse(
+                raw_text="VERIFIED", served_model=request.model_slug, usage=None
+            )
+        raise AssertionError(f"unexpected role {request.role!r}")
+
+
+def test_parallel_reservation_is_a_HARD_cap_serializes_to_what_cap_affords(monkeypatch, tmp_path):
+    # F22 (#1255, h4) HEADLINE: under the PARALLEL 4-role path the atomic budget RESERVATION makes
+    # PG_MAX_COST_PER_RUN a HARD ceiling. The invariant is "settled + reserved never exceeds the cap":
+    # because anticipated >= actual (proven by the upper-bound tests), if the parent never lets
+    # settled + reserved exceed the cap then the cumulative ACTUAL spend can never exceed it either.
+    # We prove the invariant DIRECTLY by its observable consequence: when the cap affords only K
+    # claims' reservations at once, AT MOST K claims ever run CONCURRENTLY — even with _CLAIM_WORKERS
+    # far larger. The reservation throttles admission to the cap; without it (legacy) all n would run
+    # at once. anticipated is from the SAME prod function (genuineness — not a test-known constant).
+    per_claim = sweep_integration._anticipated_claim_cost(_MODEL_SLUGS)
+    assert per_claim > 0.0
+    affordable_k = 2
+    n = 8
+    # Cap fits EXACTLY `affordable_k` reservations (a sliver under k+1 so the (k+1)th cannot be
+    # admitted while k are in flight). Workers are set HIGH (n) so ONLY the reservation — not the pool
+    # size — limits concurrency.
+    cap = per_claim * affordable_k + per_claim * 0.5
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", n)
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", True)
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", cap)
+    openrouter_client.reset_run_cost()
+    claims, ledger = _cost_claims(n)
+    transport = _ConcurrencyTrackingTransport(overlap_delay=0.05)
+
+    # All claims FIT (tiny actuals release the reservation on settle), so the run COMPLETES — the cap
+    # never blocks because the run genuinely fits; it only THROTTLES concurrency.
+    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+
+    assert result.final_verdicts == {f"claim-{i}": "VERIFIED" for i in range(n)}
+    # HARD INVARIANT (observable): at most `affordable_k` claims ran at once — the reservation held
+    # settled + reserved <= cap by THROTTLING admission. With the pool size = n and NO reservation,
+    # max_concurrent would be n (all claims racing) and the cap could be overshot.
+    assert transport.max_concurrent <= affordable_k, (
+        f"max_concurrent={transport.max_concurrent} > affordable_k={affordable_k}: the reservation "
+        f"did NOT throttle admission to what the cap affords (hard-cap invariant broken)."
+    )
+    # And the run never overshot the cap.
+    assert openrouter_client.current_run_cost() <= cap
+
+
+def test_parallel_reservation_legacy_path_runs_all_claims_concurrently(monkeypatch, tmp_path):
+    # CONTRAST: with the F22 reservation OFF (legacy), the SAME tight cap does NOT throttle concurrency
+    # — all n claims race at once (pool size n), which is exactly how the pre-F22 path could overshoot
+    # the cap. This pins that the throttling above is the reservation, not some other limiter.
+    n = 8
+    per_claim = sweep_integration._anticipated_claim_cost(_MODEL_SLUGS)
+    cap = per_claim * 2 + per_claim * 0.5  # same tight cap as the hard-cap test.
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", n)
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", False)  # legacy path.
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", cap)
+    openrouter_client.reset_run_cost()
+    claims, ledger = _cost_claims(n)
+    transport = _ConcurrencyTrackingTransport(overlap_delay=0.05)
+    # Tiny actuals (usage=None) -> the legacy reconcile-on-completion never trips the cap, so the run
+    # completes — but with ALL n claims racing concurrently (no admission throttle).
+    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+    assert result.final_verdicts == {f"claim-{i}": "VERIFIED" for i in range(n)}
+    # Legacy: concurrency is bounded only by the pool size (n), NOT by the cap -> all n overlap.
+    assert transport.max_concurrent == n, (
+        f"legacy max_concurrent={transport.max_concurrent} != n={n}: the legacy path should run all "
+        f"claims concurrently (no reservation throttle) — this is the regime F22 hardens."
+    )
+
+
+def test_parallel_reservation_admits_all_when_headroom(monkeypatch, tmp_path):
+    # F22: reservation must NOT starve a run that genuinely fits — with ample cap, every claim is
+    # admitted and the run completes (no spurious BudgetExceededError). Guards against an
+    # over-conservative bound silently blocking legitimate parallel work.
+    n = 4
+    per_claim = sweep_integration._anticipated_claim_cost(_MODEL_SLUGS)
+    cap = per_claim * (n + 2)  # comfortably fits all n reservations at once.
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 4)
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", True)
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", cap)
+    openrouter_client.reset_run_cost()
+    claims, ledger = _cost_claims(n)
+    transport = _DelayedFakeTransport()
+    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+    assert result.final_verdicts == {f"claim-{i}": "VERIFIED" for i in range(n)}
+    # Actual spend is tiny (floored usage=None) and well under the cap — reservation released to
+    # actual on each settle, never an overshoot.
+    assert 0.0 < openrouter_client.current_run_cost() < cap
+
+
+def test_parallel_reservation_off_reverts_to_bounded_overshoot(monkeypatch, tmp_path):
+    # F22 flag OFF (PG_FOUR_ROLE_BUDGET_RESERVE=0): the parallel path reverts to the pre-F22
+    # submit-all + reconcile-on-completion behaviour — bounded overshoot, NOT a hard cap. This proves
+    # the new hard cap is gated and the OFF path is byte-equivalent to the prior code: the cumulative
+    # spend OVERSHOOTS the cap (the breaching deltas were already spent before the cap re-check).
+    #   cap = 0.20; pre-seed 0.10; claim-1's JUDGE tips (~$0.1207) -> parent re-adds and trips,
+    #   AFTER the spend landed -> current_run_cost() > cap (overshoot).
+    n = 2
+    usage = {(1, "judge"): dict(_BIG_JUDGE_USAGE)}
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 2)
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", False)  # legacy path.
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.20)
+    openrouter_client.reset_run_cost()
+    openrouter_client._add_run_cost(0.10)
+    claims, ledger = _cost_claims(n)
+    transport = _DelayedFakeTransport(usage_by_index_role=usage)
+    with pytest.raises(BudgetExceededError):
+        _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+    # OFF path overshoots (the breaching call's spend is in the counter before the cap re-check).
+    assert openrouter_client.current_run_cost() > 0.20
+
+
+def test_single_claim_over_cap_blocked_pre_spend(monkeypatch, tmp_path):
+    # F22: when even a SINGLE claim's anticipated reservation exceeds the FULL cap, admission control
+    # blocks it PRE-SPEND with BudgetExceededError (no worker is ever submitted for it) — fail loud,
+    # no silent thin (§-1.3). (Pre-F22 this tripped LIVE inside the worker AFTER the claim's own spend
+    # crossed its reset-context cap; with reservation the block is now genuinely pre-spend.)
+    per_claim = sweep_integration._anticipated_claim_cost(_MODEL_SLUGS)
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 4)
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", True)
+    # Cap BELOW one claim's anticipated reservation -> the very first claim cannot be admitted.
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", per_claim / 2.0)
+    openrouter_client.reset_run_cost()
+    n = 2
+    claims, ledger = _cost_claims(n)
+    transport = _DelayedFakeTransport()
+    with pytest.raises(BudgetExceededError):
+        _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+    # Nothing was ever admitted -> no verifier spend landed on the counter (pre-spend block).
+    assert openrouter_client.current_run_cost() == pytest.approx(0.0)
 
 
 def test_parallel_cost_equals_sequential_cost_under_cap(monkeypatch, tmp_path):
@@ -625,14 +774,18 @@ class _CountingCostTransport:
 
 
 def test_cap_trip_is_bounded_in_flight(monkeypatch, tmp_path):
-    # P1.1: N claims, each individually UNDER the cap, but the CUMULATIVE spend crosses the cap after
-    # a few claims. With the cap enforced DURING compute (parent re-adds each completed claim's delta
-    # and re-checks immediately), a BudgetExceededError fires and the pool is shut down with
-    # cancel_futures=True — so the number of claims that ACTUALLY RAN is bounded near the worker count
-    # in-flight at the breach, NOT all N. With the OLD code (submit+drain ALL, then re-add in the
-    # reduction) every one of the N claims would have run and spent before the cap tripped.
+    # P1.1 (LEGACY path, PG_FOUR_ROLE_BUDGET_RESERVE=0): N claims, each individually UNDER the cap, but
+    # the CUMULATIVE spend crosses the cap after a few claims. With the legacy cap enforced DURING
+    # compute (parent re-adds each completed claim's delta and re-checks immediately), a
+    # BudgetExceededError fires and the pool is shut down with cancel_futures=True — so the number of
+    # claims that ACTUALLY RAN is bounded near the worker count in-flight at the breach, NOT all N.
+    # With the OLDER code (submit+drain ALL, then re-add in the reduction) every one of the N claims
+    # would have run and spent before the cap tripped. NOTE: this is the bounded-OVERSHOOT regime; the
+    # F22 reservation path (default ON) blocks pre-spend instead (a HARD cap) — see the F22 tests above.
+    # This test pins the OFF-path regression so the legacy behaviour stays intact.
     workers = 2
     n = 12
+    monkeypatch.setattr(sweep_integration, "_BUDGET_RESERVE_ENABLED", False)
     monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", workers)
     # Each claim's Judge bills ~$0.1207 (the _BIG_JUDGE_USAGE block). Cap 0.30 -> the cumulative
     # total crosses after claim #3's delta is re-added (3 * 0.1207 = 0.3621 > 0.30), so only a
