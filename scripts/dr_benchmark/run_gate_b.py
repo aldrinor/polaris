@@ -1314,6 +1314,7 @@ async def run_gate_b_query(
     d8_config_path: str | Path | None = None,
     query_index: int | None = None,
     query_total: int | None = None,
+    resume: bool = False,
 ) -> dict:
     """Run ONE query through the honest sweep with the native 4-role Gate-B seam ACTIVE.
 
@@ -1465,6 +1466,7 @@ async def run_gate_b_query(
         four_role_input_builder=builder,
         query_index=query_index,
         query_total=query_total,
+        resume=resume,  # GAP1: A3 replay-harness corpus-snapshot resume (back-half-only)
     )
 
 
@@ -1799,6 +1801,23 @@ def main(argv: list[str] | None = None) -> int:
             "any other value fails loud (the doc could never become benchmark evidence)."
         ),
     )
+    # GAP1 (I-arch-005): thread the corpus-snapshot resume through the Gate-B path so the A3
+    # replay harness exercises the back half (selection/gen/verify/render/label + the native
+    # 4-role D8 seam) WITHOUT re-fetching. `run_one_query(resume=...)` and the snapshot
+    # reconstruct (`_resume_active`, run_honest_sweep_r3.py:3534) already exist + are tested;
+    # the ONLY missing wire was that --resume lived only on run_honest_sweep_r3.py (no 4-role)
+    # while the 4-role transport is injected ONLY by this caller (which had no --resume). Combines
+    # with --only/--all; ignored by --list (which returns before the real-run resolve). Per-query
+    # it is NOT an error if a slug has no snapshot — that query simply runs fresh + LOUD
+    # (run_honest_sweep_r3.py:3523-3537). Default OFF = byte-identical to the prior cert path.
+    parser.add_argument(
+        "--resume", action="store_true", default=False,
+        help=(
+            "Resume each query from its post-fetch corpus_snapshot.json under "
+            "<out_root>/<domain>/<slug>/ instead of re-retrieving (A3 replay harness). "
+            "No snapshot for a slug => that query runs fresh + logs loud (no silent re-bill)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # --only validates against the locked slug set BEFORE any env-touching import (fail loud).
@@ -1942,7 +1961,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             summary = asyncio.run(
                 run_gate_b_query(
-                    q, out_root, query_index=query_index, query_total=len(questions)
+                    q, out_root, query_index=query_index, query_total=len(questions),
+                    resume=args.resume,  # GAP1: A3 replay-harness corpus-snapshot resume
                 )
             )
             status = summary.get("status", "<no-status>")

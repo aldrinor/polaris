@@ -281,6 +281,57 @@ def test_cli_nonzero_rc_on_abort_status(monkeypatch):
     assert rc == 1
 
 
+# --------------------------------------------------------------------------- #
+# GAP1 (I-arch-005): --resume threads main() -> run_gate_b_query -> run_one_query
+# so the A3 replay harness exercises the back half (incl. the native 4-role D8 seam,
+# which is injected ONLY by this caller) WITHOUT re-fetching. Two tests, one per hop,
+# mirror the existing main->query / query->run_one_query split above.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("argv_resume,expected", [(["--resume"], True), ([], False)])
+def test_resume_flag_threads_main_to_run_gate_b_query(monkeypatch, argv_resume, expected):
+    """main(--only <slug> [--resume]) forwards resume= to run_gate_b_query; absent flag => False
+    (default OFF = byte-identical to the prior cert path). run_gate_b_query is monkeypatched to a
+    recorder so no transport is built and nothing spends/networks."""
+    captured = {}
+
+    async def _recording_run_gate_b_query(q, out_root, **kwargs):
+        captured["resume"] = kwargs.get("resume")
+        return {"status": "success", "slug": q["slug"]}
+
+    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _recording_run_gate_b_query)
+
+    rc = main(
+        ["--only", "drb_72_ai_labor", "--out-root", "outputs/__test_unused__"] + argv_resume
+    )
+    assert rc == 0
+    assert captured["resume"] is expected
+
+
+@pytest.mark.parametrize("resume_arg,expected", [(True, True), (False, False)])
+def test_run_gate_b_query_forwards_resume_to_run_one_query(monkeypatch, resume_arg, expected):
+    """run_gate_b_query(resume=...) reaches run_one_query(resume=...) — the receiving end
+    (_resume_active corpus-snapshot reconstruct, run_honest_sweep_r3.py) is already
+    implemented + tested; this proves the wire. FAKE transport injected so no real transport
+    is built; run_one_query monkeypatched so the real pipeline (network + spend) never runs."""
+    captured = {}
+
+    async def _fake_run_one_query(q, out_root, **kwargs):
+        captured["resume"] = kwargs.get("resume")
+        return {"status": "success", "slug": q["slug"]}
+
+    monkeypatch.setattr("scripts.run_honest_sweep_r3.run_one_query", _fake_run_one_query)
+
+    q = load_locked_questions(("drb_72_ai_labor",))[0]
+    fake_transport = object()  # never invoked — run_one_query is faked
+    summary = asyncio.run(
+        run_gate_b.run_gate_b_query(
+            q, Path("outputs/__test_unused__"), transport=fake_transport, resume=resume_arg
+        )
+    )
+    assert summary["status"] == "success"
+    assert captured["resume"] is expected
+
+
 def test_default_out_root_constant():
     assert DEFAULT_OUT_ROOT == "outputs/honest_sweep_r3"
 
