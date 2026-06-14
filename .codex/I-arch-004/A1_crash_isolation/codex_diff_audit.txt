@@ -1,0 +1,9 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/generator/multi_section_generator.py:6034: M-47 does not skip is_gap_stub/sentences_verified==0, so a transient Mechanism gap can trigger needless M-47 regen/diagnostic. Non-blocking: hard gates still re-raise and replacement requires verified sentences."
+  - "src/polaris_graph/generator/multi_section_generator.py:5952: M-44 regen is fail-loud for BudgetExceededError/CredibilityPassError, but not fail-fast because return_exceptions=True waits for sibling regens. Existing pattern; follow-up only if fail-fast is required there too."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

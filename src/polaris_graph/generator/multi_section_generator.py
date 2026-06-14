@@ -38,6 +38,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import httpx
+
 from src.polaris_graph.generator.live_deepseek_generator import (
     _DECIMAL_RE,
     _EV_MARKER_RE,
@@ -345,6 +347,104 @@ _NO_EVIDENCE_GAP_STUB_SENTENCE = (
     "curator-actionable gap. The corpus did not yield any source assigned to this section "
     "(see the retrieval and frame-coverage telemetry for the assignment trail)."
 )
+
+# I-arch-004 A1 (#1248): the crash-isolation gap path. When a section's bounded runner FAILS
+# (the wall-clock guard fired x2, or a transient generation/transport error) the section becomes
+# an explicit, visible gap instead of an exception that propagates out of the asyncio.gather and
+# cancels its siblings + crashes the whole run. THIS is the drb_72 death: one V30 narrative
+# section hit the smoke-inherited 600s wall-clock x2, the bare gather re-raised, and a 3h20m /
+# $6.74 run was discarded as error_unexpected. A CredibilityPassError is NEVER stubbed — it stays
+# fail-loud (re-raised). Faithfulness-neutral: strict_verify / NLI / 4-role / provenance still run
+# on the sections that DID generate; the stub carries ZERO verified sentences.
+_SECTION_FAILED_GAP_STUB_SENTENCE = (
+    "This section could not be generated (the section generator failed or exceeded its "
+    "wall-clock budget); it is a curator-actionable gap. The remainder of the report and all "
+    "faithfulness gates are unaffected. See run telemetry for the failure cause."
+)
+
+
+# I-arch-004 A1 (#1248), Codex diff-gate iter-1/iter-3: ONLY these transient/infra failures are
+# downgraded to a gap-stub. Everything else — the hard gates (CredibilityPassError /
+# BudgetExceededError), and programming/config/schema defects (AttributeError, NoEndpointError,
+# ReasoningFirstTruncationError, FileNotFoundError, ...) — PROPAGATES, so a real bug is never masked as
+# a content gap and the cost-cap / faithfulness gates fail FAST. (asyncio.TimeoutError == builtin
+# TimeoutError on 3.11+.)
+#
+# Codex iter-3 P1: the transport classes MUST mirror the EXACT retryable set the OpenRouter client
+# re-raises after MAX_RETRIES (openrouter_client.py:2046-2059, I-transport-001 #1191 — itself a drb_72
+# fix): a slow/wedged provider that exhausts retries surfaces as one of these four httpx exceptions,
+# which is precisely the failure that should degrade to a gap-stub. Deliberately NOT the broad
+# httpx.TransportError parent (would swallow ProxyError/UnsupportedProtocol/DecodingError = config
+# defects) and NOT httpx.HTTPStatusError (a real 4xx/5xx) and NOT the broad builtin OSError (would mask
+# FileNotFoundError).
+_TRANSIENT_SECTION_FAILURES: tuple = (
+    asyncio.TimeoutError,
+    TimeoutError,
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+)
+
+
+def _section_failure_to_gap_stub(plan, exc: BaseException) -> "SectionResult":
+    """I-arch-004 A1 (#1248): build a VISIBLE gap-stub SectionResult for a TRANSIENT section failure
+    (the wall-clock-x2 TimeoutError, a socket/connection stall). Called ONLY from the isolation
+    wrappers, which catch ONLY ``_TRANSIENT_SECTION_FAILURES`` — hard gates + programming defects
+    never reach here, they propagate fail-fast (Codex diff-gate iter-1 P1-2/P1-3).
+
+    ``dropped_due_to_failure=False`` so assembly RENDERS the gap (the ``if not sr.dropped_due_to_failure``
+    filter keeps it — Codex diff-gate iter-1 P1-1); ``is_gap_stub=True`` + zero verified sentences so no
+    consumer treats it as verified prose. Mirrors the no-evidence gap-stub render pattern."""
+    logger.warning(
+        "[gen-crash-isolation] section %r transient failure (%s: %s) -> VISIBLE gap-stub; "
+        "siblings + gates continue", getattr(plan, "title", "?"), type(exc).__name__, exc,
+    )
+    return SectionResult(
+        title=getattr(plan, "title", ""),
+        focus=getattr(plan, "focus", ""),
+        ev_ids_assigned=getattr(plan, "ev_ids", []),
+        raw_draft="", rewritten_draft="",
+        verified_text=_SECTION_FAILED_GAP_STUB_SENTENCE, biblio_slice=[],
+        sentences_verified=0, sentences_dropped=0,
+        regen_attempted=False, dropped_due_to_failure=False,
+        error=f"section_generation_failed: {type(exc).__name__}: {exc}"[:500],
+        archetype=getattr(plan, "archetype", ""),
+        is_gap_stub=True,
+    )
+
+
+async def _gather_sections_isolated(plans, runner_for):
+    """I-arch-004 A1 (#1248): run one bounded section task per plan with per-section TRANSIENT crash
+    isolation. Returns a ``list[SectionResult]`` index-aligned with ``plans``.
+
+    A TRANSIENT failure (``_TRANSIENT_SECTION_FAILURES``: wall-clock-x2 TimeoutError, socket/connection
+    stall) is caught INSIDE the task and returned as a visible gap-stub, so one stalled section no
+    longer cancels its siblings (the drb_72 death). EVERY other exception — the hard gates
+    (``CredibilityPassError`` / ``BudgetExceededError``) AND programming/config/schema defects —
+    PROPAGATES out of the plain ``asyncio.gather``, which CANCELS the sibling tasks (fail-fast) and
+    aborts the run. So the cost-cap / faithfulness gates fail FAST (no extra sibling spend) and a real
+    defect is never silently swallowed (Codex diff-gate iter-1 P1-2/P1-3)."""
+    async def _isolated(plan):
+        try:
+            return await runner_for(plan)
+        except _TRANSIENT_SECTION_FAILURES as exc:
+            return _section_failure_to_gap_stub(plan, exc)
+
+    # Codex diff-gate iter-2 P1-3: a plain asyncio.gather propagates the first exception but does NOT
+    # cancel the still-running siblings — a hard gate (BudgetExceededError / CredibilityPassError) or a
+    # programming defect would otherwise let sibling section calls keep SPENDING in the live loop. Drive
+    # explicit tasks and CANCEL the pending ones on any non-transient exception before re-raising, then
+    # drain the cancellations cleanly. Transient failures never reach here (caught inside _isolated).
+    tasks = [asyncio.ensure_future(_isolated(p)) for p in plans]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for _t in tasks:
+            if not _t.done():
+                _t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 # Field-invariant section archetypes (I-meta-005 Phase 1 #985, brief §2.3).
@@ -5506,9 +5606,12 @@ async def generate_multi_section_report(
             contract_slot_payloads.extend(payloads)
             return result
 
-    contract_results = await asyncio.gather(*[
-        _run_section_with_wallclock(_run_contract_bounded, p) for p in contract_plans
-    ])
+    # I-arch-004 A1 (#1248): per-section crash isolation. Was a bare gather that re-raised when one
+    # V30 section hit the wall-clock x2 (the drb_72 death — a 3h20m run discarded). Now each failure
+    # becomes an index-aligned visible gap-stub; CredibilityPassError still fails loud in the mapper.
+    contract_results = await _gather_sections_isolated(
+        contract_plans, lambda p: _run_section_with_wallclock(_run_contract_bounded, p)
+    )
 
     # V33 M-72: build the cross-trial synthesis block AFTER contract
     # payloads land. Empty block when fewer than 2 trial frames
@@ -5547,9 +5650,10 @@ async def generate_multi_section_report(
             return await _run_contract_bounded(plan)
         return await _run_legacy_bounded(plan)
 
-    legacy_results = await asyncio.gather(*[
-        _run_section_with_wallclock(_run_legacy_bounded, p) for p in legacy_plans
-    ])
+    # I-arch-004 A1 (#1248): per-section crash isolation (see contract gather above).
+    legacy_results = await _gather_sections_isolated(
+        legacy_plans, lambda p: _run_section_with_wallclock(_run_legacy_bounded, p)
+    )
 
     # Merge results back in original `plans` order so downstream
     # assembly is unchanged.
@@ -5744,7 +5848,9 @@ async def generate_multi_section_report(
         # by apply_disclosure_to_svs (a cited token with no credibility/origin coverage) is a
         # faithfulness abort — NEVER swallow it into a silent "continuing without dedup".
         from ..synthesis.credibility_pass import CredibilityPassError
-        if isinstance(exc, CredibilityPassError):
+        from ..llm.openrouter_client import BudgetExceededError
+        # I-arch-004 A1 (#1248) Codex iter-2: the cost-cap hard gate must also stay fail-loud here.
+        if isinstance(exc, (CredibilityPassError, BudgetExceededError)):
             raise
         logger.warning(
             "[multi_section] GH#423 fact_dedup pass failed (%s); "
@@ -5852,7 +5958,9 @@ async def generate_multi_section_report(
                     # regen MUST stay fail-loud — never swallowed into "continue without the regen".
                     # return_exceptions=True captured it as a value; re-raise it here.
                     from ..synthesis.credibility_pass import CredibilityPassError
-                    if isinstance(regen_result, CredibilityPassError):
+                    from ..llm.openrouter_client import BudgetExceededError
+                    # I-arch-004 A1 (#1248) Codex iter-2: cost-cap hard gate also stays fail-loud.
+                    if isinstance(regen_result, (CredibilityPassError, BudgetExceededError)):
                         raise regen_result
                     logger.warning(
                         "[multi_section] M-44 regen raised for %s: %s",
@@ -6055,7 +6163,9 @@ async def generate_multi_section_report(
                             # the regen" (regen runs _bounded_run -> _run_section/run_contract_section,
                             # which populate the disclosure under activation).
                             from ..synthesis.credibility_pass import CredibilityPassError
-                            if isinstance(exc, CredibilityPassError):
+                            from ..llm.openrouter_client import BudgetExceededError
+                            # I-arch-004 A1 (#1248) Codex iter-2: cost-cap hard gate also fail-loud.
+                            if isinstance(exc, (CredibilityPassError, BudgetExceededError)):
                                 raise
                             logger.warning(
                                 "[multi_section] M-47 regen raised: %s",
@@ -6236,7 +6346,10 @@ async def generate_multi_section_report(
             verified_prose_joined = "\n\n".join(
                 f"## {sr.title}\n\n{sr.verified_text}"
                 for sr in section_results
-                if sr.verified_text
+                # I-arch-004 A1 (#1248) Codex iter-2 P2: a gap-stub carries truthy PLACEHOLDER
+                # verified_text but ZERO verified sentences — it must NOT be fed to analyst synthesis
+                # as verified prose. Also closes the same latent leak for the no-evidence stub.
+                if sr.verified_text and not sr.is_gap_stub
             )
             if verified_prose_joined.strip():
                 analyst_synth_text, analyst_synth_in_tok, analyst_synth_out_tok = (
@@ -6425,16 +6538,39 @@ async def generate_multi_section_report(
                 )
                 return anchor, prose, biblio_num, i_tok, o_tok
 
+            # I-arch-004 A1 (#1248), Codex diff-gate iter-1 P1-2/P1-3: M-50 per-trial subsections are
+            # ADDITIVE — a TRANSIENT failure is dropped (logged) so it cannot abort report assembly
+            # after the main verified sections already cost the bulk of the run. Hard gates +
+            # programming defects propagate via the plain gather (fail-fast), never silently dropped.
             async def _bounded_gen(*args):
-                async with sem:
-                    return await _gen_one(*args)
+                try:
+                    async with sem:
+                        return await _gen_one(*args)
+                except _TRANSIENT_SECTION_FAILURES as exc:
+                    logger.warning(
+                        "[multi_section] M-50 subsection transient failure -> dropped: %s", exc,
+                    )
+                    return None
 
-            results = await asyncio.gather(*[
-                _bounded_gen(anchor, row, num, quote)
+            # Codex diff-gate iter-2 P1-3: explicit tasks + cancel siblings on a non-transient exception
+            # (hard gate / programming defect) so an aborting M-50 batch does not keep spending.
+            _m50_tasks = [
+                asyncio.ensure_future(_bounded_gen(anchor, row, num, quote))
                 for anchor, row, num, quote in candidates
-            ])
+            ]
+            try:
+                results = await asyncio.gather(*_m50_tasks)
+            except BaseException:
+                for _t in _m50_tasks:
+                    if not _t.done():
+                        _t.cancel()
+                await asyncio.gather(*_m50_tasks, return_exceptions=True)
+                raise
             subsection_blocks: list[str] = []
-            for anchor, prose, biblio_num, i_tok, o_tok in results:
+            for _m50_res in results:
+                if _m50_res is None:
+                    continue
+                anchor, prose, biblio_num, i_tok, o_tok = _m50_res
                 m50_in_tok += i_tok
                 m50_out_tok += o_tok
                 if prose and len(prose) >= 100:
