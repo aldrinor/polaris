@@ -123,16 +123,17 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
     try:
-        resp = fut.result(timeout=total_s)
-        ex.shutdown(wait=False)
-        return resp
+        return fut.result(timeout=total_s)
     except concurrent.futures.TimeoutError:
         try:
             client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
         except Exception:  # noqa: BLE001
             pass
-        ex.shutdown(wait=False)  # do NOT block on the (now-unsticking) worker
         raise
+    finally:
+        # Codex P2 (HANG-J3 gate): deterministic executor teardown on EVERY exit path (success, timeout,
+        # or a non-timeout client.post exception). wait=False so a still-unsticking worker never blocks us.
+        ex.shutdown(wait=False)
 # I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
 # for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
 # previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the

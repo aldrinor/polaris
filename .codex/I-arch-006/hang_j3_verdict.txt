@@ -1,0 +1,12 @@
+verdict: APPROVE
+
+novel_p0: []
+
+p1: []
+
+p2: [
+  "_post_with_total_deadline() shuts down the per-call executor on success and timeout, but not in a `finally` for non-timeout `client.post` exceptions. The future is already complete on that path, so this is not a blocker, but explicit `finally: ex.shutdown(wait=False)` would make lifecycle cleanup deterministic.",
+  "Stale comments still mention the old Gemma default in `entailment_judge.py` / `strict_verify.py`. Code default remains `z-ai/glm-5.1`, so this is documentation drift only."
+]
+
+remaining_blockers_for_execution: []
