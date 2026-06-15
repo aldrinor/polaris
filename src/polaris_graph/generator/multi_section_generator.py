@@ -438,6 +438,16 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
 # immediately — no timeout needed), so the stall timeout only ever bounds a TRUE hang; a generous
 # value loses nothing. 1200s = generous headroom over the ~473-545s real ceiling, still well under
 # the 6500s section wall. Env-tunable.
+# BUG-2 (#1262, GOVERNANCE-EXPLICIT — behavior UNCHANGED): 2048 is a DELIBERATE
+# small-call reduction, NOT the token-starvation bug. This budget serves only the
+# terse contract-slot uses (JSON slot-fill / regulatory synthesis / the ≤3-sentence
+# narrative), which do NOT need deep reasoning; keeping it tight is what PREVENTS the
+# drb_76 ReasoningFirstTruncationError (reasoning eating the whole completion ceiling
+# -> ZERO content). BUG-2 raises ONLY the starved MAIN section-prose call (the REDUCE
+# writer's PG_DISTILL_REDUCE_REASONING_* floor in evidence_distiller.py) — this
+# small-call value is intentionally LEFT TIGHT and must never be "maxed". §9.1.8
+# ("reasoning always max") is served per-call: max where the work is full prose,
+# tight where the work is a 3-sentence slot. Faithfulness gates are untouched here.
 PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
     os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
 )
@@ -6097,7 +6107,28 @@ async def generate_multi_section_report(
             _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
 
     # Stage 2: per-section generation (bounded parallelism)
-    sem = asyncio.Semaphore(max_parallel_sections)
+    # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY
+    # generated concurrently (the _gather_sections_isolated asyncio.gather below) but
+    # the concurrency bound was a hardcoded function default (max_parallel_sections=3).
+    # Surface it as the env-driven PG_PARALLEL_SECTIONS knob (LAW VI) so a run can lift
+    # the cap to overlap more sections without truncating any work. This changes ONLY
+    # how many sections run at once (the Semaphore bound) — each section is still
+    # generated and verified INDEPENDENTLY and IDENTICALLY, and the results are merged
+    # back in the original `plans` order downstream, so output is unchanged. The knob
+    # is a CONCURRENCY bound, never a section TARGET/cap-to-hit-a-number. Unset =>
+    # byte-identical to the caller-supplied max_parallel_sections (no behavior change).
+    _section_concurrency = max_parallel_sections
+    _parallel_sections_raw = os.getenv("PG_PARALLEL_SECTIONS", "").strip()
+    if _parallel_sections_raw:
+        try:
+            _parallel_sections_override = int(_parallel_sections_raw)
+            if _parallel_sections_override >= 1:
+                _section_concurrency = _parallel_sections_override
+        except ValueError:
+            # Malformed override is ignored — fall back to the caller default
+            # (fail-safe: never widen/zero the bound on a bad env value).
+            pass
+    sem = asyncio.Semaphore(_section_concurrency)
 
     # V30 Phase-2 M-63: dispatch contract sections (M-58 slot-bound)
     # vs legacy LLM sections. ContractSectionPlanExt instances go

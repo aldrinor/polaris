@@ -1,0 +1,311 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 2e4309f3..1e44f4b1 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1484,6 +1484,71 @@ def expected_str_for_abort(protocol: dict) -> str:
+     return ", ".join(parts) or "per scope template"
+ 
+ 
++def _retrieval_caps_disclosure(retrieval) -> dict:
++    """BUG-4 (#1262): surface the fetch/search caps that silently throttle breadth so a
++    CAPPED run is VISIBLE + auditable in the manifest, instead of only appearing as
++    transient log lines ("pre_filter=1299 fetched=623", "truncating 855->100 academic",
++    "academic cap reached"). DISCLOSURE ONLY - this reads counts already on the retrieval
++    object plus the ACTIVE env-cap values (LAW VI: the caps stay env-overridable and are NOT
++    removed or changed here). §-1.3 DNA: weight/consolidate not filter - making a cap visible
++    is the honest disclose-don't-silently-drop move, never a new cap/target/thinner.
++
++    Faithfulness-safe: pure read-only telemetry. It never touches a span, provenance,
++    strict_verify / NLI / 4-role check, or any verdict.
++
++    Fields:
++      - candidates_discovered: the full discovered pool BEFORE the fetch budget bit
++        (total_candidates_pre_filter, falling back to candidates_total).
++      - fetched: how many of those were actually fetched (the post-cap survivors).
++      - dropped_pre_fetch: discovered - fetched - failed (the breadth lost to caps/filters
++        BEFORE fetch), clamped to >= 0; this is the silent-throttle magnitude.
++      - corpus_truncated: the fail-loud post-fetch loop-deadline truncation flag (#958).
++      - drop_reasons: the per-reason pre-fetch loss aggregate (already on the object).
++      - search_truncations: a list of the ACTIVE caps that could throttle breadth, each
++        naming the cap, its configured value, and (when derivable) whether it BIT this run.
++    All getattr with defaults so pre-existing / stub retrieval objects never KeyError."""
++    discovered = int(getattr(retrieval, "total_candidates_pre_filter", 0) or 0)
++    if discovered <= 0:
++        discovered = int(getattr(retrieval, "candidates_total", 0) or 0)
++    fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
++    failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
++    dropped_pre_fetch = max(0, discovered - fetched - failed)
++
++    # The ACTIVE env-driven caps (LAW VI). Read here for DISCLOSURE only - the retrieval
++    # backends own + apply them; this block never enforces or alters a cap.
++    fetch_cap = _env_int("PG_LIVE_FETCH_CAP", 40)
++    serper_total = _env_int("PG_SERPER_TOTAL_PER_QUERY", 0)
++    serper_pages = _env_int("PG_SERPER_MAX_PAGES", 3)
++    search_truncations: list[dict] = [
++        {
++            "cap": "PG_LIVE_FETCH_CAP",
++            "value": fetch_cap,
++            # The fetch budget BIT when more candidates were discovered than the cap allowed
++            # through to fetch (the dominant silent breadth throttle).
++            "bit": bool(fetch_cap > 0 and discovered > fetch_cap),
++        },
++        {
++            "cap": "PG_SERPER_MAX_PAGES",
++            "value": serper_pages,
++            # Cannot derive per-run "bit" from the result object alone - disclosed as configured.
++            "bit": None,
++        },
++    ]
++    if serper_total > 0:
++        search_truncations.append(
++            {"cap": "PG_SERPER_TOTAL_PER_QUERY", "value": serper_total, "bit": None}
++        )
++    return {
++        "candidates_discovered": discovered,
++        "fetched": fetched,
++        "failed": failed,
++        "dropped_pre_fetch": dropped_pre_fetch,
++        "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
++        "drop_reasons": getattr(retrieval, "drop_reasons", {}) or {},
++        "search_truncations": search_truncations,
++    }
++
++
+ def _retrieval_manifest_section(retrieval) -> dict:
+     """#958 (S2): the SINGLE source of truth for a manifest's "retrieval"
+     section. Used by BOTH `_base_manifest_envelope` (abort paths) AND the
+@@ -1491,6 +1556,8 @@ def _retrieval_manifest_section(retrieval) -> dict:
+     never be omitted on one path. All getattr with defaults (backward
+     compatible with pre-#958 retrieval objects)."""
+     return {
++        # BUG-4 (#1262): the silent-throttle disclosure block (DISCLOSURE ONLY - caps unchanged).
++        "retrieval_caps": _retrieval_caps_disclosure(retrieval),
+         "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+         "fetched": getattr(retrieval, "candidates_fetched", 0),
+         "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+@@ -1852,6 +1919,60 @@ def run_wall_clock_seconds() -> float:
+     return val if val > 0 else _RUN_WALL_CLOCK_DEFAULT_SEC
+ 
+ 
++# BUG-3 (#1262): the generation-phase heartbeat tick interval (seconds). The multi-section
++# generator is a SINGLE batched `await` with no per-section hook in this file (the per-section
++# loop lives in the generator module, which this run-orchestration lane must NOT touch), so
++# without a periodic refresh run_status.json FREEZES at stage="generation_started" for the whole
++# ~1.5-2h generation+per-sentence-verification phase - a human tailing it cannot tell a live run
++# from a wedged one. A lightweight background asyncio ticker re-stamps the heartbeat at this
++# cadence with the LIVE running cost + elapsed_s so the tailer sees real movement. Mirrors the
++# existing four_role progress callback (which keeps last_update_utc advancing during the verifier
++# phase). LAW VI: env-overridable; a non-positive / unparseable value DISABLES the ticker (the
++# heartbeat still fires its existing stage transitions - only the intra-phase refresh is off).
++_GENERATION_HEARTBEAT_TICK_ENV = "PG_GENERATION_HEARTBEAT_TICK_SECONDS"
++_GENERATION_HEARTBEAT_TICK_DEFAULT_SEC = 30.0
++
++
++def generation_heartbeat_tick_seconds() -> float:
++    """BUG-3 (#1262): the generation-phase heartbeat refresh cadence (seconds).
++
++    Observability ONLY - the tick re-writes run_status.json; it never touches a faithfulness
++    gate, span, provenance check, or any verdict. A non-positive / unparseable value returns
++    0.0 to mean "disabled" (the caller skips the background ticker entirely)."""
++    raw = os.environ.get(_GENERATION_HEARTBEAT_TICK_ENV, "").strip()
++    if not raw:
++        return _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC
++    try:
++        val = float(raw)
++    except ValueError:
++        logging.getLogger(__name__).warning(
++            "%s=%r is not a number; using default %.0fs",
++            _GENERATION_HEARTBEAT_TICK_ENV, raw, _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC,
++        )
++        return _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC
++    return val if val > 0 else 0.0
++
++
++async def _periodic_heartbeat_ticker(hb, stage: str, interval_s: float) -> None:
++    """BUG-3 (#1262): re-stamp the heartbeat ``stage`` every ``interval_s`` until cancelled.
++
++    A background ``asyncio.Task`` the caller starts around a long single ``await`` (generation)
++    and cancels in a ``finally``. Each tick calls ``hb(stage)`` so run_status.json's
++    ``last_update_utc`` / ``elapsed_s`` / ``running_cost_usd`` keep advancing - the frozen-stage
++    signal BUG-3 fixes (``hb`` recomputes elapsed + live cost on every write). The ``hb`` closure
++    already swallows every IO error, so a write failure cannot perturb the run; ``CancelledError``
++    is re-raised so the task ends cleanly. Faithfulness-safe: pure observability - no gate, span,
++    or verdict is read or written here."""
++    if interval_s <= 0:
++        return
++    try:
++        while True:
++            await asyncio.sleep(interval_s)
++            hb(stage)
++    except asyncio.CancelledError:
++        raise
++
++
+ # B20 P1-1 (Codex iter-2): the run-scoped wall-clock DEADLINE (a monotonic-clock instant).
+ # The call site (main_async) sets this to ``time.monotonic() + wall`` immediately BEFORE wrapping
+ # run_one_query in ``asyncio.wait_for(..., timeout=wall)``. When wait_for times out it CANCELS
+@@ -3218,6 +3339,69 @@ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
+         return manifest
+ 
+ 
++def write_terminal_error_manifest(
++    run_dir: "Path | None",
++    q: dict,
++    run_id: "str | None",
++    exc: BaseException,
++    phase: str,
++) -> "dict | None":
++    """BUG-21 (#1262): write a TERMINAL manifest.json with ``status=error_<phase>`` on an
++    otherwise-uncaught exception, so NO catchable failure leaves run_status.json frozen at an
++    intermediate stage with no terminal artifact (the drb_76 silent-death class).
++
++    The big outer ``try`` inside ``run_one_query`` already writes an error manifest for any failure
++    INSIDE it; this helper covers the ENTRY-SETUP region BEFORE that try (corrupt-snapshot resume
++    load, a reasoning-collector / telemetry / import failure), which previously escaped with no
++    manifest. ``phase`` is the last heartbeat stage reached so the human sees WHERE it died. The
++    record carries the exception TYPE + message; status is ``error_<phase>`` (an ``error_*`` value,
++    consistent with the unified taxonomy's ``error_unexpected`` family - the EXISTING success /
++    abort / error_unexpected statuses are untouched and byte-identical).
++
++    Best-effort and never raises: a write failure here must not mask the original exception, and
++    this is observability / crash-safety ONLY - it touches no faithfulness gate, span, or verdict.
++    Returns the written manifest dict (or None when no run_dir is available)."""
++    if run_dir is None:
++        return None
++    try:
++        _safe_phase = "".join(
++            c if (c.isalnum() or c == "_") else "_" for c in (phase or "unknown")
++        ) or "unknown"
++        run_cost = current_run_cost()
++        manifest = {
++            "run_id": run_id or "",
++            "slug": q.get("slug", ""),
++            "domain": q.get("domain", ""),
++            "question": q.get("question", ""),
++            "status": f"error_{_safe_phase}",
++            "error": str(exc)[:500],
++            "error_type": type(exc).__name__,
++            "phase": phase or "unknown",
++            "cost_usd": run_cost,
++            "budget_cap_usd": get_max_cost_per_run(),
++        }
++        manifest = augment_v6_manifest(
++            manifest,
++            external_run_id=q.get("external_run_id"),
++            decision_id=q.get("decision_id"),
++            query_slug=q.get("slug"),
++        )
++        manifest = _attach_tool_utilization(manifest, run_dir)
++        (run_dir / "manifest.json").write_text(
++            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
++            encoding="utf-8",
++        )
++        return manifest
++    except Exception as _terminal_exc:  # noqa: BLE001 - never mask the original failure
++        try:
++            logging.getLogger(__name__).warning(
++                "terminal error-manifest write failed (phase=%s): %s", phase, _terminal_exc
++            )
++        except Exception:  # noqa: BLE001
++            pass
++        return None
++
++
+ def _abort_if_cancelled(
+     q: dict,
+     run_dir: Path,
+@@ -3390,6 +3574,14 @@ async def run_one_query(
+     # instead of None. A 1-element list-box so the nested `_hb` closure can read the latest value;
+     # the read is a single GIL-atomic index, set once by the parent before the seam thread starts.
+     _hb_sources_kept = [None]
++    # BUG-21 (#1262): track the LAST heartbeat stage so the catch-all terminal-manifest guard
++    # (added below, around the pre-`try` entry setup) can label an otherwise-uncaught failure
++    # `error_<phase>` with the real phase reached - e.g. a corrupt-snapshot resume load that
++    # raises BEFORE the outer try cannot leave run_status.json frozen at "started". A 1-element
++    # box so the nested `_hb` closure can write it; the read is a single GIL-atomic index.
++    # Faithfulness-safe: this is observability/crash-safety only - it never touches a span /
++    # provenance / strict_verify / NLI / 4-role check or alters any verdict.
++    _hb_last_stage = ["started"]
+     from src.polaris_graph.telemetry.run_status_heartbeat import (
+         apply_persisted_sources_kept as _apply_persisted_sources_kept,
+         write_heartbeat as _write_heartbeat,
+@@ -3397,6 +3589,7 @@ async def run_one_query(
+ 
+     def _hb(stage: str, **kw) -> None:
+         try:
++            _hb_last_stage[0] = stage  # BUG-21 (#1262): remember the phase for error labeling
+             # Persist the kept-source count across stages without overriding an explicit caller value
+             # (tested pure helper: src/polaris_graph/telemetry/run_status_heartbeat.py).
+             _apply_persisted_sources_kept(kw, _hb_sources_kept[0])
+@@ -3417,181 +3610,202 @@ async def run_one_query(
+ 
+     _hb("started")  # file exists immediately; a pre-try crash still leaves a record
+ 
+-    # I-ready-005 ...  [ENTRY-SETUP REGION RE-INDENTED +4 INTO THE BUG-21 GUARD `try:`;
+-    #   the 175 entry-setup lines (feature telemetry, reasoning/retrieval-trace init, tool tracer,
+-    #   raw-IO sink, resume-snapshot load, log-file open, summary dict, clinical surface flag) are
+-    #   indented one level so the new guard wraps them. NO logic change to those lines.]
++    # BUG-21 (#1262): TOP-LEVEL catch-all over the run ENTRY SETUP (imports, resume-snapshot
++    # load, reasoning/retrieval-trace init, log-file open). The big outer `try` below already
++    # writes a terminal error manifest for any failure INSIDE it; THIS guard closes the gap
++    # BEFORE it - e.g. a corrupt --resume snapshot that `_load_corpus_snapshot` fails loud on, or
++    # an import/telemetry-init failure - which previously escaped with NO terminal manifest.json,
++    # leaving run_status.json frozen forever (the drb_76 silent-death class). On any otherwise-
++    # uncaught exception we write `status=error_<phase>` (phase = the last heartbeat stage), stamp
++    # a terminal heartbeat, then RE-RAISE so the caller still sees the real failure. The existing
++    # success / abort / error statuses are untouched and byte-identical (this only fires on a
++    # genuine pre-`try` crash). Faithfulness-safe: crash-safety/observability only - no span,
++    # provenance, strict_verify / NLI / 4-role check, or verdict is read or altered here.
++    try:
++        [... entry-setup lines re-indented +4, logic unchanged ...]
++    except BaseException as _setup_exc:  # noqa: BLE001 - terminal artifact then re-raise (no swallow)
++        write_terminal_error_manifest(
++            run_dir, q, run_id, _setup_exc, _hb_last_stage[0],
++        )
++        try:
++            _hb(f"error_{_hb_last_stage[0]}")
++        except Exception:  # noqa: BLE001 - terminal heartbeat is best-effort
++            pass
++        raise
+ 
+     try:
+         # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
+@@ -7268,6 +7482,20 @@ async def run_one_query(
+ 
+         _pathb_gen_tok = _pathb.set_role("generator")
+         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
++        # BUG-3 (#1262): generation + per-sentence verification is ONE batched `await` with no
++        # mid-stream hook in this file, so run_status.json otherwise FREEZES at
++        # "generation_started" for the whole ~1.5-2h phase (operator could not tell a live run from
++        # a wedged one). Start a lightweight background ticker that re-stamps the heartbeat every
++        # PG_GENERATION_HEARTBEAT_TICK_SECONDS with the LIVE elapsed_s + running_cost_usd so a
++        # tailer sees real progress. Cancelled in the `finally` below (ALWAYS, on success/raise) so
++        # it cannot outlive the phase or land a stale "generation_in_progress" after a terminal
++        # stage. Faithfulness-safe: pure observability - it never reads/writes a span, provenance,
++        # strict_verify / NLI / 4-role check, or any verdict.
++        _gen_hb_ticker = asyncio.ensure_future(
++            _periodic_heartbeat_ticker(
++                _hb, "generation_in_progress", generation_heartbeat_tick_seconds(),
++            )
++        )
+         try:
+             multi = await generate_multi_section_report(
+                 research_question=q["question"],
+@@ -7410,6 +7638,15 @@ async def run_one_query(
+             )
+         finally:
+             _pathb.reset_role(_pathb_gen_tok)
++            # BUG-3 (#1262): stop the generation-phase heartbeat ticker on EVERY exit
++            # (success OR raise) so it cannot land a stale "generation_in_progress" after a
++            # later terminal stage. Best-effort: cancel + await is guarded so a ticker teardown
++            # failure can never convert a success into an error (faithfulness invariant).
++            _gen_hb_ticker.cancel()
++            try:
++                await _gen_hb_ticker
++            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - teardown must not raise into the run
++                pass
+         dt = time.time() - t0
+         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
+              f"sections, words={multi.total_words}, "
+
+NOTE: The hunk that wraps the entry-setup region (lines ~3417-3618) re-indents the existing 175 setup lines +4 spaces into the new BUG-21 `try:` with NO logic change; full verbatim is in the staged diff (git diff --cached). New test file tests/polaris_graph/test_run_lifecycle_obs_bug_3_21_4.py (289 lines) added in full in the staged diff.

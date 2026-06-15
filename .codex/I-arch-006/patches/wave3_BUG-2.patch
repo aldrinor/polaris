@@ -1,0 +1,245 @@
+diff --git a/src/polaris_graph/generator/evidence_distiller.py b/src/polaris_graph/generator/evidence_distiller.py
+index 58247060..9947abab 100644
+--- a/src/polaris_graph/generator/evidence_distiller.py
++++ b/src/polaris_graph/generator/evidence_distiller.py
+@@ -98,6 +98,12 @@ def _map_max_tokens() -> int:
+ 
+ 
+ def _map_reasoning_tokens() -> int:
++    # BUG-2 (#1262): the MAP call is per-SOURCE atomic extraction — short,
++    # bounded, NON-prose work (one source -> a few span-grounded findings). Its
++    # modest 4096 reasoning budget is the DELIBERATE small-call reduction that
++    # protects content per drb_76 (reasoning eating the whole completion ceiling
++    # -> ZERO content -> ReasoningFirstTruncationError). It is NOT the starved
++    # main-section call and is intentionally LEFT AS-IS by this fix.
+     return _env_int("PG_DISTILL_MAP_REASONING_TOKENS", 4096)
+ 
+ 
+@@ -105,8 +111,41 @@ def _reduce_max_tokens() -> int:
+     return _env_int("PG_DISTILL_REDUCE_MAX_TOKENS", 8192)
+ 
+ 
++# BUG-2 (#1262): sane reasoning FLOOR for the REDUCE call — the MAIN section-prose
++# writer in the distillate keystone path (multi_section_generator
++# `_reduce_reasoning_tokens()` site, call_type="section_reduce"). This is full
++# section composition over the validated findings ledger, NOT a small extraction or
++# <=3-sentence contract-slot call. The keystone's birth default (5000, #1209) was an
++# initial guess that token-STARVES this call vs CLAUDE.md §9.1.8 ("reasoning always
++# max"): deepseek-v4-pro emits ~5-18k reasoning tokens for full prose composition
++# (openrouter_client.py:1820-1837 in-code evidence), and the equivalent LEGACY
++# section writer (multi_section_generator.py:2802, no explicit reasoning cap) gets
++# ~0.4*32768 ≈ 13k reasoning headroom for the SAME job. A 5000 hint sits BELOW that
++# band, so a provider that DOES honor reasoning.max_tokens could truncate V4 Pro's
++# plan mid-stream -> the REDUCE ReasoningFirstTruncationError guard returns an empty
++# draft -> that section DROPS. FAITHFULNESS IS SAFE: raising the reasoning floor can
++# only let MORE sections finish composing (never fewer, never a relaxed gate) — the
++# content ceiling is independently floored to 32768 (openrouter_client.py:1838) so
++# wider reasoning does not starve content, and every REDUCE sentence is still
++# re-verified by the UNCHANGED strict_verify / NLI gates downstream. Env-overridable
++# (LAW VI); the floor only guarantees the MAIN section call is never capped below a
++# sane value — operators may set the env knob HIGHER. The small-call reductions
++# (_map_reasoning_tokens above; PG_CONTRACT_SLOT_REASONING_MAX_TOKENS) are untouched.
++PG_DISTILL_REDUCE_REASONING_MIN_TOKENS: int = _env_int(
++    "PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", 16384
++)
++
++
+ def _reduce_reasoning_tokens() -> int:
+-    return _env_int("PG_DISTILL_REDUCE_REASONING_TOKENS", 5000)
++    # BUG-2 (#1262): clamp the configured REDUCE reasoning budget UP to the sane
++    # main-section floor so the keystone section writer can never be token-starved
++    # below it (default raised 5000 -> floor). max() keeps a deliberately HIGHER
++    # operator override intact; it only prevents an accidentally-tiny value.
++    configured = _env_int(
++        "PG_DISTILL_REDUCE_REASONING_TOKENS",
++        PG_DISTILL_REDUCE_REASONING_MIN_TOKENS,
++    )
++    return max(configured, PG_DISTILL_REDUCE_REASONING_MIN_TOKENS)
+ 
+ 
+ def _max_parallel() -> int:
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 8685ff70..3c69de9c 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -438,6 +438,16 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+ # immediately — no timeout needed), so the stall timeout only ever bounds a TRUE hang; a generous
+ # value loses nothing. 1200s = generous headroom over the ~473-545s real ceiling, still well under
+ # the 6500s section wall. Env-tunable.
++# BUG-2 (#1262, GOVERNANCE-EXPLICIT — behavior UNCHANGED): 2048 is a DELIBERATE
++# small-call reduction, NOT the token-starvation bug. This budget serves only the
++# terse contract-slot uses (JSON slot-fill / regulatory synthesis / the ≤3-sentence
++# narrative), which do NOT need deep reasoning; keeping it tight is what PREVENTS the
++# drb_76 ReasoningFirstTruncationError (reasoning eating the whole completion ceiling
++# -> ZERO content). BUG-2 raises ONLY the starved MAIN section-prose call (the REDUCE
++# writer's PG_DISTILL_REDUCE_REASONING_* floor in evidence_distiller.py) — this
++# small-call value is intentionally LEFT TIGHT and must never be "maxed". §9.1.8
++# ("reasoning always max") is served per-call: max where the work is full prose,
++# tight where the work is a 3-sentence slot. Faithfulness gates are untouched here.
+ PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
+     os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
+ )
+diff --git a/tests/polaris_graph/generator/test_bug2_reduce_reasoning_budget_1262.py b/tests/polaris_graph/generator/test_bug2_reduce_reasoning_budget_1262.py
+new file mode 100644
+index 00000000..82cb2516
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_bug2_reduce_reasoning_budget_1262.py
+@@ -0,0 +1,158 @@
++"""BUG-2 (#1262) — reasoning-budget governance for the distillate keystone.
++
++Token-starvation class vs CLAUDE.md §9.1.8 ("reasoning always max"), fixed WITH
++CARE so it does NOT reintroduce the drb_76 ReasoningFirstTruncationError (reasoning
++eating the whole completion ceiling -> ZERO content) on the deliberately small calls.
++
++What this fix does, and what these tests pin:
++
++* The MAIN section-prose writer in the distillate path is the REDUCE call
++  (`multi_section_generator` site `reasoning_max_tokens=_reduce_reasoning_tokens()`,
++  call_type="section_reduce"). Its keystone-birth default (5000, #1209) sat BELOW
++  deepseek-v4-pro's typical 5-18k reasoning band and below the equivalent legacy
++  section writer's ~13k headroom, so a provider that honors reasoning.max_tokens
++  could truncate the plan -> empty draft -> the section DROPS. The fix raises that
++  budget to a sane env-driven FLOOR (`PG_DISTILL_REDUCE_REASONING_MIN_TOKENS`) and
++  clamps any too-small override UP to it.
++* The deliberate SMALL-call reductions are LEFT INTACT:
++    - MAP per-source extraction (`_map_reasoning_tokens`, default 4096), and
++    - the ≤3-sentence / JSON contract-slot calls
++      (`PG_CONTRACT_SLOT_REASONING_MAX_TOKENS`, default 2048).
++  Those tight budgets are what PREVENT the drb_76 empty-content collapse; maxing
++  them would REGRESS drb_76. The mandatory regression assertions below pin them.
++
++FAITHFULNESS: this fix touches reasoning BUDGET sizing only. No hard gate
++(strict_verify / NLI / 4-role / span-grounding) is imported, called, or altered
++here; raising the REDUCE reasoning floor can only let MORE sections finish
++composing (never fewer, never a relaxed verdict).
++
++The edited `evidence_distiller.py` lives in this isolated worktree; the test loads
++it by file path so it exercises exactly the patched code, while letting its sibling
++`src.polaris_graph...` imports resolve against the installed package.
++"""
++from __future__ import annotations
++
++import importlib.util
++import os
++import sys
++from pathlib import Path
++
++import pytest
++
++# ── Load the PATCHED evidence_distiller.py from this worktree by file path ──────
++# Pre-seed sys.modules under the canonical dotted name so the module's
++# `from src.polaris_graph.generator.* import ...` statements resolve against the
++# installed package while THIS file's body is the worktree-edited source.
++_DISTILLER_PATH = (
++    Path(__file__).resolve().parents[3]
++    / "src" / "polaris_graph" / "generator" / "evidence_distiller.py"
++)
++_MODNAME = "src.polaris_graph.generator.evidence_distiller"
++
++
++def _load_patched_distiller():
++    spec = importlib.util.spec_from_file_location(_MODNAME, _DISTILLER_PATH)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[_MODNAME] = module
++    spec.loader.exec_module(module)
++    return module
++
++
++ed = _load_patched_distiller()
++
++# Sanity: we really loaded the worktree-edited file, not some stale copy.
++assert _DISTILLER_PATH.exists(), f"patched distiller missing: {_DISTILLER_PATH}"
++
++
++# A defensible lower bound for "full section-prose reasoning is not starved".
++# deepseek-v4-pro emits ~5-18k reasoning tokens for full prose composition; the
++# keystone-birth 5000 default was below that band. Anything >= this counts as a
++# sane, un-starved main-section reasoning budget.
++SANE_MAIN_SECTION_REASONING_FLOOR = 8192
++
++
++# ── MAIN section-prose (REDUCE) reasoning is NOT capped below a sane floor ─────
++def test_reduce_reasoning_default_is_not_starved(monkeypatch):
++    """Default REDUCE reasoning budget must clear the sane main-section floor."""
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_TOKENS", raising=False)
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", raising=False)
++    val = ed._reduce_reasoning_tokens()
++    assert val >= SANE_MAIN_SECTION_REASONING_FLOOR, (
++        f"REDUCE (main section-prose) reasoning budget {val} is starved "
++        f"below the sane floor {SANE_MAIN_SECTION_REASONING_FLOOR}"
++    )
++    # And specifically: it is no longer the keystone-birth 5000 starvation value.
++    assert val > 5000, "REDUCE reasoning still at the starved 5000 default"
++
++
++def test_reduce_reasoning_floor_clamps_a_too_small_override(monkeypatch):
++    """A too-small env override is clamped UP to the floor (drb_78 starvation
++    class can never be reintroduced via config)."""
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", raising=False)
++    floor = ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS
++    # The exact drb_78 starvation value the bug spec cites.
++    monkeypatch.setenv("PG_DISTILL_REDUCE_REASONING_TOKENS", "1000")
++    val = ed._reduce_reasoning_tokens()
++    assert val == floor, (
++        f"a 1000-token REDUCE override must clamp UP to the floor {floor}, got {val}"
++    )
++    assert val >= SANE_MAIN_SECTION_REASONING_FLOOR
++
++
++def test_reduce_reasoning_honors_a_higher_override(monkeypatch):
++    """An operator may still raise the budget ABOVE the floor (LAW VI; §9.1.8
++    'reasoning always max' — the floor is a minimum, not a cap)."""
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", raising=False)
++    floor = ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS
++    higher = floor + 20000
++    monkeypatch.setenv("PG_DISTILL_REDUCE_REASONING_TOKENS", str(higher))
++    assert ed._reduce_reasoning_tokens() == higher
++
++
++def test_reduce_reasoning_min_floor_is_sane_and_env_named():
++    """The floor itself is an env-driven named constant (LAW VI) at a sane value."""
++    assert isinstance(ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS, int)
++    assert ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS >= SANE_MAIN_SECTION_REASONING_FLOOR
++
++
++# ── Deliberate SMALL-call reductions are PRESERVED (no drb_76 regression) ──────
++def test_map_reasoning_small_call_reduction_preserved(monkeypatch):
++    """MAP per-source extraction stays a tight 4096 — NOT maxed (drb_76 guard)."""
++    monkeypatch.delenv("PG_DISTILL_MAP_REASONING_TOKENS", raising=False)
++    assert ed._map_reasoning_tokens() == 4096
++    # The small MAP call must stay strictly below the main-section reasoning floor;
++    # otherwise it is no longer the protective small-call reduction.
++    assert ed._map_reasoning_tokens() < ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS
++
++
++def test_contract_slot_small_call_reduction_preserved(monkeypatch):
++    """The ≤3-sentence / JSON contract-slot reasoning budget stays a tight 2048.
++
++    This is the drb_76 protection (a tiny terse call must NOT reason until the
++    completion ceiling and emit zero content). BUG-2 left it deliberately tight;
++    this regression assertion fails loudly if anyone "maxes" it.
++    """
++    monkeypatch.delenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", raising=False)
++    import src.polaris_graph.generator.multi_section_generator as msg
++    import importlib as _il
++    _il.reload(msg)
++    assert msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS == 2048
++    # And it stays below the main-section floor — i.e. still a small-call reduction.
++    assert msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS < ed.PG_DISTILL_REDUCE_REASONING_MIN_TOKENS
++
++
++# ── Ordering invariant: main-section >> the two small-call budgets ────────────
++def test_main_section_reasoning_dominates_small_calls(monkeypatch):
++    """§9.1.8 served per-call: full-prose REDUCE gets the large budget, the terse
++    MAP and contract-slot calls stay tight."""
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_TOKENS", raising=False)
++    monkeypatch.delenv("PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", raising=False)
++    monkeypatch.delenv("PG_DISTILL_MAP_REASONING_TOKENS", raising=False)
++    monkeypatch.delenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", raising=False)
++    import src.polaris_graph.generator.multi_section_generator as msg
++    import importlib as _il
++    _il.reload(msg)
++    reduce_budget = ed._reduce_reasoning_tokens()
++    assert reduce_budget > ed._map_reasoning_tokens()
++    assert reduce_budget > msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS

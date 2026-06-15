@@ -1,0 +1,287 @@
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index e73e905a..81e3ae10 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -2554,6 +2554,62 @@ def _is_content_empty_sentence(sentence: str) -> bool:
+     return no_content and no_numbers
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# BUG-19 (I-arch-006, #1262) — web-crawl chrome / non-assertional pre-gate hygiene.
++#
++# WHY: the forensic found that 17-34% of ENTAILED verdicts across runs were pure
++# web-crawl chrome ("URL Source:", "Markdown Content:", "Title:", "Split View",
++# "Cite Cite", "Views"), bare DOIs, and numeric table rows — and a literal NTSB
++# "Page not found" 404 body was judged ENTAILED because boilerplate trivially
++# entails itself ("Page not found" ⊨ "Page not found"). A self-entailing chrome
++# line is a faithfulness HOLE, not a finding: it inflates the verified count with
++# a non-claim that never asserted anything.
++#
++# THE FIX (INPUT HYGIENE, NOT a gate change): wire the two allowlist-only helpers
++# already added to src/tools/access_bypass.py —
++#   • strip_web_boilerplate(text)            — delete ONLY confirmed crawl-marker
++#     LINES from the section text BEFORE sentence-splitting.
++#   • is_boilerplate_or_nonassertional(s)    — True for a unit that is pure
++#     chrome / a bare DOI / a table-number row / an error-page stub; such a unit
++#     is EXCLUDED from the gate's INPUT (neither kept nor dropped, removed from
++#     the denominator — the SAME faithfulness-neutral treatment as the I-pipe-016
++#     content-empty path) so it can NEVER be COUNTED as a verified claim.
++#
++# WHY FAITHFULNESS IS SAFE: this is the gate's INPUT, not the gate. Both helpers
++# are allowlist-only and WHOLE-UNIT anchored, so a real clinical sentence (any
++# language) is never touched. No verdict logic, threshold, or gate strictness
++# changes; strict_verify / NLI / 4-role / span-grounding keep full strictness on
++# every real sentence that remains. Removing self-entailing chrome from the input
++# can ONLY raise faithfulness — a dropped 404 stub was never a finding. Per §-1.3
++# this is "clean the gate's input" not a DROP/CAP/THIN of a real claim.
++#
++# The helpers live in src/tools/access_bypass.py (a moderately heavy module);
++# we lazy-import them so OFF-path / import-time cost stays zero. The default is ON
++# (PG_PREGATE_STRIP_BOILERPLATE=0 reverts to byte-identical pre-#1262 behavior),
++# read at call time so tests toggle without re-import. LAW VI named env knob.
++# ─────────────────────────────────────────────────────────────────────────────
++def _pregate_boilerplate_filter_enabled() -> bool:
++    """BUG-19 (#1262). True (default) => web-crawl chrome / error-page / pure-
++    metadata units are stripped from the section text and excluded from the
++    faithfulness gate's INPUT (so they can never be counted as verified claims).
++    Kill-switch: PG_PREGATE_STRIP_BOILERPLATE=0 reverts to byte-identical
++    pre-#1262 behavior. Read at call time so tests can toggle without re-import."""
++    v = os.getenv("PG_PREGATE_STRIP_BOILERPLATE", "1").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def _load_boilerplate_helpers() -> tuple[Any, Any]:
++    """BUG-19 (#1262). Lazy-import the allowlist-only boilerplate helpers from
++    src.tools.access_bypass so import-time / OFF-path cost is zero (that module
++    pulls asyncio/threading/etc.). Returns (strip_web_boilerplate,
++    is_boilerplate_or_nonassertional)."""
++    from src.tools.access_bypass import (
++        is_boilerplate_or_nonassertional,
++        strip_web_boilerplate,
++    )
++    return strip_web_boilerplate, is_boilerplate_or_nonassertional
++
++
+ def strict_verify(
+     draft_text: str,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -2583,8 +2639,25 @@ def strict_verify(
+     _honest_tokens = _token_honest_drop_enabled()
+     _skip_empty = _skip_empty_enabled()
+ 
++    # BUG-19 (I-arch-006, #1262): pre-gate web-crawl-chrome hygiene. Lazy-load the
++    # allowlist-only helpers and strip confirmed crawl-marker LINES from the
++    # section text BEFORE sentence-splitting, so a chrome line can't even become a
++    # candidate "sentence". `is_boilerplate_or_nonassertional` then filters any
++    # surviving pure-chrome / error-page / pure-metadata unit out of the gate's
++    # INPUT (below). INPUT hygiene only — no verdict logic / threshold / gate
++    # strictness changes; a real clinical sentence (any language) is never touched
++    # because every pattern is allowlist-only + whole-unit anchored. OFF-path
++    # (flag=0) is byte-identical: helpers are never loaded, text is untouched.
++    _pregate_boilerplate = _pregate_boilerplate_filter_enabled()
++    _is_boilerplate = None
++    if _pregate_boilerplate:
++        _strip_web_boilerplate, _is_boilerplate = _load_boilerplate_helpers()
++        findings_text = _strip_web_boilerplate(findings_text)
++        limitations_text = _strip_web_boilerplate(limitations_text)
++
+     # I-pipe-016 (#1241): content-empty fragments are excluded from total_in
+     # (denominator) — they are neither kept nor dropped, they do not count.
++    # BUG-19 (#1262) excludes boilerplate/non-assertional units the SAME way.
+     _excluded_empty = 0
+ 
+     # Findings: strict provenance verification
+@@ -2599,6 +2672,17 @@ def strict_verify(
+         # validation — bracket format is fixed, no check is bypassed.
+         if _honest_tokens:
+             s = _canonicalize_malformed_ev_tokens(s)
++        # BUG-19 (#1262): a pure web-crawl-chrome / error-page-stub / bare-DOI /
++        # table-number "sentence" carries NO assertional claim — it must NOT
++        # reach the gate, where boilerplate would trivially self-entail and be
++        # COUNTED as verified (the NTSB 404 "Page not found" hole). Exclude it
++        # from BOTH numerator and denominator (same faithfulness-neutral
++        # treatment as the content-empty path). INPUT hygiene only: the helper is
++        # allowlist-only + whole-unit anchored, so a real clinical sentence is
++        # never flagged; no gate verdict/threshold is touched.
++        if _is_boilerplate is not None and _is_boilerplate(s):
++            _excluded_empty += 1
++            continue
+         # I-pipe-016 (#1241): a content-empty fragment (orphaned citation /
+         # punctuation residue with no content word and no number) is excluded
+         # from BOTH numerator and denominator. verify_sentence_provenance would
+@@ -2642,6 +2726,14 @@ def strict_verify(
+         # I-pipe-015 (#1240): same malformed-token canonicalization as findings.
+         if _honest_tokens:
+             s = _canonicalize_malformed_ev_tokens(s)
++        # BUG-19 (#1262): exclude pure web-crawl-chrome / error-page / pure-
++        # metadata units from the limitations branch too — its pass-through path
++        # (below) counts a unit as is_verified=True, so a chrome line reaching it
++        # would be COUNTED as a verified claim. Same allowlist-only, whole-unit
++        # treatment as findings; a real telemetry sentence is never flagged.
++        if _is_boilerplate is not None and _is_boilerplate(s):
++            _excluded_empty += 1
++            continue
+         # I-pipe-016 (#1241): exclude content-empty pass-through fragments from
+         # the verified numerator AND total_in. This is the PRIMARY inflation
+         # site the forensic flagged: the pass-through branch below counted a
+diff --git a/tests/polaris_graph/test_bug19_pregate_boilerplate_filter.py b/tests/polaris_graph/test_bug19_pregate_boilerplate_filter.py
+new file mode 100644
+index 00000000..a1e365ab
+--- /dev/null
++++ b/tests/polaris_graph/test_bug19_pregate_boilerplate_filter.py
+@@ -0,0 +1,155 @@
++"""BUG-19 (I-arch-006, #1262) — pre-gate web-crawl-chrome / non-assertional filter.
++
++Regression coverage for wiring the two allowlist-only helpers from
++``src.tools.access_bypass`` into ``provenance_generator.strict_verify``:
++
++  * ``strip_web_boilerplate``            — crawl-marker LINES are removed from the
++    section text BEFORE sentence-splitting.
++  * ``is_boilerplate_or_nonassertional`` — a pure-chrome / error-page-stub /
++    bare-DOI / table-number "sentence" is EXCLUDED from the gate's INPUT, so it
++    can never be COUNTED as a verified claim.
++
++The forensic found 17-34% of ENTAILED verdicts were chrome and a literal NTSB
++"Page not found" 404 body self-entailed through the gate ("Page not found" ⊨
++"Page not found"). These tests prove the chrome / 404 stub is dropped BEFORE the
++gate while a genuine clinical sentence passes through untouched and verifies.
++
++Faithfulness: this is INPUT hygiene — no gate verdict/threshold/strictness
++changes. The MANDATORY regression test asserts the 404 string + a "URL Source:
++... Markdown Content:" line never count as verified, AND that a real cited
++clinical sentence is still verified normally.
++"""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator.provenance_generator import (
++    strict_verify,
++)
++
++
++# A genuine clinical sentence whose printed span contains the number AND >=2
++# content words — the positive control that MUST keep verifying untouched.
++_CLINICAL_QUOTE = (
++    "At week 68, adults receiving semaglutide achieved a mean weight loss of 14.9%."
++)
++_CLINICAL_POOL = {
++    "ev_step1": {
++        "direct_quote": _CLINICAL_QUOTE,
++        "statement": "STEP 1 weight loss result.",
++    }
++}
++# Span 49-77 inside the quote = "mean weight loss of 14.9%": contains "14.9" and
++# the content words "weight"/"loss".
++_CLINICAL_SENTENCE = "Mean weight loss was 14.9% [#ev:ev_step1:49-77]."
++
++
++def _verified_texts(report) -> list[str]:
++    return [sv.sentence for sv in report.kept_sentences]
++
++
++def test_clinical_sentence_alone_verifies(monkeypatch: pytest.MonkeyPatch) -> None:
++    """Positive control: a genuine cited clinical sentence verifies (flag ON)."""
++    monkeypatch.setenv("PG_PREGATE_STRIP_BOILERPLATE", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")  # mechanical checks only
++    report = strict_verify(_CLINICAL_SENTENCE, _CLINICAL_POOL)
++    assert report.total_kept == 1, report
++    assert report.total_in == 1, report
++    assert _CLINICAL_SENTENCE in _verified_texts(report)
++
++
++def test_ntsb_404_stub_dropped_before_gate(monkeypatch: pytest.MonkeyPatch) -> None:
++    """MANDATORY regression (BUG-19): the literal NTSB '404 Page not found' body
++    is EXCLUDED before the gate — it is NEVER counted as a verified claim, and a
++    genuine clinical sentence in the same draft still verifies normally."""
++    monkeypatch.setenv("PG_PREGATE_STRIP_BOILERPLATE", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    # The 404 stub carries a syntactically-valid provenance token pointing at a
++    # pool row whose direct_quote IS the same error text — so absent the BUG-19
++    # filter it would SELF-ENTAIL and the mechanical checks would PASS it as a
++    # "verified" finding. The filter must drop it at the input.
++    pool = dict(_CLINICAL_POOL)
++    pool["ev_404"] = {"direct_quote": "Page not found", "statement": "404"}
++    draft = (
++        f"{_CLINICAL_SENTENCE} "
++        "Page not found [#ev:ev_404:0-14]."
++    )
++    report = strict_verify(draft, pool)
++    kept = _verified_texts(report)
++    # The 404 stub is neither kept NOR dropped — it never entered the gate.
++    assert not any("Page not found" in k for k in kept), kept
++    assert not any(
++        "Page not found" in sv.sentence for sv in report.dropped_sentences
++    ), report.dropped_sentences
++    # The genuine clinical sentence still verifies.
++    assert _CLINICAL_SENTENCE in kept, kept
++    # Denominator excludes the non-claim: only the real sentence counts.
++    assert report.total_in == 1, report
++    assert report.total_kept == 1, report
++
++
++def test_url_source_markdown_content_lines_stripped(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """MANDATORY regression (BUG-19): 'URL Source: ...' and 'Markdown Content:'
++    crawl-marker lines are stripped from the section text BEFORE splitting, so
++    they never become candidate sentences or count as verified."""
++    monkeypatch.setenv("PG_PREGATE_STRIP_BOILERPLATE", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    draft = (
++        "URL Source: https://example.org/article\n"
++        "Markdown Content:\n"
++        f"{_CLINICAL_SENTENCE}"
++    )
++    report = strict_verify(draft, _CLINICAL_POOL)
++    kept = _verified_texts(report)
++    all_units = kept + [sv.sentence for sv in report.dropped_sentences]
++    assert not any("URL Source" in u for u in all_units), all_units
++    assert not any("Markdown Content" in u for u in all_units), all_units
++    # The real sentence survives the strip and verifies.
++    assert _CLINICAL_SENTENCE in kept, kept
++    assert report.total_kept == 1, report
++
++
++def test_genuine_sentence_with_not_found_phrase_is_not_flagged(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Faithfulness floor: a REAL sentence that merely CONTAINS an error token as
++    prose (here 'not found') is NOT a stub — it has real content words — so it is
++    never flagged by the input filter and reaches the gate normally."""
++    monkeypatch.setenv("PG_PREGATE_STRIP_BOILERPLATE", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    quote = (
++        "The variant was not found in any of the 14.9% of treated participants "
++        "who achieved remission."
++    )
++    pool = {"ev_x": {"direct_quote": quote, "statement": "result"}}
++    # Span 0-93 (= len(quote)) covers the prose incl. "14.9" and many content words.
++    sentence = (
++        "The variant was not found in 14.9% of treated participants "
++        "[#ev:ev_x:0-93]."
++    )
++    report = strict_verify(sentence, pool)
++    # It must reach the gate (be counted), not be silently excluded as a stub.
++    assert report.total_in == 1, report
++    assert report.total_kept == 1, _verified_texts(report)
++
++
++def test_flag_off_is_byte_identical(monkeypatch: pytest.MonkeyPatch) -> None:
++    """OFF-path (PG_PREGATE_STRIP_BOILERPLATE=0): the filter is inert. The 404
++    stub reaches the gate exactly as before #1262 (it has a self-entailing token
++    so under the mechanical-only checks it would be KEPT) — proving the change is
++    gated and the default-ON behavior is what removes the hole."""
++    monkeypatch.setenv("PG_PREGATE_STRIP_BOILERPLATE", "0")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    pool = dict(_CLINICAL_POOL)
++    pool["ev_404"] = {"direct_quote": "Page not found", "statement": "404"}
++    draft = (
++        f"{_CLINICAL_SENTENCE} "
++        "Page not found [#ev:ev_404:0-14]."
++    )
++    report = strict_verify(draft, pool)
++    # With the filter OFF the 404 stub is NOT excluded; it enters the gate and is
++    # counted in total_in (the pre-#1262 hole). This documents that the default-ON
++    # filter is exactly what closes it.
++    assert report.total_in == 2, report

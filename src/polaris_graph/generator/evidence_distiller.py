@@ -98,6 +98,12 @@ def _map_max_tokens() -> int:
 
 
 def _map_reasoning_tokens() -> int:
+    # BUG-2 (#1262): the MAP call is per-SOURCE atomic extraction — short,
+    # bounded, NON-prose work (one source -> a few span-grounded findings). Its
+    # modest 4096 reasoning budget is the DELIBERATE small-call reduction that
+    # protects content per drb_76 (reasoning eating the whole completion ceiling
+    # -> ZERO content -> ReasoningFirstTruncationError). It is NOT the starved
+    # main-section call and is intentionally LEFT AS-IS by this fix.
     return _env_int("PG_DISTILL_MAP_REASONING_TOKENS", 4096)
 
 
@@ -105,8 +111,41 @@ def _reduce_max_tokens() -> int:
     return _env_int("PG_DISTILL_REDUCE_MAX_TOKENS", 8192)
 
 
+# BUG-2 (#1262): sane reasoning FLOOR for the REDUCE call — the MAIN section-prose
+# writer in the distillate keystone path (multi_section_generator
+# `_reduce_reasoning_tokens()` site, call_type="section_reduce"). This is full
+# section composition over the validated findings ledger, NOT a small extraction or
+# <=3-sentence contract-slot call. The keystone's birth default (5000, #1209) was an
+# initial guess that token-STARVES this call vs CLAUDE.md §9.1.8 ("reasoning always
+# max"): deepseek-v4-pro emits ~5-18k reasoning tokens for full prose composition
+# (openrouter_client.py:1820-1837 in-code evidence), and the equivalent LEGACY
+# section writer (multi_section_generator.py:2802, no explicit reasoning cap) gets
+# ~0.4*32768 ≈ 13k reasoning headroom for the SAME job. A 5000 hint sits BELOW that
+# band, so a provider that DOES honor reasoning.max_tokens could truncate V4 Pro's
+# plan mid-stream -> the REDUCE ReasoningFirstTruncationError guard returns an empty
+# draft -> that section DROPS. FAITHFULNESS IS SAFE: raising the reasoning floor can
+# only let MORE sections finish composing (never fewer, never a relaxed gate) — the
+# content ceiling is independently floored to 32768 (openrouter_client.py:1838) so
+# wider reasoning does not starve content, and every REDUCE sentence is still
+# re-verified by the UNCHANGED strict_verify / NLI gates downstream. Env-overridable
+# (LAW VI); the floor only guarantees the MAIN section call is never capped below a
+# sane value — operators may set the env knob HIGHER. The small-call reductions
+# (_map_reasoning_tokens above; PG_CONTRACT_SLOT_REASONING_MAX_TOKENS) are untouched.
+PG_DISTILL_REDUCE_REASONING_MIN_TOKENS: int = _env_int(
+    "PG_DISTILL_REDUCE_REASONING_MIN_TOKENS", 16384
+)
+
+
 def _reduce_reasoning_tokens() -> int:
-    return _env_int("PG_DISTILL_REDUCE_REASONING_TOKENS", 5000)
+    # BUG-2 (#1262): clamp the configured REDUCE reasoning budget UP to the sane
+    # main-section floor so the keystone section writer can never be token-starved
+    # below it (default raised 5000 -> floor). max() keeps a deliberately HIGHER
+    # operator override intact; it only prevents an accidentally-tiny value.
+    configured = _env_int(
+        "PG_DISTILL_REDUCE_REASONING_TOKENS",
+        PG_DISTILL_REDUCE_REASONING_MIN_TOKENS,
+    )
+    return max(configured, PG_DISTILL_REDUCE_REASONING_MIN_TOKENS)
 
 
 def _max_parallel() -> int:

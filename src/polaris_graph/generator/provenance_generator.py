@@ -2533,6 +2533,40 @@ def _skip_empty_enabled() -> bool:
     return v in ("1", "true", "yes", "on", "enabled")
 
 
+# fix#19 (#1262) — SPEED, faithfulness-NEUTRAL. The per-sentence entailment judge
+# inside verify_sentence_provenance is a BLOCKING LLM call (~tens of seconds each);
+# run SERIALLY over hundreds of sentences it is the dominant wall-clock cost of a
+# run. PG_PARALLEL_VERIFY opts the findings loop into a BOUNDED thread pool so the
+# independent per-sentence judge calls overlap. It changes only WHEN each verdict
+# is computed, never WHAT: every sentence still runs the IDENTICAL
+# verify_sentence_provenance (+ re-anchor) gate, results are reassembled in the
+# ORIGINAL sentence order, and the contextvar run-context (judge telemetry, role,
+# provider pin) is COPIED into each worker so no global side effect is lost. The
+# hard faithfulness gate is untouched; this is pure scheduling. Default OFF =>
+# byte-identical serial path (read at call time so tests can toggle).
+#
+# Single knob (LAW VI): PG_PARALLEL_VERIFY is the bounded worker count.
+#   - unset / 0 / 1 / malformed => OFF => the legacy SERIAL loop runs (byte-identical).
+#   - N >= 2                     => parallel with EXACTLY N concurrent judge calls.
+# N is a CONCURRENCY bound, never a per-claim TARGET — every sentence is still
+# verified; only how many judge calls are in flight at once changes.
+def _parallel_verify_workers() -> int:
+    """fix#19 (#1262). Resolve PG_PARALLEL_VERIFY to a bounded worker count.
+
+    Returns 1 (=> serial path, OFF) when unset/empty/0/1/negative/malformed, so the
+    default and any non-positive override is byte-identical to the legacy serial
+    loop. Returns N>=2 only for an explicit positive override, capping the number
+    of concurrent entailment-judge calls. Read at call time so tests can toggle."""
+    raw = os.getenv("PG_PARALLEL_VERIFY", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return n if n >= 2 else 1
+
+
 def _is_content_empty_sentence(sentence: str) -> bool:
     """I-pipe-016 (#1241). True iff `sentence` carries NO real claim content —
     no content words AND no numeric values — after stripping citation artifacts
@@ -2552,6 +2586,72 @@ def _is_content_empty_sentence(sentence: str) -> bool:
     no_content = not _content_words(stripped)
     no_numbers = not _decimals_in(stripped) and not _numbers_in(stripped)
     return no_content and no_numbers
+
+
+def _verify_one_findings_sentence(
+    s: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    *,
+    require_number_match: bool,
+    quantified_models: dict[tuple[str, str], Any] | None,
+    reanchor_enabled: bool,
+) -> SentenceVerification:
+    """fix#19 (#1262): the per-sentence verify-or-rescue decision factored out of
+    the strict_verify findings loop so it can be dispatched either serially OR over
+    a bounded thread pool WITHOUT changing the outcome.
+
+    Returns the SINGLE SentenceVerification the loop will keep/drop on: the verified
+    result, the re-anchored (rescued) result, or the failed result — caller keeps it
+    iff ``.is_verified`` (identical to the legacy inline branch). This is a PURE
+    function of its inputs plus the SAME process-global judge/cost side effects the
+    inline call already had; it mutates NO shared per-call state (kept/dropped/
+    _excluded_empty stay owned by strict_verify), so two sentences can be verified
+    concurrently with no interaction. Faithfulness gate logic is byte-for-byte the
+    same — only the call SITE moved."""
+    v = verify_sentence_provenance(
+        s, evidence_pool,
+        require_number_match=require_number_match,
+        quantified_models=quantified_models,
+    )
+    if v.is_verified:
+        return v
+    # I-complete-003 (#1189): before dropping, try to RE-ANCHOR the sentence to a
+    # different span in its cited row (or, if uncited but verbatim-grounded, to a
+    # pool row). The env gate early-outs so OFF-mode is BYTE-IDENTICAL. A rescued
+    # result has already passed the SAME full gate (is_verified=True), so no
+    # fabrication path is introduced; the caller keeps it exactly as the inline
+    # branch did.
+    if reanchor_enabled:
+        rescued = _try_reanchor(
+            s, evidence_pool,
+            require_number_match=require_number_match,
+            quantified_models=quantified_models,
+        )
+        if rescued is not None:
+            return rescued
+    return v
+
+
+def _pregate_boilerplate_filter_enabled() -> bool:
+    """BUG-19 (#1262). True (default) => web-crawl chrome / error-page / pure-
+    metadata units are stripped from the section text and excluded from the
+    faithfulness gate's INPUT (so they can never be counted as verified claims).
+    Kill-switch: PG_PREGATE_STRIP_BOILERPLATE=0 reverts to byte-identical
+    pre-#1262 behavior. Read at call time so tests can toggle without re-import."""
+    v = os.getenv("PG_PREGATE_STRIP_BOILERPLATE", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+def _load_boilerplate_helpers() -> tuple[Any, Any]:
+    """BUG-19 (#1262). Lazy-import the allowlist-only boilerplate helpers from
+    src.tools.access_bypass so import-time / OFF-path cost is zero (that module
+    pulls asyncio/threading/etc.). Returns (strip_web_boilerplate,
+    is_boilerplate_or_nonassertional)."""
+    from src.tools.access_bypass import (
+        is_boilerplate_or_nonassertional,
+        strip_web_boilerplate,
+    )
+    return strip_web_boilerplate, is_boilerplate_or_nonassertional
 
 
 def strict_verify(
@@ -2587,8 +2687,31 @@ def strict_verify(
     # (denominator) — they are neither kept nor dropped, they do not count.
     _excluded_empty = 0
 
+    # BUG-19 (I-arch-006, #1262): pre-gate web-crawl-chrome hygiene. Lazy-load the
+    # allowlist-only helpers and strip confirmed crawl-marker LINES from the section
+    # text BEFORE sentence-splitting, so a chrome line can't even become a candidate
+    # "sentence" (the NTSB 404 "Page not found" hole, where boilerplate trivially
+    # self-entails and is COUNTED as verified). `_is_boilerplate` then excludes any
+    # surviving pure-chrome / error-page / pure-metadata unit from the gate's INPUT
+    # below. INPUT hygiene only — no verdict logic / threshold / gate strictness
+    # changes; every pattern is allowlist-only + whole-unit anchored so a real
+    # clinical sentence (any language) is never touched. OFF-path (flag=0) is
+    # byte-identical: helpers are never loaded, text is untouched.
+    _pregate_boilerplate = _pregate_boilerplate_filter_enabled()
+    _is_boilerplate = None
+    if _pregate_boilerplate:
+        _strip_web_boilerplate, _is_boilerplate = _load_boilerplate_helpers()
+        findings_text = _strip_web_boilerplate(findings_text)
+        limitations_text = _strip_web_boilerplate(limitations_text)
+
     # Findings: strict provenance verification
     findings_sentences = split_into_sentences(findings_text)
+    # fix#19 (#1262): SEQUENTIAL pre-filter (cheap, deterministic) builds the
+    # ORDERED list of canonicalized sentences that need the (expensive) per-sentence
+    # judge. It owns _excluded_empty so the denominator semantics are unchanged —
+    # only the per-sentence verify-or-rescue call (the blocking entailment judge) is
+    # eligible to run in parallel below.
+    _findings_to_verify: list[str] = []
     for s in findings_sentences:
         # I-pipe-015 (#1240): canonicalize a malformed `[ev:...]` token to
         # `[#ev:...]` so an otherwise-valid citation is not silently lost. The
@@ -2608,31 +2731,71 @@ def strict_verify(
         if _skip_empty and _is_content_empty_sentence(s):
             _excluded_empty += 1
             continue
-        v = verify_sentence_provenance(
-            s, evidence_pool,
-            require_number_match=require_number_match,
-            quantified_models=quantified_models,
-        )
+        # BUG-19 (#1262): a pure web-crawl-chrome / error-page-stub / bare-DOI /
+        # table-number "sentence" carries NO assertional claim — it must NOT reach
+        # the gate, where boilerplate would trivially self-entail and be COUNTED as
+        # verified (the NTSB 404 "Page not found" hole). Exclude it from BOTH
+        # numerator and denominator (same faithfulness-neutral treatment as the
+        # content-empty path). INPUT hygiene only: the helper is allowlist-only +
+        # whole-unit anchored, so a real clinical sentence is never flagged.
+        if _is_boilerplate is not None and _is_boilerplate(s):
+            _excluded_empty += 1
+            continue
+        _findings_to_verify.append(s)
+
+    # fix#19 (#1262): verify each surviving sentence — the SAME verify-or-rescue
+    # decision as before, just dispatched either serially (default) or across a
+    # BOUNDED thread pool. Verdicts are independent; results are reassembled in the
+    # ORIGINAL order so kept/dropped are byte-identical to the serial path.
+    _reanchor_enabled = _provenance_reanchor_enabled()
+    _verify_workers = _parallel_verify_workers()
+    if _verify_workers < 2 or len(_findings_to_verify) < 2:
+        # Serial path (default / single-item): byte-identical to the legacy loop.
+        _findings_results = [
+            _verify_one_findings_sentence(
+                s, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                reanchor_enabled=_reanchor_enabled,
+            )
+            for s in _findings_to_verify
+        ]
+    else:
+        # Parallel path: a BOUNDED ThreadPoolExecutor caps concurrency at exactly
+        # _verify_workers. A fresh worker thread starts with an EMPTY contextvars
+        # context, which would silently drop the per-run judge telemetry (FX-09
+        # ContextVar holding the run's {calls, judge_error} dict), the ambient role,
+        # and the gate's provider pin. So we capture the PARENT context ONCE here in
+        # the calling thread and run each task inside a copy of it — the ContextVar
+        # still references the SAME run-telemetry dict object, so the in-place
+        # ``_run_tel[...] += 1`` ticks land in the right counter. ``map`` preserves
+        # input order => the reassembled list is index-aligned with
+        # _findings_to_verify (deterministic kept/dropped, never race-ordered). A
+        # worker exception PROPAGATES out of map() (fail-loud — a hard gate /
+        # programming defect is never swallowed), exactly as the serial loop raises.
+        import concurrent.futures as _futures  # noqa: PLC0415 (lazy: zero OFF-path cost)
+        import contextvars as _ctxvars  # noqa: PLC0415
+
+        _parent_ctx = _ctxvars.copy_context()
+
+        def _verify_in_context(_s: str) -> SentenceVerification:
+            return _parent_ctx.copy().run(
+                _verify_one_findings_sentence,
+                _s, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                reanchor_enabled=_reanchor_enabled,
+            )
+
+        with _futures.ThreadPoolExecutor(max_workers=_verify_workers) as _pool:
+            _findings_results = list(_pool.map(_verify_in_context, _findings_to_verify))
+
+    for v in _findings_results:
+        # Keep iff verified (a re-anchored rescue is returned already is_verified=
+        # True), drop otherwise — identical decision to the legacy inline branch.
         if v.is_verified:
             kept.append(v)
         else:
-            # I-complete-003 (#1189): before dropping, try to RE-ANCHOR the
-            # sentence to a different span in its cited row (or, if uncited
-            # but verbatim-grounded, to a pool row). The env gate early-outs
-            # so OFF-mode is BYTE-IDENTICAL (no _try_reanchor call, no judge
-            # call, no counter mutation). A rescued result has already passed
-            # the SAME full gate, so no fabrication path is introduced; it
-            # flows through the SAME downstream (kept[]) as a normally-verified
-            # sentence.
-            if _provenance_reanchor_enabled():
-                rescued = _try_reanchor(
-                    s, evidence_pool,
-                    require_number_match=require_number_match,
-                    quantified_models=quantified_models,
-                )
-                if rescued is not None:
-                    kept.append(rescued)
-                    continue
             dropped.append(v)
 
     # Limitations: telemetry-grounded verification if block supplied,
@@ -2648,6 +2811,14 @@ def strict_verify(
         # bare `[#ev:...]` orphan as is_verified=True. A REAL limitations
         # sentence carries telemetry numbers / words and is never excluded.
         if _skip_empty and _is_content_empty_sentence(s):
+            _excluded_empty += 1
+            continue
+        # BUG-19 (#1262): exclude pure web-crawl-chrome / error-page / pure-metadata
+        # units from the limitations branch too — its pass-through path (below)
+        # counts a unit as is_verified=True, so a chrome line reaching it would be
+        # COUNTED as a verified claim. Same allowlist-only, whole-unit treatment as
+        # findings; a real telemetry sentence is never flagged.
+        if _is_boilerplate is not None and _is_boilerplate(s):
             _excluded_empty += 1
             continue
         if telemetry_block is not None:

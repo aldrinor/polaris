@@ -1484,6 +1484,71 @@ def expected_str_for_abort(protocol: dict) -> str:
     return ", ".join(parts) or "per scope template"
 
 
+def _retrieval_caps_disclosure(retrieval) -> dict:
+    """BUG-4 (#1262): surface the fetch/search caps that silently throttle breadth so a
+    CAPPED run is VISIBLE + auditable in the manifest, instead of only appearing as
+    transient log lines ("pre_filter=1299 fetched=623", "truncating 855->100 academic",
+    "academic cap reached"). DISCLOSURE ONLY — this reads counts already on the retrieval
+    object plus the ACTIVE env-cap values (LAW VI: the caps stay env-overridable and are NOT
+    removed or changed here). §-1.3 DNA: weight/consolidate not filter — making a cap visible
+    is the honest disclose-don't-silently-drop move, never a new cap/target/thinner.
+
+    Faithfulness-safe: pure read-only telemetry. It never touches a span, provenance,
+    strict_verify / NLI / 4-role check, or any verdict.
+
+    Fields:
+      - candidates_discovered: the full discovered pool BEFORE the fetch budget bit
+        (total_candidates_pre_filter, falling back to candidates_total).
+      - fetched: how many of those were actually fetched (the post-cap survivors).
+      - dropped_pre_fetch: discovered - fetched - failed (the breadth lost to caps/filters
+        BEFORE fetch), clamped to >= 0; this is the silent-throttle magnitude.
+      - corpus_truncated: the fail-loud post-fetch loop-deadline truncation flag (#958).
+      - drop_reasons: the per-reason pre-fetch loss aggregate (already on the object).
+      - search_truncations: a list of the ACTIVE caps that could throttle breadth, each
+        naming the cap, its configured value, and (when derivable) whether it BIT this run.
+    All getattr with defaults so pre-existing / stub retrieval objects never KeyError."""
+    discovered = int(getattr(retrieval, "total_candidates_pre_filter", 0) or 0)
+    if discovered <= 0:
+        discovered = int(getattr(retrieval, "candidates_total", 0) or 0)
+    fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
+    failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
+    dropped_pre_fetch = max(0, discovered - fetched - failed)
+
+    # The ACTIVE env-driven caps (LAW VI). Read here for DISCLOSURE only — the retrieval
+    # backends own + apply them; this block never enforces or alters a cap.
+    fetch_cap = _env_int("PG_LIVE_FETCH_CAP", 40)
+    serper_total = _env_int("PG_SERPER_TOTAL_PER_QUERY", 0)
+    serper_pages = _env_int("PG_SERPER_MAX_PAGES", 3)
+    search_truncations: list[dict] = [
+        {
+            "cap": "PG_LIVE_FETCH_CAP",
+            "value": fetch_cap,
+            # The fetch budget BIT when more candidates were discovered than the cap allowed
+            # through to fetch (the dominant silent breadth throttle).
+            "bit": bool(fetch_cap > 0 and discovered > fetch_cap),
+        },
+        {
+            "cap": "PG_SERPER_MAX_PAGES",
+            "value": serper_pages,
+            # Cannot derive per-run "bit" from the result object alone — disclosed as configured.
+            "bit": None,
+        },
+    ]
+    if serper_total > 0:
+        search_truncations.append(
+            {"cap": "PG_SERPER_TOTAL_PER_QUERY", "value": serper_total, "bit": None}
+        )
+    return {
+        "candidates_discovered": discovered,
+        "fetched": fetched,
+        "failed": failed,
+        "dropped_pre_fetch": dropped_pre_fetch,
+        "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
+        "drop_reasons": getattr(retrieval, "drop_reasons", {}) or {},
+        "search_truncations": search_truncations,
+    }
+
+
 def _retrieval_manifest_section(retrieval) -> dict:
     """#958 (S2): the SINGLE source of truth for a manifest's "retrieval"
     section. Used by BOTH `_base_manifest_envelope` (abort paths) AND the
@@ -1491,6 +1556,8 @@ def _retrieval_manifest_section(retrieval) -> dict:
     never be omitted on one path. All getattr with defaults (backward
     compatible with pre-#958 retrieval objects)."""
     return {
+        # BUG-4 (#1262): the silent-throttle disclosure block (DISCLOSURE ONLY — caps unchanged).
+        "retrieval_caps": _retrieval_caps_disclosure(retrieval),
         "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
         "fetched": getattr(retrieval, "candidates_fetched", 0),
         "failed": getattr(retrieval, "candidates_failed_fetch", 0),
@@ -1850,6 +1917,60 @@ def run_wall_clock_seconds() -> float:
         )
         return _RUN_WALL_CLOCK_DEFAULT_SEC
     return val if val > 0 else _RUN_WALL_CLOCK_DEFAULT_SEC
+
+
+# BUG-3 (#1262): the generation-phase heartbeat tick interval (seconds). The multi-section
+# generator is a SINGLE batched `await` with no per-section hook in this file (the per-section
+# loop lives in the generator module, which this run-orchestration lane must NOT touch), so
+# without a periodic refresh run_status.json FREEZES at stage="generation_started" for the whole
+# ~1.5-2h generation+per-sentence-verification phase — a human tailing it cannot tell a live run
+# from a wedged one. A lightweight background asyncio ticker re-stamps the heartbeat at this
+# cadence with the LIVE running cost + elapsed_s so the tailer sees real movement. Mirrors the
+# existing four_role progress callback (which keeps last_update_utc advancing during the verifier
+# phase). LAW VI: env-overridable; a non-positive / unparseable value DISABLES the ticker (the
+# heartbeat still fires its existing stage transitions — only the intra-phase refresh is off).
+_GENERATION_HEARTBEAT_TICK_ENV = "PG_GENERATION_HEARTBEAT_TICK_SECONDS"
+_GENERATION_HEARTBEAT_TICK_DEFAULT_SEC = 30.0
+
+
+def generation_heartbeat_tick_seconds() -> float:
+    """BUG-3 (#1262): the generation-phase heartbeat refresh cadence (seconds).
+
+    Observability ONLY — the tick re-writes run_status.json; it never touches a faithfulness
+    gate, span, provenance check, or any verdict. A non-positive / unparseable value returns
+    0.0 to mean "disabled" (the caller skips the background ticker entirely)."""
+    raw = os.environ.get(_GENERATION_HEARTBEAT_TICK_ENV, "").strip()
+    if not raw:
+        return _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC
+    try:
+        val = float(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "%s=%r is not a number; using default %.0fs",
+            _GENERATION_HEARTBEAT_TICK_ENV, raw, _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC,
+        )
+        return _GENERATION_HEARTBEAT_TICK_DEFAULT_SEC
+    return val if val > 0 else 0.0
+
+
+async def _periodic_heartbeat_ticker(hb, stage: str, interval_s: float) -> None:
+    """BUG-3 (#1262): re-stamp the heartbeat ``stage`` every ``interval_s`` until cancelled.
+
+    A background ``asyncio.Task`` the caller starts around a long single ``await`` (generation)
+    and cancels in a ``finally``. Each tick calls ``hb(stage)`` so run_status.json's
+    ``last_update_utc`` / ``elapsed_s`` / ``running_cost_usd`` keep advancing — the frozen-stage
+    signal BUG-3 fixes (``hb`` recomputes elapsed + live cost on every write). The ``hb`` closure
+    already swallows every IO error, so a write failure cannot perturb the run; ``CancelledError``
+    is re-raised so the task ends cleanly. Faithfulness-safe: pure observability — no gate, span,
+    or verdict is read or written here."""
+    if interval_s <= 0:
+        return
+    try:
+        while True:
+            await asyncio.sleep(interval_s)
+            hb(stage)
+    except asyncio.CancelledError:
+        raise
 
 
 # B20 P1-1 (Codex iter-2): the run-scoped wall-clock DEADLINE (a monotonic-clock instant).
@@ -3218,6 +3339,69 @@ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
         return manifest
 
 
+def write_terminal_error_manifest(
+    run_dir: "Path | None",
+    q: dict,
+    run_id: "str | None",
+    exc: BaseException,
+    phase: str,
+) -> "dict | None":
+    """BUG-21 (#1262): write a TERMINAL manifest.json with ``status=error_<phase>`` on an
+    otherwise-uncaught exception, so NO catchable failure leaves run_status.json frozen at an
+    intermediate stage with no terminal artifact (the drb_76 silent-death class).
+
+    The big outer ``try`` inside ``run_one_query`` already writes an error manifest for any failure
+    INSIDE it; this helper covers the ENTRY-SETUP region BEFORE that try (corrupt-snapshot resume
+    load, a reasoning-collector / telemetry / import failure), which previously escaped with no
+    manifest. ``phase`` is the last heartbeat stage reached so the human sees WHERE it died. The
+    record carries the exception TYPE + message; status is ``error_<phase>`` (an ``error_*`` value,
+    consistent with the unified taxonomy's ``error_unexpected`` family — the EXISTING success /
+    abort / error_unexpected statuses are untouched and byte-identical).
+
+    Best-effort and never raises: a write failure here must not mask the original exception, and
+    this is observability / crash-safety ONLY — it touches no faithfulness gate, span, or verdict.
+    Returns the written manifest dict (or None when no run_dir is available)."""
+    if run_dir is None:
+        return None
+    try:
+        _safe_phase = "".join(
+            c if (c.isalnum() or c == "_") else "_" for c in (phase or "unknown")
+        ) or "unknown"
+        run_cost = current_run_cost()
+        manifest = {
+            "run_id": run_id or "",
+            "slug": q.get("slug", ""),
+            "domain": q.get("domain", ""),
+            "question": q.get("question", ""),
+            "status": f"error_{_safe_phase}",
+            "error": str(exc)[:500],
+            "error_type": type(exc).__name__,
+            "phase": phase or "unknown",
+            "cost_usd": run_cost,
+            "budget_cap_usd": get_max_cost_per_run(),
+        }
+        manifest = augment_v6_manifest(
+            manifest,
+            external_run_id=q.get("external_run_id"),
+            decision_id=q.get("decision_id"),
+            query_slug=q.get("slug"),
+        )
+        manifest = _attach_tool_utilization(manifest, run_dir)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return manifest
+    except Exception as _terminal_exc:  # noqa: BLE001 — never mask the original failure
+        try:
+            logging.getLogger(__name__).warning(
+                "terminal error-manifest write failed (phase=%s): %s", phase, _terminal_exc
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
 def _abort_if_cancelled(
     q: dict,
     run_dir: Path,
@@ -3390,6 +3574,14 @@ async def run_one_query(
     # instead of None. A 1-element list-box so the nested `_hb` closure can read the latest value;
     # the read is a single GIL-atomic index, set once by the parent before the seam thread starts.
     _hb_sources_kept = [None]
+    # BUG-21 (#1262): track the LAST heartbeat stage so the catch-all terminal-manifest guard
+    # (added below, around the pre-`try` entry setup) can label an otherwise-uncaught failure
+    # `error_<phase>` with the real phase reached — e.g. a corrupt-snapshot resume load that
+    # raises BEFORE the outer try cannot leave run_status.json frozen at "started". A 1-element
+    # box so the nested `_hb` closure can write it; the read is a single GIL-atomic index.
+    # Faithfulness-safe: this is observability/crash-safety only — it never touches a span /
+    # provenance / strict_verify / NLI / 4-role check or alters any verdict.
+    _hb_last_stage = ["started"]
     from src.polaris_graph.telemetry.run_status_heartbeat import (
         apply_persisted_sources_kept as _apply_persisted_sources_kept,
         write_heartbeat as _write_heartbeat,
@@ -3397,6 +3589,7 @@ async def run_one_query(
 
     def _hb(stage: str, **kw) -> None:
         try:
+            _hb_last_stage[0] = stage  # BUG-21 (#1262): remember the phase for error labeling
             # Persist the kept-source count across stages without overriding an explicit caller value
             # (tested pure helper: src/polaris_graph/telemetry/run_status_heartbeat.py).
             _apply_persisted_sources_kept(kw, _hb_sources_kept[0])
@@ -3417,181 +3610,202 @@ async def run_one_query(
 
     _hb("started")  # file exists immediately; a pre-try crash still leaves a record
 
-    # I-ready-005 (#1076) Codex iter-1 P1: initialize per-feature FIRING telemetry HERE — at the top of
-    # run_one_query, BEFORE any early-abort/budget/error manifest write — and publish it into the
-    # ContextVar that _attach_tool_utilization stamps onto EVERY manifest.json. `enabled` reflects the
-    # FLAG (so even a run that aborts before the feature block shows it was configured); the STORM/agentic
-    # blocks mutate `fired`/counts/status in place. status: not_enabled -> enabled_not_reached (configured
-    # but the run aborted before the block) -> attempted_empty (block ran) -> fired / error.
-    _storm_enabled = os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
-    _agentic_enabled = os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
-    _storm_telemetry = make_feature_telemetry(
-        "storm_query_expansion", questions_added=0, interviews=0,
-        enabled=_storm_enabled, firing_status="enabled_not_reached" if _storm_enabled else "not_enabled",
-    )
-    _agentic_telemetry = make_feature_telemetry(
-        "agentic_search", urls_discovered=0, urls_selectable=0,  # FX-15b (#1119): post-filter count
-        enabled=_agentic_enabled, firing_status="enabled_not_reached" if _agentic_enabled else "not_enabled",
-    )
-    # BB-006 (I-beatboth-fix-000 #1171): the STORM interview-search URLs harvested for the seed lane.
-    # Always defined (default empty) so the post-base-retrieval STORM seed-merge block below is a no-op
-    # when STORM URL ingestion is OFF or STORM did not run — byte-identical OFF.
-    _storm_seed_urls: list[str] = []
-    # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
-    # benchmark feature and lives INSIDE the outer try below (first statement). When both features
-    # are OFF the ContextVar stays None, so _attach_tool_utilization adds no feature keys and the
-    # manifest is byte-identical to the pre-#1076 OFF path. Publishing inside the outer try also means
-    # the try's `finally` (P1-1) is the single guaranteed clear on every exit.
-
-    # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
-    # mode — the jsonl is rewritten on every record/update so it is current
-    # on disk regardless of which abort / error / success path the run exits
-    # through. Sink lifecycle mirrors set_current_run_id (set here, released
-    # in the run tail).
-    from src.polaris_graph.generator.reasoning_trace import (
-        ReasoningTraceCollector,
-    )
-    from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
-    _reasoning_collector = ReasoningTraceCollector(out_dir=run_dir)
-    # I-gen-561 (#561) P2-2: materialize the (possibly empty)
-    # reasoning_trace.jsonl now, so a run that aborts before any generator
-    # LLM call still produces the file augment_v6_manifest() references.
-    _reasoning_collector.flush(run_dir)
-    set_reasoning_sink(_reasoning_collector)
-
-    # I-meta-002-q1d (#945): per-call retrieval_trace.jsonl (mirror of reasoning_trace.jsonl for the
-    # search/fetch half — the operator's §-1.1 line-by-line audit requirement). Start a FRESH per-query
-    # trace and materialize the (possibly empty) file now so an early abort still produces it. The
-    # recorders are best-effort no-ops; the §9.1 retrieval/verify chokepoint is never altered.
-    from src.polaris_graph.benchmark.pathB_capture import (
-        retrieval_trace_records as _retrieval_trace_records,
-        start_retrieval_trace as _start_retrieval_trace,
-    )
-    # I-obs-001 #1141 AC2: pass the run_dir path so each retrieval record live-appends as it happens
-    # (tail -f safe DURING retrieval). The end-of-retrieval "w" flush below stays the reconciling
-    # final writer, so the final file is byte-identical on every normal exit.
-    _start_retrieval_trace(run_dir / "retrieval_trace.jsonl")
-
-    def _flush_retrieval_trace() -> None:
-        try:
-            with (run_dir / "retrieval_trace.jsonl").open("w", encoding="utf-8") as _rt:
-                for _rec in _retrieval_trace_records():
-                    _rt.write(json.dumps(_rec, ensure_ascii=False) + "\n")
-        except Exception as _exc:  # noqa: BLE001 — best-effort observability, never abort the run
-            print(f"[retrieval_trace] flush error (skipped): {_exc}")
-
-    _flush_retrieval_trace()
-
-    # I-meta-007b (#meta-007): per-tool utilization tracer. ON-mode additive,
-    # record-only, spend-free. Reset the process-global singleton FIRST so a
-    # multi-query sweep binds each query's tracer to its OWN run_dir (and never
-    # accumulates calls across queries), then bind to this run_dir. Guarded by
-    # PG_ENABLE_TOOL_TRACKER (default "1"): when OFF we reset to a fresh
-    # in-memory tracer with NO run_dir, so no tool_trace.jsonl is written and
-    # the manifest stays byte-identical (the tool_utilization key is gated on
-    # _tool_tracker_on below). Best-effort — a telemetry import error must not
-    # abort the run.
-    _tool_tracker_on = os.environ.get("PG_ENABLE_TOOL_TRACKER", "1").strip() in (
-        "1", "true", "True",
-    )
+    # BUG-21 (#1262): TOP-LEVEL catch-all over the run ENTRY SETUP (imports, resume-snapshot
+    # load, reasoning/retrieval-trace init, log-file open). The big outer `try` below already
+    # writes a terminal error manifest for any failure INSIDE it; THIS guard closes the gap
+    # BEFORE it - e.g. a corrupt --resume snapshot that `_load_corpus_snapshot` fails loud on, or
+    # an import/telemetry-init failure - which previously escaped with NO terminal manifest.json,
+    # leaving run_status.json frozen forever (the drb_76 silent-death class). On any otherwise-
+    # uncaught exception we write `status=error_<phase>` (phase = the last heartbeat stage), stamp
+    # a terminal heartbeat, then RE-RAISE so the caller still sees the real failure. The existing
+    # success / abort / error statuses are untouched and byte-identical (this only fires on a
+    # genuine pre-`try` crash). Faithfulness-safe: crash-safety/observability only - no span,
+    # provenance, strict_verify / NLI / 4-role check, or verdict is read or altered here.
     try:
-        from src.polaris_graph.telemetry.tool_tracer import (
-            get_tool_tracer as _get_tool_tracer,
-            reset_tool_tracer as _reset_tool_tracer,
+        # I-ready-005 (#1076) Codex iter-1 P1: initialize per-feature FIRING telemetry HERE — at the top of
+        # run_one_query, BEFORE any early-abort/budget/error manifest write — and publish it into the
+        # ContextVar that _attach_tool_utilization stamps onto EVERY manifest.json. `enabled` reflects the
+        # FLAG (so even a run that aborts before the feature block shows it was configured); the STORM/agentic
+        # blocks mutate `fired`/counts/status in place. status: not_enabled -> enabled_not_reached (configured
+        # but the run aborted before the block) -> attempted_empty (block ran) -> fired / error.
+        _storm_enabled = os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
+        _agentic_enabled = os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
+        _storm_telemetry = make_feature_telemetry(
+            "storm_query_expansion", questions_added=0, interviews=0,
+            enabled=_storm_enabled, firing_status="enabled_not_reached" if _storm_enabled else "not_enabled",
         )
-        _reset_tool_tracer()
-        _get_tool_tracer(run_dir if _tool_tracker_on else None)
-    except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
-        print(f"[tool_tracker] init skipped: {_tt_exc}")
+        _agentic_telemetry = make_feature_telemetry(
+            "agentic_search", urls_discovered=0, urls_selectable=0,  # FX-15b (#1119): post-filter count
+            enabled=_agentic_enabled, firing_status="enabled_not_reached" if _agentic_enabled else "not_enabled",
+        )
+        # BB-006 (I-beatboth-fix-000 #1171): the STORM interview-search URLs harvested for the seed lane.
+        # Always defined (default empty) so the post-base-retrieval STORM seed-merge block below is a no-op
+        # when STORM URL ingestion is OFF or STORM did not run — byte-identical OFF.
+        _storm_seed_urls: list[str] = []
+        # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
+        # benchmark feature and lives INSIDE the outer try below (first statement). When both features
+        # are OFF the ContextVar stays None, so _attach_tool_utilization adds no feature keys and the
+        # manifest is byte-identical to the pre-#1076 OFF path. Publishing inside the outer try also means
+        # the try's `finally` (P1-1) is the single guaranteed clear on every exit.
 
-    # I-obs-001 #1141 AC3: raw LLM I/O forensic sink. The PG_CAPTURE_RAW_LLM_IO flag is read ONLY
-    # here (runner owns the env, LAW VI / reasoning-sink precedent); the client + transports + judges
-    # stay flag-agnostic and only read the injected sink ContextVar. OFF (default) => set_raw_io_sink
-    # is never called => ContextVar stays None => every egress path no-ops => byte-unchanged.
-    if os.environ.get("PG_CAPTURE_RAW_LLM_IO", "0").strip() in ("1", "true", "True"):
+        # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
+        # mode — the jsonl is rewritten on every record/update so it is current
+        # on disk regardless of which abort / error / success path the run exits
+        # through. Sink lifecycle mirrors set_current_run_id (set here, released
+        # in the run tail).
+        from src.polaris_graph.generator.reasoning_trace import (
+            ReasoningTraceCollector,
+        )
+        from src.polaris_graph.llm.openrouter_client import set_reasoning_sink
+        _reasoning_collector = ReasoningTraceCollector(out_dir=run_dir)
+        # I-gen-561 (#561) P2-2: materialize the (possibly empty)
+        # reasoning_trace.jsonl now, so a run that aborts before any generator
+        # LLM call still produces the file augment_v6_manifest() references.
+        _reasoning_collector.flush(run_dir)
+        set_reasoning_sink(_reasoning_collector)
+
+        # I-meta-002-q1d (#945): per-call retrieval_trace.jsonl (mirror of reasoning_trace.jsonl for the
+        # search/fetch half — the operator's §-1.1 line-by-line audit requirement). Start a FRESH per-query
+        # trace and materialize the (possibly empty) file now so an early abort still produces it. The
+        # recorders are best-effort no-ops; the §9.1 retrieval/verify chokepoint is never altered.
+        from src.polaris_graph.benchmark.pathB_capture import (
+            retrieval_trace_records as _retrieval_trace_records,
+            start_retrieval_trace as _start_retrieval_trace,
+        )
+        # I-obs-001 #1141 AC2: pass the run_dir path so each retrieval record live-appends as it happens
+        # (tail -f safe DURING retrieval). The end-of-retrieval "w" flush below stays the reconciling
+        # final writer, so the final file is byte-identical on every normal exit.
+        _start_retrieval_trace(run_dir / "retrieval_trace.jsonl")
+
+        def _flush_retrieval_trace() -> None:
+            try:
+                with (run_dir / "retrieval_trace.jsonl").open("w", encoding="utf-8") as _rt:
+                    for _rec in _retrieval_trace_records():
+                        _rt.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+            except Exception as _exc:  # noqa: BLE001 — best-effort observability, never abort the run
+                print(f"[retrieval_trace] flush error (skipped): {_exc}")
+
+        _flush_retrieval_trace()
+
+        # I-meta-007b (#meta-007): per-tool utilization tracer. ON-mode additive,
+        # record-only, spend-free. Reset the process-global singleton FIRST so a
+        # multi-query sweep binds each query's tracer to its OWN run_dir (and never
+        # accumulates calls across queries), then bind to this run_dir. Guarded by
+        # PG_ENABLE_TOOL_TRACKER (default "1"): when OFF we reset to a fresh
+        # in-memory tracer with NO run_dir, so no tool_trace.jsonl is written and
+        # the manifest stays byte-identical (the tool_utilization key is gated on
+        # _tool_tracker_on below). Best-effort — a telemetry import error must not
+        # abort the run.
+        _tool_tracker_on = os.environ.get("PG_ENABLE_TOOL_TRACKER", "1").strip() in (
+            "1", "true", "True",
+        )
         try:
-            from src.polaris_graph.telemetry.llm_io_sink import LlmIoSink as _LlmIoSink
-            from src.polaris_graph.llm.openrouter_client import set_raw_io_sink as _set_raw_io_sink
-            _set_raw_io_sink(_LlmIoSink(out_dir=run_dir / "llm_io"))
-        except Exception as _io_exc:  # noqa: BLE001 — telemetry must not abort the run
-            print(f"[llm_io] raw-IO sink init skipped: {_io_exc}")
+            from src.polaris_graph.telemetry.tool_tracer import (
+                get_tool_tracer as _get_tool_tracer,
+                reset_tool_tracer as _reset_tool_tracer,
+            )
+            _reset_tool_tracer()
+            _get_tool_tracer(run_dir if _tool_tracker_on else None)
+        except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
+            print(f"[tool_tracker] init skipped: {_tt_exc}")
 
-    # I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume-state load with
-    # RESUME-FROM-NEAREST across two staged checkpoints.
-    #
-    # Two checkpoints exist, in stage order (earlier -> later):
-    #   1. fetch_snapshot.json  (POST-FETCH, GH #1259): the raw fetched+merged corpus,
-    #      written BEFORE the slow embedding-rerank/selection. Resuming from it RE-RUNS
-    #      selection + generation but SKIPS STORM + fetch + every merge lane.
-    #   2. corpus_snapshot.json (POST-SELECTION, F04): the final billed evidence_for_gen,
-    #      written right before generation. Resuming from it ALSO skips selection (it loads
-    #      the snapshot's pool) and re-enters straight at generation.
-    #
-    # Both carry DATA ONLY — never a faithfulness verdict (HARD INVARIANT §-1.3). On
-    # --resume every faithfulness gate (strict_verify / NLI / 4-role / D8) RE-RUNS on the
-    # reloaded data. RESUME-FROM-NEAREST picks the LATER checkpoint when both exist (it
-    # skips strictly more work) and falls back to the earlier one when only it was written
-    # (the kill landed mid-rerank, before selection completed). A missing snapshot under
-    # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
-    # landed before ANY snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
-    # LOUD (no silent fresh-restart that re-bills fetch). The two flags are SEPARATE so
-    # every downstream `_resume_active`/`not _resume_active` guard keeps its EXACT existing
-    # semantics (= "resumed from corpus_snapshot"); `_resume_from_fetch` only gates the
-    # pre-fetch network lanes + the retrieval reconstruct. OFF (no --resume) keeps every
-    # branch byte-identical EXCEPT the INTENTIONAL additive post-fetch checkpoint: a fresh
-    # run now writes `fetch_snapshot.json` (the new resume-from-nearest artifact) and emits
-    # one `[checkpoint]` log line at the post-fetch seam (~L5116). That artifact + log line
-    # are the deliberate new durability surface; no faithfulness/gate/selection/generation
-    # behavior changes, and the report/manifest are unaffected.
-    from src.polaris_graph.generator.corpus_snapshot import (
-        CorpusSnapshotError as _CorpusSnapshotError,
-        load_corpus_snapshot as _load_corpus_snapshot,
-        save_corpus_snapshot as _save_corpus_snapshot,
-        snapshot_path as _snapshot_path,
-    )
-    from src.polaris_graph.generator.fetch_snapshot import (
-        FetchSnapshotError as _FetchSnapshotError,
-        fetch_snapshot_path as _fetch_snapshot_path,
-        load_fetch_snapshot as _load_fetch_snapshot,
-        save_fetch_snapshot as _save_fetch_snapshot,
-    )
-    _resume_active = False          # resumed from the POST-SELECTION corpus_snapshot
-    _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
-    _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
-    _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
-    if resume:
-        # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
-        # the earlier (post-fetch) one only when the later one is absent.
-        if _snapshot_path(run_dir).exists():
-            _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
-            _resume_active = True
-        elif _fetch_snapshot_path(run_dir).exists():
-            _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
-            _resume_from_fetch = True
+        # I-obs-001 #1141 AC3: raw LLM I/O forensic sink. The PG_CAPTURE_RAW_LLM_IO flag is read ONLY
+        # here (runner owns the env, LAW VI / reasoning-sink precedent); the client + transports + judges
+        # stay flag-agnostic and only read the injected sink ContextVar. OFF (default) => set_raw_io_sink
+        # is never called => ContextVar stays None => every egress path no-ops => byte-unchanged.
+        if os.environ.get("PG_CAPTURE_RAW_LLM_IO", "0").strip() in ("1", "true", "True"):
+            try:
+                from src.polaris_graph.telemetry.llm_io_sink import LlmIoSink as _LlmIoSink
+                from src.polaris_graph.llm.openrouter_client import set_raw_io_sink as _set_raw_io_sink
+                _set_raw_io_sink(_LlmIoSink(out_dir=run_dir / "llm_io"))
+            except Exception as _io_exc:  # noqa: BLE001 — telemetry must not abort the run
+                print(f"[llm_io] raw-IO sink init skipped: {_io_exc}")
 
-    log_path = run_dir / "run_log.txt"
-    # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
-    # (retrieval/adequacy log lines) are preserved, not clobbered by the "w" truncation
-    # that a fresh run uses.
-    log_f = log_path.open("a" if (_resume_active or _resume_from_fetch) else "w", encoding="utf-8")
+        # I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume-state load with
+        # RESUME-FROM-NEAREST across two staged checkpoints.
+        #
+        # Two checkpoints exist, in stage order (earlier -> later):
+        #   1. fetch_snapshot.json  (POST-FETCH, GH #1259): the raw fetched+merged corpus,
+        #      written BEFORE the slow embedding-rerank/selection. Resuming from it RE-RUNS
+        #      selection + generation but SKIPS STORM + fetch + every merge lane.
+        #   2. corpus_snapshot.json (POST-SELECTION, F04): the final billed evidence_for_gen,
+        #      written right before generation. Resuming from it ALSO skips selection (it loads
+        #      the snapshot's pool) and re-enters straight at generation.
+        #
+        # Both carry DATA ONLY — never a faithfulness verdict (HARD INVARIANT §-1.3). On
+        # --resume every faithfulness gate (strict_verify / NLI / 4-role / D8) RE-RUNS on the
+        # reloaded data. RESUME-FROM-NEAREST picks the LATER checkpoint when both exist (it
+        # skips strictly more work) and falls back to the earlier one when only it was written
+        # (the kill landed mid-rerank, before selection completed). A missing snapshot under
+        # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
+        # landed before ANY snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
+        # LOUD (no silent fresh-restart that re-bills fetch). The two flags are SEPARATE so
+        # every downstream `_resume_active`/`not _resume_active` guard keeps its EXACT existing
+        # semantics (= "resumed from corpus_snapshot"); `_resume_from_fetch` only gates the
+        # pre-fetch network lanes + the retrieval reconstruct. OFF (no --resume) keeps every
+        # branch byte-identical EXCEPT the INTENTIONAL additive post-fetch checkpoint: a fresh
+        # run now writes `fetch_snapshot.json` (the new resume-from-nearest artifact) and emits
+        # one `[checkpoint]` log line at the post-fetch seam (~L5116). That artifact + log line
+        # are the deliberate new durability surface; no faithfulness/gate/selection/generation
+        # behavior changes, and the report/manifest are unaffected.
+        from src.polaris_graph.generator.corpus_snapshot import (
+            CorpusSnapshotError as _CorpusSnapshotError,
+            load_corpus_snapshot as _load_corpus_snapshot,
+            save_corpus_snapshot as _save_corpus_snapshot,
+            snapshot_path as _snapshot_path,
+        )
+        from src.polaris_graph.generator.fetch_snapshot import (
+            FetchSnapshotError as _FetchSnapshotError,
+            fetch_snapshot_path as _fetch_snapshot_path,
+            load_fetch_snapshot as _load_fetch_snapshot,
+            save_fetch_snapshot as _save_fetch_snapshot,
+        )
+        _resume_active = False          # resumed from the POST-SELECTION corpus_snapshot
+        _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
+        _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
+        _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+        if resume:
+            # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
+            # the earlier (post-fetch) one only when the later one is absent.
+            if _snapshot_path(run_dir).exists():
+                _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+                _resume_active = True
+            elif _fetch_snapshot_path(run_dir).exists():
+                _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
+                _resume_from_fetch = True
 
-    def _log(msg: str) -> None:
-        print(msg)
-        log_f.write(msg + "\n")
-        log_f.flush()
+        log_path = run_dir / "run_log.txt"
+        # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
+        # (retrieval/adequacy log lines) are preserved, not clobbered by the "w" truncation
+        # that a fresh run uses.
+        log_f = log_path.open("a" if (_resume_active or _resume_from_fetch) else "w", encoding="utf-8")
 
-    summary: dict = {
-        "slug": q["slug"],
-        "domain": q["domain"],
-        "question": q["question"],
-        "run_id": run_id,
-        "status": "started",
-        "run_dir": str(run_dir),
-        "error": "",
-    }
-    _clinical_verified_only_surface = (
-        str(q.get("domain", "")).strip().lower() == "clinical"
-    )
+        def _log(msg: str) -> None:
+            print(msg)
+            log_f.write(msg + "\n")
+            log_f.flush()
+
+        summary: dict = {
+            "slug": q["slug"],
+            "domain": q["domain"],
+            "question": q["question"],
+            "run_id": run_id,
+            "status": "started",
+            "run_dir": str(run_dir),
+            "error": "",
+        }
+        _clinical_verified_only_surface = (
+            str(q.get("domain", "")).strip().lower() == "clinical"
+        )
+    except BaseException as _setup_exc:  # noqa: BLE001 - terminal artifact then re-raise (no swallow)
+        write_terminal_error_manifest(
+            run_dir, q, run_id, _setup_exc, _hb_last_stage[0],
+        )
+        try:
+            _hb(f"error_{_hb_last_stage[0]}")
+        except Exception:  # noqa: BLE001 - terminal heartbeat is best-effort
+            pass
+        raise
 
     try:
         # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
@@ -7268,6 +7482,20 @@ async def run_one_query(
 
         _pathb_gen_tok = _pathb.set_role("generator")
         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
+        # BUG-3 (#1262): generation + per-sentence verification is ONE batched `await` with no
+        # mid-stream hook in this file, so run_status.json otherwise FREEZES at
+        # "generation_started" for the whole ~1.5-2h phase (operator could not tell a live run from
+        # a wedged one). Start a lightweight background ticker that re-stamps the heartbeat every
+        # PG_GENERATION_HEARTBEAT_TICK_SECONDS with the LIVE elapsed_s + running_cost_usd so a
+        # tailer sees real progress. Cancelled in the `finally` below (ALWAYS, on success/raise) so
+        # it cannot outlive the phase or land a stale "generation_in_progress" after a terminal
+        # stage. Faithfulness-safe: pure observability — it never reads/writes a span, provenance,
+        # strict_verify / NLI / 4-role check, or any verdict.
+        _gen_hb_ticker = asyncio.ensure_future(
+            _periodic_heartbeat_ticker(
+                _hb, "generation_in_progress", generation_heartbeat_tick_seconds(),
+            )
+        )
         try:
             multi = await generate_multi_section_report(
                 research_question=q["question"],
@@ -7410,6 +7638,15 @@ async def run_one_query(
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
+            # BUG-3 (#1262): stop the generation-phase heartbeat ticker on EVERY exit
+            # (success OR raise) so it cannot land a stale "generation_in_progress" after a
+            # later terminal stage. Best-effort: cancel + await is guarded so a ticker teardown
+            # failure can never convert a success into an error (faithfulness invariant).
+            _gen_hb_ticker.cancel()
+            try:
+                await _gen_hb_ticker
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 — teardown must not raise into the run
+                pass
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
              f"sections, words={multi.total_words}, "
