@@ -1,0 +1,2249 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eca6d-fbb7-7f43-8512-7d7ff05e617b
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Reserve P0/P1 for real execution risks; nits are P2/P3.
+- Verdict APPROVE iff zero NOVEL P0 AND zero P1.
+
+FOCUSED RE-REVIEW. History: iter-1 = 2 P1s; iter-2 = P1-1 (BUG-19) RESOLVED, 1 CONTINUING P1 — `_generic_drug_signal` (completeness_checker.py) could be tripped by non-drug terms (administered / subcutaneous / intramuscular / dosing → "self-administered questionnaire", "subcutaneous fat", "radiation dosing"), which in the critical confident-negative branch returns applies=True and could SPURIOUSLY HOLD a non-drug report via abort_critical_topic_uncovered. THIS iter reviews ONLY the fix for that continuing P1. STATIC review only.
+
+READ: `.codex/I-arch-006/p1_fix_iter3.diff` (26 lines). The fix REMOVES `administered`, `intravenous*`, `subcutaneous*`, `intramuscular*`, `dosage`, `dosing` from `_GENERIC_DRUG_SIGNAL_RE`, keeping ONLY unambiguous drug-identity/class/form/dose-unit terms: drugs?/medications?/pharmacotherap*/pharmacolog*/pharmacokinetic*/pharmacodynamic*/posology/milligrams?/micrograms?/tablets?/capsules?/inhibitors?/agonists?/antagonists?/monoclonal/chemotherap*/antibiotics?/antiviral* and `\d+ mg` / `mg/kg|day|dl`.
+
+VERIFY:
+1. Can a NON-drug question still trip `_generic_drug_signal` via any REMAINING term and spuriously fail-closed (hold) a non-drug report? (Consider the 3 golden non-drug Qs: gut-microbiota/CRC, Parkinson's-DBS, metal-ions/CVD, plus the iter-2 examples.)
+2. Is the fail-closed safety net still PRESERVED for a real drug question whose specific brand the recognizer missed (such a question still carries a drug-class/form/mg term)?
+3. Any NOVEL P0/P1 introduced by THIS 26-line delta only?
+
+OUTPUT EXACTLY:
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+APPROVE iff the continuing P1 is resolved and this delta introduces zero new P0/P1.
+
+codex
+I’ll keep this to the 26-line fix and nearby matcher context so the verdict stays scoped to the continuing P1. First I’m reading the governing note and the diff, then I’ll inspect the current regex usage path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_GENERIC_DRUG_SIGNAL_RE|_generic_drug_signal|abort_critical_topic_uncovered|confident-negative|confident_negative" .' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\.codex\\I-arch-006\\p1_fix_iter3.diff" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\CLAUDE.md -TotalCount 220" in C:\POLARIS
+2026-06-15T08:38:01.606774Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.6 seconds
+Output:
+.\config\completeness_checklists\clinical.yaml:22:#       topic that gates abort_critical_topic_uncovered) from spuriously
+.\config\completeness_checklists\clinical.yaml:75:    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\config\completeness_checklists\clinical.yaml:82:    # "covered" inflation AND a spurious abort_critical_topic_uncovered. Now gated
+.\outputs\audits\a3_blockage_forensic\hold_gate_inventory_seed.txt:5:OTHER live hold/abort statuses NOT yet triaged: abort_budget_exceeded, abort_corpus_approval_denied, abort_corpus_inadequate, abort_credibility_coverage_gap, abort_critical_topic_uncovered, abort_discovery_degraded, abort_evaluator_critical, abort_excessive_gap, abort_journal_only_contract_conflict, abort_no_sources, abort_no_verified_sections, abort_quota_exceeded, abort_report_redaction_failed, abort_required_entity_ledger_failed, abort_safety_refused, abort_scope_rejected, abort_verifier_degraded.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:81:`abort_critical_topic_uncovered`  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:147:The v6 status enum omits several live statuses, including `abort_conflict_judge_unavailable`, `abort_critical_topic_uncovered`, `abort_excessive_gap`, `abort_credibility_coverage_gap`, `abort_required_entity_ledger_failed`, `abort_quota_exceeded`, and credibility pass errors. That can break downstream display/replay even when the runner wrote a manifest.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:184:Blockage removed: `abort_critical_topic_uncovered`.  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:1396:OTHER live hold/abort statuses NOT yet triaged: abort_budget_exceeded, abort_corpus_approval_denied, abort_corpus_inadequate, abort_credibility_coverage_gap, abort_critical_topic_uncovered, abort_discovery_degraded, abort_evaluator_critical, abort_excessive_gap, abort_journal_only_contract_conflict, abort_no_sources, abort_no_verified_sections, abort_quota_exceeded, abort_report_redaction_failed, abort_required_entity_ledger_failed, abort_safety_refused, abort_scope_rejected, abort_verifier_degraded.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2339:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2359:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2378:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2474:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2594:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2608:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2630:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2660:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2855:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:5653:236:     "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:5696:279:     "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:7631:7876:             summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15349:`abort_critical_topic_uncovered`  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15415:The v6 status enum omits several live statuses, including `abort_conflict_judge_unavailable`, `abort_critical_topic_uncovered`, `abort_excessive_gap`, `abort_credibility_coverage_gap`, `abort_required_entity_ledger_failed`, `abort_quota_exceeded`, and credibility pass errors. That can break downstream display/replay even when the runner wrote a manifest.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15452:Blockage removed: `abort_critical_topic_uncovered`.  
+.\outputs\audits\a3_blockage_forensic\claude_judge_root_cause_findings.md:27:- abort_critical_topic_uncovered (7876): no report.md write.
+.\outputs\audits\a3_blockage_forensic\claude_hold_gate_inventory.md:14:`abort_evaluator_critical` (7854/7862), `abort_critical_topic_uncovered` (7876), `abort_discovery_degraded` (9044), `abort_required_entity_ledger_failed` (882), `abort_report_redaction_failed` (8458), `abort_four_role_release_held` incl. seam_timeout/seam_error (8273/8282/8357), `abort_verifier_degraded` (7706 — manifest only, report not yet written at that point).
+.\outputs\audits\a3_blockage_forensic\ADDITIONAL_FIXES.md:53:| 14 | `abort_critical_topic_uncovered` — clinical critical checklist topic uncovered | `:7863-7885` | **B** | **YES** | HOLD (legit-but-mislabeled) |
+.\outputs\audits\a3_blockage_forensic\ADDITIONAL_FIXES.md:157:- `abort_critical_topic_uncovered` (#14) → partially B5/B7 "released-with-disclosed-gaps"; *residual:* must ship the `STATUS_RELEASED_INSUFFICIENT_SAFETY` report TYPE (relabel the report.md already on disk at 7446), not a non-shipping abort status. The CHECK (detecting the gap) stays HARD; only the HOLD becomes a LABEL. Confirm wired here.
+.\src\polaris_v6\schemas\run_status.py:60:    "abort_critical_topic_uncovered",        # F11 (A3): uncovered critical clinical topic hold
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:24774:scripts/run_honest_sweep_r3.py-236-    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:50038:config\completeness_checklists\clinical.yaml-55-    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54724:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54748:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54781:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54978:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\scripts\run_honest_sweep_r3.py:2095:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\scripts\run_honest_sweep_r3.py:8836:            summary_status = "abort_critical_topic_uncovered"
+.\src\polaris_graph\nodes\completeness_checker.py:56:# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
+.\src\polaris_graph\nodes\completeness_checker.py:137:_GENERIC_DRUG_SIGNAL_RE = re.compile(
+.\src\polaris_graph\nodes\completeness_checker.py:155:def _generic_drug_signal(question: str) -> bool:
+.\src\polaris_graph\nodes\completeness_checker.py:157:    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+.\src\polaris_graph\nodes\completeness_checker.py:158:    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+.\src\polaris_graph\nodes\completeness_checker.py:434:            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+.\src\polaris_graph\nodes\completeness_checker.py:443:            if _generic_drug_signal(research_question):
+.\outputs\audits\marlin_v2\PLAN.md:116:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\CODEX_VERDICT.txt:8:- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:29:    - A6/BUG-7 (clinical.yaml split) touches a release-hold path (contraindications critical:true → abort_critical_topic_uncovered). Is the plan's mitigation adequate?
+.\outputs\audits\marlin_v2\codex_review_out.txt:162:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\codex_review_out.txt:839:116:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\codex_review_out.txt:1715:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -e 'abort_critical_topic_uncovered' -e 'critical_topic' -e 'covered_fraction' -e 'check_completeness' -e 'release' 'src' 'scripts' 'config\\architecture'" in C:\POLARIS
+.\outputs\audits\marlin_v2\codex_review_out.txt:1771:55:    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\outputs\audits\marlin_v2\codex_review_out.txt:1910:src\polaris_v6\schemas\run_status.py:60:    "abort_critical_topic_uncovered",        # F11 (A3): uncovered critical clinical topic hold
+.\outputs\audits\marlin_v2\codex_review_out.txt:2021:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2050:scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\marlin_v2\codex_review_out.txt:2055:scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\marlin_v2\codex_review_out.txt:2066:scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:2075:scripts\run_honest_sweep_r3.py:1974:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2133:scripts\run_honest_sweep_r3.py:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2634:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -e 'abort_critical_topic_uncovered' -e 'PG_SWEEP_CRITICAL_COMPLETENESS_HOLD' -e 'critical_uncovered' -e 'uncovered_critical' -e 'critical_topic' 'scripts\\run_honest_sweep_r3.py' 'src\\polaris_graph' 'scripts\\dr_benchmark\\run_gate_b.py'" in C:\POLARIS
+.\outputs\audits\marlin_v2\codex_review_out.txt:2749:scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\marlin_v2\codex_review_out.txt:2750:scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\marlin_v2\codex_review_out.txt:2751:scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:2754:scripts\run_honest_sweep_r3.py:1974:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2758:scripts\run_honest_sweep_r3.py:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2760:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2764:The release hold is explicit in `run_honest_sweep_r3.py`: uncovered critical checklist topics set `abort_critical_topic_uncovered`. That makes A6 a release-behavior change, not just a benign denominator cleanup, even if the direction is likely necessary.
+.\outputs\audits\marlin_v2\codex_review_out.txt:2792:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2814:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:11155:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:11202:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:11251:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\02_our_bugs_fixmap.md:97:→ uncovered-critical HOLDS release (`abort_critical_topic_uncovered`, env
+.\src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:18:abort_critical_topic_uncovered. Non-clinical runs (no critical-marked checklist) are
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:327:        assert "abort_critical_topic_uncovered" in UNIFIED_STATUS_VALUES
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:331:            to_unified_status("abort_critical_topic_uncovered")
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:332:            == "abort_critical_topic_uncovered"
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:340:        assert "abort_critical_topic_uncovered" in KNOWN_STATUS_VALUES
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:341:        assert _STATUS_TIERS["abort_critical_topic_uncovered"] == 2  # abort tier
+.\tests\polaris_graph\test_bug7_completeness_drug_applicability_iarch006.py:11:"covered" inflation AND a spurious ``abort_critical_topic_uncovered`` hold (or, if
+.\tests\polaris_graph\test_bug7_completeness_drug_applicability_iarch006.py:198:    spurious abort_critical_topic_uncovered."""
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:10:would disable abort_critical_topic_uncovered. On a confident-negative for a critical
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:26:    _generic_drug_signal,
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:59:def test_generic_drug_signal_ignores_non_drug_questions():
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:60:    assert _generic_drug_signal("Does gut microbiota affect colorectal cancer?") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:61:    assert _generic_drug_signal("Deep brain stimulation vs best medical therapy in Parkinson") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:62:    assert _generic_drug_signal("Do metal ions in water raise cardiovascular risk?") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:73:def test_generic_drug_signal_not_tripped_by_broad_nondrug_terms(non_drug):
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:74:    assert _generic_drug_signal(non_drug) is False, (
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:79:def test_generic_drug_signal_fires_on_real_drug_questions():
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:80:    assert _generic_drug_signal("contraindications of tirzepatide 15 mg") is True
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:81:    assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:82:    assert _generic_drug_signal("chemotherapy dosing in advanced NSCLC") is True
+.\tests\polaris_graph\test_manifest_contract.py:54:        "abort_critical_topic_uncovered",  # F11 (A3): clinical run left a `critical: true` checklist topic (contraindications) applicable but uncovered
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: .\codex_008budget_final: Access is denied. (os error 5)
+rg: .\codex_008budget_final2: Access is denied. (os error 5)
+rg: .\codex_008budget_tax: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: .\codex_fullpower_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: .\codex_iready005_pytest: Access is denied. (os error 5)
+rg: .\codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: .\codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: .\codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: .\codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4pldgytu: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4ub_c1tz: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_b225i01s: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_bnezcyw_: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_f3_ntj9m: Access is denied. (os error 5)
+rg: .\codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_gbznmdhq: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_k8cuhaqf: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ku5c2fnz: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ll7c4m6w: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_lqomtwho: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_q7irc_xy: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_r9l_fwzf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_vnbmb3pa: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_xr_17rct: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_y372lrb2: Access is denied. (os error 5)
+rg: .\codex_score_run_check_2ej850xb: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\probe_63cxyz6o: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\tmptcv_wpgb: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp2: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\mode_700: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: .\POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: .\POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+
+ exited 1 in 2631ms:
+.\config\completeness_checklists\clinical.yaml:22:#       topic that gates abort_critical_topic_uncovered) from spuriously
+.\config\completeness_checklists\clinical.yaml:75:    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\config\completeness_checklists\clinical.yaml:82:    # "covered" inflation AND a spurious abort_critical_topic_uncovered. Now gated
+.\outputs\audits\a3_blockage_forensic\hold_gate_inventory_seed.txt:5:OTHER live hold/abort statuses NOT yet triaged: abort_budget_exceeded, abort_corpus_approval_denied, abort_corpus_inadequate, abort_credibility_coverage_gap, abort_critical_topic_uncovered, abort_discovery_degraded, abort_evaluator_critical, abort_excessive_gap, abort_journal_only_contract_conflict, abort_no_sources, abort_no_verified_sections, abort_quota_exceeded, abort_report_redaction_failed, abort_required_entity_ledger_failed, abort_safety_refused, abort_scope_rejected, abort_verifier_degraded.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:81:`abort_critical_topic_uncovered`  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:147:The v6 status enum omits several live statuses, including `abort_conflict_judge_unavailable`, `abort_critical_topic_uncovered`, `abort_excessive_gap`, `abort_credibility_coverage_gap`, `abort_required_entity_ledger_failed`, `abort_quota_exceeded`, and credibility pass errors. That can break downstream display/replay even when the runner wrote a manifest.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.txt:184:Blockage removed: `abort_critical_topic_uncovered`.  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:1396:OTHER live hold/abort statuses NOT yet triaged: abort_budget_exceeded, abort_corpus_approval_denied, abort_corpus_inadequate, abort_credibility_coverage_gap, abort_critical_topic_uncovered, abort_discovery_degraded, abort_evaluator_critical, abort_excessive_gap, abort_journal_only_contract_conflict, abort_no_sources, abort_no_verified_sections, abort_quota_exceeded, abort_report_redaction_failed, abort_required_entity_ledger_failed, abort_safety_refused, abort_scope_rejected, abort_verifier_degraded.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2339:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2359:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2378:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2474:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2594:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2608:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2630:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2660:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:2855:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:5653:236:     "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:5696:279:     "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:7631:7876:             summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15349:`abort_critical_topic_uncovered`  
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15415:The v6 status enum omits several live statuses, including `abort_conflict_judge_unavailable`, `abort_critical_topic_uncovered`, `abort_excessive_gap`, `abort_credibility_coverage_gap`, `abort_required_entity_ledger_failed`, `abort_quota_exceeded`, and credibility pass errors. That can break downstream display/replay even when the runner wrote a manifest.
+.\outputs\audits\a3_blockage_forensic\codex_blockage.err.txt:15452:Blockage removed: `abort_critical_topic_uncovered`.  
+.\outputs\audits\a3_blockage_forensic\claude_judge_root_cause_findings.md:27:- abort_critical_topic_uncovered (7876): no report.md write.
+.\outputs\audits\a3_blockage_forensic\claude_hold_gate_inventory.md:14:`abort_evaluator_critical` (7854/7862), `abort_critical_topic_uncovered` (7876), `abort_discovery_degraded` (9044), `abort_required_entity_ledger_failed` (882), `abort_report_redaction_failed` (8458), `abort_four_role_release_held` incl. seam_timeout/seam_error (8273/8282/8357), `abort_verifier_degraded` (7706 — manifest only, report not yet written at that point).
+.\outputs\audits\a3_blockage_forensic\ADDITIONAL_FIXES.md:53:| 14 | `abort_critical_topic_uncovered` — clinical critical checklist topic uncovered | `:7863-7885` | **B** | **YES** | HOLD (legit-but-mislabeled) |
+.\outputs\audits\a3_blockage_forensic\ADDITIONAL_FIXES.md:157:- `abort_critical_topic_uncovered` (#14) → partially B5/B7 "released-with-disclosed-gaps"; *residual:* must ship the `STATUS_RELEASED_INSUFFICIENT_SAFETY` report TYPE (relabel the report.md already on disk at 7446), not a non-shipping abort status. The CHECK (detecting the gap) stays HARD; only the HOLD becomes a LABEL. Confirm wired here.
+.\src\polaris_v6\schemas\run_status.py:60:    "abort_critical_topic_uncovered",        # F11 (A3): uncovered critical clinical topic hold
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:24774:scripts/run_honest_sweep_r3.py-236-    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:50038:config\completeness_checklists\clinical.yaml-55-    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54724:scripts/run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54748:scripts/run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54781:scripts/run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\b1b10_redesign\codex_plan.err.txt:54978:scripts/run_honest_sweep_r3.py:7876:            summary_status = "abort_critical_topic_uncovered"
+.\scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\scripts\run_honest_sweep_r3.py:2095:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\scripts\run_honest_sweep_r3.py:8836:            summary_status = "abort_critical_topic_uncovered"
+.\src\polaris_graph\nodes\completeness_checker.py:56:# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
+.\src\polaris_graph\nodes\completeness_checker.py:137:_GENERIC_DRUG_SIGNAL_RE = re.compile(
+.\src\polaris_graph\nodes\completeness_checker.py:155:def _generic_drug_signal(question: str) -> bool:
+.\src\polaris_graph\nodes\completeness_checker.py:157:    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+.\src\polaris_graph\nodes\completeness_checker.py:158:    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+.\src\polaris_graph\nodes\completeness_checker.py:434:            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+.\src\polaris_graph\nodes\completeness_checker.py:443:            if _generic_drug_signal(research_question):
+.\outputs\audits\marlin_v2\PLAN.md:116:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\CODEX_VERDICT.txt:8:- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:29:    - A6/BUG-7 (clinical.yaml split) touches a release-hold path (contraindications critical:true → abort_critical_topic_uncovered). Is the plan's mitigation adequate?
+.\outputs\audits\marlin_v2\codex_review_out.txt:162:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\codex_review_out.txt:839:116:**The bug it fixes:** BUG-7 [HIGH, in-flight, confirmed systemic]. `check_completeness(domain="clinical")` loads `clinical.yaml`, which is a hardcoded GLP-1 diabetes checklist (hba1c, pancreatitis, gallbladder, medullary thyroid). drb_75 (metal-ions/CVD), drb_76 (gut-microbiota/CRC) and drb_78 (Parkinson's/DBS) are all registered `domain="clinical"` → all scored against the GLP-1 list → false "7/7 fully covered." ⚠ `clinical.yaml` marks `contraindications` `critical:true`, which HOLDS release (`abort_critical_topic_uncovered`, default ON) — so a wrong checklist can spuriously hold OR spuriously pass a real safety gap.
+.\outputs\audits\marlin_v2\codex_review_out.txt:1715:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -e 'abort_critical_topic_uncovered' -e 'critical_topic' -e 'covered_fraction' -e 'check_completeness' -e 'release' 'src' 'scripts' 'config\\architecture'" in C:\POLARIS
+.\outputs\audits\marlin_v2\codex_review_out.txt:1771:55:    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+.\outputs\audits\marlin_v2\codex_review_out.txt:1910:src\polaris_v6\schemas\run_status.py:60:    "abort_critical_topic_uncovered",        # F11 (A3): uncovered critical clinical topic hold
+.\outputs\audits\marlin_v2\codex_review_out.txt:2021:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2050:scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\marlin_v2\codex_review_out.txt:2055:scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\marlin_v2\codex_review_out.txt:2066:scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:2075:scripts\run_honest_sweep_r3.py:1974:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2133:scripts\run_honest_sweep_r3.py:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2634:"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -e 'abort_critical_topic_uncovered' -e 'PG_SWEEP_CRITICAL_COMPLETENESS_HOLD' -e 'critical_uncovered' -e 'uncovered_critical' -e 'critical_topic' 'scripts\\run_honest_sweep_r3.py' 'src\\polaris_graph' 'scripts\\dr_benchmark\\run_gate_b.py'" in C:\POLARIS
+.\outputs\audits\marlin_v2\codex_review_out.txt:2749:scripts\run_honest_sweep_r3.py:236:    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
+.\outputs\audits\marlin_v2\codex_review_out.txt:2750:scripts\run_honest_sweep_r3.py:279:    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
+.\outputs\audits\marlin_v2\codex_review_out.txt:2751:scripts\run_honest_sweep_r3.py:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:2754:scripts\run_honest_sweep_r3.py:1974:    "abort_critical_topic_uncovered": _ARTIFACT_KIND_INSUFFICIENT,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2758:scripts\run_honest_sweep_r3.py:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2760:src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\outputs\audits\marlin_v2\codex_review_out.txt:2764:The release hold is explicit in `run_honest_sweep_r3.py`: uncovered critical checklist topics set `abort_critical_topic_uncovered`. That makes A6 a release-behavior change, not just a benign denominator cleanup, even if the direction is likely necessary.
+.\outputs\audits\marlin_v2\codex_review_out.txt:2792:8599:            summary_status = "abort_critical_topic_uncovered"
+.\outputs\audits\marlin_v2\codex_review_out.txt:2814:708:# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+.\outputs\audits\marlin_v2\codex_review_out.txt:11155:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:11202:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\codex_review_out.txt:11251:+- A6/BUG-7 is a real bug, but the mitigation is not adequate for a release-hold path. The current checklist marks contraindications critical:true (config/completeness_checklists/clinical.yaml:51-58), and the sweep aborts when an applicable critical topic is uncovered (scripts/run_honest_sweep_r3.py:8586-8608). The proposed YAML-only split relies on applies_if, but applies_if is only static substring matching against question or evidence_blob (src/polaris_graph/nodes/completeness_checker.py:214-225). A false-negative applies_if on a drug query silently makes the critical topic non-applicable and disables abort_critical_topic_uncovered. Do not ship this as a simple checklist split unless critical applicability is driven by a robust drug/intervention detector and is regression-tested on true drug questions plus non-drug clinical questions.
+.\outputs\audits\marlin_v2\02_our_bugs_fixmap.md:97:→ uncovered-critical HOLDS release (`abort_critical_topic_uncovered`, env
+.\src\polaris_graph\audit_ir\regression_lab.py:649:    "abort_critical_topic_uncovered": 2,
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:18:abort_critical_topic_uncovered. Non-clinical runs (no critical-marked checklist) are
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:327:        assert "abort_critical_topic_uncovered" in UNIFIED_STATUS_VALUES
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:331:            to_unified_status("abort_critical_topic_uncovered")
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:332:            == "abort_critical_topic_uncovered"
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:340:        assert "abort_critical_topic_uncovered" in KNOWN_STATUS_VALUES
+.\tests\polaris_graph\test_f08_f11_qual_pt08_critical_completeness_iarch004.py:341:        assert _STATUS_TIERS["abort_critical_topic_uncovered"] == 2  # abort tier
+.\tests\polaris_graph\test_bug7_completeness_drug_applicability_iarch006.py:11:"covered" inflation AND a spurious ``abort_critical_topic_uncovered`` hold (or, if
+.\tests\polaris_graph\test_bug7_completeness_drug_applicability_iarch006.py:198:    spurious abort_critical_topic_uncovered."""
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:10:would disable abort_critical_topic_uncovered. On a confident-negative for a critical
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:26:    _generic_drug_signal,
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:59:def test_generic_drug_signal_ignores_non_drug_questions():
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:60:    assert _generic_drug_signal("Does gut microbiota affect colorectal cancer?") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:61:    assert _generic_drug_signal("Deep brain stimulation vs best medical therapy in Parkinson") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:62:    assert _generic_drug_signal("Do metal ions in water raise cardiovascular risk?") is False
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:73:def test_generic_drug_signal_not_tripped_by_broad_nondrug_terms(non_drug):
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:74:    assert _generic_drug_signal(non_drug) is False, (
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:79:def test_generic_drug_signal_fires_on_real_drug_questions():
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:80:    assert _generic_drug_signal("contraindications of tirzepatide 15 mg") is True
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:81:    assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:82:    assert _generic_drug_signal("chemotherapy dosing in advanced NSCLC") is True
+.\tests\polaris_graph\test_manifest_contract.py:54:        "abort_critical_topic_uncovered",  # F11 (A3): clinical run left a `critical: true` checklist topic (contraindications) applicable but uncovered
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: .\codex_008budget_final: Access is denied. (os error 5)
+rg: .\codex_008budget_final2: Access is denied. (os error 5)
+rg: .\codex_008budget_tax: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: .\codex_fullpower_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: .\codex_iready005_pytest: Access is denied. (os error 5)
+rg: .\codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: .\codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: .\codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: .\codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4pldgytu: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4ub_c1tz: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_b225i01s: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_bnezcyw_: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_f3_ntj9m: Access is denied. (os error 5)
+rg: .\codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_gbznmdhq: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_k8cuhaqf: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ku5c2fnz: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ll7c4m6w: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_lqomtwho: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_q7irc_xy: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_r9l_fwzf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_vnbmb3pa: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_xr_17rct: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_y372lrb2: Access is denied. (os error 5)
+rg: .\codex_score_run_check_2ej850xb: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\probe_63cxyz6o: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\tmptcv_wpgb: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp2: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\mode_700: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: .\POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: .\POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+
+ succeeded in 2721ms:
+# POLARIS PROJECT - Operational Directives
+
+CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See 3 for the mandatory startup protocol.
+
+Document Class: Operational, Binding, Project-Specific
+Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+
+---
+
+## -1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+
+**These three standards override every other directive in this file when they conflict. -1.1 and -1.2 were flagged by user 2026-05-09 night as repeat-violation patterns; -1.3 was operator-locked 2026-06-13 after a full day lost to symptom-patching.**
+
+### -1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+
+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+2. **Reasoning-step-by-reasoning-step** - verify each piece of reasoning follows from the cited evidence.
+3. **Citation-by-citation** - verify each citation is appropriate for the claim.
+4. **Apply industrial benchmarks** appropriate to the domain:
+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+   - Methodology: appropriate risk-of-bias tool for the study type.
+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+
+**STRICTLY BANNED:**
+- Word counts / citation counts / unique-source counts as quality signals
+- Pattern presence ("does the report mention 'tirzepatide'?")
+- Sample-based audits ("we audited 5 of 50 claims")
+- String-presence PASS/FAIL checks (e.g., gate tables)
+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" - this framing is **lethal in clinical context**)
+
+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+
+### -1.2 Standard debug workflow (no 3.0 bypass)
+
+Every task / bug / issue follows this exact sequence - no shortcuts:
+
+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN - <summary>`. Body has acceptance criteria. **No exceptions.**
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+4. **Brief Codex.** Open with the iter-1 cap directive (8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+**Ordering vs 3.1 boot ritual + 3.0 halt gates:** -1.2 governs *task-work* tool calls. The 3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+
+**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a 3.0 violation.
+
+### -1.3 Deep-research pipeline architecture DNA (operator-locked 2026-06-13)
+
+**The pipeline is WEIGHT-AND-CONSOLIDATE, not FILTER-AND-CAP.** Locked by the operator after a full day was lost to symptom-patching the pipeline with hardcoded caps/targets/thinners to hit a breadth NUMBER. Three binding principles govern every retrieval/selection/composition design decision:
+
+1. **WEIGHT, DON'T FILTER.** Every relevant source flows through to composition carrying a credibility **weight** (peer-review status, journal/venue reputation, gov / institute / news / social media). Do NOT hard-drop a source to hit a number. Social media STAYS at low weight - sometimes it reports a real journal. The tier classifier (T1-T7) and `authority_score` ARE the weighting system: use them as a per-citation **weight surfaced to the user**, never as a rank-then-drop hard filter.
+
+2. **CONSOLIDATE, DON'T DROP.** Group sources that carry the SAME claim into a **basket**. Repetition is **corroboration** - the entire point of consolidate / distill / map-reduce. Multiple citations per claim is GOOD and expected. `finding_dedup` / `fact_dedup` must CONSOLIDATE (keep ALL sources per claim as multi-citation) and operate on **qualitative** claims too - never delete corroborating sources, never restrict to numeric-only.
+
+3. **BASKET FAITHFULNESS.** Decide a claim's faithfulness against its **whole basket** of supporting sources, never a single URL/span - single-source verification is a blind spot. The verdict carries the corroboration (count + weights + agreement). This **STRENGTHENS** faithfulness; it NEVER relaxes it.
+
+**THE ONLY HARD GATE is the faithfulness engine** (strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding). Everything else is a WEIGHT or a CONSOLIDATION - never a DROP / CAP / THIN / TARGET.
+
+**BANNED anti-pattern (the day-waster):** bolting hardcoded caps / targets / thinners / hard-filters onto the pipeline to make a breadth number go up (`PG_SPAN_PER_SOURCE_CITE_CAP`, `PG_LEGACY_SECTION_BREADTH_TARGET`, `PG_BREADTH_CANARY_MIN`, scope hard-filter, and similar). They FIGHT the architecture. Breadth and quality **EMERGE** from honest weighted multi-attribution; they are never forced. If you find yourself adding a knob to make a number hit a target - STOP. That is the bug.
+
+**SURGICAL, NOT REWRITE.** The good machinery already exists - STORM retrieval, Zyte/crawl4ai/distill, the tier classifier (= weighting), `finding_dedup`/`fact_dedup` (= consolidation), the faithfulness engine. RE-WIRE it to the right semantics (weight not filter; consolidate-keep-all not drop; basket not single-span) and DELETE only the specific number-forcing bolt-ons. Do not over-kill.
+
+Canonical detail lives in `docs/polaris_pipeline_canonical.md` and the forensic design doc `docs/pipeline_architecture_forensic_2026_06_13.md`. GitHub anchor: **I-arch-001 (#1245)**.
+
+### -1.4 "Monitor" means line-by-line forensic - never surface liveness (operator-flagged 2026-06-14)
+
+When the operator asks you to **monitor** anything (a live run, a sweep, a deploy), it means **FORENSIC monitoring: actually READ EVERY LINE** - the full log, the output, the model's **reasoning** lines, the raw LLM I/O, the source-fetch trace, the tool trace - line by line. **Surface liveness checks are NOT monitoring; they are a FAIL:** proc-alive, `etime`, launch-log mtime, `tail -1`, manifest-status only tell you alive-vs-dead - nothing about whether the reasoning is sound and grounded, the right sources are used, the faithfulness gates are firing, or anything is being fabricated / over-dropped. Monitoring is **-1.1 applied to an in-flight run.**
+
+**How:** fan out a forensic **Workflow** - one deep-read agent per run - each reading that run's full log + `reasoning_trace` + raw LLM I/O (`PG_CAPTURE_RAW_LLM_IO=1`) + retrieval/tool traces + any output, line by line; trace the whole pipeline progression with quoted timestamps; READ and judge the reasoning; check strict_verify / 4-role / NLI for fabrication / over-drop / empty-content / mis-cite; report exact phase with quoted evidence. Relay findings inline, plain point-form (operator is BLIND). A lightweight liveness ping is allowed ONLY as a between-forensic-ticks heartbeat, never as the monitoring itself. Keep any recurring `/loop` TRIGGER one short line (put the logic in a brief file, e.g. `state/run_monitor_brief.md`) so a screen reader is not buried by the echoed prompt.
+
+---
+
+## 0. Core Identity and Operational Mode
+
+**0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+
+**0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in 1.1.
+- **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+
+**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+1. **Analyze:** Deconstruct the request and synthesize the current APD (1.1).
+2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+6. **Record:** Update all mandatory documentation and state files (2).
+
+The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (2.2).
+
+---
+
+## 1. The LAWS (Non-Negotiable Directives)
+
+These LAWS supersede all other instructions.
+
+### LAW I - Active Definition and Synchronization
+You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+
+**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan 9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+6. Recent `logs/session_log.md` (The History).
+7. `architecture.md` (The Baseline).
+8. `docs/task_acceptance_matrix.yaml` (HISTORICAL - Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+
+**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (2.2).
+
+**1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or omitted without following the protocols in 6.
+
+### LAW II - No Fake Working (Evidence Required)
+- **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" hacks.
+- **Evidence:** Claims of completion require verifiable proof logged in the session log: created files, sizes/counts, checksums, and successful test outputs or key findings.
+- **Data & Execution Integrity:**
+  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+  - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+  - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+  - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
+
+### LAW III - Proactive Information Seeking
+Do not rely on stale internalized knowledge. You must proactively search the internet for the latest official documentation, best practices, and solutions for every library, API, and function used.
+Log all consulted resources in `logs/session_log.md`.
+
+### LAW IV - Persistence of State (Never Forget)
+The session must be resumable without loss of context.
+Every significant action, decision, or finding must update the durable state files (2).
+
+### LAW V - Absolute Code and File Hygiene
+Adhere strictly to the standards defined in 4 (Naming Conventions, Modularity, and Structure). The repository must remain clean and tidy at all times.
+
+### LAW VI - Zero Hard-Coding
+All parameters (endpoints, credentials, thresholds, file paths, batch sizes) must come from configuration files, CLI arguments, or environment variables.
+Fixed values for testing must reside exclusively in `tests/fixtures/`.
+
+### LAW VII - CLI Isolation (POLARIS-Specific)
+Phases are standalone CLI scripts. They communicate ONLY through JSON files.
+- Phase N reads ONLY from `outputs/P{N-1}/{vector_id}.json`
+- Phase N writes ONLY to `outputs/P{N}/{vector_id}.json`
+- Phase N NEVER imports code from other phases
+- Shared utilities go in `src/utils/` or `src/schemas/`
+
+---
+
+## 2. Persisted State and Mandatory Documentation
+
+The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
+
+### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan 9.5)
+- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per 10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per 3.1 step 0.
+- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+- `logs/session_log.md`: A chronological, append-only audit trail.
+- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
+- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per 3 Step 0.
+- `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+- `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
+- `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+- `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+- `state/last_pointer.json`: Resume point after crash/restart.
+- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+
+### 2.2 Session Log Format (MANDATORY)
+Every action must be appended to `logs/session_log.md` using this structure:
+
+```
+[YYYY-MM-DD HH:MM:SS]
+- ACTION: <Brief description of the action taken>
+- RATIONALE: <Summary of the extended thinking process (0.3)>
+- DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+- SYNC: <Description of documentation synchronized due to APD changes (LAW I, 1.2). "N/A" otherwise.>
+- AFFECTED_FILES: <List of files read/written/modified>
+- EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+- STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+- NEXT_STEP: <The single, clear next action to be taken>
+```
+
+---
+
+## 3.0 Issue-driven workflow (mandatory, per polaris-restart Plan 9.1)
+
+**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+
+**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it - per plan 7.A LOCKED A2)
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+- **`.codex/<issue_id>/codex_visual_audit.txt` - 6th artifact, REQUIRED on PRs touching `web/app/**` or `web/components/**`** (added 2026-05-25 per I-ux-002; AAB pattern per `docs/ui_harness_research_2026_05_25.md`). Generated by `scripts/visual_review_gate.py` against the LOCKED `.codex/visual_audit_rubric.md`. CI gate `codex-visual-required` parses the final `verdict:` line. Non-UI PRs skip cleanly.
+
+**Forbidden patterns:**
+- `gh pr merge --admin` from Claude account/token (revoked per CHARTER 1)
+- PR opened without all 5 artifacts above
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- "While we're at it" polish in same PR
+- STATUS block / recap text between PR merge and next branch creation (per 8.2)
+
+**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch (per 10 boot ritual + 3.1 step 0)
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2845ms:
+diff --git a/src/polaris_graph/nodes/completeness_checker.py b/src/polaris_graph/nodes/completeness_checker.py
+index e19bee9b..521be85e 100644
+--- a/src/polaris_graph/nodes/completeness_checker.py
++++ b/src/polaris_graph/nodes/completeness_checker.py
+@@ -135,12 +135,18 @@ def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, b
+ # or a radiation "dose" - so a genuine non-drug clinical question (gut-microbiota,
+ # device/DBS, environmental metal exposure) yields False and is never spuriously held.
+ _GENERIC_DRUG_SIGNAL_RE = re.compile(
++    # Codex iter-2 P1 (#1262): keep ONLY unambiguous drug-IDENTITY / class / form /
++    # dose-unit terms. The route-of-administration and bare-"dosing"/"dosage" terms
++    # were REMOVED because they trip on NON-drug questions ("self-administered
++    # questionnaire", "subcutaneous fat", "radiation dosing") and would spuriously
++    # fail-closed (hold) a non-drug report. A real drug question whose specific brand
++    # the recognizer missed still carries a drug-class / form / mg term, so the
++    # fail-closed safety net is preserved without the false positives.
+     r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+-    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
++    r"pharmacokinetic\w*|pharmacodynamic\w*|posology|"
+     r"milligrams?|micrograms?|tablets?|capsules?|"
+     r"inhibitors?|agonists?|antagonists?|monoclonal|"
+-    r"chemotherap\w*|antibiotics?|antiviral\w*|"
+-    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
++    r"chemotherap\w*|antibiotics?|antiviral\w*)\b"
+     r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
+     re.IGNORECASE,
+ )
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The diff is narrowly replacing the generic drug signal regex, not touching the hold gate itself. I’m checking the branch that uses this predicate so I can verify the false-positive and fail-closed cases against the actual control flow.
+2026-06-15T08:38:14.741888Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[40..170]'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[40..170]' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[400..460]' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests\\polaris_graph\\test_codex_p1_fixes_iarch006.py'; "'$lines=Get-Content -Path $p; $lines[1..115]' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[40..170]'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[400..460]'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests\\polaris_graph\\test_codex_p1_fixes_iarch006.py'; "'$lines=Get-Content -Path $p; $lines[1..115]'` rejected: blocked by policy
+2026-06-15T08:38:14.745531Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\nodes\\completeness_checker.py'; "'$lines=Get-Content -Path $p; $lines[400..460]'` rejected: blocked by policy
+2026-06-15T08:38:14.746607Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests\\polaris_graph\\test_codex_p1_fixes_iarch006.py'; "'$lines=Get-Content -Path $p; $lines[1..115]'` rejected: blocked by policy
+2026-06-15T08:38:14.749228Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'config\\completeness_checklists\\clinical.yaml'; "'$lines=Get-Content -Path $p; $lines[1..115]'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'config\\completeness_checklists\\clinical.yaml'; "'$lines=Get-Content -Path $p; $lines[1..115]' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'config\\completeness_checklists\\clinical.yaml'; "'$lines=Get-Content -Path $p; $lines[1..115]'` rejected: blocked by policy
+codex
+The shell policy rejected range-indexed PowerShell snippets, so I’m switching to plain `Get-Content | Select-Object` reads. That keeps this as a static source review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\src\\polaris_graph\\nodes\\completeness_checker.py | Select-Object -First 180" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\src\\polaris_graph\\nodes\\completeness_checker.py | Select-Object -Skip 400 -First 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\tests\\polaris_graph\\test_codex_p1_fixes_iarch006.py | Select-Object -First 130" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\config\\completeness_checklists\\clinical.yaml | Select-Object -First 130" in C:\POLARIS
+ succeeded in 2824ms:
+    """
+    legacy = _legacy_applies_if(topic, research_question, evidence_blob)
+
+    # Non-drug topic, or kill-switch OFF -> exact pre-BUG-7 behaviour.
+    if not topic.requires_drug_intervention or not _drug_detector_enabled():
+        return legacy, ""
+
+    q_lower = (research_question or "").lower()
+    class_anchor_in_question = any(
+        term in q_lower for term in topic.applies_if
+    )
+    detected, ambiguous = _intervention_detected_or_ambiguous(research_question)
+
+    if ambiguous:
+        # Recognizer unavailable: we cannot confidently conclude "no drug".
+        if topic.critical:
+            # Fail-closed: keep the critical safety topic active + disclose.
+            return True, (
+                f"applicability of critical topic {topic.id!r} could not be "
+                f"determined (intervention recognizer unavailable); kept "
+                f"applicable fail-closed per BUG-7 (#1262)"
+            )
+        # Non-critical: fall back to the legacy substring match (no change to
+        # adequacy on ambiguity).
+        return legacy, ""
+
+    drug_or_intervention_present = detected or class_anchor_in_question
+    if not drug_or_intervention_present:
+        # Confident negative from the recognizer (+ no class anchor).
+        if topic.critical:
+            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
+            # incomplete, so a "confident no-drug" can be a MISS on a real drug
+            # question - silently dropping a CRITICAL contraindications topic would
+            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+            # So for a critical topic we NEVER decide silently:
+            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/.)
+            #     => the recognizer likely missed a brand name => FAIL-CLOSED
+            #     (applies) + disclose;
+            #   * no drug signal at all (genuine non-drug: microbiota / device /
+            #     environmental exposure) => keep applies=False so a non-drug report
+            #     is never spuriously held, but DISCLOSE the skip so the decision is
+            #     auditable, never silent.
+            if _generic_drug_signal(research_question):
+                return True, (
+                    f"critical topic {topic.id!r}: drug recognizer found no known "
+                    f"intervention, but the question carries generic drug/pharmacology "
+                    f"signal - kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
+                )
+            return False, (
+                f"critical topic {topic.id!r}: marked non-applicable - drug recognizer "
+                f"found no intervention AND the question carries no drug signal "
+                f"(disclosed, not silent; Codex P1, #1262)"
+            )
+        # Non-critical confident negative: a drug-pharmacology topic does not apply
+        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+        return False, ""
+
+    # The question IS about a drug/intervention. Apply the topic's normal
+    # `applies_if` filter so class-specific topics stay gated to their class.
+    return legacy, ""
+
+
+def _compile_keyword_re(keywords: list[str]) -> re.Pattern:
+    if not keywords:
+        return re.compile(r"(?!x)x")  # never matches
+    parts = [re.escape(k) for k in keywords]
+    return re.compile(r"|".join(parts), re.IGNORECASE)
+
+
+def check_completeness(
+    *,
+    domain: str,
+    research_question: str,
+    evidence_rows: list[dict[str, Any]],
+    min_hits_to_cover: int = 1,
+    drug_or_topic_hint: str = "",
+) -> CompletenessReport:
+    """Check evidence rows against the domain's completeness checklist.
+
+    Args:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2951ms:
+"""Codex gate P1 fixes for I-arch-006 (#1262) - two faithfulness/clinical-safety holes.
+
+P1-1 (BUG-19): the boilerplate pre-gate filter must NOT silently drop a real NEGATIVE
+clinical finding ("Metastases were not found") as if it were a 404 stub. Bare "not found"
+was removed from the substring error tokens; only a literal whole-unit "not found" body
+(a bare 404) is still excluded.
+
+P1-2 (BUG-7): a CRITICAL drug-contraindications topic must never be SILENTLY marked
+non-applicable on a drug-recognizer MISS (brand/trade names it does not cover) - that
+would disable abort_critical_topic_uncovered. On a confident-negative for a critical
+topic we now FAIL-CLOSED + disclose when the question carries generic drug signal, and
+otherwise keep non-applicable but DISCLOSE the decision (never silent). A genuine
+non-drug question is never spuriously held.
+
+Offline, deterministic, no network/spend.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.tools.access_bypass import is_boilerplate_or_nonassertional
+from src.polaris_graph.nodes import completeness_checker as cc
+from src.polaris_graph.nodes.completeness_checker import (
+    ChecklistTopic,
+    _generic_drug_signal,
+    _topic_applies,
+)
+
+
+# ДД P1-1: BUG-19 negative-finding safety ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+
+@pytest.mark.parametrize("sentence", [
+    "Metastases were not found.",
+    "No distant metastases were not found on the PET-CT.",
+    "The mutation was not found in any of the 42 patients.",
+    "Residual disease was not found at the 12-month follow-up.",
+])
+def test_real_negative_clinical_finding_is_not_dropped(sentence):
+    assert is_boilerplate_or_nonassertional(sentence) is False, (
+        "Codex P1: a real NEGATIVE clinical finding must reach the gate, not be "
+        "silently excluded as a 404 stub"
+    )
+
+
+@pytest.mark.parametrize("stub", [
+    "Page not found",
+    "404 Not Found",
+    "Not Found",
+    "not found.",
+    "404 - Not Found",
+])
+def test_literal_error_page_stub_is_still_dropped(stub):
+    assert is_boilerplate_or_nonassertional(stub) is True
+
+
+# ДД P1-2: BUG-7 critical-topic fail-closed / disclose ДДДДДДДДДДДДДДДДДДДДДДДДД
+
+def test_generic_drug_signal_ignores_non_drug_questions():
+    assert _generic_drug_signal("Does gut microbiota affect colorectal cancer?") is False
+    assert _generic_drug_signal("Deep brain stimulation vs best medical therapy in Parkinson") is False
+    assert _generic_drug_signal("Do metal ions in water raise cardiovascular risk?") is False
+
+
+@pytest.mark.parametrize("non_drug", [
+    # Codex iter-2 P1: broad route/dosing terms must NOT trip the drug signal.
+    "Validity of a self-administered questionnaire for symptom screening",
+    "Does subcutaneous fat thickness predict cardiovascular risk?",
+    "Optimal radiation dosing schedule in early-stage breast cancer",
+    "Intramuscular EMG recording during gait in Parkinson disease",
+    "How is the dosage of radiation calculated in CT imaging?",
+])
+def test_generic_drug_signal_not_tripped_by_broad_nondrug_terms(non_drug):
+    assert _generic_drug_signal(non_drug) is False, (
+        "Codex iter-2 P1: a non-drug question must not fail-closed a critical drug topic"
+    )
+
+
+def test_generic_drug_signal_fires_on_real_drug_questions():
+    assert _generic_drug_signal("contraindications of tirzepatide 15 mg") is True
+    assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
+    assert _generic_drug_signal("chemotherapy dosing in advanced NSCLC") is True
+
+
+def _critical_topic() -> ChecklistTopic:
+    return ChecklistTopic(
+        id="contraindications", label="Contraindications",
+        keywords=["contraindication"], applies_if=["glp-1", "incretin"],
+        critical=True, requires_drug_intervention=True,
+    )
+
+
+def test_critical_topic_failclosed_on_recognizer_miss_with_drug_signal(monkeypatch):
+    """Recognizer MISSES the brand (returns None) but the question carries drug
+    signal -> the critical topic must FAIL-CLOSED (applies=True) + disclose."""
+    monkeypatch.setenv("PG_COMPLETENESS_DRUG_DETECTOR", "1")
+    monkeypatch.setattr(
+        "src.polaris_graph.nodes.scope_gate._intervention_present",
+        lambda q: None,  # confident negative: recognizer ran, found nothing
+        raising=False,
+    )
+    applies, disclosure = _topic_applies(
+        _critical_topic(),
+        "What are the contraindications of fictbrandxyz 15 mg in adults?",
+        "",
+    )
+    assert applies is True, "critical topic must fail-closed on a brand-name miss with drug signal"
+    assert disclosure and "FAIL-CLOSED" in disclosure
+
+
+def test_critical_topic_nonapplicable_but_disclosed_on_genuine_non_drug(monkeypatch):
+    """Genuine non-drug question (no drug signal) -> non-applicable so a non-drug
+    report is never spuriously held, but the decision is DISCLOSED, never silent."""
+    monkeypatch.setenv("PG_COMPLETENESS_DRUG_DETECTOR", "1")
+    monkeypatch.setattr(
+        "src.polaris_graph.nodes.scope_gate._intervention_present",
+        lambda q: None,
+        raising=False,
+    )
+    applies, disclosure = _topic_applies(
+        _critical_topic(),
+        "Does gut microbiota composition influence colorectal cancer risk?",
+        "",
+    )
+    assert applies is False, "a genuine non-drug question must not spuriously hold a non-drug report"
+    assert disclosure != "", "the non-applicable decision for a CRITICAL topic must be disclosed, not silent"
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3212ms:
+"""
+Completeness checklist checker - HONEST-REBUILD R-6 Gap-3.
+
+Loads the per-domain completeness checklist YAML. For each topic,
+checks whether the retrieved evidence corpus has keyword coverage.
+Uncovered topics get a list of suggested expansion queries so the
+orchestrator can trigger a targeted retrieval pass.
+
+HONESTY GUARANTEE: this module surfaces GAPS. It does NOT silently
+synthesize over them. When a topic is uncovered, the final report's
+Limitations paragraph MUST acknowledge it (the orchestrator injects
+the gap into the pipeline_telemetry block).
+"""
+from __future__ import annotations
+
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
+logger = logging.getLogger("polaris_graph.completeness_checker")
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_CHECKLIST_DIR = _REPO_ROOT / "config" / "completeness_checklists"
+
+# ÄÄ I-pipe-011 (#1236): shared benchmark-strict-gates switch ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+# When OFF (default) a vacuous "0 of 0" completeness (no planner facet / empty
+# checklist applied  `completeness_state == "not_applicable"`) is left ADVISORY,
+# exactly as before - every existing consumer is byte-identical. When the operator
+# turns the SHARED benchmark flag ON, a run with no measured coverage DENOMINATOR
+# must NOT read as complete: `completeness_ready` flips to False for not_applicable
+# so a 0/0 run is surfaced as NOT-COMPLETE rather than a silent vacuous pass.
+#
+# Faithfulness note: this gate only adds a FAIL-LOUD condition (a 0/0 run is held,
+# not released). It NEVER relaxes strict_verify / NLI / the 4-role D8 audit, never
+# fabricates a denominator, and never changes a MEASURED fraction.
+_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+# ÄÄ BUG-7 (I-arch-006, #1262): robust drug/intervention applicability gate ÄÄÄÄ
+# THE BUG: the GLP-1 / drug-pharmacology checklist (contraindications [critical],
+# pancreatitis/thyroid/gallbladder, drug interactions, regulatory approval, .) was
+# applied to NON-drug clinical questions (gut-microbiota, Parkinson's, metal-ions)
+# purely because they route domain="clinical". `_topic_applies` only did a STATIC
+# substring match of `applies_if` terms against the question OR the evidence blob,
+# and topics with no `applies_if` (e.g. the CRITICAL `contraindications` topic)
+# applied to EVERY clinical question unconditionally. Result: a false "7/7 fully
+# covered" AND - worse - the critical-contraindications topic gating
+# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
+# mentioned a drug word, falsely read as covered) on questions that have no drug
+# at all. Both are clinical-safety failures: a false-negative on applicability for
+# a CRITICAL topic silently disables a real safety abort.
+#
+# THE FIX: a topic flagged `requires_drug_intervention: true` becomes applicable
+# only when the QUESTION is actually about a drug/intervention, decided by the
+# SAME config-driven recognizer the scope gate uses (`scope_gate._intervention_present`
+# = canonical drug names + WHO/USAN INN-stem generative recognition + class
+# anchors via the topic's own `applies_if` terms matched against the QUESTION).
+# This is a robust detector, NOT a raw substring or the routing label.
+#
+# FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer is unavailable (PyYAML
+# missing, config absent, import/build error) we CANNOT confidently conclude
+# "no drug". For a CRITICAL topic we then default to APPLIES=True and DISCLOSE a
+# note (never silently mark a critical safety topic non-applicable - a false
+# negative would disable the abort). For a non-critical topic we fall back to the
+# prior `applies_if` substring behaviour so adequacy elsewhere is unchanged.
+#
+# FAITHFULNESS NOTE: this only refines WHICH topics count toward the completeness
+# DENOMINATOR (an input-hygiene / applicability-precision change). It NEVER
+# touches strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops
+# or alters a verified claim, and on ambiguity it ERRS TOWARD keeping a critical
+# safety topic active (held, not released). Removing a FALSE applicability is not
+# a weakening - the GLP-1 drug checklist genuinely does not apply to a
+# gut-microbiota question.
+_DRUG_DETECTOR_ENABLED_ENV = "PG_COMPLETENESS_DRUG_DETECTOR"
+
+
+def _drug_detector_enabled() -> bool:
+    """Return True iff the robust drug/intervention applicability gate is on.
+
+    Default ON (LAW VI: env-driven kill-switch, named constant, sane default).
+    Set ``PG_COMPLETENESS_DRUG_DETECTOR`` to a falsy token (0/false/no/off) to
+    fall back to the legacy substring-only `applies_if` behaviour for ALL topics
+    - provided as an operator escape hatch, not a default. When OFF, a topic's
+    ``requires_drug_intervention`` flag is ignored and applicability is the prior
+    `applies_if` substring match (so the OFF path is byte-identical to pre-BUG-7).
+    """
+    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
+def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, bool]:
+    """Detect a drug/intervention in the QUESTION via the scope-gate recognizer.
+
+    Returns ``(detected, ambiguous)``:
+
+    * ``detected`` - True iff ``scope_gate._intervention_present`` recognised a
+      drug/intervention token in ``research_question``. A clean ``None`` from the
+      recognizer is a CONFIDENT negative (``detected=False, ambiguous=False``),
+      NOT ambiguity - the recognizer ran and found no intervention.
+    * ``ambiguous`` - True iff the recognizer could not be consulted at all
+      (import failure / missing PyYAML / missing config / build error). In that
+      case ``detected`` is False but the caller MUST treat a critical topic as
+      fail-closed (applies) per BUG-7.
+
+    This reuses the SAME recognizer the scope gate uses so completeness
+    applicability and scope recognition cannot drift apart.
+    """
+    try:
+        from src.polaris_graph.nodes.scope_gate import _intervention_present
+        token = _intervention_present(research_question or "")
+        return (token is not None), False
+    except Exception as exc:  # config/import unavailable -> genuine ambiguity
+        logger.warning(
+            "[completeness] intervention recognizer unavailable (%s); "
+            "fail-closed for critical topics per BUG-7 (#1262)",
+            exc,
+        )
+        return False, True
+
+
+# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
+# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
+# returned a (possibly-MISS) confident negative. Deliberately conservative - matches
+# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
+# or a radiation "dose" - so a genuine non-drug clinical question (gut-microbiota,
+# device/DBS, environmental metal exposure) yields False and is never spuriously held.
+_GENERIC_DRUG_SIGNAL_RE = re.compile(
+    # Codex iter-2 P1 (#1262): keep ONLY unambiguous drug-IDENTITY / class / form /
+    # dose-unit terms. The route-of-administration and bare-"dosing"/"dosage" terms
+    # were REMOVED because they trip on NON-drug questions ("self-administered
+    # questionnaire", "subcutaneous fat", "radiation dosing") and would spuriously
+    # fail-closed (hold) a non-drug report. A real drug question whose specific brand
+    # the recognizer missed still carries a drug-class / form / mg term, so the
+    # fail-closed safety net is preserved without the false positives.
+    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+    r"pharmacokinetic\w*|pharmacodynamic\w*|posology|"
+    r"milligrams?|micrograms?|tablets?|capsules?|"
+    r"inhibitors?|agonists?|antagonists?|monoclonal|"
+    r"chemotherap\w*|antibiotics?|antiviral\w*)\b"
+    r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
+    re.IGNORECASE,
+)
+
+
+def _generic_drug_signal(question: str) -> bool:
+    """True iff the question carries explicit drug/pharmacology vocabulary (Codex
+    P1, #1262). Conservative by design - see ``_GENERIC_DRUG_SIGNAL_RE``."""
+    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+
+
+def _benchmark_strict_gates() -> bool:
+    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+
+    Default OFF: an unset / empty / falsy value yields False, so the strict
+    0/0-is-not-complete behavior is opt-in for benchmark runs only.
+    """
+    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+    if raw is None:
+        return False
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
+@dataclass
+class ChecklistTopic:
+    id: str
+    label: str
+    keywords: list[str] = field(default_factory=list)
+    applies_if: list[str] = field(default_factory=list)
+    expand_queries: list[str] = field(default_factory=list)
+    # I-arch-004 F11 (#1249): clinical-safety-critical topics (contraindications,
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3176ms:
+# Clinical domain completeness checklist - R-6 Gap-3.
+#
+# For a drug-efficacy/safety research question, these are the topics a
+# reviewer would expect to see covered. If retrieval didn't surface
+# evidence for a topic, the pipeline triggers a targeted retrieval
+# pass BEFORE synthesis rather than shipping an incomplete report.
+#
+# Each topic has:
+#   - keywords: regex-safe terms whose presence in any evidence
+#       direct_quote counts as "covered".
+#   - applies_if: optional list of terms that must appear in the
+#       research question for this topic to apply (so we don't demand
+#       "pancreatitis" coverage on a cardiovascular-only question).
+#   - requires_drug_intervention: optional. BUG-7 (I-arch-006, #1262). When
+#       true, the topic is a DRUG/INTERVENTION-pharmacology topic and only
+#       applies when the QUESTION is actually about a drug/intervention,
+#       decided by a robust config-driven recognizer (scope_gate
+#       _intervention_present = drug names + WHO/USAN INN stems) OR one of the
+#       topic's own `applies_if` class anchors in the question - NOT the
+#       routing label or an incidental substring in retrieved evidence. This
+#       stops the GLP-1/drug checklist (incl. the CRITICAL contraindications
+#       topic that gates abort_critical_topic_uncovered) from spuriously
+#       applying to NON-drug clinical questions (gut-microbiota, Parkinson's,
+#       metal-ions). On recognizer-unavailability a CRITICAL topic fails CLOSED
+#       (stays applicable + discloses); a non-critical one keeps the legacy
+#       substring behaviour. Default false -> byte-identical to pre-BUG-7.
+#   - expand_queries: list of Serper/S2 queries to fire if the topic
+#       is uncovered. Kept short.
+
+domain: clinical
+
+topics:
+  - id: efficacy_primary
+    label: Primary-endpoint efficacy
+    # BUG-7 (#1262): drug-efficacy endpoint topic. Only applies when the question
+    # is about a drug/intervention (robust recognizer), not every clinical
+    # question - a gut-microbiota / Parkinson's question has no drug primary
+    # endpoint to demand.
+    requires_drug_intervention: true
+    keywords:
+      - "weight loss"
+      - "mean weight"
+      - "weight reduction"
+      - "a1c"
+      - "hba1c"
+      - "glycemic"
+      - "reduction"
+      - "mace"
+      - "mortality"
+    expand_queries:
+      - "{drug} primary endpoint efficacy randomized controlled trial"
+
+  - id: safety_adverse_events
+    label: Adverse events / safety
+    # BUG-7 (#1262): drug adverse-event topic - gate on drug/intervention
+    # presence so it is not demanded of a non-drug clinical question.
+    requires_drug_intervention: true
+    keywords:
+      - "adverse event"
+      - "adverse reaction"
+      - "nausea"
+      - "vomiting"
+      - "diarrhea"
+      - "side effect"
+      - "discontinuation"
+      - "serious adverse"
+    expand_queries:
+      - "{drug} adverse events safety profile"
+      - "{drug} serious adverse events discontinuation"
+
+  - id: contraindications
+    label: Contraindications / warnings
+    # I-arch-004 F11 (#1249): clinical-safety-critical. A clinical report that ships
+    # with ZERO contraindication/boxed-warning coverage is a clinical-safety hole; an
+    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+    # of shipping the advisory ok_incomplete_corpus. Only the clinical sweep enforces
+    # this (env kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD, default ON).
+    critical: true
+    # BUG-7 (I-arch-006, #1262): a DRUG/INTERVENTION contraindication topic. It
+    # previously had NO `applies_if`, so it applied to EVERY clinical question
+    # - including non-drug ones (gut-microbiota, Parkinson's) - yielding a false
+    # "covered" inflation AND a spurious abort_critical_topic_uncovered. Now gated
+    # on the robust drug/intervention recognizer: it applies whenever a drug/
+    # intervention is recognised in the question (specific drug name OR INN stem),
+    # and stays NON-applicable for genuinely non-drug clinical questions. It keeps
+    # NO `applies_if` (no class restriction) so it applies to EVERY drug question,
+    # not just GLP-1. On recognizer-unavailability this CRITICAL topic fails CLOSED
+    # (stays applicable + discloses) so a real safety abort is never silently
+    # disabled.
+    requires_drug_intervention: true
+    keywords:
+      - "contraindicated"
+      - "contraindication"
+      - "warning"
+      - "boxed warning"
+      - "black box"
+      - "not recommended"
+      - "avoid"
+    expand_queries:
+      - "{drug} contraindications boxed warning FDA"
+
+  - id: class_specific_risks_glp1
+    label: GLP-1 class-typical risks (pancreatitis, gallbladder, thyroid)
+    # BUG-7 (#1262): GLP-1 class-pharmacology topic. The `applies_if` GLP-1 list
+    # is a CLASS RESTRICTION (only GLP-1 drugs), so this topic applies iff a drug/
+    # intervention is recognised AND the GLP-1 class anchor matches the question.
+    # Question-anchored detection closes the prior leak where "glp-1" in incidental
+    # EVIDENCE for a non-drug question flipped the topic on.
+    requires_drug_intervention: true
+    keywords:
+      - "pancreatitis"
+      - "gallbladder"
+      - "cholelithiasis"
+      - "thyroid"
+      - "medullary thyroid"
+      - "men 2"
+      - "c-cell"
+    applies_if:
+      - "semaglutide"
+      - "tirzepatide"
+      - "liraglutide"
+      - "dulaglutide"
+      - "exenatide"
+      - "glp-1"
+      - "glp1"
+      - "incretin"
+    expand_queries:
+      - "{drug} pancreatitis risk"
+      - "{drug} gallbladder cholelithiasis"
+      - "{drug} medullary thyroid carcinoma"
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The remaining control flow confirms the risky branch is only the critical-topic, recognizer-confident-negative path: if `_generic_drug_signal()` is true there, `contraindications` becomes applicable and can hold release. I’m now checking the recognizer’s scope so I don’t misclassify device/procedure examples.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _intervention_present|_intervention_present|INN|stem|canonical|drug\" .\\src\\polaris_graph\\nodes\\scope_gate.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\src\\polaris_graph\\nodes\\scope_gate.py | Select-Object -First 260" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"capsule endoscopy|monoclonal gammopathy|muscle antagonist|antagonist muscle|inhibitor exposure|corrosion inhibitor|capsule\" .\\tests .\\config .\\src" in C:\POLARIS
+ succeeded in 2500ms:
+15:Pre-registration is the standard mitigation in systematic review
+72:# CANONICAL-8 set (tests/v6/test_template_canonical_set.py enforces exact
+77:# existing `custom` (free-form, tier-permissive) entry of the canonical 8.
+88:# caller now routes to `custom` (the canonical free-form, tier-permissive
+90:# (positive drug/clinical-population signal) or supplied explicitly
+93:# scope-template realization within the locked canonical-8.)
+252:    # GLP-1 analogues (canonical test domain)
+262:# NOTE: `_DRUG_NAME_RE` (the literal canonical-drug allowlist above) is
+267:# A3-F13 fix adds a config-driven *recognizer* (`_intervention_present`) used by
+268:# the scope gate's PICO heuristic so an OFF-LIST drug no longer false-aborts;
+269:# the literal regex stays as the canonical-name fast path + the consumers' API.
+276:# any drug NOT in that list whose population also could not be extracted read
+281:# `config/clinical_safety/intervention_recognition.yaml` — WHO/USAN INN class
+282:# stems (generative drug recognition) + a seed list of stemless legacy names.
+283:# No closed per-drug allowlist gates the decision. The gate stays STRICT: a
+284:# genuinely contentless clinical question (no stem, no known name, no
+297:    inn_stem_re: "_MinLenStemPattern"
+313:        generative INN-stem match so a stemless legacy drug is reported by its
+317:        collisions, e.g. accept/except for the `-cept` stem) are never
+323:        stem = self.inn_stem_re.search(text)  # already denylist-filtered
+324:        if known and stem:
+325:            chosen = known if known.start() <= stem.start() else stem
+327:            chosen = known or stem
+336:    """Compile the INN-stem + known-name recognizer from YAML (fail-loud).
+359:    inn = data.get("inn_stems") or {}
+362:            f"{config_path}: 'inn_stems' must be a mapping, got "
+365:    stems = inn.get("stems") or []
+366:    stems = [str(s).strip().lower() for s in stems if str(s).strip()]
+367:    if not stems:
+369:            f"{config_path}: 'inn_stems.stems' must be a non-empty list."
+383:    # Precision guard: every stem must be preceded, within the SAME word, by at
+386:    # merely end in a stem-looking substring (machine/April/pine) from matching.
+387:    # Longest-stem-first so "-tinib" wins over "-nib", "-navir" over "-vir".
+388:    stems_sorted = sorted(set(stems), key=len, reverse=True)
+389:    stem_alt = "|".join(re.escape(s) for s in stems_sorted)
+390:    # \b[a-z]{>=min_prefix_len}(?:stem)\b — then enforce min_token_len in code.
+391:    inn_stem_re = re.compile(
+392:        rf"\b([a-z]{{{min_prefix_len},}}(?:{stem_alt}))\b",
+409:    # `-cept` stem vs accept/except/concept/intercept.
+421:        inn_stem_re=_MinLenStemPattern(inn_stem_re, min_token_len, exclude_words),
+428:    """Wrap an INN-stem regex to enforce min token length + a denylist.
+431:    in this denylist" cleanly alongside a stem alternation, so we post-filter
+433:    stem anchoring + min-length cannot separate (e.g. accept/except/concept/
+434:    intercept for the `-cept` fusion-protein stem). Exposes the subset of the
+479:def _intervention_present(query: str) -> Optional[str]:
+483:      1. The canonical `_DRUG_NAME_RE` literal fast path (exact known names) —
+484:         preserves byte-for-byte the prior matches/case for those drugs.
+485:      2. The config-driven INN-stem + known-name recognizer (off-list drugs).
+493:    canonical = _DRUG_NAME_RE.search(q)
+494:    if canonical:
+495:        return canonical.group(1).lower()
+531:    # F13: config-driven recognizer (canonical fast path + INN stems + known
+532:    # names) instead of the bare ~25-drug `_DRUG_NAME_RE` allowlist, so an
+533:    # off-list drug is recognised and no longer false-aborts the scope gate.
+534:    intervention = _intervention_present(q)
+557:# the clinical drug/population regex; it produces a lightweight on-path frame
+949:                "confirm the drug / procedure under study."
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2898ms:
+.\src\polaris_graph\nodes\completeness_checker.py:147:    r"milligrams?|micrograms?|tablets?|capsules?|"
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2959ms:
+"""
+Phase 2b - Scope gate + pre-registered protocol.json at T+0.
+
+Part of HONEST-REBUILD Phase 2 (plan:
+C:/Users/msn/.claude/plans/lovely-finding-firefly.md).
+
+THE PROBLEM THIS SOLVES
+-----------------------
+PG_LB_SA_02_CONTENT_AUDIT.md Section F-02 documented that the pre-rebuild
+pipeline allowed scope drift: the final report used inclusion criteria
+that were not pre-registered, the user could not tell when the generator
+silently broadened or narrowed the query, and PRISMA-style methods
+sections were reconstructed post-hoc rather than locked before retrieval.
+
+Pre-registration is the standard mitigation in systematic review
+methodology (PROSPERO, OSF Registries, NIH protocol registration):
+you state the question + inclusion/exclusion + expected tier distribution
+BEFORE you see the evidence. Any later deviation is documented, not
+hidden.
+
+WHAT THIS NODE DOES
+-------------------
+1. Takes the raw user query + domain hint.
+2. Loads the matching scope template from `config/scope_templates/`
+   (clinical / policy / tech / due_diligence) - see Phase 2c.
+3. Structures the query into a `ProtocolDocument`:
+   - Research question (verbatim user input)
+   - PICO / population / intervention / comparator / outcome (when clinical)
+   - Inclusion criteria (derived from template + user overrides)
+   - Exclusion criteria (derived from template + user overrides)
+   - Expected tier mix (derived from template)
+   - Acceptable evidence horizons (date range, geography, languages)
+4. Writes `{run_dir}/protocol.json` and stamps a SHA-256 over it.
+5. Returns the protocol path + hash so downstream nodes can attach the
+   hash to every artifact for tamper-evidence.
+
+No LLM is called. This node is deterministic and rule-based so the
+protocol cannot be hallucinated. If the template-driven derivation is
+insufficient, the node logs a warning and marks the protocol as
+`needs_user_review: true` - a human should confirm before retrieval.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import re
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - yaml is in requirements.txt
+    yaml = None
+
+logger = logging.getLogger("polaris_graph.scope_gate")
+
+# B9 domain-generalization: the general-domain constant. Imported at top so the
+# classifier helpers reference it cleanly. domain_signal imports scope_gate ONLY
+# lazily inside functions, so there is no import cycle at module load.
+from src.polaris_graph.domain.domain_signal import GENERAL_DOMAIN  # noqa: E402
+
+# Repo root for locating config/scope_templates/.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
+
+# Supported domain hints. Determines which scope template is loaded. This is the
+# CANONICAL-8 set (tests/v6/test_template_canonical_set.py enforces exact
+# set-equality across scope_templates / SUPPORTED_DOMAINS / v6 templates /
+# frontend / actors). B9 does NOT add a 9th template here - the B9 "general"
+# concept lives in the SEPARATE domain-pack layer (config/domain_packs/, governed
+# by src/polaris_graph/domain/). The domain-agnostic SCOPE TEMPLATE is the
+# existing `custom` (free-form, tier-permissive) entry of the canonical 8.
+# BUG-B-102 R2b: `custom` is the pipeline-B UI free-form path.
+SUPPORTED_DOMAINS = frozenset({
+    "clinical", "policy", "tech", "due_diligence", "custom",
+    # Carney delivery templates (I-tpl-006/7/8 trio complete).
+    "ai_sovereignty", "canada_us", "workforce",
+})
+
+# B9 domain-generalization (the spine): the DEFAULT is the domain-AGNOSTIC
+# `custom` template, NOT clinical. The historical "clinical" default silently ran
+# the clinical PICO path on every domain-less call (SG1). A domain-less / blank
+# caller now routes to `custom` (the canonical free-form, tier-permissive
+# template) - NEVER clinical, never abort. A clinical question is DETECTED
+# (positive drug/clinical-population signal) or supplied explicitly
+# (`domain="clinical"`), never assumed. (The B9 conceptual "general" domain is
+# the domain-pack default in config/domain_packs/general.yaml; `custom` is its
+# scope-template realization within the locked canonical-8.)
+DEFAULT_DOMAIN = "custom"
+
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# Protocol schema
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+
+
+@dataclass
+class TierExpectation:
+    """Expected lower / upper bounds for a single tier in the final corpus.
+
+    The pipeline does NOT fail if actual distribution differs - but the
+    corpus-approval gate (Phase 2g) shows the delta to the user so they
+    can reject a corpus dominated by commentary when the protocol asked
+    for т40% primary studies.
+    """
+
+    tier: str          # "T1" .. "T7" or "UNKNOWN"
+    min_fraction: float  # 0.0-1.0
+    max_fraction: float  # 0.0-1.0
+    rationale: str       # human-readable reason ("RCT-heavy for efficacy")
+
+
+@dataclass
+class InclusionExclusionCriteria:
+    """PRISMA-style inclusion / exclusion criteria."""
+
+    inclusion: list[str] = field(default_factory=list)
+    exclusion: list[str] = field(default_factory=list)
+
+    def normalize(self) -> "InclusionExclusionCriteria":
+        """Deduplicate and trim."""
+        inc = sorted({i.strip() for i in self.inclusion if i.strip()})
+        exc = sorted({e.strip() for e in self.exclusion if e.strip()})
+        return InclusionExclusionCriteria(inclusion=inc, exclusion=exc)
+
+
+@dataclass
+class ProtocolDocument:
+    """Pre-registered protocol. Immutable once written to protocol.json."""
+
+    # Identity
+    run_id: str
+    created_at_unix: float
+    created_at_iso: str
+
+    # Core question
+    research_question: str
+    domain: str               # clinical / policy / tech / due_diligence
+
+    # Optional PICO framing (clinical domain only; may be empty for others).
+    population: Optional[str] = None
+    intervention: Optional[str] = None
+    comparator: Optional[str] = None
+    outcome: Optional[str] = None
+
+    # Inclusion / exclusion
+    criteria: InclusionExclusionCriteria = field(
+        default_factory=InclusionExclusionCriteria
+    )
+
+    # Expected tier mix (from template)
+    expected_tier_distribution: list[TierExpectation] = field(
+        default_factory=list
+    )
+
+    # Evidence horizons
+    date_range: tuple[Optional[str], Optional[str]] = (None, None)
+    geography: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=lambda: ["en"])
+
+    # Conflict-of-interest / funding-source filters
+    excluded_sponsors: list[str] = field(default_factory=list)
+
+    # Audit trail
+    template_used: Optional[str] = None          # path relative to repo root
+    user_overrides: dict[str, Any] = field(default_factory=dict)
+    needs_user_review: bool = False
+    notes: list[str] = field(default_factory=list)
+
+    # BUG-B-100 fix (deep-dive R3): explicit decision outcome so the
+    # orchestrator can gate on a real signal rather than advisory
+    # needs_user_review. scope_decision is one of:
+    #   "proceed" - pipeline should continue
+    #   "review"  - pipeline should continue, but the protocol is
+    #               uncertain and a human should verify assumptions
+    #   "reject"  - pipeline MUST abort; retrieval and generation
+    #               would be unsafe or wasteful
+    scope_decision: str = "proceed"
+    scope_rejected: bool = False
+    scope_rejection_code: Optional[str] = None
+    scope_reasons: list[str] = field(default_factory=list)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Serialize, converting tuple date range to a dict."""
+        data = asdict(self)
+        # Convert tuple to dict for stable JSON
+        start, end = self.date_range
+        data["date_range"] = {"start": start, "end": end}
+        return data
+
+
+@dataclass
+class ScopeGateResult:
+    """Return value of run_scope_gate()."""
+
+    protocol: ProtocolDocument
+    protocol_path: Path
+    protocol_sha256: str
+
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# Template loader
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+
+
+def load_scope_template(domain: str) -> dict[str, Any]:
+    """Load `config/scope_templates/{domain}.yaml` as a dict.
+
+    Raises RuntimeError if the file doesn't exist or yaml isn't installed.
+    """
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required for scope_gate. Install via "
+            "`pip install pyyaml`."
+        )
+    if domain not in SUPPORTED_DOMAINS:
+        raise ValueError(
+            f"domain={domain!r} not in SUPPORTED_DOMAINS. "
+            f"Options: {sorted(SUPPORTED_DOMAINS)}"
+        )
+    path = _SCOPE_TEMPLATES_DIR / f"{domain}.yaml"
+    if not path.exists():
+        raise RuntimeError(
+            f"Scope template {path} does not exist. Phase 2c is responsible "
+            f"for creating this file; run the rebuild Phase 2c step first."
+        )
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Scope template {path} did not parse to a dict (got "
+            f"{type(data).__name__}). Check the YAML syntax."
+        )
+    return data
+
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# Lightweight PICO extractor (clinical domain only)
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+
+# These are regex heuristics, not an LLM. The point of the scope gate
+# is that the protocol is deterministic - an LLM-extracted PICO would be
+# hallucinable. The user can override any field via explicit kwargs.
+
+_DRUG_NAME_RE = re.compile(
+    r"\b("
+    # GLP-1 analogues (canonical test domain)
+    r"semaglutide|tirzepatide|liraglutide|dulaglutide|exenatide|lixisenatide|"
+    r"retatrutide|cagrilintide|orforglipron|"
+    r"metformin|empagliflozin|dapagliflozin|canagliflozin|sitagliptin|"
+    # Oncology examples for generality
+    r"pembrolizumab|nivolumab|trastuzumab|rituximab|"
+    r"imatinib|osimertinib"
+    r")\b",
+    re.IGNORECASE,
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The scope recognizer is drug-name/INN-stem oriented, not a broad device/procedure recognizer. I’m reading the recognizer body and config stems next; the main question is whether any retained generic term is still broad enough to trip non-drug clinical questions in that negative-recognizer branch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\src\\polaris_graph\\nodes\\scope_gate.py | Select-Object -Skip 260 -First 260" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .\\config\\clinical_safety\\intervention_recognition.yaml | Select-Object -First 220" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"monoclonal|capsules?|antagonists?|agonists?|inhibitors?|milligrams?|micrograms?|posology|pharmacokinetic|pharmacodynamic\" .\\tests .\\config\\completeness_checklists .\\config\\clinical_safety" in C:\POLARIS
+ succeeded in 2005ms:
+)
+# NOTE: `_DRUG_NAME_RE` (the literal canonical-drug allowlist above) is
+# DELIBERATELY left unchanged. Three modules import it for subject extraction
+# in conflict/contradiction detection and completeness token substitution
+# (completeness_checker, contradiction_detector, qualitative_conflict_detector)
+# - that is a SEPARATE concern from the scope false-abort fixed by F13. The
+# A3-F13 fix adds a config-driven *recognizer* (`_intervention_present`) used by
+# the scope gate's PICO heuristic so an OFF-LIST drug no longer false-aborts;
+# the literal regex stays as the canonical-name fast path + the consumers' API.
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# A3 fix F13 (GH I-arch-002) - config-driven intervention recognizer.
+#
+# The scope gate previously recognised a clinical *intervention* ONLY via the
+# ~25-entry hard-coded `_DRUG_NAME_RE` allowlist above. A clinical question about
+# any drug NOT in that list whose population also could not be extracted read
+# BOTH PICO anchors as None and was hard-rejected (abort_scope_rejected /
+# clinical_pico_unscoped) - a false abort on a perfectly well-scoped question.
+#
+# LAW VI (zero hard-coding): the recognizer below is fully config-driven from
+# `config/clinical_safety/intervention_recognition.yaml` - WHO/USAN INN class
+# stems (generative drug recognition) + a seed list of stemless legacy names.
+# No closed per-drug allowlist gates the decision. The gate stays STRICT: a
+# genuinely contentless clinical question (no stem, no known name, no
+# population) still rejects. This touches NO faithfulness gate.
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+
+_INTERVENTION_RECOGNITION_CONFIG = (
+    _REPO_ROOT / "config" / "clinical_safety" / "intervention_recognition.yaml"
+)
+
+
+@dataclass(frozen=True)
+class _InterventionRecognizer:
+    """Compiled config-driven recognizer for a clinical intervention name."""
+
+    inn_stem_re: "_MinLenStemPattern"
+    known_names_re: re.Pattern[str]
+    exclude_words: frozenset[str]
+
+    def _known_search(self, text: str) -> Optional[re.Match[str]]:
+        """Earliest known-name match whose token is not in the denylist."""
+        for m in self.known_names_re.finditer(text):
+            if m.group(0).lower() not in self.exclude_words:
+                return m
+        return None
+
+    def find(self, text: str) -> Optional[str]:
+        """Return the first recognised intervention token (lowercased) or None.
+
+        The token that appears EARLIEST in the text wins; on an exact-position
+        tie the known-name (exact, seed legacy list) is preferred over the
+        generative INN-stem match so a stemless legacy drug is reported by its
+        full name. (Any single intervention anchor is sufficient for the scope
+        decision, so the tie-break only affects which token is *reported*, never
+        whether the gate proceeds.) Tokens in `exclude_words` (common-English
+        collisions, e.g. accept/except for the `-cept` stem) are never
+        recognised.
+        """
+        if not text:
+            return None
+        known = self._known_search(text)
+        stem = self.inn_stem_re.search(text)  # already denylist-filtered
+        if known and stem:
+            chosen = known if known.start() <= stem.start() else stem
+        else:
+            chosen = known or stem
+        if chosen is None:
+            return None
+        return chosen.group(0).lower()
+
+
+def _build_intervention_recognizer(
+    config_path: Path,
+) -> _InterventionRecognizer:
+    """Compile the INN-stem + known-name recognizer from YAML (fail-loud).
+
+    Raises RuntimeError if PyYAML is unavailable, the config file is missing,
+    or a required section is absent/empty. No silent fallback (LAW II).
+    """
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required for intervention recognition. Install via "
+            "`pip install pyyaml`."
+        )
+    if not config_path.exists():
+        raise RuntimeError(
+            f"Intervention-recognition config {config_path} does not exist. "
+            f"A3 fix F13 requires this file (LAW VI: no hard-coded allowlist)."
+        )
+    with config_path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Intervention-recognition config {config_path} did not parse to a "
+            f"dict (got {type(data).__name__}). Check the YAML syntax."
+        )
+
+    inn = data.get("inn_stems") or {}
+    if not isinstance(inn, dict):
+        raise RuntimeError(
+            f"{config_path}: 'inn_stems' must be a mapping, got "
+            f"{type(inn).__name__}."
+        )
+    stems = inn.get("stems") or []
+    stems = [str(s).strip().lower() for s in stems if str(s).strip()]
+    if not stems:
+        raise RuntimeError(
+            f"{config_path}: 'inn_stems.stems' must be a non-empty list."
+        )
+    try:
+        min_prefix_len = int(inn.get("min_prefix_len", 2))
+        min_token_len = int(inn.get("min_token_len", 6))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"{config_path}: min_prefix_len/min_token_len must be integers: {exc}"
+        ) from exc
+    if min_prefix_len < 1 or min_token_len < 1:
+        raise RuntimeError(
+            f"{config_path}: min_prefix_len and min_token_len must be >= 1."
+        )
+
+    # Precision guard: every stem must be preceded, within the SAME word, by at
+    # least `min_prefix_len` alphabetic characters, and the whole token must be
+    # at least `min_token_len` chars long. This stops common English words that
+    # merely end in a stem-looking substring (machine/April/pine) from matching.
+    # Longest-stem-first so "-tinib" wins over "-nib", "-navir" over "-vir".
+    stems_sorted = sorted(set(stems), key=len, reverse=True)
+    stem_alt = "|".join(re.escape(s) for s in stems_sorted)
+    # \b[a-z]{>=min_prefix_len}(?:stem)\b - then enforce min_token_len in code.
+    inn_stem_re = re.compile(
+        rf"\b([a-z]{{{min_prefix_len},}}(?:{stem_alt}))\b",
+        re.IGNORECASE,
+    )
+
+    known = data.get("known_names") or []
+    known = [str(n).strip().lower() for n in known if str(n).strip()]
+    if not known:
+        raise RuntimeError(
+            f"{config_path}: 'known_names' must be a non-empty seed list."
+        )
+    known_sorted = sorted(set(known), key=len, reverse=True)
+    known_alt = "|".join(re.escape(n) for n in known_sorted)
+    known_names_re = re.compile(rf"\b({known_alt})\b", re.IGNORECASE)
+
+    # exclude_words is OPTIONAL (a denylist of common-English collisions). An
+    # absent/empty section is valid - the anchoring + min-length guards still
+    # apply; the denylist only adds precision for residual collisions like the
+    # `-cept` stem vs accept/except/concept/intercept.
+    exclude_raw = data.get("exclude_words") or []
+    if not isinstance(exclude_raw, list):
+        raise RuntimeError(
+            f"{config_path}: 'exclude_words' must be a list when present, got "
+            f"{type(exclude_raw).__name__}."
+        )
+    exclude_words = frozenset(
+        str(w).strip().lower() for w in exclude_raw if str(w).strip()
+    )
+
+    return _InterventionRecognizer(
+        inn_stem_re=_MinLenStemPattern(inn_stem_re, min_token_len, exclude_words),
+        known_names_re=known_names_re,
+        exclude_words=exclude_words,
+    )
+
+
+class _MinLenStemPattern:
+    """Wrap an INN-stem regex to enforce min token length + a denylist.
+
+    `re.Pattern` cannot express "the captured token must be >= N chars and not
+    in this denylist" cleanly alongside a stem alternation, so we post-filter
+    matches. The denylist removes residual common-English collisions that the
+    stem anchoring + min-length cannot separate (e.g. accept/except/concept/
+    intercept for the `-cept` fusion-protein stem). Exposes the subset of the
+    `re.Pattern` API the recognizer uses (`search`).
+    """
+
+    def __init__(
+        self,
+        pattern: re.Pattern[str],
+        min_token_len: int,
+        exclude_words: frozenset[str],
+    ) -> None:
+        self._pattern = pattern
+        self._min_token_len = min_token_len
+        self._exclude_words = exclude_words
+
+    def search(self, text: str) -> Optional[re.Match[str]]:
+        for m in self._pattern.finditer(text):
+            token = m.group(0)
+            if len(token) < self._min_token_len:
+                continue
+            if token.lower() in self._exclude_words:
+                continue
+            return m
+        return None
+
+
+# Module-level cache: the config is read once per process (deterministic, no I/O
+# on the hot path after first use). Reset in tests via _reset_intervention_cache.
+_intervention_recognizer_cache: Optional[_InterventionRecognizer] = None
+
+
+def _get_intervention_recognizer() -> _InterventionRecognizer:
+    global _intervention_recognizer_cache
+    if _intervention_recognizer_cache is None:
+        _intervention_recognizer_cache = _build_intervention_recognizer(
+            _INTERVENTION_RECOGNITION_CONFIG
+        )
+    return _intervention_recognizer_cache
+
+
+def _reset_intervention_cache() -> None:
+    """Test hook: clear the compiled-recognizer cache."""
+    global _intervention_recognizer_cache
+    _intervention_recognizer_cache = None
+
+
+def _intervention_present(query: str) -> Optional[str]:
+    """Return a recognised intervention token (lowercased) from `query` or None.
+
+    Two layers, both config-driven (LAW VI):
+      1. The canonical `_DRUG_NAME_RE` literal fast path (exact known names) -
+         preserves byte-for-byte the prior matches/case for those drugs.
+      2. The config-driven INN-stem + known-name recognizer (off-list drugs).
+
+    Returns None when no intervention is recognised, so a genuinely unscoped
+    clinical question still reads intervention=None and the gate stays strict.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None
+    canonical = _DRUG_NAME_RE.search(q)
+    if canonical:
+        return canonical.group(1).lower()
+    return _get_intervention_recognizer().find(q)
+
+
+_POPULATION_MARKERS_RE = re.compile(
+    r"\b("
+    r"adults?|children|elderly|pediatric|geriatric|adolescents?|"
+    r"pregnant|postmenopausal|premenopausal|"
+    r"type\s*1\s*diabetes|type\s*2\s*diabetes|t1dm|t2dm|"
+    r"obesity|overweight|obese|"
+    r"chronic kidney disease|ckd|"
+    r"heart failure|hf|"
+    r"NAFLD|NASH|MASH|MASLD"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def extract_pico_heuristic(query: str) -> dict[str, Optional[str]]:
+    """Extract a provisional PICO framing from the query string.
+
+    This is heuristic only. The caller SHOULD override these when better
+    information is available. We return everything lowercased for later
+    case-insensitive comparison, and we return None when no marker is
+    found (rather than making up a placeholder).
+    """
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1800ms:
+.\config\clinical_safety\intervention_recognition.yaml:21:#      pharmacological-class suffix/infix stems (e.g. -mab = monoclonal antibody,
+.\config\clinical_safety\intervention_recognition.yaml:22:#      -gliptin = DPP-4 inhibitor, -sartan = angiotensin-II antagonist). Matching
+.\config\clinical_safety\intervention_recognition.yaml:70:    - mab          # -mab  monoclonal antibody (pembrolizumab, adalimumab, ...)
+.\config\clinical_safety\intervention_recognition.yaml:74:    # Kinase / enzyme inhibitors
+.\config\clinical_safety\intervention_recognition.yaml:75:    - tinib        # -tinib tyrosine-kinase inhibitor (imatinib, osimertinib)
+.\config\clinical_safety\intervention_recognition.yaml:76:    - nib          # -nib  small-molecule kinase inhibitor (broader than -tinib)
+.\config\clinical_safety\intervention_recognition.yaml:77:    - ciclib       # -ciclib CDK inhibitor (palbociclib, ribociclib)
+.\config\clinical_safety\intervention_recognition.yaml:78:    - zomib        # -zomib proteasome inhibitor (bortezomib, carfilzomib)
+.\config\clinical_safety\intervention_recognition.yaml:79:    - parib        # -parib PARP inhibitor (olaparib, niraparib)
+.\config\clinical_safety\intervention_recognition.yaml:80:    - vastatin     # -vastatin HMG-CoA reductase inhibitor (atorvastatin, rosuvastatin)
+.\config\clinical_safety\intervention_recognition.yaml:81:    - prazole      # -prazole proton-pump inhibitor (omeprazole, esomeprazole)
+.\config\clinical_safety\intervention_recognition.yaml:82:    - gliptin      # -gliptin DPP-4 inhibitor (sitagliptin, linagliptin)
+.\config\clinical_safety\intervention_recognition.yaml:83:    - gliflozin    # -gliflozin SGLT2 inhibitor (empagliflozin, dapagliflozin)
+.\config\clinical_safety\intervention_recognition.yaml:84:    - glitazone    # -glitazone PPAR agonist (pioglitazone, rosiglitazone)
+.\config\clinical_safety\intervention_recognition.yaml:86:    - sartan       # -sartan angiotensin-II antagonist (losartan, valsartan)
+.\config\clinical_safety\intervention_recognition.yaml:88:    - xaban        # -xaban factor-Xa inhibitor (apixaban, rivaroxaban)
+.\config\clinical_safety\intervention_recognition.yaml:90:    - gatran       # -gatran direct thrombin inhibitor (dabigatran)
+.\config\clinical_safety\intervention_recognition.yaml:91:    # Receptor agonists / antagonists / others
+.\config\clinical_safety\intervention_recognition.yaml:94:    - afil         # -afil PDE5 inhibitor (sildenafil, tadalafil)
+.\config\clinical_safety\intervention_recognition.yaml:97:    - pril         # -pril ACE inhibitor (lisinopril, enalapril)
+.\config\clinical_safety\intervention_recognition.yaml:103:    - navir        # -navir protease inhibitor (ritonavir, atazanavir)
+.\tests\dr_benchmark\test_extended_metrics_iperm024.py:178:            f"{a_ent} inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
+.\tests\dr_benchmark\test_extended_metrics_iperm024.py:179:            f"{b_ent} inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
+.\tests\dr_benchmark\test_extended_metrics_iperm024.py:221:            "SGLT2 inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
+.\tests\dr_benchmark\test_extended_metrics_iperm024.py:224:            "DPP4 inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
+.\tests\fixtures\widening_labeled_set.json:28:      "span": "GLP-1 receptor agonists reduced HbA1c across the pooled trials.",
+.\tests\fixtures\widening_labeled_set.json:36:      "span": "GLP-1 receptor agonists reduced HbA1c by about 1.0 percent across the pooled trials.",
+.\tests\fixtures\widening_labeled_set.json:37:      "sentence": "GLP-1 receptor agonists lowered HbA1c by roughly 1 percent in the pooled analysis.",
+.\tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:31:          "sentence_text": "Tirzepatide is a dual GIP and GLP-1 receptor agonist approved for type 2 diabetes mellitus.",
+.\tests\fixtures\redaction_fixture_redact001.json:37:      "report_text": "## Key Findings\n\n_Each finding below is a verbatim, span-verified statement carried up from the body section named in bold; citations are the body's._\n\n- **Efficacy.** Population: more than 1.7 million participants.[1]\n- **Mechanism.** ### Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis\n\nPathogen: Escherichia coli.[3]\n- **Safety.** Among 125 patients with nonblood *Saccharomyces* culture findings, 24 (19%) had used the probiotic, versus 2% (3/123) of controls (OR 10, 95% CI 3–32).[4]\n- **Dose Response.** For total dietary fiber, each 10 g/day increment was associated with a summary relative risk (RR) of 0.90 (95% CI 0.86 to 0.94) across 16 studies including 14,514 cases among 1,985,552 participants, with no significant heterogeneity (I²=0%).[1]\n- **Long-term Outcomes.** A meta-analysis across solid tumors indicated that combining FMT with immune checkpoint inhibitors improved pooled objective response rates to 43.1% compared to 36.9% with immunotherapy alone.[9]\n\n### Probiotic intervention clinical evidence (inflammation / CRC)\n\nContract-bound content for probiotic_crc_inflammation_rct did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[2]\n\n### Prebiotic / dietary-fiber intake and colorectal-cancer risk\n\nExposure: dietary fibre and whole grains.[1] Population: more than 1.7 million participants.[1] Outcome: colorectal cancer.[1] Dose response: 0.90 (0.86 to 0.94) for each 10 g/day intake.[1] The pooled analysis included more than 1.7 million participants.[1] In the dose-response analysis, each 10 g/day increment in intake was associated with a relative risk of 0.90.[1] The 95% confidence interval for this estimate ranged from 0.86 to 0.94.[1] Colorectal cancer incidence was the outcome of interest in all included cohorts.[1] The more than 1.7 million participants contributed to the statistical power of the analysis.[1]\n\n### Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis\n\nPathogen: Escherichia coli.[3] Mechanism: alkylate DNA on adenine residues4,5 and induces double-strand breaks.[3] Mutational signature: distinct mutational signature.[3] Toxic metabolite or virulence factor: colibactin.[3] This bacterium produces the genotoxic metabolite colibactin.[3] Colibactin is a virulence factor that damages host DNA.[3] The mechanism of colibactin's genotoxicity involves DNA alkylation.[3] Specifically, colibactin alkylates DNA on adenine residues4,5.[3] Following alkylation, colibactin induces double-strand breaks.[3] The induction of double-strand breaks is a direct outcome of colibactin's activity.[3] As a result of this DNA damage, a distinct mutational signature is generated.[3] This mutational signature is characteristic of colibactin exposure.[3] The distinct mutational signature can be detected in colorectal carcinogenesis.[3] Colibactin is a genotoxin that targets DNA.[3] The genotoxic metabolite colibactin is directly responsible for the DNA damage.[3] Ultimately, the mechanism of colibactin involves alkylating DNA on adenine residues4,5 and inducing double-strand breaks, leaving a distinct mutational signature.[3]\n\n### Probiotic contraindications and at-risk populations\n\nContract-bound content for probiotic_immunocompromised_contraindication did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[4]\n\n### Safety\n\nAmong 125 patients with nonblood *Saccharomyces* culture findings, 24 (19%) had used the probiotic, versus 2% (3/123) of controls (OR 10, 95% CI 3–32).[4] Consequently, *S. cerevisiae* var. *boulardii* probiotics are not recommended for patients with indwelling catheters, those who are immunocompromised, or the critically ill.[4] In one trial, a multispecies probiotic preparation administered to patients with severe acute pancreatitis was associated with increased mortality. *Escherichia coli* carrying the pks pathogenicity island produces colibactin, a genotoxin that alkylates DNA on adenine residues and induces double-strand breaks.[4].[3] Cyclomodulin-producing *E. coli* were present in biopsies from 70% of colorectal cancer patients compared with only 3% of healthy controls.[5] Lipopolysaccharide (LPS) from Gram-negative bacteria such as *Fusobacterium* and *Bacteroides* activates NF-κB signaling, driving inflammation and colorectal cancer metastasis.[6].[7] A retrospective registry study across five Finnish university hospitals from 2009 to 2018 identified 46 patients with *Saccharomyces* fungemia; at least 20 (43%) were using *Saccharomyces boulardii* probiotic, and compared with a control group with bacteremia or candidemia, the odds ratio for use of an *S. boulardii* probiotic was 14 (95% CI 4–44).[4] Human intestinal organoids were exposed to genotoxic pks+ *E. coli* by repeated luminal injection over five months; whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria.[3] The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer.[3] Butyrate, a short-chain fatty acid, stimulates proliferation at low concentrations but suppresses it at high concentrations.[6]\n\n### Dose Response\n\nFor total dietary fiber, each 10 g/day increment was associated with a summary relative risk (RR) of 0.90 (95% CI 0.86 to 0.94) across 16 studies including 14,514 cases among 1,985,552 participants, with no significant heterogeneity (I²=0%).[1] In contrast, fruit fiber intake was not significantly associated with CRC risk (RR 0.93, 95% CI 0.82 to 1.05 per 10 g/day), and vegetable fiber showed no association (RR 0.98, 95% CI 0.91 to 1.06 per 10 g/day).[1] Similarly, a review of harnessing gut microbiota for CRC therapy highlights the potential of microbiome modulators but emphasizes the need for rigorous validation and biomarker development before clinical translation.[8] A systematic review and meta-analysis of 25 prospective studies examined the association between dietary fiber and whole grain intake and colorectal cancer (CRC) risk[1] Cereal fiber demonstrated a similar protective dose-response: each 10 g/day increase yielded an RR of 0.90 (0.83 to 0.97) based on 8 studies with 9,487 cases among 1,471,756 participants.[1] Whole grain intake also exhibited a significant inverse dose-response: an increment of three servings daily (90 g/day) was associated with an RR of 0.83 (0.78 to 0.89) across 6 studies with 7,941 cases among 774,806 participants.[1]\n\n### Long-term Outcomes\n\nA meta-analysis across solid tumors indicated that combining FMT with immune checkpoint inhibitors improved pooled objective response rates to 43.1% compared to 36.9% with immunotherapy alone.[9] Fecal microbiota transplantation (FMT) has shown potential to augment therapies for colorectal cancer.[9] In a study, patients with refractory, MSS metastatic CRC receiving tislelizumab and fruquintinib achieved a median progression-free survival of 9.6 months and median overall survival of 13.7 months, with an objective response rate of 20% and a disease control rate of 95%.[9] Probiotic modulation with CBM588 (Clostridium butyricum) combined with cabozantinib and nivolumab significantly increased response rates (74% vs 20%, P=0.01) in a trial of metastatic renal cell carcinoma.[9]\n\n### Limitations\n\nLimitations: The evidence base is heavily skewed, with only 17% of sources classified as T1 primary studies and 62% falling into an unknown tier, which undermines the reliability of the evidence hierarchy. Three high-severity contradictions were detected: sources disagree sharply on the effect on ttr (relative difference 12275.0%), on ttr at 0.5 mg (25.0% difference), and on weight loss (212.5% difference), indicating substantial inconsistency in key outcomes. The evidence horizon spans from 2010-01-01 to the present, potentially omitting earlier foundational research and limiting the temporal scope of the analysis.\n\n## Methods\nPre-registered protocol.json (SHA-256 feb9fd7172651bfc...).\nCorpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: domain_backends(clinical): {'europe_pmc': 21}).\nRetrieval fetch outcome: 375 of 740 candidate sources fetched; 365 failed or timed out.\nGenerator model: deepseek/deepseek-v4-pro (multi-section: outline + 6 parallel sections + strict_verify + regen-on-failure).\nEvaluator model: google/gemma-4-31b-it (different family).\nSources classified using T1-T7 tier taxonomy.\nInclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.\nPrompt-injection sanitization enabled. Retrieved 2026-06-09.\nExpected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=14%, T2=1%, T3=0%, T4=9%, T6=5%, T7=5%, UNKNOWN=66%.\nCorpus adequacy: decision=proceed, 8/8 thresholds met.\nCompleteness checklist: 6/6 topics covered.\n\n## Capability disclosures\nQuantified trade-off analysis was ENABLED but did not contribute to this report (no verified quantified output); 399 sourced numbers were extracted but not modeled into a verified quantified comparison.\n\n## Contradiction disclosures\nThe contradiction detector flagged 3 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different measured endpoints, units, sub-populations, time windows, or comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):\n\n- unknown / ttr: cited values range 0.8 to 99.0 % (source tiers: UNKNOWN, T1, T2).\n- unknown / ttr (0.5 mg): cited values range 58.0 to 72.5 % (source tiers: T6, UNKNOWN).\n- unknown / weight loss: cited values range 3.2 to 10.0 % (source tiers: UNKNOWN, T4).\n\nClaims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.\n\n## Qualitative safety-conflict disclosures\nThe qualitative detector flagged 0 present-vs-absent clinical-safety conflict(s) (contraindication / drug-interaction / eligibility / warning / adverse-event causation) and 744 review-flagged item(s) requiring human adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a numeric value; review flags are NOT adjudicated conflicts.\n\n- 744 review-flagged item(s) collapsed to keep the report readable; full per-flag rows are in the `contradictions.json` sidecar (filter `type=\"qualitative\"`, `severity=\"review\"`).\n\n\n## Bibliography\n[1] Dietary fibre, whole grains, and risk of colorectal cancer: systematic review and dose-response meta-analysis of prospective studies — https://www.ncbi.nlm.nih.gov/pmc/articles/3213242 (tier T1)\n[2] Dietary synbiotics reduce cancer risk factors in polypectomized and colon cancer patients — https://ajcn.nutrition.org/article/S0002-9165(23)27938-1/pdf (tier T1)\n[3] Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli — https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0 (tier T1)\n[4] CDC CDC Emerging Infectious Diseases — fungemia / invasive infection from probiotics; avoid in immunocompromised, critically-ill, and central-line patients Label — https://wwwnc.cdc.gov/eid/article/27/8/21-0018_article (tier T1)\n[5] [PDF] The Association of Microbiome Dysbiosis With Colorectal Cancer — https://www.cureus.com/articles/86171-the-association-of-microbiome-dysbiosis-with-colorectal-cancer.pdf (tier T1)\n[6] Gut microbial metabolites in colorectal cancer: dual roles in tumorigenesis, immune crosstalk, and therapeutic innovation — https://doi.org/10.3389/fcimb.2026.1693161 (tier UNKNOWN)\n[7] The Gut Microbiota and Inflammation: An Overview - PMC - NIH — https://pmc.ncbi.nlm.nih.gov/articles/PMC7589951/ (tier T1)\n[8] Harnessing gut microbiota for colorectal cancer therapy: from clinical insights to therapeutic innovations — https://doi.org/10.1038/s41522-025-00818-3 (tier UNKNOWN)\n[9] Harnessing gut microbiota for colorectal cancer therapy - Nature — https://www.nature.com/articles/s41522-025-00818-3 (tier T1)\n\n\n---\n\n## V30 Phase-1 Retrieval Coverage Disclosure\n\nPHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):\n  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.\n\nFrame coverage disclosure (V30 Report Contract):\n  - Total contract-required entities: 5\n  - Fully populated (full-text bound evidence): 2\n  - Unretrievable (paywalled with no OA/abstract): 3\n  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.\n",
+.\tests\fixtures\redaction_fixture_redact001.json:588:          "sentence": "A meta-analysis across solid tumors indicated that combining FMT with immune checkpoint inhibitors improved pooled objective response rates to 43.1% compared to 36.9% with immunotherapy alone [#ev:ev_713:3200-4000].",
+.\tests\polaris_graph\test_decomposer.py:60:        "How do GLP-1 agonists compare with respect to "
+.\tests\polaris_graph\test_complexity_router_iready006.py:59:    "What is the mechanism of SGLT2 inhibitors?",
+.\tests\polaris_graph\test_codex_p1_fixes_iarch006.py:81:    assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
+.\tests\polaris_graph\test_fx01_cot_promotion_guard_iready017.py:121:    big_complete = ("Tirzepatide is a dual GIP/GLP-1 receptor agonist that lowers HbA1c. " * 30).strip()
+.\tests\polaris_graph\test_hedging_gap2.py:153:        "Semaglutide demonstrates the greatest efficacy among GLP-1 agonists.[2]\n"
+.\tests\polaris_graph\test_m17_body_article_type.py:77:        "Weight-loss outcomes across GLP-1 agonists..."
+.\tests\polaris_graph\test_m17_body_article_type.py:106:        "Abstract\n\nBackground: Tirzepatide is a novel GIP/GLP-1 agonist.\n"
+.\tests\polaris_graph\test_m17_body_article_type.py:225:        "systematic review for GLP-1 receptor agonists.\n"
+.\tests\polaris_graph\test_m17_body_article_type.py:261:        "Background: Current guidelines recommend GLP-1 receptor agonists "
+.\tests\polaris_graph\test_m17_body_article_type.py:424:        "agonists as first-line therapy for type 2 diabetes."
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:1144:    "title": "[PDF] A.14 Glucagon-like peptide-1 receptor agonists – obesity – EML",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:1156:    "title": "[PDF] A.14 Glucagon-like peptide-1 receptor agonists – obesity – EML",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:1768:    "title": "Efficacy and safety of tirzepatide, dual GLP-1/GIP receptor agonists, in the management of type 2 diabetes: a systematic review and meta-analysis of randomized controlled trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2068:    "title": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist tirzepatide in patients with type 2 diabetes (SURPASS-1): a double-blind, randomised, phase 3 trial.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2080:    "title": "Once-weekly tirzepatide versus once-daily insulin degludec as add-on to metformin with or without SGLT2 inhibitors in patients with type 2 diabetes (SURPASS-3): a randomised, open-label, parallel-group, phase 3 trial.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2104:    "title": "Dual GIP/GLP-1 receptor agonists: new advances for treating type-2 diabetes.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2248:    "title": "Tirzepatide: A novel, first-in-class, dual GIP/GLP-1 receptor agonist.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2272:    "title": "Seven glucagon-like peptide-1 receptor agonists and polyagonists for weight loss in patients with obesity or overweight: an updated systematic review and network meta-analysis of randomized controlled trials.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2284:    "title": "Effect of glucagon-like peptide-1 receptor agonists and co-agonists on body composition: Systematic review and network meta-analysis.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2296:    "title": "Glucagon-like Receptor-1 agonists for obesity: Weight loss outcomes, tolerability, side effects, and risks",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2464:    "title": "Efficacy and safety of the dual GIP and GLP-1 receptor agonist tirzepatide for weight loss: a meta-analysis of randomized controlled trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2704:    "title": "Oral glucagon-like peptide-1 receptor agonists and combinations of entero-pancreatic hormones as treatments for adults with type 2 diabetes: where are we now?",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2728:    "title": "The efficacy and safety of dual GIP/GLP1 receptor agonists (tirzepatide) in diabetes and obesity: a systematic review and network meta-analysis.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:2920:    "title": "Efficacy and safety of high‐dose glucagon‐like peptide‐1, glucagon‐like peptide‐1/glucose‐dependent insulinotropic peptide, and glucagon‐like peptide‐1/glucagon receptor agonists in type 2 diabetes",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:3016:    "title": "Generalizability of glucagon‐like peptide 1 receptor agonist clinical trial results to product labeling and the real world",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:3028:    "title": "Comparative effectiveness of glucagon‐like peptide‐1 receptor agonists for the management of obesity in adults without diabetes: A network meta‐analysis of randomized clinical trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:4144:    "title": "[Focus on tirzepatide, a dual unimolecular GIP-GLP-1 receptor agonist in type 2 diabetes].",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:5595:    "url": "https://lilly.gcs-web.com/news-releases/news-release-details/lillys-mounjaro-tirzepatide-gipglp-1-dual-agonist-demonstrated?utm_source=chatgpt.com",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:5596:    "title": "Lilly's Mounjaro (tirzepatide), a GIP/GLP-1 dual agonist ... - Investors",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:5704:    "title": "Management of type 2 diabetes with the dual GIP/GLP-1 receptor agonist tirzepatide: a systematic review and meta-analysis",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:7252:    "title": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist ...",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:7791:    "url": "https://robard.com/blog/glucagon-like-peptide-1-receptor-agonists-for-type-2-diabetes/",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:10059:    "url": "https://www.drugdiscoverytrends.com/lillys-triple-agonist-achieves-16-8-weight-loss-in-phase-3-trial/",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:10060:    "title": "Lilly's triple agonist achieves 16.8% weight loss in phase 3 trial",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:11212:    "title": "A systematic review of the safety of tirzepatide-a new dual GLP1 and GIP agonist - is its safety profile acceptable?",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:11236:    "title": "Comparison of the efficacy and safety of 10 glucagon-like peptide-1 receptor agonists as add-on to metformin in patients with type 2 diabetes: a systematic review",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:13647:    "url": "https://www.prnewswire.com/news-releases/lillys-triple-agonist-retatrutide-delivered-powerful-weight-loss-in-pivotal-phase-3-obesity-trial-302778859.html",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:13648:    "title": "Lilly's triple agonist, retatrutide, delivered powerful weight loss in ...",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:14068:    "title": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist ...",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:14632:    "title": "Oral glucagon-like peptide-1 receptor agonists and combinations of entero-pancreatic hormones as treatments for adults with type 2 diabetes: where are we now?",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:14644:    "title": "Impact of GLP-1 and dual agonists on the incidence of new cases of physician-reported sleep apnoea: A real-world propensity score-matched study",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:14824:    "title": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist tirzepatide in patients with type 2 diabetes (SURPASS-1): a double-blind, randomised, phase 3 trial.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:14992:    "title": "Comparative effectiveness of glucagon‐like peptide‐1 receptor agonists for the management of obesity in adults without diabetes: A network meta‐analysis of randomized clinical trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15184:    "title": "Comparison of the effectiveness and safety of GLP-1 receptor agonists for type 2 diabetes mellitus patients with overweight/obesity: A systematic review and network meta-analysis.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15232:    "title": "Effect of glucagon-like peptide-1 receptor agonists and co-agonists on body composition: Systematic review and network meta-analysis.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15268:    "title": "Efficacy of lifestyle modification combined with GLP-1 receptor agonists on body weight and cardiometabolic biomarkers in individuals with overweight or obesity: a systematic review and meta-analysis",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15352:    "title": "Exploring the rates of Gastrointestinal adverse effects among five GLP-1 receptor agonists: A systematic review and Meta-Analysis of randomized controlled trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15460:    "title": "Efficacy and safety of the dual GIP and GLP-1 receptor agonist tirzepatide for weight loss: a meta-analysis of randomized controlled trials",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15592:    "title": "The efficacy and safety of dual GIP/GLP1 receptor agonists (tirzepatide) in diabetes and obesity: a systematic review and network meta-analysis.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:15772:    "title": "Tirzepatide: A novel, first-in-class, dual GIP/GLP-1 receptor agonist.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16000:    "title": "Discontinuing glucagon‐like peptide‐1 receptor agonists and body habitus: A systematic review and meta‐analysis",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16084:    "title": "Seven glucagon-like peptide-1 receptor agonists and polyagonists for weight loss in patients with obesity or overweight: an updated systematic review and network meta-analysis of randomized controlled trials.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16228:    "title": "Dual GIP/GLP-1 receptor agonists: new advances for treating type-2 diabetes.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16252:    "title": "Once-weekly tirzepatide versus once-daily insulin degludec as add-on to metformin with or without SGLT2 inhibitors in patients with type 2 diabetes (SURPASS-3): a randomised, open-label, parallel-group, phase 3 trial.",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16300:    "title": "[Tirzepatide (Mounjaro®) : a GIP/GLP-1 receptor dual agonist for the treatment of type 2 diabetes].",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16552:    "title": "Do GLP-1 receptor agonists have a place in the treatment of people with type 1 diabetes?",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16744:    "title": "[Focus on tirzepatide, a dual unimolecular GIP-GLP-1 receptor agonist in type 2 diabetes].",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16840:    "title": "Generalizability of glucagon‐like peptide 1 receptor agonist clinical trial results to product labeling and the real world",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:16948:    "title": "Differential effects of glucagon-like peptide-1 receptor agonist classes on blood pressure: a systematic review and network meta-analysis of randomised controlled trials with meta-regression",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:17044:    "title": "The new slim: Rising use of glp-1 receptor agonists for weight loss in India—promise, pitfalls, and public health concerns",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:17056:    "title": "Efficacy and safety of high‐dose glucagon‐like peptide‐1, glucagon‐like peptide‐1/glucose‐dependent insulinotropic peptide, and glucagon‐like peptide‐1/glucagon receptor agonists in type 2 diabetes",
+.\tests\fixtures\authority\clinical_tier_baseline_off.json:17788:    "title": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist ...",
+.\tests\polaris_graph\test_m25_trial_name_match.py:166:                "statement": "GLP-1/GIP co-agonist comparative review",
+.\tests\polaris_graph\test_m30_pt11_abbreviation_boundary.py:67:        text = "GLP-1/GIP co-agonist, i.e. tirzepatide"
+.\tests\polaris_graph\test_m34_pt11_long_sentence_lookahead.py:83:            "GLP-1 receptor agonists and tirzepatide concluded that all "
+.\tests\polaris_graph\test_m40_mechanism_section.py:60:            "pharmacokinetic",
+.\tests\polaris_graph\test_m40_mechanism_section.py:64:            "agonist",
+.\tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:209:            "receptor", "pharmacokinetic", "clamp", "signaling",
+.\tests\polaris_graph\test_m42e_primary_trial_floor.py:188:    def test_pharmacokinetic_analysis_rejected_pass3(self) -> None:
+.\tests\polaris_graph\test_m42e_primary_trial_floor.py:204:            "title": "Population pharmacokinetic analysis of tirzepatide from SURPASS-2",
+.\tests\polaris_graph\test_m42e_primary_trial_floor.py:325:                "title": f"Meta-analysis of GLP-1 agonists {i}",
+.\tests\polaris_graph\test_m42e_primary_trial_floor.py:459:             "tier": "T2", "title": "Network meta-analysis of GLP-1 agonists",
+.\tests\polaris_graph\test_m42_preservation.py:218:    "receptor", "half-life", "pharmacokinetic", "bioavailability",
+.\tests\polaris_graph\test_m42_preservation.py:219:    "signaling", "signalling", "pathway", "agonist", "antagonist",
+.\tests\polaris_graph\test_m42_preservation.py:221:    "pharmacodynamic",
+.\tests\polaris_graph\test_m42_preservation.py:319:            "Tirzepatide is a dual GIP and GLP-1 receptor agonist. "
+.\tests\polaris_graph\test_m47_mechanism_clamp_validator.py:110:            "Tirzepatide is a dual GIP/GLP-1 receptor agonist with "
+.\tests\polaris_graph\test_m46_selector_no_bypass.py:140:                 "T1", title="Receptor pharmacokinetic clamp study",
+.\tests\polaris_graph\test_m46_selector_no_bypass.py:150:                 statement="pharmacokinetic metabolism pathway"),
+.\tests\polaris_graph\test_m46_selector_no_bypass.py:285:                 "T1", title="Receptor pharmacokinetic analysis",
+.\tests\polaris_graph\test_m46_selector_no_bypass.py:286:                 statement="receptor binding half-life pharmacokinetic"),
+.\tests\polaris_graph\test_query_decomposer.py:129:        "Describe the pharmacokinetics, pharmacodynamics, and metabolism of the drug."
+.\tests\polaris_graph\test_r5_fix_d_content_starved.py:57:        "Semaglutide is a GLP-1 receptor agonist indicated for chronic "
+.\tests\polaris_graph\test_reasoning_first_normalize.py:53:        "Tirzepatide is a dual GIP/GLP-1 receptor agonist approved for type 2 "
+.\tests\polaris_graph\test_reasoning_first_normalize.py:139:        "Tirzepatide is a dual GIP/GLP-1 agonist with SURPASS-trial efficacy "
+.\tests\polaris_graph\test_scope_gate.py:61:            "How is FDA regulating compounded GLP-1 agonists after the "
+.\tests\polaris_graph\test_template_classifier.py:270:        "Phase 3 trial of monoclonal antibody for eczema",
+.\tests\polaris_graph\test_template_classifier.py:271:        "Phase 3 trial of receptor agonist for dermatitis",
+.\tests\polaris_graph\test_template_classifier.py:273:        "Adverse events of monoclonal antibodies in oncology",
+.\tests\polaris_graph\test_template_classifier.py:279:        "Cardiovascular safety of GLP-1 receptor agonists for printer firmware",
+.\tests\polaris_graph\test_template_classifier.py:290:        "GLP-1 receptor agonists for cardiovascular outcomes wherever",
+.\tests\polaris_graph\test_template_classifier.py:328:        "Cardiovascular safety of GLP-1 receptor agonists",
+.\tests\polaris_graph\test_template_classifier.py:361:    ascii_q = "Cardiovascular safety of GLP-1 receptor agonists"
+.\tests\polaris_graph\test_template_classifier.py:362:    nbsp_q = "Cardiovascular safety of GLP‑1 receptor agonists"
+.\tests\polaris_graph\test_template_classifier.py:363:    endash_q = "Cardiovascular safety of GLP–1 receptor agonists"
+.\tests\polaris_graph\test_template_classifier.py:383:        "GLP-1 receptor agonists for cardiovascular outcomes",
+.\tests\polaris_graph\test_template_classifier.py:388:        "GLP1 agonists for type 2 diabetes",
+.\tests\polaris_graph\test_template_classifier.py:389:        "DPP4 inhibitors for type 2 diabetes",
+.\tests\polaris_graph\test_template_classifier.py:431:    q = "Phase 3 trial of monoclonal antibody for type 2 diabetes"
+.\tests\polaris_graph\test_template_classifier.py:672:# form ("PD-1 inhibitor") was already covered by the catalog; the
+.\tests\polaris_graph\test_template_classifier.py:673:# plural form ("PD-1 inhibitors") tokenized to a different sequence
+.\tests\polaris_graph\test_template_classifier.py:678:    ("PD-1 inhibitors efficacy in melanoma", "v30_clinical_oncology"),
+.\tests\polaris_graph\test_template_classifier.py:679:    ("PARP inhibitors maintenance in ovarian cancer", "v30_clinical_oncology"),
+.\tests\polaris_graph\test_template_classifier.py:680:    ("PD-L1 inhibitors in non-small cell lung cancer", "v30_clinical_oncology"),
+.\tests\polaris_graph\test_template_classifier.py:681:    ("Checkpoint inhibitors in metastatic melanoma", "v30_clinical_oncology"),
+.\tests\polaris_graph\test_template_classifier.py:687:    ("PCSK9 inhibitors LDL reduction outcomes", "v30_clinical_cardio"),
+.\tests\polaris_graph\test_template_classifier.py:696:    Codex M-20 v1 review found that "PD-1 inhibitors", "DOACs",
+.\tests\polaris_graph\test_workspace_memory.py:499:    receptor agonist' entry because the v1 tokenizer didn't
+.\tests\polaris_graph\test_workspace_memory.py:503:        claim_text="GLP1 receptor agonist for type 2 diabetes",
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2072ms:
+# Clinical-intervention recognition config (A3 fix F13, GH I-arch-002).
+#
+# PURPOSE
+# -------
+# The scope gate (src/polaris_graph/nodes/scope_gate.py) must recognise that a
+# clinical research question names a *specific intervention* (a drug / biologic /
+# procedure) WITHOUT relying on a closed, hard-coded ~25-drug allowlist. The old
+# `_DRUG_NAME_RE` literal allowlist false-rejected (abort_scope_rejected) any
+# clinical question about an off-list drug whose population also could not be
+# extracted - both PICO anchors read None and the gate hard-rejected as
+# clinical_pico_unscoped. That is a category error: the question IS well-scoped,
+# the extractor merely didn't know the drug's name.
+#
+# DESIGN (LAW VI - zero hard-coding)
+# ----------------------------------
+# Intervention recognition is now config-driven, in TWO layers, both editable
+# here by a domain expert without touching code:
+#
+#   1. inn_stems - WHO/USAN International Nonproprietary Name (INN) class stems.
+#      Modern small-molecule + biologic drug names are coined from a fixed set of
+#      pharmacological-class suffix/infix stems (e.g. -mab = monoclonal antibody,
+#      -gliptin = DPP-4 inhibitor, -sartan = angiotensin-II antagonist). Matching
+#      these stems recognises a drug GENERATIVELY - any current-or-future drug in
+#      the class is recognised, on-list or off-list, with no per-drug entry.
+#      This is a WEIGHTED RECOGNITION cue, not a closed allowlist.
+#
+#   2. known_names - a SEED list of clinically important legacy drugs whose names
+#      predate the INN stem system and carry NO recognisable class stem (warfarin,
+#      aspirin, heparin, insulin, digoxin, ...). Without seeding these, a question
+#      about a stemless legacy drug with no population marker would still reject.
+#      This list is additive and expected to grow; it is NOT a gate - it only
+#      RAISES recognition, never lowers it.
+#
+# PRECISION (avoid common-English collisions)
+# -------------------------------------------
+# Two complementary precision mechanisms:
+#   (a) Every stem is anchored at a word boundary and requires a minimum
+#       drug-like prefix length + minimum total token length, so most common
+#       English words that merely END in a stem-looking substring do NOT match
+#       (e.g. "machine"/"caffeine" !~ "-ine"; "April" !~ "-pril";
+#       "pine"/"alpine" !~ "-dipine").
+#   (b) `exclude_words` - an explicit denylist for the residual collisions that
+#       length/prefix alone cannot separate. The classic case is the fusion-
+#       protein stem `-cept` (etanercept, abatacept), which collides with the
+#       common English words "accept" / "except" / "concept" / "intercept" -
+#       all of length >= 6 and all of the form <prefix>cept. A token whose
+#       lowercase form is in `exclude_words` is NEVER recognised as an
+#       intervention, even if it matches a stem. This denylist RAISES precision;
+#       it never drops a real drug (no real INN drug name is an English word).
+#
+# SCOPE OF THIS CONFIG
+# --------------------
+# This file ONLY affects intervention *recognition* in the scope gate's PICO
+# heuristic. It does NOT touch any faithfulness gate (strict_verify / NLI /
+# 4-role D8 / provenance / span-grounding) - those are unchanged. The scope gate
+# stays STRICT: a genuinely contentless clinical question (no intervention stem,
+# no known name, no population marker) still hard-rejects as clinical_pico_unscoped.
+
+# WHO/USAN INN class stems. Each stem matches a token of the form
+#   <alphabetic prefix of >= min_prefix_len chars><stem>
+# at a word boundary, case-insensitively. Keep stems lowercase.
+inn_stems:
+  # Minimum number of leading alphabetic characters BEFORE the stem for a token
+  # to count as a drug name. Guards against short English collisions.
+  min_prefix_len: 2
+  # Minimum total token length (prefix + stem) for a match to count.
+  min_token_len: 6
+  stems:
+    # Monoclonal antibodies / biologics
+    - mab          # -mab  monoclonal antibody (pembrolizumab, adalimumab, ...)
+    - cept         # -cept receptor fusion protein (etanercept, abatacept).
+                   #       Collides with accept/except/concept/intercept - those
+                   #       are filtered by `exclude_words` below.
+    # Kinase / enzyme inhibitors
+    - tinib        # -tinib tyrosine-kinase inhibitor (imatinib, osimertinib)
+    - nib          # -nib  small-molecule kinase inhibitor (broader than -tinib)
+    - ciclib       # -ciclib CDK inhibitor (palbociclib, ribociclib)
+    - zomib        # -zomib proteasome inhibitor (bortezomib, carfilzomib)
+    - parib        # -parib PARP inhibitor (olaparib, niraparib)
+    - vastatin     # -vastatin HMG-CoA reductase inhibitor (atorvastatin, rosuvastatin)
+    - prazole      # -prazole proton-pump inhibitor (omeprazole, esomeprazole)
+    - gliptin      # -gliptin DPP-4 inhibitor (sitagliptin, linagliptin)
+    - gliflozin    # -gliflozin SGLT2 inhibitor (empagliflozin, dapagliflozin)
+    - glitazone    # -glitazone PPAR agonist (pioglitazone, rosiglitazone)
+    # Cardiovascular / antihypertensive / anticoagulant
+    - sartan       # -sartan angiotensin-II antagonist (losartan, valsartan)
+    - dipine       # -dipine dihydropyridine Ca-channel blocker (amlodipine)
+    - xaban        # -xaban factor-Xa inhibitor (apixaban, rivaroxaban)
+    - parin        # -parin heparin-derivative anticoagulant (enoxaparin)
+    - gatran       # -gatran direct thrombin inhibitor (dabigatran)
+    # Receptor agonists / antagonists / others
+    - glutide      # -glutide GLP-1 analogue (semaglutide, dulaglutide)
+    - tide         # -tide peptide (broader; min_token_len guards short tokens)
+    - afil         # -afil PDE5 inhibitor (sildenafil, tadalafil)
+    - oxetine      # -oxetine antidepressant (fluoxetine, paroxetine)
+    - olol         # -olol beta-blocker (propranolol, metoprolol)
+    - pril         # -pril ACE inhibitor (lisinopril, enalapril)
+    - cycline      # -cycline tetracycline antibiotic (doxycycline, minocycline)
+    - cillin       # -cillin penicillin antibiotic (amoxicillin, ampicillin)
+    - floxacin     # -floxacin fluoroquinolone antibiotic (ciprofloxacin)
+    - conazole     # -conazole antifungal (fluconazole, itraconazole)
+    - vir          # -vir antiviral (acyclovir, oseltamivir; min_token_len guards)
+    - navir        # -navir protease inhibitor (ritonavir, atazanavir)
+    - mustine      # -mustine alkylating agent (lomustine, carmustine)
+    - rubicin      # -rubicin anthracycline (doxorubicin, epirubicin)
+    - taxel        # -taxel taxane (paclitaxel, docetaxel)
+    - platin       # -platin platinum agent (cisplatin, carboplatin)
+
+# Explicit denylist for residual common-English collisions that anchoring +
+# min-length cannot separate from a stem. A token whose lowercase form appears
+# here is NEVER recognised as an intervention. Keep lowercase. This RAISES
+# precision (fewer false positives); it never drops a real drug - no genuine INN
+# drug name is an everyday English word. Primary case: the `-cept` fusion-protein
+# stem vs. accept/except/concept/intercept.
+exclude_words:
+  - accept
+  - except
+  - concept
+  - intercept
+  - precept
+  - susceptible        # -cept substring guard (defensive; not a token match today)
+  - imperceptible
+  - perceptible
+  - acceptable
+  - exception
+  - reception
+  - deception
+  - inception
+  - conception
+  - interception
+  - contraception
+
+# Seed list of clinically important stemless legacy drug names. Additive only.
+# Keep lowercase. This RAISES recognition; it is never used to drop anything.
+known_names:
+  - warfarin
+  - aspirin
+  - acetaminophen
+  - paracetamol
+  - ibuprofen
+  - naproxen
+  - heparin
+  - insulin
+  - digoxin
+  - furosemide
+  - spironolactone
+  - prednisone
+  - prednisolone
+  - dexamethasone
+  - hydrocortisone
+  - levothyroxine
+  - amiodarone
+  - clopidogrel
+  - allopurinol
+  - methotrexate
+  - azathioprine
+  - cyclophosphamide
+  - cyclosporine
+  - tacrolimus
+  - lithium
+  - gabapentin
+  - pregabalin
+  - levodopa
+  - carbidopa
+  - amoxicillin
+  - vancomycin
+  - azithromycin
+  - rifampin
+  - isoniazid
+  - colchicine
+  - hydroxychloroquine
+  - chloroquine
+  - omeprazole
+  - ranitidine
+  - ondansetron
+  - morphine
+  - oxycodone
+  - fentanyl
+  - ketamine
+  - propofol
+  - midazolam
+  - diazepam
+  - lorazepam
+  - haloperidol
+  - clozapine
+  - olanzapine
+  - risperidone
+  - lamotrigine
+  - valproate
+  - phenytoin
+  - carbamazepine
+  - tamoxifen
+  - cisplatin
+  - carboplatin
+  - fluorouracil
+  - gemcitabine
+  - rituximab
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["src/polaris_graph/nodes/completeness_checker.py:137: continuing `_generic_drug_signal` false-positive risk remains: retained terms still match realistic non-drug questions such as `non-pharmacological intervention`, `medication-free management`, `capsule endoscopy`, or `monoclonal gammopathy`; in the recognizer-confident-negative critical branch this still returns applies=True and can spuriously trigger `abort_critical_topic_uncovered`."]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Tighten `_GENERIC_DRUG_SIGNAL_RE` or add explicit negation/context guards so retained terms cannot fail-close genuine non-drug clinical reports; preserve positive matches for drug class/form/mg cases."]
+tokens used
+54,554

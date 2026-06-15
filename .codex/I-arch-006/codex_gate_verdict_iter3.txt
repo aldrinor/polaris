@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["src/polaris_graph/nodes/completeness_checker.py:137: continuing `_generic_drug_signal` false-positive risk remains: retained terms still match realistic non-drug questions such as `non-pharmacological intervention`, `medication-free management`, `capsule endoscopy`, or `monoclonal gammopathy`; in the recognizer-confident-negative critical branch this still returns applies=True and can spuriously trigger `abort_critical_topic_uncovered`."]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Tighten `_GENERIC_DRUG_SIGNAL_RE` or add explicit negation/context guards so retained terms cannot fail-close genuine non-drug clinical reports; preserve positive matches for drug class/form/mg cases."]

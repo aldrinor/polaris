@@ -1,0 +1,17 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: [
+  "BUG-19: `is_boilerplate_or_nonassertional()` is not whole-unit safe for the `not found` token. Any short unit containing `not found` with <=3 residual words is excluded from both numerator and denominator before `strict_verify`; real negative clinical claims such as `Metastases were not found` can be silently removed instead of receiving a verdict.",
+  "BUG-7: the critical `contraindications` topic now becomes non-applicable on a clean recognizer miss. Because the recognizer does not cover brand/trade names or all real interventions, a real drug question can silently disable `abort_critical_topic_uncovered` with no fail-closed disclosure."
+]
+p2: [
+  "BUG-14: `_fetch_degenerate()` can classify any row with `<24` chars of `statement + direct_quote` as unknown-relevance, even if it is real short off-topic content. Those rows are kept below the floor and are not newly stamped with a low retrieval weight, so the exemption can admit junk rather than only down-weighted stub/failed-fetch rows.",
+  "BUG-17: `_group_has_real_drug_subject()` uses the small canonical `_DRUG_NAME_RE`, not the broader scope-gate recognizer, so off-list/legacy drug subjects can be downgraded to `possible_metric_mismatch`. It still surfaces as disclosure, so this is not a silent drop."
+]
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "Fix BUG-19 error-page matching so `not found` only matches whole error-page stubs, not real negative clinical findings.",
+  "Fix BUG-7 critical-topic applicability to fail closed or disclose on recognizer misses/brand-name ambiguity for real drug questions.",
+  "Known out-of-scope gap remains: BUG-15 Zyte paywalled-anchor trigger/re-fetch wiring is deferred; BUG-14 only keeps/flags stub rows for later re-fetch."
+]

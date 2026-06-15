@@ -493,8 +493,10 @@ def check_completeness(
 
     coverages: list[TopicCoverage] = []
     all_expand_queries: list[str] = []
-    # BUG-7 (I-arch-006, #1262): fail-closed disclosure notes for any critical
-    # topic kept applicable because the intervention recognizer was unavailable.
+    # BUG-7 (I-arch-006, #1262): disclosure notes for any critical drug topic whose
+    # applicability was decided by the recognizer — (a) fail-closed (kept applicable)
+    # when the recognizer was UNAVAILABLE / ambiguous, or (b) pure-disclose (kept
+    # NON-applicable but surfaced for review) on a recognizer confident-negative.
     applicability_disclosures: list[str] = []
 
     for topic in topics:
@@ -556,9 +558,9 @@ def check_completeness(
             f"{uncovered_n}/{applicable} applicable topic(s) uncovered: "
             f"{uncovered_labels}"
         )
-    # BUG-7 (I-arch-006, #1262): surface any fail-closed applicability disclosure
-    # (a critical topic kept applicable because the recognizer was unavailable) so
-    # the decision is DISCLOSED, never silent.
+    # BUG-7 (I-arch-006, #1262): surface any critical-topic applicability disclosure
+    # — a fail-closed (recognizer-unavailable) note OR a pure-disclose (recognizer
+    # confident-negative) note — so the decision is DISCLOSED, never silent.
     notes.extend(applicability_disclosures)
 
     return CompletenessReport(

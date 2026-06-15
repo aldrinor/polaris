@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["src/polaris_graph/nodes/completeness_checker.py:137: `_GENERIC_DRUG_SIGNAL_RE` can still be tripped by non-drug questions via unqualified terms like `administered`, `subcutaneous`, `intramuscular`, and `dosing` (for example self-administered questionnaires, subcutaneous fat, radiation dosing). In the confident-negative critical branch this returns `applies=True`, so a non-drug report can still be spuriously held by `abort_critical_topic_uncovered`. P1-2 is therefore not completely resolved, although the disclosure plumbing is present."]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Tighten `_generic_drug_signal` so the fail-closed critical path only fires on drug/pharmacology context; remove or qualify broad non-drug terms. P1-1 is resolved: bare `not found` no longer drops negative clinical findings, while `Page not found`, `404 Not Found`, and exact whole-unit `Not Found` remain flagged."]

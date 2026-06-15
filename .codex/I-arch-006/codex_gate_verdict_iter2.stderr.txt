@@ -1,0 +1,1379 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eca68-6ed4-7ed1-a695-f9d0a1ecfa14
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Reserve P0/P1 for real execution risks; nits are P2/P3.
+- Verdict APPROVE iff zero NOVEL P0 AND zero P1.
+
+FOCUSED RE-REVIEW. In iter 1 you reviewed the full I-arch-006 consolidated diff and returned REQUEST_CHANGES with EXACTLY 2 P1s (0 P0); everything else you CLEARED. Both P1s are now fixed. This iteration reviews ONLY the fix delta — do NOT re-review the rest. STATIC review only; do not run anything.
+
+READ: `.codex/I-arch-006/p1_fix_clean.diff` — 102 lines, the ONLY code change since iter 1 (CRLF whitespace-noise stripped). Open `src/tools/access_bypass.py` and `src/polaris_graph/nodes/completeness_checker.py` for surrounding context if needed.
+
+THE 2 P1s YOU FLAGGED + THE FIXES TO VERIFY:
+
+P1-1 (BUG-19, access_bypass.py `is_boilerplate_or_nonassertional`): you found it flagged any short unit containing "not found" with ≤3 residual words, so it would SILENTLY DROP a real NEGATIVE clinical finding like "Metastases were not found". FIX: the bare "not found" token was REMOVED from `_ERROR_PAGE_TOKENS` (the substring list); a literal whole-unit "not found" body is re-caught by an EXACT whole-unit check (`re.sub(r"[\W_]+"," ",lowered).strip() == "not found"`). VERIFY: "Metastases were not found" / "The mutation was not found in any patient" are NOT flagged; "Page not found", "404 Not Found", and a bare "Not Found" ARE still flagged. Any residual way a real negative finding gets dropped?
+
+P1-2 (BUG-7, completeness_checker.py `_topic_applies`): you found a CRITICAL contraindications topic went SILENTLY non-applicable on a recognizer confident-negative (a brand/trade-name MISS), disabling `abort_critical_topic_uncovered`. FIX: for a `critical` topic on a confident-negative, if `_generic_drug_signal(question)` (a high-precision pharma-vocabulary regex — dose/mg/inhibitor/agonist/chemotherap/drug/medication/…, deliberately NOT "treatment"/"therapy") matches → FAIL-CLOSED (applies=True) + disclosure note; else applies=False but a disclosure note IS returned (decision DISCLOSED, never silent). VERIFY: (a) a real drug question whose specific brand the recognizer misses but that carries drug signal now fail-closes the critical topic; (b) the 3 genuine non-drug golden questions (gut-microbiota, Parkinson's-DBS-"best medical therapy", metal-ions/CVD) stay non-applicable (NOT spuriously held) yet DISCLOSED; (c) the `_generic_drug_signal` regex cannot be tripped by a non-drug question. Is the fail-closed/disclose complete, and does it avoid spuriously holding a non-drug report?
+
+CONFIRM: do these 2 fixes correctly + COMPLETELY resolve the iter-1 P1s, with NO new silent-drop and NO faithfulness-gate relaxation? Any NOVEL P0/P1 introduced by THIS delta only?
+
+OUTPUT EXACTLY:
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+APPROVE iff both iter-1 P1s are resolved and this delta introduces zero new P0/P1.
+
+codex
+I’ll keep this scoped to the 102-line fix delta and only inspect surrounding code needed to verify those two previously flagged issues.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-arch-006/p1_fix_clean.diff' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/nodes/completeness_checker.py -Pattern "def _topic_applies|_generic_drug_signal|confident|critical|drug_signal" -Context 8,20' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/tools/access_bypass.py -Pattern "def is_boilerplate_or_nonassertional|_ERROR_PAGE_TOKENS|not found|boilerplate" -Context 8,16' in C:\POLARIS
+2026-06-15T08:31:59.460753Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/nodes/completeness_checker.py -Pattern "def _topic_applies|_generic_drug_signal|confident|critical|drug_signal" -Context 8,20'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/nodes/completeness_checker.py -Pattern "def _topic_applies|_generic_drug_signal|confident|critical|drug_signal" -Context 8,20'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/tools/access_bypass.py -Pattern "def is_boilerplate_or_nonassertional|_ERROR_PAGE_TOKENS|not found|boilerplate" -Context 8,16'` rejected: blocked by policy
+2026-06-15T08:31:59.462158Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/tools/access_bypass.py -Pattern "def is_boilerplate_or_nonassertional|_ERROR_PAGE_TOKENS|not found|boilerplate" -Context 8,16'` rejected: blocked by policy
+ succeeded in 1226ms:
+diff --git a/src/polaris_graph/nodes/completeness_checker.py b/src/polaris_graph/nodes/completeness_checker.py
+index 88f6ed5f..e19bee9b 100644
+--- a/src/polaris_graph/nodes/completeness_checker.py
++++ b/src/polaris_graph/nodes/completeness_checker.py
+@@ -128,6 +128,30 @@ def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, b
+         return False, True
+ 
+ 
++# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
++# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
++# returned a (possibly-MISS) confident negative. Deliberately conservative - matches
++# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
++# or a radiation "dose" - so a genuine non-drug clinical question (gut-microbiota,
++# device/DBS, environmental metal exposure) yields False and is never spuriously held.
++_GENERIC_DRUG_SIGNAL_RE = re.compile(
++    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
++    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
++    r"milligrams?|micrograms?|tablets?|capsules?|"
++    r"inhibitors?|agonists?|antagonists?|monoclonal|"
++    r"chemotherap\w*|antibiotics?|antiviral\w*|"
++    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
++    r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
++    re.IGNORECASE,
++)
++
++
++def _generic_drug_signal(question: str) -> bool:
++    """True iff the question carries explicit drug/pharmacology vocabulary (Codex
++    P1, #1262). Conservative by design - see ``_GENERIC_DRUG_SIGNAL_RE``."""
++    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
++
++
+ def _benchmark_strict_gates() -> bool:
+     """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+ 
+@@ -396,9 +420,33 @@ def _topic_applies(
+ 
+     drug_or_intervention_present = detected or class_anchor_in_question
+     if not drug_or_intervention_present:
+-        # Confident negative: the question is NOT about a drug/intervention, so a
+-        # drug-pharmacology topic does not apply (this is the BUG-7 fix). No
+-        # disclosure needed - a clean "no drug" is not ambiguity.
++        # Confident negative from the recognizer (+ no class anchor).
++        if topic.critical:
++            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
++            # incomplete, so a "confident no-drug" can be a MISS on a real drug
++            # question - silently dropping a CRITICAL contraindications topic would
++            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
++            # So for a critical topic we NEVER decide silently:
++            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/.)
++            #     => the recognizer likely missed a brand name => FAIL-CLOSED
++            #     (applies) + disclose;
++            #   * no drug signal at all (genuine non-drug: microbiota / device /
++            #     environmental exposure) => keep applies=False so a non-drug report
++            #     is never spuriously held, but DISCLOSE the skip so the decision is
++            #     auditable, never silent.
++            if _generic_drug_signal(research_question):
++                return True, (
++                    f"critical topic {topic.id!r}: drug recognizer found no known "
++                    f"intervention, but the question carries generic drug/pharmacology "
++                    f"signal - kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
++                )
++            return False, (
++                f"critical topic {topic.id!r}: marked non-applicable - drug recognizer "
++                f"found no intervention AND the question carries no drug signal "
++                f"(disclosed, not silent; Codex P1, #1262)"
++            )
++        # Non-critical confident negative: a drug-pharmacology topic does not apply
++        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+         return False, ""
+ 
+     # The question IS about a drug/intervention. Apply the topic's normal
+diff --git a/src/tools/access_bypass.py b/src/tools/access_bypass.py
+index 5f9c093e..4114b709 100644
+--- a/src/tools/access_bypass.py
++++ b/src/tools/access_bypass.py
+@@ -799,7 +799,10 @@ _ERROR_PAGE_TOKENS = (
+     "error 404",
+     "403 forbidden",
+     "access denied",
+-    "not found",
++    # NOTE (Codex P1, #1262): bare "not found" was REMOVED here - as a substring
++    # token it silently dropped real NEGATIVE clinical findings ("Metastases were
++    # not found"). The literal whole-unit 404 stub ("Not Found") is re-caught by an
++    # EXACT whole-unit check in is_boilerplate_or_nonassertional (never a clause).
+ )
+ 
+ # A bare DOI / identifier row carries no assertional prose to ground.
+@@ -917,6 +920,13 @@ def is_boilerplate_or_nonassertional(sentence: str) -> bool:
+                 ]
+                 if len(residual_words) <= 3:
+                     return True
++        # Codex P1 (#1262): bare "not found" was removed from _ERROR_PAGE_TOKENS
++        # because as a substring it silently dropped real NEGATIVE clinical
++        # findings (e.g. "Metastases were not found"  residual "metastases were"
++        # ó3). Re-catch ONLY the literal whole-unit 404 stub: the unit's alpha
++        # content is EXACTLY "not found", never a real clause containing it.
++        if re.sub(r"[\W_]+", " ", lowered, flags=re.UNICODE).strip() == "not found":
++            return True
+ 
+     return False
+ 
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The diff confirms the intended two-file delta. I’m switching to simple read/search commands for surrounding context because the PowerShell `Select-String` path was blocked by local policy.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 20 "_ERROR_PAGE_TOKENS|def is_boilerplate_or_nonassertional|not found" src/tools/access_bypass.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 28 \"_GENERIC_DRUG_SIGNAL_RE|def _generic_drug_signal|def _topic_applies|drug_or_intervention_present|topic\\.critical\" src/polaris_graph/nodes/completeness_checker.py" in C:\POLARIS
+ succeeded in 1234ms:
+722-    Removes common HTML-to-markdown artifacts like [Skip to Main Content],
+723-    standalone navigation links, and similar boilerplate that degrades
+724-    evidence quality.
+725-    """
+726-    if not content:
+727-        return content
+728-    cleaned = _BOILERPLATE_RE.sub("", content)
+729-    # Remove runs of blank lines left by stripping
+730-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+731-    return cleaned.strip()
+732-
+733-
+734-# ─────────────────────────────────────────────────────────────────────────────
+735-# BUG-19 (GH #1262): reusable ALLOWLIST-ONLY web-boilerplate hygiene helpers.
+736-#
+737-# THE BUG: the web-crawl chrome that the free fetch backends (Crawl4AI / Jina /
+738-# Firecrawl) prepend to every body — "URL Source:", "Markdown Content:",
+739-# "Title:" header lines, "Split View", "Cite Cite", "Views", "Download full
+740-# text from publisher", "References listed on IDEAS", cookie-consent lines —
+741-# was leaking into the evidence pool as if it were article prose. Worse, a
+742:# *pure* error page (a literal NTSB "Page not found" / "404 Not Found" body)
+743-# was extracted as a "finding sentence" and then passed the entailment gate,
+744:# because boilerplate trivially entails itself ("Page not found" ⊨ "Page not
+745-# found"). A self-entailing chrome line is a faithfulness HOLE, not a finding.
+746-#
+747-# THE FIX: two INPUT-HYGIENE helpers the generator calls BEFORE finding
+748-# extraction and BEFORE the faithfulness gate:
+749-#   • strip_web_boilerplate(text)            — removes ONLY confirmed crawl
+750-#     markers and the lines they sit on.
+751-#   • is_boilerplate_or_nonassertional(s)    — True for a sentence/unit that
+752-#     is pure metadata / nav chrome / a bare DOI / a table-number row / an
+753-#     error-page stub, i.e. carries no assertional content to ground.
+754-#
+755-# WHY FAITHFULNESS IS SAFE (NOT a gate relaxation):
+756-#   • ALLOWLIST-ONLY: every pattern below is a literal, confirmed crawl marker
+757-#     or error-page token. Real prose — including legitimate multilingual
+758-#     content — is byte-preserved; we only delete the known marker lines and
+759-#     flag units that are 100% chrome. We NEVER drop, alter, or down-rank a
+760-#     real claim, and we NEVER touch the strict_verify / NLI / 4-role /
+761-#     span-grounding gates. This is the same WEIGHT/CONSOLIDATE-not-FILTER
+762-#     posture as live_retriever._is_landing_or_abstract_page (§-1.3 DNA):
+763-#     clean the gate's INPUT so it can't "verify" its own chrome; the gate's
+764-#     strictness on real claims is untouched. Removing self-entailing chrome
+--
+775-        r"^\s*URL Source\s*:.*$",                       # Jina/Crawl4AI header
+776-        r"^\s*Markdown Content\s*:.*$",                  # Jina/Crawl4AI header
+777-        r"^\s*Title\s*:.*$",                             # crawl Title: header line
+778-        r"^\s*Split View\s*$",                           # IDEAS/RePEc nav
+779-        r"^\s*Cite\s+Cite\s*$",                          # duplicated cite chrome
+780-        r"^\s*Views?\s*$",                               # bare "Views" counter label
+781-        r"^\s*Download full text from publisher\s*$",    # RePEc/IDEAS chrome
+782-        r"^\s*References listed on IDEAS\s*$",            # IDEAS chrome
+783-        r"^\s*This (website|site) uses cookies.*$",      # cookie-consent banner
+784-        r"^\s*We use cookies.*$",                        # cookie-consent banner
+785-        r"^\s*Accept (all )?[Cc]ookies\s*$",             # cookie-consent button
+786-        r"^\s*Cookie [Cc]onsent\s*$",                    # cookie-consent header
+787-        r"^\s*Manage (your )?[Cc]ookies?.*$",            # cookie-consent button
+788-    ]),
+789-    re.MULTILINE | re.IGNORECASE,
+790-)
+791-
+792-# Allowlist of literal error-page / "no content" tokens. A UNIT (sentence or
+793-# short body) that is essentially ONLY one of these is a failed fetch, not a
+794-# finding. Matched case-insensitively as a whole-unit signal.
+795:_ERROR_PAGE_TOKENS = (
+796:    "page not found",
+797:    "404 not found",
+798:    "404 - not found",
+799-    "error 404",
+800-    "403 forbidden",
+801-    "access denied",
+802:    # NOTE (Codex P1, #1262): bare "not found" was REMOVED here — as a substring
+803-    # token it silently dropped real NEGATIVE clinical findings ("Metastases were
+804:    # not found"). The literal whole-unit 404 stub ("Not Found") is re-caught by an
+805-    # EXACT whole-unit check in is_boilerplate_or_nonassertional (never a clause).
+806-)
+807-
+808-# A bare DOI / identifier row carries no assertional prose to ground.
+809-_BARE_DOI_RE = re.compile(
+810-    r"^\s*(?:doi\s*:?\s*)?10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\s*$",
+811-    re.IGNORECASE,
+812-)
+813-
+814-# A pure table-number / metadata row: only digits, separators, units and short
+815-# table glue (e.g. "Table 3 12.4 95% CI 1.2-3.4"). No verb, no clause — nothing
+816-# to entail. Kept deliberately tight (must be SHORT and digit-dominated) so a
+817-# real numeric SENTENCE ("Mortality fell to 12.4% (95% CI ...)" with words) is
+818-# never flagged.
+819-_TABLE_NUMBER_ROW_RE = re.compile(
+820-    r"^\s*(?:table|fig(?:ure)?|row|col(?:umn)?)?\s*[\d.,%()\[\]:;/+\-–—\s]*$",
+821-    re.IGNORECASE,
+822-)
+823-
+824-# Max length (chars) for the error-page whole-unit check. An error STUB is
+825:# short; a long article that merely quotes "not found" deep in prose must not
+826-# be flagged. Env-overridable per LAW VI; sane default mirrors the M-23d /
+827-# live_retriever landing-page short-body windows.
+828-_BOILERPLATE_ERROR_UNIT_MAX_CHARS_DEFAULT = 400
+829-
+830-
+831-def strip_web_boilerplate(text: str) -> str:
+832-    """BUG-19 (#1262): remove ONLY confirmed web-crawl chrome lines from text.
+833-
+834-    Allowlist-only, byte-safe hygiene for the generator to call BEFORE finding
+835-    extraction and BEFORE the faithfulness gate. Deletes whole lines that ARE a
+836-    known crawl marker ("URL Source:", "Markdown Content:", "Title:" headers,
+837-    "Split View", "Cite Cite", "Views", "Download full text from publisher",
+838-    "References listed on IDEAS", cookie-consent banners). Real prose — including
+839-    legitimate multilingual content — is preserved byte-for-byte; a marker word
+840-    appearing mid-sentence is never touched because every pattern is whole-line
+841-    anchored.
+842-
+843-    FAITHFULNESS: this is INPUT hygiene, not a gate. It can only stop the gate
+844-    from "verifying" its own chrome (self-entailment); it never drops, alters,
+845-    or down-ranks a real claim, and the strict_verify / NLI / 4-role /
+846-    span-grounding gates keep full strictness on everything that remains.
+847-    """
+848-    if not text:
+849-        return text
+850-    cleaned = _WEB_BOILERPLATE_LINE_RE.sub("", text)
+851-    # Collapse blank-line runs left by stripping; preserve paragraph breaks.
+852-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+853-    return cleaned.strip()
+854-
+855-
+856:def is_boilerplate_or_nonassertional(sentence: str) -> bool:
+857-    """BUG-19 (#1262): True iff a sentence/unit carries no assertional content.
+858-
+859-    Flags (does NOT silently drop — the caller decides, and per §-1.3 a flagged
+860-    unit may still be disclosed at low weight) units that are pure metadata, nav
+861-    chrome, a bare DOI, a table-number row, or an error-page stub:
+862-      • a line that IS a known crawl marker (see strip_web_boilerplate),
+863-      • a bare DOI / identifier row (no prose),
+864-      • a pure table-number / metadata row (digits + separators, no clause),
+865:      • an error-page stub ("Page not found" / "404 Not Found" / "403
+866-        Forbidden" / "Access Denied") when the WHOLE unit is short and is
+867:        essentially only that token — the literal NTSB "Page not found" 404
+868-        body that previously self-entailed through the gate.
+869-
+870-    A real assertional sentence (subject + verb + claim, in any language) is
+871-    NEVER flagged: the marker/DOI/table patterns are whole-unit anchored, and
+872-    the error-page check requires a SHORT unit dominated by the error token.
+873-
+874-    FAITHFULNESS: pure-chrome / error stubs are not findings; removing them from
+875-    the gate's INPUT raises faithfulness. No real claim can be flagged, and the
+876-    hard gates are untouched.
+877-    """
+878-    if not sentence:
+879-        return True  # empty unit is non-assertional by definition
+880-
+881-    stripped = sentence.strip()
+882-    if not stripped:
+883-        return True
+884-
+885-    # 1) Whole-line crawl marker.
+886-    if _WEB_BOILERPLATE_LINE_RE.fullmatch(stripped):
+887-        return True
+888-
+889-    # 2) Bare DOI / identifier row.
+890-    if _BARE_DOI_RE.fullmatch(stripped):
+891-        return True
+892-
+893-    # 3) Pure table-number / metadata row — must contain at least one digit so
+894-    #    a short all-words phrase is not mistaken for a number row, and must be
+895-    #    entirely digits/separators (no alphabetic words beyond table glue).
+896-    if any(ch.isdigit() for ch in stripped) and _TABLE_NUMBER_ROW_RE.fullmatch(
+897-        stripped
+898-    ):
+899-        return True
+900-
+901-    # 4) Error-page stub: SHORT unit that is essentially only an error token.
+902:    #    Length-gated so a long article quoting "not found" in prose is safe.
+903-    max_chars = int(
+904-        os.getenv(
+905-            "PG_BOILERPLATE_ERROR_UNIT_MAX_CHARS",
+906-            str(_BOILERPLATE_ERROR_UNIT_MAX_CHARS_DEFAULT),
+907-        )
+908-    )
+909-    if len(stripped) <= max_chars:
+910-        lowered = stripped.lower()
+911:        for token in _ERROR_PAGE_TOKENS:
+912-            if token in lowered:
+913-                # Require the error token to DOMINATE the unit (no surrounding
+914-                # real clause) — the residual after removing the token and
+915-                # non-alphanumerics must be trivially short.
+916-                residual = re.sub(re.escape(token), " ", lowered)
+917-                residual_words = [
+918-                    w for w in re.findall(r"[^\W\d_]+", residual, re.UNICODE)
+919-                    if len(w) > 1
+920-                ]
+921-                if len(residual_words) <= 3:
+922-                    return True
+923:        # Codex P1 (#1262): bare "not found" was removed from _ERROR_PAGE_TOKENS
+924-        # because as a substring it silently dropped real NEGATIVE clinical
+925:        # findings (e.g. "Metastases were not found" → residual "metastases were"
+926-        # ≤3). Re-catch ONLY the literal whole-unit 404 stub: the unit's alpha
+927:        # content is EXACTLY "not found", never a real clause containing it.
+928:        if re.sub(r"[\W_]+", " ", lowered, flags=re.UNICODE).strip() == "not found":
+929-            return True
+930-
+931-    return False
+932-
+933-
+934-# M-23c: Structural markers for content quality scoring.
+935-# Presence of academic-paper markers indicates full article body
+936-# (vs paywall stub or landing page).
+937-_STRUCTURAL_MARKERS = (
+938-    "abstract", "methods", "results", "conclusion",
+939-    "discussion", "introduction", "background", "references",
+940-    "materials and methods", "statistical analysis",
+941-)
+942-
+943-_NUMERIC_TOKEN_RE = re.compile(r"\d+\.\d+|\d+\s*%|\d{3,}|\bp\s*[<=>]\s*0\.\d+\b")
+944-
+945-
+946-def _score_content_quality(content: str) -> float:
+947-    """Score a fetched-content candidate on quality (0.0 .. ~1.5).
+948-
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1339ms:
+109-      NOT ambiguity — the recognizer ran and found no intervention.
+110-    * ``ambiguous`` — True iff the recognizer could not be consulted at all
+111-      (import failure / missing PyYAML / missing config / build error). In that
+112-      case ``detected`` is False but the caller MUST treat a critical topic as
+113-      fail-closed (applies) per BUG-7.
+114-
+115-    This reuses the SAME recognizer the scope gate uses so completeness
+116-    applicability and scope recognition cannot drift apart.
+117-    """
+118-    try:
+119-        from src.polaris_graph.nodes.scope_gate import _intervention_present
+120-        token = _intervention_present(research_question or "")
+121-        return (token is not None), False
+122-    except Exception as exc:  # config/import unavailable -> genuine ambiguity
+123-        logger.warning(
+124-            "[completeness] intervention recognizer unavailable (%s); "
+125-            "fail-closed for critical topics per BUG-7 (#1262)",
+126-            exc,
+127-        )
+128-        return False, True
+129-
+130-
+131-# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
+132-# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
+133-# returned a (possibly-MISS) confident negative. Deliberately conservative — matches
+134-# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
+135-# or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
+136-# device/DBS, environmental metal exposure) yields False and is never spuriously held.
+137:_GENERIC_DRUG_SIGNAL_RE = re.compile(
+138-    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+139-    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
+140-    r"milligrams?|micrograms?|tablets?|capsules?|"
+141-    r"inhibitors?|agonists?|antagonists?|monoclonal|"
+142-    r"chemotherap\w*|antibiotics?|antiviral\w*|"
+143-    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
+144-    r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
+145-    re.IGNORECASE,
+146-)
+147-
+148-
+149:def _generic_drug_signal(question: str) -> bool:
+150-    """True iff the question carries explicit drug/pharmacology vocabulary (Codex
+151:    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+152:    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+153-
+154-
+155-def _benchmark_strict_gates() -> bool:
+156-    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+157-
+158-    Default OFF: an unset / empty / falsy value yields False, so the strict
+159-    0/0-is-not-complete behavior is opt-in for benchmark runs only.
+160-    """
+161-    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+162-    if raw is None:
+163-        return False
+164-    return raw.strip().lower() in _TRUE_TOKENS
+165-
+166-
+167-@dataclass
+168-class ChecklistTopic:
+169-    id: str
+170-    label: str
+171-    keywords: list[str] = field(default_factory=list)
+172-    applies_if: list[str] = field(default_factory=list)
+173-    expand_queries: list[str] = field(default_factory=list)
+174-    # I-arch-004 F11 (#1249): clinical-safety-critical topics (contraindications,
+175-    # boxed warnings). When True AND the topic is applicable+uncovered, the sweep
+176-    # HOLDS release (non-success) instead of shipping an advisory ok_incomplete_corpus.
+177-    # Default False so every un-marked topic / checklist is byte-identical.
+178-    critical: bool = False
+179-    # BUG-7 (I-arch-006, #1262): drug/intervention-pharmacology topics
+180-    # (contraindications, GLP-1 class risks, drug interactions, regulatory
+--
+325-            ),
+326-        ))
+327-    return topics
+328-
+329-
+330-def _legacy_applies_if(
+331-    topic: ChecklistTopic,
+332-    research_question: str,
+333-    evidence_blob: str,
+334-) -> bool:
+335-    """Legacy substring `applies_if` match (question OR evidence pool).
+336-
+337-    A topic with no `applies_if` always matches. A topic with `applies_if`
+338-    terms matches iff any term is found in the research_question OR the
+339-    evidence pool (since "GLP-1" might be implied by the drug name). This is
+340-    the pre-BUG-7 behaviour, retained verbatim for non-drug topics and for the
+341-    OFF kill-switch path.
+342-    """
+343-    if not topic.applies_if:
+344-        return True
+345-    q_lower = (research_question or "").lower()
+346-    e_lower = (evidence_blob or "").lower()
+347-    for term in topic.applies_if:
+348-        if term in q_lower or term in e_lower:
+349-            return True
+350-    return False
+351-
+352-
+353:def _topic_applies(
+354-    topic: ChecklistTopic,
+355-    research_question: str,
+356-    evidence_blob: str,
+357-) -> tuple[bool, str]:
+358-    """Return ``(applies, disclosure_note)`` for a checklist topic.
+359-
+360-    BUG-7 (I-arch-006, #1262) — drive a drug/intervention-pharmacology topic's
+361-    applicability from a ROBUST detector, not the routing label or a raw
+362-    substring.
+363-
+364-    Non-drug topics (``requires_drug_intervention`` unset) keep the EXACT
+365-    pre-BUG-7 `applies_if` substring semantics (question OR evidence pool), so
+366-    their applicability is byte-identical.
+367-
+368-    A topic flagged ``requires_drug_intervention: true`` applies iff the QUESTION
+369-    is actually about a drug/intervention. "About a drug/intervention" is decided
+370-    by EITHER:
+371-      * the scope-gate recognizer (`_intervention_present`) finding a specific
+372-        drug name / INN-stem in the question, OR
+373-      * one of the topic's own `applies_if` CLASS anchors (e.g. "glp-1",
+374-        "incretin") appearing in the QUESTION — these are intervention-class
+375-        signals, not incidental evidence text.
+376-    The detector deliberately consults the QUESTION only: a drug word that merely
+377-    appears in retrieved EVIDENCE for a non-drug question must not flip a
+378-    pharmacology topic on (that was the false-positive path).
+379-
+380-    Once the question is confirmed to be about a drug/intervention, the topic's
+381-    NORMAL `applies_if` filter still applies (so the GLP-1-class topic stays gated
+382-    to GLP-1 questions and does not fire for metformin). For a topic with no
+383-    `applies_if` (the CRITICAL `contraindications` topic), drug-presence is the
+384-    sole gate.
+385-
+386-    FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer cannot be consulted
+387-    (import/config error), a CRITICAL ``requires_drug_intervention`` topic defaults
+388-    to applies=True with a disclosure note — never silently mark a critical safety
+389-    topic non-applicable. A non-critical topic falls back to the legacy substring
+390-    match (adequacy elsewhere unchanged).
+391-
+392-    Faithfulness: applicability only refines the completeness DENOMINATOR; it
+393-    never touches strict_verify / NLI / 4-role / span-grounding, never drops a
+394-    verified claim, and errs toward keeping a critical safety topic active.
+395-    """
+396-    legacy = _legacy_applies_if(topic, research_question, evidence_blob)
+397-
+398-    # Non-drug topic, or kill-switch OFF -> exact pre-BUG-7 behaviour.
+399-    if not topic.requires_drug_intervention or not _drug_detector_enabled():
+400-        return legacy, ""
+401-
+402-    q_lower = (research_question or "").lower()
+403-    class_anchor_in_question = any(
+404-        term in q_lower for term in topic.applies_if
+405-    )
+406-    detected, ambiguous = _intervention_detected_or_ambiguous(research_question)
+407-
+408-    if ambiguous:
+409-        # Recognizer unavailable: we cannot confidently conclude "no drug".
+410:        if topic.critical:
+411-            # Fail-closed: keep the critical safety topic active + disclose.
+412-            return True, (
+413-                f"applicability of critical topic {topic.id!r} could not be "
+414-                f"determined (intervention recognizer unavailable); kept "
+415-                f"applicable fail-closed per BUG-7 (#1262)"
+416-            )
+417-        # Non-critical: fall back to the legacy substring match (no change to
+418-        # adequacy on ambiguity).
+419-        return legacy, ""
+420-
+421:    drug_or_intervention_present = detected or class_anchor_in_question
+422:    if not drug_or_intervention_present:
+423-        # Confident negative from the recognizer (+ no class anchor).
+424:        if topic.critical:
+425-            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
+426-            # incomplete, so a "confident no-drug" can be a MISS on a real drug
+427-            # question — silently dropping a CRITICAL contraindications topic would
+428-            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+429-            # So for a critical topic we NEVER decide silently:
+430-            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
+431-            #     => the recognizer likely missed a brand name => FAIL-CLOSED
+432-            #     (applies) + disclose;
+433-            #   * no drug signal at all (genuine non-drug: microbiota / device /
+434-            #     environmental exposure) => keep applies=False so a non-drug report
+435-            #     is never spuriously held, but DISCLOSE the skip so the decision is
+436-            #     auditable, never silent.
+437-            if _generic_drug_signal(research_question):
+438-                return True, (
+439-                    f"critical topic {topic.id!r}: drug recognizer found no known "
+440-                    f"intervention, but the question carries generic drug/pharmacology "
+441-                    f"signal — kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
+442-                )
+443-            return False, (
+444-                f"critical topic {topic.id!r}: marked non-applicable — drug recognizer "
+445-                f"found no intervention AND the question carries no drug signal "
+446-                f"(disclosed, not silent; Codex P1, #1262)"
+447-            )
+448-        # Non-critical confident negative: a drug-pharmacology topic does not apply
+449-        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+450-        return False, ""
+451-
+452-    # The question IS about a drug/intervention. Apply the topic's normal
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The two fix sites are visible now. I’m checking the post-branch behavior in `_topic_applies` so the approval hinges on the actual returned applicability and disclosure, not just comments.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 12 "The question IS about a drug/intervention|Once drug presence|return _legacy|return legacy|return True|return False" src/polaris_graph/nodes/completeness_checker.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"_topic_applies\\(|disclosure_note|applicability\" src/polaris_graph/nodes/completeness_checker.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"is_boilerplate_or_nonassertional\\(\" src" in C:\POLARIS
+ succeeded in 1113ms:
+85-def _drug_detector_enabled() -> bool:
+86-    """Return True iff the robust drug/intervention applicability gate is on.
+87-
+88-    Default ON (LAW VI: env-driven kill-switch, named constant, sane default).
+89-    Set ``PG_COMPLETENESS_DRUG_DETECTOR`` to a falsy token (0/false/no/off) to
+90-    fall back to the legacy substring-only `applies_if` behaviour for ALL topics
+91-    — provided as an operator escape hatch, not a default. When OFF, a topic's
+92-    ``requires_drug_intervention`` flag is ignored and applicability is the prior
+93-    `applies_if` substring match (so the OFF path is byte-identical to pre-BUG-7).
+94-    """
+95-    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
+96-    if raw is None:
+97:        return True
+98-    return raw.strip().lower() in _TRUE_TOKENS
+99-
+100-
+101-def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, bool]:
+102-    """Detect a drug/intervention in the QUESTION via the scope-gate recognizer.
+103-
+104-    Returns ``(detected, ambiguous)``:
+105-
+106-    * ``detected`` — True iff ``scope_gate._intervention_present`` recognised a
+107-      drug/intervention token in ``research_question``. A clean ``None`` from the
+108-      recognizer is a CONFIDENT negative (``detected=False, ambiguous=False``),
+109-      NOT ambiguity — the recognizer ran and found no intervention.
+--
+116-    applicability and scope recognition cannot drift apart.
+117-    """
+118-    try:
+119-        from src.polaris_graph.nodes.scope_gate import _intervention_present
+120-        token = _intervention_present(research_question or "")
+121-        return (token is not None), False
+122-    except Exception as exc:  # config/import unavailable -> genuine ambiguity
+123-        logger.warning(
+124-            "[completeness] intervention recognizer unavailable (%s); "
+125-            "fail-closed for critical topics per BUG-7 (#1262)",
+126-            exc,
+127-        )
+128:        return False, True
+129-
+130-
+131-# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
+132-# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
+133-# returned a (possibly-MISS) confident negative. Deliberately conservative — matches
+134-# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
+135-# or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
+136-# device/DBS, environmental metal exposure) yields False and is never spuriously held.
+137-_GENERIC_DRUG_SIGNAL_RE = re.compile(
+138-    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+139-    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
+140-    r"milligrams?|micrograms?|tablets?|capsules?|"
+--
+151-    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+152-    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+153-
+154-
+155-def _benchmark_strict_gates() -> bool:
+156-    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+157-
+158-    Default OFF: an unset / empty / falsy value yields False, so the strict
+159-    0/0-is-not-complete behavior is opt-in for benchmark runs only.
+160-    """
+161-    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+162-    if raw is None:
+163:        return False
+164-    return raw.strip().lower() in _TRUE_TOKENS
+165-
+166-
+167-@dataclass
+168-class ChecklistTopic:
+169-    id: str
+170-    label: str
+171-    keywords: list[str] = field(default_factory=list)
+172-    applies_if: list[str] = field(default_factory=list)
+173-    expand_queries: list[str] = field(default_factory=list)
+174-    # I-arch-004 F11 (#1249): clinical-safety-critical topics (contraindications,
+175-    # boxed warnings). When True AND the topic is applicable+uncovered, the sweep
+--
+332-    research_question: str,
+333-    evidence_blob: str,
+334-) -> bool:
+335-    """Legacy substring `applies_if` match (question OR evidence pool).
+336-
+337-    A topic with no `applies_if` always matches. A topic with `applies_if`
+338-    terms matches iff any term is found in the research_question OR the
+339-    evidence pool (since "GLP-1" might be implied by the drug name). This is
+340-    the pre-BUG-7 behaviour, retained verbatim for non-drug topics and for the
+341-    OFF kill-switch path.
+342-    """
+343-    if not topic.applies_if:
+344:        return True
+345-    q_lower = (research_question or "").lower()
+346-    e_lower = (evidence_blob or "").lower()
+347-    for term in topic.applies_if:
+348-        if term in q_lower or term in e_lower:
+349:            return True
+350:    return False
+351-
+352-
+353-def _topic_applies(
+354-    topic: ChecklistTopic,
+355-    research_question: str,
+356-    evidence_blob: str,
+357-) -> tuple[bool, str]:
+358-    """Return ``(applies, disclosure_note)`` for a checklist topic.
+359-
+360-    BUG-7 (I-arch-006, #1262) — drive a drug/intervention-pharmacology topic's
+361-    applicability from a ROBUST detector, not the routing label or a raw
+362-    substring.
+--
+388-    to applies=True with a disclosure note — never silently mark a critical safety
+389-    topic non-applicable. A non-critical topic falls back to the legacy substring
+390-    match (adequacy elsewhere unchanged).
+391-
+392-    Faithfulness: applicability only refines the completeness DENOMINATOR; it
+393-    never touches strict_verify / NLI / 4-role / span-grounding, never drops a
+394-    verified claim, and errs toward keeping a critical safety topic active.
+395-    """
+396-    legacy = _legacy_applies_if(topic, research_question, evidence_blob)
+397-
+398-    # Non-drug topic, or kill-switch OFF -> exact pre-BUG-7 behaviour.
+399-    if not topic.requires_drug_intervention or not _drug_detector_enabled():
+400:        return legacy, ""
+401-
+402-    q_lower = (research_question or "").lower()
+403-    class_anchor_in_question = any(
+404-        term in q_lower for term in topic.applies_if
+405-    )
+406-    detected, ambiguous = _intervention_detected_or_ambiguous(research_question)
+407-
+408-    if ambiguous:
+409-        # Recognizer unavailable: we cannot confidently conclude "no drug".
+410-        if topic.critical:
+411-            # Fail-closed: keep the critical safety topic active + disclose.
+412:            return True, (
+413-                f"applicability of critical topic {topic.id!r} could not be "
+414-                f"determined (intervention recognizer unavailable); kept "
+415-                f"applicable fail-closed per BUG-7 (#1262)"
+416-            )
+417-        # Non-critical: fall back to the legacy substring match (no change to
+418-        # adequacy on ambiguity).
+419:        return legacy, ""
+420-
+421-    drug_or_intervention_present = detected or class_anchor_in_question
+422-    if not drug_or_intervention_present:
+423-        # Confident negative from the recognizer (+ no class anchor).
+424-        if topic.critical:
+425-            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
+426-            # incomplete, so a "confident no-drug" can be a MISS on a real drug
+427-            # question — silently dropping a CRITICAL contraindications topic would
+428-            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+429-            # So for a critical topic we NEVER decide silently:
+430-            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
+431-            #     => the recognizer likely missed a brand name => FAIL-CLOSED
+432-            #     (applies) + disclose;
+433-            #   * no drug signal at all (genuine non-drug: microbiota / device /
+434-            #     environmental exposure) => keep applies=False so a non-drug report
+435-            #     is never spuriously held, but DISCLOSE the skip so the decision is
+436-            #     auditable, never silent.
+437-            if _generic_drug_signal(research_question):
+438:                return True, (
+439-                    f"critical topic {topic.id!r}: drug recognizer found no known "
+440-                    f"intervention, but the question carries generic drug/pharmacology "
+441-                    f"signal — kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
+442-                )
+443:            return False, (
+444-                f"critical topic {topic.id!r}: marked non-applicable — drug recognizer "
+445-                f"found no intervention AND the question carries no drug signal "
+446-                f"(disclosed, not silent; Codex P1, #1262)"
+447-            )
+448-        # Non-critical confident negative: a drug-pharmacology topic does not apply
+449-        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+450:        return False, ""
+451-
+452:    # The question IS about a drug/intervention. Apply the topic's normal
+453-    # `applies_if` filter so class-specific topics stay gated to their class.
+454:    return legacy, ""
+455-
+456-
+457-def _compile_keyword_re(keywords: list[str]) -> re.Pattern:
+458-    if not keywords:
+459-        return re.compile(r"(?!x)x")  # never matches
+460-    parts = [re.escape(k) for k in keywords]
+461-    return re.compile(r"|".join(parts), re.IGNORECASE)
+462-
+463-
+464-def check_completeness(
+465-    *,
+466-    domain: str,
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1215ms:
+47:# ── BUG-7 (I-arch-006, #1262): robust drug/intervention applicability gate ────
+58:# at all. Both are clinical-safety failures: a false-negative on applicability for
+76:# DENOMINATOR (an input-hygiene / applicability-precision change). It NEVER
+79:# safety topic active (held, not released). Removing a FALSE applicability is not
+86:    """Return True iff the robust drug/intervention applicability gate is on.
+92:    ``requires_drug_intervention`` flag is ignored and applicability is the prior
+116:    applicability and scope recognition cannot drift apart.
+182:    # about a drug/intervention. When True, applicability is gated by a robust
+353:def _topic_applies(
+358:    """Return ``(applies, disclosure_note)`` for a checklist topic.
+361:    applicability from a ROBUST detector, not the routing label or a raw
+366:    their applicability is byte-identical.
+392:    Faithfulness: applicability only refines the completeness DENOMINATOR; it
+413:                f"applicability of critical topic {topic.id!r} could not be "
+478:            drug/intervention applicability gate — see `_topic_applies`).
+523:    applicability_disclosures: list[str] = []
+526:        applies, disclosure = _topic_applies(
+530:            applicability_disclosures.append(disclosure)
+584:    # BUG-7 (I-arch-006, #1262): surface any fail-closed applicability disclosure
+587:    notes.extend(applicability_disclosures)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1352ms:
+src\tools\access_bypass.py:751:#   • is_boilerplate_or_nonassertional(s)    — True for a sentence/unit that
+src\tools\access_bypass.py:856:def is_boilerplate_or_nonassertional(sentence: str) -> bool:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The critical branch returns the expected `True` on generic pharma signal and `False` with a note otherwise. I’m checking the note propagation path once, since “disclosed, never silent” depends on callers preserving it.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 18 \"applicability_disclosures|notes\\.extend|topic_status|topics\" src/polaris_graph/nodes/completeness_checker.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_GENERIC_DRUG_SIGNAL_RE|_generic_drug_signal|drug signal|generic drug" .codex/I-arch-006/p1_fix_clean.diff src/polaris_graph/nodes/completeness_checker.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "not found|_ERROR_PAGE_TOKENS|residual_words|whole-unit" .codex/I-arch-006/p1_fix_clean.diff src/tools/access_bypass.py' in C:\POLARIS
+ succeeded in 1262ms:
+1-"""
+2-Completeness checklist checker — HONEST-REBUILD R-6 Gap-3.
+3-
+4-Loads the per-domain completeness checklist YAML. For each topic,
+5-checks whether the retrieved evidence corpus has keyword coverage.
+6:Uncovered topics get a list of suggested expansion queries so the
+7-orchestrator can trigger a targeted retrieval pass.
+8-
+9-HONESTY GUARANTEE: this module surfaces GAPS. It does NOT silently
+10-synthesize over them. When a topic is uncovered, the final report's
+11-Limitations paragraph MUST acknowledge it (the orchestrator injects
+12-the gap into the pipeline_telemetry block).
+13-"""
+14-from __future__ import annotations
+15-
+16-import logging
+17-import os
+18-import re
+19-from dataclasses import dataclass, field
+20-from pathlib import Path
+21-from typing import Any
+22-
+23-try:
+24-    import yaml
+--
+35-# checklist applied → `completeness_state == "not_applicable"`) is left ADVISORY,
+36-# exactly as before — every existing consumer is byte-identical. When the operator
+37-# turns the SHARED benchmark flag ON, a run with no measured coverage DENOMINATOR
+38-# must NOT read as complete: `completeness_ready` flips to False for not_applicable
+39-# so a 0/0 run is surfaced as NOT-COMPLETE rather than a silent vacuous pass.
+40-#
+41-# Faithfulness note: this gate only adds a FAIL-LOUD condition (a 0/0 run is held,
+42-# not released). It NEVER relaxes strict_verify / NLI / the 4-role D8 audit, never
+43-# fabricates a denominator, and never changes a MEASURED fraction.
+44-_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+45-_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+46-
+47-# ── BUG-7 (I-arch-006, #1262): robust drug/intervention applicability gate ────
+48-# THE BUG: the GLP-1 / drug-pharmacology checklist (contraindications [critical],
+49-# pancreatitis/thyroid/gallbladder, drug interactions, regulatory approval, …) was
+50-# applied to NON-drug clinical questions (gut-microbiota, Parkinson's, metal-ions)
+51-# purely because they route domain="clinical". `_topic_applies` only did a STATIC
+52-# substring match of `applies_if` terms against the question OR the evidence blob,
+53:# and topics with no `applies_if` (e.g. the CRITICAL `contraindications` topic)
+54-# applied to EVERY clinical question unconditionally. Result: a false "7/7 fully
+55-# covered" AND — worse — the critical-contraindications topic gating
+56-# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
+57-# mentioned a drug word, falsely read as covered) on questions that have no drug
+58-# at all. Both are clinical-safety failures: a false-negative on applicability for
+59-# a CRITICAL topic silently disables a real safety abort.
+60-#
+61-# THE FIX: a topic flagged `requires_drug_intervention: true` becomes applicable
+62-# only when the QUESTION is actually about a drug/intervention, decided by the
+63-# SAME config-driven recognizer the scope gate uses (`scope_gate._intervention_present`
+64-# = canonical drug names + WHO/USAN INN-stem generative recognition + class
+65-# anchors via the topic's own `applies_if` terms matched against the QUESTION).
+66-# This is a robust detector, NOT a raw substring or the routing label.
+67-#
+68-# FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer is unavailable (PyYAML
+69-# missing, config absent, import/build error) we CANNOT confidently conclude
+70-# "no drug". For a CRITICAL topic we then default to APPLIES=True and DISCLOSE a
+71-# note (never silently mark a critical safety topic non-applicable — a false
+72-# negative would disable the abort). For a non-critical topic we fall back to the
+73-# prior `applies_if` substring behaviour so adequacy elsewhere is unchanged.
+74-#
+75:# FAITHFULNESS NOTE: this only refines WHICH topics count toward the completeness
+76-# DENOMINATOR (an input-hygiene / applicability-precision change). It NEVER
+77-# touches strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops
+78-# or alters a verified claim, and on ambiguity it ERRS TOWARD keeping a critical
+79-# safety topic active (held, not released). Removing a FALSE applicability is not
+80-# a weakening — the GLP-1 drug checklist genuinely does not apply to a
+81-# gut-microbiota question.
+82-_DRUG_DETECTOR_ENABLED_ENV = "PG_COMPLETENESS_DRUG_DETECTOR"
+83-
+84-
+85-def _drug_detector_enabled() -> bool:
+86-    """Return True iff the robust drug/intervention applicability gate is on.
+87-
+88-    Default ON (LAW VI: env-driven kill-switch, named constant, sane default).
+89-    Set ``PG_COMPLETENESS_DRUG_DETECTOR`` to a falsy token (0/false/no/off) to
+90:    fall back to the legacy substring-only `applies_if` behaviour for ALL topics
+91-    — provided as an operator escape hatch, not a default. When OFF, a topic's
+92-    ``requires_drug_intervention`` flag is ignored and applicability is the prior
+93-    `applies_if` substring match (so the OFF path is byte-identical to pre-BUG-7).
+94-    """
+95-    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
+96-    if raw is None:
+97-        return True
+98-    return raw.strip().lower() in _TRUE_TOKENS
+99-
+100-
+101-def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, bool]:
+102-    """Detect a drug/intervention in the QUESTION via the scope-gate recognizer.
+103-
+104-    Returns ``(detected, ambiguous)``:
+105-
+106-    * ``detected`` — True iff ``scope_gate._intervention_present`` recognised a
+107-      drug/intervention token in ``research_question``. A clean ``None`` from the
+108-      recognizer is a CONFIDENT negative (``detected=False, ambiguous=False``),
+109-      NOT ambiguity — the recognizer ran and found no intervention.
+110-    * ``ambiguous`` — True iff the recognizer could not be consulted at all
+111-      (import failure / missing PyYAML / missing config / build error). In that
+112-      case ``detected`` is False but the caller MUST treat a critical topic as
+113-      fail-closed (applies) per BUG-7.
+114-
+115-    This reuses the SAME recognizer the scope gate uses so completeness
+116-    applicability and scope recognition cannot drift apart.
+117-    """
+118-    try:
+119-        from src.polaris_graph.nodes.scope_gate import _intervention_present
+120-        token = _intervention_present(research_question or "")
+121-        return (token is not None), False
+122-    except Exception as exc:  # config/import unavailable -> genuine ambiguity
+123-        logger.warning(
+124-            "[completeness] intervention recognizer unavailable (%s); "
+125:            "fail-closed for critical topics per BUG-7 (#1262)",
+126-            exc,
+127-        )
+128-        return False, True
+129-
+130-
+131-# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
+132-# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
+133-# returned a (possibly-MISS) confident negative. Deliberately conservative — matches
+134-# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
+135-# or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
+136-# device/DBS, environmental metal exposure) yields False and is never spuriously held.
+137-_GENERIC_DRUG_SIGNAL_RE = re.compile(
+138-    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+139-    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
+140-    r"milligrams?|micrograms?|tablets?|capsules?|"
+141-    r"inhibitors?|agonists?|antagonists?|monoclonal|"
+142-    r"chemotherap\w*|antibiotics?|antiviral\w*|"
+143-    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
+--
+156-    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+157-
+158-    Default OFF: an unset / empty / falsy value yields False, so the strict
+159-    0/0-is-not-complete behavior is opt-in for benchmark runs only.
+160-    """
+161-    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+162-    if raw is None:
+163-        return False
+164-    return raw.strip().lower() in _TRUE_TOKENS
+165-
+166-
+167-@dataclass
+168-class ChecklistTopic:
+169-    id: str
+170-    label: str
+171-    keywords: list[str] = field(default_factory=list)
+172-    applies_if: list[str] = field(default_factory=list)
+173-    expand_queries: list[str] = field(default_factory=list)
+174:    # I-arch-004 F11 (#1249): clinical-safety-critical topics (contraindications,
+175-    # boxed warnings). When True AND the topic is applicable+uncovered, the sweep
+176-    # HOLDS release (non-success) instead of shipping an advisory ok_incomplete_corpus.
+177-    # Default False so every un-marked topic / checklist is byte-identical.
+178-    critical: bool = False
+179:    # BUG-7 (I-arch-006, #1262): drug/intervention-pharmacology topics
+180-    # (contraindications, GLP-1 class risks, drug interactions, regulatory
+181-    # approval, adverse events, …) only make sense when the QUESTION is actually
+182-    # about a drug/intervention. When True, applicability is gated by a robust
+183-    # config-driven drug/intervention detector (see `_topic_applies`) instead of
+184-    # the previous "any clinical question" / raw-substring path that wrongly
+185:    # marked these topics applicable for NON-drug clinical questions
+186-    # (gut-microbiota, Parkinson's, metal-ions) just because they routed
+187-    # domain="clinical". Default False -> every un-marked topic is byte-identical.
+188-    requires_drug_intervention: bool = False
+189-
+190-
+191-@dataclass
+192-class TopicCoverage:
+193-    topic: ChecklistTopic
+194-    applies: bool
+195-    covered: bool
+196-    hits: int                     # number of evidence rows that matched
+197-    matched_keywords: list[str] = field(default_factory=list)
+198-
+199-
+200-@dataclass
+201-class CompletenessReport:
+202-    domain: str
+203:    topics: list[TopicCoverage] = field(default_factory=list)
+204-    total_applicable: int = 0
+205-    total_covered: int = 0
+206-    total_uncovered: int = 0
+207-    expand_queries: list[str] = field(default_factory=list)
+208-    notes: list[str] = field(default_factory=list)
+209-
+210-    @property
+211-    def covered_fraction(self) -> float:
+212-        if self.total_applicable == 0:
+213-            return 1.0
+214-        return self.total_covered / self.total_applicable
+215-
+216-    @property
+217-    def completeness_state(self) -> str:
+218-        """FX-10 (I-ready-017): three-valued-logic state for the completeness check.
+219-
+220-        When no checklist topic applies (``total_applicable == 0``) the numeric
+221-        ``covered_fraction`` is a VACUOUS 1.0 — that is NOT_APPLICABLE, not a measured
+--
+248-        """
+249-        return self.is_complete()
+250-
+251-    def is_complete(self, *, min_covered_fraction: float = 0.5) -> bool:
+252-        """Parametrised form of :pyattr:`completeness_ready` (testable threshold).
+253-
+254-        ``min_covered_fraction`` only affects the ``measured`` branch; the
+255-        ``not_applicable`` branch is decided solely by ``PG_BENCHMARK_STRICT_GATES``.
+256-        """
+257-        if self.completeness_state == "not_applicable":
+258-            # 0/0: vacuous. Strict benchmark mode refuses to call it complete.
+259-            return not _benchmark_strict_gates()
+260-        # Measured denominator: identical decision regardless of the flag.
+261-        return self.covered_fraction >= min_covered_fraction
+262-
+263-    def uncovered_topic_ids(self) -> list[str]:
+264-        return [
+265-            tc.topic.id
+266:            for tc in self.topics
+267-            if tc.applies and not tc.covered
+268-        ]
+269-
+270-    def uncovered_critical_topic_ids(self) -> list[str]:
+271:        """I-arch-004 F11 (#1249): ids of APPLICABLE, UNCOVERED topics marked
+272-        ``critical: true`` in the checklist YAML (e.g. ``contraindications``).
+273-
+274-        A clinical report that ships with zero coverage of a critical-safety topic
+275-        (contraindications, boxed warnings) is a clinical-safety hole — the
+276:        completeness gate previously treated ALL uncovered topics as advisory
+277-        (``ok_incomplete_corpus``). This surfaces the critical subset so the sweep can
+278-        HOLD release (non-success) for them while non-critical gaps stay advisory.
+279-
+280-        Empty unless a topic is explicitly marked critical in the checklist, so
+281-        every existing (un-marked) checklist yields [] -> byte-identical behaviour."""
+282-        return [
+283-            tc.topic.id
+284:            for tc in self.topics
+285-            if tc.applies and not tc.covered and getattr(tc.topic, "critical", False)
+286-        ]
+287-
+288-
+289-def load_checklist(domain: str) -> list[ChecklistTopic]:
+290-    """Load config/completeness_checklists/{domain}.yaml."""
+291-    if yaml is None:
+292-        logger.warning("[completeness] yaml not available; no checklist loaded")
+293-        return []
+294-    path = _CHECKLIST_DIR / f"{domain}.yaml"
+295-    if not path.exists():
+296-        logger.info("[completeness] no checklist for domain=%r", domain)
+297-        return []
+298-    try:
+299-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+300-    except Exception as exc:
+301-        logger.warning("[completeness] yaml parse failed for %r: %s", path, exc)
+302-        return []
+303:    topics_raw = data.get("topics") or []
+304:    topics: list[ChecklistTopic] = []
+305:    for t in topics_raw:
+306-        if not isinstance(t, dict):
+307-            continue
+308-        tid = str(t.get("id") or "").strip()
+309-        if not tid:
+310-            continue
+311:        topics.append(ChecklistTopic(
+312-            id=tid,
+313-            label=str(t.get("label") or tid),
+314-            keywords=[str(k).lower() for k in (t.get("keywords") or [])],
+315-            applies_if=[str(a).lower() for a in (t.get("applies_if") or [])],
+316-            expand_queries=[str(q) for q in (t.get("expand_queries") or [])],
+317-            # I-arch-004 F11 (#1249): optional `critical: true` marks a clinical-safety
+318-            # topic whose uncovered state HOLDS release. Absent/false -> byte-identical.
+319-            critical=bool(t.get("critical", False)),
+320-            # BUG-7 (I-arch-006, #1262): optional `requires_drug_intervention: true`
+321-            # gates the topic on a robust drug/intervention detector (not the
+322-            # routing label / a raw substring). Absent/false -> byte-identical.
+323-            requires_drug_intervention=bool(
+324-                t.get("requires_drug_intervention", False)
+325-            ),
+326-        ))
+327:    return topics
+328-
+329-
+330-def _legacy_applies_if(
+331-    topic: ChecklistTopic,
+332-    research_question: str,
+333-    evidence_blob: str,
+334-) -> bool:
+335-    """Legacy substring `applies_if` match (question OR evidence pool).
+336-
+337-    A topic with no `applies_if` always matches. A topic with `applies_if`
+338-    terms matches iff any term is found in the research_question OR the
+339-    evidence pool (since "GLP-1" might be implied by the drug name). This is
+340:    the pre-BUG-7 behaviour, retained verbatim for non-drug topics and for the
+341-    OFF kill-switch path.
+342-    """
+343-    if not topic.applies_if:
+344-        return True
+345-    q_lower = (research_question or "").lower()
+346-    e_lower = (evidence_blob or "").lower()
+347-    for term in topic.applies_if:
+348-        if term in q_lower or term in e_lower:
+349-            return True
+350-    return False
+351-
+352-
+353-def _topic_applies(
+354-    topic: ChecklistTopic,
+355-    research_question: str,
+356-    evidence_blob: str,
+357-) -> tuple[bool, str]:
+358-    """Return ``(applies, disclosure_note)`` for a checklist topic.
+359-
+360-    BUG-7 (I-arch-006, #1262) — drive a drug/intervention-pharmacology topic's
+361-    applicability from a ROBUST detector, not the routing label or a raw
+362-    substring.
+363-
+364:    Non-drug topics (``requires_drug_intervention`` unset) keep the EXACT
+365-    pre-BUG-7 `applies_if` substring semantics (question OR evidence pool), so
+366-    their applicability is byte-identical.
+367-
+368-    A topic flagged ``requires_drug_intervention: true`` applies iff the QUESTION
+369-    is actually about a drug/intervention. "About a drug/intervention" is decided
+370-    by EITHER:
+371-      * the scope-gate recognizer (`_intervention_present`) finding a specific
+372-        drug name / INN-stem in the question, OR
+373-      * one of the topic's own `applies_if` CLASS anchors (e.g. "glp-1",
+374-        "incretin") appearing in the QUESTION — these are intervention-class
+375-        signals, not incidental evidence text.
+376-    The detector deliberately consults the QUESTION only: a drug word that merely
+377-    appears in retrieved EVIDENCE for a non-drug question must not flip a
+378-    pharmacology topic on (that was the false-positive path).
+379-
+380-    Once the question is confirmed to be about a drug/intervention, the topic's
+381-    NORMAL `applies_if` filter still applies (so the GLP-1-class topic stays gated
+382-    to GLP-1 questions and does not fire for metformin). For a topic with no
+--
+435-            #     is never spuriously held, but DISCLOSE the skip so the decision is
+436-            #     auditable, never silent.
+437-            if _generic_drug_signal(research_question):
+438-                return True, (
+439-                    f"critical topic {topic.id!r}: drug recognizer found no known "
+440-                    f"intervention, but the question carries generic drug/pharmacology "
+441-                    f"signal — kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
+442-                )
+443-            return False, (
+444-                f"critical topic {topic.id!r}: marked non-applicable — drug recognizer "
+445-                f"found no intervention AND the question carries no drug signal "
+446-                f"(disclosed, not silent; Codex P1, #1262)"
+447-            )
+448-        # Non-critical confident negative: a drug-pharmacology topic does not apply
+449-        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+450-        return False, ""
+451-
+452-    # The question IS about a drug/intervention. Apply the topic's normal
+453:    # `applies_if` filter so class-specific topics stay gated to their class.
+454-    return legacy, ""
+455-
+456-
+457-def _compile_keyword_re(keywords: list[str]) -> re.Pattern:
+458-    if not keywords:
+459-        return re.compile(r"(?!x)x")  # never matches
+460-    parts = [re.escape(k) for k in keywords]
+461-    return re.compile(r"|".join(parts), re.IGNORECASE)
+462-
+463-
+464-def check_completeness(
+465-    *,
+466-    domain: str,
+467-    research_question: str,
+468-    evidence_rows: list[dict[str, Any]],
+469-    min_hits_to_cover: int = 1,
+470-    drug_or_topic_hint: str = "",
+471-) -> CompletenessReport:
+472-    """Check evidence rows against the domain's completeness checklist.
+473-
+474-    Args:
+475-        domain: scope-template domain name.
+476-        research_question: the user's query (drives the `applies_if` filter and,
+477:            for `requires_drug_intervention` topics, the BUG-7 robust
+478-            drug/intervention applicability gate — see `_topic_applies`).
+479-        evidence_rows: evidence dicts with 'direct_quote' / 'statement'.
+480-        min_hits_to_cover: min # of evidence rows that must match at
+481-            least one keyword for a topic to be "covered" (default 1).
+482-        drug_or_topic_hint: optional {drug} substitution for expand_queries
+483-            (otherwise uses first significant noun from the question).
+484-
+485-    Returns CompletenessReport with per-topic coverage + expand_queries
+486:    for uncovered topics.
+487-    """
+488:    topics = load_checklist(domain)
+489:    if not topics:
+490-        return CompletenessReport(domain=domain, notes=["no_checklist_loaded"])
+491-
+492-    # Build an all-evidence text blob for applies_if checks
+493-    evidence_blob = " ".join(
+494-        (ev.get("direct_quote") or "") + " " + (ev.get("statement") or "")
+495-        for ev in evidence_rows
+496-    )
+497-
+498-    # Pick a substitution token for {drug}/{topic}/{company}/{product}
+499-    # placeholders in expand_queries. Use explicit hint if given, else
+500-    # attempt to pull a drug name or the first significant noun from
+501-    # the research_question.
+502-    token = (drug_or_topic_hint or "").strip()
+503-    if not token:
+504-        try:
+505-            from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
+506-            m = _DRUG_NAME_RE.search(research_question)
+507-            if m:
+508-                token = m.group(1)
+509-        except Exception:
+510-            pass
+511-    if not token:
+512-        # First capitalized or salient noun phrase, naive fallback
+513-        m = re.search(r"\b([A-Z][A-Za-z\-]{3,})\b", research_question)
+514-        if m:
+515-            token = m.group(1)
+516-    if not token:
+517-        token = "topic"
+518-
+519-    coverages: list[TopicCoverage] = []
+520-    all_expand_queries: list[str] = []
+521-    # BUG-7 (I-arch-006, #1262): fail-closed disclosure notes for any critical
+522-    # topic kept applicable because the intervention recognizer was unavailable.
+523:    applicability_disclosures: list[str] = []
+524-
+525:    for topic in topics:
+526-        applies, disclosure = _topic_applies(
+527-            topic, research_question, evidence_blob
+528-        )
+529-        if disclosure:
+530:            applicability_disclosures.append(disclosure)
+531-        if not applies:
+532-            coverages.append(TopicCoverage(
+533-                topic=topic, applies=False,
+534-                covered=False, hits=0,
+535-            ))
+536-            continue
+537-
+538-        kw_re = _compile_keyword_re(topic.keywords)
+539-        hits = 0
+540-        matched: list[str] = []
+541-        for ev in evidence_rows:
+542-            quote = (
+543-                (ev.get("direct_quote") or "")
+544-                + " "
+545-                + (ev.get("statement") or "")
+546-            )
+547-            m = kw_re.search(quote)
+548-            if m:
+--
+569-
+570-    applicable = sum(1 for c in coverages if c.applies)
+571-    covered_n = sum(1 for c in coverages if c.applies and c.covered)
+572-    uncovered_n = applicable - covered_n
+573-
+574-    notes: list[str] = []
+575-    if uncovered_n > 0:
+576-        uncovered_labels = [
+577-            c.topic.label for c in coverages
+578-            if c.applies and not c.covered
+579-        ]
+580-        notes.append(
+581-            f"{uncovered_n}/{applicable} applicable topic(s) uncovered: "
+582-            f"{uncovered_labels}"
+583-        )
+584-    # BUG-7 (I-arch-006, #1262): surface any fail-closed applicability disclosure
+585-    # (a critical topic kept applicable because the recognizer was unavailable) so
+586-    # the decision is DISCLOSED, never silent.
+587:    notes.extend(applicability_disclosures)
+588-
+589-    return CompletenessReport(
+590-        domain=domain,
+591:        topics=coverages,
+592-        total_applicable=applicable,
+593-        total_covered=covered_n,
+594-        total_uncovered=uncovered_n,
+595-        expand_queries=all_expand_queries,
+596-        notes=notes,
+597-    )
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1404ms:
+.codex/I-arch-006/p1_fix_clean.diff:15:+_GENERIC_DRUG_SIGNAL_RE = re.compile(
+.codex/I-arch-006/p1_fix_clean.diff:27:+def _generic_drug_signal(question: str) -> bool:
+.codex/I-arch-006/p1_fix_clean.diff:29:+    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+.codex/I-arch-006/p1_fix_clean.diff:30:+    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+.codex/I-arch-006/p1_fix_clean.diff:50:+            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
+.codex/I-arch-006/p1_fix_clean.diff:53:+            #   * no drug signal at all (genuine non-drug: microbiota / device /
+.codex/I-arch-006/p1_fix_clean.diff:57:+            if _generic_drug_signal(research_question):
+.codex/I-arch-006/p1_fix_clean.diff:60:+                    f"intervention, but the question carries generic drug/pharmacology "
+.codex/I-arch-006/p1_fix_clean.diff:65:+                f"found no intervention AND the question carries no drug signal "
+src/polaris_graph/nodes/completeness_checker.py:137:_GENERIC_DRUG_SIGNAL_RE = re.compile(
+src/polaris_graph/nodes/completeness_checker.py:149:def _generic_drug_signal(question: str) -> bool:
+src/polaris_graph/nodes/completeness_checker.py:151:    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+src/polaris_graph/nodes/completeness_checker.py:152:    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+src/polaris_graph/nodes/completeness_checker.py:430:            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
+src/polaris_graph/nodes/completeness_checker.py:433:            #   * no drug signal at all (genuine non-drug: microbiota / device /
+src/polaris_graph/nodes/completeness_checker.py:437:            if _generic_drug_signal(research_question):
+src/polaris_graph/nodes/completeness_checker.py:440:                    f"intervention, but the question carries generic drug/pharmacology "
+src/polaris_graph/nodes/completeness_checker.py:445:                f"found no intervention AND the question carries no drug signal "
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 1519ms:
+.codex/I-arch-006/p1_fix_clean.diff:77:@@ -799,7 +799,10 @@ _ERROR_PAGE_TOKENS = (
+.codex/I-arch-006/p1_fix_clean.diff:81:-    "not found",
+.codex/I-arch-006/p1_fix_clean.diff:82:+    # NOTE (Codex P1, #1262): bare "not found" was REMOVED here — as a substring
+.codex/I-arch-006/p1_fix_clean.diff:84:+    # not found"). The literal whole-unit 404 stub ("Not Found") is re-caught by an
+.codex/I-arch-006/p1_fix_clean.diff:85:+    # EXACT whole-unit check in is_boilerplate_or_nonassertional (never a clause).
+.codex/I-arch-006/p1_fix_clean.diff:91:                 if len(residual_words) <= 3:
+.codex/I-arch-006/p1_fix_clean.diff:93:+        # Codex P1 (#1262): bare "not found" was removed from _ERROR_PAGE_TOKENS
+.codex/I-arch-006/p1_fix_clean.diff:95:+        # findings (e.g. "Metastases were not found" → residual "metastases were"
+.codex/I-arch-006/p1_fix_clean.diff:96:+        # ≤3). Re-catch ONLY the literal whole-unit 404 stub: the unit's alpha
+.codex/I-arch-006/p1_fix_clean.diff:97:+        # content is EXACTLY "not found", never a real clause containing it.
+.codex/I-arch-006/p1_fix_clean.diff:98:+        if re.sub(r"[\W_]+", " ", lowered, flags=re.UNICODE).strip() == "not found":
+src/tools/access_bypass.py:742:# *pure* error page (a literal NTSB "Page not found" / "404 Not Found" body)
+src/tools/access_bypass.py:744:# because boilerplate trivially entails itself ("Page not found" ⊨ "Page not
+src/tools/access_bypass.py:794:# finding. Matched case-insensitively as a whole-unit signal.
+src/tools/access_bypass.py:795:_ERROR_PAGE_TOKENS = (
+src/tools/access_bypass.py:796:    "page not found",
+src/tools/access_bypass.py:797:    "404 not found",
+src/tools/access_bypass.py:798:    "404 - not found",
+src/tools/access_bypass.py:802:    # NOTE (Codex P1, #1262): bare "not found" was REMOVED here — as a substring
+src/tools/access_bypass.py:804:    # not found"). The literal whole-unit 404 stub ("Not Found") is re-caught by an
+src/tools/access_bypass.py:805:    # EXACT whole-unit check in is_boilerplate_or_nonassertional (never a clause).
+src/tools/access_bypass.py:824:# Max length (chars) for the error-page whole-unit check. An error STUB is
+src/tools/access_bypass.py:825:# short; a long article that merely quotes "not found" deep in prose must not
+src/tools/access_bypass.py:865:      • an error-page stub ("Page not found" / "404 Not Found" / "403
+src/tools/access_bypass.py:867:        essentially only that token — the literal NTSB "Page not found" 404
+src/tools/access_bypass.py:871:    NEVER flagged: the marker/DOI/table patterns are whole-unit anchored, and
+src/tools/access_bypass.py:902:    #    Length-gated so a long article quoting "not found" in prose is safe.
+src/tools/access_bypass.py:911:        for token in _ERROR_PAGE_TOKENS:
+src/tools/access_bypass.py:917:                residual_words = [
+src/tools/access_bypass.py:921:                if len(residual_words) <= 3:
+src/tools/access_bypass.py:923:        # Codex P1 (#1262): bare "not found" was removed from _ERROR_PAGE_TOKENS
+src/tools/access_bypass.py:925:        # findings (e.g. "Metastases were not found" → residual "metastases were"
+src/tools/access_bypass.py:926:        # ≤3). Re-catch ONLY the literal whole-unit 404 stub: the unit's alpha
+src/tools/access_bypass.py:927:        # content is EXACTLY "not found", never a real clause containing it.
+src/tools/access_bypass.py:928:        if re.sub(r"[\W_]+", " ", lowered, flags=re.UNICODE).strip() == "not found":
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["src/polaris_graph/nodes/completeness_checker.py:137: `_GENERIC_DRUG_SIGNAL_RE` can still be tripped by non-drug questions via unqualified terms like `administered`, `subcutaneous`, `intramuscular`, and `dosing` (for example self-administered questionnaires, subcutaneous fat, radiation dosing). In the confident-negative critical branch this returns `applies=True`, so a non-drug report can still be spuriously held by `abort_critical_topic_uncovered`. P1-2 is therefore not completely resolved, although the disclosure plumbing is present."]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Tighten `_generic_drug_signal` so the fail-closed critical path only fires on drug/pharmacology context; remove or qualify broad non-drug terms. P1-1 is resolved: bare `not found` no longer drops negative clinical findings, while `Page not found`, `404 Not Found`, and exact whole-unit `Not Found` remain flagged."]
+tokens used
+29,478
