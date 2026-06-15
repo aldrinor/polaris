@@ -1,0 +1,310 @@
+diff --git a/scripts/run_console/index.html b/scripts/run_console/index.html
+index ee939c5b..b7c2c962 100644
+--- a/scripts/run_console/index.html
++++ b/scripts/run_console/index.html
+@@ -191,7 +191,10 @@
+       var wrap = document.createElement("div");
+       wrap.className = "var";
+       var name = document.createElement("div");
+-      name.innerHTML = "<span class='var-name'>" + v.name + "</span>";
++      var nameSpan = document.createElement("span");
++      nameSpan.className = "var-name";
++      nameSpan.textContent = v.name;
++      name.appendChild(nameSpan);
+       var meta = document.createElement("div");
+       meta.className = "var-meta";
+       meta.textContent = "default: " + (v.default_if_any === null || v.default_if_any === undefined ? "(none)" : v.default_if_any)
+diff --git a/scripts/run_console/run_console.py b/scripts/run_console/run_console.py
+index ae3b3b52..7ee17a52 100644
+--- a/scripts/run_console/run_console.py
++++ b/scripts/run_console/run_console.py
+@@ -9,9 +9,13 @@ Design contract (LAW VII -- CLI isolation; LAW VI -- no hard-coding):
+     observability files a run already writes, and READS/WRITES one ``.env``
+     config file. It can never perturb a run or a verdict.
+   * It is read-only on every run artifact. The only write is ``POST /api/config``
+-    editing a single line of the target ``.env``.
+-  * host / port / run-root come from argparse or env (PG_CONSOLE_HOST,
+-    PG_CONSOLE_PORT, PG_CONSOLE_ROOT) -- nothing is hard-coded.
++    editing a single line of the target ``.env``. The target ``.env`` is a
++    SERVER-CONFIGURED path (``--env-file`` / ``PG_CONSOLE_ENV_FILE``, default
++    ``<root>/.env`` else ``<repo>/.env``); requests can NEVER point it elsewhere.
++    Keys are restricted to ``PG_[A-Z0-9_]+`` and values may not contain newlines,
++    so the endpoint cannot smuggle extra keys or escape the intended file.
++  * host / port / run-root / env-file come from argparse or env (PG_CONSOLE_HOST,
++    PG_CONSOLE_PORT, PG_CONSOLE_ROOT, PG_CONSOLE_ENV_FILE) -- nothing is hard-coded.
+ 
+ Observability files consumed (verified against the live emitters):
+   * ``run_status.json``       heartbeat   -> phase / status / progress
+@@ -54,6 +58,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+ HOST_ENV = "PG_CONSOLE_HOST"
+ PORT_ENV = "PG_CONSOLE_PORT"
+ ROOT_ENV = "PG_CONSOLE_ROOT"
++ENV_FILE_ENV = "PG_CONSOLE_ENV_FILE"  # server-configured target .env (NEVER request-controlled)
+ DEFAULT_HOST = "127.0.0.1"  # localhost-only: this process writes a .env from a request body
+ DEFAULT_PORT = 8787
+ 
+@@ -77,6 +82,19 @@ _CONFIG_SCAN_DIRS = ("src", "scripts")
+ _CONFIG_SCAN_SUFFIXES = (".py",)
+ _CONFIG_MAX_FILE_BYTES = 2_000_000
+ 
++# -- DoS hardening caps (env-overridable; generous so normal artifacts are untouched) --
++# Skip/refuse any single observability or env file larger than this when reading.
++_MAX_READ_BYTES = int(os.environ.get("PG_CONSOLE_MAX_READ_BYTES", str(8 * 1024 * 1024)))  # 8 MB
++# Cap how many llm_io/*.json files we read per poll (newest-first).
++_MAX_LLM_IO_FILES = int(os.environ.get("PG_CONSOLE_MAX_LLM_IO_FILES", "200"))
++# Bound the /api/runs directory walk (domain dirs, and slug dirs per domain).
++_MAX_RUN_DIRS = int(os.environ.get("PG_CONSOLE_MAX_RUN_DIRS", "2000"))
++
++# -- /api/config validation: accept ONLY PG_<UPPER/DIGIT/_> keys; mask secret-looking values --
++_PG_KEY_RE = re.compile(r"PG_[A-Z0-9_]+")  # used with fullmatch (rejects trailing \n that ^...$ allows)
++_SECRET_KEY_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "AUTH")
++_SECRET_MASK = "********"
++
+ _HERE = Path(__file__).resolve().parent
+ _REPO_ROOT = _HERE.parent.parent  # scripts/run_console -> scripts -> repo root
+ 
+@@ -85,11 +103,26 @@ app = FastAPI(title="POLARIS run console", docs_url=None, redoc_url=None)
+ # Resolved at startup from argparse/env (see main()); a module global so the
+ # route handlers can read it without a dependency-injection framework.
+ _RUN_ROOT: Path = Path(os.environ.get(ROOT_ENV, str(_REPO_ROOT / "outputs" / "honest_sweep_r3")))
++# Server-configured target .env for /api/config (GET + POST). Resolved in main();
++# request bodies/queries can NEVER point the console at a different file.
++_ENV_FILE: Path = Path(
++    os.environ.get(ENV_FILE_ENV, str(_RUN_ROOT / ".env"))
++).resolve()
+ 
+ 
+ # -- helpers: safe IO --------------------------------------------------------
++def _too_big(path: Path) -> bool:
++    """True if path exceeds the read cap (DoS guard). Missing/unstatable -> not big."""
++    try:
++        return path.stat().st_size > _MAX_READ_BYTES
++    except OSError:
++        return False
++
++
+ def _read_json(path: Path) -> "dict[str, Any] | None":
+-    """Best-effort whole-file JSON read. Returns None on absence / mid-write garbage."""
++    """Best-effort whole-file JSON read. Returns None on absence / mid-write garbage / oversize."""
++    if _too_big(path):
++        return None
+     try:
+         return json.loads(path.read_text(encoding="utf-8"))
+     except Exception:
+@@ -101,8 +134,11 @@ def _iter_jsonl(path: Path) -> Iterator[dict]:
+ 
+     The file is rewritten in place by the emitters, so a poll can land mid-write
+     and read a truncated final line; that line fails json.loads and is skipped --
+-    it parses cleanly on the next poll once the rewrite completes.
++    it parses cleanly on the next poll once the rewrite completes. Files over the
++    read cap are skipped entirely (DoS guard).
+     """
++    if _too_big(path):
++        return
+     try:
+         text = path.read_text(encoding="utf-8")
+     except Exception:
+@@ -137,16 +173,26 @@ def _resolve_run_dir(run: str) -> "Path | None":
+ 
+ # -- /api/runs ---------------------------------------------------------------
+ def _list_runs(root: Path) -> list:
+-    """List run dirs (domain/slug, two levels deep) under root, newest first, with status."""
++    """List run dirs (domain/slug, two levels deep) under root, newest first, with status.
++
++    The walk is bounded to ``_MAX_RUN_DIRS`` slug dirs so a pathological root with a
++    huge number of subdirectories cannot pin CPU/IO (DoS guard).
++    """
+     runs: list = []
+     if not root.is_dir():
+         return runs
++    walked = 0
+     for domain_dir in root.iterdir():
++        if walked >= _MAX_RUN_DIRS:
++            break
+         if not domain_dir.is_dir():
+             continue
+         for slug_dir in domain_dir.iterdir():
++            if walked >= _MAX_RUN_DIRS:
++                break
+             if not slug_dir.is_dir():
+                 continue
++            walked += 1
+             rel = domain_dir.name + "/" + slug_dir.name
+             manifest = _read_json(slug_dir / MANIFEST_FILE)
+             status_doc = _read_json(slug_dir / RUN_STATUS_FILE)
+@@ -263,6 +309,9 @@ def _llm_io_event(doc: dict) -> dict:
+ def _report_events(report_path: Path) -> list:
+     """One report event (the report landed) plus one citation event per unique [#ev:..] token."""
+     out: list = []
++    if _too_big(report_path):
++        out.append(_ev("report", "report.md present but exceeds read cap; skipped"))
++        return out
+     try:
+         text = report_path.read_text(encoding="utf-8")
+     except Exception:
+@@ -341,6 +390,8 @@ async def _event_stream(run_dir: Path):
+                 files = sorted(llm_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+             except OSError:
+                 files = []
++            # DoS guard: only the newest _MAX_LLM_IO_FILES files are read per poll.
++            files = files[-_MAX_LLM_IO_FILES:]
+             for f in files:
+                 if f.name in seen_llm:
+                     continue
+@@ -407,6 +458,8 @@ def _scan_pg_vars() -> dict:
+ 
+ def _read_env_file(env_path: Path) -> dict:
+     values: dict = {}
++    if _too_big(env_path):
++        return values
+     try:
+         text = env_path.read_text(encoding="utf-8")
+     except Exception:
+@@ -420,8 +473,28 @@ def _read_env_file(env_path: Path) -> dict:
+     return values
+ 
+ 
++def _is_secret_key(name: str) -> bool:
++    """True if a config key name looks secret-bearing (case-insensitive substring match)."""
++    upper = name.upper()
++    return any(marker in upper for marker in _SECRET_KEY_MARKERS)
++
++
++def _mask_value(value: "str | None") -> "str | None":
++    """Mask a secret-looking value: keep first2+last2 for long values, else a flat mask."""
++    if value is None:
++        return None
++    if len(value) <= 6:
++        return _SECRET_MASK
++    return value[:2] + _SECRET_MASK + value[-2:]
++
++
+ def _set_env_var(env_path: Path, name: str, value: str) -> None:
+-    """Set/replace one ``NAME=value`` line, preserving every other line. Append if absent."""
++    """Set/replace one ``NAME=value`` line, preserving every other line. Append if absent.
++
++    Refuses to read/rewrite an existing file over the read cap (DoS guard).
++    """
++    if _too_big(env_path):
++        raise ValueError("target env file exceeds read cap")
+     try:
+         existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+     except Exception:
+@@ -447,8 +520,10 @@ def index() -> FileResponse:
+ 
+ 
+ @app.get("/api/runs")
+-def api_runs(root: "str | None" = Query(default=None)) -> JSONResponse:
+-    base = Path(root) if root else _RUN_ROOT
++def api_runs() -> JSONResponse:
++    # Constrained to the server-configured _RUN_ROOT only. Any request-supplied
++    # `root` is ignored so the endpoint cannot enumerate arbitrary directories.
++    base = _RUN_ROOT.resolve()
+     return JSONResponse({"root": str(base), "runs": _list_runs(base)})
+ 
+ 
+@@ -465,20 +540,24 @@ async def stream(run: str = Query(...)):
+ 
+ 
+ @app.get("/api/config")
+-def api_config(env_file: "str | None" = Query(default=None)) -> JSONResponse:
++def api_config() -> JSONResponse:
++    # Reads ONLY the server-configured _ENV_FILE (no request-controlled path).
++    # Secret-looking values are masked so a GET cannot disclose raw secrets.
+     declared = _scan_pg_vars()
+-    env_path = Path(env_file) if env_file else (_REPO_ROOT / ".env")
+-    current = _read_env_file(env_path)
++    current = _read_env_file(_ENV_FILE)
+     rows = []
+     for name in sorted(set(declared) | {k for k in current if k.startswith("PG_")}):
++        raw = current.get(name)
++        value = _mask_value(raw) if _is_secret_key(name) else raw
+         rows.append(
+             {
+                 "name": name,
+                 "default_if_any": declared.get(name),
+-                "current_value_from_env_file": current.get(name),
++                "current_value_from_env_file": value,
++                "secret": _is_secret_key(name),
+             }
+         )
+-    return JSONResponse({"env_file": str(env_path), "count": len(rows), "vars": rows})
++    return JSONResponse({"env_file": str(_ENV_FILE), "count": len(rows), "vars": rows})
+ 
+ 
+ @app.post("/api/config")
+@@ -489,17 +568,37 @@ async def api_set_config(request: Request) -> JSONResponse:
+         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+     name = body.get("name")
+     value = body.get("value")
+-    env_file = body.get("env_file")
++    # Any `env_file` in the body is IGNORED: the write target is the single
++    # server-configured _ENV_FILE only (no request-controlled paths).
+     if not name or not isinstance(name, str):
+         return JSONResponse({"error": "missing 'name'"}, status_code=400)
+     if value is None:
+         return JSONResponse({"error": "missing 'value'"}, status_code=400)
+-    env_path = Path(env_file) if env_file else (_REPO_ROOT / ".env")
++    if not isinstance(value, str):
++        return JSONResponse({"error": "'value' must be a string"}, status_code=400)
++    # Validate the key: ONLY PG_<UPPER/DIGIT/_>. fullmatch (not ^...$) so a
++    # trailing newline like "PG_FOO\n" is rejected (\\$ would allow it).
++    if not _PG_KEY_RE.fullmatch(name):
++        return JSONResponse(
++            {"error": "invalid 'name': must match PG_[A-Z0-9_]+"}, status_code=400
++        )
++    # Reject ANY line-break in the value: prevents key smuggling
++    # (e.g. value="x\nPG_OTHER=y" injecting a second line into the .env).
++    # NOTE: this guards against EVERY separator str.splitlines() breaks on --
++    # not just \n/\r but also \v \f \x1c-\x1e \x85     -- because
++    # _read_env_file / _set_env_var split the file with splitlines(); a narrower
++    # check (only \n/\r) would let "x PG_OTHER=y" smuggle a second key.
++    if "\n" in value or "\r" in value or len(value.splitlines()) > 1:
++        return JSONResponse(
++            {"error": "invalid 'value': must not contain a line break"}, status_code=400
++        )
+     try:
+-        _set_env_var(env_path, name, str(value))
++        _set_env_var(_ENV_FILE, name, value)
+     except Exception as exc:
+         return JSONResponse({"error": "write failed: " + str(exc)}, status_code=500)
+-    return JSONResponse({"ok": True, "env_file": str(env_path), "name": name, "value": str(value)})
++    # Do NOT echo the raw value (it may be a secret). Return the key + the
++    # resolved server path only.
++    return JSONResponse({"ok": True, "name": name, "env_file": str(_ENV_FILE)})
+ 
+ 
+ # -- entrypoint --------------------------------------------------------------
+@@ -512,14 +611,29 @@ def main() -> None:
+         default=os.environ.get(ROOT_ENV, str(_REPO_ROOT / "outputs" / "honest_sweep_r3")),
+         help="run output root; run dirs are <root>/<domain>/<slug>/",
+     )
++    parser.add_argument(
++        "--env-file",
++        default=os.environ.get(ENV_FILE_ENV),
++        help="the ONE .env file /api/config reads and writes "
++        "(default: <root>/.env, else <repo>/.env). Requests can never override it.",
++    )
+     args = parser.parse_args()
+ 
+-    global _RUN_ROOT
+-    _RUN_ROOT = Path(args.root)
++    global _RUN_ROOT, _ENV_FILE
++    _RUN_ROOT = Path(args.root).resolve()
++    if args.env_file:
++        _ENV_FILE = Path(args.env_file).resolve()
++    else:
++        candidate = _RUN_ROOT / ".env"
++        _ENV_FILE = candidate.resolve() if candidate.exists() else (_REPO_ROOT / ".env").resolve()
+ 
+     import uvicorn
+ 
+-    print("[run_console] root=" + str(_RUN_ROOT) + "  http://" + args.host + ":" + str(args.port) + "/")
++    print(
++        "[run_console] root=" + str(_RUN_ROOT)
++        + "  env_file=" + str(_ENV_FILE)
++        + "  http://" + args.host + ":" + str(args.port) + "/"
++    )
+     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+ 
+ 

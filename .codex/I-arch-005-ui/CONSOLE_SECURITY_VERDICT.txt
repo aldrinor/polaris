@@ -1,0 +1,46 @@
+NO-GO
+findings:
+- P1: POST /api/config is an authenticated arbitrary file write and env injection surface. The handler trusts request-controlled env_file, accepts any string name, accepts newline-bearing values, and passes them to a writer that creates parent directories and writes name=value without constraining the path to the intended repo .env or validating PG_/known keys. Exact handler:
+  ```
+  @app.post("/api/config")
+  async def api_set_config(request: Request) -> JSONResponse:
+      try:
+          body = await request.json()
+      except Exception:
+          return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+      name = body.get("name")
+      value = body.get("value")
+      env_file = body.get("env_file")
+      if not name or not isinstance(name, str):
+          return JSONResponse({"error": "missing 'name'"}, status_code=400)
+      if value is None:
+          return JSONResponse({"error": "missing 'value'"}, status_code=400)
+      env_path = Path(env_file) if env_file else (_REPO_ROOT / ".env")
+      try:
+          _set_env_var(env_path, name, str(value))
+      except Exception as exc:
+          return JSONResponse({"error": "write failed: " + str(exc)}, status_code=500)
+      return JSONResponse({"ok": True, "env_file": str(env_path), "name": name, "value": str(value)})
+  ```
+  The sink is `_set_env_var`: it appends/replaces `name + "=" + value`, calls `env_path.parent.mkdir(parents=True, exist_ok=True)`, then `env_path.write_text(...)`. Exploits include `env_file=C:/POLARIS/any/file`, `value="x\nPG_OTHER=y"` to smuggle extra keys, and `name` containing newlines/code-like text. This can corrupt arbitrary files the process can write and can enable delayed code execution if a later process imports/executes a written file or consumes poisoned env/config.
+- P1: GET /api/config has the same unconstrained env_file path. `api_config` does `env_path = Path(env_file) if env_file else (_REPO_ROOT / ".env")` and `_read_env_file(env_path)` returns raw `current_value_from_env_file` for PG_* keys. A request can point at any readable env-style file and disclose PG_* secrets; values are also echoed in the browser and POST response. This should be constrained to the single intended .env and secret-looking values should be masked.
+- P2: GET /api/runs?root= is not constrained to `_RUN_ROOT`: `base = Path(root) if root else _RUN_ROOT`. It does not provide arbitrary filename reads, but it can escape the configured root, enumerate two directory levels anywhere the process can read, and read fixed `manifest.json` / `run_status.json` files and mtimes under that arbitrary root.
+- P2: GET /stream?run= has the correct traversal guard. `_resolve_run_dir` resolves `_RUN_ROOT` and `(base / run)`, then requires `candidate.relative_to(base)`, which rejects `../`, absolute path escape, and symlink escape before streaming fixed files.
+- P2: DoS hardening is needed. The SSE loop re-reads whole JSON/JSONL files every poll (`read_text`, `list(_iter_jsonl(...))`), sorts and reads unbounded `llm_io/*.json`, and reads whole `report.md`; the per-event text clamp happens after full read/parse. `/api/config` also reads the requested env_file unbounded, and `/api/runs?root=` can walk large arbitrary roots. Add byte/file/count caps and reject oversized files before reading.
+- P2: No immediate code-execution primitive was found in these two files: no eval/exec/os.system/subprocess/pickle/yaml.load/Jinja path, and user input does not reach a shell or unsafe deserializer. Actual imports are stdlib plus FastAPI responses; the only pipeline/faithfulness references are docstring comments, not imports.
+- P2: `index.html` mostly uses `textContent`, but config variable names are inserted with `innerHTML` at `name.innerHTML = "<span class='var-name'>" + v.name + "</span>";`. Scanner-discovered names are regex-safe, but env-file keys are only filtered by `startswith("PG_")`; after key validation this should still be changed to `textContent`.
+
+schema:
+verdict: REQUEST_CHANGES
+p0: []
+p1:
+  - POST /api/config arbitrary file write, newline/key injection, unconstrained env_file, and unconstrained key name.
+  - GET /api/config arbitrary env_file read of PG_* secret values with no masking.
+p2:
+  - /api/runs?root escapes configured root for directory enumeration and fixed-file metadata reads.
+  - /stream?run traversal guard is acceptable.
+  - SSE/config/runs endpoints need file size/count/rate caps to reduce CPU and memory DoS risk.
+  - Secret-looking config values should be masked and POST should not echo raw values.
+  - No direct shell/deserializer/code-execution surface or pipeline import found in the reviewed files.
+  - Replace config-name innerHTML with textContent after key validation.
+convergence_call: continue

@@ -143,7 +143,7 @@
     countEl.textContent = "0 events";
     if (!run) return;
     connEl.textContent = "connecting...";
-    es = new EventSource("/stream?run=" + encodeURIComponent(run));
+    es = new EventSource("stream?run=" + encodeURIComponent(run));
     es.onopen = function () { connEl.textContent = "connected: " + run; };
     es.onmessage = function (e) {
       try { addEvent(JSON.parse(e.data)); }
@@ -156,7 +156,7 @@
   }
 
   function loadRuns() {
-    fetch("/api/runs").then(function (r) { return r.json(); }).then(function (data) {
+    fetch("api/runs").then(function (r) { return r.json(); }).then(function (data) {
       var cur = runSelect.value;
       runSelect.innerHTML = "";
       var blank = document.createElement("option");
@@ -191,7 +191,10 @@
       var wrap = document.createElement("div");
       wrap.className = "var";
       var name = document.createElement("div");
-      name.innerHTML = "<span class='var-name'>" + v.name + "</span>";
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "var-name";
+      nameSpan.textContent = v.name;
+      name.appendChild(nameSpan);
       var meta = document.createElement("div");
       meta.className = "var-meta";
       meta.textContent = "default: " + (v.default_if_any === null || v.default_if_any === undefined ? "(none)" : v.default_if_any)
@@ -219,7 +222,7 @@
 
   function loadConfig() {
     var ef = envFileEl.value.trim();
-    var url = "/api/config" + (ef ? ("?env_file=" + encodeURIComponent(ef)) : "");
+    var url = "api/config" + (ef ? ("?env_file=" + encodeURIComponent(ef)) : "");
     cfgList.innerHTML = "<div class='muted'>loading...</div>";
     fetch(url).then(function (r) { return r.json(); }).then(function (data) {
       allVars = data.vars || [];
@@ -232,7 +235,7 @@
 
   function setVar(name, value, metaEl) {
     var ef = envFileEl.value.trim();
-    fetch("/api/config", {
+    fetch("api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ env_file: ef || null, name: name, value: value })
