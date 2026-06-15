@@ -48,6 +48,7 @@ monkeypatch.setattr on strict_verify):
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -95,6 +96,43 @@ _ENTAILMENT_WRITE_S = float(os.getenv("PG_ENTAILMENT_WRITE_S", "60"))
 _ENTAILMENT_POOL_S = float(os.getenv("PG_ENTAILMENT_POOL_S", "30"))
 _ENTAILMENT_MAX_KEEPALIVE = int(os.getenv("PG_ENTAILMENT_MAX_KEEPALIVE", "8"))
 _ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S", "30"))
+# I-arch-006 HANG-J3 (overnight 2026-06-15): the read-stall (read=_ENTAILMENT_READ_STALL_S) is a per-read
+# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the judge socket
+# ESTABLISHED and TRICKLES keep-alive bytes (SSE comment lines / chunked keep-alives), so the gap timer
+# never elapses and a SINGLE judge POST runs UNBOUNDED — 15-22 min hangs were observed freezing entire
+# iarch006 resume runs (the run can't finish its ~2500 per-claim verifies before one call hangs forever).
+# HANG-J1/J2's read-stall only catches a TRULY dead rx=tx=0 socket; it CANNOT bound a trickle. Fix: a HARD
+# TOTAL per-call wall-deadline around the blocking POST (below). On timeout the hung socket is force-closed
+# (unsticks the worker) and the existing bounded SAME-provider retry reopens a FRESH connection; on
+# exhaustion the UNCHANGED fail-CLOSED ('ENTAILED','judge_error:…') sentinel fires (consumers DROP ->
+# faithfulness-safe, never fabricates). Transport-only; verdict logic + the fail-closed contract UNCHANGED.
+# LAW VI: env-driven. Default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed)
+# while bounding the trickle hang; with the 2 retries the worst-case wall per claim is ~3*150s before drop.
+_ENTAILMENT_TOTAL_S = float(os.getenv("PG_ENTAILMENT_TOTAL_S", "150"))
+
+
+def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+    """HANG-J3: run the blocking judge POST under a HARD total wall-deadline.
+
+    httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
+    this bounds the WHOLE call so one hung judge POST can never freeze the run. Runs the POST on a
+    worker thread and waits at most ``total_s``. On timeout the client is force-closed (so the worker's
+    hung read errors out and the thread exits) and ``concurrent.futures.TimeoutError`` is re-raised for
+    the caller's bounded retry to reopen a fresh connection. Returns the ``httpx.Response`` on success.
+    """
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+    try:
+        resp = fut.result(timeout=total_s)
+        ex.shutdown(wait=False)
+        return resp
+    except concurrent.futures.TimeoutError:
+        try:
+            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+        except Exception:  # noqa: BLE001
+            pass
+        ex.shutdown(wait=False)  # do NOT block on the (now-unsticking) worker
+        raise
 # I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
 # for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
 # previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
@@ -223,11 +261,17 @@ class _EntailmentJudge:
         # default model (google/gemma-4-31b-it) is in a different
         # family from DeepSeek by construction.
         check_family_segregation(evaluator_model=self._model)
-        # I-arch-006 HANG-J1/J2 (#1262): explicit per-phase timeout (tight read-stall so a dead/idle-open
-        # socket trips fast and the existing retry reopens a fresh one) + bounded keepalive so half-open
-        # CLOSE_WAIT sockets are reaped instead of leaking. Replaces the bare-float per-read 30s gap that
-        # let a trickled judge call run unbounded. Verdict logic untouched.
-        self._client = httpx.Client(
+        # I-arch-006 HANG-J1/J2 (#1262) + HANG-J3 (2026-06-15): build via _build_client so the HANG-J3
+        # total-deadline path can force-close + REBUILD a fresh client after a trickle hang.
+        self._client = self._build_client()
+
+    def _build_client(self):
+        """Construct the entailment httpx client. HANG-J1/J2: explicit per-phase read-stall (a dead
+        rx=tx=0 socket trips fast and the retry reopens) + bounded keepalive so half-open CLOSE_WAIT
+        sockets are reaped. The HANG-J3 total-deadline (see judge()) bounds a TRICKLED socket the
+        read-stall alone cannot. Verdict logic untouched."""
+        import httpx  # local import: avoid forcing the dep when off
+        return httpx.Client(
             timeout=httpx.Timeout(
                 connect=_ENTAILMENT_CONNECT_S,
                 read=_ENTAILMENT_READ_STALL_S,
@@ -359,14 +403,25 @@ class _EntailmentJudge:
         for attempt in range(_retries + 1):
             data = None  # reset per attempt so a later attempt's terminal capture is not stale.
             try:
-                response = self._client.post(
-                    self._endpoint,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=json_body,
-                )
+                # I-arch-006 HANG-J3: HARD total wall-deadline around the POST so a trickled keep-alive
+                # socket (read-gap timer never fires) cannot hang the run. On timeout: force-close +
+                # rebuild a fresh client, then raise the RETRYABLE error so the bounded retry reopens.
+                try:
+                    response = _post_with_total_deadline(
+                        self._client,
+                        self._endpoint,
+                        {
+                            "Authorization": f"Bearer {self._api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json_body,
+                        _ENTAILMENT_TOTAL_S,
+                    )
+                except concurrent.futures.TimeoutError:
+                    self._client = self._build_client()  # old one was force-closed in the helper
+                    raise _RetryableJudgeError(
+                        f"total_deadline_exceeded_{int(_ENTAILMENT_TOTAL_S)}s"
+                    )
                 response.raise_for_status()
                 data = response.json()
 
