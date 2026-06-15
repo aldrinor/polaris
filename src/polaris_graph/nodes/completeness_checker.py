@@ -128,36 +128,6 @@ def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, b
         return False, True
 
 
-# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
-# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
-# returned a (possibly-MISS) confident negative. Deliberately conservative — matches
-# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
-# or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
-# device/DBS, environmental metal exposure) yields False and is never spuriously held.
-_GENERIC_DRUG_SIGNAL_RE = re.compile(
-    # Codex iter-2 P1 (#1262): keep ONLY unambiguous drug-IDENTITY / class / form /
-    # dose-unit terms. The route-of-administration and bare-"dosing"/"dosage" terms
-    # were REMOVED because they trip on NON-drug questions ("self-administered
-    # questionnaire", "subcutaneous fat", "radiation dosing") and would spuriously
-    # fail-closed (hold) a non-drug report. A real drug question whose specific brand
-    # the recognizer missed still carries a drug-class / form / mg term, so the
-    # fail-closed safety net is preserved without the false positives.
-    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
-    r"pharmacokinetic\w*|pharmacodynamic\w*|posology|"
-    r"milligrams?|micrograms?|tablets?|capsules?|"
-    r"inhibitors?|agonists?|antagonists?|monoclonal|"
-    r"chemotherap\w*|antibiotics?|antiviral\w*)\b"
-    r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
-    re.IGNORECASE,
-)
-
-
-def _generic_drug_signal(question: str) -> bool:
-    """True iff the question carries explicit drug/pharmacology vocabulary (Codex
-    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
-    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
-
-
 def _benchmark_strict_gates() -> bool:
     """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
 
@@ -428,28 +398,27 @@ def _topic_applies(
     if not drug_or_intervention_present:
         # Confident negative from the recognizer (+ no class anchor).
         if topic.critical:
-            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
-            # incomplete, so a "confident no-drug" can be a MISS on a real drug
-            # question — silently dropping a CRITICAL contraindications topic would
-            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
-            # So for a critical topic we NEVER decide silently:
-            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
-            #     => the recognizer likely missed a brand name => FAIL-CLOSED
-            #     (applies) + disclose;
-            #   * no drug signal at all (genuine non-drug: microbiota / device /
-            #     environmental exposure) => keep applies=False so a non-drug report
-            #     is never spuriously held, but DISCLOSE the skip so the decision is
-            #     auditable, never silent.
-            if _generic_drug_signal(research_question):
-                return True, (
-                    f"critical topic {topic.id!r}: drug recognizer found no known "
-                    f"intervention, but the question carries generic drug/pharmacology "
-                    f"signal — kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
-                )
+            # Codex P1 (#1262): the recognizer (the SAME one the scope gate uses)
+            # has incomplete brand/trade-name coverage, so a "confident no-drug" can
+            # be a MISS on a real drug question — silently dropping a CRITICAL
+            # contraindications topic would disable `abort_critical_topic_uncovered`
+            # (a clinical-safety failure). A keyword "drug signal" heuristic to
+            # auto-fail-closed proved a false-positive MINEFIELD (negation:
+            # "non-pharmacological", "medication-free"; polysemy: "capsule endoscopy",
+            # "monoclonal gammopathy"), and over-firing it would SPURIOUSLY HOLD a
+            # non-drug report. Per Codex's explicit "fail-closed OR DISCLOSE" guidance
+            # AND the operator's disclose-don't-hold directive, we take the DISCLOSE
+            # path: keep applies=False (a non-drug report is NEVER spuriously held)
+            # but ALWAYS emit a disclosure note, so the decision is auditable and the
+            # skipped safety check is SURFACED FOR REVIEW rather than vanishing
+            # silently — if this is in fact a drug question whose brand the recognizer
+            # missed, the gap is disclosed in the report, not hidden.
             return False, (
-                f"critical topic {topic.id!r}: marked non-applicable — drug recognizer "
-                f"found no intervention AND the question carries no drug signal "
-                f"(disclosed, not silent; Codex P1, #1262)"
+                f"critical topic {topic.id!r}: marked non-applicable — the drug/"
+                f"intervention recognizer found no known intervention in the question. "
+                f"DISCLOSED (not silent): if this is a drug question with an "
+                f"unrecognized brand/trade name, verify contraindications coverage "
+                f"manually (Codex P1, #1262)."
             )
         # Non-critical confident negative: a drug-pharmacology topic does not apply
         # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.

@@ -23,7 +23,6 @@ from src.tools.access_bypass import is_boilerplate_or_nonassertional
 from src.polaris_graph.nodes import completeness_checker as cc
 from src.polaris_graph.nodes.completeness_checker import (
     ChecklistTopic,
-    _generic_drug_signal,
     _topic_applies,
 )
 
@@ -54,33 +53,15 @@ def test_literal_error_page_stub_is_still_dropped(stub):
     assert is_boilerplate_or_nonassertional(stub) is True
 
 
-# ── P1-2: BUG-7 critical-topic fail-closed / disclose ─────────────────────────
-
-def test_generic_drug_signal_ignores_non_drug_questions():
-    assert _generic_drug_signal("Does gut microbiota affect colorectal cancer?") is False
-    assert _generic_drug_signal("Deep brain stimulation vs best medical therapy in Parkinson") is False
-    assert _generic_drug_signal("Do metal ions in water raise cardiovascular risk?") is False
-
-
-@pytest.mark.parametrize("non_drug", [
-    # Codex iter-2 P1: broad route/dosing terms must NOT trip the drug signal.
-    "Validity of a self-administered questionnaire for symptom screening",
-    "Does subcutaneous fat thickness predict cardiovascular risk?",
-    "Optimal radiation dosing schedule in early-stage breast cancer",
-    "Intramuscular EMG recording during gait in Parkinson disease",
-    "How is the dosage of radiation calculated in CT imaging?",
-])
-def test_generic_drug_signal_not_tripped_by_broad_nondrug_terms(non_drug):
-    assert _generic_drug_signal(non_drug) is False, (
-        "Codex iter-2 P1: a non-drug question must not fail-closed a critical drug topic"
-    )
-
-
-def test_generic_drug_signal_fires_on_real_drug_questions():
-    assert _generic_drug_signal("contraindications of tirzepatide 15 mg") is True
-    assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
-    assert _generic_drug_signal("chemotherapy dosing in advanced NSCLC") is True
-
+# ── P1-2: BUG-7 critical-topic — pure DISCLOSE (never silent, never spuriously held) ──
+#
+# Codex iter-1..3 converged: a keyword "drug signal" heuristic to auto-FAIL-CLOSED a
+# critical topic on a recognizer confident-negative is a false-positive minefield
+# (negation "non-pharmacological"/"medication-free"; polysemy "capsule endoscopy"/
+# "monoclonal gammopathy"). Per Codex's "fail-closed OR DISCLOSE" guidance + the
+# operator's disclose-don't-hold directive, the critical confident-negative path is now
+# PURE DISCLOSE: applies=False (a non-drug report is NEVER spuriously held) + a
+# disclosure note ALWAYS (auditable, NEVER silent).
 
 def _critical_topic() -> ChecklistTopic:
     return ChecklistTopic(
@@ -90,37 +71,32 @@ def _critical_topic() -> ChecklistTopic:
     )
 
 
-def test_critical_topic_failclosed_on_recognizer_miss_with_drug_signal(monkeypatch):
-    """Recognizer MISSES the brand (returns None) but the question carries drug
-    signal -> the critical topic must FAIL-CLOSED (applies=True) + disclose."""
+@pytest.mark.parametrize("question", [
+    # the 3 golden non-drug questions ...
+    "Does gut microbiota composition influence colorectal cancer risk?",
+    "Deep brain stimulation versus best medical therapy in Parkinson disease",
+    "Do metal ions in drinking water increase cardiovascular disease risk?",
+    # ... the iter-2/iter-3 false-positive TRAPS that must NEVER cause a spurious hold ...
+    "Validity of a self-administered questionnaire for symptom screening",
+    "Does subcutaneous fat thickness predict cardiovascular risk?",
+    "Optimal radiation dosing in early-stage breast cancer",
+    "Capsule endoscopy findings in small-bowel Crohn disease",
+    "Diagnostic criteria for monoclonal gammopathy of undetermined significance",
+    "Non-pharmacological management of chronic low back pain",
+    # ... and a drug-ish question whose specific brand the recognizer misses ...
+    "What are the contraindications of fictbrandxyz 15 mg in adults?",
+])
+def test_critical_topic_confident_negative_is_nonapplicable_but_disclosed(monkeypatch, question):
+    """On a recognizer confident-negative, a CRITICAL topic is NON-applicable (so no
+    report is ever spuriously held by abort_critical_topic_uncovered) AND the decision
+    is DISCLOSED (never silent) — for EVERY question, drug-ish or not, with NO keyword
+    false positives."""
     monkeypatch.setenv("PG_COMPLETENESS_DRUG_DETECTOR", "1")
     monkeypatch.setattr(
         "src.polaris_graph.nodes.scope_gate._intervention_present",
         lambda q: None,  # confident negative: recognizer ran, found nothing
         raising=False,
     )
-    applies, disclosure = _topic_applies(
-        _critical_topic(),
-        "What are the contraindications of fictbrandxyz 15 mg in adults?",
-        "",
-    )
-    assert applies is True, "critical topic must fail-closed on a brand-name miss with drug signal"
-    assert disclosure and "FAIL-CLOSED" in disclosure
-
-
-def test_critical_topic_nonapplicable_but_disclosed_on_genuine_non_drug(monkeypatch):
-    """Genuine non-drug question (no drug signal) -> non-applicable so a non-drug
-    report is never spuriously held, but the decision is DISCLOSED, never silent."""
-    monkeypatch.setenv("PG_COMPLETENESS_DRUG_DETECTOR", "1")
-    monkeypatch.setattr(
-        "src.polaris_graph.nodes.scope_gate._intervention_present",
-        lambda q: None,
-        raising=False,
-    )
-    applies, disclosure = _topic_applies(
-        _critical_topic(),
-        "Does gut microbiota composition influence colorectal cancer risk?",
-        "",
-    )
-    assert applies is False, "a genuine non-drug question must not spuriously hold a non-drug report"
-    assert disclosure != "", "the non-applicable decision for a CRITICAL topic must be disclosed, not silent"
+    applies, disclosure = _topic_applies(_critical_topic(), question, "")
+    assert applies is False, "a critical confident-negative must NEVER spuriously hold a report"
+    assert disclosure != "", "the skipped critical safety topic must be DISCLOSED, never silent"
