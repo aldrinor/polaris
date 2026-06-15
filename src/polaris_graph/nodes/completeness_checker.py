@@ -135,12 +135,18 @@ def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, b
 # or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
 # device/DBS, environmental metal exposure) yields False and is never spuriously held.
 _GENERIC_DRUG_SIGNAL_RE = re.compile(
+    # Codex iter-2 P1 (#1262): keep ONLY unambiguous drug-IDENTITY / class / form /
+    # dose-unit terms. The route-of-administration and bare-"dosing"/"dosage" terms
+    # were REMOVED because they trip on NON-drug questions ("self-administered
+    # questionnaire", "subcutaneous fat", "radiation dosing") and would spuriously
+    # fail-closed (hold) a non-drug report. A real drug question whose specific brand
+    # the recognizer missed still carries a drug-class / form / mg term, so the
+    # fail-closed safety net is preserved without the false positives.
     r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
-    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
+    r"pharmacokinetic\w*|pharmacodynamic\w*|posology|"
     r"milligrams?|micrograms?|tablets?|capsules?|"
     r"inhibitors?|agonists?|antagonists?|monoclonal|"
-    r"chemotherap\w*|antibiotics?|antiviral\w*|"
-    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
+    r"chemotherap\w*|antibiotics?|antiviral\w*)\b"
     r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
     re.IGNORECASE,
 )

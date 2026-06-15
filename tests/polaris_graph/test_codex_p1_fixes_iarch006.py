@@ -62,6 +62,20 @@ def test_generic_drug_signal_ignores_non_drug_questions():
     assert _generic_drug_signal("Do metal ions in water raise cardiovascular risk?") is False
 
 
+@pytest.mark.parametrize("non_drug", [
+    # Codex iter-2 P1: broad route/dosing terms must NOT trip the drug signal.
+    "Validity of a self-administered questionnaire for symptom screening",
+    "Does subcutaneous fat thickness predict cardiovascular risk?",
+    "Optimal radiation dosing schedule in early-stage breast cancer",
+    "Intramuscular EMG recording during gait in Parkinson disease",
+    "How is the dosage of radiation calculated in CT imaging?",
+])
+def test_generic_drug_signal_not_tripped_by_broad_nondrug_terms(non_drug):
+    assert _generic_drug_signal(non_drug) is False, (
+        "Codex iter-2 P1: a non-drug question must not fail-closed a critical drug topic"
+    )
+
+
 def test_generic_drug_signal_fires_on_real_drug_questions():
     assert _generic_drug_signal("contraindications of tirzepatide 15 mg") is True
     assert _generic_drug_signal("a novel DPP-4 inhibitor administered orally") is True
