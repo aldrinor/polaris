@@ -164,6 +164,19 @@ def is_clinical_domain(
         (tests / legacy callers that pass ``domain=None``) on the clinical
         path with no regression, while a blank non-clinical corpus stays
         general.
+
+    BUG-17 (#1262) — ROUTING STRING vs TRUE DRUG SUBJECT: this signal is a
+    DOMAIN ROUTING decision (does the run take the clinical specialization?),
+    NOT a per-claim guarantee that any given numeric claim is about a
+    drug/intervention. A clinical-ROUTED question can still carry NON-drug
+    numerics (an ADAS yaw-angle accuracy figure quoted in a clinical-domain
+    corpus). Consumers that apply a DRUG-TRIAL schema (the contradiction
+    detector's no-shared-metric-guard clinical path) MUST additionally gate on
+    a TRUE per-group drug subject (``_DRUG_NAME_RE``) — they may not treat this
+    routing bool as proof of a drug subject. Returning True here for
+    ``domain == "clinical"`` stays correct (and byte-identical); the
+    routing/subject separation is enforced at the consumer, never by weakening
+    this routing signal.
     """
     d = (domain or "").strip().lower()
     if d == CLINICAL_DOMAIN:

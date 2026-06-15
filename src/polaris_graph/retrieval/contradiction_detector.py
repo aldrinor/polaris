@@ -1216,6 +1216,50 @@ def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
     return confirmed_shared
 
 
+def _is_unknown_subject(subject: str) -> bool:
+    """True when a group's subject is the UNKNOWN sentinel (``"unknown"`` / blank).
+
+    BUG-17 (#1262): ``_subject_near_position`` / ``_subject_generic`` resolve to
+    ``"unknown"`` when entity extraction fails. An unknown subject is NOT a real
+    entity — so two numbers grouped under it (PCA variance vs CRC prevalence vs
+    mouse weight) measure DIFFERENT things and must not be asserted as a hard
+    contradiction. Handled downstream as a DISCLOSURE (possible mismatch), never
+    a blanket pairing AND never a blanket skip (a blanket skip could DROP a real
+    contradiction whose entity extraction merely failed — a faithfulness loss).
+    """
+    return (subject or "").strip().lower() in ("", "unknown")
+
+
+def _group_has_real_drug_subject(group: list["ExtractedNumericClaim"]) -> bool:
+    """True iff the group is keyed on a REAL drug/intervention subject — the
+    positive signal that licenses the clinical drug-trial contradiction schema.
+
+    BUG-17 (#1262) part 1: ``is_clinical`` is a ROUTING string (``domain ==
+    "clinical"`` makes ``is_clinical_domain`` return True unconditionally), NOT a
+    guarantee the claim is about a drug/intervention. A clinical-ROUTED but
+    NON-drug question (an ADAS yaw-angle ``accuracy`` number that happened to be
+    routed clinical) must NOT inherit the drug-trial grouping schema. We
+    therefore SEPARATE the routing string from a TRUE drug subject: the clinical
+    no-guard path fires only when the group's shared subject is a recognised
+    drug/intervention name (``_DRUG_NAME_RE``). Otherwise the group falls through
+    to the same-metric-axes guard (possible_metric_mismatch), regardless of the
+    routing flag.
+
+    Deterministic, no LLM, never raises (recogniser/config errors are swallowed
+    fail-soft — never drug-by-error). Faithfulness is unchanged: a genuine
+    clinical drug contradiction (subject is e.g. ``"semaglutide"``) still has a
+    real drug subject -> keeps the full clinical schema byte-for-byte.
+    """
+    subj = (group[0].subject or "").strip().lower() if group else ""
+    if not subj or _is_unknown_subject(subj):
+        return False
+    try:
+        from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
+        return bool(_DRUG_NAME_RE.search(subj))
+    except Exception:
+        return False
+
+
 def detect_contradictions(
     claims: list[ExtractedNumericClaim],
     *,
@@ -1267,8 +1311,30 @@ def detect_contradictions(
             # only when the claims share comparator/population/time-window. If
             # those discriminators differ or cannot be confirmed, label it a
             # `possible_metric_mismatch` (downgraded, surfaced, never dropped).
+            #
+            # BUG-17 (#1262): the same-metric-axes guard must ALSO apply on the
+            # CLINICAL-ROUTED path whenever the group is NOT keyed on a real
+            # drug/intervention subject. Two failure modes the old
+            # `not is_clinical` gate let through:
+            #   (1) clinical ROUTING string != TRUE drug subject — a clinical-
+            #       routed but non-drug question (ADAS yaw-angle `accuracy`)
+            #       inherited the drug-trial no-guard schema and asserted a hard
+            #       contradiction with no shared-metric check.
+            #   (2) unknown/blank subject — UNRELATED numbers (PCA variance vs CRC
+            #       prevalence vs mouse weight) collapsed under subject="unknown"
+            #       and were flagged as one hard contradiction.
+            # Fix: the no-guard clinical schema fires ONLY for a group with a real
+            # drug subject; an unknown-subject group OR a clinical-routed non-drug
+            # group falls through to the shared-metric-axes guard, which DISCLOSES
+            # the pair as a possible_metric_mismatch (never drops it — a genuinely
+            # conflicting unknown-subject pair whose axes ARE confirmed-shared still
+            # surfaces as a real contradiction). Faithfulness is NEVER relaxed: a
+            # genuine same-DRUG numeric contradiction keeps the full clinical
+            # schema, and no verified claim is dropped — we only stop FABRICATING
+            # contradictions between numbers that do not measure the same thing.
+            apply_metric_guard = not is_clinical or not _group_has_real_drug_subject(group)
             metric_mismatch = (
-                not is_clinical and not _shared_metric_axes(group)
+                apply_metric_guard and not _shared_metric_axes(group)
             )
             if metric_mismatch:
                 predicate_display = f"{predicate_display} [possible_metric_mismatch]"

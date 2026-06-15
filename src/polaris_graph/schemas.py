@@ -2114,6 +2114,36 @@ class AgenticRoundAnalysis(BaseModel):
                 data["should_continue"] = True
             # Normalize convergence_assessment to the expected vocabulary.
             ca = data.get("convergence_assessment")
+            # BUG-13 (#1262): the LLM intermittently emits convergence_assessment
+            # as a DICT (e.g. {"assessment": "saturated", "confidence": 0.8} or
+            # {"state": "narrowing", "reasoning": "..."}) instead of a bare
+            # string. Previously only None/str were handled here, so the dict
+            # fell through to the field's `str` validation, triggering a
+            # ValidationError -> JSON-repair scramble that self-recovered but
+            # was fragile. Coerce the dict to its canonical string form FIRST,
+            # then let the existing string-mapping branch below normalize it to
+            # the {expanding,narrowing,saturated} vocabulary exactly as if the
+            # model had sent the equivalent bare string. FAITHFULNESS-SAFE:
+            # convergence_assessment is an advisory agentic-loop control signal
+            # (keep searching vs. converge), never a faithfulness verdict or a
+            # citation/claim; this only hardens input parsing and cannot drop,
+            # alter, or relax any verified claim or hard gate.
+            if isinstance(ca, dict):
+                _ca_candidate = ""
+                for _k in ("assessment", "convergence_assessment",
+                           "convergence", "status", "state", "value", "label"):
+                    _v = ca.get(_k)
+                    if isinstance(_v, str) and _v.strip():
+                        _ca_candidate = _v
+                        break
+                if not _ca_candidate:
+                    # No recognized key holds a usable string: join any string
+                    # values so a vocabulary token embedded in the dict (e.g.
+                    # {"summary": "results are saturated"}) is still detectable.
+                    _ca_candidate = " ".join(
+                        _v for _v in ca.values() if isinstance(_v, str) and _v.strip()
+                    )
+                ca = _ca_candidate
             if ca is None:
                 data["convergence_assessment"] = "expanding"
             elif isinstance(ca, str):

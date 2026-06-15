@@ -4365,6 +4365,22 @@ def run_live_retrieval(
                     "evidence_id": f"ev_{i:03d}",
                     "source_url": cand.url,
                     "statement": cand.title[:300],
+                    # BUG-1 (#1262): carry the already-resolved title onto the
+                    # final evidence row so the outline digest / evidence
+                    # selector see it. The title was extracted upstream
+                    # (classifier_title = the longest of OpenAlex display_name /
+                    # _extract_title_from_content / cand.title at ~4231-4239) and
+                    # fed to the tier classifier, then SILENTLY DROPPED here —
+                    # the row carried only the truncated `statement`, so the
+                    # outliner in multi_section_generator placed sources by tier
+                    # marker alone ("ev_022 [T2]") and admitted guessing. We do
+                    # NOT refetch or recompute — the title already exists; we
+                    # simply stop dropping it. Faithfulness is SAFE: a title is
+                    # placement/planning metadata only — it never enters a
+                    # verified claim, never feeds strict_verify / NLI / 4-role,
+                    # and never relaxes a gate (§-1.3 disclose-don't-drop: this
+                    # carries information FORWARD, it never drops a source).
+                    "title": classifier_title or cand.title or "",
                     "direct_quote": direct_quote,
                     "tier": tier_result.tier.value,
                     "source": cand.source,

@@ -11,6 +11,19 @@
 #   - applies_if: optional list of terms that must appear in the
 #       research question for this topic to apply (so we don't demand
 #       "pancreatitis" coverage on a cardiovascular-only question).
+#   - requires_drug_intervention: optional. BUG-7 (I-arch-006, #1262). When
+#       true, the topic is a DRUG/INTERVENTION-pharmacology topic and only
+#       applies when the QUESTION is actually about a drug/intervention,
+#       decided by a robust config-driven recognizer (scope_gate
+#       _intervention_present = drug names + WHO/USAN INN stems) OR one of the
+#       topic's own `applies_if` class anchors in the question — NOT the
+#       routing label or an incidental substring in retrieved evidence. This
+#       stops the GLP-1/drug checklist (incl. the CRITICAL contraindications
+#       topic that gates abort_critical_topic_uncovered) from spuriously
+#       applying to NON-drug clinical questions (gut-microbiota, Parkinson's,
+#       metal-ions). On recognizer-unavailability a CRITICAL topic fails CLOSED
+#       (stays applicable + discloses); a non-critical one keeps the legacy
+#       substring behaviour. Default false -> byte-identical to pre-BUG-7.
 #   - expand_queries: list of Serper/S2 queries to fire if the topic
 #       is uncovered. Kept short.
 
@@ -19,6 +32,11 @@ domain: clinical
 topics:
   - id: efficacy_primary
     label: Primary-endpoint efficacy
+    # BUG-7 (#1262): drug-efficacy endpoint topic. Only applies when the question
+    # is about a drug/intervention (robust recognizer), not every clinical
+    # question — a gut-microbiota / Parkinson's question has no drug primary
+    # endpoint to demand.
+    requires_drug_intervention: true
     keywords:
       - "weight loss"
       - "mean weight"
@@ -29,12 +47,14 @@ topics:
       - "reduction"
       - "mace"
       - "mortality"
-    # Always applies
     expand_queries:
       - "{drug} primary endpoint efficacy randomized controlled trial"
 
   - id: safety_adverse_events
     label: Adverse events / safety
+    # BUG-7 (#1262): drug adverse-event topic — gate on drug/intervention
+    # presence so it is not demanded of a non-drug clinical question.
+    requires_drug_intervention: true
     keywords:
       - "adverse event"
       - "adverse reaction"
@@ -56,6 +76,18 @@ topics:
     # of shipping the advisory ok_incomplete_corpus. Only the clinical sweep enforces
     # this (env kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD, default ON).
     critical: true
+    # BUG-7 (I-arch-006, #1262): a DRUG/INTERVENTION contraindication topic. It
+    # previously had NO `applies_if`, so it applied to EVERY clinical question
+    # — including non-drug ones (gut-microbiota, Parkinson's) — yielding a false
+    # "covered" inflation AND a spurious abort_critical_topic_uncovered. Now gated
+    # on the robust drug/intervention recognizer: it applies whenever a drug/
+    # intervention is recognised in the question (specific drug name OR INN stem),
+    # and stays NON-applicable for genuinely non-drug clinical questions. It keeps
+    # NO `applies_if` (no class restriction) so it applies to EVERY drug question,
+    # not just GLP-1. On recognizer-unavailability this CRITICAL topic fails CLOSED
+    # (stays applicable + discloses) so a real safety abort is never silently
+    # disabled.
+    requires_drug_intervention: true
     keywords:
       - "contraindicated"
       - "contraindication"
@@ -69,6 +101,12 @@ topics:
 
   - id: class_specific_risks_glp1
     label: GLP-1 class-typical risks (pancreatitis, gallbladder, thyroid)
+    # BUG-7 (#1262): GLP-1 class-pharmacology topic. The `applies_if` GLP-1 list
+    # is a CLASS RESTRICTION (only GLP-1 drugs), so this topic applies iff a drug/
+    # intervention is recognised AND the GLP-1 class anchor matches the question.
+    # Question-anchored detection closes the prior leak where "glp-1" in incidental
+    # EVIDENCE for a non-drug question flipped the topic on.
+    requires_drug_intervention: true
     keywords:
       - "pancreatitis"
       - "gallbladder"
@@ -93,6 +131,10 @@ topics:
 
   - id: regulatory_status
     label: Regulatory approval status
+    # BUG-7 (#1262): drug regulatory-approval topic — FDA/EMA approval is a
+    # drug/intervention concept; gate on drug presence so a non-drug clinical
+    # question is not held for missing "FDA approval" coverage.
+    requires_drug_intervention: true
     keywords:
       - "fda"
       - "approved"
@@ -107,12 +149,16 @@ topics:
 
   - id: drug_interactions
     label: Drug interactions
+    # BUG-7 (#1262): drug-interaction topic — gate on the robust recognizer. The
+    # `applies_if` (drug/medication/therapy) is retained as a question-anchored
+    # class signal; combined with the recognizer it stops the topic applying to a
+    # non-drug clinical question whose evidence merely contains the word "therapy".
+    requires_drug_intervention: true
     keywords:
       - "drug interaction"
       - "interact"
       - "co-administration"
       - "concomitant"
-    # Only check this for drug-specific queries
     applies_if:
       - "drug"
       - "medication"

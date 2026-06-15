@@ -69,6 +69,58 @@ def _resolve_interview_timeout() -> int:
     if explicit is not None:
         return int(explicit)
     return max(_STORM_INTERVIEW_TIMEOUT_FLOOR, get_generator_timeout_seconds())
+
+
+# BUG-9 (#1262): default minimum wall-time RESERVED for Phase 3 outline generation.
+# A real multi-perspective outline (the reasoning-ON Phase 3 call) needs a non-trivial
+# slice of the STORM budget; this default is sized to fit one reasoning-first outline
+# call comfortably. This is a RESERVATION floor, not a coverage target/cap.
+_STORM_OUTLINE_TIME_RESERVE_FLOOR_S = 90.0
+
+# BUG-9 (#1262): absolute minimum wall-clock (seconds) below which the real outline LLM call
+# cannot even be started; below this the DISCLOSED fallback outline is used. Named to retire
+# the historical magic ``15.0`` literal (LAW VI). Operator-overridable.
+_STORM_OUTLINE_MIN_VIABLE_S = float(os.getenv("PG_STORM_OUTLINE_MIN_VIABLE_S", "15"))
+
+
+def _resolve_outline_time_reserve() -> float:
+    """Wall-clock seconds to RESERVE out of the STORM budget for Phase 3 outline generation.
+
+    BUG-9 (#1262): Phase 2 interview budgeting previously divided the WHOLE remaining
+    STORM budget across personas (``(PG_STORM_MAX_TIME_SECONDS - elapsed) / n_personas``).
+    With parallel interviews (PG_STORM_CONCURRENCY) the interview phase could legitimately
+    burn the entire budget, so by the time Phase 3 ran the remaining time was zero or
+    NEGATIVE — yielding the observed ``Time budget too low for outline generation (-32s)
+    — using fallback outline`` log and a SILENTLY degraded one-section-per-perspective
+    fallback outline. The fix RESERVES a disclosed minimum slice for the outline call so
+    the interview phase yields enough time for the real (richer, multi-perspective) outline.
+
+    Resolution (LAW VI — env-driven, named constant, sane default; no magic number):
+      * env ``PG_STORM_OUTLINE_TIME_RESERVE_S`` set -> that value (operator override,
+        wins outright), clamped to >= 0,
+      * else -> the 90s floor default.
+
+    Faithfulness (BUG-9 / #1262): the STORM outline is an ORGANIZATIONAL scaffold that
+    routes evidence to sections — it is NOT a verified-claim gate. Reserving time so the
+    real outline runs (instead of the degraded fallback) can only IMPROVE organization of
+    the same evidence; it never drops or alters a verified claim. The hard gates
+    (strict_verify / NLI / 4-role / span-grounding) are untouched. When the reserve still
+    cannot be met, the degrade is DISCLOSED in the trace + outline metadata (not silent),
+    per §-1.3 "disclose, don't silently drop". This is a budget RESERVATION + disclosure,
+    never a coverage target/cap.
+    """
+    explicit = os.getenv("PG_STORM_OUTLINE_TIME_RESERVE_S")
+    if explicit is not None:
+        try:
+            return max(0.0, float(explicit))
+        except ValueError:
+            logger.warning(
+                "[STORM] BUG-9: PG_STORM_OUTLINE_TIME_RESERVE_S=%r is not a number — "
+                "using %.0fs floor default",
+                explicit,
+                _STORM_OUTLINE_TIME_RESERVE_FLOOR_S,
+            )
+    return _STORM_OUTLINE_TIME_RESERVE_FLOOR_S
 # I-arch-003 (#1253): the outline call is the ONE STORM call with reasoning_enabled=True, so it takes
 # the openrouter_client reasoning-ON branch which (pre-fix) had NO 32768 floor. The old default 4096
 # sat below V4-Pro's ~17-18k reasoning footprint, so the multi-perspective outline JSON could truncate.
@@ -1330,17 +1382,27 @@ async def run_storm_interviews(
     # Previous: sequential loop meant later personas got exponentially less time.
     storm_concurrency = int(os.getenv("PG_STORM_CONCURRENCY", "4"))
     storm_sem = asyncio.Semaphore(storm_concurrency)
+    # BUG-9 (#1262): RESERVE a disclosed slice of the budget for Phase 3 outline generation
+    # BEFORE dividing the rest across personas. Without this carve-out the parallel interview
+    # phase could legitimately consume the WHOLE budget, leaving Phase 3 with zero/negative
+    # remaining time and forcing the degraded fallback outline (the observed "-32s" log). This
+    # is a RESERVATION, not a coverage cap: it shapes WHEN budget is spent, never drops a claim.
+    outline_time_reserve = _resolve_outline_time_reserve()
+    interview_phase_budget = (
+        PG_STORM_MAX_TIME_SECONDS - (time.monotonic() - start_time) - outline_time_reserve
+    )
     per_persona_budget = max(
         60.0,
-        (PG_STORM_MAX_TIME_SECONDS - (time.monotonic() - start_time)) / max(len(personas), 1),
+        interview_phase_budget / max(len(personas), 1),
     )
 
     logger.info(
         "[STORM] FIX-PARALLEL: Running %d interviews with concurrency=%d, "
-        "%.0fs budget per persona",
+        "%.0fs budget per persona (%.0fs reserved for outline — BUG-9)",
         len(personas),
         storm_concurrency,
         per_persona_budget,
+        outline_time_reserve,
     )
 
     async def _bounded_interview(persona_idx: int, persona: "StormPersona"):
@@ -1491,19 +1553,50 @@ async def run_storm_interviews(
     # Phase 3: Outline Generation from Conversations
     # -----------------------------------------------------------------------
 
-    # Time budget check before Phase 3
+    # BUG-9 (#1262): Time budget check before Phase 3, now RESERVE-aware + DISCLOSED.
+    # ``remaining`` is what the interview phase actually left; ``outline_time_reserve`` is
+    # what we carved out for this call above. We only fall back to the degraded outline when
+    # the absolute minimum viable time (_STORM_OUTLINE_MIN_VIABLE_S) cannot even start the
+    # LLM call — and when we DO degrade, the reason is DISCLOSED in the trace + outline
+    # metadata, never silently swallowed (§-1.3 "disclose, don't silently drop").
     elapsed = time.monotonic() - start_time
     remaining = PG_STORM_MAX_TIME_SECONDS - elapsed
 
-    if remaining <= 15.0:
+    outline_disclosure: dict[str, Any] = {
+        "outline_time_reserve_s": round(outline_time_reserve, 1),
+        "remaining_at_phase3_s": round(remaining, 1),
+        "reserve_honored": remaining >= outline_time_reserve,
+    }
+
+    if remaining <= _STORM_OUTLINE_MIN_VIABLE_S:
+        # DISCLOSED degrade: the interview phase overran even the reserve and there is not
+        # enough wall-clock left to start the real outline call. The fallback outline is
+        # labeled so downstream/observers see the degrade rather than a green-looking outline.
         logger.warning(
-            "[STORM] Time budget too low for outline generation (%.0fs remaining) "
-            "— using fallback outline",
+            "[STORM] BUG-9: Time budget too low for outline generation (%.0fs remaining, "
+            "%.0fs reserved) — using DISCLOSED fallback outline",
             remaining,
+            outline_time_reserve,
         )
+        outline_disclosure["mode"] = "fallback_degraded"
+        outline_disclosure["degrade_reason"] = "outline_time_reserve_unmet"
         storm_outline = _fallback_outline(all_conversations, original_query)
+        for _section in storm_outline:
+            _section["storm_outline_degraded"] = True
+            _section["storm_outline_degrade_reason"] = "outline_time_reserve_unmet"
+        if tracer:
+            tracer.llm_call(
+                "storm_interviews",
+                "outline_time_reserve_unmet",
+                **outline_disclosure,
+            )
     else:
-        logger.info("[STORM] === Phase 3: Outline Generation ===")
+        logger.info(
+            "[STORM] === Phase 3: Outline Generation (%.0fs remaining, %.0fs reserved) ===",
+            remaining,
+            outline_time_reserve,
+        )
+        outline_disclosure["mode"] = "real"
         storm_outline = await _generate_outline_from_conversations(
             client=client,
             query=original_query,
@@ -1523,6 +1616,9 @@ async def run_storm_interviews(
             "storm_interviews",
             "outline_generation",
             sections=len(storm_outline),
+            # BUG-9 (#1262): surface the reserve outcome on the outline-generation trace event
+            # so the degrade (or its absence) is observable run-level, not just inline.
+            **outline_disclosure,
         )
 
     # -----------------------------------------------------------------------

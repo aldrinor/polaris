@@ -1,0 +1,257 @@
+diff --git a/src/polaris_graph/retrieval/agentic_url_harvester.py b/src/polaris_graph/retrieval/agentic_url_harvester.py
+index d023a975..4ea29152 100644
+--- a/src/polaris_graph/retrieval/agentic_url_harvester.py
++++ b/src/polaris_graph/retrieval/agentic_url_harvester.py
+@@ -8,8 +8,14 @@ as a ``direct_quote`` would be a fabrication. So we read ONLY the discovered URL
+ URLs are then fetched **verbatim** by ``live_retriever.run_live_retrieval(seed_urls=…, seed_only=True)``
+ and verified by strict_verify + the 4-role seam, exactly like the rest of the corpus.
+ 
+-Three pure, stdlib-light functions (no network, no LLM, no new dependency):
+-- ``harvest_agentic_urls`` — ordered, canonical-deduped, capped list of discovered URLs (originals).
++Pure, stdlib-light functions (no network, no LLM, no new dependency):
++- ``harvest_agentic_url_records`` — BUG-8 (I-arch-006 #1262): ordered, canonical-deduped, capped list
++  of discovered candidates as ``HarvestedUrl`` records carrying the URL **plus** the search-engine
++  ``title``/``snippet`` ANCHOR so a downstream topical-relevance screen has text to screen on. The
++  snippet/title is search-API result metadata (the search-engine excerpt, NOT a POLARIS LLM
++  paraphrase) used ONLY as a topical-screen WEIGHT input — it is NEVER promoted into evidence.
++- ``harvest_agentic_urls`` — the URL-ONLY view (a thin wrapper over the record harvester): an ordered,
++  canonical-deduped, capped list of discovered URLs (originals), for callers that want just URLs.
+ - ``harvest_storm_urls`` — BB-006 (#1171): the same URL-ONLY harvest applied to a STORM-interview
+   result's ``web_results`` / ``academic_results`` streams (the 478/540 interview search-result URLs the
+   benchmark previously discarded). NEVER reads STORM's synthesized answer/key_findings/snippet text.
+@@ -19,32 +25,63 @@ Three pure, stdlib-light functions (no network, no LLM, no new dependency):
+ 
+ from __future__ import annotations
+ 
++from dataclasses import dataclass
+ from typing import Any
+ 
+ from src.polaris_graph.retrieval.saturation import canonical_source_url
+ 
+ 
+-def harvest_agentic_urls(
++@dataclass(frozen=True)
++class HarvestedUrl:
++    """A discovered candidate URL carried together with its search-engine ANCHOR (BUG-8, #1262).
++
++    The ``title``/``snippet`` come from the upstream SEARCH-API result record (e.g.
++    ``searcher.execute_agentic_search`` populates ``snippet`` from the result's abstract/title) — they
++    are the search engine's own excerpt, NOT a POLARIS-LLM paraphrase. They are carried here ONLY so a
++    later topical-relevance screen can WEIGHT a candidate (does it look on-topic?) without re-fetching.
++
++    FAITHFULNESS (why this is safe): the anchor is a topical-screen WEIGHT input, never evidence. The
++    candidate URL is still fetched VERBATIM by ``live_retriever.run_live_retrieval(seed_urls=…,
++    seed_only=True)`` and every claim is gated by strict_verify + the 4-role seam exactly as before —
++    promoting the snippet into a ``direct_quote`` would be a fabrication and is NOT done anywhere here.
++    Per §-1.3 DNA this ENABLES a future WEIGHT-not-drop screen; it adds NO drop/filter/cap of its own.
++    """
++
++    url: str
++    title: str = ""
++    snippet: str = ""
++    source_stream: str = ""  # "web_results" | "academic_results" | "agentic_url_accumulator"
++
++
++def harvest_agentic_url_records(
+     agentic_result: dict[str, Any] | None,
+     cap: int = 200,
+-) -> list[str]:
+-    """Return ONLY the discovered URLs from an ``execute_agentic_search`` result.
+-
+-    Order-preserving and DETERMINISTIC: harvests from the ordered ``web_results`` then
+-    ``academic_results`` streams first (these are the authoritative, complete, append-ordered streams —
+-    incl. post-loop DDG / citation-chase URLs), then supplements with any ``agentic_url_accumulator``
+-    entries not already seen. De-duplicates by ``canonical_source_url`` (scheme/tracking-stripped) but
+-    RETURNS the original fetchable URL (canonical strings would hurt the live fetch yield). Returns at
+-    most ``cap`` URLs. NEVER reads ``agentic_research_notebook`` / summaries / snippets. Robust to
++) -> list[HarvestedUrl]:
++    """Return the discovered candidates from an ``execute_agentic_search`` result as ``HarvestedUrl``
++    records — the URL **plus** its search-engine ``title``/``snippet`` anchor (BUG-8, I-arch-006 #1262).
++
++    THE BUG (BUG-8 half-2): ``harvest_agentic_urls`` returned URL-ONLY, so a downstream topical-relevance
++    screen had nothing to screen on. THE FIX: also carry a short anchor (title + snippet, from the search
++    result the harvester ALREADY iterates) so a later WEIGHT-not-drop topical screen can judge relevance
++    without a re-fetch. WHY FAITHFULNESS IS SAFE: the anchor is search-API metadata used only as a screen
++    WEIGHT input; it is NEVER promoted into evidence (URLs are still fetched VERBATIM and gated by
++    strict_verify + the 4-role seam). This harvester adds NO drop/filter/cap of its own (§-1.3 DNA).
++
++    Order-preserving and DETERMINISTIC: harvests from the ordered ``web_results`` then ``academic_results``
++    streams first (the authoritative, complete, append-ordered streams — incl. post-loop DDG / citation-
++    chase URLs), then supplements with any ``agentic_url_accumulator`` entries not already seen.
++    De-duplicates by ``canonical_source_url`` (scheme/tracking-stripped) but RETURNS the original fetchable
++    URL (canonical strings would hurt the live fetch yield) and keeps the FIRST record's anchor. Returns at
++    most ``cap`` records. NEVER reads ``agentic_research_notebook`` summaries (an LLM paraphrase). Robust to
+     missing/empty keys (returns ``[]`` rather than raising). ``cap <= 0`` → ``[]``.
+     """
+     if cap <= 0:
+         return []
+     result = agentic_result or {}
+     seen_canonical: set[str] = set()
+-    out: list[str] = []
++    out: list[HarvestedUrl] = []
+ 
+-    def _consider(raw: Any) -> None:
++    def _consider(raw: Any, *, title: Any = "", snippet: Any = "", stream: str = "") -> None:
+         if len(out) >= cap:
+             return
+         url = (raw or "").strip() if isinstance(raw, str) else ""
+@@ -57,23 +94,50 @@ def harvest_agentic_urls(
+         if key in seen_canonical:
+             return
+         seen_canonical.add(key)
+-        out.append(url)
+-
+-    # Ordered result streams first (deterministic, complete).
++        out.append(
++            HarvestedUrl(
++                url=url,
++                title=title.strip() if isinstance(title, str) else "",
++                snippet=snippet.strip() if isinstance(snippet, str) else "",
++                source_stream=stream,
++            )
++        )
++
++    # Ordered result streams first (deterministic, complete). Anchor = search-engine title/snippet.
+     for stream_key in ("web_results", "academic_results"):
+         for rec in result.get(stream_key, []) or []:
+             if len(out) >= cap:
+                 return out
+             if isinstance(rec, dict):
+-                _consider(rec.get("url"))
+-    # Supplement with the accumulator (subset; set-ordered, so appended last for completeness only).
++                _consider(
++                    rec.get("url"),
++                    title=rec.get("title", ""),
++                    snippet=rec.get("snippet", ""),
++                    stream=stream_key,
++                )
++    # Supplement with the accumulator (a URL-only subset — no per-URL anchor available there).
+     for url in result.get("agentic_url_accumulator", []) or []:
+         if len(out) >= cap:
+             return out
+-        _consider(url)
++        _consider(url, stream="agentic_url_accumulator")
+     return out
+ 
+ 
++def harvest_agentic_urls(
++    agentic_result: dict[str, Any] | None,
++    cap: int = 200,
++) -> list[str]:
++    """Return ONLY the discovered URLs from an ``execute_agentic_search`` result (URL-only view).
++
++    Backward-compatible thin wrapper over ``harvest_agentic_url_records`` (BUG-8, I-arch-006 #1262): same
++    ordered, canonical-deduped, capped discovery, but projected down to the original fetchable URL strings
++    that existing callers (``run_honest_sweep_r3.py``) already consume. NEVER reads
++    ``agentic_research_notebook`` / summaries. Robust to missing/empty keys (returns ``[]`` rather than
++    raising). ``cap <= 0`` → ``[]``.
++    """
++    return [rec.url for rec in harvest_agentic_url_records(agentic_result, cap=cap)]
++
++
+ def harvest_storm_urls(
+     storm_result: dict[str, Any] | None,
+     cap: int = 200,
+diff --git a/tests/polaris_graph/test_agentic_url_harvester.py b/tests/polaris_graph/test_agentic_url_harvester.py
+index 0bab8062..0eb29e92 100644
+--- a/tests/polaris_graph/test_agentic_url_harvester.py
++++ b/tests/polaris_graph/test_agentic_url_harvester.py
+@@ -10,6 +10,8 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ 
+ from src.polaris_graph.retrieval.agentic_url_harvester import (
++    HarvestedUrl,
++    harvest_agentic_url_records,
+     harvest_agentic_urls,
+     merge_seed_url_evidence,
+ )
+@@ -75,6 +77,89 @@ def test_cap_and_empty_and_malformed_are_safe():
+     assert capped[0] == "https://h/0"
+ 
+ 
++# --------------------------------------------------------------------------- #
++# harvest_agentic_url_records  (BUG-8 / I-arch-006 #1262: URL + search-engine anchor)
++# --------------------------------------------------------------------------- #
++
++def test_records_carry_search_engine_title_and_snippet():
++    # BUG-8 FIX: the record harvester carries the search-engine title/snippet anchor so a downstream
++    # topical-relevance screen has text to screen on (the URL-only contract gave it nothing).
++    result = {
++        "web_results": [
++            {"url": "https://a.com/1", "title": "Topic A", "snippet": "A search-engine excerpt about A."},
++        ],
++        "academic_results": [
++            {"url": "https://c.org/3", "title": "Paper C", "snippet": "Abstract excerpt for C."},
++        ],
++    }
++    recs = harvest_agentic_url_records(result)
++    assert [r.url for r in recs] == ["https://a.com/1", "https://c.org/3"]
++    assert recs[0] == HarvestedUrl(
++        url="https://a.com/1",
++        title="Topic A",
++        snippet="A search-engine excerpt about A.",
++        source_stream="web_results",
++    )
++    # the anchor really carries through (a topical screen can now WEIGHT on it)
++    assert recs[0].snippet == "A search-engine excerpt about A."
++    assert recs[1].source_stream == "academic_results"
++
++
++def test_records_missing_anchor_keys_default_to_empty_not_raise():
++    # A record with no title/snippet must still harvest the URL (empty anchor), never raise.
++    recs = harvest_agentic_url_records({"web_results": [{"url": "https://only/url"}]})
++    assert recs == [HarvestedUrl(url="https://only/url", source_stream="web_results")]
++    assert recs[0].title == "" and recs[0].snippet == ""
++    # accumulator-only URLs have no per-URL anchor available -> empty anchor, tagged stream.
++    acc = harvest_agentic_url_records({"agentic_url_accumulator": ["https://acc/1"]})
++    assert acc == [HarvestedUrl(url="https://acc/1", source_stream="agentic_url_accumulator")]
++
++
++def test_records_never_read_the_llm_notebook_summary():
++    # FAITHFULNESS regression: the anchor comes ONLY from the search-result streams, NEVER from the
++    # LLM-written agentic_research_notebook (a paraphrase that must never become evidence/screen text).
++    result = {
++        "web_results": [{"url": "https://real.com/x", "title": "Real", "snippet": "search excerpt"}],
++        "agentic_research_notebook": [
++            {"summary": "LLM paraphrase that must never be read", "url": "https://fake/note"},
++        ],
++    }
++    recs = harvest_agentic_url_records(result)
++    assert [r.url for r in recs] == ["https://real.com/x"]  # notebook url NOT harvested
++    assert all("paraphrase" not in r.snippet for r in recs)  # notebook summary NOT in any anchor
++
++
++def test_url_only_wrapper_is_unchanged_backward_compat():
++    # REGRESSION (BUG-8 was an ENABLE, not a behavior change): the URL-only view must be byte-for-byte
++    # identical to the records' .url projection, so existing callers (run_honest_sweep_r3.py) are safe.
++    for result in (
++        None,
++        {},
++        {
++            "web_results": [
++                {"url": "https://a.com/1", "title": "T1", "snippet": "S1"},
++                {"url": "http://a.com/1", "title": "dup-canonical", "snippet": "dropped"},
++                {"url": "https://b.com/2", "snippet": "S2"},
++            ],
++            "academic_results": [{"url": "https://c.org/3"}],
++            "agentic_url_accumulator": ["https://d.net/4"],
++            "agentic_research_notebook": [{"summary": "never read", "url": "https://note/x"}],
++        },
++    ):
++        assert harvest_agentic_urls(result) == [
++            r.url for r in harvest_agentic_url_records(result)
++        ]
++    # and the canonical-dedup + order contract still holds on the URL-only view
++    out = harvest_agentic_urls(
++        {
++            "web_results": [{"url": "https://example.com/paper"}, {"url": "http://example.com/paper"}],
++            "academic_results": [{"url": "https://c.org/3"}],
++            "agentic_url_accumulator": ["https://d.net/4"],
++        }
++    )
++    assert out == ["https://example.com/paper", "https://c.org/3", "https://d.net/4"]
++
++
+ # --------------------------------------------------------------------------- #
+ # merge_seed_url_evidence
+ # --------------------------------------------------------------------------- #

@@ -44,6 +44,89 @@ _CHECKLIST_DIR = _REPO_ROOT / "config" / "completeness_checklists"
 _BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
 _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
 
+# ── BUG-7 (I-arch-006, #1262): robust drug/intervention applicability gate ────
+# THE BUG: the GLP-1 / drug-pharmacology checklist (contraindications [critical],
+# pancreatitis/thyroid/gallbladder, drug interactions, regulatory approval, …) was
+# applied to NON-drug clinical questions (gut-microbiota, Parkinson's, metal-ions)
+# purely because they route domain="clinical". `_topic_applies` only did a STATIC
+# substring match of `applies_if` terms against the question OR the evidence blob,
+# and topics with no `applies_if` (e.g. the CRITICAL `contraindications` topic)
+# applied to EVERY clinical question unconditionally. Result: a false "7/7 fully
+# covered" AND — worse — the critical-contraindications topic gating
+# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
+# mentioned a drug word, falsely read as covered) on questions that have no drug
+# at all. Both are clinical-safety failures: a false-negative on applicability for
+# a CRITICAL topic silently disables a real safety abort.
+#
+# THE FIX: a topic flagged `requires_drug_intervention: true` becomes applicable
+# only when the QUESTION is actually about a drug/intervention, decided by the
+# SAME config-driven recognizer the scope gate uses (`scope_gate._intervention_present`
+# = canonical drug names + WHO/USAN INN-stem generative recognition + class
+# anchors via the topic's own `applies_if` terms matched against the QUESTION).
+# This is a robust detector, NOT a raw substring or the routing label.
+#
+# FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer is unavailable (PyYAML
+# missing, config absent, import/build error) we CANNOT confidently conclude
+# "no drug". For a CRITICAL topic we then default to APPLIES=True and DISCLOSE a
+# note (never silently mark a critical safety topic non-applicable — a false
+# negative would disable the abort). For a non-critical topic we fall back to the
+# prior `applies_if` substring behaviour so adequacy elsewhere is unchanged.
+#
+# FAITHFULNESS NOTE: this only refines WHICH topics count toward the completeness
+# DENOMINATOR (an input-hygiene / applicability-precision change). It NEVER
+# touches strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops
+# or alters a verified claim, and on ambiguity it ERRS TOWARD keeping a critical
+# safety topic active (held, not released). Removing a FALSE applicability is not
+# a weakening — the GLP-1 drug checklist genuinely does not apply to a
+# gut-microbiota question.
+_DRUG_DETECTOR_ENABLED_ENV = "PG_COMPLETENESS_DRUG_DETECTOR"
+
+
+def _drug_detector_enabled() -> bool:
+    """Return True iff the robust drug/intervention applicability gate is on.
+
+    Default ON (LAW VI: env-driven kill-switch, named constant, sane default).
+    Set ``PG_COMPLETENESS_DRUG_DETECTOR`` to a falsy token (0/false/no/off) to
+    fall back to the legacy substring-only `applies_if` behaviour for ALL topics
+    — provided as an operator escape hatch, not a default. When OFF, a topic's
+    ``requires_drug_intervention`` flag is ignored and applicability is the prior
+    `applies_if` substring match (so the OFF path is byte-identical to pre-BUG-7).
+    """
+    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
+def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, bool]:
+    """Detect a drug/intervention in the QUESTION via the scope-gate recognizer.
+
+    Returns ``(detected, ambiguous)``:
+
+    * ``detected`` — True iff ``scope_gate._intervention_present`` recognised a
+      drug/intervention token in ``research_question``. A clean ``None`` from the
+      recognizer is a CONFIDENT negative (``detected=False, ambiguous=False``),
+      NOT ambiguity — the recognizer ran and found no intervention.
+    * ``ambiguous`` — True iff the recognizer could not be consulted at all
+      (import failure / missing PyYAML / missing config / build error). In that
+      case ``detected`` is False but the caller MUST treat a critical topic as
+      fail-closed (applies) per BUG-7.
+
+    This reuses the SAME recognizer the scope gate uses so completeness
+    applicability and scope recognition cannot drift apart.
+    """
+    try:
+        from src.polaris_graph.nodes.scope_gate import _intervention_present
+        token = _intervention_present(research_question or "")
+        return (token is not None), False
+    except Exception as exc:  # config/import unavailable -> genuine ambiguity
+        logger.warning(
+            "[completeness] intervention recognizer unavailable (%s); "
+            "fail-closed for critical topics per BUG-7 (#1262)",
+            exc,
+        )
+        return False, True
+
 
 def _benchmark_strict_gates() -> bool:
     """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
@@ -69,6 +152,16 @@ class ChecklistTopic:
     # HOLDS release (non-success) instead of shipping an advisory ok_incomplete_corpus.
     # Default False so every un-marked topic / checklist is byte-identical.
     critical: bool = False
+    # BUG-7 (I-arch-006, #1262): drug/intervention-pharmacology topics
+    # (contraindications, GLP-1 class risks, drug interactions, regulatory
+    # approval, adverse events, …) only make sense when the QUESTION is actually
+    # about a drug/intervention. When True, applicability is gated by a robust
+    # config-driven drug/intervention detector (see `_topic_applies`) instead of
+    # the previous "any clinical question" / raw-substring path that wrongly
+    # marked these topics applicable for NON-drug clinical questions
+    # (gut-microbiota, Parkinson's, metal-ions) just because they routed
+    # domain="clinical". Default False -> every un-marked topic is byte-identical.
+    requires_drug_intervention: bool = False
 
 
 @dataclass
@@ -200,21 +293,28 @@ def load_checklist(domain: str) -> list[ChecklistTopic]:
             # I-arch-004 F11 (#1249): optional `critical: true` marks a clinical-safety
             # topic whose uncovered state HOLDS release. Absent/false -> byte-identical.
             critical=bool(t.get("critical", False)),
+            # BUG-7 (I-arch-006, #1262): optional `requires_drug_intervention: true`
+            # gates the topic on a robust drug/intervention detector (not the
+            # routing label / a raw substring). Absent/false -> byte-identical.
+            requires_drug_intervention=bool(
+                t.get("requires_drug_intervention", False)
+            ),
         ))
     return topics
 
 
-def _topic_applies(
+def _legacy_applies_if(
     topic: ChecklistTopic,
     research_question: str,
     evidence_blob: str,
 ) -> bool:
-    """Return True if the topic should be checked for this query.
+    """Legacy substring `applies_if` match (question OR evidence pool).
 
-    A topic with no `applies_if` always applies. A topic with
-    `applies_if` terms applies only if any term is found in the
-    research_question OR the evidence pool (since "GLP-1" might be
-    implied by the drug name).
+    A topic with no `applies_if` always matches. A topic with `applies_if`
+    terms matches iff any term is found in the research_question OR the
+    evidence pool (since "GLP-1" might be implied by the drug name). This is
+    the pre-BUG-7 behaviour, retained verbatim for non-drug topics and for the
+    OFF kill-switch path.
     """
     if not topic.applies_if:
         return True
@@ -224,6 +324,86 @@ def _topic_applies(
         if term in q_lower or term in e_lower:
             return True
     return False
+
+
+def _topic_applies(
+    topic: ChecklistTopic,
+    research_question: str,
+    evidence_blob: str,
+) -> tuple[bool, str]:
+    """Return ``(applies, disclosure_note)`` for a checklist topic.
+
+    BUG-7 (I-arch-006, #1262) — drive a drug/intervention-pharmacology topic's
+    applicability from a ROBUST detector, not the routing label or a raw
+    substring.
+
+    Non-drug topics (``requires_drug_intervention`` unset) keep the EXACT
+    pre-BUG-7 `applies_if` substring semantics (question OR evidence pool), so
+    their applicability is byte-identical.
+
+    A topic flagged ``requires_drug_intervention: true`` applies iff the QUESTION
+    is actually about a drug/intervention. "About a drug/intervention" is decided
+    by EITHER:
+      * the scope-gate recognizer (`_intervention_present`) finding a specific
+        drug name / INN-stem in the question, OR
+      * one of the topic's own `applies_if` CLASS anchors (e.g. "glp-1",
+        "incretin") appearing in the QUESTION — these are intervention-class
+        signals, not incidental evidence text.
+    The detector deliberately consults the QUESTION only: a drug word that merely
+    appears in retrieved EVIDENCE for a non-drug question must not flip a
+    pharmacology topic on (that was the false-positive path).
+
+    Once the question is confirmed to be about a drug/intervention, the topic's
+    NORMAL `applies_if` filter still applies (so the GLP-1-class topic stays gated
+    to GLP-1 questions and does not fire for metformin). For a topic with no
+    `applies_if` (the CRITICAL `contraindications` topic), drug-presence is the
+    sole gate.
+
+    FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer cannot be consulted
+    (import/config error), a CRITICAL ``requires_drug_intervention`` topic defaults
+    to applies=True with a disclosure note — never silently mark a critical safety
+    topic non-applicable. A non-critical topic falls back to the legacy substring
+    match (adequacy elsewhere unchanged).
+
+    Faithfulness: applicability only refines the completeness DENOMINATOR; it
+    never touches strict_verify / NLI / 4-role / span-grounding, never drops a
+    verified claim, and errs toward keeping a critical safety topic active.
+    """
+    legacy = _legacy_applies_if(topic, research_question, evidence_blob)
+
+    # Non-drug topic, or kill-switch OFF -> exact pre-BUG-7 behaviour.
+    if not topic.requires_drug_intervention or not _drug_detector_enabled():
+        return legacy, ""
+
+    q_lower = (research_question or "").lower()
+    class_anchor_in_question = any(
+        term in q_lower for term in topic.applies_if
+    )
+    detected, ambiguous = _intervention_detected_or_ambiguous(research_question)
+
+    if ambiguous:
+        # Recognizer unavailable: we cannot confidently conclude "no drug".
+        if topic.critical:
+            # Fail-closed: keep the critical safety topic active + disclose.
+            return True, (
+                f"applicability of critical topic {topic.id!r} could not be "
+                f"determined (intervention recognizer unavailable); kept "
+                f"applicable fail-closed per BUG-7 (#1262)"
+            )
+        # Non-critical: fall back to the legacy substring match (no change to
+        # adequacy on ambiguity).
+        return legacy, ""
+
+    drug_or_intervention_present = detected or class_anchor_in_question
+    if not drug_or_intervention_present:
+        # Confident negative: the question is NOT about a drug/intervention, so a
+        # drug-pharmacology topic does not apply (this is the BUG-7 fix). No
+        # disclosure needed — a clean "no drug" is not ambiguity.
+        return False, ""
+
+    # The question IS about a drug/intervention. Apply the topic's normal
+    # `applies_if` filter so class-specific topics stay gated to their class.
+    return legacy, ""
 
 
 def _compile_keyword_re(keywords: list[str]) -> re.Pattern:
@@ -245,7 +425,9 @@ def check_completeness(
 
     Args:
         domain: scope-template domain name.
-        research_question: the user's query (drives applies_if filter).
+        research_question: the user's query (drives the `applies_if` filter and,
+            for `requires_drug_intervention` topics, the BUG-7 robust
+            drug/intervention applicability gate — see `_topic_applies`).
         evidence_rows: evidence dicts with 'direct_quote' / 'statement'.
         min_hits_to_cover: min # of evidence rows that must match at
             least one keyword for a topic to be "covered" (default 1).
@@ -288,9 +470,16 @@ def check_completeness(
 
     coverages: list[TopicCoverage] = []
     all_expand_queries: list[str] = []
+    # BUG-7 (I-arch-006, #1262): fail-closed disclosure notes for any critical
+    # topic kept applicable because the intervention recognizer was unavailable.
+    applicability_disclosures: list[str] = []
 
     for topic in topics:
-        applies = _topic_applies(topic, research_question, evidence_blob)
+        applies, disclosure = _topic_applies(
+            topic, research_question, evidence_blob
+        )
+        if disclosure:
+            applicability_disclosures.append(disclosure)
         if not applies:
             coverages.append(TopicCoverage(
                 topic=topic, applies=False,
@@ -344,6 +533,10 @@ def check_completeness(
             f"{uncovered_n}/{applicable} applicable topic(s) uncovered: "
             f"{uncovered_labels}"
         )
+    # BUG-7 (I-arch-006, #1262): surface any fail-closed applicability disclosure
+    # (a critical topic kept applicable because the recognizer was unavailable) so
+    # the decision is DISCLOSED, never silent.
+    notes.extend(applicability_disclosures)
 
     return CompletenessReport(
         domain=domain,

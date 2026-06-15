@@ -731,6 +731,196 @@ def _strip_navigation_boilerplate(content: str) -> str:
     return cleaned.strip()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG-19 (GH #1262): reusable ALLOWLIST-ONLY web-boilerplate hygiene helpers.
+#
+# THE BUG: the web-crawl chrome that the free fetch backends (Crawl4AI / Jina /
+# Firecrawl) prepend to every body — "URL Source:", "Markdown Content:",
+# "Title:" header lines, "Split View", "Cite Cite", "Views", "Download full
+# text from publisher", "References listed on IDEAS", cookie-consent lines —
+# was leaking into the evidence pool as if it were article prose. Worse, a
+# *pure* error page (a literal NTSB "Page not found" / "404 Not Found" body)
+# was extracted as a "finding sentence" and then passed the entailment gate,
+# because boilerplate trivially entails itself ("Page not found" ⊨ "Page not
+# found"). A self-entailing chrome line is a faithfulness HOLE, not a finding.
+#
+# THE FIX: two INPUT-HYGIENE helpers the generator calls BEFORE finding
+# extraction and BEFORE the faithfulness gate:
+#   • strip_web_boilerplate(text)            — removes ONLY confirmed crawl
+#     markers and the lines they sit on.
+#   • is_boilerplate_or_nonassertional(s)    — True for a sentence/unit that
+#     is pure metadata / nav chrome / a bare DOI / a table-number row / an
+#     error-page stub, i.e. carries no assertional content to ground.
+#
+# WHY FAITHFULNESS IS SAFE (NOT a gate relaxation):
+#   • ALLOWLIST-ONLY: every pattern below is a literal, confirmed crawl marker
+#     or error-page token. Real prose — including legitimate multilingual
+#     content — is byte-preserved; we only delete the known marker lines and
+#     flag units that are 100% chrome. We NEVER drop, alter, or down-rank a
+#     real claim, and we NEVER touch the strict_verify / NLI / 4-role /
+#     span-grounding gates. This is the same WEIGHT/CONSOLIDATE-not-FILTER
+#     posture as live_retriever._is_landing_or_abstract_page (§-1.3 DNA):
+#     clean the gate's INPUT so it can't "verify" its own chrome; the gate's
+#     strictness on real claims is untouched. Removing self-entailing chrome
+#     can only RAISE faithfulness — a dropped 404 stub was never a finding.
+#
+# These are surfaced for callers (the generator) as module-level functions.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Allowlist of literal crawl-chrome MARKER lines. Each entry matches a WHOLE
+# line (MULTILINE, case-insensitive). Anchored so a marker word appearing
+# mid-sentence in real prose is never matched — only a line that IS the marker.
+_WEB_BOILERPLATE_LINE_RE = re.compile(
+    r"|".join([
+        r"^\s*URL Source\s*:.*$",                       # Jina/Crawl4AI header
+        r"^\s*Markdown Content\s*:.*$",                  # Jina/Crawl4AI header
+        r"^\s*Title\s*:.*$",                             # crawl Title: header line
+        r"^\s*Split View\s*$",                           # IDEAS/RePEc nav
+        r"^\s*Cite\s+Cite\s*$",                          # duplicated cite chrome
+        r"^\s*Views?\s*$",                               # bare "Views" counter label
+        r"^\s*Download full text from publisher\s*$",    # RePEc/IDEAS chrome
+        r"^\s*References listed on IDEAS\s*$",            # IDEAS chrome
+        r"^\s*This (website|site) uses cookies.*$",      # cookie-consent banner
+        r"^\s*We use cookies.*$",                        # cookie-consent banner
+        r"^\s*Accept (all )?[Cc]ookies\s*$",             # cookie-consent button
+        r"^\s*Cookie [Cc]onsent\s*$",                    # cookie-consent header
+        r"^\s*Manage (your )?[Cc]ookies?.*$",            # cookie-consent button
+    ]),
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# Allowlist of literal error-page / "no content" tokens. A UNIT (sentence or
+# short body) that is essentially ONLY one of these is a failed fetch, not a
+# finding. Matched case-insensitively as a whole-unit signal.
+_ERROR_PAGE_TOKENS = (
+    "page not found",
+    "404 not found",
+    "404 - not found",
+    "error 404",
+    "403 forbidden",
+    "access denied",
+    "not found",
+)
+
+# A bare DOI / identifier row carries no assertional prose to ground.
+_BARE_DOI_RE = re.compile(
+    r"^\s*(?:doi\s*:?\s*)?10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\s*$",
+    re.IGNORECASE,
+)
+
+# A pure table-number / metadata row: only digits, separators, units and short
+# table glue (e.g. "Table 3 12.4 95% CI 1.2-3.4"). No verb, no clause — nothing
+# to entail. Kept deliberately tight (must be SHORT and digit-dominated) so a
+# real numeric SENTENCE ("Mortality fell to 12.4% (95% CI ...)" with words) is
+# never flagged.
+_TABLE_NUMBER_ROW_RE = re.compile(
+    r"^\s*(?:table|fig(?:ure)?|row|col(?:umn)?)?\s*[\d.,%()\[\]:;/+\-–—\s]*$",
+    re.IGNORECASE,
+)
+
+# Max length (chars) for the error-page whole-unit check. An error STUB is
+# short; a long article that merely quotes "not found" deep in prose must not
+# be flagged. Env-overridable per LAW VI; sane default mirrors the M-23d /
+# live_retriever landing-page short-body windows.
+_BOILERPLATE_ERROR_UNIT_MAX_CHARS_DEFAULT = 400
+
+
+def strip_web_boilerplate(text: str) -> str:
+    """BUG-19 (#1262): remove ONLY confirmed web-crawl chrome lines from text.
+
+    Allowlist-only, byte-safe hygiene for the generator to call BEFORE finding
+    extraction and BEFORE the faithfulness gate. Deletes whole lines that ARE a
+    known crawl marker ("URL Source:", "Markdown Content:", "Title:" headers,
+    "Split View", "Cite Cite", "Views", "Download full text from publisher",
+    "References listed on IDEAS", cookie-consent banners). Real prose — including
+    legitimate multilingual content — is preserved byte-for-byte; a marker word
+    appearing mid-sentence is never touched because every pattern is whole-line
+    anchored.
+
+    FAITHFULNESS: this is INPUT hygiene, not a gate. It can only stop the gate
+    from "verifying" its own chrome (self-entailment); it never drops, alters,
+    or down-ranks a real claim, and the strict_verify / NLI / 4-role /
+    span-grounding gates keep full strictness on everything that remains.
+    """
+    if not text:
+        return text
+    cleaned = _WEB_BOILERPLATE_LINE_RE.sub("", text)
+    # Collapse blank-line runs left by stripping; preserve paragraph breaks.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def is_boilerplate_or_nonassertional(sentence: str) -> bool:
+    """BUG-19 (#1262): True iff a sentence/unit carries no assertional content.
+
+    Flags (does NOT silently drop — the caller decides, and per §-1.3 a flagged
+    unit may still be disclosed at low weight) units that are pure metadata, nav
+    chrome, a bare DOI, a table-number row, or an error-page stub:
+      • a line that IS a known crawl marker (see strip_web_boilerplate),
+      • a bare DOI / identifier row (no prose),
+      • a pure table-number / metadata row (digits + separators, no clause),
+      • an error-page stub ("Page not found" / "404 Not Found" / "403
+        Forbidden" / "Access Denied") when the WHOLE unit is short and is
+        essentially only that token — the literal NTSB "Page not found" 404
+        body that previously self-entailed through the gate.
+
+    A real assertional sentence (subject + verb + claim, in any language) is
+    NEVER flagged: the marker/DOI/table patterns are whole-unit anchored, and
+    the error-page check requires a SHORT unit dominated by the error token.
+
+    FAITHFULNESS: pure-chrome / error stubs are not findings; removing them from
+    the gate's INPUT raises faithfulness. No real claim can be flagged, and the
+    hard gates are untouched.
+    """
+    if not sentence:
+        return True  # empty unit is non-assertional by definition
+
+    stripped = sentence.strip()
+    if not stripped:
+        return True
+
+    # 1) Whole-line crawl marker.
+    if _WEB_BOILERPLATE_LINE_RE.fullmatch(stripped):
+        return True
+
+    # 2) Bare DOI / identifier row.
+    if _BARE_DOI_RE.fullmatch(stripped):
+        return True
+
+    # 3) Pure table-number / metadata row — must contain at least one digit so
+    #    a short all-words phrase is not mistaken for a number row, and must be
+    #    entirely digits/separators (no alphabetic words beyond table glue).
+    if any(ch.isdigit() for ch in stripped) and _TABLE_NUMBER_ROW_RE.fullmatch(
+        stripped
+    ):
+        return True
+
+    # 4) Error-page stub: SHORT unit that is essentially only an error token.
+    #    Length-gated so a long article quoting "not found" in prose is safe.
+    max_chars = int(
+        os.getenv(
+            "PG_BOILERPLATE_ERROR_UNIT_MAX_CHARS",
+            str(_BOILERPLATE_ERROR_UNIT_MAX_CHARS_DEFAULT),
+        )
+    )
+    if len(stripped) <= max_chars:
+        lowered = stripped.lower()
+        for token in _ERROR_PAGE_TOKENS:
+            if token in lowered:
+                # Require the error token to DOMINATE the unit (no surrounding
+                # real clause) — the residual after removing the token and
+                # non-alphanumerics must be trivially short.
+                residual = re.sub(re.escape(token), " ", lowered)
+                residual_words = [
+                    w for w in re.findall(r"[^\W\d_]+", residual, re.UNICODE)
+                    if len(w) > 1
+                ]
+                if len(residual_words) <= 3:
+                    return True
+
+    return False
+
+
 # M-23c: Structural markers for content quality scoring.
 # Presence of academic-paper markers indicates full article body
 # (vs paywall stub or landing page).

@@ -2130,6 +2130,25 @@ def main(argv: list[str] | None = None) -> int:
             q["uploaded_documents"] = _attach_uploads
             q["uploaded_documents_blocked_count"] = _upload_blocked
         print(f"\n>>> {domain} / {slug}")
+        # BUG-5 (I-arch-006 #1262): clear any STALE crash sidecar BEFORE the fresh attempt.
+        # The except-path below writes gate_b_query_crash.json when a query crashes. If a
+        # PRIOR failed attempt of this same domain/slug left that sidecar behind, a now-healthy
+        # re-run that completes normally would still carry the old crash record on disk — a
+        # post-run reader (sweep auditor / status tool) would misread the out-dir as "crashed"
+        # even though THIS attempt succeeded. So on each fresh attempt, best-effort delete the
+        # pre-existing sidecar; the except-path re-creates it ONLY if THIS attempt genuinely
+        # crashes. Faithfulness is untouched: this is a stale-observability artifact removal in
+        # the benchmark RUNNER's status sidecar — it never reads, alters, drops, or relabels any
+        # verified claim, evidence span, or faithfulness-gate verdict (strict_verify / NLI /
+        # 4-role / span-grounding all run unchanged inside run_gate_b_query). Best-effort: a
+        # cleanup failure is logged and the attempt proceeds, never masking a query result.
+        _crash_sidecar = out_root / domain / slug / "gate_b_query_crash.json"
+        try:
+            _crash_sidecar.unlink(missing_ok=True)
+        except OSError as _stale_err:
+            logging.getLogger("run_gate_b").warning(
+                "stale crash-sidecar cleanup failed for %s/%s: %s", domain, slug, _stale_err,
+            )
         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
         # runs). Each delegates entirely to the existing 4-role entrypoint.
         #

@@ -1,0 +1,674 @@
+diff --git a/config/completeness_checklists/clinical.yaml b/config/completeness_checklists/clinical.yaml
+index 0af071da..1fea6dd8 100644
+--- a/config/completeness_checklists/clinical.yaml
++++ b/config/completeness_checklists/clinical.yaml
+@@ -11,6 +11,19 @@
+ #   - applies_if: optional list of terms that must appear in the
+ #       research question for this topic to apply (so we don't demand
+ #       "pancreatitis" coverage on a cardiovascular-only question).
++#   - requires_drug_intervention: optional. BUG-7 (I-arch-006, #1262). When
++#       true, the topic is a DRUG/INTERVENTION-pharmacology topic and only
++#       applies when the QUESTION is actually about a drug/intervention,
++#       decided by a robust config-driven recognizer (scope_gate
++#       _intervention_present = drug names + WHO/USAN INN stems) OR one of the
++#       topic's own `applies_if` class anchors in the question — NOT the
++#       routing label or an incidental substring in retrieved evidence. This
++#       stops the GLP-1/drug checklist (incl. the CRITICAL contraindications
++#       topic that gates abort_critical_topic_uncovered) from spuriously
++#       applying to NON-drug clinical questions (gut-microbiota, Parkinson's,
++#       metal-ions). On recognizer-unavailability a CRITICAL topic fails CLOSED
++#       (stays applicable + discloses); a non-critical one keeps the legacy
++#       substring behaviour. Default false -> byte-identical to pre-BUG-7.
+ #   - expand_queries: list of Serper/S2 queries to fire if the topic
+ #       is uncovered. Kept short.
+ 
+@@ -19,6 +32,11 @@ domain: clinical
+ topics:
+   - id: efficacy_primary
+     label: Primary-endpoint efficacy
++    # BUG-7 (#1262): drug-efficacy endpoint topic. Only applies when the question
++    # is about a drug/intervention (robust recognizer), not every clinical
++    # question — a gut-microbiota / Parkinson's question has no drug primary
++    # endpoint to demand.
++    requires_drug_intervention: true
+     keywords:
+       - "weight loss"
+       - "mean weight"
+@@ -29,12 +47,14 @@ topics:
+       - "reduction"
+       - "mace"
+       - "mortality"
+-    # Always applies
+     expand_queries:
+       - "{drug} primary endpoint efficacy randomized controlled trial"
+ 
+   - id: safety_adverse_events
+     label: Adverse events / safety
++    # BUG-7 (#1262): drug adverse-event topic — gate on drug/intervention
++    # presence so it is not demanded of a non-drug clinical question.
++    requires_drug_intervention: true
+     keywords:
+       - "adverse event"
+       - "adverse reaction"
+@@ -56,6 +76,18 @@ topics:
+     # of shipping the advisory ok_incomplete_corpus. Only the clinical sweep enforces
+     # this (env kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD, default ON).
+     critical: true
++    # BUG-7 (I-arch-006, #1262): a DRUG/INTERVENTION contraindication topic. It
++    # previously had NO `applies_if`, so it applied to EVERY clinical question
++    # — including non-drug ones (gut-microbiota, Parkinson's) — yielding a false
++    # "covered" inflation AND a spurious abort_critical_topic_uncovered. Now gated
++    # on the robust drug/intervention recognizer: it applies whenever a drug/
++    # intervention is recognised in the question (specific drug name OR INN stem),
++    # and stays NON-applicable for genuinely non-drug clinical questions. It keeps
++    # NO `applies_if` (no class restriction) so it applies to EVERY drug question,
++    # not just GLP-1. On recognizer-unavailability this CRITICAL topic fails CLOSED
++    # (stays applicable + discloses) so a real safety abort is never silently
++    # disabled.
++    requires_drug_intervention: true
+     keywords:
+       - "contraindicated"
+       - "contraindication"
+@@ -69,6 +101,12 @@ topics:
+ 
+   - id: class_specific_risks_glp1
+     label: GLP-1 class-typical risks (pancreatitis, gallbladder, thyroid)
++    # BUG-7 (#1262): GLP-1 class-pharmacology topic. The `applies_if` GLP-1 list
++    # is a CLASS RESTRICTION (only GLP-1 drugs), so this topic applies iff a drug/
++    # intervention is recognised AND the GLP-1 class anchor matches the question.
++    # Question-anchored detection closes the prior leak where "glp-1" in incidental
++    # EVIDENCE for a non-drug question flipped the topic on.
++    requires_drug_intervention: true
+     keywords:
+       - "pancreatitis"
+       - "gallbladder"
+@@ -93,6 +131,10 @@ topics:
+ 
+   - id: regulatory_status
+     label: Regulatory approval status
++    # BUG-7 (#1262): drug regulatory-approval topic — FDA/EMA approval is a
++    # drug/intervention concept; gate on drug presence so a non-drug clinical
++    # question is not held for missing "FDA approval" coverage.
++    requires_drug_intervention: true
+     keywords:
+       - "fda"
+       - "approved"
+@@ -107,12 +149,16 @@ topics:
+ 
+   - id: drug_interactions
+     label: Drug interactions
++    # BUG-7 (#1262): drug-interaction topic — gate on the robust recognizer. The
++    # `applies_if` (drug/medication/therapy) is retained as a question-anchored
++    # class signal; combined with the recognizer it stops the topic applying to a
++    # non-drug clinical question whose evidence merely contains the word "therapy".
++    requires_drug_intervention: true
+     keywords:
+       - "drug interaction"
+       - "interact"
+       - "co-administration"
+       - "concomitant"
+-    # Only check this for drug-specific queries
+     applies_if:
+       - "drug"
+       - "medication"
+diff --git a/src/polaris_graph/nodes/completeness_checker.py b/src/polaris_graph/nodes/completeness_checker.py
+index bf0be49c..88f6ed5f 100644
+--- a/src/polaris_graph/nodes/completeness_checker.py
++++ b/src/polaris_graph/nodes/completeness_checker.py
+@@ -44,6 +44,89 @@ _CHECKLIST_DIR = _REPO_ROOT / "config" / "completeness_checklists"
+ _BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+ _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+ 
++# ── BUG-7 (I-arch-006, #1262): robust drug/intervention applicability gate ────
++# THE BUG: the GLP-1 / drug-pharmacology checklist (contraindications [critical],
++# pancreatitis/thyroid/gallbladder, drug interactions, regulatory approval, …) was
++# applied to NON-drug clinical questions (gut-microbiota, Parkinson's, metal-ions)
++# purely because they route domain="clinical". `_topic_applies` only did a STATIC
++# substring match of `applies_if` terms against the question OR the evidence blob,
++# and topics with no `applies_if` (e.g. the CRITICAL `contraindications` topic)
++# applied to EVERY clinical question unconditionally. Result: a false "7/7 fully
++# covered" AND — worse — the critical-contraindications topic gating
++# `abort_critical_topic_uncovered` fired spuriously (or, if incidental evidence
++# mentioned a drug word, falsely read as covered) on questions that have no drug
++# at all. Both are clinical-safety failures: a false-negative on applicability for
++# a CRITICAL topic silently disables a real safety abort.
++#
++# THE FIX: a topic flagged `requires_drug_intervention: true` becomes applicable
++# only when the QUESTION is actually about a drug/intervention, decided by the
++# SAME config-driven recognizer the scope gate uses (`scope_gate._intervention_present`
++# = canonical drug names + WHO/USAN INN-stem generative recognition + class
++# anchors via the topic's own `applies_if` terms matched against the QUESTION).
++# This is a robust detector, NOT a raw substring or the routing label.
++#
++# FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer is unavailable (PyYAML
++# missing, config absent, import/build error) we CANNOT confidently conclude
++# "no drug". For a CRITICAL topic we then default to APPLIES=True and DISCLOSE a
++# note (never silently mark a critical safety topic non-applicable — a false
++# negative would disable the abort). For a non-critical topic we fall back to the
++# prior `applies_if` substring behaviour so adequacy elsewhere is unchanged.
++#
++# FAITHFULNESS NOTE: this only refines WHICH topics count toward the completeness
++# DENOMINATOR (an input-hygiene / applicability-precision change). It NEVER
++# touches strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops
++# or alters a verified claim, and on ambiguity it ERRS TOWARD keeping a critical
++# safety topic active (held, not released). Removing a FALSE applicability is not
++# a weakening — the GLP-1 drug checklist genuinely does not apply to a
++# gut-microbiota question.
++_DRUG_DETECTOR_ENABLED_ENV = "PG_COMPLETENESS_DRUG_DETECTOR"
++
++
++def _drug_detector_enabled() -> bool:
++    """Return True iff the robust drug/intervention applicability gate is on.
++
++    Default ON (LAW VI: env-driven kill-switch, named constant, sane default).
++    Set ``PG_COMPLETENESS_DRUG_DETECTOR`` to a falsy token (0/false/no/off) to
++    fall back to the legacy substring-only `applies_if` behaviour for ALL topics
++    — provided as an operator escape hatch, not a default. When OFF, a topic's
++    ``requires_drug_intervention`` flag is ignored and applicability is the prior
++    `applies_if` substring match (so the OFF path is byte-identical to pre-BUG-7).
++    """
++    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
++    if raw is None:
++        return True
++    return raw.strip().lower() in _TRUE_TOKENS
++
++
++def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, bool]:
++    """Detect a drug/intervention in the QUESTION via the scope-gate recognizer.
++
++    Returns ``(detected, ambiguous)``:
++
++    * ``detected`` — True iff ``scope_gate._intervention_present`` recognised a
++      drug/intervention token in ``research_question``. A clean ``None`` from the
++      recognizer is a CONFIDENT negative (``detected=False, ambiguous=False``),
++      NOT ambiguity — the recognizer ran and found no intervention.
++    * ``ambiguous`` — True iff the recognizer could not be consulted at all
++      (import failure / missing PyYAML / missing config / build error). In that
++      case ``detected`` is False but the caller MUST treat a critical topic as
++      fail-closed (applies) per BUG-7.
++
++    This reuses the SAME recognizer the scope gate uses so completeness
++    applicability and scope recognition cannot drift apart.
++    """
++    try:
++        from src.polaris_graph.nodes.scope_gate import _intervention_present
++        token = _intervention_present(research_question or "")
++        return (token is not None), False
++    except Exception as exc:  # config/import unavailable -> genuine ambiguity
++        logger.warning(
++            "[completeness] intervention recognizer unavailable (%s); "
++            "fail-closed for critical topics per BUG-7 (#1262)",
++            exc,
++        )
++        return False, True
++
+ 
+ def _benchmark_strict_gates() -> bool:
+     """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+@@ -69,6 +152,16 @@ class ChecklistTopic:
+     # HOLDS release (non-success) instead of shipping an advisory ok_incomplete_corpus.
+     # Default False so every un-marked topic / checklist is byte-identical.
+     critical: bool = False
++    # BUG-7 (I-arch-006, #1262): drug/intervention-pharmacology topics
++    # (contraindications, GLP-1 class risks, drug interactions, regulatory
++    # approval, adverse events, …) only make sense when the QUESTION is actually
++    # about a drug/intervention. When True, applicability is gated by a robust
++    # config-driven drug/intervention detector (see `_topic_applies`) instead of
++    # the previous "any clinical question" / raw-substring path that wrongly
++    # marked these topics applicable for NON-drug clinical questions
++    # (gut-microbiota, Parkinson's, metal-ions) just because they routed
++    # domain="clinical". Default False -> every un-marked topic is byte-identical.
++    requires_drug_intervention: bool = False
+ 
+ 
+ @dataclass
+@@ -200,21 +293,28 @@ def load_checklist(domain: str) -> list[ChecklistTopic]:
+             # I-arch-004 F11 (#1249): optional `critical: true` marks a clinical-safety
+             # topic whose uncovered state HOLDS release. Absent/false -> byte-identical.
+             critical=bool(t.get("critical", False)),
++            # BUG-7 (I-arch-006, #1262): optional `requires_drug_intervention: true`
++            # gates the topic on a robust drug/intervention detector (not the
++            # routing label / a raw substring). Absent/false -> byte-identical.
++            requires_drug_intervention=bool(
++                t.get("requires_drug_intervention", False)
++            ),
+         ))
+     return topics
+ 
+ 
+-def _topic_applies(
++def _legacy_applies_if(
+     topic: ChecklistTopic,
+     research_question: str,
+     evidence_blob: str,
+ ) -> bool:
+-    """Return True if the topic should be checked for this query.
++    """Legacy substring `applies_if` match (question OR evidence pool).
+ 
+-    A topic with no `applies_if` always applies. A topic with
+-    `applies_if` terms applies only if any term is found in the
+-    research_question OR the evidence pool (since "GLP-1" might be
+-    implied by the drug name).
++    A topic with no `applies_if` always matches. A topic with `applies_if`
++    terms matches iff any term is found in the research_question OR the
++    evidence pool (since "GLP-1" might be implied by the drug name). This is
++    the pre-BUG-7 behaviour, retained verbatim for non-drug topics and for the
++    OFF kill-switch path.
+     """
+     if not topic.applies_if:
+         return True
+@@ -226,6 +326,86 @@ def _topic_applies(
+     return False
+ 
+ 
++def _topic_applies(
++    topic: ChecklistTopic,
++    research_question: str,
++    evidence_blob: str,
++) -> tuple[bool, str]:
++    """Return ``(applies, disclosure_note)`` for a checklist topic.
++
++    BUG-7 (I-arch-006, #1262) — drive a drug/intervention-pharmacology topic's
++    applicability from a ROBUST detector, not the routing label or a raw
++    substring.
++
++    Non-drug topics (``requires_drug_intervention`` unset) keep the EXACT
++    pre-BUG-7 `applies_if` substring semantics (question OR evidence pool), so
++    their applicability is byte-identical.
++
++    A topic flagged ``requires_drug_intervention: true`` applies iff the QUESTION
++    is actually about a drug/intervention. "About a drug/intervention" is decided
++    by EITHER:
++      * the scope-gate recognizer (`_intervention_present`) finding a specific
++        drug name / INN-stem in the question, OR
++      * one of the topic's own `applies_if` CLASS anchors (e.g. "glp-1",
++        "incretin") appearing in the QUESTION — these are intervention-class
++        signals, not incidental evidence text.
++    The detector deliberately consults the QUESTION only: a drug word that merely
++    appears in retrieved EVIDENCE for a non-drug question must not flip a
++    pharmacology topic on (that was the false-positive path).
++
++    Once the question is confirmed to be about a drug/intervention, the topic's
++    NORMAL `applies_if` filter still applies (so the GLP-1-class topic stays gated
++    to GLP-1 questions and does not fire for metformin). For a topic with no
++    `applies_if` (the CRITICAL `contraindications` topic), drug-presence is the
++    sole gate.
++
++    FAIL-CLOSED / DISCLOSE ON AMBIGUITY: if the recognizer cannot be consulted
++    (import/config error), a CRITICAL ``requires_drug_intervention`` topic defaults
++    to applies=True with a disclosure note — never silently mark a critical safety
++    topic non-applicable. A non-critical topic falls back to the legacy substring
++    match (adequacy elsewhere unchanged).
++
++    Faithfulness: applicability only refines the completeness DENOMINATOR; it
++    never touches strict_verify / NLI / 4-role / span-grounding, never drops a
++    verified claim, and errs toward keeping a critical safety topic active.
++    """
++    legacy = _legacy_applies_if(topic, research_question, evidence_blob)
++
++    # Non-drug topic, or kill-switch OFF -> exact pre-BUG-7 behaviour.
++    if not topic.requires_drug_intervention or not _drug_detector_enabled():
++        return legacy, ""
++
++    q_lower = (research_question or "").lower()
++    class_anchor_in_question = any(
++        term in q_lower for term in topic.applies_if
++    )
++    detected, ambiguous = _intervention_detected_or_ambiguous(research_question)
++
++    if ambiguous:
++        # Recognizer unavailable: we cannot confidently conclude "no drug".
++        if topic.critical:
++            # Fail-closed: keep the critical safety topic active + disclose.
++            return True, (
++                f"applicability of critical topic {topic.id!r} could not be "
++                f"determined (intervention recognizer unavailable); kept "
++                f"applicable fail-closed per BUG-7 (#1262)"
++            )
++        # Non-critical: fall back to the legacy substring match (no change to
++        # adequacy on ambiguity).
++        return legacy, ""
++
++    drug_or_intervention_present = detected or class_anchor_in_question
++    if not drug_or_intervention_present:
++        # Confident negative: the question is NOT about a drug/intervention, so a
++        # drug-pharmacology topic does not apply (this is the BUG-7 fix). No
++        # disclosure needed — a clean "no drug" is not ambiguity.
++        return False, ""
++
++    # The question IS about a drug/intervention. Apply the topic's normal
++    # `applies_if` filter so class-specific topics stay gated to their class.
++    return legacy, ""
++
++
+ def _compile_keyword_re(keywords: list[str]) -> re.Pattern:
+     if not keywords:
+         return re.compile(r"(?!x)x")  # never matches
+@@ -245,7 +425,9 @@ def check_completeness(
+ 
+     Args:
+         domain: scope-template domain name.
+-        research_question: the user's query (drives applies_if filter).
++        research_question: the user's query (drives the `applies_if` filter and,
++            for `requires_drug_intervention` topics, the BUG-7 robust
++            drug/intervention applicability gate — see `_topic_applies`).
+         evidence_rows: evidence dicts with 'direct_quote' / 'statement'.
+         min_hits_to_cover: min # of evidence rows that must match at
+             least one keyword for a topic to be "covered" (default 1).
+@@ -288,9 +470,16 @@ def check_completeness(
+ 
+     coverages: list[TopicCoverage] = []
+     all_expand_queries: list[str] = []
++    # BUG-7 (I-arch-006, #1262): fail-closed disclosure notes for any critical
++    # topic kept applicable because the intervention recognizer was unavailable.
++    applicability_disclosures: list[str] = []
+ 
+     for topic in topics:
+-        applies = _topic_applies(topic, research_question, evidence_blob)
++        applies, disclosure = _topic_applies(
++            topic, research_question, evidence_blob
++        )
++        if disclosure:
++            applicability_disclosures.append(disclosure)
+         if not applies:
+             coverages.append(TopicCoverage(
+                 topic=topic, applies=False,
+@@ -344,6 +533,10 @@ def check_completeness(
+             f"{uncovered_n}/{applicable} applicable topic(s) uncovered: "
+             f"{uncovered_labels}"
+         )
++    # BUG-7 (I-arch-006, #1262): surface any fail-closed applicability disclosure
++    # (a critical topic kept applicable because the recognizer was unavailable) so
++    # the decision is DISCLOSED, never silent.
++    notes.extend(applicability_disclosures)
+ 
+     return CompletenessReport(
+         domain=domain,
+diff --git a/tests/polaris_graph/test_bug7_completeness_drug_applicability_iarch006.py b/tests/polaris_graph/test_bug7_completeness_drug_applicability_iarch006.py
+new file mode 100644
+index 00000000..c05262e1
+--- /dev/null
++++ b/tests/polaris_graph/test_bug7_completeness_drug_applicability_iarch006.py
+@@ -0,0 +1,282 @@
++"""BUG-7 (I-arch-006, #1262) — drug/intervention completeness applicability.
++
++THE BUG (clinical-safety-critical): the GLP-1 / drug-pharmacology completeness
++checklist (HbA1c / pancreatitis / thyroid / gallbladder efficacy + safety, and
++the ``critical: true`` ``contraindications`` topic) was applied to NON-drug
++clinical questions (gut-microbiota, Parkinson's, metal-ions) purely because they
++route ``domain="clinical"``. ``completeness_checker._topic_applies`` only did a
++STATIC substring match of a topic's ``applies_if`` terms against the question OR
++the evidence blob, and a topic with no ``applies_if`` (the CRITICAL
++``contraindications`` topic) applied to EVERY clinical question. Result: a false
++"covered" inflation AND a spurious ``abort_critical_topic_uncovered`` hold (or, if
++incidental evidence mentioned a drug word, a falsely-covered critical topic) on
++questions with no drug at all. A false-negative on applicability for a CRITICAL
++topic silently disables a real safety abort — that is the lethal failure mode.
++
++THE FIX: a checklist topic flagged ``requires_drug_intervention: true`` becomes
++applicable only when the QUESTION is actually about a drug/intervention, decided
++by the SAME robust config-driven recognizer the scope gate uses
++(``scope_gate._intervention_present`` = canonical drug names + WHO/USAN INN-stem
++recognition) OR one of the topic's own ``applies_if`` CLASS anchors in the
++question. On recognizer-unavailability a CRITICAL topic FAILS CLOSED (stays
++applicable + discloses) so a real safety abort is never silently disabled.
++
++FAITHFULNESS: applicability only refines the completeness DENOMINATOR (an
++applicability-precision / input-hygiene change). It never touches strict_verify /
++NLI / the 4-role D8 audit / span-grounding, never drops a verified claim, and on
++ambiguity errs toward keeping a critical safety topic active. Removing a FALSE
++applicability is not a weakening — the GLP-1 drug checklist genuinely does not
++apply to a gut-microbiota question.
++"""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.nodes import completeness_checker as cc
++from src.polaris_graph.nodes.completeness_checker import (
++    ChecklistTopic,
++    check_completeness,
++    load_checklist,
++)
++from src.polaris_graph.nodes.scope_gate import _reset_intervention_cache
++
++
++# A GLP-1 drug question whose evidence has efficacy/safety but NO contraindication
++# coverage (so the critical topic is APPLICABLE and UNCOVERED).
++_GLP1_DRUG_QUESTION = (
++    "What is the efficacy and safety of semaglutide for weight loss in adults "
++    "with obesity?"
++)
++_GLP1_EVIDENCE = [
++    {"direct_quote": "Semaglutide 2.4 mg reduced body weight by 14.9% versus "
++                     "placebo over 68 weeks.", "statement": "efficacy"},
++    {"direct_quote": "Nausea and vomiting were the most common adverse events "
++                     "leading to discontinuation.", "statement": "safety"},
++]
++
++# Two NON-drug clinical questions. Their evidence even MENTIONS drug-ish words
++# (glycemic, therapy) to prove the fix anchors on the QUESTION, not incidental
++# evidence text.
++_MICROBIOTA_QUESTION = (
++    "How does the gut microbiota influence host metabolism in healthy adults?"
++)
++_MICROBIOTA_EVIDENCE = [
++    {"direct_quote": "Gut microbiota produce short-chain fatty acids that "
++                     "modulate the glycemic response and weight regulation.",
++     "statement": "microbiome metabolism"},
++]
++_PARKINSON_QUESTION = (
++    "What is the role of alpha-synuclein aggregation in Parkinson disease "
++    "progression?"
++)
++_PARKINSON_EVIDENCE = [
++    {"direct_quote": "Alpha-synuclein aggregates impair mitochondrial function "
++                     "in dopaminergic neurons; non-pharmacological therapy is "
++                     "under study.", "statement": "pd pathology"},
++]
++
++
++@pytest.fixture(autouse=True)
++def _isolate_env(monkeypatch):
++    """Drop the kill-switch (default-ON behaviour) and reset the recognizer
++    cache around each test so env edits never leak across tests."""
++    monkeypatch.delenv("PG_COMPLETENESS_DRUG_DETECTOR", raising=False)
++    _reset_intervention_cache()
++    yield
++    _reset_intervention_cache()
++
++
++def _applicable_ids(report) -> list[str]:
++    return [tc.topic.id for tc in report.topics if tc.applies]
++
++
++def _critical_applicable_ids(report) -> list[str]:
++    return [
++        tc.topic.id for tc in report.topics
++        if tc.applies and getattr(tc.topic, "critical", False)
++    ]
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# Checklist metadata wiring
++# ──────────────────────────────────────────────────────────────────────────────
++
++def test_yaml_marks_drug_topics_requires_intervention():
++    """The clinical checklist marks the drug-pharmacology topics — including the
++    CRITICAL contraindications topic — with requires_drug_intervention=true, and
++    leaves the general population-subgroups topic UNmarked (so it still applies
++    to non-drug clinical questions; adequacy elsewhere unchanged)."""
++    topics = {t.id: t for t in load_checklist("clinical")}
++    assert topics["contraindications"].requires_drug_intervention is True
++    assert topics["contraindications"].critical is True
++    for tid in (
++        "efficacy_primary", "safety_adverse_events", "class_specific_risks_glp1",
++        "regulatory_status", "drug_interactions",
++    ):
++        assert topics[tid].requires_drug_intervention is True, tid
++    # General clinical topic NOT gated -> still applies to non-drug questions.
++    assert topics["population_subgroups"].requires_drug_intervention is False
++
++
++def test_requires_drug_intervention_defaults_false():
++    """An un-marked topic is byte-identical (flag defaults False)."""
++    t = ChecklistTopic(id="x", label="X")
++    assert t.requires_drug_intervention is False
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# POSITIVE: a real GLP-1 drug question — critical + GLP-1 class topics APPLY
++# ──────────────────────────────────────────────────────────────────────────────
++
++def test_glp1_drug_question_applies_critical_and_class_topics():
++    report = check_completeness(
++        domain="clinical",
++        research_question=_GLP1_DRUG_QUESTION,
++        evidence_rows=_GLP1_EVIDENCE,
++    )
++    applicable = _applicable_ids(report)
++    # The critical contraindications topic MUST apply for a real drug question.
++    assert "contraindications" in applicable
++    # The GLP-1 class-specific-risks topic MUST apply for a GLP-1 drug.
++    assert "class_specific_risks_glp1" in applicable
++    # And the critical safety abort can still fire (uncovered contraindications).
++    assert report.uncovered_critical_topic_ids() == ["contraindications"]
++
++
++def test_non_glp1_drug_keeps_class_topic_off_but_critical_on():
++    """A non-GLP-1 drug (metformin) keeps the GLP-1 class restriction (topic does
++    NOT apply) yet the generic critical contraindications topic DOES apply —
++    proving the fix is not GLP-1-only and the class restriction is preserved."""
++    report = check_completeness(
++        domain="clinical",
++        research_question="What is the efficacy of metformin for type 2 diabetes?",
++        evidence_rows=[{"direct_quote": "Metformin 500 mg reduced HbA1c by 1.2 "
++                                        "percentage points.", "statement": ""}],
++    )
++    applicable = _applicable_ids(report)
++    assert "contraindications" in applicable          # generic critical -> applies
++    assert "class_specific_risks_glp1" not in applicable  # GLP-1 restriction held
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# REGRESSION (mandatory): non-drug clinical questions must NOT spuriously apply
++# the drug checklist — the OLD bug is gone.
++# ──────────────────────────────────────────────────────────────────────────────
++
++@pytest.mark.parametrize(
++    "question, evidence",
++    [
++        (_MICROBIOTA_QUESTION, _MICROBIOTA_EVIDENCE),
++        (_PARKINSON_QUESTION, _PARKINSON_EVIDENCE),
++    ],
++)
++def test_non_drug_clinical_does_not_apply_drug_topics(question, evidence):
++    report = check_completeness(
++        domain="clinical",
++        research_question=question,
++        evidence_rows=evidence,
++    )
++    applicable = _applicable_ids(report)
++    # None of the drug-pharmacology topics may apply to a non-drug question.
++    for drug_topic in (
++        "contraindications", "efficacy_primary", "safety_adverse_events",
++        "class_specific_risks_glp1", "regulatory_status", "drug_interactions",
++    ):
++        assert drug_topic not in applicable, (drug_topic, applicable)
++
++
++@pytest.mark.parametrize(
++    "question, evidence",
++    [
++        (_MICROBIOTA_QUESTION, _MICROBIOTA_EVIDENCE),
++        (_PARKINSON_QUESTION, _PARKINSON_EVIDENCE),
++    ],
++)
++def test_non_drug_clinical_no_spurious_critical_hold(question, evidence):
++    """The lethal symptom: the CRITICAL contraindications topic must NOT apply to
++    a non-drug clinical question, so it can neither inflate "covered" nor gate a
++    spurious abort_critical_topic_uncovered."""
++    report = check_completeness(
++        domain="clinical",
++        research_question=question,
++        evidence_rows=evidence,
++    )
++    assert _critical_applicable_ids(report) == []
++    assert report.uncovered_critical_topic_ids() == []
++
++
++def test_old_bug_evidence_substring_no_longer_triggers_drug_topic():
++    """Direct regression on the root cause: a non-drug question whose EVIDENCE
++    incidentally contains the class substring "glp-1" must NOT flip the GLP-1
++    class topic on (the prior substring-on-evidence false-positive path)."""
++    report = check_completeness(
++        domain="clinical",
++        research_question=_MICROBIOTA_QUESTION,
++        evidence_rows=[{"direct_quote": "Some commentary mentioned glp-1 and "
++                                        "therapy in passing.", "statement": ""}],
++    )
++    assert "class_specific_risks_glp1" not in _applicable_ids(report)
++    assert "drug_interactions" not in _applicable_ids(report)
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# FAIL-CLOSED / DISCLOSE on AMBIGUITY (mandatory): recognizer unavailable must
++# NOT silently disable the critical safety topic.
++# ──────────────────────────────────────────────────────────────────────────────
++
++def test_recognizer_unavailable_fail_closed_keeps_critical_applicable(monkeypatch):
++    """When the intervention recognizer cannot be consulted (genuine ambiguity),
++    a CRITICAL requires_drug_intervention topic stays APPLICABLE (fail-closed) and
++    a disclosure note is emitted — never silently marked non-applicable."""
++    monkeypatch.setattr(
++        cc, "_intervention_detected_or_ambiguous",
++        lambda _q: (False, True),  # detected=False, ambiguous=True
++    )
++    report = check_completeness(
++        domain="clinical",
++        research_question=_MICROBIOTA_QUESTION,
++        evidence_rows=_MICROBIOTA_EVIDENCE,
++    )
++    # Critical contraindications stays applicable under ambiguity.
++    assert "contraindications" in _critical_applicable_ids(report)
++    # And the decision is DISCLOSED, not silent.
++    joined = " ".join(report.notes).lower()
++    assert "contraindications" in joined
++    assert "fail-closed" in joined or "could not be determined" in joined
++
++
++def test_clean_negative_is_not_ambiguity(monkeypatch):
++    """A clean None from the recognizer (it ran, found no drug) is a CONFIDENT
++    negative — the critical topic correctly drops out, with NO fail-closed
++    disclosure (that path is reserved for genuine recognizer-unavailability)."""
++    monkeypatch.setattr(
++        cc, "_intervention_detected_or_ambiguous",
++        lambda _q: (False, False),  # detected=False, ambiguous=False
++    )
++    report = check_completeness(
++        domain="clinical",
++        research_question=_MICROBIOTA_QUESTION,
++        evidence_rows=_MICROBIOTA_EVIDENCE,
++    )
++    assert _critical_applicable_ids(report) == []
++    joined = " ".join(report.notes).lower()
++    assert "fail-closed" not in joined
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# Kill-switch OFF reverts to the legacy substring behaviour (byte-identical path)
++# ──────────────────────────────────────────────────────────────────────────────
++
++def test_kill_switch_off_reverts_to_legacy_substring(monkeypatch):
++    """With PG_COMPLETENESS_DRUG_DETECTOR=0 the flag is ignored and the legacy
++    substring applies_if behaviour returns — contraindications (no applies_if)
++    again applies to every clinical question. This documents the pre-BUG-7 path
++    is intact behind the escape hatch."""
++    monkeypatch.setenv("PG_COMPLETENESS_DRUG_DETECTOR", "0")
++    report = check_completeness(
++        domain="clinical",
++        research_question=_MICROBIOTA_QUESTION,
++        evidence_rows=_MICROBIOTA_EVIDENCE,
++    )
++    # Legacy: contraindications has no applies_if -> always applies.
++    assert "contraindications" in _critical_applicable_ids(report)

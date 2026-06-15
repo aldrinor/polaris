@@ -1,0 +1,49 @@
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index d7e7e1ad..d05ec51f 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -4365,6 +4365,22 @@ def run_live_retrieval(
+                     "evidence_id": f"ev_{i:03d}",
+                     "source_url": cand.url,
+                     "statement": cand.title[:300],
++                    # BUG-1 (#1262): carry the already-resolved title onto the
++                    # final evidence row so the outline digest / evidence
++                    # selector see it. The title was extracted upstream
++                    # (classifier_title = the longest of OpenAlex display_name /
++                    # _extract_title_from_content / cand.title at ~4231-4239) and
++                    # fed to the tier classifier, then SILENTLY DROPPED here —
++                    # the row carried only the truncated `statement`, so the
++                    # outliner in multi_section_generator placed sources by tier
++                    # marker alone ("ev_022 [T2]") and admitted guessing. We do
++                    # NOT refetch or recompute — the title already exists; we
++                    # simply stop dropping it. Faithfulness is SAFE: a title is
++                    # placement/planning metadata only — it never enters a
++                    # verified claim, never feeds strict_verify / NLI / 4-role,
++                    # and never relaxes a gate (§-1.3 disclose-don't-drop: this
++                    # carries information FORWARD, it never drops a source).
++                    "title": classifier_title or cand.title or "",
+                     "direct_quote": direct_quote,
+                     "tier": tier_result.tier.value,
+                     "source": cand.source,
+diff --git a/tests/polaris_graph/test_bug1_evidence_row_title_backfill.py b/tests/polaris_graph/test_bug1_evidence_row_title_backfill.py
+new file mode 100644
+index 00000000..307ed321
+--- /dev/null
++++ b/tests/polaris_graph/test_bug1_evidence_row_title_backfill.py
+@@ -0,0 +1,192 @@
++"""BUG-1 (#1262): evidence-row title backfill in live_retriever.
++(full test body — see file; 3 tests: row-carries-title, outline-digest-no-longer-blind, source-pin)
++"""
++
++from __future__ import annotations
++import inspect
++from src.polaris_graph.retrieval.live_retriever import (
++    _extract_title_from_content,
++    run_live_retrieval,
++)
++# _resolve_classifier_title mirrors live_retriever.py:4231-4239
++# _assemble_row mirrors the ~4364-4376 _row literal (post-fix, with "title")
++# _outline_digest_line mirrors multi_section_generator.py:1817-1824 consumer
++# test_evidence_row_carries_extracted_title — asserts row["title"] == full_title (over-drop gone)
++# test_outline_digest_is_no_longer_blind_after_backfill — pre-fix "ev_022 [T2]" vs post-fix "ev_022 [T2] | title: ..."
++# test_production_row_assembly_includes_title_field — inspect.getsource pin: '"title": classifier_title or cand.title or ""' in src

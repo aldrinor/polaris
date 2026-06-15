@@ -35,6 +35,12 @@ _TIER_PRIORITY: dict[str, int] = {
 # I-meta-005 Phase 5 (#989): default relevance floor for `PG_RELEVANCE_FLOOR`.
 _DEFAULT_RELEVANCE_FLOOR = 0.30
 
+# BUG-14 (GH #1262, §-1.3 WEIGHT-not-FILTER): default min embeddable chars below
+# which a row is treated as a degenerate / stub fetch (UNKNOWN-relevance, NOT
+# off-topic) and so floor-EXEMPTED rather than hard-dropped on its near-zero cosine.
+# Overridable via `PG_SELECT_DEGENERATE_MIN_CHARS` (LAW VI).
+_DEFAULT_SELECT_DEGENERATE_MIN_CHARS = 24
+
 
 def parse_relevance_floor(
     raw: str | None, *, default: float = _DEFAULT_RELEVANCE_FLOOR,
@@ -1585,6 +1591,90 @@ def _relevance_preserve_anchors_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def _keep_degenerate_fetch_enabled() -> bool:
+    """Kill-switch `PG_SELECT_KEEP_DEGENERATE_FETCH` (default ON). When ON, a row
+    whose fetch FAILED / returned a STUB / content-starved / landing-page body is
+    EXEMPT from the relevance floor — a failed/stub fetch is UNKNOWN-relevance, NOT
+    off-topic, so it must NOT be dropped on the degenerate near-zero cosine its
+    empty content produces (BUG-14, GH #1262, §-1.3 WEIGHT-not-FILTER). The §-1.3-
+    correct behavior is the DEFAULT; the flag exists only so the exemption is
+    auditable / reversible. `=0`/`false`/`off`/`no` reverts to the prior hard-drop
+    (byte-identical legacy floor filter)."""
+    raw = os.environ.get("PG_SELECT_KEEP_DEGENERATE_FETCH", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _select_degenerate_min_chars() -> int:
+    """Floor `PG_SELECT_DEGENERATE_MIN_CHARS` (default 24). The minimum number of
+    embeddable content characters (statement + direct_quote, the SAME surface
+    `_row_embed_text` feeds the cosine scorer) below which a row is treated as a
+    degenerate / stub fetch — its near-zero embedding cannot support an "off-topic"
+    conclusion (BUG-14, GH #1262). Env-driven per LAW VI; a non-positive / malformed
+    value falls back to the default rather than disabling the direct-content guard
+    (fail-safe: an UNKNOWN-relevance row must never be silently dropped)."""
+    raw = os.environ.get("PG_SELECT_DEGENERATE_MIN_CHARS", "").strip()
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_SELECT_DEGENERATE_MIN_CHARS
+    return val if val > 0 else _DEFAULT_SELECT_DEGENERATE_MIN_CHARS
+
+
+def _fetch_degenerate(row: dict[str, Any]) -> bool:
+    """BUG-14 (GH #1262, §-1.3 WEIGHT-not-FILTER): True iff this row is the product
+    of a FAILED / STUB / content-starved / landing-page fetch, i.e. its content is
+    UNKNOWN-relevance rather than genuinely off-topic.
+
+    Such a row produces a DEGENERATE embedding (empty / near-empty statement+quote
+    → near-zero, often identical, cosine — the drb_72 smoking gun: two different
+    journal URLs both logged cosine 0.0431 from identical empty input). The cosine
+    floor then HARD-DROPS it as if "off-topic", silently losing canonical T1
+    sources (Autor, Frey & Osborne — 24 of 166 on drb_72). But you CANNOT conclude
+    "off-topic" from empty content: §-1.3 lets the floor filter genuine off-topic
+    REAL content, never an unknown-because-unfetched row. So such rows are kept
+    (floor-EXEMPT), down-weighted to sort LAST (their near-zero cosine already does
+    this via the existing `relevance x authority x retrieval_weight` sort), and
+    flagged for re-fetch / disclosure (telemetry below) — disclosure, never a
+    SILENT drop. Faithfulness is untouched: this NEVER admits off-topic REAL
+    content (a non-empty below-floor row is still dropped) and never relaxes any
+    verify gate.
+
+    Detection, in precedence order:
+      1. Reliable UPSTREAM markers set by `live_retriever`'s §-1.3 down-weight path
+         (`content_starved` / `landing_page` / `down_weighted` / a falsy
+         `full_text_capable`) or a `fetch_failed` / `*_failed` `failure_mode` /
+         `fetch_failed` diagnostic that reached the row.
+      2. DIRECT content detection as the backstop for rows whose upstream lane did
+         NOT stamp a marker (e.g. the redesign flag was off, or a different
+         retrieval path): the embeddable text (`_row_embed_text`, the SAME field
+         set the cosine scorer reads) is empty or shorter than
+         `PG_SELECT_DEGENERATE_MIN_CHARS`. Empty embeddable text is exactly the
+         condition that produces the degenerate cosine.
+    """
+    if not isinstance(row, dict):
+        return False
+    # 1) Trust an explicit upstream degenerate / down-weight marker when present.
+    if row.get("content_starved") or row.get("landing_page") or row.get(
+        "down_weighted"
+    ):
+        return True
+    if "full_text_capable" in row and not row.get("full_text_capable"):
+        return True
+    _fail = str(
+        row.get("failure_mode") or row.get("fetch_status") or ""
+    ).strip().lower()
+    if _fail in ("fetch_failed", "exception", "timeout", "empty_url"):
+        return True
+    if row.get("fetch_failed"):
+        return True
+    # 2) Backstop: detect the degenerate condition directly on the row's own
+    # content surface (the text the cosine scorer embeds). Empty / too-short =>
+    # degenerate embedding => its near-zero cosine is NOT evidence of off-topic.
+    if len(_row_embed_text(row).strip()) < _select_degenerate_min_chars():
+        return True
+    return False
+
+
 def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
     """True iff an evidence row was contributed by the required-entity / anchor
     lane and therefore is a marquee primary source that must not be floor-cut.
@@ -1931,8 +2021,30 @@ def _relevance_floor_selection(
     # requested at all (the true legacy path) => byte-identical default.
     _redesign_on = _credibility_redesign_enabled()
     _restore_filter = semantic_mode or semantic_requested
+    # BUG-14 (GH #1262, §-1.3 WEIGHT-not-FILTER): a FAILED / STUB / content-starved
+    # / landing-page fetch yields a DEGENERATE embedding (empty statement+quote →
+    # near-zero, often IDENTICAL, cosine — drb_72 logged two distinct journal URLs
+    # both at 0.0431 from identical empty input). The relevance floor then dropped
+    # them as if "off-topic" — silently losing 24 of 166 canonical T1 sources
+    # (Autor, Frey & Osborne). But empty content is UNKNOWN-relevance, NOT off-topic:
+    # you cannot conclude off-topic from a fetch that never delivered content. §-1.3
+    # lets the floor filter genuine off-topic REAL content; an unknown-because-
+    # unfetched row must be KEPT (down-weighted so it sorts LAST via the existing
+    # `relevance x authority x retrieval_weight` sort) and flagged for re-fetch /
+    # disclosure — never SILENTLY dropped. Gated by PG_SELECT_KEEP_DEGENERATE_FETCH
+    # (default ON = the §-1.3-correct behavior; flag exists only for audit/reversal).
+    # Faithfulness is untouched: a NON-empty below-floor row (genuine off-topic) is
+    # STILL dropped, and no verify gate is relaxed.
+    _keep_degenerate = _keep_degenerate_fetch_enabled()
     if _redesign_on and not _restore_filter:
         kept = list(scored)
+    elif _keep_degenerate:
+        kept = [
+            item for item in scored
+            if item[1] >= relevance_floor
+            or _floor_exempt(item[3])
+            or _fetch_degenerate(item[3])
+        ]
     else:
         kept = [
             item for item in scored
@@ -1995,6 +2107,18 @@ def _relevance_floor_selection(
             and not _is_anchor(item[3])
             and _row_is_marquee_anchor(item[3]))
     )
+    # BUG-14 (GH #1262, §-1.3): rows kept ONLY because they are a degenerate / stub
+    # fetch (UNKNOWN-relevance) — below floor, NOT an anchor/marquee floor-exemption,
+    # and `_fetch_degenerate`. Surfaced so the operator SEES the kept-for-refetch
+    # rows (disclosure, not a silent keep). 0 when PG_SELECT_KEEP_DEGENERATE_FETCH
+    # is OFF — so the note below is byte-identical to the prior behavior in that case.
+    fetch_degenerate_exempt = sum(
+        1 for item in kept
+        if (_keep_degenerate
+            and item[1] < relevance_floor
+            and not _floor_exempt(item[3])
+            and _fetch_degenerate(item[3]))
+    )
     dropped_count = len(scored) - len(kept)
     # I-pipe-003 (#1228): emit the ACTUAL floor-cut count (PG_RELEVANCE_HONEST_DROP,
     # default ON). This is the count the operator-facing telemetry was hiding as
@@ -2008,6 +2132,18 @@ def _relevance_floor_selection(
             relevance_floor, dropped_count, len(scored), len(kept),
             anchor_exempt, marquee_exempt,
         )
+    # BUG-14 (GH #1262, §-1.3): LOUDLY disclose the degenerate / stub-fetch rows kept
+    # for re-fetch (they were the silent over-drop). Separate INFO line so the
+    # honest-drop line above stays byte-identical; emits only when the exemption
+    # actually fired (flag ON AND >=1 such row), never on the OFF / clean path.
+    if _keep_degenerate and fetch_degenerate_exempt:
+        _LOGGER.info(
+            "[select] BUG-14 fetch_degenerate_exempt=%d row(s) KEPT below floor "
+            "(failed/stub/content-starved/landing-page fetch = UNKNOWN-relevance, "
+            "NOT off-topic) — sorted LAST, flagged for re-fetch (§-1.3 disclose, "
+            "not silent-drop)",
+            fetch_degenerate_exempt,
+        )
     note = (
         f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
         f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
@@ -2017,6 +2153,11 @@ def _relevance_floor_selection(
     # default (OFF) note is byte-identical to the prior behavior.
     if _preserve_marquee:
         note += f"; marquee_floor_exempt={marquee_exempt}"
+    # BUG-14 (GH #1262, §-1.3): surface the degenerate-fetch exemption in the
+    # operator-facing note (disclosure, not a silent keep). Only widens when at
+    # least one such row was kept, so a clean run's note is byte-identical.
+    if _keep_degenerate and fetch_degenerate_exempt:
+        note += f"; fetch_degenerate_exempt={fetch_degenerate_exempt}"
     # B1: surface the semantic-scorer state in telemetry. Strategy id flips to
     # `relevance_floor_semantic_v1` ONLY when the semantic score actually drove the
     # filter (the falsifiable manifest check). A requested-but-fell-back run keeps
