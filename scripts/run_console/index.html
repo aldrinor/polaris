@@ -170,6 +170,14 @@
         runSelect.appendChild(o);
       });
       if (cur) runSelect.value = cur;
+      // I-arch-005 5-link support: on FIRST load, auto-select + stream the run named in ?run= so each of
+      // the 5 parallel questions has its own URL the operator can open in a separate tab. Guarded on
+      // es===null so the periodic refresh never hijacks a manual selection; streams even if the run dir
+      // is not in the list yet (it may appear moments later).
+      if (es === null) {
+        var wantedRun = new URLSearchParams(window.location.search).get("run");
+        if (wantedRun) { runSelect.value = wantedRun; startStream(wantedRun); }
+      }
     }).catch(function (e) {
       addEvent({ type: "error", text: "failed to list runs: " + e });
     });
