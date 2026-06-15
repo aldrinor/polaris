@@ -67,6 +67,17 @@ _DEFAULT_MIN_CONFIDENCE = 0.7
 # non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
 _DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
 _JUDGE_TIMEOUT_S = 30.0
+# I-arch-006 HANG-J1 sibling (#1262): the semantic-conflict judge had the SAME bare-float per-read gap
+# timeout that let a trickled / idle-open OpenRouter socket run UNBOUNDED. Tight read-stall (dead socket
+# trips fast; keep-alives reset the timer so a slow-but-alive judge is unaffected) + bounded keepalive to
+# reap half-open CLOSE_WAIT sockets. Transport-only — the fail-open ("neutral", 0.0) verdict logic that
+# prevents a transient outage from FABRICATING a conflict is UNCHANGED. (LAW VI: env-driven.)
+_JUDGE_CONNECT_S = float(os.getenv("PG_NLI_CONFLICT_CONNECT_S", "30"))
+_JUDGE_READ_STALL_S = float(os.getenv("PG_NLI_CONFLICT_READ_STALL_S", "120"))
+_JUDGE_WRITE_S = float(os.getenv("PG_NLI_CONFLICT_WRITE_S", "60"))
+_JUDGE_POOL_S = float(os.getenv("PG_NLI_CONFLICT_POOL_S", "30"))
+_JUDGE_MAX_KEEPALIVE = int(os.getenv("PG_NLI_CONFLICT_MAX_KEEPALIVE", "8"))
+_JUDGE_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_NLI_CONFLICT_KEEPALIVE_EXPIRY_S", "30"))
 
 # I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
 # free, billed by usage not pre-allocated"): the NLI conflict judge is the SAME GLM-5.1 model pinned to the
@@ -499,7 +510,21 @@ class _SemanticContradictionJudge:
         # Two-family invariant (§9.1.1): the conflict judge is an evaluator-family
         # call and MUST differ from the generator family — raises at construction.
         check_family_segregation(evaluator_model=self._model)
-        self._client = httpx.Client(timeout=_JUDGE_TIMEOUT_S)
+        # I-arch-006 HANG-J1 sibling (#1262): explicit tight read-stall + bounded keepalive (see the
+        # constant block above) replaces the bare-float per-read 30s gap that let a trickled judge POST
+        # run unbounded. Verdict logic unchanged.
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=_JUDGE_CONNECT_S,
+                read=_JUDGE_READ_STALL_S,
+                write=_JUDGE_WRITE_S,
+                pool=_JUDGE_POOL_S,
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=_JUDGE_MAX_KEEPALIVE,
+                keepalive_expiry=_JUDGE_KEEPALIVE_EXPIRY_S,
+            ),
+        )
 
     def judge(self, claim_a: str, claim_b: str) -> tuple:
         """Return ``(label, confidence)`` with label in {contradict,entail,neutral}.

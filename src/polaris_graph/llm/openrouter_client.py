@@ -842,6 +842,16 @@ LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
 # default (see _call_impl: actual_timeout = timeout or default — an explicit timeout always wins).
 GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "600"))
 
+# I-arch-006 F33 (#1262): tight per-chunk SSE READ-stall timeout. The streaming read timeout must NOT
+# default to the full generator budget (``GENERATOR_TIMEOUT_SECONDS`` — 6500s under the cert slate): a
+# silently-stalled / dead OpenRouter socket (no SSE bytes, not even ": OPENROUTER PROCESSING" keep-alive
+# comments) would otherwise hang the whole run ~108 min before the read timed out. httpx resets the read
+# timer on ANY received bytes, and OpenRouter trickles keep-alive comments while a reasoning model thinks,
+# so a tight read-stall fires ONLY on genuine socket silence — slow reasoning is UNAFFECTED (CLAUDE.md
+# §9.1.8 "never starve"). The existing retry (``MAX_RETRIES``) reopens a fresh socket on a stalled read;
+# the outer ``asyncio.wait_for`` still bounds the TOTAL call. Transport-only; no faithfulness gate touched.
+PG_SSE_READ_STALL_TIMEOUT_SECONDS = float(os.getenv("PG_SSE_READ_STALL_TIMEOUT_SECONDS", "120"))
+
 
 def get_generator_timeout_seconds() -> int:
     """Return the CURRENT effective generator LLM timeout (the live module global)."""
@@ -1556,14 +1566,21 @@ class OpenRouterClient:
           standard JSON response despite ``stream: true`` (happens when
           the provider doesn't support streaming for reasoning models)
 
-        The httpx Timeout uses the caller's timeout for read operations
-        and a generous 30s for connection establishment.
+        The httpx Timeout uses a TIGHT per-chunk read-stall timeout
+        (``PG_SSE_READ_STALL_TIMEOUT_SECONDS``, F33 #1262) rather than the
+        caller's full budget, so a silently-dead socket trips in seconds
+        instead of hanging for the whole generator budget; write/pool keep
+        the caller's timeout and connection establishment gets a generous 30s.
+        OpenRouter keep-alive comments reset the read timer, so slow reasoning
+        is unaffected.
         """
         async with self._client.stream(
             "POST",
             "/chat/completions",
             json=body,
-            timeout=httpx.Timeout(timeout, connect=30.0),
+            timeout=httpx.Timeout(
+                timeout, connect=30.0, read=PG_SSE_READ_STALL_TIMEOUT_SECONDS
+            ),
         ) as response:
             response.raise_for_status()
 

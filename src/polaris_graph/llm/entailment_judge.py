@@ -79,6 +79,22 @@ logger = logging.getLogger(__name__)
 # non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
 _DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
 _ENTAILMENT_TIMEOUT_S = 30.0
+# I-arch-006 HANG-J1/J2 (#1262): the entailment JUDGE is the verifier and had NO total deadline — a bare
+# float `httpx.Client(timeout=30.0)` makes 30s the per-read GAP timeout, which httpx RESETS on every byte.
+# When OpenRouter/Cloudflare holds the socket ESTABLISHED and trickles keep-alive bytes (rx=tx=0 idle-open),
+# the 30s timer never fires and a single judge POST runs UNBOUNDED (drb_78 hung the whole run on this; a
+# 14-min judge call was observed). Fix: an EXPLICIT httpx.Timeout with a TIGHT read-stall (no bytes for
+# `read` seconds → ReadTimeout → the existing bounded same-provider retry reopens a FRESH socket), so a
+# genuinely dead socket (the observed rx=tx=0 signature) trips in seconds instead of hanging. httpx closes
+# the connection on a ReadTimeout, and explicit keepalive-expiry reaps the half-open CLOSE_WAIT sockets the
+# old pooled client leaked on the error path (HANG-J2). Transport/observability only — the verdict logic,
+# the fail-CLOSED `judge_error:` sentinel, and the two-family/model lock are all UNCHANGED. (LAW VI: env-driven.)
+_ENTAILMENT_CONNECT_S = float(os.getenv("PG_ENTAILMENT_CONNECT_S", "30"))
+_ENTAILMENT_READ_STALL_S = float(os.getenv("PG_ENTAILMENT_READ_STALL_S", "120"))
+_ENTAILMENT_WRITE_S = float(os.getenv("PG_ENTAILMENT_WRITE_S", "60"))
+_ENTAILMENT_POOL_S = float(os.getenv("PG_ENTAILMENT_POOL_S", "30"))
+_ENTAILMENT_MAX_KEEPALIVE = int(os.getenv("PG_ENTAILMENT_MAX_KEEPALIVE", "8"))
+_ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S", "30"))
 # I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
 # for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
 # previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
@@ -207,7 +223,22 @@ class _EntailmentJudge:
         # default model (google/gemma-4-31b-it) is in a different
         # family from DeepSeek by construction.
         check_family_segregation(evaluator_model=self._model)
-        self._client = httpx.Client(timeout=_ENTAILMENT_TIMEOUT_S)
+        # I-arch-006 HANG-J1/J2 (#1262): explicit per-phase timeout (tight read-stall so a dead/idle-open
+        # socket trips fast and the existing retry reopens a fresh one) + bounded keepalive so half-open
+        # CLOSE_WAIT sockets are reaped instead of leaking. Replaces the bare-float per-read 30s gap that
+        # let a trickled judge call run unbounded. Verdict logic untouched.
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=_ENTAILMENT_CONNECT_S,
+                read=_ENTAILMENT_READ_STALL_S,
+                write=_ENTAILMENT_WRITE_S,
+                pool=_ENTAILMENT_POOL_S,
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=_ENTAILMENT_MAX_KEEPALIVE,
+                keepalive_expiry=_ENTAILMENT_KEEPALIVE_EXPIRY_S,
+            ),
+        )
 
     def judge(self, sentence: str, span: str) -> tuple[str, str]:
         """Return (verdict, reason).

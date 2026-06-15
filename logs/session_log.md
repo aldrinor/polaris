@@ -5643,3 +5643,53 @@
 - EVIDENCE/FINDINGS: 150 representative cross-wave tests pass (every wave green together). Per-wave each lane's composed suite passed before commit. state/a3_campaign.json status=ALL_32_DONE.
 - STATUS: ALL 32 done. NEXT PHASE = redeploy VM to e19d699b + the launch env slate -> NO-SPEND --list dry-run -> full --all Q1 run (resumable via F04) -> §-1.1 audit + beat-both vs gpt_5_5_pro/gemini_3_1_pro.
 - NEXT_STEP: redeploy VM (git fetch + reset to e19d699b) + verify the 32 fixes present + the launch env slate; NO-SPEND --list dry-run.
+
+[2026-06-14 17:55:00]
+- ACTION: I-arch-005 B1-B10 generalized-pipeline redesign — pinned + Phase-1 build launched.
+- RATIONALE: A1/A2 forensic + dual-engine (Claude∧Codex) plan identified 10 BIG architectural fixes (beyond the 32 robustness fixes). Operator GO for max-parallel build. Keystone = domain-agnostic claim-basket contract. Build in waves to respect dependencies (B4 needs B1; B6/B8 needs B9) + hot-file serialization.
+- DOCS/RESEARCH: outputs/audits/b1b10_redesign/{DUAL_AGREED_PLAN.md, claude_plan.md, codex_plan.txt}; frontier: OpenAI/Gemini Deep Research, Perplexity Sonar, STORM, Elicit, Consensus, multidimensional-IR.
+- SYNC: GH umbrella #1257 (I-arch-005); wall ledger state/b1b10_redesign_campaign.json; memory project_b1b10_redesign_dual_agreed_2026_06_14; MEMORY.md index.
+- AFFECTED_FILES: (Phase-1 worktrees) transparency.py, llm_provider.py, verify_lock.py, openrouter_client.py (B10); evidence_selector.py (B1); release_policy.py, run_honest_sweep_r3.py, strict_verify, credibility_pass.py, qualitative_conflict_detector.py (B5/B7); scope_gate.py, qualitative_conflict_detector.py, contradiction_detector.py, finding_dedup.py, config/domain_packs/* (B9).
+- EVIDENCE/FINDINGS: Phase-1 workflow wf_cfd8aa51-b88 launched (4 parallel worktree lanes, each implement->test->Codex-gate cap3). A3 replay fixtures preserved (outputs/audits/b1b10_redesign/replay_fixtures/: drb_72 non-clinical corpus_snapshot 8.4MB).
+- STATUS: Phase-1 building. Operator ratified fabricated-citation=drop+disclose+ship ("nothing shall hold the report"). A3 cert run still live (drb_76).
+- NEXT_STEP: integrate Phase-1 lanes on completion -> launch Phase-2 (B4, B2/B3, B6/B8) -> deploy -> replay-test on A3 fixtures -> forensic audit + beat-both.
+
+[2026-06-15 00:45:30]
+- ACTION: I-arch-005 pre-run dual-audit preflight (operator-demanded), fix of 6 dead-on-arrival blockers, live-run console online, recording before 5-Q parallel run.
+- RATIONALE: All 24 B-fixes were committed+Codex-approved but a 4-lane preflight (3 Codex clusters + 26-agent Claude Workflow) found 6 PRESENT+faithfulness-safe yet DEAD on the run_gate_b --only path (Gate-B never activated their default-off flags; no run-level hang-guard on the paid path). Also found B24's own timeout values (gen 600/section 1800) would TRUNCATE 64000-token sections. Committed+Codex-approved != wired-on-run-path; verify reachability on the actual entry.
+- DOCS/RESEARCH: outputs/audits/b1b10_redesign/PREFLIGHT_24FIX_FINDINGS.md; .codex/I-arch-005-preflight/FIX_GATE_VERDICT.txt (GO).
+- SYNC: MEMORY.md + project_arch005_preflight_fix_ui_live_2026_06_14.md; state/b1b10_redesign_campaign.json.
+- AFFECTED_FILES: scripts/dr_benchmark/run_gate_b.py, scripts/run_honest_sweep_r3.py (fix 37e8ba70); scripts/run_console/ (UI dc436d21+46706add).
+- EVIDENCE/FINDINGS: comprehensive Codex re-gate GO/APPROVE zero P0/P1, all 6 WIRED+FAITH+CORRECT; 37 touched tests pass; deployed to VM polaris_run; console LIVE at https://polarisresearch.ca/console (verified 200 + SSE flowing + live site untouched).
+- STATUS: fix GO+committed+pushed+deployed; console live + hardened (security re-gate GO); pipeline flow operator-confirmed.
+- NEXT_STEP: free the VM (kill stale pre-fix A3 sweep) + add console ?run= 5-link support + fire all 5 golden Qs in PARALLEL (PG_CAPTURE_RAW_LLM_IO=1, reasoning=medium, spend authorized) + 5 live links.
+
+[2026-06-15 02:06:46]
+- ACTION: Live 5-Q beat-both run on VM; 2/5 died (native libxml2/trafilatura SIGSEGV); dual-engine forensic (Claude+Codex converged); operator-directed fix campaign building (segfault containment #1260 + staged checkpoints #1259 + console stdout/heartbeat #1258).
+- RATIONALE: 24 fixes work end-to-end (STORM fires, 240-2528 candidates, 0 faithfulness issues) but a PRE-EXISTING P0 crash (in-process trafilatura.extract bypassing the safe_trafilatura_extract subprocess guard) killed 2 runs silently under real concurrent-fetch load. Recurring class (3 dmesg segfaults). Operator: apply code fix + add meaningful checkpoints across the pipeline (no more 72-min-from-0) + careful preflight + re-run dead Qs.
+- DOCS/RESEARCH: .codex/I-death-drb72/CODEX_FORENSIC_VERDICT.txt + the Claude forensic agent report; dmesg segfault evidence.
+- SYNC: GH #1257 comment, #1258/#1259/#1260 filed; state/b1b10_redesign_campaign.json; memory project file.
+- AFFECTED_FILES: (building) src/tools/access_bypass.py, src/polaris_graph/agents/analyzer.py, src/utils/ingest.py, scripts/dr_benchmark/run_gate_b.py, scripts/run_honest_sweep_r3.py, NEW src/polaris_graph/generator/fetch_snapshot.py.
+- EVIDENCE/FINDINGS: dmesg python segfault (LOCK CMPXCHG on NULL = heap corruption); drb_75 "double free or corruption (!prev)"; 2 deaths both on the unguarded trafilatura path; 3 survivors (drb_76/78/90) still alive but at risk.
+- STATUS: forensic COMPLETE + dual-confirmed; fix campaign building via Codex-gated Workflow wfjb2dhlb; 2 dead runs NOT re-fired (await fix); 3 survivors riding + monitored.
+- NEXT_STEP: gate both fixes -> wired-on-run-path preflight -> deploy -> re-run drb_72/75 (+ any survivor that dies) on the fixed+checkpointed pipeline.
+
+[2026-06-14 20:45:00]
+- ACTION: Integrated + deployed the I-crash 3-fix campaign (#1260 segfault containment / #1259 post-fetch checkpoint / #1258 live-run visibility); re-ran the 2 dead beat-both Qs on a GPU box; reserved the 3 survivor evidence pools triple-redundant.
+- RATIONALE: The 5-Q live run surfaced a pre-existing P0 native crash (libxml2 trafilatura SIGSEGV in a ThreadPool thread) that killed drb_72+drb_75. Dual-engine forensic root-caused it; fix campaign built + Codex-gated each fix independently (GO/GO/GO, zero P0/P1; #1259 iter-1 caught a real journal_only sidecar P1, fixed iter-2). Operator: re-run the 2 dead Qs ASAP on the fixed pipeline but be super-careful not to ship a new bug. Careful integration (checkpoint+visibility both touch run_honest_sweep_r3.py -> applied checkpoint then hand-merged 6 visibility _hb/progress_cb lines by content-anchor), then wired-on-run-path preflight before any spend.
+- DOCS/RESEARCH: .codex/I-crash-fix/{SEGFAULT,CHECKPOINT,VISIBILITY}_VERDICT.txt (all GO); state/vast_provision/PROVISION_RECORD.md (A6000 box).
+- SYNC: GH #1257 umbrella + #1258/#1259/#1260 commented with status. Memory project_arch005_preflight_fix_ui_live_2026_06_14.md updated.
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, scripts/dr_benchmark/run_gate_b.py, scripts/run_console/{run_console.py,index.html}, src/polaris_graph/retrieval/live_retriever.py, src/polaris_graph/generator/fetch_snapshot.py (new), src/tools/access_bypass.py, src/utils/ingest.py, src/polaris_graph/agents/analyzer.py, src/polaris_graph/wiki/mesh/ingest.py + 4 test files. Commit 3ee583e8 on bot/I-arch-002-no-dumping.
+- EVIDENCE/FINDINGS: 42 touched tests pass locally AND on the GPU box (incl real-SIGSEGV containment on the box libxml2). Behavioral preflight on box: all 5 false-alarm locks green (FA2 competitor-outputs gap caught fail-loud + fixed = preflight earned its keep). Both re-runs LIVE past STORM on A6000 (no segfault, no faulthandler trace). 3 survivors still in generation (CPU/log frozen = stall-watch). Reserved corpus_snapshots (sha256-verified, 3 copies): OVH _reserved_snapshots/, local state/reserved_corpus_snapshots/, GPU /root/reserved_snapshots/ (drb_76=776, drb_78=633, drb_90=382 sources).
+- STATUS: Fix integrated+pushed+deployed. 2 re-runs healthy on GPU. 3 survivors possibly stalled (old code, no per-call timeout); pools reserved so regen-from-snapshot is safe. Faithfulness untouched throughout.
+- NEXT_STEP: Monitor all 5 to terminal; if a survivor confirmed hung -> regen from reserved snapshot on GPU box; on any report.md -> §-1.1 audit; destroy Vast instance 40999509 when re-runs done.
+
+[2026-06-15 06:25:00]
+- ACTION: Opened I-arch-006 (GH #1262) — beat-both 19-fix forensic campaign + bounded parallelism + 5-VM scale-out run. Consolidated 5 forensic streams into the master fix list; created umbrella issue, campaign Stop-marker, memory.
+- RATIONALE: 4 of 5 beat-both runs died/hung. Forensics (drb_72/76/90 deep-read just landed) surfaced 6 new bugs incl BUG-21 (silent death, likely OOM from 3 concurrent runs) + BUG-22 (18-32min generator calls). Operator chose a faster process (Claude builds all + ONE consolidated Codex gate, not 18) and a 5-VM scale-out re-run (one Q per VM) to beat the OOM + cut wall-time ~5x. Faithfulness never relaxed; the 6 faithfulness/clinical fixes still get the careful Codex read.
+- DOCS/RESEARCH: AB-MCTS/TreeQuest (Marlin), httpx Timeout semantics (bare float = per-read gap, not total), OpenRouter SSE keep-alive behavior.
+- SYNC: state/active_fix_campaign.json now points at #1262 (supersedes A3 #1256 marker for the active run-forensic execution layer; A3 retained as parent). MEMORY.md + new project memory added.
+- AFFECTED_FILES: .codex/I-arch-006/umbrella_issue.md, state/active_fix_campaign.json, state/forensic_bug_list.md, outputs/audits/marlin_v2/MASTER_FIX_LIST.md, memory/*.
+- EVIDENCE/FINDINGS: GH #1262 created; ledger 26 findings; drb_76 confirmed DEAD (silent, no manifest); drb_72 verifying (47 CLOSE_WAIT leak), drb_90 generating (18-32min/call) — both throwaway. Held pools reserved (drb_75/76/78 + drb_72_ai_labor/drb_75 in state/reserved_corpus_snapshots).
+- STATUS: Scaffolding durable. Build not yet started. Faithfulness gates untouched.
+- NEXT_STEP: advisor() pressure-test the plan, then build keystone (unified LLM-call deadline) directly + parallel-agent build for the non-colliding fixes.

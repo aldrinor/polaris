@@ -177,7 +177,12 @@ def make_openrouter_credibility_caller(
         # retried (each attempt is a real billed call, cost-accounted per attempt) before the row becomes a
         # judge_error. httpx.Timeout bounds the read gap; the event-loop freeze is prevented STRUCTURALLY by
         # the caller's concurrency + asyncio.to_thread offload (this no longer runs on the loop thread).
-        client_timeout = httpx.Timeout(call_timeout, connect=15.0)
+        # I-arch-006 HANG sibling (#1262): a TIGHT read-stall so a trickled / idle-open OpenRouter socket
+        # (rx=tx=0) trips in seconds and the existing bounded retry reopens a FRESH one, instead of read=
+        # call_timeout (the full budget) letting a dead socket hang. Keep-alive bytes reset the read timer,
+        # so a slow-but-alive credibility judge is unaffected. Transport-only; verdict/judge_error unchanged.
+        _cred_read_stall = _float_env("PG_CREDIBILITY_READ_STALL_S", 120.0)
+        client_timeout = httpx.Timeout(call_timeout, connect=15.0, read=_cred_read_stall)
         last_content = ""
         for _attempt in range(retries + 1):
             try:
