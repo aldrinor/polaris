@@ -799,7 +799,10 @@ _ERROR_PAGE_TOKENS = (
     "error 404",
     "403 forbidden",
     "access denied",
-    "not found",
+    # NOTE (Codex P1, #1262): bare "not found" was REMOVED here — as a substring
+    # token it silently dropped real NEGATIVE clinical findings ("Metastases were
+    # not found"). The literal whole-unit 404 stub ("Not Found") is re-caught by an
+    # EXACT whole-unit check in is_boilerplate_or_nonassertional (never a clause).
 )
 
 # A bare DOI / identifier row carries no assertional prose to ground.
@@ -917,6 +920,13 @@ def is_boilerplate_or_nonassertional(sentence: str) -> bool:
                 ]
                 if len(residual_words) <= 3:
                     return True
+        # Codex P1 (#1262): bare "not found" was removed from _ERROR_PAGE_TOKENS
+        # because as a substring it silently dropped real NEGATIVE clinical
+        # findings (e.g. "Metastases were not found" → residual "metastases were"
+        # ≤3). Re-catch ONLY the literal whole-unit 404 stub: the unit's alpha
+        # content is EXACTLY "not found", never a real clause containing it.
+        if re.sub(r"[\W_]+", " ", lowered, flags=re.UNICODE).strip() == "not found":
+            return True
 
     return False
 

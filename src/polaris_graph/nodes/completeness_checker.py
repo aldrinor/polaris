@@ -128,6 +128,30 @@ def _intervention_detected_or_ambiguous(research_question: str) -> tuple[bool, b
         return False, True
 
 
+# Codex P1 (#1262): high-precision GENERIC drug/pharmacology signal in the QUESTION.
+# Used ONLY to fail-closed a CRITICAL drug topic when the brand/trade-name recognizer
+# returned a (possibly-MISS) confident negative. Deliberately conservative — matches
+# explicit pharma/dose vocabulary, NOT generic medical words like "treatment"/"therapy"
+# or a radiation "dose" — so a genuine non-drug clinical question (gut-microbiota,
+# device/DBS, environmental metal exposure) yields False and is never spuriously held.
+_GENERIC_DRUG_SIGNAL_RE = re.compile(
+    r"\b(?:drugs?|medications?|pharmacotherap\w*|pharmacolog\w*|"
+    r"pharmacokinetic\w*|pharmacodynamic\w*|dosage|dosing|posology|"
+    r"milligrams?|micrograms?|tablets?|capsules?|"
+    r"inhibitors?|agonists?|antagonists?|monoclonal|"
+    r"chemotherap\w*|antibiotics?|antiviral\w*|"
+    r"administered|intravenous\w*|subcutaneous\w*|intramuscular\w*)\b"
+    r"|\b\d+\s?mg\b|\bmg\s?/\s?(?:kg|day|dl)\b",
+    re.IGNORECASE,
+)
+
+
+def _generic_drug_signal(question: str) -> bool:
+    """True iff the question carries explicit drug/pharmacology vocabulary (Codex
+    P1, #1262). Conservative by design — see ``_GENERIC_DRUG_SIGNAL_RE``."""
+    return bool(_GENERIC_DRUG_SIGNAL_RE.search(question or ""))
+
+
 def _benchmark_strict_gates() -> bool:
     """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
 
@@ -396,9 +420,33 @@ def _topic_applies(
 
     drug_or_intervention_present = detected or class_anchor_in_question
     if not drug_or_intervention_present:
-        # Confident negative: the question is NOT about a drug/intervention, so a
-        # drug-pharmacology topic does not apply (this is the BUG-7 fix). No
-        # disclosure needed — a clean "no drug" is not ambiguity.
+        # Confident negative from the recognizer (+ no class anchor).
+        if topic.critical:
+            # Codex P1 (#1262): the recognizer's brand/trade-name COVERAGE is
+            # incomplete, so a "confident no-drug" can be a MISS on a real drug
+            # question — silently dropping a CRITICAL contraindications topic would
+            # disable `abort_critical_topic_uncovered` (a clinical-safety failure).
+            # So for a critical topic we NEVER decide silently:
+            #   * generic drug/pharmacology SIGNAL present (dose/mg/inhibitor/drug/…)
+            #     => the recognizer likely missed a brand name => FAIL-CLOSED
+            #     (applies) + disclose;
+            #   * no drug signal at all (genuine non-drug: microbiota / device /
+            #     environmental exposure) => keep applies=False so a non-drug report
+            #     is never spuriously held, but DISCLOSE the skip so the decision is
+            #     auditable, never silent.
+            if _generic_drug_signal(research_question):
+                return True, (
+                    f"critical topic {topic.id!r}: drug recognizer found no known "
+                    f"intervention, but the question carries generic drug/pharmacology "
+                    f"signal — kept applicable FAIL-CLOSED + disclosed (Codex P1, #1262)"
+                )
+            return False, (
+                f"critical topic {topic.id!r}: marked non-applicable — drug recognizer "
+                f"found no intervention AND the question carries no drug signal "
+                f"(disclosed, not silent; Codex P1, #1262)"
+            )
+        # Non-critical confident negative: a drug-pharmacology topic does not apply
+        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
         return False, ""
 
     # The question IS about a drug/intervention. Apply the topic's normal
