@@ -1,0 +1,32 @@
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- "Don't pick bone from egg" -- reserve P0/P1 for real execution risks; classify nitpicks P2/P3.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+REQUIRED DELIVERABLE (do FIRST and LAST): write your verdict to
+  C:/POLARIS/.codex/I-arch-005-preflight/FIX_GATE_VERDICT.txt
+FIRST line = exactly GO or NO-GO. Then one line per blocker: "<id>: WIRED=Y/N FAITH=Y/N CORRECT=Y/N -- <evidence or blocker>". Then the schema below. This is the ONLY file you write. Do NOT modify any source. Do NOT run pytest (static review; the diff is self-contained and 37 touched tests already pass). You MAY read the repo at C:/POLARIS to confirm wiring (grep to the relevant hunks; do not read whole 10k-line files).
+
+THE DIFF UNDER REVIEW: C:/POLARIS/.codex/I-arch-005-preflight/PREFLIGHT_FIX.diff (touches scripts/dr_benchmark/run_gate_b.py + scripts/run_honest_sweep_r3.py). Read it.
+
+WHAT THIS IS: this fix resolves the 6 NO-GO blockers a 4-lane pre-run dual-audit found in the I-arch-005 benchmark path -- fixes that were committed + faithfulness-safe but DEAD on "run_gate_b --only" because Gate-B never activated their default-off flags / had no run-level hang guard. VERIFY each blocker is now WIRED on the real run path, the fix is CORRECT, and FAITHFULNESS is untouched.
+
+RUN PATH: python -m scripts.dr_benchmark.run_gate_b --only <slug> -> run_gate_b.main()/run_gate_b_query() applies apply_full_capability_benchmark_slate() + preflight_full_capability() BEFORE run_one_query(). The slate iterates _FULL_CAPABILITY_BENCHMARK_SLATE; a name in _BENCHMARK_FORCE_ON_FLAGS or _BENCHMARK_FORCE_EXACT_FLAGS is set to its exact slate value, else floored (max).
+
+THE 6 BLOCKERS + the fix to verify:
+- B1 (semantic scorer dead): slate now has PG_RELEVANCE_SCORER=semantic_v2 + it is in _BENCHMARK_FORCE_EXACT_FLAGS (string value, cannot ride the numeric floor) + a value-equals assertion in preflight_full_capability fails closed if != semantic_v2. VERIFY the slate sets it, the assertion bites, and evidence_selector's semantic-scorer-enabled path is now true on the run.
+- B4 (relevance gate dead): slate now has PG_RETRIEVAL_RELEVANCE_GATE=1 + _BENCHMARK_FORCE_ON_FLAGS + the required-flags floor. VERIFY live_retriever no longer falls back to legacy _rerank_and_reserve; credibility/tier stays a WEIGHT, not a hard drop.
+- B6/B8 + B12 (keystone basket render + credibility label dead): slate now has PG_SWEEP_CREDIBILITY_REDESIGN=1 + _BENCHMARK_FORCE_ON_FLAGS + required-flags floor. VERIFY the basket producer in multi_section_generator + the V30 contract render path (contract_section_runner) now fire; SUPPORTS-only members render; faithfulness logic unchanged.
+- B16 hardening: slate now force-ons PG_REDACT_HELD_UNSUPPORTED=1 so an .env=0 cannot skip the held-unsupported quarantine. Confirm present (non-blocking).
+- B13 (conflict label dropped): run_honest_sweep_r3.py run_one_query now calls detect_semantic_conflicts_for_rows_with_unscored (was the legacy entrypoint) and attaches conflict_unscored to the retrieval dataclass carrier so the EXISTING _collect_judge_unscored_labels glue routes it to manifest disclosed_gaps. VERIFY the swap is correct, the carrier attach works (LiveRetrievalResult is a plain dataclass), the except ConflictJudgeUnavailableError handler still applies, and faithfulness is DISCLOSE-only (never asserts/drops a conflict).
+- B20/B21/B24 (timeout -- THE DELICATE ONE): run_gate_b_query now wraps run_one_query in asyncio.wait_for(run_wall) + a B11 timeout-finalizer + manifest, ported from run_honest_sweep_r3.main_async's B20 pattern; it RETURNS the timeout summary (does NOT raise). Slate adds PG_RUN_WALL_CLOCK_SEC=10800 + a preflight ordering assertion (per-call 6500 < section 9000 < run-wall 10800). CRITICAL: the fix KEEPS gen 6500 / section 9000 -- it does NOT reduce them to B24's module-default 600/1800, which would TRUNCATE a 64000-token worst-case section (~4267s at 15 tok/s) per the #1248 forensic + the real 86-min run. VERIFY: (a) the wait_for guard is correct and the deadline ContextVar token is set then reset in finally, (b) the timeout path emits a non-empty artifact (never silent), (c) the ordering assertion is correct and bites, (d) the per-call/section values are NOT reduced (no truncation risk), (e) on timeout it RETURNS a summary the caller's per-query isolation handles (no double-manifest, no raise that aborts the sweep).
+
+CROSS-CUTTING: confirm NO faithfulness gate (strict_verify / 4-role D8 / provenance / span-grounding) is relaxed anywhere; the flag-OFF (non-benchmark) paths stay byte-identical; the slate FORCE_ON/EXACT vs FLOOR mechanism is used correctly.
+
+OUTPUT SCHEMA (append after the per-blocker lines):
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining

@@ -5623,14 +5623,25 @@ async def run_one_query(
         try:
             from src.polaris_graph.retrieval.semantic_conflict_detector import (
                 ConflictJudgeUnavailableError,
-                detect_semantic_conflicts_for_rows,
+                detect_semantic_conflicts_for_rows_with_unscored,
                 semantic_conflict_enabled,
             )
             if semantic_conflict_enabled():
-                semantic_records = detect_semantic_conflicts_for_rows(
-                    retrieval.evidence_rows,
-                    strict_fail_closed=_conflict_strict,
+                # I-arch-005 B13 (#1257) PREFLIGHT FIX: call the _with_unscored variant so a conflict
+                # judge that returns EMPTY content after the B14 retry surfaces a `conflict_unscored`
+                # DISCLOSED-GAP label instead of silently skipping it (the legacy entrypoint dropped it).
+                # The label list is attached to the `retrieval` carrier (a plain @dataclass) so the
+                # EXISTING run-side glue (_collect_judge_unscored_labels at the manifest write below)
+                # routes it into manifest["disclosed_gaps"]. Identical clustering/pairing/threshold logic;
+                # faithfulness unchanged (we DISCLOSE "could not adjudicate", never assert/drop a conflict).
+                semantic_records, _conflict_unscored_records = (
+                    detect_semantic_conflicts_for_rows_with_unscored(
+                        retrieval.evidence_rows,
+                        strict_fail_closed=_conflict_strict,
+                    )
                 )
+                if _conflict_unscored_records:
+                    retrieval.conflict_unscored = _conflict_unscored_records
         except ConflictJudgeUnavailableError as _cj_exc:
             from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
                 always_release_enabled as _always_release_enabled,

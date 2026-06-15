@@ -1,0 +1,33 @@
+PREFLIGHT WIRING AUDIT — Cluster A (retrieval + generalization + governance). Repo C:/POLARIS HEAD=3c238c6b, branch bot/I-arch-002-no-dumping.
+
+RUN ENTRY (the EXACT path the paid run takes — a fix only counts as WIRED if its code executes here on a normal --only run):
+  python -m scripts.dr_benchmark.run_gate_b --only <slug>
+  -> run_gate_b.main() -> run_gate_b_query(q,out_root,resume=...)   [scripts/dr_benchmark/run_gate_b.py]
+     forces: PG_FOUR_ROLE_MODE=1, PG_ENABLE_QUANTIFIED_ANALYSIS=1, PG_V30_PHASE2_ENABLED=1, PG_V30_ENABLED=1,
+       apply_full_capability_benchmark_slate(), preflight_full_capability()
+  -> run_one_query(...)   [scripts/run_honest_sweep_r3.py]
+     -> retrieval: src/polaris_graph/retrieval/{live_retriever,evidence_selector,tier_classifier}.py
+     -> generation via the V30 CONTRACT path (PG_V30_PHASE2_ENABLED forces it):
+          compile_frame -> contract_section_runner.run_contract_section -> multi_section_generator -> provenance_generator (strict_verify + basket render)
+     -> 4-role D8 seam: run_four_role_seam  (the binding faithfulness gate)
+     -> B11 Universal Artifact Finalizer (finally) -> manifest.json + report.md / refusal artifact
+A fix behind a flag run_gate_b does NOT set, or in a function this path never calls, is DEAD = NO-GO.
+
+HOW TO REVIEW (static, read-only). For EACH fix below, verify in the DEPLOYED code at C:/POLARIS HEAD:
+  1. PRESENT  — the symbol/logic is actually in the code (cite file:line).
+  2. WIRED    — trace the real call chain from the run-path entry to this fix's code; is it executed on a normal "run_gate_b --only <slug>" run? Cite the call site + gating flag. If behind a flag, confirm run_gate_b SETS it (or it is default-on). THIS IS THE #1 RISK — a committed, Codex-approved fix that is DEAD on the real run path wastes a 3-hour run.
+  3. FAITH    — faithfulness untouched: no strict_verify / 4-role D8 / provenance / span relaxation; verify=label-not-hold where claimed; OFF path byte-identical where claimed.
+  4. FLAG     — default correct: any escape-hatch defaults OFF; default-on fixes are on.
+Do NOT run pytest (static review). Do NOT modify ANY source file. The ONLY file you may write is the verdict file named below.
+
+REQUIRED DELIVERABLE — write your verdict to:
+  C:/POLARIS/.codex/I-arch-005-preflight/PREFLIGHT_A_VERDICT.txt
+FIRST line = exactly GO or NO-GO (cluster passes only if every fix is PRESENT+WIRED+FAITH+FLAG ok). Then one block per fix:
+  <id>: PRESENT=Y/N WIRED=Y/N FAITH=Y/N FLAG=Y/N — <call-chain evidence file:line -> file:line, or the concrete blocker>
+End with: BLOCKERS: <list, or NONE>.
+
+FIXES IN THIS CLUSTER (commits: f964b079 B1, fdb5e92f B4, ac039560 B9, 7110156d B10):
+- B1  semantic relevance scorer (lexical->embedding) + relevance FILTER; credibility stays a WEIGHT, not a drop. Files: src/polaris_graph/retrieval/evidence_selector.py (e.g. _semantic_relevance_scores). Verify it runs in run_one_query's selection on the run path.
+- B4  rerank/cut = relevance-THRESHOLD + fetch-BUDGET reusing B1's scorer (not a fixed top-K count). Files: src/polaris_graph/retrieval/live_retriever.py. Verify reachable in retrieval on the run path; the unfetched-but-relevant tail is recorded; credibility/tier is NOT a hard drop.
+- B9  generalize off clinical: domain classifier + general default + domain packs + domain-agnostic claim extractor. Verify the domain param is actually READ on the run path (not hardcoded clinical).
+- B10 remove residual gemma (transparency.py lie + vLLM default + demo fixtures) + CI conformance gate + token-limit resolver (fixes judge-400). Verify NO gemma default can reach any of the 4 locked roles or the side judges; the token resolver sets the real per-model max (not a starved 60/100/512).

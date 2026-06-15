@@ -1,0 +1,35 @@
+PREFLIGHT WIRING AUDIT — Cluster C (SECTION generation lane). Repo C:/POLARIS HEAD=3c238c6b, branch bot/I-arch-002-no-dumping.
+
+RUN ENTRY (the EXACT path the paid run takes — a fix only counts as WIRED if its code executes here on a normal --only run):
+  python -m scripts.dr_benchmark.run_gate_b --only <slug>
+  -> run_gate_b.main() -> run_gate_b_query(q,out_root,resume=...)   [scripts/dr_benchmark/run_gate_b.py]
+     forces: PG_FOUR_ROLE_MODE=1, PG_ENABLE_QUANTIFIED_ANALYSIS=1, PG_V30_PHASE2_ENABLED=1, PG_V30_ENABLED=1,
+       apply_full_capability_benchmark_slate(), preflight_full_capability()
+  -> run_one_query(...)   [scripts/run_honest_sweep_r3.py]
+     -> generation via the V30 CONTRACT path (PG_V30_PHASE2_ENABLED forces it):
+          compile_frame -> contract_section_runner.run_contract_section -> multi_section_generator -> provenance_generator (strict_verify + basket render)
+     -> 4-role D8 seam: run_four_role_seam (binding gate) -> B11 finalizer -> manifest.json + report.md
+A fix behind a flag run_gate_b does NOT set, or in a function this path never calls, is DEAD = NO-GO.
+NOTE: the benchmark forces the V30 CONTRACT path. A SECTION fix wired only into the INLINE (non-contract) render path is DEAD on the benchmark = NO-GO. Verify the contract path (contract_section_runner.run_contract_section) specifically.
+
+HOW TO REVIEW (static, read-only). For EACH fix below, verify in the DEPLOYED code at C:/POLARIS HEAD:
+  1. PRESENT  — the symbol/logic is actually in the code (cite file:line).
+  2. WIRED    — trace the real call chain from the run-path entry to this fix's code; is it executed on a normal "run_gate_b --only <slug>" run via the V30 contract path? Cite the call site + gating flag. THIS IS THE #1 RISK — a committed, Codex-approved fix DEAD on the real run path wastes a 3-hour run.
+  3. FAITH    — faithfulness untouched: no strict_verify / 4-role D8 / provenance / span relaxation; only span-verified members render; verify=label-not-hold where claimed; OFF path byte-identical where claimed.
+  4. FLAG     — default correct: escape-hatch PG_GEN_ROW_CAPS defaults OFF (budgets active by default); default-on fixes are on.
+Do NOT run pytest (static review). Do NOT modify ANY source file. The ONLY file you may write is the verdict file named below.
+
+REQUIRED DELIVERABLE — write your verdict to:
+  C:/POLARIS/.codex/I-arch-005-preflight/PREFLIGHT_C_VERDICT.txt
+FIRST line = exactly GO or NO-GO (cluster passes only if every fix is PRESENT+WIRED+FAITH+FLAG ok). Then one block per fix:
+  <id>: PRESENT=Y/N WIRED=Y/N FAITH=Y/N FLAG=Y/N — <call-chain evidence file:line -> file:line, or the concrete blocker>
+End with: BLOCKERS: <list, or NONE>.
+
+FIXES IN THIS CLUSTER (commits: a8b6ea3f SECTION, 3c238c6b GAP1):
+- B2/B3 outline/section row-caps -> char/token/basket BUDGETS by DEFAULT; preflight-FAIL in run_gate_b if a row cap would bind; tail-drop telemetry. Files: src/polaris_graph/generator/multi_section_generator.py, scripts/dr_benchmark/run_gate_b.py. Escape hatch PG_GEN_ROW_CAPS must default OFF (budgets active by default).
+- B6/B8 multi-citation basket render (KEYSTONE): render the WHOLE verified-support basket per claim (span_verdict==SUPPORTS members ONLY, NEVER the advisory corroboration count). SURGICAL wire of build_basket_supports_by_cluster + verified_corroborators_for_tokens through BOTH the inline render AND the V30 contract path (contract_section_runner resolve + slot-regroup). CRITICAL faithfulness: only SUPPORTS members render; a 1->MANY cluster_id_by_evidence token must NOT expand cross-claim corroborators. Files: src/polaris_graph/generator/{provenance_generator,multi_section_generator,contract_section_runner}.py. Verify it actually fires on the V30 contract path the benchmark forces.
+- B12-completion: credibility_pass judge=None guard moved INSIDE the always-release try (degrade + label credibility_unscored under always-release ON; hard raise ONLY when OFF). multi_section_generator.py (~:5787 / ~:5959). Verify it no longer HOLDS the report on judge=None in the benchmark path.
+- B21 section wall-clock default-on 1800s (was 9000). B22 zero-emission section -> visible gap stub (not silent drop). multi_section_generator.py.
+- B24-section: GENERATOR_TIMEOUT_SECONDS = 600 (was 6500) in src/polaris_graph/llm/openrouter_client.py. Ordering: per-call 600 < section-wall 1800 < run-wall 7200.
+- M-44: default outline path no longer count-evicts evidence (char budget governs admission); count-pop ONLY under PG_GEN_ROW_CAPS, with dropped_ev_id/drop_reason telemetry. CRITICAL: confirm the DEFAULT path does NOT silently drop evidence by count.
+- GAP1: --resume threaded run_gate_b.main() -> run_gate_b_query(resume=) -> run_one_query(resume=). Default OFF = byte-identical. Confirm the 3-hop wire is correct and resume reaches the snapshot-reconstruct (_resume_active) in run_honest_sweep_r3.py.

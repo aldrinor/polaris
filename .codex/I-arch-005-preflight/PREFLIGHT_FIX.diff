@@ -1,0 +1,274 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index d0f4d421..2bc30af3 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -479,6 +479,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     "PG_SECTION_MAX_TOKENS": "64000",            # generator chain serves >=384000 (I-arch-003 pin); 64000 = ~4x observed max
+     "PG_GENERATOR_LLM_TIMEOUT_SECONDS": "6500",  # 1.5 x (64000 / 15 tok/s) ~= 6500s inner LLM timeout
+     "PG_SECTION_WALLCLOCK_SECONDS": "9000",      # outer per-attempt section backstop (LLM 6500 + verify/rewrite headroom)
++    # I-arch-005 B20 PREFLIGHT FIX (#1257): the RUN-LEVEL wall-clock backstop. The pre-run dual-audit
++    # found the paid Gate-B path (run_gate_b_query) NEVER wrapped run_one_query in asyncio.wait_for, so a
++    # HANG anywhere inside = PERMANENT silence (run_one_query's inner B11 finally cannot fire on a hang) —
++    # the drb_76 3.5h hang. The default run_wall_clock_seconds (7200) is also BELOW the 9000 section
++    # backstop = inverted ordering. Set the run-wall ABOVE the section backstop so the hierarchy is
++    # per-call 6500 < section 9000 < run-wall 10800, and run_gate_b_query now wraps run_one_query in
++    # wait_for(run_wall) + the B11 timeout-finalizer. KEEP gen 6500 / section 9000 (correctly sized for a
++    # 64000-token worst-case section at ~15 tok/s = ~4267s; B24's 600/1800 MODULE defaults would TRUNCATE
++    # real sections per the #1248 forensic + the real 86-min run, so the slate KEEPS the large per-call
++    # values and fixes ONLY the missing run-level guard + the inverted run-wall ordering). A legit single-
++    # query run is ~86 min, so 10800 (3h) clears it with margin yet still catches a total hang.
++    "PG_RUN_WALL_CLOCK_SEC": "10800",
+     # Evidence-extraction depth.
+     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
+     "PG_DEEPENER_EVIDENCE_CAP": "500",
+@@ -585,6 +597,17 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # explicitly removed — so the diagnosis's secondary "lower to 200" is NOT
+     # applied here. Default OFF in code => slate-absent runs are byte-identical.
+     "PG_SELECT_SUBQUERY_FLOOR": "1",
++    # I-arch-005 PREFLIGHT FIX (#1257): the pre-run dual-audit (Claude Workflow + 3 Codex lanes,
++    # outputs/audits/b1b10_redesign/PREFLIGHT_24FIX_FINDINGS.md) found these I-arch-005 fixes committed +
++    # Codex-approved but DEAD on the benchmark because Gate-B never activated their (correctly default-off)
++    # flags. All independently verified PRESENT + FAITHFULNESS-SAFE. Force them via the slate (FORCE_ON for
++    # the booleans, FORCE_EXACT for the string scorer below) so an .env=0/lexical cannot win and apply()-only
++    # callers (tests / super_heavy_preflight) stay consistent. PG_RELEVANCE_SCORER is also asserted
++    # value-equals 'semantic_v2' in preflight_full_capability (fail-closed).
++    "PG_RELEVANCE_SCORER": "semantic_v2",   # B1: lexical->embedding relevance scorer (else legacy lexical + keep-all)
++    "PG_RETRIEVAL_RELEVANCE_GATE": "1",     # B4: relevance-threshold+fetch-budget rerank (else legacy _rerank_and_reserve)
++    "PG_SWEEP_CREDIBILITY_REDESIGN": "1",   # B6/B8 KEYSTONE basket render + B12 credibility label/guard (else dark)
++    "PG_REDACT_HELD_UNSUPPORTED": "1",      # B16 hardening: a stray operator =0 must not skip the held-unsupported quarantine
+     # I-ready-017 FX-03 (#1107): the 4-role seam MUST judge each claim against the cited [start:end]
+     # BOUNDED window, not the whole source doc (BUG-02 confirmed out-of-span false-accept, claim
+     # 06-004). OFF feeds whole-record evidence to Sentinel/Judge so a claim can be VERIFIED on support
+@@ -825,6 +848,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     # generation path the distiller was built to replace. Fail closed if it is
+     # not active so a stray operator =0 can never reach the paid run.
+     "PG_SECTION_DISTILL",
++    # I-arch-005 PREFLIGHT FIX (#1257): B4 + B6/B8/B12 activations must be ON for the paid run — OFF
++    # leaves B4 on the legacy fixed-top-K rerank and the B6/B8 keystone basket render + B12 credibility
++    # label/guard DARK (the pre-run dual-audit NO-GO). Boolean flags -> safe in this truthy-required tuple.
++    # (PG_RELEVANCE_SCORER is a string value -> asserted separately below, not here.)
++    "PG_RETRIEVAL_RELEVANCE_GATE",
++    "PG_SWEEP_CREDIBILITY_REDESIGN",
+ )
+ 
+ # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+@@ -852,6 +881,12 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     "PG_USE_FINDING_DEDUP",
+     "PG_CAPPED_FINDING_DEDUP",
+     "PG_RELEVANCE_FLOOR",
++    # I-arch-005 PREFLIGHT FIX (#1257): force-on the I-arch-005 activations the pre-run dual-audit found
++    # dead-by-default on the benchmark — B4 relevance-gate, B6/B8+B12 credibility redesign, B16 redaction
++    # kill-switch. All verified faithfulness-safe; OFF is a silent capability/visibility downgrade.
++    "PG_RETRIEVAL_RELEVANCE_GATE",
++    "PG_SWEEP_CREDIBILITY_REDESIGN",
++    "PG_REDACT_HELD_UNSUPPORTED",
+     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+     "PG_GATE_B_CITED_SPAN",
+@@ -924,6 +959,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+ # around capability-enabling flags keep their original meaning.
+ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
+     "PG_SWEEP_ANALYST_SYNTHESIS",
++    # I-arch-005 PREFLIGHT FIX (#1257): B1 selects its scorer by a STRING value, not a boolean — force-EXACT
++    # to 'semantic_v2' (the numeric FLOOR path would crash on float('semantic_v2')) so an .env='lexical'
++    # cannot silently revert B1 to the legacy lexical scorer + bypass the restored relevance filter.
++    "PG_RELEVANCE_SCORER",
+     # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span WINDOW SIZE must be FORCE-SET to the
+     # 400-byte policy, not a setdefault floor. Otherwise an operator/.env PG_GATE_B_SPAN_WINDOW_BYTES=
+     # 999999 survives the slate, the PG_GATE_B_CITED_SPAN preflight still passes, and _cited_window_text
+@@ -1011,6 +1050,12 @@ _BENCHMARK_EXTRA_ENV_FLOORS = {
+     "PG_SECTION_MAX_TOKENS": 64000,
+     "PG_GENERATOR_LLM_TIMEOUT_SECONDS": 6500,
+     "PG_SECTION_WALLCLOCK_SECONDS": 9000,
++    # I-arch-005 B20 PREFLIGHT FIX (#1257): the RUN-LEVEL wall-clock floor. The default
++    # run_wall_clock_seconds (7200) is BELOW the 9000 section backstop = inverted ordering (a hang could
++    # not be caught above the section level). Floor it ABOVE the section backstop so the hierarchy stays
++    # per-call 6500 < section 9000 < run-wall 10800; the explicit ordering assertion in
++    # preflight_full_capability fails closed if a future value inverts the hierarchy.
++    "PG_RUN_WALL_CLOCK_SEC": 10800,
+ }
+ 
+ 
+@@ -1107,6 +1152,17 @@ def preflight_full_capability() -> None:
+                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
+                 f"or its firing is unobservable (tracker off). Enable it before the run."
+             )
++    # I-arch-005 PREFLIGHT FIX (#1257): B1's relevance scorer is selected by a STRING value, not a
++    # boolean, so it cannot ride the truthy-required loop above. Fail closed if it is not the embedding
++    # scorer for a paid run — OFF/'lexical' silently reverts B1 to the legacy lexical scorer + bypasses
++    # the restored relevance filter (keep-all). The slate force-sets it to 'semantic_v2' in run_gate_b_query.
++    _scorer = os.getenv("PG_RELEVANCE_SCORER", "lexical").strip()
++    if _scorer != "semantic_v2":
++        raise RuntimeError(
++            f"benchmark preflight FAILED: PG_RELEVANCE_SCORER={_scorer!r} is not 'semantic_v2' — the B1 "
++            f"embedding-cosine relevance scorer + restored relevance filter are dead-by-config (legacy "
++            f"lexical scorer runs instead). Set PG_RELEVANCE_SCORER=semantic_v2 before the run."
++        )
+     # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span window must stay BOUNDED. An oversized
+     # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+     # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;
+@@ -1181,6 +1237,22 @@ def preflight_full_capability() -> None:
+             f"{_gen_timeout_floor} — a stale PG_GENERATOR_LLM_TIMEOUT_SECONDS in .env froze the import-time "
+             f"constant; the slate must call set_generator_timeout_seconds() to sync it before any spend."
+         )
++    # I-arch-005 B20 PREFLIGHT FIX (#1257): the timeout HIERARCHY must be strictly ordered
++    # per-call < section-wall < run-wall, else a hang escapes the level meant to catch it (the drb_76
++    # 3.5h hang had run-wall 3600 BELOW section 9000 = inverted, AND the paid Gate-B path had no run-level
++    # asyncio.wait_for at all). Assert the ordering on the LIVE values so a future misconfig FAILS CLOSED
++    # here, before any spend, rather than hanging silently on a paid run. run_gate_b_query now wraps
++    # run_one_query in wait_for(PG_RUN_WALL_CLOCK_SEC) + the B11 timeout-finalizer (the missing guard).
++    _eff_section_wall = int(os.getenv("PG_SECTION_WALLCLOCK_SECONDS", "0") or "0")
++    _eff_run_wall = int(os.getenv("PG_RUN_WALL_CLOCK_SEC", "0") or "0")
++    if not (_eff_gen_timeout < _eff_section_wall < _eff_run_wall):
++        raise RuntimeError(
++            "benchmark preflight FAILED: timeout hierarchy is not strictly ordered "
++            f"per-call({_eff_gen_timeout}) < section-wall({_eff_section_wall}) < run-wall({_eff_run_wall}) "
++            "— a hang would escape the level meant to catch it (the drb_76 inverted-ordering class). Set "
++            "the slate so PG_GENERATOR_LLM_TIMEOUT_SECONDS < PG_SECTION_WALLCLOCK_SECONDS < "
++            "PG_RUN_WALL_CLOCK_SEC before the run."
++        )
+     # Codex diff-gate iter-2 P1-1: extra CALL-TIME env floors that .env was silently winning over the
+     # slate (e.g. PG_MOST_MAX_EVIDENCE=300 in .env survived the old setdefault). The floor-slate raised
+     # them; validate so a regression cannot re-introduce the throttle.
+@@ -1420,6 +1492,10 @@ async def run_gate_b_query(
+     # TIGHTENS faithfulness. Force-on (Codex iter-2 P1-1: an operator .env=0 must
+     # not win); preflight_full_capability below fails closed if it is off.
+     os.environ["PG_SECTION_DISTILL"] = "1"                 # force-on (Codex iter-2 P1-1: .env=0 must not win)
++    # I-arch-005 PREFLIGHT FIX (#1257): the B1/B4/B6-8/B12 activations + the B16 hardening pin are set by
++    # the FULL-CAPABILITY SLATE (apply_full_capability_benchmark_slate, via _FULL_CAPABILITY_BENCHMARK_SLATE
++    # + _BENCHMARK_FORCE_ON_FLAGS / _BENCHMARK_FORCE_EXACT_FLAGS), NOT hand-set here — so apply()-only
++    # callers (preflight tests, super_heavy_preflight) get them too and stay consistent. See the slate dict.
+     # I-ready-019 (#1146): journal_only is DISABLED for the whole benchmark (empty
+     # JOURNAL_ONLY_BENCHMARK_SLUGS) per the operator credibility-model directive (2026-06-07). With an
+     # empty set this call DETERMINISTICALLY CLEARS the runtime flag for every slug, so no question is
+@@ -1459,15 +1535,88 @@ async def run_gate_b_query(
+         # reader can tell this benchmark OpenRouter run apart from the sovereign self-host path.
+         write_four_role_stage_marker(out_root)
+     builder = make_gate_b_input_builder(d8_config_path=d8_config_path)
+-    return await run_one_query(
+-        q,
+-        out_root,
+-        four_role_transport=active_transport,
+-        four_role_input_builder=builder,
+-        query_index=query_index,
+-        query_total=query_total,
+-        resume=resume,  # GAP1: A3 replay-harness corpus-snapshot resume (back-half-only)
++    # I-arch-005 B20 PREFLIGHT FIX (#1257): wrap run_one_query in the RUN-LEVEL wall-clock guard. The
++    # paid Gate-B path previously awaited run_one_query DIRECTLY with NO asyncio.wait_for, so a hang
++    # anywhere inside it (a wedged fetch, a judge that never returns) = PERMANENT silence — run_one_query's
++    # inner B11 `finally` (the finalizer) cannot fire on a hang. Port the proven main_async pattern
++    # (run_honest_sweep_r3.py B20): publish the run-scoped DEADLINE before wait_for so the inner B11
++    # finalizer detects the wall-clock cancellation and emits a TIMEOUT-labeled artifact; on TimeoutError
++    # here ALSO emit the B11 finalizer + a labeled timeout manifest so the run is NEVER silent. RETURN the
++    # timeout summary (does NOT raise) so the caller's per-query isolation (F25) records it and the sweep
++    # continues. Faithfulness untouched — a timeout asserts NO findings. Ordering: per-call 6500 <
++    # section 9000 < run-wall (PG_RUN_WALL_CLOCK_SEC, slate 10800).
++    import asyncio  # stdlib; local import preserves the module-top NO-SPEND / NO-NETWORK invariant
++    import time as _time
++    from scripts.run_honest_sweep_r3 import (
++        _RUN_WALL_CLOCK_DEADLINE_CTX,
++        _RUN_WALL_CLOCK_ENV,
++        _base_manifest_envelope,
++        finalize_run_artifact,
++        run_wall_clock_seconds,
+     )
++    _wall = run_wall_clock_seconds()
++    _run_dir = out_root / q["domain"] / q["slug"]
++    _run_dir.mkdir(parents=True, exist_ok=True)
++    _t0 = _time.time()
++    _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(_time.monotonic() + _wall)
++    try:
++        return await asyncio.wait_for(
++            run_one_query(
++                q,
++                out_root,
++                four_role_transport=active_transport,
++                four_role_input_builder=builder,
++                query_index=query_index,
++                query_total=query_total,
++                resume=resume,  # GAP1: A3 replay-harness corpus-snapshot resume (back-half-only)
++            ),
++            timeout=_wall,
++        )
++    except (asyncio.TimeoutError, TimeoutError):
++        # PERMANENT-SILENCE HANG caught (B20). Emit a labeled, non-empty timeout artifact + manifest so
++        # the run is NEVER silent; RETURN the summary (the caller's F25 isolation records it + continues).
++        _timeout_summary = {
++            "slug": q.get("slug", ""),
++            "domain": q.get("domain", ""),
++            "question": q.get("question", ""),
++            "status": "error_unexpected",  # downstream-registered; a hang IS an unexpected exit
++            "error": (
++                f"run-level wall-clock exceeded: run_one_query did not complete within "
++                f"{_wall:.0f}s ({_RUN_WALL_CLOCK_ENV}); the run was terminated (hang)"
++            ),
++            "cost_usd": 0.0,
++            "wall_time_seconds": round(_time.time() - _t0, 1),
++            "run_dir": str(_run_dir),
++            "run_id": "timeout",
++        }
++        try:
++            finalize_run_artifact(
++                _run_dir, _timeout_summary, q, timed_out=True, wall_clock_seconds=_wall,
++            )
++        except Exception as _fin_exc:  # noqa: BLE001 — never let the backstop break the run
++            print(f"[finalizer]   gate-b timeout-artifact write failed: {_fin_exc}")
++        try:
++            _to_manifest = _base_manifest_envelope(
++                run_id="timeout", q=q, retrieval=None, run_cost=0.0,
++            )
++            _to_manifest["status"] = "error_unexpected"
++            _to_manifest["release_allowed"] = False
++            _to_manifest["run_wall_clock_timeout"] = True
++            _to_manifest["run_wall_clock_seconds"] = _wall
++            _to_manifest["error"] = _timeout_summary["error"]
++            (_run_dir / "manifest.json").write_text(
++                json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
++                encoding="utf-8",
++            )
++            _timeout_summary["manifest"] = _to_manifest
++        except Exception as _man_exc:  # noqa: BLE001 — manifest best-effort; artifact already shipped
++            print(f"[finalizer]   gate-b timeout-manifest write failed: {_man_exc}")
++        return _timeout_summary
++    finally:
++        try:
++            _RUN_WALL_CLOCK_DEADLINE_CTX.reset(_deadline_token)
++        except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
++            pass
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 9556723d..6b6464f6 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -5623,14 +5623,25 @@ async def run_one_query(
+         try:
+             from src.polaris_graph.retrieval.semantic_conflict_detector import (
+                 ConflictJudgeUnavailableError,
+-                detect_semantic_conflicts_for_rows,
++                detect_semantic_conflicts_for_rows_with_unscored,
+                 semantic_conflict_enabled,
+             )
+             if semantic_conflict_enabled():
+-                semantic_records = detect_semantic_conflicts_for_rows(
+-                    retrieval.evidence_rows,
+-                    strict_fail_closed=_conflict_strict,
++                # I-arch-005 B13 (#1257) PREFLIGHT FIX: call the _with_unscored variant so a conflict
++                # judge that returns EMPTY content after the B14 retry surfaces a `conflict_unscored`
++                # DISCLOSED-GAP label instead of silently skipping it (the legacy entrypoint dropped it).
++                # The label list is attached to the `retrieval` carrier (a plain @dataclass) so the
++                # EXISTING run-side glue (_collect_judge_unscored_labels at the manifest write below)
++                # routes it into manifest["disclosed_gaps"]. Identical clustering/pairing/threshold logic;
++                # faithfulness unchanged (we DISCLOSE "could not adjudicate", never assert/drop a conflict).
++                semantic_records, _conflict_unscored_records = (
++                    detect_semantic_conflicts_for_rows_with_unscored(
++                        retrieval.evidence_rows,
++                        strict_fail_closed=_conflict_strict,
++                    )
+                 )
++                if _conflict_unscored_records:
++                    retrieval.conflict_unscored = _conflict_unscored_records
+         except ConflictJudgeUnavailableError as _cj_exc:
+             from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                 always_release_enabled as _always_release_enabled,

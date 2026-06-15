@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POLARIS run console</title>
+<style>
+  :root { --bg:#0e0f12; --fg:#e6e6e6; --dim:#9aa0a6; --line:#2a2d33; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; }
+  header { padding:.6rem 1rem; border-bottom:1px solid var(--line); display:flex;
+           gap:1rem; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:1rem; margin:0; font-weight:600; }
+  .layout { display:flex; height:calc(100vh - 3rem); }
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .controls { padding:.5rem 1rem; border-bottom:1px solid var(--line); display:flex;
+              gap:.6rem; align-items:center; flex-wrap:wrap; }
+  label { color:var(--dim); }
+  select, input, button { background:#16181d; color:var(--fg); border:1px solid var(--line);
+            border-radius:6px; padding:.35rem .5rem; font:inherit; }
+  button { cursor:pointer; }
+  button:hover { border-color:#4a4f57; }
+  #log { flex:1; overflow:auto; padding:.5rem 1rem; white-space:pre-wrap;
+         word-break:break-word; font-size:.86rem; line-height:1.35; }
+  .row { padding:.05rem 0; border-bottom:1px solid #181a1f; }
+  .tag { display:inline-block; min-width:6.2rem; font-weight:700; }
+  .t-phase    .tag { color:#7aa2f7; }
+  .t-status   .tag { color:#7aa2f7; }
+  .t-query    .tag { color:#bb9af7; }
+  .t-fetch    .tag { color:#7dcfff; }
+  .t-tool     .tag { color:#e0af68; }
+  .t-reasoning .tag { color:#9ece6a; }
+  .t-citation .tag { color:#73daca; }
+  .t-report   .tag { color:#2ac3de; }
+  .t-error    .tag { color:#f7768e; }
+  .ts { color:var(--dim); margin-right:.5rem; }
+  aside { width:30rem; max-width:48vw; border-left:1px solid var(--line);
+          display:flex; flex-direction:column; }
+  aside.collapsed { width:0; border:0; overflow:hidden; }
+  aside h2 { font-size:.9rem; margin:0; padding:.6rem 1rem; border-bottom:1px solid var(--line); }
+  .cfg-controls { padding:.5rem 1rem; border-bottom:1px solid var(--line); display:flex;
+                  gap:.5rem; flex-wrap:wrap; align-items:center; }
+  #cfg-list { flex:1; overflow:auto; padding:.25rem .5rem; }
+  .var { border-bottom:1px solid #181a1f; padding:.35rem .25rem; }
+  .var-name { color:#e0af68; font-weight:600; }
+  .var-meta { color:var(--dim); font-size:.78rem; }
+  .var-row { display:flex; gap:.4rem; margin-top:.25rem; }
+  .var-row input { flex:1; min-width:0; }
+  .muted { color:var(--dim); }
+  a { color:#7dcfff; }
+  .pill { font-size:.75rem; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>POLARIS run console</h1>
+  <span class="pill" id="conn">disconnected</span>
+  <span style="flex:1"></span>
+  <button id="toggle-cfg" aria-expanded="true" aria-controls="cfg">Toggle config panel</button>
+</header>
+
+<div class="layout">
+  <main>
+    <div class="controls">
+      <label for="run-select">Run</label>
+      <select id="run-select" aria-label="Select a run to stream"></select>
+      <button id="refresh-runs">Refresh runs</button>
+      <button id="follow-toggle" aria-pressed="true">Auto-follow: ON</button>
+      <button id="clear-log">Clear</button>
+      <span class="pill" id="event-count">0 events</span>
+    </div>
+    <section id="log" role="log" aria-live="polite" aria-label="Live run event log" tabindex="0">
+      <div class="muted">Pick a run above to start streaming. Events appear here in arrival
+      order (one chronological log). Note: retrieval records carry no timestamp, so order is
+      per-file arrival order, not a globally sorted clock.</div>
+    </section>
+  </main>
+
+  <aside id="cfg" aria-label="Configuration panel">
+    <h2 id="cfg-h">Config (PG_* env knobs)</h2>
+    <div class="cfg-controls">
+      <label for="env-file">.env path</label>
+      <input id="env-file" type="text" aria-label="Path to the .env file to read and edit"
+             placeholder="(default repo .env)" style="flex:1; min-width:8rem;" />
+      <button id="load-cfg">Load</button>
+      <input id="cfg-filter" type="text" placeholder="filter PG_..." aria-label="Filter variables" />
+    </div>
+    <div id="cfg-list" aria-live="polite">
+      <div class="muted">Click "Load" to inventory the PG_* variables.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var logEl = document.getElementById("log");
+  var runSelect = document.getElementById("run-select");
+  var connEl = document.getElementById("conn");
+  var countEl = document.getElementById("event-count");
+  var followBtn = document.getElementById("follow-toggle");
+  var follow = true;
+  var nEvents = 0;
+  var es = null;
+
+  function fmtTs(ts) {
+    if (ts === null || ts === undefined) return "";
+    if (typeof ts === "number") {
+      try { return new Date(ts * 1000).toISOString().slice(11, 19); } catch (e) { return ""; }
+    }
+    // ISO string -> HH:MM:SS
+    var s = String(ts);
+    var m = s.match(/T(\d{2}:\d{2}:\d{2})/);
+    return m ? m[1] : s.slice(0, 19);
+  }
+
+  function addEvent(ev) {
+    var row = document.createElement("div");
+    row.className = "row t-" + (ev.type || "status");
+    var ts = document.createElement("span");
+    ts.className = "ts";
+    ts.textContent = fmtTs(ev.ts);
+    var tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = (ev.type || "status").toUpperCase();
+    var body = document.createElement("span");
+    body.className = "body";
+    body.textContent = " " + (ev.text || "");
+    row.appendChild(ts);
+    row.appendChild(tag);
+    row.appendChild(body);
+    logEl.appendChild(row);
+    nEvents += 1;
+    countEl.textContent = nEvents + " events";
+    if (follow) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function startStream(run) {
+    if (es) { es.close(); es = null; }
+    logEl.innerHTML = "";
+    nEvents = 0;
+    countEl.textContent = "0 events";
+    if (!run) return;
+    connEl.textContent = "connecting...";
+    es = new EventSource("/stream?run=" + encodeURIComponent(run));
+    es.onopen = function () { connEl.textContent = "connected: " + run; };
+    es.onmessage = function (e) {
+      try { addEvent(JSON.parse(e.data)); }
+      catch (err) { addEvent({ type: "error", text: "bad event: " + e.data }); }
+    };
+    es.onerror = function () {
+      connEl.textContent = "reconnecting...";
+      // EventSource auto-reconnects; the stream replays from scratch on reconnect.
+    };
+  }
+
+  function loadRuns() {
+    fetch("/api/runs").then(function (r) { return r.json(); }).then(function (data) {
+      var cur = runSelect.value;
+      runSelect.innerHTML = "";
+      var blank = document.createElement("option");
+      blank.value = ""; blank.textContent = "-- select a run --";
+      runSelect.appendChild(blank);
+      (data.runs || []).forEach(function (run) {
+        var o = document.createElement("option");
+        o.value = run.run;
+        var state = run.complete ? ("done:" + run.status) : ("live:" + (run.stage || "?"));
+        o.textContent = run.run + "  [" + state + "]";
+        runSelect.appendChild(o);
+      });
+      if (cur) runSelect.value = cur;
+    }).catch(function (e) {
+      addEvent({ type: "error", text: "failed to list runs: " + e });
+    });
+  }
+
+  // -- config panel --
+  var cfgList = document.getElementById("cfg-list");
+  var envFileEl = document.getElementById("env-file");
+  var filterEl = document.getElementById("cfg-filter");
+  var allVars = [];
+
+  function renderVars() {
+    var q = (filterEl.value || "").toLowerCase();
+    cfgList.innerHTML = "";
+    var shown = 0;
+    allVars.forEach(function (v) {
+      if (q && v.name.toLowerCase().indexOf(q) === -1) return;
+      shown += 1;
+      var wrap = document.createElement("div");
+      wrap.className = "var";
+      var name = document.createElement("div");
+      name.innerHTML = "<span class='var-name'>" + v.name + "</span>";
+      var meta = document.createElement("div");
+      meta.className = "var-meta";
+      meta.textContent = "default: " + (v.default_if_any === null || v.default_if_any === undefined ? "(none)" : v.default_if_any)
+                       + "   |   current: " + (v.current_value_from_env_file === null || v.current_value_from_env_file === undefined ? "(unset)" : v.current_value_from_env_file);
+      var rowDiv = document.createElement("div");
+      rowDiv.className = "var-row";
+      var inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = (v.current_value_from_env_file === null || v.current_value_from_env_file === undefined) ? "" : v.current_value_from_env_file;
+      inp.setAttribute("aria-label", "Value for " + v.name);
+      var btn = document.createElement("button");
+      btn.textContent = "Set";
+      btn.onclick = function () { setVar(v.name, inp.value, meta); };
+      rowDiv.appendChild(inp);
+      rowDiv.appendChild(btn);
+      wrap.appendChild(name);
+      wrap.appendChild(meta);
+      wrap.appendChild(rowDiv);
+      cfgList.appendChild(wrap);
+    });
+    if (shown === 0) {
+      cfgList.innerHTML = "<div class='muted'>No matching PG_ variables.</div>";
+    }
+  }
+
+  function loadConfig() {
+    var ef = envFileEl.value.trim();
+    var url = "/api/config" + (ef ? ("?env_file=" + encodeURIComponent(ef)) : "");
+    cfgList.innerHTML = "<div class='muted'>loading...</div>";
+    fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+      allVars = data.vars || [];
+      envFileEl.placeholder = data.env_file || "(default repo .env)";
+      renderVars();
+    }).catch(function (e) {
+      cfgList.innerHTML = "<div class='muted'>failed to load config: " + e + "</div>";
+    });
+  }
+
+  function setVar(name, value, metaEl) {
+    var ef = envFileEl.value.trim();
+    fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ env_file: ef || null, name: name, value: value })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) {
+        if (metaEl) metaEl.textContent = "saved to " + data.env_file + "  |  current: " + value;
+      } else {
+        if (metaEl) metaEl.textContent = "error: " + (data.error || "unknown");
+      }
+    }).catch(function (e) {
+      if (metaEl) metaEl.textContent = "error: " + e;
+    });
+  }
+
+  // -- wiring --
+  runSelect.addEventListener("change", function () { startStream(runSelect.value); });
+  document.getElementById("refresh-runs").addEventListener("click", loadRuns);
+  document.getElementById("clear-log").addEventListener("click", function () {
+    logEl.innerHTML = ""; nEvents = 0; countEl.textContent = "0 events";
+  });
+  followBtn.addEventListener("click", function () {
+    follow = !follow;
+    followBtn.textContent = "Auto-follow: " + (follow ? "ON" : "OFF");
+    followBtn.setAttribute("aria-pressed", String(follow));
+    if (follow) logEl.scrollTop = logEl.scrollHeight;
+  });
+  document.getElementById("load-cfg").addEventListener("click", loadConfig);
+  filterEl.addEventListener("input", renderVars);
+  document.getElementById("toggle-cfg").addEventListener("click", function () {
+    var aside = document.getElementById("cfg");
+    aside.classList.toggle("collapsed");
+    var open = !aside.classList.contains("collapsed");
+    this.setAttribute("aria-expanded", String(open));
+  });
+
+  loadRuns();
+})();
+</script>
+</body>
+</html>
