@@ -69,6 +69,11 @@ TOOL_TRACE_FILE = "tool_trace.jsonl"
 LLM_IO_DIR = "llm_io"
 REPORT_FILE = "report.md"
 MANIFEST_FILE = "manifest.json"
+# GH #1258 PART 1: the per-run launch log is the raw stdout/stderr the run was started with.
+# The driver writes it as <root>/launch_<slug>.log (a SIBLING of the <domain>/<slug> run dir, i.e.
+# run_dir.parent.parent / "launch_<slug>.log"). Two in-run-dir fallbacks are also tried so a run
+# started with a redirected stdout inside its own dir is still tailed.
+LAUNCH_LOG_IN_RUN_FALLBACKS = ("run.log", "stdout.log")
 
 POLL_INTERVAL_S = float(os.environ.get("PG_CONSOLE_POLL_S", "1.0"))
 _MAX_TEXT = 4000  # per-event text clamp so one giant reasoning blob can't flood the screen reader
@@ -89,6 +94,11 @@ _MAX_READ_BYTES = int(os.environ.get("PG_CONSOLE_MAX_READ_BYTES", str(8 * 1024 *
 _MAX_LLM_IO_FILES = int(os.environ.get("PG_CONSOLE_MAX_LLM_IO_FILES", "200"))
 # Bound the /api/runs directory walk (domain dirs, and slug dirs per domain).
 _MAX_RUN_DIRS = int(os.environ.get("PG_CONSOLE_MAX_RUN_DIRS", "2000"))
+# GH #1258 PART 1: cap how many NEW launch-log lines we emit per poll so a sudden burst of
+# raw stdout (the CPU embedding-rerank + agentic phases write progress only to the launch log)
+# cannot firehose the screen-reader. Excess lines beyond the cap are coalesced into a single
+# "(+N more lines …)" notice; the byte offset still advances past them so they are not re-read.
+_MAX_LOG_LINES_PER_POLL = max(1, int(os.environ.get("PG_CONSOLE_MAX_LOG_LINES_PER_POLL", "200")))
 
 # -- /api/config validation: accept ONLY PG_<UPPER/DIGIT/_> keys; mask secret-looking values --
 _PG_KEY_RE = re.compile(r"PG_[A-Z0-9_]+")  # used with fullmatch (rejects trailing \n that ^...$ allows)
@@ -169,6 +179,77 @@ def _resolve_run_dir(run: str) -> "Path | None":
     except ValueError:
         return None  # path-traversal attempt
     return candidate if candidate.is_dir() else None
+
+
+def _resolve_launch_log(run_dir: Path) -> "Path | None":
+    """Resolve the per-run launch log for ``run_dir`` (GH #1258 PART 1), or None if absent.
+
+    Primary location: ``<root>/launch_<slug>.log`` — a SIBLING of the ``<domain>/<slug>`` run
+    dir (``run_dir.parent.parent / ("launch_" + run_dir.name + ".log")``). Fallbacks: a log
+    redirected INTO the run dir (``run.log`` / ``stdout.log``). Every candidate is derived from
+    ``run_dir`` (already traversal-checked by ``_resolve_run_dir``) and confined under the run
+    root, so this adds no new traversal surface. Returns the first EXISTING regular file.
+    """
+    candidates = [
+        run_dir.parent.parent / ("launch_" + run_dir.name + ".log"),
+    ]
+    for name in LAUNCH_LOG_IN_RUN_FALLBACKS:
+        candidates.append(run_dir / name)
+    base = _RUN_ROOT.resolve()
+    for cand in candidates:
+        try:
+            resolved = cand.resolve()
+            resolved.relative_to(base)  # never tail anything outside the run root
+        except (OSError, ValueError):
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def _tail_launch_log(path: Path, offset: int, carry: bytes):
+    """Read launch-log bytes after ``offset`` and split into complete lines (GH #1258 PART 1).
+
+    Returns ``(lines, new_offset, new_carry)`` where:
+      * ``lines``      = the COMPLETE lines (str) since ``offset``; the trailing partial line, if
+                         any, is NOT emitted.
+      * ``new_offset`` = the new byte position to resume from next poll.
+      * ``new_carry``  = the buffered partial trailing line, held as RAW BYTES (no newline yet).
+
+    The carry is bytes, not text: a poll may end mid-multibyte-UTF-8-char (the read landed mid-char,
+    or the per-poll byte cap split one), so we buffer the raw bytes and decode ONLY complete lines
+    (those terminated by ``\\n``). Decoding the partial tail as text would freeze a half-char into a
+    permanent replacement character; carrying bytes lets the next poll's bytes complete the char.
+
+    Rotation / truncation handling: if the file shrank below ``offset`` (rotated or rewritten),
+    the offset and carry both reset to 0/b"" and we re-read from the start. Oversize files (over
+    the DoS read cap) and IO errors yield no lines and leave the offset unchanged.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], offset, carry
+    # Rotation / truncation: file is now smaller than where we left off -> start over.
+    if size < offset:
+        offset = 0
+        carry = b""
+    if size == offset:
+        return [], offset, carry
+    # DoS guard: never read an unbounded backlog in a single poll. Cap the chunk to _MAX_READ_BYTES
+    # from the current offset; the offset still advances so the next poll continues from there.
+    end = min(size, offset + _MAX_READ_BYTES)
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(offset)
+            chunk = fh.read(end - offset)
+    except OSError:
+        return [], offset, carry
+    new_offset = offset + len(chunk)
+    buf = carry + chunk
+    parts = buf.split(b"\n")
+    new_carry = parts.pop()  # trailing element: b"" if buf ended in \n, else the partial-line bytes
+    lines = [p.rstrip(b"\r").decode("utf-8", errors="replace") for p in parts]
+    return lines, new_offset, new_carry
 
 
 # -- /api/runs ---------------------------------------------------------------
@@ -353,6 +434,11 @@ async def _event_stream(run_dir: Path):
     seen_llm: set = set()
     report_done = False
     manifest_done = False
+    # GH #1258 PART 1: byte-offset state for the raw launch-log tailer. We read ONLY new bytes
+    # each poll (seek(offset)+read), buffering a trailing partial line in `log_carry` until its
+    # newline arrives, and reset on shrink/rotate. Kept in this closure exactly like `counts`.
+    log_offset = 0
+    log_carry = b""
 
     yield _sse(_ev("status", "connected -- tailing " + run_dir.name))
 
@@ -412,6 +498,23 @@ async def _event_stream(run_dir: Path):
             if isinstance(mdoc, dict) and mdoc.get("status"):
                 manifest_done = True
                 batch.append(_manifest_event(mdoc))
+
+        # 6) GH #1258 PART 1: incrementally tail the raw launch log (the per-run stdout). During
+        # the long CPU embedding-rerank + agentic phases the pipeline writes progress ONLY here, so
+        # without this the stream goes quiet for minutes even though work is happening. Emit each
+        # NEW complete line as a type:"log" event (clamped); cap lines-per-poll so a burst can't
+        # firehose the screen reader, coalescing the overflow into one notice.
+        log_path = _resolve_launch_log(run_dir)
+        if log_path is not None:
+            new_lines, log_offset, log_carry = _tail_launch_log(log_path, log_offset, log_carry)
+            if len(new_lines) > _MAX_LOG_LINES_PER_POLL:
+                dropped = len(new_lines) - _MAX_LOG_LINES_PER_POLL
+                new_lines = new_lines[:_MAX_LOG_LINES_PER_POLL]
+                new_lines.append("(+" + str(dropped) + " more log lines this poll; raise "
+                                 "PG_CONSOLE_MAX_LOG_LINES_PER_POLL to see them)")
+            for line in new_lines:
+                if line:  # skip blank lines (the screen reader gains nothing from them)
+                    batch.append(_ev("log", line))
 
         for ev in batch:
             yield _sse(ev)

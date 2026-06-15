@@ -472,6 +472,97 @@ def safe_trafilatura_extract(html: str, **kwargs: Any) -> "str | None":
         )
         return None
 
+
+# Fields the metadata callers actually consume (src/utils/ingest.py). The
+# subprocess door serializes exactly these to JSON and the parent rebuilds a
+# lightweight object exposing the same attributes — never the live trafilatura
+# Document (it does not survive a process boundary).
+_TRAFILATURA_METADATA_FIELDS = ("title", "author", "date", "description")
+
+
+def _trafilatura_metadata_subprocess(html: str) -> "Any | None":
+    """GH #1260: run `trafilatura.extract_metadata` in a hard-killable child so
+    a libxml2 SIGSEGV takes down the child (exit 139 / Windows 0xC0000005)
+    instead of the sweep. Returns an object exposing the four consumed metadata
+    fields, or None on timeout/crash/error. Never raises."""
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    payload = json.dumps({"html": html})
+    code = (
+        "import sys, json\n"
+        "data = json.loads(sys.stdin.read())\n"
+        "import trafilatura\n"
+        "meta = trafilatura.extract_metadata(data['html'])\n"
+        "fields = " + repr(list(_TRAFILATURA_METADATA_FIELDS)) + "\n"
+        "out = {} if meta is None else {\n"
+        "    f: (lambda v: None if v is None else str(v))(getattr(meta, f, None))\n"
+        "    for f in fields\n"
+        "}\n"
+        "sys.stdout.write(json.dumps(out))\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=_TRAFILATURA_SUBPROCESS_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+        logger.warning(
+            "[ACCESS] BB5-S03 trafilatura metadata subprocess failed (%s) — "
+            "skip", type(exc).__name__,
+        )
+        return None
+    if proc.returncode != 0:
+        logger.warning(
+            "[ACCESS] BB5-S03 trafilatura metadata subprocess exited rc=%s "
+            "(SIGSEGV-class crash contained) — skip", proc.returncode,
+        )
+        return None
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        return None
+    try:
+        fields = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return SimpleNamespace(**{
+        f: fields.get(f) for f in _TRAFILATURA_METADATA_FIELDS
+    })
+
+
+def safe_trafilatura_extract_metadata(html: str) -> "Any | None":
+    """GH #1260: the ONE guarded `trafilatura.extract_metadata` entrypoint.
+    `extract_metadata` enters libxml2 exactly like `extract`, so it carries the
+    SAME uncatchable-SIGSEGV surface — it must pass through the SAME size gate
+    and the SAME `PG_TRAFILATURA_SUBPROCESS` containment.
+
+    Returns an object exposing `.title/.author/.date/.description` (str or
+    None) on success, or None when extraction is unsafe/empty/failed (caller
+    falls back to its own BS4 metadata path). Cannot return the live
+    trafilatura Document on the subprocess path (it does not cross a process
+    boundary); the four consumed fields are preserved on a SimpleNamespace.
+    Never raises (the in-process libxml2 SIGSEGV is the one thing it cannot
+    promise to catch — that is what PG_TRAFILATURA_SUBPROCESS=1 contains)."""
+    if not _html_is_extract_safe(html):
+        return None
+    if os.getenv(PG_TRAFILATURA_SUBPROCESS_ENV, "0") == "1":
+        return _trafilatura_metadata_subprocess(html)
+    try:
+        import trafilatura  # type: ignore
+        return trafilatura.extract_metadata(html)
+    except Exception as exc:  # noqa: BLE001 — Python-level errors only; a
+        # libxml2 SIGSEGV is NOT a Python exception and escapes this guard (by
+        # design — that is what PG_TRAFILATURA_SUBPROCESS=1 contains).
+        logger.debug(
+            "[ACCESS] BB5-S03 trafilatura in-process metadata error (%s) — "
+            "skip", type(exc).__name__,
+        )
+        return None
+
 # ---------------------------------------------------------------------------
 # Firecrawl free-plan hardening: rate limiter + credit tracker
 # ---------------------------------------------------------------------------
@@ -1212,11 +1303,13 @@ class AccessBypass:
                     "Set ZYTE_API_KEY to recover full text.", url[:80],
                 )
 
-        # FIX-QM2: Run Crawl4AI, Jina and Firecrawl concurrently -- first success wins
-        logger.info("[ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for %s", url[:60])
-
+        # FIX-QM2: Run the enabled fetch backends concurrently -- first success wins.
         # Build concurrent task list: Crawl4AI first (free/local), then Jina, then Firecrawl
         concurrent_tasks: list = []
+        # GH #1260 (cosmetic): track the backends ACTUALLY queued so the log line
+        # names only those (the old unconditional "Crawl4AI+Jina+Firecrawl" lied
+        # when PG_CRAWL4AI_ENABLED=0 / Firecrawl had no key/credits).
+        _queued_backends: list[str] = []
 
         # I-bug-114 (#551): every concurrent backend is wrapped in
         # `_bounded_backend` so a single wedged backend (e.g. a Playwright op
@@ -1226,20 +1319,31 @@ class AccessBypass:
         if crawl4ai_enabled:
             concurrent_tasks.append(
                 _bounded_backend("crawl4ai", self._try_crawl4ai(url), url))
+            _queued_backends.append("Crawl4AI")
 
         concurrent_tasks.append(
             _bounded_backend("jina_reader", self._try_jina_reader(url), url))
+        _queued_backends.append("Jina")
 
         firecrawl_enabled = os.getenv("PG_FIRECRAWL_ENABLED", "1") == "1"
         firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
         if firecrawl_enabled and firecrawl_api_key and _firecrawl_has_credits():
             concurrent_tasks.append(
                 _bounded_backend("firecrawl", self._try_firecrawl(url), url))
+            _queued_backends.append("Firecrawl")
 
         # FIX-039/B.3: Add trafilatura to concurrent group (was dead-code fallback)
         if os.getenv("PG_TRAFILATURA_ENABLED", "0") == "1":
             concurrent_tasks.append(
                 _bounded_backend("trafilatura", self._try_trafilatura(url), url))
+            _queued_backends.append("Trafilatura")
+
+        # GH #1260 (cosmetic): log AFTER the backend list is built so it names
+        # only the backends actually queued, not a hardcoded triple.
+        logger.info(
+            "[ACCESS] FIX-QM2: Concurrent %s for %s",
+            "+".join(_queued_backends) or "(none)", url[:60],
+        )
 
         # FIX-EPIPE: Wrap gather in try/except to catch CancelledError and
         # any BaseException that escapes from subprocess crashes in crawl4ai.
@@ -1947,9 +2051,14 @@ class AccessBypass:
             if not downloaded:
                 return None
 
+            # GH #1260: route the extraction through the ONE SIGSEGV-guarded
+            # door (size gate + optional hard-killable subprocess) instead of a
+            # bare `trafilatura.extract` in this thread-pool worker. A libxml2
+            # C-crash on a pathological doc is NOT a catchable Python exception;
+            # in a ThreadPoolExecutor thread it would take down the whole sweep.
             text = await loop.run_in_executor(
                 None,
-                lambda: trafilatura.extract(
+                lambda: safe_trafilatura_extract(
                     downloaded, include_links=True, include_tables=True
                 ),
             )

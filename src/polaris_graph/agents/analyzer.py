@@ -1695,12 +1695,17 @@ async def _fetch_all_content(
             if fetch_status in ("timeout", "error"):
                 try:
                     import trafilatura
+                    # GH #1260: extraction goes through the ONE SIGSEGV-guarded
+                    # door (size gate + optional hard-killable subprocess), not
+                    # a bare `trafilatura.extract` — a libxml2 C-crash on a
+                    # pathological doc is uncatchable and would kill the run.
+                    from src.tools.access_bypass import safe_trafilatura_extract
                     _traf_result = await asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda: trafilatura.fetch_url(url),
                     )
                     if _traf_result:
-                        _traf_content = trafilatura.extract(
+                        _traf_content = safe_trafilatura_extract(
                             _traf_result, include_comments=False,
                             include_tables=True, favor_precision=True,
                         )

@@ -328,11 +328,18 @@ def _extract_text(path: Path) -> str:
 def _extract_html_text(raw_html: str) -> str:
     """Use trafilatura to extract the main article text from HTML."""
     try:
-        import trafilatura
+        import trafilatura  # noqa: F401 — presence check for the clear error below
     except ImportError as e:
         raise MeshStoreError("trafilatura is required for HTML ingest") from e
 
-    extracted = trafilatura.extract(
+    # GH #1260: route through the ONE SIGSEGV-guarded door (size gate + optional
+    # hard-killable subprocess) instead of a bare `trafilatura.extract`. A
+    # libxml2 C-crash on a pathological doc is NOT a catchable Python exception;
+    # the guard returns None on a contained crash, which maps to the existing
+    # "could not extract" error path below.
+    from src.tools.access_bypass import safe_trafilatura_extract
+
+    extracted = safe_trafilatura_extract(
         raw_html,
         favor_precision=True,
         include_comments=False,

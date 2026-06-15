@@ -492,8 +492,17 @@ def _extract_text_from_html_trafilatura(raw_html: str, url: str = "") -> Tuple[s
     # SOTA: Use Trafilatura
     if TRAFILATURA_AVAILABLE:
         try:
+            # GH #1260: both libxml2 doors (extract + extract_metadata) go
+            # through the ONE SIGSEGV-guarded entrypoint (size gate + optional
+            # hard-killable subprocess). A bare call here would let a libxml2
+            # C-crash on a pathological doc take down the whole process —
+            # uncatchable by `except Exception`.
+            from src.tools.access_bypass import (
+                safe_trafilatura_extract,
+                safe_trafilatura_extract_metadata,
+            )
             # Trafilatura extraction with optimal settings
-            extracted = trafilatura.extract(
+            extracted = safe_trafilatura_extract(
                 raw_html,
                 include_tables=True,       # Keep table data
                 include_comments=False,    # No comments
@@ -506,7 +515,7 @@ def _extract_text_from_html_trafilatura(raw_html: str, url: str = "") -> Tuple[s
 
             if extracted:
                 # Get title via metadata extraction
-                metadata = trafilatura.extract_metadata(raw_html)
+                metadata = safe_trafilatura_extract_metadata(raw_html)
                 if metadata and metadata.title:
                     title = metadata.title
 
@@ -1556,7 +1565,10 @@ def extract_metadata_from_html(raw_html: str, url: str = "") -> ExtractedMetadat
     # Try Trafilatura first (best for metadata)
     if TRAFILATURA_AVAILABLE:
         try:
-            traf_meta = trafilatura.extract_metadata(raw_html)
+            # GH #1260: extract_metadata enters libxml2 → route through the ONE
+            # SIGSEGV-guarded door (size gate + optional subprocess containment).
+            from src.tools.access_bypass import safe_trafilatura_extract_metadata
+            traf_meta = safe_trafilatura_extract_metadata(raw_html)
             if traf_meta:
                 if not metadata.title:
                     metadata.title = traf_meta.title or ""

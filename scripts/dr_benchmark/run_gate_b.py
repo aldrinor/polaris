@@ -49,6 +49,24 @@ from src._polaris_import_alias import install_import_root_alias
 
 install_import_root_alias()
 
+
+def enable_faulthandler() -> None:
+    """GH #1260: dump a C+Python stack on the NEXT native crash instead of dying
+    silently. A libxml2 SIGSEGV in any worker thread kills the process with no
+    traceback; `faulthandler` installs a signal handler that prints the faulting
+    stack (all threads) so the next crash is diagnosable rather than a mystery.
+
+    Honors `PYTHONFAULTHANDLER` (already enabled by the interpreter then) and is
+    idempotent — calling `faulthandler.enable` twice is safe."""
+    import faulthandler
+
+    try:
+        faulthandler.enable(all_threads=True)
+    except (RuntimeError, ValueError, OSError):
+        # stderr redirected to a non-fileno stream (e.g. captured under a test
+        # harness) — best-effort; never block the run on diagnostics setup.
+        pass
+
 from scripts.architecture.verify_lock import load_lock
 # I-ready-017 FIX-JO (#1100): the canonical journal_only runtime-flag NAME. Imported (not
 # re-hardcoded) so the per-slug activation below sets the SAME env the consumer reads in
@@ -1435,6 +1453,15 @@ async def run_gate_b_query(
     # span-verifiable abstract yield. `setdefault` so an explicit operator override still wins (LAW VI).
     os.environ.setdefault("PG_UNPAYWALL_ENABLED", "1")
     os.environ.setdefault("PG_TRAFILATURA_ENABLED", "1")
+    # GH #1260: trafilatura runs libxml2 (a C extension) in a ThreadPoolExecutor
+    # worker; a libxml2 SIGSEGV on a pathological doc is NOT a catchable Python
+    # exception and kills the whole sweep silently (2 of 5 live runs died this
+    # way). Turning the backend ON without ON-ing the subprocess containment
+    # leaves the guard as an in-process size-gate only — the SIGSEGV stays
+    # uncatchable. Pair the two flags here so the hard-killable child process
+    # IS the libxml2 door on the paid run, making a crash a contained child
+    # rc=139 the parent survives. setdefault keeps an operator override (LAW VI).
+    os.environ.setdefault("PG_TRAFILATURA_SUBPROCESS", "1")
     # #1034: paywalled-journal OA fetches are non-deterministic + noisy (Sci-Hub HTML / Jina
     # landing-page markdown / intermittent CrossRef abstract). For frame-contract grounding the
     # clean, deterministic abstract (CrossRef/OpenAlex) is the correct source — contract fields
@@ -1896,6 +1923,11 @@ def main(argv: list[str] | None = None) -> int:
     `run_one_query`). Returns 0 on success, 2 on a usage/loader error, 1 if any question run
     does not reach a `success`/`partial_*` status.
     """
+    # GH #1260: arm faulthandler FIRST so the next native (libxml2) crash leaves
+    # a C+Python stack instead of a silent process death (2 of 5 live runs died
+    # this way). Cheap, idempotent, no spend, no network.
+    enable_faulthandler()
+
     import argparse
 
     parser = argparse.ArgumentParser(

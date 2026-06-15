@@ -3516,31 +3516,64 @@ async def run_one_query(
         except Exception as _io_exc:  # noqa: BLE001 — telemetry must not abort the run
             print(f"[llm_io] raw-IO sink init skipped: {_io_exc}")
 
-    # I-arch-004 F04 (#539/#629): resume-state load. When --resume and this query's
-    # run_dir holds a corpus_snapshot.json, reload the EVIDENCE (data only — no verdict)
-    # so the retrieval + merge + selection lanes are skipped and we re-enter at generation,
-    # re-running every faithfulness gate on the reloaded corpus. A missing snapshot under
+    # I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume-state load with
+    # RESUME-FROM-NEAREST across two staged checkpoints.
+    #
+    # Two checkpoints exist, in stage order (earlier -> later):
+    #   1. fetch_snapshot.json  (POST-FETCH, GH #1259): the raw fetched+merged corpus,
+    #      written BEFORE the slow embedding-rerank/selection. Resuming from it RE-RUNS
+    #      selection + generation but SKIPS STORM + fetch + every merge lane.
+    #   2. corpus_snapshot.json (POST-SELECTION, F04): the final billed evidence_for_gen,
+    #      written right before generation. Resuming from it ALSO skips selection (it loads
+    #      the snapshot's pool) and re-enters straight at generation.
+    #
+    # Both carry DATA ONLY — never a faithfulness verdict (HARD INVARIANT §-1.3). On
+    # --resume every faithfulness gate (strict_verify / NLI / 4-role / D8) RE-RUNS on the
+    # reloaded data. RESUME-FROM-NEAREST picks the LATER checkpoint when both exist (it
+    # skips strictly more work) and falls back to the earlier one when only it was written
+    # (the kill landed mid-rerank, before selection completed). A missing snapshot under
     # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
-    # landed before its snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
-    # LOUD (no silent fresh-restart that re-bills retrieval). _resume_active gates the
-    # retrieval/merge/selection short-circuits below; OFF (no --resume / no snapshot) keeps
-    # every one of those branches byte-identical.
+    # landed before ANY snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
+    # LOUD (no silent fresh-restart that re-bills fetch). The two flags are SEPARATE so
+    # every downstream `_resume_active`/`not _resume_active` guard keeps its EXACT existing
+    # semantics (= "resumed from corpus_snapshot"); `_resume_from_fetch` only gates the
+    # pre-fetch network lanes + the retrieval reconstruct. OFF (no --resume) keeps every
+    # branch byte-identical EXCEPT the INTENTIONAL additive post-fetch checkpoint: a fresh
+    # run now writes `fetch_snapshot.json` (the new resume-from-nearest artifact) and emits
+    # one `[checkpoint]` log line at the post-fetch seam (~L5116). That artifact + log line
+    # are the deliberate new durability surface; no faithfulness/gate/selection/generation
+    # behavior changes, and the report/manifest are unaffected.
     from src.polaris_graph.generator.corpus_snapshot import (
         CorpusSnapshotError as _CorpusSnapshotError,
         load_corpus_snapshot as _load_corpus_snapshot,
         save_corpus_snapshot as _save_corpus_snapshot,
         snapshot_path as _snapshot_path,
     )
-    _resume_active = False
-    _resume_payload: dict | None = None
-    if resume and _snapshot_path(run_dir).exists():
-        _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
-        _resume_active = True
+    from src.polaris_graph.generator.fetch_snapshot import (
+        FetchSnapshotError as _FetchSnapshotError,
+        fetch_snapshot_path as _fetch_snapshot_path,
+        load_fetch_snapshot as _load_fetch_snapshot,
+        save_fetch_snapshot as _save_fetch_snapshot,
+    )
+    _resume_active = False          # resumed from the POST-SELECTION corpus_snapshot
+    _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
+    _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
+    _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+    if resume:
+        # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
+        # the earlier (post-fetch) one only when the later one is absent.
+        if _snapshot_path(run_dir).exists():
+            _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+            _resume_active = True
+        elif _fetch_snapshot_path(run_dir).exists():
+            _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
+            _resume_from_fetch = True
 
     log_path = run_dir / "run_log.txt"
-    # I-arch-004 F04: on resume, APPEND so the pre-kill artifacts (retrieval/adequacy log
-    # lines) are preserved, not clobbered by the "w" truncation that a fresh run uses.
-    log_f = log_path.open("a" if _resume_active else "w", encoding="utf-8")
+    # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
+    # (retrieval/adequacy log lines) are preserved, not clobbered by the "w" truncation
+    # that a fresh run uses.
+    log_f = log_path.open("a" if (_resume_active or _resume_from_fetch) else "w", encoding="utf-8")
 
     def _log(msg: str) -> None:
         print(msg)
@@ -4160,9 +4193,10 @@ async def run_one_query(
         # direct_quote/evidence rows here). A STORM failure NEVER aborts the run (logged loud, fall
         # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
-        if (not _resume_active) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+        if (not _resume_active) and (not _resume_from_fetch) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
             _storm_telemetry["enabled"] = True
             _storm_telemetry["firing_status"] = "attempted_empty"
+            _hb("storm_started")  # GH #1258 PART 2: stage-tick bracketing the STORM interview phase
             import asyncio as _storm_asyncio
             import contextvars as _storm_cv
             import src.polaris_graph.agents.storm_interviews as _storm_mod
@@ -4300,6 +4334,7 @@ async def run_one_query(
             _trial_doi_seeds = []
 
         t0 = time.time()
+        _hb("retrieval_started")  # GH #1258 PART 2: stage-tick before the long fetch+classify phase
         # I-meta-005 Phase 1 (#985) + Phase 2 (#986): ON-mode bypasses the
         # legacy domain router (brief §2.4) — `domain=None` skips the
         # domain_backends per-domain `if domain ==` candidate router. Phase 2
@@ -4332,16 +4367,44 @@ async def run_one_query(
         # are network lanes guarded by `and not _resume_active` below, and selection loads
         # evidence_for_gen from the snapshot — so NO re-retrieval happens on resume. OFF-path
         # (no resume) is byte-identical: this branch is skipped entirely.
-        if _resume_active:
+        if _resume_active or _resume_from_fetch:
+            # I-arch-004 F04 + GH #1259 (FIX B): on EITHER resume mode reconstruct the
+            # corpus from the snapshot instead of re-running the (expensive, network-bound)
+            # live retrieval. The retrieval payload shape is IDENTICAL in both snapshots, so
+            # the shared reconstruct_retrieval rebuilds the same LiveRetrievalResult. The
+            # post-fetch (fetch_snapshot) corpus is already POST-MERGE, so the deepener/
+            # agentic/STORM merge lanes are correctly skipped (guarded by
+            # `not _resume_from_fetch` below) and selection RE-RUNS on the reloaded corpus.
             from src.polaris_graph.generator.corpus_snapshot import (
                 reconstruct_retrieval as _reconstruct_retrieval,
             )
-            retrieval = _reconstruct_retrieval(_resume_payload)
+            _active_payload = _resume_payload if _resume_active else _resume_fetch_payload
+            retrieval = _reconstruct_retrieval(_active_payload)
+            # GH #1259 (Codex diff-gate P1): restore the persisted journal-article metadata
+            # sidecar onto the reconstructed corpus on a POST-FETCH resume ONLY. The shared
+            # reconstruct_retrieval does not carry the sidecar (it is journal_only-specific),
+            # so without this the journal_only filter (~L5142) would see an EMPTY sidecar —
+            # exp/deep/agentic handles are None on resume — and reject every reconstructed row
+            # as `no_journal_metadata`, ABORTING a real journal_only fetch-resume. Setting it
+            # here makes the UNCHANGED filter merge `[retrieval.journal_metadata_sidecar,
+            # None, None, None]` yield exactly the persisted dict, so journal_only round-trips
+            # identically to a fresh run. Scoped to `_resume_from_fetch`: the corpus-resume
+            # path (`_resume_active`) is left byte-identical. (The fetch_snapshot loader
+            # guarantees the key exists as a dict; default empty keeps non-journal_only runs
+            # unchanged.) NOTE: corpus-resume + journal_only shares this same empty-sidecar
+            # root cause (corpus_snapshot does not persist the sidecar either) — a PRE-EXISTING
+            # latent abort, out of scope for GH #1259, tracked as a separate follow-up.
+            if _resume_from_fetch:
+                retrieval.journal_metadata_sidecar = dict(
+                    (_resume_fetch_payload or {}).get("journal_metadata_sidecar") or {}
+                )
+            _resume_stage = "corpus_snapshot (post-selection)" if _resume_active else "fetch_snapshot (post-fetch)"
             _log(
-                f"[resume]      reloaded corpus snapshot: "
+                f"[resume]      reloaded {_resume_stage}: "
                 f"sources={len(retrieval.classified_sources)} "
                 f"evidence_rows={len(retrieval.evidence_rows)} (NO re-retrieval; "
-                f"all faithfulness gates re-run on reloaded data)"
+                f"{'selection + ' if _resume_from_fetch else ''}all faithfulness gates "
+                f"re-run on reloaded data)"
             )
         else:
             retrieval = run_live_retrieval(
@@ -4356,6 +4419,7 @@ async def run_one_query(
                 domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
                 seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
                 research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
+                progress_cb=_hb,  # GH #1258 PART 2: tick the heartbeat during fetch + classify
             )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -4606,7 +4670,8 @@ async def run_one_query(
             os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
             and not _use_research_planner
         )
-        if (not _resume_active and enable_expansion and completeness.expand_queries
+        if (not _resume_active and not _resume_from_fetch and enable_expansion
+                and completeness.expand_queries
                 and completeness.total_uncovered > 0):
             _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
                  f"expansion queries")
@@ -4697,13 +4762,14 @@ async def run_one_query(
             run_deepener_sync,
             should_trigger_deepener,
         )
-        if (not _resume_active) and should_trigger_deepener(
+        if (not _resume_active) and (not _resume_from_fetch) and should_trigger_deepener(
             flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
             has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
             has_seed_evidence=len(retrieval.evidence_rows) > 0,
             adequacy_decision=adequacy.decision,
             total_uncovered=completeness.total_uncovered,
         ):
+            _hb("deepener_started")  # GH #1258 PART 2: stage-tick bracketing the evidence deepener
             try:
                 _deep_state = build_deepener_state(retrieval.evidence_rows, q["question"])
                 _deep_out = run_deepener_sync(_deep_state)
@@ -4801,11 +4867,12 @@ async def run_one_query(
         # is booked + the cap ENFORCED BEFORE the loop (STORM pattern); the loop runs in an ISOLATED
         # context so its real spend is discarded (the envelope IS the parent's accounting). Fail-open:
         # any agentic/fetch/merge error leaves the post-deepener corpus untouched.
-        if (not _resume_active) and os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
+        if (not _resume_active) and (not _resume_from_fetch) and os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
             "1", "true", "True",
         ):
             _agentic_telemetry["enabled"] = True
             _agentic_telemetry["firing_status"] = "attempted_empty"
+            _hb("agentic_started")  # GH #1258 PART 2: stage-tick bracketing the agentic discovery rounds
             import asyncio as _ag_asyncio
             import contextvars as _ag_cv
             import src.polaris_graph.agents.searcher as _ag_mod
@@ -4998,7 +5065,7 @@ async def run_one_query(
         # Default OFF (PG_STORM_INGEST_WEB_RESULTS) -> _storm_seed_urls is empty -> this whole block is
         # a no-op = byte-identical. Fail-open: any error leaves the pre-STORM corpus untouched.
         # I-arch-004 F04: skip the STORM URL-fetch lane on resume (network retrieval).
-        if (not _resume_active) and _storm_seed_urls:
+        if (not _resume_active) and (not _resume_from_fetch) and _storm_seed_urls:
             try:
                 from src.polaris_graph.retrieval.agentic_url_harvester import (
                     merge_seed_url_evidence,
@@ -5061,6 +5128,51 @@ async def run_one_query(
         # heartbeat carries the retrieval-volume / silent-throttle signal from retrieval_done onward.
         _hb_sources_kept[0] = len(retrieval.classified_sources)
         _hb("retrieval_done", sources_kept=_hb_sources_kept[0])  # I-obs-001 #1141 AC1: stage heartbeat
+
+        # GH #1259 (FIX B): POST-FETCH checkpoint. This is the single seam where STORM +
+        # fetch + every additive merge lane (R-6 expansion / deepener / agentic / STORM-URL)
+        # are COMPLETE and `retrieval` holds the full fetched+merged corpus, but BEFORE the
+        # slow embedding-rerank / select_evidence_for_generation. The live runs that DIED
+        # mid-fetch / mid-rerank landed HERE — before F04's single post-selection checkpoint
+        # — so a 72-minute fetch was lost. This checkpoint carries DATA ONLY (the fetched
+        # corpus + counts); it stores NO faithfulness verdict and NO selected pool (selection
+        # has not run). A --resume reload re-enters BELOW (reconstruct retrieval, skip
+        # fetch/merge, RE-RUN selection + every faithfulness gate). Best-effort: a snapshot
+        # write failure must NOT abort the paid run. Only a FRESH run writes it (on either
+        # resume mode the corpus is already loaded, so re-writing the same data is skipped).
+        if (not _resume_active) and (not _resume_from_fetch):
+            try:
+                # GH #1259 (Codex diff-gate P1): persist the MERGED journal-article metadata
+                # sidecar so a journal_only fetch-resume reconstructs the SAME per-source
+                # signals a fresh run had. The journal_only filter (~L5142) merges the
+                # sidecars of ALL four retrieval stages; on resume the exp/deep/agentic
+                # handles are None and the reconstructed `retrieval` has no sidecar, so
+                # WITHOUT this every row would be rejected `no_journal_metadata` and the run
+                # would ABORT. We merge the same four stage sidecars HERE (identical to the
+                # filter's merge) and serialize the result as DATA (source metadata, never a
+                # verdict). Computed only for the snapshot write; the live filter path is
+                # untouched. Empty (no-op) when journal_only is inactive.
+                _fetch_snap_sidecar = _jof.merge_sidecars([
+                    getattr(_r, "journal_metadata_sidecar", None)
+                    for _r in (retrieval, exp_retrieval, deep_retrieval, agentic_retrieval)
+                    if _r is not None
+                ])
+                _fetch_snap_path = _save_fetch_snapshot(
+                    run_dir,
+                    run_id=run_id,
+                    question=q["question"],
+                    slug=q.get("slug", ""),
+                    domain=q.get("domain", ""),
+                    retrieval=retrieval,
+                    journal_metadata_sidecar=_fetch_snap_sidecar,
+                )
+                _log(f"[checkpoint]  post-fetch snapshot saved: {_fetch_snap_path.name} "
+                     f"(sources={len(retrieval.classified_sources)} "
+                     f"evidence_rows={len(retrieval.evidence_rows)} "
+                     f"journal_sidecar={len(_fetch_snap_sidecar)}; --resume re-runs "
+                     f"selection + all gates)")
+            except Exception as _fetch_snap_exc:  # noqa: BLE001 — checkpoint is best-effort
+                _log(f"[checkpoint]  post-fetch snapshot save skipped (fail-open): {_fetch_snap_exc}")
 
         # I-ready-017 #1134: journal_only SINGLE source-filter. After ALL
         # retrieval stages, restrict the citeable corpus to peer-reviewed
@@ -7155,6 +7267,7 @@ async def run_one_query(
                 _log(f"[checkpoint]  snapshot save skipped (fail-open): {_snap_exc}")
 
         _pathb_gen_tok = _pathb.set_role("generator")
+        _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
         try:
             multi = await generate_multi_section_report(
                 research_question=q["question"],
@@ -10192,10 +10305,14 @@ async def main_async() -> int:
     parser.add_argument(
         "--resume", action="store_true",
         help=(
-            "I-arch-004 F04 (#539/#629): resume an interrupted run on a deterministic "
-            "--out-root. For each query whose run_dir holds a corpus_snapshot.json, RELOAD "
-            "the retrieved/selected EVIDENCE (no re-retrieval) and re-enter at generation, "
-            "RE-RUNNING strict_verify / NLI / 4-role / D8 on the reloaded corpus from scratch "
+            "I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume an interrupted run on a "
+            "deterministic --out-root, RESUMING FROM THE NEAREST checkpoint. Each query's "
+            "run_dir may hold up to two staged checkpoints (stage order: post-fetch "
+            "fetch_snapshot.json < post-selection corpus_snapshot.json). --resume prefers the "
+            "LATER one when both exist: corpus_snapshot RELOADs the selected EVIDENCE and "
+            "re-enters at generation; fetch_snapshot RELOADs the fetched corpus, SKIPS "
+            "STORM+fetch+merge, and RE-RUNs embedding-selection + generation. Either way "
+            "strict_verify / NLI / 4-role / D8 RE-RUN on the reloaded corpus from scratch "
             "(checkpoints carry DATA, never a verdict). A query with no snapshot runs fresh. "
             "The resumed run_log is appended, not clobbered."
         ),

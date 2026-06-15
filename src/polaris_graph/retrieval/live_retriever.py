@@ -3399,6 +3399,7 @@ def run_live_retrieval(
     seed_query_origin: str = "primary_trial_doi_seed",
     research_frame: Any = None,
     anchor_seed: bool = True,
+    progress_cb: Any = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -3432,6 +3433,13 @@ def run_live_retrieval(
             `research_question` prepend there either). A gap round therefore fires
             EXACTLY the gap sub-queries on BOTH the core Serper/S2 seam AND the
             need-type adapters.
+        progress_cb: Optional liveness callback ``cb(stage: str, **kw) -> None``
+            (GH #1258 PART 2). Called on the caller's thread at the boundaries of
+            the two long synchronous phases — after ``parallel_fetch`` returns and
+            periodically inside the per-URL classification loop — so the run-status
+            heartbeat keeps ticking (stage / elapsed / cost) instead of freezing at
+            ``scope_gate_passed``. Default ``None`` => byte-identical (no calls). A
+            raising callback is swallowed; it can never perturb retrieval.
 
     Returns LiveRetrievalResult.
 
@@ -3445,6 +3453,20 @@ def run_live_retrieval(
     """
     api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
     notes: list[str] = []
+    # GH #1258 PART 2: optional liveness callback so the run-status heartbeat ticks DURING the two
+    # long phases of this synchronous function — the network-bound parallel_fetch and the per-URL
+    # OpenAlex-enrich + tier-classify loop — instead of going dark until retrieval_done. The callback
+    # runs ON THE CALLER'S THREAD (this function is synchronous), so it inherits the run's cost
+    # ContextVar with no race and is unaffected by faithfulness/gating logic. It is purely additive:
+    # `progress_cb is None` (the default) keeps every behavior byte-identical, and a callback that
+    # raises is swallowed so observability can never perturb retrieval.
+    def _emit_progress(stage: str, **kw: Any) -> None:
+        if progress_cb is None:
+            return
+        try:
+            progress_cb(stage, **kw)
+        except Exception:  # noqa: BLE001 — observability must never perturb retrieval
+            pass
     # F15 (GH #1245 / D11): clear the per-URL refetch counters + negative cache at
     # the START of each run so a dead URL from a prior run/vector does not stay
     # poisoned, and so the per-URL cap is per-run (not per-process). Cheap, no
@@ -3999,6 +4021,10 @@ def run_live_retrieval(
             parallel_report.timeout_count,
             max_workers, per_task_timeout,
         )
+        # GH #1258 PART 2: parallel_fetch (the longest network-bound phase) just returned —
+        # tick the heartbeat so a human tailing run_status.json sees the run advance out of
+        # the fetch wait instead of a frozen scope_gate_passed snapshot.
+        _emit_progress("retrieval_fetched", sources_kept=parallel_report.success_count)
         # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics.
         # fetch_success_rate = usable / (usable + failed): a SUCCESS outcome
         # with a 2xx status is "usable"; an ERRORED/TIMEOUT or a non-2xx
@@ -4076,6 +4102,10 @@ def run_live_retrieval(
     # before the loop (LAW VI). Default 'warn' = legacy flag+break (byte-identical).
     _trunc_policy = _corpus_truncation_policy()
     _repair_logged = False
+    # GH #1258 PART 2: heartbeat-tick stride for the per-URL classification loop (LAW VI). Default
+    # 25 candidates ≈ one tick every few seconds at full fetch_cap; clamped >=1 so a misconfig can
+    # never make `i % stride` a ZeroDivisionError. Only consulted when progress_cb is wired.
+    _progress_stride = max(1, _env_int("PG_RETRIEVAL_PROGRESS_STRIDE", 25))
 
     for i, cand in enumerate(candidates):
         if time.monotonic() > _loop_deadline:
@@ -4125,6 +4155,15 @@ def run_live_retrieval(
             "[live_retriever] post-fetch candidate %d/%d %s",
             i + 1, len(candidates), cand.url[:60],
         )
+        # GH #1258 PART 2: tick the heartbeat every N candidates during the per-URL
+        # OpenAlex-enrich + tier-classify loop (the CPU-bound "embedding-rerank" phase that
+        # otherwise runs silent for minutes). Stride-gated (env-overridable) so the cost is a
+        # single env read + a modulo per iteration; the actual writes happen only every N URLs.
+        if progress_cb is not None and (i % _progress_stride == 0):
+            _emit_progress(
+                "retrieval_classifying",
+                sources_kept=len(classified_sources),
+            )
         if use_parallel:
             content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
                 fetched_side.get(cand.url, ("", False, "", "", ""))
