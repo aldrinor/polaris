@@ -67,7 +67,8 @@ done
 echo "  (d) run_gate_b.py compiles:"
 $PY -m py_compile scripts/dr_benchmark/run_gate_b.py && echo "      py_compile OK" || { echo "      py_compile FAILED"; fail=1; }
 echo "  (e) Gate-B --list NO-SPEND dry-run (--only is mutually exclusive with --list, so list ALL + grep the slug):"
-set -a; source .env; set +a
+# NOTE: do NOT 'source .env' in bash — the box .env has non-shell lines; run_gate_b loads it via
+# python-dotenv (load_dotenv at openrouter_client import) from the CWD (/root/polaris). PYTHONPATH only.
 export PYTHONPATH=$REMOTE:$REMOTE/src
 list_out=\$($PY -m scripts.dr_benchmark.run_gate_b --list 2>&1) || { echo "      --list FAILED"; echo "\$list_out" | tail -8; fail=1; }
 echo "\$list_out" | tail -20
@@ -83,7 +84,8 @@ launch() {
 set -euo pipefail
 cd $REMOTE
 mkdir -p $OUT_ROOT
-set -a; source .env; set +a
+# .env is loaded by run_gate_b via python-dotenv (load_dotenv) from CWD — NOT bash-sourced (the box
+# .env has non-shell lines). PYTHONPATH only.
 export PYTHONPATH=$REMOTE:$REMOTE/src
 setsid nohup $PY -m scripts.dr_benchmark.run_gate_b \
   --only $SLUG --smoke-scale --out-root $OUT_ROOT \
