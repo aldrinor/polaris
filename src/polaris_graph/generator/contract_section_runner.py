@@ -1147,27 +1147,66 @@ async def run_contract_section(
     # EVERY section ships through this runner — this is the path that fires on Q76).
     # A single-cited, single-cluster DROPPED claim is re-anchored to a basket
     # sibling that INDEPENDENTLY passes the UNCHANGED single-span isolation gate;
-    # else it stays dropped + disclosed (B5/B7 unchanged). Default OFF
-    # (PG_BASKET_REPAIR_MAX_CYCLES=0) => the pass is never constructed (byte-
-    # identical). `credibility_analysis is None` (master flag OFF / always-release
+    # else it stays dropped + disclosed (B5/B7 unchanged). P1-2: the MASTER gate
+    # `PG_BASKET_REPAIR_ENABLED` defaults OFF => the pass is never constructed
+    # (byte-identical); the max-cycles bound is consulted only when ENABLED.
+    # `credibility_analysis is None` (master flag OFF / always-release
     # degrade) also no-ops. Re-anchored survivors route through the SAME post-merge
     # path as normally-kept sentences: M-41c policy filter (no-op by construction
     # here per the module header, but applied for invariant parity) + the advisory
     # disclosure populate (re-applied so survivors carry it, like the merged kept
     # list at 1125-1127) BEFORE the resolve below.
     from .multi_section_generator import (
+        _basket_repair_enabled,
         _basket_repair_max_cycles,
         _recover_via_sibling_basket,
     )
     if (
-        _basket_repair_max_cycles() > 0
+        _basket_repair_enabled()
+        and _basket_repair_max_cycles() > 0
         and credibility_analysis is not None
         and dropped_sentences
     ):
+        # P1-1 (Codex diff-gate): capture each dropped sentence's ORIGINAL primary
+        # cited evidence_id (the slot-mapped one) BY id() BEFORE the in-place
+        # re-anchor mutation. After re-anchor, the sibling's eid is NOT in
+        # `entity_to_slot_id`, so the slot regroup below (line ~1277) would map it
+        # to None and DROP the recovered claim from `verified_text` — present in
+        # biblio yet never rendered. Recording {id(sv): original_primary_eid} here
+        # lets us register the sibling into `entity_to_slot_id` under the SAME slot
+        # the original token used, so the recovered claim actually ships.
+        import re as _slot_prov_re_mod
+        _slot_prov_re = _slot_prov_re_mod.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
+        _orig_primary_eid_by_sv_id: dict[int, str] = {}
+        for _dsv in dropped_sentences:
+            _dtext = getattr(_dsv, "sentence", "") or ""
+            _dm = _slot_prov_re.search(_dtext)
+            if _dm is not None:
+                _orig_primary_eid_by_sv_id[id(_dsv)] = _dm.group(1)
         _reanchored_svs, _still_dropped = _recover_via_sibling_basket(
             dropped_sentences, evidence_pool, credibility_analysis,
         )
         if _reanchored_svs:
+            # P1-1: register each re-anchored sibling's evidence_id into the slot
+            # map under the slot its ORIGINAL cited token belonged to, so the
+            # post-merge slot regroup (which keys on tokens[0].evidence_id) buckets
+            # the recovered claim into a real slot and emits it into verified_text.
+            # Guard: only when the original eid was itself slot-mapped (else the
+            # sibling has no home slot and the claim legitimately stays unrendered).
+            for _ra_sv in _reanchored_svs:
+                _orig_eid = _orig_primary_eid_by_sv_id.get(id(_ra_sv))
+                _orig_slot = (
+                    entity_to_slot_id.get(_orig_eid) if _orig_eid else None
+                )
+                if _orig_slot is None:
+                    continue
+                _ra_tokens = getattr(_ra_sv, "tokens", None) or []
+                if not _ra_tokens:
+                    continue
+                _sibling_eid = _ra_tokens[0].evidence_id
+                # Map the sibling to the original token's slot (idempotent; never
+                # overwrites an existing real binding for a genuine slot entity).
+                entity_to_slot_id.setdefault(_sibling_eid, _orig_slot)
             from .multi_section_generator import (
                 filter_underframed_trial_sentences,
             )
