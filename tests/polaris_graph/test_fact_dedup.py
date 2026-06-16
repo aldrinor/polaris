@@ -235,7 +235,7 @@ class _FakeLLM:
 
 
 @pytest.mark.asyncio
-async def test_rewrite_falls_back_to_drop_on_invalid_json() -> None:
+async def test_rewrite_keeps_all_on_invalid_json() -> None:
     sections = {
         "Efficacy": ["8.7% in 2007 [ev_X]."],
         "Comparative": ["8.7% in 2007 [ev_Y]."],
@@ -243,13 +243,13 @@ async def test_rewrite_falls_back_to_drop_on_invalid_json() -> None:
     groups = build_groups(sections)
     fake_llm = _FakeLLM("not valid json at all")
     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
-    # 1 redundant; rewrite invalid → fallback drop (None)
-    assert len(rewrites) == 1
-    assert all(v is None for v in rewrites.values())
+    # §-1.3 CONSOLIDATE-keep-all: a failed rewrite must NOT delete the corroborating cited
+    # sentence — it emits NO drop keys, so apply_rewrites keeps every original verbatim.
+    assert rewrites == {}, "invalid JSON must keep all corroborators (no drop keys), not drop them"
 
 
 @pytest.mark.asyncio
-async def test_rewrite_falls_back_on_wrong_shape() -> None:
+async def test_rewrite_keeps_all_on_wrong_shape() -> None:
     sections = {
         "Efficacy": ["8.7% in 2007 [ev_X]."],
         "Comparative": ["8.7% in 2007 [ev_Y]."],
@@ -258,21 +258,21 @@ async def test_rewrite_falls_back_on_wrong_shape() -> None:
     # Returns valid JSON but wrong shape (rewrites is a string not list)
     fake_llm = _FakeLLM('{"rewrites": "not a list"}')
     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
-    assert all(v is None for v in rewrites.values())
+    assert rewrites == {}, "wrong-shape response must keep all corroborators (consolidate-keep-all)"
 
 
 @pytest.mark.asyncio
-async def test_rewrite_falls_back_on_count_mismatch() -> None:
+async def test_rewrite_keeps_all_on_count_mismatch() -> None:
     sections = {
         "Efficacy": ["8.7% in 2007 [ev_X]."],
         "Comparative": ["8.7% in 2007 [ev_Y]."],
         "Regulatory": ["8.7% in 2007 [ev_Z]."],
     }
     groups = build_groups(sections)
-    # 2 redundants expected, only 1 returned
+    # 2 redundants expected, only 1 returned → shape mismatch
     fake_llm = _FakeLLM('{"rewrites": ["only one rewrite [ev_Y]."]}')
     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
-    assert all(v is None for v in rewrites.values())
+    assert rewrites == {}, "count-mismatch response must keep all corroborators (consolidate-keep-all)"
 
 
 @pytest.mark.asyncio
@@ -292,7 +292,7 @@ async def test_rewrite_applies_valid_rewrites() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rewrite_handles_null_per_item() -> None:
+async def test_rewrite_keeps_original_on_null_per_item() -> None:
     sections = {
         "Efficacy": ["8.7% in 2007 [ev_X]."],
         "Comparative": ["8.7% in 2007 [ev_Y]."],
@@ -305,8 +305,11 @@ async def test_rewrite_handles_null_per_item() -> None:
     )
     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
     values = list(rewrites.values())
+    # The valid rewrite is applied; the null item is OMITTED (no key) so apply_rewrites KEEPS the
+    # original corroborating sentence — §-1.3, never drop a corroborator on a null rewrite.
     assert "see Efficacy [ev_Y]." in values
-    assert None in values
+    assert None not in values, "a null per-item rewrite must keep the original, not emit a drop"
+    assert len(rewrites) == 1, "only the valid rewrite is keyed; the null item stays as its original"
 
 
 @pytest.mark.asyncio
@@ -368,18 +371,21 @@ async def test_dedup_pass_q5_pattern_end_to_end() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dedup_pass_safe_drop_on_llm_failure() -> None:
-    """If rewrite call fails, redundants are dropped (PRIMARY kept)."""
+async def test_dedup_pass_keeps_corroborators_on_llm_failure() -> None:
+    """If the rewrite call fails, the corroborating redundants are KEPT (consolidate-keep-all,
+    §-1.3) — a failed merge never deletes a corroborating source."""
     sections = {
         "Efficacy": ["8.7% in 2007 [ev_X]."],
         "Comparative": ["8.7% in 2007 [ev_Y]."],
     }
     fake_llm = _FakeLLM("garbage response")
     new_sections, telemetry = await dedup_pass(sections, fake_llm)
-    assert telemetry["n_drops"] == 1
+    assert telemetry["n_drops"] == 0, "a failed rewrite must drop nothing (keep all corroborators)"
     assert telemetry["n_rewrites_applied"] == 0
     assert new_sections["Efficacy"] == ["8.7% in 2007 [ev_X]."]
-    assert new_sections["Comparative"] == []  # redundant dropped
+    assert new_sections["Comparative"] == ["8.7% in 2007 [ev_Y]."], (
+        "the corroborating sentence is KEPT on rewrite failure, not dropped"
+    )
 
 
 @pytest.mark.asyncio

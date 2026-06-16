@@ -242,45 +242,57 @@ def test_fix_a10_reserved_empty_transport_status_present():
 
 
 # =============================================================================================== #
-# A4 — comparative-empty serialization  [WIRING-PRESENCE PROXY, NOT behavioral]                    #
-# A section ATTEMPTED (evidence rows assigned) but emitting ZERO verified sentences must be         #
-# serialized as a non-verdict stub (attempted=True, reason=resolved_emitted==0) instead of         #
-# vanishing — exactly drb_90's "Comparative Assessment".                                           #
+# A4 - comparative-empty serialization  [BEHAVIORAL]                                               #
+# A section ATTEMPTED (evidence rows assigned) but emitting ZERO verified sentences must be        #
+# serialized as a non-verdict stub (attempted=True, reason=resolved_emitted==0) instead of        #
+# vanishing - exactly drb_90's "Comparative Assessment".                                           #
 #                                                                                                  #
-# HONEST SCOPE: the A4 serialization is INLINE inside run_honest_sweep_r3 (~:8733) and the         #
-# gap-stub assignment is inline inside an async LLM-driven _call_section flow in                   #
-# multi_section_generator (~:3395) — NEITHER is unit-callable without a live model + a large        #
-# evidence pool. So these two tests are WIRING-PRESENCE PROXIES (per §-1.1 a source-presence        #
-# check is NOT a quality signal). The REAL behavioral coverage for A4 is the A19 live canary +      #
-# the A18 artifact invariant over a finished run dir. Flagged for Codex in needs_codex_attention.  #
+# Both load-bearing pieces are now unit-callable and tested for REAL behavior (no source-text     #
+# grep - per -1.1 a source-presence check is NOT a quality signal): the pure stub builder         #
+# (build_attempted_zero_emit_section_stub) returns the exact non-verdict dict, and the zero-emit  #
+# trigger (resolve_provenance_to_citations_with_count) returns emitted_count==0 on an empty       #
+# kept-sentence list - which is what drives is_gap_stub = (resolved_emitted == 0). End-to-end     #
+# coverage over a finished run dir remains the A19 live canary + the A18 artifact invariant.      #
 # =============================================================================================== #
-def test_wiring_a4_comparative_empty_serialization_present():
-    """WIRING-PRESENCE PROXY (not behavioral): the A4 zero-emit serialization is wired in-script.
+def test_a4_comparative_empty_stub_builder_behavioral(sweep_module):
+    """BEHAVIORAL (calls the real pure helper, not a source-text grep — §-1.1): the A4 zero-emit
+    stub builder returns the non-verdict serialization dict.
 
-    Asserts the stable logic tokens, not a comment anchor (a comment rephrase must not break it).
-    Behavioral A4 coverage lives in the A19 canary + A18 artifact check.
+    An ATTEMPTED section that emits zero verified sentences MUST serialize attempted=True +
+    reason=resolved_emitted==0 with a present-but-empty `dropped` list (so the downstream
+    per-reason tally loop stays byte-identical), instead of vanishing from verification_details.json
+    (drb_90's "Comparative Assessment").
     """
-    src = (_REPO_ROOT / "scripts" / "run_honest_sweep_r3.py").read_text(encoding="utf-8")
-    assert '"reason": "resolved_emitted==0"' in src, (
-        "the A4 comparative-empty serialization (reason=resolved_emitted==0 stub) is not wired — "
-        "an attempted-but-zero-emit section would silently vanish from verification_details.json"
+    build = getattr(sweep_module, "build_attempted_zero_emit_section_stub", None)
+    assert build is not None, "A4 stub builder missing — an attempted-but-zero-emit section vanishes"
+    stub = build("Comparative Assessment", False, ["ev1", "ev2"])
+    assert stub["attempted"] is True
+    assert stub["reason"] == "resolved_emitted==0"
+    assert stub["total_kept"] == 0 and stub["kept"] == []
+    assert stub["dropped"] == [], (
+        "`dropped` must be present-but-empty so the per-reason tally loop stays byte-identical"
     )
-    assert '"attempted": True' in src, "the attempted-stub serialization is not wired"
+    assert stub["ev_ids_assigned"] == ["ev1", "ev2"], "the attempted section's assigned rows are disclosed"
 
 
-def test_wiring_a4_gap_stub_extends_to_resolved_emitted_zero():
-    """WIRING-PRESENCE PROXY (not behavioral): the generator marks a gap stub on resolved_emitted==0.
+def test_a4_zero_emit_trigger_is_behavioral():
+    """BEHAVIORAL (calls the real resolver, not a source-text grep — §-1.1): a zero-surviving
+    section resolves to emitted_count==0, which is the gap-stub trigger.
 
-    The assignment is inline in an async LLM flow (not unit-callable); behavioral coverage is the
-    A19 live canary. This proxy guards that the resolved_emitted==0 -> gap-stub wiring is present.
+    `is_gap_stub = (resolved_emitted == 0)` is driven by the resolver's emitted count, NOT the
+    pre-resolve kept-list length (the F10 honesty fix). Empty kept_sentences MUST resolve to
+    emitted_count==0 — proven by calling the real resolver, so a comparative section with rows but
+    zero surviving spans is marked a gap stub instead of shipping an empty body as non-stub.
     """
-    gen_src = (
-        _REPO_ROOT / "src" / "polaris_graph" / "generator" / "multi_section_generator.py"
-    ).read_text(encoding="utf-8")
-    assert "is_gap_stub = resolved_emitted == 0" in gen_src, (
-        "the gap-stub trigger does not extend to resolved_emitted==0 — a comparative section "
-        "with rows but zero surviving spans would not be marked a gap stub"
+    from src.polaris_graph.generator.provenance_generator import (
+        resolve_provenance_to_citations_with_count,
     )
+
+    _rendered, biblio, emitted = resolve_provenance_to_citations_with_count([], {})
+    assert emitted == 0, (
+        "an empty kept-sentence section must resolve to emitted_count==0 (the is_gap_stub trigger)"
+    )
+    assert biblio == [], "a zero-emit section yields no citations"
 
 
 # =============================================================================================== #
@@ -507,6 +519,38 @@ def test_invariant_a18_disclosed_gaps_without_disclosure_violates(invariant_modu
         "four_role_evaluation": {"final_verdicts": {}},
     })
     assert v, "a disclosed-gaps release with no disclosure and no D8 must be a violation"
+
+
+def test_invariant_a18_partial_release_without_d8_violates(invariant_module):
+    """INVARIANT (iarch007 SWEEP-P0 #2): release_allowed=true on a NON-abort, non-strict,
+    non-disclosed status (e.g. partial_saturation) with empty final_verdicts and no proven seam is a
+    silent un-judged release — the partial_*/unknown hole the pre-fix checker let through entirely.
+    The check must flag it."""
+    v = invariant_module.check_manifest({
+        "status": "partial_saturation", "release_allowed": True,
+        "four_role_evaluation": {"final_verdicts": {}},
+    })
+    assert v, "release_allowed=true on partial_saturation with no D8/seam proof must be a violation"
+
+
+def test_invariant_a18_partial_release_with_d8_passes(invariant_module):
+    """INVARIANT: a partial_* status that DID adjudicate (non-empty final_verdicts) satisfies the
+    invariant — the proof demand is about real judging, not the status label."""
+    v = invariant_module.check_manifest({
+        "status": "partial_saturation", "release_allowed": True,
+        "four_role_evaluation": {"final_verdicts": {"c1": "VERIFIED"}},
+    })
+    assert v == [], f"a judged partial release must satisfy the invariant; got {v}"
+
+
+def test_invariant_a18_partial_not_released_passes(invariant_module):
+    """INVARIANT: a partial_* status that did NOT release (release_allowed=false) ships nothing and
+    satisfies the invariant — the fail-closed disposition is never tripped."""
+    v = invariant_module.check_manifest({
+        "status": "partial_saturation", "release_allowed": False,
+        "four_role_evaluation": {"final_verdicts": {}},
+    })
+    assert v == [], f"a non-released partial status must satisfy the invariant; got {v}"
 
 
 def test_invariant_a18_real_drb90_held_manifest_passes(invariant_module):

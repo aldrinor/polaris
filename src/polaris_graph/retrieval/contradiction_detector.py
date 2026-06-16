@@ -1552,6 +1552,41 @@ def detect_contradictions(
                     incommensurable_reason=incommensurable_reason,
                 ))
                 continue
+            # A17 SAME-SOURCE guard (iarch007 FETCH-P0): a CROSS-source contradiction requires the
+            # disagreeing numbers to come from DIFFERENT sources. When every claim in this group
+            # shares ONE source (same source_url, or same evidence_id when a URL is absent — and the
+            # cannot-attribute blank case), the spread is a WITHIN-source numeric span (a range, two
+            # figures in one document, or an extraction artifact), NOT a cross-source contradiction.
+            # Label it not_comparable, keep it OUT of the headline contradiction count, and DISCLOSE
+            # every claim (never drop — §-1.3). This is a cross-source VALIDITY/WEIGHT check: no
+            # faithfulness threshold is touched, and a genuine 2+-source disagreement is never
+            # suppressed (the guard fires ONLY when fewer than two distinct sources are present).
+            distinct_sources = {(c.source_url or c.evidence_id or "") for c in group}
+            distinct_sources.discard("")
+            if len(distinct_sources) < 2:
+                only_src = next(iter(distinct_sources), "unknown")
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=f"{predicate_display} [not_comparable]",
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=0.0,
+                    absolute_difference=0.0,
+                    severity="low",
+                    recommended_action=(
+                        "Not comparable (same-source A17): every value in this bucket comes from a "
+                        "single source (or no source could be attributed), so this is a within-source "
+                        "numeric span, not a cross-source contradiction. Disclose each value with its "
+                        "own context; do NOT assert a cross-source numeric contradiction from one "
+                        "source."
+                    ),
+                    not_comparable=True,
+                    incommensurable_reason=(
+                        f"same_source: the {len(group)} claims resolve to {len(distinct_sources)} "
+                        f"distinct source(s) ({only_src!r}) — a within-source numeric span, not a "
+                        "cross-source contradiction"
+                    ),
+                ))
+                continue
             # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
             # only when the claims share comparator/population/time-window. If
             # those discriminators differ or cannot be confirmed, label it a

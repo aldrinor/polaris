@@ -17,13 +17,18 @@ def _ev(
     ev_id: str,
     quote: str,
     tier: str = "T1",
-    url: str = "https://example.com/",
+    url: str | None = None,
 ) -> dict:
+    # A17 same-source guard: a CROSS-source contradiction requires the disagreeing numbers to come
+    # from DIFFERENT sources. Real evidence from two trials/publications carries two URLs, so the
+    # default source_url is distinct per evidence_id (the old shared placeholder was an unrealistic
+    # artifact that the guard now correctly treats as one within-source span). Pass an explicit
+    # shared `url=` to exercise the same-source (not_comparable) path.
     return {
         "evidence_id": ev_id,
         "direct_quote": quote,
         "tier": tier,
-        "source_url": url,
+        "source_url": url if url is not None else f"https://example.com/{ev_id}",
     }
 
 
@@ -131,6 +136,27 @@ def test_format_contradictions_output() -> None:
     assert "weight loss" in text
     assert "ev_low" in text
     assert "ev_high" in text
+
+
+def test_same_source_numeric_span_not_a_cross_source_contradiction() -> None:
+    # A17 same-source guard (iarch007 FETCH-P0): two conflicting numbers from the SAME source are a
+    # within-source numeric span, NOT a cross-source contradiction. They are DISCLOSED as a
+    # not_comparable bucket (never dropped — §-1.3) and kept OUT of the headline contradiction count.
+    shared = "https://example.com/one-review-article"
+    evidence = [
+        _ev("ev_a", "semaglutide weight loss 10.0% at week 52", url=shared),
+        _ev("ev_b", "semaglutide weight loss 17.4% at week 104", url=shared),
+    ]
+    claims = extract_numeric_claims(evidence)
+    records = detect_contradictions(claims)
+    # The bucket is surfaced (disclosed), but marked not_comparable — no hard cross-source assertion.
+    assert len(records) == 1
+    assert records[0].not_comparable is True
+    assert "[not_comparable]" in records[0].predicate
+    # Excluded from the headline count: format reports zero cross-source contradictions.
+    text = format_contradictions_for_user(records)
+    assert "Detected 0" in text
+    assert "not-comparable" in text.lower()
 
 
 def test_format_empty_contradictions() -> None:

@@ -625,9 +625,12 @@ async def rewrite_redundant_sentences(
             to keep this module test-friendly.
 
     Returns:
-        dict mapping (section, index) -> new sentence string OR None if
-        rewrite failed/null. Caller decides how to handle None
-        (typically: drop the sentence entirely, keeping only PRIMARY).
+        dict mapping (section, index) -> merged multi-citation sentence string.
+        A redundant whose rewrite FAILED or came back null/empty is OMITTED from
+        the dict (no key) so apply_rewrites keeps its ORIGINAL cited sentence —
+        consolidate-keep-all (§-1.3): a failed merge never deletes a corroborating
+        source. (The None value is still honored as an explicit drop by
+        apply_rewrites, but the failure/null fallbacks no longer emit it.)
     """
     import json
 
@@ -652,26 +655,30 @@ async def rewrite_redundant_sentences(
     except (json.JSONDecodeError, AttributeError, KeyError, TypeError) as e:
         logger.warning(
             "[fact_dedup] rewrite call failed (%s); falling back to "
-            "DROP-redundants behavior", e,
+            "KEEP-redundants (consolidate-keep-all, §-1.3)", e,
         )
-        # Safe fallback: drop all redundants (return None for each)
-        return {(loc.section, loc.index): None for _g, loc in flat}
+        # Safe fallback (§-1.3 CONSOLIDATE-DON'T-DROP): the anti-restatement rewrite is an
+        # OPTIMIZATION (merge corroborating sentences into one multi-citation sentence). When it
+        # fails we must NOT delete the corroborating cited sentences — emit NO drop keys so
+        # apply_rewrites keeps every original sentence verbatim (repetition = corroboration).
+        return {}
 
     if not isinstance(rewrites, list) or len(rewrites) != len(flat):
         logger.warning(
             "[fact_dedup] rewrite response shape mismatch "
-            "(expected %d items, got %r); falling back to DROP",
+            "(expected %d items, got %r); falling back to KEEP (consolidate-keep-all)",
             len(flat), type(rewrites).__name__,
         )
-        return {(loc.section, loc.index): None for _g, loc in flat}
+        return {}
 
     out: dict[tuple[str, int], Optional[str]] = {}
     for (_group, loc), rewrite in zip(flat, rewrites):
         if isinstance(rewrite, str) and rewrite.strip():
             out[(loc.section, loc.index)] = rewrite.strip()
-        else:
-            # null/empty rewrite → drop
-            out[(loc.section, loc.index)] = None
+        # else: a null/empty rewrite for THIS item means the merge produced nothing — KEEP the
+        # original cited sentence (consolidate-keep-all, §-1.3) by emitting NO key for it, so
+        # apply_rewrites' absent-key branch preserves the corroborating sentence rather than
+        # dropping it. Never delete a corroborating source on a failed rewrite.
     return out
 
 

@@ -344,6 +344,33 @@ def to_unified_status(summary_status: str) -> str:
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
 
 
+def build_attempted_zero_emit_section_stub(
+    title: str,
+    dropped_due_to_failure: bool,
+    ev_ids_assigned: Any,
+) -> dict[str, Any]:
+    """A4 (iarch006 epic-failure): the NON-VERDICT verification stub for a section that was
+    ATTEMPTED (had evidence rows assigned) but emitted ZERO verified sentences
+    (``resolved_emitted == 0``). PURE (no I/O, no faithfulness gate) so it is unit-callable —
+    the inline serialization loop calls it. A zero-emit ATTEMPTED section MUST serialize this
+    stub instead of vanishing from ``verification_details.json`` (exactly drb_90's
+    "Comparative Assessment", where a comparative claim spans multiple sources so no single span
+    survived per-sentence strict_verify). ``dropped`` is present-but-empty so the downstream
+    per-reason tally loop stays byte-identical. Asserts NO content; touches NO faithfulness gate."""
+    return {
+        "title": title,
+        "dropped_due_to_failure": dropped_due_to_failure,
+        "total_in": 0,
+        "total_kept": 0,
+        "total_dropped": 0,
+        "kept": [],
+        "dropped": [],
+        "attempted": True,
+        "reason": "resolved_emitted==0",
+        "ev_ids_assigned": list(ev_ids_assigned or []),
+    }
+
+
 # I-arch-004 F20 (#1255): historical 4-role seam WALL floor (I-run11-004). The generator-sized
 # default can only grow above this, never regress below.
 _FOUR_ROLE_SEAM_TIMEOUT_FLOOR = 7200.0
@@ -8929,20 +8956,16 @@ async def run_one_query(
                 # pure observability — it asserts NO content and touches NO faithfulness gate.
                 _attempted = bool(getattr(sr, "ev_ids_assigned", None))
                 if _attempted:
-                    verif_details["sections"].append({
-                        "title": sr.title,
-                        "dropped_due_to_failure": sr.dropped_due_to_failure,
-                        "total_in": 0,
-                        "total_kept": 0,
-                        "total_dropped": 0,
-                        "kept": [],
-                        # `dropped` MUST be present (empty) so the per-reason tally loop below
-                        # (iterates s["dropped"]) stays byte-identical on this stub.
-                        "dropped": [],
-                        "attempted": True,
-                        "reason": "resolved_emitted==0",
-                        "ev_ids_assigned": list(getattr(sr, "ev_ids_assigned", []) or []),
-                    })
+                    # `dropped` is present-but-empty in the stub so the per-reason tally loop below
+                    # (iterates s["dropped"]) stays byte-identical. Built by the pure, unit-callable
+                    # helper above (A4 behavioral coverage).
+                    verif_details["sections"].append(
+                        build_attempted_zero_emit_section_stub(
+                            sr.title,
+                            sr.dropped_due_to_failure,
+                            getattr(sr, "ev_ids_assigned", []),
+                        )
+                    )
                 continue
             kept_svs = sr.kept_sentences_pre_resolve or []
             dropped_svs = sr.dropped_sentences_final or []
@@ -10977,7 +11000,7 @@ async def run_one_query(
                 hard_block_reasons=list(_rd.get("hard_block_reasons", []) or []),
                 release_quality_score=float(_rd.get("release_quality_score", 0.0) or 0.0),
                 safety_floor=str(_rd.get("safety_floor", "ok") or "ok"),
-                adjudicated=bool(_rd.get("adjudicated", True)) if _rd else True,
+                adjudicated=bool(_rd.get("adjudicated", False)),
                 body_withheld=bool(_rd.get("body_withheld", False)),
                 compensating_screen_passed=bool(_rd.get("compensating_screen_passed", False)),
             )

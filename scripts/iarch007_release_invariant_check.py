@@ -228,6 +228,29 @@ def check_manifest(manifest: dict[str, Any]) -> list[str]:
             "seam rescue — release without proof the judge ran or the seam body is safe."
         )
 
+    # (6) release_allowed=true on ANY OTHER non-abort status (partial_*/unknown/unclassified) —
+    # one that is NEITHER a strict-release status (covered by (5)) NOR a disclosed-release status
+    # (covered by (2)/(3) with their own seam/safety allowances) — STILL demands real D8 proof OR a
+    # PROVEN seam rescue. The invariant's own rule (release_allowed==true must prove D8 or a safe
+    # seam disposition) applies to EVERY release, not only the strict family. Pre-fix, these
+    # statuses slipped through entirely: e.g. status="partial_saturation", release_allowed=true,
+    # final_verdicts={} passed with no judging — the silent-release hole Codex (iarch007 SWEEP-P0)
+    # caught. Faithfulness is STRENGTHENED, never relaxed: more release shapes must now prove safety.
+    if (
+        release_allowed
+        and status
+        and not status.startswith("abort")
+        and status not in _STRICT_RELEASE_STATUSES
+        and status not in _DISCLOSED_RELEASE_STATUSES
+        and not (d8_ran or seam_rescue_proven)
+    ):
+        violations.append(
+            f"release_allowed=true on non-abort status={status!r} (neither a strict nor a "
+            "disclosed release status) with no D8 adjudication and no proven seam rescue — a "
+            "release with no proof the judge ran or the seam body is safe "
+            "(the partial_*/unknown silent-release hole)."
+        )
+
     return violations
 
 

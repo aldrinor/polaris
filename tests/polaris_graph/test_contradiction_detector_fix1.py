@@ -24,9 +24,12 @@ from src.polaris_graph.retrieval.contradiction_detector import (
 )
 
 
-def _ev(ev_id: str, quote: str) -> dict:
+def _ev(ev_id: str, quote: str, url: str | None = None) -> dict:
+    # A17 same-source guard: distinct source_url per evidence_id by default so a genuine
+    # cross-source contradiction (two trials disagree) is detected; pass an explicit shared `url=`
+    # to exercise the same-source (not_comparable) path. The old shared placeholder was unrealistic.
     return {"evidence_id": ev_id, "direct_quote": quote, "tier": "T1",
-            "source_url": "https://example.com/"}
+            "source_url": url if url is not None else f"https://example.com/{ev_id}"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
