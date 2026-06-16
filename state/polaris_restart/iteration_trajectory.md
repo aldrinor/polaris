@@ -1628,3 +1628,17 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - 3 REAL land mines found by the forensic (FIXED commit fa80b556): openrouter_client._call budget logic is a 3-way elif chain whose branch 2 (`elif reasoning_enabled`) had NO 32768 floor, so deepseek-v4-pro via reason()/generate_structured(reasoning_enabled=True) was un-floored -> tiny max_tokens eaten by ~17-18k reasoning -> empty content -> silent fallback. P0 evidence_deepener.py:294 (2000) + :815 (500) [force-on in benchmark, freshly re-starved this session when effort->high]; P1 storm_interviews.py:1108 (4096). Root-cause fix: mirror branch-3 floor+cap into branch 2 for _REASONING_FIRST_MODELS only (GLM/non-reasoning-first untouched, narrow). Tactical per-site raises ->32768. Test test_reasoning_first_branch2_floor_iarch003.py (5, no network) + 17 existing green. Provider-cap safe (generator chain excludes DeepInfra).
 - Model-lock CONFORMANT (no live gemma/closed-source; only off-path legacy models.yaml gemini + inert pricing/guardrail keys). Provider-caps no overruns. OpenRouter credit $167.48/$650 (flagged: full 5-pipeline may need top-up).
 - Codex independent forensic gate iter 1 IN FLIGHT (bgdd17zwn) on 98e07d33~1..fa80b556: verify the fix + re-audit live path. Cap 5. Dual-READY gate = BOTH Claude+Codex zero P0/P1 before proceeding to step 3 (VM smoke).
+
+---
+
+## I-arch-007 (#1263) re-gate — APPROVE (2026-06-15)
+
+- **iter1 (w82clbwhk, Workflow re-gate, 4 units):** REQUEST_CHANGES on all 4. Big fixes CONFIRMED CLOSED (A20/A6/A4, both RELEASE seam P0s, A12/A19/A21b, A1/A5/A8). Surfaced 4 residual fail-open P0s + 1 P1, every one in the STRICTER direction:
+  - RELEASE: `run_honest_sweep_r3.py:10980` defaulted missing release proof to adjudicated=True → fail-CLOSED (default False).
+  - GEN: `fact_dedup.py` rewrite fallbacks DROPPED corroborators → consolidate-keep-all (emit no drop key).
+  - FETCH (A17): `contradiction_detector.py` no same-source guard → added (<2 distinct sources ⇒ not_comparable, disclosed, out of headline count).
+  - SWEEP: `iarch007_release_invariant_check.py` demanded D8/seam proof only on strict statuses → check(6) extends to every non-abort release (partial_*/unknown).
+  - SWEEP P1: 2 banned source-grep A4 tests → behavioral (pure stub helper + real resolver count).
+- **Fix commit:** `201613e2`. Stale fact_dedup drop-tests rewritten to keep-all; contradiction `_ev` fixtures → distinct source_url/evidence_id; +6 behavioral tests. 190 tests green.
+- **iter2 (bfwo9gs97, codex confirmation gate, 89k tokens, rc=0):** **verdict APPROVE** — release/gen/fetch/sweep P0 + sweep P1 ALL closed; `faithfulness_relaxation_found: no`; novel_p0 []; p1 []; convergence_call accept_remaining.
+- **Net:** campaign code Codex-APPROVED on a clean committed tree. NEXT = behavioral preflight → 5-VM fan-out with `state/iarch007_run_slate.env`.

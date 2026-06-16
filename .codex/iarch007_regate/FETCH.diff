@@ -1,0 +1,1172 @@
+diff --git a/src/polaris_graph/adequacy/plan_sufficiency_gate.py b/src/polaris_graph/adequacy/plan_sufficiency_gate.py
+index 02b05566..7730a30a 100644
+--- a/src/polaris_graph/adequacy/plan_sufficiency_gate.py
++++ b/src/polaris_graph/adequacy/plan_sufficiency_gate.py
+@@ -10,12 +10,25 @@ KEY DESIGN (brief §2.2):
+ - Coverage UNIT = the section outline item (its `evidence_target`).
+ - Relevance = PROVENANCE-FIRST: a row is relevant to a section iff its
+   `query_origin` matches (normalized equality) one of the sub-query texts at the
+-  section's `sub_query_indices`. The content-word overlap fallback is used ONLY
+-  for rows whose `query_origin` is EMPTY or one of the explicit NON-QUERY
+-  SENTINEL origins (`{primary_trial_doi_seed, agentic_seed, deepener_seed, need_type_backend, domain_backend}`)
+-  — these lanes surface authoritative evidence with no originating sub-query, so
+-  they must be creditable. A row whose `query_origin` is a REAL sub-query text
+-  that does not match the section is NOT relevant to it (no title-overlap rescue).
++  section's `sub_query_indices`. Two content-word overlap fallbacks exist, both
++  reusing the SAME deterministic `_content_words` + `MIN_CONTENT_WORD_OVERLAP=2`
++  primitive (NO embedding router, §8.4):
++  - SENTINEL/EMPTY origin (`{primary_trial_doi_seed, agentic_seed, deepener_seed,
++    need_type_backend, domain_backend}` or `""`): these lanes surface
++    authoritative evidence with NO originating sub-query, so their relevance is
++    decided by overlapping the ROW CONTENT (statement + direct_quote) against the
++    section's sub-query texts.
++  - REAL-ORIGIN DRIFT FALLBACK (A5, RC6): a row whose `query_origin` is a REAL
++    sub-query text but whose EXACT-string match yields EMPTY (e.g. a STORM
++    expansion drift that no longer string-equals the planned sub-query) falls
++    THROUGH to the SAME row-content overlap path as the sentinel/empty branch —
++    overlapping the ROW CONTENT (statement + direct_quote) against the section's
++    sub-query texts. This recovers a drifted origin's orphaned evidence; a row
++    with no usable content (or no overlap) stays orphaned. The fallback fires
++    ONLY when exact-match is empty — it never AUGMENTS a non-empty exact match.
++    Gated by `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK` (default ON; set to 0
++    for the pre-A5 strict-exact behavior). Routing only: it changes WHICH section
++    sees a row, never WHETHER its sentences verify.
+ - Authority floor = the NUMERIC `authority_score` (float [0,1]); a row counts
+   toward coverage iff `authority_score >= authority_floor` (a single global
+   float, NOT a per-domain dict). Below-floor relevant rows are reported, not
+@@ -129,14 +142,23 @@ def _min_content_word_overlap() -> int:
+ 
+ 
+ def _row_text_for_overlap(row: dict[str, Any]) -> str:
+-    """The row content used for the content-word fallback: statement + the
+-    direct_quote span (NOT just the title — brief §2.2 fallback)."""
++    """The row content used for the SENTINEL/EMPTY-origin content-word fallback:
++    statement + the direct_quote span (NOT just the title — brief §2.2 fallback)."""
+     return " ".join(
+         str(row.get(k) or "")
+         for k in ("statement", "direct_quote")
+     )
+ 
+ 
++def _origin_drift_fallback_enabled() -> bool:
++    """A5 (RC6): is the real-origin content-word DRIFT fallback active? Default ON
++    (the §-1.3-correct behavior — recover an orphaned drifted origin rather than
++    hard-drop it). Set `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK=0` for the
++    pre-A5 strict-exact-only behavior (byte-identical to the legacy path)."""
++    val = os.getenv("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK", "1").strip().lower()
++    return val not in ("0", "false", "no", "off", "")
++
++
+ def relevant_section_indices(
+     row: dict[str, Any],
+     outline: list[Any],
+@@ -150,10 +172,14 @@ def relevant_section_indices(
+     gate layers the numeric floor on top.
+ 
+     Provenance-first: a non-sentinel, non-empty `query_origin` credits ONLY the
+-    section(s) whose `sub_query_indices` point at that exact sub-query text. A
+-    sentinel/empty origin uses content-word overlap against the section's
+-    sub-query texts. Returns the list of matching section indices (possibly
+-    several; possibly none -> orphan, uncredited).
++    section(s) whose `sub_query_indices` point at that exact sub-query text. If
++    that exact match is EMPTY, the A5 (RC6) drift fallback overlaps the ORIGIN
++    TEXT against each section's sub-query texts (recovers a drifted origin; an
++    unrelated origin stays orphaned); default ON, gated by
++    `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK`. A sentinel/empty origin uses
++    content-word overlap of the ROW CONTENT against the section's sub-query
++    texts. Returns the list of matching section indices (possibly several;
++    possibly none -> orphan, uncredited).
+     """
+     origin = _normalize_query(row.get("query_origin", ""))
+     raw_origin = str(row.get("query_origin", "") or "")
+@@ -170,10 +196,22 @@ def relevant_section_indices(
+                 if 0 <= q_idx < len(norm_subqueries) and norm_subqueries[q_idx] == origin:
+                     matches.append(sec_idx)
+                     break
+-        return matches
+-
+-    # FALLBACK (empty / sentinel origin): content-word overlap against the
+-    # section's OWN sub-query texts, floored by MIN_CONTENT_WORD_OVERLAP.
++        if matches or not _origin_drift_fallback_enabled():
++            return matches
++        # A5 (RC6) DRIFT FALLBACK: a REAL sub-query origin whose EXACT match is
++        # empty (origin drift, e.g. a STORM expansion that no longer string-
++        # equals the planned sub-query) falls through to the SAME content-word
++        # overlap path the sentinel/empty branch below already uses — overlapping
++        # the ROW CONTENT (statement + direct_quote) against each section's
++        # sub-query texts. Fires ONLY when the exact match above produced nothing
++        # (never augments a non-empty exact match); a row with no usable content
++        # stays orphaned. Routing only — never relaxes the gate.
++        # Falls through to the shared fallback block below.
++
++    # FALLBACK (empty / sentinel origin, OR a real origin whose exact match was
++    # empty per the A5 drift fall-through above): content-word overlap of the row
++    # content against the section's OWN sub-query texts, floored by
++    # MIN_CONTENT_WORD_OVERLAP.
+     row_words = _content_words(_row_text_for_overlap(row))
+     if not row_words:
+         return matches
+@@ -197,7 +235,12 @@ def _facets_matched_for_row(
+ ) -> list[int]:
+     """Which of THIS section's mapped sub_query_indices the row covers (brief
+     §2.2 facet-level). Provenance-first for a real origin; content-word overlap
+-    against the SPECIFIC facet's sub-query text for a sentinel/empty origin."""
++    of the ROW CONTENT against the SPECIFIC facet's sub-query text for a
++    sentinel/empty origin. A5 (RC6): a real origin whose EXACT match yields no
++    facet falls through to that SAME row-content overlap path — fires ONLY when
++    the exact match is empty, mirroring `relevant_section_indices` (default ON,
++    `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK`). A row with no usable content
++    stays orphaned. Routing only — never relaxes the gate."""
+     raw_origin = str(row.get("query_origin", "") or "")
+     origin = _normalize_query(raw_origin)
+     fallback_eligible = (raw_origin == "") or (raw_origin in SENTINEL_ORIGINS)
+@@ -205,12 +248,25 @@ def _facets_matched_for_row(
+         q for q in (getattr(section, "sub_query_indices", []) or [])
+         if 0 <= q < len(sub_queries)
+     ]
++    floor = _min_content_word_overlap()
+     if not fallback_eligible:
+-        return [q for q in indices if _normalize_query(sub_queries[q]) == origin]
++        exact = [q for q in indices if _normalize_query(sub_queries[q]) == origin]
++        # The drift fallback fires ONLY for a GENUINELY orphaned origin (no exact
++        # match against ANY planned sub-query) — mirroring `relevant_section_
++        # indices`' GLOBAL suppression. If the origin exact-matches some OTHER
++        # section's facet, this row belongs there; it must NOT content-rescue
++        # into THIS section, or the gate would credit coverage the generator's
++        # routing never delivers (gate/router divergence == reopened money-trap).
++        origin_matches_any = any(
++            _normalize_query(sq) == origin for sq in sub_queries
++        )
++        if exact or origin_matches_any or not _origin_drift_fallback_enabled():
++            return exact
++        # A5 drift fall-through: identical row-content overlap as the sentinel
++        # branch below.
+     row_words = _content_words(_row_text_for_overlap(row))
+     if not row_words:
+         return []
+-    floor = _min_content_word_overlap()
+     return [
+         q for q in indices
+         if len(row_words & _content_words(sub_queries[q])) >= floor
+diff --git a/src/polaris_graph/generator/claim_labeler.py b/src/polaris_graph/generator/claim_labeler.py
+index 6cc0f530..dfc6c94b 100644
+--- a/src/polaris_graph/generator/claim_labeler.py
++++ b/src/polaris_graph/generator/claim_labeler.py
+@@ -77,3 +77,37 @@ def is_asserted_as_fact(bucket: str) -> bool:
+     """True only for buckets that may read as an asserted fact (high/moderate). low / no-source-found
+     must always be visibly hedged. Helper for renderers/UI that style the chip."""
+     return bucket in (BUCKET_HIGH, BUCKET_MODERATE)
++
++
++# A8 (I-arch-006) — render the SOFT advisory credibility/metadata flags carried on a claim's
++# ``soft_warnings`` as short inline markers. ADVISORY/SURFACE only: these flags never drop a source,
++# never hold a report, never change ``is_verified`` (they originate from
++# ``synthesis.disclosure_population``'s soft-warning helpers, which are append-only to ``soft_warnings``).
++_SOFT_FLAG_MARKER_TEXT = {
++    "legal_claim_no_high_credibility_corroborator": (
++        "thinly sourced — load-bearing legal claim with no high-credibility corroborator"
++    ),
++    "metadata_quality_blank_bibliography_title": (
++        "metadata gap — a cited source has a blank/degenerate bibliography title"
++    ),
++}
++
++
++def render_soft_flag_markers(soft_warnings: Optional[list]) -> list:
++    """Map a claim's ``soft_warnings`` (stable id-prefixed strings) to short inline render markers.
++
++    Returns one ``[note: <text>]`` string per RECOGNISED A8 soft flag, in input order, de-duplicated.
++    Unrecognised warnings (e.g. supersession warnings owned by another module) are left to their own
++    renderer and skipped here. Deterministic, pure, no I/O. Advisory only — surfacing a flag never
++    affects whether the claim renders as fact (use ``is_asserted_as_fact`` for that)."""
++    out: list = []
++    seen: set = set()
++    for raw in (soft_warnings or []):
++        # Warnings are formatted as ``<stable_id>: <human detail>``; key on the stable id prefix.
++        key = str(raw).split(":", 1)[0].strip()
++        text = _SOFT_FLAG_MARKER_TEXT.get(key)
++        if text is None or key in seen:
++            continue
++        seen.add(key)
++        out.append(f"[note: {text}]")
++    return out
+diff --git a/src/polaris_graph/generator/contract_section_runner.py b/src/polaris_graph/generator/contract_section_runner.py
+index e444323b..73ba18ec 100644
+--- a/src/polaris_graph/generator/contract_section_runner.py
++++ b/src/polaris_graph/generator/contract_section_runner.py
+@@ -335,6 +335,136 @@ def _build_not_extractable_payload(
+     )
+ 
+ 
++# A1 (iarch006 RC1) — basket fallback. Default ON; byte-identical when no
++# basket data is threaded (credibility_analysis None => empty index => no
++# corroborators). LAW VI: env-overridable kill switch.
++_A1_BASKET_FALLBACK_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
++
++
++def _a1_basket_fallback_enabled() -> bool:
++    """A1 — True (default) unless PG_A1_BASKET_FALLBACK is set off. Accepts the
++    SAME falsey vocabulary as the nearby feature flags (Codex iarch007 P1 #3:
++    was `!= "0"` only, which silently ignored `false`/`off`/`no`)."""
++    return (
++        os.getenv("PG_A1_BASKET_FALLBACK", "1").strip().lower()
++        not in _A1_BASKET_FALLBACK_OFF_VALUES
++    )
++
++
++def _frame_row_has_usable_quote(frame_row: FrameRow) -> bool:
++    """A1 — True iff a frame row carries a verifiable span (real fetched
++    prose), i.e. NOT a shell / gap / metadata-only-empty row. Same floor the
++    slot-fill path uses (`_MIN_VERIFIABLE_SPAN_CHARS`)."""
++    if frame_row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE:
++        return False
++    return len((frame_row.direct_quote or "").strip()) >= _MIN_VERIFIABLE_SPAN_CHARS
++
++
++def _basket_fallback_corroborators_for_slot(
++    *,
++    slot_entity_ids: list[str],
++    cluster_id_by_evidence: dict[str, list[str]] | None,
++    basket_supports_by_cluster: dict[str, list[str]],
++    evidence_pool: dict[str, dict[str, Any]],
++    already_bound: set[str],
++) -> list[str]:
++    """A1 — same-claim corroborator evidence_ids to re-bind a slot whose
++    primary URL(s) came back as fetch-layer SHELLS (A1a routed them to
++    METADATA_ONLY/not_extractable, leaving the slot's real case-law / source
++    content unbound at ``v30_entity_id: None``).
++
++    Joins via the slot's own bound entity_ids -> ``cluster_id_by_evidence`` ->
++    the basket's independently SPAN-VERIFIED (SUPPORTS) members, the IDENTICAL
++    faithfulness logic as ``verified_corroborators_for_tokens``:
++      - SUPPORTS-only (the verified-origin members, never the advisory
++        clustered total);
++      - anti-cross-claim — only a token mapping to EXACTLY ONE cluster is
++        expanded (a multi-cluster source can't be attributed to ONE claim);
++      - a corroborator is kept ONLY if it (a) is not already bound to the slot
++        and (b) carries a usable verifiable span in ``evidence_pool``.
++
++    SCOPE NOTE (Codex iarch007 P1 #2): this join is keyed on the slot's bound
++    entity_ids. A genuinely UNRECOVERABLE slot — every bound entity is a
++    content-less shell that NEVER produced an extracted claim — is, by
++    construction, absent from ``cluster_id_by_evidence`` (the claim graph only
++    contains entities whose row content yielded an AtomicClaim). For such a
++    slot this returns [] and the slot correctly stays a disclosed gap stub.
++    Reaching a cluster for a fully-content-less slot would require a
++    MANY-cluster linkage (query_origin / section / "same required entity"),
++    which is cross-claim and would RELAX the basket's anti-cross-claim
++    faithfulness rule — out of bounds. The recoverable case (a slot whose
++    frame_row is a shell yet whose pool row clustered via abstract content) DOES
++    fire here.
++
++    FAITHFULNESS: this returns CANDIDATES to route through the UNCHANGED
++    slot-fill -> strict_verify path. It binds nothing itself, drops nothing,
++    relaxes no threshold. The basket carries tier/authority as a WEIGHT only.
++    Returns [] when basket data is absent => byte-identical OFF path."""
++    if not basket_supports_by_cluster:
++        return []
++    out: list[str] = []
++    seen: set[str] = set()
++    for _eid in slot_entity_ids:
++        _ccids = (cluster_id_by_evidence or {}).get(_eid, []) or []
++        # Anti-cross-claim: only an UNAMBIGUOUS single-cluster source may
++        # corroborate (mirrors verified_corroborators_for_tokens).
++        if len(_ccids) != 1:
++            continue
++        for _support_eid in basket_supports_by_cluster.get(_ccids[0], []):
++            if _support_eid in seen or _support_eid in already_bound:
++                continue
++            _pool_row = evidence_pool.get(_support_eid)
++            if not _pool_row:
++                continue
++            # Must carry a real verifiable span — a corroborator that is itself
++            # a shell / metadata-only row cannot rescue the slot.
++            if len(str(_pool_row.get("direct_quote") or "").strip()) < _MIN_VERIFIABLE_SPAN_CHARS:
++                continue
++            seen.add(_support_eid)
++            out.append(_support_eid)
++    return out
++
++
++def _synth_frame_row_for_corroborator(
++    *,
++    corroborator_ev_id: str,
++    pool_row: dict[str, Any],
++    rendering_slot: str,
++    entity_type: str,
++) -> FrameRow:
++    """A1 — wrap a same-claim corroborator's pool row in a minimal OPEN_ACCESS
++    FrameRow so it flows through the UNCHANGED ``_fill_one_slot`` -> slot-fill
++    -> strict_verify path (no second verify path). The corroborator already
++    carries a usable ``direct_quote`` (the caller checked the floor); year is
++    coerced to int when present."""
++    _year_raw = pool_row.get("year")
++    try:
++        _year = int(_year_raw) if _year_raw not in (None, "") else None
++    except (TypeError, ValueError):
++        _year = None
++    _authors_raw = pool_row.get("authors") or ()
++    _authors = tuple(_authors_raw) if isinstance(_authors_raw, (list, tuple)) else ()
++    return FrameRow(
++        entity_id=corroborator_ev_id,
++        entity_type=entity_type,
++        rendering_slot=rendering_slot,
++        provenance_class=ProvenanceClass.OPEN_ACCESS,
++        direct_quote=str(pool_row.get("direct_quote") or ""),
++        quote_source="a1_basket_corroborator",
++        doi=(str(pool_row.get("doi")) or None) if pool_row.get("doi") else None,
++        pmid=(str(pool_row.get("pmid")) or None) if pool_row.get("pmid") else None,
++        oa_pdf_url=None,
++        url=(str(pool_row.get("url")) or None) if pool_row.get("url") else None,
++        title=(str(pool_row.get("title")) or None) if pool_row.get("title") else None,
++        authors=_authors,
++        journal=(str(pool_row.get("journal")) or None) if pool_row.get("journal") else None,
++        year=_year,
++        failure_reason=None,
++        retrieval_attempts=(),
++        retrieval_timings=(),
++    )
++
++
+ async def _fill_one_slot(
+     slot: ContractSlotPlan,
+     entity_id: str,
+@@ -603,6 +733,30 @@ async def run_contract_section(
+     # carry no [#ev:] token and were thus invisible to token-counted metrics.
+     _substantive_drafted_by_entity: dict[str, int] = {}
+ 
++    # A1 (iarch006 RC1) — HOISTED basket index for the slot-level fallback.
++    # The same per-cluster SUPPORTS index the B6/B8 inline render uses below is
++    # built ONCE here so the slot loop can re-bind a SHELL slot to same-claim
++    # corroborators BEFORE verification. Reads ONLY credibility_analysis (no
++    # loop dependency); None / OFF => empty index => no fallback, byte-identical.
++    _baskets = getattr(credibility_analysis, "baskets", None)
++    _cluster_id_by_evidence = getattr(
++        credibility_analysis, "cluster_id_by_evidence", None
++    )
++    _carry_baskets = (
++        _baskets is not None and _cluster_id_by_evidence is not None
++    )
++    _basket_supports_by_cluster: dict[str, list[str]] = {}
++    if _carry_baskets:
++        _basket_by_cluster: dict[str, dict[str, Any]] = {}
++        for _basket in (_baskets or []):
++            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
++            if _ccid:
++                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
++        _basket_supports_by_cluster = build_basket_supports_by_cluster(
++            _basket_by_cluster
++        )
++    _a1_fallback_on = _a1_basket_fallback_enabled()
++
+     for slot in plan.slots:
+         if not slot.entity_ids:
+             # Defensive: outline compiler shouldn't emit empty slots,
+@@ -772,6 +926,87 @@ async def run_contract_section(
+                             slot.slot_id, exc,
+                         )
+ 
++        # A1 (iarch006 RC1) — BASKET FALLBACK. Fire ONLY when this slot's bound
++        # entities all came back as fetch-layer SHELLS (A1a routed the primary
++        # URLs to METADATA_ONLY/not_extractable, so the deterministic + regulatory
++        # streams are EMPTY) — the exact Q90 failure where ev_323/388/390 sat in
++        # the pool unbound (v30_entity_id: None). Re-bind the slot to same-claim
++        # corroborators via the EXISTING basket machinery and route each through
++        # the UNCHANGED `_fill_one_slot` -> slot-fill -> strict_verify path. The
++        # gap stub still renders downstream (M-68 Fix #1) when no corroborator
++        # yields verified prose. OFF / no-basket => no corroborators => byte-
++        # identical. Never drops, never relaxes a threshold.
++        _slot_has_real_prose = bool(slot_det_prose or slot_reg_prose)
++        _slot_frame_rows_all_shell = all(
++            (plan.frame_rows_by_entity.get(eid) is None)
++            or (not _frame_row_has_usable_quote(plan.frame_rows_by_entity[eid]))
++            for eid in slot.entity_ids
++        )
++        if (
++            _a1_fallback_on
++            and not _slot_has_real_prose
++            and _slot_frame_rows_all_shell
++            and _basket_supports_by_cluster
++        ):
++            _corro_ids = _basket_fallback_corroborators_for_slot(
++                slot_entity_ids=list(slot.entity_ids),
++                cluster_id_by_evidence=_cluster_id_by_evidence,
++                basket_supports_by_cluster=_basket_supports_by_cluster,
++                evidence_pool=evidence_pool,
++                already_bound=set(slot.entity_ids),
++            )
++            for _corro_eid in _corro_ids:
++                _pool_row = evidence_pool.get(_corro_eid) or {}
++                # Reuse the slot's contract entity (same required_fields / claim)
++                # — the corroborator backs the SAME claim cluster, so the slot's
++                # field contract applies. Skip if the slot has no contract entity.
++                _primary_eid = slot.entity_ids[0]
++                _contract_entity = plan.contract_entities_by_id.get(_primary_eid)
++                if _contract_entity is None:
++                    continue
++                _synth_row = _synth_frame_row_for_corroborator(
++                    corroborator_ev_id=_corro_eid,
++                    pool_row=_pool_row,
++                    rendering_slot=slot.slot_id,
++                    # RequiredEntity carries `type` (the raw YAML field); the
++                    # synthetic row's entity_type is metadata only (strict_verify
++                    # keys on direct_quote/spans, not entity_type).
++                    entity_type=str(getattr(_contract_entity, "type", "") or ""),
++                )
++                # Register the corroborator's entity_id -> slot so the post-verify
++                # regroup buckets its kept sentences into THIS slot. Also map into
++                # the evidence_pool already done upstream (the row exists there).
++                entity_to_slot_id[_corro_eid] = slot.slot_id
++                all_entity_ids.append(_corro_eid)
++                logger.info(
++                    "[m63] A1 basket fallback: slot %r shell — re-binding "
++                    "same-claim corroborator ev=%s (routes through unchanged "
++                    "strict_verify)", slot.slot_id, _corro_eid,
++                )
++                _c_payload, _c_in, _c_out = await _fill_one_slot(
++                    slot=slot,
++                    entity_id=_corro_eid,
++                    frame_row=_synth_row,
++                    contract_entity=_contract_entity,
++                    research_question=plan.research_question,
++                    llm_call=llm_call,
++                )
++                total_in_tok += _c_in
++                total_out_tok += _c_out
++                payloads.append(_c_payload)
++                from .regulatory_synthesizer import (
++                    is_regulatory_entity as _is_reg,
++                    render_regulatory_prose as _render_reg,
++                )
++                if _is_reg(_contract_entity):
++                    slot_reg_prose.append(_render_reg(_c_payload))
++                else:
++                    slot_det_prose.append(render_slot_prose(_c_payload))
++                _substantive_drafted_by_entity[_corro_eid] = (
++                    _substantive_drafted_by_entity.get(_corro_eid, 0)
++                    + sum(1 for f in _c_payload.fields if f.status == "extracted")
++                )
++
+         if slot_det_prose:
+             raw_body_blocks.append(" ".join(slot_det_prose))
+         if slot_reg_prose:
+@@ -918,11 +1153,10 @@ async def run_contract_section(
+     # span-verified (SUPPORTS) corroborating citations in the REAL benchmark
+     # report (the legacy-path wiring alone never reached it). None / empty (master
+     # flag OFF) => the resolver's _carry_baskets gate is False => byte-identical
+-    # legacy inline render. We read the SAME attrs _run_section reads.
+-    _baskets = getattr(credibility_analysis, "baskets", None)
+-    _cluster_id_by_evidence = getattr(
+-        credibility_analysis, "cluster_id_by_evidence", None
+-    )
++    # legacy inline render. `_baskets`, `_cluster_id_by_evidence`,
++    # `_carry_baskets` and `_basket_supports_by_cluster` are HOISTED above the
++    # slot loop (A1) and reused here — same single-source-of-truth index, no
++    # recompute / drift.
+     # ── resolve provenance → [N] citations + biblio_slice ──────
+     # `resolve_provenance_to_citations` flattens into a single
+     # string. We need per-slot grouping AND legacy-shape output,
+@@ -937,26 +1171,6 @@ async def run_contract_section(
+         cluster_id_by_evidence=_cluster_id_by_evidence,
+     )
+ 
+-    # I-arch-005 B6/B8 (#1257): build the per-cluster SUPPORTS index ONCE for the
+-    # slot-regroup's inline corroborator expansion below — via the SAME module-level
+-    # helpers the legacy resolver uses (single source of truth for the keystone's
+-    # faithfulness rules: SUPPORTS-only, anti-cross-claim single-cluster, never the
+-    # advisory clustered count). Empty index when basket data is absent => OFF path
+-    # is byte-identical (the regroup loop simply adds no corroborators).
+-    _carry_baskets = (
+-        _baskets is not None and _cluster_id_by_evidence is not None
+-    )
+-    _basket_supports_by_cluster: dict[str, list[str]] = {}
+-    if _carry_baskets:
+-        _basket_by_cluster: dict[str, dict[str, Any]] = {}
+-        for _basket in (_baskets or []):
+-            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
+-            if _ccid:
+-                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
+-        _basket_supports_by_cluster = build_basket_supports_by_cluster(
+-            _basket_by_cluster
+-        )
+-
+     # Build a per-sentence resolved list (parallel to
+     # kept_sentences) so we can group by originating slot.
+     # Re-do the per-sentence resolution inline — cheap and keeps
+diff --git a/src/polaris_graph/retrieval/contradiction_detector.py b/src/polaris_graph/retrieval/contradiction_detector.py
+index efd3c796..83b89261 100644
+--- a/src/polaris_graph/retrieval/contradiction_detector.py
++++ b/src/polaris_graph/retrieval/contradiction_detector.py
+@@ -477,6 +477,20 @@ class ContradictionRecord:
+         "If one source is T1 (RCT) and another is T5 (industry), note the "
+         "authority gap alongside the numeric gap."
+     )
++    # ── A17 commensurability guard (I-arch-006 #1262) ────────────────────────
++    # not_comparable=True marks a group whose claims carry POSITIVELY-DIVERGENT
++    # physical quantity kinds (e.g. a 0.5-degree yaw angle bucketed with a 100 m
++    # radar distance because both flattened to unit="") — an INCOMMENSURABLE
++    # pairing. The numeric gap across such a pairing is a category error (the run
++    # surfaced absolute_difference 99.5 / 199% relative across degrees-vs-meters),
++    # so when this fires the surfaced relative_difference/absolute_difference are
++    # nulled to None (no misleading magnitude) and the record is kept OUT of the
++    # headline contradiction count — but every claim/source is still DISCLOSED
++    # (never dropped). This is a VALIDITY/WEIGHT check, NOT a faithfulness-gate
++    # change: strict_verify / NLI / 4-role thresholds are untouched, and a real
++    # same-quantity contradiction is unaffected (both default fields stay False/"").
++    not_comparable: bool = False
++    incommensurable_reason: str = ""
+ 
+ 
+ # The Wave-3 dormant discriminator fields added to ExtractedNumericClaim (I-arch-002 [2]).
+@@ -491,6 +505,15 @@ _WAVE3_DORMANT_NUMERIC_FIELDS = (
+ )
+ 
+ 
++# A17 record-level commensurability fields (I-arch-006 #1262). asdict() emits
++# every dataclass field, so to preserve byte-identity for the legacy / clinical /
++# comparable records (whose JSON never had these keys) they are STRIPPED whenever
++# they sit at their inert defaults (not_comparable=False AND empty reason). They
++# are emitted ONLY on a record where the A17 guard positively fired — the new,
++# correct behavior is allowed to add keys exactly on the records it changed.
++_A17_RECORD_FIELDS = ("not_comparable", "incommensurable_reason")
++
++
+ def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
+     """asdict a numeric ContradictionRecord for contradictions.json / manifest / PT08.
+ 
+@@ -499,12 +522,22 @@ def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
+     pre-Slice-B tree (Claude Slice-B iter-2 Fix C). When ON the full field set is emitted
+     (the redesign is the new behavior; ON is allowed to differ). endpoint_phrase/arm are
+     pre-existing and always retained.
++
++    A17 (I-arch-006 #1262): the record-level commensurability fields
++    (not_comparable / incommensurable_reason) are stripped whenever they carry their
++    inert defaults, so a comparable / clinical record serializes byte-identically to
++    the pre-A17 tree; they appear ONLY on a record the A17 guard actually marked.
+     """
+     d = asdict(record)
+     if not _credibility_redesign_enabled():
+         for claim in d.get("claims", []) or []:
+             for fname in _WAVE3_DORMANT_NUMERIC_FIELDS:
+                 claim.pop(fname, None)
++    # A17: keep inert (default) records byte-identical — strip the new keys unless
++    # the guard positively fired on THIS record.
++    if not d.get("not_comparable") and not (d.get("incommensurable_reason") or ""):
++        for fname in _A17_RECORD_FIELDS:
++            d.pop(fname, None)
+     return d
+ 
+ 
+@@ -1260,6 +1293,167 @@ def _group_has_real_drug_subject(group: list["ExtractedNumericClaim"]) -> bool:
+         return False
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# A17 commensurability guard (I-arch-006 #1262)
++#
++# The grouping key is (subject, predicate, unit, dose). When unit is "" (the
++# extractor could not attach a unit token), ALL unit-less numbers in a
++# subject/predicate bucket collapse together — so a 0.5-DEGREE yaw angle gets
++# bucketed with a 100-METRE radar distance under subject="lane" / predicate=
++# "change" / unit="". The detector then computes a meaningless cross-quantity
++# magnitude (the run surfaced absolute_difference 99.5 / relative 199% across
++# degrees-vs-meters), a category error that is user-visible junk.
++#
++# This guard reads each claim's own context text for a POSITIVELY-KNOWN physical
++# quantity kind (angle / length / speed / time / mass / temperature / data-size /
++# frequency / currency / count-people). A group whose claims carry MORE THAN ONE
++# distinct known quantity kind is INCOMMENSURABLE: its numbers are not comparable,
++# so the surfaced rel/abs diff is nulled and the record is kept out of the headline
++# count — but every claim/source stays DISCLOSED (never dropped). Unknown kinds
++# never force incommensurability (conservative: only POSITIVE divergence triggers,
++# so a genuine same-quantity contradiction is never mis-flagged). NO faithfulness
++# threshold is touched. Deterministic, no LLM, never raises.
++# ─────────────────────────────────────────────────────────────────────────────
++
++_A17_GUARD_FLAG = "PG_CONTRADICTION_COMMENSURABILITY_GUARD"
++_A17_GUARD_OFF_VALUES = frozenset({"0", "false", "off", "no"})
++
++
++def _a17_guard_enabled() -> bool:
++    """True (default) unless PG_CONTRADICTION_COMMENSURABILITY_GUARD is set off.
++
++    Read at CALL time so tests can monkeypatch os.environ. Defaults ON because
++    surfacing a degrees-vs-meters magnitude is §-1.3-incorrect validity junk; the
++    flag exists only as a LAW-VI escape hatch / byte-identity audit lever.
++    """
++    return (
++        os.environ.get(_A17_GUARD_FLAG, "").strip().lower()
++        not in _A17_GUARD_OFF_VALUES
++    )
++
++
++# Positively-known physical quantity kinds, keyed by a context-text cue. The cues
++# are deterministic word-boundary patterns (no clinical literal). Order is
++# irrelevant — a claim's kind is the SET of all cues that fire; a group is
++# incommensurable iff the UNION of single-kind claims spans >1 distinct kind.
++_QUANTITY_KIND_CUES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
++    ("angle", re.compile(r"\b(?:degrees?|deg|°|radians?|yaw|pitch|roll|angular)\b", re.IGNORECASE)),
++    ("length", re.compile(r"\b(?:metres?|meters?|kilometres?|kilometers?|km|cm|mm|"
++                          r"miles?|feet|foot|inch(?:es)?|nanometres?|nanometers?|nm|µm|micrometres?|"
++                          r"distances?|radius|radii|diameter|wavelengths?)\b"
++                          r"|\d\s*m\b", re.IGNORECASE)),
++    ("speed", re.compile(r"\b(?:km/?h|kph|mph|m/?s|knots?|velocity|speed)\b", re.IGNORECASE)),
++    ("time_duration", re.compile(r"\b(?:seconds?|secs?|milliseconds?|ms|minutes?|mins?|"
++                                 r"hours?|hrs?|microseconds?|µs|nanoseconds?|ns|latency)\b", re.IGNORECASE)),
++    ("mass", re.compile(r"\b(?:kilograms?|kg|grams?|milligrams?|mg|µg|micrograms?|"
++                        r"tonnes?|tons?|pounds?|lbs?|ounces?|oz)\b", re.IGNORECASE)),
++    ("temperature", re.compile(r"\b(?:°c|°f|celsius|fahrenheit|kelvin)\b|\bdegrees?\s+(?:c|f|celsius|fahrenheit)\b", re.IGNORECASE)),
++    ("data_size", re.compile(r"\b(?:bytes?|kilobytes?|kb|megabytes?|mb|gigabytes?|gb|terabytes?|tb|bits?|fps|frames?\s+per\s+second)\b", re.IGNORECASE)),
++    ("frequency_hz", re.compile(r"\b(?:hertz|hz|khz|mhz|ghz)\b", re.IGNORECASE)),
++    ("currency", re.compile(r"[$€£¥]|\b(?:usd|eur|gbp|cad|jpy|dollars?|euros?|pounds?\s+sterling)\b", re.IGNORECASE)),
++    ("power_energy", re.compile(r"\b(?:watts?|kw|mw|gw|kwh|mwh|twh|joules?|kj|mj|volts?|amps?|amperes?)\b", re.IGNORECASE)),
++)
++
++
++def _value_anchor_pos(text: str, value: float) -> Optional[int]:
++    """Best char position of the claim's numeric VALUE inside its context text.
++
++    Tries the int form ('100'), the trimmed-float form ('0.5'), then the raw
++    repr. Returns None when the value cannot be located (caller then falls back
++    to whole-text scan). Pure."""
++    if not text:
++        return None
++    forms: list[str] = []
++    if value == int(value):
++        forms.append(str(int(value)))
++    forms.append(("%g" % value))
++    forms.append(str(value))
++    for form in forms:
++        idx = text.find(form)
++        if idx != -1:
++            return idx
++    return None
++
++
++def _quantity_kinds_for_claim(claim: "ExtractedNumericClaim") -> frozenset[str]:
++    """Positively-known physical quantity kind(s) for a claim, ANCHORED on the
++    number nearest the claim's own value.
++
++    The context_snippet can mention several quantities (a yaw snippet says
++    '0.5 degrees can cause a lateral error of almost one meter' — angle AND
++    length). A whole-text scan would mark such a claim ambiguous (multi-kind) and
++    the conservative single-kind rule would then SKIP it, missing the very case
++    A17 targets. So we anchor: the unit token is authoritative when present;
++    otherwise the kind is the one whose cue fires CLOSEST to the value's position
++    in the snippet (degrees is adjacent to 0.5 -> angle; m/distances is adjacent
++    to 100 -> length). Returns frozenset() when no cue fires (UNKNOWN — never
++    forces incommensurability). Pure, never raises."""
++    unit = str(getattr(claim, "unit", "") or "")
++    snippet = str(getattr(claim, "context_snippet", "") or "")
++    # 1. Authoritative unit token (when the extractor attached one).
++    for kind, pat in _QUANTITY_KIND_CUES:
++        try:
++            if unit and pat.search(unit):
++                return frozenset({kind})
++        except Exception:
++            continue
++    if not snippet.strip():
++        return frozenset()
++    anchor = _value_anchor_pos(snippet, getattr(claim, "value", 0.0))
++    # 2. Value-anchored: pick the kind whose nearest cue match is closest to the
++    #    value. Falls back to whole-text presence when the value can't be located.
++    best_kind: Optional[str] = None
++    best_dist = 10 ** 9
++    for kind, pat in _QUANTITY_KIND_CUES:
++        try:
++            matches = list(pat.finditer(snippet))
++        except Exception:
++            continue
++        if not matches:
++            continue
++        if anchor is None:
++            # No anchor: degrade to first-found wins (deterministic by cue order).
++            if best_kind is None:
++                best_kind = kind
++            continue
++        for m in matches:
++            center = (m.start() + m.end()) // 2
++            dist = abs(center - anchor)
++            if dist < best_dist:
++                best_dist = dist
++                best_kind = kind
++    if best_kind is not None:
++        return frozenset({best_kind})
++    return frozenset()
++
++
++def _group_incommensurable_reason(group: list["ExtractedNumericClaim"]) -> str:
++    """Return a short reason string iff the group mixes POSITIVELY-DIVERGENT
++    quantity kinds (incommensurable), else "".
++
++    A claim contributes its kind ONLY when it resolves to EXACTLY ONE known kind
++    (an ambiguous multi-kind claim, e.g. text mentioning both "metres" and
++    "seconds", is not a reliable single-axis signal and is skipped — conservative).
++    The group is incommensurable iff the union of those single-kind claims spans
++    more than one distinct kind. Unknown / ambiguous claims never trigger it, so a
++    genuine same-quantity numeric contradiction is NEVER mis-flagged. Pure."""
++    seen: set[str] = set()
++    for c in group:
++        kinds = _quantity_kinds_for_claim(c)
++        if len(kinds) == 1:
++            seen.add(next(iter(kinds)))
++    if len(seen) > 1:
++        ordered = sorted(seen)
++        return (
++            "incommensurable quantity kinds in one bucket: "
++            + " vs ".join(ordered)
++            + " — numbers measure different physical quantities (unit token was "
++            "missing, so they collapsed under the same surface key); the numeric "
++            "gap is not a real disagreement"
++        )
++    return ""
++
++
+ def detect_contradictions(
+     claims: list[ExtractedNumericClaim],
+     *,
+@@ -1307,6 +1501,57 @@ def detect_contradictions(
+             predicate_display = predicate
+             if dose:
+                 predicate_display = f"{predicate} ({dose})"
++            # A17 (I-arch-006 #1262): commensurability guard runs FIRST, on EVERY
++            # path (incl. the clinical real-drug path), because mixing divergent
++            # PHYSICAL quantity kinds in one bucket is a stronger validity failure
++            # than a scope mismatch — a unit-less collapse can bucket a 0.5-degree
++            # yaw angle with a 100-metre radar distance even under a real subject.
++            # When the group's claims carry positively-divergent quantity kinds the
++            # numeric gap is a category error, so we NULL the surfaced rel/abs diff
++            # (no misleading magnitude), label the record not_comparable, and keep
++            # it OUT of the headline count — but DISCLOSE every claim/source (never
++            # drop). This is a VALIDITY/WEIGHT check; no faithfulness threshold is
++            # touched and only POSITIVE divergence triggers it (a genuine same-
++            # quantity contradiction, e.g. two "%" claims, is never mis-flagged).
++            # A17 scan ONLY a unit-LESS group (unit == ""). Physical units
++            # (degrees / metres) are never in the extractor's unit alternation so
++            # they ALWAYS collapse to unit="" — exactly the bucket A17 targets. A
++            # group with ANY non-empty shared unit (%, currency, magnitude) is
++            # commensurable BY CONSTRUCTION (the grouping key forces the same unit),
++            # so scanning its prose for incidental physical-quantity nouns ("30 fps"
++            # near one claim, "5 ms latency" near another) could only INVENT a false
++            # divergence and SUPPRESS a genuine same-unit contradiction — the
++            # cardinal faithfulness sin. The gate makes A17 fire on the real collapse
++            # and never on a real shared-unit disagreement.
++            incommensurable_reason = ""
++            if _a17_guard_enabled() and unit == "":
++                incommensurable_reason = _group_incommensurable_reason(group)
++            if incommensurable_reason:
++                # De-numbered, not None: the surfaced magnitude is set to 0.0 so a
++                # downstream consumer reads "no asserted disagreement" (0%) instead
++                # of the junk cross-quantity 199%/545%. 0.0 is None-safe at every
++                # in-memory + JSON consumer (honest_pipeline `*100`, audit_ir
++                # `float(...)`, generator `or 0`); None would crash them. The real
++                # signal lives in not_comparable / incommensurable_reason / the
++                # [not_comparable] tag + headline-count exclusion.
++                records.append(ContradictionRecord(
++                    subject=subject,
++                    predicate=f"{predicate_display} [not_comparable]",
++                    claims=sorted(group, key=lambda c: c.value),
++                    relative_difference=0.0,
++                    absolute_difference=0.0,
++                    severity="low",
++                    recommended_action=(
++                        "Not comparable (A17): the numbers in this bucket measure "
++                        "different physical quantities and collapsed under one "
++                        "surface key only because a unit token was missing. Disclose "
++                        "each value with its own context; do NOT assert a numeric "
++                        "contradiction across them."
++                    ),
++                    not_comparable=True,
++                    incommensurable_reason=incommensurable_reason,
++                ))
++                continue
+             # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
+             # only when the claims share comparator/population/time-window. If
+             # those discriminators differ or cannot be confirmed, label it a
+@@ -1373,14 +1618,24 @@ def detect_contradictions(
+ def format_contradictions_for_user(
+     records: list[ContradictionRecord],
+ ) -> str:
+-    """Human-readable plain-text summary."""
++    """Human-readable plain-text summary.
++
++    A17 (I-arch-006 #1262): an incommensurable / `not_comparable` record (a bucket
++    that mixed divergent physical quantity kinds) is EXCLUDED from the headline
++    contradiction count and rendered as "not comparable" instead of a misleading
++    rel/abs magnitude. Its claims are still listed (disclosed, never dropped) under
++    a separate notice so the reader sees why the numbers are not a real
++    disagreement.
++    """
+     if not records:
+         return "No contradictions detected in the evidence corpus."
++    comparable = [r for r in records if not getattr(r, "not_comparable", False)]
++    not_comparable = [r for r in records if getattr(r, "not_comparable", False)]
+     lines = [
+-        f"Detected {len(records)} contradiction(s) in the evidence corpus.",
++        f"Detected {len(comparable)} contradiction(s) in the evidence corpus.",
+         "",
+     ]
+-    for i, r in enumerate(records, 1):
++    for i, r in enumerate(comparable, 1):
+         lines.append(
+             f"[{i}] {r.subject} / {r.predicate} — "
+             f"severity={r.severity}, rel_diff={r.relative_difference*100:.1f}%, "
+@@ -1394,4 +1649,23 @@ def format_contradictions_for_user(
+             )
+         lines.append(f"    Action: {r.recommended_action}")
+         lines.append("")
++    if not_comparable:
++        lines.append(
++            f"Also surfaced {len(not_comparable)} not-comparable bucket(s) "
++            "(numbers measure different quantities — NOT a contradiction):"
++        )
++        lines.append("")
++        for j, r in enumerate(not_comparable, 1):
++            lines.append(
++                f"[NC{j}] {r.subject} / {r.predicate} — not comparable: "
++                f"{r.incommensurable_reason}"
++            )
++            for c in r.claims:
++                lines.append(
++                    f"    - {c.value} {c.unit}   "
++                    f"[ev={c.evidence_id}, tier={c.source_tier}]   "
++                    f"{c.context_snippet[:120]}"
++                )
++            lines.append(f"    Action: {r.recommended_action}")
++            lines.append("")
+     return "\n".join(lines)
+diff --git a/src/polaris_graph/retrieval/frame_fetcher.py b/src/polaris_graph/retrieval/frame_fetcher.py
+index 0b68a473..3e656440 100644
+--- a/src/polaris_graph/retrieval/frame_fetcher.py
++++ b/src/polaris_graph/retrieval/frame_fetcher.py
+@@ -903,6 +903,144 @@ def _urlsafe_doi(doi: str) -> str:
+ # budget predictability.
+ _M66_CONTENT_CAP = 25000
+ 
++# ─────────────────────────────────────────────────────────────────────
++# A1 (iarch006 RC1) — fetch-INGESTION shell detector.
++#
++# The url-pattern / OA-locator fetch layer previously accepted ANY
++# non-empty body as bound evidence (`return content[:_M66_CONTENT_CAP]`).
++# In the Q90 epic-failure run every mandated legal section was wired to
++# ONE web page that returned HTTP 200 but whose captured text was page
++# FURNITURE — an Archive.org JS wrapper, a CourtListener docket index
++# ("Filing fee $402.00") instead of the verdict, a literal "Page not
++# found" NTSB body. No real prose to ground on, so the section honestly
++# printed an empty gap stub even though real case-law content sat in the
++# pool unbound.
++#
++# This detector keys ONLY on FETCH-INTEGRITY (chrome / soft-404 / docket
++# index / JS-wrapper / content-starvation), NEVER on topicality. It must
++# NOT become a generic relevance hard-drop on real-but-junk-host content
++# — that would be the §-1.3-banned FILTER. A detected shell is routed to
++# the EXISTING METADATA_ONLY / not_extractable branch (a gap/recovery
++# signal), NOT a new hard-drop and NOT bound evidence.
++#
++# Minimum chars of recovered main content for a fetched body to count as
++# real prose (env-overridable, LAW VI). Sits at the same order of
++# magnitude as live_retriever.is_content_starved's 200-char useful-text
++# floor; the fetch layer wants a slightly higher bar because a bound
++# frame-entity quote feeds slot prose, not a corpus weight.
++_MIN_MAINCONTENT_CHARS = int(os.getenv("PG_MIN_MAINCONTENT_CHARS", "250"))
++
++# Above this fraction of lines being pure link/nav markers a body is a
++# navigation index / docket listing, not article prose (env, LAW VI).
++_MAX_LINK_DENSITY = float(os.getenv("PG_FETCH_MAX_LINK_DENSITY", "0.6"))
++
++# A body shorter than this is treated as a single unit for the
++# boilerplate / non-assertional whole-unit check (a real article body is
++# far longer; a stub / docket index / error page is short). Env, LAW VI.
++_SHELL_WHOLE_UNIT_MAX_CHARS = int(
++    os.getenv("PG_FETCH_SHELL_WHOLE_UNIT_MAX_CHARS", "1200")
++)
++
++
++def _link_density(text: str) -> float:
++    """Fraction of non-blank lines that are pure link / nav / bullet
++    markers (markdown `[...](...)`, bare URLs, or `* `/`- ` list chrome
++    with little prose). A docket index or a JS-wrapper landing page is
++    almost entirely such lines; a real article is almost none.
++
++    Pure fetch-integrity signal — measures STRUCTURE, never topic."""
++    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
++    if not lines:
++        return 1.0
++    import re as _re
++
++    link_like = 0
++    for ln in lines:
++        # A markdown link line, a bare-URL line, or a short nav/list-glue
++        # line dominated by a link token.
++        if _re.match(r"^[*\-•]?\s*\[[^\]]*\]\([^)]*\)\s*$", ln):
++            link_like += 1
++        elif _re.match(r"^https?://\S+$", ln):
++            link_like += 1
++        elif "](" in ln and len(_re.sub(r"\[[^\]]*\]\([^)]*\)", "", ln).strip()) < 24:
++            link_like += 1
++    return link_like / len(lines)
++
++
++def _is_fetch_shell(content: str) -> tuple[bool, str]:
++    """A1 — return ``(True, reason)`` when a fetched body is a fetch-layer
++    SHELL (page furniture / soft-404 / docket index / JS-wrapper /
++    content-starved) rather than real article prose to ground on.
++
++    Keys ONLY on fetch-integrity. NEVER inspects topicality — a real
++    article about an unrelated subject is NOT a shell. The detector
++    REUSES the existing markers:
++      - `_looks_like_html_junk` (raw-HTML / Sci-Hub wrapper) → recover
++        the main text via the guarded `safe_trafilatura_extract`
++        (favor_precision) before measuring, so a real article that the
++        backend returned as raw HTML is NOT mis-flagged.
++      - `is_boilerplate_or_nonassertional` (access_bypass) — the GATE-layer
++        chrome / bare-DOI / table-row / soft-404 marker, now applied at the
++        FETCH layer (the exact layer gap A1 names) on a short whole body.
++      - a `_MIN_MAINCONTENT_CHARS` floor and a `_MAX_LINK_DENSITY` cap.
++
++    The empty-string return is the caller's existing "no usable content"
++    signal — it routes to the METADATA_ONLY / not_extractable branch."""
++    if not content:
++        return True, "empty_body"
++
++    body = content
++    # If the body is raw HTML markup (Sci-Hub viewer / JS-wrapper), recover
++    # the main text via the ONE guarded trafilatura entrypoint before
++    # measuring — a real article wrapped in markup must survive.
++    if _looks_like_html_junk(body):
++        try:
++            from src.tools.access_bypass import safe_trafilatura_extract
++
++            recovered = safe_trafilatura_extract(
++                body, favor_precision=True, include_links=False
++            )
++        except Exception:  # noqa: BLE001 — recovery is best-effort.
++            recovered = None
++        if recovered and len(recovered.strip()) >= _MIN_MAINCONTENT_CHARS:
++            # Real prose was hidden under the markup — not a shell.
++            return False, ""
++        # No real main content recovered from the markup → shell.
++        return True, "js_wrapper_no_maincontent"
++
++    stripped = body.strip()
++
++    # Content-starvation floor (fetch-integrity, not topicality).
++    if len(stripped) < _MIN_MAINCONTENT_CHARS:
++        # A short body that IS a known chrome / soft-404 / docket-row
++        # stub is a shell; reuse the gate-layer marker at the fetch layer.
++        try:
++            from src.tools.access_bypass import is_boilerplate_or_nonassertional
++
++            if is_boilerplate_or_nonassertional(stripped):
++                return True, "boilerplate_or_error_stub"
++        except Exception:  # noqa: BLE001
++            pass
++        return True, "content_starved"
++
++    # A short-ish body that is wholly non-assertional chrome / a docket
++    # index / a soft-404 (the gate-layer marker, now at fetch layer).
++    if len(stripped) <= _SHELL_WHOLE_UNIT_MAX_CHARS:
++        try:
++            from src.tools.access_bypass import is_boilerplate_or_nonassertional
++
++            if is_boilerplate_or_nonassertional(stripped):
++                return True, "boilerplate_or_error_stub"
++        except Exception:  # noqa: BLE001
++            pass
++
++    # Navigation-index / docket-listing structure (high link density) —
++    # a fetch-integrity STRUCTURE signal, never a topic signal.
++    if _link_density(stripped) >= _MAX_LINK_DENSITY:
++        return True, "link_density_index_page"
++
++    return False, ""
++
+ 
+ def _fetch_url_pattern(url: str) -> tuple[str, str]:
+     """Fetch content at `url` via AccessBypass. Returns
+@@ -941,6 +1079,20 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
+                 return "", ""
+             if not content:
+                 return "", ""
++            # A1 (iarch006 RC1): reject a fetch-layer SHELL (page furniture
++            # / soft-404 / docket index / JS-wrapper / content-starved)
++            # BEFORE it is bound as evidence. Keys on fetch-integrity only,
++            # never topicality. Returning ("", "") routes the caller to the
++            # EXISTING METADATA_ONLY / not_extractable branch — a gap/
++            # recovery signal, not bound evidence and not a new hard-drop.
++            is_shell, shell_reason = _is_fetch_shell(content)
++            if is_shell:
++                logger.info(
++                    "[frame_fetcher] A1 fetch-shell rejected url=%s "
++                    "reason=%s len=%d → METADATA_ONLY gap/recovery",
++                    final_url or url, shell_reason, len(content),
++                )
++                return "", ""
+             return content[:_M66_CONTENT_CAP], final_url
+ 
+         try:
+diff --git a/src/polaris_graph/synthesis/disclosure_population.py b/src/polaris_graph/synthesis/disclosure_population.py
+index 0d216afd..055820e5 100644
+--- a/src/polaris_graph/synthesis/disclosure_population.py
++++ b/src/polaris_graph/synthesis/disclosure_population.py
+@@ -37,6 +37,85 @@ _DEFAULT_HIGH_CRED = 0.7
+ _DEFAULT_LOW_CRED = 0.4
+ _DEFAULT_HIGH_MIN_ORIGINS = 2
+ 
++# A8 (I-arch-006) — SOFT, SURFACED-ONLY credibility flags. ADVISORY: they append a string to the SV's
++# ``soft_warnings`` list (the existing disclosure carrier that already rides out to
++# ``claim_disclosure.json``); they NEVER touch ``is_verified`` / ``span_verdict`` / the verifier, NEVER
++# drop a source, NEVER gate or hold release (mirror of the supersession ``soft_warning`` pattern —
++# §-1.3 WEIGHT/CONSOLIDATE, credibility is a LABEL not a DROP). Both default OFF (no caller passes the
++# optional signal => byte-identical) and the env knobs only tune the (off-by-default) flag once enabled.
++_ENV_MIN_HIGH_CRED_CORROBORATORS = "PG_DISCLOSURE_LEGAL_MIN_HIGH_CRED_CORROBORATORS"
++_DEFAULT_MIN_HIGH_CRED_CORROBORATORS = 1
++# The marker strings are stable identifiers (a renderer maps them to human text), kept short for the
++# screen-reader / inline render and so a §-1.1 auditor can grep them.
++WARN_LEGAL_NO_HIGH_CRED_CORROBORATOR = (
++    "legal_claim_no_high_credibility_corroborator: this load-bearing legal claim rests only on "
++    "lower-credibility source(s); no high-credibility corroborator was found (advisory flag — the "
++    "claim is NOT dropped and the report is NOT held)"
++)
++WARN_BLANK_BIBLIOGRAPHY_TITLE = (
++    "metadata_quality_blank_bibliography_title: a cited source has a blank or degenerate "
++    "bibliography title (metadata-quality label only — does not affect verification or release)"
++)
++
++
++def _blank_or_degenerate_title(title: Any) -> bool:
++    """True when a bibliography title is missing / whitespace / a degenerate placeholder.
++
++    A pure, deterministic metadata-quality predicate (A8). It is a SURFACE label only; it never
++    drops the source and never touches verification. ``None`` and non-strings count as blank.
++    """
++    if title is None:
++        return True
++    text = str(title).strip()
++    if not text:
++        return True
++    lowered = text.lower()
++    # Common degenerate placeholders observed in scraped bibliographies (soft-404 / chrome furniture).
++    degenerate = {"untitled", "no title", "n/a", "na", "page not found", "404 not found", "-"}
++    return lowered in degenerate
++
++
++def legal_corroborator_soft_warning(
++    *,
++    is_verified: bool,
++    credibility_values: list,
++    high_cred_threshold: float,
++    min_high_cred_corroborators: int,
++) -> str | None:
++    """A8 SOFT flag: a load-bearing legal claim that lacks >= N high-credibility corroborator(s).
++
++    Returns the stable ``WARN_LEGAL_NO_HIGH_CRED_CORROBORATOR`` marker string, or ``None`` when the
++    claim DOES have enough high-credibility cited support (or has unknown credibility — unknown never
++    fabricates a flag). PURE, advisory: the caller appends the string to ``soft_warnings``; this never
++    drops the low-credibility source, never holds the report, never changes ``is_verified``.
++
++    Only a VERIFIED claim is flagged: an unverified claim already carries the stronger "low / unverified"
++    certainty label, so a second weaker flag would be noise (and §-1.3 says credibility is a WEIGHT, the
++    verifier remains the only hard gate).
++    """
++    if not is_verified:
++        return None
++    known = [c for c in (credibility_values or []) if c is not None]
++    if not known:
++        # Unknown credibility must NOT fabricate a flag (mirror of certainty: unknown => no inflation).
++        return None
++    high_cred_count = sum(1 for c in known if c >= high_cred_threshold)
++    if high_cred_count >= max(1, int(min_high_cred_corroborators)):
++        return None
++    return WARN_LEGAL_NO_HIGH_CRED_CORROBORATOR
++
++
++def blank_title_metadata_warning(titles: list) -> str | None:
++    """A8 metadata-quality SURFACE: any cited source with a blank / degenerate bibliography title.
++
++    Returns the stable ``WARN_BLANK_BIBLIOGRAPHY_TITLE`` marker, or ``None`` when every cited title is
++    present. PURE, advisory label only — never drops the source, never gates release.
++    """
++    for title in (titles or []):
++        if _blank_or_degenerate_title(title):
++            return WARN_BLANK_BIBLIOGRAPHY_TITLE
++    return None
++
+ 
+ def credibility_disclosure_enabled() -> bool:
+     """True unless ``PG_SWEEP_CREDIBILITY_DISCLOSURE`` is unset/falsey (default OFF => byte-identical)."""
+@@ -139,6 +218,8 @@ def populate_disclosure(
+     *,
+     baskets: list | None = None,
+     cluster_id_by_evidence: dict | None = None,
++    load_bearing_by_sentence: dict | None = None,
++    title_by_evidence: dict | None = None,
+ ) -> list:
+     """Return NEW ``SentenceVerification``s with the four disclosure fields populated — ADVISORY, pure.
+ 
+@@ -156,9 +237,26 @@ def populate_disclosure(
+     (``quantified_analysis.py``:539 and ``run_honest_sweep_r3.py``:353). When ``baskets`` /
+     ``cluster_id_by_evidence`` are absent (default OFF), or a row's cited evidence maps to no
+     threaded basket, the legacy clustered ``origin_count`` is surfaced BYTE-IDENTICALLY.
++
++    A8 (I-arch-006) SOFT flags — both OPTIONAL, default None => byte-identical:
++      * ``load_bearing_by_sentence``: ``id(sv) -> bool`` (or any caller key it indexes per-sv; see the
++        per-sv lookup below) marking a claim as a LOAD-BEARING LEGAL claim. When True AND the claim's
++        cited credibility lacks a high-credibility corroborator, append
++        ``WARN_LEGAL_NO_HIGH_CRED_CORROBORATOR`` to ``soft_warnings``. Advisory ONLY — never drops the
++        low-credibility source, never holds release, never touches ``is_verified``.
++      * ``title_by_evidence``: ``evidence_id -> bibliography title`` so a blank/degenerate title surfaces
++        ``WARN_BLANK_BIBLIOGRAPHY_TITLE`` as a metadata-quality label. Advisory ONLY.
++    Both flags only ADD to the ``soft_warnings`` list (the existing supersession carrier); they touch no
++    other field. With both None the loop never computes a flag and the output is byte-identical.
+     """
+     cred_map = {str(k): v for k, v in (credibility_by_evidence or {}).items()}
+     origin_map = {str(k): str(v) for k, v in (origin_by_evidence or {}).items()}
++    title_map = {str(k): v for k, v in (title_by_evidence or {}).items()}
++    # ``load_bearing_by_sentence`` is keyed by ``id(sv)`` of the INPUT verification objects (the caller
++    # builds it from the same list it passes in). Absent => no claim is load-bearing => no legal flag.
++    load_bearing_map = dict(load_bearing_by_sentence or {})
++    high_cred_threshold = _float_env(_ENV_HIGH_CRED, _DEFAULT_HIGH_CRED)
++    min_high_cred = _int_env(_ENV_MIN_HIGH_CRED_CORROBORATORS, _DEFAULT_MIN_HIGH_CRED_CORROBORATORS)
+     # OVERWRITE source (design §5 FIX-4 Reading A). Empty unless a real basket is threaded =>
+     # _surfaced_verified_count returns None => legacy clustered count, byte-identical.
+     verified_by_cluster = _verified_count_by_cluster(baskets)
+@@ -181,11 +279,35 @@ def populate_disclosure(
+         # MIN credibility over cited evidence (conservative — weakest cited source); absent -> None.
+         creds = [cred_map[eid] for eid in cited if eid in cred_map and cred_map[eid] is not None]
+         credibility = min(creds) if creds else None
+-        out.append(dataclasses.replace(
+-            sv,
++        # A8 SOFT flags — append-only to soft_warnings; both no-op unless the caller threaded the
++        # optional signal (default OFF => byte-identical). NEVER touch is_verified / span_verdict.
++        new_warnings: list[str] = []
++        if load_bearing_map.get(id(sv), False):
++            legal_warn = legal_corroborator_soft_warning(
++                is_verified=is_verified,
++                credibility_values=[cred_map.get(eid) for eid in cited],
++                high_cred_threshold=high_cred_threshold,
++                min_high_cred_corroborators=min_high_cred,
++            )
++            if legal_warn:
++                new_warnings.append(legal_warn)
++        if title_map:
++            blank_warn = blank_title_metadata_warning(
++                [title_map.get(eid) for eid in cited if eid in title_map]
++            )
++            if blank_warn:
++                new_warnings.append(blank_warn)
++        replace_kwargs: dict = dict(
+             span_verdict="SUPPORTS" if is_verified else "UNSUPPORTED",
+             credibility_weight=credibility,
+             independent_origin_count=origin_count,
+             certainty_label=_certainty_label(is_verified, origin_count, credibility),
+-        ))
++        )
++        if new_warnings:
++            existing = list(getattr(sv, "soft_warnings", None) or [])
++            for w in new_warnings:
++                if w not in existing:
++                    existing.append(w)
++            replace_kwargs["soft_warnings"] = existing
++        out.append(dataclasses.replace(sv, **replace_kwargs))
+     return out

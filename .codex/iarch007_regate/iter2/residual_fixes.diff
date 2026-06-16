@@ -1,0 +1,561 @@
+commit 201613e2ef3e5832b8b979e736b0edb707cbd0d7
+Author: msn <msn@polaris.dev>
+Date:   Mon Jun 15 21:02:54 2026 -0700
+
+    I-arch-007 re-gate iter1: close 4 residual fail-open P0s + 1 P1 (all stricter, faithfulness untouched)
+    
+    Codex re-gate (w82clbwhk) returned REQUEST_CHANGES on all 4 units — every residual a
+    fail-open in the stricter/consolidate direction (zero faithfulness relaxation):
+    
+    RELEASE P0 #3: run_honest_sweep_r3.py:10980 reconstructed missing/malformed release proof as
+      adjudicated=True. Flip to fail-CLOSED (default False) — legit releases always serialize
+      release_disclosure["adjudicated"] (9889-9904), so this only bites the missing-proof hole.
+    
+    GEN P0: fact_dedup.py rewrite fallbacks (JSON-fail / shape-mismatch / per-item null) DROPPED
+      corroborating cited sentences. Now KEEP-all (emit no drop key -> apply_rewrites keeps the
+      original) per §-1.3 CONSOLIDATE-DON'T-DROP. A failed merge never deletes a corroborator.
+    
+    FETCH P0 (A17): contradiction_detector.py grouped by (subject,predicate,unit,dose) with no
+      same-source guard. Add it: a cross-source contradiction needs >=2 distinct sources; a single-
+      source span is labeled not_comparable, kept OUT of the headline count, every claim disclosed
+      (never dropped). Mirrors the A17 commensurability pattern.
+    
+    SWEEP P0: iarch007_release_invariant_check.py demanded D8/seam proof only on strict statuses, so
+      partial_saturation+release_allowed=true+empty final_verdicts slipped through. Extend the proof
+      demand to every non-abort release (partial_*/unknown included).
+    
+    SWEEP P1: convert the two banned source-text-grep A4 proxy tests to behavioral — extract the pure
+      build_attempted_zero_emit_section_stub helper (unit-callable) and test the real resolver count
+      (resolve_provenance_to_citations_with_count([],{}) -> emitted_count==0, the is_gap_stub trigger).
+    
+    Tests: stale fact_dedup drop-on-failure tests -> keep-all contract; contradiction _ev fixtures ->
+      distinct source_url per evidence_id (the old shared placeholder was an unrealistic artifact);
+      +1 same-source-guard behavioral test; +3 partial-release SWEEP invariant tests. 159 + 31 green.
+    
+    Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+
+diff --git a/scripts/iarch007_release_invariant_check.py b/scripts/iarch007_release_invariant_check.py
+index 358bdf1d..e8809b62 100644
+--- a/scripts/iarch007_release_invariant_check.py
++++ b/scripts/iarch007_release_invariant_check.py
+@@ -228,6 +228,29 @@ def check_manifest(manifest: dict[str, Any]) -> list[str]:
+             "seam rescue — release without proof the judge ran or the seam body is safe."
+         )
+ 
++    # (6) release_allowed=true on ANY OTHER non-abort status (partial_*/unknown/unclassified) —
++    # one that is NEITHER a strict-release status (covered by (5)) NOR a disclosed-release status
++    # (covered by (2)/(3) with their own seam/safety allowances) — STILL demands real D8 proof OR a
++    # PROVEN seam rescue. The invariant's own rule (release_allowed==true must prove D8 or a safe
++    # seam disposition) applies to EVERY release, not only the strict family. Pre-fix, these
++    # statuses slipped through entirely: e.g. status="partial_saturation", release_allowed=true,
++    # final_verdicts={} passed with no judging — the silent-release hole Codex (iarch007 SWEEP-P0)
++    # caught. Faithfulness is STRENGTHENED, never relaxed: more release shapes must now prove safety.
++    if (
++        release_allowed
++        and status
++        and not status.startswith("abort")
++        and status not in _STRICT_RELEASE_STATUSES
++        and status not in _DISCLOSED_RELEASE_STATUSES
++        and not (d8_ran or seam_rescue_proven)
++    ):
++        violations.append(
++            f"release_allowed=true on non-abort status={status!r} (neither a strict nor a "
++            "disclosed release status) with no D8 adjudication and no proven seam rescue — a "
++            "release with no proof the judge ran or the seam body is safe "
++            "(the partial_*/unknown silent-release hole)."
++        )
++
+     return violations
+ 
+ 
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index bd5c3b29..39547ee4 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -344,6 +344,33 @@ def to_unified_status(summary_status: str) -> str:
+     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+ 
+ 
++def build_attempted_zero_emit_section_stub(
++    title: str,
++    dropped_due_to_failure: bool,
++    ev_ids_assigned: Any,
++) -> dict[str, Any]:
++    """A4 (iarch006 epic-failure): the NON-VERDICT verification stub for a section that was
++    ATTEMPTED (had evidence rows assigned) but emitted ZERO verified sentences
++    (``resolved_emitted == 0``). PURE (no I/O, no faithfulness gate) so it is unit-callable —
++    the inline serialization loop calls it. A zero-emit ATTEMPTED section MUST serialize this
++    stub instead of vanishing from ``verification_details.json`` (exactly drb_90's
++    "Comparative Assessment", where a comparative claim spans multiple sources so no single span
++    survived per-sentence strict_verify). ``dropped`` is present-but-empty so the downstream
++    per-reason tally loop stays byte-identical. Asserts NO content; touches NO faithfulness gate."""
++    return {
++        "title": title,
++        "dropped_due_to_failure": dropped_due_to_failure,
++        "total_in": 0,
++        "total_kept": 0,
++        "total_dropped": 0,
++        "kept": [],
++        "dropped": [],
++        "attempted": True,
++        "reason": "resolved_emitted==0",
++        "ev_ids_assigned": list(ev_ids_assigned or []),
++    }
++
++
+ # I-arch-004 F20 (#1255): historical 4-role seam WALL floor (I-run11-004). The generator-sized
+ # default can only grow above this, never regress below.
+ _FOUR_ROLE_SEAM_TIMEOUT_FLOOR = 7200.0
+@@ -8929,20 +8956,16 @@ async def run_one_query(
+                 # pure observability — it asserts NO content and touches NO faithfulness gate.
+                 _attempted = bool(getattr(sr, "ev_ids_assigned", None))
+                 if _attempted:
+-                    verif_details["sections"].append({
+-                        "title": sr.title,
+-                        "dropped_due_to_failure": sr.dropped_due_to_failure,
+-                        "total_in": 0,
+-                        "total_kept": 0,
+-                        "total_dropped": 0,
+-                        "kept": [],
+-                        # `dropped` MUST be present (empty) so the per-reason tally loop below
+-                        # (iterates s["dropped"]) stays byte-identical on this stub.
+-                        "dropped": [],
+-                        "attempted": True,
+-                        "reason": "resolved_emitted==0",
+-                        "ev_ids_assigned": list(getattr(sr, "ev_ids_assigned", []) or []),
+-                    })
++                    # `dropped` is present-but-empty in the stub so the per-reason tally loop below
++                    # (iterates s["dropped"]) stays byte-identical. Built by the pure, unit-callable
++                    # helper above (A4 behavioral coverage).
++                    verif_details["sections"].append(
++                        build_attempted_zero_emit_section_stub(
++                            sr.title,
++                            sr.dropped_due_to_failure,
++                            getattr(sr, "ev_ids_assigned", []),
++                        )
++                    )
+                 continue
+             kept_svs = sr.kept_sentences_pre_resolve or []
+             dropped_svs = sr.dropped_sentences_final or []
+@@ -10977,7 +11000,7 @@ async def run_one_query(
+                 hard_block_reasons=list(_rd.get("hard_block_reasons", []) or []),
+                 release_quality_score=float(_rd.get("release_quality_score", 0.0) or 0.0),
+                 safety_floor=str(_rd.get("safety_floor", "ok") or "ok"),
+-                adjudicated=bool(_rd.get("adjudicated", True)) if _rd else True,
++                adjudicated=bool(_rd.get("adjudicated", False)),
+                 body_withheld=bool(_rd.get("body_withheld", False)),
+                 compensating_screen_passed=bool(_rd.get("compensating_screen_passed", False)),
+             )
+diff --git a/src/polaris_graph/generator/fact_dedup.py b/src/polaris_graph/generator/fact_dedup.py
+index 14c389fc..1783b089 100644
+--- a/src/polaris_graph/generator/fact_dedup.py
++++ b/src/polaris_graph/generator/fact_dedup.py
+@@ -625,9 +625,12 @@ async def rewrite_redundant_sentences(
+             to keep this module test-friendly.
+ 
+     Returns:
+-        dict mapping (section, index) -> new sentence string OR None if
+-        rewrite failed/null. Caller decides how to handle None
+-        (typically: drop the sentence entirely, keeping only PRIMARY).
++        dict mapping (section, index) -> merged multi-citation sentence string.
++        A redundant whose rewrite FAILED or came back null/empty is OMITTED from
++        the dict (no key) so apply_rewrites keeps its ORIGINAL cited sentence —
++        consolidate-keep-all (§-1.3): a failed merge never deletes a corroborating
++        source. (The None value is still honored as an explicit drop by
++        apply_rewrites, but the failure/null fallbacks no longer emit it.)
+     """
+     import json
+ 
+@@ -652,26 +655,30 @@ async def rewrite_redundant_sentences(
+     except (json.JSONDecodeError, AttributeError, KeyError, TypeError) as e:
+         logger.warning(
+             "[fact_dedup] rewrite call failed (%s); falling back to "
+-            "DROP-redundants behavior", e,
++            "KEEP-redundants (consolidate-keep-all, §-1.3)", e,
+         )
+-        # Safe fallback: drop all redundants (return None for each)
+-        return {(loc.section, loc.index): None for _g, loc in flat}
++        # Safe fallback (§-1.3 CONSOLIDATE-DON'T-DROP): the anti-restatement rewrite is an
++        # OPTIMIZATION (merge corroborating sentences into one multi-citation sentence). When it
++        # fails we must NOT delete the corroborating cited sentences — emit NO drop keys so
++        # apply_rewrites keeps every original sentence verbatim (repetition = corroboration).
++        return {}
+ 
+     if not isinstance(rewrites, list) or len(rewrites) != len(flat):
+         logger.warning(
+             "[fact_dedup] rewrite response shape mismatch "
+-            "(expected %d items, got %r); falling back to DROP",
++            "(expected %d items, got %r); falling back to KEEP (consolidate-keep-all)",
+             len(flat), type(rewrites).__name__,
+         )
+-        return {(loc.section, loc.index): None for _g, loc in flat}
++        return {}
+ 
+     out: dict[tuple[str, int], Optional[str]] = {}
+     for (_group, loc), rewrite in zip(flat, rewrites):
+         if isinstance(rewrite, str) and rewrite.strip():
+             out[(loc.section, loc.index)] = rewrite.strip()
+-        else:
+-            # null/empty rewrite → drop
+-            out[(loc.section, loc.index)] = None
++        # else: a null/empty rewrite for THIS item means the merge produced nothing — KEEP the
++        # original cited sentence (consolidate-keep-all, §-1.3) by emitting NO key for it, so
++        # apply_rewrites' absent-key branch preserves the corroborating sentence rather than
++        # dropping it. Never delete a corroborating source on a failed rewrite.
+     return out
+ 
+ 
+diff --git a/src/polaris_graph/retrieval/contradiction_detector.py b/src/polaris_graph/retrieval/contradiction_detector.py
+index 83b89261..d6496055 100644
+--- a/src/polaris_graph/retrieval/contradiction_detector.py
++++ b/src/polaris_graph/retrieval/contradiction_detector.py
+@@ -1552,6 +1552,41 @@ def detect_contradictions(
+                     incommensurable_reason=incommensurable_reason,
+                 ))
+                 continue
++            # A17 SAME-SOURCE guard (iarch007 FETCH-P0): a CROSS-source contradiction requires the
++            # disagreeing numbers to come from DIFFERENT sources. When every claim in this group
++            # shares ONE source (same source_url, or same evidence_id when a URL is absent — and the
++            # cannot-attribute blank case), the spread is a WITHIN-source numeric span (a range, two
++            # figures in one document, or an extraction artifact), NOT a cross-source contradiction.
++            # Label it not_comparable, keep it OUT of the headline contradiction count, and DISCLOSE
++            # every claim (never drop — §-1.3). This is a cross-source VALIDITY/WEIGHT check: no
++            # faithfulness threshold is touched, and a genuine 2+-source disagreement is never
++            # suppressed (the guard fires ONLY when fewer than two distinct sources are present).
++            distinct_sources = {(c.source_url or c.evidence_id or "") for c in group}
++            distinct_sources.discard("")
++            if len(distinct_sources) < 2:
++                only_src = next(iter(distinct_sources), "unknown")
++                records.append(ContradictionRecord(
++                    subject=subject,
++                    predicate=f"{predicate_display} [not_comparable]",
++                    claims=sorted(group, key=lambda c: c.value),
++                    relative_difference=0.0,
++                    absolute_difference=0.0,
++                    severity="low",
++                    recommended_action=(
++                        "Not comparable (same-source A17): every value in this bucket comes from a "
++                        "single source (or no source could be attributed), so this is a within-source "
++                        "numeric span, not a cross-source contradiction. Disclose each value with its "
++                        "own context; do NOT assert a cross-source numeric contradiction from one "
++                        "source."
++                    ),
++                    not_comparable=True,
++                    incommensurable_reason=(
++                        f"same_source: the {len(group)} claims resolve to {len(distinct_sources)} "
++                        f"distinct source(s) ({only_src!r}) — a within-source numeric span, not a "
++                        "cross-source contradiction"
++                    ),
++                ))
++                continue
+             # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
+             # only when the claims share comparator/population/time-window. If
+             # those discriminators differ or cannot be confirmed, label it a
+diff --git a/tests/polaris_graph/test_contradiction_detector.py b/tests/polaris_graph/test_contradiction_detector.py
+index 659593b7..3cd24bed 100644
+--- a/tests/polaris_graph/test_contradiction_detector.py
++++ b/tests/polaris_graph/test_contradiction_detector.py
+@@ -17,13 +17,18 @@ def _ev(
+     ev_id: str,
+     quote: str,
+     tier: str = "T1",
+-    url: str = "https://example.com/",
++    url: str | None = None,
+ ) -> dict:
++    # A17 same-source guard: a CROSS-source contradiction requires the disagreeing numbers to come
++    # from DIFFERENT sources. Real evidence from two trials/publications carries two URLs, so the
++    # default source_url is distinct per evidence_id (the old shared placeholder was an unrealistic
++    # artifact that the guard now correctly treats as one within-source span). Pass an explicit
++    # shared `url=` to exercise the same-source (not_comparable) path.
+     return {
+         "evidence_id": ev_id,
+         "direct_quote": quote,
+         "tier": tier,
+-        "source_url": url,
++        "source_url": url if url is not None else f"https://example.com/{ev_id}",
+     }
+ 
+ 
+@@ -133,6 +138,27 @@ def test_format_contradictions_output() -> None:
+     assert "ev_high" in text
+ 
+ 
++def test_same_source_numeric_span_not_a_cross_source_contradiction() -> None:
++    # A17 same-source guard (iarch007 FETCH-P0): two conflicting numbers from the SAME source are a
++    # within-source numeric span, NOT a cross-source contradiction. They are DISCLOSED as a
++    # not_comparable bucket (never dropped — §-1.3) and kept OUT of the headline contradiction count.
++    shared = "https://example.com/one-review-article"
++    evidence = [
++        _ev("ev_a", "semaglutide weight loss 10.0% at week 52", url=shared),
++        _ev("ev_b", "semaglutide weight loss 17.4% at week 104", url=shared),
++    ]
++    claims = extract_numeric_claims(evidence)
++    records = detect_contradictions(claims)
++    # The bucket is surfaced (disclosed), but marked not_comparable — no hard cross-source assertion.
++    assert len(records) == 1
++    assert records[0].not_comparable is True
++    assert "[not_comparable]" in records[0].predicate
++    # Excluded from the headline count: format reports zero cross-source contradictions.
++    text = format_contradictions_for_user(records)
++    assert "Detected 0" in text
++    assert "not-comparable" in text.lower()
++
++
+ def test_format_empty_contradictions() -> None:
+     text = format_contradictions_for_user([])
+     assert "No contradictions" in text
+diff --git a/tests/polaris_graph/test_contradiction_detector_fix1.py b/tests/polaris_graph/test_contradiction_detector_fix1.py
+index 5a08fca7..2920c5c8 100644
+--- a/tests/polaris_graph/test_contradiction_detector_fix1.py
++++ b/tests/polaris_graph/test_contradiction_detector_fix1.py
+@@ -24,9 +24,12 @@ from src.polaris_graph.retrieval.contradiction_detector import (
+ )
+ 
+ 
+-def _ev(ev_id: str, quote: str) -> dict:
++def _ev(ev_id: str, quote: str, url: str | None = None) -> dict:
++    # A17 same-source guard: distinct source_url per evidence_id by default so a genuine
++    # cross-source contradiction (two trials disagree) is detected; pass an explicit shared `url=`
++    # to exercise the same-source (not_comparable) path. The old shared placeholder was unrealistic.
+     return {"evidence_id": ev_id, "direct_quote": quote, "tier": "T1",
+-            "source_url": "https://example.com/"}
++            "source_url": url if url is not None else f"https://example.com/{ev_id}"}
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+diff --git a/tests/polaris_graph/test_fact_dedup.py b/tests/polaris_graph/test_fact_dedup.py
+index 155503ab..3e02a394 100644
+--- a/tests/polaris_graph/test_fact_dedup.py
++++ b/tests/polaris_graph/test_fact_dedup.py
+@@ -235,7 +235,7 @@ class _FakeLLM:
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rewrite_falls_back_to_drop_on_invalid_json() -> None:
++async def test_rewrite_keeps_all_on_invalid_json() -> None:
+     sections = {
+         "Efficacy": ["8.7% in 2007 [ev_X]."],
+         "Comparative": ["8.7% in 2007 [ev_Y]."],
+@@ -243,13 +243,13 @@ async def test_rewrite_falls_back_to_drop_on_invalid_json() -> None:
+     groups = build_groups(sections)
+     fake_llm = _FakeLLM("not valid json at all")
+     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
+-    # 1 redundant; rewrite invalid → fallback drop (None)
+-    assert len(rewrites) == 1
+-    assert all(v is None for v in rewrites.values())
++    # §-1.3 CONSOLIDATE-keep-all: a failed rewrite must NOT delete the corroborating cited
++    # sentence — it emits NO drop keys, so apply_rewrites keeps every original verbatim.
++    assert rewrites == {}, "invalid JSON must keep all corroborators (no drop keys), not drop them"
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rewrite_falls_back_on_wrong_shape() -> None:
++async def test_rewrite_keeps_all_on_wrong_shape() -> None:
+     sections = {
+         "Efficacy": ["8.7% in 2007 [ev_X]."],
+         "Comparative": ["8.7% in 2007 [ev_Y]."],
+@@ -258,21 +258,21 @@ async def test_rewrite_falls_back_on_wrong_shape() -> None:
+     # Returns valid JSON but wrong shape (rewrites is a string not list)
+     fake_llm = _FakeLLM('{"rewrites": "not a list"}')
+     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
+-    assert all(v is None for v in rewrites.values())
++    assert rewrites == {}, "wrong-shape response must keep all corroborators (consolidate-keep-all)"
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rewrite_falls_back_on_count_mismatch() -> None:
++async def test_rewrite_keeps_all_on_count_mismatch() -> None:
+     sections = {
+         "Efficacy": ["8.7% in 2007 [ev_X]."],
+         "Comparative": ["8.7% in 2007 [ev_Y]."],
+         "Regulatory": ["8.7% in 2007 [ev_Z]."],
+     }
+     groups = build_groups(sections)
+-    # 2 redundants expected, only 1 returned
++    # 2 redundants expected, only 1 returned → shape mismatch
+     fake_llm = _FakeLLM('{"rewrites": ["only one rewrite [ev_Y]."]}')
+     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
+-    assert all(v is None for v in rewrites.values())
++    assert rewrites == {}, "count-mismatch response must keep all corroborators (consolidate-keep-all)"
+ 
+ 
+ @pytest.mark.asyncio
+@@ -292,7 +292,7 @@ async def test_rewrite_applies_valid_rewrites() -> None:
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_rewrite_handles_null_per_item() -> None:
++async def test_rewrite_keeps_original_on_null_per_item() -> None:
+     sections = {
+         "Efficacy": ["8.7% in 2007 [ev_X]."],
+         "Comparative": ["8.7% in 2007 [ev_Y]."],
+@@ -305,8 +305,11 @@ async def test_rewrite_handles_null_per_item() -> None:
+     )
+     rewrites = await rewrite_redundant_sentences(groups, fake_llm)
+     values = list(rewrites.values())
++    # The valid rewrite is applied; the null item is OMITTED (no key) so apply_rewrites KEEPS the
++    # original corroborating sentence — §-1.3, never drop a corroborator on a null rewrite.
+     assert "see Efficacy [ev_Y]." in values
+-    assert None in values
++    assert None not in values, "a null per-item rewrite must keep the original, not emit a drop"
++    assert len(rewrites) == 1, "only the valid rewrite is keyed; the null item stays as its original"
+ 
+ 
+ @pytest.mark.asyncio
+@@ -368,18 +371,21 @@ async def test_dedup_pass_q5_pattern_end_to_end() -> None:
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_dedup_pass_safe_drop_on_llm_failure() -> None:
+-    """If rewrite call fails, redundants are dropped (PRIMARY kept)."""
++async def test_dedup_pass_keeps_corroborators_on_llm_failure() -> None:
++    """If the rewrite call fails, the corroborating redundants are KEPT (consolidate-keep-all,
++    §-1.3) — a failed merge never deletes a corroborating source."""
+     sections = {
+         "Efficacy": ["8.7% in 2007 [ev_X]."],
+         "Comparative": ["8.7% in 2007 [ev_Y]."],
+     }
+     fake_llm = _FakeLLM("garbage response")
+     new_sections, telemetry = await dedup_pass(sections, fake_llm)
+-    assert telemetry["n_drops"] == 1
++    assert telemetry["n_drops"] == 0, "a failed rewrite must drop nothing (keep all corroborators)"
+     assert telemetry["n_rewrites_applied"] == 0
+     assert new_sections["Efficacy"] == ["8.7% in 2007 [ev_X]."]
+-    assert new_sections["Comparative"] == []  # redundant dropped
++    assert new_sections["Comparative"] == ["8.7% in 2007 [ev_Y]."], (
++        "the corroborating sentence is KEPT on rewrite failure, not dropped"
++    )
+ 
+ 
+ @pytest.mark.asyncio
+diff --git a/tests/polaris_graph/test_iarch007_regression.py b/tests/polaris_graph/test_iarch007_regression.py
+index 0852affe..3a4de014 100644
+--- a/tests/polaris_graph/test_iarch007_regression.py
++++ b/tests/polaris_graph/test_iarch007_regression.py
+@@ -242,45 +242,57 @@ def test_fix_a10_reserved_empty_transport_status_present():
+ 
+ 
+ # =============================================================================================== #
+-# A4 — comparative-empty serialization  [WIRING-PRESENCE PROXY, NOT behavioral]                    #
+-# A section ATTEMPTED (evidence rows assigned) but emitting ZERO verified sentences must be         #
+-# serialized as a non-verdict stub (attempted=True, reason=resolved_emitted==0) instead of         #
+-# vanishing — exactly drb_90's "Comparative Assessment".                                           #
++# A4 - comparative-empty serialization  [BEHAVIORAL]                                               #
++# A section ATTEMPTED (evidence rows assigned) but emitting ZERO verified sentences must be        #
++# serialized as a non-verdict stub (attempted=True, reason=resolved_emitted==0) instead of        #
++# vanishing - exactly drb_90's "Comparative Assessment".                                           #
+ #                                                                                                  #
+-# HONEST SCOPE: the A4 serialization is INLINE inside run_honest_sweep_r3 (~:8733) and the         #
+-# gap-stub assignment is inline inside an async LLM-driven _call_section flow in                   #
+-# multi_section_generator (~:3395) — NEITHER is unit-callable without a live model + a large        #
+-# evidence pool. So these two tests are WIRING-PRESENCE PROXIES (per §-1.1 a source-presence        #
+-# check is NOT a quality signal). The REAL behavioral coverage for A4 is the A19 live canary +      #
+-# the A18 artifact invariant over a finished run dir. Flagged for Codex in needs_codex_attention.  #
++# Both load-bearing pieces are now unit-callable and tested for REAL behavior (no source-text     #
++# grep - per -1.1 a source-presence check is NOT a quality signal): the pure stub builder         #
++# (build_attempted_zero_emit_section_stub) returns the exact non-verdict dict, and the zero-emit  #
++# trigger (resolve_provenance_to_citations_with_count) returns emitted_count==0 on an empty       #
++# kept-sentence list - which is what drives is_gap_stub = (resolved_emitted == 0). End-to-end     #
++# coverage over a finished run dir remains the A19 live canary + the A18 artifact invariant.      #
+ # =============================================================================================== #
+-def test_wiring_a4_comparative_empty_serialization_present():
+-    """WIRING-PRESENCE PROXY (not behavioral): the A4 zero-emit serialization is wired in-script.
+-
+-    Asserts the stable logic tokens, not a comment anchor (a comment rephrase must not break it).
+-    Behavioral A4 coverage lives in the A19 canary + A18 artifact check.
++def test_a4_comparative_empty_stub_builder_behavioral(sweep_module):
++    """BEHAVIORAL (calls the real pure helper, not a source-text grep — §-1.1): the A4 zero-emit
++    stub builder returns the non-verdict serialization dict.
++
++    An ATTEMPTED section that emits zero verified sentences MUST serialize attempted=True +
++    reason=resolved_emitted==0 with a present-but-empty `dropped` list (so the downstream
++    per-reason tally loop stays byte-identical), instead of vanishing from verification_details.json
++    (drb_90's "Comparative Assessment").
+     """
+-    src = (_REPO_ROOT / "scripts" / "run_honest_sweep_r3.py").read_text(encoding="utf-8")
+-    assert '"reason": "resolved_emitted==0"' in src, (
+-        "the A4 comparative-empty serialization (reason=resolved_emitted==0 stub) is not wired — "
+-        "an attempted-but-zero-emit section would silently vanish from verification_details.json"
++    build = getattr(sweep_module, "build_attempted_zero_emit_section_stub", None)
++    assert build is not None, "A4 stub builder missing — an attempted-but-zero-emit section vanishes"
++    stub = build("Comparative Assessment", False, ["ev1", "ev2"])
++    assert stub["attempted"] is True
++    assert stub["reason"] == "resolved_emitted==0"
++    assert stub["total_kept"] == 0 and stub["kept"] == []
++    assert stub["dropped"] == [], (
++        "`dropped` must be present-but-empty so the per-reason tally loop stays byte-identical"
+     )
+-    assert '"attempted": True' in src, "the attempted-stub serialization is not wired"
++    assert stub["ev_ids_assigned"] == ["ev1", "ev2"], "the attempted section's assigned rows are disclosed"
+ 
+ 
+-def test_wiring_a4_gap_stub_extends_to_resolved_emitted_zero():
+-    """WIRING-PRESENCE PROXY (not behavioral): the generator marks a gap stub on resolved_emitted==0.
++def test_a4_zero_emit_trigger_is_behavioral():
++    """BEHAVIORAL (calls the real resolver, not a source-text grep — §-1.1): a zero-surviving
++    section resolves to emitted_count==0, which is the gap-stub trigger.
+ 
+-    The assignment is inline in an async LLM flow (not unit-callable); behavioral coverage is the
+-    A19 live canary. This proxy guards that the resolved_emitted==0 -> gap-stub wiring is present.
++    `is_gap_stub = (resolved_emitted == 0)` is driven by the resolver's emitted count, NOT the
++    pre-resolve kept-list length (the F10 honesty fix). Empty kept_sentences MUST resolve to
++    emitted_count==0 — proven by calling the real resolver, so a comparative section with rows but
++    zero surviving spans is marked a gap stub instead of shipping an empty body as non-stub.
+     """
+-    gen_src = (
+-        _REPO_ROOT / "src" / "polaris_graph" / "generator" / "multi_section_generator.py"
+-    ).read_text(encoding="utf-8")
+-    assert "is_gap_stub = resolved_emitted == 0" in gen_src, (
+-        "the gap-stub trigger does not extend to resolved_emitted==0 — a comparative section "
+-        "with rows but zero surviving spans would not be marked a gap stub"
++    from src.polaris_graph.generator.provenance_generator import (
++        resolve_provenance_to_citations_with_count,
++    )
++
++    _rendered, biblio, emitted = resolve_provenance_to_citations_with_count([], {})
++    assert emitted == 0, (
++        "an empty kept-sentence section must resolve to emitted_count==0 (the is_gap_stub trigger)"
+     )
++    assert biblio == [], "a zero-emit section yields no citations"
+ 
+ 
+ # =============================================================================================== #
+@@ -509,6 +521,38 @@ def test_invariant_a18_disclosed_gaps_without_disclosure_violates(invariant_modu
+     assert v, "a disclosed-gaps release with no disclosure and no D8 must be a violation"
+ 
+ 
++def test_invariant_a18_partial_release_without_d8_violates(invariant_module):
++    """INVARIANT (iarch007 SWEEP-P0 #2): release_allowed=true on a NON-abort, non-strict,
++    non-disclosed status (e.g. partial_saturation) with empty final_verdicts and no proven seam is a
++    silent un-judged release — the partial_*/unknown hole the pre-fix checker let through entirely.
++    The check must flag it."""
++    v = invariant_module.check_manifest({
++        "status": "partial_saturation", "release_allowed": True,
++        "four_role_evaluation": {"final_verdicts": {}},
++    })
++    assert v, "release_allowed=true on partial_saturation with no D8/seam proof must be a violation"
++
++
++def test_invariant_a18_partial_release_with_d8_passes(invariant_module):
++    """INVARIANT: a partial_* status that DID adjudicate (non-empty final_verdicts) satisfies the
++    invariant — the proof demand is about real judging, not the status label."""
++    v = invariant_module.check_manifest({
++        "status": "partial_saturation", "release_allowed": True,
++        "four_role_evaluation": {"final_verdicts": {"c1": "VERIFIED"}},
++    })
++    assert v == [], f"a judged partial release must satisfy the invariant; got {v}"
++
++
++def test_invariant_a18_partial_not_released_passes(invariant_module):
++    """INVARIANT: a partial_* status that did NOT release (release_allowed=false) ships nothing and
++    satisfies the invariant — the fail-closed disposition is never tripped."""
++    v = invariant_module.check_manifest({
++        "status": "partial_saturation", "release_allowed": False,
++        "four_role_evaluation": {"final_verdicts": {}},
++    })
++    assert v == [], f"a non-released partial status must satisfy the invariant; got {v}"
++
++
+ def test_invariant_a18_real_drb90_held_manifest_passes(invariant_module):
+     """INVARIANT: the REAL drb_90 held run (abort_four_role_release_held, release_allowed=False,
+     final_verdicts empty) satisfies the invariant — nothing shipped, the correct fail-closed

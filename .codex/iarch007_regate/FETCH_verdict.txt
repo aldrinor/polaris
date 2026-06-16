@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+p0:
+A17 still open — src/polaris_graph/retrieval/contradiction_detector.py:1486 still groups only by `(subject, predicate, unit, dose)` and record creation at :1537/:1593/:1603 has no same `evidence_id`/`source_url` source-unit guard.
+p1:
+none
+faithfulness_ok: no
+wiring_complete: no

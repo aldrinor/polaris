@@ -1,0 +1,15 @@
+Static review only.
+
+Prior P0 status:
+1. CLOSED. `fabrication_screen_ran=None` now withholds in `release_policy._compute_seam_outcome()` via `screen_clean = fabrication_screen_ran is True ...`; unknown/False cannot pass.
+2. CLOSED. Runtime seam `build_seam_release_outcome()` now constructs `ReleaseOutcome(... adjudicated=False ...)` and serializes that through `release_disclosure`.
+3. NOT CLOSED. The invariant is called before the manifest write and the policy helper rejects arbitrary seam labels, but the manifest write path reconstructs missing proof as `adjudicated=True` at `scripts/run_honest_sweep_r3.py:10980`. That means a release-asserting manifest with no `release_disclosure`, or a disclosure missing `adjudicated`, can still pass as “adjudicated by default.” This is reachable for B18/B19 `released_with_disclosed_gaps` conversions after the success-only D8 guard.
+
+Other required checks:
+A2 token clamp remains present on both OpenRouter paths. A21a role-call watchdog/deadline remains present. I did not find a threshold relaxation in the reviewed diff/source.
+
+verdict: REQUEST_CHANGES
+p0: scripts/run_honest_sweep_r3.py:10971-10989 still defaults missing/malformed release proof to adjudicated=True, so release-asserting statuses can pass assert_release_invariant without real D8 adjudication or proven seam rescue.
+p1: none
+faithfulness_ok: no
+wiring_complete: no

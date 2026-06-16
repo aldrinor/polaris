@@ -1,0 +1,18 @@
+Static review only.
+
+Prior P0 status:
+- A12 resume checkpoint loading: closed. `--resume` loads both A12 checkpoints and only logs/surfaces them; gates still rerun.
+- A19 live canary stub: closed. `--live` shells out to the real sweep and checks produced manifests.
+- A11 skip removal: partially closed. The drb90 fixture skip is gone, but not all assertions are behavioral.
+- No-unjudged-release invariant test: present, but incomplete.
+- A21b timeout partial report preservation: closed for post-report timeouts; non-empty `report.md` is preserved, so the timeout finalizer does not replace it with a stub.
+
+Finding: [scripts/iarch007_release_invariant_check.py](C:/POLARIS/scripts/iarch007_release_invariant_check.py:208) still allows `release_allowed=true` on non-abort, non-strict statuses without D8/seam proof. For example, `status="partial_saturation", release_allowed=true, final_verdicts={}` passes because only `abort*` contradictions are flagged and the D8/seam proof check only applies to `_STRICT_RELEASE_STATUSES`. That violates the invariant’s own “`release_allowed == true` must prove D8 or safe seam disposition” rule.
+
+Finding: [tests/polaris_graph/test_iarch007_regression.py](C:/POLARIS/tests/polaris_graph/test_iarch007_regression.py:220) and [tests/polaris_graph/test_iarch007_regression.py](C:/POLARIS/tests/polaris_graph/test_iarch007_regression.py:257) still include symbol/source-presence proxy tests, so A11 is not fully behavioral if the bar is “call real functions” for all regression assertions.
+
+verdict: REQUEST_CHANGES
+p0: scripts/iarch007_release_invariant_check.py:208 release_allowed=true can pass without D8/proven seam on partial/unknown non-abort statuses
+p1: tests/polaris_graph/test_iarch007_regression.py:220 A11 still has symbol/source-presence proxy assertions
+faithfulness_ok: no
+wiring_complete: no

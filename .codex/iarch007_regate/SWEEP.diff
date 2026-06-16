@@ -1,0 +1,569 @@
+### iter2 SWEEP change set
+### Part 1: three deliverable files (iter1 gate copy -> iter2 disk)
+
+===== scripts/iarch007_behavioral_canary.py (iter1 -> iter2) =====
+--- .codex/iarch007_gate/iarch007_behavioral_canary.py	2026-06-15 16:14:52.277697800 -0700
++++ scripts/iarch007_behavioral_canary.py	2026-06-15 17:47:30.005568800 -0700
+@@ -326,26 +326,100 @@
+     return 0
+ 
+ 
++def _run_invariant_check_over_dir(run_dir: "Path") -> int:
++    """Run the A18 artifact invariant over a finished run dir (every manifest under it). Returns a
++    process exit code: 0 == every artifact satisfies the no-unjudged-release gate, non-zero == a
++    violation or no manifest found. Pure call into the invariant module (no subprocess)."""
++    import importlib.util
++
++    inv_path = Path(__file__).resolve().parents[0] / "iarch007_release_invariant_check.py"
++    spec = importlib.util.spec_from_file_location("iarch007_invariant_live", str(inv_path))
++    if spec is None or spec.loader is None:
++        print(f"LIVE CANARY: cannot load the release-invariant module at {inv_path}")
++        return 2
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++
++    # Find every manifest under the run dir (the sweep writes one per query run_dir).
++    manifests = sorted(str(p) for p in Path(run_dir).rglob("manifest.json"))
++    if not manifests:
++        print(f"LIVE CANARY: NO manifest.json produced under {run_dir} — the run did not finish.")
++        return 1
++    count, messages = module.check_targets(manifests)
++    if count:
++        print(f"LIVE CANARY: A18 release-invariant FOUND {count} VIOLATION(S):")
++        for msg in messages:
++            print(f"  - {msg}")
++        return 1
++    print(f"LIVE CANARY: A18 release-invariant OK over {len(manifests)} produced manifest(s).")
++    return 0
++
++
+ def run_live_canary(argv: list[str]) -> int:
+-    """Operator-gated PAID 1-query sweep + post-run A18 invariant re-check.
++    """Operator-gated PAID 1-query sweep + post-run A18 invariant re-check (REALLY runs — no stub).
++
++    Pipeline:
++      1. The OFFLINE behavioral canary MUST pass first (every changed slug fires in real call
++         shape) — refuse to spend a cent otherwise.
++      2. SHELL OUT to the real sweep entry point for a SINGLE query (``--only <slug> --out-root
++         <dir>``) so the judge-400 / A1 / seam paths fire on a real non-resume run end-to-end.
++      3. Run the A18 release-invariant over EVERY manifest the run produced.
++    Exits NON-ZERO on any failure at any stage. Spend is the operator's call (the sweep itself
++    enforces PG_AUTHORIZED_SWEEP_APPROVAL); this canary never sets that token. Requires an explicit
++    ``--slug`` and ``--out-root`` so a paid run is always deliberate.
++
++    Usage::
+ 
+-    Deliberately a thin wrapper that SHELLS OUT to the real sweep entry point and then runs the
+-    A18 release-invariant check over the produced run directory. It is NEVER reached by import or
+-    the default invocation. Spend is the operator's call (PG_AUTHORIZED_SWEEP_APPROVAL on the VM).
++        python scripts/iarch007_behavioral_canary.py --live --slug <slug> --out-root <canary_dir>
+     """
+-    # First: the offline behavioral canary MUST pass before any spend.
++    import argparse
++    import subprocess
++
++    parser = argparse.ArgumentParser(prog="iarch007_behavioral_canary.py --live")
++    parser.add_argument("--slug", required=True, help="single sweep query slug to run (--only)")
++    parser.add_argument("--out-root", required=True, help="run output root (--out-root)")
++    parser.add_argument(
++        "--python", default=sys.executable, help="python interpreter for the sweep subprocess"
++    )
++    parsed = parser.parse_args(argv)
++
++    # (1) the offline behavioral canary MUST pass before any spend.
++    print("LIVE CANARY step 1/3: offline behavioral canary (every fix must fire before spend)\n")
+     offline_rc = run_behavioral_canary()
+     if offline_rc != 0:
+         print("\nLIVE CANARY ABORTED: offline behavioral canary failed; refusing to spend.")
+         return offline_rc
+-    print(
+-        "\nLIVE 1-query canary is operator-gated and intentionally NOT auto-run here.\n"
+-        "Run the real sweep with a single question + --out-root <canary_dir>, then verify:\n"
+-        "    python scripts/iarch007_release_invariant_check.py <canary_dir>\n"
+-        "exits 0 before authorizing the full Q90 re-run. The behavioral canary above already\n"
+-        "proved every fix is WIRED; the live step proves the judge-400 path and A1 fire on a\n"
+-        "non-resume run end-to-end."
+-    )
++
++    # (2) the real 1-query sweep (PAID). The sweep enforces its own spend authorization; this
++    # canary does NOT set PG_AUTHORIZED_SWEEP_APPROVAL — an unauthorized run fails in the sweep.
++    sweep_path = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
++    out_root = Path(parsed.out_root)
++    cmd = [
++        parsed.python, str(sweep_path),
++        "--only", parsed.slug,
++        "--out-root", str(out_root),
++    ]
++    print(f"\nLIVE CANARY step 2/3: real 1-query sweep -> {' '.join(cmd)}\n")
++    try:
++        completed = subprocess.run(cmd, cwd=str(_REPO_ROOT), check=False)
++    except OSError as exc:
++        print(f"LIVE CANARY: could not launch the sweep subprocess: {exc}")
++        return 2
++    if completed.returncode != 0:
++        print(f"LIVE CANARY: the sweep subprocess exited non-zero ({completed.returncode}).")
++        # A non-zero sweep exit does not by itself mean an unsafe release — still check artifacts
++        # below so a partial run dir is audited; but a failed launch is already a canary FAIL.
++        # Fall through to the invariant check (it fails if no manifest was produced).
++
++    # (3) the A18 artifact invariant over EVERY produced manifest. Non-zero on any violation.
++    print("\nLIVE CANARY step 3/3: A18 release-invariant over the produced run dir(s)\n")
++    inv_rc = _run_invariant_check_over_dir(out_root)
++    if inv_rc != 0:
++        return inv_rc
++    if completed.returncode != 0:
++        # Artifacts are clean but the sweep itself errored: still a non-green canary.
++        return 1
++    print("\nLIVE CANARY: PASS — real 1-query run produced A18-clean artifacts.")
+     return 0
+ 
+ 
+
+===== scripts/iarch007_release_invariant_check.py (iter1 -> iter2) =====
+--- .codex/iarch007_gate/iarch007_release_invariant_check.py	2026-06-15 16:14:52.277697800 -0700
++++ scripts/iarch007_release_invariant_check.py	2026-06-15 17:46:17.725828000 -0700
+@@ -90,34 +90,59 @@
+     return isinstance(fv, dict) and len(fv) > 0
+ 
+ 
+-def _disclosed_seam_gap_present(manifest: dict[str, Any]) -> bool:
+-    """A non-empty disclosed-gap disclosure that surfaces the un-adjudicated seam.
+-
+-    The A2 rescue records ``manifest['release_disclosure']['disclosed_gaps']`` containing the
+-    ``four_role_seam_unadjudicated`` label (or a safety-floor / fabrication-screen disclosure).
+-    Any non-empty disclosed_gaps list is honest disclosure (the report ships ONLY with the gap
+-    surfaced). The seam token specifically proves the un-judged disposition.
+-    """
++def _disclosed_gaps_list(manifest: dict[str, Any]) -> list[str]:
++    """The disclosed-gap labels, as strings, from release_disclosure (or the top-level fallback)."""
+     rd = manifest.get("release_disclosure")
+-    if not isinstance(rd, dict):
+-        return False
+-    gaps = rd.get("disclosed_gaps")
++    gaps: Any = None
++    if isinstance(rd, dict):
++        gaps = rd.get("disclosed_gaps")
+     if not isinstance(gaps, list) or not gaps:
+-        return False
+-    return True
++        # top-level disclosed_gaps is the runner's seam-side fallback channel.
++        gaps = manifest.get("disclosed_gaps")
++    if not isinstance(gaps, list):
++        return []
++    return [str(g) for g in gaps]
++
++
++def _seam_gap_present(manifest: dict[str, Any]) -> bool:
++    """The SPECIFIC four_role_seam_unadjudicated label is present (iarch007 SWEEP-P0 tightening).
++
++    The pre-fix check accepted ANY non-empty disclosed_gaps list as seam proof — a bypass: a
++    manifest with an UNRELATED gap (a credibility-unscored label, say) and no real seam token
++    passed. The A2 seam rescue ALWAYS injects the explicit ``four_role_seam_unadjudicated`` token
++    (release_policy.py self-injects it defence-in-depth), so the seam disposition is proven ONLY by
++    that specific label, never by an arbitrary gap.
++    """
++    return any(_SEAM_GAP_TOKEN in g for g in _disclosed_gaps_list(manifest))
++
++
++def _safety_floor_gap_present(manifest: dict[str, Any]) -> bool:
++    """The insufficient-safety-floor disclosure label is present (the legit label for the
++    released_insufficient_safety_evidence terminal — see self-test case (e))."""
++    return any("safety_floor_insufficient" in g for g in _disclosed_gaps_list(manifest))
+ 
+ 
+ def _body_withheld(manifest: dict[str, Any]) -> bool:
+-    """Proof the findings body was withheld (the Codex floor for a screen that cannot run)."""
++    """Proof the findings body was WITHHELD — read STRUCTURALLY (iarch007 SWEEP-P0 tightening).
++
++    The pre-fix check treated ``normal_release_blocked`` as body-withheld proof. That is WRONG:
++    ``normal_release_blocked`` only means the polished NORMAL render was suppressed (e.g. an
++    insufficient-safety variant still SHIPS a findings body) — it does NOT prove the findings body
++    itself was withheld. Read the real serialized ``body_withheld`` flag (set by the A2 seam
++    rescue / compute_release_outcome) instead; the top-level ``body_withheld`` is a legacy fallback.
++    """
+     rd = manifest.get("release_disclosure")
+     if isinstance(rd, dict) and _coerce_bool(rd.get("body_withheld")):
+         return True
+-    # normal_release_blocked True means the polished normal report was NOT shipped as clean.
+-    if isinstance(rd, dict) and _coerce_bool(rd.get("normal_release_blocked")):
+-        return True
+     return _coerce_bool(manifest.get("body_withheld"))
+ 
+ 
++def _compensating_screen_passed(manifest: dict[str, Any]) -> bool:
++    """Proof a compensating standalone fabrication screen RAN CLEAN on a body-shipping seam."""
++    rd = manifest.get("release_disclosure")
++    return isinstance(rd, dict) and _coerce_bool(rd.get("compensating_screen_passed"))
++
++
+ def check_manifest(manifest: dict[str, Any]) -> list[str]:
+     """Return a list of invariant-violation messages for ONE manifest dict (empty == OK).
+ 
+@@ -139,8 +164,16 @@
+     status = str(manifest.get("status") or "")
+     release_allowed = _coerce_bool(manifest.get("release_allowed"))
+     d8_ran = _d8_adjudicated(manifest)
+-    disclosed = _disclosed_seam_gap_present(manifest)
++    seam_gap = _seam_gap_present(manifest)
++    safety_gap = _safety_floor_gap_present(manifest)
+     withheld = _body_withheld(manifest)
++    screen_passed = _compensating_screen_passed(manifest)
++
++    # The seam-rescue proof (the ONLY way a released_with_disclosed_gaps may ship un-judged): the
++    # SPECIFIC four_role_seam_unadjudicated label is present AND the body is provably safe — either
++    # withheld OR a compensating fabrication screen ran clean. An arbitrary disclosed gap is NOT
++    # proof (iarch007 SWEEP-P0: the pre-fix `any non-empty gap` accept was the bypass).
++    seam_rescue_proven = seam_gap and (withheld or screen_passed)
+ 
+     # (1) success demands real D8 adjudication — no exceptions. This is the A2 catastrophe guard.
+     if status == STATUS_SUCCESS and not d8_ran:
+@@ -150,19 +183,26 @@
+             "released_with_disclosed_gaps (never success) on a judge seam-error."
+         )
+ 
+-    # (2) released_with_disclosed_gaps: D8 ran OR honest disclosure OR withheld body.
+-    if status == STATUS_RELEASED_WITH_DISCLOSED_GAPS and not (d8_ran or disclosed or withheld):
++    # (2) released_with_disclosed_gaps: real D8 ran OR the seam rescue is PROVEN (specific seam
++    # token + withheld-or-screened body). A bare non-empty disclosed_gaps no longer counts.
++    if status == STATUS_RELEASED_WITH_DISCLOSED_GAPS and not (d8_ran or seam_rescue_proven):
+         violations.append(
+-            "status=released_with_disclosed_gaps but there is NO D8 adjudication, NO disclosed "
+-            "gap, and NO withheld body — a released report with no proof of judging or "
+-            "disclosure (silent un-judged release)."
++            "status=released_with_disclosed_gaps but there is NO D8 adjudication and NO PROVEN "
++            "seam rescue (the specific four_role_seam_unadjudicated label PLUS a withheld body OR "
++            "a passed compensating fabrication screen). A released report with no real judging and "
++            "no proven-safe seam disposition is a silent un-judged release."
+         )
+ 
+-    # (3) released_insufficient_safety_evidence: must carry a disclosure OR a withheld body.
+-    if status == STATUS_RELEASED_INSUFFICIENT_SAFETY and not (disclosed or withheld):
++    # (3) released_insufficient_safety_evidence: this degraded terminal must carry its HONEST
++    # safety-floor disclosure OR a withheld body OR a proven seam rescue. A bare unrelated gap is
++    # not sufficient — the specific safety_floor_insufficient label (or a withheld body) proves it.
++    if status == STATUS_RELEASED_INSUFFICIENT_SAFETY and not (
++        safety_gap or withheld or seam_rescue_proven
++    ):
+         violations.append(
+-            "status=released_insufficient_safety_evidence but no disclosed gap and no withheld "
+-            "body — the insufficient-safety variant must ship its honest disclosure."
++            "status=released_insufficient_safety_evidence but no safety_floor_insufficient "
++            "disclosure, no withheld body, and no proven seam rescue — the insufficient-safety "
++            "variant must ship its honest safety-floor disclosure."
+         )
+ 
+     # (4) release_allowed true with a non-release/abort status is a contradiction.
+@@ -177,15 +217,15 @@
+                 "decision contradicts the terminal status."
+             )
+ 
+-    # (5) release_allowed true on a strict-release status still demands the D8 proof OR a
+-    # disclosed/withheld honest disposition — a true release_allowed with no judging and no
+-    # disclosure is the same silent-release hole as (2).
++    # (5) release_allowed true on a strict-release status still demands the D8 proof OR a PROVEN
++    # seam rescue — a true release_allowed with no judging and no proven-safe seam is the same
++    # silent-release hole as (2).
+     if release_allowed and status in _STRICT_RELEASE_STATUSES and not (
+-        d8_ran or disclosed or withheld
++        d8_ran or seam_rescue_proven
+     ):
+         violations.append(
+-            f"release_allowed=true on status={status!r} with no D8 adjudication, no disclosed "
+-            "gap, and no withheld body — release without proof the judge ran."
++            f"release_allowed=true on status={status!r} with no D8 adjudication and no proven "
++            "seam rescue — release without proof the judge ran or the seam body is safe."
+         )
+ 
+     return violations
+@@ -261,14 +301,54 @@
+          "four_role_evaluation": {"final_verdicts": {"c1": "VERIFIED"}}},
+         should_violate=False,
+     )
+-    # (c) released_with_disclosed_gaps via seam disclosure (no D8) -> OK (the honest A2 rescue).
++    # (c) released_with_disclosed_gaps via PROVEN seam rescue (specific seam token + a passed
++    # compensating fabrication screen, no D8) -> OK (the honest A2 rescue, body ships screened).
+     expect(
+-        "disclosed_gaps_seam_rescue",
++        "disclosed_gaps_seam_rescue_screen_passed",
+         {"status": STATUS_RELEASED_WITH_DISCLOSED_GAPS, "release_allowed": True,
+          "four_role_evaluation": {"final_verdicts": {}},
+-         "release_disclosure": {"disclosed_gaps": [f"{_SEAM_GAP_TOKEN}: judge unreachable"]}},
++         "release_disclosure": {
++             "disclosed_gaps": [f"{_SEAM_GAP_TOKEN}: judge unreachable"],
++             "adjudicated": False, "body_withheld": False,
++             "compensating_screen_passed": True}},
+         should_violate=False,
+     )
++    # (c2) released_with_disclosed_gaps via seam rescue with a WITHHELD body (screen could not run)
++    # -> OK (the Codex floor: disclosure ships, no findings prose).
++    expect(
++        "disclosed_gaps_seam_rescue_body_withheld",
++        {"status": STATUS_RELEASED_WITH_DISCLOSED_GAPS, "release_allowed": True,
++         "four_role_evaluation": {"final_verdicts": {}},
++         "release_disclosure": {
++             "disclosed_gaps": [f"{_SEAM_GAP_TOKEN}: judge unreachable"],
++             "adjudicated": False, "body_withheld": True,
++             "compensating_screen_passed": False}},
++        should_violate=False,
++    )
++    # (c3) released_with_disclosed_gaps carrying the seam token but NO proof (no withheld body, no
++    # passed screen) -> VIOLATION (the seam body ships un-judged AND un-screened: the leak A18 closes).
++    expect(
++        "disclosed_gaps_seam_token_but_no_proof",
++        {"status": STATUS_RELEASED_WITH_DISCLOSED_GAPS, "release_allowed": True,
++         "four_role_evaluation": {"final_verdicts": {}},
++         "release_disclosure": {
++             "disclosed_gaps": [f"{_SEAM_GAP_TOKEN}: judge unreachable"],
++             "adjudicated": False, "body_withheld": False,
++             "compensating_screen_passed": False}},
++        should_violate=True,
++    )
++    # (c4) released_with_disclosed_gaps with an ARBITRARY (non-seam) gap and no D8 -> VIOLATION
++    # (iarch007 SWEEP-P0: a bare non-empty disclosed_gaps list is NO LONGER seam proof).
++    expect(
++        "disclosed_gaps_arbitrary_gap_no_seam_token",
++        {"status": STATUS_RELEASED_WITH_DISCLOSED_GAPS, "release_allowed": True,
++         "four_role_evaluation": {"final_verdicts": {}},
++         "release_disclosure": {
++             "disclosed_gaps": ["credibility_unscored: 3 sources at neutral weight"],
++             "adjudicated": False, "body_withheld": False,
++             "compensating_screen_passed": False}},
++        should_violate=True,
++    )
+     # (d) released_with_disclosed_gaps with NO disclosure and NO D8 -> VIOLATION (silent release).
+     expect(
+         "disclosed_gaps_no_disclosure",
+@@ -276,14 +356,23 @@
+          "four_role_evaluation": {"final_verdicts": {}}},
+         should_violate=True,
+     )
+-    # (e) insufficient-safety with a withheld body -> OK.
++    # (e) insufficient-safety with the SPECIFIC safety-floor disclosure -> OK (the honest variant).
+     expect(
+-        "insufficient_safety_withheld",
++        "insufficient_safety_disclosed",
+         {"status": STATUS_RELEASED_INSUFFICIENT_SAFETY, "release_allowed": True,
+          "release_disclosure": {"disclosed_gaps": ["safety_floor_insufficient: ..."],
+-                                "normal_release_blocked": True}},
++                                "adjudicated": False, "normal_release_blocked": True}},
+         should_violate=False,
+     )
++    # (e2) insufficient-safety with ONLY normal_release_blocked (no safety-floor label, no withheld
++    # body) -> VIOLATION (iarch007 SWEEP-P0: normal_release_blocked is NOT body-withheld proof).
++    expect(
++        "insufficient_safety_only_normal_render_blocked",
++        {"status": STATUS_RELEASED_INSUFFICIENT_SAFETY, "release_allowed": True,
++         "release_disclosure": {"disclosed_gaps": ["some_unrelated_label"],
++                                "normal_release_blocked": True}},
++        should_violate=True,
++    )
+     # (f) abort with release_allowed False -> OK (the correct fail-closed disposition).
+     expect(
+         "abort_held_failclosed",
+@@ -317,7 +406,10 @@
+         for f in failures:
+             print(f"  - {f}")
+         return 1
+-    print("RELEASE-INVARIANT SELF-TEST: PASS (8 cases incl. the real drb_90 held manifest)")
++    print(
++        "RELEASE-INVARIANT SELF-TEST: PASS (13 cases incl. the real drb_90 held manifest + the "
++        "iarch007 SWEEP-P0 seam-proof tightening)"
++    )
+     return 0
+ 
+ 
+
+===== tests/polaris_graph/test_iarch007_regression.py (iter1 -> iter2) =====
+--- .codex/iarch007_gate/test_iarch007_regression.py	2026-06-15 16:14:52.283726700 -0700
++++ tests/polaris_graph/test_iarch007_regression.py	2026-06-15 17:46:38.556342300 -0700
+@@ -457,13 +457,47 @@
+ 
+ 
+ def test_invariant_a18_seam_disclosed_gaps_passes(invariant_module):
+-    """INVARIANT: the honest seam rescue (released_with_disclosed_gaps + seam gap, no D8) passes."""
++    """INVARIANT: the PROVEN seam rescue (seam gap + a passed compensating screen, no D8) passes."""
+     v = invariant_module.check_manifest({
+         "status": "released_with_disclosed_gaps", "release_allowed": True,
+         "four_role_evaluation": {"final_verdicts": {}},
+-        "release_disclosure": {"disclosed_gaps": ["four_role_seam_unadjudicated: judge unreachable"]},
++        "release_disclosure": {
++            "disclosed_gaps": ["four_role_seam_unadjudicated: judge unreachable"],
++            "adjudicated": False, "body_withheld": False,
++            "compensating_screen_passed": True,
++        },
+     })
+-    assert v == [], f"the honest seam rescue must satisfy the invariant; got {v}"
++    assert v == [], f"the proven seam rescue must satisfy the invariant; got {v}"
++
++
++def test_invariant_a18_seam_token_without_proof_violates(invariant_module):
++    """INVARIANT (iarch007 SWEEP-P0): the seam token WITHOUT a withheld body or a passed
++    compensating screen is NOT proof — the seam body would ship un-judged AND un-screened."""
++    v = invariant_module.check_manifest({
++        "status": "released_with_disclosed_gaps", "release_allowed": True,
++        "four_role_evaluation": {"final_verdicts": {}},
++        "release_disclosure": {
++            "disclosed_gaps": ["four_role_seam_unadjudicated: judge unreachable"],
++            "adjudicated": False, "body_withheld": False,
++            "compensating_screen_passed": False,
++        },
++    })
++    assert v, "a seam token with no withheld body and no passed screen must be a violation"
++
++
++def test_invariant_a18_arbitrary_gap_is_not_seam_proof(invariant_module):
++    """INVARIANT (iarch007 SWEEP-P0): an arbitrary non-seam disclosed gap is NOT seam proof
++    (the pre-fix `any non-empty disclosed_gaps` bypass is closed)."""
++    v = invariant_module.check_manifest({
++        "status": "released_with_disclosed_gaps", "release_allowed": True,
++        "four_role_evaluation": {"final_verdicts": {}},
++        "release_disclosure": {
++            "disclosed_gaps": ["credibility_unscored: 3 sources at neutral weight"],
++            "adjudicated": False, "body_withheld": False,
++            "compensating_screen_passed": False,
++        },
++    })
++    assert v, "a non-seam disclosed gap must not satisfy the seam-rescue proof"
+ 
+ 
+ def test_invariant_a18_disclosed_gaps_without_disclosure_violates(invariant_module):
+@@ -481,8 +515,13 @@
+     disposition. This is the negative-control that proves the check does not over-fire on a
+     legitimately-held run."""
+     fixture = _REPO_ROOT / "tests" / "fixtures" / "drb90_redaction" / "manifest.json"
+-    if not fixture.is_file():
+-        pytest.skip(f"real drb_90 fixture not present at {fixture}")
++    # The fixture is git-tracked (tests/fixtures/drb90_redaction/manifest.json); a missing file is a
++    # REAL failure (a dropped fixture), NOT a skip-worthy condition (iarch007 A11 P1: the conditional
++    # skip masked an absent fixture, letting the negative-control silently not run).
++    assert fixture.is_file(), (
++        f"the git-tracked real drb_90 fixture is MISSING at {fixture} — a dropped fixture must fail "
++        "loudly, not skip the negative-control"
++    )
+     manifest = json.loads(fixture.read_text(encoding="utf-8"))
+     assert manifest.get("status") == "abort_four_role_release_held"
+     assert manifest.get("release_allowed") is False
+
+### Part 2: scripts/run_honest_sweep_r3.py — A12 resume-loader hunks (git diff vs HEAD, filtered to A12/resume/checkpoint context).
+### NOTE: Codex MUST read the full run_honest_sweep_r3.py OFF DISK for A12 + A21b timeout-backstop verification; this excerpt is orientation only.
+
+92:-    # I-arch-004 F20 (#1255): read the LIVE generator timeout to size the 4-role seam WALL off it.
+93:-    get_generator_timeout_seconds,
+226:-    # partial — report produced but degraded signal
+227:-    "partial_thin_corpus",
+228:-    "partial_incomplete_corpus",
+229:-    "partial_rule_check_warnings",
+230:-    "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
+231:-    "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
+232:-    "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
+233:-    "partial_saturation",            # I-meta-005 Phase 4 (#988): pruned report, some sections under-covered
+240:-    "abort_excessive_gap",           # F03 (A3): below PG_MIN_VERIFIED_SECTION_FRACTION of sections produced verified prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (clinical-safety: a report whose body is mostly gap disclosures must not ship green)
+253:-    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+268:-    "ok_thin_corpus": "partial_thin_corpus",
+269:-    "ok_incomplete_corpus": "partial_incomplete_corpus",
+270:-    "ok_outline_fallback": "partial_outline_fallback",
+271:-    "ok_evaluator_advisory": "partial_evaluator_advisory",
+272:-    "ok_qwen_advisory": "partial_qwen_advisory",  # I-modref-004 (#530): legacy alias
+273:-    "warn_rule_checks": "partial_rule_check_warnings",
+286:-    # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
+287:-    "partial_saturation": "partial_saturation",
+335:-_FOUR_ROLE_SEAM_TIMEOUT_FLOOR = 7200.0
+338:-def _resolve_four_role_seam_timeout() -> float:
+339:-    """Wall timeout for the WHOLE 4-role D8 seam (brackets MANY sequential per-claim reasoning-ON
+344:-      * env PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS set -> that value (LAW VI override, wins outright),
+345:-      * else -> max(7200 floor, PG_FOUR_ROLE_SEAM_GEN_MULTIPLE x LIVE generator timeout) so the
+346:-        default can only GROW (honors the Gate-B slate's set_generator_timeout_seconds), never
+349:-    The per-call budget (PG_VERIFIER_LLM_TIMEOUT_SECONDS) and the $ hard cap are separate backstops.
+351:-    explicit = os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS")
+361:-        _FOUR_ROLE_SEAM_TIMEOUT_FLOOR,
+362:-        multiple * float(get_generator_timeout_seconds()),
+453:-    run whose corpus was upstream-starved (e.g. drb_72: 26/155 fetched, 129 failed/timeout) does not
+513:-    force-enabled feature AND the run is otherwise success-bound. NEVER overrides a partial_/abort_/
+758:-    PURE env read; raises or returns None. Re-run on --resume too (a strict run must not
+759:-    resume into a non-strict env)."""
+1405:-    under-covered section in a `partial_saturation` report.
+1879:-#            manifest-only / no human artifact) + B20 (the run-level wall-clock at
+1892:-# Env name for the run-level wall-clock (B20). LAW VI: no hardcode — env-overridable.
+1893:-_RUN_WALL_CLOCK_ENV = "PG_RUN_WALL_CLOCK_SEC"
+1895:-# reasoning-ON verifier calls) can run long; the wall-clock only catches a true HANG,
+1897:-# MUST sit above the inner timeouts — observed retrieval alone was ~42min, and the
+1901:-_RUN_WALL_CLOCK_DEFAULT_SEC = 7200.0
+1904:-def run_wall_clock_seconds() -> float:
+1905:-    """B20: the per-query run-level wall-clock (seconds). A HANG anywhere in the
+1908:-    the B11 finalizer emits a labeled timeout artifact on TimeoutError.
+1910:-    LAW VI: env-overridable (PG_RUN_WALL_CLOCK_SEC); generous default. A non-positive
+1912:-    silently — a disabled wall-clock would re-open the permanent-silence class)."""
+1913:-    raw = os.environ.get(_RUN_WALL_CLOCK_ENV, "").strip()
+1915:-        return _RUN_WALL_CLOCK_DEFAULT_SEC
+1921:-            _RUN_WALL_CLOCK_ENV, raw, _RUN_WALL_CLOCK_DEFAULT_SEC,
+1923:-        return _RUN_WALL_CLOCK_DEFAULT_SEC
+1924:-    return val if val > 0 else _RUN_WALL_CLOCK_DEFAULT_SEC
+1981:-# B20 P1-1 (Codex iter-2): the run-scoped wall-clock DEADLINE (a monotonic-clock instant).
+1983:-# run_one_query in ``asyncio.wait_for(..., timeout=wall)``. When wait_for times out it CANCELS
+1985:-# CancelledError unwind — BEFORE control returns to the call-site `except TimeoutError` handler.
+1987:-# and the call-site timeout finalizer would then NO-OP on the now-present report.md -> the run is
+1988:-# mislabeled `degraded` instead of `timeout`. ``run_wall_clock_cancellation_active()`` lets the
+1989:-# inner finally DETECT the wall-clock cancellation and pass ``timed_out=True``, so a HUNG run that
+1990:-# never produced a real report.md gets a deterministically TIMEOUT-labeled artifact. A
+1993:-_RUN_WALL_CLOCK_DEADLINE_CTX: "contextvars.ContextVar[float | None]" = contextvars.ContextVar(
+1994:-    "pg_run_wall_clock_deadline", default=None
+1998:-def run_wall_clock_cancellation_active() -> bool:
+2000:-    wall-clock deadline has elapsed — i.e. this CancelledError unwind is the B20 wall-clock
+2001:-    timeout (not a user cancel, which returns normally without asyncio-cancelling the task).
+2004:-    never mislabel a non-timeout exit as a timeout):
+2006:-         (3.11+; wait_for calls ``task.cancel()`` on timeout). The ONLY asyncio-cancel of
+2010:-      2. ``time.monotonic() >= deadline`` — the run-scoped wall-clock instant has passed.
+2015:-        deadline = _RUN_WALL_CLOCK_DEADLINE_CTX.get()
+2045:-    # Read each count defensively (the lane owns the exact keys; tolerate partial dicts).
+2078:-# refusal / degraded / insufficient-evidence / disclosed-gaps / timeout artifact.
+2085:-_ARTIFACT_KIND_TIMEOUT = "timeout"
+2126:-    _ARTIFACT_KIND_TIMEOUT: "Run timed out (wall-clock)",
+2132:-    forces the timeout kind regardless of status. Unknown statuses fall to a generic
+2135:-        return _ARTIFACT_KIND_TIMEOUT
+2151:-    wall_clock_seconds: "float | None" = None,
+2170:-    if timed_out and wall_clock_seconds is not None:
+2172:-            f"**Wall-clock:** the run exceeded the {wall_clock_seconds:.0f}s "
+2173:-            f"run-level wall-clock ({_RUN_WALL_CLOCK_ENV}) and was terminated. "
+2180:-    if kind == _ARTIFACT_KIND_TIMEOUT:
+2182:-            "The pipeline did not complete within the run-level wall-clock. No "
+2222:-                 "raise the wall-clock if the run was truncated.")
+2233:-    wall_clock_seconds: "float | None" = None,
+2243:-        already-computed terminal ``summary['status']`` (or the B20 timeout). The status
+2247:-    pre-success aborts that wrote a manifest only) AND from the call-site timeout handler
+2285:-            wall_clock_seconds=wall_clock_seconds,
+3359:-    INSIDE it; this helper covers the ENTRY-SETUP region BEFORE that try (corrupt-snapshot resume
+3417:-    """I-rdy-011 (#507): cooperative cancel checkpoint for a v6 run.
+3491:-    resume: bool = False,
+3584:-    # `error_<phase>` with the real phase reached — e.g. a corrupt-snapshot resume load that
+3618:-    # BUG-21 (#1262): TOP-LEVEL catch-all over the run ENTRY SETUP (imports, resume-snapshot
+3621:-    # BEFORE it - e.g. a corrupt --resume snapshot that `_load_corpus_snapshot` fails loud on, or
+3729:-        # I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume-state load with
+3730:-        # RESUME-FROM-NEAREST across two staged checkpoints.
+3732:-        # Two checkpoints exist, in stage order (earlier -> later):
+3741:-        # --resume every faithfulness gate (strict_verify / NLI / 4-role / D8) RE-RUNS on the
+3742:-        # reloaded data. RESUME-FROM-NEAREST picks the LATER checkpoint when both exist (it
+3745:-        # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
+3748:-        # every downstream `_resume_active`/`not _resume_active` guard keeps its EXACT existing
+3749:-        # semantics (= "resumed from corpus_snapshot"); `_resume_from_fetch` only gates the
+3750:-        # pre-fetch network lanes + the retrieval reconstruct. OFF (no --resume) keeps every
+3751:-        # branch byte-identical EXCEPT the INTENTIONAL additive post-fetch checkpoint: a fresh
+3752:-        # run now writes `fetch_snapshot.json` (the new resume-from-nearest artifact) and emits
+3753:-        # one `[checkpoint]` log line at the post-fetch seam (~L5116). That artifact + log line
+3768:-        _resume_active = False          # resumed from the POST-SELECTION corpus_snapshot
+3769:-        _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
+3770:-        _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
+3771:-        _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+3772:-        if resume:
+3773:-            # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
+3776:-                _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+3777:-                _resume_active = True
+3779:-                _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
+3780:-                _resume_from_fetch = True
+3783:-        # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
+3786:-        log_f = log_path.open("a" if (_resume_active or _resume_from_fetch) else "w", encoding="utf-8")
+3929:-        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+4198:-        # I-meta-005 Phase 4 (#988): the generator-bound plan + partial flag.
+4202:-        _partial_mode = False
+4239:-                # call raised — the OpenRouter client bills partial cost before
+4260:-                        # on raise (OpenRouter bills partial cost before
+4415:-        if (not _resume_active) and (not _resume_from_fetch) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):

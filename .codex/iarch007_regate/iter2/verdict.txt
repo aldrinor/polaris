@@ -1,0 +1,10 @@
+verdict: APPROVE
+release_p0_closed: yes
+gen_p0_closed: yes
+fetch_p0_closed: yes
+sweep_p0_closed: yes
+sweep_p1_closed: yes
+faithfulness_relaxation_found: no
+novel_p0: []
+p1: []
+convergence_call: accept_remaining

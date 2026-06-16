@@ -1,0 +1,7 @@
+A20 CLOSED; A6 CLOSED; A4 CLOSED. New issue remains in default-on anti-restatement.
+
+verdict: REQUEST_CHANGES
+p0: [src/polaris_graph/generator/multi_section_generator.py](/C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:6648) now runs anti-restatement by default, but [src/polaris_graph/generator/fact_dedup.py](/C:/POLARIS/src/polaris_graph/generator/fact_dedup.py:652) and [src/polaris_graph/generator/fact_dedup.py](/C:/POLARIS/src/polaris_graph/generator/fact_dedup.py:678) still drop redundant cited sentences on malformed/null rewrite, losing corroborating sources instead of consolidating/keeping all.
+p1: none
+faithfulness_ok: yes
+wiring_complete: no
