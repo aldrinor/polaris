@@ -1167,14 +1167,28 @@ async def run_contract_section(
         and credibility_analysis is not None
         and dropped_sentences
     ):
-        # P1-1 (Codex diff-gate): capture each dropped sentence's ORIGINAL primary
-        # cited evidence_id (the slot-mapped one) BY id() BEFORE the in-place
-        # re-anchor mutation. After re-anchor, the sibling's eid is NOT in
-        # `entity_to_slot_id`, so the slot regroup below (line ~1277) would map it
-        # to None and DROP the recovered claim from `verified_text` — present in
-        # biblio yet never rendered. Recording {id(sv): original_primary_eid} here
-        # lets us register the sibling into `entity_to_slot_id` under the SAME slot
-        # the original token used, so the recovered claim actually ships.
+        # P1-1 (Codex diff-gate) + deeper-edge fix: capture each dropped sentence's
+        # ORIGINAL primary cited evidence_id (the slot-mapped one) BY id() BEFORE the
+        # IN-PLACE re-anchor mutation (`_recover_via_sibling_basket` mutates the same
+        # SV object and returns it, so id() is stable across the call). After
+        # re-anchor, the sibling's eid is NOT in `entity_to_slot_id`, so the slot
+        # regroup below (line ~1316) would map it to None and DROP the recovered claim
+        # from `verified_text` — present in biblio yet never rendered.
+        #
+        # The FIRST P1-1 attempt registered the sibling eid into the GLOBAL
+        # `entity_to_slot_id` via setdefault. That is unsafe in two edge cases Codex
+        # re-flagged: (a) the sibling eid is ALREADY slot-bound (setdefault no-ops, so
+        # the recovered claim renders under the sibling's existing slot, not its own);
+        # (b) TWO dropped SVs from DIFFERENT original slots re-anchor to the SAME
+        # sibling (the first setdefault wins, so the second claim renders under the
+        # first claim's slot). Both are real slot MIS-ATTRIBUTION.
+        #
+        # Fix: record THIS SV's own original slot on the SV itself
+        # (`reanchor_original_slot_id`, an additive ATTRIBUTION-only field) and consult
+        # it FIRST in the slot regroup — a per-SV override that cannot collide across
+        # SVs and never mutates the global map. The original eid's slot is resolved
+        # against `entity_to_slot_id` here (unmutated), so a genuinely unmapped
+        # original eid still leaves the claim unrendered (no home slot to attribute to).
         import re as _slot_prov_re_mod
         _slot_prov_re = _slot_prov_re_mod.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
         _orig_primary_eid_by_sv_id: dict[int, str] = {}
@@ -1187,12 +1201,14 @@ async def run_contract_section(
             dropped_sentences, evidence_pool, credibility_analysis,
         )
         if _reanchored_svs:
-            # P1-1: register each re-anchored sibling's evidence_id into the slot
-            # map under the slot its ORIGINAL cited token belonged to, so the
-            # post-merge slot regroup (which keys on tokens[0].evidence_id) buckets
-            # the recovered claim into a real slot and emits it into verified_text.
-            # Guard: only when the original eid was itself slot-mapped (else the
-            # sibling has no home slot and the claim legitimately stays unrendered).
+            # PER-SV slot override: stamp each re-anchored SV with the slot ITS OWN
+            # original cited token belonged to, so the post-merge slot regroup (which
+            # keys on tokens[0].evidence_id via the global map) renders the recovered
+            # claim under its ORIGINAL slot. Set on the SV (a declared dataclass field)
+            # so `dataclasses.replace` inside apply_disclosure_to_svs carries it
+            # through the disclosure re-populate. Only when the original eid was itself
+            # slot-mapped (else the sibling has no home slot and the claim legitimately
+            # stays unrendered). NO global-map mutation => no cross-SV leak.
             for _ra_sv in _reanchored_svs:
                 _orig_eid = _orig_primary_eid_by_sv_id.get(id(_ra_sv))
                 _orig_slot = (
@@ -1200,13 +1216,12 @@ async def run_contract_section(
                 )
                 if _orig_slot is None:
                     continue
-                _ra_tokens = getattr(_ra_sv, "tokens", None) or []
-                if not _ra_tokens:
+                try:
+                    _ra_sv.reanchor_original_slot_id = _orig_slot
+                except Exception:
+                    # A frozen / non-mutable SV cannot carry the override — leave it
+                    # unstamped (it falls back to the global-map lookup, never crashes).
                     continue
-                _sibling_eid = _ra_tokens[0].evidence_id
-                # Map the sibling to the original token's slot (idempotent; never
-                # overwrites an existing real binding for a genuine slot entity).
-                entity_to_slot_id.setdefault(_sibling_eid, _orig_slot)
             from .multi_section_generator import (
                 filter_underframed_trial_sentences,
             )
@@ -1313,7 +1328,19 @@ async def run_contract_section(
         if not tokens:
             continue
         primary_ev = tokens[0].evidence_id
-        slot_id = entity_to_slot_id.get(primary_ev)
+        # FIX 1 (PART-B, I-arch-002 [8]) P1-1 deeper-edge: a basket-repair re-anchored
+        # SV carries its OWN original slot in `reanchor_original_slot_id`. Consult that
+        # PER-SV override FIRST so each recovered claim renders under ITS OWN original
+        # slot — even when the sibling eid (now tokens[0].evidence_id) already has a
+        # global binding or is reused by several recovered claims from DIFFERENT slots.
+        # None (the off-path / non-recovered default) => fall through to the global map,
+        # so normally-kept sentences are byte-identical.
+        _override_slot = getattr(sv, "reanchor_original_slot_id", None)
+        slot_id = (
+            _override_slot
+            if _override_slot is not None
+            else entity_to_slot_id.get(primary_ev)
+        )
         if slot_id is None:
             continue
         # Build citation marker (preserve first-appearance order

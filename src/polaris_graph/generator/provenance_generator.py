@@ -613,6 +613,19 @@ class SentenceVerification:
     credibility_weight: float | None = None      # the source's disclosed credibility weight
     independent_origin_count: int | None = None  # "N sources -> M independent origins" (post-collapse)
     certainty_label: str = ""                    # e.g. "high" / "moderate" / "low"
+    # FIX 1 (PART-B, I-arch-002 [8]) P1-1 deeper-edge fix — basket-repair slot
+    # ATTRIBUTION carrier. When the contract runner re-anchors a strict-verify
+    # over-dropped sentence to a basket sibling, it records THIS recovered SV's OWN
+    # original slot here (the slot of its original failing citation). The downstream
+    # contract slot-regroup consults this PER-SV field FIRST so each recovered claim
+    # renders under ITS OWN original slot — even when the sibling evidence_id already
+    # has a global slot binding or is reused by several recovered claims from DIFFERENT
+    # slots (the global `entity_to_slot_id` setdefault could not distinguish those).
+    # ATTRIBUTION-only (which section a verified claim renders under); NEVER an input
+    # to is_verified or the six strict_verify checks. Additive default None => inert
+    # off the repair path, and `dataclasses.replace` (apply_disclosure_to_svs) carries
+    # it through, so it survives the disclosure re-populate. Byte-identical when None.
+    reanchor_original_slot_id: str | None = None
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
