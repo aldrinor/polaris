@@ -1101,6 +1101,11 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
     "PG_MAX_SUBQUERIES": "4",                # was 15
     "PG_STORM_PERSPECTIVES_COUNT": "3",      # was 8
     "PG_STORM_ROUNDS_PER_PERSPECTIVE": "2",  # was 4
+    # the SUPER-HEAVY pre-spend preflight requires discovery to return >= this many candidate URLs
+    # (default 100); the smoke discovers ~20-40, so lower the floor or it aborts before the sweep.
+    "PG_PREFLIGHT_MIN_BREADTH": "10",        # was 100
+    # I-cred-008b basket-coverage gate scales with breadth; keep the super-heavy preflight's own
+    # gates ON (faithfulness/behavioral) — only the BREADTH-count floor is lowered for the smoke.
     # timeout hierarchy — coherent per-call < generator < section < seam < run-wall, scaled so a HANG
     # is caught in ~40 min. A tiny smoke section finishes in minutes, well under these, so none
     # truncates a HEALTHY section (the arch-005 trap).

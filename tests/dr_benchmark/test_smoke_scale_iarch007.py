@@ -12,6 +12,17 @@ import os
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _restore_env():
+    """apply_full_capability_benchmark_slate() mutates os.environ DIRECTLY (it is the production slate),
+    so snapshot + restore the whole environment around each test — otherwise the smoke values
+    (e.g. PG_PREFLIGHT_MIN_BREADTH=10) leak into sibling dr_benchmark tests run in the same process."""
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)
+
+
 @pytest.fixture
 def gate_b():
     return importlib.import_module("scripts.dr_benchmark.run_gate_b")
@@ -31,6 +42,8 @@ def test_smoke_scale_on_forces_small_breadth_and_coherent_timeouts(gate_b, monke
     assert os.environ["PG_MAX_SUBQUERIES"] == "4"
     # the STORM min floor must drop too, else max(4) < min(12) -> abort_discovery_degraded
     assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "2"
+    # the super-heavy preflight breadth floor must drop (default 100) or it aborts before the sweep
+    assert os.environ["PG_PREFLIGHT_MIN_BREADTH"] == "10"
     assert os.environ["PG_STORM_PERSPECTIVES_COUNT"] == "3"
     assert os.environ["PG_MAX_COST_PER_RUN"] == "10"  # synced to the live module too
     # things the smoke DEPENDS on (must be present): A20 funnel OPEN (slate, untouched),

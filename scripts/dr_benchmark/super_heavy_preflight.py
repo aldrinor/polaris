@@ -78,6 +78,14 @@ _CREDIBILITY_OFF_TOKENS = ("", "0", "false", "off", "no")
 # UNCALIBRATED offline — may need tuning against the first real wide run (see I-preflight-002 caveats).
 _PREFLIGHT_MIN_BREADTH = int(os.getenv("PG_PREFLIGHT_MIN_BREADTH", "100"))
 
+
+def _min_breadth() -> int:
+    """I-arch-007: read the breadth floor at CALL time (not the import-frozen _PREFLIGHT_MIN_BREADTH),
+    so the --smoke-scale slate (which sets PG_PREFLIGHT_MIN_BREADTH small AFTER this module is imported)
+    actually takes effect — the same import-order trap Codex flagged on the other preflights. A full run
+    with no override reads the default 100, byte-identical to the frozen constant."""
+    return int(os.getenv("PG_PREFLIGHT_MIN_BREADTH", str(_PREFLIGHT_MIN_BREADTH)))
+
 # I-transport-001 (#1191) Site 5 (FIXES drb_78; LAW VI — env-overridable): the breadth probe
 # re-issues BOTH discovery backends up to this many EXTRA times before failing closed, so a single
 # transient S2 HTTP-500 / timeout (which `_s2_bulk_search` swallows to an empty list -> 0 S2 URLs ->
@@ -400,7 +408,7 @@ def _default_breadth_probe() -> int:
             if u:
                 urls.add(u)
         best = max(best, len(urls))
-        if best >= _PREFLIGHT_MIN_BREADTH:
+        if best >= _min_breadth():
             break
         if attempt < _BREADTH_PROBE_RETRIES:
             logger.warning(
@@ -609,10 +617,10 @@ async def super_heavy_preflight(
             f"super-heavy preflight: retrieval-breadth probe failed ({type(exc).__name__}: {exc}) — "
             f"fail closed BEFORE spend."
         )
-    if n_candidates < _PREFLIGHT_MIN_BREADTH:
+    if n_candidates < _min_breadth():
         raise GateError(
             f"super-heavy preflight: ONE real query through the production discovery path returned "
-            f"{n_candidates} unique candidate URLs (< {_PREFLIGHT_MIN_BREADTH} required) — the run is "
+            f"{n_candidates} unique candidate URLs (< {_min_breadth()} required) — the run is "
             f"SILENTLY THROTTLED back to a narrow corpus (the ~40-URL / single-page-Serper regression "
             f"class). The 1000-budget/STORM-wide path is NOT active. Aborting BEFORE spend."
         )
