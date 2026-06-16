@@ -121,8 +121,15 @@ def claim_graph_enabled() -> bool:
 
 def _credibility_redesign_enabled() -> bool:
     """True when ``PG_SWEEP_CREDIBILITY_REDESIGN`` is on. OFF => byte-identical
-    (the legacy positional merge keys run, so clustering is unchanged)."""
-    return os.environ.get(_CRED_REDESIGN_FLAG, "").strip().lower() not in _OFF_VALUES
+    (the legacy positional merge keys run, so clustering is unchanged).
+
+    P0-A20 (I-arch-007): UNSET now evaluates ON (default ``"on"``), so the spec-driven
+    ``build_merge_key`` clustering — which CONSOLIDATES equivalent claims across sources into
+    multi-member baskets — is the coherent default. Pre-fix the empty-string default (a member
+    of ``_OFF_VALUES``) left clustering on the legacy positional keys, so baskets stayed
+    singletons (the A13 "diagnostic label only" symptom). An explicit ``=0/off/false/no`` still
+    returns False -> legacy positional keys -> byte-identical regression path."""
+    return os.environ.get(_CRED_REDESIGN_FLAG, "on").strip().lower() not in _OFF_VALUES
 
 
 def _int_env(name: str, default: int) -> int:
@@ -514,6 +521,18 @@ def build_merge_key(claim: Any) -> tuple:
          is True) returns the SAME singleton. A defaulted/derived value is unknown
          (design §4.3).
     Otherwise the tuple is emitted FROM the spec (field-in-key == field-in-spec).
+
+    P1-A13 (I-arch-007) RESIDUAL: this fail-closed-on-ANY-unknown rule is WHY clinical
+    numeric baskets stay singletons (the extractor leaves dose/comparator/effect_measure/
+    endpoint_phrase/route_formulation blank, each forcing ``__unresolved__``). Letting a
+    BLANK optional consolidate (ABSENT==ABSENT) would close A13 for clinical numerics, but
+    that change DIRECTLY violates the Codex-hardened arch002 contracts
+    (test_20_unknown_discriminator_forces_singleton_even_with_spec / test_5 / test_23 assert
+    a blank ``comparator``/``direction`` MUST singleton) and the defaulted-arm Slice-B P0 — a
+    relaxation NOT in this campaign's scope; it needs its own Codex gate. A13 is CLOSED for the
+    A20-activated path (multi-member clustering IS the default once the redesign flag is on —
+    fully-populated specs, incl. nonclinical numerics, DO consolidate; smoke-proven) and a
+    documented residual for the blank-clinical-qualifier case.
     """
     raw_domain = getattr(claim, "domain", "")
     domain = normalize_domain(raw_domain)

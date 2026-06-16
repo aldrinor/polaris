@@ -1904,12 +1904,20 @@ def prefer_journal_over_arxiv(
 
 def _credibility_redesign_enabled() -> bool:
     """I-arch-002 (#1246): master switch for the WEIGHT-AND-CONSOLIDATE redesign
-    (CLAUDE.md §-1.3). Default OFF — when unset, every redesign branch below stays
-    on the legacy DROP/CAP path, so selection is byte-identical. Read from
-    ``PG_SWEEP_CREDIBILITY_REDESIGN`` (the single master flag that governs the whole
-    migration; the selection boundary previously had ZERO flag influence)."""
-    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() in (
-        "1", "true", "yes", "on",
+    (CLAUDE.md §-1.3). Read from ``PG_SWEEP_CREDIBILITY_REDESIGN`` (the single master flag
+    that governs the whole migration; the selection boundary previously had ZERO flag
+    influence).
+
+    P0-A20 (I-arch-007, 602->22 funnel): UNSET now evaluates ON — the redesign WEIGHT-don't-DROP
+    selection branch is the coherent default, matching the run-path mirror
+    (``run_honest_sweep_r3._cred_redesign_on`` defaults ``"on"``) and the other library mirrors.
+    Pre-fix the empty-string default fell through the on-list membership test to False, so the
+    selection boundary stayed on the legacy DROP/CAP path while the orchestrator believed the
+    redesign was on — exactly the source-funnel split. An EXPLICIT
+    ``PG_SWEEP_CREDIBILITY_REDESIGN=0`` (off/false/no) still returns False -> legacy DROP/CAP path
+    -> byte-identical regression case."""
+    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower() not in (
+        "", "0", "false", "off", "no",
     )
 
 
@@ -1933,15 +1941,20 @@ def _relevance_floor_selection(
     ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
     drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
 
-    B1 (b1b10 redesign): when ``semantic_mode`` (the score in each tuple is the
-    embedding-cosine relevance, PG_RELEVANCE_SCORER=semantic_v2), the keep set is
-    the RESTORED relevance FILTER (``score >= floor OR floor-exempt``) — reversing
-    the credibility-redesign keep-all over-correction that had let off-topic noise
-    through. Relevance FILTERS; credibility/authority/retrieval_weight WEIGHT the
-    sort (orthogonal axes). ``semantic_requested`` / ``semantic_fell_back`` are
-    telemetry only. When ``semantic_mode`` is False every branch is byte-identical
-    to the prior behavior (the lexical keep-all under PG_SWEEP_CREDIBILITY_REDESIGN,
-    or the lexical floor filter otherwise).
+    P0-A6 (I-arch-007, §-1.3 WEIGHT-not-FILTER): under the redesign (the coherent
+    DEFAULT, PG_SWEEP_CREDIBILITY_REDESIGN unset/on) relevance is a WEIGHT, never a hard
+    FILTER — in BOTH semantic and lexical modes the keep set is ALL scored rows, and the
+    ``relevance x authority x retrieval_weight`` sort pushes a below-floor (low-cosine)
+    row LAST so off-topic noise sinks to the bottom of the pool WITHOUT being silently
+    dropped. ``semantic_mode``/``semantic_requested``/``semantic_fell_back`` are
+    telemetry/labelling only on this path. This supersedes the prior B1 logic, which had
+    RESTORED a hard below-floor DROP whenever the semantic scorer was requested — a
+    rank-then-DROP gate that re-introduced the FILTER-AND-CAP anti-pattern §-1.3 forbids.
+    The ONLY hard gate is the faithfulness engine (strict_verify / NLI / 4-role), untouched.
+
+    Legacy path (explicit PG_SWEEP_CREDIBILITY_REDESIGN=0): the relevance FILTER
+    (``score >= floor OR floor-exempt``) runs unchanged in both lexical and semantic
+    modes — byte-identical regression behavior.
     """
     # I-scope-001 (#1244) gate 1: low-cred domain denylist. Default-OFF — when
     # `PG_SCOPE_DENYLIST_DOMAINS` is empty, `_apply_scope_denylist` returns
@@ -2020,7 +2033,21 @@ def _relevance_floor_selection(
     # never a silent keep-all". So keep-all is preserved ONLY when semantic was NOT
     # requested at all (the true legacy path) => byte-identical default.
     _redesign_on = _credibility_redesign_enabled()
-    _restore_filter = semantic_mode or semantic_requested
+    # P0-A6 (I-arch-007, §-1.3 WEIGHT-not-FILTER): relevance/topicality is a WEIGHT, never a
+    # hard rank-then-DROP FILTER, under the redesign. The prior B1 logic RESTORED a hard
+    # below-floor DROP whenever the SEMANTIC scorer was requested/active (`_restore_filter`).
+    # That re-made topicality a FILTER-AND-CAP gate — the exact anti-pattern §-1.3 forbids.
+    # FIX: under the redesign, a below-floor (low-cosine) non-exempt row is KEPT and
+    # DOWN-WEIGHTED — the existing `relevance x authority x retrieval_weight` sort below
+    # pushes it LAST (low cosine -> low product -> sorts last), so off-topic noise still
+    # sinks to the bottom of the pool WITHOUT being silently dropped. The source flows to
+    # composition carrying its (low) topicality weight; the ONLY hard gate is the
+    # faithfulness engine (strict_verify / NLI / 4-role), which is untouched. No floor was
+    # raised; no torch reranker added (§8.4). `semantic_mode` / `semantic_requested` are
+    # now telemetry/labelling only on the redesign path (the strategy id + LOUD degrade note
+    # below are preserved). When the redesign is OFF (explicit PG_SWEEP_CREDIBILITY_REDESIGN=0)
+    # the legacy lexical/semantic floor FILTER runs unchanged (byte-identical regression).
+    #
     # BUG-14 (GH #1262, §-1.3 WEIGHT-not-FILTER): a FAILED / STUB / content-starved
     # / landing-page fetch yields a DEGENERATE embedding (empty statement+quote →
     # near-zero, often IDENTICAL, cosine — drb_72 logged two distinct journal URLs
@@ -2034,9 +2061,12 @@ def _relevance_floor_selection(
     # disclosure — never SILENTLY dropped. Gated by PG_SELECT_KEEP_DEGENERATE_FETCH
     # (default ON = the §-1.3-correct behavior; flag exists only for audit/reversal).
     # Faithfulness is untouched: a NON-empty below-floor row (genuine off-topic) is
-    # STILL dropped, and no verify gate is relaxed.
+    # STILL dropped on the legacy (redesign-OFF) path, and no verify gate is relaxed.
     _keep_degenerate = _keep_degenerate_fetch_enabled()
-    if _redesign_on and not _restore_filter:
+    if _redesign_on:
+        # WEIGHT, not FILTER: keep ALL scored rows; the relevance-weighted sort below
+        # down-weights below-floor rows so they sort LAST (never a hard drop). This holds
+        # in BOTH semantic and lexical modes under the redesign (P0-A6).
         kept = list(scored)
     elif _keep_degenerate:
         kept = [
@@ -2050,11 +2080,16 @@ def _relevance_floor_selection(
             item for item in scored
             if item[1] >= relevance_floor or _floor_exempt(item[3])
         ]
-    # B1: drop ledger — log every below-floor relevance drop (score + url) so the
-    # operator can audit the semantic filter. Only emits in semantic_mode (the
-    # legacy lexical-floor path already has its own honest-drop log below) and only
-    # when PG_RELEVANCE_DROP_LEDGER is ON. Telemetry only — does not change `kept`.
+    # B1 + P0-A6: relevance ledger — log every below-floor relevance row (score + url) so
+    # the operator can audit the semantic weighting. Only emits in semantic_mode (the
+    # legacy lexical-floor path already has its own honest-drop log below) and only when
+    # PG_RELEVANCE_DROP_LEDGER is ON. Telemetry only — does not change `kept`.
+    # P0-A6 (§-1.3 WEIGHT-not-FILTER): under the redesign these rows are KEPT and
+    # DOWN-WEIGHTED (sorted LAST), not dropped — the ledger verb says DOWN-WEIGHT so the
+    # operator audit is honest. On the legacy (redesign-OFF) path they are dropped, so it
+    # says DROP. Same audit surface + log key, accurate verb for the actual action.
     if semantic_mode and _relevance_drop_ledger_enabled():
+        _ledger_verb = "DOWN-WEIGHT(kept-sorted-last)" if _redesign_on else "DROP"
         for item in scored:
             if item[1] < relevance_floor and not _floor_exempt(item[3]):
                 _row = item[3]
@@ -2063,8 +2098,8 @@ def _relevance_floor_selection(
                 )
                 _LOGGER.info(
                     "[select] relevance_drop_ledger: cosine=%.4f < floor=%.4f "
-                    "DROP url=%s tier=%s",
-                    item[1], relevance_floor, _url, item[2],
+                    "%s url=%s tier=%s",
+                    item[1], relevance_floor, _ledger_verb, _url, item[2],
                 )
     # F15: under the redesign, multiply the ranking score by the per-row
     # retrieval weight so a DOWN-WEIGHTED (content-starved / landing-page) source
@@ -2158,20 +2193,30 @@ def _relevance_floor_selection(
     # least one such row was kept, so a clean run's note is byte-identical.
     if _keep_degenerate and fetch_degenerate_exempt:
         note += f"; fetch_degenerate_exempt={fetch_degenerate_exempt}"
-    # B1: surface the semantic-scorer state in telemetry. Strategy id flips to
+    # B1 + P0-A6: surface the semantic-scorer state in telemetry. Strategy id flips to
     # `relevance_floor_semantic_v1` ONLY when the semantic score actually drove the
-    # filter (the falsifiable manifest check). A requested-but-fell-back run keeps
-    # the legacy strategy id and discloses the LOUD degrade in the note. When the
+    # weighting/filter (the falsifiable manifest check). A requested-but-fell-back run
+    # keeps the legacy strategy id and discloses the LOUD degrade in the note. When the
     # scorer is OFF (the default), strategy + note are byte-identical to the prior
-    # behavior.
+    # behavior. P0-A6 (§-1.3): under the redesign semantic_v2 is an embedding-cosine
+    # WEIGHT (it ranks the sort; below-floor rows are KEPT and sorted LAST), not a hard
+    # FILTER — the label says WEIGHT. On the legacy (redesign-OFF) path it is still the
+    # below-floor FILTER, so the label says FILTER there.
     strategy = "relevance_floor_v1"
     if semantic_mode:
         strategy = "relevance_floor_semantic_v1"
-        note += "; relevance_scorer=semantic_v2 (embedding-cosine FILTER)"
+        note += (
+            "; relevance_scorer=semantic_v2 (embedding-cosine WEIGHT: below-floor "
+            "kept + sorted LAST)" if _redesign_on
+            else "; relevance_scorer=semantic_v2 (embedding-cosine FILTER)"
+        )
     elif semantic_requested and semantic_fell_back:
         note += (
             "; relevance_scorer=semantic_v2 REQUESTED but embedder unavailable "
-            "— LOUD fallback to lexical scorer (filtered on lexical score)"
+            "— LOUD fallback to lexical scorer ("
+            + ("WEIGHTED, below-floor kept + sorted last" if _redesign_on
+               else "filtered on lexical score")
+            + ")"
         )
     return EvidenceSelection(
         selected_rows=selected_rows,

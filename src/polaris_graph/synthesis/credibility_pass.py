@@ -49,8 +49,17 @@ _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
 
 
 def credibility_redesign_enabled() -> bool:
-    """The master activation slate. OFF ⇒ the runner never calls the pass ⇒ byte-identical."""
-    return os.environ.get(_MASTER_FLAG, "").strip().lower() not in _OFF_VALUES
+    """The master activation slate. OFF ⇒ the runner never calls the pass ⇒ byte-identical.
+
+    P0-A20 (I-arch-007, 602->22 funnel): the WEIGHT-AND-CONSOLIDATE redesign (CLAUDE.md §-1.3)
+    is now the COHERENT DEFAULT — UNSET evaluates ON, matching the run-path mirror
+    ``run_honest_sweep_r3._cred_redesign_on`` (which already defaults ``"on"``). Pre-fix this
+    helper (and the other four library mirrors) defaulted to the EMPTY string, which IS a member
+    of ``_OFF_VALUES`` -> unset evaluated OFF -> the library stayed on the legacy filter-and-cap /
+    source-DROP path while the orchestrator believed the redesign was on. That split IS the funnel.
+    An EXPLICIT ``PG_SWEEP_CREDIBILITY_REDESIGN=0`` (or off/false/no) still returns False -> the
+    legacy path is preserved byte-for-byte for the regression/escape-hatch case."""
+    return os.environ.get(_MASTER_FLAG, "on").strip().lower() not in _OFF_VALUES
 
 
 class CredibilityPassError(RuntimeError):

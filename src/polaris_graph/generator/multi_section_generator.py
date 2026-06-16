@@ -226,13 +226,21 @@ async def _run_section_with_wallclock(runner, plan):
 # AND-CONSOLIDATE, not FILTER-AND-CAP). Faithfulness (strict_verify / NLI / 4-role) is
 # downstream of full-pool text resolution and is untouched.
 def _credibility_redesign_enabled() -> bool:
-    """True iff PG_SWEEP_CREDIBILITY_REDESIGN is truthy ({1,true,yes,on}). Default
-    OFF. Mirrors the hoisted ``_cred_redesign_on`` boolean in the sweep runner and
+    """True iff PG_SWEEP_CREDIBILITY_REDESIGN is on. Mirrors the hoisted
+    ``_cred_redesign_on`` boolean in the sweep runner and
     ``credibility_pass.credibility_redesign_enabled`` so ONE flag coherently governs
-    the whole migration."""
+    the whole migration.
+
+    P0-A20 (I-arch-007, 602->22 funnel): UNSET now evaluates ON (default ``"on"``) so the
+    redesign is the coherent default, matching the run-path mirror
+    (``run_honest_sweep_r3._cred_redesign_on`` already defaults ``"on"``). Pre-fix the empty-string
+    default fell through the truthy on-list to False, so this generator mirror stayed OFF while the
+    orchestrator believed the redesign was on — the source-funnel split. An EXPLICIT
+    ``PG_SWEEP_CREDIBILITY_REDESIGN=0`` (off/false/no) still returns False -> byte-identical legacy
+    path."""
     return (
-        os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower()
-        in ("1", "true", "yes", "on")
+        os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower()
+        not in ("", "0", "false", "off", "no")
     )
 
 
@@ -2354,6 +2362,31 @@ def _section_distill_enabled() -> bool:
     )
 
 
+def _anti_restatement_enabled() -> bool:
+    """P1-A7 (I-arch-007): the cross-section anti-restatement CONSOLIDATION pass.
+
+    Read at CALL TIME. Default ON (unset => ON), coherent with the A20
+    WEIGHT-AND-CONSOLIDATE redesign default — so a fact restated across sections is
+    CONSOLIDATED into ONE primary statement + cross-references that KEEP every source's
+    citation (the ``fact_dedup`` cross-reference rewrite), rather than left as duplicated
+    prose. §-1.3 (CONSOLIDATE, don't DROP): repetition is corroboration; the pass keeps
+    all sources as a cross-referenced multi-citation, it does not delete a corroborating
+    source. An explicit ``PG_ANTI_RESTATEMENT=0`` (off/false/no) SKIPS the consolidation
+    pass entirely => restated prose passes through untouched (all sources kept verbatim,
+    no cross-ref rewrite) — the byte-identical no-consolidation escape hatch.
+
+    SCOPE NOTE (honest residual): the consolidate-vs-drop semantics inside the pass live
+    in ``generator/fact_dedup.py`` (``rewrite_redundant_sentences`` / ``apply_rewrites``),
+    which is OUTSIDE this campaign's editable set. This predicate wires the named flag at
+    the call site so the consolidation pass is an explicit, A20-coherent default-on step;
+    the pass already KEEPS restated facts as cross-references (the drop-to-PRIMARY-only
+    branch is a safe-fail fallback that fires ONLY on an LLM rewrite failure)."""
+    return (
+        os.getenv("PG_ANTI_RESTATEMENT", "on").strip().lower()
+        not in ("", "0", "false", "off", "no")
+    )
+
+
 def _select_section_system_prompt(
     use_field_agnostic: bool, anti_verbosity: bool = False
 ) -> str:
@@ -2850,6 +2883,189 @@ async def _call_section(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# P0-A4 (I-arch-007): basket-atomic comparative synthesis recovery.
+#
+# A COMPARATIVE synthesis sentence states a relationship ACROSS sources, e.g.
+# "Drug A reduced weight 14.9% [#ev:A:10-50] versus 6.0% with placebo [#ev:B:5-40]".
+# Single-span strict_verify DROPS it: the §9.1.3(c) decimal-in-span check requires
+# EVERY decimal in the sentence to appear in the cited span, but A's span carries
+# only "14.9%" (not "6.0%") and B's span only "6.0%" — so neither single span
+# satisfies the WHOLE sentence and the comparison dies even though each half is
+# independently grounded. That is an OVER-DROP of a faithful synthesis (a beat-both
+# completeness lever), NOT a fabrication.
+#
+# RECOVERY (basket-atomic, ALL-or-NEI): decompose the comparative sentence into
+# per-SOURCE atomic sub-claims — one atom per cited token, carrying ONLY that token
+# and the text/number around it — and verify EACH atom against its OWN single span
+# with the EXISTING, UNCHANGED single-span gate (verify_sentence_provenance). The
+# original synthesis sentence is LICENSED iff EVERY atom independently passes. This
+# is NOT a relaxation: it is the same hard single-span gate applied per source, then
+# AND-ed (one failing atom => the whole sentence stays dropped). NO score-pooling, NO
+# LLM free-text comparative, NO union-span laundering. A recovered sentence then flows
+# through the SAME M-41c policy filter + credibility-disclosure + resolve path as any
+# normally-kept sentence (it is NOT appended after those gates).
+#
+# FAITHFULNESS: strict (not relaxed). Conservative by construction — an ambiguous
+# decomposition (a number that cannot be attributed to exactly one atom, a token
+# whose own decimals are not all present in its atom text) means the sentence is NOT
+# recovered (stays dropped). A missed true comparative is safe; a falsely-licensed one
+# would be a fabrication, so the bias is hard toward leaving it dropped.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_COMPARATIVE_RECOVERY = "PG_GEN_COMPARATIVE_RECOVERY"
+
+# Deterministic comparator cue: a comparative sentence joins two source-cited values
+# with one of these relational connectives. Used ONLY to gate which dropped sentences
+# are eligible for atomic decomposition (a cheap pre-filter); the actual licensing is
+# the per-atom single-span verification, never this regex.
+_COMPARATIVE_CUE_RE = re.compile(
+    r"\b(?:versus|vs\.?|compared\s+(?:to|with)|relative\s+to|"
+    r"whereas|while|than|against|in\s+contrast(?:\s+to)?)\b",
+    re.IGNORECASE,
+)
+
+
+def _comparative_recovery_enabled() -> bool:
+    """P0-A4 (I-arch-007): basket-atomic comparative recovery is the coherent DEFAULT
+    (unset => ON), matching the WEIGHT-AND-CONSOLIDATE redesign default. An explicit
+    ``PG_GEN_COMPARATIVE_RECOVERY=0`` (off/false/no) disables it => byte-identical legacy
+    path (no recovery; comparative synthesis stays dropped). Read at CALL time so tests
+    can toggle per-invocation."""
+    return (
+        os.getenv(_ENV_COMPARATIVE_RECOVERY, "on").strip().lower()
+        not in ("", "0", "false", "off", "no")
+    )
+
+
+def _decompose_comparative_atoms(sentence: str) -> list[str] | None:
+    """Decompose a comparative sentence into per-token atomic sub-claim TEXTS.
+
+    Each atom is the SLICE of the sentence from the end of the previous token (or the
+    sentence start) THROUGH this token, so every atom carries EXACTLY ONE [#ev:...]
+    token plus the clause/number immediately preceding it. This keeps each source's
+    number with its own token — the property single-span strict_verify needs (the
+    other comparator's number is in a DIFFERENT atom, so each atom's decimal-in-span
+    check is satisfiable against its own span).
+
+    Returns None (NOT eligible — leave the sentence dropped) when:
+      * fewer than 2 DISTINCT cited evidence_ids (not a cross-source comparison), or
+      * no deterministic comparative cue is present, or
+      * any atom slice carries no [#ev:...] token (defensive: malformed split), or
+      * ANY digit appears in the TAIL after the last token (the anti-laundering guard:
+        such a number — e.g. a derived "gap of 8.9 points" — is covered by NO atom's
+        single-span check, so it would ride into the licensed sentence UNVERIFIED. That
+        is exactly the fabrication strict_verify originally dropped the sentence for, so
+        an un-attributable tail decimal makes the WHOLE sentence ineligible — it stays
+        dropped). Leading + inter-token decimals are inside an atom and ARE verified;
+        only the post-last-token tail is the hole this guard closes.
+
+    Pure + deterministic. No LLM. Reuses the canonical provenance token grammar.
+    """
+    from .provenance_generator import parse_provenance_tokens
+
+    tokens = parse_provenance_tokens(sentence)
+    if len(tokens) < 2:
+        return None
+    distinct_evs = {t.evidence_id for t in tokens}
+    if len(distinct_evs) < 2:
+        # Same source cited twice is NOT a cross-source comparison — single-span
+        # verification already covers it; do not decompose.
+        return None
+    if not _COMPARATIVE_CUE_RE.search(sentence):
+        return None
+
+    atoms: list[str] = []
+    cursor = 0
+    for tok in tokens:
+        # The literal token text is tok.raw; find its position at/after the cursor so
+        # repeated identical tokens are sliced left-to-right deterministically.
+        idx = sentence.find(tok.raw, cursor)
+        if idx < 0:
+            return None
+        end = idx + len(tok.raw)
+        atom_text = sentence[cursor:end].strip()
+        if "[#ev:" not in atom_text:
+            return None
+        atoms.append(atom_text)
+        cursor = end
+    if len(atoms) < 2:
+        return None
+    # ANTI-LAUNDERING (A4): a digit in the TAIL after the last token is verified by NO
+    # atom. Refuse recovery so an unattributable/derived number can never be licensed
+    # (over-refusal of a benign tail like "...at 68 weeks" is SAFE; a laundered tail
+    # decimal is a fabrication). `re` is already imported at module scope.
+    if re.search(r"\d", sentence[cursor:]):
+        return None
+    return atoms
+
+
+def _recover_comparative_synthesis(
+    dropped_sentences: list[Any],
+    evidence_pool: dict[str, Any],
+) -> tuple[list[Any], list[Any]]:
+    """P0-A4 (I-arch-007): recover OVER-DROPPED comparative synthesis sentences via
+    basket-atomic, ALL-or-NEI per-source verification.
+
+    For each dropped SentenceVerification: decompose into per-source atom texts; verify
+    EACH atom with the EXISTING, UNCHANGED single-span gate (verify_sentence_provenance)
+    against the same evidence_pool; LICENSE the ORIGINAL sentence iff EVERY atom passes
+    (is_verified). The recovered SentenceVerification is the ORIGINAL object with
+    is_verified flipped True and a soft_warning recording the atomic provenance — the
+    original tokens/sentence are byte-preserved so downstream resolve renders ALL its
+    citations.
+
+    Returns (recovered, still_dropped). ``recovered`` preserves input order. A sentence
+    that is not eligible (None decomposition) OR whose any atom fails stays in
+    ``still_dropped`` (never resurrected). This NEVER relaxes the gate: a comparative is
+    licensed only when every constituent single-span check — the SAME check that would
+    keep a non-comparative sentence — independently passes.
+    """
+    from .provenance_generator import verify_sentence_provenance
+
+    recovered: list[Any] = []
+    still_dropped: list[Any] = []
+    for sv in dropped_sentences:
+        text = getattr(sv, "sentence", None)
+        if not isinstance(text, str) or not text.strip():
+            still_dropped.append(sv)
+            continue
+        atoms = _decompose_comparative_atoms(text)
+        if not atoms:
+            still_dropped.append(sv)
+            continue
+        all_atoms_pass = True
+        for atom_text in atoms:
+            atom_v = verify_sentence_provenance(
+                atom_text, evidence_pool, require_number_match=True,
+            )
+            if not getattr(atom_v, "is_verified", False):
+                all_atoms_pass = False
+                break
+        if not all_atoms_pass:
+            still_dropped.append(sv)
+            continue
+        # LICENSE the original synthesis sentence. Flip is_verified on the ORIGINAL
+        # object (tokens/sentence byte-preserved) and disclose the atomic provenance so
+        # the recovery is auditable, never silent. No other field is touched — the
+        # sentence carries its OWN cited tokens into resolve exactly as written.
+        try:
+            sv.is_verified = True
+            warns = list(getattr(sv, "soft_warnings", None) or [])
+            warns.append(
+                "A4_comparative_recovery: licensed via basket-atomic per-source "
+                f"verification ({len(atoms)} atoms, all SUPPORTS on their own span)"
+            )
+            sv.soft_warnings = warns
+        except Exception:
+            # A frozen / non-mutable SV is not eligible — keep it dropped rather than
+            # risk a half-mutated object reaching resolve.
+            still_dropped.append(sv)
+            continue
+        recovered.append(sv)
+    return recovered, still_dropped
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # M-41c: deterministic claim-frame post-check
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3296,6 +3512,48 @@ async def _run_section(
             raw, rewritten, report = raw2, rewritten2, report2
             report_kept_after_m41c = report2_kept_after_m41c
             report_dropped_m41c = report2_dropped_m41c
+
+    # P0-A4 (I-arch-007): basket-atomic comparative synthesis recovery. Runs on the
+    # CHOSEN report's strict_verify-DROPPED sentences (whichever pass won above), BEFORE
+    # the M-41c list is applied below, so every recovered sentence is routed THROUGH the
+    # SAME M-41c policy filter + credibility-disclosure + resolve path as a normally-kept
+    # sentence (NOT appended after the gates — per Codex). A comparative sentence is
+    # licensed iff EVERY per-source atom independently passes the UNCHANGED single-span
+    # gate (ALL-or-NEI); failures stay dropped. Default ON; PG_GEN_COMPARATIVE_RECOVERY=0
+    # => byte-identical legacy path (no recovery). The faithfulness engine is not relaxed
+    # — recovery is the same hard single-span check applied per source and AND-ed.
+    if _comparative_recovery_enabled() and report.dropped_sentences:
+        _recovered_svs, _still_dropped = _recover_comparative_synthesis(
+            report.dropped_sentences, evidence_pool,
+        )
+        if _recovered_svs:
+            # Route recovered sentences THROUGH M-41c (the policy filter) exactly like
+            # the first-pass kept list — an under-framed trial-name comparative must NOT
+            # escape the filter. Survivors merge into the kept list; M-41c-failures join
+            # the section's M-41c drop bucket (so verification_details stays honest).
+            _rec_kept_m41c, _rec_dropped_m41c = (
+                filter_underframed_trial_sentences(_recovered_svs)
+            )
+            report_kept_after_m41c = report_kept_after_m41c + _rec_kept_m41c
+            if _rec_dropped_m41c:
+                report_dropped_m41c = (report_dropped_m41c or []) + _rec_dropped_m41c
+            # Honest accounting (mirror the repair-loop pattern): the recovered+kept
+            # sentences leave the strict_verify dropped list; the M-41c-failed recovered
+            # ones are accounted in report_dropped_m41c above, so removing the WHOLE
+            # recovered set from dropped_sentences avoids double-counting.
+            _recovered_ids = {id(sv) for sv in _recovered_svs}
+            report.dropped_sentences = [
+                sv for sv in report.dropped_sentences
+                if id(sv) not in _recovered_ids
+            ]
+            report.total_dropped = len(report.dropped_sentences)
+            logger.info(
+                "[multi_section] A4 comparative recovery: licensed %d of %d "
+                "strict-verify-dropped sentence(s) via basket-atomic per-source "
+                "verification in section %r (%d failed M-41c policy filter)",
+                len(_rec_kept_m41c), len(_recovered_svs), section.title,
+                len(_rec_dropped_m41c),
+            )
 
     # Apply the already-computed M-41c filtered list to the chosen
     # report (either first pass or retry, whichever won post-filter).
@@ -6023,7 +6281,10 @@ async def generate_multi_section_report(
     # credibility pass FAILS under always-release (degrade-to-OFF-path instead of aborting). None
     # when the pass succeeded or the flag is OFF (byte-identical).
     _credibility_disclosed_gap: str | None = None
-    if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
+    # P0-A20 (I-arch-007, 602->22 funnel): default ``"on"`` so UNSET activates the credibility pass
+    # coherently with the run-path mirror (run_honest_sweep_r3.py already defaults ``"on"``);
+    # an explicit =0/off still skips the pass (byte-identical legacy path).
+    if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower() not in ("", "0", "false", "off", "no"):
         from ..synthesis import credibility_pass as _credibility_pass  # gated import: inert when flag OFF
         from ..roles.release_policy import always_release_enabled as _always_release_enabled
         # I-arch-005 B12-COMPLETION (#1257): this judge-None / gov-suffixes-missing guard previously raised
@@ -6379,7 +6640,15 @@ async def generate_multi_section_report(
                 sv.sentence: sv for sv in sv_list
             }
             sections_for_dedup[sr.title] = [sv.sentence for sv in sv_list]
-        if sum(len(v) for v in sections_for_dedup.values()) >= 2:
+        # P1-A7 (I-arch-007): the anti-restatement CONSOLIDATION pass is gated on
+        # PG_ANTI_RESTATEMENT (default ON, A20-coherent). When ON, a fact restated across
+        # sections is consolidated into ONE primary + cross-references that KEEP every
+        # source's citation (§-1.3 CONSOLIDATE-keep-all). Explicit PG_ANTI_RESTATEMENT=0
+        # skips the pass => restated prose passes through untouched (all sources kept).
+        if (
+            _anti_restatement_enabled()
+            and sum(len(v) for v in sections_for_dedup.values()) >= 2
+        ):
             from src.polaris_graph.llm.openrouter_client import (
                 OpenRouterClient,
                 set_reasoning_call_context,
