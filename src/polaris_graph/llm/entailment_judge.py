@@ -141,6 +141,16 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
 # collapse). Retry the POST+parse this many extra times before emitting the sentinel; default 2
 # (=> up to 3 total attempts). 0 disables the retry (single attempt, the pre-#1191 behavior).
 _DEFAULT_ENTAILMENT_RETRIES = 2
+# I-arch-007 A2 (entailment-speed fix): a total-deadline (trickle-hang) timeout re-hangs on the SAME
+# pinned mirror provider, so the extra same-provider retries are ~_ENTAILMENT_TOTAL_S of dead wait that
+# almost never recovers — the dominant contributor to the hang-path worst case (3x150s=450s). Cap a
+# total_deadline_exceeded retry TIGHTER than the general transient-fault budget. DEFAULT here PRESERVES
+# current behaviour (= the general retry count, so the OFF path is byte-identical, LAW VI); the run slate
+# sets PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1 to apply the fix (=> up to 2 attempts on a hang vs 3 on a
+# transient fault). Faithfulness-NEUTRAL: the verdict emitted on exhaustion is the SAME fail-closed
+# ('ENTAILED','judge_error:…') sentinel the consumers DROP — fewer wasted retries, never a different verdict.
+_ENV_ENTAILMENT_TOTAL_DEADLINE_RETRIES = "PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES"
+_DEFAULT_ENTAILMENT_TOTAL_DEADLINE_RETRIES = _DEFAULT_ENTAILMENT_RETRIES
 # Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
 _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
 # I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
@@ -392,6 +402,15 @@ class _EntailmentJudge:
         # bad-verdict fault now RETRIES instead of immediately fail-closing the verdict (which the
         # consumers DROP -> over-drop of a salvageable verdict, the drb_72-class coverage collapse).
         _retries = max(0, int(os.environ.get("PG_ENTAILMENT_RETRIES", _DEFAULT_ENTAILMENT_RETRIES)))
+        # I-arch-007 A2: the tighter cap that applies ONLY to a total_deadline_exceeded (trickle-hang)
+        # retry. Never exceeds _retries (a total-deadline cap above the general cap is meaningless).
+        # Unset -> equals _retries -> byte-identical to the pre-fix path.
+        _total_deadline_retries = min(
+            _retries,
+            max(0, int(os.environ.get(
+                _ENV_ENTAILMENT_TOTAL_DEADLINE_RETRIES, _DEFAULT_ENTAILMENT_TOTAL_DEADLINE_RETRIES
+            ))),
+        )
         _backoff = max(
             0.0,
             float(os.environ.get(
@@ -494,10 +513,18 @@ class _EntailmentJudge:
                 raise
             except _RetryableJudgeError as exc:
                 last_reason = exc.reason
-                if attempt < _retries:
+                # I-arch-007 A2: a trickle-hung socket re-hangs on retry, so a total_deadline_exceeded
+                # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
+                # faults (which often DO recover on a fresh attempt) keep the full _retries budget.
+                _eff_retries = (
+                    _total_deadline_retries
+                    if exc.reason.startswith("total_deadline_exceeded")
+                    else _retries
+                )
+                if attempt < _eff_retries:
                     logger.warning(
                         "entailment judge bad verdict (attempt %d/%d): %s — retrying.",
-                        attempt + 1, _retries + 1, exc.reason,
+                        attempt + 1, _eff_retries + 1, exc.reason,
                     )
                     time.sleep(_backoff)
                     continue
