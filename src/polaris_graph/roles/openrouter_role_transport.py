@@ -889,6 +889,28 @@ class OpenRouterRoleTransport:
         base_url, api_key, model_slug = openrouter_role_endpoint(request.role)
         normalized_messages = _normalize_messages(request)
         body = _build_openrouter_body(request, model_slug, normalized_messages)
+        # A2/RC2 (iarch007): reconcile the body's max_tokens against the REAL provider context
+        # window via the SHARED finalize_body chokepoint — the SAME clamp openrouter_client._call_impl
+        # applies. The per-role _build_openrouter_body sets a generous budget at the chain-min ceiling
+        # (Judge 262140), but the model's window is prompt + completion: a 262140 budget on the
+        # qwen3.6 262144 window leaves only ~4 tokens for the prompt -> HTTP-400 on every real prompt
+        # (the qwen-judge 400 that HELD the A1/A2 report). finalize_body clamps DOWN to
+        # context_length - prompt - safety_margin so the prompt always has room. Clamp-DOWN only +
+        # pass-through on unknown/offline/disabled, so Mirror/Sentinel (131072, within the window) and
+        # every flag-OFF path stay byte-identical. The verifier roles are NOT reasoning-first, so the
+        # completion-cap clamp applies (it IS the HTTP-400 fix); reasoning EFFORT is untouched.
+        try:
+            from src.polaris_graph.llm.token_limit_resolver import (  # noqa: PLC0415
+                estimate_prompt_tokens as _estimate_prompt_tokens,
+                finalize_body as _finalize_body,
+            )
+
+            _prompt_tokens = _estimate_prompt_tokens(normalized_messages)
+            _finalize_body(body, model_slug, _prompt_tokens, apply_completion_cap=True)
+        except ImportError:
+            # The resolver is a governance backstop; a genuine import failure must not silently
+            # abort the verifier call. The per-role chain-min ceiling already bounds max_tokens.
+            pass
         url = f"{base_url}{_CHAT_COMPLETIONS_PATH}"
         headers = {
             "Authorization": f"Bearer {api_key}",

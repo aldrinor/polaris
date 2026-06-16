@@ -142,9 +142,15 @@ _STATIC_MODEL_LIMITS: dict[str, tuple[int, Optional[int]]] = {
     "z-ai/glm-5.1":               (200000, 131072),
     # Sentinel.
     "minimax/minimax-m2":         (204800, 131072),
-    # Judge — the qwen-400 victim. Context window is the binding constraint:
-    # a large prompt + a generous max_tokens overran it -> HTTP-400.
-    "qwen/qwen3.6-35b-a3b":       (131072, 65536),
+    # Judge — the qwen-400 victim. A2/A3 RC2 (iarch007): the prior offline fallback was the
+    # MIS-STATED (131072 ctx, 65536 cap), which over-clamped the judge to 65536 offline and did
+    # NOT match the REAL serving window. The role-transport judge provider chain (wandb 262144,
+    # io-net 262140) serves a 262144 context window with a ~262144 completion cap, so the offline
+    # fallback is the REAL window (262144 ctx, 262144 cap). The clamp then reconciles a generous
+    # max_tokens DOWN against the true window (ctx - prompt - margin) — the actual qwen-judge
+    # HTTP-400 fix — instead of mis-clamping to a stale 65536. The LIVE /models table still
+    # overrides this when reachable.
+    "qwen/qwen3.6-35b-a3b":       (262144, 262144),
 }
 
 
@@ -361,3 +367,47 @@ def compute_allowed_max_tokens(
         prompt_tokens, margin,
     )
     return ceiling
+
+
+def finalize_body(
+    body: dict,
+    model: str,
+    prompt_tokens: int,
+    apply_completion_cap: bool = True,
+) -> dict:
+    """A2/RC2 SHARED CHOKEPOINT: reconcile ``body['max_tokens']`` against the real provider
+    context window as the FINAL mutation before a body is POSTed.
+
+    This is the single, role-agnostic call BOTH ``openrouter_client._call_impl`` AND the
+    ``openrouter_role_transport`` verifier body-builder route through, so a generous max_tokens
+    (set per §9.1.8 "go max") that — added to a large prompt — would overrun the serving
+    context window is clamped DOWN here to ``min(provider_completion_cap, context_length -
+    prompt_tokens - safety_margin)``. Without this, OpenRouter returns HTTP-400 ("max_tokens
+    exceeds context length") — exactly the qwen-judge 400 that HELD the A1/A2 report.
+
+    Contract:
+      * mutates ``body['max_tokens']`` IN PLACE (clamp-DOWN only) and returns the same ``body``;
+      * PASS-THROUGH (no mutation) when the resolver is disabled, the model is unknown / offline,
+        the budget already fits, or ``body`` carries no positive ``max_tokens`` — so every
+        flag-OFF / generator-full-cap path stays byte-identical;
+      * RAISES ``PromptTooLargeError`` (LAW II fail-loud) when the prompt alone overruns the
+        window — a tiny max_tokens could not make the request well-formed, so the real cause is
+        surfaced deterministically rather than firing a doomed request or silently starving.
+
+    Reasoning EFFORT is untouched (§9.1.8 stays MAX) — this only bounds the COMPLETION-token
+    allotment so the request is well-formed. ``apply_completion_cap=False`` is set by the caller
+    for the provider-pinned reasoning-first generator family (so OpenRouter's popularity-ranked
+    ``top_provider.max_completion_tokens`` cannot clamp a section request back down — see
+    ``compute_allowed_max_tokens``).
+    """
+    if not isinstance(body, dict):
+        return body
+    requested = body.get("max_tokens")
+    if not isinstance(requested, int) or requested <= 0:
+        return body
+    allowed = compute_allowed_max_tokens(
+        model, prompt_tokens, requested, apply_completion_cap=apply_completion_cap
+    )
+    if allowed != requested:
+        body["max_tokens"] = allowed
+    return body

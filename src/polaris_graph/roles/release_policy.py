@@ -434,6 +434,19 @@ class ReleaseOutcome:
     hard_block_reasons: list[str]
     release_quality_score: float
     safety_floor: str  # "ok" | "insufficient"
+    # A18/A2-SEAM STRUCTURAL PROOF FIELDS (iarch007 SWEEP-P0 + RELEASE-P0). These three fields
+    # let `assert_release_invariant` decide STRUCTURALLY (not by sniffing a gap-label string)
+    # whether un-judged prose may ship. ALL THREE default to the SAFE (un-proven / fail-closed)
+    # value so an outcome built without proof can never pass the invariant by omission:
+    #   * adjudicated — the four-role D8 judge TRULY ran (backed by real final_verdicts). Defaults
+    #     FALSE: a release that does not explicitly prove adjudication is treated as un-judged.
+    #   * body_withheld — the findings body was suppressed (the seam fabrication-screen could not
+    #     run / found a fabricated identity). Defaults FALSE (body ships) — explicit.
+    #   * compensating_screen_passed — on a seam (no D8) the standalone fabrication screen ran
+    #     CLEAN, so a body that ships is screen-safe. Defaults FALSE (no compensating proof).
+    adjudicated: bool = False
+    body_withheld: bool = False
+    compensating_screen_passed: bool = False
 
 
 def always_release_enabled() -> bool:
@@ -459,6 +472,9 @@ def compute_release_outcome(
     coverage_fraction: float,
     always_release: bool | None = None,
     redaction_active: bool = True,
+    seam_unadjudicated: bool = False,
+    fabrication_screen_ran: bool | None = None,
+    fabrication_screen_found_fabrication: bool = False,
 ) -> ReleaseOutcome:
     """Map a D8 ``ReleaseDecision`` to a release outcome under the always-release reframe.
 
@@ -474,7 +490,34 @@ def compute_release_outcome(
     report_redactor) with a LOUD disclosed-gap label, rather than hard-blocking the whole report.
     Only TRUE zero-grounding remains a whole-report hard block. If redaction is disabled, FABRICATED
     stays a hard block (the fabricated prose could otherwise ship) — see ``is_hard_block``.
+
+    A2-SEAM (iarch007 RELEASE-P0) — the un-judged-release leak this CLOSES. When the four-role D8
+    judge could not be reached (a transport error / HTTP-400), D8 NEVER adjudicated, so the outcome
+    MUST carry the un-judged state honestly (``adjudicated=False``) and a non-empty seam disclosure,
+    and a body may ship ONLY if a STANDALONE fabrication screen proves it safe:
+      * ``seam_unadjudicated`` — this is the judge-seam path (no D8). Adjudicated is FALSE; the
+        specific ``four_role_seam_unadjudicated`` gap is injected so the outcome can only resolve to
+        released_with_disclosed_gaps, never success.
+      * ``fabrication_screen_ran`` — TRI-STATE, FAIL-CLOSED on unknown. ``None`` (default / the
+        screen result is UNKNOWN) and ``False`` (the screen could NOT run) BOTH WITHHOLD the body —
+        an un-screened body never ships on a seam (P0 #3). Only an EXPLICIT ``True`` ships the body.
+      * ``fabrication_screen_found_fabrication`` — even when the screen ran (``True``), if it FOUND
+        a cited identity not in the evidence pool the body is WITHHELD (conservative). The body ships
+        only when the screen ran AND found no fabrication, recorded as ``compensating_screen_passed``.
+    On the non-seam (genuine-D8) paths ``adjudicated=True`` — the judge produced this decision.
     """
+    if seam_unadjudicated:
+        return _compute_seam_outcome(
+            decision,
+            zero_verified=zero_verified,
+            zero_usable_evidence=zero_usable_evidence,
+            safety_floor_insufficient=safety_floor_insufficient,
+            coverage_fraction=coverage_fraction,
+            always_release=always_release,
+            redaction_active=redaction_active,
+            fabrication_screen_ran=fabrication_screen_ran,
+            fabrication_screen_found_fabrication=fabrication_screen_found_fabrication,
+        )
     enabled = always_release_enabled() if always_release is None else always_release
     hard_block = is_hard_block(
         fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
@@ -516,6 +559,8 @@ def compute_release_outcome(
             hard_block_reasons=legacy_hard_reasons if not decision.release_allowed else [],
             release_quality_score=coverage_fraction,
             safety_floor=safety_floor,
+            # Non-seam: this decision was produced by a four-role D8 run that ACTUALLY adjudicated.
+            adjudicated=True,
         )
 
     # --- always-release ON ---
@@ -542,6 +587,7 @@ def compute_release_outcome(
             hard_block_reasons=hard_block_reasons,
             release_quality_score=coverage_fraction,
             safety_floor=safety_floor,
+            adjudicated=True,
         )
 
     # Every remaining held reason is a DISPLAYED disclosed-gap label, not a blocker.
@@ -565,6 +611,7 @@ def compute_release_outcome(
             hard_block_reasons=[],
             release_quality_score=coverage_fraction,
             safety_floor="insufficient",
+            adjudicated=True,
         )
     status = STATUS_SUCCESS if not disclosed_gaps else STATUS_RELEASED_WITH_DISCLOSED_GAPS
     return ReleaseOutcome(
@@ -576,4 +623,232 @@ def compute_release_outcome(
         hard_block_reasons=[],
         release_quality_score=coverage_fraction,
         safety_floor="ok",
+        adjudicated=True,
+    )
+
+
+# ── A2-SEAM + A18 HARD RELEASE-INVARIANT (iarch007 RELEASE-P0/SWEEP-P0) ──────────────────────
+# The un-judged-release leak this whole block CLOSES: a four-role D8 seam error (the judge could
+# not be reached) means D8 NEVER adjudicated. The OLD ReleaseOutcome had no way to RECORD that —
+# the runtime seam builder defaulted to `adjudicated=True`, and the invariant accepted ANY
+# non-empty disclosed_gaps as "seam proof". Either gap let an un-judged, un-screened body ship.
+# These three structural fields + the prefix-aware detector + the fail-closed invariant make a
+# seam release provable ONLY when (a) the body is withheld OR (b) a standalone fabrication screen
+# ran clean AND the SPECIFIC seam gap is disclosed. Faithfulness: RECORDS the un-judged state and
+# REFUSES an unsafe release — it relaxes nothing and marks nothing verified.
+
+# The SPECIFIC disclosed-gap label the A2 seam rescue injects (matches scripts/run_honest_sweep_r3
+# SEAM_GAP_UNADJUDICATED + iarch007_release_invariant_check._SEAM_GAP_TOKEN — one vocabulary).
+_GAP_FOUR_ROLE_SEAM_UNADJUDICATED = "four_role_seam_unadjudicated"
+# The disclosed label surfaced when the standalone seam fabrication screen could NOT run (so the
+# body is withheld fail-closed — the withhold is never silent).
+_GAP_SEAM_FABRICATION_SCREEN_UNAVAILABLE = "four_role_seam_fabrication_screen_unavailable"
+
+
+def _has_seam_unadjudicated_gap(disclosed_gaps: list[str]) -> bool:
+    """True iff ``disclosed_gaps`` carries the SPECIFIC four_role_seam_unadjudicated label.
+
+    PREFIX-AWARE (not a blanket substring): the seam disclosure is either the bare constant OR the
+    descriptive runtime form ``"four_role_seam_unadjudicated: <reason>"`` that
+    build_seam_release_outcome emits. A gap that merely CONTAINS the token mid-string (e.g.
+    ``"note: four_role_seam_unadjudicated happened"``) is NOT the seam label — accepting it would
+    re-open the iarch007 SWEEP-P0 bypass where an arbitrary gap passed as seam proof. So the match
+    is: equality with the constant, OR a prefix of ``"<constant>:"``.
+    """
+    for gap in disclosed_gaps or []:
+        g = str(gap)
+        if g == _GAP_FOUR_ROLE_SEAM_UNADJUDICATED:
+            return True
+        if g.startswith(f"{_GAP_FOUR_ROLE_SEAM_UNADJUDICATED}:"):
+            return True
+    return False
+
+
+def _compute_seam_outcome(
+    decision: ReleaseDecision,
+    *,
+    zero_verified: bool,
+    zero_usable_evidence: bool,
+    safety_floor_insufficient: bool,
+    coverage_fraction: float,
+    always_release: bool | None,
+    redaction_active: bool,
+    fabrication_screen_ran: bool | None,
+    fabrication_screen_found_fabrication: bool,
+) -> ReleaseOutcome:
+    """The judge-SEAM release outcome (D8 never adjudicated). FAIL-CLOSED.
+
+    ``adjudicated`` is ALWAYS False on a seam (the judge did not run). A non-empty seam disclosure
+    is ALWAYS injected so the outcome can only resolve to released_with_disclosed_gaps, never
+    success. The body ships ONLY when a standalone fabrication screen PROVES it safe:
+      * ``fabrication_screen_ran`` is None (UNKNOWN) or False (could not run) -> body WITHHELD, the
+        unavailable-screen gap disclosed (P0 #3: an un-screened seam body never ships);
+      * ``fabrication_screen_ran`` True AND found a fabricated identity -> body WITHHELD;
+      * ``fabrication_screen_ran`` True AND found nothing -> body ships, compensating_screen_passed.
+
+    A true zero-grounding (no VERIFIED claim AND no usable evidence) or a fabricated occurrence with
+    redaction OFF is STILL a whole-report hard block on a seam (the same no-fabrication hard line as
+    the non-seam path); it is checked first so an un-grounded seam never ships.
+    """
+    enabled = always_release_enabled() if always_release is None else always_release
+    safety_floor = "insufficient" if safety_floor_insufficient else "ok"
+
+    # The seam disclosure (bare constant; the runtime descriptive form is added by the caller in
+    # scripts/run_honest_sweep_r3.build_seam_release_outcome — the prefix-aware detector matches both).
+    disclosed_gaps: list[str] = [_GAP_FOUR_ROLE_SEAM_UNADJUDICATED]
+
+    # The no-fabrication hard line still applies on a seam — a zero-grounding or
+    # fabricated-with-redaction-off body must not ship even un-judged.
+    hard_block = is_hard_block(
+        fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
+        zero_verified=zero_verified,
+        zero_usable_evidence=zero_usable_evidence,
+        redaction_active=redaction_active,
+    )
+    if (not enabled) or hard_block:
+        hard_block_reasons: list[str] = []
+        if zero_verified and zero_usable_evidence:
+            hard_block_reasons.append("zero_grounding")
+        if decision.fabricated_occurrence_latched and not redaction_active:
+            hard_block_reasons.append(_REASON_FABRICATED_OCCURRENCE)
+        status = (
+            STATUS_ABORT_FABRICATED
+            if (decision.fabricated_occurrence_latched and not redaction_active)
+            else STATUS_ABORT_FOUR_ROLE_HELD
+            if not enabled
+            else STATUS_ABORT_NO_VERIFIED
+        )
+        # Fail-closed seam hold: body withheld, never adjudicated.
+        return ReleaseOutcome(
+            released=False,
+            hard_block=hard_block,
+            normal_release_blocked=True,
+            status=status,
+            disclosed_gaps=disclosed_gaps,
+            hard_block_reasons=hard_block_reasons,
+            release_quality_score=coverage_fraction,
+            safety_floor=safety_floor,
+            adjudicated=False,
+            body_withheld=True,
+            compensating_screen_passed=False,
+        )
+
+    # always-release ON, not hard-blocked: decide the body disposition from the screen result.
+    screen_clean = fabrication_screen_ran is True and not fabrication_screen_found_fabrication
+    body_withheld = not screen_clean
+    compensating_screen_passed = screen_clean
+    if not screen_clean:
+        # The body is withheld — surface WHY so the withhold is never silent (P0 #3).
+        disclosed_gaps.append(_GAP_SEAM_FABRICATION_SCREEN_UNAVAILABLE)
+
+    status = (
+        STATUS_RELEASED_INSUFFICIENT_SAFETY
+        if safety_floor_insufficient
+        else STATUS_RELEASED_WITH_DISCLOSED_GAPS
+    )
+    return ReleaseOutcome(
+        released=True,
+        # The body is suppressed when withheld OR when the clinical safety floor blocks the normal
+        # render; either way the polished normal report is not shipped as clean.
+        hard_block=False,
+        normal_release_blocked=body_withheld or safety_floor_insufficient,
+        status=status,
+        disclosed_gaps=disclosed_gaps,
+        hard_block_reasons=[],
+        release_quality_score=coverage_fraction,
+        safety_floor=safety_floor,
+        adjudicated=False,
+        body_withheld=body_withheld,
+        compensating_screen_passed=compensating_screen_passed,
+    )
+
+
+class ReleaseInvariantError(RuntimeError):
+    """Raised by ``assert_release_invariant`` when a release-asserting outcome cannot PROVE the
+    four-role D8 judge adjudicated, OR (on a seam) that the un-judged body is provably safe.
+
+    This is the in-process, structural twin of scripts/iarch007_release_invariant_check (the
+    artifact-layer CI gate). It is the LAST fail-closed line before the success-path manifest
+    write: a path that mis-builds the A2 seam rescue (auto-releasing un-judged content as a
+    release-asserting status) raises here rather than shipping an un-judged report.
+    """
+
+
+# Release-asserting statuses: a report ships as clean/judge-final OR honest-disclosed. Each demands
+# proof of adjudication OR a provably-safe seam disposition. abort_*/error_*/partial_* are NOT
+# release-asserting (the invariant is a no-op on them — no false trip).
+_RELEASE_ASSERTING_STATUSES = frozenset(
+    {
+        STATUS_SUCCESS,
+        STATUS_RELEASED_WITH_DISCLOSED_GAPS,
+        STATUS_RELEASED_INSUFFICIENT_SAFETY,
+    }
+)
+
+
+def assert_release_invariant(outcome: ReleaseOutcome) -> ReleaseOutcome:
+    """Fail-closed: refuse any release-asserting outcome that cannot PROVE it is judge-safe.
+
+    Returns ``outcome`` unchanged on PASS; raises ``ReleaseInvariantError`` on a violation. The
+    proof is read STRUCTURALLY from the outcome fields (status + adjudicated + body_withheld +
+    compensating_screen_passed + the prefix-aware seam-gap detector), NEVER by sniffing an
+    arbitrary gap-label string. The accepted shapes (and ONLY these):
+
+      (a) the four-role D8 judge TRULY adjudicated — ``adjudicated=True`` — AND this is NOT a seam
+          (a seam disclosure with adjudicated=True is a CONTRADICTION: the default-True-on-seam leak
+          this closes), OR
+      (b) the SPECIFIC ``four_role_seam_unadjudicated`` gap is disclosed AND a compensating
+          standalone fabrication screen ran clean (``compensating_screen_passed`` — leg-3 is COUPLED
+          to the specific seam gap; a bare screen flag without the disclosure is NOT proof), OR
+      (c) the findings body is WITHHELD (``body_withheld`` — nothing un-judged ships).
+
+    It does NOT accept ``adjudicated=True`` by itself when a seam gap is present (that is the
+    contradiction), and does NOT accept an arbitrary non-empty disclosed_gaps list as seam proof.
+    Non-release-asserting statuses (abort_*/error_*/partial_*) pass untouched. A ``released``
+    that contradicts an abort status is also a violation.
+    """
+    status = str(outcome.status or "")
+    seam_gap = _has_seam_unadjudicated_gap(outcome.disclosed_gaps)
+
+    # Contradiction guard (fires for ANY status, before the per-status legs): a seam disclosure
+    # means the judge did NOT adjudicate, so adjudicated=True alongside the seam gap is the
+    # default-True-on-seam leak — fail closed.
+    if seam_gap and outcome.adjudicated:
+        raise ReleaseInvariantError(
+            "release outcome carries the four_role_seam_unadjudicated gap AND adjudicated=True — a "
+            "contradiction (a judge seam-error means D8 never adjudicated). This is the "
+            "default-True-on-seam leak; the seam outcome MUST carry adjudicated=False."
+        )
+
+    if status not in _RELEASE_ASSERTING_STATUSES:
+        # Not release-asserting. The only remaining check is a released/abort contradiction:
+        # a `released`-True outcome whose status is an abort is a self-contradiction.
+        if outcome.released and status.startswith("abort"):
+            raise ReleaseInvariantError(
+                f"released=True but status={status!r} (an abort) — the binding release decision "
+                "contradicts the terminal status."
+            )
+        return outcome
+
+    # The seam-rescue proof (the ONLY way a release-asserting status may ship un-judged): the
+    # SPECIFIC seam gap is disclosed AND the body is provably safe — withheld OR a compensating
+    # fabrication screen ran clean. An arbitrary disclosed gap is NOT proof (SWEEP-P0).
+    seam_rescue_proven = seam_gap and (
+        outcome.body_withheld or outcome.compensating_screen_passed
+    )
+
+    if outcome.adjudicated or seam_rescue_proven:
+        return outcome
+
+    # No real D8 adjudication and no proven-safe seam disposition. A body withheld (even without
+    # the seam gap) is still a terminal SAFE disposition — nothing un-judged ships — so accept it.
+    if outcome.body_withheld:
+        return outcome
+
+    raise ReleaseInvariantError(
+        f"status={status!r} asserts a release, but there is NO D8 adjudication "
+        "(adjudicated=False) and NO PROVEN seam rescue (the specific four_role_seam_unadjudicated "
+        "label PLUS a withheld body OR a passed compensating fabrication screen) and the body is NOT "
+        "withheld. A released report with no real judging and no proven-safe disposition is a silent "
+        "un-judged release — refused fail-closed."
     )
