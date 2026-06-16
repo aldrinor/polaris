@@ -24,7 +24,9 @@ KEY="$HOME/.ssh/id_ed25519"
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes -p "$PORT" "$BOX")
 SCP=(scp -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -P "$PORT")
 REMOTE=/root/polaris
-SLUG=drb_90_adas_liability
+# Codex iter-2: Q72 (drb_72_ai_labor) is the cleaner gate-check — academic-economic sources, lower
+# corpus_inadequate risk than Q90's case-law stress (smoke.md). Q90 is for the full-scale run later.
+SLUG=drb_72_ai_labor
 OUT_ROOT=outputs/iarch007_smoke
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOCAL_HEAD="$(git -C "$ROOT" rev-parse --short HEAD)"
@@ -64,10 +66,12 @@ for k in OPENROUTER_API_KEY SERPER_API_KEY ZYTE_API_KEY ; do
 done
 echo "  (d) run_gate_b.py compiles:"
 $PY -m py_compile scripts/dr_benchmark/run_gate_b.py && echo "      py_compile OK" || { echo "      py_compile FAILED"; fail=1; }
-echo "  (e) Gate-B --list NO-SPEND dry-run (slug resolves + 4-role transport + role slugs):"
+echo "  (e) Gate-B --list NO-SPEND dry-run (--only is mutually exclusive with --list, so list ALL + grep the slug):"
 set -a; source .env; set +a
 export PYTHONPATH=$REMOTE:$REMOTE/src
-$PY -m scripts.dr_benchmark.run_gate_b --only $SLUG --list 2>&1 | tail -20 || { echo "      --list FAILED"; fail=1; }
+list_out=\$($PY -m scripts.dr_benchmark.run_gate_b --list 2>&1) || { echo "      --list FAILED"; echo "\$list_out" | tail -8; fail=1; }
+echo "\$list_out" | tail -20
+echo "\$list_out" | grep -q "$SLUG" && echo "      slug $SLUG resolves in --list OK" || { echo "      slug $SLUG NOT in --list"; fail=1; }
 echo ""
 [ "\$fail" -eq 0 ] && echo "  VERIFY: PASS (no spend incurred)" || { echo "  VERIFY: FAIL"; exit 3; }
 REMOTE_EOF
@@ -93,6 +97,8 @@ REMOTE_EOF
 
 case "$MODE" in
   verify) deploy; verify ;;
-  launch) launch ;;
+  # launch ALWAYS deploys fresh code + runs the no-spend verify FIRST, so a standalone `launch`
+  # can never spend against stale remote code or an unverified config (Codex iter-2 P1c).
+  launch) deploy; verify; launch ;;
   *) echo "usage: $0 [verify|launch]"; exit 2 ;;
 esac

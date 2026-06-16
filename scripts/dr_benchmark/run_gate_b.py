@@ -1097,6 +1097,7 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
     "PG_SERPER_MAX_PAGES": "1",
     # query-breadth COUNTS (how many search queries / STORM angles — not URLs)
     "PG_STORM_MAX_BENCHMARK_QUERIES": "4",   # was 30
+    "PG_STORM_MIN_EFFECTIVE_QUERIES": "2",   # was 12 — lower the FLOOR too, else max(4)<min(12) -> abort_discovery_degraded
     "PG_MAX_SUBQUERIES": "4",                # was 15
     "PG_STORM_PERSPECTIVES_COUNT": "3",      # was 8
     "PG_STORM_ROUNDS_PER_PERSPECTIVE": "2",  # was 4
@@ -1169,11 +1170,30 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     # while preflight's env check passes (the openrouter_client constant, not os.environ, is what _call uses).
     from src.polaris_graph.llm.openrouter_client import set_generator_timeout_seconds
     set_generator_timeout_seconds(int(os.environ["PG_GENERATOR_LLM_TIMEOUT_SECONDS"]))
+    # I-arch-007: the 4-role OpenRouter transport freezes its reasoning effort + per-call timeout at
+    # IMPORT (run_gate_b imports it before this slate runs), so a smoke override of
+    # PG_FOUR_ROLE_REASONING_EFFORT / PG_VERIFIER_LLM_TIMEOUT_SECONDS would not reach the live 4-role
+    # calls. Sync them to the module globals here (same fix class as the two setters above). Reading
+    # os.environ means a full run with no override re-applies its own value (no behavior change).
+    from src.polaris_graph.roles.openrouter_role_transport import (
+        set_four_role_reasoning_effort,
+        set_verifier_llm_timeout_seconds,
+    )
+    set_four_role_reasoning_effort(os.environ.get("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh"))
+    set_verifier_llm_timeout_seconds(int(os.environ.get("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900")))
 
 
-def preflight_full_capability() -> None:
+def preflight_full_capability(smoke_scale: bool = False) -> None:
     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
-    silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+    silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError.
+
+    I-arch-007 ``smoke_scale=True`` (the --smoke-scale plumbing run) skips ONLY the CAPACITY floors —
+    the breadth-knob floors, the min cost cap, the generator-timeout floor, and the extra-env capacity
+    floors — because a smoke is DELIBERATELY below full breadth/cost. EVERY faithfulness check stays
+    unconditional: the faithfulness slate, the section-fraction coverage floor, the required/required-off
+    feature flags, the semantic_v2 relevance scorer, the cited-span window bound, the enforce-mode
+    verifier, the row-cap ban, and the timeout-hierarchy ORDERING (which the smoke still satisfies).
+    Default OFF = a full cert run validates every floor exactly as before."""
     # I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate assertion on the cert entry. The
     # Gate-B 4-role run goes through run_one_query (NOT run_honest_sweep_r3.main_async), so its
     # fail-closed preflight lives HERE. The slate above force-sets the binding-faithfulness env
@@ -1212,7 +1232,7 @@ def preflight_full_capability() -> None:
             eff = int(os.getenv(name, _defaults.get(name, "0")))
         except ValueError:
             raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not an int")
-        if eff < floor:
+        if eff < floor and not smoke_scale:  # smoke: breadth floors are intentionally below full capability
             raise RuntimeError(
                 f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — the run "
                 f"would be SILENTLY THROTTLED (the ~40-URL bug). Set {name}>={floor} or fix the slate."
@@ -1289,7 +1309,7 @@ def preflight_full_capability() -> None:
     # the env. Catches a stale-$10 cap that would silently abort a full-depth paid run mid-way.
     from src.polaris_graph.llm.openrouter_client import get_max_cost_per_run
     _eff_cap = get_max_cost_per_run()
-    if _eff_cap < _BENCHMARK_MIN_COST_CAP_USD:
+    if _eff_cap < _BENCHMARK_MIN_COST_CAP_USD and not smoke_scale:
         raise RuntimeError(
             f"benchmark preflight FAILED: effective PG_MAX_COST_PER_RUN=${_eff_cap:.2f} < "
             f"${_BENCHMARK_MIN_COST_CAP_USD:.2f} floor — a full-depth run would abort early on the "
@@ -1302,7 +1322,7 @@ def preflight_full_capability() -> None:
     from src.polaris_graph.llm.openrouter_client import get_generator_timeout_seconds
     _eff_gen_timeout = get_generator_timeout_seconds()
     _gen_timeout_floor = _BENCHMARK_EXTRA_ENV_FLOORS["PG_GENERATOR_LLM_TIMEOUT_SECONDS"]
-    if _eff_gen_timeout < _gen_timeout_floor:
+    if _eff_gen_timeout < _gen_timeout_floor and not smoke_scale:
         raise RuntimeError(
             f"benchmark preflight FAILED: live GENERATOR_TIMEOUT_SECONDS={_eff_gen_timeout} < floor "
             f"{_gen_timeout_floor} — a stale PG_GENERATOR_LLM_TIMEOUT_SECONDS in .env froze the import-time "
@@ -1332,7 +1352,7 @@ def preflight_full_capability() -> None:
             eff = int(float(os.getenv(name, "0")))
         except ValueError:
             raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not numeric")
-        if eff < floor:
+        if eff < floor and not smoke_scale:  # smoke: capacity floors (evidence pool / section tokens / gen-timeout) intentionally below full
             raise RuntimeError(
                 f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — .env was "
                 f"silently throttling it. The floor-slate must raise it before the run."
@@ -1588,7 +1608,7 @@ async def run_gate_b_query(
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
     # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
     # (the ~40-URL bug) can therefore NEVER reach a paid run undetected (operator no-downgrade directive).
-    preflight_full_capability()
+    preflight_full_capability(smoke_scale=smoke_scale)
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:

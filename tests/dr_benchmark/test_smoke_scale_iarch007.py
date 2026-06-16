@@ -29,6 +29,8 @@ def test_smoke_scale_on_forces_small_breadth_and_coherent_timeouts(gate_b, monke
     assert os.environ["PG_SWEEP_FETCH_CAP"] == "20"
     assert os.environ["PG_SWEEP_DEEPENER_URL_CAP"] == "5"
     assert os.environ["PG_MAX_SUBQUERIES"] == "4"
+    # the STORM min floor must drop too, else max(4) < min(12) -> abort_discovery_degraded
+    assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "2"
     assert os.environ["PG_STORM_PERSPECTIVES_COUNT"] == "3"
     assert os.environ["PG_MAX_COST_PER_RUN"] == "10"  # synced to the live module too
     # things the smoke DEPENDS on (must be present): A20 funnel OPEN (slate, untouched),
@@ -56,6 +58,45 @@ def test_smoke_scale_off_is_full_breadth_byte_identical(gate_b, monkeypatch):
     gate_b.apply_full_capability_benchmark_slate(smoke_scale=False)
     # default OFF: the full-capability FLOOR lands (~1000-URL budget), NOT the smoke value
     assert os.environ["PG_SWEEP_FETCH_CAP"] == "740"
+
+
+_CAPACITY_FLOOR_MARKERS = ("SILENTLY THROTTLED", "silently throttling", "< full-capability floor",
+                           "< $", "GENERATOR_TIMEOUT_SECONDS=")
+
+
+def test_preflight_smoke_skips_capacity_floors_only(gate_b, monkeypatch):
+    """smoke_scale=True must NOT trip the CAPACITY floors (breadth/cost/timeout) — they are
+    deliberately small for a smoke — while smoke_scale=False DOES (a full run with throttled values is
+    the ~40-URL bug). The faithfulness/feature checks are unconditional (a bare unit env without the
+    box .env still trips one of those AFTER the capacity floors — which itself proves the floors were
+    skipped, since the smoke run reached past them)."""
+    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "40")
+    gate_b.apply_full_capability_benchmark_slate(smoke_scale=True)
+    # full mode: the smoke breadth/cost/timeout values trip a CAPACITY floor
+    with pytest.raises(RuntimeError) as full_exc:
+        gate_b.preflight_full_capability(smoke_scale=False)
+    assert any(m in str(full_exc.value) for m in _CAPACITY_FLOOR_MARKERS), \
+        f"full-mode preflight did not trip a capacity floor (got: {full_exc.value})"
+    # smoke mode: it must get PAST every capacity floor (it may still require a box-.env feature flag,
+    # but it must NOT fail for a capacity-floor reason)
+    try:
+        gate_b.preflight_full_capability(smoke_scale=True)
+    except RuntimeError as smoke_exc:
+        assert not any(m in str(smoke_exc) for m in _CAPACITY_FLOOR_MARKERS), \
+            f"smoke preflight still tripped a capacity floor: {smoke_exc}"
+
+
+def test_smoke_defrosts_4role_transport_effort_and_timeout(gate_b, monkeypatch):
+    """The 4-role transport freezes reasoning effort + per-call timeout at import; the slate must sync
+    the smoke values to the live module globals (else the mirror runs xhigh and blanks/stalls)."""
+    import importlib
+    rt = importlib.import_module("src.polaris_graph.roles.openrouter_role_transport")
+    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "40")
+    gate_b.apply_full_capability_benchmark_slate(smoke_scale=True)
+    assert rt._REASONING_EFFORT == "medium", "smoke reasoning effort did not reach the transport global"
+    assert rt._TIMEOUT_SECONDS == 300, "smoke verifier timeout did not reach the transport global"
+    # the ladder must re-derive off the new effort (MAX-first), not the frozen xhigh
+    assert rt._VERIFIER_EFFORT_LADDER[0] == "medium"
 
 
 def test_smoke_override_touches_no_faithfulness_gate_or_funnel(gate_b):

@@ -406,6 +406,26 @@ def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
 # claim — that composition is bounded SEPARATELY by the #1226 wall-clock watchdog below.
 _TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
 
+
+def set_four_role_reasoning_effort(effort: str) -> None:
+    """I-arch-007: sync the IMPORT-TIME-frozen 4-role reasoning effort + effort ladder from the
+    benchmark slate. run_gate_b.py imports this module BEFORE applying the slate, freezing the xhigh
+    default; the smoke needs medium (GLM-5.1 Mirror blanks at xhigh -> the D8 seam stalls, drb_72).
+    The role-call body reads these module globals at CALL time, so updating them here re-points the
+    live 4-role calls. Faithfulness-neutral: effort governs reasoning DEPTH, never a verification
+    threshold. Mirrors openrouter_client.set_generator_timeout_seconds (same import-order fix class)."""
+    global _REASONING_EFFORT, _VERIFIER_EFFORT_LADDER
+    _REASONING_EFFORT = str(effort)
+    _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
+
+
+def set_verifier_llm_timeout_seconds(seconds: int) -> None:
+    """I-arch-007: sync the IMPORT-TIME-frozen per-verifier-call timeout from the benchmark slate
+    (same import-order fix as the reasoning effort above). Faithfulness-neutral (a call timeout)."""
+    global _TIMEOUT_SECONDS
+    _TIMEOUT_SECONDS = int(seconds)
+
+
 # === #1226 (I-pipe-001): blank-content bound + per-call wall-clock watchdog =====================
 # THE FAILURE: a reasoning verifier (e.g. GLM-5.1 Mirror under xhigh) can burn its whole token
 # budget on reasoning and emit EMPTY content every attempt; combined with the per-POST 900s timeout
