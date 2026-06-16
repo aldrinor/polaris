@@ -1077,8 +1077,53 @@ _BENCHMARK_EXTRA_ENV_FLOORS = {
 }
 
 
-def apply_full_capability_benchmark_slate() -> None:
+# I-arch-007 SMOKE scale-down. Applied (FORCE-SET, bypassing the ~1000-URL FLOOR) AFTER the
+# full-capability slate ONLY when --smoke-scale is passed, so a PLUMBING smoke runs ~15-20 min and a
+# HANG self-kills in ~40 min instead of 6h. INPUT BREADTH (the 5 fetch lanes + query-breadth counts)
+# and timeout BACKSTOPS ONLY — the faithfulness engine (strict_verify / NLI / 4-role D8 / provenance),
+# the A20 consolidate-keep-all funnel (PG_SWEEP_CREDIBILITY_REDESIGN), and the native 4-role seam are
+# UNTOUCHED. A smaller HONEST run, never a relaxed one. Default OFF (the flag) => full run byte-identical.
+# Values are small POSITIVE (never 0, which is "unlimited/disabled" for several lanes). Sum ≈ 45 URLs.
+_SMOKE_SCALE_OVERRIDES: dict[str, str] = {
+    # the 5 real fetch lanes (full sums to ~1000 URLs/query) -> a tiny smoke pool
+    "PG_SWEEP_FETCH_CAP": "20",            # main Serper/S2/OpenAlex lane (was 740)
+    "PG_SWEEP_DEEPENER_URL_CAP": "5",      # citation-snowball deepener (was 60)
+    "PG_AGENTIC_BENCHMARK_URL_CAP": "5",   # agentic-discovery harvest (was 100)
+    "PG_R6_EXPAND_FETCH_CAP": "5",         # R-6 completeness re-expansion (was 40)
+    "PG_STORM_URL_FETCH_CAP": "10",        # STORM web-results seed lane (was 60)
+    "PG_SWEEP_MAX_SERPER": "20",
+    "PG_SWEEP_MAX_S2": "20",
+    "PG_SERPER_TOTAL_PER_QUERY": "20",
+    "PG_SERPER_MAX_PAGES": "1",
+    # query-breadth COUNTS (how many search queries / STORM angles — not URLs)
+    "PG_STORM_MAX_BENCHMARK_QUERIES": "4",   # was 30
+    "PG_MAX_SUBQUERIES": "4",                # was 15
+    "PG_STORM_PERSPECTIVES_COUNT": "3",      # was 8
+    "PG_STORM_ROUNDS_PER_PERSPECTIVE": "2",  # was 4
+    # timeout hierarchy — coherent per-call < generator < section < seam < run-wall, scaled so a HANG
+    # is caught in ~40 min. A tiny smoke section finishes in minutes, well under these, so none
+    # truncates a HEALTHY section (the arch-005 trap).
+    "PG_VERIFIER_LLM_TIMEOUT_SECONDS": "300",    # per verifier LLM call (5 min)
+    "PG_GENERATOR_LLM_TIMEOUT_SECONDS": "600",   # per generator call (10 min) — synced to live module below
+    "PG_SECTION_WALLCLOCK_SECONDS": "900",       # per section (15 min)
+    "PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS": "1800", # 4-role D8 seam (30 min)
+    "PG_RUN_WALL_CLOCK_SEC": "2400",             # OUTER backstop (40 min)
+    # modest cost cap for a smoke (synced to the live module below)
+    "PG_MAX_COST_PER_RUN": "10",
+    # CORRECTNESS (not scale-down): the GLM-5.1 Mirror blanks at xhigh effort and STALLS the 4-role
+    # D8 seam (drb_72). Gate-B does NOT set this, so the smoke pins it to medium (returns content).
+    "PG_FOUR_ROLE_REASONING_EFFORT": "medium",
+    # FORENSIC: raw LLM-IO capture so the §-1.4 line-by-line monitor can read the real reasoning/IO.
+    "PG_CAPTURE_RAW_LLM_IO": "1",
+}
+
+
+def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
+
+    ``smoke_scale=True`` (the --smoke-scale flag) force-applies ``_SMOKE_SCALE_OVERRIDES`` AFTER the
+    floor loop (bypassing max()), shrinking INPUT breadth + timeout backstops for a ~15-20 min plumbing
+    smoke. Faithfulness gates, the A20 funnel, and the 4-role seam are NOT touched. Default OFF.
 
     Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
     puts .env values into ``os.environ`` BEFORE this slate runs, so a conservative .env default
@@ -1105,6 +1150,14 @@ def apply_full_capability_benchmark_slate() -> None:
         except (TypeError, ValueError):
             current = float(value)
         os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+    # I-arch-007 SMOKE: AFTER the full-capability floor, FORCE-SET the small-scale overrides (bypassing
+    # the FLOOR's max()) so a --smoke-scale plumbing run is ~15-20 min. INPUT BREADTH + timeout BACKSTOPS
+    # ONLY — no faithfulness gate / A20 funnel / 4-role seam touched. Placed BEFORE the two live-module
+    # setters below so the smoke's small PG_MAX_COST_PER_RUN + PG_GENERATOR_LLM_TIMEOUT_SECONDS reach the
+    # cached module globals (set_max_cost_per_run / set_generator_timeout_seconds) too, not just os.environ.
+    if smoke_scale:
+        for _smoke_name, _smoke_value in _SMOKE_SCALE_OVERRIDES.items():
+            os.environ[_smoke_name] = _smoke_value
     # PG_MAX_COST_PER_RUN is an import-time constant in openrouter_client (cached before this slate via
     # the role import chain), so the floor above only fixes the env; sync the live module global too so
     # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
@@ -1405,6 +1458,7 @@ async def run_gate_b_query(
     query_index: int | None = None,
     query_total: int | None = None,
     resume: bool = False,
+    smoke_scale: bool = False,
 ) -> dict:
     """Run ONE query through the honest sweep with the native 4-role Gate-B seam ACTIVE.
 
@@ -1427,7 +1481,7 @@ async def run_gate_b_query(
     # sweep's IMPORT-TIME module constants (content cap / timeouts / workers) also see the full values
     # — not just the call-time PG_SWEEP_* knobs. This is what makes a Gate-B run full-depth regardless
     # of the operator's shell env (the prior ~40-URL throttle was a missing/wrong-named slate).
-    apply_full_capability_benchmark_slate()
+    apply_full_capability_benchmark_slate(smoke_scale=smoke_scale)
 
     from scripts.run_honest_sweep_r3 import run_one_query
 
@@ -1999,6 +2053,18 @@ def main(argv: list[str] | None = None) -> int:
             "No snapshot for a slug => that query runs fresh + logs loud (no silent re-bill)."
         ),
     )
+    parser.add_argument(
+        "--smoke-scale", action="store_true", default=False,
+        help=(
+            "I-arch-007 SMOKE: small-scale FAST run (~15-20 min) for PLUMBING validation. After the "
+            "full-capability floor slate, FORCE-SET (bypassing the ~1000-URL floor) the retrieval "
+            "BREADTH knobs small (~45 URLs total) + a coherent short timeout hierarchy so a HANG is "
+            "known in ~40 min, not 6h. INPUT-breadth + backstops ONLY — the faithfulness engine, the "
+            "A20 consolidate funnel, and the 4-role D8 seam are UNCHANGED. Default OFF = full run "
+            "byte-identical. Use to catch report-build/release/funnel/token-starvation bugs fast "
+            "BEFORE the full-scale beat-both run."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # --only validates against the locked slug set BEFORE any env-touching import (fail loud).
@@ -2042,7 +2108,7 @@ def main(argv: list[str] | None = None) -> int:
     # PG_LIVE_CONTENT_MAX / PG_LIVE_HTTP_TIMEOUT / PG_AGENTIC_WEB_PER_ROUND as import-time module
     # constants. Applying it after that import would leave those constants at the low .env/defaults.
     # run_gate_b_query re-applies it (idempotent) for the direct-call path + per-query.
-    apply_full_capability_benchmark_slate()
+    apply_full_capability_benchmark_slate(smoke_scale=args.smoke_scale)
     questions = load_locked_questions(requested_slugs)
     # Codex diff-gate iter-2 P1-2: load_locked_questions has now imported the sweep -> live_retriever ->
     # state WITH the slate applied above, so the import-time constants are at full capability. Validate in
@@ -2163,6 +2229,7 @@ def main(argv: list[str] | None = None) -> int:
                 run_gate_b_query(
                     q, out_root, query_index=query_index, query_total=len(questions),
                     resume=args.resume,  # GAP1: A3 replay-harness corpus-snapshot resume
+                    smoke_scale=args.smoke_scale,  # I-arch-007: small-scale fast plumbing smoke
                 )
             )
             status = summary.get("status", "<no-status>")
