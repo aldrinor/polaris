@@ -70,7 +70,7 @@ def _select(rows: list[dict]):
 def test_arch002_floor_off_drops_below_floor(monkeypatch) -> None:
     """Flag OFF (default): the legacy floor HARD-DROPS the off-topic below-floor
     rows. This is the live dumping behavior."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     rows = _mixed_rows()
     res = _select(rows)
     assert res.dropped_count > 0, "legacy floor must drop the off-topic rows"
@@ -125,7 +125,7 @@ def test_arch002_per_section_cap_off_holds_at_30(monkeypatch) -> None:
     the legacy row cap only fires under the explicit escape hatch (the cert preflight FAILS
     on it). This test opts into that legacy path to keep its byte-identical regression
     coverage; the new default (budget) is asserted by test_arch005_per_section_budget_*."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_MAX_EV_PER_SECTION", raising=False)
     monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")  # restore the legacy row cap
     plans = _build_deterministic_fallback_outline(_pool(120), domain="clinical")
@@ -194,7 +194,7 @@ def _scored_pair():
 
 
 def test_arch002_denylist_off_drops(monkeypatch) -> None:
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.setenv("PG_SCOPE_DENYLIST_DOMAINS", "facebook.com")
     kept, n_dropped, _ = _apply_scope_denylist(_scored_pair(), None)
     assert n_dropped == 1 and len(kept) == 1
@@ -218,7 +218,7 @@ def _twin_rows():
 
 
 def test_arch002_prefer_journal_off_drops_twin(monkeypatch) -> None:
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     kept, n_dropped, _ = prefer_journal_over_arxiv(_twin_rows())
     assert n_dropped == 1 and len(kept) == 1
 

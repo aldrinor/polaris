@@ -396,7 +396,7 @@ def test_13_off_path_is_byte_identical_when_flag_unset(monkeypatch):
     (cluster ids, normalized keys, clusters, edges) is byte-identical to the
     pre-change legacy positional-key behaviour — the new spec machinery is never
     reached on the OFF path."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     sig_unset = _graph_signature(_OFF_ROWS)
     # explicit off-values must all behave identically
     for off in ("", "0", "false", "off", "no"):
@@ -429,7 +429,7 @@ def test_13_off_normalized_keys_match_frozen_legacy_tuples(monkeypatch):
     expectation, byte-for-byte, NOT just an 8-field shape check. Position 7 (arm)
     must be the legacy "treatment" string; the Codex Slice-B P1 arm-revert is what
     keeps it so. Any drift here = OFF byte-identity broken."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     g = build_claim_graph(_OFF_ROWS)
     by_evid = {}
     for c in g.claims:
@@ -453,7 +453,7 @@ def test_13_off_cluster_ids_are_frozen_and_dedup_identical_claims(monkeypatch):
     is its own — exactly the legacy positional-key grouping. A SHA-1 over a drifted
     key (e.g. arm None -> '') would change these ids, so freezing them is the
     byte-identity guard at the cluster-id surface."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     g = build_claim_graph(_OFF_ROWS)
     cid_by_evid = {
         str(c.evidence_id): c.claim_cluster_id
@@ -471,7 +471,7 @@ def test_13_off_normalized_keys_match_legacy_positional_shape(monkeypatch):
     """#13 anchor: on the OFF path the numeric key keeps the EXACT legacy positional
     tuple ('numeric', subject, predicate, value, unit, dose, arm, endpoint) — i.e.
     build_merge_key is NOT what produced it."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     g = build_claim_graph(_OFF_ROWS)
     numeric = [c for c in g.claims if c.kind == "numeric"]
     assert numeric, "fixture must yield numeric claims"

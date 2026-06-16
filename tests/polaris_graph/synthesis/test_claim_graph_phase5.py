@@ -80,8 +80,15 @@ def test_module_does_not_read_flag_in_pure_functions(monkeypatch):
 # ── INVARIANT 1: conservative-singleton — equivalence clustering ───────────────
 
 
-def test_equivalent_claims_share_one_cluster():
-    """Two independent rows asserting the SAME finding cluster to ONE claim_cluster_id."""
+def test_equivalent_claims_share_one_cluster(monkeypatch):
+    """Two independent rows asserting the SAME finding cluster to ONE claim_cluster_id.
+
+    Pins the LEGACY positional-key clustering. I-arch-007 A20 (#1262) made the redesign
+    merge key (``build_merge_key``) DEFAULT ON; that spec-driven key is MORE conservative
+    (a defaulted ``arm``/discriminator fails closed to a singleton), so equivalence under
+    the redesign key is exercised separately in ``test_claim_graph_merge_key_arch002.py``.
+    This case asserts the legacy semantics under the EXPLICIT-OFF path."""
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     graph = build_claim_graph(_rows("equivalent_clinical_numeric"))
     cids = {c.claim_cluster_id for c in graph.claims}
     assert len(cids) == 1, "equivalent claims must share one cluster id"
@@ -161,9 +168,17 @@ def test_edge_attaches_only_to_subject_matching_clusters():
     assert set(pair) == aspirin_cids
 
 
-def test_unknown_subject_is_a_singleton():
+def test_unknown_subject_is_a_singleton(monkeypatch):
     """A claim whose subject the extractor cannot resolve (unknown sentinel) is its
-    OWN singleton cluster and never collides with another unknown."""
+    OWN singleton cluster and never collides with another unknown.
+
+    Pins the LEGACY ``__numeric_unknown__`` sentinel-key shape. I-arch-007 A20 (#1262)
+    made the redesign merge key DEFAULT ON; under that key an unknown subject ALSO
+    forces a singleton (via the fail-closed UNKNOWN-discriminator dispatch — see
+    ``test_20_unknown_discriminator_forces_singleton`` in the merge-key suite), but the
+    key STRING differs. This case asserts the legacy sentinel under the EXPLICIT-OFF path
+    — the singleton GUARANTEE itself holds in BOTH modes."""
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     rows = [
         {"evidence_id": "u1", "direct_quote": "Achieved 14.9% weight loss from baseline.",
          "source_url": "https://a.org", "tier": "T1"},

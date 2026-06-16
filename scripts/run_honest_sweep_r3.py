@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import json
 import logging
 import os
@@ -191,6 +192,24 @@ from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
     _is_low_content_host_or_page,
     run_live_retrieval,
 )
+
+
+class SpecProviderTransportError(RuntimeError):
+    """A10 (iarch006 epic-failure): a TRANSPORT/PARSE fault in the quantified-spec Writer call.
+
+    Raised by the ``_q_spec_provider`` closure when the Writer call returns an EMPTY body / no
+    parseable JSON, OR the JSON fails to decode — i.e. the model never produced a usable spec
+    because of a transport or parse failure. This is STRICTLY DISTINCT from an explicit model
+    DECLINE ({"model_id":"none"}), which keeps the legacy ``return None``.
+
+    The distinction is the LAW-II receipt: ``run_quantified_section`` collapses BOTH a bare
+    ``None`` decline and a transport miss into the same ``declined_no_spec`` status, mislabeling a
+    real failure as a benign "no spec to model". Raising this typed error makes the call land in
+    the EXISTING ``_call_spec_provider_with_retry`` bounded-retry + ``spec_provider_error`` /
+    ``QUANTIFIED_STATUS_PARSE_ERROR`` lane (a subclass of ``Exception``), so a real failure is
+    surfaced LOUD instead of disclosed as a legitimate Writer decline. It touches NO faithfulness
+    gate or threshold — it is pure fail-loud observability over WHY the quantified section was empty.
+    """
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2044,17 +2063,34 @@ def render_reliability_header_md(header: "dict | None") -> str:
     single = header.get("claims_single_origin")
     contested = header.get("claims_contested")
     basis = header.get("corroboration_basis", "verified_support_origin_count")
+    # A9 (iarch006 epic-failure): explicitly NAME the population these counts measure.
+    # drb_90 showed three DIFFERENT verification populations being conflated by a reader:
+    #   (1) evidence-pool claim clusters self-verified against their OWN extraction span (THIS
+    #       header — header["claims_*"] is the credibility_analysis basket accounting);
+    #   (2) composed-report sentences strict-verified (the report you are reading) — lives in
+    #       verification_details.json, NOT here;
+    #   (3) four-role D8 final-adjudicated claims — lives in manifest.four_role_evaluation.
+    # Without naming (1)'s denominator a reader sees "325 verified" and assumes it describes the
+    # report body. The label below pins the denominator (FActScore/VeriScore convention). These are
+    # DISPLAY strings only (prepended to report.md bytes, never spliced into final_report), so the
+    # integers can never be read as cited numeric CLAIMS by any gate.
     lines = [
         "## Reliability header",
         "",
-        "_Per-claim corroboration strength (a disclosure signal, not a gate — no claim is "
-        "kept or dropped by these counts):_",
+        "_Per-claim corroboration strength of the EVIDENCE POOL (a disclosure signal, not a gate "
+        "— no claim is kept or dropped by these counts). These count evidence-pool claim clusters "
+        "self-verified against their own extraction span; they are NOT the composed-report "
+        "strict_verify count (see `verification_details.json`) nor the four-role D8 final "
+        "adjudication (see `manifest.four_role_evaluation`):_",
         "",
     ]
     if total is not None:
-        lines.append(f"- Claims total: {total}")
+        lines.append(f"- Evidence-pool claim clusters (total): {total}")
     if with_verified is not None:
-        lines.append(f"- Claims with independently span-verified support: {with_verified}")
+        lines.append(
+            "- Evidence-pool clusters self-verified against their own extraction span: "
+            f"{with_verified}"
+        )
     if corroborated is not None:
         lines.append(f"- Multi-source corroborated (>= 2 verified origins): {corroborated}")
     if single is not None:
@@ -2217,6 +2253,315 @@ def build_finalizer_artifact_body(
                  "raise the wall-clock if the run was truncated.")
     lines.append("")
     return "\n".join(lines)
+
+
+# A2-SEAM (iarch006 epic-failure, shared A2 CONTRACT clause 2): the disclosed-gap label injected on
+# a judge seam-error. Non-empty by construction so the synthetic seam result can ONLY resolve to
+# released_with_disclosed_gaps, NEVER STATUS_SUCCESS (release_policy.py:569 ships SUCCESS only on an
+# EMPTY disclosed_gaps list).
+SEAM_GAP_UNADJUDICATED = "four_role_seam_unadjudicated"
+
+
+def _seam_cited_evidence_ids(sections: "list[Any]") -> set[str]:
+    """Collect every cited evidence_id from the SHIPPED (strict_verify-kept) sentences.
+
+    These are the citation IDENTITIES the un-run judge would have screened. Defensive: tolerates
+    missing kept_sentences / tokens (legacy sections, empty sections) -> contributes nothing."""
+    cited: set[str] = set()
+    for sr in sections or []:
+        for sv in (getattr(sr, "kept_sentences_pre_resolve", None) or []):
+            for tok in (getattr(sv, "tokens", None) or []):
+                _eid = getattr(tok, "evidence_id", None)
+                if _eid:
+                    cited.add(str(_eid))
+    return cited
+
+
+def build_seam_release_outcome(
+    *,
+    sections: "list[Any]",
+    evidence_for_gen: "list[Any]",
+    is_clinical: bool,
+    seam_held_reason: str,
+    coverage_fraction: float = 0.0,
+) -> "tuple[Any, bool, str]":
+    """Compute the SAFE always-release outcome for a judge SEAM error (shared A2 CONTRACT clause 2).
+
+    A judge transport error (HTTP 400 etc.) means D8 never adjudicated. We MUST NOT auto-mark the
+    un-judged content verified (LAW II) and we MUST NOT ship it as STATUS_SUCCESS. The contract:
+
+      (a) inject the explicit non-empty disclosed gap ``SEAM_GAP_UNADJUDICATED`` so the outcome can
+          ONLY resolve to released_with_disclosed_gaps, NEVER success;
+      (b) run a STANDALONE fabrication screen over the cited citation IDENTITIES of the shipped
+          report — the fabrication latch ``classify_unreachable`` lives ONLY in the judge lane and
+          never fires on a seam error, and strict_verify checks span content NOT citation identity,
+          so an invented identity that only the judge catches would otherwise ship. Every cited
+          evidence_id MUST be present in the pre-fetch evidence pool; any id NOT in the pool is a
+          FABRICATED identity -> WITHHOLD the body;
+      (c) if the fabrication screen itself cannot run (an unexpected error), WITHHOLD the body
+          (Codex's floor: at most a body-withheld degraded artifact);
+      (d) for a clinical/legal Q with a required safety floor that the un-run judge could not
+          confirm, set ``safety_floor_insufficient=True`` so it ships the honest insufficient-safety
+          variant, not the polished normal report.
+
+    Returns ``(ReleaseOutcome, body_withheld, withhold_reason)``. This NEVER marks un-judged content
+    verified and NEVER relaxes a threshold — it only chooses an HONEST degraded disposition.
+    """
+    from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+        STATUS_RELEASED_INSUFFICIENT_SAFETY,
+        STATUS_RELEASED_WITH_DISCLOSED_GAPS,
+        ReleaseOutcome,
+    )
+
+    disclosed_gaps: list[str] = [
+        f"{SEAM_GAP_UNADJUDICATED}: the four-role D8 judge could not be reached "
+        f"({seam_held_reason}); the report below was NOT final-adjudicated by the judge. Its "
+        "sentences remain strict_verify-clean (span-grounded), but the strongest verifier did not "
+        "run — treat the findings as UNVERIFIED-by-D8 pending a re-judge."
+    ]
+
+    # (b)+(c) standalone fabrication screen: every cited identity must be a real selected source.
+    body_withheld = False
+    withhold_reason = ""
+    try:
+        from src.polaris_graph.roles.judge_contract import (  # noqa: PLC0415
+            classify_unreachable,
+        )
+        _pool_ids = {
+            str(ev.get("evidence_id"))
+            for ev in (evidence_for_gen or [])
+            if isinstance(ev, dict) and ev.get("evidence_id")
+        }
+        _fabricated: list[str] = []
+        for _eid in sorted(_seam_cited_evidence_ids(sections)):
+            # subtype=fetch_failure: a benign placeholder so an IN-POOL id classifies UNREACHABLE,
+            # not raises. The fabricated-identity check (id not in pool) is evaluated FIRST and is
+            # the only thing we act on here.
+            if classify_unreachable("fetch_failure", _eid, _pool_ids) == "FABRICATED":
+                _fabricated.append(_eid)
+        if _fabricated:
+            body_withheld = True
+            withhold_reason = (
+                "seam fabrication screen found cited citation identitie(s) not in the evidence "
+                f"pool: {_fabricated[:10]} — the un-run judge could not screen them; body withheld."
+            )
+            disclosed_gaps.append(
+                "seam_fabrication_screen: one or more cited identities were not in the evidence "
+                "pool; the findings body was withheld (no un-screened fabricated citation ships)."
+            )
+    except Exception as _screen_exc:  # noqa: BLE001 — screen cannot run -> withhold (Codex floor)
+        body_withheld = True
+        withhold_reason = (
+            f"seam fabrication screen could not run ({type(_screen_exc).__name__}: "
+            f"{str(_screen_exc)[:120]}); body withheld (fail-closed)."
+        )
+        disclosed_gaps.append(
+            "seam_fabrication_screen_unavailable: the standalone fabrication screen could not run "
+            "on a judge seam-error; the findings body was withheld (fail-closed)."
+        )
+
+    # (d) clinical/legal safety floor: the un-run judge could not confirm the safety floor, so ship
+    # the honest insufficient-safety variant for a domain that carries a required safety floor.
+    safety_floor_insufficient = bool(is_clinical)
+
+    # A18/A2-SEAM CONTRACT (iarch007, shared with release_policy.assert_release_invariant): the
+    # judge NEVER adjudicated on a seam error, so this ReleaseOutcome MUST carry the REAL seam state
+    # — NOT the constructor's default `adjudicated=True`. The hard release-invariant reads these
+    # three fields STRUCTURALLY (not a gap-label string sniff) to decide whether un-judged prose may
+    # ship: a RELEASED_* seam outcome is allowed ONLY if `adjudicated` OR `body_withheld` OR
+    # `compensating_screen_passed`. On a seam: `adjudicated=False` always; `body_withheld` is the
+    # fabrication-screen disposition computed above; and the compensating standalone fabrication
+    # screen "passed" (in the A18 sense) iff the body actually SHIPS (i.e. it was NOT withheld). This
+    # MIRRORS compute_release_outcome's seam branch (release_policy.py ~652-685) so the runtime seam
+    # path and the policy seam path produce A18-coherent outcomes. Faithfulness: this RECORDS the
+    # un-judged state honestly; it relaxes nothing and marks nothing verified.
+    _seam_screen_passed = not body_withheld
+
+    if safety_floor_insufficient:
+        disclosed_gaps.append(
+            "safety_floor_insufficient: this is a clinical/safety-floor question and the four-role "
+            "judge could not confirm the required safety coverage; the insufficient-safety variant "
+            "is shipped, not the polished normal report."
+        )
+        return (
+            ReleaseOutcome(
+                released=True,
+                hard_block=False,
+                # normal render blocked -> the polished report is NOT shipped as clean.
+                normal_release_blocked=True,
+                status=STATUS_RELEASED_INSUFFICIENT_SAFETY,
+                disclosed_gaps=disclosed_gaps,
+                hard_block_reasons=[],
+                release_quality_score=coverage_fraction,
+                safety_floor="insufficient",
+                adjudicated=False,
+                body_withheld=body_withheld,
+                compensating_screen_passed=_seam_screen_passed,
+            ),
+            body_withheld,
+            withhold_reason,
+        )
+
+    return (
+        ReleaseOutcome(
+            released=True,
+            hard_block=False,
+            normal_release_blocked=body_withheld,
+            status=STATUS_RELEASED_WITH_DISCLOSED_GAPS,
+            disclosed_gaps=disclosed_gaps,
+            hard_block_reasons=[],
+            release_quality_score=coverage_fraction,
+            safety_floor="ok",
+            adjudicated=False,
+            body_withheld=body_withheld,
+            compensating_screen_passed=_seam_screen_passed,
+        ),
+        body_withheld,
+        withhold_reason,
+    )
+
+
+# A12 (iarch006 epic-failure): intermediate DATA-ONLY checkpoints for the two genuinely missing
+# stages — post-generation and post-verification. The post-fetch (fetch_snapshot.json, #1259) and
+# post-selection (corpus_snapshot.json, F04) checkpoints already exist; these two fill the gap so a
+# judge-only re-run is a cents-cost replay instead of a fresh ~$2.79 run.
+#
+# HARD INVARIANT (CLAUDE.md §-1.3, ABSOLUTE — mirrors corpus_snapshot.py): a checkpoint stores DATA
+# ONLY — raw drafts, evidence/model/env hashes, per-sentence verification DATA. It stores NO
+# faithfulness verdict, NO release_outcome, NO "verified"/"released" flag, NO D8 decision. A resume
+# MUST re-run every gate (strict_verify / NLI / 4-role / D8) on the reloaded data — it can NEVER
+# replay a stored release_outcome. Writing a verdict here would be a RELAXATION of the only hard gate
+# and is an auto-P0; this helper makes that impossible by never accepting/serializing a verdict.
+_A12_POSTGEN_CHECKPOINT = "postgen_checkpoint.json"
+_A12_POSTVERIFY_CHECKPOINT = "postverify_checkpoint.json"
+
+
+def _a12_hash(obj: "Any") -> str:
+    """Stable SHA256 over a JSON-serializable object (sorted keys). Identity fingerprint only."""
+    try:
+        _blob = json.dumps(obj, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
+    except Exception:  # noqa: BLE001 — a fingerprint must never abort a checkpoint
+        _blob = repr(obj).encode("utf-8", "replace")
+    return hashlib.sha256(_blob).hexdigest()
+
+
+def write_postgen_checkpoint(
+    run_dir: "Path",
+    *,
+    run_id: str,
+    question: str,
+    raw_drafts: "dict[str, str]",
+    evidence_ids: "list[str]",
+    model_pin: "dict[str, Any] | None" = None,
+    env_slate: "dict[str, str] | None" = None,
+) -> "Path | None":
+    """A12 post-generation checkpoint (DATA ONLY). Stores the raw section drafts + identity hashes so
+    a resume can re-enter BEFORE verification. Stores NO verdict. Best-effort: a write failure must
+    NOT abort the paid run. Returns the path written (or None on failure)."""
+    try:
+        payload = {
+            "stage": "post_generation",
+            "schema_version": 1,
+            "run_id": run_id,
+            "question": question,
+            "raw_drafts": dict(raw_drafts or {}),
+            "evidence_ids": list(evidence_ids or []),
+            "evidence_id_hash": _a12_hash(sorted(evidence_ids or [])),
+            "model_pin": dict(model_pin or {}),
+            "env_slate": dict(env_slate or {}),
+            # EXPLICIT invariant marker so a §-1.1 auditor sees the contract on the artifact itself.
+            "faithfulness_invariant": (
+                "DATA ONLY; no verdict/release_outcome stored; a resume MUST re-run every gate."
+            ),
+        }
+        _path = Path(run_dir) / _A12_POSTGEN_CHECKPOINT
+        _path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8"
+        )
+        return _path
+    except Exception:  # noqa: BLE001 — checkpoint is best-effort durability, never a run blocker
+        return None
+
+
+def write_postverify_checkpoint(
+    run_dir: "Path",
+    *,
+    run_id: str,
+    question: str,
+    verif_details: "dict[str, Any]",
+    evidence_ids: "list[str]",
+) -> "Path | None":
+    """A12 post-verification checkpoint (DATA ONLY). Stores the per-sentence verification DATA
+    (verif_details) so a resume can re-enter RIGHT BEFORE the judge seam and re-run only the
+    cents-cost judge. This is per-sentence ACCOUNTING DATA, NOT a verdict — the report is already
+    strict_verify-assembled on disk; a resume STILL re-runs the 4-role/D8 judge from scratch (no
+    stored release_outcome). Best-effort. Returns the path written (or None on failure)."""
+    try:
+        payload = {
+            "stage": "post_verification",
+            "schema_version": 1,
+            "run_id": run_id,
+            "question": question,
+            # verif_details is per-sentence kept/dropped ACCOUNTING (which sentence, which tokens,
+            # which drop-reason) — NOT a release verdict. It mirrors verification_details.json.
+            "verification_details": verif_details,
+            "evidence_id_hash": _a12_hash(sorted(evidence_ids or [])),
+            "faithfulness_invariant": (
+                "DATA ONLY; no D8/release verdict stored; a resume MUST re-run the 4-role/D8 judge."
+            ),
+        }
+        _path = Path(run_dir) / _A12_POSTVERIFY_CHECKPOINT
+        _path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8"
+        )
+        return _path
+    except Exception:  # noqa: BLE001 — checkpoint is best-effort durability, never a run blocker
+        return None
+
+
+# A12 (iarch007 P1): the verdict tokens a DATA-ONLY checkpoint may NEVER contain. A resume
+# re-runs every gate from the reloaded DATA — it can never replay a stored decision (§-1.3 ABSOLUTE).
+# If any of these keys appear at the TOP LEVEL of a checkpoint payload, a verdict leaked in and the
+# loader FAILS LOUD (a silent load would relax the only hard gate).
+_A12_FORBIDDEN_VERDICT_KEYS = frozenset(
+    {
+        "release_outcome",
+        "release_allowed",
+        "released",
+        "verified",
+        "is_verified",
+        "final_verdicts",
+        "d8_decision",
+        "four_role_evaluation",
+    }
+)
+
+
+def load_a12_checkpoint(run_dir: "Path", checkpoint_name: str) -> "dict | None":
+    """A12 RESUME LOADER (iarch007 P1). Read a post-generation / post-verification checkpoint as
+    DATA ONLY for a --resume. Returns the payload dict, or None if the checkpoint is absent.
+
+    FAIL-LOUD §-1.3 enforcement: a checkpoint that smuggled a release verdict / "verified"/"released"
+    flag / D8 decision at the top level is a HARD ERROR (ValueError) — never silently loaded. This
+    makes "replay a stored verdict" structurally impossible: the only thing a resume can re-enter
+    with is verdict-free DATA, and every faithfulness gate (strict_verify / NLI / 4-role / D8)
+    RE-RUNS from scratch on that DATA. A malformed/corrupt JSON also raises (fail loud, never a
+    silent empty default)."""
+    _path = Path(run_dir) / checkpoint_name
+    if not _path.is_file():
+        return None
+    with _path.open(encoding="utf-8") as _handle:
+        _payload = json.load(_handle)  # raises on corrupt JSON -> fail loud
+    if not isinstance(_payload, dict):
+        raise ValueError(f"A12 checkpoint {checkpoint_name} is not a JSON object: {_path}")
+    _leaked = sorted(_A12_FORBIDDEN_VERDICT_KEYS & set(_payload.keys()))
+    if _leaked:
+        raise ValueError(
+            f"A12 checkpoint {checkpoint_name} contains FORBIDDEN verdict key(s) {_leaked} — a "
+            "checkpoint stores DATA ONLY (§-1.3); a resume re-runs every gate and can NEVER replay "
+            f"a stored decision. Refusing to load {_path}."
+        )
+    return _payload
 
 
 def finalize_run_artifact(
@@ -3764,6 +4109,16 @@ async def run_one_query(
         _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
         _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
         _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+        # A12 (iarch007 P1): the post-generation / post-verification checkpoints. These are loaded
+        # for OBSERVABILITY + DATA carry on a --resume — they are NOT a re-entry point that replays
+        # a verdict. The §-1.3 ABSOLUTE invariant is enforced here: a checkpoint that smuggled a
+        # release verdict / "verified" flag is a fail-loud abort (load_a12_checkpoint raises). The
+        # corpus_snapshot path below is the actual re-entry (it RE-RUNS generation + every gate);
+        # these payloads ride alongside so a resume that lands on the post-selection snapshot can
+        # SURFACE that a later post-gen/post-verify checkpoint exists (a future cents-cost judge-only
+        # re-entry consumes the DATA — never a stored decision).
+        _a12_postgen_payload: dict | None = None
+        _a12_postverify_payload: dict | None = None
         if resume:
             # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
             # the earlier (post-fetch) one only when the later one is absent.
@@ -3773,6 +4128,10 @@ async def run_one_query(
             elif _fetch_snapshot_path(run_dir).exists():
                 _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
                 _resume_from_fetch = True
+            # A12 checkpoints are additive DATA — load whichever exist (verdict-free; raises if a
+            # verdict ever leaked in). They never SUPPRESS a gate re-run.
+            _a12_postgen_payload = load_a12_checkpoint(run_dir, _A12_POSTGEN_CHECKPOINT)
+            _a12_postverify_payload = load_a12_checkpoint(run_dir, _A12_POSTVERIFY_CHECKPOINT)
 
         log_path = run_dir / "run_log.txt"
         # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
@@ -4620,6 +4979,22 @@ async def run_one_query(
                 f"{'selection + ' if _resume_from_fetch else ''}all faithfulness gates "
                 f"re-run on reloaded data)"
             )
+            # A12 (iarch007 P1): surface that a later post-gen / post-verify checkpoint exists. The
+            # re-entry above re-runs generation + EVERY gate on the reloaded corpus; the A12
+            # payloads are verdict-free DATA (load_a12_checkpoint already fail-loud-validated them).
+            if _a12_postverify_payload is not None or _a12_postgen_payload is not None:
+                _a12_stages = []
+                if _a12_postgen_payload is not None:
+                    _a12_stages.append(
+                        f"post_generation(raw_drafts={len(_a12_postgen_payload.get('raw_drafts', {}) or {})})"
+                    )
+                if _a12_postverify_payload is not None:
+                    _vd = _a12_postverify_payload.get("verification_details", {}) or {}
+                    _a12_stages.append(f"post_verification(verif_keys={len(_vd)})")
+                _log(
+                    "[resume]      A12 checkpoint(s) present (DATA ONLY; verdict-free): "
+                    f"{', '.join(_a12_stages)} — every gate STILL re-runs (no stored verdict replayed)"
+                )
         else:
             retrieval = run_live_retrieval(
                 research_question=q["question"],
@@ -6081,7 +6456,7 @@ async def run_one_query(
         # cap/floor/drop machinery had ZERO flag influence. Default OFF => every gated
         # branch stays on the legacy DROP/CAP path => byte-identical.
         _cred_redesign_on = (
-            os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower()
+            os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower()
             in ("1", "true", "yes", "on")
         )
         # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
@@ -6206,6 +6581,48 @@ async def run_one_query(
                 EvidenceSelection as _EvidenceSelection,
             )
             evidence_for_gen = list(_resume_payload.get("evidence_for_gen") or [])
+            # A15 (iarch006 epic-failure): resume-snapshot REFRESH detector. drb_90's first run
+            # crashed on a 402 with degraded retrieval; the RESUME reloaded the frozen corpus with NO
+            # re-retrieval, so the failed-fetch / shell / content-starved rows were reloaded untouched
+            # and A1/A6/A8 NEVER executed on the run they fix. SAFE CORE (this file): DETECT + FLAG +
+            # RECORD the degraded rows on resume so the refresh requirement is auditable. The actual
+            # re-FETCH over those rows lives in the fetch layer (frame_fetcher / live_retriever, A1's
+            # shell detector) — wiring a re-fetch here without A1's detector would risk faithfulness,
+            # so the re-fetch is flagged for the cross-file A1/A15 follow-up (see needs_codex_attention).
+            # Detection-only is byte-safe: it adds telemetry + a disclosed flag, drops nothing.
+            try:
+                from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
+                    is_content_starved as _a15_is_starved,
+                )
+                _a15_stale_rows: list[str] = []
+                for _row in evidence_for_gen:
+                    if not isinstance(_row, dict):
+                        continue
+                    _eid = _row.get("evidence_id", "")
+                    _grounding = (
+                        _row.get("direct_quote") or _row.get("statement") or ""
+                    )
+                    _is_degraded = (
+                        bool(_row.get("content_starved"))
+                        or bool(_row.get("fetch_failed"))
+                        or bool(_row.get("landing_page"))
+                        or _a15_is_starved(_grounding)
+                    )
+                    if _is_degraded:
+                        _a15_stale_rows.append(str(_eid))
+                        # FLAG the row so a downstream refresh / composition layer can see it needs a
+                        # re-fetch (additive key; asserts nothing, drops nothing).
+                        _row["resume_refresh_pending"] = True
+                if _a15_stale_rows:
+                    _log(
+                        f"[resume]      A15 refresh: {len(_a15_stale_rows)} reloaded row(s) are "
+                        "fetch-degraded (failed/shell/content-starved) and FLAGGED for re-fetch "
+                        "(detection-only this file; re-fetch is the cross-file A1/A15 follow-up): "
+                        f"{_a15_stale_rows[:10]}"
+                    )
+            except Exception as _a15_exc:  # noqa: BLE001 — detection is best-effort, never aborts resume
+                _a15_stale_rows = []
+                _log(f"[resume]      A15 refresh detector skipped (fail-open): {_a15_exc}")
             evidence_selection = _EvidenceSelection(
                 selected_rows=evidence_for_gen,
                 full_counts={},
@@ -7440,7 +7857,7 @@ async def run_one_query(
         # (the generator carries the same guard as defense-in-depth).
         _cred_judge = None
         _cred_gov = None
-        if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
+        if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower() not in ("", "0", "false", "off", "no"):
             from src.polaris_graph.authority.data_loader import load_authority_data as _load_auth
             from src.polaris_graph.authority.credibility_judge import make_credibility_judge as _mk_judge
             from src.polaris_graph.authority.credibility_judge_caller import (
@@ -7479,6 +7896,34 @@ async def run_one_query(
                      f"(evidence_for_gen={len(evidence_for_gen)} rows; --resume re-runs all gates)")
             except Exception as _snap_exc:  # noqa: BLE001 — checkpoint is best-effort
                 _log(f"[checkpoint]  snapshot save skipped (fail-open): {_snap_exc}")
+
+        # A14 (iarch006 epic-failure): FAIL-LOUD pre-spend preflight (opt-in) over the
+        # credibility-redesign slate. drb_90 was a resume whose run artifacts NEVER recorded whether
+        # PG_SWEEP_CREDIBILITY_REDESIGN (the master WEIGHT-AND-CONSOLIDATE flag) was ON — so a §-1.1
+        # auditor could not tell whether A6/A8/A13's consolidation machinery was switched on or
+        # silently ran the legacy filter-and-cap path. The optional assert (env opt-in
+        # PG_REQUIRE_CREDIBILITY_REDESIGN, default OFF => byte-identical) fails LOUD BEFORE the
+        # generator bills a single token if a certifying run is launched with the slate OFF. The
+        # flag-state STAMP into the manifest lands at the success-path manifest construction below
+        # (manifest does not exist yet on this pre-generation path). This mirrors the I-arch-005
+        # behavioral-preflight lesson: committed != wired-on-the-run-path.
+        _require_cred_redesign = (
+            os.environ.get("PG_REQUIRE_CREDIBILITY_REDESIGN", "").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        if _require_cred_redesign and not _cred_redesign_on:
+            raise RuntimeError(
+                "A14 pre-spend preflight FAILED CLOSED: PG_REQUIRE_CREDIBILITY_REDESIGN is ON "
+                "(this run is required to certify the WEIGHT-AND-CONSOLIDATE slate) but "
+                "PG_SWEEP_CREDIBILITY_REDESIGN is OFF — the consolidation / semantic-relevance / "
+                "weight-mass / per-claim-disclosure machinery would NOT run. Refusing to bill the "
+                "generator on the legacy filter-and-cap path. Set PG_SWEEP_CREDIBILITY_REDESIGN=1 "
+                "or clear PG_REQUIRE_CREDIBILITY_REDESIGN."
+            )
+        _log(
+            f"[preflight]   credibility-redesign slate: on={_cred_redesign_on} "
+            f"(required={_require_cred_redesign})"
+        )
 
         _pathb_gen_tok = _pathb.set_role("generator")
         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
@@ -7653,6 +8098,39 @@ async def run_one_query(
              f"verified={multi.total_sentences_verified}, "
              f"dropped={multi.total_sentences_dropped}, "
              f"limitations_words={len(multi.limitations_text.split())}")
+
+        # A12 (iarch006 epic-failure): post-GENERATION checkpoint — DATA ONLY (raw drafts + identity
+        # hashes), written right after generation completes and BEFORE verification, so a resume can
+        # re-enter before the verify/judge stages. Stores NO verdict; a resume re-runs every gate.
+        # Best-effort: a checkpoint write failure must NOT abort the paid run.
+        try:
+            _a12_raw_drafts = {
+                str(getattr(sr, "title", f"section_{_i}")): (getattr(sr, "raw_draft", "") or "")
+                for _i, sr in enumerate(multi.sections)
+            }
+            _a12_postgen_path = write_postgen_checkpoint(
+                run_dir,
+                run_id=run_id,
+                question=q.get("question", ""),
+                raw_drafts=_a12_raw_drafts,
+                evidence_ids=[
+                    ev.get("evidence_id") for ev in evidence_for_gen
+                    if isinstance(ev, dict) and ev.get("evidence_id")
+                ],
+                env_slate={
+                    "PG_GENERATOR_MODEL": os.environ.get("PG_GENERATOR_MODEL", ""),
+                    "PG_SWEEP_CREDIBILITY_REDESIGN": os.environ.get(
+                        "PG_SWEEP_CREDIBILITY_REDESIGN", ""
+                    ),
+                },
+            )
+            if _a12_postgen_path is not None:
+                _log(
+                    f"[checkpoint]  post-generation snapshot saved: {_a12_postgen_path.name} "
+                    "(DATA ONLY; --resume re-runs all gates)"
+                )
+        except Exception as _a12_pg_exc:  # noqa: BLE001 — checkpoint is best-effort
+            _log(f"[checkpoint]  post-generation snapshot skipped (fail-open): {_a12_pg_exc}")
 
         # I-cd-706: per-section SSE events (ALL sections incl. dropped, so the
         # staged-progress UI shows what was proposed + dropped). Emit the
@@ -7945,15 +8423,33 @@ async def run_one_query(
                     # so reasoning-as-JSON is safe here and adds no faithfulness risk.
                     if not _txt.strip():
                         _txt = getattr(_resp, "reasoning", "") or ""
+                    # A10 (iarch006 epic-failure): fail-loud SPLIT — a TRANSPORT/PARSE fault
+                    # (empty body / no parseable JSON, or a JSONDecodeError) is a REAL failure and
+                    # must NOT be laundered as a benign Writer decline. RAISE the typed
+                    # SpecProviderTransportError so it lands in run_quantified_section's existing
+                    # bounded-retry + spec_provider_error (QUANTIFIED_STATUS_PARSE_ERROR) lane. ONLY
+                    # the explicit model DECLINE (model_id in None/''/'none') keeps `return None`
+                    # (-> declined_no_spec). This separates the two populations the reserved
+                    # QUANTIFIED_STATUS_EMPTY_TRANSPORT status was reserved for; it changes NO
+                    # faithfulness gate or threshold (pure observability over WHY the section is empty).
                     _m = _q_re.search(r"\{.*\}", _txt, _q_re.DOTALL)
                     if not _m:
-                        return None
+                        raise SpecProviderTransportError(
+                            "quantified spec_provider returned empty/no-JSON body "
+                            f"(content+reasoning empty or unparseable; {len(_sourced)} sourced "
+                            "numbers were available)"
+                        )
                     try:
                         _obj = _q_json.loads(_m.group(0))
-                    except _q_json.JSONDecodeError:
-                        return None
+                    except _q_json.JSONDecodeError as _q_jde:
+                        raise SpecProviderTransportError(
+                            f"quantified spec_provider emitted non-JSON: {str(_q_jde)[:160]}"
+                        ) from _q_jde
                     if (not isinstance(_obj, dict)
                             or _obj.get("model_id") in (None, "", "none")):
+                        # EXPLICIT Writer decline (or a JSON value that is not a spec dict): a
+                        # legitimate "the numbers do not support a defensible model" — keep the
+                        # benign None return (-> declined_no_spec). NOT a transport fault.
                         return None
                     return _obj
 
@@ -8423,6 +8919,30 @@ async def run_one_query(
         }
         for sr in multi.sections:
             if not sr.rewritten_draft and not sr.kept_sentences_pre_resolve:
+                # A4-serialize (iarch006 epic-failure): a section that was ATTEMPTED (had evidence
+                # rows assigned) but emitted ZERO verified sentences (resolved_emitted == 0) used to
+                # vanish from verification_details.json entirely — exactly what happened to drb_90's
+                # "Comparative Assessment" (a comparative claim spans multiple sources, so no single
+                # span survived per-sentence strict_verify). Record a NON-VERDICT stub so the
+                # zero-emit is auditable instead of silently dropped. A section that was never
+                # attempted (no evidence assigned) is still skipped (nothing to disclose). This is
+                # pure observability — it asserts NO content and touches NO faithfulness gate.
+                _attempted = bool(getattr(sr, "ev_ids_assigned", None))
+                if _attempted:
+                    verif_details["sections"].append({
+                        "title": sr.title,
+                        "dropped_due_to_failure": sr.dropped_due_to_failure,
+                        "total_in": 0,
+                        "total_kept": 0,
+                        "total_dropped": 0,
+                        "kept": [],
+                        # `dropped` MUST be present (empty) so the per-reason tally loop below
+                        # (iterates s["dropped"]) stays byte-identical on this stub.
+                        "dropped": [],
+                        "attempted": True,
+                        "reason": "resolved_emitted==0",
+                        "ev_ids_assigned": list(getattr(sr, "ev_ids_assigned", []) or []),
+                    })
                 continue
             kept_svs = sr.kept_sentences_pre_resolve or []
             dropped_svs = sr.dropped_sentences_final or []
@@ -8578,6 +9098,30 @@ async def run_one_query(
             )
         except Exception:  # noqa: BLE001
             pass
+
+        # A12 (iarch006 epic-failure): post-VERIFICATION checkpoint — DATA ONLY (per-sentence
+        # verification accounting), written right after strict_verify completes and BEFORE the
+        # 4-role/D8 judge seam, so a resume can re-enter right before the judge and re-run only the
+        # cents-cost judge instead of a fresh ~$2.79 run. Stores NO D8/release verdict; a resume
+        # re-runs the judge from scratch. Best-effort: never abort the paid run.
+        try:
+            _a12_postverify_path = write_postverify_checkpoint(
+                run_dir,
+                run_id=run_id,
+                question=q.get("question", ""),
+                verif_details=verif_details,
+                evidence_ids=[
+                    ev.get("evidence_id") for ev in evidence_for_gen
+                    if isinstance(ev, dict) and ev.get("evidence_id")
+                ],
+            )
+            if _a12_postverify_path is not None:
+                _log(
+                    f"[checkpoint]  post-verification snapshot saved: {_a12_postverify_path.name} "
+                    "(DATA ONLY; --resume re-runs the 4-role/D8 judge)"
+                )
+        except Exception as _a12_pv_exc:  # noqa: BLE001 — checkpoint is best-effort
+            _log(f"[checkpoint]  post-verification snapshot skipped (fail-open): {_a12_pv_exc}")
 
         # I-beat-001: persist evidence_pool.json so the line-by-line
         # audit harness (scripts/run_line_by_line_audit.py
@@ -9020,6 +9564,18 @@ async def run_one_query(
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
 
+        # A14 (iarch006 epic-failure): STAMP the credibility-redesign slate state into the
+        # success-path manifest so a §-1.1 auditor can see whether the WEIGHT-AND-CONSOLIDATE slate
+        # (the master PG_SWEEP_CREDIBILITY_REDESIGN flag governing A6/A8/A13 consolidation, semantic
+        # relevance, weight-mass, per-claim disclosure) was actually ON for THIS certifying run.
+        # drb_90's artifacts never recorded this, hiding whether the legacy filter-and-cap path ran.
+        # Pure observability — additive keys, asserts nothing, drops nothing.
+        manifest["credibility_redesign_on"] = _cred_redesign_on
+        manifest["credibility_redesign_flag_raw"] = os.environ.get(
+            "PG_SWEEP_CREDIBILITY_REDESIGN", ""
+        )
+        manifest["credibility_redesign_required"] = _require_cred_redesign
+
         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
         # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy
         # manifest shape byte-for-byte, matching the other ON-mode keys below). The full per-source
@@ -9261,12 +9817,41 @@ async def run_one_query(
                 _seam_delta = _seam_cost_holder[0] - _seam_parent_cost
                 if _seam_delta > 0:
                     _seam_cost_ctx.set(_seam_parent_cost + _seam_delta)
+            _seam_body_withheld = False
+            _seam_withhold_reason = ""
             if _seam_held_reason is not None:
+                # A2-SEAM (iarch006 epic-failure, shared A2 CONTRACT clause 2): a judge transport
+                # error means D8 never adjudicated. The OLD code built a release_outcome=None HELD
+                # result, so the post-seam block fell to the legacy `four_role_held` path and the
+                # WHOLE report HELD (abort_four_role_release_held) — a good, strict_verify-clean
+                # report never shipped on a plumbing fault. Under always-release that is also the
+                # path that, if naively given an EMPTY disclosed_gaps list, hits release_policy.py:569
+                # and ships STATUS_SUCCESS (strictly WORSE — an un-judged report marked success).
+                #
+                # The SAFE rescue (never marks un-judged content verified, never relaxes a gate):
+                # attach a real release_outcome carrying the non-empty SEAM_GAP_UNADJUDICATED
+                # disclosed gap (=> can ONLY resolve to released_with_disclosed_gaps), after a
+                # STANDALONE fabrication screen over the shipped citation identities; if a cited
+                # identity is not in the pool (or the screen cannot run) the BODY is WITHHELD; a
+                # clinical/safety-floor Q ships the honest insufficient-safety variant.
+                _seam_release_outcome, _seam_body_withheld, _seam_withhold_reason = (
+                    build_seam_release_outcome(
+                        sections=multi.sections,
+                        evidence_for_gen=evidence_for_gen,
+                        is_clinical=_clinical_verified_only_surface,
+                        seam_held_reason=_seam_held_reason,
+                    )
+                )
                 _log(
-                    f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s "
-                    "-> release HELD (fail-closed; terminal manifest written)"
+                    f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s -> D8 "
+                    "UNADJUDICATED; release_outcome=released_with_disclosed_gaps "
+                    f"(body_withheld={_seam_body_withheld}; status={_seam_release_outcome.status})"
                 )
                 four_role_result = FourRoleEvaluationResult(
+                    # release_allowed stays False here: the BINDING decision is taken from
+                    # release_outcome.released by the always-release block below. The legacy
+                    # (always-release OFF) path reads this False and HOLDS — byte-identical to the
+                    # prior fail-closed behaviour. The seam content is NEVER marked verified.
                     release_allowed=False,
                     held_reasons=[_seam_held_reason],
                     gaps=[],
@@ -9276,6 +9861,7 @@ async def run_one_query(
                     fabricated_occurrence_latched=False,
                     needs_rewrite=[],
                     kg_path=_seam_kg_path,
+                    release_outcome=_seam_release_outcome,
                 )
             # I-obs-001 #1141 AC1: verifier phase complete — stamp claims processed.
             try:
@@ -9307,6 +9893,17 @@ async def run_one_query(
                     "disclosed_gaps": list(_release_outcome.disclosed_gaps),
                     "release_quality_score": _release_outcome.release_quality_score,
                     "safety_floor": _release_outcome.safety_floor,
+                    # A18 STRUCTURAL PROOF (iarch007 SWEEP-P0 / shared A18 CONTRACT): serialize the
+                    # three release-proof fields so the artifact-level invariant
+                    # (iarch007_release_invariant_check.check_manifest) can verify the contract
+                    # STRUCTURALLY instead of string-sniffing a gap label. `adjudicated` proves the
+                    # judge truly ran; `body_withheld` proves the unsafe body was suppressed;
+                    # `compensating_screen_passed` proves the standalone fabrication screen ran clean
+                    # on a body-shipping seam. These are read by the CI gate to enforce A18 on the
+                    # finished run dir.
+                    "adjudicated": _release_outcome.adjudicated,
+                    "body_withheld": _release_outcome.body_withheld,
+                    "compensating_screen_passed": _release_outcome.compensating_screen_passed,
                 }
             else:
                 manifest["release_allowed"] = four_role_result.release_allowed
@@ -9366,6 +9963,76 @@ async def run_one_query(
             # fail-closed HELD). The strict post-status guard below uses this to forbid a
             # would-be `success` that never went through D8.
             _d8_audit_ran = True
+
+            # A2-SEAM (iarch006 epic-failure, shared A2 CONTRACT clause 2): if the standalone seam
+            # fabrication screen demanded the body be WITHHELD (a cited identity not in the pool, or
+            # the screen could not run), replace report.md with a degraded disclosure body that
+            # asserts NO finding. This runs ONLY on the always-release seam-rescue path (where the
+            # body would otherwise SHIP with the disclosed gap); the legacy OFF path already holds
+            # the whole report. Faithfulness: withholding the body can only REMOVE content, never
+            # add an un-screened claim; it relaxes nothing.
+            if (
+                _seam_body_withheld
+                and _seam_held_reason is not None
+                and always_release_enabled()
+                and run_dir is not None
+            ):
+                try:
+                    _seam_withhold_path = run_dir / "report.md"
+                    # Preserve the un-screened body for the curator (mirrors the B16/B17 pattern).
+                    if _seam_withhold_path.is_file():
+                        try:
+                            (run_dir / "report_unredacted.md").write_text(
+                                _seam_withhold_path.read_text(encoding="utf-8"),
+                                encoding="utf-8",
+                            )
+                        except OSError:
+                            pass
+                    _seam_degraded_body = build_finalizer_artifact_body(
+                        research_question=q.get("question", ""),
+                        status=summary_status,
+                        error=(
+                            "the four-role D8 judge could not be reached and the standalone seam "
+                            f"fabrication screen required withholding the body: {_seam_withhold_reason}"
+                        ),
+                    )
+                    _seam_withhold_path.write_text(_seam_degraded_body, encoding="utf-8")
+                    manifest.setdefault("disclosed_gaps", []).append(
+                        "seam_body_withheld: the un-adjudicated findings body was withheld after the "
+                        f"standalone seam fabrication screen ({_seam_withhold_reason}); the "
+                        "un-screened body was preserved as report_unredacted.md for the curator."
+                    )
+                    _log(
+                        "[four_role]   SEAM body WITHHELD (fabrication screen) -> shipped degraded "
+                        "disclosure artifact (un-screened body -> report_unredacted.md)"
+                    )
+                except Exception as _seam_wh_exc:  # noqa: BLE001 — FAIL CLOSED, never fail open
+                    # A18/A2-SEAM CONTRACT (iarch007 SWEEP-P0): the standalone fabrication screen
+                    # DEMANDED the body be withheld, but the report.md overwrite FAILED. The original
+                    # un-adjudicated, un-screened findings body is therefore STILL ON DISK. Shipping
+                    # the manifest as a RELEASED status now would release that unsafe body — a leak.
+                    # FAIL CLOSED: flip the headline status to the fail-closed seam HOLD, forbid
+                    # release, and disclose the reason so the run is held, not silently released. The
+                    # B11 finalizer / abort body downstream then governs the on-disk artifact.
+                    # "four_role_held" is the summary-status key that to_unified_status maps to the
+                    # unified terminal "abort_four_role_release_held" (the fail-closed seam HOLD).
+                    summary_status = "four_role_held"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    if isinstance(manifest.get("release_disclosure"), dict):
+                        manifest["release_disclosure"]["normal_release_blocked"] = True
+                    manifest.setdefault("disclosed_gaps", []).append(
+                        "seam_body_withhold_write_failed: the seam fabrication screen required "
+                        "withholding the findings body, but the report.md overwrite FAILED "
+                        f"({type(_seam_wh_exc).__name__}: {str(_seam_wh_exc)[:120]}). The run is "
+                        "HELD fail-closed (release_allowed=False) so the un-screened body is NOT "
+                        "released under a released status."
+                    )
+                    _log(
+                        "[four_role]   SEAM body-withhold write FAILED -> FAIL CLOSED "
+                        f"(status={unified_status}, release_allowed=False): {_seam_wh_exc}"
+                    )
 
             # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
             # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
@@ -10277,6 +10944,85 @@ async def run_one_query(
                 )
         except Exception as _b12_exc:  # noqa: BLE001 — defensive glue must never abort the run
             _log(f"[label]       B12/B13 unscored-label glue skipped (fail-open): {_b12_exc}")
+
+        # A18 HARD RELEASE-INVARIANT (iarch007 SWEEP-P0 / shared A18 CONTRACT clause 3): the LAST
+        # gate before the success-path manifest write. assert_release_invariant() FAILS CLOSED on
+        # any release-asserting status (success / released_with_disclosed_gaps /
+        # released_insufficient_safety) that cannot PROVE the judge truly adjudicated OR the body is
+        # withheld OR (on a seam) a compensating fabrication screen passed. The proof is read
+        # STRUCTURALLY from the ReleaseOutcome fields built from the FINAL reconciled manifest state
+        # (status + the three serialized proof fields), NOT from a gap-label string sniff — so an
+        # un-judged report stamped success/released here is STRUCTURALLY IMPOSSIBLE to write. A
+        # violation is CONVERTED to the fail-closed seam HOLD (never written as released); this
+        # relaxes nothing — it only refuses an unsafe release. abort_*/error_*/partial_* statuses are
+        # not release-asserting, so the invariant returns the outcome untouched (no false trip).
+        try:
+            from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                ReleaseInvariantError,
+                ReleaseOutcome as _ReleaseOutcome,
+                assert_release_invariant,
+            )
+            _final_status = str(manifest.get("status") or "")
+            _rd = manifest.get("release_disclosure")
+            _rd = _rd if isinstance(_rd, dict) else {}
+            # Build the proof-bearing outcome from the FINAL manifest. Fields default to the
+            # SAFE (un-proven) value when absent so a release-asserting status with no serialized
+            # proof FAILS CLOSED rather than passing on a missing field.
+            _final_outcome = _ReleaseOutcome(
+                released=bool(manifest.get("release_allowed")),
+                hard_block=bool(_rd.get("hard_block", False)),
+                normal_release_blocked=bool(_rd.get("normal_release_blocked", False)),
+                status=_final_status,
+                disclosed_gaps=list(_rd.get("disclosed_gaps", []) or []),
+                hard_block_reasons=list(_rd.get("hard_block_reasons", []) or []),
+                release_quality_score=float(_rd.get("release_quality_score", 0.0) or 0.0),
+                safety_floor=str(_rd.get("safety_floor", "ok") or "ok"),
+                adjudicated=bool(_rd.get("adjudicated", True)) if _rd else True,
+                body_withheld=bool(_rd.get("body_withheld", False)),
+                compensating_screen_passed=bool(_rd.get("compensating_screen_passed", False)),
+            )
+            # A2-seam floor: a release_disclosure that records the seam (adjudicated explicitly
+            # False) but is MISSING the proof fields must NOT be treated as adjudicated. When the
+            # always-release D8/seam block populated release_disclosure, `adjudicated` is present and
+            # honest; when it is absent entirely (legacy/non-D8 path producing a non-release status)
+            # the status is not release-asserting and the invariant is a no-op.
+            assert_release_invariant(_final_outcome)
+        except ReleaseInvariantError as _inv_exc:
+            # FAIL CLOSED: refuse to write the released manifest. Convert to the seam HOLD so the
+            # un-judged/un-proven body is not released under a released status.
+            summary_status = "four_role_held"
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            manifest["release_allowed"] = False
+            if isinstance(manifest.get("release_disclosure"), dict):
+                manifest["release_disclosure"]["normal_release_blocked"] = True
+            manifest.setdefault("disclosed_gaps", []).append(
+                "release_invariant_violation: the A18 hard release-invariant refused this release "
+                f"({str(_inv_exc)[:200]}). The run is HELD fail-closed (release_allowed=False); no "
+                "un-judged/un-proven findings body ships under a released status."
+            )
+            _log(
+                "[release-invariant] FAIL CLOSED (A18): "
+                f"{str(_inv_exc)[:200]} -> status={unified_status}, release_allowed=False"
+            )
+        except Exception as _inv_other:  # noqa: BLE001 — a guard fault must not silently pass a release
+            # The invariant guard itself errored. Do NOT silently ship: if the status is
+            # release-asserting, fail closed; otherwise (already a non-release status) leave as-is.
+            if str(manifest.get("status") or "") in (
+                "success", "released_with_disclosed_gaps", "released_insufficient_safety_evidence",
+            ):
+                summary_status = "four_role_held"
+                unified_status = to_unified_status(summary_status)
+                manifest["status"] = unified_status
+                manifest["release_allowed"] = False
+                manifest.setdefault("disclosed_gaps", []).append(
+                    "release_invariant_guard_error: the A18 invariant guard could not run "
+                    f"({type(_inv_other).__name__}: {str(_inv_other)[:120]}); HELD fail-closed."
+                )
+                _log(f"[release-invariant] guard error -> FAIL CLOSED: {_inv_other}")
+            else:
+                _log(f"[release-invariant] guard skipped on non-release status: {_inv_other}")
+
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

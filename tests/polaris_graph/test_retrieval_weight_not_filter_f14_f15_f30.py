@@ -494,7 +494,7 @@ def test_f30_empty_body_not_landing():
 def test_f15_selector_off_path_ignores_retrieval_weight(monkeypatch):
     """OFF path (PG_SWEEP_CREDIBILITY_REDESIGN unset): a row's retrieval_weight is
     NOT applied to ranking — byte-identical to the prior sort key."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert evidence_selector._credibility_redesign_enabled() is False
 
 

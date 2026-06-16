@@ -395,18 +395,30 @@ def test_p3_12b_out_of_range_after_truncation_raises():
 
 # ── P3-13 sentinel fallback ──────────────────────────────────────────────────
 
-def test_p3_13_sentinel_fallback_credits_and_real_origin_does_not():
+def test_p3_13_sentinel_fallback_credits_and_real_origin_does_not(monkeypatch):
     outline = [_section("S0", 1, [0])]
     sub = ["renewable hydro turbine capacity output"]
     for sentinel in sorted(SENTINEL_ORIGINS):
         srow = _row("ev_000", sentinel, 0.9,
                     statement="renewable hydro turbine capacity report")
         assert relevant_section_indices(srow, outline, sub) == [0], sentinel
-    # A REAL sub-query origin that doesn't MATCH the section text is NOT credited
-    # (no overlap rescue for a real origin).
+    # A REAL sub-query origin that EXACT-matches NO planned sub-query.
     real = _row("ev_001", "some other real subquery", 0.9,
                 statement="renewable hydro turbine capacity report")
+    # iarch007 A5 (RC6) SUPERSEDES the old single assertion. The behavior now
+    # depends on PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK:
+    #  - OFF (pre-A5, byte-identical legacy): a real origin with no exact match is
+    #    ORPHANED — no overlap rescue. (byte-identity guard.)
+    monkeypatch.setenv("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK", "0")
     assert relevant_section_indices(real, outline, sub) == []
+    #  - ON (A5 default): a DRIFTED real origin (exact-matches nothing, so it is
+    #    not another section's evidence — see the production caller, which passes
+    #    the COMPLETE sub_queries list so a real origin's home section would
+    #    exact-match and suppress this path) is RECOVERED via row-content overlap
+    #    against the section's sub-query text, rather than hard-dropped (§-1.3
+    #    recover-don't-drop; routing only, strict_verify still gates faithfulness).
+    monkeypatch.setenv("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK", "1")
+    assert relevant_section_indices(real, outline, sub) == [0]
 
 
 # ── P3-14 whole-plan facet union ─────────────────────────────────────────────

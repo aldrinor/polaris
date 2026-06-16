@@ -477,6 +477,20 @@ class ContradictionRecord:
         "If one source is T1 (RCT) and another is T5 (industry), note the "
         "authority gap alongside the numeric gap."
     )
+    # ── A17 commensurability guard (I-arch-006 #1262) ────────────────────────
+    # not_comparable=True marks a group whose claims carry POSITIVELY-DIVERGENT
+    # physical quantity kinds (e.g. a 0.5-degree yaw angle bucketed with a 100 m
+    # radar distance because both flattened to unit="") — an INCOMMENSURABLE
+    # pairing. The numeric gap across such a pairing is a category error (the run
+    # surfaced absolute_difference 99.5 / 199% relative across degrees-vs-meters),
+    # so when this fires the surfaced relative_difference/absolute_difference are
+    # nulled to None (no misleading magnitude) and the record is kept OUT of the
+    # headline contradiction count — but every claim/source is still DISCLOSED
+    # (never dropped). This is a VALIDITY/WEIGHT check, NOT a faithfulness-gate
+    # change: strict_verify / NLI / 4-role thresholds are untouched, and a real
+    # same-quantity contradiction is unaffected (both default fields stay False/"").
+    not_comparable: bool = False
+    incommensurable_reason: str = ""
 
 
 # The Wave-3 dormant discriminator fields added to ExtractedNumericClaim (I-arch-002 [2]).
@@ -491,6 +505,15 @@ _WAVE3_DORMANT_NUMERIC_FIELDS = (
 )
 
 
+# A17 record-level commensurability fields (I-arch-006 #1262). asdict() emits
+# every dataclass field, so to preserve byte-identity for the legacy / clinical /
+# comparable records (whose JSON never had these keys) they are STRIPPED whenever
+# they sit at their inert defaults (not_comparable=False AND empty reason). They
+# are emitted ONLY on a record where the A17 guard positively fired — the new,
+# correct behavior is allowed to add keys exactly on the records it changed.
+_A17_RECORD_FIELDS = ("not_comparable", "incommensurable_reason")
+
+
 def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
     """asdict a numeric ContradictionRecord for contradictions.json / manifest / PT08.
 
@@ -499,12 +522,22 @@ def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
     pre-Slice-B tree (Claude Slice-B iter-2 Fix C). When ON the full field set is emitted
     (the redesign is the new behavior; ON is allowed to differ). endpoint_phrase/arm are
     pre-existing and always retained.
+
+    A17 (I-arch-006 #1262): the record-level commensurability fields
+    (not_comparable / incommensurable_reason) are stripped whenever they carry their
+    inert defaults, so a comparable / clinical record serializes byte-identically to
+    the pre-A17 tree; they appear ONLY on a record the A17 guard actually marked.
     """
     d = asdict(record)
     if not _credibility_redesign_enabled():
         for claim in d.get("claims", []) or []:
             for fname in _WAVE3_DORMANT_NUMERIC_FIELDS:
                 claim.pop(fname, None)
+    # A17: keep inert (default) records byte-identical — strip the new keys unless
+    # the guard positively fired on THIS record.
+    if not d.get("not_comparable") and not (d.get("incommensurable_reason") or ""):
+        for fname in _A17_RECORD_FIELDS:
+            d.pop(fname, None)
     return d
 
 
@@ -1260,6 +1293,167 @@ def _group_has_real_drug_subject(group: list["ExtractedNumericClaim"]) -> bool:
         return False
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# A17 commensurability guard (I-arch-006 #1262)
+#
+# The grouping key is (subject, predicate, unit, dose). When unit is "" (the
+# extractor could not attach a unit token), ALL unit-less numbers in a
+# subject/predicate bucket collapse together — so a 0.5-DEGREE yaw angle gets
+# bucketed with a 100-METRE radar distance under subject="lane" / predicate=
+# "change" / unit="". The detector then computes a meaningless cross-quantity
+# magnitude (the run surfaced absolute_difference 99.5 / relative 199% across
+# degrees-vs-meters), a category error that is user-visible junk.
+#
+# This guard reads each claim's own context text for a POSITIVELY-KNOWN physical
+# quantity kind (angle / length / speed / time / mass / temperature / data-size /
+# frequency / currency / count-people). A group whose claims carry MORE THAN ONE
+# distinct known quantity kind is INCOMMENSURABLE: its numbers are not comparable,
+# so the surfaced rel/abs diff is nulled and the record is kept out of the headline
+# count — but every claim/source stays DISCLOSED (never dropped). Unknown kinds
+# never force incommensurability (conservative: only POSITIVE divergence triggers,
+# so a genuine same-quantity contradiction is never mis-flagged). NO faithfulness
+# threshold is touched. Deterministic, no LLM, never raises.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_A17_GUARD_FLAG = "PG_CONTRADICTION_COMMENSURABILITY_GUARD"
+_A17_GUARD_OFF_VALUES = frozenset({"0", "false", "off", "no"})
+
+
+def _a17_guard_enabled() -> bool:
+    """True (default) unless PG_CONTRADICTION_COMMENSURABILITY_GUARD is set off.
+
+    Read at CALL time so tests can monkeypatch os.environ. Defaults ON because
+    surfacing a degrees-vs-meters magnitude is §-1.3-incorrect validity junk; the
+    flag exists only as a LAW-VI escape hatch / byte-identity audit lever.
+    """
+    return (
+        os.environ.get(_A17_GUARD_FLAG, "").strip().lower()
+        not in _A17_GUARD_OFF_VALUES
+    )
+
+
+# Positively-known physical quantity kinds, keyed by a context-text cue. The cues
+# are deterministic word-boundary patterns (no clinical literal). Order is
+# irrelevant — a claim's kind is the SET of all cues that fire; a group is
+# incommensurable iff the UNION of single-kind claims spans >1 distinct kind.
+_QUANTITY_KIND_CUES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("angle", re.compile(r"\b(?:degrees?|deg|°|radians?|yaw|pitch|roll|angular)\b", re.IGNORECASE)),
+    ("length", re.compile(r"\b(?:metres?|meters?|kilometres?|kilometers?|km|cm|mm|"
+                          r"miles?|feet|foot|inch(?:es)?|nanometres?|nanometers?|nm|µm|micrometres?|"
+                          r"distances?|radius|radii|diameter|wavelengths?)\b"
+                          r"|\d\s*m\b", re.IGNORECASE)),
+    ("speed", re.compile(r"\b(?:km/?h|kph|mph|m/?s|knots?|velocity|speed)\b", re.IGNORECASE)),
+    ("time_duration", re.compile(r"\b(?:seconds?|secs?|milliseconds?|ms|minutes?|mins?|"
+                                 r"hours?|hrs?|microseconds?|µs|nanoseconds?|ns|latency)\b", re.IGNORECASE)),
+    ("mass", re.compile(r"\b(?:kilograms?|kg|grams?|milligrams?|mg|µg|micrograms?|"
+                        r"tonnes?|tons?|pounds?|lbs?|ounces?|oz)\b", re.IGNORECASE)),
+    ("temperature", re.compile(r"\b(?:°c|°f|celsius|fahrenheit|kelvin)\b|\bdegrees?\s+(?:c|f|celsius|fahrenheit)\b", re.IGNORECASE)),
+    ("data_size", re.compile(r"\b(?:bytes?|kilobytes?|kb|megabytes?|mb|gigabytes?|gb|terabytes?|tb|bits?|fps|frames?\s+per\s+second)\b", re.IGNORECASE)),
+    ("frequency_hz", re.compile(r"\b(?:hertz|hz|khz|mhz|ghz)\b", re.IGNORECASE)),
+    ("currency", re.compile(r"[$€£¥]|\b(?:usd|eur|gbp|cad|jpy|dollars?|euros?|pounds?\s+sterling)\b", re.IGNORECASE)),
+    ("power_energy", re.compile(r"\b(?:watts?|kw|mw|gw|kwh|mwh|twh|joules?|kj|mj|volts?|amps?|amperes?)\b", re.IGNORECASE)),
+)
+
+
+def _value_anchor_pos(text: str, value: float) -> Optional[int]:
+    """Best char position of the claim's numeric VALUE inside its context text.
+
+    Tries the int form ('100'), the trimmed-float form ('0.5'), then the raw
+    repr. Returns None when the value cannot be located (caller then falls back
+    to whole-text scan). Pure."""
+    if not text:
+        return None
+    forms: list[str] = []
+    if value == int(value):
+        forms.append(str(int(value)))
+    forms.append(("%g" % value))
+    forms.append(str(value))
+    for form in forms:
+        idx = text.find(form)
+        if idx != -1:
+            return idx
+    return None
+
+
+def _quantity_kinds_for_claim(claim: "ExtractedNumericClaim") -> frozenset[str]:
+    """Positively-known physical quantity kind(s) for a claim, ANCHORED on the
+    number nearest the claim's own value.
+
+    The context_snippet can mention several quantities (a yaw snippet says
+    '0.5 degrees can cause a lateral error of almost one meter' — angle AND
+    length). A whole-text scan would mark such a claim ambiguous (multi-kind) and
+    the conservative single-kind rule would then SKIP it, missing the very case
+    A17 targets. So we anchor: the unit token is authoritative when present;
+    otherwise the kind is the one whose cue fires CLOSEST to the value's position
+    in the snippet (degrees is adjacent to 0.5 -> angle; m/distances is adjacent
+    to 100 -> length). Returns frozenset() when no cue fires (UNKNOWN — never
+    forces incommensurability). Pure, never raises."""
+    unit = str(getattr(claim, "unit", "") or "")
+    snippet = str(getattr(claim, "context_snippet", "") or "")
+    # 1. Authoritative unit token (when the extractor attached one).
+    for kind, pat in _QUANTITY_KIND_CUES:
+        try:
+            if unit and pat.search(unit):
+                return frozenset({kind})
+        except Exception:
+            continue
+    if not snippet.strip():
+        return frozenset()
+    anchor = _value_anchor_pos(snippet, getattr(claim, "value", 0.0))
+    # 2. Value-anchored: pick the kind whose nearest cue match is closest to the
+    #    value. Falls back to whole-text presence when the value can't be located.
+    best_kind: Optional[str] = None
+    best_dist = 10 ** 9
+    for kind, pat in _QUANTITY_KIND_CUES:
+        try:
+            matches = list(pat.finditer(snippet))
+        except Exception:
+            continue
+        if not matches:
+            continue
+        if anchor is None:
+            # No anchor: degrade to first-found wins (deterministic by cue order).
+            if best_kind is None:
+                best_kind = kind
+            continue
+        for m in matches:
+            center = (m.start() + m.end()) // 2
+            dist = abs(center - anchor)
+            if dist < best_dist:
+                best_dist = dist
+                best_kind = kind
+    if best_kind is not None:
+        return frozenset({best_kind})
+    return frozenset()
+
+
+def _group_incommensurable_reason(group: list["ExtractedNumericClaim"]) -> str:
+    """Return a short reason string iff the group mixes POSITIVELY-DIVERGENT
+    quantity kinds (incommensurable), else "".
+
+    A claim contributes its kind ONLY when it resolves to EXACTLY ONE known kind
+    (an ambiguous multi-kind claim, e.g. text mentioning both "metres" and
+    "seconds", is not a reliable single-axis signal and is skipped — conservative).
+    The group is incommensurable iff the union of those single-kind claims spans
+    more than one distinct kind. Unknown / ambiguous claims never trigger it, so a
+    genuine same-quantity numeric contradiction is NEVER mis-flagged. Pure."""
+    seen: set[str] = set()
+    for c in group:
+        kinds = _quantity_kinds_for_claim(c)
+        if len(kinds) == 1:
+            seen.add(next(iter(kinds)))
+    if len(seen) > 1:
+        ordered = sorted(seen)
+        return (
+            "incommensurable quantity kinds in one bucket: "
+            + " vs ".join(ordered)
+            + " — numbers measure different physical quantities (unit token was "
+            "missing, so they collapsed under the same surface key); the numeric "
+            "gap is not a real disagreement"
+        )
+    return ""
+
+
 def detect_contradictions(
     claims: list[ExtractedNumericClaim],
     *,
@@ -1307,6 +1501,57 @@ def detect_contradictions(
             predicate_display = predicate
             if dose:
                 predicate_display = f"{predicate} ({dose})"
+            # A17 (I-arch-006 #1262): commensurability guard runs FIRST, on EVERY
+            # path (incl. the clinical real-drug path), because mixing divergent
+            # PHYSICAL quantity kinds in one bucket is a stronger validity failure
+            # than a scope mismatch — a unit-less collapse can bucket a 0.5-degree
+            # yaw angle with a 100-metre radar distance even under a real subject.
+            # When the group's claims carry positively-divergent quantity kinds the
+            # numeric gap is a category error, so we NULL the surfaced rel/abs diff
+            # (no misleading magnitude), label the record not_comparable, and keep
+            # it OUT of the headline count — but DISCLOSE every claim/source (never
+            # drop). This is a VALIDITY/WEIGHT check; no faithfulness threshold is
+            # touched and only POSITIVE divergence triggers it (a genuine same-
+            # quantity contradiction, e.g. two "%" claims, is never mis-flagged).
+            # A17 scan ONLY a unit-LESS group (unit == ""). Physical units
+            # (degrees / metres) are never in the extractor's unit alternation so
+            # they ALWAYS collapse to unit="" — exactly the bucket A17 targets. A
+            # group with ANY non-empty shared unit (%, currency, magnitude) is
+            # commensurable BY CONSTRUCTION (the grouping key forces the same unit),
+            # so scanning its prose for incidental physical-quantity nouns ("30 fps"
+            # near one claim, "5 ms latency" near another) could only INVENT a false
+            # divergence and SUPPRESS a genuine same-unit contradiction — the
+            # cardinal faithfulness sin. The gate makes A17 fire on the real collapse
+            # and never on a real shared-unit disagreement.
+            incommensurable_reason = ""
+            if _a17_guard_enabled() and unit == "":
+                incommensurable_reason = _group_incommensurable_reason(group)
+            if incommensurable_reason:
+                # De-numbered, not None: the surfaced magnitude is set to 0.0 so a
+                # downstream consumer reads "no asserted disagreement" (0%) instead
+                # of the junk cross-quantity 199%/545%. 0.0 is None-safe at every
+                # in-memory + JSON consumer (honest_pipeline `*100`, audit_ir
+                # `float(...)`, generator `or 0`); None would crash them. The real
+                # signal lives in not_comparable / incommensurable_reason / the
+                # [not_comparable] tag + headline-count exclusion.
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=f"{predicate_display} [not_comparable]",
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=0.0,
+                    absolute_difference=0.0,
+                    severity="low",
+                    recommended_action=(
+                        "Not comparable (A17): the numbers in this bucket measure "
+                        "different physical quantities and collapsed under one "
+                        "surface key only because a unit token was missing. Disclose "
+                        "each value with its own context; do NOT assert a numeric "
+                        "contradiction across them."
+                    ),
+                    not_comparable=True,
+                    incommensurable_reason=incommensurable_reason,
+                ))
+                continue
             # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
             # only when the claims share comparator/population/time-window. If
             # those discriminators differ or cannot be confirmed, label it a
@@ -1373,14 +1618,24 @@ def detect_contradictions(
 def format_contradictions_for_user(
     records: list[ContradictionRecord],
 ) -> str:
-    """Human-readable plain-text summary."""
+    """Human-readable plain-text summary.
+
+    A17 (I-arch-006 #1262): an incommensurable / `not_comparable` record (a bucket
+    that mixed divergent physical quantity kinds) is EXCLUDED from the headline
+    contradiction count and rendered as "not comparable" instead of a misleading
+    rel/abs magnitude. Its claims are still listed (disclosed, never dropped) under
+    a separate notice so the reader sees why the numbers are not a real
+    disagreement.
+    """
     if not records:
         return "No contradictions detected in the evidence corpus."
+    comparable = [r for r in records if not getattr(r, "not_comparable", False)]
+    not_comparable = [r for r in records if getattr(r, "not_comparable", False)]
     lines = [
-        f"Detected {len(records)} contradiction(s) in the evidence corpus.",
+        f"Detected {len(comparable)} contradiction(s) in the evidence corpus.",
         "",
     ]
-    for i, r in enumerate(records, 1):
+    for i, r in enumerate(comparable, 1):
         lines.append(
             f"[{i}] {r.subject} / {r.predicate} — "
             f"severity={r.severity}, rel_diff={r.relative_difference*100:.1f}%, "
@@ -1394,4 +1649,23 @@ def format_contradictions_for_user(
             )
         lines.append(f"    Action: {r.recommended_action}")
         lines.append("")
+    if not_comparable:
+        lines.append(
+            f"Also surfaced {len(not_comparable)} not-comparable bucket(s) "
+            "(numbers measure different quantities — NOT a contradiction):"
+        )
+        lines.append("")
+        for j, r in enumerate(not_comparable, 1):
+            lines.append(
+                f"[NC{j}] {r.subject} / {r.predicate} — not comparable: "
+                f"{r.incommensurable_reason}"
+            )
+            for c in r.claims:
+                lines.append(
+                    f"    - {c.value} {c.unit}   "
+                    f"[ev={c.evidence_id}, tier={c.source_tier}]   "
+                    f"{c.context_snippet[:120]}"
+                )
+            lines.append(f"    Action: {r.recommended_action}")
+            lines.append("")
     return "\n".join(lines)

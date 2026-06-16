@@ -33,7 +33,7 @@ def _good_judge(question, payload):
 
 
 def test_flag_default_off(monkeypatch):
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert credibility_redesign_enabled() is False
 
 

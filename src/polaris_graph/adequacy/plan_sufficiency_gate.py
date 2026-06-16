@@ -10,12 +10,25 @@ KEY DESIGN (brief §2.2):
 - Coverage UNIT = the section outline item (its `evidence_target`).
 - Relevance = PROVENANCE-FIRST: a row is relevant to a section iff its
   `query_origin` matches (normalized equality) one of the sub-query texts at the
-  section's `sub_query_indices`. The content-word overlap fallback is used ONLY
-  for rows whose `query_origin` is EMPTY or one of the explicit NON-QUERY
-  SENTINEL origins (`{primary_trial_doi_seed, agentic_seed, deepener_seed, need_type_backend, domain_backend}`)
-  — these lanes surface authoritative evidence with no originating sub-query, so
-  they must be creditable. A row whose `query_origin` is a REAL sub-query text
-  that does not match the section is NOT relevant to it (no title-overlap rescue).
+  section's `sub_query_indices`. Two content-word overlap fallbacks exist, both
+  reusing the SAME deterministic `_content_words` + `MIN_CONTENT_WORD_OVERLAP=2`
+  primitive (NO embedding router, §8.4):
+  - SENTINEL/EMPTY origin (`{primary_trial_doi_seed, agentic_seed, deepener_seed,
+    need_type_backend, domain_backend}` or `""`): these lanes surface
+    authoritative evidence with NO originating sub-query, so their relevance is
+    decided by overlapping the ROW CONTENT (statement + direct_quote) against the
+    section's sub-query texts.
+  - REAL-ORIGIN DRIFT FALLBACK (A5, RC6): a row whose `query_origin` is a REAL
+    sub-query text but whose EXACT-string match yields EMPTY (e.g. a STORM
+    expansion drift that no longer string-equals the planned sub-query) falls
+    THROUGH to the SAME row-content overlap path as the sentinel/empty branch —
+    overlapping the ROW CONTENT (statement + direct_quote) against the section's
+    sub-query texts. This recovers a drifted origin's orphaned evidence; a row
+    with no usable content (or no overlap) stays orphaned. The fallback fires
+    ONLY when exact-match is empty — it never AUGMENTS a non-empty exact match.
+    Gated by `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK` (default ON; set to 0
+    for the pre-A5 strict-exact behavior). Routing only: it changes WHICH section
+    sees a row, never WHETHER its sentences verify.
 - Authority floor = the NUMERIC `authority_score` (float [0,1]); a row counts
   toward coverage iff `authority_score >= authority_floor` (a single global
   float, NOT a per-domain dict). Below-floor relevant rows are reported, not
@@ -129,12 +142,21 @@ def _min_content_word_overlap() -> int:
 
 
 def _row_text_for_overlap(row: dict[str, Any]) -> str:
-    """The row content used for the content-word fallback: statement + the
-    direct_quote span (NOT just the title — brief §2.2 fallback)."""
+    """The row content used for the SENTINEL/EMPTY-origin content-word fallback:
+    statement + the direct_quote span (NOT just the title — brief §2.2 fallback)."""
     return " ".join(
         str(row.get(k) or "")
         for k in ("statement", "direct_quote")
     )
+
+
+def _origin_drift_fallback_enabled() -> bool:
+    """A5 (RC6): is the real-origin content-word DRIFT fallback active? Default ON
+    (the §-1.3-correct behavior — recover an orphaned drifted origin rather than
+    hard-drop it). Set `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK=0` for the
+    pre-A5 strict-exact-only behavior (byte-identical to the legacy path)."""
+    val = os.getenv("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK", "1").strip().lower()
+    return val not in ("0", "false", "no", "off", "")
 
 
 def relevant_section_indices(
@@ -150,10 +172,14 @@ def relevant_section_indices(
     gate layers the numeric floor on top.
 
     Provenance-first: a non-sentinel, non-empty `query_origin` credits ONLY the
-    section(s) whose `sub_query_indices` point at that exact sub-query text. A
-    sentinel/empty origin uses content-word overlap against the section's
-    sub-query texts. Returns the list of matching section indices (possibly
-    several; possibly none -> orphan, uncredited).
+    section(s) whose `sub_query_indices` point at that exact sub-query text. If
+    that exact match is EMPTY, the A5 (RC6) drift fallback overlaps the ORIGIN
+    TEXT against each section's sub-query texts (recovers a drifted origin; an
+    unrelated origin stays orphaned); default ON, gated by
+    `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK`. A sentinel/empty origin uses
+    content-word overlap of the ROW CONTENT against the section's sub-query
+    texts. Returns the list of matching section indices (possibly several;
+    possibly none -> orphan, uncredited).
     """
     origin = _normalize_query(row.get("query_origin", ""))
     raw_origin = str(row.get("query_origin", "") or "")
@@ -170,10 +196,22 @@ def relevant_section_indices(
                 if 0 <= q_idx < len(norm_subqueries) and norm_subqueries[q_idx] == origin:
                     matches.append(sec_idx)
                     break
-        return matches
+        if matches or not _origin_drift_fallback_enabled():
+            return matches
+        # A5 (RC6) DRIFT FALLBACK: a REAL sub-query origin whose EXACT match is
+        # empty (origin drift, e.g. a STORM expansion that no longer string-
+        # equals the planned sub-query) falls through to the SAME content-word
+        # overlap path the sentinel/empty branch below already uses — overlapping
+        # the ROW CONTENT (statement + direct_quote) against each section's
+        # sub-query texts. Fires ONLY when the exact match above produced nothing
+        # (never augments a non-empty exact match); a row with no usable content
+        # stays orphaned. Routing only — never relaxes the gate.
+        # Falls through to the shared fallback block below.
 
-    # FALLBACK (empty / sentinel origin): content-word overlap against the
-    # section's OWN sub-query texts, floored by MIN_CONTENT_WORD_OVERLAP.
+    # FALLBACK (empty / sentinel origin, OR a real origin whose exact match was
+    # empty per the A5 drift fall-through above): content-word overlap of the row
+    # content against the section's OWN sub-query texts, floored by
+    # MIN_CONTENT_WORD_OVERLAP.
     row_words = _content_words(_row_text_for_overlap(row))
     if not row_words:
         return matches
@@ -197,7 +235,12 @@ def _facets_matched_for_row(
 ) -> list[int]:
     """Which of THIS section's mapped sub_query_indices the row covers (brief
     §2.2 facet-level). Provenance-first for a real origin; content-word overlap
-    against the SPECIFIC facet's sub-query text for a sentinel/empty origin."""
+    of the ROW CONTENT against the SPECIFIC facet's sub-query text for a
+    sentinel/empty origin. A5 (RC6): a real origin whose EXACT match yields no
+    facet falls through to that SAME row-content overlap path — fires ONLY when
+    the exact match is empty, mirroring `relevant_section_indices` (default ON,
+    `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK`). A row with no usable content
+    stays orphaned. Routing only — never relaxes the gate."""
     raw_origin = str(row.get("query_origin", "") or "")
     origin = _normalize_query(raw_origin)
     fallback_eligible = (raw_origin == "") or (raw_origin in SENTINEL_ORIGINS)
@@ -205,12 +248,25 @@ def _facets_matched_for_row(
         q for q in (getattr(section, "sub_query_indices", []) or [])
         if 0 <= q < len(sub_queries)
     ]
+    floor = _min_content_word_overlap()
     if not fallback_eligible:
-        return [q for q in indices if _normalize_query(sub_queries[q]) == origin]
+        exact = [q for q in indices if _normalize_query(sub_queries[q]) == origin]
+        # The drift fallback fires ONLY for a GENUINELY orphaned origin (no exact
+        # match against ANY planned sub-query) — mirroring `relevant_section_
+        # indices`' GLOBAL suppression. If the origin exact-matches some OTHER
+        # section's facet, this row belongs there; it must NOT content-rescue
+        # into THIS section, or the gate would credit coverage the generator's
+        # routing never delivers (gate/router divergence == reopened money-trap).
+        origin_matches_any = any(
+            _normalize_query(sq) == origin for sq in sub_queries
+        )
+        if exact or origin_matches_any or not _origin_drift_fallback_enabled():
+            return exact
+        # A5 drift fall-through: identical row-content overlap as the sentinel
+        # branch below.
     row_words = _content_words(_row_text_for_overlap(row))
     if not row_words:
         return []
-    floor = _min_content_word_overlap()
     return [
         q for q in indices
         if len(row_words & _content_words(sub_queries[q])) >= floor

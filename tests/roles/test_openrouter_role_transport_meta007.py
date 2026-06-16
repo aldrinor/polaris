@@ -681,7 +681,16 @@ def test_reasoning_role_sets_generous_max_tokens(role, slug):
         assert seen["body"]["max_tokens"] == 131072
     else:
         # I-arch-003 (#1253): Judge total 16384 -> 262140 (min of wandb 262144 / io-net 262140 chain).
-        assert seen["body"]["max_tokens"] == 262140, f"{role}: reasoning role must get the generous verifier budget"
+        # A2-CLAMP (RC2): the shared finalize_body() chokepoint now ALSO fires on the role path,
+        # reconciling the 262140 budget DOWN against the real 262144 serving window so the prompt
+        # has room (this is the qwen-judge HTTP-400 fix). With a tiny "decide" prompt (~4 tokens)
+        # and the default 2048 safety margin: 262144 - 4 - 2048 = 260092. The KEY invariant is
+        # that the budget is now STRICTLY below the 262144 window (it was == 262140 before, leaving
+        # only 4 tokens for the prompt -> 400 on every real prompt).
+        assert seen["body"]["max_tokens"] == 260092, (
+            f"{role}: budget must be clamped below the 262144 serving window (A2-CLAMP)"
+        )
+        assert seen["body"]["max_tokens"] < 262144  # RC2: room left for the prompt
         # the Judge still requests MAX effort.
         assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
 
@@ -699,13 +708,16 @@ def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
 def test_env_override_clamped_to_provider_chain_min(monkeypatch):
     """I-arch-003 (#1253) Codex gate P2 hardening: a too-LARGE env override must clamp DOWN to the
     role's chain-min ceiling so it can never reintroduce a provider-cap 400 ("requested N > max M")."""
-    # Judge: bad override 999_999 -> clamp to 262140 (wandb/io-net chain min).
+    # Judge: bad override 999_999 -> _build_openrouter_body clamps to the chain min 262140,
+    # THEN the A2-CLAMP finalize_body() chokepoint clamps again DOWN against the 262144 serving
+    # window so the prompt fits: 262144 - 4 ("decide") - 2048 margin = 260092 (RC2 HTTP-400 fix).
     monkeypatch.setenv("PG_VERIFIER_REASONING_MAX_TOKENS", "999999")
     handler, seen = _recording_handler(served_model=_JUDGE_SLUG, message={"content": "VERIFIED"})
     _make_transport(handler).complete(
         RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide", params={"max_tokens": 16})
     )
-    assert seen["body"]["max_tokens"] == 262140
+    assert seen["body"]["max_tokens"] == 260092
+    assert seen["body"]["max_tokens"] < 262144  # RC2: never == the window
     monkeypatch.delenv("PG_VERIFIER_REASONING_MAX_TOKENS", raising=False)
 
     # Mirror: bad total override 999_999 -> clamp to 131072; reasoning cap stays < total.

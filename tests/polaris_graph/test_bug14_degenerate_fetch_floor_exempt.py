@@ -131,7 +131,7 @@ def test_min_chars_env_override(monkeypatch) -> None:
 def test_bug14_degenerate_t1_is_kept_default_on(monkeypatch) -> None:
     """(a) THE FIX: a T1 row with empty/stub content AND below-floor cosine is now
     KEPT (was hard-dropped). PG_SELECT_KEEP_DEGENERATE_FETCH defaults ON."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_SELECT_KEEP_DEGENERATE_FETCH", raising=False)  # default ON
     rows = [_on_topic_t1(), _degenerate_t1()]
     res = _select(rows)
@@ -145,7 +145,7 @@ def test_bug14_degenerate_t1_is_kept_default_on(monkeypatch) -> None:
 def test_bug14_degenerate_row_sorts_last(monkeypatch) -> None:
     """The kept degenerate row must sort AFTER the real on-topic content (its
     near-zero cosine drives the existing relevance x authority x weight sort)."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_SELECT_KEEP_DEGENERATE_FETCH", raising=False)
     rows = [_degenerate_t1(), _on_topic_t1()]   # degenerate listed FIRST on input
     res = _select(rows)
@@ -159,7 +159,7 @@ def test_bug14_genuine_offtopic_still_dropped(monkeypatch) -> None:
     """(b) FAITHFULNESS PRESERVED: a genuinely off-topic row with REAL non-empty
     content AND below-floor cosine is STILL dropped — we did not relax the
     off-topic filter, only the silent over-drop of unknown-relevance rows."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_SELECT_KEEP_DEGENERATE_FETCH", raising=False)
     rows = [_on_topic_t1(), _offtopic_t1_real(), _degenerate_t1()]
     res = _select(rows)
@@ -174,7 +174,7 @@ def test_bug14_genuine_offtopic_still_dropped(monkeypatch) -> None:
 def test_bug14_telemetry_counts_the_exemption(monkeypatch) -> None:
     """(c) DISCLOSURE: the kept-for-refetch count is surfaced in the note
     (`fetch_degenerate_exempt=N`) — §-1.3 disclose, never a silent keep."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_SELECT_KEEP_DEGENERATE_FETCH", raising=False)
     rows = [_on_topic_t1(), _degenerate_t1(), _offtopic_t1_real()]
     res = _select(rows)
@@ -188,7 +188,7 @@ def test_bug14_flag_off_restores_legacy_drop(monkeypatch) -> None:
     """PG_SELECT_KEEP_DEGENERATE_FETCH=0 reverts to the legacy hard-drop (the
     stub-fetch T1 row is dropped) AND the note does NOT widen — proving the fix is
     cleanly gated and the OFF path is byte-identical to the prior behavior."""
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.setenv("PG_SELECT_KEEP_DEGENERATE_FETCH", "0")
     rows = [_on_topic_t1(), _degenerate_t1()]
     res = _select(rows)

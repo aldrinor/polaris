@@ -30,6 +30,19 @@ from src.polaris_graph.synthesis.finding_dedup import (
 _GOV = load_authority_data()["psl_gov_suffixes"]
 
 
+@pytest.fixture(autouse=True)
+def _legacy_off_default(monkeypatch):
+    """I-arch-007 A20 (#1262): the WEIGHT-AND-CONSOLIDATE redesign is now DEFAULT ON
+    (unset env ⇒ consolidate-keep-all / relevance-WEIGHT, no legacy drop). The cases
+    below pin the LEGACY collapse-drop / sub-floor-drop path, which is now reached only
+    by an EXPLICIT falsey master flag. Force the explicit-OFF legacy path by default so
+    these legacy-behavior assertions are exercised against the path they describe. The
+    redesign-ON cases ``monkeypatch.setenv(_REDESIGN_FLAG, "1")`` AFTER this fixture, so
+    they override it and test the default-ON behavior — no faithfulness assertion is
+    weakened, only the env the legacy cases run under is made explicit."""
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
+
+
 def _row(eid, url, quote, *, authority=0.5, tier="T1"):
     """A live-shaped evidence row carrying the fields the dedup + selector read.
 
@@ -333,10 +346,10 @@ def test_p3_3_consolidate_keep_all_when_redesign_on(monkeypatch):
 
 
 def test_p3_3_off_byte_identical_collapse_drop(monkeypatch):
-    # OFF (flag absent): the legacy collapse-to-representative drop is byte-for-byte
-    # — exactly the test_p5_2 expectation. Explicit delenv guards against a stray
-    # PG_SWEEP_CREDIBILITY_REDESIGN=1 in the ambient environment.
-    monkeypatch.delenv(_REDESIGN_FLAG, raising=False)
+    # OFF (EXPLICIT falsey flag — I-arch-007 A20 made the redesign default ON, so the
+    # legacy collapse-to-representative drop is now reached only by an explicit "0"):
+    # the legacy collapse-drop is byte-for-byte — exactly the test_p5_2 expectation.
+    monkeypatch.setenv(_REDESIGN_FLAG, "0")
     rows = [
         _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
         _row("ev1", "https://thelancet.com/b", _WL72, authority=0.7),
@@ -353,7 +366,8 @@ def test_p3_3_off_byte_identical_collapse_drop(monkeypatch):
 def test_p3_3_off_preserves_safe_guards(monkeypatch):
     # The 3 safe guards survive in OFF mode unchanged: qualitative pass-through,
     # conservative-singleton (distinct endpoint), unknown-subject sentinel.
-    monkeypatch.delenv(_REDESIGN_FLAG, raising=False)
+    # OFF is now an EXPLICIT falsey flag (I-arch-007 A20 made the redesign default ON).
+    monkeypatch.setenv(_REDESIGN_FLAG, "0")
     # qualitative pass-through — two qualitative rows, both kept, zero findings.
     qual = dedup_by_finding(
         [

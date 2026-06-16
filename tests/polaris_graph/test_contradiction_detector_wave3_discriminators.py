@@ -117,7 +117,7 @@ def test_p1_1_arm_legacy_treatment_on_no_placebo_cue_via_extractor() -> None:
 def test_p1_2_dose_mgkg_off_byte_identical(monkeypatch: pytest.MonkeyPatch) -> None:
     # Flag OFF: the legacy regex path runs verbatim; '5 mg/kg' degrades to
     # '5 mg' exactly as it does in the current tree (byte-identity anchor).
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert _extract_dose("dosed at 5 mg/kg daily") == "5 mg"
     assert _extract_dose("dosed at 5 mg daily") == "5 mg"
 
@@ -276,7 +276,7 @@ def test_p1_2_endpoint_day_year_gated_off_is_empty(monkeypatch) -> None:
     # OFF byte-identity (Claude Slice-B iter-2 P1): a day/year-only phrase that the
     # legacy tree returned "" for MUST still return "" with the flag OFF (endpoint_phrase
     # feeds the legacy cluster key + contradictions.json, so a non-"" OFF value drifts).
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert _extract_endpoint_phrase("response measured at day 28") == ""
     assert _extract_endpoint_phrase("survival at 2 years") == ""
 
@@ -349,7 +349,7 @@ def test_fixc_serialize_strips_wave3_fields_when_off(monkeypatch) -> None:
     from src.polaris_graph.retrieval.contradiction_detector import (
         serialize_contradiction_record, _WAVE3_DORMANT_NUMERIC_FIELDS,
     )
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     d = serialize_contradiction_record(_one_record())
     keys = set(d["claims"][0].keys())
     # NONE of the 6 dormant fields may appear on the OFF path (legacy JSON had no such keys).

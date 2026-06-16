@@ -903,6 +903,144 @@ def _urlsafe_doi(doi: str) -> str:
 # budget predictability.
 _M66_CONTENT_CAP = 25000
 
+# ─────────────────────────────────────────────────────────────────────
+# A1 (iarch006 RC1) — fetch-INGESTION shell detector.
+#
+# The url-pattern / OA-locator fetch layer previously accepted ANY
+# non-empty body as bound evidence (`return content[:_M66_CONTENT_CAP]`).
+# In the Q90 epic-failure run every mandated legal section was wired to
+# ONE web page that returned HTTP 200 but whose captured text was page
+# FURNITURE — an Archive.org JS wrapper, a CourtListener docket index
+# ("Filing fee $402.00") instead of the verdict, a literal "Page not
+# found" NTSB body. No real prose to ground on, so the section honestly
+# printed an empty gap stub even though real case-law content sat in the
+# pool unbound.
+#
+# This detector keys ONLY on FETCH-INTEGRITY (chrome / soft-404 / docket
+# index / JS-wrapper / content-starvation), NEVER on topicality. It must
+# NOT become a generic relevance hard-drop on real-but-junk-host content
+# — that would be the §-1.3-banned FILTER. A detected shell is routed to
+# the EXISTING METADATA_ONLY / not_extractable branch (a gap/recovery
+# signal), NOT a new hard-drop and NOT bound evidence.
+#
+# Minimum chars of recovered main content for a fetched body to count as
+# real prose (env-overridable, LAW VI). Sits at the same order of
+# magnitude as live_retriever.is_content_starved's 200-char useful-text
+# floor; the fetch layer wants a slightly higher bar because a bound
+# frame-entity quote feeds slot prose, not a corpus weight.
+_MIN_MAINCONTENT_CHARS = int(os.getenv("PG_MIN_MAINCONTENT_CHARS", "250"))
+
+# Above this fraction of lines being pure link/nav markers a body is a
+# navigation index / docket listing, not article prose (env, LAW VI).
+_MAX_LINK_DENSITY = float(os.getenv("PG_FETCH_MAX_LINK_DENSITY", "0.6"))
+
+# A body shorter than this is treated as a single unit for the
+# boilerplate / non-assertional whole-unit check (a real article body is
+# far longer; a stub / docket index / error page is short). Env, LAW VI.
+_SHELL_WHOLE_UNIT_MAX_CHARS = int(
+    os.getenv("PG_FETCH_SHELL_WHOLE_UNIT_MAX_CHARS", "1200")
+)
+
+
+def _link_density(text: str) -> float:
+    """Fraction of non-blank lines that are pure link / nav / bullet
+    markers (markdown `[...](...)`, bare URLs, or `* `/`- ` list chrome
+    with little prose). A docket index or a JS-wrapper landing page is
+    almost entirely such lines; a real article is almost none.
+
+    Pure fetch-integrity signal — measures STRUCTURE, never topic."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return 1.0
+    import re as _re
+
+    link_like = 0
+    for ln in lines:
+        # A markdown link line, a bare-URL line, or a short nav/list-glue
+        # line dominated by a link token.
+        if _re.match(r"^[*\-•]?\s*\[[^\]]*\]\([^)]*\)\s*$", ln):
+            link_like += 1
+        elif _re.match(r"^https?://\S+$", ln):
+            link_like += 1
+        elif "](" in ln and len(_re.sub(r"\[[^\]]*\]\([^)]*\)", "", ln).strip()) < 24:
+            link_like += 1
+    return link_like / len(lines)
+
+
+def _is_fetch_shell(content: str) -> tuple[bool, str]:
+    """A1 — return ``(True, reason)`` when a fetched body is a fetch-layer
+    SHELL (page furniture / soft-404 / docket index / JS-wrapper /
+    content-starved) rather than real article prose to ground on.
+
+    Keys ONLY on fetch-integrity. NEVER inspects topicality — a real
+    article about an unrelated subject is NOT a shell. The detector
+    REUSES the existing markers:
+      - `_looks_like_html_junk` (raw-HTML / Sci-Hub wrapper) → recover
+        the main text via the guarded `safe_trafilatura_extract`
+        (favor_precision) before measuring, so a real article that the
+        backend returned as raw HTML is NOT mis-flagged.
+      - `is_boilerplate_or_nonassertional` (access_bypass) — the GATE-layer
+        chrome / bare-DOI / table-row / soft-404 marker, now applied at the
+        FETCH layer (the exact layer gap A1 names) on a short whole body.
+      - a `_MIN_MAINCONTENT_CHARS` floor and a `_MAX_LINK_DENSITY` cap.
+
+    The empty-string return is the caller's existing "no usable content"
+    signal — it routes to the METADATA_ONLY / not_extractable branch."""
+    if not content:
+        return True, "empty_body"
+
+    body = content
+    # If the body is raw HTML markup (Sci-Hub viewer / JS-wrapper), recover
+    # the main text via the ONE guarded trafilatura entrypoint before
+    # measuring — a real article wrapped in markup must survive.
+    if _looks_like_html_junk(body):
+        try:
+            from src.tools.access_bypass import safe_trafilatura_extract
+
+            recovered = safe_trafilatura_extract(
+                body, favor_precision=True, include_links=False
+            )
+        except Exception:  # noqa: BLE001 — recovery is best-effort.
+            recovered = None
+        if recovered and len(recovered.strip()) >= _MIN_MAINCONTENT_CHARS:
+            # Real prose was hidden under the markup — not a shell.
+            return False, ""
+        # No real main content recovered from the markup → shell.
+        return True, "js_wrapper_no_maincontent"
+
+    stripped = body.strip()
+
+    # Content-starvation floor (fetch-integrity, not topicality).
+    if len(stripped) < _MIN_MAINCONTENT_CHARS:
+        # A short body that IS a known chrome / soft-404 / docket-row
+        # stub is a shell; reuse the gate-layer marker at the fetch layer.
+        try:
+            from src.tools.access_bypass import is_boilerplate_or_nonassertional
+
+            if is_boilerplate_or_nonassertional(stripped):
+                return True, "boilerplate_or_error_stub"
+        except Exception:  # noqa: BLE001
+            pass
+        return True, "content_starved"
+
+    # A short-ish body that is wholly non-assertional chrome / a docket
+    # index / a soft-404 (the gate-layer marker, now at fetch layer).
+    if len(stripped) <= _SHELL_WHOLE_UNIT_MAX_CHARS:
+        try:
+            from src.tools.access_bypass import is_boilerplate_or_nonassertional
+
+            if is_boilerplate_or_nonassertional(stripped):
+                return True, "boilerplate_or_error_stub"
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Navigation-index / docket-listing structure (high link density) —
+    # a fetch-integrity STRUCTURE signal, never a topic signal.
+    if _link_density(stripped) >= _MAX_LINK_DENSITY:
+        return True, "link_density_index_page"
+
+    return False, ""
+
 
 def _fetch_url_pattern(url: str) -> tuple[str, str]:
     """Fetch content at `url` via AccessBypass. Returns
@@ -940,6 +1078,20 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
             if "scihub" in method or "sci-hub" in method:
                 return "", ""
             if not content:
+                return "", ""
+            # A1 (iarch006 RC1): reject a fetch-layer SHELL (page furniture
+            # / soft-404 / docket index / JS-wrapper / content-starved)
+            # BEFORE it is bound as evidence. Keys on fetch-integrity only,
+            # never topicality. Returning ("", "") routes the caller to the
+            # EXISTING METADATA_ONLY / not_extractable branch — a gap/
+            # recovery signal, not bound evidence and not a new hard-drop.
+            is_shell, shell_reason = _is_fetch_shell(content)
+            if is_shell:
+                logger.info(
+                    "[frame_fetcher] A1 fetch-shell rejected url=%s "
+                    "reason=%s len=%d → METADATA_ONLY gap/recovery",
+                    final_url or url, shell_reason, len(content),
+                )
                 return "", ""
             return content[:_M66_CONTENT_CAP], final_url
 

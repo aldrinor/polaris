@@ -335,6 +335,136 @@ def _build_not_extractable_payload(
     )
 
 
+# A1 (iarch006 RC1) — basket fallback. Default ON; byte-identical when no
+# basket data is threaded (credibility_analysis None => empty index => no
+# corroborators). LAW VI: env-overridable kill switch.
+_A1_BASKET_FALLBACK_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
+
+
+def _a1_basket_fallback_enabled() -> bool:
+    """A1 — True (default) unless PG_A1_BASKET_FALLBACK is set off. Accepts the
+    SAME falsey vocabulary as the nearby feature flags (Codex iarch007 P1 #3:
+    was `!= "0"` only, which silently ignored `false`/`off`/`no`)."""
+    return (
+        os.getenv("PG_A1_BASKET_FALLBACK", "1").strip().lower()
+        not in _A1_BASKET_FALLBACK_OFF_VALUES
+    )
+
+
+def _frame_row_has_usable_quote(frame_row: FrameRow) -> bool:
+    """A1 — True iff a frame row carries a verifiable span (real fetched
+    prose), i.e. NOT a shell / gap / metadata-only-empty row. Same floor the
+    slot-fill path uses (`_MIN_VERIFIABLE_SPAN_CHARS`)."""
+    if frame_row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE:
+        return False
+    return len((frame_row.direct_quote or "").strip()) >= _MIN_VERIFIABLE_SPAN_CHARS
+
+
+def _basket_fallback_corroborators_for_slot(
+    *,
+    slot_entity_ids: list[str],
+    cluster_id_by_evidence: dict[str, list[str]] | None,
+    basket_supports_by_cluster: dict[str, list[str]],
+    evidence_pool: dict[str, dict[str, Any]],
+    already_bound: set[str],
+) -> list[str]:
+    """A1 — same-claim corroborator evidence_ids to re-bind a slot whose
+    primary URL(s) came back as fetch-layer SHELLS (A1a routed them to
+    METADATA_ONLY/not_extractable, leaving the slot's real case-law / source
+    content unbound at ``v30_entity_id: None``).
+
+    Joins via the slot's own bound entity_ids -> ``cluster_id_by_evidence`` ->
+    the basket's independently SPAN-VERIFIED (SUPPORTS) members, the IDENTICAL
+    faithfulness logic as ``verified_corroborators_for_tokens``:
+      - SUPPORTS-only (the verified-origin members, never the advisory
+        clustered total);
+      - anti-cross-claim — only a token mapping to EXACTLY ONE cluster is
+        expanded (a multi-cluster source can't be attributed to ONE claim);
+      - a corroborator is kept ONLY if it (a) is not already bound to the slot
+        and (b) carries a usable verifiable span in ``evidence_pool``.
+
+    SCOPE NOTE (Codex iarch007 P1 #2): this join is keyed on the slot's bound
+    entity_ids. A genuinely UNRECOVERABLE slot — every bound entity is a
+    content-less shell that NEVER produced an extracted claim — is, by
+    construction, absent from ``cluster_id_by_evidence`` (the claim graph only
+    contains entities whose row content yielded an AtomicClaim). For such a
+    slot this returns [] and the slot correctly stays a disclosed gap stub.
+    Reaching a cluster for a fully-content-less slot would require a
+    MANY-cluster linkage (query_origin / section / "same required entity"),
+    which is cross-claim and would RELAX the basket's anti-cross-claim
+    faithfulness rule — out of bounds. The recoverable case (a slot whose
+    frame_row is a shell yet whose pool row clustered via abstract content) DOES
+    fire here.
+
+    FAITHFULNESS: this returns CANDIDATES to route through the UNCHANGED
+    slot-fill -> strict_verify path. It binds nothing itself, drops nothing,
+    relaxes no threshold. The basket carries tier/authority as a WEIGHT only.
+    Returns [] when basket data is absent => byte-identical OFF path."""
+    if not basket_supports_by_cluster:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for _eid in slot_entity_ids:
+        _ccids = (cluster_id_by_evidence or {}).get(_eid, []) or []
+        # Anti-cross-claim: only an UNAMBIGUOUS single-cluster source may
+        # corroborate (mirrors verified_corroborators_for_tokens).
+        if len(_ccids) != 1:
+            continue
+        for _support_eid in basket_supports_by_cluster.get(_ccids[0], []):
+            if _support_eid in seen or _support_eid in already_bound:
+                continue
+            _pool_row = evidence_pool.get(_support_eid)
+            if not _pool_row:
+                continue
+            # Must carry a real verifiable span — a corroborator that is itself
+            # a shell / metadata-only row cannot rescue the slot.
+            if len(str(_pool_row.get("direct_quote") or "").strip()) < _MIN_VERIFIABLE_SPAN_CHARS:
+                continue
+            seen.add(_support_eid)
+            out.append(_support_eid)
+    return out
+
+
+def _synth_frame_row_for_corroborator(
+    *,
+    corroborator_ev_id: str,
+    pool_row: dict[str, Any],
+    rendering_slot: str,
+    entity_type: str,
+) -> FrameRow:
+    """A1 — wrap a same-claim corroborator's pool row in a minimal OPEN_ACCESS
+    FrameRow so it flows through the UNCHANGED ``_fill_one_slot`` -> slot-fill
+    -> strict_verify path (no second verify path). The corroborator already
+    carries a usable ``direct_quote`` (the caller checked the floor); year is
+    coerced to int when present."""
+    _year_raw = pool_row.get("year")
+    try:
+        _year = int(_year_raw) if _year_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        _year = None
+    _authors_raw = pool_row.get("authors") or ()
+    _authors = tuple(_authors_raw) if isinstance(_authors_raw, (list, tuple)) else ()
+    return FrameRow(
+        entity_id=corroborator_ev_id,
+        entity_type=entity_type,
+        rendering_slot=rendering_slot,
+        provenance_class=ProvenanceClass.OPEN_ACCESS,
+        direct_quote=str(pool_row.get("direct_quote") or ""),
+        quote_source="a1_basket_corroborator",
+        doi=(str(pool_row.get("doi")) or None) if pool_row.get("doi") else None,
+        pmid=(str(pool_row.get("pmid")) or None) if pool_row.get("pmid") else None,
+        oa_pdf_url=None,
+        url=(str(pool_row.get("url")) or None) if pool_row.get("url") else None,
+        title=(str(pool_row.get("title")) or None) if pool_row.get("title") else None,
+        authors=_authors,
+        journal=(str(pool_row.get("journal")) or None) if pool_row.get("journal") else None,
+        year=_year,
+        failure_reason=None,
+        retrieval_attempts=(),
+        retrieval_timings=(),
+    )
+
+
 async def _fill_one_slot(
     slot: ContractSlotPlan,
     entity_id: str,
@@ -603,6 +733,30 @@ async def run_contract_section(
     # carry no [#ev:] token and were thus invisible to token-counted metrics.
     _substantive_drafted_by_entity: dict[str, int] = {}
 
+    # A1 (iarch006 RC1) — HOISTED basket index for the slot-level fallback.
+    # The same per-cluster SUPPORTS index the B6/B8 inline render uses below is
+    # built ONCE here so the slot loop can re-bind a SHELL slot to same-claim
+    # corroborators BEFORE verification. Reads ONLY credibility_analysis (no
+    # loop dependency); None / OFF => empty index => no fallback, byte-identical.
+    _baskets = getattr(credibility_analysis, "baskets", None)
+    _cluster_id_by_evidence = getattr(
+        credibility_analysis, "cluster_id_by_evidence", None
+    )
+    _carry_baskets = (
+        _baskets is not None and _cluster_id_by_evidence is not None
+    )
+    _basket_supports_by_cluster: dict[str, list[str]] = {}
+    if _carry_baskets:
+        _basket_by_cluster: dict[str, dict[str, Any]] = {}
+        for _basket in (_baskets or []):
+            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
+            if _ccid:
+                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
+        _basket_supports_by_cluster = build_basket_supports_by_cluster(
+            _basket_by_cluster
+        )
+    _a1_fallback_on = _a1_basket_fallback_enabled()
+
     for slot in plan.slots:
         if not slot.entity_ids:
             # Defensive: outline compiler shouldn't emit empty slots,
@@ -772,6 +926,87 @@ async def run_contract_section(
                             slot.slot_id, exc,
                         )
 
+        # A1 (iarch006 RC1) — BASKET FALLBACK. Fire ONLY when this slot's bound
+        # entities all came back as fetch-layer SHELLS (A1a routed the primary
+        # URLs to METADATA_ONLY/not_extractable, so the deterministic + regulatory
+        # streams are EMPTY) — the exact Q90 failure where ev_323/388/390 sat in
+        # the pool unbound (v30_entity_id: None). Re-bind the slot to same-claim
+        # corroborators via the EXISTING basket machinery and route each through
+        # the UNCHANGED `_fill_one_slot` -> slot-fill -> strict_verify path. The
+        # gap stub still renders downstream (M-68 Fix #1) when no corroborator
+        # yields verified prose. OFF / no-basket => no corroborators => byte-
+        # identical. Never drops, never relaxes a threshold.
+        _slot_has_real_prose = bool(slot_det_prose or slot_reg_prose)
+        _slot_frame_rows_all_shell = all(
+            (plan.frame_rows_by_entity.get(eid) is None)
+            or (not _frame_row_has_usable_quote(plan.frame_rows_by_entity[eid]))
+            for eid in slot.entity_ids
+        )
+        if (
+            _a1_fallback_on
+            and not _slot_has_real_prose
+            and _slot_frame_rows_all_shell
+            and _basket_supports_by_cluster
+        ):
+            _corro_ids = _basket_fallback_corroborators_for_slot(
+                slot_entity_ids=list(slot.entity_ids),
+                cluster_id_by_evidence=_cluster_id_by_evidence,
+                basket_supports_by_cluster=_basket_supports_by_cluster,
+                evidence_pool=evidence_pool,
+                already_bound=set(slot.entity_ids),
+            )
+            for _corro_eid in _corro_ids:
+                _pool_row = evidence_pool.get(_corro_eid) or {}
+                # Reuse the slot's contract entity (same required_fields / claim)
+                # — the corroborator backs the SAME claim cluster, so the slot's
+                # field contract applies. Skip if the slot has no contract entity.
+                _primary_eid = slot.entity_ids[0]
+                _contract_entity = plan.contract_entities_by_id.get(_primary_eid)
+                if _contract_entity is None:
+                    continue
+                _synth_row = _synth_frame_row_for_corroborator(
+                    corroborator_ev_id=_corro_eid,
+                    pool_row=_pool_row,
+                    rendering_slot=slot.slot_id,
+                    # RequiredEntity carries `type` (the raw YAML field); the
+                    # synthetic row's entity_type is metadata only (strict_verify
+                    # keys on direct_quote/spans, not entity_type).
+                    entity_type=str(getattr(_contract_entity, "type", "") or ""),
+                )
+                # Register the corroborator's entity_id -> slot so the post-verify
+                # regroup buckets its kept sentences into THIS slot. Also map into
+                # the evidence_pool already done upstream (the row exists there).
+                entity_to_slot_id[_corro_eid] = slot.slot_id
+                all_entity_ids.append(_corro_eid)
+                logger.info(
+                    "[m63] A1 basket fallback: slot %r shell — re-binding "
+                    "same-claim corroborator ev=%s (routes through unchanged "
+                    "strict_verify)", slot.slot_id, _corro_eid,
+                )
+                _c_payload, _c_in, _c_out = await _fill_one_slot(
+                    slot=slot,
+                    entity_id=_corro_eid,
+                    frame_row=_synth_row,
+                    contract_entity=_contract_entity,
+                    research_question=plan.research_question,
+                    llm_call=llm_call,
+                )
+                total_in_tok += _c_in
+                total_out_tok += _c_out
+                payloads.append(_c_payload)
+                from .regulatory_synthesizer import (
+                    is_regulatory_entity as _is_reg,
+                    render_regulatory_prose as _render_reg,
+                )
+                if _is_reg(_contract_entity):
+                    slot_reg_prose.append(_render_reg(_c_payload))
+                else:
+                    slot_det_prose.append(render_slot_prose(_c_payload))
+                _substantive_drafted_by_entity[_corro_eid] = (
+                    _substantive_drafted_by_entity.get(_corro_eid, 0)
+                    + sum(1 for f in _c_payload.fields if f.status == "extracted")
+                )
+
         if slot_det_prose:
             raw_body_blocks.append(" ".join(slot_det_prose))
         if slot_reg_prose:
@@ -918,11 +1153,10 @@ async def run_contract_section(
     # span-verified (SUPPORTS) corroborating citations in the REAL benchmark
     # report (the legacy-path wiring alone never reached it). None / empty (master
     # flag OFF) => the resolver's _carry_baskets gate is False => byte-identical
-    # legacy inline render. We read the SAME attrs _run_section reads.
-    _baskets = getattr(credibility_analysis, "baskets", None)
-    _cluster_id_by_evidence = getattr(
-        credibility_analysis, "cluster_id_by_evidence", None
-    )
+    # legacy inline render. `_baskets`, `_cluster_id_by_evidence`,
+    # `_carry_baskets` and `_basket_supports_by_cluster` are HOISTED above the
+    # slot loop (A1) and reused here — same single-source-of-truth index, no
+    # recompute / drift.
     # ── resolve provenance → [N] citations + biblio_slice ──────
     # `resolve_provenance_to_citations` flattens into a single
     # string. We need per-slot grouping AND legacy-shape output,
@@ -936,26 +1170,6 @@ async def run_contract_section(
         baskets=_baskets,
         cluster_id_by_evidence=_cluster_id_by_evidence,
     )
-
-    # I-arch-005 B6/B8 (#1257): build the per-cluster SUPPORTS index ONCE for the
-    # slot-regroup's inline corroborator expansion below — via the SAME module-level
-    # helpers the legacy resolver uses (single source of truth for the keystone's
-    # faithfulness rules: SUPPORTS-only, anti-cross-claim single-cluster, never the
-    # advisory clustered count). Empty index when basket data is absent => OFF path
-    # is byte-identical (the regroup loop simply adds no corroborators).
-    _carry_baskets = (
-        _baskets is not None and _cluster_id_by_evidence is not None
-    )
-    _basket_supports_by_cluster: dict[str, list[str]] = {}
-    if _carry_baskets:
-        _basket_by_cluster: dict[str, dict[str, Any]] = {}
-        for _basket in (_baskets or []):
-            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
-            if _ccid:
-                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
-        _basket_supports_by_cluster = build_basket_supports_by_cluster(
-            _basket_by_cluster
-        )
 
     # Build a per-sentence resolved list (parallel to
     # kept_sentences) so we can group by originating slot.

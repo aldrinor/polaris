@@ -150,11 +150,17 @@ def test_disabled_resolver_passes_through(monkeypatch):
 
 def test_offline_uses_static_fallback_for_locked_role(monkeypatch):
     """Offline (no live table) -> the static fallback bounds a locked-role request.
-    qwen static = (131072 ctx, 65536 cap); a 200000 request clamps to 65536."""
+
+    A2/A3 (RC2): the qwen static fallback was CORRECTED from the mis-stated
+    (131072 ctx, 65536 cap) to the REAL serving window (262144 ctx, 262144 cap)
+    — the role-transport judge chain (wandb 262144, io-net 262140). With margin
+    2048, a request that overruns the true window clamps to ctx-prompt-margin:
+    a 262140 request with a 1000-token prompt -> 262144 - 1000 - 2048 = 259096."""
     monkeypatch.setenv("PG_TOKEN_LIMIT_ALLOW_FETCH", "0")
+    monkeypatch.setenv("PG_TOKEN_LIMIT_SAFETY_MARGIN", "2048")
     tlr.reset_cache()
-    allowed = tlr.compute_allowed_max_tokens("qwen/qwen3.6-35b-a3b", 1000, 200000)
-    assert allowed == 65536  # min(cap 65536, ctx 131072-1000-1000, req 200000)
+    allowed = tlr.compute_allowed_max_tokens("qwen/qwen3.6-35b-a3b", 1000, 262140)
+    assert allowed == 259096  # min(cap 262144, ctx 262144-1000-2048, req 262140)
 
 
 def test_prompt_alone_overruns_raises_fail_loud(monkeypatch, caplog):

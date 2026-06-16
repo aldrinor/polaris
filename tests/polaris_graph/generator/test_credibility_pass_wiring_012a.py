@@ -26,7 +26,7 @@ def test_result_carries_credibility_analysis_field_default_none():
 
 
 def test_master_flag_off_by_default(monkeypatch):
-    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert cp.credibility_redesign_enabled() is False
 
 

@@ -77,3 +77,37 @@ def is_asserted_as_fact(bucket: str) -> bool:
     """True only for buckets that may read as an asserted fact (high/moderate). low / no-source-found
     must always be visibly hedged. Helper for renderers/UI that style the chip."""
     return bucket in (BUCKET_HIGH, BUCKET_MODERATE)
+
+
+# A8 (I-arch-006) — render the SOFT advisory credibility/metadata flags carried on a claim's
+# ``soft_warnings`` as short inline markers. ADVISORY/SURFACE only: these flags never drop a source,
+# never hold a report, never change ``is_verified`` (they originate from
+# ``synthesis.disclosure_population``'s soft-warning helpers, which are append-only to ``soft_warnings``).
+_SOFT_FLAG_MARKER_TEXT = {
+    "legal_claim_no_high_credibility_corroborator": (
+        "thinly sourced — load-bearing legal claim with no high-credibility corroborator"
+    ),
+    "metadata_quality_blank_bibliography_title": (
+        "metadata gap — a cited source has a blank/degenerate bibliography title"
+    ),
+}
+
+
+def render_soft_flag_markers(soft_warnings: Optional[list]) -> list:
+    """Map a claim's ``soft_warnings`` (stable id-prefixed strings) to short inline render markers.
+
+    Returns one ``[note: <text>]`` string per RECOGNISED A8 soft flag, in input order, de-duplicated.
+    Unrecognised warnings (e.g. supersession warnings owned by another module) are left to their own
+    renderer and skipped here. Deterministic, pure, no I/O. Advisory only — surfacing a flag never
+    affects whether the claim renders as fact (use ``is_asserted_as_fact`` for that)."""
+    out: list = []
+    seen: set = set()
+    for raw in (soft_warnings or []):
+        # Warnings are formatted as ``<stable_id>: <human detail>``; key on the stable id prefix.
+        key = str(raw).split(":", 1)[0].strip()
+        text = _SOFT_FLAG_MARKER_TEXT.get(key)
+        if text is None or key in seen:
+            continue
+        seen.add(key)
+        out.append(f"[note: {text}]")
+    return out
