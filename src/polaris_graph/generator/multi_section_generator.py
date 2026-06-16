@@ -3109,14 +3109,27 @@ def _recover_comparative_synthesis(
 # it can never be folded into the safe re-anchor leg. See the module follow-up
 # note + the campaign ledger.
 #
-# DEFAULT 0 (DISABLED) => the pass is never constructed and behavior is
-# byte-identical to today (the A4 recovery and existing `_try_reanchor` are
-# untouched). `credibility_analysis is None` (master flag OFF or always-release
-# degrade) also no-ops (baskets absent). Read at CALL time so tests toggle
-# without re-import.
+# MASTER GATE `PG_BASKET_REPAIR_ENABLED` DEFAULT OFF (P1-2) => the pass is never
+# constructed and behavior is byte-identical to today (the A4 recovery and existing
+# `_try_reanchor` are untouched); `PG_BASKET_REPAIR_MAX_CYCLES` only BOUNDS the
+# per-sentence sibling attempts when ENABLED — it is NOT the enable switch.
+# `credibility_analysis is None` (master flag OFF or always-release degrade) also
+# no-ops (baskets absent). Read at CALL time so tests toggle without re-import.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# P1-2 (Codex diff-gate): the MASTER on/off gate for the whole PART-B basket
+# re-anchor loop. DEFAULT OFF (falsey) => the repair path is a COMPLETE no-op and
+# behavior is BYTE-IDENTICAL to pre-PART-B. `PG_BASKET_REPAIR_MAX_CYCLES` only
+# bounds the per-sentence sibling attempts WHEN ENABLED; it is NOT the enable
+# switch (that conflation was the P1-2 finding — default-OFF semantics were never
+# honored). Both must be set at launch (ENABLED=1 + MAX_CYCLES>=1). Read at CALL
+# time so a post-import override / test toggle is honored (LAW VI).
+_ENV_BASKET_REPAIR_ENABLED = "PG_BASKET_REPAIR_ENABLED"
 _ENV_BASKET_REPAIR_MAX_CYCLES = "PG_BASKET_REPAIR_MAX_CYCLES"
+# When ENABLED but MAX_CYCLES is unset, this many distinct siblings are tried per
+# dropped sentence (PARTB_BUILD_SPEC default). A magic-number-free named constant
+# (§9.4); never consulted on the OFF path.
+_BASKET_REPAIR_DEFAULT_MAX_CYCLES = 3
 # Reserved (NOT wired this iter): the SOFTEN-to-narrower-scope leg. A claim
 # REWRITE must be single-span re-verified (mirror sentence_repair.py:360) before
 # it can ship; left dark behind its own flag so it is never folded into the safe
@@ -3124,15 +3137,32 @@ _ENV_BASKET_REPAIR_MAX_CYCLES = "PG_BASKET_REPAIR_MAX_CYCLES"
 _ENV_BASKET_SOFTEN = "PG_GEN_BASKET_SOFTEN"
 
 
+def _basket_repair_enabled() -> bool:
+    """P1-2: the MASTER on/off gate for the PART-B basket re-anchor loop.
+
+    DEFAULT OFF (env unset / empty / a falsey token) => the WHOLE repair loop is a
+    complete no-op (byte-identical to pre-PART-B). Accepts the same truthy/falsey
+    tokens as the rest of the pipeline ("1"/"true"/"yes"/"on" => ON; everything
+    else => OFF). Read at CALL time so a test toggle / post-import override is
+    honored (LAW VI). This is gated IN ADDITION to `_basket_repair_max_cycles()`
+    at BOTH call sites (multi_section_generator + contract_section_runner)."""
+    raw = os.getenv(_ENV_BASKET_REPAIR_ENABLED, "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def _basket_repair_max_cycles() -> int:
     """FIX 1: max DISTINCT sibling members tried per dropped sentence before
     giving up and falling through to DROP+DISCLOSE.
 
-    DEFAULT 0 (DISABLED) => byte-identical legacy path (the sibling re-anchor pass
-    is never constructed). A run sets it to a small positive integer (e.g. 3) to
-    enable bounded sibling re-anchor. A non-integer or negative value clamps to 0
-    (fail-safe to the legacy behavior, never unbounded). Read at CALL time."""
-    raw = os.getenv(_ENV_BASKET_REPAIR_MAX_CYCLES, "0").strip()
+    This is the BOUND only — NOT the enable switch (P1-2: the master gate is
+    `_basket_repair_enabled()`, default OFF, checked at the call sites). When the
+    env var is unset it falls back to `_BASKET_REPAIR_DEFAULT_MAX_CYCLES` (3,
+    PARTB_BUILD_SPEC) — but that value is only ever consulted once ENABLED is ON,
+    so the OFF path stays byte-identical regardless. A non-integer or negative
+    value clamps to 0 (fail-safe, never unbounded). Read at CALL time."""
+    raw = os.getenv(
+        _ENV_BASKET_REPAIR_MAX_CYCLES, str(_BASKET_REPAIR_DEFAULT_MAX_CYCLES)
+    ).strip()
     try:
         value = int(raw)
     except (TypeError, ValueError):
@@ -3209,13 +3239,19 @@ def _recover_via_sibling_basket(
             still_dropped.append(sv)
             continue
         tokens = parse_provenance_tokens(text)
-        distinct_eids = {t.evidence_id for t in tokens}
-        # Re-anchor v1 scope: a SINGLE cited evidence_id (one claim, one source).
-        # A multi-source dropped sentence is left to A4 / drop+disclose.
-        if len(distinct_eids) != 1:
+        # P2-1 (Codex diff-gate): re-anchor v1 scope is a GENUINELY SINGLE-TOKEN
+        # sentence — `len(tokens) == 1`, NOT `len(distinct_eids) == 1`. A same-eid
+        # MULTI-token sentence (e.g. two spans of the SAME source) carries two
+        # distinct grounded spans; the SHIP-THE-SAME-ONE reconstruction below
+        # collapses the whole sentence to ONE appended sibling token, silently
+        # dropping the second span's grounding. Requiring exactly one token means
+        # the single span we re-point is the ONLY grounding the sentence ever had,
+        # so nothing is lost. A multi-token sentence stays in still_dropped (A4 /
+        # drop+disclose).
+        if len(tokens) != 1:
             still_dropped.append(sv)
             continue
-        cited_eid = next(iter(distinct_eids))
+        cited_eid = tokens[0].evidence_id
         ccids = cluster_id_by_evidence.get(cited_eid, []) or []
         # SINGLE-CLUSTER anti-cross-claim rule (reused from
         # verified_corroborators_for_tokens provenance_generator.py:2987): a
@@ -3789,13 +3825,19 @@ async def _run_section(
     # M-41c list is applied below, so every re-anchored sentence routes THROUGH
     # the SAME M-41c policy filter + credibility-disclosure + resolve path as a
     # normally-kept sentence (mirrors A4 exactly, per the §-1.3 basket-faithfulness
-    # invariant). A single-cited, single-cluster dropped claim is re-anchored iff a
+    # invariant). This legacy `_run_section` path renders via the FLAT
+    # resolve_provenance_to_citations (keyed on the kept SV's own tokens, NOT
+    # entity_to_slot_id) so a re-anchored sibling token resolves with no slot-map
+    # registration needed — the P1-1 contract-path slot fix is contract-only.
+    # A single-cited, single-cluster dropped claim is re-anchored iff a
     # basket sibling INDEPENDENTLY passes the UNCHANGED single-span isolation gate;
-    # else it stays dropped + disclosed. Default OFF (PG_BASKET_REPAIR_MAX_CYCLES=0)
-    # => the pass is never constructed (byte-identical). `credibility_analysis is
+    # else it stays dropped + disclosed. P1-2: the MASTER gate is
+    # `_basket_repair_enabled()` (default OFF => byte-identical no-op); the
+    # max-cycles bound is consulted only when ENABLED. `credibility_analysis is
     # None` (master flag OFF / always-release degrade) also no-ops.
     if (
-        _basket_repair_max_cycles() > 0
+        _basket_repair_enabled()
+        and _basket_repair_max_cycles() > 0
         and credibility_analysis is not None
         and report.dropped_sentences
     ):
