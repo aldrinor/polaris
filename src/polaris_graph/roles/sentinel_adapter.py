@@ -89,6 +89,49 @@ _TRANSPORT_SELF_HOST = "self_host"
 _SENTINEL_GUARDIAN_SLUG_TOKEN = "granite-guardian"
 _SENTINEL_DECOMPOSITION_SLUG_TOKENS = ("minimax/", "minimax-")
 
+# FIX 2 (A3 sentinel transport-blank retry, I-arch-007). A flaky socket can return
+# a success HTTP-200 with an EMPTY raw_text; today that empty body falls straight
+# into the parser, which fail-closes to SentinelResult(UNGROUNDED, parsed_ok=False)
+# (_FAIL_CLOSED). That collapses a TRANSPORT BLANK ("the verifier returned nothing")
+# with a GENUINE UNGROUNDED downstream (role_pipeline._compose_final_verdict), and
+# downgrades a Judge VERIFIED/PARTIAL to UNSUPPORTED on a transient empty 200.
+#
+# This flag enables up to N EXTRA same-request transport.complete calls — and ONLY
+# on the RAW-TEXT-BLANK discriminator `not raw_text or not raw_text.strip()`, NEVER
+# on parsed_ok==False (which also covers a NON-EMPTY-but-unparseable output and a
+# GENUINE clean UNGROUNDED — both must still downgrade exactly as today, no retry).
+#
+# DEFAULT 0 => byte-identical: no extra transport call, the empty 200 falls into the
+# parser exactly as before, and the RoleCallRecord list stays 1 element. On retry
+# EXHAUSTION the result STAYS SentinelResult(UNGROUNDED, parsed_ok=False) — the retry
+# NEVER converts a blank into GROUNDED. Each attempt is recorded so the blank is
+# auditable. A BudgetExceededError (cap breach) is a HARD ABORT, never retried; a
+# RoleTransportError (persistent transport fault) still PROPAGATES and HOLDS the
+# claim. Read lazily per call (mirrors the mode helpers above).
+_SENTINEL_BLANK_RETRIES_ENV = "PG_SENTINEL_BLANK_RETRIES"
+
+
+def _sentinel_blank_retries() -> int:
+    """FIX 2: max EXTRA Sentinel transport calls on a RAW-TEXT-BLANK empty-200.
+
+    DEFAULT 0 (DISABLED) => byte-identical (no extra call). A non-integer or
+    negative value clamps to 0 (fail-safe to legacy, never unbounded). Read at
+    CALL time so a post-import override / test toggle is honored (LAW VI)."""
+    raw = os.getenv(_SENTINEL_BLANK_RETRIES_ENV, "0").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
+def _is_blank_raw_text(raw_text: str | None) -> bool:
+    """The transport-blank discriminator: a success HTTP-200 whose body is None,
+    empty, or whitespace-only. This is the ONLY predicate that triggers the FIX 2
+    retry — NOT parsed_ok==False (which also covers a non-empty-unparseable output
+    and a genuine clean UNGROUNDED, neither of which may be retried)."""
+    return not raw_text or not raw_text.strip()
+
 
 def _configured_sentinel_slug() -> str:
     """The active Sentinel model slug (LAW VI), for the model-aware default mode (I-run11-004).
@@ -341,15 +384,44 @@ def run_sentinel(
     request = build_sentinel_request(
         claim, evidence_documents, model_slug=model_slug, mode=resolved_mode
     )
+    # FIX 2: bounded retry budget for a RAW-TEXT-BLANK empty-200 only (default 0 =>
+    # exactly one attempt, byte-identical). Each attempt appends a RoleCallRecord so
+    # the blank is auditable; at default the list stays a 1-element list.
+    max_blank_retries = _sentinel_blank_retries()
+    blank_records: list[RoleCallRecord] = []
     try:
-        response: RoleResponse = transport.complete(request)
+        attempt = 0
+        while True:
+            response: RoleResponse = transport.complete(request)
+            # ONLY a raw-text-blank empty-200 is retried. A non-empty-unparseable
+            # output and a genuine clean UNGROUNDED both go straight to the parser
+            # below (no retry) — the predicate is the raw-text blank, NOT parsed_ok.
+            if (
+                _is_blank_raw_text(response.raw_text)
+                and attempt < max_blank_retries
+            ):
+                # Record the blank attempt so retries are visible, then re-issue the
+                # SAME request on a fresh socket. On exhaustion we fall through to the
+                # parser with the (still blank) raw_text -> _FAIL_CLOSED UNGROUNDED.
+                blank_records.append(RoleCallRecord(
+                    role=_ROLE,
+                    model_slug=model_slug,
+                    served_model=response.served_model,
+                    raw_text=response.raw_text or "",
+                    parsed=_FAIL_CLOSED,
+                ))
+                attempt += 1
+                continue
+            break
         result = parser(response.raw_text)
         served_model = response.served_model
         raw_text = response.raw_text
     except _orc.BudgetExceededError:
         # I-meta-008: a budget-cap breach (raised by the RecordingTransport cost hook inside
         # transport.complete) is a HARD ABORT, never a fail-closed UNGROUNDED verdict. Re-raise
-        # BEFORE the broad except below so the cap actually bites on the Sentinel call.
+        # BEFORE the broad except below so the cap actually bites on the Sentinel call. The
+        # FIX 2 blank-retry loop is INSIDE this try, so a cap breach on a retry call also aborts
+        # hard here (never retried past the cap).
         raise
     except RoleTransportError:
         # I-run11-010 (#1056, D4): a transport fault that SURVIVED the bounded transport retries
@@ -358,7 +430,8 @@ def run_sentinel(
         # instead of laundering a persistent network fault into a fail-closed UNGROUNDED verdict.
         # That downgrade (a) silently loses recall and (b) made the SAME blip role-dependent (fatal
         # on Mirror/Judge, swallowed on Sentinel). Genuine VERDICT-level faults (parse/contract
-        # errors below) still fail-closed UNGROUNDED.
+        # errors below) still fail-closed UNGROUNDED. FIX 2: a RoleTransportError on a blank-retry
+        # call still propagates (the blank retry is for empty HTTP-200s only, never a transport fault).
         raise
     except Exception as exc:  # noqa: BLE001 — deliberate fail-closed; see comment below.
         # FAIL CLOSED: a VERDICT-level fault (parse / contract failure — the model responded but the
@@ -372,7 +445,7 @@ def run_sentinel(
             raw_text=f"<transport_error>{exc}</transport_error>",
             parsed=_FAIL_CLOSED,
         )
-        return _FAIL_CLOSED, [record]
+        return _FAIL_CLOSED, [*blank_records, record]
 
     record = RoleCallRecord(
         role=_ROLE,
@@ -381,4 +454,4 @@ def run_sentinel(
         raw_text=raw_text,
         parsed=result,
     )
-    return result, [record]
+    return result, [*blank_records, record]
