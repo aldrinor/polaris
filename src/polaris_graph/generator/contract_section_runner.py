@@ -1141,6 +1141,60 @@ async def run_contract_section(
     dropped_sentences = (
         det_dropped_final + reg_dropped_final + narr_dropped_final
     )
+
+    # FIX 1 (PART-B, I-arch-002 [8]) — strict_verify OVER-DROP basket re-anchor on
+    # THE PRIMARY LIVE BENCHMARK PATH (Gate-B forces PG_V30_PHASE2_ENABLED=1 so
+    # EVERY section ships through this runner — this is the path that fires on Q76).
+    # A single-cited, single-cluster DROPPED claim is re-anchored to a basket
+    # sibling that INDEPENDENTLY passes the UNCHANGED single-span isolation gate;
+    # else it stays dropped + disclosed (B5/B7 unchanged). Default OFF
+    # (PG_BASKET_REPAIR_MAX_CYCLES=0) => the pass is never constructed (byte-
+    # identical). `credibility_analysis is None` (master flag OFF / always-release
+    # degrade) also no-ops. Re-anchored survivors route through the SAME post-merge
+    # path as normally-kept sentences: M-41c policy filter (no-op by construction
+    # here per the module header, but applied for invariant parity) + the advisory
+    # disclosure populate (re-applied so survivors carry it, like the merged kept
+    # list at 1125-1127) BEFORE the resolve below.
+    from .multi_section_generator import (
+        _basket_repair_max_cycles,
+        _recover_via_sibling_basket,
+    )
+    if (
+        _basket_repair_max_cycles() > 0
+        and credibility_analysis is not None
+        and dropped_sentences
+    ):
+        _reanchored_svs, _still_dropped = _recover_via_sibling_basket(
+            dropped_sentences, evidence_pool, credibility_analysis,
+        )
+        if _reanchored_svs:
+            from .multi_section_generator import (
+                filter_underframed_trial_sentences,
+            )
+            from ..synthesis.credibility_pass import apply_disclosure_to_svs
+            _ra_kept, _ra_dropped_m41c = filter_underframed_trial_sentences(
+                _reanchored_svs
+            )
+            # Re-apply the advisory per-claim disclosure so re-anchored survivors
+            # carry the same fields the merged kept list got at 1125-1127. ADVISORY:
+            # never re-runs strict_verify / flips is_verified.
+            if credibility_analysis is not None and _ra_kept:
+                _ra_kept = apply_disclosure_to_svs(_ra_kept, credibility_analysis)
+            kept_sentences = kept_sentences + _ra_kept
+            # Honest id-based drop accounting: the whole re-anchored set leaves the
+            # dropped list (M-41c-failed ones rejoin it), no double-count.
+            _reanchored_ids = {id(sv) for sv in _reanchored_svs}
+            dropped_sentences = [
+                sv for sv in dropped_sentences
+                if id(sv) not in _reanchored_ids
+            ] + list(_ra_dropped_m41c)
+            logger.info(
+                "[contract_section] FIX1 sibling-basket re-anchor: re-cited %d "
+                "strict-verify-dropped sentence(s) to an independently-entailing "
+                "basket sibling (%d failed M-41c policy filter)",
+                len(_ra_kept), len(_ra_dropped_m41c),
+            )
+
     total_in = det_total_in + reg_total_in + narr_total_in
     kept = len(kept_sentences)
     dropped = total_in - kept

@@ -3066,6 +3066,235 @@ def _recover_comparative_synthesis(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# FIX 1 (PART-B, I-arch-002 [8]) — strict_verify OVER-DROP basket re-anchor.
+#
+# When a claim is DROPPED by strict_verify on its OWN cited span at composition
+# (no_content_word_overlap / no_integer_overlap / entailment_failed), and that
+# cited evidence_id participates in a claim basket (consolidate: same-claim
+# sources clustered), a SIBLING member of the basket may INDEPENDENTLY entail the
+# FULL claim on its OWN single span. In that case the citation is RE-ANCHORED to
+# the sibling and the sentence is KEPT (BASKET FAITHFULNESS, CLAUDE.md §-1.3
+# principle 3). This STRENGTHENS faithfulness — it never relaxes a gate:
+#
+#   * ENFORCE-ONLY accept gate (copied verbatim from `_try_reanchor`
+#     provenance_generator.py:1284-1289): under off/warn entailment the search-
+#     for-a-passing-sibling shape would launder a drop into a pass, so the whole
+#     pass no-ops unless entailment is in enforce mode.
+#   * SINGLE-CLUSTER anti-cross-claim rule (reused from
+#     `verified_corroborators_for_tokens` provenance_generator.py:2987): only a
+#     dropped sentence whose cited evidence_id maps to EXACTLY ONE
+#     claim_cluster_id may be re-anchored. A multi-cluster token cannot be
+#     attributed to ONE claim, so re-anchoring it could cite a different claim's
+#     verified sibling — a wrong-claim citation (lethal in clinical context).
+#   * INDEPENDENT FULL-CLAIM entailment, NO UNION laundering: the sibling must
+#     pass `_verify_member_in_isolation(FULL_claim_text, sibling_row, ...)` which
+#     builds an EXACTLY-ONE-token sentence (credibility_pass.py:230-233) so the
+#     verifier's per-token union loop cannot combine the sibling's span with any
+#     other. SUPPORTS == the sibling ALONE proves the unchanged claim.
+#   * VERIFY-ONE / SHIP-THE-SAME-ONE: the sentence shipped after re-anchor is
+#     reconstructed BYTE-IDENTICALLY to the one `_verify_member_in_isolation`
+#     verified (the same strip + `<claim> [#ev:sibling_eid:0-len(span)]`
+#     construction), then its tokens re-parsed. The claim TEXT is unchanged on
+#     the re-anchor leg — only the [#ev] token is re-pointed.
+#
+# FALLBACK ORDER (preserved): re-anchor to a passing sibling first; if none
+# passes, the existing DROP+DISCLOSE path (B5/B7) is UNCHANGED — no silent
+# deletion, no hallucinated prose resurrected.
+#
+# The SOFTEN-to-narrower-basket-scope leg (the task's middle fallback) REWRITES
+# the claim text and is therefore the only faithfulness-risky leg; it is NOT
+# implemented here (a fuzzy join-support soften is exactly the union-laundering
+# shape the design forbids). The reserved env flag `PG_GEN_BASKET_SOFTEN`
+# (default OFF) documents it as a separate, single-span-re-verified follow-up so
+# it can never be folded into the safe re-anchor leg. See the module follow-up
+# note + the campaign ledger.
+#
+# DEFAULT 0 (DISABLED) => the pass is never constructed and behavior is
+# byte-identical to today (the A4 recovery and existing `_try_reanchor` are
+# untouched). `credibility_analysis is None` (master flag OFF or always-release
+# degrade) also no-ops (baskets absent). Read at CALL time so tests toggle
+# without re-import.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_BASKET_REPAIR_MAX_CYCLES = "PG_BASKET_REPAIR_MAX_CYCLES"
+# Reserved (NOT wired this iter): the SOFTEN-to-narrower-scope leg. A claim
+# REWRITE must be single-span re-verified (mirror sentence_repair.py:360) before
+# it can ship; left dark behind its own flag so it is never folded into the safe
+# citation-re-point re-anchor leg above. Default OFF.
+_ENV_BASKET_SOFTEN = "PG_GEN_BASKET_SOFTEN"
+
+
+def _basket_repair_max_cycles() -> int:
+    """FIX 1: max DISTINCT sibling members tried per dropped sentence before
+    giving up and falling through to DROP+DISCLOSE.
+
+    DEFAULT 0 (DISABLED) => byte-identical legacy path (the sibling re-anchor pass
+    is never constructed). A run sets it to a small positive integer (e.g. 3) to
+    enable bounded sibling re-anchor. A non-integer or negative value clamps to 0
+    (fail-safe to the legacy behavior, never unbounded). Read at CALL time."""
+    raw = os.getenv(_ENV_BASKET_REPAIR_MAX_CYCLES, "0").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
+def _recover_via_sibling_basket(
+    dropped_sentences: list[Any],
+    evidence_pool: dict[str, Any],
+    credibility_analysis: Any,
+) -> tuple[list[Any], list[Any]]:
+    """FIX 1: re-anchor strict_verify-OVER-DROPPED sentences to an independently-
+    entailing SIBLING basket member.
+
+    For each dropped SentenceVerification carrying a SINGLE cited evidence_id that
+    maps to EXACTLY ONE claim_cluster_id: try up to `_basket_repair_max_cycles()`
+    DISTINCT sibling members of that cluster; the FIRST sibling that INDEPENDENTLY
+    passes `_verify_member_in_isolation` on the FULL claim text wins. The recovered
+    SentenceVerification's `.sentence` is reconstructed BYTE-IDENTICALLY to the
+    isolation-verified string and its `.tokens` re-parsed, then `is_verified` is
+    flipped True with an auditable soft_warning. The claim text is unchanged.
+
+    Returns (recovered, still_dropped); `recovered` preserves input order. A
+    sentence with no single cited token, a multi-cluster token, no basket, or no
+    independently-entailing sibling stays in `still_dropped` (never resurrected).
+    This NEVER relaxes the gate: a sibling that does not pass the SAME single-span
+    isolation verification stays dropped + disclosed (current behavior).
+    """
+    # ENFORCE-ONLY accept gate (verbatim from _try_reanchor, provenance_generator
+    # .py:1284-1289). Under off/warn the "search for a passing sibling" shape would
+    # launder a drop into a pass, so the whole pass no-ops outside enforce mode.
+    from src.polaris_graph.clinical_generator.strict_verify import (
+        _entailment_mode as _emode_reanchor,
+    )
+    if _emode_reanchor() != "enforce":
+        return [], list(dropped_sentences)
+
+    max_cycles = _basket_repair_max_cycles()
+    if max_cycles <= 0 or not dropped_sentences:
+        return [], list(dropped_sentences)
+
+    baskets = getattr(credibility_analysis, "baskets", None)
+    cluster_id_by_evidence = getattr(
+        credibility_analysis, "cluster_id_by_evidence", None
+    )
+    if not baskets or not cluster_id_by_evidence:
+        # No consolidation data => nothing to re-anchor against (byte-identical).
+        return [], list(dropped_sentences)
+
+    from .provenance_generator import (
+        _CALC_TOKEN_RE,
+        _PROVENANCE_TOKEN_RE,
+        parse_provenance_tokens,
+        verify_sentence_provenance,
+    )
+    from ..synthesis.credibility_pass import _verify_member_in_isolation
+
+    # Index baskets by claim_cluster_id for the single-cluster lookup. The member
+    # rows carry the span text the sibling will be verified against.
+    members_by_cluster: dict[str, list[Any]] = {}
+    for basket in baskets:
+        ccid = str(getattr(basket, "claim_cluster_id", "") or "")
+        if ccid:
+            members_by_cluster[ccid] = list(
+                getattr(basket, "supporting_members", None) or []
+            )
+
+    recovered: list[Any] = []
+    still_dropped: list[Any] = []
+    for sv in dropped_sentences:
+        text = getattr(sv, "sentence", None)
+        if not isinstance(text, str) or not text.strip():
+            still_dropped.append(sv)
+            continue
+        tokens = parse_provenance_tokens(text)
+        distinct_eids = {t.evidence_id for t in tokens}
+        # Re-anchor v1 scope: a SINGLE cited evidence_id (one claim, one source).
+        # A multi-source dropped sentence is left to A4 / drop+disclose.
+        if len(distinct_eids) != 1:
+            still_dropped.append(sv)
+            continue
+        cited_eid = next(iter(distinct_eids))
+        ccids = cluster_id_by_evidence.get(cited_eid, []) or []
+        # SINGLE-CLUSTER anti-cross-claim rule (reused from
+        # verified_corroborators_for_tokens provenance_generator.py:2987): a
+        # multi-cluster token cannot be attributed to ONE claim.
+        if len(ccids) != 1:
+            still_dropped.append(sv)
+            continue
+        cluster_id = ccids[0]
+        # FULL claim text = the dropped sentence with its provenance/calc tokens
+        # stripped (the SAME normalization _verify_member_in_isolation applies at
+        # credibility_pass.py:230-231, so the verified text and our reconstruction
+        # match byte-for-byte). Claim text is UNCHANGED on the re-anchor leg.
+        safe_text = _PROVENANCE_TOKEN_RE.sub(" ", text)
+        safe_text = _CALC_TOKEN_RE.sub(" ", safe_text).strip()
+        if not safe_text:
+            still_dropped.append(sv)
+            continue
+
+        rescued = False
+        attempts = 0
+        seen_sibling_eids: set[str] = set()
+        for member in members_by_cluster.get(cluster_id, []):
+            sibling_eid = str(getattr(member, "evidence_id", "") or "")
+            # Sibling must differ from the failing citation, be resolvable in the
+            # pool, and be tried at most once. "Each cycle injects NEW basket
+            # evidence or STOP" — distinct siblings only.
+            if (
+                not sibling_eid
+                or sibling_eid == cited_eid
+                or sibling_eid in seen_sibling_eids
+                or sibling_eid not in evidence_pool
+            ):
+                continue
+            seen_sibling_eids.add(sibling_eid)
+            if attempts >= max_cycles:
+                break
+            attempts += 1
+            sibling_row = evidence_pool[sibling_eid]
+            # INDEPENDENT FULL-CLAIM entailment on the sibling's OWN single span —
+            # the EXACTLY-ONE-token isolation verify (no union laundering). The
+            # injected verify_fn is the SAME production strict_verify gate.
+            verdict = _verify_member_in_isolation(
+                safe_text, sibling_row, verify_fn=verify_sentence_provenance,
+            )
+            if verdict != "SUPPORTS":
+                continue
+            # VERIFY-ONE / SHIP-THE-SAME-ONE: reconstruct the EXACT string the
+            # isolation verify built (credibility_pass.py:233) and re-parse tokens
+            # so the shipped sentence IS the one that just passed the gate.
+            span = str(
+                (sibling_row or {}).get("direct_quote")
+                or (sibling_row or {}).get("statement")
+                or ""
+            )
+            new_sentence = f"{safe_text} [#ev:{sibling_eid}:0-{len(span)}]"
+            try:
+                sv.sentence = new_sentence
+                sv.tokens = parse_provenance_tokens(new_sentence)
+                sv.is_verified = True
+                warns = list(getattr(sv, "soft_warnings", None) or [])
+                warns.append(
+                    "FIX1_sibling_basket_reanchor: re-cited dropped claim to "
+                    f"basket sibling {sibling_eid!r} (cluster {cluster_id!r}) "
+                    "after INDEPENDENT single-span isolation verify SUPPORTS"
+                )
+                sv.soft_warnings = warns
+            except Exception:
+                # A frozen / non-mutable SV is not eligible — keep it dropped
+                # rather than risk a half-mutated object reaching resolve.
+                break
+            recovered.append(sv)
+            rescued = True
+            break
+        if not rescued:
+            still_dropped.append(sv)
+    return recovered, still_dropped
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # M-41c: deterministic claim-frame post-check
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3553,6 +3782,50 @@ async def _run_section(
                 "verification in section %r (%d failed M-41c policy filter)",
                 len(_rec_kept_m41c), len(_recovered_svs), section.title,
                 len(_rec_dropped_m41c),
+            )
+
+    # FIX 1 (PART-B, I-arch-002 [8]): strict_verify OVER-DROP basket re-anchor.
+    # Runs on the CHOSEN report's STILL-dropped sentences (after A4), BEFORE the
+    # M-41c list is applied below, so every re-anchored sentence routes THROUGH
+    # the SAME M-41c policy filter + credibility-disclosure + resolve path as a
+    # normally-kept sentence (mirrors A4 exactly, per the §-1.3 basket-faithfulness
+    # invariant). A single-cited, single-cluster dropped claim is re-anchored iff a
+    # basket sibling INDEPENDENTLY passes the UNCHANGED single-span isolation gate;
+    # else it stays dropped + disclosed. Default OFF (PG_BASKET_REPAIR_MAX_CYCLES=0)
+    # => the pass is never constructed (byte-identical). `credibility_analysis is
+    # None` (master flag OFF / always-release degrade) also no-ops.
+    if (
+        _basket_repair_max_cycles() > 0
+        and credibility_analysis is not None
+        and report.dropped_sentences
+    ):
+        _reanchored_svs, _ = _recover_via_sibling_basket(
+            report.dropped_sentences, evidence_pool, credibility_analysis,
+        )
+        if _reanchored_svs:
+            # Route re-anchored sentences THROUGH M-41c exactly like the kept list
+            # (an under-framed trial-name comparative must NOT escape the filter).
+            _ra_kept_m41c, _ra_dropped_m41c = (
+                filter_underframed_trial_sentences(_reanchored_svs)
+            )
+            report_kept_after_m41c = report_kept_after_m41c + _ra_kept_m41c
+            if _ra_dropped_m41c:
+                report_dropped_m41c = (report_dropped_m41c or []) + _ra_dropped_m41c
+            # Honest id-based accounting (mirror A4 / repair-loop): the whole
+            # re-anchored set leaves the strict_verify dropped list (M-41c-failed
+            # ones are accounted in report_dropped_m41c), avoiding double-counting.
+            _reanchored_ids = {id(sv) for sv in _reanchored_svs}
+            report.dropped_sentences = [
+                sv for sv in report.dropped_sentences
+                if id(sv) not in _reanchored_ids
+            ]
+            report.total_dropped = len(report.dropped_sentences)
+            logger.info(
+                "[multi_section] FIX1 sibling-basket re-anchor: re-cited %d of %d "
+                "strict-verify-dropped sentence(s) to an independently-entailing "
+                "basket sibling in section %r (%d failed M-41c policy filter)",
+                len(_ra_kept_m41c), len(_reanchored_svs), section.title,
+                len(_ra_dropped_m41c),
             )
 
     # Apply the already-computed M-41c filtered list to the chosen
