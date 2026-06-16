@@ -119,9 +119,25 @@ def _doc():
     return [EvidenceDocument(doc_id="d1", text="evidence text")]
 
 
-def test_d4_transport_error_propagates_to_hold():
-    # A post-retry RoleTransportError is NOT a verdict — it must propagate so the run HOLDS the claim
-    # (matching Mirror/Judge), not silently fail-close to UNGROUNDED.
+def test_d4_transport_error_degrades_then_continues_default():
+    # B5/B7 (#1257, "nothing shall hold the report") supersedes #1056: a post-retry
+    # RoleTransportError now marks ONLY the sentinel role unavailable for THIS claim
+    # (fail-closed UNGROUNDED, parsed_ok=False — NEVER GROUNDED) so the parallel D8 seam
+    # CONTINUES adjudicating every other claim, instead of propagating and tearing the whole
+    # seam down to coverage=0. Default-ON.
+    result, records = run_sentinel(_RaisingTransport(RoleTransportError("reset")), "claim",
+                                   _doc(), model_slug="minimax/minimax-m2")
+    assert result.verdict == SentinelVerdict.UNGROUNDED  # never GROUNDED on a transport fault
+    assert result.parsed_ok is False
+    assert len(records) == 1
+    assert "sentinel_role_unavailable" in records[0].raw_text
+    assert "RoleTransportError" in records[0].raw_text
+
+
+def test_d4_transport_error_propagates_when_degrade_disabled(monkeypatch):
+    # PG_SENTINEL_TRANSPORT_DEGRADE=0 restores the legacy #1056 propagate->HOLD verbatim
+    # (byte-identical escape hatch): a post-retry RoleTransportError re-raises so the caller HOLDS.
+    monkeypatch.setenv("PG_SENTINEL_TRANSPORT_DEGRADE", "0")
     with pytest.raises(RoleTransportError):
         run_sentinel(_RaisingTransport(RoleTransportError("reset")), "claim", _doc(),
                      model_slug="minimax/minimax-m2")

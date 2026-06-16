@@ -423,16 +423,33 @@ def run_sentinel(
         # FIX 2 blank-retry loop is INSIDE this try, so a cap breach on a retry call also aborts
         # hard here (never retried past the cap).
         raise
-    except RoleTransportError:
-        # I-run11-010 (#1056, D4): a transport fault that SURVIVED the bounded transport retries
-        # (openrouter_role_transport, #1053) is NOT a verdict — the verifier never responded. Let it
-        # PROPAGATE so the run HOLDS the claim (matching the Mirror/Judge fail-loud behaviour),
-        # instead of laundering a persistent network fault into a fail-closed UNGROUNDED verdict.
-        # That downgrade (a) silently loses recall and (b) made the SAME blip role-dependent (fatal
-        # on Mirror/Judge, swallowed on Sentinel). Genuine VERDICT-level faults (parse/contract
-        # errors below) still fail-closed UNGROUNDED. FIX 2: a RoleTransportError on a blank-retry
-        # call still propagates (the blank retry is for empty HTTP-200s only, never a transport fault).
-        raise
+    except RoleTransportError as exc:
+        # B5/B7 (#1257, "nothing shall hold the report") supersedes I-run11-010 (#1056, D4):
+        # a Sentinel transport fault that SURVIVED the bounded transport retries (effort ladder +
+        # provider failover, openrouter_role_transport #1053) marks ONLY the sentinel role unavailable
+        # for THIS claim (fail-closed UNGROUNDED, parsed_ok=False — NEVER GROUNDED, so
+        # _compose_final_verdict downgrades the claim, never upgrades it) and the D8 seam CONTINUES
+        # adjudicating every other claim. #1056's propagate-to-HOLD was right for a per-claim hold,
+        # but in the PARALLEL seam path it does NOT hold one claim — the propagated error reaches
+        # sweep_integration's future.result(), which cancel_futures + tears the WHOLE seam down and
+        # hardcodes coverage_fraction=0.0, discarding ~177 successfully-adjudicated claims and (legacy)
+        # holding the entire report. The recall cost of ONE transport-faulted claim (already
+        # bounded-retried + provider-failed-over) is the correct trade vs nuking the real adjudication
+        # of every other claim. Mirror/Judge verdicts on this and all other claims are untouched.
+        # Default-ON under the always-release regime; OFF (PG_SENTINEL_TRANSPORT_DEGRADE in
+        # {0,false,no,off}) = byte-identical legacy propagate->HOLD. Genuine VERDICT-level faults
+        # (parse/contract — the model responded un-classifiably) still fail-closed UNGROUNDED via the
+        # broad except below. A BudgetExceededError is already re-raised hard ABOVE this branch.
+        if os.getenv("PG_SENTINEL_TRANSPORT_DEGRADE", "1").strip().lower() in ("0", "false", "no", "off"):
+            raise
+        record = RoleCallRecord(
+            role=_ROLE,
+            model_slug=model_slug,
+            served_model=None,
+            raw_text=f"<sentinel_role_unavailable>{type(exc).__name__}: {exc}</sentinel_role_unavailable>",
+            parsed=_FAIL_CLOSED,
+        )
+        return _FAIL_CLOSED, [*blank_records, record]
     except Exception as exc:  # noqa: BLE001 — deliberate fail-closed; see comment below.
         # FAIL CLOSED: a VERDICT-level fault (parse / contract failure — the model responded but the
         # output was un-classifiable) must not be read as GROUNDED. We capture a record with the safe
