@@ -1191,11 +1191,21 @@ async def _generate_outline_from_conversations(
     )
 
     try:
-        result = await client.generate_structured(
-            prompt=prompt,
-            schema=StormOutlinePlan,
-            max_tokens=PG_STORM_OUTLINE_MAX_TOKENS,
-            reasoning_enabled=True,
+        # I-arch-007: HARD timeout on the ONE reasoning-ON STORM call (the A21 "deadline on every LLM
+        # call" gap). Without it a hung deepseek outline call NEVER raises, so the run deadlocks in
+        # ep_poll forever (the drb_72 smoke STORM->outline hang). On timeout the existing `except
+        # Exception` below falls back to the DISCLOSED _fallback_outline — the outline is an
+        # ORGANIZATIONAL scaffold (faithfulness-neutral; the fallback is already a disclosed degrade),
+        # so this only converts a HANG into the existing safe fallback. Env-overridable (LAW VI), read
+        # at call time (no import-freeze).
+        result = await asyncio.wait_for(
+            client.generate_structured(
+                prompt=prompt,
+                schema=StormOutlinePlan,
+                max_tokens=PG_STORM_OUTLINE_MAX_TOKENS,
+                reasoning_enabled=True,
+            ),
+            timeout=float(os.getenv("PG_STORM_OUTLINE_CALL_TIMEOUT_S", "300")),
         )
 
         if result and result.sections:
