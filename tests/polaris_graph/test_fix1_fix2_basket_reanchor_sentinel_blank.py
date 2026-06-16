@@ -132,13 +132,39 @@ def test_fix2_nonempty_unparseable_not_retried(monkeypatch) -> None:
 # FIX 1 — basket sibling re-anchor
 # ─────────────────────────────────────────────────────────────────────────────
 
+from src.polaris_graph.clinical_generator import strict_verify  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+    _basket_repair_enabled,
+    _basket_repair_max_cycles,
     _recover_via_sibling_basket,
 )
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     SentenceVerification,
     parse_provenance_tokens,
 )
+
+
+class _FakeEntailmentJudge:
+    """Deterministic offline entailment judge: every span that reaches the judge
+    (i.e. already passed the mechanical content/numeric checks) ENTAILS. The FIX-1
+    spans are crafted so only the genuinely-supporting sibling (ev_good, span ==
+    claim) clears the content-word floor and reaches the judge; non-supporting
+    siblings (ev_bad / ev_fail) fail the floor mechanically and never call it. So a
+    default-ENTAILED judge is sufficient AND faithful for these tests — no network,
+    P2-2: every enforce-mode FIX-1 test installs this stub."""
+
+    def judge(self, sentence: str, span: str):
+        return "ENTAILED", "fake: default entailed (offline test stub)"
+
+
+def _install_fake_judge(monkeypatch) -> _FakeEntailmentJudge:
+    """Install the offline judge so verify_sentence_provenance's enforce-mode 6th
+    check (strict_verify._get_judge().judge(...)) never hits OpenRouter. Mirrors the
+    canonical pattern in test_strict_verify_entailment.py:_install_fake_judge."""
+    fake = _FakeEntailmentJudge()
+    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
+    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
+    return fake
 
 
 class _FakeBasket:
@@ -182,10 +208,29 @@ def _pool_with_supporting_sibling():
     }
 
 
-def test_fix1_off_default_no_reanchor(monkeypatch) -> None:
-    """Default (PG_BASKET_REPAIR_MAX_CYCLES unset) + enforce -> no re-anchor pass; the
-    dropped list is returned unchanged (byte-identical OFF path)."""
+def test_fix1_master_gate_defaults_off(monkeypatch) -> None:
+    """P1-2: PG_BASKET_REPAIR_ENABLED is the MASTER gate and defaults OFF when unset.
+    The whole repair loop at the call sites no-ops in that state (byte-identical)."""
+    monkeypatch.delenv("PG_BASKET_REPAIR_ENABLED", raising=False)
+    assert _basket_repair_enabled() is False
+    # The bound helper now defaults to the named cycles constant (only consulted
+    # once ENABLED), so it alone is NOT the off-switch — the master gate is.
     monkeypatch.delenv("PG_BASKET_REPAIR_MAX_CYCLES", raising=False)
+    assert _basket_repair_max_cycles() == 3
+    for token in ("", "0", "false", "no", "off", "garbage"):
+        monkeypatch.setenv("PG_BASKET_REPAIR_ENABLED", token)
+        assert _basket_repair_enabled() is False
+    for token in ("1", "true", "yes", "on", "TRUE", "On"):
+        monkeypatch.setenv("PG_BASKET_REPAIR_ENABLED", token)
+        assert _basket_repair_enabled() is True
+
+
+def test_fix1_helper_honors_zero_max_cycles(monkeypatch) -> None:
+    """The helper's own bound: max_cycles<=0 -> no re-anchor pass, dropped list
+    returned unchanged (the helper is called directly here, so the master gate at
+    the call sites is not exercised; this proves the internal bound is fail-safe)."""
+    _install_fake_judge(monkeypatch)
+    monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "0")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     cred = _FakeCredAnalysis(
         baskets=[_FakeBasket("c1", [_FakeMember("ev_fail"), _FakeMember("ev_good")])],
@@ -203,6 +248,7 @@ def test_fix1_off_default_no_reanchor(monkeypatch) -> None:
 def test_fix1_enforce_gate_no_reanchor_outside_enforce(monkeypatch) -> None:
     """Even with cycles>0, OFF/WARN entailment -> no re-anchor (the enforce-only accept
     gate: a search-for-a-passing-sibling outside enforce would launder a drop)."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
     cred = _FakeCredAnalysis(
@@ -220,6 +266,7 @@ def test_fix1_reanchors_to_independently_entailing_sibling(monkeypatch) -> None:
     """cycles>0 + enforce + a sibling whose own span independently entails the FULL
     claim -> the dropped sentence is re-anchored (re-cited to the sibling), KEPT, and
     the shipped sentence is byte-identical to the isolation-verified construction."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     cred = _FakeCredAnalysis(
@@ -244,6 +291,7 @@ def test_fix1_reanchors_to_independently_entailing_sibling(monkeypatch) -> None:
 def test_fix1_no_sibling_passes_stays_dropped(monkeypatch) -> None:
     """When NO sibling independently entails the full claim, the sentence stays dropped
     (no laundering; the existing drop+disclose path is preserved)."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     cred = _FakeCredAnalysis(
@@ -265,6 +313,7 @@ def test_fix1_no_sibling_passes_stays_dropped(monkeypatch) -> None:
 def test_fix1_multi_cluster_token_not_reanchored(monkeypatch) -> None:
     """A cited evidence_id mapping to MORE THAN ONE cluster is NEVER re-anchored
     (anti-cross-claim rule: a multi-cluster token can't be attributed to ONE claim)."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     cred = _FakeCredAnalysis(
@@ -279,9 +328,36 @@ def test_fix1_multi_cluster_token_not_reanchored(monkeypatch) -> None:
     assert len(still) == 1
 
 
+def test_fix1_same_eid_multi_token_not_reanchored(monkeypatch) -> None:
+    """P2-1 (Codex diff-gate): a sentence with TWO tokens of the SAME evidence_id is
+    NOT eligible (len(tokens)==2, even though len(distinct_eids)==1). The old
+    distinct-eid scope wrongly admitted it and collapsed both spans to one appended
+    sibling token, silently dropping the second span's grounding. The token-count
+    scope leaves it dropped."""
+    _install_fake_judge(monkeypatch)
+    monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    cred = _FakeCredAnalysis(
+        baskets=[_FakeBasket("c1", [_FakeMember("ev_fail"), _FakeMember("ev_good")])],
+        cluster_id_by_evidence={"ev_fail": ["c1"], "ev_good": ["c1"]},
+    )
+    # Same eid (ev_fail), TWO distinct spans -> two tokens, one distinct eid.
+    multi_token = f"{_CLAIM_TEXT} [#ev:ev_fail:0-5] [#ev:ev_fail:6-10]"
+    sv = _dropped_sv(multi_token)
+    assert len({t.evidence_id for t in sv.tokens}) == 1  # one distinct eid
+    assert len(sv.tokens) == 2  # but two tokens
+    recovered, still = _recover_via_sibling_basket(
+        [sv], _pool_with_supporting_sibling(), cred
+    )
+    assert recovered == []
+    assert len(still) == 1
+    assert still[0].is_verified is False
+
+
 def test_fix1_none_credibility_analysis_noop(monkeypatch) -> None:
     """credibility_analysis is None (master flag OFF / always-release degrade) -> the
     recovery no-ops and returns the dropped list unchanged."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     dropped = [_dropped_sv(_DROPPED_SENTENCE)]
@@ -309,6 +385,29 @@ import asyncio  # noqa: E402
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     StrictVerificationReport,
 )
+
+# The over-dropped sentence on the contract path cites a REAL slot entity
+# (surpass_2_primary -> efficacy_surpass_2 slot). Because that eid IS slot-mapped,
+# the P1-1 fix registers the re-anchored sibling (ev_good) under the SAME slot so
+# the recovered claim renders in verified_text — the exact bug P2-2 guards.
+_ORIG_CITED_EID = "surpass_2_primary"
+_CONTRACT_DROPPED_SENTENCE = f"{_CLAIM_TEXT} [#ev:{_ORIG_CITED_EID}:0-5]"
+
+
+def _contract_dropped_sv():
+    """The over-dropped contract sentence. It carries a NUMERIC failure reason so
+    the M-69 deterministic-stream rescue (which restores NON-numeric contract-entity
+    drops independently of the re-anchor) DECLINES it — leaving the re-anchor leg as
+    the sole path that can resurrect it. This makes the verified_text assertion a
+    sound re-anchor discriminator (OFF -> stays dropped; ON -> re-anchored)."""
+    return SentenceVerification(
+        sentence=_CONTRACT_DROPPED_SENTENCE,
+        tokens=parse_provenance_tokens(_CONTRACT_DROPPED_SENTENCE),
+        is_verified=False,
+        failure_reasons=[
+            f"number_not_in_any_cited_span:{_ORIG_CITED_EID}:nums=[14]"
+        ],
+    )
 
 
 def _build_contract_plan_and_pool():
@@ -374,11 +473,10 @@ def _build_contract_plan_and_pool():
         "evidence_id": "ev_good", "direct_quote": _CLAIM_TEXT,
         "url": "https://ex/good", "tier": "T1", "statement": _CLAIM_TEXT,
     }
-    # The failing-citation row the dropped sentence originally cited.
-    evidence_pool["ev_fail"] = {
-        "evidence_id": "ev_fail", "direct_quote": "Unrelated.",
-        "url": "https://ex/fail", "tier": "T3", "statement": "Unrelated.",
-    }
+    # The over-dropped sentence cites a REAL slot entity (surpass_2_primary, bound
+    # to the efficacy_surpass_2 slot) — the realistic scenario where strict_verify
+    # over-drops a slot's own claim and a basket sibling (ev_good) re-anchors it.
+    # That original eid IS slot-mapped, so P1-1 registers ev_good under its slot.
     # A REAL CredibilityAnalysis so the contract path's apply_disclosure_to_svs (which
     # fail-loud requires credibility/origin coverage for every cited eid, incl. the
     # re-anchored ev_good) runs exactly as it does live — this is part of proving the
@@ -405,8 +503,8 @@ def _build_contract_plan_and_pool():
         span_verdict="SUPPORTS",
     )
     fail_member = BasketMember(
-        evidence_id="ev_fail", source_url="https://ex/fail", source_tier="T3",
-        origin_cluster_id="origin::ev_fail", credibility_weight=0.5,
+        evidence_id=_ORIG_CITED_EID, source_url="https://ex/fail", source_tier="T3",
+        origin_cluster_id="origin::orig", credibility_weight=0.5,
         authority_score=0.5, span=(0, 10), direct_quote="Unrelated.",
         span_verdict="UNSUPPORTED",
     )
@@ -417,11 +515,15 @@ def _build_contract_plan_and_pool():
         verified_support_origin_count=1, basket_verdict="partial",
     )
     cred = CredibilityAnalysis(
-        credibility_by_evidence={"ev_good": _ec("ev_good"), "ev_fail": _ec("ev_fail")},
-        origin_by_evidence={"ev_good": "origin::ev_good", "ev_fail": "origin::ev_fail"},
+        credibility_by_evidence={
+            "ev_good": _ec("ev_good"), _ORIG_CITED_EID: _ec(_ORIG_CITED_EID),
+        },
+        origin_by_evidence={
+            "ev_good": "origin::ev_good", _ORIG_CITED_EID: "origin::orig",
+        },
         claims=[], edges=[], weight_mass=[],
         baskets=[basket],
-        cluster_id_by_evidence={"ev_fail": ["c1"], "ev_good": ["c1"]},
+        cluster_id_by_evidence={_ORIG_CITED_EID: ["c1"], "ev_good": ["c1"]},
     )
     return plan, evidence_pool, cred
 
@@ -453,8 +555,17 @@ async def _fake_llm(prompt):
 def test_fix1_contract_path_reanchors_with_flag_on(monkeypatch) -> None:
     """END-TO-END on the LIVE benchmark path (run_contract_section): with the flag
     ON + enforce + a basket sibling that independently entails the FULL claim, an
-    over-dropped deterministic-stream sentence is re-anchored to the sibling and its
-    [N]-resolved citation reaches verified_text. Flag OFF -> it stays dropped."""
+    over-dropped deterministic-stream sentence is re-anchored to the sibling and the
+    recovered claim REACHES verified_text / sentences_verified (NOT just biblio).
+    Flag OFF -> it stays dropped.
+
+    P2-2 (Codex diff-gate): the verified_text + sentences_verified assertions below
+    are the load-bearing ones. The prior biblio-only check passed even with the
+    P1-1 slot-attribution bug (the resolver numbers the citation into biblio before
+    the slot regroup runs), so it MISSED that the recovered claim never rendered in
+    the body. The verified_text assertion FAILS before the P1-1 entity_to_slot_id
+    registration and PASSES after."""
+    _install_fake_judge(monkeypatch)
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     from src.polaris_graph.generator.contract_section_runner import (
         run_contract_section,
@@ -474,7 +585,7 @@ def test_fix1_contract_path_reanchors_with_flag_on(monkeypatch) -> None:
     def _fake_strict_verify(draft, pool, **kwargs):
         if draft and draft.strip() and not state["injected"]:
             state["injected"] = True
-            sv = _dropped_sv(_DROPPED_SENTENCE)
+            sv = _contract_dropped_sv()
             return StrictVerificationReport(
                 kept_sentences=[], dropped_sentences=[sv],
                 total_in=1, total_kept=0, total_dropped=1,
@@ -484,8 +595,15 @@ def test_fix1_contract_path_reanchors_with_flag_on(monkeypatch) -> None:
             total_in=0, total_kept=0, total_dropped=0,
         )
 
-    async def _run(max_cycles: str):
-        monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", max_cycles)
+    async def _run(*, enabled: bool):
+        # P1-2: PG_BASKET_REPAIR_ENABLED is the MASTER gate. Both it and a positive
+        # max-cycles bound must hold for the repair loop to run at the call site.
+        if enabled:
+            monkeypatch.setenv("PG_BASKET_REPAIR_ENABLED", "1")
+            monkeypatch.setenv("PG_BASKET_REPAIR_MAX_CYCLES", "3")
+        else:
+            monkeypatch.delenv("PG_BASKET_REPAIR_ENABLED", raising=False)
+            monkeypatch.delenv("PG_BASKET_REPAIR_MAX_CYCLES", raising=False)
         state["injected"] = False
         return await run_contract_section(
             plan, dict(evidence_pool),
@@ -496,20 +614,36 @@ def test_fix1_contract_path_reanchors_with_flag_on(monkeypatch) -> None:
             credibility_analysis=cred,
         )
 
-    # FLAG ON: the dropped sentence is re-anchored to ev_good and its citation ships.
-    result_on, _ = asyncio.run(_run("3"))
-    # ev_good resolves into the biblio (the re-anchored citation), proving the
-    # re-anchor engaged inside run_contract_section on the live path.
+    # FLAG ON: the dropped sentence is re-anchored to ev_good and ships in the BODY.
+    result_on, _ = asyncio.run(_run(enabled=True))
+    # P2-2 LOAD-BEARING: the recovered claim must render in verified_text (the slot
+    # body), not just be numbered into the bibliography. Asserts both the claim
+    # prose AND a non-zero sentences_verified count.
+    assert _CLAIM_TEXT[:30] in (result_on.verified_text or ""), (
+        "P1-1 REGRESSION: the re-anchored claim is absent from verified_text "
+        f"(slot-attribution bug). verified_text={result_on.verified_text!r}"
+    )
+    assert (result_on.sentences_verified or 0) >= 1, (
+        "P1-1 REGRESSION: the re-anchored claim did not increment "
+        f"sentences_verified (got {result_on.sentences_verified!r})"
+    )
+    # And the re-anchored citation is numbered into the biblio (necessary, not
+    # sufficient — the body check above is what P2-2 adds). NOTE: ev_good in biblio
+    # alone is NOT a re-anchor signal — the existing B6/B8 basket-corroborator
+    # render also numbers a SUPPORTS sibling of a normally-kept slot sentence into
+    # the biblio. The re-anchor signal is the DROPPED CLAIM TEXT in verified_text.
     on_biblio_ids = {b["evidence_id"] for b in (result_on.biblio_slice or [])}
     assert "ev_good" in on_biblio_ids, (
         "FIX 1 did not engage on the contract path: the re-anchored sibling "
         f"ev_good is absent from biblio_slice {on_biblio_ids!r}"
     )
 
-    # FLAG OFF (default 0): no re-anchor; ev_good never appears.
-    result_off, _ = asyncio.run(_run("0"))
-    off_biblio_ids = {b["evidence_id"] for b in (result_off.biblio_slice or [])}
-    assert "ev_good" not in off_biblio_ids, (
-        "OFF path must be byte-identical: ev_good must NOT appear when "
-        f"PG_BASKET_REPAIR_MAX_CYCLES=0, got {off_biblio_ids!r}"
+    # FLAG OFF (master gate unset): no re-anchor; the over-dropped CLAIM TEXT must
+    # be absent from the body (byte-identical). The over-dropped sentence's prose
+    # only ever reaches verified_text via the re-anchor leg, so verified_text is
+    # the sound discriminator here (biblio is not — see the B6/B8 note above).
+    result_off, _ = asyncio.run(_run(enabled=False))
+    assert _CLAIM_TEXT[:30] not in (result_off.verified_text or ""), (
+        "OFF path must be byte-identical: the re-anchored claim must NOT render "
+        f"in verified_text. got {result_off.verified_text!r}"
     )
