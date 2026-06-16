@@ -553,6 +553,57 @@ def test_invariant_a18_partial_not_released_passes(invariant_module):
     assert v == [], f"a non-released partial status must satisfy the invariant; got {v}"
 
 
+def test_release_path_no_disclosure_with_d8_does_not_false_hold(sweep_module):
+    """BEHAVIORAL (run-path reconstruction, iarch007 over-strict guard): a release-asserting status
+    reached WITHOUT a serialized release_disclosure but WITH real D8 evidence (non-empty
+    final_verdicts) must NOT be false-HELD — adjudicated is derived from the judge ACTUALLY running,
+    never a blind False. This is the drb_90 empty-report symptom from the over-strict side."""
+    from src.polaris_graph.roles.release_policy import assert_release_invariant
+
+    manifest = {
+        "status": "success", "release_allowed": True,
+        "four_role_evaluation": {"final_verdicts": {"c1": "VERIFIED", "c2": "PARTIAL"}},
+        # no release_disclosure (legacy / non-always-release write path)
+    }
+    outcome = sweep_module.reconstruct_release_outcome_from_manifest(manifest)
+    assert outcome.adjudicated is True, "D8 ran (final_verdicts non-empty) -> adjudicated must be True"
+    assert_release_invariant(outcome)  # must NOT raise — a genuinely-judged release is never held
+
+
+def test_release_path_no_disclosure_no_d8_still_fails_closed(sweep_module):
+    """BEHAVIORAL (run-path reconstruction): a release-asserting status with NEITHER a serialized
+    release_disclosure NOR D8 evidence (empty final_verdicts) is a truly un-judged release and MUST
+    still FAIL CLOSED — the over-strict guard does NOT reopen the fail-open Codex closed."""
+    from src.polaris_graph.roles.release_policy import (
+        ReleaseInvariantError, assert_release_invariant,
+    )
+
+    manifest = {
+        "status": "success", "release_allowed": True,
+        "four_role_evaluation": {"final_verdicts": {}},
+    }
+    outcome = sweep_module.reconstruct_release_outcome_from_manifest(manifest)
+    assert outcome.adjudicated is False, "no disclosure AND no D8 evidence -> adjudicated must be False"
+    with pytest.raises(ReleaseInvariantError):
+        assert_release_invariant(outcome)
+
+
+def test_release_path_serialized_seam_adjudicated_false_is_honored(sweep_module):
+    """BEHAVIORAL: a serialized release_disclosure recording the seam (adjudicated=False) is read
+    HONESTLY (never overridden by the D8-derive branch) — the seam stays un-adjudicated."""
+    manifest = {
+        "status": "released_with_disclosed_gaps", "release_allowed": True,
+        "four_role_evaluation": {"final_verdicts": {}},
+        "release_disclosure": {
+            "adjudicated": False, "body_withheld": True,
+            "disclosed_gaps": ["four_role_seam_unadjudicated: judge unreachable"],
+        },
+    }
+    outcome = sweep_module.reconstruct_release_outcome_from_manifest(manifest)
+    assert outcome.adjudicated is False, "a serialized adjudicated=False (seam) must be honored, not derived"
+    assert outcome.body_withheld is True
+
+
 def test_invariant_a18_real_drb90_held_manifest_passes(invariant_module):
     """INVARIANT: the REAL drb_90 held run (abort_four_role_release_held, release_allowed=False,
     final_verdicts empty) satisfies the invariant — nothing shipped, the correct fail-closed

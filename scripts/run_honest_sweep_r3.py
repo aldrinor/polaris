@@ -371,6 +371,40 @@ def build_attempted_zero_emit_section_stub(
     }
 
 
+def reconstruct_release_outcome_from_manifest(manifest: dict[str, Any]) -> Any:
+    """A18 (iarch007): rebuild the proof-bearing ReleaseOutcome from a FINAL manifest for the
+    release-invariant assertion. PURE + unit-callable.
+
+    ``adjudicated`` is read HONESTLY from a serialized ``release_disclosure["adjudicated"]`` when
+    that key is present (a judge-seam records False; the genuine-D8 path records True). When the key
+    is ABSENT (the always-release block did not run — e.g. a legacy path that produced a
+    release-asserting status without serializing release_disclosure), it is derived from the REAL
+    D8 evidence — a non-empty ``four_role_evaluation.final_verdicts`` map, the SAME signal the
+    artifact-level SWEEP checker uses — never a blind default. So a release whose judge genuinely
+    ran is NEVER false-HELD, while a truly un-judged release (no disclosure AND empty final_verdicts)
+    still FAILS CLOSED."""
+    from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+        ReleaseOutcome as _RO,
+    )
+    rd = manifest.get("release_disclosure")
+    rd = rd if isinstance(rd, dict) else {}
+    fr = manifest.get("four_role_evaluation")
+    d8_ran = bool((fr or {}).get("final_verdicts")) if isinstance(fr, dict) else False
+    return _RO(
+        released=bool(manifest.get("release_allowed")),
+        hard_block=bool(rd.get("hard_block", False)),
+        normal_release_blocked=bool(rd.get("normal_release_blocked", False)),
+        status=str(manifest.get("status") or ""),
+        disclosed_gaps=list(rd.get("disclosed_gaps", []) or []),
+        hard_block_reasons=list(rd.get("hard_block_reasons", []) or []),
+        release_quality_score=float(rd.get("release_quality_score", 0.0) or 0.0),
+        safety_floor=str(rd.get("safety_floor", "ok") or "ok"),
+        adjudicated=(bool(rd["adjudicated"]) if "adjudicated" in rd else d8_ran),
+        body_withheld=bool(rd.get("body_withheld", False)),
+        compensating_screen_passed=bool(rd.get("compensating_screen_passed", False)),
+    )
+
+
 # I-arch-004 F20 (#1255): historical 4-role seam WALL floor (I-run11-004). The generator-sized
 # default can only grow above this, never regress below.
 _FOUR_ROLE_SEAM_TIMEOUT_FLOOR = 7200.0
@@ -10982,28 +11016,15 @@ async def run_one_query(
         try:
             from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
                 ReleaseInvariantError,
-                ReleaseOutcome as _ReleaseOutcome,
                 assert_release_invariant,
             )
-            _final_status = str(manifest.get("status") or "")
-            _rd = manifest.get("release_disclosure")
-            _rd = _rd if isinstance(_rd, dict) else {}
-            # Build the proof-bearing outcome from the FINAL manifest. Fields default to the
-            # SAFE (un-proven) value when absent so a release-asserting status with no serialized
-            # proof FAILS CLOSED rather than passing on a missing field.
-            _final_outcome = _ReleaseOutcome(
-                released=bool(manifest.get("release_allowed")),
-                hard_block=bool(_rd.get("hard_block", False)),
-                normal_release_blocked=bool(_rd.get("normal_release_blocked", False)),
-                status=_final_status,
-                disclosed_gaps=list(_rd.get("disclosed_gaps", []) or []),
-                hard_block_reasons=list(_rd.get("hard_block_reasons", []) or []),
-                release_quality_score=float(_rd.get("release_quality_score", 0.0) or 0.0),
-                safety_floor=str(_rd.get("safety_floor", "ok") or "ok"),
-                adjudicated=bool(_rd.get("adjudicated", False)),
-                body_withheld=bool(_rd.get("body_withheld", False)),
-                compensating_screen_passed=bool(_rd.get("compensating_screen_passed", False)),
-            )
+            # Build the proof-bearing outcome from the FINAL manifest via the pure, unit-callable
+            # reconstruct_release_outcome_from_manifest helper (A18). It reads `adjudicated` honestly
+            # from a serialized release_disclosure when present, else derives it from the REAL D8
+            # evidence (non-empty four_role_evaluation.final_verdicts) — closing BOTH the iter1
+            # fail-open (missing proof must not pass as adjudicated) AND the over-strict false-HOLD a
+            # blind always-False default would cause on a genuinely-judged release.
+            _final_outcome = reconstruct_release_outcome_from_manifest(manifest)
             # A2-seam floor: a release_disclosure that records the seam (adjudicated explicitly
             # False) but is MISSING the proof fields must NOT be treated as adjudicated. When the
             # always-release D8/seam block populated release_disclosure, `adjudicated` is present and
