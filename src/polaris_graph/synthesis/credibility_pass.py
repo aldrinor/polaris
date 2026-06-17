@@ -47,6 +47,34 @@ from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
 _MASTER_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
 
+# I-arch-007 ITEM 1b (#1264): bounded parallelism for the per-member isolated-verify loop in
+# ``_assemble_baskets``. The advisory pass verifies EVERY basket member against its OWN single span via
+# the production entailment judge — a SERIAL O(N) loop over hundreds of members at up to 150 s/call is the
+# wedge that hung Q72/Q76/Q90 (the credibility-pass death). Parallelizing the INDEPENDENT per-member
+# verifies with a BOUNDED pool + deterministic post-step reassembly changes WALL-CLOCK only — never which
+# verdict any member gets (``_verify_member_in_isolation`` is pure per-member: each member's claim vs its
+# OWN single span) and never a binding gate (the pass is ADVISORY; ``basket_verdict`` is a pure LABEL).
+# LAW VI: env-overridable, no magic number. DEFAULT 1 = the byte-identical SERIAL path — the parallelism
+# stays INERT until explicitly enabled, which honors the HARD ordering constraint that 1b's parallel
+# verifies (they share the singleton entailment-judge client) must NOT run concurrently before ITEM 2a
+# makes that client thread-safe/thread-local (CONSOLIDATED_FIX_PLAN ITEM 1b "HARD ORDERING CONSTRAINT").
+_ENV_PASS_MAX_INFLIGHT = "PG_CREDIBILITY_PASS_MAX_INFLIGHT"
+_DEFAULT_PASS_MAX_INFLIGHT = 1
+
+
+def _pass_max_inflight() -> int:
+    """The bounded per-member verify concurrency (LAW VI). 1 (default) ⇒ the serial path is taken
+    verbatim — byte-identical to the pre-1b loop. A bad/empty value falls back to the serial default
+    (fail-safe, never an unbounded pool)."""
+    try:
+        value = int(
+            os.environ.get(_ENV_PASS_MAX_INFLIGHT, _DEFAULT_PASS_MAX_INFLIGHT)
+            or _DEFAULT_PASS_MAX_INFLIGHT
+        )
+    except (TypeError, ValueError):
+        return _DEFAULT_PASS_MAX_INFLIGHT
+    return value if value >= 1 else _DEFAULT_PASS_MAX_INFLIGHT
+
 
 def credibility_redesign_enabled() -> bool:
     """The master activation slate. OFF ⇒ the runner never calls the pass ⇒ byte-identical.
@@ -242,6 +270,90 @@ def _verify_member_in_isolation(
     return "SUPPORTS" if bool(getattr(result, "is_verified", False)) else "UNSUPPORTED"
 
 
+def _run_member_verifies(
+    tasks: list[tuple[str, dict]],
+    *,
+    verify_fn: Callable,
+    max_inflight: int,
+) -> list[str]:
+    """Run the per-member isolated verifies for ``tasks`` and return their verdicts IN ORDER.
+
+    ``tasks`` is the FLAT, deterministically-ordered list of ``(claim_text, member_row)`` pairs
+    (built in the ORIGINAL ``sorted(clusters)`` → member order). The returned verdict list is
+    index-aligned with ``tasks`` (``results[i]`` is the verdict for ``tasks[i]``), so the caller
+    reassembles baskets in EXACTLY the serial order — the parallel path is verdict-identical to the
+    serial path, only faster.
+
+    ``max_inflight == 1`` (the default) takes the SERIAL path verbatim — byte-identical to the
+    pre-1b inline loop. For ``max_inflight >= 2`` a BOUNDED ``ThreadPoolExecutor`` caps concurrency at
+    exactly ``max_inflight``; each worker runs inside a COPIED ``contextvars.copy_context()`` so:
+      * the run-scoped JUDGE TELEMETRY ContextVar (FX-09, a MUTABLE dict) is the SAME object in the
+        copy, so the judge's in-place ``calls/judge_error`` ticks land in the parent's counter (mirrors
+        ``provenance_generator._verify_in_context``);
+      * the run-scoped COST ContextVar (a float — rebinds don't propagate across a copy) is isolated to
+        zero in the worker and its per-task delta is re-added to the parent counter + the budget
+        re-checked (mirrors ``credibility_skill.score_source_credibility``), so the parallel advisory
+        verifies never silently lose the run's cost accounting (Codex P2).
+    A worker exception PROPAGATES out (fail-loud) exactly as the serial loop's ``verify_fn`` would —
+    the existing ``_verify_member_in_isolation`` already maps a verifier failure to ``UNSUPPORTED``
+    internally, so only a programming/budget defect ever escapes here.
+
+    This is ADVISORY — ``_verify_member_in_isolation`` is never re-run as a gate, and parallelism
+    changes WALL-CLOCK only, never any verdict.
+    """
+    n = len(tasks)
+    if max_inflight <= 1 or n <= 1:
+        # SERIAL fast path (default / single task): byte-identical to the pre-1b inline loop.
+        return [
+            _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
+            for claim_text, member_row in tasks
+        ]
+
+    import concurrent.futures  # noqa: PLC0415 (lazy: zero cost on the serial default path)
+    import contextvars  # noqa: PLC0415
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        _add_run_cost,
+        check_run_budget,
+        current_run_cost,
+        reset_run_cost,
+    )
+
+    def _verify_one(
+        idx: int, claim_text: str, member_row: dict, ctx: contextvars.Context
+    ) -> tuple[int, str, float]:
+        def _run() -> tuple[str, float]:
+            reset_run_cost()  # isolate THIS member's spend in the copied context (parent re-adds a clean delta)
+            verdict = _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
+            return verdict, current_run_cost()
+        verdict, delta = ctx.run(_run)
+        return idx, verdict, delta
+
+    results: list[str | None] = [None] * n
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_inflight)
+    try:
+        futures = [
+            pool.submit(_verify_one, i, claim_text, member_row, contextvars.copy_context())
+            for i, (claim_text, member_row) in enumerate(tasks)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            idx, verdict, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+            results[idx] = verdict
+            _add_run_cost(delta)   # thread the per-member spend into the single run counter (no lost ticks)
+            check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~max_inflight in flight)
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+    for i, verdict in enumerate(results):
+        if verdict is None:
+            raise CredibilityPassError(
+                f"abort_credibility_pass_error: basket member index {i} produced no verdict from the "
+                f"compute pool (fail-closed — a dropped future must never silently undercount)."
+            )
+    return [v for v in results if v is not None]
+
+
 def _assemble_baskets(
     graph: Any,
     weight_mass: list,
@@ -249,6 +361,7 @@ def _assemble_baskets(
     credibility_by_evidence: dict,
     *,
     verify_fn: Callable,
+    max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
 ) -> list:
     """Assemble one ClaimBasket per claim cluster (design §5/§6).
 
@@ -258,6 +371,11 @@ def _assemble_baskets(
     (NOT the raw passing-member count, and NOT ``weight_mass.independent_origin_count`` —
     that is the clustered, not-verified count, surfaced ONLY as the ADVISORY
     ``total_clustered_origin_count``). ``basket_verdict`` is a pure LABEL.
+
+    I-arch-007 ITEM 1b (#1264): the per-member isolated verifies (the expensive entailment-judge
+    calls) are gathered into a FLAT, deterministically-ordered task list, dispatched through a BOUNDED
+    pool (``max_inflight``), and reassembled in the ORIGINAL ``sorted(clusters)`` → member order. The
+    verdict each member receives is unchanged from the serial path — only wall-clock differs.
     """
     row_by_eid = {str(r.get("evidence_id", "")): r for r in (annotated or [])}
     wm_by_cluster = {
@@ -277,12 +395,29 @@ def _assemble_baskets(
     clusters = getattr(graph, "clusters", None) or {}
     claims = getattr(graph, "claims", None) or []
 
+    # ── ITEM 1b step 1: build the per-member verify task list in the ORIGINAL deterministic order ──
+    # (sorted(clusters) → member order). Each entry is (claim_text, member_row); empty clusters are
+    # skipped exactly as the serial loop does, so the index alignment is identical to a serial pass.
+    sorted_cluster_ids = [cid for cid in sorted(clusters) if [claims[i] for i in clusters[cid]]]
+    verify_tasks: list[tuple[str, dict]] = []
+    for cluster_id in sorted_cluster_ids:
+        for claim in [claims[i] for i in clusters[cluster_id]]:
+            eid = str(getattr(claim, "evidence_id", "") or "")
+            row = row_by_eid.get(eid, {})
+            verify_tasks.append((str(getattr(claim, "text", "") or ""), row))
+
+    # ── ITEM 1b step 2: run the verifies (serial when max_inflight<=1; bounded-parallel otherwise) ──
+    # Verdicts come back index-aligned with verify_tasks, so the reassembly below consumes them in the
+    # SAME order the serial loop computed them — verdict-identical, only faster.
+    verdicts = _run_member_verifies(
+        verify_tasks, verify_fn=verify_fn, max_inflight=max_inflight,
+    )
+    _verdict_cursor = 0
+
     baskets: list[ClaimBasket] = []
-    for cluster_id in sorted(clusters):
+    for cluster_id in sorted_cluster_ids:
         member_indices = clusters[cluster_id]
         member_claims = [claims[i] for i in member_indices]
-        if not member_claims:
-            continue
         head = member_claims[0]
         cwm = wm_by_cluster.get(cluster_id)
 
@@ -300,10 +435,10 @@ def _assemble_baskets(
                 origin_id = f"origin::{eid}"
             span = _row_span_text(row)
             # ISOLATED per-member verification (design §5 FIX-3): the claim's TEXT against
-            # THIS member's own single span — never a union of basket spans.
-            verdict = _verify_member_in_isolation(
-                str(getattr(claim, "text", "") or ""), row, verify_fn=verify_fn,
-            )
+            # THIS member's own single span — never a union of basket spans. The verdict was
+            # precomputed (serial or bounded-parallel) and is consumed here in the ORIGINAL order.
+            verdict = verdicts[_verdict_cursor]
+            _verdict_cursor += 1
             if verdict == "SUPPORTS":
                 verified_any = True
                 verified_origin_ids.add(origin_id)
@@ -365,6 +500,7 @@ def run_credibility_analysis(
     domain: str | None = None,
     judge: Callable | None = None,
     now_year: int | None = None,
+    max_inflight: int | None = None,
 ) -> CredibilityAnalysis:
     """Run the P4→P3→P2→P5→P6 chain over the EFFECTIVE evidence pool.
 
@@ -378,7 +514,14 @@ def run_credibility_analysis(
     rest of the pipeline uses (dependency-injected, no global). ``judge`` is the production credibility
     judge (injected); None ⇒ the whole pool ships priors-only + LABELED ``credibility_unscored`` (a
     disclosed gap surfaced LOUD per LAW II), NOT a silent false-green and NOT a hold.
+
+    ``max_inflight`` (I-arch-007 ITEM 1b, #1264) bounds the per-member isolated-verify concurrency in
+    ``_assemble_baskets`` (LAW VI). ``None`` (the default) reads the ``PG_CREDIBILITY_PASS_MAX_INFLIGHT``
+    env knob, which itself defaults to 1 = the byte-identical SERIAL path. The bound changes WALL-CLOCK
+    only — the per-member verdicts and the resulting baskets are identical to the serial pass.
     """
+    if max_inflight is None:
+        max_inflight = _pass_max_inflight()
     if not rows:
         return CredibilityAnalysis({}, {}, [], [], [])
     if judge is None:
@@ -400,6 +543,7 @@ def run_credibility_analysis(
         return _run_chain(
             research_question, rows,
             gov_suffixes=gov_suffixes, domain=domain, judge=judge, now_year=now_year,
+            max_inflight=max_inflight,
         )
     except (CredibilityPassError, BudgetExceededError):
         # CredibilityPassError = fail-loud abort; BudgetExceededError (Codex #012a P1-2) must reach the
@@ -420,6 +564,7 @@ def _run_chain(
     domain: str | None,
     judge: Callable | None,
     now_year: int | None,
+    max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
 ) -> CredibilityAnalysis:
     """The P4→P3→P2→P5→P6 chain body; wrapped by run_credibility_analysis for the fail-loud posture."""
     # ── P4: independent-origin collapse → per-row assignment, on COPIED rows (never mutate the caller) ──
@@ -521,6 +666,7 @@ def _run_chain(
     baskets = _assemble_baskets(
         graph, weight_mass, annotated, credibility_by_evidence,
         verify_fn=verify_sentence_provenance,
+        max_inflight=max_inflight,
     )
 
     # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster

@@ -1,6 +1,9 @@
 """I-cred-012a — spend-tracked, gate-observed credibility caller. Offline (mocked transport), no network."""
 from __future__ import annotations
 
+import threading
+import time
+
 import httpx
 import pytest
 
@@ -235,6 +238,62 @@ def test_raw_io_labels_malformed_envelope_as_judge_error(monkeypatch):
     result = caller("hi")
     assert (result or "").strip() == ""
     assert seen["status"] == "judge_error"
+
+
+# ───────────── I-arch-007 #1264: HARD total wall-deadline bounds a trickle-hung credibility POST ─────────────
+
+
+def test_trickle_hung_post_is_force_closed_within_total_s(monkeypatch):
+    # A trickled keep-alive socket resets the inner httpx read-gap on every byte, so a single POST can
+    # hang UNBOUNDED. The new total wall-deadline must (a) give up at ~total_s (NOT the full block),
+    # (b) force-close the client so the worker's blocked read unblocks, (c) preserve the EXISTING failure
+    # semantics: a transport fault on exhaustion -> empty content -> the judge wrapper maps to a per-row
+    # judge_error (advisory). retries=0 so a single hang exhausts immediately.
+    monkeypatch.setenv("PG_CREDIBILITY_JUDGE_TOTAL_S", "0.5")
+    monkeypatch.setenv("PG_CREDIBILITY_JUDGE_RETRIES", "0")
+    closed = threading.Event()
+    released = threading.Event()  # the worker thread blocks here until close() fires (no lingering sleep)
+
+    class _HungClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            # Trickle-hang: block until the force-close releases us (so shutdown(wait=False) leaves no
+            # thread spinning on a fixed sleep). A real hung socket's read would raise once the client
+            # closes; here the event stands in for that wakeup.
+            released.wait(timeout=10.0)
+            raise RuntimeError("socket closed mid-read")
+
+        def close(self):
+            closed.set()
+            released.set()  # unblock the worker's blocked post() exactly as a real force-close would
+
+    monkeypatch.setattr(httpx, "Client", _HungClient)
+    caller = make_openrouter_credibility_caller()
+    t0 = time.monotonic()
+    with pytest.raises(Exception):  # noqa: PT011 — the total-deadline propagates as a transport fault
+        caller("hi")
+    elapsed = time.monotonic() - t0
+    assert closed.is_set(), "the hung client must be force-closed on the wall deadline"
+    assert elapsed < 5.0, f"gave up at ~total_s (0.5s), not the full 10s block; elapsed={elapsed:.2f}s"
+
+
+def test_healthy_post_under_total_deadline_is_unchanged(monkeypatch):
+    # OFF-path / healthy guarantee: a fast healthy call returns the IDENTICAL content with the wall-
+    # deadline wrap in place (the wrap only ever force-closes a trickle-hang, never a healthy call).
+    captured = {}
+    monkeypatch.setattr(httpx, "Client", _fake_client(
+        captured, '{"reliability_score": 0.7}', {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.002}))
+    text = make_openrouter_credibility_caller()("hi")
+    assert text == '{"reliability_score": 0.7}'  # byte-identical to the pre-fix happy path
+    assert captured["model"] == "z-ai/glm-5.1"
 
 
 def test_caller_to_judge_to_p2_end_to_end(monkeypatch):

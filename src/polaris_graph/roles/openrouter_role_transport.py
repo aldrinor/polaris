@@ -88,9 +88,11 @@ status, or a malformed body raises (never a silent empty `RoleResponse`).
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
+import threading
 import time
 
 import httpx
@@ -424,6 +426,56 @@ def set_verifier_llm_timeout_seconds(seconds: int) -> None:
     (same import-order fix as the reasoning effort above). Faithfulness-neutral (a call timeout)."""
     global _TIMEOUT_SECONDS
     _TIMEOUT_SECONDS = int(seconds)
+
+
+# I-arch-007 (#1264) — HARD total-deadline on the role-transport POST. The #1226 watchdog bounds the
+# COMPOSITION but EXPLICITLY does NOT interrupt an in-flight POST, and httpx's read timeout is a
+# per-BYTE gap that a trickled keep-alive socket resets indefinitely. The preflight DEATH lane flagged
+# this as the residual: a trickle-hung 4-role POST runs on a worker thread that the outer wait_for
+# cancellation ORPHANS (it keeps a blocked C-level socket read alive until teardown). This wall bounds
+# the WHOLE call: the POST runs on a worker thread, we wait at most ``total_s``, and on expiry the
+# client is FORCE-CLOSED so the worker's blocked read errors out and the thread exits. LAW VI: env-
+# driven; default 900s comfortably exceeds a HEALTHY seconds-to-minutes 4-role call (so the healthy /
+# OFF path is byte-identical) while bounding the trickle hang. FAITHFULNESS-NEUTRAL: on exhaustion the
+# UNCHANGED fail-closed ``RoleTransportError`` fires (the 4-role gate HOLDS / UNGROUNDED — never a fake
+# verdict; ITEM 4's sentinel-degrade consumes it). Mirrors entailment_judge.py:115-137 (HANG-J3).
+def _role_transport_total_s() -> float:
+    """The per-call total wall-deadline (seconds), read at CALL time so the slate env override wins."""
+    try:
+        return float(os.getenv("PG_ROLE_TRANSPORT_TOTAL_S", "900"))
+    except (TypeError, ValueError):
+        return 900.0
+
+
+def _default_role_http_client() -> httpx.Client:
+    """Rebuild a fresh role-transport client after a total-deadline FORCE-CLOSE (prod path only).
+
+    Only ever invoked on a genuine trickle-hang timeout — NEVER in tests, where the injected
+    MockTransport returns instantly so the deadline never fires. Role headers are per-request and the
+    endpoint URL is absolute, so a timeout-configured client is sufficient for ``/chat/completions``.
+    """
+    return httpx.Client(timeout=_TIMEOUT_SECONDS)
+
+
+def _post_with_total_deadline(client, url, *, json_body, headers, timeout, total_s):
+    """Run the blocking role POST under a HARD total wall-deadline; force-close the client on expiry.
+
+    Returns the ``httpx.Response`` on success; re-raises ``concurrent.futures.TimeoutError`` (after
+    force-closing the hung client) so the caller's bounded retry can rebuild + retry, then fail closed.
+    """
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(client.post, url, json=json_body, headers=headers, timeout=timeout)
+    try:
+        return fut.result(timeout=total_s)
+    except concurrent.futures.TimeoutError:
+        try:
+            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    finally:
+        # Deterministic executor teardown on EVERY exit path; wait=False so an unsticking worker never blocks us.
+        ex.shutdown(wait=False)
 
 
 # === #1226 (I-pipe-001): blank-content bound + per-call wall-clock watchdog =====================
@@ -893,8 +945,36 @@ class OpenRouterRoleTransport:
     `serving_route`) is the final sovereign destination. See the module docstring.
     """
 
-    def __init__(self, http_client: httpx.Client) -> None:
-        self._http_client = http_client
+    def __init__(self, http_client: httpx.Client, *, http_client_factory=None) -> None:
+        # I-arch-007 (#1264) + Codex P1: the 4-role/D8 seam shares ONE OpenRouterRoleTransport instance
+        # across up to PG_FOUR_ROLE_CLAIM_WORKERS concurrent claim workers (sweep_integration.py). A
+        # total-deadline FORCE-CLOSE must therefore NEVER close a client a SIBLING worker is mid-read on,
+        # or it would cascade-abort the seam. So the client is THREAD-LOCAL: the CONSTRUCTING thread
+        # (and every test) uses the INJECTED client; each NEW worker thread lazily builds its OWN client
+        # from the factory. A force-close + rebuild then only ever touches the CALLING thread's client —
+        # no cross-worker cascade. Mirrors the entailment-judge thread-local pattern (entailment_judge.py
+        # :348-378). The factory (default = a fresh timeout-configured client) is also the REBUILD source
+        # after a force-close. Keyword-only + defaulted so EVERY existing positional caller is byte-identical.
+        self._http_client_factory = http_client_factory or _default_role_http_client
+        self._tls = threading.local()
+        self._tls.client = http_client  # the constructing thread (tests + the single-threaded path)
+
+    @property
+    def _http_client(self) -> httpx.Client:
+        """This THREAD's role-transport client (lazily built from the factory for a new worker thread).
+
+        Per-thread so a total-deadline force-close on one claim worker can NEVER tear down a sibling
+        worker's in-flight POST on a shared client (Codex P1 — the 4-role seam shares one instance)."""
+        client = getattr(self._tls, "client", None)
+        if client is None:
+            client = self._http_client_factory()
+            self._tls.client = client
+        return client
+
+    @_http_client.setter
+    def _http_client(self, value: httpx.Client) -> None:
+        # The rebuild-after-force-close path replaces ONLY this thread's client.
+        self._tls.client = value
 
     def complete(self, request: RoleRequest) -> RoleResponse:
         """Perform one OpenRouter completion for `request`. SYNC. Fails loud on error.
@@ -1053,10 +1133,33 @@ class OpenRouterRoleTransport:
                     http_response = None
                     for transport_attempt in range(transport_retries + 1):
                         try:
-                            http_response = self._http_client.post(
-                                url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
+                            http_response = _post_with_total_deadline(
+                                self._http_client, url,
+                                json_body=body, headers=headers,
+                                timeout=_TIMEOUT_SECONDS, total_s=_role_transport_total_s(),
                             )
                             break
+                        except concurrent.futures.TimeoutError as exc:
+                            # I-arch-007 (#1264): the HARD total-deadline fired -> _post_with_total_deadline
+                            # already FORCE-CLOSED the hung client (orphan worker unblocked). Rebuild a FRESH
+                            # client and retry (bounded by transport_retries); on exhaustion fall through to
+                            # the SAME fail-closed RoleTransportError. Faithfulness-neutral: a transport
+                            # timeout NEVER yields a fake verdict (the 4-role gate HOLDS / UNGROUNDED).
+                            try:
+                                self._http_client = self._http_client_factory()
+                            except Exception:  # noqa: BLE001
+                                pass
+                            if transport_attempt < transport_retries:
+                                logger.warning(
+                                    "[polaris graph] #1264: %s role POST exceeded the total-deadline "
+                                    "(PG_ROLE_TRANSPORT_TOTAL_S) (attempt %d/%d) at %s — force-closed + "
+                                    "rebuilt, retrying.",
+                                    request.role, transport_attempt + 1, transport_retries + 1, url,
+                                )
+                                continue
+                            raise RoleTransportError(
+                                f"OpenRouter {request.role!r} role POST exceeded the total-deadline at {url}"
+                            ) from exc
                         except httpx.TransportError as exc:
                             # Codex diff-gate P2: retry ONLY transport-layer faults (connection reset /
                             # WinError 10054, read/connect timeout, remote-protocol error — all

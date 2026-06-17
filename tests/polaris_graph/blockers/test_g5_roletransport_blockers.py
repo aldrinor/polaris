@@ -255,20 +255,19 @@ def test_watchdog_aborts_loud_when_wallclock_exceeded(monkeypatch):
     trips at the top of attempt 2."""
     monkeypatch.setenv("PG_ROLE_BLANK_WATCHDOG", "1")
     monkeypatch.setenv("PG_ROLE_CALL_TIMEOUT_S", "100")
-    # monotonic clock: start=0, then a value past the 100s budget on the 2nd read so the watchdog
-    # check at the top of attempt 2 trips (the 1st attempt already POSTed + blanked).
-    ticks = iter([0.0, 0.0, 5_000.0, 5_000.0, 5_000.0, 5_000.0])
-
-    def _fake_monotonic():
-        try:
-            return next(ticks)
-        except StopIteration:
-            return 5_000.0
-
-    monkeypatch.setattr(ort.time, "monotonic", _fake_monotonic)
-
+    # I-arch-007 (#1264): the POST now runs on a worker thread (the HARD per-POST total-deadline),
+    # so the watchdog (main thread) and httpx's elapsed-timer (worker thread) would RACE on a shared
+    # fixed-tick iterator and scramble the sequence. Gate the fake clock on POST COUNT instead —
+    # thread-safe + deterministic regardless of read count/order: 0 before the first POST records a
+    # blank, past-budget (5000s) after. SAME intent (the watchdog passes attempt-1's check, the POST
+    # blanks -> last_blank set, then attempt-2's check trips and re-raises the blank before any 2nd POST).
     blank = {"content": "", "reasoning": "looping"}
     handler, seen = _sequenced_handler([blank], served_model=_JUDGE_SLUG)
+
+    def _fake_monotonic():
+        return 0.0 if len(seen["bodies"]) < 1 else 5_000.0
+
+    monkeypatch.setattr(ort.time, "monotonic", _fake_monotonic)
     with pytest.raises(BlankVerdictError):
         _make_transport(handler).complete(
             RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")

@@ -52,6 +52,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import threading
 import time
 
 # I-bug-100: import openrouter_client as a MODULE reference (not by-value)
@@ -185,6 +186,70 @@ _ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
 _DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
 
 
+# I-arch-007 ITEM 2a (entailment-judge self-heal): substrings/types that mark a CLOSED or
+# TLS-POISONED httpx transport — the Q78 run-killer was 2866 consecutive
+# "Cannot send a request, as the client has been closed" + the `[X509] PEM lib` TLS-state
+# corruption from a cross-thread close-while-in-flight on the (previously shared) client. When a
+# retry's exception matches one of these, the client is REBUILT before the next attempt (exactly as
+# the TimeoutError branch at judge() already does) so a poisoned transport recovers instead of
+# bricking the rest of the run. A PARSE fault (json.JSONDecodeError / KeyError / a garbled verdict)
+# is deliberately EXCLUDED — those are payload faults, not transport faults, and must retry WITHOUT
+# a needless client rebuild. Matched on type/string only; transport/lifecycle, never verdict logic.
+# LAW VI: env-extendable extra markers (comma-separated, lower-cased) without a code change.
+_TRANSPORT_POISON_SUBSTRINGS: tuple[str, ...] = (
+    "client has been closed",
+    "clientstate.closed",
+    "[x509]",
+    "pem lib",
+    "ssl",
+    "sslerror",
+)
+
+
+def _is_transport_poison(exc: BaseException) -> bool:
+    """True iff `exc` indicates a CLOSED/poisoned httpx transport that a fresh client would heal.
+
+    Match is on the exception TYPE name + its string form ONLY (the spec is explicit: NOT a parse
+    fault). A `json.JSONDecodeError`/`KeyError`/bad-verdict is a payload fault → returns False →
+    retried WITHOUT a rebuild. Extra markers can be supplied via PG_ENTAILMENT_TRANSPORT_POISON_MARKERS
+    (comma-separated) per LAW VI; never raises.
+    """
+    try:
+        if isinstance(exc, (json.JSONDecodeError, KeyError, ValueError)):
+            # Payload/parse faults are NOT transport poison — explicit exclusion (ValueError covers
+            # json.JSONDecodeError's base + the bad-verdict path's string handling). A genuine
+            # ssl.SSLError is NOT a subclass of these, so this exclusion never swallows a real
+            # transport poison.
+            return False
+        markers = list(_TRANSPORT_POISON_SUBSTRINGS)
+        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+        if extra:
+            markers.extend(m.strip().lower() for m in extra.split(",") if m.strip())
+        haystack = f"{type(exc).__name__}: {exc}".lower()
+        return any(marker in haystack for marker in markers)
+    except Exception:  # noqa: BLE001 — predicate must never break the retry loop
+        return False
+
+
+def _is_transport_poison_reason(reason: str) -> bool:
+    """True iff a carried `_RetryableJudgeError.reason` string names a CLOSED/poisoned transport.
+
+    A `_RetryableJudgeError` loses the original exception TYPE (it carries a human reason string), so
+    a poison surfaced via that path is matched on the reason text alone. The bad-verdict reason
+    (`bad_verdict=...`) and a generic parse reason never match these transport markers, so they retry
+    without a rebuild — same payload-vs-transport asymmetry as `_is_transport_poison`.
+    """
+    try:
+        markers = list(_TRANSPORT_POISON_SUBSTRINGS)
+        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+        if extra:
+            markers.extend(m.strip().lower() for m in extra.split(",") if m.strip())
+        haystack = str(reason).lower()
+        return any(marker in haystack for marker in markers)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class _RetryableJudgeError(Exception):
     """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
     bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
@@ -272,9 +337,45 @@ class _EntailmentJudge:
         # default model (google/gemma-4-31b-it) is in a different
         # family from DeepSeek by construction.
         check_family_segregation(evaluator_model=self._model)
+        # I-arch-007 ITEM 2a (thread-safety): the judge is a process-lifetime SINGLETON (_get_judge)
+        # shared across the ThreadPoolExecutor verifier workers. A SHARED mutable httpx client that one
+        # worker force-closes (the HANG-J3 total-deadline path) while a sibling is mid-`post` is exactly
+        # the cross-thread close-while-in-flight race that produced Q78's `[X509] PEM lib` TLS-state
+        # corruption (httpx Discussion #1633 / httpcore #550 explicitly discourage it). Fix: give each
+        # worker thread its OWN client via threading.local(); the force-close/rebuild in
+        # _post_with_total_deadline then only ever touches the calling thread's client. The `_tls` store
+        # MUST exist before the first `self._client` access below (the property reads it).
+        self._tls = threading.local()
         # I-arch-006 HANG-J1/J2 (#1262) + HANG-J3 (2026-06-15): build via _build_client so the HANG-J3
         # total-deadline path can force-close + REBUILD a fresh client after a trickle hang.
         self._client = self._build_client()
+
+    @property
+    def _client(self):
+        """The current thread's httpx judge client (I-arch-007 ITEM 2a — thread-local).
+
+        Lazily builds a per-thread client on first read (each verifier worker gets its OWN client,
+        so a sibling's force-close can never poison this thread's transport) and HEALS a closed one
+        on the next read. The `is_closed is True` guard is deliberate: a real httpx client exposes a
+        BOOL `is_closed`, but injected test doubles do not — a `MagicMock().is_closed` is a truthy
+        child mock (NOT `is True`) and a `_FakeJudgeClient` has no such attr (defaults False via
+        getattr), so neither spuriously triggers a rebuild that would replace the injected stub. This
+        keeps every existing `judge._client = <stub>` test contract byte-intact while only a genuinely
+        CLOSED real client self-heals.
+        """
+        client = getattr(self._tls, "client", None)
+        if client is None or getattr(client, "is_closed", False) is True:
+            client = self._build_client()
+            self._tls.client = client
+        return client
+
+    @_client.setter
+    def _client(self, value) -> None:
+        # Preserve the existing test-injection contract (`judge._client = <stub/MagicMock>`): writes go
+        # to THIS thread's thread-local slot, and a subsequent read returns the same object. Production
+        # rebuild sites (`self._client = self._build_client()`) likewise rebind only the calling thread's
+        # client — the thread-safety guarantee.
+        self._tls.client = value
 
     def _build_client(self):
         """Construct the entailment httpx client. HANG-J1/J2: explicit per-phase read-stall (a dead
@@ -522,6 +623,12 @@ class _EntailmentJudge:
                     else _retries
                 )
                 if attempt < _eff_retries:
+                    # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
+                    # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
+                    # already rebuilt at :441; this covers a poison surfaced as a _RetryableJudgeError
+                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+                    if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
+                        self._client = self._build_client()
                     logger.warning(
                         "entailment judge bad verdict (attempt %d/%d): %s — retrying.",
                         attempt + 1, _eff_retries + 1, exc.reason,
@@ -532,6 +639,16 @@ class _EntailmentJudge:
             except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
                 last_reason = type(exc).__name__
                 if attempt < _retries:
+                    # I-arch-007 ITEM 2a (the Q78 run-killer): the only rebuild sites before this fix
+                    # were the ctor and the TimeoutError branch (:441), so a client closed/poisoned on
+                    # this GENERIC path (httpx "Cannot send a request, as the client has been closed",
+                    # an SSL/X509/PEM TLS-state fault) was TERMINAL — Q78 logged 2866 consecutive
+                    # "client has been closed" over 33 min, only 21 judge calls ever succeeded, 177
+                    # sentences fail-closed-DROPPED -> abort_excessive_gap. Heal it: rebuild THIS thread's
+                    # client before the retry, exactly as the TimeoutError branch does. A parse fault
+                    # (json/KeyError) is NOT poison -> excluded -> retried without a needless rebuild.
+                    if _is_transport_poison(exc):
+                        self._client = self._build_client()
                     logger.warning(
                         "entailment judge error (attempt %d/%d): %s — retrying.",
                         attempt + 1, _retries + 1, exc,

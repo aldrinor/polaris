@@ -589,15 +589,37 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # 4-role gated, so Gate-B force-disables it instead of turning on the planner
     # or changing the verifier machinery.
     "PG_SWEEP_ANALYST_SYNTHESIS": "0",
-    # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
-    # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
-    # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
-    # PG_USE_FINDING_DEDUP mode alone is NO-CAP and would re-flood the generator). PG_RELEVANCE_FLOOR is
-    # a FLOAT in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces
-    # 0.30 -> 0; Codex P1-2). 0.30 = the researched default (I-meta-005 Phase 5 #989).
+    # I-ready-004 (#1078): finding-dedup. Collapse near-duplicate findings to one corroboration-counted
+    # representative + apply a relevance floor. The legacy PG_USE_FINDING_DEDUP mode CONSOLIDATES (keeps
+    # ALL sources per claim, multi-citation) — §-1.3 CONSOLIDATE-DON'T-DROP. PG_RELEVANCE_FLOOR is a FLOAT
+    # in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces 0.30 -> 0;
+    # Codex P1-2). 0.30 = the researched default (I-meta-005 Phase 5 #989).
     "PG_USE_FINDING_DEDUP": "1",
-    "PG_CAPPED_FINDING_DEDUP": "1",
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP (operator: ZERO cap, §-1.3 BANNED number-forcing bolt-on). The
+    # old PG_CAPPED_FINDING_DEDUP=1 re-truncated the consolidated relevance-floor pool back DOWN to
+    # PG_LIVE_MAX_EV_TO_GEN (max_ev) at run_honest_sweep_r3.py:6937-6957 (+ the gap-round sibling at
+    # ~L7683) — a CAP that fights the WEIGHT-AND-CONSOLIDATE architecture. It was already BYPASSED on the
+    # live run because both re-cap blocks ALSO gate on `not _cred_redesign_on`, and PG_SWEEP_CREDIBILITY_
+    # REDESIGN=1 here (so `_cred_redesign_on` is True -> the re-cap never fired). Setting it 0 removes the
+    # cap UNCONDITIONALLY — verified at run_honest_sweep_r3.py:6937-6957 + :7683-7696 that `_capped_dedup`
+    # falsy (0/""/non-"1") makes the boolean `and _capped_dedup` short-circuit, so BOTH `_capped_finding_
+    # dedup_selection` re-cap-to-max_ev calls are skipped; PG_CAPPED_FINDING_DEDUP is read ONLY at those
+    # two sites (run_honest_sweep_r3.py:6744 reader; no other consumer in src/ or scripts/), so 0 has ZERO
+    # unintended behaviour — the consolidated keep-all floor pool flows to composition bounded only by the
+    # per-section token budget + the UNCHANGED faithfulness gate. The live-run behaviour is byte-identical
+    # to the prior =1 value (both bypassed via the redesign flag); 0 makes the no-cap intent explicit and
+    # independent of the redesign flag. Removed from _BENCHMARK_FORCE_ON_FLAGS + _BENCHMARK_PREFLIGHT_
+    # REQUIRED_FLAGS below (a required-truthy flag set to 0 would fail the preflight).
+    "PG_CAPPED_FINDING_DEDUP": "0",
     "PG_RELEVANCE_FLOOR": "0.30",
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP (operator: ZERO cap, §-1.3 BANNED bolt-on). The per-source
+    # citation cap (fact_dedup.py: drops over-concentrated citations from an already-verified section to
+    # hit a per-source number). Default OFF already (unset/""/0/<=0 == no-op, byte-identical sections —
+    # fact_dedup.py:63-94 `_read_span_cite_cap`), so it has never been ON on a benchmark run; pin it
+    # EXPLICITLY to "0" (force-EXACT below) so a stray operator/.env PG_SPAN_PER_SOURCE_CITE_CAP=N can
+    # never silently re-enable the cap on the paid run. FAITHFULNESS-NEUTRAL: the cap only ever DROPPED an
+    # already-verified citation; OFF keeps every verified citation.
+    "PG_SPAN_PER_SOURCE_CITE_CAP": "0",
     # I-perm-011 (#1205): max-over-subqueries relevance floor. `_row_relevance`
     # normalizes overlap by the WHOLE multi-part question token set, so a ~73-token
     # research question makes the 0.30 floor demand >=22 exact-word matches — which
@@ -784,6 +806,104 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # changes the generator's candidate menu; strict_verify / 4-role / D8 re-check unchanged).
     # Flag-OFF byte-identical.
     "PG_SELECT_CONSTRAINED_GREEDY": "1",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-arch-007 CONSOLIDATED DEATH-FORENSIC SLATE (GH #1264). Six death modes across the 5 dead runs
+    # reconcile to 3 root mechanisms + 2 containment gaps. The slate WIRES the env knobs the keystone
+    # fixes consume so a fix can never ship "built but not live" (the #1070 lesson). Every key here is
+    # FAITHFULNESS-NEUTRAL: it touches an advisory-stage wall/parallelism, a D8-seam transport degrade
+    # that fails CLOSED, a generation-skip that re-runs all gates, or process containment — NONE moves
+    # strict_verify / NLI / 4-role D8 / span-grounding, the fail-closed sentinel, the 0.40 section floor,
+    # or the cited-evidence set. See outputs/audits/iarch007_death_forensic/CONSOLIDATED_FIX_PLAN.md.
+    #
+    # ITEM 1 + 1b (Codex P2-1 — SIZE AS A PAIR): the advisory credibility pass is a SERIAL nested loop
+    # over every basket member (~310 members on Q90 up to ~619 on Q72), each member running ONE binding-
+    # entailment-judge call (~6-40s healthy). ITEM 1's PG_CREDIBILITY_PASS_WALL_S is the wall-deadline
+    # that stops the run HANGING (the Q72/Q76/Q90 death); ITEM 1b's PG_CREDIBILITY_PASS_MAX_INFLIGHT is
+    # the bounded parallelism that makes the pass actually COMPLETE within that wall. They MUST be sized
+    # TOGETHER: a wall too short (or inflight too low) degrades a HEALTHY large-corpus pass to
+    # credibility_analysis=None / sources-unscored (faithfulness-safe disclosure, but the WEIGHT half of
+    # §-1.3 ships silently degraded). Sizing math for the WORST healthy large corpus (~619 members @ 40s):
+    #   wall >= members * per_call / inflight  =>  619 * 40 / 16 ≈ 1548s < 3000s wall (clears with ~2x margin).
+    #   a typical healthy pass (~310 members @ ~6s): 310 * 6 / 16 ≈ 116s — far under the wall.
+    # CHOSEN PAIR: PG_CREDIBILITY_PASS_MAX_INFLIGHT=16, PG_CREDIBILITY_PASS_WALL_S=3000 — a healthy
+    # ~600-member pass COMPLETES within the wall; an UNHEALTHY (trickle/blank-content) pass still
+    # degrades-and-discloses at the wall instead of hanging. inflight 16 mirrors P2's existing
+    # credibility-skill concurrency shape and stays at/under the LLM concurrency envelope.
+    # I-arch-007 #1264 PREFLIGHT RE-SIZE (death NO-GO follow-up): the wall is RAISED 1800 -> 3000 to give
+    # generous headroom for the LONGEST healthy credibility pass (the ~1548s worst-case @ 619 members /
+    # 40s / inflight-16 had only ~250s slack against 1800; 3000 nearly doubles it so a slow-but-HEALTHY
+    # large corpus completes-and-WEIGHTS instead of degrading at the wall). 3000s is still FAR under the
+    # run-wall (10800s) so the credibility pass can never starve Stage-2 generation — the wall hierarchy
+    # credibility 3000 << run-wall 10800 holds. The trickle-HANG itself is now bounded by the new per-call
+    # total-deadline knobs below (PG_CREDIBILITY_JUDGE_TOTAL_S / PG_ROLE_TRANSPORT_TOTAL_S), so the wall
+    # no longer has to be the ONLY backstop against a hang — it is the pass-level cap, the per-call walls
+    # are the call-level cap.
+    # NOTE: PG_CREDIBILITY_PASS_MAX_INFLIGHT stays at 1 (serial) in code until ITEM 2a (thread-safe judge
+    # client) lands — the slate value is INERT until 1b's parallelism is enabled atop 2a (plan §8 PR-2).
+    # FLOAT/INT values -> force-EXACT (the int-FLOOR path is wrong for the wall; force the chosen pair).
+    "PG_CREDIBILITY_PASS_WALL_S": "3000",
+    "PG_CREDIBILITY_PASS_MAX_INFLIGHT": "16",
+    # ITEM 4 (deploy commit 376ac812): the sentinel transport-fault degrade-and-continue. A single
+    # blank/non-JSON sentinel HTTP-200 used to tear down the WHOLE D8 seam -> coverage hardcoded 0.0 ->
+    # curator_gap emptiness (~177 claims). ON marks ONLY that claim sentinel-unavailable (fail-CLOSED
+    # UNGROUNDED, never GROUNDED) and the D8 seam CONTINUES with real coverage. Default-ON in code; the
+    # slate force-ON-pins it so a stray operator =0 cannot survive and silently restore the whole-seam
+    # zeroing on the paid run. FAITHFULNESS-NEUTRAL: a sentinel transport blip can never pass a fabrication
+    # as grounded; it only stops one blip from zeroing the seam (faithfulness STRENGTHENED).
+    "PG_SENTINEL_TRANSPORT_DEGRADE": "1",
+    # I-arch-007 #1264 PREFLIGHT RE-GO (death NO-GO follow-up, death_gone=false): the residual
+    # thread-level TRICKLE-HANG. The two sync-POST verifier sites were bounded ONLY by an httpx read-GAP
+    # (a per-byte gap that a trickled keep-alive socket RESETS indefinitely — the same HANG-J3 mechanism
+    # the entailment judge already fixed), with NO per-call TOTAL deadline. The sibling agents add the
+    # PROVEN _post_with_total_deadline template (a ThreadPoolExecutor(max_workers=1).submit(post).result(
+    # timeout=TOTAL_S) HARD wall that force-CLOSES the hung socket on timeout so the blocked read
+    # unblocks, then a bounded retry rebuilds the client) to BOTH sites, gated by these two knobs. Force
+    # them to the chosen 300s wall so the benchmark ALWAYS runs with the hard per-call total-deadlines on
+    # (a stray operator value cannot leave a site unbounded). 300s comfortably exceeds the longest HEALTHY
+    # verifier call (~6-40s observed) so a healthy call NEVER trips the wall — only a trickle-hang is force-
+    # closed; OFF-path the per-call POST is byte-identical (the generous default never fires on a healthy
+    # call). TRANSPORT-ONLY + FAITHFULNESS-NEUTRAL: on total-deadline exhaustion each site emits the SAME
+    # fail-CLOSED sentinel its caller already handles (the verdict logic / strict_verify / NLI / 4-role D8 /
+    # span-grounding / the fail-closed sentinel / the 0.40 floor are ALL UNTOUCHED) — the wall only bounds
+    # the wall-clock, never changes a verdict. PG_CREDIBILITY_JUDGE_TOTAL_S bounds the per-member binding-
+    # entailment-judge POST in the advisory credibility pass; PG_ROLE_TRANSPORT_TOTAL_S bounds the per-role
+    # 4-role-seam verifier POST. Force-EXACT (these are wall-seconds, not capability floors).
+    "PG_CREDIBILITY_JUDGE_TOTAL_S": "300",
+    "PG_ROLE_TRANSPORT_TOTAL_S": "300",
+    # I-arch-007 ITEM 2 (#1264) BREADTH — force-ON the weighted unbound-SUPPORTS enrichment section so
+    # the benchmark surfaces the ~437 span-verified sources the 5-entity contract funnel drops (the
+    # 485->~13 collapse). §-1.3 WEIGHT-AND-CONSOLIDATE: the selection ORDERS by basket weight_mass and
+    # offers the FULL list — NO cap / target / top-N; breadth EMERGES from how many survive the
+    # UNCHANGED strict_verify in _run_section. Default-OFF in code so a non-benchmark run is byte-
+    # identical; the slate force-ON-pins it so a stray operator =0 cannot silently keep the funnel.
+    # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor as
+    # every other section; on a degraded pass (credibility_analysis is None) the selection is empty.
+    "PG_BREADTH_ENRICHMENT_ENABLED": "1",
+    # ITEM 5 (postgen-resume reuse) — DELIBERATELY NOT slate-forced while ITEM 5a is deferred
+    # (Codex build-gate iter-1 P1). The CONSUMER wiring (_load_postgen_reuse_reentry) is fully built
+    # and fails LOUD, but the GENERATOR-side cached-draft hook
+    # (multi_section_generator.generate_multi_section_report_from_reused_drafts) is the deferred ITEM
+    # 5a — it does not exist yet. Force-ON-ing PG_RESUME_REUSE_POSTGEN here would make every --resume
+    # HARD-FAIL: the dead runs never wrote a generation_snapshot in this NEW format
+    # (load_generation_snapshot -> GenerationSnapshotError) and the generator hook is absent
+    # (-> RuntimeError), and run_one_query calls the loader with no surrounding try/except. The plan's
+    # ITEM-5 deferral clause is explicit that the deferred state is "Q78 simply RE-GENERATES from
+    # corpus_snapshot like the other four" — GRACEFUL, not a crash. So leave the flag OFF on the slate:
+    # the resume path stays byte-identical to today (fresh re-generate from corpus_snapshot), and the
+    # ITEM 1 + 2a fixes still stop the re-wedge / over-drop on that fresh run. RE-ADD this slate pin in
+    # the same PR that lands the ITEM 5a generator hook + a corpus/evidence-identity guard (so a reused
+    # draft is proven to match the reloaded corpus before any binding gate re-runs on it).
+    # ITEM 6 (Codex MODE 1 — force subprocess containment): trafilatura runs libxml2 (a C extension); a
+    # libxml2 SIGSEGV on a pathological doc is NOT a catchable Python exception and silently kills the
+    # whole sweep on the in-process path. The in-process door is open whenever PG_TRAFILATURA_SUBPROCESS
+    # != "1". The prior run_gate_b_query setdefault left an operator override able to leave containment
+    # OFF; FORCE it ON here (the slate force-EXACT path) so EVERY benchmark run is subprocess-contained
+    # — a crash becomes a hard-killable child rc=-11/-9 the parent survives + a fetch-degraded row, never
+    # a silent process death. FAITHFULNESS-NEUTRAL: affects fetch robustness/yield only — never a gate
+    # verdict. PG_TRAFILATURA_SUBPROCESS_TIMEOUT_SECONDS bounds the contained child so a hung libxml2
+    # child cannot wedge the fetch (an OOM/SIGKILL/timeout child exit is recorded LOUD by
+    # safe_trafilatura_extract -> regex-fallback + fetch-degraded, not a silent gap).
+    "PG_TRAFILATURA_SUBPROCESS": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -815,10 +935,11 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
     "PG_NLI_IN_BENCHMARK",
     "PG_ENABLE_TOOL_TRACKER",
-    # I-ready-004 (#1078): both must be ON for Gate-B — finding-dedup OFF wastes the cap on near-dups;
-    # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
+    # I-ready-004 (#1078): finding-dedup must be ON for Gate-B — OFF wastes the budget on near-dups.
+    # PG_CAPPED_FINDING_DEDUP is NO LONGER required-truthy: I-arch-007 #1264 sets it 0 (dormant-cap
+    # cleanup, ZERO cap per §-1.3); a required-truthy flag set to 0 in the slate would fail the preflight.
+    # The pool is consolidated keep-all (CONSOLIDATE-DON'T-DROP); the cap is GONE, not merely bypassed.
     "PG_USE_FINDING_DEDUP",
-    "PG_CAPPED_FINDING_DEDUP",
     # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
     # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
     # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
@@ -892,12 +1013,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
     "PG_STRICT_VERIFY_ENTAILMENT",
     "PG_MAX_JUDGE_ERROR_RATE",
-    # I-ready-004 (#1078): finding-dedup flags + the FLOAT relevance floor. Force-SET directly (string)
+    # I-ready-004 (#1078): finding-dedup flag + the FLOAT relevance floor. Force-SET directly (string)
     # — the numeric FLOOR path int()-coerces, which would turn PG_RELEVANCE_FLOOR=0.30 into 0 and then
     # fail parse_relevance_floor (Codex brief P1-2). PG_RELEVANCE_FLOOR is validated as a float in (0,1]
-    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+    # in preflight_full_capability; PG_USE_FINDING_DEDUP is required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+    # I-arch-007 #1264: PG_CAPPED_FINDING_DEDUP is NO LONGER force-ON — it is now force-EXACT to "0"
+    # (dormant-cap cleanup, ZERO cap per §-1.3); see _BENCHMARK_FORCE_EXACT_FLAGS below.
     "PG_USE_FINDING_DEDUP",
-    "PG_CAPPED_FINDING_DEDUP",
     "PG_RELEVANCE_FLOOR",
     # I-arch-005 PREFLIGHT FIX (#1257): force-on the I-arch-005 activations the pre-run dual-audit found
     # dead-by-default on the benchmark — B4 relevance-gate, B6/B8+B12 credibility redesign, B16 redaction
@@ -905,6 +1027,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_RETRIEVAL_RELEVANCE_GATE",
     "PG_SWEEP_CREDIBILITY_REDESIGN",
     "PG_REDACT_HELD_UNSUPPORTED",
+    # I-arch-007 ITEM 2 (#1264): force-on the weighted unbound-SUPPORTS enrichment so a stray operator
+    # =0 cannot silently keep the 5-entity contract funnel that dropped ~437 verified sources. Depends
+    # on PG_SWEEP_CREDIBILITY_REDESIGN (the baskets it reads). Faithfulness-neutral (strict_verify gates).
+    "PG_BREADTH_ENRICHMENT_ENABLED",
     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
     "PG_GATE_B_CITED_SPAN",
@@ -970,6 +1096,18 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # cannot drop the anti-monoculture forward guard on the paid run. NOT preflight-required (a
     # no-op until the pool exceeds the cap; never a fail-closed precondition — the I-perm-003 stance).
     "PG_SELECT_CONSTRAINED_GREEDY",
+    # I-arch-007 (#1264): force-on the three boolean death-forensic flags so a stray operator =0 cannot
+    # survive the slate and silently restore a death mode. ITEM 4 (sentinel transport degrade — else one
+    # blip zeros the D8 seam), ITEM 6 (trafilatura subprocess containment — else an uncatchable libxml2
+    # SIGSEGV silently kills the sweep). All FAITHFULNESS-NEUTRAL per the consolidated plan §9. ITEM 6
+    # was previously a run_gate_b_query setdefault (an operator override could leave containment OFF) —
+    # promoted to a force-ON slate pin.
+    # NOTE: ITEM 5 (PG_RESUME_REUSE_POSTGEN) is INTENTIONALLY NOT force-on'd here while ITEM 5a (the
+    # generator-side cached-draft hook) is deferred — force-on would hard-fail every --resume instead of
+    # gracefully re-generating from corpus_snapshot (Codex build-gate iter-1 P1). See the slate comment
+    # above. Re-add this pin in the same PR that lands the ITEM 5a hook + the corpus-identity guard.
+    "PG_SENTINEL_TRANSPORT_DEGRADE",
+    "PG_TRAFILATURA_SUBPROCESS",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -1003,6 +1141,28 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # gotcha). A stray operator PG_MIN_VERIFIED_SECTION_FRACTION=0 must not survive the slate and let a
     # mostly-gap clinical report ship GREEN. Validated as a float in (0,1] in preflight_full_capability.
     "PG_MIN_VERIFIED_SECTION_FRACTION",
+    # I-arch-007 (#1264) ITEM 1 + 1b — the credibility-pass wall/inflight PAIR. Force-EXACT (NOT the int
+    # FLOOR path): the wall is a FLOAT-seconds value (1800) and the pair MUST stay pinned TOGETHER so the
+    # sizing invariant (a healthy ~600-member pass completes within the wall) holds — a floor could leave
+    # the wall slate value while an operator raised inflight (or vice versa), breaking the pair. Force the
+    # chosen pair exactly so the pass both completes-when-healthy and degrades-not-hangs when unhealthy.
+    "PG_CREDIBILITY_PASS_WALL_S",
+    "PG_CREDIBILITY_PASS_MAX_INFLIGHT",
+    # I-arch-007 #1264 PREFLIGHT RE-GO: the two per-call total-deadline walls (the residual trickle-hang
+    # fix). Force-EXACT to "300" — these are wall-SECONDS, not capability floors (the int-FLOOR path's
+    # max() is meaningless for a transport wall; a stray operator value must not raise OR lower them off
+    # the chosen pair). 300s clears the longest HEALTHY verifier call (~6-40s) with wide margin; only a
+    # trickle-hang trips it. TRANSPORT-ONLY + faithfulness-neutral (the fail-closed sentinel on exhaustion
+    # is the SAME verdict the caller already handles).
+    "PG_CREDIBILITY_JUDGE_TOTAL_S",
+    "PG_ROLE_TRANSPORT_TOTAL_S",
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP: pin both number-forcing caps EXACTLY OFF ("0") so a stray
+    # operator/.env value can never silently re-enable them (operator: ZERO cap; §-1.3 BANNED bolt-ons).
+    # PG_CAPPED_FINDING_DEDUP=0 removes the re-cap-to-max_ev (verified the ONLY consumer is the two
+    # run_honest_sweep_r3 re-cap sites, both `and _capped_dedup`-gated); PG_SPAN_PER_SOURCE_CITE_CAP=0 is
+    # the fact_dedup no-op default made explicit. Both faithfulness-neutral (a cap only ever DROPPED).
+    "PG_CAPPED_FINDING_DEDUP",
+    "PG_SPAN_PER_SOURCE_CITE_CAP",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -1539,8 +1699,16 @@ async def run_gate_b_query(
     # leaves the guard as an in-process size-gate only — the SIGSEGV stays
     # uncatchable. Pair the two flags here so the hard-killable child process
     # IS the libxml2 door on the paid run, making a crash a contained child
-    # rc=139 the parent survives. setdefault keeps an operator override (LAW VI).
-    os.environ.setdefault("PG_TRAFILATURA_SUBPROCESS", "1")
+    # rc=139 the parent survives.
+    # I-arch-007 (#1264) ITEM 6: FORCE this ON (was setdefault). The slate already force-pins it
+    # (apply_full_capability_benchmark_slate runs first), but a setdefault here would let a stray
+    # operator override leave containment OFF on the in-process direct-call path that does not go
+    # through the slate. An uncatchable libxml2 SIGSEGV that silently kills the whole sweep is the
+    # MODE-1 containment gap; force-ON makes the hard-killable subprocess the only libxml2 door on
+    # EVERY benchmark path. FAITHFULNESS-NEUTRAL: fetch robustness only — never a gate verdict. A
+    # crashed/OOM/SIGKILL child is recorded LOUD by safe_trafilatura_extract (rc!=0 -> regex fallback
+    # + fetch-degraded), never a silent gap.
+    os.environ["PG_TRAFILATURA_SUBPROCESS"] = "1"
     # #1034: paywalled-journal OA fetches are non-deterministic + noisy (Sci-Hub HTML / Jina
     # landing-page markdown / intermittent CrossRef abstract). For frame-contract grounding the
     # clean, deterministic abstract (CrossRef/OpenAlex) is the correct source — contract fields

@@ -24,11 +24,19 @@ from scripts.dr_benchmark.run_gate_b import (
 def test_capped_dedup_in_slate_and_required():
     s = _FULL_CAPABILITY_BENCHMARK_SLATE
     assert s.get("PG_USE_FINDING_DEDUP") == "1"
-    assert s.get("PG_CAPPED_FINDING_DEDUP") == "1"
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP (operator: ZERO cap; §-1.3 BANNED number-forcing bolt-on):
+    # PG_CAPPED_FINDING_DEDUP is now force-EXACT "0" (the re-cap-to-max_ev is GONE, not merely bypassed),
+    # so it is NO LONGER required-truthy (a required-truthy flag set to 0 would fail the preflight). The
+    # consolidated keep-all floor pool now flows to composition bounded only by the per-section token
+    # budget + the UNCHANGED faithfulness gate (CONSOLIDATE-DON'T-DROP). Verified the ONLY consumer is the
+    # two run_honest_sweep_r3 re-cap sites, both `and _capped_dedup`-gated, so 0 disables both unconditionally.
+    assert s.get("PG_CAPPED_FINDING_DEDUP") == "0"
     assert s.get("PG_RELEVANCE_FLOOR") == "0.30"
-    # Both flags are REQUIRED by preflight — capped mode cannot be silently off (would regress #1070).
+    # Finding-dedup itself is still REQUIRED by preflight (consolidates near-dups); the CAP is not.
     assert "PG_USE_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
-    assert "PG_CAPPED_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+    assert "PG_CAPPED_FINDING_DEDUP" not in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+    # PG_CAPPED_FINDING_DEDUP is now force-EXACT (to "0"), no longer force-ON.
+    assert "PG_CAPPED_FINDING_DEDUP" not in _BENCHMARK_FORCE_ON_FLAGS
     # The FLOAT floor must be force-SET (string), NOT int-floored (which would coerce 0.30 -> 0).
     assert "PG_RELEVANCE_FLOOR" in _BENCHMARK_FORCE_ON_FLAGS
 
@@ -51,7 +59,8 @@ def test_slate_does_not_int_coerce_relevance_floor(_env_snapshot):
     apply_full_capability_benchmark_slate()
     assert os.environ["PG_RELEVANCE_FLOOR"] == "0.30"   # NOT "0"
     assert os.environ["PG_USE_FINDING_DEDUP"] == "1"
-    assert os.environ["PG_CAPPED_FINDING_DEDUP"] == "1"
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP: the cap is force-EXACT to "0" (ZERO cap; §-1.3).
+    assert os.environ["PG_CAPPED_FINDING_DEDUP"] == "0"
 
 
 def _set_min_passing_env() -> None:

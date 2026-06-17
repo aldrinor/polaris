@@ -298,13 +298,14 @@ def test_gate_b_query_env_pairs_subprocess_with_trafilatura(monkeypatch):
     it MUST also turn the subprocess CONTAINMENT on (PG_TRAFILATURA_SUBPROCESS=1)
     — otherwise the guard is an in-process size-gate only and the libxml2
     SIGSEGV stays uncatchable on the paid run (the I-arch-005 dead-flag class).
-    Asserted by SOURCE inspection (no run, no spend): the two setdefault lines
-    are co-located in run_gate_b.py."""
+    Asserted by SOURCE inspection (no run, no spend): PG_TRAFILATURA_ENABLED stays a
+    setdefault; PG_TRAFILATURA_SUBPROCESS is now FORCE-assigned (I-arch-007 ITEM 6,
+    run_gate_b.py:1632) so a stray operator =0 cannot leave containment off."""
     gate_b_src = (
         REPO_ROOT / "scripts" / "dr_benchmark" / "run_gate_b.py"
     ).read_text(encoding="utf-8")
     assert 'setdefault("PG_TRAFILATURA_ENABLED", "1")' in gate_b_src
-    assert 'setdefault("PG_TRAFILATURA_SUBPROCESS", "1")' in gate_b_src
+    assert 'os.environ["PG_TRAFILATURA_SUBPROCESS"] = "1"' in gate_b_src
 
 
 # ---------------------------------------------------------------------------

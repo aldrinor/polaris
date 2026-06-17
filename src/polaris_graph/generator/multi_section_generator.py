@@ -6639,20 +6639,35 @@ async def generate_multi_section_report(
             from ..llm import openrouter_client as _orc_cred
             _cred_sid = _orc_cred.current_run_id() or ""
             _cred_cost_before = _orc_cred.ledger_cumulative(_cred_sid)
+            # I-arch-007 ITEM 1 (#1264) — WALL-CLOCK bound on the advisory credibility pass (LAW VI,
+            # no magic number). The pass offloads a SERIAL O(N) per-member entailment-verify loop onto a
+            # worker thread; an empty-content / trickle judge hit at up to ~150 s/call over hundreds of
+            # members is the wedge that hung Q72/Q76/Q90 in ``generation_in_progress`` (never reaching
+            # Stage-2). ``asyncio.wait_for`` frees the AWAIT on the deadline so the run can no longer hang
+            # indefinitely; on expiry the existing always-release degrade path (below) ships sources
+            # UNSCORED + a LOUD disclosed gap. ``asyncio.to_thread`` is not cancellable, so the worker
+            # itself keeps running until process teardown — acceptable on the one-query-per-VM model;
+            # ITEM 1b (bounded parallelism in credibility_pass) is what makes the pass COMPLETE within the
+            # wall. The advisory pass is NOT a binding gate, so a forfeited disclosure never moves a
+            # strict_verify / NLI / 4-role D8 / span-grounding verdict.
+            _cred_pass_wall_s = float(os.getenv("PG_CREDIBILITY_PASS_WALL_S", "600"))
             try:
-                credibility_analysis = await asyncio.to_thread(
-                    _credibility_pass.run_credibility_analysis,
-                    research_question, list(evidence_pool.values()),
-                    # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
-                    # (in scope as generate_multi_section_report's `domain` param) so the
-                    # claim graph's fail-closed dispatch can consolidate equal clinical atoms
-                    # instead of singleton-ing every claim (domain=None made consolidation
-                    # INERT). ``domain or None`` normalizes the '' default back to today's
-                    # None when unset.
-                    gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
-                    judge=credibility_pass_judge,
+                credibility_analysis = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _credibility_pass.run_credibility_analysis,
+                        research_question, list(evidence_pool.values()),
+                        # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
+                        # (in scope as generate_multi_section_report's `domain` param) so the
+                        # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+                        # instead of singleton-ing every claim (domain=None made consolidation
+                        # INERT). ``domain or None`` normalizes the '' default back to today's
+                        # None when unset.
+                        gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
+                        judge=credibility_pass_judge,
+                    ),
+                    timeout=_cred_pass_wall_s,
                 )
-            except _credibility_pass.CredibilityPassError as _cred_exc:
+            except (asyncio.TimeoutError, _credibility_pass.CredibilityPassError) as _cred_exc:
                 # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
                 # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /
                 # independence gap — the drb_72 killer) must NOT abort the question. Under always-release
@@ -6662,14 +6677,21 @@ async def generate_multi_section_report(
                 # OFF (legacy) re-raises -> the existing fail-loud abort, byte-identical.
                 if not _always_release_enabled():
                     raise
+                if isinstance(_cred_exc, asyncio.TimeoutError):
+                    _cred_cause = (
+                        f"credibility pass exceeded its wall-clock deadline "
+                        f"(PG_CREDIBILITY_PASS_WALL_S={_cred_pass_wall_s:g}s)"
+                    )
+                else:
+                    _cred_cause = str(_cred_exc)
                 logger.warning(
                     "[credibility] activated pass FAILED under always-release -> degrade to "
-                    "unscored + LABEL (no abort): %s", _cred_exc,
+                    "unscored + LABEL (no abort): %s", _cred_cause,
                 )
                 credibility_analysis = None
                 _credibility_disclosed_gap = (
                     "credibility_pass_unavailable: the activated credibility analysis could not "
-                    f"complete ({_cred_exc}); sources ship UNSCORED at neutral credibility weight and "
+                    f"complete ({_cred_cause}); sources ship UNSCORED at neutral credibility weight and "
                     "this gap is disclosed. The binding faithfulness gates (strict_verify, 4-role D8, "
                     "span-grounding) are unaffected — only the advisory credibility disclosure is degraded."
                 )
@@ -6681,6 +6703,36 @@ async def generate_multi_section_report(
                 if _cred_cost_delta > 0:
                     _orc_cred._add_run_cost(_cred_cost_delta)  # reflect offloaded credibility spend in the budget
             _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
+
+    # I-arch-007 ITEM 2 (#1264) BREADTH — surface the weighted UNBOUND span-verified SUPPORTS
+    # sources the 5-entity contract funnel never offered to any section (the 485->~13 collapse,
+    # a STRUCTURAL funnel that fires even on a fully-successful pass). Placed HERE — AFTER the
+    # credibility pass has resolved ``credibility_analysis`` (so the baskets exist) and BEFORE the
+    # Stage-2 dispatch consumes ``plans`` (the contract/legacy split at ~:6865). §-1.3 WEIGHT-AND-
+    # CONSOLIDATE: the selection ORDERS by basket weight_mass and returns the FULL list (no cap /
+    # target / top-N); breadth EMERGES from how many survive the UNCHANGED strict_verify in
+    # ``_run_section``. Default-OFF flag => [] => byte-identical; ``credibility_analysis is None``
+    # (degrade / flag-off) => [] => byte-identical. Faithfulness-neutral: the appended section
+    # routes through the SAME strict_verify + section floor as every other section.
+    if v30_contract_plans and not partial_mode:
+        from .weighted_enrichment import (
+            breadth_enrichment_enabled as _breadth_enrichment_enabled,
+            build_weighted_enrichment_plan as _build_weighted_enrichment_plan,
+            select_unbound_supports_by_weight as _select_unbound_supports_by_weight,
+        )
+        if _breadth_enrichment_enabled():
+            _wfe_ev_ids = _select_unbound_supports_by_weight(
+                evidence_pool=evidence_pool,
+                credibility_analysis=credibility_analysis,
+                contract_plans=list(v30_contract_plans),
+            )
+            _wfe_plan = _build_weighted_enrichment_plan(_wfe_ev_ids, section_plan_cls=SectionPlan)
+            if _wfe_plan is not None:
+                plans.append(_wfe_plan)
+                logger.info(
+                    "[multi_section] I-arch-007 breadth: appended weighted-enrichment section "
+                    "with %d unbound SUPPORTS candidates (pre-strict_verify)", len(_wfe_ev_ids),
+                )
 
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY

@@ -16,6 +16,7 @@ master slate (operator-gated). Offline tests inject a stub caller and never reac
 """
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import time
 import uuid
@@ -72,6 +73,60 @@ _ENV_DEGRADED_PROMPT_TOKENS = "PG_CREDIBILITY_JUDGE_DEGRADED_PROMPT_TOKENS"
 _DEFAULT_DEGRADED_PROMPT_TOKENS = 500
 _ENV_DEGRADED_COMPLETION_TOKENS = "PG_CREDIBILITY_JUDGE_DEGRADED_COMPLETION_TOKENS"
 _DEFAULT_DEGRADED_COMPLETION_TOKENS = 100
+# I-arch-007 #1264 (RESIDUAL trickle-hang fix — ports entailment_judge.py HANG-J3): the httpx ``read``
+# timeout (`PG_CREDIBILITY_READ_STALL_S`, the inner read-GAP) is RESET on every received byte, so a
+# trickled keep-alive socket (OpenRouter/Cloudflare holds the connection ESTABLISHED and drips SSE
+# comment lines / chunked keep-alives, rx=tx=0 useful payload) never trips the gap timer and a SINGLE
+# credibility-judge POST runs UNBOUNDED — the SAME thread-level trickle-hang the preflight flagged on
+# the entailment judge. The read-stall only catches a TRULY dead rx=tx=0 socket; it CANNOT bound a
+# trickle. Fix: a HARD TOTAL per-call wall-deadline around the blocking POST (see
+# `_post_with_total_deadline`). On timeout the hung socket is force-closed (so the worker's blocked read
+# unblocks + the thread exits) and the existing bounded retry's NEXT `with httpx.Client(...)` reopens a
+# FRESH connection; on exhaustion the module's EXISTING failure semantics fire UNCHANGED (transport fault
+# -> the judge wrapper maps it to a per-row judge_error -> the credibility score stays ADVISORY). Keep the
+# inner httpx read-gap as before. Transport-only; verdict/judge_error/advisory contract all UNTOUCHED.
+# LAW VI: env-driven. Default 300s comfortably exceeds a real high-effort GLM-5.1 credibility call (~24s
+# observed, ~40s worst healthy) so a HEALTHY call NEVER trips it (OFF-path / healthy behavior byte-
+# identical) — only a trickle-hang is force-closed.
+_ENV_TOTAL_S = "PG_CREDIBILITY_JUDGE_TOTAL_S"
+_DEFAULT_TOTAL_S = 300.0
+# I-arch-007 #1264 (mirrors entailment_judge's PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES): a total-deadline
+# (trickle-hang) timeout re-hangs on the SAME pinned mirror provider, so the general transient-fault retry
+# budget would spend ~_DEFAULT_TOTAL_S of dead wait per extra attempt that almost never recovers — the
+# dominant hang-path worst case (retries+1 * total_s = 3*300s = 900s). Cap a total_deadline retry TIGHTER
+# than the general transient budget. DEFAULT here PRESERVES current behaviour (= the general retry count,
+# so the OFF path is byte-identical, LAW VI); the run slate sets PG_CREDIBILITY_JUDGE_TOTAL_DEADLINE_RETRIES=1
+# to apply the fix (=> up to 2 attempts on a hang vs 3 on a transient fault). Faithfulness-NEUTRAL: the
+# outcome on exhaustion is the SAME transport-fault -> judge_error -> advisory; fewer wasted retries only.
+_ENV_TOTAL_DEADLINE_RETRIES = "PG_CREDIBILITY_JUDGE_TOTAL_DEADLINE_RETRIES"
+
+
+def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+    """I-arch-007 #1264: run the blocking credibility-judge POST under a HARD total wall-deadline.
+
+    httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
+    this bounds the WHOLE call so one hung judge POST can never freeze the run. Runs the POST on a
+    worker thread and waits at most ``total_s``. On timeout the client is force-closed (so the worker's
+    hung read errors out and the thread exits) and ``concurrent.futures.TimeoutError`` is re-raised for
+    the caller's bounded retry to reopen a fresh connection. Returns the response on success.
+
+    Ports ``entailment_judge._post_with_total_deadline`` verbatim. The ``client.close()`` is guarded so
+    a transport without a ``close`` (e.g. an injected test double) can never break the timeout path.
+    """
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+    try:
+        return fut.result(timeout=total_s)
+    except concurrent.futures.TimeoutError:
+        try:
+            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+        except Exception:  # noqa: BLE001 — a stub/closed client without .close() must not break the path
+            pass
+        raise
+    finally:
+        # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
+        # client.post exception). wait=False so a still-unsticking worker never blocks us.
+        ex.shutdown(wait=False)
 
 
 def _int_env(name: str, default: int) -> int:
@@ -126,6 +181,17 @@ def make_openrouter_credibility_caller(
     except (TypeError, ValueError):
         retries = _DEFAULT_RETRIES
     retry_backoff = _float_env(_ENV_RETRY_BACKOFF_S, _DEFAULT_RETRY_BACKOFF_S)
+    # I-arch-007 #1264: HARD total per-call wall-deadline (trickle-hang bound). Generous default so a
+    # healthy call never trips it (OFF-path byte-identical). 0/garbage -> the generous default.
+    total_s = _float_env(_ENV_TOTAL_S, _DEFAULT_TOTAL_S)
+    # The tighter cap that applies ONLY to a total_deadline_exceeded (trickle-hang) retry — a re-hang on
+    # the same pinned provider is ~total_s of dead wait that almost never recovers. Never exceeds the
+    # general retry count. Unset -> equals `retries` -> byte-identical to the pre-fix path.
+    try:
+        _td_retries_raw = max(0, int(os.environ.get(_ENV_TOTAL_DEADLINE_RETRIES, retries) or retries))
+    except (TypeError, ValueError):
+        _td_retries_raw = retries
+    total_deadline_retries = min(retries, _td_retries_raw)
     base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
     endpoint = base + "/chat/completions"
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
@@ -186,14 +252,31 @@ def make_openrouter_credibility_caller(
         last_content = ""
         for _attempt in range(retries + 1):
             try:
+                # I-arch-007 #1264: wrap the blocking POST in a HARD total wall-deadline so a trickled
+                # keep-alive socket (the inner read-gap timer never fires) cannot hang the run. On the
+                # wall-deadline the helper force-closes the client; the NEXT iteration's fresh
+                # `with httpx.Client(...)` IS the bounded-retry rebuild (no separate rebuild needed —
+                # this caller, unlike the entailment singleton, opens a new client per attempt).
                 with httpx.Client(timeout=client_timeout) as client:
-                    response = client.post(
+                    response = _post_with_total_deadline(
+                        client,
                         endpoint,
-                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                        json=json_body,
+                        {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json_body,
+                        total_s,
                     )
                     response.raise_for_status()
                     data = response.json()
+            except concurrent.futures.TimeoutError:
+                # Trickle-hang: the wall-deadline fired (client already force-closed in the helper). A
+                # re-hang on the same pinned provider almost never recovers, so a total-deadline fault
+                # gets the TIGHTER `total_deadline_retries` budget (not the full transient budget). On
+                # exhaustion: raise like any transport fault -> judge wrapper -> per-row judge_error ->
+                # the credibility score stays ADVISORY (EXISTING failure semantics, UNCHANGED).
+                if _attempt < total_deadline_retries:
+                    time.sleep(retry_backoff)
+                    continue
+                raise  # judge wrapper catches -> {} -> bounded per-row judge_error (fail-loud upstream)
             except Exception:  # noqa: BLE001 — transport/parse fault: retry, else propagate to the judge
                 if _attempt < retries:
                     time.sleep(retry_backoff)

@@ -1945,6 +1945,61 @@ def build_excessive_gap_abort_body(
     return head + rows + tail
 
 
+def build_verifier_degraded_abort_body(
+    research_question: str,
+    sections,
+    *,
+    verified_count: int,
+    judge_error_rate: float,
+    judge_errors: int,
+    judge_calls: int,
+    judge_error_cap: float,
+) -> str:
+    """ITEM 3 (I-arch-007 death-forensic): build the pipeline-verdict markdown body used when the
+    verified-section shortfall is caused by a DEGRADED BINDING VERIFIER (judge_error_rate above
+    the trust cap), NOT a coverage gap. Pure function so a behavior test can assert the body
+    framing without driving run_one_query.
+
+    This body MUST NOT tell the operator to "widen retrieval" — that is the exactly-wrong remedy
+    for a verifier outage (the Q78 bug: a bricked entailment judge fail-closed-dropped most claims
+    and the report.md told the operator to broaden the evidence base). The corpus was rich; the
+    BINDING verifier errored. The next steps point at the verifier transport, not retrieval. This
+    is a LABEL-only artifact: it asserts NO claim and ships NO findings — it can never relax a
+    faithfulness gate."""
+    total = len(sections)
+    head = (
+        f"# Research report: {research_question}\n\n"
+        "## Pipeline verdict\n\n"
+        f"The binding entailment verifier was DEGRADED: it errored on "
+        f"{judge_errors}/{judge_calls} judge calls "
+        f"(judge_error_rate {judge_error_rate:.1%}, above the trust cap "
+        f"{judge_error_cap:.1%}). Each errored sentence already failed CLOSED (its claim was "
+        f"dropped at strict_verify), so the {verified_count}/{total} verified-section shortfall "
+        "is a VERIFIER OUTAGE, not a coverage gap — the corpus is NOT the bottleneck. This run "
+        "is NOT trustworthy and is NOT shipped as a findings report.\n\n"
+        "### Per-section verdict\n\n"
+    )
+    rows = "\n".join(
+        f"- **{getattr(sr, 'title', '?')}** — "
+        f"verified={getattr(sr, 'sentences_verified', 0)}, "
+        f"dropped={getattr(sr, 'sentences_dropped', 0)}, "
+        f"gap_stub={getattr(sr, 'is_gap_stub', False)}, "
+        f"regen_attempted={getattr(sr, 'regen_attempted', False)}, "
+        f"error={getattr(sr, 'error', None)!r}"
+        for sr in sections
+    )
+    tail = (
+        "\n\n### Suggested next steps\n\n"
+        "- DO NOT widen retrieval — the corpus was adequate; the binding entailment verifier "
+        "errored on too many calls.\n"
+        "- Investigate the verifier transport (closed/poisoned judge client, provider trickle / "
+        "empty-content, timeouts) and re-run the SAME corpus once the verifier is healthy.\n"
+        "- Do NOT relax PG_STRICT_VERIFY_ENTAILMENT or the judge_error fail-closed sentinel — a "
+        "dead verifier must fail closed, never pass claims through silently.\n"
+    )
+    return head + rows + tail
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # B11 + B20 (I-arch-005 #1257, LANE-SWEEP) — the ALWAYS-EMIT invariant.
 #
@@ -3878,6 +3933,160 @@ def _judge_calls_and_errors_from_telemetry(
     calls = int(now_tel.get("calls", 0)) - int(base_tel.get("calls", 0))
     errors = int(now_tel.get("judge_error", 0)) - int(base_tel.get("judge_error", 0))
     return calls, errors
+
+
+def max_judge_error_rate() -> float:
+    """ITEM 3 (I-arch-007 death-forensic): the run-trust cap on the binding-verifier
+    judge-error RATE (``PG_MAX_JUDGE_ERROR_RATE``, default 1.0 ⇒ inert by default — the
+    same default the canonical computation at the verification stage reads). LAW VI: no
+    magic number; single source so the EARLY abort-attribution check and the canonical
+    late check read the identical cap."""
+    return float(os.getenv("PG_MAX_JUDGE_ERROR_RATE", "1.0"))
+
+
+def judge_error_degraded_from_telemetry(run_judge_tel: "dict | None") -> "tuple[bool, float, int, int]":
+    """ITEM 3 (I-arch-007 death-forensic): PURE abort-attribution predicate — is the
+    binding entailment verifier so degraded that ``judge_error_rate >
+    PG_MAX_JUDGE_ERROR_RATE``? Mirrors the canonical late computation
+    (``run_honest_sweep_r3.py`` verification stage: zero-base delta of the per-run,
+    concurrency-isolated telemetry counter) so the EARLY gap-abort relabel and the late
+    always-release LABEL path agree byte-for-byte on the rate.
+
+    Returns ``(degraded, rate, judge_calls, judge_errors)``. ``run_judge_tel`` is the live
+    per-run ``{calls, judge_error}`` dict bound by ``begin_run_judge_telemetry()`` at the
+    run boundary; by the time the verified-section floor is evaluated, generation +
+    per-sentence verification have completed, so this counter is already FINAL — reading it
+    here is a pure observation with no side effect and no double-count (zero base, same as
+    the late read).
+
+    When telemetry is unavailable (``None`` — the rare import-failure path), this returns
+    ``degraded=False``: the early relabel is INERT and today's gap-abort label stands
+    unchanged. The late canonical path's reason-grep fallback (which needs ``verif_details``,
+    not yet built at the floor gate) remains the authority in that degraded-telemetry case.
+    This is a LABEL-only attribution helper; it touches no faithfulness gate, threshold, or
+    cited-evidence set."""
+    if run_judge_tel is None:
+        return (False, 0.0, 0, 0)
+    judge_calls, judge_errors = _judge_calls_and_errors_from_telemetry(
+        {"calls": 0, "judge_error": 0}, run_judge_tel,
+    )
+    rate = (judge_errors / judge_calls) if judge_calls else 0.0
+    return (rate > max_judge_error_rate(), rate, judge_calls, judge_errors)
+
+
+def select_gap_abort_status(
+    *, has_verified_sections: bool, excessive_gap: bool, judge_degraded: bool,
+) -> str:
+    """ITEM 3 (I-arch-007 death-forensic): PURE 3-way abort-cause selector for the
+    gap/empty terminal block. This mirrors the EXACT inline priority in ``run_one_query``
+    so the cause-attribution ordering is unit-testable without driving the giant run.
+
+    Precondition: the caller only enters this block when ``not has_verified_sections OR
+    excessive_gap`` (the verified-section floor gate). Priority:
+      1. ``judge_degraded`` → ``abort_verifier_degraded`` — the binding verifier bricked;
+         the verified-section shortfall is a VERIFIER outage, NOT a coverage gap. This wins
+         so the operator is NOT told to "widen retrieval" (the exactly-wrong remedy).
+      2. ``excessive_gap`` → ``abort_excessive_gap`` — a genuine coverage shortfall with a
+         HEALTHY verifier.
+      3. else (no verified sections, healthy verifier) → ``abort_no_verified_sections``.
+
+    LABEL-ONLY: every branch is a non-success abort that ships NO findings report; this
+    selector changes no verdict, threshold, sentinel, or cited-evidence set."""
+    if judge_degraded:
+        return "abort_verifier_degraded"
+    if excessive_gap:
+        return "abort_excessive_gap"
+    return "abort_no_verified_sections"
+
+
+# ITEM 5 (I-arch-007 death-forensic): the generator entry point that consumes the SLATE owner's
+# reused section drafts + reconstructed outline + verdict-free section/atom metadata, SKIPS the
+# Stage-2 section-draft LLM calls + the advisory credibility pass, and re-runs strict_verify +
+# NLI-repair + 4-role D8 on the reused drafts. LAW VI: the hook name is a single named constant so
+# the fail-loud message and any future generator owner reference the SAME symbol. (The generator
+# side of ITEM 5a — accepting cached drafts and bypassing the draft LLM call — is OWNED by the
+# multi_section_generator file, which this SWEEP owner does NOT edit. Until that hook lands, the
+# ON path fails LOUD here rather than silently re-generating, per LAW II + the plan's ITEM-5
+# deferral clause: "If neither is feasible within the keystone batch, ITEM 5 is DEFERRED".)
+_POSTGEN_REUSE_GENERATOR_HOOK = "generate_multi_section_report_from_reused_drafts"
+
+
+def _load_postgen_reuse_reentry(*, run_dir, log):
+    """ITEM 5 (I-arch-007 death-forensic) CONSUMER WIRING. Load + fail-loud-validate the SLATE
+    owner's ``generation_snapshot`` and resolve the generator's cached-draft re-entry callable.
+
+    Returns ``(active, reentry_callable)``:
+      * ``(True, callable)`` — the snapshot loaded, the generation-affecting flag slate matched,
+        the outline reconstructed, AND the generator's cached-draft hook is available. The caller
+        invokes ``reentry_callable(...)`` to SKIP the section-draft LLM calls + the advisory
+        credibility pass and re-run every binding gate on the reused drafts.
+
+    Raises (LAW II, FAIL LOUD — never a silent fresh re-generate when reuse was requested):
+      * ``generation_snapshot.GenerationSnapshotError`` from ``load_generation_snapshot`` /
+        ``assert_generation_flags_match`` (absent / corrupt / version-mismatched / verdict-leaked /
+        incomplete-section-metadata / contract-section / atom-refusal-mode / empty-draft /
+        flag-slate-mismatch snapshot). These ARE the corpus + generation identity guarantee — a
+        draft produced under a different writer/flag config is refused at the source.
+      * ``RuntimeError`` when the generator's cached-draft re-entry hook is not yet present (the
+        ITEM-5a generator-side deferral): the load side is fully wired, but skipping the draft LLM
+        call + re-verifying the reused draft lives in the generator file. Refuse loudly rather than
+        re-generate silently (which would mask the interruption and defeat the feature).
+
+    FAITHFULNESS-NEUTRAL: this helper only LOADS verdict-free DATA and resolves a callable. It
+    re-runs NO gate itself and stores NO verdict; the resolved callable re-runs strict_verify +
+    NLI + 4-role D8 on the reused drafts exactly as a fresh run. The SLATE loader's RECURSIVE
+    verdict-key guard makes replaying a stored decision structurally impossible (§-1.3 ABSOLUTE)."""
+    from src.polaris_graph.generator import generation_snapshot as _gen_snapshot
+    from src.polaris_graph.generator import multi_section_generator as _msg
+
+    payload = _gen_snapshot.load_generation_snapshot(run_dir)  # fail-loud-validates everything
+    _gen_snapshot.assert_generation_flags_match(payload)       # identity: writer + flag slate
+    reused_outline = _gen_snapshot.reconstruct_outline(payload)
+    reused_drafts = dict(payload.get("section_raw_drafts") or {})
+    reused_section_plans = dict(payload.get("section_plans") or {})
+    reused_atom_catalogs = dict(payload.get("section_atom_catalogs") or {})
+
+    hook = getattr(_msg, _POSTGEN_REUSE_GENERATOR_HOOK, None)
+    if hook is None or not callable(hook):
+        raise RuntimeError(
+            "ITEM 5 postgen-resume reuse FAILED LOUD: PG_RESUME_REUSE_POSTGEN is ON and the "
+            "generation_snapshot loaded + validated, but the generator's cached-draft re-entry "
+            f"hook multi_section_generator.{_POSTGEN_REUSE_GENERATOR_HOOK} is not available. The "
+            "load side of ITEM 5 is fully wired (drafts + outline + verdict-free section/atom "
+            "metadata reconstructed); skipping the section-draft LLM calls and re-verifying the "
+            "reused drafts is OWNED by the generator file (not editable by this owner). Refusing "
+            "to silently re-generate — clear PG_RESUME_REUSE_POSTGEN to re-generate from "
+            "corpus_snapshot, or land the generator-side hook (ITEM 5a generator deferral)."
+        )
+
+    log(
+        "[resume]      ITEM 5 postgen reuse ACTIVE: generation_snapshot loaded + flag-slate "
+        f"matched; reusing {len(reused_drafts)} raw section draft(s) + "
+        f"{len(reused_section_plans)} section plan(s) — SKIP Stage-2 draft LLM calls + advisory "
+        "credibility pass; re-run strict_verify + NLI + D8 on the reused drafts (every binding "
+        "gate re-runs)."
+    )
+
+    async def _reentry(
+        *, research_question, evidence, prior_verified_context,
+        credibility_pass_judge, credibility_pass_gov_suffixes,
+    ):
+        return await hook(
+            research_question=research_question,
+            evidence=evidence,
+            prior_verified_context=prior_verified_context,
+            reused_section_raw_drafts=reused_drafts,
+            reused_outline=reused_outline,
+            reused_section_plans=reused_section_plans,
+            reused_section_atom_catalogs=reused_atom_catalogs,
+            # The credibility pass is SKIPPED on reuse (advisory, pure LABEL) — pass the inputs
+            # through so the hook's signature matches the fresh-run generator; the hook does NOT
+            # run the pass under the reuse path (per ITEM 5: skip the advisory credibility pass).
+            credibility_pass_judge=credibility_pass_judge,
+            credibility_pass_gov_suffixes=credibility_pass_gov_suffixes,
+        )
+
+    return True, _reentry
 
 
 async def run_one_query(
@@ -7986,6 +8195,32 @@ async def run_one_query(
             f"(required={_require_cred_redesign})"
         )
 
+        # ITEM 5 (I-arch-007 death-forensic): POST-GENERATION RESUME REUSE pre-decision.
+        # When PG_RESUME_REUSE_POSTGEN is ON and a --resume found the SLATE owner's
+        # generation_snapshot, REUSE the verdict-free section RAW DRAFTS + the section/atom
+        # re-entry metadata to SKIP the Stage-2 section-draft LLM calls AND the advisory
+        # credibility pass, then re-run strict_verify + NLI-repair + 4-role D8 on the reused
+        # drafts EXACTLY as a fresh run (the Q78 over-drop re-verify experiment: re-verify the
+        # same drafts with the ITEM-2a healed judge). Default OFF => this block is INERT and the
+        # generation call below is byte-identical (the SLATE module is imported LAZILY only on the
+        # ON path). LAW VI env gate; LAW II FAIL-LOUD on every divergence — never a silent
+        # re-generate or a silent re-verify against a different corpus.
+        #
+        # IDENTITY MODEL (advisor, dual-source dedup): corpus + generation identity is the SLATE
+        # owner's model, NOT a parallel hash. load_generation_snapshot fail-loud-validates the
+        # schema version, the RECURSIVE verdict-key guard, the section_plans/section_atom_catalogs
+        # completeness, the contract-section refusal, the atom-refusal-mode refusal, and the empty-
+        # draft refusal; assert_generation_flags_match fail-loud-validates that the generation-
+        # affecting flag slate (incl. PG_GENERATOR_MODEL + PG_SWEEP_CREDIBILITY_REDESIGN) matches
+        # the run that produced the cached drafts. That IS the corpus/draft-identity guarantee —
+        # reusing a draft produced under a different writer/flag config is refused at the source.
+        _reuse_postgen_active = False
+        _reuse_postgen_reentry = None
+        if _env_flag("PG_RESUME_REUSE_POSTGEN", default=False) and resume:
+            _reuse_postgen_active, _reuse_postgen_reentry = _load_postgen_reuse_reentry(
+                run_dir=run_dir, log=_log,
+            )
+
         _pathb_gen_tok = _pathb.set_role("generator")
         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
         # BUG-3 (#1262): generation + per-sentence verification is ONE batched `await` with no
@@ -8003,7 +8238,28 @@ async def run_one_query(
             )
         )
         try:
-            multi = await generate_multi_section_report(
+            if _reuse_postgen_active:
+                # ITEM 5: SKIP the Stage-2 section-draft LLM calls + the advisory credibility
+                # pass. The resolved re-entry callable feeds the reused raw_drafts + reconstructed
+                # outline + verdict-free section/atom metadata into the generator's cached-draft
+                # path, which re-runs strict_verify + NLI-repair + 4-role D8 and returns a
+                # MultiSectionResult equivalent to a fresh run that generated the same drafts.
+                # NEITHER skipped stage is a faithfulness gate (generation = raw LLM drafting; the
+                # credibility pass is ADVISORY — a pure LABEL, never feeds is_verified /
+                # strict_verify). Every binding gate re-runs from scratch on the reused drafts.
+                multi = await _reuse_postgen_reentry(
+                    research_question=q["question"],
+                    evidence=evidence_for_gen,
+                    prior_verified_context=_prior_verified_context,
+                    credibility_pass_judge=_cred_judge,
+                    credibility_pass_gov_suffixes=_cred_gov,
+                )
+            else:
+                # default path (PG_RESUME_REUSE_POSTGEN OFF) — byte-identical to today. The
+                # call's keyword arguments retain their historical 12-space indentation (Python
+                # ignores indentation inside the open paren); only the statement's first line is
+                # re-indented into the else-branch.
+                multi = await generate_multi_section_report(
                 research_question=q["question"],
                 evidence=evidence_for_gen,
                 prior_verified_context=_prior_verified_context,
@@ -8578,8 +8834,71 @@ async def run_one_query(
             and is_excessive_gap(_verified_count, _total_sections, _min_frac)
         )
         if not verified_sections or _excessive_gap:
-            if _excessive_gap:
-                _abort_status = "abort_excessive_gap"
+            # ITEM 3 (I-arch-007 death-forensic): CORRECT abort cause-attribution. The
+            # binding entailment verifier may have bricked its shared client (the Q78
+            # death) → most claims fail-CLOSED-dropped → the report falls below the floor
+            # not because of a COVERAGE gap but because the VERIFIER was degraded.
+            # Mis-labeling that as abort_excessive_gap tells the operator to "widen
+            # retrieval" — the exactly-wrong remedy. The pipeline already has the right
+            # guard (judge_error_rate > PG_MAX_JUDGE_ERROR_RATE, computed canonically at the
+            # verification stage below), but that gate ran AFTER this branch's early
+            # `return`, so it was pre-empted. HOIST the attribution: read the SAME per-run
+            # telemetry counter (already FINAL — generation+verification completed) and, when
+            # the verifier is degraded, label THIS terminal abort abort_verifier_degraded.
+            #
+            # SCOPE (Codex P2, plan §ITEM-3): this relabel fires ONLY inside this gap/empty
+            # block (which already `return`s — no report ships either way), so the non-gap
+            # always-release LABEL-AND-CONTINUE path (the canonical degraded handling further
+            # below) stays byte-identical and fully reachable. Telemetry-None → INERT (today's
+            # gap label stands; the late reason-grep fallback remains the authority there).
+            # LABEL-ONLY: no verdict, no threshold, no judge_error sentinel, no 0.40 floor
+            # moves — both statuses are non-success aborts that ship no findings report.
+            (
+                _jerr_degraded_early,
+                _jerr_rate_early,
+                _jerr_calls_early,
+                _jerr_errs_early,
+            ) = judge_error_degraded_from_telemetry(_run_judge_tel)
+            _abort_status = select_gap_abort_status(
+                has_verified_sections=bool(verified_sections),
+                excessive_gap=_excessive_gap,
+                judge_degraded=_jerr_degraded_early,
+            )
+            if _abort_status == "abort_verifier_degraded":
+                _abort_error = (
+                    f"judge_error_rate={_jerr_rate_early:.4f} > cap "
+                    f"{max_judge_error_rate():.4f} "
+                    f"({_jerr_errs_early}/{_jerr_calls_early} judge calls) — the binding "
+                    f"entailment verifier was degraded; the "
+                    f"{_verified_count}/{_total_sections} verified-section shortfall is a "
+                    f"VERIFIER outage, not a coverage gap (do NOT widen retrieval)"
+                )
+                # Render a VERIFIER-DEGRADED body (NOT the gap/no-verified body) so the operator-
+                # facing report.md does not tell them to "widen retrieval" — the exactly-wrong
+                # remedy for a verifier outage. This is the literal Q78 bug ITEM 3 kills: the body
+                # the operator reads must frame the TRUE cause (a degraded BINDING verifier), not a
+                # coverage gap. LABEL-only artifact; no findings ship.
+                _abort_body = build_verifier_degraded_abort_body(
+                    q["question"],
+                    multi.sections,
+                    verified_count=_verified_count,
+                    judge_error_rate=_jerr_rate_early,
+                    judge_errors=_jerr_errs_early,
+                    judge_calls=_jerr_calls_early,
+                    judge_error_cap=max_judge_error_rate(),
+                )
+                _abort_dropped = _total_sections - _verified_count
+                _abort_verified = sum(
+                    getattr(sr, "sentences_verified", 0) or 0
+                    for sr in verified_sections
+                )
+                _log(
+                    f"[ABORT]       abort_verifier_degraded — judge_error_rate "
+                    f"{_jerr_rate_early:.3f} ({_jerr_errs_early}/{_jerr_calls_early} judge "
+                    f"calls) > cap {max_judge_error_rate():.3f}; the verified-section "
+                    f"shortfall is a degraded BINDING verifier, NOT a coverage gap."
+                )
+            elif _abort_status == "abort_excessive_gap":
                 _abort_error = (
                     f"only {_verified_count}/{_total_sections} sections produced "
                     f"verified prose ({_verified_count / _total_sections:.2%}) — "
@@ -8600,7 +8919,6 @@ async def run_one_query(
                     f"ship a mostly-gap-stubbed report as success."
                 )
             else:
-                _abort_status = "abort_no_verified_sections"
                 _abort_error = (
                     f"all {_total_sections} sections dropped at strict_verify"
                 )
@@ -8635,6 +8953,15 @@ async def run_one_query(
                     "min_verified_section_fraction": _min_frac,
                 },
             })
+            # ITEM 3: on the hoisted verifier-degraded relabel, carry the verifier-trust
+            # fields onto the terminal manifest so the operator sees the TRUE cause (and the
+            # degraded gate's denominator) on the abort artifact itself.
+            if _abort_status == "abort_verifier_degraded":
+                manifest["verifier_judge_error_rate"] = round(_jerr_rate_early, 4)
+                manifest["verifier_judge_error_count"] = _jerr_errs_early
+                manifest["verifier_judge_calls"] = _jerr_calls_early
+                manifest["verifier_judge_error_cap"] = max_judge_error_rate()
+                manifest["release_allowed"] = False
             manifest = augment_v6_manifest(
                 manifest,
                 external_run_id=q.get("external_run_id"),

@@ -1642,3 +1642,17 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **Fix commit:** `201613e2`. Stale fact_dedup drop-tests rewritten to keep-all; contradiction `_ev` fixtures → distinct source_url/evidence_id; +6 behavioral tests. 190 tests green.
 - **iter2 (bfwo9gs97, codex confirmation gate, 89k tokens, rc=0):** **verdict APPROVE** — release/gen/fetch/sweep P0 + sweep P1 ALL closed; `faithfulness_relaxation_found: no`; novel_p0 []; p1 []; convergence_call accept_remaining.
 - **Net:** campaign code Codex-APPROVED on a clean committed tree. NEXT = behavioral preflight → 5-VM fan-out with `state/iarch007_run_slate.env`.
+
+### I-arch-007 over-strict guard (advisor catch) — APPROVE (2026-06-15)
+
+- Advisor flagged the ASYMMETRY: the iter1 RELEASE fix was verified strict-enough (fail-open closed) but not that it isn't OVER-strict. A release-asserting status via the legacy path (no release_disclosure) would reconstruct adjudicated=False → FALSE-HOLD a legitimate run = the drb_90 empty-report from the over-strict side.
+- Verified: `always_release_enabled()` is True by default (real run always serializes adjudicated); exactly ONE release_disclosure writer. Closed the narrow legacy risk by deriving adjudicated from REAL D8 evidence (final_verdicts non-empty) when the serialized key is absent. Extracted `reconstruct_release_outcome_from_manifest` (pure helper) + 3 behavioral tests; all preserved real manifests pass with no false-HOLD. Commit `ad8dd596`.
+- **Codex confirm (biia3azz1):** verdict APPROVE — fail_open_stays_closed yes, no_false_hold yes, seam_honored yes, faithfulness_relaxation_found no. **34 iarch007 tests green.**
+- **Campaign code is fully Codex-APPROVED + over-strict-hardened on clean HEAD ad8dd596. Gate-to-spend GREEN.** NEXT = behavioral preflight (Q90 / A11-zero) → deploy ad8dd596 → 5-VM fan-out.
+
+### I-arch-007 fast-smoke harness — Codex caught wrong-runner, corrected (2026-06-15)
+
+- Operator: shrink STORM + URLs to a ~15-min run so bugs surface fast, then scale up. Codex review of the first draft = REQUEST_CHANGES with 3 real wiring P1s: (1) `PG_LIVE_FETCH_CAP` is disclosure-only — the runner enforces `PG_SWEEP_*`; (2) `--pathB-gate` does NOT fire the 4-role D8 (only `run_gate_b.py` does); (3) the `pending_operator_signature` lock blocks only the abandoned --pathB-gate path.
+- Root mechanism: `run_gate_b.py` is the ONLY 4-role launcher, and its slate FLOORS breadth UP to ~1000 URLs (`max(env, slate)`), so env-shrink can't make it fast. Fix = a real harness capability.
+- Built `--smoke-scale` flag on run_gate_b.py: force-sets `_SMOKE_SCALE_OVERRIDES` AFTER the floor (~45 URLs total + coherent short timeout hierarchy 300<600<900<1800<2400 + medium reasoning effort + capture). INPUT-breadth + backstops only; faithfulness/A20-funnel/4-role untouched; default-OFF byte-identical (verified). +3 unit tests green. Commit `6eb89f53`, pushed to origin.
+- NEXT = Codex review the corrected harness → deploy to drb_72 → `--list` no-spend verify → `--smoke-scale` Q90 launch → forensic §-1.4 monitor → if PASS, scale up to the 5-VM run.
