@@ -174,7 +174,10 @@ _BENCHMARK_LINEUP_DEFAULT_SLUG = {
 # slipping past the gate. The family is the slug's provider prefix (`provider/model`): for all
 # four lineup members `slug.split("/")[0]` IS the family (z-ai / ibm-granite / qwen / deepseek).
 _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
-    "mirror": "z-ai",
+    # GLM-5.2 COMPARISON ARM (branch bot/glm52-vs-deepseek-compare): the generator is z-ai/glm-5.2,
+    # so the Mirror is re-picked to deepseek/deepseek-v4-pro (lane 'deepseek') to keep all 4 roles
+    # distinct families (glm/deepseek/minimax/qwen) and avoid GLM self-verifying GLM. Was 'z-ai'.
+    "mirror": "deepseek",
     # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
     "sentinel": "minimax",
     "judge": "qwen",
