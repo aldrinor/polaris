@@ -3699,7 +3699,13 @@ async def _run_section(
     # check. Telemetry (attempts/successes/failures) accumulates on
     # the SectionResult so the manifest can report recovery rate.
     section_repair_telemetry = None
-    try:
+    # FIX K (Codex P2-1): skip the LLM sentence-repair loop for the deterministic
+    # verified-span render. Repairing a dropped self-quote PARAPHRASES it into model
+    # prose — defeating K's core "every citation is the source's OWN verbatim words"
+    # traceability property — and re-introduces an LLM call. A unit the span-finder
+    # could not bind stays dropped, never reworded; report stays as strict_verify left it.
+    if not _evsr:
+      try:
         from src.polaris_graph.generator.sentence_repair import (
             repair_dropped_section_sentences,
         )
@@ -3738,7 +3744,7 @@ async def _run_section(
         report.dropped_sentences = repaired_dropped
         report.total_kept = len(repaired_kept)
         report.total_dropped = len(repaired_dropped)
-    except Exception as exc:
+      except Exception as exc:
         logger.warning(
             "[multi_section] %s repair_loop failed (non-fatal): %s",
             section.title, exc,
