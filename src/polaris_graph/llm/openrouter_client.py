@@ -1382,7 +1382,14 @@ class OpenRouterClient:
                 "OPENROUTER_API_KEY not set. Add it to .env file."
             )
 
+        # BUG 3 (X509 SSL race): share the process-wide cert-verifying SSLContext
+        # so concurrent OpenRouterClient construction never re-parses the PEM
+        # bundle (the `[X509] PEM lib` race seen on the parallel verify/judge
+        # path). httpx accepts an ssl.SSLContext for verify= identically on
+        # AsyncClient; TLS verification stays ENABLED (CERT_REQUIRED + hostname).
+        from src.utils.shared_ssl_context import get_shared_ssl_context
         self._client = httpx.AsyncClient(
+            verify=get_shared_ssl_context(),
             base_url=self.base_url,
             headers={
                 "Authorization": f"Bearer {self.api_key}",

@@ -383,7 +383,16 @@ class _EntailmentJudge:
         sockets are reaped. The HANG-J3 total-deadline (see judge()) bounds a TRICKLED socket the
         read-stall alone cannot. Verdict logic untouched."""
         import httpx  # local import: avoid forcing the dep when off
+
+        # BUG 3 (X509 SSL race): pass the process-wide shared, cert-verifying
+        # ssl.SSLContext so httpx does NOT re-parse the PEM bundle on this
+        # per-thread client build. The Q78 run-killer was concurrent thread-local
+        # entailment client construction racing ssl.create_default_context's
+        # PEM parse -> `[X509] PEM lib`. TLS verification stays ENABLED — the
+        # shared context is CERT_REQUIRED + check_hostname (verify-neutral).
+        from src.utils.shared_ssl_context import get_shared_ssl_context
         return httpx.Client(
+            verify=get_shared_ssl_context(),
             timeout=httpx.Timeout(
                 connect=_ENTAILMENT_CONNECT_S,
                 read=_ENTAILMENT_READ_STALL_S,

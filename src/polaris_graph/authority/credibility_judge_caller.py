@@ -257,7 +257,14 @@ def make_openrouter_credibility_caller(
                 # wall-deadline the helper force-closes the client; the NEXT iteration's fresh
                 # `with httpx.Client(...)` IS the bounded-retry rebuild (no separate rebuild needed —
                 # this caller, unlike the entailment singleton, opens a new client per attempt).
-                with httpx.Client(timeout=client_timeout) as client:
+                # BUG 3 (X509 SSL race): share the process-wide cert-verifying
+                # SSLContext so this per-attempt client build never re-parses the
+                # PEM bundle under concurrency (the `[X509] PEM lib` race). TLS
+                # verification stays ENABLED.
+                from src.utils.shared_ssl_context import get_shared_ssl_context
+                with httpx.Client(
+                    verify=get_shared_ssl_context(), timeout=client_timeout
+                ) as client:
                     response = _post_with_total_deadline(
                         client,
                         endpoint,

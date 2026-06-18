@@ -39,6 +39,7 @@ disclosure block + the PT08 evaluator input (the numeric renderer is untouched).
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import math
@@ -78,6 +79,48 @@ _JUDGE_WRITE_S = float(os.getenv("PG_NLI_CONFLICT_WRITE_S", "60"))
 _JUDGE_POOL_S = float(os.getenv("PG_NLI_CONFLICT_POOL_S", "30"))
 _JUDGE_MAX_KEEPALIVE = int(os.getenv("PG_NLI_CONFLICT_MAX_KEEPALIVE", "8"))
 _JUDGE_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_NLI_CONFLICT_KEEPALIVE_EXPIRY_S", "30"))
+# I-arch-007 BUG-2 (verify-hang, 2026-06-17): the read-stall above (read=_JUDGE_READ_STALL_S) is a per-read
+# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the NLI-conflict judge
+# socket ESTABLISHED and TRICKLES keep-alive bytes (chunked keep-alives), so the gap timer never elapses and
+# a SINGLE bare `self._client.post` in `_post_once` runs UNBOUNDED — observed freezing entire cQ72/cQ90
+# verify-phase runs (the main thread parks forever in httpcore `read`, flat CPU / ep_poll). The sibling
+# entailment judge (entailment_judge.py:115 HANG-J3), the credibility judge (credibility_judge_caller.py:104)
+# and the 4-role transport (openrouter_role_transport.py:463) were ALL hardened with this exact HARD TOTAL
+# per-call wall-deadline; this NLI-conflict side-judge was the one bare POST that slipped. Fix: bound the
+# WHOLE call with `_post_with_total_deadline` (below); on timeout force-close the hung client + REBUILD a
+# fresh one, then RAISE so the existing `call_side_judge_with_guard` retry/sentinel path runs — the timeout
+# surfaces as the SAME conflict_unscored / fail-open outcome a transport failure already produces. Transport-
+# only: the (label, confidence) verdict logic + the strict-fail-closed contract are UNCHANGED. LAW VI:
+# env-driven; default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed) while
+# bounding the trickle hang.
+_JUDGE_TOTAL_S = float(os.getenv("PG_NLI_CONFLICT_TOTAL_S", "150"))
+
+
+def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+    """I-arch-007 BUG-2: run the blocking NLI-conflict POST under a HARD total wall-deadline.
+
+    httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
+    this bounds the WHOLE call so one hung judge POST can never freeze the verify phase. Runs the POST
+    on a worker thread and waits at most ``total_s``. On timeout the client is force-closed (so the
+    worker's hung read errors out and the thread exits) and ``concurrent.futures.TimeoutError`` is
+    re-raised for the caller's force-close+rebuild+retry. Ports ``entailment_judge._post_with_total_
+    deadline`` verbatim (the ``client.close()`` is guarded so a flaky close never masks the timeout).
+    Returns the ``httpx.Response`` on success.
+    """
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+    try:
+        return fut.result(timeout=total_s)
+    except concurrent.futures.TimeoutError:
+        try:
+            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    finally:
+        # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
+        # client.post exception). wait=False so a still-unsticking worker never blocks us.
+        ex.shutdown(wait=False)
 
 # I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
 # free, billed by usage not pre-allocated"): the NLI conflict judge is the SAME GLM-5.1 model pinned to the
@@ -513,7 +556,23 @@ class _SemanticContradictionJudge:
         # I-arch-006 HANG-J1 sibling (#1262): explicit tight read-stall + bounded keepalive (see the
         # constant block above) replaces the bare-float per-read 30s gap that let a trickled judge POST
         # run unbounded. Verdict logic unchanged.
-        self._client = httpx.Client(
+        # I-arch-007 BUG-2 (verify-hang): the HANG-J3-style TOTAL wall-deadline (see judge() ->
+        # _post_with_total_deadline) bounds a TRICKLED socket the per-read gap alone cannot; build via
+        # _build_client so the timeout path can force-close + REBUILD a fresh client after a hang.
+        self._client = self._build_client()
+
+    def _build_client(self):
+        """Construct the NLI-conflict httpx client.
+
+        BUG 3 (X509 SSL race): share the process-wide cert-verifying SSLContext so concurrent verify-path
+        client builds never re-parse the PEM bundle (the ``[X509] PEM lib`` race). TLS verification stays
+        ENABLED. I-arch-007 BUG-2: the HANG-J3-style total-deadline path (judge()) force-closes + rebuilds
+        through here after a trickle hang. Verdict logic untouched."""
+        import httpx  # local import: avoid forcing the dep when off
+
+        from src.utils.shared_ssl_context import get_shared_ssl_context
+        return httpx.Client(
+            verify=get_shared_ssl_context(),
             timeout=httpx.Timeout(
                 connect=_JUDGE_CONNECT_S,
                 read=_JUDGE_READ_STALL_S,
@@ -610,14 +669,34 @@ class _SemanticContradictionJudge:
             Billed per ACTUAL call (each B14 retry that re-invokes this is a real call), so
             the cost ledger stays honest. ``BudgetExceededError`` propagates unchanged (the
             B14 guard re-raises it via ``propagate``) so the caller's keep-partial fires."""
-            response = self._client.post(
-                self._endpoint,
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=json_body,
-            )
+            # I-arch-007 BUG-2 (verify-hang): HARD total wall-deadline around the POST so a trickled
+            # keep-alive socket (the per-read gap timer never fires) cannot hang the verify phase. On
+            # timeout: force-close + rebuild a fresh client, then RAISE — the bare raise propagates up to
+            # `call_side_judge_with_guard`, which treats ANY non-`propagate` exception as a failed attempt
+            # and (after its bounded retry) emits the existing conflict_unscored / fail-open outcome. The
+            # (label, confidence) verdict logic + strict-fail-closed contract are UNCHANGED.
+            try:
+                response = _post_with_total_deadline(
+                    self._client,
+                    self._endpoint,
+                    {
+                        "Authorization": f"Bearer {self._api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json_body,
+                    _JUDGE_TOTAL_S,
+                )
+            except concurrent.futures.TimeoutError:
+                # SINGLE-WRITER safe (no thread-local needed, unlike entailment_judge.py:340-351): this
+                # judge runs in the SEQUENTIAL P5 claim-graph step (credibility_pass._run_chain -> build_
+                # claim_graph -> detect_semantic_conflicts), which judges pairs SERIALLY on the main thread
+                # — NOT inside a verifier ThreadPoolExecutor fan-out (that is the EARLIER, separate P3 step
+                # in run_credibility_analysis). So no sibling worker is ever mid-`post` on this shared client
+                # when the force-close fires -> the Q78 cross-thread-close TLS race cannot occur here.
+                self._client = self._build_client()  # old one was force-closed in the helper
+                raise RuntimeError(
+                    f"nli_conflict_total_deadline_exceeded_{int(_JUDGE_TOTAL_S)}s"
+                )
             response.raise_for_status()
             served = response.json()
             usage = served.get("usage", {}) or {}
