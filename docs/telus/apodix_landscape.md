@@ -1,6 +1,6 @@
 # Apodix — The Landscape (deep / current / provable), 2026
 
-*Dated 2026-06-18. A government-grade analysis of deep-research engines and the verification layer around them, built from a 5-lane research workflow (8 agents, recency + honesty audited). Every quantitative claim is sourced to a primary 2025-2026 reference. No benchmark is claimed for Apodix's own gate; no "beats GPT/Gemini" claim is made — the competitor failure numbers are independently-measured findings about the FIELD.*
+*Dated 2026-06-18. An audit-grade analysis of deep-research engines and the verification layer around them, built from a 5-lane research workflow (8 agents, recency + honesty audited). Every quantitative claim is sourced to a primary 2025-2026 reference. No benchmark is claimed for Apodix's own gate; no "beats GPT/Gemini" claim is made — the competitor failure numbers are independently-measured findings about the FIELD.*
 
 > **One correction applied to the raw research:** a research agent wrongly claimed "$1.6M is inflated; use AU$440K." Both Deloitte cases are real and independently verified: the **CA$1.6M Newfoundland & Labrador** health report (Fortune, Nov 2025 — the *Canadian* case, primary here) AND the separate **AU$440K Australian DEWR** report (refunded final installment, Oct 2025). The CA$1.6M figure is retained.
 
@@ -54,9 +54,9 @@ So the field substitutes **topical resemblance** for **logical support** — not
 
 ## 3a. VERTICAL HIGH-STAKES — compete on domain trust, verify by whitelist / cross-reference
 
-*The two best-funded professional verticals — clinical and legal — are exactly the Government of Canada's own use cases. Both have $B-scale leaders that solved the **fabricated-source** problem and still do not run a per-claim entailment-vs-span check. The missing hop is not an academic edge case; it is unclosed in the buyer's own domain.*
+*The two best-funded professional verticals — clinical and legal — are exactly the high-stakes domains a sovereign buyer deploys into. Both have $B-scale leaders that solved the **fabricated-source** problem and still do not run a per-claim entailment-vs-span check. The missing hop is not an academic edge case; it is unclosed in the buyer's own domain.*
 
-- **OpenEvidence (clinical) — compete on source trust, verify by whitelist.** A medical-only deep-research engine answering physician questions over a **whitelist of peer-reviewed journals** (NEJM, JAMA Network, 300+ titles — *no open web*), with clickable inline citations; Quick Consult / Deep Consult modes; ~**757k verified U.S. physicians and ~20M+ clinical consults/month** (early 2026), embedded in **Microsoft Dragon Copilot**. *Verifies:* by **source-whitelist + inline-citation linkage** — every citation is a real, named, high-quality article, which removes the *fabricated-source* failure but **not** the *cited-but-not-entailed* one. The writer is the citer; no independent post-hoc test that the generated sentence is entailed by the specific cited passage. *Four legs:* ~0.5/4 (closed-weight, cloud). **Squarely the Health Canada beachhead's own domain** — which makes the missing entailment hop a live clinical-safety gap, not a theoretical one.
+- **OpenEvidence (clinical) — compete on source trust, verify by whitelist.** A medical-only deep-research engine answering physician questions over a **whitelist of peer-reviewed journals** (NEJM, JAMA Network, 300+ titles — *no open web*), with clickable inline citations; Quick Consult / Deep Consult modes; ~**757k verified U.S. physicians and ~20M+ clinical consults/month** (early 2026), embedded in **Microsoft Dragon Copilot**. *Verifies:* by **source-whitelist + inline-citation linkage** — every citation is a real, named, high-quality article, which removes the *fabricated-source* failure but **not** the *cited-but-not-entailed* one. The writer is the citer; no independent post-hoc test that the generated sentence is entailed by the specific cited passage. *Four legs:* ~0.5/4 (closed-weight, cloud). **Squarely a regulated clinical domain** — which makes the missing entailment hop a live clinical-safety gap, not a theoretical one.
 - **Harvey (legal) — compete on domain trust, verify by cross-reference + Shepardize.** Legal deep-research and drafting on GPT-class models + RAG over case law and filings; **citation cross-reference + confidence scoring**, integrated with **LexisNexis Shepard's** to flag overruled / negative-treatment authority; reports ~**0.2% internal hallucination** on its own evals yet still errs on niche or recent matters. ~**$8–11B** valuation (2026). *Verifies:* **citation validity** (does this authority exist, is it still good law) — adjacent to entailment but **not** "does THIS passage entail THIS drafted sentence." Independent-ish, but the object is the citation's *standing*, not the span's *support*. *Four legs:* ~0.5/4 (closed-weight, cloud).
 
 ---
@@ -127,7 +127,7 @@ Each leg is shipped by *someone* (except iii). No single product ships all four.
 
 ---
 
-## 9. Honest engineering state (for GoC technical due-diligence)
+## 9. Honest engineering state (for technical due-diligence — sovereign-enterprise or government)
 
 - **Hard half runs today (implemented + tested in-tree):** retrieve → full-content fetch → per-claim basket → deterministic strict_verify (span-bounds + numeric-subset "every decimal in the sentence appears in the cited span" + content-word overlap ≥2) → a different-family entailment judge → drop-or-label enforced *by* the gate.
 - **Co-developed in the pilot:** the full end-to-end render, and especially **Hop 9** — the GPG-signed per-claim record wired all the way into the live deliverable. The signer + conformance tests **exist in-tree**, but the live-wiring through the production render is the pilot piece. **The one place not to over-claim maturity** — leg (iii) is architecturally ready, not fully shipped.
@@ -141,7 +141,7 @@ Two real, verified cases show what citation-decorrelation does to a real governm
 - **CA$1.6M — Newfoundland & Labrador (Canada, the primary case here).** Deloitte's just-under-CA$1.6M, 526-page health-workforce report carried AI-fabricated citations — nonexistent papers, real researchers credited on work they never wrote (Fortune, Nov 2025). *Provincial, not federal — state it plainly.*
 - **AU$440K — Australia (the corroborating second instance).** Deloitte's AU$440,000 DEWR report was **partially refunded (the final installment)** in Oct 2025 after fabricated citations and a made-up Federal Court quote (*Amato v Commonwealth*) survived to delivery.
 
-Both are **one vivid instance each of the field-wide failure mode** mapped above — a topically-relevant citation that did not actually support its claim, in exactly the cite-by-topic hop where every engine leaks. When the buyer is a government department and the stakes are clinical or legal, that leak is not a quality nuisance; it is the liability the four-leg combination is built to remove.
+Both are **one vivid instance each of the field-wide failure mode** mapped above — a topically-relevant citation that did not actually support its claim, in exactly the cite-by-topic hop where every engine leaks. When the stakes are clinical, legal, or regulatory, that leak is not a quality nuisance; it is the liability the four-leg combination is built to remove.
 
 ---
 
