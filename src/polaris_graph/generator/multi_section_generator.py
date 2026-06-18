@@ -3600,6 +3600,19 @@ async def _run_section(
     total_in_tok = 0
     total_out_tok = 0
 
+    # I-arch-008 (#1265) FIX K: deterministic verified-span render for the
+    # weighted-enrichment section ONLY. When ON, the enrichment section SKIPS the
+    # LLM (distill + _call_section) and emits each unbound-SUPPORTS source's OWN
+    # verbatim sentence-units (already isolated-span-verified) for the UNCHANGED
+    # _rewrite_draft_with_spans + strict_verify tail to validate. Default OFF /
+    # any non-enrichment section => False => byte-identical legacy LLM render.
+    from src.polaris_graph.generator.weighted_enrichment import (
+        build_verified_span_draft as _build_verified_span_draft,
+        is_enrichment_section as _is_enrichment_section,
+        render_verified_spans_enabled as _render_verified_spans_enabled,
+    )
+    _evsr = _render_verified_spans_enabled() and _is_enrichment_section(section)
+
     # I-perm-016 (#1209) KEYSTONE: when PG_SECTION_DISTILL is ON, MAP-distill the
     # section evidence into a VALIDATED findings ledger BEFORE the first
     # _call_section. The ledger is threaded into _call_section so the section is
@@ -3607,8 +3620,10 @@ async def _run_section(
     # flag is OFF, distillate stays None and the legacy path is byte-identical
     # (no import, no call). The distiller's own MAP/validation token usage is
     # accounted into the section totals.
+    # FIX K: distill is an LLM step that re-writes prose — skip it for the
+    # deterministic verified-span render so the source's own quote is preserved.
     distillate = None
-    if _section_distill_enabled():
+    if _section_distill_enabled() and not _evsr:
         from src.polaris_graph.generator.evidence_distiller import (
             distill_section_evidence,
         )
@@ -3623,16 +3638,31 @@ async def _run_section(
     # Step 3b commit 3: _call_section now returns the atom_catalog as
     # 4th tuple element. Preserve for Step 3b commit 4 final-hook
     # validator wiring on SectionResult.
-    raw, in_tok, out_tok, section_atom_catalog = await _call_section(
-        section, ev_subset, model, temperature, max_tokens_per_section,
-        tighter_retry=False,
-        contradictions=contradictions,
-        cross_trial_block=cross_trial_block,
-        use_field_agnostic_prompt=use_field_agnostic_prompt,
-        advisory_text=advisory_text,
-        distillate=distillate,
-        research_question=research_question,
-    )
+    if _evsr:
+        # FIX K: deterministic verbatim-span draft — NO LLM. Each source's own
+        # sentence-units (legacy [ev_id]-tagged per unit) feed the UNCHANGED
+        # _rewrite_draft_with_spans + strict_verify tail below, exactly like a
+        # post-_call_section draft. Zero token cost; empty atom catalog (no
+        # generated atoms). An empty draft => strict_verify keeps 0 => the
+        # section renders its gap stub (never a silent success).
+        raw = _build_verified_span_draft(section.ev_ids, evidence_pool)
+        in_tok = out_tok = 0
+        section_atom_catalog = {}
+        logger.info(
+            "[multi_section] %s FIX-K verified-span render: sources=%d draft_chars=%d",
+            section.title, len(section.ev_ids or []), len(raw),
+        )
+    else:
+        raw, in_tok, out_tok, section_atom_catalog = await _call_section(
+            section, ev_subset, model, temperature, max_tokens_per_section,
+            tighter_retry=False,
+            contradictions=contradictions,
+            cross_trial_block=cross_trial_block,
+            use_field_agnostic_prompt=use_field_agnostic_prompt,
+            advisory_text=advisory_text,
+            distillate=distillate,
+            research_question=research_question,
+        )
     total_in_tok += in_tok
     total_out_tok += out_tok
 
@@ -3741,6 +3771,9 @@ async def _run_section(
     # keeps the retry behavior byte-identical.
     if (
         distillate is None
+        and not _evsr  # FIX K: the verified-span draft is deterministic; an LLM
+                       # tighter-retry would re-introduce un-verified generated
+                       # prose. Survivors come only from the source's own spans.
         and post_filter_fraction < min_kept_fraction
         and report.total_in > 0
     ):
@@ -6714,25 +6747,74 @@ async def generate_multi_section_report(
     # ``_run_section``. Default-OFF flag => [] => byte-identical; ``credibility_analysis is None``
     # (degrade / flag-off) => [] => byte-identical. Faithfulness-neutral: the appended section
     # routes through the SAME strict_verify + section floor as every other section.
-    if v30_contract_plans and not partial_mode:
-        from .weighted_enrichment import (
-            breadth_enrichment_enabled as _breadth_enrichment_enabled,
-            build_weighted_enrichment_plan as _build_weighted_enrichment_plan,
-            select_unbound_supports_by_weight as _select_unbound_supports_by_weight,
+    # I-arch-007 #1264 CHOKE-FIX: the precondition gate (the SAME `if v30_contract_plans and not
+    # partial_mode:` the contract-render block uses at ~:6482) and the master flag are each logged
+    # LOUDLY when they SKIP the enrichment, and the selection is taken in its DIAGNOSTIC form so
+    # EVERY empty-exit reason (credibility degraded to None / no baskets / no SUPPORTS members / all
+    # bound-or-pool-absent / all below the relevance floor) is surfaced — never a silent no-op. The
+    # operator's "zero appended weighted-enrichment section log lines in ALL reports" symptom was
+    # this observability hole: prior runs degraded credibility_analysis to None (the trickle-judge
+    # timeout ITEM 1 bounds) and the enrichment emptied WITHOUT a single line saying so.
+    from .weighted_enrichment import (
+        breadth_enrichment_enabled as _breadth_enrichment_enabled,
+        build_weighted_enrichment_plan as _build_weighted_enrichment_plan,
+        diagnose_unbound_supports_selection as _diagnose_unbound_supports_selection,
+    )
+    if not (v30_contract_plans and not partial_mode):
+        logger.info(
+            "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
+            "(v30_contract_plans=%s partial_mode=%s) — non-contract / partial render path",
+            bool(v30_contract_plans), bool(partial_mode),
         )
-        if _breadth_enrichment_enabled():
-            _wfe_ev_ids = _select_unbound_supports_by_weight(
-                evidence_pool=evidence_pool,
-                credibility_analysis=credibility_analysis,
-                contract_plans=list(v30_contract_plans),
+    elif not _breadth_enrichment_enabled():
+        logger.info(
+            "[multi_section] I-arch-007 breadth: enrichment DISABLED "
+            "(PG_BREADTH_ENRICHMENT_ENABLED is off) — byte-identical legacy render",
+        )
+    else:
+        _wfe = _diagnose_unbound_supports_selection(
+            evidence_pool=evidence_pool,
+            credibility_analysis=credibility_analysis,
+            contract_plans=list(v30_contract_plans),
+        )
+        _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
+        if _wfe_plan is not None:
+            plans.append(_wfe_plan)
+            logger.info(
+                "[multi_section] I-arch-007 breadth: appended weighted-enrichment section "
+                "with %d unbound SUPPORTS candidates (pre-strict_verify) "
+                "[baskets=%d supports_members=%d excluded_bound=%d pool_absent=%d below_floor=%d]",
+                len(_wfe.ev_ids), _wfe.baskets_seen, _wfe.supports_members_seen,
+                _wfe.excluded_bound, _wfe.excluded_pool_absent, _wfe.excluded_below_floor,
             )
-            _wfe_plan = _build_weighted_enrichment_plan(_wfe_ev_ids, section_plan_cls=SectionPlan)
-            if _wfe_plan is not None:
-                plans.append(_wfe_plan)
-                logger.info(
-                    "[multi_section] I-arch-007 breadth: appended weighted-enrichment section "
-                    "with %d unbound SUPPORTS candidates (pre-strict_verify)", len(_wfe_ev_ids),
+        elif _wfe.reason == "credibility_analysis_none":
+            # The decisive live gate (the trickle-judge timeout degrade). LOUD + tied to the
+            # already-disclosed credibility gap so an empty enrichment under degrade is auditable,
+            # never silent. Faithfulness-neutral: the advisory credibility pass produces the
+            # SUPPORTS span-verdicts; with it degraded there are honestly no span-verified unbound
+            # members to surface (we do NOT fabricate a verdict).
+            logger.warning(
+                "[multi_section] I-arch-007 breadth: enrichment EMPTY — credibility_analysis "
+                "degraded to None (advisory pass timed out/failed under always-release); the "
+                "unbound-SUPPORTS basket could not be computed. This gap is disclosed via "
+                "credibility_disclosed_gap; the binding strict_verify / 4-role D8 gates are "
+                "unaffected.",
+            )
+            if _credibility_disclosed_gap is None:
+                _credibility_disclosed_gap = (
+                    "breadth_enrichment_unavailable: the weighted unbound-SUPPORTS enrichment "
+                    "could not be computed because the advisory credibility pass did not complete; "
+                    "only the contract-bound sources are surfaced. The binding faithfulness gates "
+                    "(strict_verify, 4-role D8, span-grounding) are unaffected."
                 )
+        else:
+            logger.warning(
+                "[multi_section] I-arch-007 breadth: enrichment EMPTY (reason=%s) "
+                "[baskets=%d supports_members=%d excluded_bound=%d pool_absent=%d below_floor=%d] "
+                "— no unbound SUPPORTS candidate survived; nothing appended",
+                _wfe.reason, _wfe.baskets_seen, _wfe.supports_members_seen,
+                _wfe.excluded_bound, _wfe.excluded_pool_absent, _wfe.excluded_below_floor,
+            )
 
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY

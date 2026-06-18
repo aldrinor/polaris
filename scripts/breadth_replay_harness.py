@@ -381,6 +381,77 @@ def run_tier2_baskets(rows: list[dict], domain: str, *, verify: bool) -> dict[st
     return out
 
 
+def run_tier_k_render(rows: list[dict], *, k_min: int) -> dict[str, Any]:
+    """FIX K acceptance gate — does the verified-span render flip 0->many citations?
+
+    Replays the EXACT production K path on the snapshot:
+      build_verified_span_draft(ev_ids, pool) -> _rewrite_draft_with_spans -> strict_verify
+    and counts the DISTINCT sources whose own verbatim span survives the UNCHANGED gate.
+    The bug it guards: the enrichment section rendered EMPTY (590 unbound-SUPPORTS in -> 0
+    cited) because the LLM re-generated prose that re-failed strict_verify. K skips the LLM
+    and surfaces each source's already-verified span; this gate FAILS LOUD if the rendered
+    distinct-cited count does not clear ``k_min`` (i.e. K still collapses).
+
+    Faithfulness: NO gate is relaxed. The entailment strictness is whatever
+    ``PG_STRICT_VERIFY_ENTAILMENT`` is in the environment — run with ``=off`` for the
+    DETERMINISTIC floor (offline, no LLM), or unset (=enforce, the production gate) for the
+    real number (LLM-bearing). This harness NEVER fakes the gate. The ev_id set here is the
+    full usable-quote pool (the offline ceiling proxy for the live unbound-SUPPORTS
+    selection); the real selection is a subset, so a PASS here is necessary, not inflated.
+    """
+    import os as _os
+
+    from src.polaris_graph.generator.live_deepseek_generator import (
+        _rewrite_draft_with_spans,
+    )
+    from src.polaris_graph.generator.provenance_generator import (
+        parse_provenance_tokens,
+        strict_verify,
+    )
+    from src.polaris_graph.generator.weighted_enrichment import (
+        build_verified_span_draft,
+        spans_per_source,
+    )
+
+    evidence_pool = {
+        str(r.get("evidence_id")): r for r in rows if r.get("evidence_id")
+    }
+    ev_ids = [
+        str(r.get("evidence_id"))
+        for r in rows
+        if r.get("evidence_id") and (r.get("direct_quote") or "").strip()
+    ]
+    draft = build_verified_span_draft(ev_ids, evidence_pool)
+    rewritten, converted, unverifiable = _rewrite_draft_with_spans(draft, evidence_pool)
+    report = strict_verify(rewritten, evidence_pool)
+
+    cited: set[str] = set()
+    for sv in report.kept_sentences:
+        toks = getattr(sv, "tokens", None) or parse_provenance_tokens(
+            getattr(sv, "sentence", "") or ""
+        )
+        for tok in toks:
+            eid = getattr(tok, "evidence_id", None)
+            if eid:
+                cited.add(str(eid))
+
+    entail_mode = _os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    return {
+        "tier": "k_render",
+        "entailment_mode": entail_mode,
+        "spans_per_source": spans_per_source(),
+        "ev_ids_offered": len(ev_ids),
+        "draft_chars": len(draft),
+        "markers_rewritten": converted,
+        "markers_unverifiable": unverifiable,
+        "sentences_kept": report.total_kept,
+        "sentences_in": report.total_in,
+        "distinct_cited_sources": len(cited),
+        "k_min": k_min,
+        "passed": len(cited) >= k_min,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -403,6 +474,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-verify", dest="verify", action="store_false",
                     help="(with --baskets) structural ceiling only, no LLM (default)")
     ap.set_defaults(verify=False)
+    ap.add_argument("--k-render", action="store_true",
+                    help="FIX K gate: replay build_verified_span_draft -> rewrite -> "
+                         "strict_verify and assert distinct-cited >= --k-min. Run with "
+                         "PG_STRICT_VERIFY_ENTAILMENT=off for the deterministic floor.")
+    ap.add_argument("--k-min", type=int, default=50,
+                    help="FIX K gate floor: minimum distinct-cited sources to PASS (default 50; "
+                         "the broken baseline is ~7).")
     ap.add_argument("--json", action="store_true", help="emit the report as JSON to stdout")
     args = ap.parse_args(argv)
 
@@ -427,6 +505,33 @@ def main(argv: list[str] | None = None) -> int:
     # the verify LLM call when --verify is passed. verified_support_origin_count (the
     # task's >=2 assertion) requires that real verify — never a fake verify_fn (BANNED).
     run_baskets = args.baskets or _basket_step_requested()
+
+    # FIX K gate: a SEPARATE acceptance gate (verified-span render), not the consolidation
+    # one. Run it standalone so its PASS/FAIL is unambiguous and exit code reflects only K.
+    if args.k_render:
+        try:
+            krep = run_tier_k_render(rows, k_min=args.k_min)
+        except Exception as exc:  # noqa: BLE001 - any replay failure is exit-3, fail loud
+            _eprint(f"[breadth-replay] REPLAY ERROR (FIX-K execution): {exc!r}")
+            return 3
+        if args.json:
+            print(json.dumps(krep, indent=2, default=str))
+        else:
+            _eprint("== BREADTH REPLAY (FIX-K verified-span render gate) ==")
+            _eprint(f"  corpus              : {corpus}")
+            _eprint(f"  entailment_mode     : {krep['entailment_mode']} "
+                    f"(off=deterministic floor; enforce=production gate, LLM-bearing)")
+            _eprint(f"  spans_per_source    : {krep['spans_per_source']}")
+            _eprint(f"  ev_ids offered      : {krep['ev_ids_offered']}")
+            _eprint(f"  sentences kept / in : {krep['sentences_kept']} / {krep['sentences_in']}")
+            _eprint(f"  DISTINCT CITED      : {krep['distinct_cited_sources']} "
+                    f"(broken baseline ~7; k_min={krep['k_min']})")
+            if krep["passed"]:
+                _eprint("  VERDICT             : PASS - K surfaced the verified-span basket.")
+            else:
+                _eprint("  VERDICT             : FAIL - K still collapses (distinct-cited "
+                        "below k_min). The render is NOT firing in the output.")
+        return 0 if krep["passed"] else 1
 
     try:
         report = run_tier1(rows, domain=domain, expect_rows=args.expect_rows)
