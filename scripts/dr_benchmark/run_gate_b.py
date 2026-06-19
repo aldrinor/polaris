@@ -870,6 +870,20 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # 4-role-seam verifier POST. Force-EXACT (these are wall-seconds, not capability floors).
     "PG_CREDIBILITY_JUDGE_TOTAL_S": "300",
     "PG_ROLE_TRANSPORT_TOTAL_S": "300",
+    # I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200. The mirror role pins ONE host
+    # (z-ai) with allow_fallbacks:False; z-ai has intermittent empty-body-200 windows under account-QPS load
+    # (measured 2026-06-19: a micro-test stormed with blank-200s during one window, then ran 100% clean ~40min
+    # later — same host, same shape). OpenRouter does NOT auto-advance off a blank (it is an HTTP 200), so
+    # every retry re-hit the SAME blanking host and the entailment judge_error sentinel DROPPED the sentence
+    # in enforce mode -> a FAITHFUL-but-NARROW breadth collapse (the I-arch-011 symptom). ON makes the
+    # entailment + credibility judges ADVANCE through the mirror chain (z-ai->baidu->novita->gmicloud, all
+    # validated 100%-clean+correct on box4) on a blank/parse/bad-verdict fault, so the retry gets a REAL
+    # verdict from a healthy host. FAITHFULNESS-NEUTRAL-to-IMPROVING: same glm-5.1 model on every host
+    # (operator pre-approved judge host non-sovereignty 2026-06-13); a real baidu ENTAILED beats a z-ai-blank-
+    # induced DROP, and a real NEUTRAL/CONTRADICTED still DROPS — the NLI gate logic, the fail-closed sentinel,
+    # the section floor, and the cited-evidence set are ALL untouched. Force-ON so a stray operator =0 cannot
+    # silently restore the single-host blank-storm on the paid run. Default-OFF in code (byte-identical pin).
+    "PG_JUDGE_PROVIDER_ROTATE": "1",
     # I-arch-007 ITEM 2 (#1264) BREADTH — force-ON the weighted unbound-SUPPORTS enrichment section so
     # the benchmark surfaces the ~437 span-verified sources the 5-entity contract funnel drops (the
     # 485->~13 collapse). §-1.3 WEIGHT-AND-CONSOLIDATE: the selection ORDERS by basket weight_mass and
@@ -879,6 +893,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor as
     # every other section; on a degraded pass (credibility_analysis is None) the selection is empty.
     "PG_BREADTH_ENRICHMENT_ENABLED": "1",
+    # I-arch-007 ITEM 6 (#1264) — A15 resume FETCH-SHELL re-fetch. On a --resume the frozen
+    # corpus_snapshot reloads the crashed run's EMPTY-SHELL anchor rows (e.g. SAE J3016, UNECE ALKS,
+    # PACER docket) untouched; empty cited spans -> strict_verify CORRECTLY drops -> the Q90
+    # abort_excessive_gap 96% over-drop. Force-ON so a --resume RE-FETCHes those degraded rows through
+    # the AccessBypass+Zyte cascade and re-grounds direct_quote with real content BEFORE generation. A
+    # row still a shell after the cascade stays disclosed and the UNCHANGED strict_verify drops any
+    # ungrounded claim (NO fabrication). Default OFF in code so a non-benchmark resume is byte-identical.
+    # FAITHFULNESS-SAFE: fixes the INPUT (real spans), touches NO threshold and NO gate.
+    "PG_RESUME_REFETCH_DEGRADED": "1",
     # ITEM 5 (postgen-resume reuse) — DELIBERATELY NOT slate-forced while ITEM 5a is deferred
     # (Codex build-gate iter-1 P1). The CONSUMER wiring (_load_postgen_reuse_reentry) is fully built
     # and fails LOUD, but the GENERATOR-side cached-draft hook
@@ -993,6 +1016,13 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # (PG_RELEVANCE_SCORER is a string value -> asserted separately below, not here.)
     "PG_RETRIEVAL_RELEVANCE_GATE",
     "PG_SWEEP_CREDIBILITY_REDESIGN",
+    # I-arch-007 ITEM 2 (#1264) CHOKE-FIX: the weighted unbound-SUPPORTS enrichment is the surface
+    # that lifts the 485->~13 breadth collapse — OFF leaves the 5-entity contract funnel intact and
+    # the ~437 span-verified unbound sources are never offered a citing slot. Fail CLOSED if it is
+    # not active for a paid run so the funnel can never silently reach the benchmark. It reads the
+    # credibility baskets, so PG_SWEEP_CREDIBILITY_REDESIGN above is its hard dependency.
+    # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor.
+    "PG_BREADTH_ENRICHMENT_ENABLED",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -1031,6 +1061,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # =0 cannot silently keep the 5-entity contract funnel that dropped ~437 verified sources. Depends
     # on PG_SWEEP_CREDIBILITY_REDESIGN (the baskets it reads). Faithfulness-neutral (strict_verify gates).
     "PG_BREADTH_ENRICHMENT_ENABLED",
+    # I-arch-007 ITEM 6 (#1264): force-on the A15 resume FETCH-SHELL re-fetch so an operator =0 cannot
+    # survive the setdefault slate and silently let a --resume reload empty-shell anchors untouched (the
+    # Q90 over-drop). Faithfulness-safe — re-fetches real content for the INPUT; touches no gate.
+    "PG_RESUME_REFETCH_DEGRADED",
     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
     "PG_GATE_B_CITED_SPAN",
@@ -1156,6 +1190,10 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # is the SAME verdict the caller already handles).
     "PG_CREDIBILITY_JUDGE_TOTAL_S",
     "PG_ROLE_TRANSPORT_TOTAL_S",
+    # I-arch-011 (verify-speed): the judge provider-rotation flag. Force-EXACT "1" so a stray operator =0
+    # cannot silently restore the single-host z-ai blank-storm (which DROPS verified sentences in enforce
+    # mode -> breadth collapse). Faithfulness-neutral-to-improving (same glm-5.1 model, next healthy host).
+    "PG_JUDGE_PROVIDER_ROTATE",
     # I-arch-007 #1264 DORMANT-CAP CLEANUP: pin both number-forcing caps EXACTLY OFF ("0") so a stray
     # operator/.env value can never silently re-enable them (operator: ZERO cap; §-1.3 BANNED bolt-ons).
     # PG_CAPPED_FINDING_DEDUP=0 removes the re-cap-to-max_ev (verified the ONLY consumer is the two
@@ -1632,6 +1670,153 @@ def apply_journal_only_for_slug(slug: str) -> bool:
         return True
     os.environ.pop(JOURNAL_ONLY_FLAG, None)
     return False
+
+
+# I-arch-007 ITEM 2 (#1264) CHOKE-FIX: the POST-RUN breadth-enrichment canary. The enrichment fix
+# silently no-op'd in EVERY prior report (zero "appended weighted-enrichment section" log lines)
+# because the call site only logged the success branch. This canary closes that hole at the
+# benchmark boundary: after a SUCCESSFULLY-released run, it FAILS CLOSED if the rendered report.md
+# does NOT contain the "Corroborated Weighted Findings" enrichment section with at least one cited
+# source — i.e. the breadth surface silently emptied again. It is faithfulness-NEUTRAL: it READS the
+# already-shipped report.md / manifest.json and asserts a breadth invariant; it never reads, alters,
+# drops, or relabels any verified claim, evidence span, or gate verdict.
+class BreadthEnrichmentCanaryError(RuntimeError):
+    """The rendered report is missing the weighted-enrichment breadth surface on a released run."""
+
+
+# Released statuses on which the enrichment MUST be present (the contract universe rendered, so the
+# unbound-SUPPORTS basket should have been offered a section). A non-released abort (scope/corpus/
+# safety) legitimately has no enrichment, so the canary does not apply.
+_BREADTH_CANARY_RELEASED_STATUSES = frozenset({
+    "success",
+    "released_with_disclosed_gaps",
+})
+
+# Manifest signal that the advisory credibility pass DEGRADED (timeout / total judge failure under
+# always-release) so it produced NO baskets. Codex P0 (choke-fix iter2): this is the EXACT choke the
+# canary guards (no baskets -> empty enrichment), so it is NO LONGER a stand-down — it is read only to
+# annotate the FAIL message with the degrade cause + remediation. The report still ships via
+# always-release; the canary failing flags a choked datapoint to re-run (it never holds the report,
+# never fabricates a section). A HEALTHY run with a MINOR per-source disclosed gap does not set this
+# key and renders its enrichment, so it passes on the report-content check below.
+_BREADTH_CANARY_CREDIBILITY_DEGRADE_KEYS = (
+    "credibility_disclosed_gap",
+)
+
+
+def assert_breadth_enrichment_rendered(
+    summary: Mapping[str, Any],
+    *,
+    smoke_scale: bool = False,
+) -> str:
+    """FAIL CLOSED if a released benchmark run dropped the weighted-enrichment breadth surface.
+
+    Returns a one-line status string for logging:
+      - ``"present"``  — the enrichment section rendered with >=1 IN-SECTION cited source (healthy).
+      - ``"skip:<reason>"`` — the canary legitimately does not apply (non-released status, smoke
+        scale, no run_dir, or no report.md artifact).
+
+    Raises ``BreadthEnrichmentCanaryError`` when the run released a full contract report yet the
+    enrichment section is absent OR its SECTION BODY carries no citation marker — i.e. the §-1.3
+    breadth funnel silently reasserted. Codex P0 (choke-fix iter2): a credibility TOTAL-degrade is NO
+    LONGER a stand-down — it is the exact choke this canary guards, so a degraded run that rendered no
+    enrichment FAILS CLOSED (the report still ships via always-release; the canary is a benchmark-
+    quality gate, never a report hold). Reads ONLY the shipped artifacts; mutates nothing;
+    faithfulness-neutral.
+    """
+    from src.polaris_graph.generator.weighted_enrichment import _ENRICHMENT_TITLE
+
+    status = str(summary.get("status", "") or "")
+    if status not in _BREADTH_CANARY_RELEASED_STATUSES:
+        return f"skip:status={status or '<none>'}"
+    # I-arch-007: the small-scale plumbing smoke deliberately runs a thin pool — it is NOT a breadth
+    # assertion surface, so the canary stands down (the full paid run is the breadth gate).
+    if smoke_scale:
+        return "skip:smoke_scale"
+
+    run_dir_raw = summary.get("run_dir")
+    if not run_dir_raw:
+        return "skip:no_run_dir"
+    run_dir = Path(str(run_dir_raw))
+
+    # Codex P0 (choke-fix iter2): a disclosed credibility TOTAL-degrade (the advisory pass produced NO
+    # baskets -> credibility_analysis is None -> the enrichment is EMPTY) is EXACTLY the choke this
+    # canary exists to catch — NOT a legitimate stand-down. The prior code RETURNED skip on that signal,
+    # so the canary green-lit the very silent no-op it guards (the operator's "fix that fails to wire").
+    # We now read the manifest ONLY to build a diagnostic HINT for the failure message and let the
+    # rendered report.md decide: a HEALTHY run (credibility completed, enrichment fired) renders the
+    # section + in-section citations and PASSES even if it disclosed a MINOR per-source gap; a totally-
+    # degraded run renders NO enrichment and FAILS CLOSED. The report still SHIPS via always-release —
+    # this canary is a benchmark-quality gate (a choked datapoint must be re-run), never a report hold.
+    manifest = summary.get("manifest")
+    if not isinstance(manifest, dict):
+        _manifest_path = run_dir / "manifest.json"
+        if _manifest_path.is_file():
+            try:
+                manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                manifest = None
+    _degrade_hint = ""
+    if isinstance(manifest, dict):
+        for _k in _BREADTH_CANARY_CREDIBILITY_DEGRADE_KEYS:
+            if manifest.get(_k):
+                _degrade_hint = (
+                    f" [manifest discloses a credibility total-degrade via {_k!r}: the advisory "
+                    "credibility pass did NOT complete, so the unbound-SUPPORTS basket could not be "
+                    "computed — raise PG_CREDIBILITY_PASS_WALL_S and/or fix the judge transport "
+                    "(PG_ROLE_ALLOW_FALLBACKS) and RE-RUN this datapoint]"
+                )
+                break
+        if not _degrade_hint:
+            _gaps = manifest.get("disclosed_gaps")
+            if isinstance(_gaps, list) and any(
+                ("credibility_pass_unavailable" in str(g))
+                or ("breadth_enrichment_unavailable" in str(g))
+                for g in _gaps
+            ):
+                _degrade_hint = (
+                    " [disclosed_gaps records a credibility/breadth total-degrade: the advisory "
+                    "credibility pass did NOT complete -> empty enrichment; raise "
+                    "PG_CREDIBILITY_PASS_WALL_S and/or fix the judge transport and RE-RUN]"
+                )
+
+    report_path = run_dir / "report.md"
+    if not report_path.is_file():
+        # No report.md on a released status is its own failure surface elsewhere; the canary does not
+        # invent a verdict here — it only asserts the enrichment WHEN a report exists.
+        return "skip:no_report"
+    body = report_path.read_text(encoding="utf-8", errors="replace")
+
+    if _ENRICHMENT_TITLE not in body:
+        raise BreadthEnrichmentCanaryError(
+            f"breadth-enrichment canary FAILED for run_dir={run_dir}: the released report.md does "
+            f"NOT contain the weighted-enrichment section ('{_ENRICHMENT_TITLE}'). The §-1.3 breadth "
+            "funnel silently reasserted (the unbound-SUPPORTS basket was never surfaced). "
+            "PG_BREADTH_ENRICHMENT_ENABLED is force-required for the benchmark; investigate the "
+            f"[multi_section] I-arch-007 breadth log line for the empty-exit reason.{_degrade_hint}"
+        )
+
+    # The section is present — assert it carries >=1 cited source (a `[N]` numeric marker) WITHIN the
+    # enrichment SECTION body. Codex P1 (choke-fix iter2): the prior heading-to-EOF scan let a HOLLOW
+    # enrichment heading pass on the strength of a downstream References/Bibliography section's `[N]`
+    # markers. Bound the slice at the NEXT markdown heading after the enrichment title (or EOF) so only
+    # citations the section ITSELF renders satisfy the gate.
+    import re as _re
+    _idx = body.find(_ENRICHMENT_TITLE)
+    _after_title = body[_idx + len(_ENRICHMENT_TITLE):]
+    _next_heading = _re.search(r"(?m)^\s*#{1,6}\s", _after_title)
+    _section_body = _after_title[: _next_heading.start()] if _next_heading else _after_title
+    if not _re.search(r"\[\d+\]", _section_body):
+        raise BreadthEnrichmentCanaryError(
+            f"breadth-enrichment canary FAILED for run_dir={run_dir}: the weighted-enrichment "
+            f"section ('{_ENRICHMENT_TITLE}') rendered but its SECTION BODY carries NO citation "
+            "marker (a heading-only enrichment; a trailing bibliography no longer counts) — no "
+            "unbound SUPPORTS source survived strict_verify into a cited slot. On a released "
+            "full-contract run with a healthy credibility pass this is the silent breadth funnel; "
+            f"investigate the [multi_section] I-arch-007 breadth log line "
+            f"(candidates / below_floor / pool_absent).{_degrade_hint}"
+        )
+    return "present"
 
 
 async def run_gate_b_query(
@@ -2427,14 +2612,40 @@ def main(argv: list[str] | None = None) -> int:
             )
             status = summary.get("status", "<no-status>")
             print(f"<<< {domain} / {slug}: status={status}")
-            if not query_status_ok(status, allow_partial=_allow_partial):
+            _status_ok = query_status_ok(status, allow_partial=_allow_partial)
+            if not _status_ok:
                 overall_rc = 1
+            # I-arch-007 ITEM 2 (#1264) POST-RUN CANARY: on a released run (success OR
+            # released_with_disclosed_gaps), FAIL CLOSED if the rendered report.md dropped the
+            # weighted-enrichment breadth surface — so the §-1.3 breadth funnel can never again silently
+            # reassert (the "zero appended weighted-enrichment section log lines in ALL reports"
+            # symptom). Faithfulness-neutral (reads the shipped report/manifest, mutates nothing).
+            # Codex P2 (iter2): the canary is invoked UNCONDITIONALLY (not gated on _status_ok) because
+            # the always-release degrade ships `released_with_disclosed_gaps`, which query_status_ok may
+            # mark not-ok — gating on _status_ok would make the canary's released_with_disclosed_gaps
+            # coverage dead. The canary self-skips on non-released / smoke statuses (returns "skip:..."),
+            # so calling it always only ADDS telemetry; a credibility-degraded run that dropped breadth
+            # now FAILS CLOSED here (it no longer "stands down").
+            _breadth_canary = None
+            try:
+                _breadth_canary = assert_breadth_enrichment_rendered(
+                    summary, smoke_scale=args.smoke_scale,
+                )
+                print(f"<<< {domain} / {slug}: breadth-enrichment canary={_breadth_canary}")
+            except BreadthEnrichmentCanaryError as _bc_exc:
+                overall_rc = 1
+                _breadth_canary = "FAILED"
+                logging.getLogger("run_gate_b").error(
+                    "breadth-enrichment canary FAILED for %s/%s: %s", domain, slug, _bc_exc,
+                )
+                print(f"<<< {domain} / {slug}: breadth-enrichment canary FAILED: {_bc_exc}")
             _sweep_records.append({
                 "query_index": query_index,
                 "slug": slug,
                 "domain": domain,
                 "status": status,
-                "ok": query_status_ok(status, allow_partial=_allow_partial),
+                "ok": _status_ok and _breadth_canary != "FAILED",
+                "breadth_enrichment_canary": _breadth_canary,
                 "cost_usd": summary.get("cost_usd"),
             })
         except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently

@@ -185,6 +185,43 @@ _DEFAULT_ENTAILMENT_MAX_TOKENS = _ENTAILMENT_MAX_TOKENS_CHAIN_MIN
 _ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
 _DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
 
+# I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200. The mirror role pins ONE provider
+# with allow_fallbacks=False, so when that provider hits one of its intermittent empty-body-200 windows
+# (z-ai measured doing this under account-QPS load, 2026-06-19) OpenRouter does NOT auto-advance (a blank
+# IS an HTTP 200), every retry re-hits the SAME blanking host, and the (ENTAILED,'judge_error:…') sentinel
+# DROPS the sentence in enforce mode -> a FAITHFUL-but-NARROW breadth collapse. When PG_JUDGE_PROVIDER_ROTATE
+# is on, a blank/parse/bad-verdict fault ADVANCES a cursor through the mirror chain's `order`
+# (z-ai->baidu->novita->gmicloud) so the NEXT attempt re-POSTs to the next healthy host. Same glm-5.1 model
+# on every host (operator pre-approved judge host non-sovereignty 2026-06-13) -> faithfulness-NEUTRAL-to-
+# IMPROVING (a real verdict from baidu strictly beats a z-ai-blank-induced drop; a real NEUTRAL/CONTRADICTED
+# still drops). Mirrors the PROVEN generator idiom (openrouter_client BlankCompletionError ignore-on-blank,
+# I-arch-004 F02 #1255). Default-OFF -> byte-identical single-provider pin; run_gate_b forces it ON for the
+# benchmark + a behavioral gate proves it FIRES. LAW VI: env-gated.
+_ENV_JUDGE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+
+
+def _judge_provider_rotation_enabled() -> bool:
+    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _mirror_provider_chain() -> list[str]:
+    """The mirror role's ranked provider ``order`` (z-ai, baidu, novita, gmicloud), for blank-rotation.
+
+    Read from the SAME config the single-provider pin uses
+    (``config/settings/openrouter_provider_routing.yaml``). Lazy import keeps this leaf llm module free of
+    the roles stack at import time (off-mode zero-cost rule). Returns ``[]`` when routing is
+    unconfigured/disabled -> the caller keeps its single-provider pin (byte-identical)."""
+    try:
+        from src.polaris_graph.roles.provider_routing import role_provider_routing  # noqa: PLC0415
+        routing = role_provider_routing("mirror")
+    except Exception:  # noqa: BLE001 — config lookup must never break the judge
+        return []
+    if not routing:
+        return []
+    return [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+
 
 # I-arch-007 ITEM 2a (entailment-judge self-heal): substrings/types that mark a CLOSED or
 # TLS-POISONED httpx transport — the Q78 run-killer was 2866 consecutive
@@ -484,12 +521,41 @@ class _EntailmentJudge:
         _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
             "1", "true", "yes", "on",
         )
+        # I-arch-011: provider-rotation chain. When rotation is enabled, the mirror `order`
+        # (z-ai->baidu->novita->gmicloud) is walked one-host-per-attempt by the retry loop on a
+        # blank/garbled 200. `_provider_cursor` is the current index; the first attempt pins the chain
+        # LEAD (== _gate_provider, so byte-identical to the single-pin first attempt). Empty/disabled ->
+        # [] -> the loop never rotates and the single-provider pin below is authoritative.
+        _rotate_chain: list[str] = (
+            _mirror_provider_chain() if (_gate_provider and not _free_route
+                                         and _judge_provider_rotation_enabled()) else []
+        )
+        _provider_cursor = 0
         if _gate_provider and not _free_route:
             json_body["provider"] = {
-                "order": [_gate_provider],
+                "order": [_rotate_chain[0] if len(_rotate_chain) > 1 else _gate_provider],
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
+
+        def _rotate_provider_on_blank(reason: str) -> bool:
+            """Advance the pinned provider to the NEXT mirror-chain host on a blank/parse/bad-verdict
+            fault (NOT a transport-poison — those rebuild THIS thread's client + retry the SAME host).
+            Returns True iff it actually advanced (so the caller can log it). Faithfulness-neutral:
+            same glm-5.1 model, next healthy host; the verdict the next host returns is the real verdict."""
+            nonlocal _provider_cursor
+            if len(_rotate_chain) <= 1 or "provider" not in json_body:
+                return False
+            if _provider_cursor >= len(_rotate_chain) - 1:
+                return False  # exhausted the chain — let the bounded retry fail closed
+            _provider_cursor += 1
+            json_body["provider"]["order"] = [_rotate_chain[_provider_cursor]]
+            logger.warning(
+                "[entailment] provider-rotate on %s: -> %s (chain pos %d/%d)",
+                reason, _rotate_chain[_provider_cursor], _provider_cursor + 1, len(_rotate_chain),
+            )
+            return True
+
         def _emit_raw_io(status: str, raw_response, duration_ms=None) -> None:
             # I-obs-001 #1141 AC3 (gate iter-1 P1): single capture point so a judge call emits EXACTLY
             # one raw-IO record tagged by its TRUE outcome — "ok" ONLY after a validated verdict;
@@ -606,6 +672,13 @@ class _EntailmentJudge:
                 _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
 
                 content = data["choices"][0]["message"]["content"]
+                if _rotate_chain and not (content or "").strip():
+                    # I-arch-011: a blank-200 (empty/None content body) is the z-ai intermittent-window
+                    # signature. Raise the RETRYABLE error so the loop ROTATES to the next mirror host
+                    # below instead of re-POSTing the same blanking provider and exhausting into a
+                    # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
+                    # byte-identical: an empty/None content still flows to json.loads as before.)
+                    raise _RetryableJudgeError("blank_200")
                 parsed = json.loads(content)
                 verdict = str(parsed.get("verdict", "")).upper().strip()
                 reason = str(parsed.get("reason", ""))
@@ -638,8 +711,14 @@ class _EntailmentJudge:
                     # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
                     if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
                         self._client = self._build_client()
+                    elif not exc.reason.startswith("total_deadline_exceeded"):
+                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
+                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
+                        # glm-5.1 model, next healthy host). No-op when rotation is disabled. A
+                        # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
+                        _rotate_provider_on_blank(exc.reason)
                     logger.warning(
-                        "entailment judge bad verdict (attempt %d/%d): %s — retrying.",
+                        "entailment judge retryable fault (attempt %d/%d): %s — retrying.",
                         attempt + 1, _eff_retries + 1, exc.reason,
                     )
                     time.sleep(_backoff)
@@ -658,6 +737,12 @@ class _EntailmentJudge:
                     # (json/KeyError) is NOT poison -> excluded -> retried without a needless rebuild.
                     if _is_transport_poison(exc):
                         self._client = self._build_client()
+                    else:
+                        # I-arch-011: a non-poison transport/parse fault (a JSONDecodeError on a garbled
+                        # body, a KeyError on a malformed envelope, or an HTTP 4xx/5xx such as a provider
+                        # that 404s on this request shape) — rotate to the next mirror host before the
+                        # retry. No-op when rotation is disabled.
+                        _rotate_provider_on_blank(type(exc).__name__)
                     logger.warning(
                         "entailment judge error (attempt %d/%d): %s — retrying.",
                         attempt + 1, _retries + 1, exc,

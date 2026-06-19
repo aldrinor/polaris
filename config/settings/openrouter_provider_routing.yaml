@@ -34,11 +34,21 @@ roles:
     # real Mirror shape (reasoning.max_tokens=100000 numeric cap + max_tokens=131072) returned 3/3
     # CLEAN (0 blank, finish=stop) on atlas-cloud/z-ai/baidu/novita/gmicloud — the NUMERIC reasoning
     # cap (not effort=xhigh) is what makes them clean; the xhigh empty-200 defect does not occur.
-    # AtlasCloud leads (fp8, max_out=202752, fastest ~6-8s); Z.AI (first-party) + Baidu + Novita +
-    # GMICloud back it (all fp8, max_out>=131072, all clean). DeepInfra (fp4/32768) removed.
-    order: [atlas-cloud, z-ai, baidu, novita, gmicloud]
-    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks]
-    notes: "I-arch-003 2026-06-14: fp8 high-cap re-pin (atlas-cloud lead, max_out=202752); deepinfra(fp4/32768)+fireworks removed; parasail/siliconflow stay blank-demoted; numeric reasoning cap (not xhigh) verified blank-clean 3/3 on all 5 fp8 providers"
+    # I-arch-011 verify-speed (2026-06-18): AtlasCloud DEMOTED OUT of the chain. A live real-shape
+    # bake-off (reasoning effort=high, max_tokens=8000, the actual entailment/credibility call shape)
+    # measured AtlasCloud at ~38s/call vs ~7-11s on z-ai/baidu/novita/gmicloud — ~4x slower. Under
+    # allow_fallbacks:False it was the FORCED leader, so EVERY mirror-role call (entailment verify +
+    # the credibility pass + 4-role) ate ~38s, and the drb_78 paid run showed AtlasCloud also returning
+    # intermittent blank-200 verdicts (json-parse 'Expecting value' + bad_verdict='' retry storms).
+    # That ~38s x hundreds-of-sentences was the verify-tail "wedge" (a 50-min credibility-pass grind to
+    # its 3000s wall on drb_76). Re-led with Z.AI (first-party, fastest real-shape ~7-10s, valid) backed
+    # by Baidu/Novita/GMICloud (all fp8, max_out>=131072, all valid in the bake-off). Model UNCHANGED
+    # (z-ai/glm-5.1); same verdicts, faster+reliable host only (operator pre-approved host
+    # non-sovereignty for the judges 2026-06-13). Chain-MIN max_completion_tokens stays 131072
+    # (z-ai/baidu/novita), so no token-cap regression.
+    order: [z-ai, baidu, novita, gmicloud]
+    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks, atlas-cloud]
+    notes: "I-arch-011 2026-06-18: AtlasCloud demoted out (real-shape bake-off ~38s/call vs ~9s + intermittent blank-200s on drb_78); z-ai-led fp8 chain (z-ai/baidu/novita/gmicloud), all real-shape-validated valid; chain-MIN max_tokens stays 131072 (no regression). I-arch-003 2026-06-14 prior: atlas-cloud lead (now reverted for speed)."
   sentinel:
     model: minimax/minimax-m2
     order: [google-vertex, novita, atlas-cloud, minimax]

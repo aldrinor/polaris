@@ -145,6 +145,38 @@ def _float_env(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
+# I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200 — see entailment_judge for the full
+# rationale. Same root cause (the pinned mirror host's intermittent empty-body-200 windows under account-QPS
+# load) and same idiom (advance a cursor through the mirror ``order`` z-ai->baidu->novita->gmicloud). The
+# credibility judge is ADVISORY (a blank -> unscored neutral-weight degrade, NEVER a sentence DROP), so
+# rotation here trims the blank-retry LATENCY (the credibility-pass grind toward its wall) rather than
+# salvaging a drop; same glm-5.1 model on every host -> faithfulness-neutral. Default-OFF -> byte-identical
+# single-provider pin; run_gate_b forces it ON for the benchmark. LAW VI: env-gated.
+_ENV_JUDGE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+
+
+def _judge_provider_rotation_enabled() -> bool:
+    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _mirror_provider_chain() -> list[str]:
+    """The mirror role's ranked provider ``order`` (z-ai, baidu, novita, gmicloud), for blank-rotation.
+
+    Read from ``config/settings/openrouter_provider_routing.yaml`` (the SAME source the single-provider
+    pin uses). Returns ``[]`` when routing is unconfigured/disabled -> the caller keeps its single-provider
+    pin (byte-identical). Lazy import avoids a heavy import at module load."""
+    try:
+        from src.polaris_graph.roles.provider_routing import role_provider_routing
+        routing = role_provider_routing("mirror")
+    except Exception:  # noqa: BLE001 — config lookup must never break the call
+        return []
+    if not routing:
+        return []
+    return [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+
+
 def credibility_judge_model() -> str:
     return os.environ.get(_ENV_MODEL, "").strip() or _DEFAULT_MODEL
 
@@ -234,10 +266,30 @@ def make_openrouter_credibility_caller(
         _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
             "1", "true", "yes", "on",
         )
+        # I-arch-011: provider-rotation chain (advisory latency fix — see module header). When enabled,
+        # walk the mirror `order` one-host-per-attempt on a blank/transport fault; the first attempt pins
+        # the chain LEAD (== gate_provider) so it is byte-identical to the single-provider pin.
+        _rotate_chain = (
+            _mirror_provider_chain() if (gate_provider and not _free_route
+                                         and _judge_provider_rotation_enabled()) else []
+        )
+        _provider_cursor = 0
         if gate_provider and not _free_route:
             json_body["provider"] = {
-                "order": [gate_provider], "allow_fallbacks": False, "require_parameters": True,
+                "order": [_rotate_chain[0] if len(_rotate_chain) > 1 else gate_provider],
+                "allow_fallbacks": False, "require_parameters": True,
             }
+
+        def _rotate_provider() -> None:
+            """Advance the pinned provider to the next mirror-chain host (no-op when rotation is disabled
+            or the chain is exhausted). Faithfulness-neutral: same glm-5.1 model, next healthy host."""
+            nonlocal _provider_cursor
+            if len(_rotate_chain) <= 1 or "provider" not in json_body:
+                return
+            if _provider_cursor >= len(_rotate_chain) - 1:
+                return
+            _provider_cursor += 1
+            json_body["provider"]["order"] = [_rotate_chain[_provider_cursor]]
 
         # Bounded retry over the SYNC post: a transient transport fault OR an empty/truncated body is
         # retried (each attempt is a real billed call, cost-accounted per attempt) before the row becomes a
@@ -286,6 +338,7 @@ def make_openrouter_credibility_caller(
                 raise  # judge wrapper catches -> {} -> bounded per-row judge_error (fail-loud upstream)
             except Exception:  # noqa: BLE001 — transport/parse fault: retry, else propagate to the judge
                 if _attempt < retries:
+                    _rotate_provider()  # I-arch-011: try the next mirror host on a transport/HTTP fault
                     time.sleep(retry_backoff)
                     continue
                 raise  # judge wrapper catches -> {} -> bounded per-row judge_error (fail-loud upstream)
@@ -355,6 +408,10 @@ def make_openrouter_credibility_caller(
             if last_content.strip() and finish_reason != "length":
                 return last_content
             if _attempt < retries:
+                # I-arch-011: a blank / length-truncated body on THIS provider -> rotate to the next
+                # mirror host before the retry (the pinned host's empty-200 window won't clear on a
+                # same-host retry; the credibility score stays advisory either way).
+                _rotate_provider()
                 time.sleep(retry_backoff)
                 continue
         # Retries exhausted with no usable content: return it (judge wrapper -> {} -> bounded judge_error).
