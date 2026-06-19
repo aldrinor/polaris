@@ -851,11 +851,34 @@ def assert_faithfulness_slate_or_fail() -> None:
             f"NLI contradiction detector runs (the prose-only lethal-miss class)."
         )
 
-    ent_model = os.environ.get("PG_ENTAILMENT_MODEL", _LOCKED_ENTAILMENT_MIRROR_MODEL).strip()
-    if ent_model != _LOCKED_ENTAILMENT_MIRROR_MODEL:
+    # The invariant is "entailment judge == the locked 4-role MIRROR" (no stale gemma, no weak
+    # encoder). The mirror is configurable per-arm (PG_MIRROR_MODEL) — e.g. the GLM-5.2 comparison
+    # arm swaps mirror z-ai/glm-5.1 -> deepseek/deepseek-v4-pro so the glm generator is never
+    # self-judged. Derive the EXPECTED mirror from PG_MIRROR_MODEL (fall back to the production
+    # default) so the invariant tracks the actual configured mirror. Byte-identical on the
+    # production/DeepSeek path (PG_MIRROR_MODEL unset/== glm-5.1). This STRENGTHENS the same gate
+    # (entailment must equal the configured strong, family-segregated mirror); it never relaxes it.
+    _expected_mirror = (os.environ.get("PG_MIRROR_MODEL", "").strip() or _LOCKED_ENTAILMENT_MIRROR_MODEL)
+    # Codex P0 (choke-fix iter2): resolve the entailment model EXACTLY as the RUNTIME does — fall back
+    # to entailment_judge._DEFAULT_ENTAILMENT_MODEL (the literal the judge uses when PG_ENTAILMENT_MODEL
+    # is unset), NOT to _expected_mirror. Defaulting the preflight to _expected_mirror let it BLESS a
+    # model the runtime would not use: with PG_ENTAILMENT_MODEL unset but PG_MIRROR_MODEL overridden
+    # (the GLM arm), the preflight saw ent==mirror and PASSED while the runtime judge still used its
+    # hardcoded glm-5.1 default -> a preflight/runtime mismatch (and it could likewise bless a garbage
+    # PG_MIRROR_MODEL override). Validating against the REAL runtime default (single source of truth via
+    # import) makes the preflight fail LOUDLY unless PG_ENTAILMENT_MODEL is set to the mirror explicitly.
+    # Byte-identical on production (both unset => runtime default == _LOCKED mirror == 'z-ai/glm-5.1').
+    from src.polaris_graph.llm.entailment_judge import (  # noqa: PLC0415
+        _DEFAULT_ENTAILMENT_MODEL as _runtime_entailment_default,
+    )
+    ent_model = os.environ.get("PG_ENTAILMENT_MODEL", _runtime_entailment_default).strip()
+    if ent_model != _expected_mirror:
         problems.append(
-            f"PG_ENTAILMENT_MODEL={ent_model!r} — must be the locked 4-role MIRROR "
-            f"{_LOCKED_ENTAILMENT_MIRROR_MODEL!r} (CLAUDE.md §9.1.8; NO gemma)."
+            f"PG_ENTAILMENT_MODEL={ent_model!r} — must equal the configured 4-role MIRROR "
+            f"{_expected_mirror!r} (PG_MIRROR_MODEL; CLAUDE.md §9.1.8; NO gemma). The entailment "
+            f"judge's runtime default is {_runtime_entailment_default!r}; when overriding "
+            f"PG_MIRROR_MODEL you MUST set PG_ENTAILMENT_MODEL to the mirror explicitly so the "
+            f"preflight validates the model the runtime will actually load."
         )
 
     if problems:
@@ -6851,20 +6874,33 @@ async def run_one_query(
                 EvidenceSelection as _EvidenceSelection,
             )
             evidence_for_gen = list(_resume_payload.get("evidence_for_gen") or [])
-            # A15 (iarch006 epic-failure): resume-snapshot REFRESH detector. drb_90's first run
-            # crashed on a 402 with degraded retrieval; the RESUME reloaded the frozen corpus with NO
-            # re-retrieval, so the failed-fetch / shell / content-starved rows were reloaded untouched
-            # and A1/A6/A8 NEVER executed on the run they fix. SAFE CORE (this file): DETECT + FLAG +
-            # RECORD the degraded rows on resume so the refresh requirement is auditable. The actual
-            # re-FETCH over those rows lives in the fetch layer (frame_fetcher / live_retriever, A1's
-            # shell detector) — wiring a re-fetch here without A1's detector would risk faithfulness,
-            # so the re-fetch is flagged for the cross-file A1/A15 follow-up (see needs_codex_attention).
-            # Detection-only is byte-safe: it adds telemetry + a disclosed flag, drops nothing.
+            # A15 (iarch006 epic-failure): resume-snapshot REFRESH detector + RE-FETCH. drb_90's first
+            # run crashed on a 402 with degraded retrieval; the RESUME reloaded the frozen corpus with
+            # NO re-retrieval, so the failed-fetch / shell / content-starved rows were reloaded untouched
+            # and A1/A6/A8 NEVER executed on the run they fix — empty cited spans -> strict_verify
+            # CORRECTLY drops the claims -> the Q90 abort_excessive_gap 96% over-drop.
+            #
+            # I-arch-007 ITEM 6 (#1264) — GET THE CONTENT, NEVER RELAX THE GATE. Step 1 still DETECTs +
+            # FLAGs the degraded rows (auditable). Step 2 (env-gated PG_RESUME_REFETCH_DEGRADED, default
+            # OFF -> byte-identical) RE-FETCHes them through the live-retriever AccessBypass cascade
+            # (which routes paywalled/blocked anchors through the Zyte fallback when ZYTE_API_KEY is set)
+            # and REPOPULATES the row's direct_quote grounding with the fresh span when it recovers,
+            # clearing the degraded flags. A row that is STILL a shell after the cascade is left flagged
+            # + disclosed — the UNCHANGED strict_verify then honestly drops any ungrounded claim (never
+            # a fabricated span). FAITHFULNESS-SAFE: it fixes the INPUT so the gate has real content; it
+            # touches NO threshold and NO gate. Fail-open: a re-fetch error for one row never aborts the
+            # resume (that row stays flagged).
             try:
                 from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
                     is_content_starved as _a15_is_starved,
+                    refetch_for_extraction_with_diagnostics as _a15_refetch,
+                )
+                from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+                    refetch_degraded_resume_rows as _a15_refetch_rows,
+                    resume_refetch_enabled as _a15_refetch_enabled,
                 )
                 _a15_stale_rows: list[str] = []
+                _a15_degraded_dicts: list[dict] = []
                 for _row in evidence_for_gen:
                     if not isinstance(_row, dict):
                         continue
@@ -6880,19 +6916,61 @@ async def run_one_query(
                     )
                     if _is_degraded:
                         _a15_stale_rows.append(str(_eid))
+                        _a15_degraded_dicts.append(_row)
                         # FLAG the row so a downstream refresh / composition layer can see it needs a
                         # re-fetch (additive key; asserts nothing, drops nothing).
                         _row["resume_refresh_pending"] = True
                 if _a15_stale_rows:
                     _log(
                         f"[resume]      A15 refresh: {len(_a15_stale_rows)} reloaded row(s) are "
-                        "fetch-degraded (failed/shell/content-starved) and FLAGGED for re-fetch "
-                        "(detection-only this file; re-fetch is the cross-file A1/A15 follow-up): "
+                        "fetch-degraded (failed/shell/content-starved) and FLAGGED for re-fetch: "
                         f"{_a15_stale_rows[:10]}"
                     )
-            except Exception as _a15_exc:  # noqa: BLE001 — detection is best-effort, never aborts resume
+                    # ITEM 6 RE-FETCH (env-gated): re-ground the degraded rows in place via the
+                    # AccessBypass+Zyte cascade so strict_verify sees REAL spans, not empty shells.
+                    if _a15_refetch_enabled():
+                        _a15_result = _a15_refetch_rows(
+                            _a15_degraded_dicts,
+                            refetch_fn=_a15_refetch,
+                            is_content_starved_fn=_a15_is_starved,
+                            log=_log,
+                        )
+                        _log(
+                            "[resume]      A15 RE-FETCH complete: "
+                            f"attempted={_a15_result['attempted']} "
+                            f"recovered={len(_a15_result['recovered'])} "
+                            f"still_shell={len(_a15_result['still_shell'])} "
+                            f"no_url={len(_a15_result['no_url'])} "
+                            f"errors={len(_a15_result['errors'])} "
+                            "(recovered rows re-grounded; residual shells stay disclosed + drop at "
+                            "the UNCHANGED strict_verify — NO fabrication, NO gate relaxed)"
+                        )
+                        # Codex P1 (choke-fix iter2) — KNOWN INCOMPLETENESS, disclosed not silent:
+                        # this re-fetch repopulates the evidence_for_gen ROW dicts (so strict_verify and
+                        # the legacy/enrichment sections see real spans), but the V30 CONTRACT slot
+                        # generator reads its span from the FrameRow (`frame_row.direct_quote`,
+                        # contract_section_runner.py:504), a SEPARATE object built at :7345 from
+                        # `_frame_rows` — which this path does NOT update. So a RESUMED contract run can
+                        # still render a HOLLOW contract anchor even after recovery. Tracked as the
+                        # A15+P1-2 follow-up (propagate recovered spans into _frame_rows by entity_id).
+                        # UNTIL that lands, recover contract anchors with a FRESH run (full re-retrieval),
+                        # never `--resume` on a degraded contract run.
+                        if _a15_result["recovered"]:
+                            _log(
+                                "[resume]      A15 NOTE (P1-2 follow-up): recovered spans reach "
+                                "strict_verify + legacy/enrichment sections but NOT the V30 contract "
+                                "slot generator (FrameRow span is separate) — a resumed CONTRACT run "
+                                "may still render hollow contract anchors; use a FRESH run for "
+                                "contract-anchor recovery until the frame-row propagation fix lands."
+                            )
+                    else:
+                        _log(
+                            "[resume]      A15 re-fetch DISABLED "
+                            "(PG_RESUME_REFETCH_DEGRADED off) — detection-only, rows stay flagged"
+                        )
+            except Exception as _a15_exc:  # noqa: BLE001 — A15 is best-effort, never aborts resume
                 _a15_stale_rows = []
-                _log(f"[resume]      A15 refresh detector skipped (fail-open): {_a15_exc}")
+                _log(f"[resume]      A15 refresh/re-fetch skipped (fail-open): {_a15_exc}")
             evidence_selection = _EvidenceSelection(
                 selected_rows=evidence_for_gen,
                 full_counts={},
@@ -8139,7 +8217,23 @@ async def run_one_query(
                     "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but "
                     "psl_gov_suffixes is empty (fail-closed preflight)"
                 )
-            _cred_judge = _mk_judge(_mk_caller())
+            # I-arch-011: the LLM credibility judge (credibility_judge_caller POST) can DEADLOCK in its
+            # thread-pool orchestration when a pinned/slow provider stalls connect (GIL-blocked
+            # fut.result never fires; faulthandler: credibility_judge_caller.py:119 + credibility_skill.py:308).
+            # It is ADVISORY — strict_verify + the 4-role D8 release policy are the ONLY binding gates, and
+            # B17's DETERMINISTIC authority_score does the real per-source weighting. Gate it behind
+            # PG_CREDIBILITY_LLM_JUDGE (default "on" => byte-identical). When off, _cred_judge stays None and
+            # run_credibility_analysis runs PRIORS-ONLY, LABELING every source credibility_unscored (a
+            # disclosed gap surfaced LOUD per LAW II) — the report SHIPS with the gap, never holds, never
+            # fabricates. Faithfulness is NOT relaxed (no verify gate touched; weights stay real priors).
+            if os.environ.get("PG_CREDIBILITY_LLM_JUDGE", "on").strip().lower() not in ("", "0", "false", "off", "no"):
+                _cred_judge = _mk_judge(_mk_caller())
+            else:
+                _log(
+                    "[credibility]  PG_CREDIBILITY_LLM_JUDGE=off — skipping the LLM credibility judge; "
+                    "the pass runs PRIORS-ONLY (deterministic authority weights), every source labeled "
+                    "credibility_unscored (disclosed gap). strict_verify + 4-role remain binding."
+                )
 
         # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
         # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
