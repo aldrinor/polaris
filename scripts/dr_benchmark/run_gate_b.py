@@ -900,6 +900,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor as
     # every other section; on a degraded pass (credibility_analysis is None) the selection is empty.
     "PG_BREADTH_ENRICHMENT_ENABLED": "1",
+    # I-arch-011 run-5 794->9 collapse — two of the FOUR stacked breadth-restore conditions (the forensic
+    # collapse_forensic_plan.json F4 + F5; F1 finding_key + F2 basket-decouple are code fixes). FAITHFULNESS-
+    # NEUTRAL consolidation knobs — they MERGE/RENDER already-verified corroborators, never drop/cap.
+    # F4: consume finding_dedup membership so the claim_graph singleton partition (build_merge_key fail-closes
+    # to singletons on blank clinical dose/comparator/endpoint) re-merges into multi-citation baskets before
+    # _assemble_baskets (group + edge-remap only; no member newly passes any gate). Default OFF in code =>
+    # slate-absent byte-identical; force ON so the basket actually consolidates.
+    "PG_BASKET_CONSUME_FINDING_DEDUP": "1",
+    # F5 (FIX-K): render the surfaced basket's ALREADY-VERIFIED spans VERBATIM rather than LLM-regenerating
+    # prose (~0 of which survives strict_verify). Without this the restored basket renders narrow. Was set
+    # via the run ENV in run-5; pin in the slate so it cannot drift.
+    "PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS": "1",
     # I-arch-007 ITEM 6 (#1264) — A15 resume FETCH-SHELL re-fetch. On a --resume the frozen
     # corpus_snapshot reloads the crashed run's EMPTY-SHELL anchor rows (e.g. SAE J3016, UNECE ALKS,
     # PACER docket) untouched; empty cited spans -> strict_verify CORRECTLY drops -> the Q90
