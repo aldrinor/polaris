@@ -8,6 +8,15 @@ on:
       - "tests/v6/**"
       - "requirements*.txt"
       - ".github/workflows/web_ci.yml"
+      # I-ux-001a: signed-bundle honesty guard inputs MUST trigger the workflow
+      # — Codex iter-1 P2: without these, regressions to the guard script, the
+      # signed bundle artifacts, the trust-root pubkey, or the pinned
+      # fingerprint can avoid CI entirely.
+      - "scripts/check_signed_bundles.py"
+      - "tests/scripts/test_check_signed_bundles.py"
+      - "tests/fixtures/signed_bundle/**"
+      - "docs/carney_handover/polaris_demo_pubkey.asc"
+      - "state/polaris_gpg_keyid.txt"
   pull_request:
     paths:
       - "web/**"
@@ -15,6 +24,15 @@ on:
       - "tests/v6/**"
       - "requirements*.txt"
       - ".github/workflows/web_ci.yml"
+      # I-ux-001a: signed-bundle honesty guard inputs MUST trigger the workflow
+      # — Codex iter-1 P2: without these, regressions to the guard script, the
+      # signed bundle artifacts, the trust-root pubkey, or the pinned
+      # fingerprint can avoid CI entirely.
+      - "scripts/check_signed_bundles.py"
+      - "tests/scripts/test_check_signed_bundles.py"
+      - "tests/fixtures/signed_bundle/**"
+      - "docs/carney_handover/polaris_demo_pubkey.asc"
+      - "state/polaris_gpg_keyid.txt"
 
 defaults:
   run:
@@ -273,6 +291,37 @@ jobs:
       - name: pip_dry_run_v6_requirements
         # Verify the v6 backend's pinned set also resolves cleanly.
         run: pip install --dry-run -r requirements-v6.txt
+
+  check_signed_bundles:
+    # I-ux-001a (#874) — LAW-II guard. Every bundle the UI may label
+    # "Signed bundle" MUST verify (via `gpgv` against a freshly-dearmored
+    # binary keyring built only from the shipped trust root) AND have a
+    # signing-key fingerprint matching the pinned canonical key. Prevents
+    # the iter-3 P0 regression: a missing or placeholder `.asc` silently
+    # rendering as "signed" in the inspector.
+    name: check_signed_bundles (Prereq 0 honesty guard)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    # Codex diff iter-1 P1: the workflow-default `working-directory: web`
+    # would make `python scripts/check_signed_bundles.py` resolve to
+    # `web/scripts/...` which doesn't exist. Override per-job to repo root.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: run_guard
+        # gpg + gpgv are preinstalled on ubuntu-latest. The guard dearmors
+        # the shipped pubkey into a fresh binary keyring per bundle and
+        # invokes `gpgv` (which does NOT read host config / keyboxd / agent),
+        # asserting the signing-key fingerprint matches the pinned canonical
+        # key. Exits non-zero on any failure.
+        run: python scripts/check_signed_bundles.py
 
   pytest_v6_backend:
     name: pytest tests/v6/ (Phase 0 backend coverage)

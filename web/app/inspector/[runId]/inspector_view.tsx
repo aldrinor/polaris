@@ -20,23 +20,18 @@ import type { LoadedBundle } from "@/lib/inspector_bundle_loader";
 
 interface InspectorViewProps {
   bundle: LoadedBundle;
-  signaturePresent: boolean;
 }
 
-export function InspectorView({
-  bundle,
-  signaturePresent,
-}: InspectorViewProps) {
+export function InspectorView({ bundle }: InspectorViewProps) {
   return (
     <main
       className="mx-auto flex max-w-6xl flex-col gap-6 p-6"
       data-testid="inspector-view"
       data-run-id={bundle.runId}
     >
-      <InspectorProofHeader
-        bundle={bundle}
-        signaturePresent={signaturePresent}
-      />
+      {/* I-ux-001a: signature state lives on the LoadedBundle (tri-valued),
+          not as a separate prop — single source of truth. */}
+      <InspectorProofHeader bundle={bundle} signatureState={bundle.signatureState} />
       <Tabs defaultValue="proof">
         {/* I-p2-043 (#833): the 8-tab rail overflowed the 375w viewport (Codex visual
             iter-2 P1). Contain it in a horizontal-scroll lane — desktop hugs content,

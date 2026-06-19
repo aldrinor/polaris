@@ -52,12 +52,10 @@ export default function InspectorOfflinePage() {
   }
 
   if (bundle) {
-    return (
-      <InspectorView
-        bundle={bundle}
-        signaturePresent={bundle.signaturePresent}
-      />
-    );
+    // I-ux-001a: signatureState (tri-valued) flows on the bundle itself; the
+    // client loader can never return gpg_verified — browser-loaded bundles
+    // surface "present_unverified" with a "verify offline" affordance.
+    return <InspectorView bundle={bundle} />;
   }
 
   return (
