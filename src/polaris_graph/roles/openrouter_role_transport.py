@@ -971,9 +971,24 @@ class OpenRouterRoleTransport:
         """This THREAD's role-transport client (lazily built from the factory for a new worker thread).
 
         Per-thread so a total-deadline force-close on one claim worker can NEVER tear down a sibling
-        worker's in-flight POST on a shared client (Codex P1 — the 4-role seam shares one instance)."""
+        worker's in-flight POST on a shared client (Codex P1 — the 4-role seam shares one instance).
+
+        F3 (I-arch-011, the 794->9 run5 D8 seam crash): rebuild a client that was CLOSED however it
+        was closed, not only an absent (`None`) one. `_post_with_total_deadline` FORCE-CLOSES this
+        thread's client on a total-deadline timeout (:479 `client.close()`), and the
+        `concurrent.futures.TimeoutError` rebuild can be missed (a swallowed factory failure, or a
+        force-close from a path that does not re-enter that handler). A force-closed-but-not-None
+        client previously survived in TLS, so the NEXT Mirror/Judge POST hit a closed client and
+        httpx raised a plain `RuntimeError: Cannot send a request, as the client has been closed`
+        that matched NONE of the retry arms -> the whole D8 seam tore down UNADJUDICATED
+        (coverage=0.000, report shipped released_insufficient_safety_evidence). `httpx.Client`
+        exposes `is_closed` (flips True on `.close()`), so a closed client is transparently replaced
+        with a fresh open one here BEFORE the next role call. FAITHFULNESS-NEUTRAL: this is a
+        transport client lifecycle repair only — no verdict logic changes, no gate relaxes; a
+        genuinely-unavailable judge still fails closed per the existing policy. Byte-identical on the
+        healthy path (`is_closed` is False)."""
         client = getattr(self._tls, "client", None)
-        if client is None:
+        if client is None or getattr(client, "is_closed", False):
             client = self._http_client_factory()
             self._tls.client = client
         return client
@@ -1154,8 +1169,16 @@ class OpenRouterRoleTransport:
                             # timeout NEVER yields a fake verdict (the 4-role gate HOLDS / UNGROUNDED).
                             try:
                                 self._http_client = self._http_client_factory()
-                            except Exception:  # noqa: BLE001
-                                pass
+                            except Exception as rebuild_exc:  # noqa: BLE001
+                                # F3 (I-arch-011) / LAW II §9.4: do NOT swallow the rebuild failure.
+                                # The `_http_client` getter is the real safety net (it rebuilds any
+                                # closed client before the next POST), so this is belt-and-suspenders,
+                                # but a silent `except: pass` is forbidden — log it loudly.
+                                logger.warning(
+                                    "[polaris graph] F3: %s role client rebuild after total-deadline "
+                                    "force-close FAILED at %s: %s — the getter will rebuild on next use.",
+                                    request.role, url, rebuild_exc,
+                                )
                             if transport_attempt < transport_retries:
                                 logger.warning(
                                     "[polaris graph] #1264: %s role POST exceeded the total-deadline "
@@ -1166,6 +1189,42 @@ class OpenRouterRoleTransport:
                                 continue
                             raise RoleTransportError(
                                 f"OpenRouter {request.role!r} role POST exceeded the total-deadline at {url}"
+                            ) from exc
+                        except RuntimeError as exc:
+                            # F3 (I-arch-011, the 794->9 run5 D8 seam crash): a force-closed client that
+                            # was reused raises a plain `RuntimeError: Cannot send a request, as the client
+                            # has been closed` (httpx _client.py). This is NOT an httpx.TransportError /
+                            # httpx.HTTPError / concurrent.futures.TimeoutError, so before this arm it
+                            # escaped EVERY retry handler and tore down the whole D8 seam UNADJUDICATED
+                            # (coverage=0.000 -> released_insufficient_safety_evidence). The getter now
+                            # rebuilds any closed client up-front, but catch the closed-client RuntimeError
+                            # here as defense-in-depth: rebuild a FRESH client and retry (bounded by
+                            # transport_retries); on exhaustion fall through to the SAME fail-closed
+                            # RoleTransportError (D8 HOLDS / UNGROUNDED — never a fake verdict). Narrowed to
+                            # the closed-client signature so an UNRELATED RuntimeError is NOT masked: it is
+                            # re-raised unchanged and surfaces loudly.
+                            if "has been closed" not in str(exc):
+                                raise
+                            try:
+                                self._http_client = self._http_client_factory()
+                            except Exception as rebuild_exc:  # noqa: BLE001
+                                # LAW II §9.4: do not swallow — the getter is the real safety net, but log.
+                                logger.warning(
+                                    "[polaris graph] F3: %s role client rebuild after a closed-client "
+                                    "RuntimeError FAILED at %s: %s — the getter will rebuild on next use.",
+                                    request.role, url, rebuild_exc,
+                                )
+                            if transport_attempt < transport_retries:
+                                logger.warning(
+                                    "[polaris graph] F3: %s role POST hit a CLOSED transport client "
+                                    "(attempt %d/%d) at %s — rebuilt a fresh client, retrying so the D8 "
+                                    "gate can ADJUDICATE.",
+                                    request.role, transport_attempt + 1, transport_retries + 1, url,
+                                )
+                                continue
+                            raise RoleTransportError(
+                                f"OpenRouter {request.role!r} role POST hit a closed transport client "
+                                f"at {url}: {exc}"
                             ) from exc
                         except httpx.TransportError as exc:
                             # Codex diff-gate P2: retry ONLY transport-layer faults (connection reset /
