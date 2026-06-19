@@ -909,6 +909,22 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # ungrounded claim (NO fabrication). Default OFF in code so a non-benchmark resume is byte-identical.
     # FAITHFULNESS-SAFE: fixes the INPUT (real spans), touches NO threshold and NO gate.
     "PG_RESUME_REFETCH_DEGRADED": "1",
+    # I-arch-011 B19 (KEYSTONE — the distill_map hang fix): pin the per-call wall + parallelism so
+    # they cannot silently drift. PG_DISTILL_MAP_CALL_WALL_S bounds each distill_map call END-TO-END
+    # (asyncio.wait_for, above the 1475s healthy max, well under the 10800s run-wall) so a half-open
+    # SSE socket can no longer hang the asyncio loop ~1.8h (the drb_78 death). PG_DISTILL_MAX_PARALLEL=8
+    # widens the map fan-out (breadth-positive, not a throttle). Code defaults already equal these, so
+    # slate-absent runs are byte-identical — pinned for clarity + drift-protection.
+    "PG_DISTILL_MAP_CALL_WALL_S": "1800",
+    "PG_DISTILL_MAX_PARALLEL": "8",
+    # I-arch-011 B02/B04 (FETCH lane): re-fetch fetch_degraded rows through the live-retriever Zyte
+    # cascade on the FRESH (non-resume) path too — PG_RESUME_REFETCH_DEGRADED above covers the
+    # --resume path, and this is INERT on a resume (no live fetch runs). Default OFF in code so a
+    # slate-absent run is byte-identical; force here so the FETCH lane is not dark on fresh runs.
+    # FAITHFULNESS-SAFE: fixes the INPUT (real spans); a row still a shell after the cascade stays
+    # disclosed and the UNCHANGED strict_verify drops any ungrounded claim. (ZYTE_API_KEY must be in
+    # the run .env — without it the Zyte step is a logged no-op, never a silent stub-as-fulltext.)
+    "PG_REFETCH_DEGRADED_VIA_ZYTE": "1",
     # ITEM 5 (postgen-resume reuse) — DELIBERATELY NOT slate-forced while ITEM 5a is deferred
     # (Codex build-gate iter-1 P1). The CONSUMER wiring (_load_postgen_reuse_reentry) is fully built
     # and fails LOUD, but the GENERATOR-side cached-draft hook
