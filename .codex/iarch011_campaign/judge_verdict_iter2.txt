@@ -1,0 +1,13 @@
+**Findings**
+- P1: The extractor still descends into a complete non-object JSON envelope. In both judges, `content.find("{", search_from)` can find a verdict object inside an array, e.g. `[{"verdict":"CONTRADICT","confidence":1.0}]`, and `raw_decode` accepts that inner object. Pre-fix this failed closed because `json.loads` returned a list and `.get` failed. This is a new fail-open/schema-relaxation path. See [entailment_judge.py](C:/POLARIS/src/polaris_graph/llm/entailment_judge.py:326), [semantic_conflict_detector.py](C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:568). Add a regression for a complete outer array containing a nested verdict and make non-object JSON containers fail closed, not scan into their interior.
+
+- P1: Semantic conflict still maps unknown verdict strings to `neutral`; the new parser broadens accepted bodies, so a garbled invalid verdict object that previously failed parse can now silently become neutral. Example: `{"verdict":"CONFLICT","confidence":0.9}\nreasoning...` now reaches `.get(verdict, "neutral")`. Under strict gates this should fail closed. See [semantic_conflict_detector.py](C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:854) and [semantic_conflict_detector.py](C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:856). Validate `verdict in {"CONTRADICT","ENTAIL","NEUTRAL"}` and raise on anything else.
+
+**Verified**
+The iter-2 malformed-outer fix itself is correct for object envelopes: `raw_decode` errors now raise in both extractors instead of advancing into the failed object interior. Complete leading non-verdict objects still skip by `end`, so the garbled-200 and leading scratchpad object cases remain supported. The new malformed outer regression cases are present.
+
+Static review only; I did not run pytest.
+
+3-prong check on the requested fixes: both are stricter fail-closed parser/validator changes; neither relaxes faithfulness, grandfathers, nor adds a cap/floor/throttle.
+
+verdict: REQUEST_CHANGES

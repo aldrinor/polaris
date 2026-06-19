@@ -837,6 +837,16 @@ def _run_chain(
     from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
         verify_sentence_provenance,
     )
+    # I-arch-011 (#1268): the per-member basket verify runs under entailment-ENFORCE (the
+    # PG_STRICT_VERIFY_ENTAILMENT default). It MUST stay enforce: ``span_verdict==SUPPORTS`` is
+    # consumed at render WITHOUT re-verification — both as inline corroborator citations
+    # (provenance_generator.py B6/B8 ``_verified_corroborators_for_tokens``) and as the breadth
+    # enrichment section — so an entailment-OFF advisory verdict would ship un-entailed corroborator
+    # citations (the rejected F2b; Codex P0-1). The serial-entailment HANG is avoided NOT by
+    # disabling the judge but by the architecture's bounded parallelism + wall: ``max_inflight``
+    # (PG_CREDIBILITY_PASS_MAX_INFLIGHT, slate=16) runs the verify 16-way over a PER-THREAD judge
+    # client (I-arch-007 ITEM 2a, entailment_judge.py threading.local — deadlock-safe), and the
+    # caller's PG_CREDIBILITY_PASS_WALL_S=3000 wall bounds the whole pass. Faithfulness STRENGTHENED.
     baskets = _assemble_baskets(
         graph, weight_mass, annotated, credibility_by_evidence,
         verify_fn=verify_sentence_provenance,

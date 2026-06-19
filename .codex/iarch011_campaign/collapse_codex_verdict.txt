@@ -1,0 +1,24 @@
+```yaml
+cause_completeness: "missed:[unknown-subject population chokepoint@src/polaris_graph/retrieval/contradiction_detector.py:1291]; no in-scope source-drop confirmed; fetch_cap=740 is upstream/out-of-scope"
+keystone_sound: "yes"
+f1_fix_locus_correct: "no — correct file:line is src/polaris_graph/retrieval/contradiction_detector.py:1291, assigned into ExtractedNumericClaim at src/polaris_graph/retrieval/contradiction_detector.py:1324; evidence_distiller only emits claim text"
+four_role_seam_fix_correct: "yes — httpx.Client.is_closed exists and is True after .close(); getter rebuild on closed TLS client is correct, and unrecoverable rebuild failure must still flow to the existing fail-closed RoleTransportError"
+three_prong_per_fix: {F1: FLAG, F2: OK, F3: OK, F4: OK, F5: OK, F6: OK, F7: OK, F8: OK, F9: OK, F10: OK, F11: OK, F12: OK, F13: OK, F14: OK, F15: OK, F16: OK}
+novel_p0:
+  - "F1 is pointed at the wrong layer: __unknown__ is caused by ExtractedNumericClaim.subject being unknown/empty upstream, not by the distiller finding-row emission."
+continuing_p0:
+  - "F1 still required, but fix must target subject extraction/population in contradiction_detector.py, then preserve finding_dedup's known-subject merge discipline."
+  - "F2 Form B is sound only with deterministic no-LLM verify_fn and judge=None+always_release guard flipped to run."
+  - "F3 remains P0 because D8 must adjudicate or fail closed, never ship fabricated pass/coverage."
+p1:
+  - "F6/F7 are faithfulness tightenings; land before wide rendering to avoid amplifying shell-span mis-citations."
+  - "F4 is acceptable as group+edge-remap only; no member may newly pass any gate through regrouping."
+p2:
+  - "F13 is OK only as fetch-admission softening; strict_verify and downstream binding gates must remain unchanged."
+  - "F14 fallback must remain candidate/coverage-only until normal verification gates accept it."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Revise complete_cause_list and F1 locus from evidence_distiller.py to contradiction_detector.py:1291/:1324."
+  - "Do not implement a direct finding_key override in row emission; populate the upstream claim subject used by _finding_key."
+verdict: REQUEST_CHANGES
+```

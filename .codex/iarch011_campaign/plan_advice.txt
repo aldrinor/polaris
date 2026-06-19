@@ -1,0 +1,49 @@
+sequencing_verdict: ok with two changes: put B12 beside B19 in Stage 1, and put B09 ev_id stability before final clinical output audit. B19 gets you completion, but B12 determines whether verifier-heavy replay is meaningful, and B09 determines whether citation audit results are trustworthy.
+
+hard_dependencies: [
+  "B19 before any full replay/VM sweep.",
+  "B12 before verifier-heavy replay and before judging B01/B14 fixed.",
+  "B18 before any enrichment/breadth assertion.",
+  "B17/B11 before B20 adequacy/completeness verdicts, because adequacy currently consumes corrupted tier/authority signals.",
+  "B09 before final citation-quality audit and before treating ev_id/title findings as evidence.",
+  "B13 before relying on contradiction precision in a clinical run.",
+  "Replay from corpus proves generation/render fixes; it does not fully prove degraded-row re-fetch, so B02/B04 also need one fetch-stage or fresh mini-run."
+]
+
+file_collision_serialize_groups: [
+  ["src/polaris_graph/generator/evidence_distiller.py", "tests/polaris_graph/generator/test_evidence_distiller_iperm016.py"],
+  ["src/polaris_graph/llm/entailment_judge.py", "src/polaris_graph/retrieval/semantic_conflict_detector.py", "src/polaris_graph/llm/side_judge_guard.py", "tests/polaris_graph/test_entailment_judge_transport.py", "tests/polaris_graph/test_semantic_conflict_detector_iready012.py"],
+  ["src/polaris_graph/generator/weighted_enrichment.py", "src/polaris_graph/retrieval/evidence_selector.py", "src/polaris_graph/generator/multi_section_generator.py", "tests/polaris_graph/generator/test_weighted_enrichment_iarch007.py"],
+  ["src/polaris_graph/retrieval/tier_classifier.py", "src/polaris_graph/retrieval/live_retriever.py", "src/polaris_graph/nodes/weighted_corpus_gate.py", "scripts/run_honest_sweep_r3.py", "src/polaris_graph/nodes/corpus_adequacy_gate.py"],
+  ["src/polaris_graph/retrieval/contradiction_detector.py", "src/polaris_graph/retrieval/qualitative_conflict_detector.py", "src/polaris_graph/retrieval/semantic_conflict_detector.py", "scripts/run_honest_sweep_r3.py"],
+  ["config/completeness_checklists/**", "config/scope_templates/**", "src/polaris_graph/nodes/completeness_checker.py", "src/polaris_graph/audit_ir/domain_router.py", "scripts/run_honest_sweep_r3.py"],
+  ["config/architecture/polaris_runtime_lock.yaml", "config/settings/openrouter_provider_routing.yaml", "src/polaris_graph/llm/openrouter_client.py", "src/polaris_graph/benchmark/pathB_capture.py", "scripts/dr_benchmark/run_gate_b.py"]
+]
+
+keystone_review: {
+  B19: "Sound. Use per-batch/per-call async wall guard, not lower tokens. Safe default: PG_DISTILL_MAP_CALL_WALL_S=900s; use 1200s only if VM telemetry shows healthy >900s. Trap: gather must not cancel the whole map on one timeout; every source still needs a coverage/error row and loud telemetry.",
+  B17: "Sound if authority_score becomes a weight/disclosure, not a laundering path. Trap: separate venue authority from fetch completeness. A Lancet stub should not be weighted below social media, but a contentless stub also must not satisfy clinical adequacy as if full text was grounded.",
+  B18: "Sound and mandatory. Remove the hard drop; keep below-floor rows sorted later with telemetry. Trap: existing tests assert below-floor exclusion, so update them or the old neck returns. Per-subquery normalization must be monotonic-up, never a tighter floor.",
+  B12: "Sound. Implement a brace-aware first-complete-object parser, schema-check required fields, and remove json_object from these direct judges. Trap: do not make invalid partial JSON pass; entailment parse failure must remain fail-closed, semantic conflict failure must remain unscored/strict-fail-closed as configured. OpenRouter docs confirm response_format json_object exists, but provider require_parameters restricts routing to supporting providers."
+}
+
+preflight_min_assertions: [
+  "B19: resumed corpus run finishes with manifest not run_wall timeout and report.md reaches ## Abstract/render; no distill_map raw call exceeds PG_DISTILL_MAP_CALL_WALL_S plus small grace; induced distill timeout yields a loud per-source/batch error row, not a wedged gather.",
+  "B17: corpus_credibility_disclosure.json has weight_basis=authority_score for real rows, not 528/528 tier_prior; known scholarly venues are not demoted solely by R1_stub_content_length without fetch_degraded/refetch labeling; adequacy no longer counts contentless stubs as fully usable.",
+  "B18: enrichment diagnostic on the banked corpus shows supports_members_seen > 0 and appended weighted-enrichment section candidates > 0; below-floor count may be logged but is not an exclusion; rendered report contains the enrichment section with strict-verified citations.",
+  "B12: replay/raw-IO includes a garbled-200 fixture or live response with valid JSON plus trailing text parsed successfully; no Extra data JSONDecodeError; novita/gmicloud are not 404ing from json_object shape; truly invalid judge output still fails closed or labels unscored.",
+  "Cross-keystone: final report has verified body sections, bibliography entries resolve to cited ev_ids, claim_disclosure/strict_verify still show span grounding, and no unverified text is marked verified."
+]
+
+biggest_risks: [
+  "Treating replay-from-corpus as proof for fetch fixes. It proves generation/render behavior, not anti-bot refetch recovery.",
+  "B17 laundering: venue authority can repair weights, but adequacy must still require usable grounded content.",
+  "B18 test inertia: current weighted_enrichment tests encode the forbidden below-floor exclusion.",
+  "B09 ev_id collisions can make every citation audit ambiguous; fix before the final §-1.1 read.",
+  "Cap-3 review pressure. Fine for mechanical patches, but do not force through unresolved P0/P1 on clinical faithfulness paths; switch to harness evidence instead.",
+  "Provider/model drift. Keep live OpenRouter model/cap checks in preflight; official docs expose /api/v1/models with context_length/top_provider fields and provider routing/require_parameters behavior."
+]
+
+mandate_self_check: confirmed none of this relaxes strict_verify/NLI/4-role/span grounding, ships unverified as verified, grandfathers stale models, or adds a filter/cap/thinner. The only timeout advice is hang containment with preserved source/error accounting, not a breadth or quality neck.
+
+Sources checked: OpenRouter model list API docs for live model properties, and OpenRouter API/provider-routing docs for `response_format` and `require_parameters`: https://openrouter.ai/docs/api/api-reference/models/get-models, https://openrouter.ai/docs/api/reference/overview, https://openrouter.ai/docs/guides/routing/provider-selection

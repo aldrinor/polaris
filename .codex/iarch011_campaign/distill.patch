@@ -1,0 +1,357 @@
+diff --git a/src/polaris_graph/generator/evidence_distiller.py b/src/polaris_graph/generator/evidence_distiller.py
+index 9947abab..2405ae7e 100644
+--- a/src/polaris_graph/generator/evidence_distiller.py
++++ b/src/polaris_graph/generator/evidence_distiller.py
+@@ -107,6 +107,24 @@ def _map_reasoning_tokens() -> int:
+     return _env_int("PG_DISTILL_MAP_REASONING_TOKENS", 4096)
+ 
+ 
++def _map_text_mode() -> bool:
++    # I-arch-007 distill_map chokepoint: deepseek-v4-pro (a reasoning-first model)
++    # DUMPS the answer into the reasoning channel under
++    # response_format=json_object, emitting EMPTY content and burning the full
++    # 32768 ceiling (~410s) per call (openrouter_client.py:1817-1819,:1838). Text
++    # mode (response_format=None) keeps the JSON in the CONTENT channel — proven by
++    # the section_reduce control (multi_section_generator.py:6925, same model/same
++    # 32768 floor, content populates). _parse_map_json already parses fenced/plain
++    # JSON from content. Default OFF = byte-identical json_object behavior
++    # (flag-OFF-byte-identical convention); set PG_DISTILL_MAP_TEXT_MODE=1 to
++    # activate. NOT a faithfulness change: distill MAP is per-source consolidation,
++    # not one of the 4 hard gates; output still flows through
++    # _validate_and_store_one_source unchanged.
++    return os.getenv("PG_DISTILL_MAP_TEXT_MODE", "0").strip().lower() in (
++        "1", "true", "yes",
++    )
++
++
+ def _reduce_max_tokens() -> int:
+     return _env_int("PG_DISTILL_REDUCE_MAX_TOKENS", 8192)
+ 
+@@ -149,7 +167,24 @@ def _reduce_reasoning_tokens() -> int:
+ 
+ 
+ def _max_parallel() -> int:
+-    return max(1, _env_int("PG_DISTILL_MAX_PARALLEL", 4))
++    # B19/I-arch-011 (KEYSTONE): raise the MAP fan-out default 4 -> 8 so a wide
++    # corpus distills with more sources in flight (breadth-positive; the per-call
++    # wall below bounds each one). DNA = consolidate-keep-all, never a throttle.
++    return max(1, _env_int("PG_DISTILL_MAX_PARALLEL", 8))
++
++
++def _distill_map_call_wall_s() -> int:
++    # B19/I-arch-011 (KEYSTONE — root cause of the B15 generator hang): bound EACH
++    # distill_map LLM call with an EXPLICIT per-call wall, mirroring the sibling
++    # PG_CREDIBILITY_PASS_WALL_S in multi_section_generator.py. Without an explicit
++    # timeout, openrouter_client._call_impl resolves a reasoning-first model
++    # (deepseek-v4-pro) to ~6530s (GENERATOR_TIMEOUT_SECONDS + 30); a half-open SSE
++    # socket then hangs the asyncio loop for ~1.8h until only the 10800s run-wall
++    # backstops. DEFAULT 1800: telemetry shows a HEALTHY distill call ran 1475s and
++    # COMPLETED, so 1800 sits safely above the healthy band yet well under the
++    # 10800s run-wall. An explicit timeout always wins (_resolve_call_timeout /
++    # _call_impl: actual_timeout = timeout or default). LAW VI: env-overridable.
++    return _env_int("PG_DISTILL_MAP_CALL_WALL_S", 1800)
+ 
+ 
+ def _microbatch_size() -> int:
+@@ -1255,8 +1290,11 @@ async def _map_one_source(
+             reasoning_enabled=False,
+             temperature=0.1,
+             max_tokens=_map_max_tokens(),
+-            response_format={"type": "json_object"},
++            response_format=(None if _map_text_mode() else {"type": "json_object"}),
+             reasoning_max_tokens=_map_reasoning_tokens(),
++            # B19/I-arch-011 (KEYSTONE): explicit per-call wall so a half-open SSE
++            # socket can no longer hang ~6530s on a reasoning-first model.
++            timeout=float(_distill_map_call_wall_s()),
+         )
+         in_tok = getattr(resp, "input_tokens", 0) or 0
+         out_tok = getattr(resp, "output_tokens", 0) or 0
+@@ -1469,8 +1507,11 @@ async def _map_microbatch(
+             reasoning_enabled=False,
+             temperature=0.1,
+             max_tokens=_map_max_tokens(),
+-            response_format={"type": "json_object"},
++            response_format=(None if _map_text_mode() else {"type": "json_object"}),
+             reasoning_max_tokens=_map_reasoning_tokens(),
++            # B19/I-arch-011 (KEYSTONE): explicit per-call wall so a half-open SSE
++            # socket can no longer hang ~6530s on a reasoning-first model.
++            timeout=float(_distill_map_call_wall_s()),
+         )
+         in_tok = getattr(resp, "input_tokens", 0) or 0
+         out_tok = getattr(resp, "output_tokens", 0) or 0
+@@ -1684,10 +1725,39 @@ async def distill_section_evidence(
+                 research_question=research_question,
+             )
+ 
++    # B19/I-arch-011 (KEYSTONE, part c): return_exceptions=True so ONE batch
++    # raising (e.g. a per-call wall timeout that escapes _map_microbatch's inner
++    # except, or any unexpected error in _guarded_batch) does NOT cancel the whole
++    # gather and silently drop EVERY other source. A timed-out / failed batch leaves
++    # its indices None here; the fail-closed None-net below converts each into a
++    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
++    # never an unverified-as-verified claim). Breadth preserved: the siblings still
++    # return their findings/rows.
++    # B19/I-arch-011 (KEYSTONE, part c): return_exceptions=True so ONE batch
++    # raising (e.g. a per-call wall timeout that escapes _map_microbatch's inner
++    # except, or any unexpected error in _guarded_batch) does NOT cancel the whole
++    # gather and silently drop EVERY other source. A timed-out / failed batch leaves
++    # its indices None here; the fail-closed None-net below converts each into a
++    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
++    # never an unverified-as-verified claim). Breadth preserved: the siblings still
++    # return their findings/rows.
+     batch_results = await asyncio.gather(
+-        *[_guarded_batch(group) for group in batches]
++        *[_guarded_batch(group) for group in batches],
++        return_exceptions=True,
+     )
+-    for idx_group, tuples in batch_results:
++    for item in batch_results:
++        if isinstance(item, BaseException):
++            # A batch failed AFTER its inner except (the wall fired at the await, or
++            # an unexpected error). It carries no idx_group, so we cannot emit a
++            # per-source row here; we leave those indices None and let the
++            # fail-closed None-net below account for every still-unfilled source.
++            logger.warning(
++                "[evidence_distiller] MAP batch raised past the inner guard: %r — "
++                "affected sources fall through to the fail-closed coverage net",
++                item,
++            )
++            continue
++        idx_group, tuples = item
+         # _map_microbatch returns one tuple per input source, index-aligned.
+         for local_i, idx in enumerate(idx_group):
+             results_by_idx[idx] = tuples[local_i]
+diff --git a/tests/polaris_graph/generator/test_distill_map_wall_deadline_iarch011.py b/tests/polaris_graph/generator/test_distill_map_wall_deadline_iarch011.py
+new file mode 100644
+index 00000000..bf5309a7
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_distill_map_wall_deadline_iarch011.py
+@@ -0,0 +1,228 @@
++"""I-arch-011 B19 (KEYSTONE — root cause of the B15 generator hang).
++
++Two BEHAVIORAL assertions, both offline / no network / no spend, run against the
++REAL public ``distill_section_evidence`` entry point (not a flag/env check):
++
++  (a) EXPLICIT per-call wall is passed as ``timeout=`` to the live ``distill_map``
++      LLM call. Without it, ``openrouter_client._call_impl`` resolves a
++      reasoning-first model (deepseek-v4-pro) to ~6530s
++      (``GENERATOR_TIMEOUT_SECONDS`` + 30); a half-open SSE socket then hangs the
++      asyncio loop for ~1.8h. The fix passes ``PG_DISTILL_MAP_CALL_WALL_S``
++      (default 1800) so the explicit branch (``actual_timeout = timeout or
++      default``) wins and the call is bounded. PRE-FIX the call had NO ``timeout``
++      kwarg -> ``None != 1800.0`` -> this test fails first.
++
++  (b) ONE source's MAP batch raising past the inner guard (a per-call wall timeout
++      that escapes ``_map_microbatch``'s ``except``, surfaced here by patching
++      ``_map_microbatch`` itself) must NOT cancel the whole ``asyncio.gather`` and
++      silently drop EVERY other source. PRE-FIX the gather had no
++      ``return_exceptions=True`` so the escaped exception propagated and
++      ``distill_section_evidence`` raised, dropping the ENTIRE section (a
++      breadth/faithfulness loss). POST-FIX the siblings still return their
++      findings/rows and the timed-out source surfaces a LOUD fail-closed coverage
++      row (``unaccounted_after_dispatch``) — never a silent drop, never an
++      unverified-as-verified claim.
++
++These exercise the ``_map_microbatch`` / line-1486 site (the default
++``PG_DISTILL_MICROBATCH_SIZE`` is 1, so every cache-miss source is its own
++batch-of-1 that flows through ``_map_microbatch`` and the gather).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import pathlib
++import tempfile
++from dataclasses import dataclass
++
++import pytest
++
++import src.polaris_graph.llm.openrouter_client as orc
++from src.polaris_graph.generator import evidence_distiller as ed
++from src.polaris_graph.generator.evidence_distiller import (
++    SectionDistillate,
++    distill_section_evidence,
++)
++
++
++@dataclass
++class _Section:
++    title: str
++    focus: str
++
++
++_SECTION = _Section(title="Safety", focus="adverse events of the intervention")
++_RQ = "What are the cardiovascular safety risks of tirzepatide in T2D adults?"
++
++_EV_A = {
++    "evidence_id": "ev_a", "tier": "T1",
++    "statement": "Tirzepatide safety summary",
++    "direct_quote": (
++        "Serious adverse events occurred in 7.0 percent of tirzepatide patients. "
++        "Discontinuation due to adverse events was 5.1 percent."
++    ),
++    "source_url": "https://example.org/a",
++}
++_EV_B = {
++    "evidence_id": "ev_b", "tier": "T1",
++    "statement": "Tirzepatide adverse events",
++    "direct_quote": (
++        "Pancreatitis was reported in 0.2 percent of participants in the trial. "
++        "Gallbladder disease occurred in 1.5 percent of the treated group."
++    ),
++    "source_url": "https://example.org/b",
++}
++_POOL = {"ev_a": _EV_A, "ev_b": _EV_B}
++
++# The locked reasoning-first generator (so _resolve_call_timeout / _call_impl would
++# otherwise stretch to ~6530s without our explicit wall).
++_MODEL = "deepseek/deepseek-v4-pro"
++
++
++def _tmp_cache(monkeypatch) -> None:
++    d = tempfile.mkdtemp()
++    monkeypatch.setattr(ed, "_default_cache_dir", lambda: pathlib.Path(d))
++
++
++class _Resp:
++    def __init__(self, body):
++        self.content = body
++        self.reasoning = None
++        self.input_tokens = 13
++        self.output_tokens = 9
++
++
++# ---------------------------------------------------------------------------
++# (a) the explicit per-call wall is passed as timeout= to the distill_map call.
++# ---------------------------------------------------------------------------
++
++def test_distill_map_passes_explicit_call_wall_as_timeout(monkeypatch):
++    _tmp_cache(monkeypatch)
++    monkeypatch.delenv("PG_DISTILL_MICROBATCH_SIZE", raising=False)
++    # Leave PG_DISTILL_MAP_CALL_WALL_S UNSET so we assert the SHIPPED default 1800,
++    # not a value the test smuggled in via the env (that would test the env, not
++    # the behavior the fix guarantees).
++    monkeypatch.delenv("PG_DISTILL_MAP_CALL_WALL_S", raising=False)
++
++    seen_timeouts: list = []
++
++    class _FakeClient:
++        def __init__(self, *a, **k):
++            pass
++
++        async def _call(self, *a, **k):
++            # Record what the distiller actually passed for `timeout` (PRE-FIX this
++            # kwarg is absent -> defaults to None and the assert below fails).
++            seen_timeouts.append(k.get("timeout"))
++            return _Resp(json.dumps(
++                {"no_relevant_findings": True, "no_relevant_reason": "x",
++                 "findings": []}
++            ))
++
++        async def close(self):
++            return None
++
++    monkeypatch.setattr(orc, "OpenRouterClient", _FakeClient, raising=True)
++
++    result = asyncio.run(
++        distill_section_evidence(
++            _SECTION, [_EV_A, _EV_B], _POOL, model=_MODEL,
++            research_question=_RQ,
++        )
++    )
++    assert isinstance(result, SectionDistillate)
++
++    # Both cache-miss sources issued a live distill_map call (default microbatch=1).
++    assert len(seen_timeouts) == 2, (
++        f"expected one distill_map call per source, saw {len(seen_timeouts)}"
++    )
++    # BEHAVIOR: every call carried the EXPLICIT default wall (1800.0s), so the
++    # reasoning-first ~6530s default can no longer govern a half-open socket.
++    assert all(t == 1800.0 for t in seen_timeouts), (
++        "distill_map must pass the explicit PG_DISTILL_MAP_CALL_WALL_S "
++        f"(default 1800.0) as timeout= to every call; saw {seen_timeouts!r}"
++    )
++
++
++# ---------------------------------------------------------------------------
++# (b) one batch timing out does not cancel the gather / drop the other sources.
++# ---------------------------------------------------------------------------
++
++def test_distill_map_timeout_isolated_other_sources_survive(monkeypatch):
++    _tmp_cache(monkeypatch)
++    monkeypatch.delenv("PG_DISTILL_MICROBATCH_SIZE", raising=False)
++
++    # Healthy MAP responder for the batch(es) that do NOT time out.
++    class _FakeClient:
++        def __init__(self, *a, **k):
++            pass
++
++        async def _call(self, *a, **k):
++            return _Resp(json.dumps(
++                {"no_relevant_findings": True, "no_relevant_reason": "x",
++                 "findings": []}
++            ))
++
++        async def close(self):
++            return None
++
++    monkeypatch.setattr(orc, "OpenRouterClient", _FakeClient, raising=True)
++
++    # Make exactly ONE batch raise PAST the inner except (a wall timeout escaping
++    # _map_microbatch — the real hang signature), and let every other batch run the
++    # genuine code path. Patching _map_microbatch is the only injection point that
++    # actually reaches the gather: the per-site `except Exception` inside
++    # _map_microbatch would otherwise swallow a timeout before gather ever sees it.
++    real_microbatch = ed._map_microbatch
++    raised = {"done": False}
++
++    async def _flaky_microbatch(evs, **kwargs):
++        first_eid = (evs[0].get("evidence_id", "") if evs else "")
++        if first_eid == "ev_a" and not raised["done"]:
++            raised["done"] = True
++            raise asyncio.TimeoutError("simulated distill_map per-call wall fired")
++        return await real_microbatch(evs, **kwargs)
++
++    monkeypatch.setattr(ed, "_map_microbatch", _flaky_microbatch, raising=True)
++
++    # PRE-FIX (gather without return_exceptions): the escaped TimeoutError
++    # propagates here and distill_section_evidence raises -> this call blows up and
++    # the test FAILS. POST-FIX: it returns, ev_b survives, ev_a is disclosed.
++    result = asyncio.run(
++        distill_section_evidence(
++            _SECTION, [_EV_A, _EV_B], _POOL, model=_MODEL,
++            research_question=_RQ,
++        )
++    )
++    assert isinstance(result, SectionDistillate)
++
++    cov_by_id = {c.evidence_id: c for c in result.coverage}
++
++    # The sibling that did NOT time out still produced its coverage row (BREADTH
++    # preserved — it was not cancelled out by the failing batch).
++    assert "ev_b" in cov_by_id, (
++        "the non-timed-out source must still be accounted for "
++        f"(coverage ids={sorted(cov_by_id)})"
++    )
++
++    # The timed-out source is NOT silently dropped: it surfaces a LOUD fail-closed
++    # coverage row via the None-net (status map_failed / unaccounted_after_dispatch).
++    assert "ev_a" in cov_by_id, (
++        "the timed-out source must surface a LOUD fail-closed coverage row, "
++        f"never disappear (coverage ids={sorted(cov_by_id)})"
++    )
++    assert cov_by_id["ev_a"].status == "map_failed", (
++        "a timed-out source must be disclosed as map_failed, "
++        f"got status={cov_by_id['ev_a'].status!r}"
++    )
++    assert cov_by_id["ev_a"].reason == "unaccounted_after_dispatch", (
++        "the fail-closed None-net must label the dropped batch's source, "
++        f"got reason={cov_by_id['ev_a'].reason!r}"
++    )
++
++    # Faithfulness: a timeout NEVER yields a verified/accepted finding for that
++    # source — it is a disclosed gap, not an unverified-as-verified claim.
++    assert all(f.evidence_id != "ev_a" for f in result.findings), (
++        "a timed-out source must not produce any accepted finding"
++    )

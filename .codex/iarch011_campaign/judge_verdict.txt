@@ -1,0 +1,19 @@
+novel_p0: []
+
+continuing_p0: []
+
+p1: [
+  "[src/polaris_graph/llm/entailment_judge.py:329](/abs/path/C:/POLARIS/src/polaris_graph/llm/entailment_judge.py:329) and [src/polaris_graph/retrieval/semantic_conflict_detector.py:572](/abs/path/C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:572): the extractor can still make malformed partial JSON pass. On `raw_decode` failure at an outer `{`, it unconditionally advances to the next `{`. A malformed wrapper such as `{\"wrapper\":{\"verdict\":\"NEUTRAL\",\"reason\":\"ok\"}` fails at offset 0, then the nested complete verdict object can be decoded and returned. Pre-fix `json.loads` failed closed; post-fix this can turn malformed/partial content into an accepted judge verdict. That violates the stated fail-closed contract for malformed/partial content. Add a regression case for malformed outer JSON containing a complete nested verdict object, and make JSON-looking candidate object decode failure raise rather than scanning into its interior."
+]
+
+p2: [
+  "Known live-host/preflight risk: removing `response_format` can let a reasoning host return blank content. I do not see a new verified-as-verified fail-open path from that deletion itself: entailment still retries/sentinels to `judge_error`, and semantic-conflict still uses the existing `CONFLICT_UNSCORED_LABEL`/strict exception behavior for parse failures. This still needs live host preflight because it can affect coverage/routing quality."
+]
+
+convergence_call: continue
+
+remaining_blockers_for_execution: [
+  "Fix the extractor so malformed JSON envelopes cannot be salvaged by decoding an inner verdict object, in both duplicated copies, and cover it in the new parser tests."
+]
+
+verdict: REQUEST_CHANGES

@@ -1,0 +1,8 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["src/polaris_graph/generator/evidence_distiller.py:1297 and :1514 pass PG_DISTILL_MAP_CALL_WALL_S into OpenRouterClient._call, but src/polaris_graph/llm/openrouter_client.py:1963 and :2169-2183 apply that timeout per retry attempt, not as a logical call wall. With MAX_RETRIES=2, a half-open distill_map can occupy the map fan-out for roughly 3 * (1800 + 30) plus backoff, about 5493s, before the disclosed map_failed row appears. That misses the stated B19 contract that the 1800s wall bounds each distill_map call; use an overall deadline/no-retry path for distill_map timeouts while keeping the same fail-closed coverage row."]
+p2: ["src/polaris_graph/generator/evidence_distiller.py:1728-1743 duplicates the B19 gather comment block. Cosmetic only."]
+convergence_call: continue
+remaining_blockers_for_execution: ["Make PG_DISTILL_MAP_CALL_WALL_S a true end-to-end distill_map call wall across retries, not a per-attempt timeout."]
+verdict: REQUEST_CHANGES

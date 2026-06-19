@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+novel_p0: ["F2b relaxes rendered basket-citation faithfulness: `_advisory_entailment_disabled()` makes `_assemble_baskets` label `span_verdict=SUPPORTS` without entailment, and `resolve_provenance_to_citations_with_count` later appends every `SUPPORTS` corroborator as inline citations after `strict_verify` has already run. See `credibility_pass.py:884/656` and `provenance_generator.py:2953/3246-3253`. These added citations are not re-verified by the binding section gate.", "The process-global env override can leak into Stage 2 on credibility-pass timeout: `generate_multi_section_report` wraps `asyncio.to_thread(run_credibility_analysis)` in `wait_for`, catches `TimeoutError`, and continues to Stage 2, while its own comment states `to_thread` is not cancellable. If timeout happens while `_advisory_entailment_disabled()` is active, `PG_STRICT_VERIFY_ENTAILMENT=off` remains process-wide until the worker exits. See `multi_section_generator.py:6807-6831` and `credibility_pass.py:273-281`."]
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Keep entailment enforced for any basket member that can be rendered as an inline/supporting citation, or stop rendering advisory-only members as support.", "Replace the process-global env mutation with a call-scoped verifier mode or guarantee the advisory worker is joined/restored before any binding render gate can run, including timeout paths."]

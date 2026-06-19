@@ -496,18 +496,53 @@ def test_arch005_zero_emission_gap_stub_is_visible_not_dropped() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_arch005_b12_judge_none_always_release_on_degrades_not_raise() -> None:
-    """judge=None (or gov_suffixes missing) + always-release ON -> "degrade" (NOT "raise").
-    This is the B12-COMPLETION fix: the report ships with a disclosed gap, never holds."""
+def test_iarch011_f2a_judge_none_with_gov_runs_priors_only() -> None:
+    """I-arch-011 F2a (#1268): judge=None + gov_suffixes PRESENT + always-release ON -> "run"
+    (was "degrade" under B12-COMPLETION). run_credibility_analysis(judge=None) builds the
+    COMPLETE priors-only basket (ZERO scoring LLM calls, every source LABELED
+    credibility_unscored); the old "degrade" threw that basket away -> the 794->9 cited-source
+    collapse. A missing judge must RUN priors-only, not degrade. Faithfulness unchanged: priors
+    weights are real; strict_verify / 4-role D8 / span-grounding stay the only binding gates."""
     assert msg._credibility_guard_decision(
         judge=None, gov_suffixes=("gov",), always_release=True,
-    ) == "degrade"
+    ) == "run"
+
+
+def test_iarch011_f2a_gov_suffixes_missing_still_degrades() -> None:
+    """MISSING gov_suffixes is a real wiring hole (the pass cannot classify gov sources) and is
+    NOT the judge case: it KEEPS the B12-COMPLETION degrade under always-release, regardless of
+    whether the judge is present. The F2a fix split the two conditions deliberately."""
     assert msg._credibility_guard_decision(
         judge=object(), gov_suffixes=None, always_release=True,
     ) == "degrade"
     assert msg._credibility_guard_decision(
         judge=object(), gov_suffixes=(), always_release=True,
     ) == "degrade"
+    # gov-missing dominates even when the judge is ALSO missing (gov branch checked first).
+    assert msg._credibility_guard_decision(
+        judge=None, gov_suffixes=(), always_release=True,
+    ) == "degrade"
+
+
+def test_iarch011_f2a_judge_none_run_path_surfaces_disclosed_gap() -> None:
+    """I-arch-011 Codex P1: the judge=None "run" path (priors-only) MUST surface the disclosed gap on
+    the operator-visible ``credibility_disclosed_gap`` carrier — else priors-only weights ship without
+    the LAW II disclosure (the old "degrade" path set it; F2a's "run" path must too). Pinned at source
+    level (the set is deep in the async ``generate_multi_section_report``), mirroring the existing
+    inline-guard wiring test."""
+    import inspect
+
+    src = inspect.getsource(msg.generate_multi_section_report)
+    # the run path sets the named priors-only gap when the LLM credibility judge is None
+    assert "_CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP" in src
+    assert "credibility_pass_judge is None" in src
+    # the named constant carries the priors_only token the manifest reader surfaces
+    assert "priors_only" in msg._CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
+    # distinct from the pass-could-NOT-run degrade string (different condition, different text)
+    assert (
+        msg._CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
+        != msg._CREDIBILITY_NO_JUDGE_DISCLOSED_GAP
+    )
 
 
 def test_arch005_b12_judge_none_always_release_off_still_raises() -> None:

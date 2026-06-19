@@ -1,0 +1,573 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ee09a-3ad5-7193-8875-0a029cf613d7
+--------
+user
+# Codex static review — I-arch-011 794->9 breadth-collapse forensic plan
+
+You are the ONLY review gate. STATIC review only.
+
+EXPLORATION IS CAPPED — read FAST, emit the YAML as soon as you can answer:
+- READ the plan: `.codex/iarch011_campaign/collapse_forensic_plan.json` (it is NOT inlined here).
+- The 3 decisive code snippets are INLINED below — you do NOT need to open those files; assess the reasoning.
+- DO NOT open `outputs/iarch011_drb78_run5/full_run.log` — the plan already cites its line numbers + content; your job is to judge the REASONING, not re-verify every log line.
+- You MAY spot-open at most ONE file if a question truly hinges on it. Do not cat large files. Do NOT run pytest / any command.
+
+## Context (one paragraph)
+Run-5 (DRB #78) shipped breadth 794 distinct sources -> only 9 cited. `collapsed=0`, enrichment EMPTY. The plan claims this is a CONSOLIDATION+DECOUPLE chokepoint (NO in-scope source DROP), plus a separate 4-role D8 seam crash that left faithfulness unadjudicated. Pipeline DNA (CLAUDE.md §-1.3) is WEIGHT-AND-CONSOLIDATE, never FILTER-AND-CAP; faithfulness is the only hard gate and is NEVER relaxed to widen breadth.
+
+## INLINED decisive snippets (the questions hinge on these)
+
+### Snippet 1 — `src/polaris_graph/synthesis/finding_dedup.py:80-114` (`_finding_key`)
+```python
+def _finding_key(claim, evidence_id, claim_index, *, exact_value=False) -> tuple:
+    subject = getattr(claim, "subject", "") or ""
+    if not subject or subject == _UNKNOWN_SUBJECT:
+        return ("__unknown__", evidence_id, claim_index)   # <-- the manifest '__unknown__'[0] origin
+    raw_value = float(getattr(claim, "value", 0.0) or 0.0)
+    value_slot = raw_value if exact_value else round(raw_value, 3)
+    return (subject, getattr(claim,"predicate","") or "", value_slot, getattr(claim,"unit","") or "",
+            getattr(claim,"dose","") or "", getattr(claim,"arm","") or "", getattr(claim,"endpoint_phrase","") or "")
+```
+=> the `__unknown__` sentinel fires when `claim.subject` is empty / `_UNKNOWN_SUBJECT`. KEY QUESTION for (b): plan F1 says the fix locus is "the evidence distiller MAP step (`evidence_distiller.py` finding-row emission)". Is that the WRONG site? If `__unknown__` comes from an empty `claim.subject`, the real fix is wherever `claim.subject` is POPULATED upstream (claim extraction), not the distiller row emission. State the correct file:line.
+
+### Snippet 2 — `src/polaris_graph/generator/multi_section_generator.py:147-148` (guard) + `weighted_enrichment.py:180-181`
+```python
+# multi_section_generator.py  _credibility_guard_decision:
+    if judge is None or not gov_suffixes:
+        return "degrade" if always_release else "raise"   # judge=None + always_release -> 'degrade' (skips pass body)
+    return "run"
+# weighted_enrichment.py:
+    if credibility_analysis is None:
+        return UnboundSupportsSelection([], _REASON_CREDIBILITY_NONE, 0,0,0,0,0)   # <-- run5 empty-enrichment exit
+```
+=> the keystone F2 (Form B) flips this guard to `"run"` on judge=None+always_release and builds the basket with a deterministic verify_fn so `credibility_analysis` is populated. Judge `run_credibility_analysis` already supports judge=None priors-only (plan cites credibility_pass.py:691,700).
+
+### Snippet 3 — `src/polaris_graph/roles/openrouter_role_transport.py` getter L970-979, force-close ~L479, swallowed rebuild ~L1156-1157
+```python
+@property
+def _http_client(self) -> httpx.Client:
+    client = getattr(self._tls, "client", None)
+    if client is None:                       # <-- F3: does NOT check is_closed; a force-closed client survives in TLS
+        client = self._http_client_factory()
+        self._tls.client = client
+    return client
+# ~L479 total-deadline timeout path:  client.close()  (force the hung socket closed)
+# ~L1156-1157 rebuild after force-close:
+    try:
+        self._http_client = self._http_client_factory()
+    except Exception:                        # <-- F3: swallowed; LAW II says log loudly
+        pass
+```
+=> F3 = `if client is None or client.is_closed:` in the getter + stop swallowing the rebuild. On the unrecoverable path the EXISTING fail-closed `RoleTransportError` must still fire (D8 HOLDS, never a fabricated PASS).
+
+## Answer ALL of these
+(a) **Cause completeness.** Does `complete_cause_list` MISS any real reason for the 794->9 collapse within the in-scope hops (basket -> consolidation -> generator -> verify -> render)? Name any missed chokepoint with file:line. The plan asserts NO in-scope source-drop hop (collapsed=0, dropped_count=0) and the only real drop is the upstream pre-fetch fetch_cap=740 (out of scope) — confirm or refute that specifically.
+
+(b) **Keystone soundness.** Is the keystone (decouple basket from the LLM judge — Form B: deterministic verify_fn + flip the guard to 'run' on judge=None) (i) sound, (ii) faithfulness-safe (every basket member still independently passes the unchanged strict_verify; binding gates unchanged), (iii) non-neck-choke (no NEW serial LLM hop re-armed on the basket path)? AND verify F1's fix locus per Snippet 1 — is the distiller the wrong site, with the true root being upstream empty `claim.subject`? Give the correct file:line.
+
+(c) **4-role seam fix correctness.** Is F3 (`if client is None or client.is_closed:` + stop swallowing the rebuild) correct per Snippet 3? Confirm `httpx.Client.is_closed` exists and flips True on `.close()`. Confirm that on the unrecoverable path the EXISTING fail-closed `RoleTransportError` still fires so D8 HOLDS (never a fabricated PASS).
+
+(d) **3-PRONG GUARD — reject any fix that:** (1) RELAXES faithfulness (binding gate -> pass / admits unverified content), (2) GRANDFATHERS (accepts stale/legacy behavior a frontier standard rejects), or (3) adds a CAP / FLOOR / THROTTLE / TARGET to force a breadth number. For EACH of F1..F16 give one word OK/FLAG. Scrutinize especially F13 (core_client year-mismatch relax — fetch-admission vs verify relaxation?), F6/F7 (claimed faithfulness TIGHTENINGS — confirm they tighten, not relax), F4 (`_regroup_graph_by_finding_dedup` — confirm group+edge-remap only, no member newly passes any gate).
+
+Front-load every real finding now. A wrong fix or missed cause is a successful REQUEST_CHANGES.
+
+## Output — emit EXACTLY this schema, final line is the machine-parsed verdict
+```yaml
+cause_completeness: <complete | missed:[chokepoint@file:line, ...]>
+keystone_sound: <yes | no — reason>
+f1_fix_locus_correct: <yes | no — correct file:line is ...>
+four_role_seam_fix_correct: <yes | no — reason>
+three_prong_per_fix: {F1: OK|FLAG, F2: ., F3: ., F4: ., F5: ., F6: ., F7: ., F8: ., F9: ., F10: ., F11: ., F12: ., F13: ., F14: ., F15: ., F16: .}
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+verdict: APPROVE | REQUEST_CHANGES
+```
+
+codex
+I’ll keep this to the requested static gate: first read the forensic plan, then only spot-open one source file if the plan does not give the exact upstream `claim.subject` population line.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath .codex/iarch011_campaign/collapse_forensic_plan.json' in C:\POLARIS
+ succeeded in 1425ms:
+{"complete_cause_list":["C1 KEYSTONE-A (consolidation): finding_key[0]=='__unknown__' for ALL 64 clusters (manifest finding_dedup.clusters[0-4] all ['__unknown__', <ev_id>, 0]), so the dedup key collapses to each source's own ev_id; every cluster is a structural singleton (corroboration_count=1), collapsed=0 GUARANTEED (log:836). No source dropped, but the multi-citation basket is never built - ~785 verified corroborators never attach to the 9 surfaced claims.","C2 KEYSTONE-B (basket decoupled from LLM judge): _credibility_guard_decision returns 'degrade' when judge is None (multi_section_generator.py:147-148), which SKIPS the whole credibility-pass body, so credibility_analysis=None; weighted_enrichment.py:180-181 then returns [] reason=_REASON_CREDIBILITY_NONE. In run5 PG_CREDIBILITY_LLM_JUDGE=off (log:838) so this fired - enrichment EMPTY (log:846). run_credibility_analysis ALREADY supports judge=None priors-only (credibility_pass.py:691,700) so the basket CAN be built deterministically; it is wrongly gated behind the LLM judge.","C3 RESIDUAL consolidation: even priors-only, claim_graph build_merge_key fail-closes to singletons for clinical numerics with blank dose/comparator/endpoint, re-fragmenting sources; PG_BASKET_CONSUME_FINDING_DEDUP must be ON so _regroup_graph_by_finding_dedup merges the partition by finding_dedup membership before _assemble_baskets (group+edge-remap only, no member newly passes any gate, credibility_pass.py:401).","C4 RENDER gate on WIDE: weighted_enrichment surfaces wide only if PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS (FIX-K) is ON (renders the verified spans verbatim); else it LLM-regenerates prose and ~0 survives strict_verify. The restored basket renders narrow without this flag.","C5 FAITHFUL P0 (4-role D8 seam crash): role-transport client force-closed on a total-deadline timeout (openrouter_role_transport.py:479) and its rebuild swallowed by 'except Exception: pass' (1157); next Mirror/Judge transport.complete() hits a closed client, httpx raises a plain RuntimeError (_client.py:901) matching NONE of the retry except arms (1149/1170/1186), it escapes and tears down the whole seam -> D8 UNADJUDICATED coverage=0.000, report ships released_insufficient_safety_evidence (log:1225-1226). The strongest faithfulness gate never adjudicated.","C6 amplifier (seam): Mirror/Judge roles have no per-claim transport-fault degrade (Sentinel does, sentinel_adapter.py:426-465), so one faulted claim zeroes all ~123 (role_pipeline.py:320-330, sweep_integration.py:585).","C7 FAITHFULNESS traceability (ev_1 Efficacy): 5 PICO sentences render VERIFIED citing a 489-char NEJM security-page shell (log:805); NLI caught it but is advisory (manifest:6924) and M-69 rescued the strict_verify drops - claim matches the real trial but the cited SPAN is a security page (-1.1 mis-citation on a load-bearing clinical framing).","C8 FAITHFULNESS tightening (M-69 rescue): contract_section_runner rescues no_content_word_overlap drops on the static 'M-58 verified verbatim' assumption without re-checking the resolved span is non-shell (log:869) - a quiet bypass of the only binding gate for contract sentences whose span degraded to a shell.","C9 CONTRACT slot (M-70 regulatory heading mismatch): entity required_fields (warning/mechanism/clinical_consequence/management) never match the fixed _FDA_HEADINGS vocabulary (regulatory_synthesizer.py:102), so a fully-fetched 43081-char FDA carbidopa-levodopa label (log:833) yields zero segments -> dopaminergic_withdrawal_caution renders as gap (log:850-851).","C10 CONTRACT slot (device-safety fetch shell): dbs_device_mri_safety anchored to FDA P960009.pdf which every backend returned as a shell (174/266 chars, log:830-831), no OA-mirror/PMC fallback, A15 recovered spans don't propagate into the V30 slot (log:789) -> regulatory_dbs_device_safety renders as gap.","C11 CONTRACT slot (M-58 staging + over-strict year reject): mds.22340 fetched 7408 chars but core_client REJECTED the canonical copy on a year-metadata mismatch (expected 2008 got 2012, log:807/1242) -> mechanism_disease_staging renders as gap (log:864) - the entity most on-topic for the caregiver question.","C12 quantified_analysis silent no-op: 4025 sourced numbers extracted, 0 modeled, fired=False (manifest:7155-7163); declined_no_spec conflates a genuine writer decline with a swallowed transport miss (quantified_analysis.py:59-60), and given the run's pervasive transport faults the spec call most likely failed in transport but was mislabeled a decline.","C13 render bibliography blank URL: cited [2] dbs_complications_warning_signs (anchors ~12 Mechanism+Safety sentences) renders url='' (bibliography.json:14) despite a DOI in available_artifacts - -1.1 traceability hole on a load-bearing citation.","C14 distill MAP drop: ev_116 + ev_687 lost their coverage map on a transient empty-error MAP fault with no retry (log:956-957) - 2 sources silently excluded from findings.","C15 telemetry false-negative (observability): storm_query_expansion + agentic_search report firing_status='enabled_not_reached' (manifest:7246) though STORM personas DID fire (log:20) - a resume-from-snapshot bypasses the in-band telemetry-update block, mis-judging discovery as a silent degrade and risking FL-05 false alarms.","Q1 latent (credibility LLM-judge deadlock, NOT the run5 trigger): nested thread pools (credibility_skill.py:309 outer future.result with NO timeout + credibility_judge_caller.py:119 inner fut.result on a trickle socket whose read-gap never trips) deadlock when the LLM judge is ON. PG_CREDIBILITY_LLM_JUDGE=off mitigates it but that is what triggers C2. Real in code; must NOT be re-armed by the keystone.","NO MISSED SOURCE-DROP HOP within 794->9: collapsed=0, evidence_selection.dropped_count=0, sentences_dropped=49 are FAITHFULNESS-correct strict_verify/NLI drops (NOT a defect). The only real pre-fetch DROP is upstream of the 794 denominator: 324 candidates dropped to fit fetch_cap=740 (report.md:41-42) - out of scope, do NOT remove it and do NOT let any fix add a cap."],"keystone_fix":"DECOUPLE basket assembly from the LLM credibility judge - Form B (deadlock-free, preferred). On the judge=None path, pass a DETERMINISTIC verify_fn (strict_verify span/numeric/content-overlap with PG_STRICT_VERIFY_ENTAILMENT=off, no LLM) into _assemble_baskets (credibility_pass.py:527,842 already accept a settable verify_fn) so the priors-only unbound-SUPPORTS basket is built fully LLM-free, AND flip _credibility_guard_decision (multi_section_generator.py:147-148) from 'degrade'->'run' when judge is None + always_release ON so the body actually runs. run_credibility_analysis already supports judge=None priors-only (credibility_pass.py:691,700) and basket weight_mass is authority-only/uninflatable, so the priors-only baskets carry real deterministic weights. weighted_enrichment then reads a POPULATED basket instead of returning [] (the run5 chokepoint). This restores breadth with ZERO hang surface because no LLM is in the basket path. Form A (keep the LLM entailment site #2 _verify_member_in_isolation->verify_sentence_provenance hot, just flip the guard) is the SAME decouple but RE-ARMS the Q72/Q76/Q90 hang - Form A is acceptable ONLY if ITEM 2a (thread-local judge) + PG_CREDIBILITY_PASS_MAX_INFLIGHT>1 + PG_CREDIBILITY_PASS_WALL_S ship as HARD co-requisites (then ITEM 2a is P0, not P2). Faithfulness is untouched: every basket member still independently passes strict_verify against the already-verified claim; the basket per-member verdict is an advisory LABEL, and the binding gates (section strict_verify / NLI / 4-role D8 / span-grounding) are unchanged. No cap/floor/throttle added.","breadth_restore_path":"FOUR stacked conditions, ALL required - breadth stays narrow if any one fails: (1) POPULATE finding_key[0] in the distiller's finding-row emission with the normalized claim/predicate/subject key (currently '__unknown__' for all 64 clusters, manifest), so same-claim rows from different hosts share a key and consolidate into one multi-citation basket (keep ALL members). (2) DECOUPLE the basket from the LLM judge (the KEYSTONE, Form B): build the priors-only basket deterministically when judge=None so weighted_enrichment reads a populated basket instead of returning [] reason=credibility_analysis_none. (3) Set PG_BASKET_CONSUME_FINDING_DEDUP=ON so _regroup_graph_by_finding_dedup (credibility_pass.py:385-518) merges the claim_graph singleton partition by finding_dedup membership before _assemble_baskets (group+edge-remap only, faithfulness-neutral by construction). (4) Set PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS=ON (FIX-K) so the surfaced basket renders its already-verified spans VERBATIM rather than LLM-regenerating prose (~0 of which survives strict_verify). With all four, the SAME 121 verified sentences carry their full verified-corroborator baskets and the bibliography goes 9 -> ~200+ (every additional corroborator still independently passes strict_verify/entailment - entailed_count=112 proves the entailment judge is live this run). The pre-fetch fetch_cap=740 (324 dropped) is upstream of the 794 denominator and out of scope.","prioritized_fixes":[{"id":"F1-KEYSTONE-CONSOLIDATE","problem":"finding_key[0]=='__unknown__' for all 64 clusters; dedup key degenerates to each source's own ev_id, every cluster is a structural singleton (corroboration_count=1), collapsed=0 guaranteed; the multi-citation basket is never built so ~785 verified corroborators never attach to the 9 surfaced claims.","locus":"outputs/iarch011_drb78_run5/full_run.log:836 (raw=794 distinct=64 collapsed=0) + manifest finding_dedup.clusters[*].finding_key[0]='__unknown__'; emission in the evidence distiller MAP step (src/polaris_graph/generator/evidence_distiller.py finding-row emission)","fix":"Populate finding_key[0] with the actual normalized claim/predicate/subject key in the distiller finding-row emission, so same-claim rows from different hosts share a key and consolidate into one multi-citation basket. Keep ALL members (consolidate-keep-all). Each member still flows through UNCHANGED strict_verify before attachment.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P0"},{"id":"F2-KEYSTONE-DECOUPLE","problem":"_credibility_guard_decision returns 'degrade' (skip whole pass body) when judge is None, so credibility_analysis=None and weighted_enrichment returns [] (reason _REASON_CREDIBILITY_NONE). In run5 PG_CREDIBILITY_LLM_JUDGE=off fired this -> enrichment EMPTY. The basket is wrongly gated behind the LLM judge even though run_credibility_analysis already supports judge=None priors-only.","locus":"src/polaris_graph/generator/multi_section_generator.py:147-148 (guard) + src/polaris_graph/generator/weighted_enrichment.py:180-181 (is-None->[]) + src/polaris_graph/synthesis/credibility_pass.py:527,691,700,842 (verify_fn settable + priors-only supported)","fix":"Form B (deadlock-free, preferred): on the judge=None path pass a DETERMINISTIC verify_fn (strict_verify, PG_STRICT_VERIFY_ENTAILMENT=off, no LLM) into _assemble_baskets AND flip the guard 'degrade'->'run' when judge is None + always_release ON, so the priors-only basket is built fully LLM-free with zero hang surface. Form A (keep LLM site #2 hot) acceptable ONLY with ITEM 2a thread-local judge + bounded inflight + wall as HARD co-requisites. Credibility applies as a per-citation weight/LABEL, never a precondition for the basket existing.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P0"},{"id":"F3-4ROLE-SEAM-CLIENT-CLOSED","problem":"4-role D8 (strongest faithfulness gate) crashed: a force-closed role-transport client + a swallowed rebuild leads the next Mirror/Judge POST to a closed client, httpx raises a plain RuntimeError that matches none of the retry except arms, it escapes and tears down the whole seam -> D8 UNADJUDICATED coverage=0.000, report ships released_insufficient_safety_evidence. FAITHFUL fails, not breadth.","locus":"src/polaris_graph/roles/openrouter_role_transport.py:970-979 (_http_client getter), :479 (force-close), :1156-1157 (swallowed rebuild 'except Exception: pass'); httpx _client.py:901; full_run.log:1225-1226","fix":"In the _http_client getter, rebuild a closed client however it was closed: 'if client is None or client.is_closed:' (httpx.Client.is_closed confirmed to exist + flip True on .close()). Stop swallowing the factory rebuild failure at :1157 - log it loudly (LAW II). Byte-identical on the healthy path; on the closed path it restores adjudication or surfaces the EXISTING fail-closed RoleTransportError (D8 HOLDS, never a fake verdict).","faithfulness_safe":true,"non_neck_choke":true,"priority":"P0"},{"id":"F4-RESIDUAL-CONSUME-FINDING-DEDUP","problem":"Even priors-only, claim_graph build_merge_key fail-closes to singletons for clinical numerics with blank dose/comparator/endpoint, re-fragmenting sources; verified_support_origin_count stays <=1 and the 'multi-source corroborated' header reads ~0.","locus":"src/polaris_graph/synthesis/credibility_pass.py:385-518 (_regroup_graph_by_finding_dedup, gated ~:824-827) + run_gate_b.py slate (PG_BASKET_CONSUME_FINDING_DEDUP)","fix":"Force PG_BASKET_CONSUME_FINDING_DEDUP=ON in the run slate so _regroup_graph_by_finding_dedup MERGES the claim partition by finding_dedup membership before _assemble_baskets (group + edge-remap ONLY; claims/spans the isolated verify reads are untouched, no member newly passes any gate). Verify it is force-ON; if absent, add it. Faithfulness-neutral by construction.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P0"},{"id":"F5-RENDER-VERIFIED-SPANS-FIXK","problem":"Even with the basket restored, enrichment renders wide ONLY if it renders the already-verified spans verbatim; otherwise it LLM-regenerates prose and ~0 survives strict_verify, so breadth stays narrow.","locus":"src/polaris_graph/generator/weighted_enrichment.py:347-390 (verified-span render path) + run_gate_b.py slate (PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS)","fix":"Set PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS=ON (FIX-K) so the surfaced basket renders its already-verified spans verbatim instead of LLM-regenerating. This is the render-side half of the breadth-restore; without it the basket is built but not surfaced. No cap/floor - it renders already-verified content.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P0"},{"id":"F6-M69-RESCUE-SHELL-GUARD","problem":"M-69 rescues no_content_word_overlap strict_verify drops on the static 'M-58 verified verbatim' assumption without re-checking the resolved cited span is non-shell - a quiet bypass admitting sentences (e.g. the ev_1 Efficacy PICO) whose claim does not overlap a shell span.","locus":"src/polaris_graph/generator/contract_section_runner.py:187-208 (M-69 rescue) ; full_run.log:869","fix":"Before rescuing a no_content_word_overlap drop, re-confirm the cited span is (a) not a detected shell (len >= the frame_fetcher content_starved floor) AND (b) still shares >=2 content words OR passes the same-source local-window entailment check (provenance_generator.py:2170). If neither holds, do NOT rescue - let it drop and be disclosed. This is a faithfulness TIGHTENING (removes a bypass), adds no throttle.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"},{"id":"F7-NLI-DISPUTE-LABEL","problem":"ev_1 Efficacy: 5 PICO sentences render VERIFIED citing a 489-char NEJM security-page shell; NLI caught the disconnect but is advisory so the dispute never reconciles into the rendered text - a -1.1 mis-citation on a load-bearing clinical framing.","locus":"report.md:13 + manifest nli_verification.disputed (~6928-6959, advisory=true @6924) + the log:1227 redact/reconciliation step","fix":"In the render reconciliation path, when nli_verification.disputed contains a sentence, attach a per-claim 'span-imprecise / NLI-disputed' LABEL to that exact sentence (a label, never a drop - faithful to always-release). Do NOT make NLI a hard drop. Strengthens traceability, adds no cap. Pairs with F6 (fail-closing the rescue on a shell span).","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"},{"id":"F8-SEAM-PERCLAIM-DEGRADE","problem":"Mirror/Judge roles have no per-claim transport-fault degrade (Sentinel does), so one faulted claim zeroes all ~123 adjudicated claims and hardcodes coverage_fraction=0.0.","locus":"src/polaris_graph/roles/role_pipeline.py:320-330 + judge_adapter.py:239-240 + mirror_adapter.py:366,395 (vs sentinel_adapter.py:426-465 which already degrades)","fix":"Catch a transport-level fault (RoleTransportError AND a raw transport RuntimeError) per-claim in run_claim_pipeline / the Mirror+Judge adapters and emit a fail-closed UNGROUNDED D8 row for that single claim, mirroring the existing Sentinel PG_SENTINEL_TRANSPORT_DEGRADE. The faulted claim DOWNGRADES (never upgrades); no verdict relaxed. Defense-in-depth behind F3.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"},{"id":"F9-REGULATORY-HEADING-ALIAS","problem":"M-70 segmentation keys by the contract entity's required_field names but _FDA_HEADINGS uses a fixed different vocabulary, so a fully-fetched 43081-char FDA label yields zero segments and dopaminergic_withdrawal_caution renders as a gap.","locus":"src/polaris_graph/generator/regulatory_synthesizer.py:102 (_FDA_HEADINGS), :232-260 (_segment_regulatory_text), :215 ; full_run.log:850-851","fix":"Add an alias/section map so semantic required-fields (warning/mechanism/clinical_consequence/management/device_precaution/mri_conditions/...) map to actual FDA-label headings (CONTRAINDICATIONS / WARNINGS AND PRECAUTIONS / ADVERSE REACTIONS / DOSAGE...), and when no heading matches fall back to windowing the full direct_quote for the M-70 LLM to extract per-field verbatim. Per-field verbatim-substring + strict_verify remain binding. Widens from already-fetched verified text; no cap.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"},{"id":"F10-QUANTIFIED-TRANSPORT-DISTINGUISH","problem":"quantified_analysis fired=false with 4025 numbers extracted; declined_no_spec conflates a genuine writer decline with a swallowed transport miss, and the run's pervasive transport faults make a mislabeled transport fault the likely cause.","locus":"src/polaris_graph/generator/quantified_analysis.py:59-60 (status conflation), :359-370 (spec_provider boundary) ; manifest quantified_analysis @7155-7163","fix":"Stop collapsing transport misses into None at the spec_provider boundary - distinguish a true decline (empty dict) from a transport fault (exception/empty-200), emit QUANTIFIED_STATUS_EMPTY_TRANSPORT and retry with the proven total-deadline guard. Only label declined_no_spec on a genuine writer decline. strict_verify/Regime-C still gate every quantified sentence; no cap.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"},{"id":"F11-BIBLIOGRAPHY-DOI-BACKFILL","problem":"Cited [2] dbs_complications_warning_signs (anchors ~12 Mechanism+Safety sentences) renders url='' despite a DOI in available_artifacts - a -1.1 traceability hole on a load-bearing citation; bibliography [2] is unverifiable by the reader.","locus":"bibliography.json:10-15 (url='') + report.md:76 + the bibliography render path","fix":"In the bibliography renderer, when a cited entity has empty url but a doi/pmid in available_artifacts, synthesize the canonical https://doi.org/<doi> (or pubmed) URL before emitting; if still empty after backfill, FAIL LOUD with the ev_id rather than rendering a blank-URL citation. Pure traceability; no faithfulness/breadth/cap impact.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P2"},{"id":"F12-DEVICE-SHELL-FALLBACK","problem":"dbs_device_mri_safety anchored to a single anti-bot FDA PDF that fetched as a 174/266-char shell with no fallback; A15-recovered spans don't propagate into the V30 contract slot -> regulatory_dbs_device_safety renders as a gap.","locus":"full_run.log:830-831,1255 (shell), :789 (frame-row propagation gap) + frame_fetcher + V30 contract_section_runner","fix":"(1) frame_fetcher: when a contract anchor URL is a known scanned/anti-bot PDF shell, attempt an OA-mirror/PMC/alternate-format fetch (or PyMuPDF-OCR / raise the docling ceilings) before declaring METADATA_ONLY. (2) Implement the log:789 frame-row propagation fix so the V30 slot draws its direct_quote from the SAME re-grounded strict_verify-accepted enrichment span pool, letting a corroborating device-safety source in the 794 pool fill the slot. Re-uses already-verified spans; no cap.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P2"},{"id":"F13-CORE-CLIENT-YEAR-SOFT","problem":"mds.22340 staging source fetched 7408 chars but core_client hard-REJECTED the canonical copy on a year-metadata mismatch (expected 2008 got 2012, a version/reprint skew) -> mechanism_disease_staging (the most on-topic caregiver entity) renders as a gap. NOTE: this is the one fix adjacent to the banned-relaxation pattern - it changes what is ADMITTED AT FETCH TIME, not what verify accepts; strict_verify still gates every extracted field verbatim, so it is faithfulness-safe but flagged for scrutiny.","locus":"src/tools/core_client.py (year-mismatch hard-drop) ; full_run.log:807,1242","fix":"Relax the year-mismatch from a hard-drop to a soft warning that still returns the fetched content (the DOI is authoritative; a version/reprint year skew should not nullify a verified span). M-58 staging extraction then runs against the real span; strict_verify still gates each field verbatim. This is a fetch-admission widening, NOT a verify relaxation and NOT a cap.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P2"},{"id":"F14-DISTILL-MAP-RETRY","problem":"ev_116 + ev_687 lost their coverage map on a transient empty-error MAP fault with no retry, silently excluding 2 sources from findings.","locus":"src/polaris_graph/generator/evidence_distiller.py MAP step ; full_run.log:956-957","fix":"Add a bounded retry to the evidence_distiller MAP step and, on final failure, a deterministic keep-the-row-as-raw-evidence fallback so a transient judge fault does not silently drop a source from the finding set. No cap.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P2"},{"id":"F15-RESUME-TELEMETRY","problem":"storm_query_expansion + agentic_search report firing_status='enabled_not_reached' though STORM personas DID fire (log:20); a resume-from-snapshot bypasses the in-band telemetry-update block, risking FL-05 false alarms / false confidence (a -1.1 monitoring-integrity defect).","locus":"scripts/run_honest_sweep_r3.py:4273-4277 (initial firing_status) + the in-band update blocks (~5064/5173/5756/5844) ; manifest @7246-7253 ; full_run.log:20,1263-1264","fix":"On a resume path, either mark firing_status='not_applicable_resume' for STORM/agentic (so FL-05 + monitors don't treat resume as a silent degrade) or thread the real STORM persona/interview counts from the early phase into the telemetry. Observability-only; no faithfulness/breadth/cap impact.","faithfulness_safe":true,"non_neck_choke":true,"priority":"P2"},{"id":"F16-CRED-DEADLOCK-LATENT","problem":"LATENT (not the run5 trigger): the credibility LLM-judge nested thread pools deadlock on a trickle socket when judge is ON (outer future.result with NO timeout + inner fut.result whose read-gap never trips). PG_CREDIBILITY_LLM_JUDGE=off mitigates it but that off-switch is what triggers F2. Must NOT be re-armed if Form A of the keystone is taken.","locus":"src/polaris_graph/synthesis/credibility_skill.py:309 (outer, no timeout) + src/polaris_graph/.../credibility_judge_caller.py:119 (inner) ; run_honest_sweep_r3.py:8220-8222","fix":"Only required if the keystone takes Form A (LLM site #2 stays hot). Then: (1) give the OUTER skill-pool join a per-future timeout mapping a wedged source to its priors-only judgment (judge_error=True), and (2) complete ITEM 2a - a THREAD-LOCAL httpx client per worker thread so concurrent force-close cannot contend, letting PG_CREDIBILITY_PASS_MAX_INFLIGHT lift off 1 with PG_CREDIBILITY_PASS_WALL_S backstop. Form B avoids this entirely. No cap/throttle (the wall is an existing backstop, not a new thinner).","faithfulness_safe":true,"non_neck_choke":true,"priority":"P1"}],"biggest_risks":["KEYSTONE FORM RISK: if F2 is implemented as Form A (flip the guard but leave the LLM entailment site #2 _verify_member_in_isolation->verify_sentence_provenance hot) WITHOUT ITEM 2a thread-local judge + bounded inflight, it RE-ARMS the exact Q72/Q76/Q90 credibility-pass deadlock (F16) that PG_CREDIBILITY_LLM_JUDGE=off was set to avoid - the basket would then re-degrade to empty under the wall and breadth stays at 9. Take Form B (deterministic verify_fn, no LLM in the basket path) to make the keystone deadlock-free; if Form A is unavoidable, F16/ITEM 2a is a HARD P0 co-requisite, not P2.","STACKED-DEPENDENCY RISK: breadth needs ALL FOUR of F1+F2+F4+F5 to land together. Shipping any subset silently keeps the output narrow (singleton baskets / empty basket / fragmented partition / unrendered spans). A behavioral replay-harness on a banked corpus_snapshot must assert collapsed>0 AND multi-source baskets appear AND bibliography count >> 9 in the REAL rendered output (-1.4) - 'committed + green + Codex-approved' will NOT prove the four-way wiring fired.","FAITHFULNESS-AMPLIFICATION RISK: widening before fixing the ev_1 shell-span defect (F6+F7) could multiply mis-citations - confirm the basket builder attaches ONLY corroborators that each independently pass strict_verify against the claim (the design does, entailed_count=112 proves the judge is live), and land F6 (fail-close the M-69 rescue on a shell span) + F7 (label NLI-disputed sentences) so a wider report does not ship more security-page-grounded VERIFIED claims.","SAFETY-GATE RISK: the report shipped released_insufficient_safety_evidence with D8 coverage=0.000 - the strongest faithfulness gate never ran. F3 (is_closed getter guard) is P0 for FAITHFUL, equal to the breadth keystone; a WIDE report with an unadjudicated D8 is not the WIDE+FAITHFUL goal. On the unrecoverable transport path the EXISTING fail-closed RoleTransportError must still fire (D8 HOLDS) - never relax it to release on a crash.","BANNED-PATTERN ADJACENCY: F13 (core_client year-mismatch relax) is the one fix that reads adjacent to the banned relaxation pattern. It changes fetch-time ADMISSION, not verify acceptance (strict_verify still gates every extracted field verbatim), so it is faithfulness-safe and adds no cap/floor/throttle - but it should be reviewed explicitly rather than waved through, and must not be generalized into loosening any verify gate.","NO MISSED IN-SCOPE HOP (adversarial confirmation): within 794->9 there is NO source-drop hop (collapsed=0, evidence_selection.dropped_count=0; the 49 sentence + 37 claim removals are correct strict_verify/NLI faithfulness drops). The only real DROP is the pre-fetch fetch_cap=740 (324 candidates) which is UPSTREAM of the 794 denominator and out of scope - do not remove it and do not let any breadth fix introduce a compensating cap/floor."]}
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The plan gives the breadth stack and the F1 locus it claims, but it does not give the upstream line where `claim.subject` is filled. I’m going to use the one allowed spot-open for the source file that defines/emits those claims, then stop exploration.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\**\\*.py -Pattern \"class .*Claim|subject=.*claim|claim.subject|subject =|\\\"subject\\\"\" -CaseSensitive | Select-Object -First 80" in C:\POLARIS
+2026-06-19T15:58:13.795780Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+[31;1mSelect-String: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mSelect-String -Path src\polaris_graph\**\*.py -Pattern "class .*Claim[0m .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mA positional parameter cannot be found that accepts argument 'subject\'.[0m
+
+ exited 1 in 1369ms:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+[31;1mSelect-String: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mSelect-String -Path src\polaris_graph\**\*.py -Pattern "class .*Claim[0m .[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mA positional parameter cannot be found that accepts argument 'subject\'.[0m
+
+codex
+The first search was only a failed pattern probe and returned no code context. I still need the exact upstream line for F1, so I’ll do a filename-level pass and then open a single targeted file slice.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files src/polaris_graph | rg "claim|finding|distill|extract"' in C:\POLARIS
+ succeeded in 1190ms:
+src/polaris_graph\tools\pdf_table_extractor.py
+src/polaris_graph\tools\evidence_extractor.py
+src/polaris_graph\retrieval\storm_query_extractor.py
+src/polaris_graph\synthesis\claim_graph.py
+src/polaris_graph\synthesis\claim_evidence_binding.py
+src/polaris_graph\synthesis\finding_dedup.py
+src/polaris_graph\generator\key_findings.py
+src/polaris_graph\generator\evidence_value_extractor.py
+src/polaris_graph\generator\evidence_distiller.py
+src/polaris_graph\generator\claim_labeler.py
+src/polaris_graph\generator\claim_atom_extractor.py
+src/polaris_graph\benchmark\report_claim_extractor.py
+src/polaris_graph\benchmark\claim_dedup.py
+src/polaris_graph\benchmark\claim_audit_scorer.py
+src/polaris_graph\memory\verified_claim_graph.py
+src/polaris_graph\audit_ir\competitor_manifest_extractor.py
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The targeted source list points to the generator-side claim extraction path. I’m opening one narrow slice around `evidence_distiller.py`’s finding/claim emission to identify whether the subject is manufactured there or merely passed through from an upstream extractor.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "subject|finding_key|Finding|claim|coverage" src/polaris_graph/generator/evidence_distiller.py' in C:\POLARIS
+ succeeded in 1210ms:
+11:job leaks: the writer over-claims, mis-binds numbers across sources, and
+12:``strict_verify`` then DROPS the over-claimed sentences (drb_76 baseline: 40
+21:   FUZZY (paraphrase-recovered) finding must additionally ENTAIL the claim via the
+62:from src.polaris_graph.generator.claim_atom_extractor import (
+195:    the map fan-out for ~3*(wall+grace)s before a coverage row appears — not the single
+201:    ``map_failed`` coverage row instead of retry-hanging. The inner per-attempt ``timeout=`` is
+228:class DistilledFinding:
+231:    claim: str
+262:    findings: list[DistilledFinding]
+263:    coverage: list[CoverageRow]
+279:    "Each finding must be one atomic claim grounded in one exact substring of "
+294:    "CONTIGUOUS substring of direct_quote that contains EVERY number in the claim. If "
+322:    "A sentence must be exactly one type: single-source claim, multi-source "
+324:    "For numeric outcome/incidence/effect claims, copy the finding's atom_ids as "
+375:        '      "claim": "single atomic claim",\n'
+387:        "Rules: every number in claim must appear in support_quote; do not round; "
+388:        "do not combine multiple claims; caveats/limitations are findings only when "
+427:        "above and carries its [[finding:]] marker. Do NOT introduce numbers, claims, "
+460:    unchanged), so the question text can never publish as an unsupported claim.
+469:            f"claim={f.claim} | caveat={f.caveat} | "
+628:    as strict_verify plus claim_atom_extractor").
+630:    Uses claim_atom_extractor._NUMBER_ATOM_RE, whose ``(?<![A-Za-z0-9_.])``
+635:    a non-numeric claim spuriously satisfy the numeric->atom map (via
+642:    claim_atom_extractor is imported lazily so this module does not couple to its
+643:    import graph at load. claim_atom_extractor + strict_verify are UNCHANGED.
+645:    from src.polaris_graph.generator.claim_atom_extractor import _NUMBER_ATOM_RE
+660:    claim: str, numbers: list[str], support_quote: str,
+662:    """Every number asserted in the claim (and the declared `numbers` list) must
+669:    claim_numbers = _numbers_in_text(claim)
+672:    required = claim_numbers | declared_numeric
+728:    the exact claims the legacy arm verified. This finds the source window with the
+732:    source slice — NEVER the model's paraphrase text — and the claim is still
+735:    claim. It only RAISES recall to parity with the final gate's own span binder."""
+859:) -> Optional[DistilledFinding]:
+860:    """Validate one raw MAP finding fail-closed. Returns the DistilledFinding on
+879:         additionally ENTAIL the claim. A verifier EXCEPTION rejects (fail-closed).
+894:                "[DISTILL_DEBUG] REJECT ev=%s raw_index=%d step=%s reason=%s claim=%r",
+896:                str(raw.get("claim", ""))[:90],
+900:    claim = str(raw.get("claim", "") or "").strip()
+902:    if not claim or not support_quote:
+903:        return _rej("step0_empty", "empty claim or support_quote")
+954:    # ONE non-numeric claim). The reject is pure recall loss with ZERO faithfulness
+970:    numbers_in_span = _all_numbers_in_span(claim, numbers, support_quote)
+980:    claim_numbers = _numbers_in_text(claim)
+982:    if claim_numbers:
+985:            numbers=claim_numbers,
+990:        # do NOT reject. `claim_atom_extractor` routes each minted atom to a
+993:        # cataloguing artifact â€” lowering verified coverage on the safety/
+997:        # span-entails-claim), and the final REDUCE prose is re-checked by the
+1006:    # the claim. Exact/whitespace matches are verbatim source text that cannot drift
+1015:        probe = f"{claim} [#ev:{evidence_id}:{span_start}-{span_end}]"
+1029:                        "fuzzy-recovered (paraphrased) span does not entail the claim")
+1032:            "[DISTILL_DEBUG] KEPT ev=%s raw_index=%d finding_id=%s method=%s entailed=%s numbers_in_span=%s claim=%r",
+1034:            claim[:90],
+1037:    return DistilledFinding(
+1040:        claim=claim,
+1082:def _findings_to_cache_dicts(validated: list[DistilledFinding]) -> list[dict]:
+1086:            "claim": f.claim,
+1108:) -> Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]:
+1128:        DistilledFinding(
+1131:            claim=d["claim"],
+1175:) -> tuple[list[DistilledFinding], CoverageRow]:
+1178:    cache entry, and return (findings, coverage_row).
+1207:    validated: list[DistilledFinding] = []
+1226:        # coverage so the source is visible, not silently dropped.
+1262:) -> tuple[list[DistilledFinding], CoverageRow, int, int, int]:
+1263:    """Distill ONE source. Returns (findings, coverage_row, in_tok, out_tok,
+1325:            "[evidence_distiller] MAP call failed for %s: %s â€” coverage row map_failed",
+1377:    several sources to amortize the request. Findings are STILL routed back to
+1412:        '          "claim": "single atomic claim",\n'
+1429:        "in a claim must appear in its support_quote; do not round; do not combine "
+1430:        "multiple claims; split scattered numbers into separate findings. If a "
+1447:) -> list[tuple[list[DistilledFinding], CoverageRow, int, int, int]]:
+1472:    # they get their own no_relevant_findings coverage row (never silently dropped).
+1489:    results: list[Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]] = [
+1493:    # Empty-evidence rows -> no_relevant_findings coverage row.
+1633:    findings: list[DistilledFinding],
+1637:    by_key: dict[str, list[DistilledFinding]] = {}
+1708:    results_by_idx: list[Optional[tuple[list[DistilledFinding], CoverageRow, int, int, int]]] = [
+1749:    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
+1750:    # never an unverified-as-verified claim). Breadth preserved: the siblings still
+1757:    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
+1758:    # never an unverified-as-verified claim). Breadth preserved: the siblings still
+1772:                "affected sources fall through to the fail-closed coverage net",
+1781:    all_findings: list[DistilledFinding] = []
+1782:    coverage: list[CoverageRow] = []
+1788:            # Emit a fail-closed coverage row so no source silently disappears
+1791:            coverage.append(CoverageRow(
+1798:        coverage.append(cov)
+1804:    covered_ids = {c.evidence_id for c in coverage}
+1812:                f"(no finding and no coverage row) â€” LAW II fail-loud"
+1821:        coverage=coverage,
+1852:    their OWN sentence, AFTER the claim sentence's terminal period. ``split_into_
+1854:    fragment (it carries the markers) and DROPS the actual claim sentence (no marker)
+1857:    claim and its markers travel together. A fragment qualifies only if it (a) carries
+1929:    # the claim prose and its citation markers are filtered as ONE unit. Without this,
+1930:    # a REDUCE that emits "claim." then "[[finding]] [ev]" on the next line loses the
+1931:    # claim (no marker) and keeps a bare marker -> total section collapse. Faithfulness
+1934:    # for the claim prose — a mis-attached marker cannot publish an unsupported claim.
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+`evidence_distiller.py` only emits a `DistilledFinding.claim` string; there is no structured `subject` field in that row. That means the `__unknown__` root is downstream of distillation, at the structured-claim construction/population point used by `finding_dedup`, not at the row emission itself.
+2026-06-19T15:58:44.516815Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/evidence_distiller.py'; "'$lines=Get-Content -LiteralPath $p; foreach($i in 224..236){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }; foreach($i in 1033..1047){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/evidence_distiller.py'; "'$lines=Get-Content -LiteralPath $p; foreach($i in 224..236){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }; foreach($i in 1033..1047){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/evidence_distiller.py'; "'$lines=Get-Content -LiteralPath $p; foreach($i in 224..236){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }; foreach($i in 1033..1047){ '"'{0}:{1}' -f ("'$i+1), $lines[$i] }'` rejected: blocked by policy
+codex
+The previous slice command was blocked by local policy, so I’m not relying on it. I’m doing one narrow same-domain read around `finding_dedup.py`’s structured-claim creation to pin the exact line; then I’ll emit the YAML.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "subject=|_UNKNOWN_SUBJECT|Claim|claim.subject|subject" src/polaris_graph/synthesis/finding_dedup.py' in C:\POLARIS
+ succeeded in 1203ms:
+11:two findings merge ONLY when subject is KNOWN (not the ``"unknown"`` fallback)
+15:subject or any qualifier difference keeps the findings SEPARATE. The default on
+18:DOCUMENTED RESIDUAL 1 (over-merge bound): ``ExtractedNumericClaim`` does NOT
+23:LOSS: the finding the representative asserts (subject/predicate/value/unit/dose/
+59:# The fallback subject `extract_numeric_claims` returns when it cannot identify
+61:_UNKNOWN_SUBJECT = "unknown"
+87:    """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
+98:    subject = getattr(claim, "subject", "") or ""
+99:    if not subject or subject == _UNKNOWN_SUBJECT:
+104:        subject,
+166:    and the unknown-subject sentinel (an ``unknown`` subject never merges). The
+192:    # to pin the whole pass. The conservative-singleton + unknown-subject guards
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+`finding_dedup.py` points the sentinel back to `extract_numeric_claims`. I have the upstream function name now; I’ll spot-check that function’s assignment line and stop.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def extract_numeric_claims|subject=|subject =|_UNKNOWN_SUBJECT|unknown|ExtractedNumericClaim" src/polaris_graph/generator/claim_atom_extractor.py' in C:\POLARIS
+ succeeded in 1184ms:
+115:    UNKNOWN = "unknown"          # Couldn't classify
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The first likely extractor file only defines the enum sentinel, not the claim object used by `finding_dedup`. I’m going straight to the referenced function name from `finding_dedup`’s own comments.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "extract_numeric_claims|ExtractedNumericClaim|subject" src/polaris_graph/synthesis src/polaris_graph/generator -g "*.py"' in C:\POLARIS
+ succeeded in 1284ms:
+src/polaris_graph/generator\claim_atom_extractor.py:144:    r"participants\s+with|adults\s+with|subjects\s+with|"
+src/polaris_graph/generator\claim_atom_extractor.py:149:# "subjects" (e.g., "1879 adults", "18,201 patients").
+src/polaris_graph/generator\claim_atom_extractor.py:152:    r"(?:patients?|participants?|adults?|subjects?|"
+src/polaris_graph/generator\claim_atom_extractor.py:1008:    # Iter-4 fix: also match "of <DRUG> patients/subjects" — clinical
+src/polaris_graph/generator\contradiction_hedging.py:12:     subject/predicate keyword tagging.
+src/polaris_graph/generator\contradiction_hedging.py:31:| Section            | Relevant predicates / subjects                   |
+src/polaris_graph/generator\contradiction_hedging.py:39:subject/predicate matches one of the section's keyword lists.
+src/polaris_graph/generator\contradiction_hedging.py:95:    """Concatenate subject + predicate + dose into a search blob."""
+src/polaris_graph/generator\contradiction_hedging.py:97:    for k in ("subject", "predicate", "dose", "endpoint", "context"):
+src/polaris_graph/generator\contradiction_hedging.py:150:    subject: str
+src/polaris_graph/generator\contradiction_hedging.py:164:      1. Section keyword overlap with subject+predicate
+src/polaris_graph/generator\contradiction_hedging.py:204:            subject=str(c.get("subject", "")),
+src/polaris_graph/generator\contradiction_hedging.py:242:            f"  - Subject: {h.subject!r}, Predicate: {h.predicate!r}; "
+src/polaris_graph/synthesis\both_sides.py:50:    subject: str
+src/polaris_graph/synthesis\both_sides.py:62:    subject: str
+src/polaris_graph/synthesis\both_sides.py:78:    (weight + independent-origin count) and Phase-5 ``AtomicClaim`` info (subject/predicate/evidence_ids).
+src/polaris_graph/synthesis\both_sides.py:106:        rec = info.setdefault(ccid, {"subject": "", "predicate": "", "statement": "", "evidence_ids": set()})
+src/polaris_graph/synthesis\both_sides.py:107:        if not rec["subject"]:
+src/polaris_graph/synthesis\both_sides.py:108:            rec["subject"] = str(getattr(claim, "subject", "") or "")
+src/polaris_graph/synthesis\both_sides.py:127:            side_subject = str(rec.get("subject", "") or getattr(edge, "subject", "") or "")
+src/polaris_graph/synthesis\both_sides.py:129:            # WHAT this side asserts: the claim text, falling back to subject+predicate. Without it the
+src/polaris_graph/synthesis\both_sides.py:133:                or f"{side_subject} {side_predicate}".strip()
+src/polaris_graph/synthesis\both_sides.py:145:                subject=side_subject,
+src/polaris_graph/synthesis\both_sides.py:156:            subject=str(getattr(edge, "subject", "") or (sides[0].subject if sides else "")),
+src/polaris_graph/synthesis\both_sides.py:181:        lines.append(f"### On {block.subject}, the evidence diverges")
+src/polaris_graph/synthesis\claim_graph.py:12:    ``extract_numeric_claims`` extractor only — it is INERT on non-clinical numerics
+src/polaris_graph/synthesis\claim_graph.py:22:     subject, any field mismatch, or a raw-text claim keeps the claim a SEPARATE
+src/polaris_graph/synthesis\claim_graph.py:25:     ``_finding_key`` discipline: merge only when subject is KNOWN and equal.)
+src/polaris_graph/synthesis\claim_graph.py:59:    ExtractedNumericClaim,
+src/polaris_graph/synthesis\claim_graph.py:61:    extract_numeric_claims,
+src/polaris_graph/synthesis\claim_graph.py:88:# The subject sentinel the numeric extractor returns when it cannot identify the
+src/polaris_graph/synthesis\claim_graph.py:159:    subject / a raw-text claim — never mergeable). ``kind`` records which extractor
+src/polaris_graph/synthesis\claim_graph.py:178:    subject: str
+src/polaris_graph/synthesis\claim_graph.py:200:    subject: str
+src/polaris_graph/synthesis\claim_graph.py:230:    claim: ExtractedNumericClaim, evidence_id: str, claim_index: int
+src/polaris_graph/synthesis\claim_graph.py:234:    Mirrors ``finding_dedup._finding_key``: an ``unknown`` (or empty) subject yields a
+src/polaris_graph/synthesis\claim_graph.py:236:    is (subject, predicate, rounded value, unit, dose, arm, endpoint_phrase) — every
+src/polaris_graph/synthesis\claim_graph.py:239:    subject = (getattr(claim, "subject", "") or "").strip().lower()
+src/polaris_graph/synthesis\claim_graph.py:240:    if not subject or subject == _UNKNOWN_SUBJECT:
+src/polaris_graph/synthesis\claim_graph.py:244:        subject,
+src/polaris_graph/synthesis\claim_graph.py:259:    An empty/absent subject yields a per-CLAIM sentinel (never mergeable). Otherwise
+src/polaris_graph/synthesis\claim_graph.py:260:    the key is (subject, concept_type, object_slot, condition_scope, assertion_status)
+src/polaris_graph/synthesis\claim_graph.py:267:    subject = (getattr(assertion, "subject", "") or "").strip().lower()
+src/polaris_graph/synthesis\claim_graph.py:268:    if not subject:
+src/polaris_graph/synthesis\claim_graph.py:272:        subject,
+src/polaris_graph/synthesis\claim_graph.py:373:def _unknown_subject(v: Any) -> bool:
+src/polaris_graph/synthesis\claim_graph.py:374:    """``subject`` is unknown on '' / None OR the extractor's ``_UNKNOWN_SUBJECT``
+src/polaris_graph/synthesis\claim_graph.py:375:    sentinel ('unknown' — the contradiction_detector unresolved-subject fallback).
+src/polaris_graph/synthesis\claim_graph.py:377:    unresolved-subject clinical claims could share a key and over-merge. The legacy
+src/polaris_graph/synthesis\claim_graph.py:378:    key guarded exactly this at :232; a defaulted 'unknown' subject must NEVER anchor
+src/polaris_graph/synthesis\claim_graph.py:390:        "subject", "predicate", "value", "unit", "dose", "dose_frequency",
+src/polaris_graph/synthesis\claim_graph.py:395:        "subject", "predicate", "value", "unit", "endpoint_phrase",
+src/polaris_graph/synthesis\claim_graph.py:398:        "subject", "concept_type", "causal_strength", "warning_severity",
+src/polaris_graph/synthesis\claim_graph.py:402:        "subject", "concept_type", "object_slot", "condition_scope",
+src/polaris_graph/synthesis\claim_graph.py:416:        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
+src/polaris_graph/synthesis\claim_graph.py:432:        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
+src/polaris_graph/synthesis\claim_graph.py:440:        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
+src/polaris_graph/synthesis\claim_graph.py:450:        # vice-versa. The five surrounding DISCRIMINATORs (subject/concept_type/
+src/polaris_graph/synthesis\claim_graph.py:474:        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
+src/polaris_graph/synthesis\claim_graph.py:605:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src/polaris_graph/synthesis\claim_graph.py:620:        numeric_extractor: ``(rows, domain) -> list[ExtractedNumericClaim]``.
+src/polaris_graph/synthesis\claim_graph.py:662:                subject=(getattr(nc, "subject", "") or "").strip().lower(),
+src/polaris_graph/synthesis\claim_graph.py:696:            subject=(getattr(qa, "subject", "") or "").strip().lower(),
+src/polaris_graph/synthesis\claim_graph.py:733:            subject="",
+src/polaris_graph/synthesis\claim_graph.py:765:    ``normalized_key`` is EQUAL. Per-claim sentinel keys (unknown subject / raw text)
+src/polaris_graph/synthesis\claim_graph.py:791:def _cluster_ids_by_subject(claims: list[AtomicClaim]) -> dict[tuple, set[str]]:
+src/polaris_graph/synthesis\claim_graph.py:792:    """Map ``(evidence_id, subject)`` -> claim_cluster_ids.
+src/polaris_graph/synthesis\claim_graph.py:796:    contradiction about one subject does NOT pull in the unrelated clusters of a
+src/polaris_graph/synthesis\claim_graph.py:797:    DIFFERENT subject on the same row (Codex iter-1 P2). Subject is normalized
+src/polaris_graph/synthesis\claim_graph.py:798:    (strip+lower) to match both the edge record's subject and the AtomicClaim subject.
+src/polaris_graph/synthesis\claim_graph.py:802:        sig = (claim.evidence_id, (claim.subject or "").strip().lower())
+src/polaris_graph/synthesis\claim_graph.py:808:    subject: str,
+src/polaris_graph/synthesis\claim_graph.py:810:    cluster_by_subject: dict[tuple, set[str]],
+src/polaris_graph/synthesis\claim_graph.py:816:    subject. If an endpoint has no subject-matching claim (e.g. an empty-subject
+src/polaris_graph/synthesis\claim_graph.py:818:    (recall-first) — coarser only in that rare case, never the common multi-subject-row
+src/polaris_graph/synthesis\claim_graph.py:821:    subj = (subject or "").strip().lower()
+src/polaris_graph/synthesis\claim_graph.py:824:        matched = cluster_by_subject.get((str(evid), subj), set())
+src/polaris_graph/synthesis\claim_graph.py:835:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src/polaris_graph/synthesis\claim_graph.py:841:      * numeric: ``detect_contradictions`` over ``extract_numeric_claims`` — a
+src/polaris_graph/synthesis\claim_graph.py:842:        >threshold numeric disagreement on the same (subject, predicate, unit, dose).
+src/polaris_graph/synthesis\claim_graph.py:860:    (source, subject, predicate, sorted endpoint evidence_ids).
+src/polaris_graph/synthesis\claim_graph.py:864:    cluster_by_subject = _cluster_ids_by_subject(claims)
+src/polaris_graph/synthesis\claim_graph.py:868:    def _add(source: str, subject: str, predicate: str,
+src/polaris_graph/synthesis\claim_graph.py:873:        dedup_key = (source, subject, predicate, evid_tuple)
+src/polaris_graph/synthesis\claim_graph.py:879:            subject=subject,
+src/polaris_graph/synthesis\claim_graph.py:883:                subject, evid_tuple, cluster_by_subject, cluster_by_evid
+src/polaris_graph/synthesis\claim_graph.py:902:            getattr(rec, "subject", ""),
+src/polaris_graph/synthesis\claim_graph.py:917:            getattr(rec, "subject", ""),
+src/polaris_graph/synthesis\claim_graph.py:945:                    getattr(rec, "subject", ""),
+src/polaris_graph/synthesis\claim_graph.py:959:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src/polaris_graph/synthesis\credibility_pass.py:208:    subject: str
+src/polaris_graph/synthesis\credibility_pass.py:425:    # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
+src/polaris_graph/synthesis\credibility_pass.py:647:            subject=str(getattr(head, "subject", "") or ""),
+src/polaris_graph/generator\live_deepseek_generator.py:95:   (b) Named contradictions — if the telemetry lists contradictions, name the subject and predicate (e.g., "sources disagree on semaglutide weight-loss magnitude").
+src/polaris_graph/generator\live_deepseek_generator.py:115:      - contradictions: list of (subject, predicate, rel_diff)
+src/polaris_graph/generator\live_deepseek_generator.py:150:            subj = c.get("subject", "") or ""
+src/polaris_graph/generator\live_deepseek_generator.py:174:    # are never subject to redaction because they are emitted AFTER the
+src/polaris_graph/generator\multi_section_generator.py:2093:   (b) Detected contradictions — if any are listed, name the subject and predicate and describe the direction ("sources disagree on magnitude / direction / endpoint").
+src/polaris_graph/generator\multi_section_generator.py:3437:            r"|\b\d{2,}\s+(?:patients|participants|adults|subjects|"
+src/polaris_graph/generator\multi_section_generator.py:3625:    the prompt for sections whose subject/predicate keywords match
+src/polaris_graph/generator\multi_section_generator.py:4271:    r"adults|subjects|enrolled|randomi[sz]ed)\b",
+src/polaris_graph/generator\multi_section_generator.py:4996:                subj = c.get("subject", "")
+src/polaris_graph/generator\multi_section_generator.py:5922:    (r"(\d{2,})\s+(?:participants?|subjects?|patients?)\s+(?:underwent|enrolled|received)", "clamp_n"),
+src/polaris_graph/generator\multi_section_generator.py:5998:    "clamp_n": ("participants", "subjects", "patients",
+src/polaris_graph/generator\provenance_generator.py:2912:        "subject": str(getattr(basket, "subject", "") or ""),
+src/polaris_graph/generator\generation_snapshot.py:33:      literal_text) — NO ``is_verified``, NO ``release_outcome``; it remains subject to the
+src/polaris_graph/synthesis\finding_dedup.py:11:two findings merge ONLY when subject is KNOWN (not the ``"unknown"`` fallback)
+src/polaris_graph/synthesis\finding_dedup.py:15:subject or any qualifier difference keeps the findings SEPARATE. The default on
+src/polaris_graph/synthesis\finding_dedup.py:18:DOCUMENTED RESIDUAL 1 (over-merge bound): ``ExtractedNumericClaim`` does NOT
+src/polaris_graph/synthesis\finding_dedup.py:23:LOSS: the finding the representative asserts (subject/predicate/value/unit/dose/
+src/polaris_graph/synthesis\finding_dedup.py:30:``extract_numeric_claims`` is clinical-pattern-tuned. Empirically it (a) emits AT
+src/polaris_graph/synthesis\finding_dedup.py:56:    extract_numeric_claims,
+src/polaris_graph/synthesis\finding_dedup.py:59:# The fallback subject `extract_numeric_claims` returns when it cannot identify
+src/polaris_graph/synthesis\finding_dedup.py:87:    """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
+src/polaris_graph/synthesis\finding_dedup.py:98:    subject = getattr(claim, "subject", "") or ""
+src/polaris_graph/synthesis\finding_dedup.py:99:    if not subject or subject == _UNKNOWN_SUBJECT:
+src/polaris_graph/synthesis\finding_dedup.py:104:        subject,
+src/polaris_graph/synthesis\finding_dedup.py:166:    and the unknown-subject sentinel (an ``unknown`` subject never merges). The
+src/polaris_graph/synthesis\finding_dedup.py:184:    # B9 domain-generalization: `extract_numeric_claims` now routes a NON-clinical
+src/polaris_graph/synthesis\finding_dedup.py:192:    # to pin the whole pass. The conservative-singleton + unknown-subject guards
+src/polaris_graph/synthesis\finding_dedup.py:198:            extract_numeric_claims([row], domain=domain)
+src/polaris_graph/synthesis\finding_dedup.py:199:            if domain is not None else extract_numeric_claims([row])
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The import trail says `finding_dedup` uses `extract_numeric_claims`, and the claim graph mirrors the same sentinel behavior. I’m checking the import source now; the answer depends on that extractor, not on the distiller row.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "from .* import .*extract_numeric_claims|def extract_numeric_claims|class ExtractedNumericClaim|ExtractedNumericClaim" src tests -g "*.py"' in C:\POLARIS
+ succeeded in 1310ms:
+tests\polaris_graph\synthesis\test_claim_graph_merge_key_arch002.py:27:from src.polaris_graph.retrieval.contradiction_detector import ExtractedNumericClaim
+tests\polaris_graph\synthesis\test_claim_graph_merge_key_arch002.py:62:    """A fully-defaulted ExtractedNumericClaim wrapped in a merge-key view.
+tests\polaris_graph\synthesis\test_claim_graph_merge_key_arch002.py:76:    nc = ExtractedNumericClaim(**base)
+tests\polaris_graph\synthesis\test_claim_basket_arch002.py:27:from src.polaris_graph.retrieval.contradiction_detector import ExtractedNumericClaim
+tests\polaris_graph\synthesis\test_claim_basket_arch002.py:58:    """A fully-positively-known clinical ExtractedNumericClaim — every discriminator
+tests\polaris_graph\synthesis\test_claim_basket_arch002.py:81:    return ExtractedNumericClaim(**base)
+tests\polaris_graph\test_bug17_contradiction_precision.py:40:    ExtractedNumericClaim,
+tests\polaris_graph\test_bug17_contradiction_precision.py:54:) -> ExtractedNumericClaim:
+tests\polaris_graph\test_bug17_contradiction_precision.py:55:    return ExtractedNumericClaim(
+tests\polaris_graph\test_bug17_contradiction_precision.py:179:) -> ExtractedNumericClaim:
+tests\polaris_graph\test_bug17_contradiction_precision.py:182:    return ExtractedNumericClaim(
+tests\polaris_graph\test_credibility_pass_wall_deadline.py:43:from src.polaris_graph.retrieval.contradiction_detector import ExtractedNumericClaim
+tests\polaris_graph\test_credibility_pass_wall_deadline.py:205:    return ExtractedNumericClaim(**base)
+tests\polaris_graph\test_b9_domain_generalization.py:344:        ExtractedNumericClaim,
+tests\polaris_graph\test_b9_domain_generalization.py:346:    a = ExtractedNumericClaim(
+tests\polaris_graph\test_b9_domain_generalization.py:351:    b = ExtractedNumericClaim(
+tests\polaris_graph\test_b9_domain_generalization.py:365:        ExtractedNumericClaim,
+tests\polaris_graph\test_b9_domain_generalization.py:367:    a = ExtractedNumericClaim(
+tests\polaris_graph\test_b9_domain_generalization.py:372:    b = ExtractedNumericClaim(
+tests\polaris_graph\test_b9_domain_generalization.py:388:        ExtractedNumericClaim,
+tests\polaris_graph\test_b9_domain_generalization.py:390:    a = ExtractedNumericClaim(
+tests\polaris_graph\test_b9_domain_generalization.py:394:    b = ExtractedNumericClaim(
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:3:Covers checklist steps P1.1 (the 6 new ExtractedNumericClaim discriminator
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:30:    ExtractedNumericClaim,
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:49:    claim = ExtractedNumericClaim(
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:73:    claim = ExtractedNumericClaim(
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:85:    names = {f.name for f in dataclasses.fields(ExtractedNumericClaim)}
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:336:        ContradictionRecord, ExtractedNumericClaim,
+tests\polaris_graph\test_contradiction_detector_wave3_discriminators.py:338:    c = ExtractedNumericClaim(
+src\polaris_graph\synthesis\claim_graph.py:59:    ExtractedNumericClaim,
+src\polaris_graph\synthesis\claim_graph.py:230:    claim: ExtractedNumericClaim, evidence_id: str, claim_index: int
+src\polaris_graph\synthesis\claim_graph.py:605:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src\polaris_graph\synthesis\claim_graph.py:620:        numeric_extractor: ``(rows, domain) -> list[ExtractedNumericClaim]``.
+src\polaris_graph\synthesis\claim_graph.py:835:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src\polaris_graph\synthesis\claim_graph.py:959:    numeric_extractor: Callable[..., list[ExtractedNumericClaim]] = extract_numeric_claims,
+src\polaris_graph\synthesis\finding_dedup.py:18:DOCUMENTED RESIDUAL 1 (over-merge bound): ``ExtractedNumericClaim`` does NOT
+src\polaris_graph\retrieval\contradiction_detector.py:297:) -> list["ExtractedNumericClaim"]:
+src\polaris_graph\retrieval\contradiction_detector.py:308:    claims: list[ExtractedNumericClaim] = []
+src\polaris_graph\retrieval\contradiction_detector.py:335:        claims.append(ExtractedNumericClaim(
+src\polaris_graph\retrieval\contradiction_detector.py:441:class ExtractedNumericClaim:
+src\polaris_graph\retrieval\contradiction_detector.py:485:    claims: list[ExtractedNumericClaim]
+src\polaris_graph\retrieval\contradiction_detector.py:510:# The Wave-3 dormant discriminator fields added to ExtractedNumericClaim (I-arch-002 [2]).
+src\polaris_graph\retrieval\contradiction_detector.py:1242:def extract_numeric_claims(
+src\polaris_graph\retrieval\contradiction_detector.py:1245:) -> list[ExtractedNumericClaim]:
+src\polaris_graph\retrieval\contradiction_detector.py:1268:    claims: list[ExtractedNumericClaim] = []
+src\polaris_graph\retrieval\contradiction_detector.py:1322:        claims.append(ExtractedNumericClaim(
+src\polaris_graph\retrieval\contradiction_detector.py:1370:def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
+src\polaris_graph\retrieval\contradiction_detector.py:1415:def _group_has_real_drug_subject(group: list["ExtractedNumericClaim"]) -> bool:
+src\polaris_graph\retrieval\contradiction_detector.py:1527:def _quantity_kinds_for_claim(claim: "ExtractedNumericClaim") -> frozenset[str]:
+src\polaris_graph\retrieval\contradiction_detector.py:1579:def _group_incommensurable_reason(group: list["ExtractedNumericClaim"]) -> str:
+src\polaris_graph\retrieval\contradiction_detector.py:1607:    claims: list[ExtractedNumericClaim],
+src\polaris_graph\retrieval\contradiction_detector.py:1635:    grouped: dict[tuple[str, str, str, str], list[ExtractedNumericClaim]] = {}
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The extractor source is `src/polaris_graph/retrieval/contradiction_detector.py`; that is the upstream population point for the `ExtractedNumericClaim.subject` that `finding_dedup` keys on. I’ll read the narrow construction lines only.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 8 \"claims\\.append\\(ExtractedNumericClaim\\(\" src/polaris_graph/retrieval/contradiction_detector.py" in C:\POLARIS
+ succeeded in 1229ms:
+327-        # endpoint_phrase would make _shared_metric_axes read two same-predicate
+328-        # generic claims as POSITIVELY-confirmed shared scope -> a hard
+329-        # contradiction, when in fact their comparator/population/time-window are
+330-        # UNCONFIRMED. Leaving the discriminator axes empty means an unconfirmed
+331-        # generic numeric gap is correctly labeled possible_metric_mismatch
+332-        # (conservative non-clinical default); a true contradiction needs a
+333-        # positively-extracted shared scope axis. The predicate itself still
+334-        # groups the claims (grouping key includes predicate).
+335:        claims.append(ExtractedNumericClaim(
+336-            evidence_id=str(ev.get("evidence_id", "")),
+337-            subject=subject,
+338-            predicate=predicate,
+339-            value=value,
+340-            unit=unit,
+341-            context_snippet=ctx_window[:200],
+342-            source_url=ev.get("source_url", ""),
+343-            source_tier=ev.get("tier", ""),
+--
+1314-        # positive token is present. Dormant until build_merge_key reads them.
+1315-        dose_frequency = _extract_dose_frequency(ctx_window) or _extract_dose_frequency(quote)
+1316-        comparator = _extract_comparator(ctx_window) or _extract_comparator(quote)
+1317-        route_formulation = _extract_route_formulation(ctx_window) or _extract_route_formulation(quote)
+1318-        effect_measure = _extract_effect_measure(ctx_window) or _extract_effect_measure(quote)
+1319-        direction = _extract_direction(ctx_window) or _extract_direction(quote)
+1320-        population = _extract_population(ctx_window) or _extract_population(quote)
+1321-
+1322:        claims.append(ExtractedNumericClaim(
+1323-            evidence_id=str(ev.get("evidence_id", "")),
+1324-            subject=subject,
+1325-            predicate=predicate,
+1326-            value=value,
+1327-            unit=unit,
+1328-            context_snippet=ctx_window[:200],
+1329-            source_url=ev.get("source_url", ""),
+1330-            source_tier=ev.get("tier", ""),
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+That construction line confirms the direct population site. One last same-file narrow lookup for where `subject` is computed before line 1322 will decide the exact fix target.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 4 "subject =|_extract_subject|subject = _|subject = .*unknown|subject = UNKNOWN" src/polaris_graph/retrieval/contradiction_detector.py' in C:\POLARIS
+ succeeded in 1343ms:
+320-        found = _find_value_generic(quote, cue_pos=_cue_pos)
+321-        if found is None:
+322-            continue
+323-        value, unit, ctx_window, anchor_pos = found
+324:        subject = _subject_generic(quote, anchor_pos, predicate=predicate)
+325-        # Codex iter-3 P1: do NOT set endpoint_phrase=predicate. The metric cue
+326-        # IS the predicate, not a time-window/endpoint. Stamping it as
+327-        # endpoint_phrase would make _shared_metric_axes read two same-predicate
+328-        # generic claims as POSITIVELY-confirmed shared scope -> a hard
+--
+1287-        # attributing to the first drug mentioned earlier in the full
+1288-        # direct_quote (often the paragraph's primary topic, e.g.
+1289-        # retatrutide). _subject_near_position searches ±150 chars
+1290-        # around the value's position and picks the closest drug match.
+1291:        subject = _subject_near_position(quote, anchor_pos, fallback="unknown")
+1292-
+1293-        dose = _extract_dose(ctx_window) or _extract_dose(quote)
+1294-        # arm classification: if the value sits in a placebo context
+1295-        # it wouldn't have passed _find_value_in_context, but we also
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+```yaml
+cause_completeness: "missed:[unknown-subject population chokepoint@src/polaris_graph/retrieval/contradiction_detector.py:1291]; no in-scope source-drop confirmed; fetch_cap=740 is upstream/out-of-scope"
+keystone_sound: "yes"
+f1_fix_locus_correct: "no — correct file:line is src/polaris_graph/retrieval/contradiction_detector.py:1291, assigned into ExtractedNumericClaim at src/polaris_graph/retrieval/contradiction_detector.py:1324; evidence_distiller only emits claim text"
+four_role_seam_fix_correct: "yes — httpx.Client.is_closed exists and is True after .close(); getter rebuild on closed TLS client is correct, and unrecoverable rebuild failure must still flow to the existing fail-closed RoleTransportError"
+three_prong_per_fix: {F1: FLAG, F2: OK, F3: OK, F4: OK, F5: OK, F6: OK, F7: OK, F8: OK, F9: OK, F10: OK, F11: OK, F12: OK, F13: OK, F14: OK, F15: OK, F16: OK}
+novel_p0:
+  - "F1 is pointed at the wrong layer: __unknown__ is caused by ExtractedNumericClaim.subject being unknown/empty upstream, not by the distiller finding-row emission."
+continuing_p0:
+  - "F1 still required, but fix must target subject extraction/population in contradiction_detector.py, then preserve finding_dedup's known-subject merge discipline."
+  - "F2 Form B is sound only with deterministic no-LLM verify_fn and judge=None+always_release guard flipped to run."
+  - "F3 remains P0 because D8 must adjudicate or fail closed, never ship fabricated pass/coverage."
+p1:
+  - "F6/F7 are faithfulness tightenings; land before wide rendering to avoid amplifying shell-span mis-citations."
+  - "F4 is acceptable as group+edge-remap only; no member may newly pass any gate through regrouping."
+p2:
+  - "F13 is OK only as fetch-admission softening; strict_verify and downstream binding gates must remain unchanged."
+  - "F14 fallback must remain candidate/coverage-only until normal verification gates accept it."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Revise complete_cause_list and F1 locus from evidence_distiller.py to contradiction_detector.py:1291/:1324."
+  - "Do not implement a direct finding_key override in row emission; populate the upstream claim subject used by _finding_key."
+verdict: REQUEST_CHANGES
+```
+tokens used
+37,728

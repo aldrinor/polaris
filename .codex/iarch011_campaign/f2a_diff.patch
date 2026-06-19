@@ -1,0 +1,188 @@
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 0659a7a1..37d04a89 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -125,6 +125,19 @@ _CREDIBILITY_NO_JUDGE_DISCLOSED_GAP: str = (
+     "only the advisory credibility disclosure is degraded."
+ )
+ 
++# I-arch-011 (#1268): the disclosed-gap string for the F2a PRIORS-ONLY *run* path. Distinct from
++# _CREDIBILITY_NO_JUDGE_DISCLOSED_GAP (the pass-could-NOT-run degrade): here the pass DID run, just
++# without the LLM credibility judge (judge=None, e.g. PG_CREDIBILITY_LLM_JUDGE=off). Surfaced on the
++# operator-visible carrier (manifest credibility_disclosed_gap) so priors-only weights never ship
++# without the promised disclosure (LAW II; Codex I-arch-011 P1). NAMED constant so the run path and
++# the unit test reference the SAME text.
++_CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP: str = (
++    "credibility_pass_priors_only: the LLM credibility judge was not wired (judge=None, e.g. "
++    "PG_CREDIBILITY_LLM_JUDGE=off); the credibility pass RAN but scored every source by deterministic "
++    "authority priors only and labeled them credibility_unscored — this gap is disclosed. The binding "
++    "faithfulness gates (strict_verify, 4-role D8, span-grounding) are unaffected."
++)
++
+ 
+ def _credibility_guard_decision(
+     *, judge: Any, gov_suffixes: Any, always_release: bool,
+@@ -134,18 +147,35 @@ def _credibility_guard_decision(
+     ``generate_multi_section_report`` after the LLM outline/section calls).
+ 
+     Returns:
+-      * ``"run"`` — judge + gov_suffixes ARE threaded; run the pass normally.
+-      * ``"degrade"`` — judge missing / gov_suffixes missing AND always-release ON; degrade
+-        to the credibility-OFF path (credibility_analysis stays None) + a disclosed gap +
+-        CONTINUE. The caller MUST NOT run the pass body with a None judge.
+-      * ``"raise"`` — judge missing / gov_suffixes missing AND always-release OFF (legacy);
+-        the caller raises CredibilityPassError fail-closed (byte-identical to pre-fix).
+-
+-    This is the keystone of B12-COMPLETION: pre-fix the raise fired BEFORE the B5/B7
+-    always-release try, so judge=None HELD the whole report even under always-release. Now
+-    the decision is gated on always_release so "label not hold" is live in production."""
+-    if judge is None or not gov_suffixes:
++      * ``"run"`` — gov_suffixes ARE threaded; run the pass. A threaded judge scores via the
++        LLM; a MISSING judge (under always-release) runs the COMPLETE priors-only pass (see the
++        I-arch-011 note below).
++      * ``"degrade"`` — gov_suffixes missing AND always-release ON; degrade to the
++        credibility-OFF path (credibility_analysis stays None) + a disclosed gap + CONTINUE.
++      * ``"raise"`` — judge OR gov_suffixes missing AND always-release OFF (legacy); the caller
++        raises CredibilityPassError fail-closed (byte-identical to pre-fix).
++
++    B12-COMPLETION made the raise gate on always_release so "label not hold" is live in
++    production.
++
++    I-arch-011 (#1268) BREADTH KEYSTONE: a MISSING judge and MISSING gov_suffixes are NOT the
++    same condition and must NOT share a branch. ``gov_suffixes`` missing is a real wiring hole —
++    the pass cannot classify government sources at all, so degrade (always-release) / raise
++    (legacy) stands. But ``judge=None`` is DIFFERENT: ``run_credibility_analysis(judge=None)``
++    runs a COMPLETE priors-only pass — ZERO LLM scoring calls (scoring needs a judge), every
++    source LABELED ``credibility_unscored`` (a disclosed gap, never fabricated) — and that
++    priors-only pass is exactly what BUILDS the per-claim baskets the breadth-enrichment surfaces.
++    The old shared ``judge is None or not gov_suffixes`` → ``degrade`` threw the basket away
++    (credibility_analysis=None), which is the 794→9 cited-source collapse (PG_CREDIBILITY_LLM_JUDGE
++    is gated off on the run to avoid the side-judge GIL hang, so judge arrives None). So a missing
++    judge with gov_suffixes present must RUN priors-only under always-release, not degrade. Legacy
++    (always-release OFF) keeps the byte-identical fail-closed raise. Faithfulness is unchanged:
++    priors weights are real deterministic authority weights; strict_verify / 4-role D8 /
++    span-grounding stay the ONLY binding gates."""
++    if not gov_suffixes:
+         return "degrade" if always_release else "raise"
++    if judge is None:
++        return "run" if always_release else "raise"
+     return "run"
+ 
+ 
+@@ -6752,8 +6782,10 @@ async def generate_multi_section_report(
+         # byte-identical credibility-OFF path (credibility_analysis stays None; the apply_disclosure_to_svs
+         # sites are all `is not None`-guarded, so sources ship UNSCORED at neutral weight) + surface a LOUD
+         # disclosed gap + CONTINUE. The hard fail-closed raise is kept ONLY when always-release is OFF
+-        # (legacy byte-identical). We do NOT run the pass with a None judge (it would make hundreds of calls
+-        # then fail) — we skip the pass body entirely on this degraded path.
++        # (legacy byte-identical). I-arch-011 (#1268): "degrade" now fires ONLY for MISSING gov_suffixes;
++        # a MISSING judge with gov_suffixes present RUNS the pass priors-only (judge=None makes ZERO LLM
++        # scoring calls, so the old "hundreds of calls then fail" fear never applied to the priors-only
++        # path) — that priors-only basket is what the breadth enrichment surfaces (the 794→9 fix).
+         _cred_guard = _credibility_guard_decision(
+             judge=credibility_pass_judge,
+             gov_suffixes=credibility_pass_gov_suffixes,
+@@ -6845,6 +6877,20 @@ async def generate_multi_section_report(
+                 if _cred_cost_delta > 0:
+                     _orc_cred._add_run_cost(_cred_cost_delta)  # reflect offloaded credibility spend in the budget
+             _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
++            # I-arch-011 (#1268) Codex P1: F2a runs the credibility pass PRIORS-ONLY when the LLM
++            # credibility judge is gated off (judge=None). Unlike the old degrade path, the "run" path
++            # DOES produce a credibility_analysis (the basket the breadth enrichment needs) but every
++            # source is priors-only + labeled credibility_unscored. That disclosed gap MUST reach the
++            # operator-visible carrier (manifest credibility_disclosed_gap via run_honest_sweep_r3.py) —
++            # else priors-only weights ship WITHOUT the promised disclosure (LAW II silent-downgrade).
++            # Only on the SUCCESS path (analysis built) and only if a more-specific gap (the timeout
++            # degrade above) was not already set.
++            if (
++                credibility_pass_judge is None
++                and credibility_analysis is not None
++                and _credibility_disclosed_gap is None
++            ):
++                _credibility_disclosed_gap = _CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
+ 
+     # I-arch-007 ITEM 2 (#1264) BREADTH — surface the weighted UNBOUND span-verified SUPPORTS
+     # sources the 5-entity contract funnel never offered to any section (the 485->~13 collapse,
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index 4fcddd10..7b9a0afc 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -837,6 +837,16 @@ def _run_chain(
+     from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+         verify_sentence_provenance,
+     )
++    # I-arch-011 (#1268): the per-member basket verify runs under entailment-ENFORCE (the
++    # PG_STRICT_VERIFY_ENTAILMENT default). It MUST stay enforce: ``span_verdict==SUPPORTS`` is
++    # consumed at render WITHOUT re-verification — both as inline corroborator citations
++    # (provenance_generator.py B6/B8 ``_verified_corroborators_for_tokens``) and as the breadth
++    # enrichment section — so an entailment-OFF advisory verdict would ship un-entailed corroborator
++    # citations (the rejected F2b; Codex P0-1). The serial-entailment HANG is avoided NOT by
++    # disabling the judge but by the architecture's bounded parallelism + wall: ``max_inflight``
++    # (PG_CREDIBILITY_PASS_MAX_INFLIGHT, slate=16) runs the verify 16-way over a PER-THREAD judge
++    # client (I-arch-007 ITEM 2a, entailment_judge.py threading.local — deadlock-safe), and the
++    # caller's PG_CREDIBILITY_PASS_WALL_S=3000 wall bounds the whole pass. Faithfulness STRENGTHENED.
+     baskets = _assemble_baskets(
+         graph, weight_mass, annotated, credibility_by_evidence,
+         verify_fn=verify_sentence_provenance,
+diff --git a/tests/polaris_graph/generator/test_lane_section_arch005.py b/tests/polaris_graph/generator/test_lane_section_arch005.py
+index d0393563..76e424ea 100644
+--- a/tests/polaris_graph/generator/test_lane_section_arch005.py
++++ b/tests/polaris_graph/generator/test_lane_section_arch005.py
+@@ -496,18 +496,53 @@ def test_arch005_zero_emission_gap_stub_is_visible_not_dropped() -> None:
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
+ 
+-def test_arch005_b12_judge_none_always_release_on_degrades_not_raise() -> None:
+-    """judge=None (or gov_suffixes missing) + always-release ON -> "degrade" (NOT "raise").
+-    This is the B12-COMPLETION fix: the report ships with a disclosed gap, never holds."""
++def test_iarch011_f2a_judge_none_with_gov_runs_priors_only() -> None:
++    """I-arch-011 F2a (#1268): judge=None + gov_suffixes PRESENT + always-release ON -> "run"
++    (was "degrade" under B12-COMPLETION). run_credibility_analysis(judge=None) builds the
++    COMPLETE priors-only basket (ZERO scoring LLM calls, every source LABELED
++    credibility_unscored); the old "degrade" threw that basket away -> the 794->9 cited-source
++    collapse. A missing judge must RUN priors-only, not degrade. Faithfulness unchanged: priors
++    weights are real; strict_verify / 4-role D8 / span-grounding stay the only binding gates."""
+     assert msg._credibility_guard_decision(
+         judge=None, gov_suffixes=("gov",), always_release=True,
+-    ) == "degrade"
++    ) == "run"
++
++
++def test_iarch011_f2a_gov_suffixes_missing_still_degrades() -> None:
++    """MISSING gov_suffixes is a real wiring hole (the pass cannot classify gov sources) and is
++    NOT the judge case: it KEEPS the B12-COMPLETION degrade under always-release, regardless of
++    whether the judge is present. The F2a fix split the two conditions deliberately."""
+     assert msg._credibility_guard_decision(
+         judge=object(), gov_suffixes=None, always_release=True,
+     ) == "degrade"
+     assert msg._credibility_guard_decision(
+         judge=object(), gov_suffixes=(), always_release=True,
+     ) == "degrade"
++    # gov-missing dominates even when the judge is ALSO missing (gov branch checked first).
++    assert msg._credibility_guard_decision(
++        judge=None, gov_suffixes=(), always_release=True,
++    ) == "degrade"
++
++
++def test_iarch011_f2a_judge_none_run_path_surfaces_disclosed_gap() -> None:
++    """I-arch-011 Codex P1: the judge=None "run" path (priors-only) MUST surface the disclosed gap on
++    the operator-visible ``credibility_disclosed_gap`` carrier — else priors-only weights ship without
++    the LAW II disclosure (the old "degrade" path set it; F2a's "run" path must too). Pinned at source
++    level (the set is deep in the async ``generate_multi_section_report``), mirroring the existing
++    inline-guard wiring test."""
++    import inspect
++
++    src = inspect.getsource(msg.generate_multi_section_report)
++    # the run path sets the named priors-only gap when the LLM credibility judge is None
++    assert "_CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP" in src
++    assert "credibility_pass_judge is None" in src
++    # the named constant carries the priors_only token the manifest reader surfaces
++    assert "priors_only" in msg._CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
++    # distinct from the pass-could-NOT-run degrade string (different condition, different text)
++    assert (
++        msg._CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
++        != msg._CREDIBILITY_NO_JUDGE_DISCLOSED_GAP
++    )
+ 
+ 
+ def test_arch005_b12_judge_none_always_release_off_still_raises() -> None:

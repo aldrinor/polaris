@@ -1,0 +1,11 @@
+P2: [src/polaris_graph/generator/evidence_distiller.py](/abs/path/C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:1744) still has the duplicated B19 `return_exceptions=True` comment block. Non-blocking, but the stated P2 cleanup is not actually present in the patch.
+
+No P0/P1 findings.
+
+The iter-2 P1 is fixed: both distill-map call sites route through `_call_distill_map_with_wall`, and that helper wraps the whole `client._call(...)` in an outer `asyncio.wait_for(wall)`, so the retry loop inside `OpenRouterClient._call/_call_impl` cannot occupy the map fan-out for `MAX_RETRIES + 1` full wall periods.
+
+Cancellation looks safe for this path. The await is freed at the outer wall; the caller catches the resulting timeout as a map failure and closes the client in `finally`. The surrounding handling remains fail-closed: single-source and microbatch paths emit `map_failed` coverage rows, escaped batch exceptions no longer cancel sibling batches, and validated findings still go through the existing source-span validation. I do not see a new silent-drop or faithfulness relaxation.
+
+Static review only; no pytest run.
+
+verdict: APPROVE

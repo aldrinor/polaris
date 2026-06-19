@@ -1,0 +1,2301 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019edee9-2156-7992-981a-2edb849b81c3
+--------
+user
+HARD ITERATION CAP: 3 per document (operator-set for this campaign). This is iter 1 of 3.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Do not pick bone from egg" — if a finding is not a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 3 returns REQUEST_CHANGES, the document is force-APPROVE on remaining non-P0/P1 findings.
+- If you are holding back a P1 for a later round — DO NOT. Surface it now.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+3-PRONG SKEPTICISM CHECK ON YOUR OWN ADVICE (Claude is the final judge of your comments and WILL reject any that violate these): do NOT suggest anything that (1) RELAXES FAITHFULNESS (weakens strict_verify / NLI / 4-role / span-grounding, ships unverified-as-verified, makes a fail-closed path fail-open), (2) GRANDFATHERS / is OUTDATED (pre-2024 approach, old model), or (3) CHOKES THE NECK (adds a cap / floor / throttle / hard-filter / thinner — the banned filter-and-cap anti-pattern; the pipeline DNA is WEIGHT-AND-CONSOLIDATE). A timeout that is a hang-guard with a disclosed error row is NOT a neck-choke; a relevance/breadth cap IS.
+
+FRONTIER-TECH MANDATE: judge against 2025-2026 frontier JSON-parsing / structured-output / provider-routing practice; reject any grandfathered pattern.
+
+TASK: STATIC code review (do NOT run pytest, do NOT execute anything) of the diff at C:/POLARIS/.codex/iarch011_campaign/judge.patch for I-arch-011 bugs B12/B14/B01. Read that patch file and, if needed, src/polaris_graph/llm/entailment_judge.py and src/polaris_graph/retrieval/semantic_conflict_detector.py.
+
+BUGS: bare json.loads(content) on both side judges (entailment_judge.py:695, semantic_conflict_detector.py:779) cannot parse a "garbled-200" (a valid JSON verdict object FOLLOWED by trailing reasoning text -> "Extra data: ..."), throwing away a salvageable verdict; and response_format:{type:json_object} on both calls makes the novita+gmicloud mirror hosts 404, collapsing the 4-host chain to 2.
+
+FIX UNDER REVIEW: (a) a new _extract_first_json_object() using json.JSONDecoder().raw_decode to pull the FIRST COMPLETE balanced object that CARRIES the required "verdict" field (so a leading non-verdict scratchpad object cannot be mis-selected and downgrade a strict HOLD to a fail-open neutral); it RAISES when no verdict-bearing object exists. (b) removed response_format:{type:json_object} from both calls so all 4 providers route.
+
+CHECK (faithfulness is the crux here): confirm fail-closed behavior is PRESERVED on empty/None/non-str/malformed/verdict-less content (must still RAISE into the SAME existing except-handlers: entailment -> drop sentinel; semantic_conflict -> strict HOLD / non-strict neutral, unchanged). Confirm the extractor cannot make invalid partial JSON pass. Confirm removing response_format does not itself create a NEW fail-open path. Flag the live-host risk (a reasoning model could now blank the content field) as P2/P3 if you see it, but it is a known wiring/preflight item.
+
+OUTPUT SCHEMA (the FINAL line MUST be exactly "verdict: APPROVE" or "verdict: REQUEST_CHANGES"):
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+codex
+I’m going to do this as a static review only: read the governing files and patch/source text, then check the failure paths and routing change without running tests or executing repo code.
+2026-06-19T08:05:02.220074Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Item -LiteralPath .\\CLAUDE.md, .\\.codex\\iarch011_campaign\\judge.patch, .\\src\\polaris_graph\\llm\\entailment_judge.py, .\\src\\polaris_graph\\retrieval\\semantic_conflict_detector.py | Select-Object FullName, Length"` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Item -LiteralPath .\\CLAUDE.md, .\\.codex\\iarch011_campaign\\judge.patch, .\\src\\polaris_graph\\llm\\entailment_judge.py, .\\src\\polaris_graph\\retrieval\\semantic_conflict_detector.py | Select-Object FullName, Length" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath .\\.codex\\iarch011_campaign\\judge.patch -Raw" in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Item -LiteralPath .\\CLAUDE.md, .\\.codex\\iarch011_campaign\\judge.patch, .\\src\\polaris_graph\\llm\\entailment_judge.py, .\\src\\polaris_graph\\retrieval\\semantic_conflict_detector.py | Select-Object FullName, Length"` rejected: blocked by policy
+ succeeded in 1511ms:
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index 366509c0..7583a077 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -287,6 +287,60 @@ def _is_transport_poison_reason(reason: str) -> bool:
+         return False
+ 
+ 
++def _extract_first_json_object(content: object) -> dict:
++    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
++    judge response and return it as a dict.
++
++    Motivating fault: a "garbled-200" = a valid JSON verdict object followed by trailing
++    reasoning text, e.g. ``{"verdict": "ENTAILED", "reason": "ok"}\\nThe span supports...``.
++    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
++    on that input and the salvageable verdict is thrown away (over-drop, the drb_72-class
++    coverage collapse).
++
++    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` -
++    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
++    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
++    values such as ``"dose {x} mg"``). The first ``{`` that decodes to a dict wins, so a
++    response with prose BEFORE the JSON object is also rescued.
++
++    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
++    body is now the normal case, so "first dict wins" could select the WRONG object (e.g.
++    a leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). To avoid that -
++    and the fail-closed -> fail-open regression it would cause on the strict consumer - this
++    returns the first complete object that actually CARRIES the required ``"verdict"`` field,
++    and RAISES if the scan finds none. The scan advances past each decoded object by its end
++    offset (not one char) so a nested sub-object is never mis-selected.
++
++    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
++    sentinel / partial) on empty/None/non-str content, on content with no ``{``, on a lone
++    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
++    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed path
++    (retry then drop / hold) is therefore preserved byte-for-byte for every genuine failure -
++    only the valid-verdict-object-plus-trailing-text case is newly rescued.
++    """
++    if not isinstance(content, str) or not content.strip():
++        raise ValueError("empty or non-str judge content")
++    decoder = json.JSONDecoder()
++    search_from = 0
++    while True:
++        start = content.find("{", search_from)
++        if start == -1:
++            raise ValueError("no verdict-bearing JSON object found in judge content")
++        try:
++            obj, end = decoder.raw_decode(content, start)
++        except json.JSONDecodeError:
++            # This "{" did not begin a complete JSON value (e.g. a brace inside prose).
++            # Advance one char and look for the next candidate object start.
++            search_from = start + 1
++            continue
++        if isinstance(obj, dict) and "verdict" in obj:
++            return obj
++        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
++        # its end offset so we never re-enter / mis-select a nested sub-object, then keep
++        # scanning for the real verdict object.
++        search_from = end
++
++
+ class _RetryableJudgeError(Exception):
+     """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
+     bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
+@@ -513,7 +567,11 @@ class _EntailmentJudge:
+             "temperature": 0.0,
+             "max_tokens": _ent_maxtok,
+             "reasoning": {"effort": _ent_effort},
+-            "response_format": {"type": "json_object"},
++            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
++            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
++            # mirror chain (z-ai -> baidu -> novita -> gmicloud) to 2 and starving provider
++            # rotation. The brace-aware _extract_first_json_object parser (above) recovers the
++            # JSON verdict from the now-unconstrained response, so all 4 providers route.
+         }
+         # I-arch-002 (#1250): operator-directed - skip the single-provider pin when
+         # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
+@@ -692,7 +750,14 @@ class _EntailmentJudge:
+                     # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
+                     # byte-identical: an empty/None content still flows to json.loads as before.)
+                     raise _RetryableJudgeError("blank_200")
+-                parsed = json.loads(content)
++                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
++                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
++                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
++                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
++                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
++                # the same fail-closed retry/sentinel path as before - only the parseable
++                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
++                parsed = _extract_first_json_object(content)
+                 verdict = str(parsed.get("verdict", "")).upper().strip()
+                 reason = str(parsed.get("reason", ""))
+                 if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+diff --git a/src/polaris_graph/retrieval/semantic_conflict_detector.py b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+index 6bda2499..373a4059 100644
+--- a/src/polaris_graph/retrieval/semantic_conflict_detector.py
++++ b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+@@ -522,6 +522,62 @@ CLAIM B:
+ JSON:"""
+ 
+ 
++def _extract_first_json_object(content: object) -> dict:
++    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
++    NLI-conflict judge response and return it as a dict.
++
++    Motivating fault: a "garbled-200" = a valid verdict object followed by trailing
++    reasoning text, e.g. ``{"verdict": "NEUTRAL", "confidence": 0.1}\\nReasoning: ...``.
++    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
++    on that input, which the ``except`` block treats as a transport/parse failure (a HOLD
++    under strict gates, or a fail-open neutral otherwise) - throwing away a salvageable
++    verdict.
++
++    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` -
++    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
++    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
++    values). The first ``{`` that decodes to a dict wins, so a response with prose BEFORE
++    the JSON object is also rescued.
++
++    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
++    body is now the normal case, so "first dict wins" could select the WRONG object (e.g. a
++    leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). On THIS strict
++    consumer that is faithfulness-relevant: a non-verdict first dict would yield verdict=""
++    -> ``neutral`` -> ``("neutral", 0.0)``, silently DROPPING a real contradiction that
++    pre-fix failed closed (strict HOLD). To prevent that fail-closed -> fail-open regression,
++    this returns the first complete object that actually CARRIES the required ``"verdict"``
++    field, and RAISES if the scan finds none. The scan advances past each decoded object by
++    its end offset (not one char) so a nested sub-object is never mis-selected.
++
++    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
++    neutral / partial) on empty/None/non-str content, on content with no ``{``, on a lone
++    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
++    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed
++    behaviour (strict -> HOLD, non-strict -> fail-open neutral) is therefore preserved
++    byte-for-byte for every genuine failure - only the valid-verdict-object-plus-trailing-
++    text case is newly rescued.
++
++    NOTE: this is intentionally duplicated from ``llm.entailment_judge`` rather than
++    cross-imported, to avoid a retrieval<->llm import cycle (lane file-scope + LAW V).
++    """
++    if not isinstance(content, str) or not content.strip():
++        raise ValueError("empty or non-str judge content")
++    decoder = json.JSONDecoder()
++    search_from = 0
++    while True:
++        start = content.find("{", search_from)
++        if start == -1:
++            raise ValueError("no verdict-bearing JSON object found in judge content")
++        try:
++            obj, end = decoder.raw_decode(content, start)
++        except json.JSONDecodeError:
++            search_from = start + 1
++            continue
++        if isinstance(obj, dict) and "verdict" in obj:
++            return obj
++        search_from = end
++
++
+ class _SemanticContradictionJudge:
+     """Synchronous httpx wrapper around a cross-document contradiction call.
+ 
+@@ -618,7 +674,10 @@ class _SemanticContradictionJudge:
+             "temperature": 0.0,
+             "max_tokens": _sc_maxtok,
+             "reasoning": {"effort": _sc_effort},
+-            "response_format": {"type": "json_object"},
++            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
++            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
++            # mirror chain to 2. The brace-aware _extract_first_json_object parser (below) recovers
++            # the JSON verdict from the now-unconstrained response, so all 4 providers route.
+         }
+         # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
+         # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+@@ -776,7 +835,14 @@ class _SemanticContradictionJudge:
+                 return CONFLICT_UNSCORED_LABEL, 0.0
+             data = _guard.value
+             content = data["choices"][0]["message"]["content"]
+-            parsed = json.loads(content)
++            # I-arch-011 (B12): brace-aware first-complete-JSON-object extractor instead of a
++            # bare json.loads(content). A "garbled-200" (valid verdict object + trailing
++            # reasoning text) raised JSONDecodeError "Extra data: ..." and was treated as a
++            # parse failure (HOLD under strict gates / fail-open neutral otherwise), dropping a
++            # salvageable verdict. The extractor RAISES on every genuine failure
++            # (empty/None/lone-"{"/partial JSON), so those still hit the same fail-closed
++            # except-block below - only the object-plus-trailing-text case is newly rescued.
++            parsed = _extract_first_json_object(content)
+             verdict = str(parsed.get("verdict", "")).strip().upper()
+             confidence = float(parsed.get("confidence", 0.0) or 0.0)
+             label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
+diff --git a/tests/polaris_graph/llm/test_judge_garbled200_parse_iarch011.py b/tests/polaris_graph/llm/test_judge_garbled200_parse_iarch011.py
+new file mode 100644
+index 00000000..796cc679
+--- /dev/null
++++ b/tests/polaris_graph/llm/test_judge_garbled200_parse_iarch011.py
+@@ -0,0 +1,198 @@
++"""I-arch-011 (B12/B14, KEYSTONE) - garbled-200 JSON parse + fail-closed contract.
++
++Both side judges (entailment + semantic-conflict) previously called a bare
++``json.loads(content)`` on the LLM response body. A "garbled-200" - a valid JSON
++verdict object FOLLOWED by trailing reasoning text, e.g.::
++
++    {"verdict": "ENTAILED", "reason": "ok"}
++    The span clearly supports the sentence because ...
++
++raises ``json.JSONDecodeError: Extra data: line 2 column 1 (char N)`` under
++``json.loads``. The salvageable verdict was thrown away, which on the entailment
++path becomes a fail-closed DROP and on the semantic-conflict path becomes a HOLD
++(strict) / fail-open neutral - the drb_72-class over-drop / coverage collapse.
++
++The fix adds a brace-aware first-complete-JSON-object extractor
++(``_extract_first_json_object``) to BOTH judge modules. It RAISES on every genuine
++failure (empty / None / lone ``{`` / partial JSON / non-object first value), so the
++fail-closed retry/sentinel/hold paths are byte-for-byte preserved for real failures.
++Only the valid-object-plus-trailing-text case is newly rescued. Faithfulness is NOT
++relaxed: a genuinely-unparseable response still fails closed exactly as today.
++
++This test imports the extractor from BOTH judge modules (the lane requirement to
++"cover BOTH judges / import each parser path") and asserts:
++  * a garbled-200 parses to the verdict dict (the salvage),
++  * empty / None / whitespace content STILL raises (fail-closed),
++  * a lone ``{`` and other partial/invalid JSON STILL raises (fail-closed),
++  * a brace inside a string value does NOT confuse the parser,
++  * prose-before-JSON is still rescued (the un-constrained-output hedge),
++  * the first complete object wins.
++
++It FAILS on the pre-fix code (the symbol ``_extract_first_json_object`` does not
++exist in either module pre-fix, so the import raises) and PASSES after the fix.
++"""
++
++import json
++
++import pytest
++
++# Import each parser path - one per judge module. Pre-fix these symbols do not
++# exist, so collection fails (the fail-on-pre-fix mechanism).
++from src.polaris_graph.llm.entailment_judge import (
++    _extract_first_json_object as _entailment_extract,
++)
++from src.polaris_graph.retrieval.semantic_conflict_detector import (
++    _extract_first_json_object as _conflict_extract,
++)
++
++# Run every assertion against BOTH judges' extractors so a regression in either is caught.
++_EXTRACTORS = [
++    pytest.param(_entailment_extract, id="entailment_judge"),
++    pytest.param(_conflict_extract, id="semantic_conflict_detector"),
++]
++
++
++# ---------------------------------------------------------------------------
++# SALVAGE cases - the garbled-200 must now parse to the verdict dict.
++# ---------------------------------------------------------------------------
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_garbled200_object_plus_trailing_text_parses(extract):
++    """The motivating fault: a valid object followed by trailing reasoning prose.
++
++    Pre-fix ``json.loads`` raised 'Extra data'; the extractor must return the dict.
++    """
++    garbled = (
++        '{"verdict": "ENTAILED", "reason": "the span supports the sentence"}\n'
++        "The span clearly entails the sentence because both mention the same dose."
++    )
++    parsed = extract(garbled)
++    assert isinstance(parsed, dict)
++    assert parsed["verdict"] == "ENTAILED"
++    assert parsed["reason"] == "the span supports the sentence"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_clean_json_still_parses(extract):
++    """A pristine JSON-only body (the happy path) is byte-equivalent to json.loads."""
++    clean = '{"verdict": "CONTRADICTED", "confidence": 0.92, "reason": "disagrees"}'
++    assert extract(clean) == json.loads(clean)
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_brace_inside_string_value_not_miscounted(extract):
++    """A naive depth counter miscounts braces inside string values; raw_decode must not.
++
++    The object's ``reason`` contains a literal ``{x}`` - the parser must return the
++    WHOLE object, not truncate at the inner brace.
++    """
++    tricky = '{"verdict": "NEUTRAL", "reason": "dose {x} mg not in span"}\ntrailing'
++    parsed = extract(tricky)
++    assert parsed["verdict"] == "NEUTRAL"
++    assert parsed["reason"] == "dose {x} mg not in span"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_prose_before_json_is_rescued(extract):
++    """Without response_format the host may emit prose BEFORE the object - still rescue it."""
++    leading = (
++        "Here is my verdict for the pair you gave me:\n"
++        '{"verdict": "ENTAILED", "reason": "supported"}'
++    )
++    parsed = extract(leading)
++    assert parsed["verdict"] == "ENTAILED"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_first_verdict_object_wins(extract):
++    """When two verdict objects appear, the FIRST one is the verdict."""
++    two = (
++        '{"verdict": "CONTRADICTED", "reason": "first"}\n'
++        '{"verdict": "ENTAILED", "reason": "second"}'
++    )
++    parsed = extract(two)
++    assert parsed["verdict"] == "CONTRADICTED"
++    assert parsed["reason"] == "first"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_leading_non_verdict_object_is_skipped(extract):
++    """A leading non-verdict object must NOT be selected - the verdict object wins.
++
++    This is the fail-closed->fail-open regression guard: if the extractor returned the
++    first dict unconditionally, ``{"note": ...}`` would yield verdict="" -> neutral, and a
++    real CONTRADICTED verdict on the strict semantic-conflict path would be silently
++    downgraded from a HOLD to a fail-open neutral. The verdict-bearing object must win.
++    """
++    body = (
++        '{"note": "scratchpad reasoning, not the verdict"}\n'
++        '{"verdict": "CONTRADICTED", "reason": "real verdict"}'
++    )
++    parsed = extract(body)
++    assert parsed["verdict"] == "CONTRADICTED"
++    assert parsed["reason"] == "real verdict"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_nested_verdict_object_not_misselected(extract):
++    """A verdict nested inside a wrapper must not be picked apart mid-object.
++
++    The outer object carries ``verdict`` so it is returned whole; the scan must not
++    descend into the nested ``{"x": ...}`` and return a fragment.
++    """
++    body = '{"verdict": "ENTAILED", "meta": {"x": 1}, "reason": "ok"}'
++    parsed = extract(body)
++    assert parsed["verdict"] == "ENTAILED"
++    assert parsed["meta"] == {"x": 1}
++
++
++def test_extractor_succeeds_where_bare_json_loads_raises():
++    """Behavioral contrast: the bare json.loads (the pre-fix call) raises on a garbled-200,
++    while BOTH extractors recover the verdict. Makes the fix's value self-evident."""
++    garbled = '{"verdict": "ENTAILED", "reason": "ok"}\ntrailing reasoning text'
++    with pytest.raises(json.JSONDecodeError):
++        json.loads(garbled)  # the pre-fix behavior that DROPPED the verdict
++    assert _entailment_extract(garbled)["verdict"] == "ENTAILED"
++    assert _conflict_extract(garbled)["verdict"] == "ENTAILED"
++
++
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++def test_fenced_json_code_block_is_rescued(extract):
++    """A ```json fenced block (markdown wrapper) still yields the object."""
++    fenced = '```json\n{"verdict": "NEUTRAL", "reason": "no shared claim"}\n```'
++    parsed = extract(fenced)
++    assert parsed["verdict"] == "NEUTRAL"
++
++
++# ---------------------------------------------------------------------------
++# FAIL-CLOSED cases - genuine failures must STILL raise (faithfulness preserved).
++# A raise is what keeps the entailment retry/sentinel-drop and the semantic-conflict
++# strict-HOLD / fail-open-neutral paths intact. The extractor must NEVER return a
++# default / partial / sentinel on these inputs.
++# ---------------------------------------------------------------------------
++@pytest.mark.parametrize("extract", _EXTRACTORS)
++@pytest.mark.parametrize(
++    "bad",
++    [
++        pytest.param("", id="empty_string"),
++        pytest.param(None, id="none"),
++        pytest.param("   \n\t  ", id="whitespace_only"),
++        pytest.param("{", id="lone_open_brace"),
++        pytest.param('{"verdict": "ENTAILED"', id="unterminated_object"),
++        pytest.param('{"verdict": ', id="truncated_mid_value"),
++        pytest.param("no json here at all", id="no_brace_prose"),
++        pytest.param("[1, 2, 3]", id="json_array_not_object"),
++        pytest.param("42", id="bare_number"),
++        pytest.param('"just a string"', id="bare_string"),
++        pytest.param("{ this is not json }", id="braces_around_prose"),
++        pytest.param(123, id="non_str_int"),
++        pytest.param({"verdict": "ENTAILED"}, id="non_str_dict"),
++        # Valid JSON object(s) but NONE carries "verdict" - must fail closed, never return a
++        # non-verdict dict that downstream maps to neutral / "" (the fail-open regression).
++        pytest.param('{"reason": "x"}', id="valid_object_no_verdict"),
++        pytest.param('{"note": "a"}\n{"other": "b"}', id="two_objects_no_verdict"),
++    ],
++)
++def test_genuine_failures_still_raise_fail_closed(extract, bad):
++    """Every genuinely-unparseable / non-object input must RAISE - never return a value."""
++    with pytest.raises((ValueError, json.JSONDecodeError)):
++        extract(bad)
+
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The patch adds the two duplicated extractors, swaps both call sites from `json.loads`, and removes the `response_format` parameter from both payloads. I’m checking the surrounding exception handlers now, because the core review question is whether raised parse failures still land on the old fail-closed branches.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _extract_first_json_object|json\\.loads\\(|response_format|blank_200|except|CONFLICT_UNSCORED_LABEL|strict|hold|HOLD|verdict\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _extract_first_json_object|json\\.loads\\(|response_format|except|CONFLICT_UNSCORED_LABEL|strict|hold|HOLD|verdict|confidence\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"9\\.1\\.8|LLM MODEL|TOKEN MAX|faithfulness|strict_verify|response_format\" CLAUDE.md" in C:\POLARIS
+ succeeded in 1595ms:
+19:     ``contradict`` pairs above a confidence threshold (``detect_semantic_conflicts``).
+24:    only ADD disclosures and (via PT08) make the release gate stricter.
+27:  * The judge is INJECTED (a ``(claim_a, claim_b) -> (label, confidence)``
+31:    default) — the same two-family evaluator the strict_verify entailment judge
+32:    uses — with a CONTRADICTION prompt. The strict_verify entailment path is NOT
+74:# reap half-open CLOSE_WAIT sockets. Transport-only — the fail-open ("neutral", 0.0) verdict logic that
+83:# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the NLI-conflict judge
+93:# only: the (label, confidence) verdict logic + the strict-fail-closed contract are UNCHANGED. LAW VI:
+114:    except concurrent.futures.TimeoutError:
+117:        except Exception:  # noqa: BLE001
+122:        # client.post exception). wait=False so a still-unsticking worker never blocks us.
+176:    nli_confidence: float = 0.0
+181:# Operator-locked 2026-06-14 ("nothing shall hold the report"): on PERSISTENT empty (after
+185:# unchanged; this only converts a HOLD into a disclosed label.
+190:CONFLICT_UNSCORED_LABEL = "unscored"
+214:    strict-gate benchmark slate is active. Under strict gates a judge error must FAIL CLOSED
+215:    — the run HOLDS for human review (the caller maps this to a run-level hold status) instead
+219:    faithfulness bug (and a false PT08 abort). Default (non-strict) path NEVER raises this."""
+231:    except (TypeError, ValueError):
+238:    except (TypeError, ValueError):
+326:    pairs, judge, *, min_confidence: float | None = None,
+327:    strict_fail_closed: bool = False,
+330:    """Judge each pair; keep ``contradict`` pairs above ``min_confidence``.
+332:    ``judge`` is a ``(claim_a, claim_b) -> (label, confidence)`` callable, label in
+339:    I-arch-004 F07 (#1249/#1252) — ``strict_fail_closed`` (the strict-gate benchmark
+341:    contradiction). Instead RAISE ``ConflictJudgeUnavailableError`` so the caller HOLDS
+348:    2026-06-14 "nothing shall hold the report"): the production judge returns the
+349:    ``CONFLICT_UNSCORED_LABEL`` when its content stayed EMPTY after the B14 retry (the
+354:    converts the empty-content HOLD into a label and is INDEPENDENT of ``strict_fail_closed``
+355:    (an empty judge is always a label, never a hold).
+359:    min_confidence = _DEFAULT_MIN_CONFIDENCE if min_confidence is None else min_confidence
+364:            label, confidence = judge(text_a, text_b)
+365:        except BudgetExceededError:
+371:        except Exception as exc:  # noqa: BLE001 — per-pair fail-open; never fabricate a conflict
+372:            if strict_fail_closed:
+373:                # I-arch-004 F07: under strict gates, an unadjudicable pair FAILS CLOSED ->
+374:                # the caller holds the run for review (no silent drop, no fabricated conflict).
+376:                    f"conflict judge errored on an evidence pair under strict gates: {exc}"
+380:        # I-arch-005 B13: the EMPTY-CONTENT collapse arrives here as CONFLICT_UNSCORED_LABEL
+382:        # the pair conflict_unscored (disclosed gap) and continue — never hold, never drop a
+384:        if str(label).strip().lower() == CONFLICT_UNSCORED_LABEL:
+397:            conf = float(confidence)
+398:        except (TypeError, ValueError):
+400:        # Codex diff-gate P2: reject non-finite / out-of-range confidence. A NaN/inf from a
+401:        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
+403:        # False, so a bare `conf < min_confidence` would let NaN slip through; guard explicitly.)
+406:                           "confidence %r (fail-safe, never fabricate a conflict)", confidence)
+408:        if conf < min_confidence:
+413:        # contradictions.json holding a semantic record stays loadable by
+429:            nli_confidence=conf,
+435:    evidence_rows, judge=None, *, strict_fail_closed: bool = False,
+442:    I-arch-004 F07 (#1249/#1252): ``strict_fail_closed`` (the strict-gate benchmark
+445:    ``ConflictJudgeUnavailableError`` so the caller HOLDS the run (never a silent drop,
+459:        judge = get_default_judge(strict_fail_closed=strict_fail_closed)
+462:        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+463:        strict_fail_closed=strict_fail_closed,
+468:    evidence_rows, judge=None, *, strict_fail_closed: bool = False,
+476:    SHIPS rather than HELD. Identical clustering/pairing/threshold logic as
+493:        judge = get_default_judge(strict_fail_closed=strict_fail_closed)
+497:        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+498:        strict_fail_closed=strict_fail_closed,
+506:_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
+514:{{"verdict": "CONTRADICT" | "ENTAIL" | "NEUTRAL", "confidence": <number 0.0-1.0>}}
+525:def _extract_first_json_object(content: object) -> dict:
+529:    Motivating fault: a "garbled-200" = a valid verdict object followed by trailing
+530:    reasoning text, e.g. ``{"verdict": "NEUTRAL", "confidence": 0.1}\\nReasoning: ...``.
+531:    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+532:    on that input, which the ``except`` block treats as a transport/parse failure (a HOLD
+533:    under strict gates, or a fail-open neutral otherwise) — throwing away a salvageable
+534:    verdict.
+542:    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+544:    leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). On THIS strict
+545:    consumer that is faithfulness-relevant: a non-verdict first dict would yield verdict=""
+547:    pre-fix failed closed (strict HOLD). To prevent that fail-closed -> fail-open regression,
+548:    this returns the first complete object that actually CARRIES the required ``"verdict"``
+555:    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed
+556:    behaviour (strict -> HOLD, non-strict -> fail-open neutral) is therefore preserved
+557:    byte-for-byte for every genuine failure — only the valid-verdict-object-plus-trailing-
+570:            raise ValueError("no verdict-bearing JSON object found in judge content")
+573:        except json.JSONDecodeError:
+576:        if isinstance(obj, dict) and "verdict" in obj:
+587:    confidence) return. Kept SEPARATE from ``_EntailmentJudge`` so the
+588:    faithfulness-critical strict_verify entailment path is never touched.
+591:    def __init__(self, *, strict_fail_closed: bool = False) -> None:
+596:        # I-arch-004 F07 (#1249/#1252): under the strict-gate benchmark slate, a
+597:        # transport/parse error must RAISE (caller holds the run) instead of returning the
+599:        self._strict_fail_closed = bool(strict_fail_closed)
+645:        """Return ``(label, confidence)`` with label in {contradict,entail,neutral}.
+655:        # reasoning -> EMPTY content -> json.loads(None) NoneType -> fail-open neutral (silently misses real
+657:        # AND emits the JSON verdict; any sub-max/off effort is coerced UP to high. Env-overridable (LAW VI).
+668:        except (TypeError, ValueError):
+677:            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+680:            # the JSON verdict from the now-unconstrained response, so all 4 providers route.
+693:        except Exception:
+709:            # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
+720:            except Exception:  # noqa: BLE001
+734:            # `call_side_judge_with_guard`, which treats ANY non-`propagate` exception as a failed attempt
+736:            # (label, confidence) verdict logic + strict-fail-closed contract are UNCHANGED.
+748:            except concurrent.futures.TimeoutError:
+792:            except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
+799:        # RETRIED before it ever reaches ``json.loads(None)``. On a NON-empty response the
+802:        # (it does NOT raise) which we translate to the ``CONFLICT_UNSCORED_LABEL`` so the
+812:        # the served response (post ok, parse failed) over the exception string.
+826:                # conflict_unscored, never HOLD (operator-locked "nothing shall hold the
+829:                # contract is that an EMPTY judge is always a LABEL, never a hold.
+835:                return CONFLICT_UNSCORED_LABEL, 0.0
+839:            # bare json.loads(content). A "garbled-200" (valid verdict object + trailing
+841:            # parse failure (HOLD under strict gates / fail-open neutral otherwise), dropping a
+842:            # salvageable verdict. The extractor RAISES on every genuine failure
+844:            # except-block below — only the object-plus-trailing-text case is newly rescued.
+846:            verdict = str(parsed.get("verdict", "")).strip().upper()
+847:            confidence = float(parsed.get("confidence", 0.0) or 0.0)
+849:                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
+850:            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+852:            return label, confidence
+853:        except Exception:
+861:            # I-arch-004 F07 (#1249/#1252): under strict gates, a transport/parse failure must
+862:            # FAIL CLOSED — RAISE so detect_semantic_conflicts converts it to a run-level HOLD
+866:            if self._strict_fail_closed:
+868:                    "[semantic-conflict] judge call failed under strict gates -> "
+869:                    "FAIL CLOSED (run holds for review): %s", exc,
+886:            except Exception:  # noqa: BLE001
+894:def get_default_judge(*, strict_fail_closed: bool = False):
+895:    """Lazy singleton production judge callable ``(a, b) -> (label, confidence)``.
+900:    I-arch-004 F07 (#1249/#1252): ``strict_fail_closed`` propagates to the judge so a
+901:    transport/parse error RAISES (fail-closed hold) instead of the additive fail-open
+902:    ('neutral', 0.0). The singleton is keyed on the flag so a strict caller never reuses
+903:    a non-strict judge instance (and vice-versa)."""
+906:        _JUDGE_SINGLETON, "_strict_fail_closed", False
+907:    ) != bool(strict_fail_closed):
+908:        _JUDGE_SINGLETON = _SemanticContradictionJudge(strict_fail_closed=strict_fail_closed)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2344ms:
+1:"""Entailment judge — LLM-as-judge for strict_verify check (f).
+3:Originally inlined in `polaris_graph.clinical_generator.strict_verify`. Extracted
+33:Public surface (re-exported via `polaris_graph.clinical_generator.strict_verify`
+42:NOT moved here (still in strict_verify.py because tests rebind via
+43:monkeypatch.setattr on strict_verify):
+70:# is ~50ms cold; off-mode users pay this once at strict_verify import
+72:# `except _orc.BudgetExceededError` semantics (exception types must be
+73:# resolved at except-clause evaluation, which is a hot-path call).
+86:# When OpenRouter/Cloudflare holds the socket ESTABLISHED and trickles keep-alive bytes (rx=tx=0 idle-open),
+92:# old pooled client leaked on the error path (HANG-J2). Transport/observability only — the verdict logic,
+101:# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the judge socket
+109:# faithfulness-safe, never fabricates). Transport-only; verdict logic + the fail-closed contract UNCHANGED.
+128:    except concurrent.futures.TimeoutError:
+131:        except Exception:  # noqa: BLE001
+136:        # or a non-timeout client.post exception). wait=False so a still-unsticking worker never blocks us.
+141:# consumers DROP in enforce mode — an OVER-DROP of a salvageable verdict (the drb_72-class coverage
+151:# transient fault). Faithfulness-NEUTRAL: the verdict emitted on exhaustion is the SAME fail-closed
+152:# ('ENTAILED','judge_error:…') sentinel the consumers DROP — fewer wasted retries, never a different verdict.
+158:# the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
+160:# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict.
+193:# is on, a blank/parse/bad-verdict fault ADVANCES a cursor through the mirror chain's `order`
+196:# IMPROVING (a real verdict from baidu strictly beats a z-ai-blank-induced drop; a real NEUTRAL/CONTRADICTED
+219:    except Exception:  # noqa: BLE001 — config lookup must never break the judge
+230:# retry's exception matches one of these, the client is REBUILT before the next attempt (exactly as
+232:# bricking the rest of the run. A PARSE fault (json.JSONDecodeError / KeyError / a garbled verdict)
+234:# a needless client rebuild. Matched on type/string only; transport/lifecycle, never verdict logic.
+249:    Match is on the exception TYPE name + its string form ONLY (the spec is explicit: NOT a parse
+250:    fault). A `json.JSONDecodeError`/`KeyError`/bad-verdict is a payload fault → returns False →
+257:            # json.JSONDecodeError's base + the bad-verdict path's string handling). A genuine
+267:    except Exception:  # noqa: BLE001 — predicate must never break the retry loop
+274:    A `_RetryableJudgeError` loses the original exception TYPE (it carries a human reason string), so
+275:    a poison surfaced via that path is matched on the reason text alone. The bad-verdict reason
+276:    (`bad_verdict=...`) and a generic parse reason never match these transport markers, so they retry
+286:    except Exception:  # noqa: BLE001
+290:def _extract_first_json_object(content: object) -> dict:
+294:    Motivating fault: a "garbled-200" = a valid JSON verdict object followed by trailing
+295:    reasoning text, e.g. ``{"verdict": "ENTAILED", "reason": "ok"}\\nThe span supports...``.
+296:    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+297:    on that input and the salvageable verdict is thrown away (over-drop, the drb_72-class
+306:    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+308:    a leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). To avoid that —
+309:    and the fail-closed -> fail-open regression it would cause on the strict consumer — this
+310:    returns the first complete object that actually CARRIES the required ``"verdict"`` field,
+317:    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed path
+318:    (retry then drop / hold) is therefore preserved byte-for-byte for every genuine failure —
+319:    only the valid-verdict-object-plus-trailing-text case is newly rescued.
+328:            raise ValueError("no verdict-bearing JSON object found in judge content")
+331:        except json.JSONDecodeError:
+336:        if isinstance(obj, dict) and "verdict" in obj:
+338:        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
+340:        # scanning for the real verdict object.
+347:    ('ENTAILED','judge_error: <reason>') sentinel so a bad-verdict's `bad_verdict=<v>` detail is
+348:    preserved across retries instead of being collapsed into a generic exception type name."""
+353:_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+361:{{"verdict": "ENTAILED" | "NEUTRAL" | "CONTRADICTED", "reason": "<one short sentence>"}}
+500:        """Return (verdict, reason).
+502:        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+504:        I-transport-001 (#1191) Site 4: a transient transport/parse/empty-choices/bad-verdict
+508:        consumers FAIL CLOSED on that sentinel — `clinical_generator/strict_verify.py:295-301`
+510:        sets `judge_error_flag` on `verdict=='ENTAILED' AND reason.startswith('judge_error:')`
+514:        judge fault from OVER-DROPPING a salvageable verdict (the drb_72-class coverage collapse),
+546:        except Exception:
+549:        # NLI verdict is never starved. Un-starved max_tokens lets the high-effort reasoning complete AND
+550:        # emit the JSON verdict (the old max_tokens=100 truncated mid-reasoning -> empty -> coverage collapse).
+558:        except (TypeError, ValueError):
+570:            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+574:            # JSON verdict from the now-unconstrained response, so all 4 providers route.
+613:            """Advance the pinned provider to the NEXT mirror-chain host on a blank/parse/bad-verdict
+616:            same glm-5.1 model, next healthy host; the verdict the next host returns is the real verdict."""
+632:            # one raw-IO record tagged by its TRUE outcome — "ok" ONLY after a validated verdict;
+633:            # "judge_error" on bad_verdict / parse-failure / transport fail-open. Default-OFF; never raises.
+644:            except Exception:  # noqa: BLE001
+648:        # verdict (LAW VI — env-driven bounds). A single transient transport/parse/empty-choices/
+649:        # bad-verdict fault now RETRIES instead of immediately fail-closing the verdict (which the
+650:        # consumers DROP -> over-drop of a salvageable verdict, the drb_72-class coverage collapse).
+668:        # capture can prefer the served response (post ok, parse/verdict failed) over the exc string.
+687:                except concurrent.futures.TimeoutError:
+708:                except Exception:  # noqa: BLE001 — capture must never break the judge
+711:                # I-bug-100: cost recording. Reads + records BEFORE verdict
+741:                except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+752:                    raise _RetryableJudgeError("blank_200")
+754:                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+755:                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+756:                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+761:                verdict = str(parsed.get("verdict", "")).upper().strip()
+763:                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+764:                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+765:                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+767:                    raise _RetryableJudgeError(f"bad_verdict={verdict!r}")
+768:                # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+770:                return verdict, reason
+771:            except _orc.BudgetExceededError:
+773:                # sweep aborts with a clear cause (this except MUST stay FIRST/outside the retry).
+775:            except _RetryableJudgeError as exc:
+778:                # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
+789:                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+793:                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
+794:                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
+805:            except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
+834:        # return the fail-CLOSED-at-consumer sentinel. Prefer the bound served data (a parse/verdict
+892:# brief verdict: gate behavior is what we want to measure, not a
+954:def _record_judge_outcome(verdict: str, reason: str) -> None:
+973:    key = verdict.lower()
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2991ms:
+63:3. **BASKET FAITHFULNESS.** Decide a claim's faithfulness against its **whole basket** of supporting sources, never a single URL/span — single-source verification is a blind spot. The verdict carries the corroboration (count + weights + agreement). This **STRENGTHENS** faithfulness; it NEVER relaxes it.
+65:**THE ONLY HARD GATE is the faithfulness engine** (strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding). Everything else is a WEIGHT or a CONSOLIDATION — never a DROP / CAP / THIN / TARGET.
+69:**SURGICAL, NOT REWRITE.** The good machinery already exists — STORM retrieval, Zyte/crawl4ai/distill, the tier classifier (= weighting), `finding_dedup`/`fact_dedup` (= consolidation), the faithfulness engine. RE-WIRE it to the right semantics (weight not filter; consolidate-keep-all not drop; basket not single-span) and DELETE only the specific number-forcing bolt-ons. Do not over-kill.
+79:1. **TRACE THE WHOLE PATH, not the symptom.** Map the entire data-flow end-to-end: **basket → consolidation (`finding_dedup`/`fact_dedup`) → generator (`multi_section`) → verify (`strict_verify`/NLI/4-role/provenance) → render (`report.md`/`bibliography.json`)**. At EACH hop ask: *what flows in, what flows out, where is breadth/sources lost?*
+81:3. **PER CHOKEPOINT DECIDE: surgical-patch vs clean-module-rewrite.** A 1-line flag/threshold → patch. A layer that *detects-but-never-wires* (e.g. finds the clusters but never attaches the corroborators) → **rewrite THAT module cleanly** rather than whack-a-mole. **NEVER rewrite the faithfulness engine** — it is the proven crown jewel; rewrite only the specific broken layer.
+334:│   │   ├── generator/     # multi_section, live_deepseek, provenance (strict_verify)
+714:   tokens are dropped by `strict_verify`.
+720:4. **Zero-verified abort**: if every section fails strict_verify,
+771:| `abort_no_verified_sections` | Every generated section failed strict_verify |
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The surrounding search confirms the patched symbols are already present in the working tree, so I’m reviewing the post-patch source context as well as the diff. The relevant risk points are the extractor’s scan semantics, the semantic-conflict catch-all, and whether the deleted request key leaves a syntactically valid payload.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 28 \"def _extract_first_json_object|parsed = _extract_first_json_object|except _RetryableJudgeError|except Exception as exc|return \\(\\\"ENTAILED\\\"\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 28 \"def _extract_first_json_object|parsed = _extract_first_json_object|except Exception:|if self\\._strict_fail_closed|return \\\"neutral\\\"|CONFLICT_UNSCORED_LABEL\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 10 \"payload = \\{|max_tokens|reasoning|response_format|provider\" src\\polaris_graph\\llm\\entailment_judge.py src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+2026-06-19T08:05:33.544251Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: regex parse error:
+    (?:def _extract_first_json_object|parsed = _extract_first_json_object|except _RetryableJudgeError|except Exception as exc|return \(\)
+    ^
+error: unclosed group
+
+ exited 1 in 1757ms:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: regex parse error:
+    (?:def _extract_first_json_object|parsed = _extract_first_json_object|except _RetryableJudgeError|except Exception as exc|return \(\)
+    ^
+error: unclosed group
+
+2026-06-19T08:05:34.114861Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.3 seconds
+Output:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: regex parse error:
+    (?:def _extract_first_json_object|parsed = _extract_first_json_object|except Exception:|if self\._strict_fail_closed|return \)
+    ^
+error: unclosed group
+
+ exited 1 in 2294ms:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+rg: regex parse error:
+    (?:def _extract_first_json_object|parsed = _extract_first_json_object|except Exception:|if self\._strict_fail_closed|return \)
+    ^
+error: unclosed group
+
+ succeeded in 2924ms:
+src\polaris_graph\llm\entailment_judge.py-71-# time. Eliminating it via per-method lazy-import would complicate the
+src\polaris_graph\llm\entailment_judge.py-72-# `except _orc.BudgetExceededError` semantics (exception types must be
+src\polaris_graph\llm\entailment_judge.py-73-# resolved at except-clause evaluation, which is a hot-path call).
+src\polaris_graph\llm\entailment_judge.py-74-# The test asserts the runtime contract; cold-import cost is accepted.
+src\polaris_graph\llm\entailment_judge.py-75-from src.polaris_graph.llm import openrouter_client as _orc
+src\polaris_graph\llm\entailment_judge.py-76-
+src\polaris_graph\llm\entailment_judge.py-77-logger = logging.getLogger(__name__)
+src\polaris_graph\llm\entailment_judge.py-78-
+src\polaris_graph\llm\entailment_judge.py-79-
+src\polaris_graph\llm\entailment_judge.py-80-# I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
+src\polaris_graph\llm\entailment_judge.py:81:# non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
+src\polaris_graph\llm\entailment_judge.py-82-_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
+src\polaris_graph\llm\entailment_judge.py-83-_ENTAILMENT_TIMEOUT_S = 30.0
+src\polaris_graph\llm\entailment_judge.py-84-# I-arch-006 HANG-J1/J2 (#1262): the entailment JUDGE is the verifier and had NO total deadline — a bare
+src\polaris_graph\llm\entailment_judge.py-85-# float `httpx.Client(timeout=30.0)` makes 30s the per-read GAP timeout, which httpx RESETS on every byte.
+src\polaris_graph\llm\entailment_judge.py-86-# When OpenRouter/Cloudflare holds the socket ESTABLISHED and trickles keep-alive bytes (rx=tx=0 idle-open),
+src\polaris_graph\llm\entailment_judge.py-87-# the 30s timer never fires and a single judge POST runs UNBOUNDED (drb_78 hung the whole run on this; a
+src\polaris_graph\llm\entailment_judge.py-88-# 14-min judge call was observed). Fix: an EXPLICIT httpx.Timeout with a TIGHT read-stall (no bytes for
+src\polaris_graph\llm\entailment_judge.py:89:# `read` seconds → ReadTimeout → the existing bounded same-provider retry reopens a FRESH socket), so a
+src\polaris_graph\llm\entailment_judge.py-90-# genuinely dead socket (the observed rx=tx=0 signature) trips in seconds instead of hanging. httpx closes
+src\polaris_graph\llm\entailment_judge.py-91-# the connection on a ReadTimeout, and explicit keepalive-expiry reaps the half-open CLOSE_WAIT sockets the
+src\polaris_graph\llm\entailment_judge.py-92-# old pooled client leaked on the error path (HANG-J2). Transport/observability only — the verdict logic,
+src\polaris_graph\llm\entailment_judge.py-93-# the fail-CLOSED `judge_error:` sentinel, and the two-family/model lock are all UNCHANGED. (LAW VI: env-driven.)
+src\polaris_graph\llm\entailment_judge.py-94-_ENTAILMENT_CONNECT_S = float(os.getenv("PG_ENTAILMENT_CONNECT_S", "30"))
+src\polaris_graph\llm\entailment_judge.py-95-_ENTAILMENT_READ_STALL_S = float(os.getenv("PG_ENTAILMENT_READ_STALL_S", "120"))
+src\polaris_graph\llm\entailment_judge.py-96-_ENTAILMENT_WRITE_S = float(os.getenv("PG_ENTAILMENT_WRITE_S", "60"))
+src\polaris_graph\llm\entailment_judge.py-97-_ENTAILMENT_POOL_S = float(os.getenv("PG_ENTAILMENT_POOL_S", "30"))
+src\polaris_graph\llm\entailment_judge.py-98-_ENTAILMENT_MAX_KEEPALIVE = int(os.getenv("PG_ENTAILMENT_MAX_KEEPALIVE", "8"))
+src\polaris_graph\llm\entailment_judge.py-99-_ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S", "30"))
+src\polaris_graph\llm\entailment_judge.py-100-# I-arch-006 HANG-J3 (overnight 2026-06-15): the read-stall (read=_ENTAILMENT_READ_STALL_S) is a per-read
+src\polaris_graph\llm\entailment_judge.py-101-# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the judge socket
+src\polaris_graph\llm\entailment_judge.py-102-# ESTABLISHED and TRICKLES keep-alive bytes (SSE comment lines / chunked keep-alives), so the gap timer
+src\polaris_graph\llm\entailment_judge.py-103-# never elapses and a SINGLE judge POST runs UNBOUNDED — 15-22 min hangs were observed freezing entire
+src\polaris_graph\llm\entailment_judge.py-104-# iarch006 resume runs (the run can't finish its ~2500 per-claim verifies before one call hangs forever).
+src\polaris_graph\llm\entailment_judge.py-105-# HANG-J1/J2's read-stall only catches a TRULY dead rx=tx=0 socket; it CANNOT bound a trickle. Fix: a HARD
+src\polaris_graph\llm\entailment_judge.py-106-# TOTAL per-call wall-deadline around the blocking POST (below). On timeout the hung socket is force-closed
+src\polaris_graph\llm\entailment_judge.py:107:# (unsticks the worker) and the existing bounded SAME-provider retry reopens a FRESH connection; on
+src\polaris_graph\llm\entailment_judge.py-108-# exhaustion the UNCHANGED fail-CLOSED ('ENTAILED','judge_error:…') sentinel fires (consumers DROP ->
+src\polaris_graph\llm\entailment_judge.py-109-# faithfulness-safe, never fabricates). Transport-only; verdict logic + the fail-closed contract UNCHANGED.
+src\polaris_graph\llm\entailment_judge.py-110-# LAW VI: env-driven. Default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed)
+src\polaris_graph\llm\entailment_judge.py-111-# while bounding the trickle hang; with the 2 retries the worst-case wall per claim is ~3*150s before drop.
+src\polaris_graph\llm\entailment_judge.py-112-_ENTAILMENT_TOTAL_S = float(os.getenv("PG_ENTAILMENT_TOTAL_S", "150"))
+src\polaris_graph\llm\entailment_judge.py-113-
+src\polaris_graph\llm\entailment_judge.py-114-
+src\polaris_graph\llm\entailment_judge.py-115-def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+src\polaris_graph\llm\entailment_judge.py-116-    """HANG-J3: run the blocking judge POST under a HARD total wall-deadline.
+src\polaris_graph\llm\entailment_judge.py-117-
+--
+src\polaris_graph\llm\entailment_judge.py-128-    except concurrent.futures.TimeoutError:
+src\polaris_graph\llm\entailment_judge.py-129-        try:
+src\polaris_graph\llm\entailment_judge.py-130-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+src\polaris_graph\llm\entailment_judge.py-131-        except Exception:  # noqa: BLE001
+src\polaris_graph\llm\entailment_judge.py-132-            pass
+src\polaris_graph\llm\entailment_judge.py-133-        raise
+src\polaris_graph\llm\entailment_judge.py-134-    finally:
+src\polaris_graph\llm\entailment_judge.py-135-        # Codex P2 (HANG-J3 gate): deterministic executor teardown on EVERY exit path (success, timeout,
+src\polaris_graph\llm\entailment_judge.py-136-        # or a non-timeout client.post exception). wait=False so a still-unsticking worker never blocks us.
+src\polaris_graph\llm\entailment_judge.py-137-        ex.shutdown(wait=False)
+src\polaris_graph\llm\entailment_judge.py:138:# I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
+src\polaris_graph\llm\entailment_judge.py-139-# for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
+src\polaris_graph\llm\entailment_judge.py-140-# previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
+src\polaris_graph\llm\entailment_judge.py-141-# consumers DROP in enforce mode — an OVER-DROP of a salvageable verdict (the drb_72-class coverage
+src\polaris_graph\llm\entailment_judge.py-142-# collapse). Retry the POST+parse this many extra times before emitting the sentinel; default 2
+src\polaris_graph\llm\entailment_judge.py-143-# (=> up to 3 total attempts). 0 disables the retry (single attempt, the pre-#1191 behavior).
+src\polaris_graph\llm\entailment_judge.py-144-_DEFAULT_ENTAILMENT_RETRIES = 2
+src\polaris_graph\llm\entailment_judge.py-145-# I-arch-007 A2 (entailment-speed fix): a total-deadline (trickle-hang) timeout re-hangs on the SAME
+src\polaris_graph\llm\entailment_judge.py:146:# pinned mirror provider, so the extra same-provider retries are ~_ENTAILMENT_TOTAL_S of dead wait that
+src\polaris_graph\llm\entailment_judge.py-147-# almost never recovers — the dominant contributor to the hang-path worst case (3x150s=450s). Cap a
+src\polaris_graph\llm\entailment_judge.py-148-# total_deadline_exceeded retry TIGHTER than the general transient-fault budget. DEFAULT here PRESERVES
+src\polaris_graph\llm\entailment_judge.py-149-# current behaviour (= the general retry count, so the OFF path is byte-identical, LAW VI); the run slate
+src\polaris_graph\llm\entailment_judge.py-150-# sets PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1 to apply the fix (=> up to 2 attempts on a hang vs 3 on a
+src\polaris_graph\llm\entailment_judge.py-151-# transient fault). Faithfulness-NEUTRAL: the verdict emitted on exhaustion is the SAME fail-closed
+src\polaris_graph\llm\entailment_judge.py-152-# ('ENTAILED','judge_error:…') sentinel the consumers DROP — fewer wasted retries, never a different verdict.
+src\polaris_graph\llm\entailment_judge.py-153-_ENV_ENTAILMENT_TOTAL_DEADLINE_RETRIES = "PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES"
+src\polaris_graph\llm\entailment_judge.py-154-_DEFAULT_ENTAILMENT_TOTAL_DEADLINE_RETRIES = _DEFAULT_ENTAILMENT_RETRIES
+src\polaris_graph\llm\entailment_judge.py-155-# Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
+src\polaris_graph\llm\entailment_judge.py-156-_DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
+src\polaris_graph\llm\entailment_judge.py:157:# I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
+src\polaris_graph\llm\entailment_judge.py:158:# the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
+src\polaris_graph\llm\entailment_judge.py-159-# error -> fail-open, which the consumers DROP -> the drb_72-class COVERAGE COLLAPSE. Operator 2026-06-13:
+src\polaris_graph\llm\entailment_judge.py:160:# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict.
+src\polaris_graph\llm\entailment_judge.py-161-#
+src\polaris_graph\llm\entailment_judge.py:162:# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap
+src\polaris_graph\llm\entailment_judge.py-163-# is free, billed by usage not pre-allocated"): the old default 2000 was the SMALL hardcode the governance
+src\polaris_graph\llm\entailment_judge.py:164:# rule prohibits — it left the GLM-5.1 judge one provider hiccup away from a finish=length truncation. This
+src\polaris_graph\llm\entailment_judge.py:165:# side-judge pins to the LOCKED mirror provider chain (`get_role_provider("mirror")`, allow_fallbacks=False —
+src\polaris_graph\llm\entailment_judge.py-166-# see judge() below) exactly like the main Mirror role, so its binding output cap is the SAME chain MIN the
+src\polaris_graph\llm\entailment_judge.py-167-# Mirror transport derived from a LIVE OpenRouter read 2026-06-14 (openrouter_role_transport.py:295,
+src\polaris_graph\llm\entailment_judge.py-168-# `_MIRROR_MAX_TOKENS_CHAIN_MIN`): GLM-5.1 mirror chain order=[atlas-cloud, z-ai, baidu, novita, gmicloud]
+src\polaris_graph\llm\entailment_judge.py-169-# -> max_completion_tokens atlas-cloud 202752 / z-ai|baidu|novita 131072 / gmicloud(ctx 202752) -> MIN 131072.
+src\polaris_graph\llm\entailment_judge.py-170-# A budget ABOVE 131072 would hard-400 ("requested N > max M") on the z-ai/baidu/novita fallbacks under
+src\polaris_graph\llm\entailment_judge.py-171-# allow_fallbacks=False; so the default IS the chain MIN (the model REAL max for this pinned chain), and any
+src\polaris_graph\llm\entailment_judge.py:172:# env override is CLAMPED DOWN to that ceiling (env can lower for cost/testing, never raise past the provider
+src\polaris_graph\llm\entailment_judge.py:173:# cap). max_tokens is a usage-billed CAP not a target, so this generous default never starves AND never over-
+src\polaris_graph\llm\entailment_judge.py-174-# bills. Effort stays "high" (NOT xhigh): the Mirror GLM bake-off (openrouter_role_transport.py:700-705,
+src\polaris_graph\llm\entailment_judge.py:175:# scripts/diagnostics/mirror_glm_provider_bakeoff.py, 2026-06-14) proved xhigh is a NO-OP on GLM that lets
+src\polaris_graph\llm\entailment_judge.py:176:# reasoning eat the whole budget -> blank content -> the very collapse F19 closes; "high" completes
+src\polaris_graph\llm\entailment_judge.py-177-# (finish=stop, valid JSON). RE-DERIVE _ENTAILMENT_MAX_TOKENS_CHAIN_MIN if the mirror chain is re-pinned in
+src\polaris_graph\llm\entailment_judge.py:178:# config/settings/openrouter_provider_routing.yaml to higher-cap-only providers.
+src\polaris_graph\llm\entailment_judge.py-179-_ENV_ENTAILMENT_MAX_TOKENS = "PG_ENTAILMENT_MAX_TOKENS"
+src\polaris_graph\llm\entailment_judge.py-180-# Mirror GLM-5.1 chain MIN max_completion_tokens (live OpenRouter read 2026-06-14; mirrors
+src\polaris_graph\llm\entailment_judge.py-181-# openrouter_role_transport._MIRROR_MAX_TOKENS_CHAIN_MIN — kept as a LOCAL constant so this leaf llm module
+src\polaris_graph\llm\entailment_judge.py-182-# does not import the heavy roles/benchmark transport stack at import time, per the off-mode zero-cost rule).
+src\polaris_graph\llm\entailment_judge.py-183-_ENTAILMENT_MAX_TOKENS_CHAIN_MIN = 131072
+src\polaris_graph\llm\entailment_judge.py-184-_DEFAULT_ENTAILMENT_MAX_TOKENS = _ENTAILMENT_MAX_TOKENS_CHAIN_MIN
+src\polaris_graph\llm\entailment_judge.py-185-_ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
+src\polaris_graph\llm\entailment_judge.py-186-_DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
+src\polaris_graph\llm\entailment_judge.py-187-
+src\polaris_graph\llm\entailment_judge.py:188:# I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200. The mirror role pins ONE provider
+src\polaris_graph\llm\entailment_judge.py:189:# with allow_fallbacks=False, so when that provider hits one of its intermittent empty-body-200 windows
+src\polaris_graph\llm\entailment_judge.py-190-# (z-ai measured doing this under account-QPS load, 2026-06-19) OpenRouter does NOT auto-advance (a blank
+src\polaris_graph\llm\entailment_judge.py-191-# IS an HTTP 200), every retry re-hits the SAME blanking host, and the (ENTAILED,'judge_error:…') sentinel
+src\polaris_graph\llm\entailment_judge.py-192-# DROPS the sentence in enforce mode -> a FAITHFUL-but-NARROW breadth collapse. When PG_JUDGE_PROVIDER_ROTATE
+src\polaris_graph\llm\entailment_judge.py-193-# is on, a blank/parse/bad-verdict fault ADVANCES a cursor through the mirror chain's `order`
+src\polaris_graph\llm\entailment_judge.py-194-# (z-ai->baidu->novita->gmicloud) so the NEXT attempt re-POSTs to the next healthy host. Same glm-5.1 model
+src\polaris_graph\llm\entailment_judge.py-195-# on every host (operator pre-approved judge host non-sovereignty 2026-06-13) -> faithfulness-NEUTRAL-to-
+src\polaris_graph\llm\entailment_judge.py-196-# IMPROVING (a real verdict from baidu strictly beats a z-ai-blank-induced drop; a real NEUTRAL/CONTRADICTED
+src\polaris_graph\llm\entailment_judge.py-197-# still drops). Mirrors the PROVEN generator idiom (openrouter_client BlankCompletionError ignore-on-blank,
+src\polaris_graph\llm\entailment_judge.py:198:# I-arch-004 F02 #1255). Default-OFF -> byte-identical single-provider pin; run_gate_b forces it ON for the
+src\polaris_graph\llm\entailment_judge.py-199-# benchmark + a behavioral gate proves it FIRES. LAW VI: env-gated.
+src\polaris_graph\llm\entailment_judge.py-200-_ENV_JUDGE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+src\polaris_graph\llm\entailment_judge.py-201-
+src\polaris_graph\llm\entailment_judge.py-202-
+src\polaris_graph\llm\entailment_judge.py:203:def _judge_provider_rotation_enabled() -> bool:
+src\polaris_graph\llm\entailment_judge.py-204-    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+src\polaris_graph\llm\entailment_judge.py-205-        "1", "true", "yes", "on",
+src\polaris_graph\llm\entailment_judge.py-206-    )
+src\polaris_graph\llm\entailment_judge.py-207-
+src\polaris_graph\llm\entailment_judge.py-208-
+src\polaris_graph\llm\entailment_judge.py:209:def _mirror_provider_chain() -> list[str]:
+src\polaris_graph\llm\entailment_judge.py:210:    """The mirror role's ranked provider ``order`` (z-ai, baidu, novita, gmicloud), for blank-rotation.
+src\polaris_graph\llm\entailment_judge.py-211-
+src\polaris_graph\llm\entailment_judge.py:212:    Read from the SAME config the single-provider pin uses
+src\polaris_graph\llm\entailment_judge.py:213:    (``config/settings/openrouter_provider_routing.yaml``). Lazy import keeps this leaf llm module free of
+src\polaris_graph\llm\entailment_judge.py-214-    the roles stack at import time (off-mode zero-cost rule). Returns ``[]`` when routing is
+src\polaris_graph\llm\entailment_judge.py:215:    unconfigured/disabled -> the caller keeps its single-provider pin (byte-identical)."""
+src\polaris_graph\llm\entailment_judge.py-216-    try:
+src\polaris_graph\llm\entailment_judge.py:217:        from src.polaris_graph.roles.provider_routing import role_provider_routing  # noqa: PLC0415
+src\polaris_graph\llm\entailment_judge.py:218:        routing = role_provider_routing("mirror")
+src\polaris_graph\llm\entailment_judge.py-219-    except Exception:  # noqa: BLE001 — config lookup must never break the judge
+src\polaris_graph\llm\entailment_judge.py-220-        return []
+src\polaris_graph\llm\entailment_judge.py-221-    if not routing:
+src\polaris_graph\llm\entailment_judge.py-222-        return []
+src\polaris_graph\llm\entailment_judge.py-223-    return [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+src\polaris_graph\llm\entailment_judge.py-224-
+src\polaris_graph\llm\entailment_judge.py-225-
+src\polaris_graph\llm\entailment_judge.py-226-# I-arch-007 ITEM 2a (entailment-judge self-heal): substrings/types that mark a CLOSED or
+src\polaris_graph\llm\entailment_judge.py-227-# TLS-POISONED httpx transport — the Q78 run-killer was 2866 consecutive
+src\polaris_graph\llm\entailment_judge.py-228-# "Cannot send a request, as the client has been closed" + the `[X509] PEM lib` TLS-state
+--
+src\polaris_graph\llm\entailment_judge.py-285-        return any(marker in haystack for marker in markers)
+src\polaris_graph\llm\entailment_judge.py-286-    except Exception:  # noqa: BLE001
+src\polaris_graph\llm\entailment_judge.py-287-        return False
+src\polaris_graph\llm\entailment_judge.py-288-
+src\polaris_graph\llm\entailment_judge.py-289-
+src\polaris_graph\llm\entailment_judge.py-290-def _extract_first_json_object(content: object) -> dict:
+src\polaris_graph\llm\entailment_judge.py-291-    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+src\polaris_graph\llm\entailment_judge.py-292-    judge response and return it as a dict.
+src\polaris_graph\llm\entailment_judge.py-293-
+src\polaris_graph\llm\entailment_judge.py-294-    Motivating fault: a "garbled-200" = a valid JSON verdict object followed by trailing
+src\polaris_graph\llm\entailment_judge.py:295:    reasoning text, e.g. ``{"verdict": "ENTAILED", "reason": "ok"}\\nThe span supports...``.
+src\polaris_graph\llm\entailment_judge.py-296-    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+src\polaris_graph\llm\entailment_judge.py-297-    on that input and the salvageable verdict is thrown away (over-drop, the drb_72-class
+src\polaris_graph\llm\entailment_judge.py-298-    coverage collapse).
+src\polaris_graph\llm\entailment_judge.py-299-
+src\polaris_graph\llm\entailment_judge.py-300-    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+src\polaris_graph\llm\entailment_judge.py-301-    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+src\polaris_graph\llm\entailment_judge.py-302-    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+src\polaris_graph\llm\entailment_judge.py-303-    values such as ``"dose {x} mg"``). The first ``{`` that decodes to a dict wins, so a
+src\polaris_graph\llm\entailment_judge.py-304-    response with prose BEFORE the JSON object is also rescued.
+src\polaris_graph\llm\entailment_judge.py-305-
+src\polaris_graph\llm\entailment_judge.py:306:    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+src\polaris_graph\llm\entailment_judge.py-307-    body is now the normal case, so "first dict wins" could select the WRONG object (e.g.
+src\polaris_graph\llm\entailment_judge.py-308-    a leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). To avoid that —
+src\polaris_graph\llm\entailment_judge.py-309-    and the fail-closed -> fail-open regression it would cause on the strict consumer — this
+src\polaris_graph\llm\entailment_judge.py-310-    returns the first complete object that actually CARRIES the required ``"verdict"`` field,
+src\polaris_graph\llm\entailment_judge.py-311-    and RAISES if the scan finds none. The scan advances past each decoded object by its end
+src\polaris_graph\llm\entailment_judge.py-312-    offset (not one char) so a nested sub-object is never mis-selected.
+src\polaris_graph\llm\entailment_judge.py-313-
+src\polaris_graph\llm\entailment_judge.py-314-    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
+src\polaris_graph\llm\entailment_judge.py-315-    sentinel / partial) on empty/None/non-str content, on content with no ``{``, on a lone
+src\polaris_graph\llm\entailment_judge.py-316-    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
+--
+src\polaris_graph\llm\entailment_judge.py-336-        if isinstance(obj, dict) and "verdict" in obj:
+src\polaris_graph\llm\entailment_judge.py-337-            return obj
+src\polaris_graph\llm\entailment_judge.py-338-        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
+src\polaris_graph\llm\entailment_judge.py-339-        # its end offset so we never re-enter / mis-select a nested sub-object, then keep
+src\polaris_graph\llm\entailment_judge.py-340-        # scanning for the real verdict object.
+src\polaris_graph\llm\entailment_judge.py-341-        search_from = end
+src\polaris_graph\llm\entailment_judge.py-342-
+src\polaris_graph\llm\entailment_judge.py-343-
+src\polaris_graph\llm\entailment_judge.py-344-class _RetryableJudgeError(Exception):
+src\polaris_graph\llm\entailment_judge.py-345-    """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
+src\polaris_graph\llm\entailment_judge.py:346:    bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
+src\polaris_graph\llm\entailment_judge.py-347-    ('ENTAILED','judge_error: <reason>') sentinel so a bad-verdict's `bad_verdict=<v>` detail is
+src\polaris_graph\llm\entailment_judge.py-348-    preserved across retries instead of being collapsed into a generic exception type name."""
+src\polaris_graph\llm\entailment_judge.py-349-
+src\polaris_graph\llm\entailment_judge.py-350-    def __init__(self, reason: str) -> None:
+src\polaris_graph\llm\entailment_judge.py-351-        super().__init__(reason)
+src\polaris_graph\llm\entailment_judge.py-352-        self.reason = reason
+src\polaris_graph\llm\entailment_judge.py-353-_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+src\polaris_graph\llm\entailment_judge.py-354-
+src\polaris_graph\llm\entailment_judge.py-355-Rules:
+src\polaris_graph\llm\entailment_judge.py-356-- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+--
+src\polaris_graph\llm\entailment_judge.py-495-                keepalive_expiry=_ENTAILMENT_KEEPALIVE_EXPIRY_S,
+src\polaris_graph\llm\entailment_judge.py-496-            ),
+src\polaris_graph\llm\entailment_judge.py-497-        )
+src\polaris_graph\llm\entailment_judge.py-498-
+src\polaris_graph\llm\entailment_judge.py-499-    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+src\polaris_graph\llm\entailment_judge.py-500-        """Return (verdict, reason).
+src\polaris_graph\llm\entailment_judge.py-501-
+src\polaris_graph\llm\entailment_judge.py-502-        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+src\polaris_graph\llm\entailment_judge.py-503-
+src\polaris_graph\llm\entailment_judge.py-504-        I-transport-001 (#1191) Site 4: a transient transport/parse/empty-choices/bad-verdict
+src\polaris_graph\llm\entailment_judge.py:505:        fault is now RETRIED on the same provider up to `PG_ENTAILMENT_RETRIES` extra times
+src\polaris_graph\llm\entailment_judge.py-506-        (default 2 => 3 total attempts; env-driven per LAW VI) before the method emits the
+src\polaris_graph\llm\entailment_judge.py-507-        ('ENTAILED', 'judge_error: ...') sentinel on exhaustion. This is NOT a fail-OPEN: both
+src\polaris_graph\llm\entailment_judge.py-508-        consumers FAIL CLOSED on that sentinel — `clinical_generator/strict_verify.py:295-301`
+src\polaris_graph\llm\entailment_judge.py-509-        keys on the `judge_error:` PREFIX alone (drops in enforce); `provenance_generator.py:1795`
+src\polaris_graph\llm\entailment_judge.py-510-        sets `judge_error_flag` on `verdict=='ENTAILED' AND reason.startswith('judge_error:')`
+src\polaris_graph\llm\entailment_judge.py-511-        (consumed -> drop). The sentinel stays EXACTLY ('ENTAILED', 'judge_error: ...') so that
+src\polaris_graph\llm\entailment_judge.py-512-        detection is preserved (do NOT flip to NEUTRAL standalone — that bypasses the
+src\polaris_graph\llm\entailment_judge.py-513-        provenance detection at :1795). The retry's only effect is to stop a SINGLE transient
+src\polaris_graph\llm\entailment_judge.py-514-        judge fault from OVER-DROPPING a salvageable verdict (the drb_72-class coverage collapse),
+src\polaris_graph\llm\entailment_judge.py-515-        without loosening the binding faithfulness gate.
+--
+src\polaris_graph\llm\entailment_judge.py-518-        the call cost via openrouter_client's module-level helpers
+src\polaris_graph\llm\entailment_judge.py-519-        (`_add_run_cost`, `check_run_budget`, `_COST_LEDGER_PATH`) so
+src\polaris_graph\llm\entailment_judge.py-520-        judge spend is visible to the per-run budget cap and the cost
+src\polaris_graph\llm\entailment_judge.py-521-        ledger. `BudgetExceededError` is explicitly re-raised before
+src\polaris_graph\llm\entailment_judge.py-522-        the broad retry/fail-closed handler so a cap breach aborts the
+src\polaris_graph\llm\entailment_judge.py-523-        sweep cleanly instead of being masked as a transient judge error
+src\polaris_graph\llm\entailment_judge.py-524-        or being retried.
+src\polaris_graph\llm\entailment_judge.py-525-        """
+src\polaris_graph\llm\entailment_judge.py-526-        prompt = _select_entailment_prompt().format(span=span, sentence=sentence)
+src\polaris_graph\llm\entailment_judge.py-527-        started = time.monotonic()
+src\polaris_graph\llm\entailment_judge.py:528:        # I-bug-946 (#932): when Path-B gate is active, force singleton provider routing in
+src\polaris_graph\llm\entailment_judge.py:529:        # the request body to match the resolved-at-preflight per-role provider. Without this,
+src\polaris_graph\llm\entailment_judge.py-530-        # this direct httpx path bypasses the gate's routing intent (the OpenRouterClient path
+src\polaris_graph\llm\entailment_judge.py-531-        # also got the override via openrouter_client.py:1400-1410). Codex iter-2 P1#2.
+src\polaris_graph\llm\entailment_judge.py-532-        # Codex iter-1 diff P1#2: this lookup MUST use an explicit role string, NOT the ambient
+src\polaris_graph\llm\entailment_judge.py-533-        # _ROLE contextvar. The entailment judge fires during section generation (where
+src\polaris_graph\llm\entailment_judge.py-534-        # _ROLE=="generator"), but it posts the evaluator-family model — using the ambient role
+src\polaris_graph\llm\entailment_judge.py:535:        # would route the judge model to the generator's provider.
+src\polaris_graph\llm\entailment_judge.py-536-        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
+src\polaris_graph\llm\entailment_judge.py:537:        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+src\polaris_graph\llm\entailment_judge.py:538:        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
+src\polaris_graph\llm\entailment_judge.py:539:        # "evaluator") returned None -> NO provider pin -> this side-judge FREE-ROUTED to an unpinned
+src\polaris_graph\llm\entailment_judge.py:540:        # provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:legacy_compat
+src\polaris_graph\llm\entailment_judge.py-541-        # the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge pins to the
+src\polaris_graph\llm\entailment_judge.py:542:        # SAME provider chain as the main mirror role (allow_fallbacks=False, require_parameters=True).
+src\polaris_graph\llm\entailment_judge.py-543-        try:
+src\polaris_graph\llm\entailment_judge.py-544-            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+src\polaris_graph\llm\entailment_judge.py:545:            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
+src\polaris_graph\llm\entailment_judge.py-546-        except Exception:
+src\polaris_graph\llm\entailment_judge.py:547:            _gate_provider = None
+src\polaris_graph\llm\entailment_judge.py:548:        # Operator 2026-06-13: reasoning stays MAX; any sub-max/off effort is coerced UP to high so the
+src\polaris_graph\llm\entailment_judge.py:549:        # NLI verdict is never starved. Un-starved max_tokens lets the high-effort reasoning complete AND
+src\polaris_graph\llm\entailment_judge.py:550:        # emit the JSON verdict (the old max_tokens=100 truncated mid-reasoning -> empty -> coverage collapse).
+src\polaris_graph\llm\entailment_judge.py-551-        _ent_effort = (os.environ.get(_ENV_ENTAILMENT_REASONING_EFFORT, "").strip().lower()
+src\polaris_graph\llm\entailment_judge.py-552-                       or _DEFAULT_ENTAILMENT_REASONING_EFFORT)
+src\polaris_graph\llm\entailment_judge.py-553-        if _ent_effort not in ("high", "xhigh"):
+src\polaris_graph\llm\entailment_judge.py-554-            _ent_effort = _DEFAULT_ENTAILMENT_REASONING_EFFORT
+src\polaris_graph\llm\entailment_judge.py-555-        try:
+src\polaris_graph\llm\entailment_judge.py-556-            _ent_maxtok = max(256, int(os.environ.get(_ENV_ENTAILMENT_MAX_TOKENS, _DEFAULT_ENTAILMENT_MAX_TOKENS)
+src\polaris_graph\llm\entailment_judge.py-557-                                       or _DEFAULT_ENTAILMENT_MAX_TOKENS))
+src\polaris_graph\llm\entailment_judge.py-558-        except (TypeError, ValueError):
+src\polaris_graph\llm\entailment_judge.py-559-            _ent_maxtok = _DEFAULT_ENTAILMENT_MAX_TOKENS
+src\polaris_graph\llm\entailment_judge.py-560-        # I-arch-004 F19 (§9.1.8): clamp DOWN to the pinned mirror-chain MIN so a future bad env override can
+src\polaris_graph\llm\entailment_judge.py:561:        # never push max_tokens past the provider cap and hard-400 the judge under allow_fallbacks=False (the
+src\polaris_graph\llm\entailment_judge.py-562-        # default already IS the chain MIN; env can only lower it for cost/testing, never raise past the cap).
+src\polaris_graph\llm\entailment_judge.py-563-        _ent_maxtok = min(_ent_maxtok, _ENTAILMENT_MAX_TOKENS_CHAIN_MIN)
+src\polaris_graph\llm\entailment_judge.py-564-        json_body: dict = {
+src\polaris_graph\llm\entailment_judge.py-565-            "model": self._model,
+src\polaris_graph\llm\entailment_judge.py-566-            "messages": [{"role": "user", "content": prompt}],
+src\polaris_graph\llm\entailment_judge.py-567-            "temperature": 0.0,
+src\polaris_graph\llm\entailment_judge.py:568:            "max_tokens": _ent_maxtok,
+src\polaris_graph\llm\entailment_judge.py:569:            "reasoning": {"effort": _ent_effort},
+src\polaris_graph\llm\entailment_judge.py:570:            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+src\polaris_graph\llm\entailment_judge.py-571-            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
+src\polaris_graph\llm\entailment_judge.py:572:            # mirror chain (z-ai -> baidu -> novita -> gmicloud) to 2 and starving provider
+src\polaris_graph\llm\entailment_judge.py-573-            # rotation. The brace-aware _extract_first_json_object parser (above) recovers the
+src\polaris_graph\llm\entailment_judge.py:574:            # JSON verdict from the now-unconstrained response, so all 4 providers route.
+src\polaris_graph\llm\entailment_judge.py-575-        }
+src\polaris_graph\llm\entailment_judge.py:576:        # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
+src\polaris_graph\llm\entailment_judge.py-577-        # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
+src\polaris_graph\llm\entailment_judge.py:578:        # fastest provider (the model is the sovereign unit; hosting provider may be US/China).
+src\polaris_graph\llm\entailment_judge.py-579-        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+src\polaris_graph\llm\entailment_judge.py-580-            "1", "true", "yes", "on",
+src\polaris_graph\llm\entailment_judge.py-581-        )
+src\polaris_graph\llm\entailment_judge.py:582:        # I-arch-011: provider-rotation chain. When rotation is enabled, the mirror `order`
+src\polaris_graph\llm\entailment_judge.py-583-        # (z-ai->baidu->novita->gmicloud) is walked one-host-per-attempt by the retry loop on a
+src\polaris_graph\llm\entailment_judge.py-584-        # blank/garbled 200. Codex diff-gate P1: DERIVE the chain straight from the routing YAML when
+src\polaris_graph\llm\entailment_judge.py:585:        # rotation is enabled — do NOT gate it on `_gate_provider` (the pathB contextvar), which is not
+src\polaris_graph\llm\entailment_judge.py-586-        # guaranteed to reach the verify path on the direct run_gate_b production flow (run_one_query sets
+src\polaris_graph\llm\entailment_judge.py-587-        # it inside gate_around_question, but a ThreadPool verify worker that did not copy that context
+src\polaris_graph\llm\entailment_judge.py-588-        # would see None). Deriving from the YAML makes rotation impossible to silently NO-OP when the
+src\polaris_graph\llm\entailment_judge.py-589-        # slate force-ONs it. The YAML chain LEAD == the pinned mirror lead (z-ai), so the first attempt
+src\polaris_graph\llm\entailment_judge.py-590-        # is identical to the prior single-host pin; rotation only changes which host a RETRY hits.
+src\polaris_graph\llm\entailment_judge.py:591:        _rotate_on = _judge_provider_rotation_enabled() and not _free_route
+src\polaris_graph\llm\entailment_judge.py:592:        _rotate_chain: list[str] = _mirror_provider_chain() if _rotate_on else []
+src\polaris_graph\llm\entailment_judge.py-593-        if len(_rotate_chain) <= 1:
+src\polaris_graph\llm\entailment_judge.py-594-            _rotate_chain = []  # nothing to rotate through -> fall back to the single-host pin below
+src\polaris_graph\llm\entailment_judge.py:595:        _provider_cursor = 0
+src\polaris_graph\llm\entailment_judge.py-596-        if _rotate_chain:
+src\polaris_graph\llm\entailment_judge.py:597:            # Rotation ON: pin the chain LEAD from the YAML directly (independent of _gate_provider) so the
+src\polaris_graph\llm\entailment_judge.py-598-            # chain is pinned + rotatable even where the pathB role map did not propagate to this thread.
+src\polaris_graph\llm\entailment_judge.py:599:            json_body["provider"] = {
+src\polaris_graph\llm\entailment_judge.py-600-                "order": [_rotate_chain[0]],
+src\polaris_graph\llm\entailment_judge.py-601-                "allow_fallbacks": False,
+src\polaris_graph\llm\entailment_judge.py-602-                "require_parameters": True,
+src\polaris_graph\llm\entailment_judge.py-603-            }
+src\polaris_graph\llm\entailment_judge.py:604:        elif _gate_provider and not _free_route:
+src\polaris_graph\llm\entailment_judge.py-605-            # Rotation OFF (or no chain configured): the byte-identical single-host pin (pre-I-arch-011).
+src\polaris_graph\llm\entailment_judge.py:606:            json_body["provider"] = {
+src\polaris_graph\llm\entailment_judge.py:607:                "order": [_gate_provider],
+src\polaris_graph\llm\entailment_judge.py-608-                "allow_fallbacks": False,
+src\polaris_graph\llm\entailment_judge.py-609-                "require_parameters": True,
+src\polaris_graph\llm\entailment_judge.py-610-            }
+src\polaris_graph\llm\entailment_judge.py-611-
+src\polaris_graph\llm\entailment_judge.py:612:        def _rotate_provider_on_blank(reason: str) -> bool:
+src\polaris_graph\llm\entailment_judge.py:613:            """Advance the pinned provider to the NEXT mirror-chain host on a blank/parse/bad-verdict
+src\polaris_graph\llm\entailment_judge.py-614-            fault (NOT a transport-poison — those rebuild THIS thread's client + retry the SAME host).
+src\polaris_graph\llm\entailment_judge.py-615-            Returns True iff it actually advanced (so the caller can log it). Faithfulness-neutral:
+src\polaris_graph\llm\entailment_judge.py-616-            same glm-5.1 model, next healthy host; the verdict the next host returns is the real verdict."""
+src\polaris_graph\llm\entailment_judge.py:617:            nonlocal _provider_cursor
+src\polaris_graph\llm\entailment_judge.py:618:            if len(_rotate_chain) <= 1 or "provider" not in json_body:
+src\polaris_graph\llm\entailment_judge.py-619-                return False
+src\polaris_graph\llm\entailment_judge.py:620:            if _provider_cursor >= len(_rotate_chain) - 1:
+src\polaris_graph\llm\entailment_judge.py-621-                return False  # exhausted the chain — let the bounded retry fail closed
+src\polaris_graph\llm\entailment_judge.py:622:            _provider_cursor += 1
+src\polaris_graph\llm\entailment_judge.py:623:            json_body["provider"]["order"] = [_rotate_chain[_provider_cursor]]
+src\polaris_graph\llm\entailment_judge.py-624-            logger.warning(
+src\polaris_graph\llm\entailment_judge.py:625:                "[entailment] provider-rotate on %s: -> %s (chain pos %d/%d)",
+src\polaris_graph\llm\entailment_judge.py:626:                reason, _rotate_chain[_provider_cursor], _provider_cursor + 1, len(_rotate_chain),
+src\polaris_graph\llm\entailment_judge.py-627-            )
+src\polaris_graph\llm\entailment_judge.py-628-            return True
+src\polaris_graph\llm\entailment_judge.py-629-
+src\polaris_graph\llm\entailment_judge.py-630-        def _emit_raw_io(status: str, raw_response, duration_ms=None) -> None:
+src\polaris_graph\llm\entailment_judge.py-631-            # I-obs-001 #1141 AC3 (gate iter-1 P1): single capture point so a judge call emits EXACTLY
+src\polaris_graph\llm\entailment_judge.py-632-            # one raw-IO record tagged by its TRUE outcome — "ok" ONLY after a validated verdict;
+src\polaris_graph\llm\entailment_judge.py-633-            # "judge_error" on bad_verdict / parse-failure / transport fail-open. Default-OFF; never raises.
+src\polaris_graph\llm\entailment_judge.py-634-            try:
+src\polaris_graph\llm\entailment_judge.py-635-                _io_sink = _orc.current_raw_io_sink()
+src\polaris_graph\llm\entailment_judge.py-636-                if _io_sink is None:
+src\polaris_graph\llm\entailment_judge.py-637-                    return
+src\polaris_graph\llm\entailment_judge.py-638-                import uuid as _uuid
+src\polaris_graph\llm\entailment_judge.py-639-                _io_sink.record(
+src\polaris_graph\llm\entailment_judge.py-640-                    call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
+src\polaris_graph\llm\entailment_judge.py-641-                    request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+src\polaris_graph\llm\entailment_judge.py-642-                    raw_response=raw_response, duration_ms=duration_ms, status=status,
+src\polaris_graph\llm\entailment_judge.py-643-                )
+src\polaris_graph\llm\entailment_judge.py-644-            except Exception:  # noqa: BLE001
+src\polaris_graph\llm\entailment_judge.py-645-                pass
+src\polaris_graph\llm\entailment_judge.py-646-
+src\polaris_graph\llm\entailment_judge.py:647:        # I-transport-001 (#1191) Site 4: bounded SAME-provider retry around post+parse+budget+
+src\polaris_graph\llm\entailment_judge.py-648-        # verdict (LAW VI — env-driven bounds). A single transient transport/parse/empty-choices/
+src\polaris_graph\llm\entailment_judge.py-649-        # bad-verdict fault now RETRIES instead of immediately fail-closing the verdict (which the
+src\polaris_graph\llm\entailment_judge.py-650-        # consumers DROP -> over-drop of a salvageable verdict, the drb_72-class coverage collapse).
+src\polaris_graph\llm\entailment_judge.py-651-        _retries = max(0, int(os.environ.get("PG_ENTAILMENT_RETRIES", _DEFAULT_ENTAILMENT_RETRIES)))
+src\polaris_graph\llm\entailment_judge.py-652-        # I-arch-007 A2: the tighter cap that applies ONLY to a total_deadline_exceeded (trickle-hang)
+src\polaris_graph\llm\entailment_judge.py-653-        # retry. Never exceeds _retries (a total-deadline cap above the general cap is meaningless).
+src\polaris_graph\llm\entailment_judge.py-654-        # Unset -> equals _retries -> byte-identical to the pre-fix path.
+src\polaris_graph\llm\entailment_judge.py-655-        _total_deadline_retries = min(
+src\polaris_graph\llm\entailment_judge.py-656-            _retries,
+src\polaris_graph\llm\entailment_judge.py-657-            max(0, int(os.environ.get(
+--
+src\polaris_graph\llm\entailment_judge.py-739-                        actual_cost=actual_cost,
+src\polaris_graph\llm\entailment_judge.py-740-                    )
+src\polaris_graph\llm\entailment_judge.py-741-                except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+src\polaris_graph\llm\entailment_judge.py-742-                    logger.warning("entailment ledger write failed: %s", exc)
+src\polaris_graph\llm\entailment_judge.py-743-                _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+src\polaris_graph\llm\entailment_judge.py-744-
+src\polaris_graph\llm\entailment_judge.py-745-                content = data["choices"][0]["message"]["content"]
+src\polaris_graph\llm\entailment_judge.py-746-                if _rotate_chain and not (content or "").strip():
+src\polaris_graph\llm\entailment_judge.py-747-                    # I-arch-011: a blank-200 (empty/None content body) is the z-ai intermittent-window
+src\polaris_graph\llm\entailment_judge.py-748-                    # signature. Raise the RETRYABLE error so the loop ROTATES to the next mirror host
+src\polaris_graph\llm\entailment_judge.py:749:                    # below instead of re-POSTing the same blanking provider and exhausting into a
+src\polaris_graph\llm\entailment_judge.py-750-                    # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
+src\polaris_graph\llm\entailment_judge.py-751-                    # byte-identical: an empty/None content still flows to json.loads as before.)
+src\polaris_graph\llm\entailment_judge.py-752-                    raise _RetryableJudgeError("blank_200")
+src\polaris_graph\llm\entailment_judge.py-753-                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
+src\polaris_graph\llm\entailment_judge.py-754-                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+src\polaris_graph\llm\entailment_judge.py:755:                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+src\polaris_graph\llm\entailment_judge.py-756-                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+src\polaris_graph\llm\entailment_judge.py-757-                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
+src\polaris_graph\llm\entailment_judge.py-758-                # the same fail-closed retry/sentinel path as before — only the parseable
+src\polaris_graph\llm\entailment_judge.py-759-                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
+src\polaris_graph\llm\entailment_judge.py-760-                parsed = _extract_first_json_object(content)
+src\polaris_graph\llm\entailment_judge.py-761-                verdict = str(parsed.get("verdict", "")).upper().strip()
+src\polaris_graph\llm\entailment_judge.py-762-                reason = str(parsed.get("reason", ""))
+src\polaris_graph\llm\entailment_judge.py-763-                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+src\polaris_graph\llm\entailment_judge.py-764-                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+src\polaris_graph\llm\entailment_judge.py-765-                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+--
+src\polaris_graph\llm\entailment_judge.py-783-                    else _retries
+src\polaris_graph\llm\entailment_judge.py-784-                )
+src\polaris_graph\llm\entailment_judge.py-785-                if attempt < _eff_retries:
+src\polaris_graph\llm\entailment_judge.py-786-                    # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
+src\polaris_graph\llm\entailment_judge.py-787-                    # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
+src\polaris_graph\llm\entailment_judge.py-788-                    # already rebuilt at :441; this covers a poison surfaced as a _RetryableJudgeError
+src\polaris_graph\llm\entailment_judge.py-789-                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+src\polaris_graph\llm\entailment_judge.py-790-                    if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
+src\polaris_graph\llm\entailment_judge.py-791-                        self._client = self._build_client()
+src\polaris_graph\llm\entailment_judge.py-792-                    elif not exc.reason.startswith("total_deadline_exceeded"):
+src\polaris_graph\llm\entailment_judge.py:793:                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
+src\polaris_graph\llm\entailment_judge.py-794-                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
+src\polaris_graph\llm\entailment_judge.py-795-                        # glm-5.1 model, next healthy host). No-op when rotation is disabled. A
+src\polaris_graph\llm\entailment_judge.py:796:                        # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
+src\polaris_graph\llm\entailment_judge.py:797:                        _rotate_provider_on_blank(exc.reason)
+src\polaris_graph\llm\entailment_judge.py-798-                    logger.warning(
+src\polaris_graph\llm\entailment_judge.py-799-                        "entailment judge retryable fault (attempt %d/%d): %s — retrying.",
+src\polaris_graph\llm\entailment_judge.py-800-                        attempt + 1, _eff_retries + 1, exc.reason,
+src\polaris_graph\llm\entailment_judge.py-801-                    )
+src\polaris_graph\llm\entailment_judge.py-802-                    time.sleep(_backoff)
+src\polaris_graph\llm\entailment_judge.py-803-                    continue
+src\polaris_graph\llm\entailment_judge.py-804-                break
+src\polaris_graph\llm\entailment_judge.py-805-            except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
+src\polaris_graph\llm\entailment_judge.py-806-                last_reason = type(exc).__name__
+src\polaris_graph\llm\entailment_judge.py-807-                if attempt < _retries:
+--
+src\polaris_graph\llm\entailment_judge.py-810-                    # this GENERIC path (httpx "Cannot send a request, as the client has been closed",
+src\polaris_graph\llm\entailment_judge.py-811-                    # an SSL/X509/PEM TLS-state fault) was TERMINAL — Q78 logged 2866 consecutive
+src\polaris_graph\llm\entailment_judge.py-812-                    # "client has been closed" over 33 min, only 21 judge calls ever succeeded, 177
+src\polaris_graph\llm\entailment_judge.py-813-                    # sentences fail-closed-DROPPED -> abort_excessive_gap. Heal it: rebuild THIS thread's
+src\polaris_graph\llm\entailment_judge.py-814-                    # client before the retry, exactly as the TimeoutError branch does. A parse fault
+src\polaris_graph\llm\entailment_judge.py-815-                    # (json/KeyError) is NOT poison -> excluded -> retried without a needless rebuild.
+src\polaris_graph\llm\entailment_judge.py-816-                    if _is_transport_poison(exc):
+src\polaris_graph\llm\entailment_judge.py-817-                        self._client = self._build_client()
+src\polaris_graph\llm\entailment_judge.py-818-                    else:
+src\polaris_graph\llm\entailment_judge.py-819-                        # I-arch-011: a non-poison transport/parse fault (a JSONDecodeError on a garbled
+src\polaris_graph\llm\entailment_judge.py:820:                        # body, a KeyError on a malformed envelope, or an HTTP 4xx/5xx such as a provider
+src\polaris_graph\llm\entailment_judge.py-821-                        # that 404s on this request shape) — rotate to the next mirror host before the
+src\polaris_graph\llm\entailment_judge.py-822-                        # retry. No-op when rotation is disabled.
+src\polaris_graph\llm\entailment_judge.py:823:                        _rotate_provider_on_blank(type(exc).__name__)
+src\polaris_graph\llm\entailment_judge.py-824-                    logger.warning(
+src\polaris_graph\llm\entailment_judge.py-825-                        "entailment judge error (attempt %d/%d): %s — retrying.",
+src\polaris_graph\llm\entailment_judge.py-826-                        attempt + 1, _retries + 1, exc,
+src\polaris_graph\llm\entailment_judge.py-827-                    )
+src\polaris_graph\llm\entailment_judge.py-828-                    time.sleep(_backoff)
+src\polaris_graph\llm\entailment_judge.py-829-                    continue
+src\polaris_graph\llm\entailment_judge.py-830-                logger.warning("entailment judge error (final): %s", exc)
+src\polaris_graph\llm\entailment_judge.py-831-                break
+src\polaris_graph\llm\entailment_judge.py-832-
+src\polaris_graph\llm\entailment_judge.py-833-        # Retries exhausted: emit EXACTLY ONE terminal judge_error record (no per-attempt emits) and
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-58-_ENV_MAX_PAIRS = "PG_SWEEP_NLI_CONFLICT_MAX_PAIRS"          # default 60 judged pairs
+src\polaris_graph\retrieval\semantic_conflict_detector.py-59-_ENV_MAX_ROWS = "PG_SWEEP_NLI_CONFLICT_MAX_ROWS"            # default 200 rows clustered
+src\polaris_graph\retrieval\semantic_conflict_detector.py-60-_ENV_MIN_CONFIDENCE = "PG_SWEEP_NLI_CONFLICT_MIN_CONFIDENCE"  # default 0.7
+src\polaris_graph\retrieval\semantic_conflict_detector.py-61-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-62-_DEFAULT_MIN_OVERLAP = 2
+src\polaris_graph\retrieval\semantic_conflict_detector.py-63-_DEFAULT_MAX_PAIRS = 60
+src\polaris_graph\retrieval\semantic_conflict_detector.py-64-_DEFAULT_MAX_ROWS = 200
+src\polaris_graph\retrieval\semantic_conflict_detector.py-65-_DEFAULT_MIN_CONFIDENCE = 0.7
+src\polaris_graph\retrieval\semantic_conflict_detector.py-66-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-67-# I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
+src\polaris_graph\retrieval\semantic_conflict_detector.py:68:# non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-69-_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
+src\polaris_graph\retrieval\semantic_conflict_detector.py-70-_JUDGE_TIMEOUT_S = 30.0
+src\polaris_graph\retrieval\semantic_conflict_detector.py-71-# I-arch-006 HANG-J1 sibling (#1262): the semantic-conflict judge had the SAME bare-float per-read gap
+src\polaris_graph\retrieval\semantic_conflict_detector.py-72-# timeout that let a trickled / idle-open OpenRouter socket run UNBOUNDED. Tight read-stall (dead socket
+src\polaris_graph\retrieval\semantic_conflict_detector.py-73-# trips fast; keep-alives reset the timer so a slow-but-alive judge is unaffected) + bounded keepalive to
+src\polaris_graph\retrieval\semantic_conflict_detector.py-74-# reap half-open CLOSE_WAIT sockets. Transport-only — the fail-open ("neutral", 0.0) verdict logic that
+src\polaris_graph\retrieval\semantic_conflict_detector.py-75-# prevents a transient outage from FABRICATING a conflict is UNCHANGED. (LAW VI: env-driven.)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-76-_JUDGE_CONNECT_S = float(os.getenv("PG_NLI_CONFLICT_CONNECT_S", "30"))
+src\polaris_graph\retrieval\semantic_conflict_detector.py-77-_JUDGE_READ_STALL_S = float(os.getenv("PG_NLI_CONFLICT_READ_STALL_S", "120"))
+src\polaris_graph\retrieval\semantic_conflict_detector.py-78-_JUDGE_WRITE_S = float(os.getenv("PG_NLI_CONFLICT_WRITE_S", "60"))
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-115-        try:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-116-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+src\polaris_graph\retrieval\semantic_conflict_detector.py-117-        except Exception:  # noqa: BLE001
+src\polaris_graph\retrieval\semantic_conflict_detector.py-118-            pass
+src\polaris_graph\retrieval\semantic_conflict_detector.py-119-        raise
+src\polaris_graph\retrieval\semantic_conflict_detector.py-120-    finally:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-121-        # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
+src\polaris_graph\retrieval\semantic_conflict_detector.py-122-        # client.post exception). wait=False so a still-unsticking worker never blocks us.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-123-        ex.shutdown(wait=False)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-124-
+src\polaris_graph\retrieval\semantic_conflict_detector.py:125:# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
+src\polaris_graph\retrieval\semantic_conflict_detector.py-126-# free, billed by usage not pre-allocated"): the NLI conflict judge is the SAME GLM-5.1 model pinned to the
+src\polaris_graph\retrieval\semantic_conflict_detector.py:127:# SAME LOCKED mirror provider chain (`get_role_provider("mirror")`, allow_fallbacks=False — see judge() below)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-128-# as the main Mirror role, so its binding output cap is the SAME chain MIN the Mirror transport derived from a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-129-# LIVE OpenRouter read 2026-06-14 (openrouter_role_transport.py:295, `_MIRROR_MAX_TOKENS_CHAIN_MIN`): mirror
+src\polaris_graph\retrieval\semantic_conflict_detector.py-130-# chain order=[atlas-cloud, z-ai, baidu, novita, gmicloud] -> MIN max_completion_tokens 131072. A budget ABOVE
+src\polaris_graph\retrieval\semantic_conflict_detector.py-131-# 131072 would hard-400 on the z-ai/baidu/novita fallbacks under allow_fallbacks=False; so the default IS the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-132-# chain MIN (the model REAL max for this pinned chain), env-overridable but CLAMPED DOWN to that ceiling. The
+src\polaris_graph\retrieval\semantic_conflict_detector.py:133:# old 2000 was the SMALL hardcode §9.1.8 prohibits — one provider hiccup from a finish=length truncation that
+src\polaris_graph\retrieval\semantic_conflict_detector.py-134-# returns the fail-open ('neutral', 0.0) and SILENTLY MISSES a real cross-document contradiction (the F19
+src\polaris_graph\retrieval\semantic_conflict_detector.py-135-# starvation class). Effort stays "high" (NOT xhigh): the Mirror GLM bake-off
+src\polaris_graph\retrieval\semantic_conflict_detector.py:136:# (openrouter_role_transport.py:700-705, mirror_glm_provider_bakeoff.py, 2026-06-14) proved xhigh is a NO-OP on
+src\polaris_graph\retrieval\semantic_conflict_detector.py:137:# GLM that lets reasoning eat the whole budget -> blank content -> the very collapse F19 closes. Kept as a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-138-# LOCAL constant (NOT imported from roles) so this leaf retrieval module stays import-light. RE-DERIVE if the
+src\polaris_graph\retrieval\semantic_conflict_detector.py:139:# mirror chain is re-pinned in config/settings/openrouter_provider_routing.yaml to higher-cap-only providers.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-140-_CONFLICT_MAX_TOKENS_CHAIN_MIN = 131072
+src\polaris_graph\retrieval\semantic_conflict_detector.py-141-_DEFAULT_CONFLICT_MAX_TOKENS = _CONFLICT_MAX_TOKENS_CHAIN_MIN
+src\polaris_graph\retrieval\semantic_conflict_detector.py-142-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-143-# Small, domain-aware stopword set. Salient-word overlap (NOT all words) keys the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-144-# clustering, so generic connectives never group unrelated rows.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-145-_STOPWORDS = frozenset({
+src\polaris_graph\retrieval\semantic_conflict_detector.py-146-    "the", "and", "for", "with", "was", "were", "has", "have", "had", "are", "but",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-147-    "not", "from", "that", "this", "these", "those", "their", "its", "than", "then",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-148-    "into", "onto", "over", "under", "between", "within", "without", "during", "after",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-149-    "before", "while", "which", "when", "where", "what", "who", "whom", "how", "why",
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-169-    """
+src\polaris_graph\retrieval\semantic_conflict_detector.py-170-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-171-    subject: str
+src\polaris_graph\retrieval\semantic_conflict_detector.py-172-    predicate: str
+src\polaris_graph\retrieval\semantic_conflict_detector.py-173-    claims: list = field(default_factory=list)  # [{evidence_id, text, tier, nli_label}, ...] (len 2)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-174-    type: str = "semantic"
+src\polaris_graph\retrieval\semantic_conflict_detector.py-175-    severity: str = "review"
+src\polaris_graph\retrieval\semantic_conflict_detector.py-176-    nli_confidence: float = 0.0
+src\polaris_graph\retrieval\semantic_conflict_detector.py-177-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-178-
+src\polaris_graph\retrieval\semantic_conflict_detector.py:179:# I-arch-005 B13 (#1257): the conflict side-judge's EMPTY-CONTENT collapse (a reasoning
+src\polaris_graph\retrieval\semantic_conflict_detector.py-180-# model returns a 200 with empty/None content) used to raise → the caller HELD the report.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-181-# Operator-locked 2026-06-14 ("nothing shall hold the report"): on PERSISTENT empty (after
+src\polaris_graph\retrieval\semantic_conflict_detector.py-182-# the B14 retry) the unadjudicated pair is LABELED ``conflict_unscored`` and the run SHIPS.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-183-# This is a DISCLOSED GAP, never an assertion: the judge could NOT adjudicate this pair — it
+src\polaris_graph\retrieval\semantic_conflict_detector.py-184-# does NOT say "no conflict" and it does NOT fabricate one. The faithfulness contract is
+src\polaris_graph\retrieval\semantic_conflict_detector.py-185-# unchanged; this only converts a HOLD into a disclosed label.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-186-#
+src\polaris_graph\retrieval\semantic_conflict_detector.py-187-# The sentinel label the production judge returns when content stays empty after the B14
+src\polaris_graph\retrieval\semantic_conflict_detector.py-188-# retry. ``detect_semantic_conflicts`` recognizes it and emits a ``ConflictUnscoredRecord``
+src\polaris_graph\retrieval\semantic_conflict_detector.py-189-# (a disclosed-gap label) instead of skipping silently or raising.
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-340-    slate): a per-pair judge error must NOT silently skip (that could drop a real
+src\polaris_graph\retrieval\semantic_conflict_detector.py-341-    contradiction). Instead RAISE ``ConflictJudgeUnavailableError`` so the caller HOLDS
+src\polaris_graph\retrieval\semantic_conflict_detector.py-342-    the run for human review. This signals "could not adjudicate", NOT "a conflict
+src\polaris_graph\retrieval\semantic_conflict_detector.py-343-    exists" — no phantom record is ever fabricated. ``BudgetExceededError`` still
+src\polaris_graph\retrieval\semantic_conflict_detector.py-344-    propagates to keep-partial regardless of the flag (it is a clean stop, not an
+src\polaris_graph\retrieval\semantic_conflict_detector.py-345-    unadjudicated pair).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-346-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-347-    I-arch-005 B13 (#1257) — ``unscored_out`` (optional collector, operator-locked
+src\polaris_graph\retrieval\semantic_conflict_detector.py-348-    2026-06-14 "nothing shall hold the report"): the production judge returns the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-349-    ``CONFLICT_UNSCORED_LABEL`` when its content stayed EMPTY after the B14 retry (the
+src\polaris_graph\retrieval\semantic_conflict_detector.py:350:    GLM reasoning-model collapse). When ``unscored_out`` is provided, that pair is appended
+src\polaris_graph\retrieval\semantic_conflict_detector.py-351-    as a ``ConflictUnscoredRecord`` (a DISCLOSED GAP — never a fabricated conflict, never a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-352-    dropped one) and the loop CONTINUES. When ``unscored_out`` is None the unscored label is
+src\polaris_graph\retrieval\semantic_conflict_detector.py-353-    simply skipped (byte-identical to the pre-B13 "not contradict -> skip" path). This
+src\polaris_graph\retrieval\semantic_conflict_detector.py-354-    converts the empty-content HOLD into a label and is INDEPENDENT of ``strict_fail_closed``
+src\polaris_graph\retrieval\semantic_conflict_detector.py-355-    (an empty judge is always a label, never a hold).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-356-    """
+src\polaris_graph\retrieval\semantic_conflict_detector.py-357-    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+src\polaris_graph\retrieval\semantic_conflict_detector.py-358-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-359-    min_confidence = _DEFAULT_MIN_CONFIDENCE if min_confidence is None else min_confidence
+src\polaris_graph\retrieval\semantic_conflict_detector.py-360-    records: list = []
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-520-{claim_b}
+src\polaris_graph\retrieval\semantic_conflict_detector.py-521-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-522-JSON:"""
+src\polaris_graph\retrieval\semantic_conflict_detector.py-523-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-524-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-525-def _extract_first_json_object(content: object) -> dict:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-526-    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+src\polaris_graph\retrieval\semantic_conflict_detector.py-527-    NLI-conflict judge response and return it as a dict.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-528-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-529-    Motivating fault: a "garbled-200" = a valid verdict object followed by trailing
+src\polaris_graph\retrieval\semantic_conflict_detector.py:530:    reasoning text, e.g. ``{"verdict": "NEUTRAL", "confidence": 0.1}\\nReasoning: ...``.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-531-    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+src\polaris_graph\retrieval\semantic_conflict_detector.py-532-    on that input, which the ``except`` block treats as a transport/parse failure (a HOLD
+src\polaris_graph\retrieval\semantic_conflict_detector.py-533-    under strict gates, or a fail-open neutral otherwise) — throwing away a salvageable
+src\polaris_graph\retrieval\semantic_conflict_detector.py-534-    verdict.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-535-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-536-    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+src\polaris_graph\retrieval\semantic_conflict_detector.py-537-    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+src\polaris_graph\retrieval\semantic_conflict_detector.py-538-    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+src\polaris_graph\retrieval\semantic_conflict_detector.py-539-    values). The first ``{`` that decodes to a dict wins, so a response with prose BEFORE
+src\polaris_graph\retrieval\semantic_conflict_detector.py-540-    the JSON object is also rescued.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-541-
+src\polaris_graph\retrieval\semantic_conflict_detector.py:542:    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+src\polaris_graph\retrieval\semantic_conflict_detector.py-543-    body is now the normal case, so "first dict wins" could select the WRONG object (e.g. a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-544-    leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). On THIS strict
+src\polaris_graph\retrieval\semantic_conflict_detector.py-545-    consumer that is faithfulness-relevant: a non-verdict first dict would yield verdict=""
+src\polaris_graph\retrieval\semantic_conflict_detector.py-546-    -> ``neutral`` -> ``("neutral", 0.0)``, silently DROPPING a real contradiction that
+src\polaris_graph\retrieval\semantic_conflict_detector.py-547-    pre-fix failed closed (strict HOLD). To prevent that fail-closed -> fail-open regression,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-548-    this returns the first complete object that actually CARRIES the required ``"verdict"``
+src\polaris_graph\retrieval\semantic_conflict_detector.py-549-    field, and RAISES if the scan finds none. The scan advances past each decoded object by
+src\polaris_graph\retrieval\semantic_conflict_detector.py-550-    its end offset (not one char) so a nested sub-object is never mis-selected.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-551-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-552-    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-644-    def judge(self, claim_a: str, claim_b: str) -> tuple:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-645-        """Return ``(label, confidence)`` with label in {contradict,entail,neutral}.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-646-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-647-        Fail-open on API/parse error → ("neutral", 0.0) so a transient outage never
+src\polaris_graph\retrieval\semantic_conflict_detector.py-648-        FABRICATES a conflict. ``BudgetExceededError`` is re-raised (the caller
+src\polaris_graph\retrieval\semantic_conflict_detector.py-649-        stops + keeps partial) — never masked as a neutral result.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-650-        """
+src\polaris_graph\retrieval\semantic_conflict_detector.py-651-        from src.polaris_graph.llm import openrouter_client as _orc
+src\polaris_graph\retrieval\semantic_conflict_detector.py-652-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-653-        prompt = _CONTRADICTION_PROMPT.format(claim_a=claim_a, claim_b=claim_b)
+src\polaris_graph\retrieval\semantic_conflict_detector.py:654:        # I-arch-002 (#1251 sibling): GLM-5.1 is a REASONING model; at max_tokens=60 it truncated mid-
+src\polaris_graph\retrieval\semantic_conflict_detector.py:655:        # reasoning -> EMPTY content -> json.loads(None) NoneType -> fail-open neutral (silently misses real
+src\polaris_graph\retrieval\semantic_conflict_detector.py:656:        # conflicts). Operator 2026-06-13: reasoning stays MAX. Un-starve so high-effort reasoning completes
+src\polaris_graph\retrieval\semantic_conflict_detector.py-657-        # AND emits the JSON verdict; any sub-max/off effort is coerced UP to high. Env-overridable (LAW VI).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-658-        _sc_effort = (os.environ.get("PG_SEMANTIC_CONFLICT_REASONING_EFFORT", "").strip().lower()
+src\polaris_graph\retrieval\semantic_conflict_detector.py-659-                      or "high")
+src\polaris_graph\retrieval\semantic_conflict_detector.py-660-        if _sc_effort not in ("high", "xhigh"):
+src\polaris_graph\retrieval\semantic_conflict_detector.py-661-            _sc_effort = "high"
+src\polaris_graph\retrieval\semantic_conflict_detector.py-662-        # I-arch-004 F19 (§9.1.8): default to the GLM-5.1 mirror-chain MIN (model REAL max for the pinned
+src\polaris_graph\retrieval\semantic_conflict_detector.py-663-        # chain), env-overridable but CLAMPED DOWN to that ceiling so a bad override can never hard-400 the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-664-        # judge under allow_fallbacks=False (the old hardcoded 2000 was the starvation-class small cap).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-665-        try:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-666-            _sc_maxtok = max(256, int(os.environ.get("PG_SEMANTIC_CONFLICT_MAX_TOKENS", _DEFAULT_CONFLICT_MAX_TOKENS)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-667-                                      or _DEFAULT_CONFLICT_MAX_TOKENS))
+src\polaris_graph\retrieval\semantic_conflict_detector.py-668-        except (TypeError, ValueError):
+src\polaris_graph\retrieval\semantic_conflict_detector.py-669-            _sc_maxtok = _DEFAULT_CONFLICT_MAX_TOKENS
+src\polaris_graph\retrieval\semantic_conflict_detector.py-670-        _sc_maxtok = min(_sc_maxtok, _CONFLICT_MAX_TOKENS_CHAIN_MIN)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-671-        json_body: dict = {
+src\polaris_graph\retrieval\semantic_conflict_detector.py-672-            "model": self._model,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-673-            "messages": [{"role": "user", "content": prompt}],
+src\polaris_graph\retrieval\semantic_conflict_detector.py-674-            "temperature": 0.0,
+src\polaris_graph\retrieval\semantic_conflict_detector.py:675:            "max_tokens": _sc_maxtok,
+src\polaris_graph\retrieval\semantic_conflict_detector.py:676:            "reasoning": {"effort": _sc_effort},
+src\polaris_graph\retrieval\semantic_conflict_detector.py:677:            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+src\polaris_graph\retrieval\semantic_conflict_detector.py-678-            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
+src\polaris_graph\retrieval\semantic_conflict_detector.py-679-            # mirror chain to 2. The brace-aware _extract_first_json_object parser (below) recovers
+src\polaris_graph\retrieval\semantic_conflict_detector.py:680:            # the JSON verdict from the now-unconstrained response, so all 4 providers route.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-681-        }
+src\polaris_graph\retrieval\semantic_conflict_detector.py-682-        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
+src\polaris_graph\retrieval\semantic_conflict_detector.py:683:        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+src\polaris_graph\retrieval\semantic_conflict_detector.py:684:        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
+src\polaris_graph\retrieval\semantic_conflict_detector.py:685:        # "evaluator") returned None -> NO provider pin -> this NLI conflict judge FREE-ROUTED to an
+src\polaris_graph\retrieval\semantic_conflict_detector.py:686:        # unpinned provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-687-        # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
+src\polaris_graph\retrieval\semantic_conflict_detector.py:688:        # pins to the SAME provider chain as the main mirror role (allow_fallbacks=False,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-689-        # require_parameters=True).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-690-        try:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-691-            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+src\polaris_graph\retrieval\semantic_conflict_detector.py:692:            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
+src\polaris_graph\retrieval\semantic_conflict_detector.py-693-        except Exception:
+src\polaris_graph\retrieval\semantic_conflict_detector.py:694:            _gate_provider = None
+src\polaris_graph\retrieval\semantic_conflict_detector.py:695:        # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
+src\polaris_graph\retrieval\semantic_conflict_detector.py-696-        # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
+src\polaris_graph\retrieval\semantic_conflict_detector.py:697:        # fastest provider (the model is the sovereign unit; hosting provider may be US/China).
+src\polaris_graph\retrieval\semantic_conflict_detector.py-698-        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+src\polaris_graph\retrieval\semantic_conflict_detector.py-699-            "1", "true", "yes", "on",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-700-        )
+src\polaris_graph\retrieval\semantic_conflict_detector.py:701:        if _gate_provider and not _free_route:
+src\polaris_graph\retrieval\semantic_conflict_detector.py:702:            json_body["provider"] = {
+src\polaris_graph\retrieval\semantic_conflict_detector.py:703:                "order": [_gate_provider],
+src\polaris_graph\retrieval\semantic_conflict_detector.py-704-                "allow_fallbacks": False,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-705-                "require_parameters": True,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-706-            }
+src\polaris_graph\retrieval\semantic_conflict_detector.py-707-        def _emit_raw_io(status: str, raw_response) -> None:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-708-            # I-obs-001 #1141 AC3 (gate iter-1 P1): ONE raw-IO record per call tagged by its TRUE
+src\polaris_graph\retrieval\semantic_conflict_detector.py-709-            # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-710-            try:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-711-                _io_sink = _orc.current_raw_io_sink()
+src\polaris_graph\retrieval\semantic_conflict_detector.py-712-                if _io_sink is None:
+src\polaris_graph\retrieval\semantic_conflict_detector.py-713-                    return
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-716-                    call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-717-                    request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+src\polaris_graph\retrieval\semantic_conflict_detector.py-718-                    raw_response=raw_response, duration_ms=None, status=status,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-719-                )
+src\polaris_graph\retrieval\semantic_conflict_detector.py-720-            except Exception:  # noqa: BLE001
+src\polaris_graph\retrieval\semantic_conflict_detector.py-721-                pass
+src\polaris_graph\retrieval\semantic_conflict_detector.py-722-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-723-        from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+src\polaris_graph\retrieval\semantic_conflict_detector.py-724-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-725-        def _post_once() -> dict:
+src\polaris_graph\retrieval\semantic_conflict_detector.py:726:            """ONE real POST + cost-ledger + budget check. Returns the raw provider JSON.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-727-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-728-            Billed per ACTUAL call (each B14 retry that re-invokes this is a real call), so
+src\polaris_graph\retrieval\semantic_conflict_detector.py-729-            the cost ledger stays honest. ``BudgetExceededError`` propagates unchanged (the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-730-            B14 guard re-raises it via ``propagate``) so the caller's keep-partial fires."""
+src\polaris_graph\retrieval\semantic_conflict_detector.py-731-            # I-arch-007 BUG-2 (verify-hang): HARD total wall-deadline around the POST so a trickled
+src\polaris_graph\retrieval\semantic_conflict_detector.py-732-            # keep-alive socket (the per-read gap timer never fires) cannot hang the verify phase. On
+src\polaris_graph\retrieval\semantic_conflict_detector.py-733-            # timeout: force-close + rebuild a fresh client, then RAISE — the bare raise propagates up to
+src\polaris_graph\retrieval\semantic_conflict_detector.py-734-            # `call_side_judge_with_guard`, which treats ANY non-`propagate` exception as a failed attempt
+src\polaris_graph\retrieval\semantic_conflict_detector.py-735-            # and (after its bounded retry) emits the existing conflict_unscored / fail-open outcome. The
+src\polaris_graph\retrieval\semantic_conflict_detector.py-736-            # (label, confidence) verdict logic + strict-fail-closed contract are UNCHANGED.
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-788-                    cost_usd=actual_cost,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-789-                    input_tokens=input_tokens,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-790-                    output_tokens=output_tokens,
+src\polaris_graph\retrieval\semantic_conflict_detector.py-791-                )
+src\polaris_graph\retrieval\semantic_conflict_detector.py-792-            except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
+src\polaris_graph\retrieval\semantic_conflict_detector.py-793-                pass
+src\polaris_graph\retrieval\semantic_conflict_detector.py-794-            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+src\polaris_graph\retrieval\semantic_conflict_detector.py-795-            return served
+src\polaris_graph\retrieval\semantic_conflict_detector.py-796-
+src\polaris_graph\retrieval\semantic_conflict_detector.py-797-        # I-arch-005 B13 (#1257): route the call through the B14 empty-content guard so a
+src\polaris_graph\retrieval\semantic_conflict_detector.py:798:        # GLM-5.1 empty/None ``message.content`` (the reasoning-model collapse class) is
+src\polaris_graph\retrieval\semantic_conflict_detector.py-799-        # RETRIED before it ever reaches ``json.loads(None)``. On a NON-empty response the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-800-        # guard returns it on the first attempt (byte-equivalent to the old single POST for
+src\polaris_graph\retrieval\semantic_conflict_detector.py-801-        # the happy path); on PERSISTENT empty it returns a ``JudgeUnavailable`` sentinel
+src\polaris_graph\retrieval\semantic_conflict_detector.py-802-        # (it does NOT raise) which we translate to the ``CONFLICT_UNSCORED_LABEL`` so the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-803-        # pair is LABELED ``conflict_unscored`` (disclosed gap) rather than HELD. The guard
+src\polaris_graph\retrieval\semantic_conflict_detector.py-804-        # captures every attempt's raw request/response to the active raw-IO sink (the
+src\polaris_graph\retrieval\semantic_conflict_detector.py-805-        # empty-content upstream cause is confirmed, not inferred). ``BudgetExceededError``
+src\polaris_graph\retrieval\semantic_conflict_detector.py-806-        # is re-raised unchanged via ``propagate`` so keep-partial still fires.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-807-        from src.polaris_graph.llm.side_judge_guard import (  # noqa: PLC0415
+src\polaris_graph\retrieval\semantic_conflict_detector.py-808-            call_side_judge_with_guard,
+--
+src\polaris_graph\retrieval\semantic_conflict_detector.py-830-                logger.warning(
+src\polaris_graph\retrieval\semantic_conflict_detector.py-831-                    "[semantic-conflict] judge content empty after retry -> "
+src\polaris_graph\retrieval\semantic_conflict_detector.py-832-                    "conflict_unscored LABEL (could not adjudicate): %s",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-833-                    _guard.unavailable.reason if _guard.unavailable else "",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-834-                )
+src\polaris_graph\retrieval\semantic_conflict_detector.py-835-                return CONFLICT_UNSCORED_LABEL, 0.0
+src\polaris_graph\retrieval\semantic_conflict_detector.py-836-            data = _guard.value
+src\polaris_graph\retrieval\semantic_conflict_detector.py-837-            content = data["choices"][0]["message"]["content"]
+src\polaris_graph\retrieval\semantic_conflict_detector.py-838-            # I-arch-011 (B12): brace-aware first-complete-JSON-object extractor instead of a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-839-            # bare json.loads(content). A "garbled-200" (valid verdict object + trailing
+src\polaris_graph\retrieval\semantic_conflict_detector.py:840:            # reasoning text) raised JSONDecodeError "Extra data: ..." and was treated as a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-841-            # parse failure (HOLD under strict gates / fail-open neutral otherwise), dropping a
+src\polaris_graph\retrieval\semantic_conflict_detector.py-842-            # salvageable verdict. The extractor RAISES on every genuine failure
+src\polaris_graph\retrieval\semantic_conflict_detector.py-843-            # (empty/None/lone-"{"/partial JSON), so those still hit the same fail-closed
+src\polaris_graph\retrieval\semantic_conflict_detector.py-844-            # except-block below — only the object-plus-trailing-text case is newly rescued.
+src\polaris_graph\retrieval\semantic_conflict_detector.py-845-            parsed = _extract_first_json_object(content)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-846-            verdict = str(parsed.get("verdict", "")).strip().upper()
+src\polaris_graph\retrieval\semantic_conflict_detector.py-847-            confidence = float(parsed.get("confidence", 0.0) or 0.0)
+src\polaris_graph\retrieval\semantic_conflict_detector.py-848-            label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
+src\polaris_graph\retrieval\semantic_conflict_detector.py-849-                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
+src\polaris_graph\retrieval\semantic_conflict_detector.py-850-            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+One notable surrounding behavior: semantic-conflict still routes persistent empty content through the existing `CONFLICT_UNSCORED_LABEL` branch before parsing. I’m separating that known live-host/preflight risk from the B12 parser faithfulness question so it doesn’t get misclassified as a new blocker.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 18 \"def _extract_first_json_object\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 30 \"parsed = _extract_first_json_object(content)\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 22 \"except _RetryableJudgeError as exc:\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 30 \"except Exception as exc\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+ succeeded in 1476ms:
+272-    """True iff a carried `_RetryableJudgeError.reason` string names a CLOSED/poisoned transport.
+273-
+274-    A `_RetryableJudgeError` loses the original exception TYPE (it carries a human reason string), so
+275-    a poison surfaced via that path is matched on the reason text alone. The bad-verdict reason
+276-    (`bad_verdict=...`) and a generic parse reason never match these transport markers, so they retry
+277-    without a rebuild — same payload-vs-transport asymmetry as `_is_transport_poison`.
+278-    """
+279-    try:
+280-        markers = list(_TRANSPORT_POISON_SUBSTRINGS)
+281-        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+282-        if extra:
+283-            markers.extend(m.strip().lower() for m in extra.split(",") if m.strip())
+284-        haystack = str(reason).lower()
+285-        return any(marker in haystack for marker in markers)
+286-    except Exception:  # noqa: BLE001
+287-        return False
+288-
+289-
+290:def _extract_first_json_object(content: object) -> dict:
+291-    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+292-    judge response and return it as a dict.
+293-
+294-    Motivating fault: a "garbled-200" = a valid JSON verdict object followed by trailing
+295-    reasoning text, e.g. ``{"verdict": "ENTAILED", "reason": "ok"}\\nThe span supports...``.
+296-    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+297-    on that input and the salvageable verdict is thrown away (over-drop, the drb_72-class
+298-    coverage collapse).
+299-
+300-    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+301-    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+302-    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+303-    values such as ``"dose {x} mg"``). The first ``{`` that decodes to a dict wins, so a
+304-    response with prose BEFORE the JSON object is also rescued.
+305-
+306-    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+307-    body is now the normal case, so "first dict wins" could select the WRONG object (e.g.
+308-    a leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). To avoid that —
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2154ms:
+730-                        self._model, 500, 100, 0,
+731-                    )
+732-                _orc._add_run_cost(actual_cost)
+733-                duration_ms = (time.monotonic() - started) * 1000.0
+734-                try:
+735-                    _append_judge_ledger_entry(
+736-                        input_tokens=input_tokens,
+737-                        output_tokens=output_tokens,
+738-                        duration_ms=duration_ms,
+739-                        actual_cost=actual_cost,
+740-                    )
+741-                except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+742-                    logger.warning("entailment ledger write failed: %s", exc)
+743-                _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+744-
+745-                content = data["choices"][0]["message"]["content"]
+746-                if _rotate_chain and not (content or "").strip():
+747-                    # I-arch-011: a blank-200 (empty/None content body) is the z-ai intermittent-window
+748-                    # signature. Raise the RETRYABLE error so the loop ROTATES to the next mirror host
+749-                    # below instead of re-POSTing the same blanking provider and exhausting into a
+750-                    # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
+751-                    # byte-identical: an empty/None content still flows to json.loads as before.)
+752-                    raise _RetryableJudgeError("blank_200")
+753-                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
+754-                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+755-                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+756-                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+757-                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
+758-                # the same fail-closed retry/sentinel path as before — only the parseable
+759-                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
+760:                parsed = _extract_first_json_object(content)
+761-                verdict = str(parsed.get("verdict", "")).upper().strip()
+762-                reason = str(parsed.get("reason", ""))
+763-                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+764-                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+765-                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+766-                    # preserved for the terminal sentinel on exhaustion.
+767-                    raise _RetryableJudgeError(f"bad_verdict={verdict!r}")
+768-                # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+769-                _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
+770-                return verdict, reason
+771-            except _orc.BudgetExceededError:
+772-                # I-bug-100: do NOT fail-open OR retry on cap breach. Propagate immediately so the
+773-                # sweep aborts with a clear cause (this except MUST stay FIRST/outside the retry).
+774-                raise
+775-            except _RetryableJudgeError as exc:
+776-                last_reason = exc.reason
+777-                # I-arch-007 A2: a trickle-hung socket re-hangs on retry, so a total_deadline_exceeded
+778-                # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
+779-                # faults (which often DO recover on a fresh attempt) keep the full _retries budget.
+780-                _eff_retries = (
+781-                    _total_deadline_retries
+782-                    if exc.reason.startswith("total_deadline_exceeded")
+783-                    else _retries
+784-                )
+785-                if attempt < _eff_retries:
+786-                    # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
+787-                    # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
+788-                    # already rebuilt at :441; this covers a poison surfaced as a _RetryableJudgeError
+789-                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+790-                    if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2739ms:
+753-                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
+754-                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+755-                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+756-                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+757-                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
+758-                # the same fail-closed retry/sentinel path as before — only the parseable
+759-                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
+760-                parsed = _extract_first_json_object(content)
+761-                verdict = str(parsed.get("verdict", "")).upper().strip()
+762-                reason = str(parsed.get("reason", ""))
+763-                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+764-                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+765-                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+766-                    # preserved for the terminal sentinel on exhaustion.
+767-                    raise _RetryableJudgeError(f"bad_verdict={verdict!r}")
+768-                # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+769-                _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
+770-                return verdict, reason
+771-            except _orc.BudgetExceededError:
+772-                # I-bug-100: do NOT fail-open OR retry on cap breach. Propagate immediately so the
+773-                # sweep aborts with a clear cause (this except MUST stay FIRST/outside the retry).
+774-                raise
+775:            except _RetryableJudgeError as exc:
+776-                last_reason = exc.reason
+777-                # I-arch-007 A2: a trickle-hung socket re-hangs on retry, so a total_deadline_exceeded
+778-                # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
+779-                # faults (which often DO recover on a fresh attempt) keep the full _retries budget.
+780-                _eff_retries = (
+781-                    _total_deadline_retries
+782-                    if exc.reason.startswith("total_deadline_exceeded")
+783-                    else _retries
+784-                )
+785-                if attempt < _eff_retries:
+786-                    # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
+787-                    # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
+788-                    # already rebuilt at :441; this covers a poison surfaced as a _RetryableJudgeError
+789-                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+790-                    if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
+791-                        self._client = self._build_client()
+792-                    elif not exc.reason.startswith("total_deadline_exceeded"):
+793-                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
+794-                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
+795-                        # glm-5.1 model, next healthy host). No-op when rotation is disabled. A
+796-                        # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
+797-                        _rotate_provider_on_blank(exc.reason)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3309ms:
+711-                # I-bug-100: cost recording. Reads + records BEFORE verdict
+712-                # parse so a cap breach aborts the sweep regardless of
+713-                # downstream parse outcome. Each real POST (incl. a retried one) bills its OWN
+714-                # tokens — correct, real money was spent — so this runs inside the loop per attempt.
+715-                usage = data.get("usage", {}) or {}
+716-                input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+717-                output_tokens = int(usage.get("completion_tokens", 0) or 0)
+718-                api_cost = float(usage.get("cost", 0) or 0)
+719-                actual_cost = api_cost or _orc._impute_cost_from_tokens(
+720-                    self._model, input_tokens, output_tokens, 0,
+721-                )
+722-                # I-bug-100 iter-1 diff P2 fix: when the entire usage block
+723-                # is absent, both api_cost and the imputed value are 0, which
+724-                # silently bypasses the budget guard. Fall back to a
+725-                # conservative estimate based on typical judge-call shape
+726-                # (~500 prompt + ~100 completion tokens) priced at Opus-tier
+727-                # so the budget cap is preserved on degraded responses.
+728-                if actual_cost == 0 and not usage:
+729-                    actual_cost = _orc._impute_cost_from_tokens(
+730-                        self._model, 500, 100, 0,
+731-                    )
+732-                _orc._add_run_cost(actual_cost)
+733-                duration_ms = (time.monotonic() - started) * 1000.0
+734-                try:
+735-                    _append_judge_ledger_entry(
+736-                        input_tokens=input_tokens,
+737-                        output_tokens=output_tokens,
+738-                        duration_ms=duration_ms,
+739-                        actual_cost=actual_cost,
+740-                    )
+741:                except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+742-                    logger.warning("entailment ledger write failed: %s", exc)
+743-                _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+744-
+745-                content = data["choices"][0]["message"]["content"]
+746-                if _rotate_chain and not (content or "").strip():
+747-                    # I-arch-011: a blank-200 (empty/None content body) is the z-ai intermittent-window
+748-                    # signature. Raise the RETRYABLE error so the loop ROTATES to the next mirror host
+749-                    # below instead of re-POSTing the same blanking provider and exhausting into a
+750-                    # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
+751-                    # byte-identical: an empty/None content still flows to json.loads as before.)
+752-                    raise _RetryableJudgeError("blank_200")
+753-                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
+754-                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+755-                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+756-                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+757-                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
+758-                # the same fail-closed retry/sentinel path as before — only the parseable
+759-                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
+760-                parsed = _extract_first_json_object(content)
+761-                verdict = str(parsed.get("verdict", "")).upper().strip()
+762-                reason = str(parsed.get("reason", ""))
+763-                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+764-                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+765-                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+766-                    # preserved for the terminal sentinel on exhaustion.
+767-                    raise _RetryableJudgeError(f"bad_verdict={verdict!r}")
+768-                # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+769-                _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
+770-                return verdict, reason
+771-            except _orc.BudgetExceededError:
+--
+775-            except _RetryableJudgeError as exc:
+776-                last_reason = exc.reason
+777-                # I-arch-007 A2: a trickle-hung socket re-hangs on retry, so a total_deadline_exceeded
+778-                # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
+779-                # faults (which often DO recover on a fresh attempt) keep the full _retries budget.
+780-                _eff_retries = (
+781-                    _total_deadline_retries
+782-                    if exc.reason.startswith("total_deadline_exceeded")
+783-                    else _retries
+784-                )
+785-                if attempt < _eff_retries:
+786-                    # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
+787-                    # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
+788-                    # already rebuilt at :441; this covers a poison surfaced as a _RetryableJudgeError
+789-                    # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
+790-                    if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
+791-                        self._client = self._build_client()
+792-                    elif not exc.reason.startswith("total_deadline_exceeded"):
+793-                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
+794-                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
+795-                        # glm-5.1 model, next healthy host). No-op when rotation is disabled. A
+796-                        # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
+797-                        _rotate_provider_on_blank(exc.reason)
+798-                    logger.warning(
+799-                        "entailment judge retryable fault (attempt %d/%d): %s — retrying.",
+800-                        attempt + 1, _eff_retries + 1, exc.reason,
+801-                    )
+802-                    time.sleep(_backoff)
+803-                    continue
+804-                break
+805:            except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
+806-                last_reason = type(exc).__name__
+807-                if attempt < _retries:
+808-                    # I-arch-007 ITEM 2a (the Q78 run-killer): the only rebuild sites before this fix
+809-                    # were the ctor and the TimeoutError branch (:441), so a client closed/poisoned on
+810-                    # this GENERIC path (httpx "Cannot send a request, as the client has been closed",
+811-                    # an SSL/X509/PEM TLS-state fault) was TERMINAL — Q78 logged 2866 consecutive
+812-                    # "client has been closed" over 33 min, only 21 judge calls ever succeeded, 177
+813-                    # sentences fail-closed-DROPPED -> abort_excessive_gap. Heal it: rebuild THIS thread's
+814-                    # client before the retry, exactly as the TimeoutError branch does. A parse fault
+815-                    # (json/KeyError) is NOT poison -> excluded -> retried without a needless rebuild.
+816-                    if _is_transport_poison(exc):
+817-                        self._client = self._build_client()
+818-                    else:
+819-                        # I-arch-011: a non-poison transport/parse fault (a JSONDecodeError on a garbled
+820-                        # body, a KeyError on a malformed envelope, or an HTTP 4xx/5xx such as a provider
+821-                        # that 404s on this request shape) — rotate to the next mirror host before the
+822-                        # retry. No-op when rotation is disabled.
+823-                        _rotate_provider_on_blank(type(exc).__name__)
+824-                    logger.warning(
+825-                        "entailment judge error (attempt %d/%d): %s — retrying.",
+826-                        attempt + 1, _retries + 1, exc,
+827-                    )
+828-                    time.sleep(_backoff)
+829-                    continue
+830-                logger.warning("entailment judge error (final): %s", exc)
+831-                break
+832-
+833-        # Retries exhausted: emit EXACTLY ONE terminal judge_error record (no per-attempt emits) and
+834-        # return the fail-CLOSED-at-consumer sentinel. Prefer the bound served data (a parse/verdict
+835-        # failure on a real response) over a bare error string. The sentinel stays ENTAILED+prefix so
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+For entailment, `_extract_first_json_object` raises ordinary exceptions on malformed/verdict-less bodies, and those still enter the existing generic retry path before the `judge_error` sentinel. I’m checking the terminal sentinel and the semantic-conflict strict/non-strict split before deciding if there is any execution blocker.
+2026-06-19T08:05:54.992605Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 20 \"return (\\\"ENTAILED\\\", f\\\"judge_error\" src\\polaris_graph\\llm\\entailment_judge.py"` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 20 \"return (\\\"ENTAILED\\\", f\\\"judge_error\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 20 \"return (\\\"ENTAILED\\\", f\\\"judge_error\" src\\polaris_graph\\llm\\entailment_judge.py"` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 22 \"def _extract_first_json_object\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 28 \"parsed = _extract_first_json_object(content)\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 24 \"if self._strict_fail_closed:\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+ succeeded in 1662ms:
+817-                call_type="nli_conflict_judge",
+818-                role="evaluator",
+819-                build_request=lambda: {
+820-                    **json_body, "messages": [{"role": "user", "content": prompt}],
+821-                },
+822-                propagate=(BudgetExceededError,),
+823-            )
+824-            if _guard.is_unavailable:
+825-                # PERSISTENT empty content after the B14 retry → LABEL the pair
+826-                # conflict_unscored, never HOLD (operator-locked "nothing shall hold the
+827-                # report"). This is a disclosed gap: no conflict asserted, none dropped — the
+828-                # judge could not adjudicate. Strict-fail-closed does NOT raise here: the B13
+829-                # contract is that an EMPTY judge is always a LABEL, never a hold.
+830-                logger.warning(
+831-                    "[semantic-conflict] judge content empty after retry -> "
+832-                    "conflict_unscored LABEL (could not adjudicate): %s",
+833-                    _guard.unavailable.reason if _guard.unavailable else "",
+834-                )
+835-                return CONFLICT_UNSCORED_LABEL, 0.0
+836-            data = _guard.value
+837-            content = data["choices"][0]["message"]["content"]
+838-            # I-arch-011 (B12): brace-aware first-complete-JSON-object extractor instead of a
+839-            # bare json.loads(content). A "garbled-200" (valid verdict object + trailing
+840-            # reasoning text) raised JSONDecodeError "Extra data: ..." and was treated as a
+841-            # parse failure (HOLD under strict gates / fail-open neutral otherwise), dropping a
+842-            # salvageable verdict. The extractor RAISES on every genuine failure
+843-            # (empty/None/lone-"{"/partial JSON), so those still hit the same fail-closed
+844-            # except-block below — only the object-plus-trailing-text case is newly rescued.
+845:            parsed = _extract_first_json_object(content)
+846-            verdict = str(parsed.get("verdict", "")).strip().upper()
+847-            confidence = float(parsed.get("confidence", 0.0) or 0.0)
+848-            label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
+849-                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
+850-            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+851-            _emit_raw_io("ok", data)
+852-            return label, confidence
+853-        except Exception:
+854-            # BudgetExceededError is a subclass-free RuntimeError in openrouter_client;
+855-            # re-raise it explicitly so the caller's keep-partial path fires.
+856-            from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+857-            import sys
+858-            exc = sys.exc_info()[1]
+859-            if isinstance(exc, BudgetExceededError):
+860-                raise
+861-            # I-arch-004 F07 (#1249/#1252): under strict gates, a transport/parse failure must
+862-            # FAIL CLOSED — RAISE so detect_semantic_conflicts converts it to a run-level HOLD
+863-            # (ConflictJudgeUnavailableError) instead of returning the fail-open ('neutral',
+864-            # 0.0) that silently drops a possible real contradiction. NO conflict is fabricated:
+865-            # the raise means "could not adjudicate", not "a conflict exists".
+866-            if self._strict_fail_closed:
+867-                logger.warning(
+868-                    "[semantic-conflict] judge call failed under strict gates -> "
+869-                    "FAIL CLOSED (run holds for review): %s", exc,
+870-                )
+871-                raise
+872-            logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
+873-            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2351ms:
+503-
+504-# --- production judge (isolated; reuses the openrouter cost/family substrate) ---
+505-
+506-_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
+507-
+508-Rules:
+509-- CONTRADICT: the two claims cannot both be true for the same population/endpoint — one asserts something the other explicitly denies or reverses (e.g. "improved overall survival" vs "no overall survival benefit"; "first-line therapy" vs "reserved for refractory cases").
+510-- ENTAIL: the claims agree, or one restates / refines the other.
+511-- NEUTRAL: the claims are about different things, or could both be true (different populations, endpoints, doses, or time points), or there is not enough overlap to judge a conflict.
+512-
+513-Be conservative: only answer CONTRADICT when the disagreement is direct and on the same subject. Return STRICT JSON only, no prose:
+514-{{"verdict": "CONTRADICT" | "ENTAIL" | "NEUTRAL", "confidence": <number 0.0-1.0>}}
+515-
+516-CLAIM A:
+517-{claim_a}
+518-
+519-CLAIM B:
+520-{claim_b}
+521-
+522-JSON:"""
+523-
+524-
+525:def _extract_first_json_object(content: object) -> dict:
+526-    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+527-    NLI-conflict judge response and return it as a dict.
+528-
+529-    Motivating fault: a "garbled-200" = a valid verdict object followed by trailing
+530-    reasoning text, e.g. ``{"verdict": "NEUTRAL", "confidence": 0.1}\\nReasoning: ...``.
+531-    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+532-    on that input, which the ``except`` block treats as a transport/parse failure (a HOLD
+533-    under strict gates, or a fail-open neutral otherwise) — throwing away a salvageable
+534-    verdict.
+535-
+536-    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+537-    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+538-    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+539-    values). The first ``{`` that decodes to a dict wins, so a response with prose BEFORE
+540-    the JSON object is also rescued.
+541-
+542-    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+543-    body is now the normal case, so "first dict wins" could select the WRONG object (e.g. a
+544-    leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). On THIS strict
+545-    consumer that is faithfulness-relevant: a non-verdict first dict would yield verdict=""
+546-    -> ``neutral`` -> ``("neutral", 0.0)``, silently DROPPING a real contradiction that
+547-    pre-fix failed closed (strict HOLD). To prevent that fail-closed -> fail-open regression,
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2989ms:
+842-            # salvageable verdict. The extractor RAISES on every genuine failure
+843-            # (empty/None/lone-"{"/partial JSON), so those still hit the same fail-closed
+844-            # except-block below — only the object-plus-trailing-text case is newly rescued.
+845-            parsed = _extract_first_json_object(content)
+846-            verdict = str(parsed.get("verdict", "")).strip().upper()
+847-            confidence = float(parsed.get("confidence", 0.0) or 0.0)
+848-            label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
+849-                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
+850-            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+851-            _emit_raw_io("ok", data)
+852-            return label, confidence
+853-        except Exception:
+854-            # BudgetExceededError is a subclass-free RuntimeError in openrouter_client;
+855-            # re-raise it explicitly so the caller's keep-partial path fires.
+856-            from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+857-            import sys
+858-            exc = sys.exc_info()[1]
+859-            if isinstance(exc, BudgetExceededError):
+860-                raise
+861-            # I-arch-004 F07 (#1249/#1252): under strict gates, a transport/parse failure must
+862-            # FAIL CLOSED — RAISE so detect_semantic_conflicts converts it to a run-level HOLD
+863-            # (ConflictJudgeUnavailableError) instead of returning the fail-open ('neutral',
+864-            # 0.0) that silently drops a possible real contradiction. NO conflict is fabricated:
+865-            # the raise means "could not adjudicate", not "a conflict exists".
+866:            if self._strict_fail_closed:
+867-                logger.warning(
+868-                    "[semantic-conflict] judge call failed under strict gates -> "
+869-                    "FAIL CLOSED (run holds for review): %s", exc,
+870-                )
+871-                raise
+872-            logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
+873-            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
+874-            # silently drops a possible real conflict on a transient/parse failure (drb_72-class
+875-            # signal). Prefer the bound served `data`. Default-OFF; never raises.
+876-            try:
+877-                _io_sink = _orc.current_raw_io_sink()
+878-                if _io_sink is not None:
+879-                    import uuid as _uuid
+880-                    _io_sink.record(
+881-                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+882-                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+883-                        raw_response=(data if data is not None else {"error": str(exc)}),
+884-                        duration_ms=None, status="judge_error",
+885-                    )
+886-            except Exception:  # noqa: BLE001
+887-                pass
+888-            return "neutral", 0.0
+889-
+890-
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 12 \"judge_error:\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+ succeeded in 1336ms:
+81-# non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
+82-_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
+83-_ENTAILMENT_TIMEOUT_S = 30.0
+84-# I-arch-006 HANG-J1/J2 (#1262): the entailment JUDGE is the verifier and had NO total deadline — a bare
+85-# float `httpx.Client(timeout=30.0)` makes 30s the per-read GAP timeout, which httpx RESETS on every byte.
+86-# When OpenRouter/Cloudflare holds the socket ESTABLISHED and trickles keep-alive bytes (rx=tx=0 idle-open),
+87-# the 30s timer never fires and a single judge POST runs UNBOUNDED (drb_78 hung the whole run on this; a
+88-# 14-min judge call was observed). Fix: an EXPLICIT httpx.Timeout with a TIGHT read-stall (no bytes for
+89-# `read` seconds → ReadTimeout → the existing bounded same-provider retry reopens a FRESH socket), so a
+90-# genuinely dead socket (the observed rx=tx=0 signature) trips in seconds instead of hanging. httpx closes
+91-# the connection on a ReadTimeout, and explicit keepalive-expiry reaps the half-open CLOSE_WAIT sockets the
+92-# old pooled client leaked on the error path (HANG-J2). Transport/observability only — the verdict logic,
+93:# the fail-CLOSED `judge_error:` sentinel, and the two-family/model lock are all UNCHANGED. (LAW VI: env-driven.)
+94-_ENTAILMENT_CONNECT_S = float(os.getenv("PG_ENTAILMENT_CONNECT_S", "30"))
+95-_ENTAILMENT_READ_STALL_S = float(os.getenv("PG_ENTAILMENT_READ_STALL_S", "120"))
+96-_ENTAILMENT_WRITE_S = float(os.getenv("PG_ENTAILMENT_WRITE_S", "60"))
+97-_ENTAILMENT_POOL_S = float(os.getenv("PG_ENTAILMENT_POOL_S", "30"))
+98-_ENTAILMENT_MAX_KEEPALIVE = int(os.getenv("PG_ENTAILMENT_MAX_KEEPALIVE", "8"))
+99-_ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S", "30"))
+100-# I-arch-006 HANG-J3 (overnight 2026-06-15): the read-stall (read=_ENTAILMENT_READ_STALL_S) is a per-read
+101-# GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the judge socket
+102-# ESTABLISHED and TRICKLES keep-alive bytes (SSE comment lines / chunked keep-alives), so the gap timer
+103-# never elapses and a SINGLE judge POST runs UNBOUNDED — 15-22 min hangs were observed freezing entire
+104-# iarch006 resume runs (the run can't finish its ~2500 per-claim verifies before one call hangs forever).
+105-# HANG-J1/J2's read-stall only catches a TRULY dead rx=tx=0 socket; it CANNOT bound a trickle. Fix: a HARD
+106-# TOTAL per-call wall-deadline around the blocking POST (below). On timeout the hung socket is force-closed
+107-# (unsticks the worker) and the existing bounded SAME-provider retry reopens a FRESH connection; on
+108:# exhaustion the UNCHANGED fail-CLOSED ('ENTAILED','judge_error:…') sentinel fires (consumers DROP ->
+109-# faithfulness-safe, never fabricates). Transport-only; verdict logic + the fail-closed contract UNCHANGED.
+110-# LAW VI: env-driven. Default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed)
+111-# while bounding the trickle hang; with the 2 retries the worst-case wall per claim is ~3*150s before drop.
+112-_ENTAILMENT_TOTAL_S = float(os.getenv("PG_ENTAILMENT_TOTAL_S", "150"))
+113-
+114-
+115-def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+116-    """HANG-J3: run the blocking judge POST under a HARD total wall-deadline.
+117-
+118-    httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
+119-    this bounds the WHOLE call so one hung judge POST can never freeze the run. Runs the POST on a
+120-    worker thread and waits at most ``total_s``. On timeout the client is force-closed (so the worker's
+--
+128-    except concurrent.futures.TimeoutError:
+129-        try:
+130-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+131-        except Exception:  # noqa: BLE001
+132-            pass
+133-        raise
+134-    finally:
+135-        # Codex P2 (HANG-J3 gate): deterministic executor teardown on EVERY exit path (success, timeout,
+136-        # or a non-timeout client.post exception). wait=False so a still-unsticking worker never blocks us.
+137-        ex.shutdown(wait=False)
+138-# I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
+139-# for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
+140:# previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
+141-# consumers DROP in enforce mode — an OVER-DROP of a salvageable verdict (the drb_72-class coverage
+142-# collapse). Retry the POST+parse this many extra times before emitting the sentinel; default 2
+143-# (=> up to 3 total attempts). 0 disables the retry (single attempt, the pre-#1191 behavior).
+144-_DEFAULT_ENTAILMENT_RETRIES = 2
+145-# I-arch-007 A2 (entailment-speed fix): a total-deadline (trickle-hang) timeout re-hangs on the SAME
+146-# pinned mirror provider, so the extra same-provider retries are ~_ENTAILMENT_TOTAL_S of dead wait that
+147-# almost never recovers — the dominant contributor to the hang-path worst case (3x150s=450s). Cap a
+148-# total_deadline_exceeded retry TIGHTER than the general transient-fault budget. DEFAULT here PRESERVES
+149-# current behaviour (= the general retry count, so the OFF path is byte-identical, LAW VI); the run slate
+150-# sets PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1 to apply the fix (=> up to 2 attempts on a hang vs 3 on a
+151-# transient fault). Faithfulness-NEUTRAL: the verdict emitted on exhaustion is the SAME fail-closed
+152:# ('ENTAILED','judge_error:…') sentinel the consumers DROP — fewer wasted retries, never a different verdict.
+153-_ENV_ENTAILMENT_TOTAL_DEADLINE_RETRIES = "PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES"
+154-_DEFAULT_ENTAILMENT_TOTAL_DEADLINE_RETRIES = _DEFAULT_ENTAILMENT_RETRIES
+155-# Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
+156-_DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
+157-# I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
+158-# the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
+159-# error -> fail-open, which the consumers DROP -> the drb_72-class COVERAGE COLLAPSE. Operator 2026-06-13:
+160-# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict.
+161-#
+162-# I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap
+163-# is free, billed by usage not pre-allocated"): the old default 2000 was the SMALL hardcode the governance
+164-# rule prohibits — it left the GLM-5.1 judge one provider hiccup away from a finish=length truncation. This
+--
+179-_ENV_ENTAILMENT_MAX_TOKENS = "PG_ENTAILMENT_MAX_TOKENS"
+180-# Mirror GLM-5.1 chain MIN max_completion_tokens (live OpenRouter read 2026-06-14; mirrors
+181-# openrouter_role_transport._MIRROR_MAX_TOKENS_CHAIN_MIN — kept as a LOCAL constant so this leaf llm module
+182-# does not import the heavy roles/benchmark transport stack at import time, per the off-mode zero-cost rule).
+183-_ENTAILMENT_MAX_TOKENS_CHAIN_MIN = 131072
+184-_DEFAULT_ENTAILMENT_MAX_TOKENS = _ENTAILMENT_MAX_TOKENS_CHAIN_MIN
+185-_ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
+186-_DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
+187-
+188-# I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200. The mirror role pins ONE provider
+189-# with allow_fallbacks=False, so when that provider hits one of its intermittent empty-body-200 windows
+190-# (z-ai measured doing this under account-QPS load, 2026-06-19) OpenRouter does NOT auto-advance (a blank
+191:# IS an HTTP 200), every retry re-hits the SAME blanking host, and the (ENTAILED,'judge_error:…') sentinel
+192-# DROPS the sentence in enforce mode -> a FAITHFUL-but-NARROW breadth collapse. When PG_JUDGE_PROVIDER_ROTATE
+193-# is on, a blank/parse/bad-verdict fault ADVANCES a cursor through the mirror chain's `order`
+194-# (z-ai->baidu->novita->gmicloud) so the NEXT attempt re-POSTs to the next healthy host. Same glm-5.1 model
+195-# on every host (operator pre-approved judge host non-sovereignty 2026-06-13) -> faithfulness-NEUTRAL-to-
+196-# IMPROVING (a real verdict from baidu strictly beats a z-ai-blank-induced drop; a real NEUTRAL/CONTRADICTED
+197-# still drops). Mirrors the PROVEN generator idiom (openrouter_client BlankCompletionError ignore-on-blank,
+198-# I-arch-004 F02 #1255). Default-OFF -> byte-identical single-provider pin; run_gate_b forces it ON for the
+199-# benchmark + a behavioral gate proves it FIRES. LAW VI: env-gated.
+200-_ENV_JUDGE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+201-
+202-
+203-def _judge_provider_rotation_enabled() -> bool:
+--
+335-            continue
+336-        if isinstance(obj, dict) and "verdict" in obj:
+337-            return obj
+338-        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
+339-        # its end offset so we never re-enter / mis-select a nested sub-object, then keep
+340-        # scanning for the real verdict object.
+341-        search_from = end
+342-
+343-
+344-class _RetryableJudgeError(Exception):
+345-    """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
+346-    bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
+347:    ('ENTAILED','judge_error: <reason>') sentinel so a bad-verdict's `bad_verdict=<v>` detail is
+348-    preserved across retries instead of being collapsed into a generic exception type name."""
+349-
+350-    def __init__(self, reason: str) -> None:
+351-        super().__init__(reason)
+352-        self.reason = reason
+353-_ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
+354-
+355-Rules:
+356-- ENTAILED: every factual assertion in the SENTENCE is supported by the SPAN. Conservative paraphrase is allowed.
+357-- NEUTRAL: the SENTENCE introduces a fact, entity, mechanism, or specificity NOT present in the SPAN (e.g. SPAN says "GLP-1 RAs", SENTENCE says "semaglutide"; SPAN says "adipocyte metabolism", SENTENCE adds "lipid metabolism" or "energy storage"; SPAN has numbers but not the specific claim being made).
+358-- CONTRADICTED: the SENTENCE asserts something the SPAN explicitly disagrees with.
+359-
+--
+495-                keepalive_expiry=_ENTAILMENT_KEEPALIVE_EXPIRY_S,
+496-            ),
+497-        )
+498-
+499-    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+500-        """Return (verdict, reason).
+501-
+502-        verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
+503-
+504-        I-transport-001 (#1191) Site 4: a transient transport/parse/empty-choices/bad-verdict
+505-        fault is now RETRIED on the same provider up to `PG_ENTAILMENT_RETRIES` extra times
+506-        (default 2 => 3 total attempts; env-driven per LAW VI) before the method emits the
+507:        ('ENTAILED', 'judge_error: ...') sentinel on exhaustion. This is NOT a fail-OPEN: both
+508-        consumers FAIL CLOSED on that sentinel — `clinical_generator/strict_verify.py:295-301`
+509:        keys on the `judge_error:` PREFIX alone (drops in enforce); `provenance_generator.py:1795`
+510:        sets `judge_error_flag` on `verdict=='ENTAILED' AND reason.startswith('judge_error:')`
+511:        (consumed -> drop). The sentinel stays EXACTLY ('ENTAILED', 'judge_error: ...') so that
+512-        detection is preserved (do NOT flip to NEUTRAL standalone — that bypasses the
+513-        provenance detection at :1795). The retry's only effect is to stop a SINGLE transient
+514-        judge fault from OVER-DROPPING a salvageable verdict (the drb_72-class coverage collapse),
+515-        without loosening the binding faithfulness gate.
+516-
+517-        I-bug-100: after each successful httpx call this method records
+518-        the call cost via openrouter_client's module-level helpers
+519-        (`_add_run_cost`, `check_run_budget`, `_COST_LEDGER_PATH`) so
+520-        judge spend is visible to the per-run budget cap and the cost
+521-        ledger. `BudgetExceededError` is explicitly re-raised before
+522-        the broad retry/fail-closed handler so a cap breach aborts the
+523-        sweep cleanly instead of being masked as a transient judge error
+--
+826-                        attempt + 1, _retries + 1, exc,
+827-                    )
+828-                    time.sleep(_backoff)
+829-                    continue
+830-                logger.warning("entailment judge error (final): %s", exc)
+831-                break
+832-
+833-        # Retries exhausted: emit EXACTLY ONE terminal judge_error record (no per-attempt emits) and
+834-        # return the fail-CLOSED-at-consumer sentinel. Prefer the bound served data (a parse/verdict
+835-        # failure on a real response) over a bare error string. The sentinel stays ENTAILED+prefix so
+836-        # both consumers DROP it (see method docstring + §5 DIVERGENCE in the brief).
+837-        _emit_raw_io("judge_error", data if data is not None else {"error": last_reason})
+838:        return "ENTAILED", f"judge_error: {last_reason}"
+839-
+840-
+841-def _append_judge_ledger_entry(
+842-    *,
+843-    input_tokens: int,
+844-    output_tokens: int,
+845-    duration_ms: float,
+846-    actual_cost: float,
+847-) -> None:
+848-    """Append a single entailment-judge call to the cost ledger.
+849-
+850-    Schema mirrors `openrouter_client.OpenRouterClient._append_ledger`
+--
+873-
+874-
+875-def _get_judge() -> _EntailmentJudge:
+876-    """Lazy singleton so off-mode pays zero import/connection cost."""
+877-    global _JUDGE_SINGLETON
+878-    if _JUDGE_SINGLETON is None:
+879-        _JUDGE_SINGLETON = _EntailmentJudge()
+880-    return _JUDGE_SINGLETON
+881-
+882-
+883-# I-bug-096: process-lifetime telemetry counters for the entailment gate.
+884-# In enforce mode the judge fail-open path returns ("ENTAILED",
+885:# "judge_error: ...") on transient API errors. A persistent OpenRouter
+886-# outage or model-format change could make the 6th check silently inert
+887-# — every sentence falls through as ENTAILED while WARNING lines
+888-# accumulate. These counters give an operator a concise "the gate ran N
+889-# times, M of those errored" signal.
+890-#
+891-# Counters are gate-side (not judge-side) per the original I-bug-092
+892-# brief verdict: gate behavior is what we want to measure, not a
+893-# specific judge implementation. Tests with FakeJudge tick these too,
+894-# and a future swapped judge cannot bypass the judge_error counter.
+895-_JUDGE_TELEMETRY: dict[str, int] = {
+896-    "calls": 0,
+897-    "entailed": 0,
+--
+946-    Public so operators can deliberately reset between jobs / runs.
+947-    Tests use this for isolation; production callers can use it to
+948-    bound the counter arithmetic to a single run window.
+949-    """
+950-    for key in _JUDGE_TELEMETRY:
+951-        _JUDGE_TELEMETRY[key] = 0
+952-
+953-
+954-def _record_judge_outcome(verdict: str, reason: str) -> None:
+955-    """Tick the appropriate counter based on judge return values.
+956-
+957-    Normalizes the existing judge fail-open contract: when reason
+958:    starts with 'judge_error:', the call errored and was returned as
+959-    ENTAILED to keep the run alive. We tick judge_error in that case
+960-    instead of entailed so an operator can distinguish "gate accepted
+961-    the sentence" from "gate failed open."
+962-    """
+963-    _JUDGE_TELEMETRY["calls"] += 1
+964-    # FX-09: also tick the per-run, concurrency-isolated counter if a run scope is active.
+965-    _run_tel = _RUN_JUDGE_TELEMETRY.get()
+966-    if _run_tel is not None:
+967-        _run_tel["calls"] += 1
+968:    if reason.startswith("judge_error:"):
+969-        _JUDGE_TELEMETRY["judge_error"] += 1
+970-        if _run_tel is not None:
+971-            _run_tel["judge_error"] += 1
+972-        return
+973-    key = verdict.lower()
+974-    if key in _JUDGE_TELEMETRY:
+975-        _JUDGE_TELEMETRY[key] += 1
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+A concrete edge case emerged from the scan loop itself: when `raw_decode` fails at an outer `{`, the implementation advances one character and can then decode a complete nested object. I’m checking whether that creates a genuine fail-closed regression versus just a theoretical parser quirk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 12 \"while True:\" src\\polaris_graph\\llm\\entailment_judge.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 12 \"while True:\" src\\polaris_graph\\retrieval\\semantic_conflict_detector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 8 \"test_genuine_failures_still_raise_fail_closed\" tests\\polaris_graph\\llm\\test_judge_garbled200_parse_iarch011.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F -C 8 \"test_nested_verdict_object_not_misselected\" tests\\polaris_graph\\llm\\test_judge_garbled200_parse_iarch011.py" in C:\POLARIS
+ succeeded in 1522ms:
+313-
+314-    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
+315-    sentinel / partial) on empty/None/non-str content, on content with no ``{``, on a lone
+316-    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
+317-    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed path
+318-    (retry then drop / hold) is therefore preserved byte-for-byte for every genuine failure —
+319-    only the valid-verdict-object-plus-trailing-text case is newly rescued.
+320-    """
+321-    if not isinstance(content, str) or not content.strip():
+322-        raise ValueError("empty or non-str judge content")
+323-    decoder = json.JSONDecoder()
+324-    search_from = 0
+325:    while True:
+326-        start = content.find("{", search_from)
+327-        if start == -1:
+328-            raise ValueError("no verdict-bearing JSON object found in judge content")
+329-        try:
+330-            obj, end = decoder.raw_decode(content, start)
+331-        except json.JSONDecodeError:
+332-            # This "{" did not begin a complete JSON value (e.g. a brace inside prose).
+333-            # Advance one char and look for the next candidate object start.
+334-            search_from = start + 1
+335-            continue
+336-        if isinstance(obj, dict) and "verdict" in obj:
+337-            return obj
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2112ms:
+555-    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed
+556-    behaviour (strict -> HOLD, non-strict -> fail-open neutral) is therefore preserved
+557-    byte-for-byte for every genuine failure — only the valid-verdict-object-plus-trailing-
+558-    text case is newly rescued.
+559-
+560-    NOTE: this is intentionally duplicated from ``llm.entailment_judge`` rather than
+561-    cross-imported, to avoid a retrieval<->llm import cycle (lane file-scope + LAW V).
+562-    """
+563-    if not isinstance(content, str) or not content.strip():
+564-        raise ValueError("empty or non-str judge content")
+565-    decoder = json.JSONDecoder()
+566-    search_from = 0
+567:    while True:
+568-        start = content.find("{", search_from)
+569-        if start == -1:
+570-            raise ValueError("no verdict-bearing JSON object found in judge content")
+571-        try:
+572-            obj, end = decoder.raw_decode(content, start)
+573-        except json.JSONDecodeError:
+574-            search_from = start + 1
+575-            continue
+576-        if isinstance(obj, dict) and "verdict" in obj:
+577-            return obj
+578-        search_from = end
+579-
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2707ms:
+187-        pytest.param(123, id="non_str_int"),
+188-        pytest.param({"verdict": "ENTAILED"}, id="non_str_dict"),
+189-        # Valid JSON object(s) but NONE carries "verdict" — must fail closed, never return a
+190-        # non-verdict dict that downstream maps to neutral / "" (the fail-open regression).
+191-        pytest.param('{"reason": "x"}', id="valid_object_no_verdict"),
+192-        pytest.param('{"note": "a"}\n{"other": "b"}', id="two_objects_no_verdict"),
+193-    ],
+194-)
+195:def test_genuine_failures_still_raise_fail_closed(extract, bad):
+196-    """Every genuinely-unparseable / non-object input must RAISE — never return a value."""
+197-    with pytest.raises((ValueError, json.JSONDecodeError)):
+198-        extract(bad)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3366ms:
+128-        '{"verdict": "CONTRADICTED", "reason": "real verdict"}'
+129-    )
+130-    parsed = extract(body)
+131-    assert parsed["verdict"] == "CONTRADICTED"
+132-    assert parsed["reason"] == "real verdict"
+133-
+134-
+135-@pytest.mark.parametrize("extract", _EXTRACTORS)
+136:def test_nested_verdict_object_not_misselected(extract):
+137-    """A verdict nested inside a wrapper must not be picked apart mid-object.
+138-
+139-    The outer object carries ``verdict`` so it is returned whole; the scan must not
+140-    descend into the nested ``{"x": ...}`` and return a fragment.
+141-    """
+142-    body = '{"verdict": "ENTAILED", "meta": {"x": 1}, "reason": "ok"}'
+143-    parsed = extract(body)
+144-    assert parsed["verdict"] == "ENTAILED"
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+novel_p0: []
+
+continuing_p0: []
+
+p1: [
+  "[src/polaris_graph/llm/entailment_judge.py:329](/abs/path/C:/POLARIS/src/polaris_graph/llm/entailment_judge.py:329) and [src/polaris_graph/retrieval/semantic_conflict_detector.py:572](/abs/path/C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:572): the extractor can still make malformed partial JSON pass. On `raw_decode` failure at an outer `{`, it unconditionally advances to the next `{`. A malformed wrapper such as `{\"wrapper\":{\"verdict\":\"NEUTRAL\",\"reason\":\"ok\"}` fails at offset 0, then the nested complete verdict object can be decoded and returned. Pre-fix `json.loads` failed closed; post-fix this can turn malformed/partial content into an accepted judge verdict. That violates the stated fail-closed contract for malformed/partial content. Add a regression case for malformed outer JSON containing a complete nested verdict object, and make JSON-looking candidate object decode failure raise rather than scanning into its interior."
+]
+
+p2: [
+  "Known live-host/preflight risk: removing `response_format` can let a reasoning host return blank content. I do not see a new verified-as-verified fail-open path from that deletion itself: entailment still retries/sentinels to `judge_error`, and semantic-conflict still uses the existing `CONFLICT_UNSCORED_LABEL`/strict exception behavior for parse failures. This still needs live host preflight because it can affect coverage/routing quality."
+]
+
+convergence_call: continue
+
+remaining_blockers_for_execution: [
+  "Fix the extractor so malformed JSON envelopes cannot be salvaged by decoding an inner verdict object, in both duplicated copies, and cover it in the new parser tests."
+]
+
+verdict: REQUEST_CHANGES
+tokens used
+57,868

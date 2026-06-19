@@ -1,0 +1,15 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Static review notes:
+- (a) Array/container salvage is closed in both judges. [entailment_judge.py](C:/POLARIS/src/polaris_graph/llm/entailment_judge.py:326) and [semantic_conflict_detector.py](C:/POLARIS/src/polaris_graph/retrieval/semantic_conflict_detector.py:568) now decode the outermost earliest `{`/`[` value and only return a dict with a top-level `verdict`; arrays/wrapper objects are skipped by decoded end offset, not searched internally.
+- (b) The intended success cases remain: garbled-200, leading non-verdict scratchpad object followed by verdict object, fenced JSON, and top-level verdict with nested metadata are still covered in [test_judge_garbled200_parse_iarch011.py](C:/POLARIS/tests/polaris_graph/llm/test_judge_garbled200_parse_iarch011.py:59).
+- (c) `semantic_conflict` now validates parsed verdicts against `{"CONTRADICT", "ENTAIL", "NEUTRAL"}` and uses direct map indexing after validation, so out-of-vocab parsed verdicts raise and hit the existing strict fail-closed path.
+- (d) I found no new fail-open path in the iter-3 patch. Static review only; I did not run pytest per instruction.
+
+verdict: APPROVE

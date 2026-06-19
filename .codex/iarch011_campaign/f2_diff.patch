@@ -1,0 +1,185 @@
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 0659a7a1..b7e3d02c 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -134,18 +134,35 @@ def _credibility_guard_decision(
+     ``generate_multi_section_report`` after the LLM outline/section calls).
+ 
+     Returns:
+-      * ``"run"`` — judge + gov_suffixes ARE threaded; run the pass normally.
+-      * ``"degrade"`` — judge missing / gov_suffixes missing AND always-release ON; degrade
+-        to the credibility-OFF path (credibility_analysis stays None) + a disclosed gap +
+-        CONTINUE. The caller MUST NOT run the pass body with a None judge.
+-      * ``"raise"`` — judge missing / gov_suffixes missing AND always-release OFF (legacy);
+-        the caller raises CredibilityPassError fail-closed (byte-identical to pre-fix).
+-
+-    This is the keystone of B12-COMPLETION: pre-fix the raise fired BEFORE the B5/B7
+-    always-release try, so judge=None HELD the whole report even under always-release. Now
+-    the decision is gated on always_release so "label not hold" is live in production."""
+-    if judge is None or not gov_suffixes:
++      * ``"run"`` — gov_suffixes ARE threaded; run the pass. A threaded judge scores via the
++        LLM; a MISSING judge (under always-release) runs the COMPLETE priors-only pass (see the
++        I-arch-011 note below).
++      * ``"degrade"`` — gov_suffixes missing AND always-release ON; degrade to the
++        credibility-OFF path (credibility_analysis stays None) + a disclosed gap + CONTINUE.
++      * ``"raise"`` — judge OR gov_suffixes missing AND always-release OFF (legacy); the caller
++        raises CredibilityPassError fail-closed (byte-identical to pre-fix).
++
++    B12-COMPLETION made the raise gate on always_release so "label not hold" is live in
++    production.
++
++    I-arch-011 (#1268) BREADTH KEYSTONE: a MISSING judge and MISSING gov_suffixes are NOT the
++    same condition and must NOT share a branch. ``gov_suffixes`` missing is a real wiring hole —
++    the pass cannot classify government sources at all, so degrade (always-release) / raise
++    (legacy) stands. But ``judge=None`` is DIFFERENT: ``run_credibility_analysis(judge=None)``
++    runs a COMPLETE priors-only pass — ZERO LLM scoring calls (scoring needs a judge), every
++    source LABELED ``credibility_unscored`` (a disclosed gap, never fabricated) — and that
++    priors-only pass is exactly what BUILDS the per-claim baskets the breadth-enrichment surfaces.
++    The old shared ``judge is None or not gov_suffixes`` → ``degrade`` threw the basket away
++    (credibility_analysis=None), which is the 794→9 cited-source collapse (PG_CREDIBILITY_LLM_JUDGE
++    is gated off on the run to avoid the side-judge GIL hang, so judge arrives None). So a missing
++    judge with gov_suffixes present must RUN priors-only under always-release, not degrade. Legacy
++    (always-release OFF) keeps the byte-identical fail-closed raise. Faithfulness is unchanged:
++    priors weights are real deterministic authority weights; strict_verify / 4-role D8 /
++    span-grounding stay the ONLY binding gates."""
++    if not gov_suffixes:
+         return "degrade" if always_release else "raise"
++    if judge is None:
++        return "run" if always_release else "raise"
+     return "run"
+ 
+ 
+@@ -6752,8 +6769,10 @@ async def generate_multi_section_report(
+         # byte-identical credibility-OFF path (credibility_analysis stays None; the apply_disclosure_to_svs
+         # sites are all `is not None`-guarded, so sources ship UNSCORED at neutral weight) + surface a LOUD
+         # disclosed gap + CONTINUE. The hard fail-closed raise is kept ONLY when always-release is OFF
+-        # (legacy byte-identical). We do NOT run the pass with a None judge (it would make hundreds of calls
+-        # then fail) — we skip the pass body entirely on this degraded path.
++        # (legacy byte-identical). I-arch-011 (#1268): "degrade" now fires ONLY for MISSING gov_suffixes;
++        # a MISSING judge with gov_suffixes present RUNS the pass priors-only (judge=None makes ZERO LLM
++        # scoring calls, so the old "hundreds of calls then fail" fear never applied to the priors-only
++        # path) — that priors-only basket is what the breadth enrichment surfaces (the 794→9 fix).
+         _cred_guard = _credibility_guard_decision(
+             judge=credibility_pass_judge,
+             gov_suffixes=credibility_pass_gov_suffixes,
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index 4fcddd10..dd1deeed 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -33,6 +33,7 @@ render-site wrapper are the per-hook sub-issues; this module is the chain core t
+ """
+ from __future__ import annotations
+ 
++import contextlib
+ import dataclasses
+ import os
+ from dataclasses import dataclass, field
+@@ -245,6 +246,41 @@ def _clamp01(value: float) -> float:
+ # ── I-arch-002 [8] — ClaimBasket assembly + isolated per-member verification ───
+ 
+ 
++@contextlib.contextmanager
++def _advisory_entailment_disabled():
++    """Force ``PG_STRICT_VERIFY_ENTAILMENT=off`` for the duration of the ADVISORY basket
++    assembly, then restore the prior value (I-arch-011 F2b, #1268).
++
++    WHY: the per-member basket verify is ADVISORY (the module docstring +
++    ``_verify_member_in_isolation``'s docstring both state strict_verify is "never re-run as a
++    gate" here), yet it calls ``verify_sentence_provenance``, whose 6th-check entailment judge
++    defaults to ENFORCE and makes ONE serial LLM call per member. With F2a building the
++    priors-only basket over hundreds of members, that is the Q72/Q76/Q90 serial-entailment HANG,
++    re-armed. We disable ONLY the entailment 6th-check, ONLY for the advisory assembly, with a
++    SINGLE set/restore wrapped AROUND the whole ``_assemble_baskets`` call — the per-member
++    ThreadPoolExecutor is created AND joined inside that call, so the worker threads only READ
++    the off value during the window (no per-thread race; ``os.environ`` is process-global, not a
++    ContextVar, so the copied contexts see the same value).
++
++    FAITHFULNESS-NEUTRAL: the BINDING section gate is a DIFFERENT call path (``_run_section`` ->
++    ``strict_verify`` at render) and keeps ``enforce``, so every member this advisory pass surfaces
++    is still re-verified under entailment-ENFORCE before it can be cited. Disabling entailment here
++    can only make the advisory verdict MORE permissive (offer more candidates) — never relax the
++    binding gate that decides what actually renders. The credibility-pass entry runs on a worker
++    thread AFTER outline/Stage-1 and BEFORE Stage-2 section generation, so no binding strict_verify
++    runs concurrently with this window.
++    """
++    prev = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT")
++    os.environ["PG_STRICT_VERIFY_ENTAILMENT"] = "off"
++    try:
++        yield
++    finally:
++        if prev is None:
++            os.environ.pop("PG_STRICT_VERIFY_ENTAILMENT", None)
++        else:
++            os.environ["PG_STRICT_VERIFY_ENTAILMENT"] = prev
++
++
+ def _row_span_text(row: dict) -> str:
+     """The member's own span text (the same field strict_verify reads). Mirrors
+     ``provenance_generator``'s ``direct_quote or statement`` resolution so the
+@@ -837,11 +873,20 @@ def _run_chain(
+     from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+         verify_sentence_provenance,
+     )
+-    baskets = _assemble_baskets(
+-        graph, weight_mass, annotated, credibility_by_evidence,
+-        verify_fn=verify_sentence_provenance,
+-        max_inflight=max_inflight,
+-    )
++    # I-arch-011 F2b (#1268) — the advisory per-member verify runs entailment-OFF (see
++    # _advisory_entailment_disabled). With F2a building the priors-only basket over hundreds
++    # of members, letting verify_sentence_provenance's 6th-check entailment judge (default
++    # ENFORCE) fire ONE serial LLM call per member is the Q72/76/90 serial-entailment HANG,
++    # re-armed. The advisory verdict only chooses WHICH already-span-grounded members are
++    # OFFERED as breadth candidates; the BINDING section gate re-verifies every surfaced
++    # member under entailment-ENFORCE at render, so faithfulness is untouched (advisory ==
++    # mechanical, exactly as _verify_member_in_isolation's docstring states).
++    with _advisory_entailment_disabled():
++        baskets = _assemble_baskets(
++            graph, weight_mass, annotated, credibility_by_evidence,
++            verify_fn=verify_sentence_provenance,
++            max_inflight=max_inflight,
++        )
+ 
+     # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster
+     #    id(s) its atomic claim(s) belong to. The resolve sites today carry only cited
+diff --git a/tests/polaris_graph/generator/test_lane_section_arch005.py b/tests/polaris_graph/generator/test_lane_section_arch005.py
+index d0393563..36f12c02 100644
+--- a/tests/polaris_graph/generator/test_lane_section_arch005.py
++++ b/tests/polaris_graph/generator/test_lane_section_arch005.py
+@@ -496,18 +496,32 @@ def test_arch005_zero_emission_gap_stub_is_visible_not_dropped() -> None:
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
+ 
+-def test_arch005_b12_judge_none_always_release_on_degrades_not_raise() -> None:
+-    """judge=None (or gov_suffixes missing) + always-release ON -> "degrade" (NOT "raise").
+-    This is the B12-COMPLETION fix: the report ships with a disclosed gap, never holds."""
++def test_iarch011_f2a_judge_none_with_gov_runs_priors_only() -> None:
++    """I-arch-011 F2a (#1268): judge=None + gov_suffixes PRESENT + always-release ON -> "run"
++    (was "degrade" under B12-COMPLETION). run_credibility_analysis(judge=None) builds the
++    COMPLETE priors-only basket (ZERO scoring LLM calls, every source LABELED
++    credibility_unscored); the old "degrade" threw that basket away -> the 794->9 cited-source
++    collapse. A missing judge must RUN priors-only, not degrade. Faithfulness unchanged: priors
++    weights are real; strict_verify / 4-role D8 / span-grounding stay the only binding gates."""
+     assert msg._credibility_guard_decision(
+         judge=None, gov_suffixes=("gov",), always_release=True,
+-    ) == "degrade"
++    ) == "run"
++
++
++def test_iarch011_f2a_gov_suffixes_missing_still_degrades() -> None:
++    """MISSING gov_suffixes is a real wiring hole (the pass cannot classify gov sources) and is
++    NOT the judge case: it KEEPS the B12-COMPLETION degrade under always-release, regardless of
++    whether the judge is present. The F2a fix split the two conditions deliberately."""
+     assert msg._credibility_guard_decision(
+         judge=object(), gov_suffixes=None, always_release=True,
+     ) == "degrade"
+     assert msg._credibility_guard_decision(
+         judge=object(), gov_suffixes=(), always_release=True,
+     ) == "degrade"
++    # gov-missing dominates even when the judge is ALSO missing (gov branch checked first).
++    assert msg._credibility_guard_decision(
++        judge=None, gov_suffixes=(), always_release=True,
++    ) == "degrade"
+ 
+ 
+ def test_arch005_b12_judge_none_always_release_off_still_raises() -> None:

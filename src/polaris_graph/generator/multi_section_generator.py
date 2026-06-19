@@ -125,6 +125,19 @@ _CREDIBILITY_NO_JUDGE_DISCLOSED_GAP: str = (
     "only the advisory credibility disclosure is degraded."
 )
 
+# I-arch-011 (#1268): the disclosed-gap string for the F2a PRIORS-ONLY *run* path. Distinct from
+# _CREDIBILITY_NO_JUDGE_DISCLOSED_GAP (the pass-could-NOT-run degrade): here the pass DID run, just
+# without the LLM credibility judge (judge=None, e.g. PG_CREDIBILITY_LLM_JUDGE=off). Surfaced on the
+# operator-visible carrier (manifest credibility_disclosed_gap) so priors-only weights never ship
+# without the promised disclosure (LAW II; Codex I-arch-011 P1). NAMED constant so the run path and
+# the unit test reference the SAME text.
+_CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP: str = (
+    "credibility_pass_priors_only: the LLM credibility judge was not wired (judge=None, e.g. "
+    "PG_CREDIBILITY_LLM_JUDGE=off); the credibility pass RAN but scored every source by deterministic "
+    "authority priors only and labeled them credibility_unscored — this gap is disclosed. The binding "
+    "faithfulness gates (strict_verify, 4-role D8, span-grounding) are unaffected."
+)
+
 
 def _credibility_guard_decision(
     *, judge: Any, gov_suffixes: Any, always_release: bool,
@@ -134,18 +147,35 @@ def _credibility_guard_decision(
     ``generate_multi_section_report`` after the LLM outline/section calls).
 
     Returns:
-      * ``"run"`` — judge + gov_suffixes ARE threaded; run the pass normally.
-      * ``"degrade"`` — judge missing / gov_suffixes missing AND always-release ON; degrade
-        to the credibility-OFF path (credibility_analysis stays None) + a disclosed gap +
-        CONTINUE. The caller MUST NOT run the pass body with a None judge.
-      * ``"raise"`` — judge missing / gov_suffixes missing AND always-release OFF (legacy);
-        the caller raises CredibilityPassError fail-closed (byte-identical to pre-fix).
+      * ``"run"`` — gov_suffixes ARE threaded; run the pass. A threaded judge scores via the
+        LLM; a MISSING judge (under always-release) runs the COMPLETE priors-only pass (see the
+        I-arch-011 note below).
+      * ``"degrade"`` — gov_suffixes missing AND always-release ON; degrade to the
+        credibility-OFF path (credibility_analysis stays None) + a disclosed gap + CONTINUE.
+      * ``"raise"`` — judge OR gov_suffixes missing AND always-release OFF (legacy); the caller
+        raises CredibilityPassError fail-closed (byte-identical to pre-fix).
 
-    This is the keystone of B12-COMPLETION: pre-fix the raise fired BEFORE the B5/B7
-    always-release try, so judge=None HELD the whole report even under always-release. Now
-    the decision is gated on always_release so "label not hold" is live in production."""
-    if judge is None or not gov_suffixes:
+    B12-COMPLETION made the raise gate on always_release so "label not hold" is live in
+    production.
+
+    I-arch-011 (#1268) BREADTH KEYSTONE: a MISSING judge and MISSING gov_suffixes are NOT the
+    same condition and must NOT share a branch. ``gov_suffixes`` missing is a real wiring hole —
+    the pass cannot classify government sources at all, so degrade (always-release) / raise
+    (legacy) stands. But ``judge=None`` is DIFFERENT: ``run_credibility_analysis(judge=None)``
+    runs a COMPLETE priors-only pass — ZERO LLM scoring calls (scoring needs a judge), every
+    source LABELED ``credibility_unscored`` (a disclosed gap, never fabricated) — and that
+    priors-only pass is exactly what BUILDS the per-claim baskets the breadth-enrichment surfaces.
+    The old shared ``judge is None or not gov_suffixes`` → ``degrade`` threw the basket away
+    (credibility_analysis=None), which is the 794→9 cited-source collapse (PG_CREDIBILITY_LLM_JUDGE
+    is gated off on the run to avoid the side-judge GIL hang, so judge arrives None). So a missing
+    judge with gov_suffixes present must RUN priors-only under always-release, not degrade. Legacy
+    (always-release OFF) keeps the byte-identical fail-closed raise. Faithfulness is unchanged:
+    priors weights are real deterministic authority weights; strict_verify / 4-role D8 /
+    span-grounding stay the ONLY binding gates."""
+    if not gov_suffixes:
         return "degrade" if always_release else "raise"
+    if judge is None:
+        return "run" if always_release else "raise"
     return "run"
 
 
@@ -6752,8 +6782,10 @@ async def generate_multi_section_report(
         # byte-identical credibility-OFF path (credibility_analysis stays None; the apply_disclosure_to_svs
         # sites are all `is not None`-guarded, so sources ship UNSCORED at neutral weight) + surface a LOUD
         # disclosed gap + CONTINUE. The hard fail-closed raise is kept ONLY when always-release is OFF
-        # (legacy byte-identical). We do NOT run the pass with a None judge (it would make hundreds of calls
-        # then fail) — we skip the pass body entirely on this degraded path.
+        # (legacy byte-identical). I-arch-011 (#1268): "degrade" now fires ONLY for MISSING gov_suffixes;
+        # a MISSING judge with gov_suffixes present RUNS the pass priors-only (judge=None makes ZERO LLM
+        # scoring calls, so the old "hundreds of calls then fail" fear never applied to the priors-only
+        # path) — that priors-only basket is what the breadth enrichment surfaces (the 794→9 fix).
         _cred_guard = _credibility_guard_decision(
             judge=credibility_pass_judge,
             gov_suffixes=credibility_pass_gov_suffixes,
@@ -6845,6 +6877,20 @@ async def generate_multi_section_report(
                 if _cred_cost_delta > 0:
                     _orc_cred._add_run_cost(_cred_cost_delta)  # reflect offloaded credibility spend in the budget
             _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
+            # I-arch-011 (#1268) Codex P1: F2a runs the credibility pass PRIORS-ONLY when the LLM
+            # credibility judge is gated off (judge=None). Unlike the old degrade path, the "run" path
+            # DOES produce a credibility_analysis (the basket the breadth enrichment needs) but every
+            # source is priors-only + labeled credibility_unscored. That disclosed gap MUST reach the
+            # operator-visible carrier (manifest credibility_disclosed_gap via run_honest_sweep_r3.py) —
+            # else priors-only weights ship WITHOUT the promised disclosure (LAW II silent-downgrade).
+            # Only on the SUCCESS path (analysis built) and only if a more-specific gap (the timeout
+            # degrade above) was not already set.
+            if (
+                credibility_pass_judge is None
+                and credibility_analysis is not None
+                and _credibility_disclosed_gap is None
+            ):
+                _credibility_disclosed_gap = _CREDIBILITY_PRIORS_ONLY_DISCLOSED_GAP
 
     # I-arch-007 ITEM 2 (#1264) BREADTH — surface the weighted UNBOUND span-verified SUPPORTS
     # sources the 5-entity contract funnel never offered to any section (the 485->~13 collapse,

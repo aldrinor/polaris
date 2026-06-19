@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["F2a makes judge=None+gov-present leave the old visible degrade path and run priors-only, but the `credibility_unscored` labels are not surfaced. `EvidenceCredibility.credibility_unscored` is set inside `credibility_analysis` (`credibility_pass.py:795-807`), but `CredibilityAnalysis` has no top-level label field, `MultiSectionResult` does not carry `credibility_unscored`, and the sweep collector only reads `multi.credibility_unscored` or retrieval (`run_honest_sweep_r3.py:2791`, `run_honest_sweep_r3.py:11408`). Result: with `PG_CREDIBILITY_LLM_JUDGE=off`, priors-only weights can ship without the promised operator-visible disclosed gap. Project those labels to `MultiSectionResult`/manifest or set an explicit `credibility_disclosed_gap` on the judge=None run path."]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: ["Surface the judge=None priors-only `credibility_unscored` disclosure on an operator-visible carrier before approving F2a."]
