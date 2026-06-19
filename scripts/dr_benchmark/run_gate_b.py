@@ -929,6 +929,21 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # slate-absent runs are byte-identical — pinned for clarity + drift-protection.
     "PG_DISTILL_MAP_CALL_WALL_S": "1800",
     "PG_DISTILL_MAX_PARALLEL": "8",
+    # I-arch-011 FIX-C (run #6 enrichment-verify "freeze" — the wiring gap): the I-arch-006 fix#19
+    # bounded-PARALLEL findings verify (provenance_generator._parallel_verify_workers) exists but was
+    # NEVER set in the slate, so the 737-source breadth-enrichment section verified its ~1839
+    # sentence-units SERIALLY. At a healthy ~5.7s/call that is ~173min for ONE section — it blows the
+    # run wall and looks frozen (the run-#6 "deadlock" was this serial grind, NOT a per-call deadlock;
+    # the per-call total-deadline was proven sound by scripts/iarch011_entailment_deadline_repro.py).
+    # Cap concurrency at 16 (matches PG_CREDIBILITY_PASS_MAX_INFLIGHT). The per-call total-deadline in
+    # entailment_judge (PG_ENTAILMENT_TOTAL_S=45) is what makes it HANG-SAFE — parallelism alone is not
+    # (list(map())+shutdown(wait=True) would block on a never-returning future). FAITHFULNESS-NEUTRAL:
+    # the parallel path copies the parent contextvars context and ``map`` preserves input order, so
+    # kept/dropped is byte-identical to the serial loop (concurrency changes timing, not verdicts); a
+    # worker exception still propagates fail-loud. Behavioral proof on the banked drb_78 corpus + REAL
+    # glm-5.1 judge (scripts/iarch011_parallel_verify_gate.py): the enrichment verify COMPLETES in
+    # 17.4min (was ~173min serial) and keeps 1746 cited / 657 distinct sources on the enforce path.
+    "PG_PARALLEL_VERIFY": "16",
     # I-arch-011 B02/B04 (FETCH lane): re-fetch fetch_degraded rows through the live-retriever Zyte
     # cascade on the FRESH (non-resume) path too — PG_RESUME_REFETCH_DEGRADED above covers the
     # --resume path, and this is INERT on a resume (no live fetch runs). Default OFF in code so a
@@ -1229,6 +1244,10 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # cannot silently restore the single-host z-ai blank-storm (which DROPS verified sentences in enforce
     # mode -> breadth collapse). Faithfulness-neutral-to-improving (same glm-5.1 model, next healthy host).
     "PG_JUDGE_PROVIDER_ROTATE",
+    # I-arch-011 FIX-C (Codex P2): force the parallel-verify worker count EXACTLY to the slate value (16)
+    # so a stray operator/.env PG_PARALLEL_VERIFY can neither exceed the intended 16-worker cap nor
+    # silently revert to serial (=1, the bug that froze run #6). Concurrency knob only; verdicts unchanged.
+    "PG_PARALLEL_VERIFY",
     # I-arch-007 #1264 DORMANT-CAP CLEANUP: pin both number-forcing caps EXACTLY OFF ("0") so a stray
     # operator/.env value can never silently re-enable them (operator: ZERO cap; §-1.3 BANNED bolt-ons).
     # PG_CAPPED_FINDING_DEDUP=0 removes the re-cap-to-max_ev (verified the ONLY consumer is the two

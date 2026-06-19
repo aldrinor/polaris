@@ -2789,6 +2789,19 @@ def strict_verify(
         import concurrent.futures as _futures  # noqa: PLC0415 (lazy: zero OFF-path cost)
         import contextvars as _ctxvars  # noqa: PLC0415
 
+        # I-arch-011 (Codex FIX-C P1): each worker runs in a COPIED context, so the entailment
+        # judge's ``_orc._add_run_cost`` / ``check_run_budget`` mutate the COPY's ``_RUN_COST_CTX``
+        # (lost to the parent) — the parallel verify spend would bypass PG_MAX_COST_PER_RUN and the
+        # run-budget gate. The cost LEDGER stays accurate (``append_cost_ledger_row`` bumps a
+        # process-global, lock-protected per-session accumulator, NOT a contextvar). Mirror the
+        # credibility_pass offload reconciliation (openrouter_client.ledger_cumulative docstring):
+        # snapshot the per-session ledger cumulative before/after the pool and re-add the delta to the
+        # PARENT ``_RUN_COST_CTX``, then re-check the budget so the gate is inclusive of the parallel
+        # judge spend. Faithfulness-NEUTRAL (cost accounting only; verdicts unchanged).
+        from src.polaris_graph.llm import openrouter_client as _orc_cost  # noqa: PLC0415
+        _run_id = _orc_cost._CURRENT_RUN_ID_CTX.get()
+        _cost_before = _orc_cost.ledger_cumulative(_run_id)
+
         _parent_ctx = _ctxvars.copy_context()
 
         def _verify_in_context(_s: str) -> SentenceVerification:
@@ -2802,6 +2815,12 @@ def strict_verify(
 
         with _futures.ThreadPoolExecutor(max_workers=_verify_workers) as _pool:
             _findings_results = list(_pool.map(_verify_in_context, _findings_to_verify))
+
+        # Reconcile the parallel verify spend into the parent budget gate (see note above).
+        _cost_delta = _orc_cost.ledger_cumulative(_run_id) - _cost_before
+        if _cost_delta > 0:
+            _orc_cost._add_run_cost(_cost_delta)
+            _orc_cost.check_run_budget(0)  # raises BudgetExceededError if the pool breached the cap
 
     for v in _findings_results:
         # Keep iff verified (a re-anchored rescue is returned already is_verified=

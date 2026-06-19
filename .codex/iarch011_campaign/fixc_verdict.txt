@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: ["Activating PG_PARALLEL_VERIFY makes entailment-judge cost accounting run inside copied worker ContextVars. _orc._add_run_cost/check_run_budget in entailment_judge.py update/check each worker copy, but provenance_generator.py does not re-add worker deltas to the parent run cost like credibility_pass.py does. Result: the 737-source verify can bypass PG_MAX_COST_PER_RUN and underreport manifest cost while spending real judge calls."]
+p2: ["PG_PARALLEL_VERIFY=16 is floor-applied by apply_full_capability_benchmark_slate, not force-exact, so an existing env value >16 exceeds the commented 16-worker cap.", "Run judge telemetry uses a shared mutable dict with unsynchronized increments under parallel workers; this does not change kept/dropped verdicts, but can skew judge_error_rate/disclosure accounting."]
+convergence_call: continue
+remaining_blockers_for_execution: ["Mirror credibility_pass-style cost reconciliation in the PG_PARALLEL_VERIFY path, or otherwise prove parent run cost and budget checks include all parallel entailment judge spend."]
