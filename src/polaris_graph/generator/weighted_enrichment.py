@@ -9,15 +9,17 @@ unbound-but-span-verified SUPPORTS sources into ONE extra legacy (field-agnostic
 they flow through the UNCHANGED ``_run_section`` -> ``strict_verify`` path.
 
 §-1.3 DNA — WEIGHT-AND-CONSOLIDATE, never FILTER-AND-CAP:
-  * WEIGHT + RELEVANCE-GATE, DON'T CAP: candidates are ORDERED by relevance-to-question THEN
-    basket ``weight_mass`` (priority of consideration). There is NO cap / target / top-N — the
-    FULL surviving list is offered. The ONE filter applied here is the EXISTING relevance GATE
-    (``PG_RELEVANCE_FLOOR``, default 0.30): a member whose source row scores BELOW the floor is
-    excluded. This is §-1.3's single relevance-axis carve-out — "off-topic is genuinely useless
-    at any weight" (evidence_selector.py:2018-2024) — applied CONSISTENTLY to what the breadth
-    section actively SURFACES, per the operator's no-off-topic-verified-but-peripheral requirement
-    (#1264). It reuses the SAME floor + the SAME ``parse_relevance_floor`` fail-loud validation the
-    retrieval gate uses; it is NOT a new arbitrary number, and it is NOT a breadth throttle.
+  * WEIGHT, DON'T FILTER (I-arch-011 B18, the keystone): candidates are ORDERED by
+    relevance-to-question THEN basket ``weight_mass`` (priority of consideration). There is NO cap /
+    target / top-N / FLOOR DROP — the FULL surviving list is offered. KEEP-ALL-AND-SORT-BELOW-FLOOR-
+    LAST: a member whose source row scores BELOW ``PG_RELEVANCE_FLOOR`` is NOT excluded — it is KEPT
+    and sorted LAST (a below-floor ORDERING demotion, never a drop), exactly the way the retrieval
+    pool itself down-weights a below-floor row under the redesign (evidence_selector.py:2066-2070,
+    ``kept = list(scored)``). The pre-I-arch-011 code RE-IMPOSED a hard ``selection_relevance < 0.30``
+    DROP here — the SECTION-1.3-FORBIDDEN filter-and-cap anti-pattern the selector docstring
+    (evidence_selector.py:1944-1953) explicitly forbids, which killed 729/746 unbound SUPPORTS so the
+    enrichment appended NOTHING. That drop is REMOVED. ``below_floor_count`` is now pure TELEMETRY
+    (how many kept rows sit below the floor), never an exclusion.
   * CONSOLIDATE, DON'T DROP: the members come straight from the already-computed claim baskets
     (``ClaimBasket.supporting_members``) — the consolidated multi-source groups.
   * BASKET FAITHFULNESS: a member is offered ONLY if its OWN isolated ``span_verdict`` is
@@ -25,11 +27,13 @@ they flow through the UNCHANGED ``_run_section`` -> ``strict_verify`` path.
     re-verified against its own span by the section's UNCHANGED ``strict_verify``. Breadth
     EMERGES from how many survive that gate — it is never forced.
 
-RECONCILIATION WITH RETRIEVAL P0-A6 (evidence_selector.py:2036-2065): the retrieval POOL still
+RECONCILIATION WITH RETRIEVAL P0-A6 (evidence_selector.py:2036-2070): the retrieval POOL
 WEIGHTS-not-FILTERS — under the default redesign a below-floor row is KEPT and down-weighted in the
-pool, never hard-dropped (P0-A6 is UNTOUCHED). This relevance gate governs ONLY what the breadth
-ENRICHMENT section actively SURFACES into the report; it is the operator's no-off-topic requirement
-(#1264) applied at the surfacing boundary, not a re-introduction of the retrieval filter P0-A6 removed.
+pool, never hard-dropped (P0-A6 is UNTOUCHED). The breadth ENRICHMENT section now behaves
+IDENTICALLY: a below-floor unbound SUPPORTS member is KEPT and sorted LAST, never dropped — the
+relevance floor is an ORDERING weight at the surfacing boundary, not a re-introduction of the
+retrieval filter P0-A6 removed. The ONLY hard gate remains the faithfulness engine (strict_verify /
+NLI / 4-role / span-grounding), which is untouched.
 
 FAITHFULNESS-NEUTRALITY: this module only READS already-computed state and builds a candidate
 ``SectionPlan``. It moves NO strict_verify / NLI / 4-role D8 / span-grounding / section-floor /
@@ -118,27 +122,37 @@ def contract_bound_evidence_ids(contract_plans: Any) -> set[str]:
     return bound
 
 
-# I-arch-007 #1264 CHOKE-FIX (observability): the enrichment had FIVE independent silent-empty
+# I-arch-007 #1264 CHOKE-FIX (observability): the enrichment had several independent silent-empty
 # exits (credibility None / no baskets / no SUPPORTS members at all / every SUPPORTS member already
-# bound or pool-absent / every remaining member below the relevance floor) and the call site logged
-# ONLY the success branch. That is why the operator saw "zero appended weighted-enrichment section
-# log lines in ALL reports" and could not tell WHICH gate killed it. Each reason below is a stable
-# machine-readable token the call site logs LOUDLY so a no-op is never silent again.
+# bound or pool-absent) and the call site logged ONLY the success branch. That is why the operator
+# saw "zero appended weighted-enrichment section log lines in ALL reports" and could not tell WHICH
+# gate killed it. Each reason below is a stable machine-readable token the call site logs LOUDLY so a
+# no-op is never silent again.
+#
+# I-arch-007 #1264 had a FIFTH exit — "every remaining member below the relevance floor" — because
+# the selection HARD-DROPPED below-floor rows. I-arch-011 (B18) REMOVED that drop (keep-all-sort-
+# below-floor-last), so a below-floor row can NEVER cause an empty exit any more. The empty case is
+# now honestly one of: degraded credibility / no baskets / no SUPPORTS member / all bound-or-pool-
+# absent. The `_REASON_ALL_BELOW_FLOOR` token is therefore RETIRED (it can no longer be reached).
 _REASON_OK = "ok"
 _REASON_CREDIBILITY_NONE = "credibility_analysis_none"  # degrade / flag-off path
 _REASON_NO_BASKETS = "no_baskets"
 _REASON_NO_SUPPORTS_MEMBERS = "no_supports_members"  # baskets exist but no SUPPORTS member at all
 _REASON_ALL_BOUND_OR_ABSENT = "all_supports_bound_or_pool_absent"
-_REASON_ALL_BELOW_FLOOR = "all_candidates_below_relevance_floor"
 
 
 class UnboundSupportsSelection(NamedTuple):
     """The selection result + a diagnostic breakdown of WHY it is what it is.
 
-    ``ev_ids`` is the FULL ordered surviving list (no cap). The counters make every empty-exit
-    auditable: the call site logs ``reason`` LOUDLY so a degraded credibility pass or an
-    all-below-floor pool can never silently no-op the breadth fix again. ALL counters are pure
-    READS — nothing here touches a faithfulness gate.
+    ``ev_ids`` is the FULL ordered surviving list (no cap, no floor drop). The counters make every
+    empty-exit auditable: the call site logs ``reason`` LOUDLY so a degraded credibility pass can
+    never silently no-op the breadth fix again. ALL counters are pure READS — nothing here touches a
+    faithfulness gate.
+
+    I-arch-011 (B18): ``excluded_below_floor`` is RETAINED as the field NAME (the call site at
+    multi_section_generator.py:6794/6822 reads it) but its MEANING is now pure TELEMETRY — the count
+    of KEPT rows that sit below ``PG_RELEVANCE_FLOOR`` (sorted LAST), NOT an exclusion. A below-floor
+    row is never dropped any more, so this counter can never reduce ``ev_ids``.
     """
     ev_ids: list[str]
     reason: str
@@ -146,6 +160,8 @@ class UnboundSupportsSelection(NamedTuple):
     supports_members_seen: int
     excluded_bound: int
     excluded_pool_absent: int
+    # I-arch-011 (B18): kept-but-below-floor count (telemetry); NOT an exclusion. Field name held
+    # stable for the out-of-lane consumer (multi_section_generator.py:6794/6822).
     excluded_below_floor: int
 
 
@@ -177,13 +193,13 @@ def diagnose_unbound_supports_selection(
     relevance_floor = parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
 
     # Per-eid: the HIGHEST basket weight_mass it appears under (ordering only, never a filter) and
-    # its topicality score for the relevance gate + relevance-first ordering.
+    # its topicality score for the relevance-first ordering.
     best_weight: dict[str, float] = {}
     relevance_by_eid: dict[str, float | None] = {}
     supports_members_seen = 0
     excluded_bound = 0
     excluded_pool_absent = 0
-    excluded_below_floor = 0
+    below_floor_count = 0  # I-arch-011 (B18): KEPT-but-below-floor (telemetry); NEVER an exclusion.
     for basket in baskets:
         try:
             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
@@ -202,28 +218,44 @@ def diagnose_unbound_supports_selection(
             if eid not in pool:
                 excluded_pool_absent += 1
                 continue
-            # RELEVANCE GATE (operator #1264): exclude a member whose source row is PRESENT-and-
-            # below-floor. A missing/unparseable score FALLS BACK to keep (pool membership already
-            # implies the retrieval floor passed) — never a SILENT exclusion. NOT finding_dedup's
-            # ``or 0.0`` coercion, which would wrongly map missing->0.0->below-floor->excluded.
+            # I-arch-011 (B18) — WEIGHT, DON'T FILTER (§-1.3, the keystone): the pre-fix code
+            # RE-IMPOSED a hard ``relevance < floor`` DROP here — the FILTER-AND-CAP anti-pattern the
+            # selector docstring (evidence_selector.py:1944-1953) forbids, which killed 729/746
+            # unbound SUPPORTS. KEEP-ALL-AND-SORT-BELOW-FLOOR-LAST: a below-floor row is NEVER
+            # excluded; it is KEPT and demoted in the ORDER (sorted last) exactly the way the
+            # retrieval pool down-weights a below-floor row (evidence_selector.py:2066-2070). A
+            # missing/unparseable score is keep-neutral (sentinel 0.0), NOT below-floor — pool
+            # membership already implies the retrieval floor passed once. ``below_floor_count`` is
+            # pure telemetry: how many KEPT rows sit below the floor, never an exclusion. The ONLY
+            # hard gate is the UNCHANGED strict_verify each surfaced sentence still must pass.
             relevance = _row_relevance(pool.get(eid))
             if relevance is not None and relevance < relevance_floor:
-                excluded_below_floor += 1
-                continue  # PRESENT-and-genuinely-off-topic => not surfaced
+                below_floor_count += 1  # KEPT (sorts last), never dropped
             if eid not in best_weight or weight > best_weight[eid]:
                 best_weight[eid] = weight
             # First-seen relevance is deterministic across baskets (same row); keep it stable.
             relevance_by_eid.setdefault(eid, relevance)
 
-    # ORDER: relevance-to-question DESC, then weight_mass DESC (priority of consideration), then
-    # evidence_id for a deterministic tiebreak. A missing relevance uses a CONSTANT sentinel so a
-    # pool of all-missing-relevance rows reproduces today's pure weight-desc order (the sentinel
-    # ties on the relevance key, leaving the weight tiebreak in control). FULL list — no cap/top-N.
+    # I-arch-011 (B18) ORDER, KEEP-ALL-SORT-BELOW-FLOOR-LAST:
+    #   1. ``is_below_floor`` (False before True) — a PRESENT-and-below-floor row sorts AFTER every
+    #      at/above-floor row AND after every missing-relevance row (a missing score is keep-neutral,
+    #      NOT below-floor, so it ranks ahead of a genuine below-floor row).
+    #   2. relevance-to-question DESC (within the same below-floor bucket).
+    #   3. weight_mass DESC (priority of consideration).
+    #   4. evidence_id (deterministic tiebreak).
+    # A missing relevance uses the CONSTANT sentinel (0.0) and ``is_below_floor=False`` so a pool of
+    # all-missing-relevance rows reproduces today's pure weight-desc order. FULL list — no cap/top-N,
+    # no floor DROP.
+    def _is_below_floor(eid: str) -> bool:
+        rel = relevance_by_eid.get(eid)
+        return rel is not None and rel < relevance_floor
+
     ev_ids = [
         eid
         for eid, _ in sorted(
             best_weight.items(),
             key=lambda kv: (
+                _is_below_floor(kv[0]),                       # False (0) before True (1)
                 -_relevance_sort_key(relevance_by_eid.get(kv[0])),
                 -kv[1],
                 kv[0],
@@ -231,14 +263,12 @@ def diagnose_unbound_supports_selection(
         )
     ]
 
+    # I-arch-011 (B18): the empty case can no longer be "all below floor" (the floor never
+    # excludes). Report the TRUE reason: no SUPPORTS member at all, else everything bound/pool-absent.
     if ev_ids:
         reason = _REASON_OK
     elif supports_members_seen == 0:
         reason = _REASON_NO_SUPPORTS_MEMBERS
-    elif excluded_below_floor > 0 and (excluded_bound + excluded_pool_absent) == 0:
-        # Every survivor was relevance-gated out — distinct from "all already bound" so a uniformly
-        # below-floor pool (e.g. a relevance-scale mismatch) is visible in the log, not silent.
-        reason = _REASON_ALL_BELOW_FLOOR
     else:
         reason = _REASON_ALL_BOUND_OR_ABSENT
     return UnboundSupportsSelection(
@@ -248,7 +278,7 @@ def diagnose_unbound_supports_selection(
         supports_members_seen=supports_members_seen,
         excluded_bound=excluded_bound,
         excluded_pool_absent=excluded_pool_absent,
-        excluded_below_floor=excluded_below_floor,
+        excluded_below_floor=below_floor_count,  # field name held stable; meaning = kept-below-floor
     )
 
 
@@ -258,28 +288,38 @@ def select_unbound_supports_by_weight(
     credibility_analysis: Any,
     contract_plans: Any,
 ) -> list[str]:
-    """Ordered evidence_ids of unbound, isolated-verified, ON-TOPIC SUPPORTS basket members.
+    """Ordered evidence_ids of unbound, isolated-verified SUPPORTS basket members.
 
-    Returns the FULL surviving list — NO cap, NO target, NO top-N. Ordering is
-    relevance-to-question FIRST, then basket ``weight_mass`` (priority of consideration), then
-    ``evidence_id`` (deterministic tiebreak). A member is included iff:
+    Returns the FULL surviving list — NO cap, NO target, NO top-N, NO floor DROP. A member is
+    included iff:
       * its own ``span_verdict == "SUPPORTS"`` (isolated per-member verification), AND
       * its ``evidence_id`` is NOT already bound to a contract section, AND
-      * its ``evidence_id`` resolves in ``evidence_pool`` (so the section can cite a real span), AND
-      * its source row passes the EXISTING relevance GATE — i.e. the row's ``selection_relevance``
-        (the topicality score the retrieval gate stamps at evidence_selector.py:2128, read by
-        finding_dedup at finding_dedup.py:212) is ``>= PG_RELEVANCE_FLOOR``. A row with NO usable
-        relevance score FALLS BACK to today's behavior and is KEPT: pool membership already implies
-        the retrieval relevance floor passed once, so a missing/unparseable sidecar must never
-        SILENTLY EXCLUDE a member — only a row that is PRESENT-and-genuinely-below-floor is dropped.
+      * its ``evidence_id`` resolves in ``evidence_pool`` (so the section can cite a real span).
+
+    I-arch-011 (B18) — WEIGHT, DON'T FILTER (§-1.3, the keystone): the relevance floor is now an
+    ORDERING weight, NEVER an exclusion. Ordering is:
+      1. at/above-floor (and missing-relevance) rows FIRST, below-floor rows LAST (a demotion, not a
+         drop), THEN
+      2. relevance-to-question DESC, THEN
+      3. basket ``weight_mass`` (priority of consideration), THEN
+      4. ``evidence_id`` (deterministic tiebreak).
+    The pre-fix code RE-IMPOSED a hard ``selection_relevance < PG_RELEVANCE_FLOOR`` DROP here — the
+    FILTER-AND-CAP anti-pattern the selector docstring (evidence_selector.py:1944-1953) forbids,
+    which killed 729/746 unbound SUPPORTS so the enrichment appended NOTHING. That drop is REMOVED;
+    a below-floor row is KEPT and sorted LAST, mirroring the retrieval pool's keep-all-down-weight
+    (evidence_selector.py:2066-2070). A row with NO usable relevance score is keep-neutral (sentinel
+    0.0, treated as NOT-below-floor) — pool membership already implies the retrieval floor passed.
 
     The floor + its fail-loud (0.0, 1.0] validation come from the SAME ``parse_relevance_floor`` the
     retrieval gate uses (no new constant). A garbage ``PG_RELEVANCE_FLOOR`` raises ``ValueError``.
 
+    Faithfulness is UNCHANGED: every surfaced member is re-verified against its own span by the
+    section's UNCHANGED ``strict_verify``; breadth comes from consolidating already-verifiable
+    corroborators, never from relaxing a verify gate.
+
     ``credibility_analysis is None`` (master flag OFF or always-release degrade) => ``[]`` =>
-    byte-identical legacy render. Thin wrapper over ``diagnose_unbound_supports_selection`` so the
-    list contract (and every existing test) is unchanged; the call site uses the diagnostic form to
-    log WHY an empty selection happened.
+    byte-identical legacy render. Thin wrapper over ``diagnose_unbound_supports_selection``; the call
+    site uses the diagnostic form to log WHY an empty selection happened.
     """
     return diagnose_unbound_supports_selection(
         evidence_pool=evidence_pool,

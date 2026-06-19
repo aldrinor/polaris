@@ -287,6 +287,66 @@ def _is_transport_poison_reason(reason: str) -> bool:
         return False
 
 
+def _extract_first_json_object(content: object) -> dict:
+    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+    judge response and return it as a dict.
+
+    Motivating fault: a "garbled-200" = a valid JSON verdict object followed by trailing
+    reasoning text, e.g. ``{"verdict": "ENTAILED", "reason": "ok"}\\nThe span supports...``.
+    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+    on that input and the salvageable verdict is thrown away (over-drop, the drb_72-class
+    coverage collapse).
+
+    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+    values such as ``"dose {x} mg"``). The first ``{`` that decodes to a dict wins, so a
+    response with prose BEFORE the JSON object is also rescued.
+
+    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+    body is now the normal case, so "first dict wins" could select the WRONG object (e.g.
+    a leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). To avoid that —
+    and the fail-closed -> fail-open regression it would cause on the strict consumer — this
+    returns the first complete object that actually CARRIES the required ``"verdict"`` field,
+    and RAISES if the scan finds none. The scan advances past each decoded object by its end
+    offset (not one char) so a nested sub-object is never mis-selected.
+
+    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
+    sentinel / partial) on empty/None/non-str content, on content with no ``{``, on a lone
+    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
+    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed path
+    (retry then drop / hold) is therefore preserved byte-for-byte for every genuine failure —
+    only the valid-verdict-object-plus-trailing-text case is newly rescued.
+    """
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("empty or non-str judge content")
+    decoder = json.JSONDecoder()
+    search_from = 0
+    while True:
+        start = content.find("{", search_from)
+        if start == -1:
+            raise ValueError("no verdict-bearing JSON object found in judge content")
+        try:
+            obj, end = decoder.raw_decode(content, start)
+        except json.JSONDecodeError as exc:
+            # FAIL-CLOSED (Codex P1 / faithfulness): a "{" that does NOT begin a COMPLETE JSON
+            # value means malformed / partial / truncated content. Do NOT advance one char into
+            # its interior — that would let a nested verdict object be salvaged out of a malformed
+            # envelope (e.g. '{"wrapper":{"verdict":"NEUTRAL","reason":"ok"}') and turn fail-closed
+            # into fail-open. Raise so the caller's existing retry/drop/hold path fires. A COMPLETE
+            # leading non-verdict object is still skipped by its end offset on the success path
+            # below, so a well-formed prose+object body is unaffected.
+            raise ValueError(
+                f"malformed JSON in judge content at offset {start}: {exc}"
+            ) from exc
+        if isinstance(obj, dict) and "verdict" in obj:
+            return obj
+        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
+        # its end offset so we never re-enter / mis-select a nested sub-object, then keep
+        # scanning for the real verdict object.
+        search_from = end
+
+
 class _RetryableJudgeError(Exception):
     """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
     bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
@@ -513,7 +573,11 @@ class _EntailmentJudge:
             "temperature": 0.0,
             "max_tokens": _ent_maxtok,
             "reasoning": {"effort": _ent_effort},
-            "response_format": {"type": "json_object"},
+            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
+            # mirror chain (z-ai -> baidu -> novita -> gmicloud) to 2 and starving provider
+            # rotation. The brace-aware _extract_first_json_object parser (above) recovers the
+            # JSON verdict from the now-unconstrained response, so all 4 providers route.
         }
         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
         # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
@@ -692,7 +756,14 @@ class _EntailmentJudge:
                     # judge_error DROP. Cost was already recorded above. (Rotation-gated -> OFF path is
                     # byte-identical: an empty/None content still flows to json.loads as before.)
                     raise _RetryableJudgeError("blank_200")
-                parsed = json.loads(content)
+                # I-arch-011 (B12): use the brace-aware first-complete-JSON-object
+                # extractor instead of a bare json.loads(content). A "garbled-200" (a valid
+                # verdict object followed by trailing reasoning text) raised a JSONDecodeError
+                # "Extra data: ..." that DROPPED a salvageable verdict. The extractor RAISES
+                # on every genuine failure (empty/None/lone-"{"/partial JSON), so those flow to
+                # the same fail-closed retry/sentinel path as before — only the parseable
+                # object-plus-trailing-text case is newly rescued. Fail-closed is preserved.
+                parsed = _extract_first_json_object(content)
                 verdict = str(parsed.get("verdict", "")).upper().strip()
                 reason = str(parsed.get("reason", ""))
                 if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):

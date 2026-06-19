@@ -56,6 +56,12 @@ _NO_BROTLI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
 
 # FIX-JINA: Jina concurrency semaphore (initialized lazily in _try_jina_reader)
 _jina_semaphore: "asyncio.Semaphore | None" = None
+# I-arch-007 (#1264): Jina per-loop semaphore map — same cross-loop fix as NCBI/crawl4ai (#1227).
+# The single module-global below bound to the first acquiring loop and raised the cross-loop
+# RuntimeError when the post-generation contract-frame fetch ran in a different loop than retrieval.
+_jina_perloop_semaphores: "weakref.WeakKeyDictionary[Any, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
 
 # RC-9: Circuit breaker for fetch providers.
 # After N consecutive failures, skip the provider for a cooldown period.
@@ -582,6 +588,14 @@ _FIRECRAWL_WARN_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
 # it honours the key). Lazy-init the semaphore so it binds to the running loop.
 # ---------------------------------------------------------------------------
 _ncbi_semaphore: "asyncio.Semaphore | None" = None
+# I-arch-007 (#1264): NCBI/PMC-BioC per-loop semaphore map — mirrors the I-pipe-002 (#1227)
+# crawl4ai fix. The single module-global above bound to the FIRST acquiring loop and raised
+# `RuntimeError: <Semaphore> is bound to a different event loop` when the post-generation
+# contract-frame fetch ran in a different loop than retrieval (the cQ76 / clean_deepseek crash
+# that failed every PMC-BioC full-text fetch -> empty spans -> strict_verify over-drop).
+_ncbi_perloop_semaphores: "weakref.WeakKeyDictionary[Any, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
 _ncbi_last_request_time: float = 0.0
 _NCBI_MIN_INTERVAL = float(os.getenv("PG_NCBI_MIN_INTERVAL_SECONDS", "0.34"))  # ~3 req/s
 _PMC_BIOC_MIN_FULLTEXT_CHARS = int(os.getenv("PG_PMC_BIOC_MIN_FULLTEXT_CHARS", "1000"))
@@ -595,11 +609,52 @@ _BIOC_NON_BODY_SECTIONS = frozenset({
 
 
 def _get_ncbi_semaphore() -> "asyncio.Semaphore":
-    """Lazy-init the NCBI concurrency gate on the running loop (max 1)."""
-    global _ncbi_semaphore
-    if _ncbi_semaphore is None:
-        _ncbi_semaphore = asyncio.Semaphore(1)
-    return _ncbi_semaphore
+    """NCBI/PMC-BioC concurrency gate (max 1), bound to the RUNNING loop.
+
+    I-arch-007 (#1264): mirrors the I-pipe-002 (#1227) crawl4ai per-loop fix. MUST be called
+    from inside the running loop (the `async with` site). Default (PG_CRAWL4AI_PERLOOP_SEMAPHORE
+    != '0'): one `asyncio.Semaphore` per running loop, keyed by the loop in a WeakKeyDictionary —
+    so the post-generation contract-frame fetch (which runs in a fresh loop, distinct from the
+    retrieval loop) gets a semaphore bound to ITSELF and the `async with` never raises the
+    cross-loop `RuntimeError: <Semaphore> is bound to a different event loop` (the cQ76 killer:
+    every PMC-BioC full-text fetch failed -> empty spans -> strict_verify over-drop ->
+    abort_excessive_gap). Old path ('0'): the single loop-bound module-global (preserved verbatim).
+    """
+    if not _crawl4ai_perloop_enabled():
+        global _ncbi_semaphore
+        if _ncbi_semaphore is None:
+            _ncbi_semaphore = asyncio.Semaphore(1)
+        return _ncbi_semaphore
+    loop = asyncio.get_running_loop()
+    with _crawl4ai_perloop_lock:
+        sem = _ncbi_perloop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(1)
+            _ncbi_perloop_semaphores[loop] = sem
+        return sem
+
+
+def _get_jina_semaphore() -> "asyncio.Semaphore":
+    """Jina concurrency gate, bound to the RUNNING loop (I-arch-007 #1264).
+
+    Mirrors `_get_ncbi_semaphore` / the I-pipe-002 (#1227) crawl4ai per-loop fix. Default
+    (PG_CRAWL4AI_PERLOOP_SEMAPHORE != '0'): one `asyncio.Semaphore` per running loop so the
+    post-generation contract-frame fetch (fresh loop) never hits the cross-loop RuntimeError.
+    Old path ('0'): the single loop-bound module-global (preserved verbatim).
+    """
+    jina_concurrency = int(os.getenv("PG_JINA_CONCURRENCY", "2"))
+    if not _crawl4ai_perloop_enabled():
+        global _jina_semaphore
+        if _jina_semaphore is None:
+            _jina_semaphore = asyncio.Semaphore(jina_concurrency)
+        return _jina_semaphore
+    loop = asyncio.get_running_loop()
+    with _crawl4ai_perloop_lock:
+        sem = _jina_perloop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(jina_concurrency)
+            _jina_perloop_semaphores[loop] = sem
+        return sem
 
 
 def _parse_bioc_fulltext(raw: str) -> str:
@@ -2323,13 +2378,10 @@ class AccessBypass:
         jina_url = f"https://r.jina.ai/{url}"
         max_retries = int(os.getenv("PG_JINA_MAX_RETRIES", "3"))
 
-        # FIX-JINA: Jina concurrency semaphore (free tier = 2 concurrent)
-        global _jina_semaphore
-        if _jina_semaphore is None:
-            jina_concurrency = int(os.getenv("PG_JINA_CONCURRENCY", "2"))
-            _jina_semaphore = asyncio.Semaphore(jina_concurrency)
-
-        async with _jina_semaphore:
+        # FIX-JINA: Jina concurrency semaphore (free tier = 2 concurrent).
+        # I-arch-007 (#1264): bound to the RUNNING loop (per-loop map) so the post-gen
+        # contract-frame fetch in a fresh loop never hits the cross-loop RuntimeError.
+        async with _get_jina_semaphore():
             for attempt in range(max_retries + 1):
                 try:
                     timeout = aiohttp.ClientTimeout(total=30)

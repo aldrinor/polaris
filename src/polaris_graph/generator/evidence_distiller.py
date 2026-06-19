@@ -107,6 +107,24 @@ def _map_reasoning_tokens() -> int:
     return _env_int("PG_DISTILL_MAP_REASONING_TOKENS", 4096)
 
 
+def _map_text_mode() -> bool:
+    # I-arch-007 distill_map chokepoint: deepseek-v4-pro (a reasoning-first model)
+    # DUMPS the answer into the reasoning channel under
+    # response_format=json_object, emitting EMPTY content and burning the full
+    # 32768 ceiling (~410s) per call (openrouter_client.py:1817-1819,:1838). Text
+    # mode (response_format=None) keeps the JSON in the CONTENT channel — proven by
+    # the section_reduce control (multi_section_generator.py:6925, same model/same
+    # 32768 floor, content populates). _parse_map_json already parses fenced/plain
+    # JSON from content. Default OFF = byte-identical json_object behavior
+    # (flag-OFF-byte-identical convention); set PG_DISTILL_MAP_TEXT_MODE=1 to
+    # activate. NOT a faithfulness change: distill MAP is per-source consolidation,
+    # not one of the 4 hard gates; output still flows through
+    # _validate_and_store_one_source unchanged.
+    return os.getenv("PG_DISTILL_MAP_TEXT_MODE", "0").strip().lower() in (
+        "1", "true", "yes",
+    )
+
+
 def _reduce_max_tokens() -> int:
     return _env_int("PG_DISTILL_REDUCE_MAX_TOKENS", 8192)
 
@@ -149,7 +167,46 @@ def _reduce_reasoning_tokens() -> int:
 
 
 def _max_parallel() -> int:
-    return max(1, _env_int("PG_DISTILL_MAX_PARALLEL", 4))
+    # B19/I-arch-011 (KEYSTONE): raise the MAP fan-out default 4 -> 8 so a wide
+    # corpus distills with more sources in flight (breadth-positive; the per-call
+    # wall below bounds each one). DNA = consolidate-keep-all, never a throttle.
+    return max(1, _env_int("PG_DISTILL_MAX_PARALLEL", 8))
+
+
+def _distill_map_call_wall_s() -> int:
+    # B19/I-arch-011 (KEYSTONE — root cause of the B15 generator hang): bound EACH
+    # distill_map LLM call with an EXPLICIT per-call wall, mirroring the sibling
+    # PG_CREDIBILITY_PASS_WALL_S in multi_section_generator.py. Without an explicit
+    # timeout, openrouter_client._call_impl resolves a reasoning-first model
+    # (deepseek-v4-pro) to ~6530s (GENERATOR_TIMEOUT_SECONDS + 30); a half-open SSE
+    # socket then hangs the asyncio loop for ~1.8h until only the 10800s run-wall
+    # backstops. DEFAULT 1800: telemetry shows a HEALTHY distill call ran 1475s and
+    # COMPLETED, so 1800 sits safely above the healthy band yet well under the
+    # 10800s run-wall. An explicit timeout always wins (_resolve_call_timeout /
+    # _call_impl: actual_timeout = timeout or default). LAW VI: env-overridable.
+    return _env_int("PG_DISTILL_MAP_CALL_WALL_S", 1800)
+
+
+async def _call_distill_map_with_wall(client, **call_kwargs):
+    """Run ONE distill_map LLM call bounded END-TO-END by PG_DISTILL_MAP_CALL_WALL_S.
+
+    B19/I-arch-011 iter-2 (Codex P1): ``openrouter_client._call`` applies its ``timeout=``
+    PER retry attempt and retries up to MAX_RETRIES, so a half-open SSE socket could occupy
+    the map fan-out for ~3*(wall+grace)s before a coverage row appears — not the single
+    ``wall`` the B19 contract promises, and enough (under many hung sources) to push the
+    distill stage past the 10800s run-wall and lose the render. Wrap the whole call in an
+    OUTER ``asyncio.wait_for(wall)`` so the TOTAL across internal retries is bounded at
+    ``wall``: a FAST transient failure still retries within the remaining budget, but a hung /
+    pathologically-slow call is cancelled at ``wall`` and surfaces as the caller's loud
+    ``map_failed`` coverage row instead of retry-hanging. The inner per-attempt ``timeout=`` is
+    kept as a defensive bound. A wall breach raises ``asyncio.TimeoutError`` (caught by the
+    caller). No source is silently dropped; no faithfulness gate is touched.
+    """
+    wall = float(_distill_map_call_wall_s())
+    return await asyncio.wait_for(
+        client._call(call_type="distill_map", timeout=wall, **call_kwargs),
+        timeout=wall,
+    )
 
 
 def _microbatch_size() -> int:
@@ -1249,13 +1306,13 @@ async def _map_one_source(
     client = OpenRouterClient(model=model)
     in_tok = out_tok = 0
     try:
-        resp = await client._call(
+        resp = await _call_distill_map_with_wall(
+            client,
             messages=messages,
-            call_type="distill_map",
             reasoning_enabled=False,
             temperature=0.1,
             max_tokens=_map_max_tokens(),
-            response_format={"type": "json_object"},
+            response_format=(None if _map_text_mode() else {"type": "json_object"}),
             reasoning_max_tokens=_map_reasoning_tokens(),
         )
         in_tok = getattr(resp, "input_tokens", 0) or 0
@@ -1463,13 +1520,13 @@ async def _map_microbatch(
     parsed: Optional[dict] = None
     map_error: Optional[str] = None
     try:
-        resp = await client._call(
+        resp = await _call_distill_map_with_wall(
+            client,
             messages=messages,
-            call_type="distill_map",
             reasoning_enabled=False,
             temperature=0.1,
             max_tokens=_map_max_tokens(),
-            response_format={"type": "json_object"},
+            response_format=(None if _map_text_mode() else {"type": "json_object"}),
             reasoning_max_tokens=_map_reasoning_tokens(),
         )
         in_tok = getattr(resp, "input_tokens", 0) or 0
@@ -1684,10 +1741,39 @@ async def distill_section_evidence(
                 research_question=research_question,
             )
 
+    # B19/I-arch-011 (KEYSTONE, part c): return_exceptions=True so ONE batch
+    # raising (e.g. a per-call wall timeout that escapes _map_microbatch's inner
+    # except, or any unexpected error in _guarded_batch) does NOT cancel the whole
+    # gather and silently drop EVERY other source. A timed-out / failed batch leaves
+    # its indices None here; the fail-closed None-net below converts each into a
+    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
+    # never an unverified-as-verified claim). Breadth preserved: the siblings still
+    # return their findings/rows.
+    # B19/I-arch-011 (KEYSTONE, part c): return_exceptions=True so ONE batch
+    # raising (e.g. a per-call wall timeout that escapes _map_microbatch's inner
+    # except, or any unexpected error in _guarded_batch) does NOT cancel the whole
+    # gather and silently drop EVERY other source. A timed-out / failed batch leaves
+    # its indices None here; the fail-closed None-net below converts each into a
+    # LOUD `unaccounted_after_dispatch` coverage row (LAW II — never a silent drop,
+    # never an unverified-as-verified claim). Breadth preserved: the siblings still
+    # return their findings/rows.
     batch_results = await asyncio.gather(
-        *[_guarded_batch(group) for group in batches]
+        *[_guarded_batch(group) for group in batches],
+        return_exceptions=True,
     )
-    for idx_group, tuples in batch_results:
+    for item in batch_results:
+        if isinstance(item, BaseException):
+            # A batch failed AFTER its inner except (the wall fired at the await, or
+            # an unexpected error). It carries no idx_group, so we cannot emit a
+            # per-source row here; we leave those indices None and let the
+            # fail-closed None-net below account for every still-unfilled source.
+            logger.warning(
+                "[evidence_distiller] MAP batch raised past the inner guard: %r — "
+                "affected sources fall through to the fail-closed coverage net",
+                item,
+            )
+            continue
+        idx_group, tuples = item
         # _map_microbatch returns one tuple per input source, index-aligned.
         for local_i, idx in enumerate(idx_group):
             results_by_idx[idx] = tuples[local_i]

@@ -29,6 +29,56 @@ logger = logging.getLogger("polaris_graph.corpus_adequacy_gate")
 AdequacyDecision = Literal["proceed", "expand", "abort"]
 
 
+# ── BUG-20 (I-arch-011): exclude content-less stubs from the grounded count ────
+# THE BUG: the adequacy gate counted EVERY retrieved row toward `evidence_rows`
+# (the grounded-content threshold), including rows the fetch/tier layer flagged as
+# content-less stubs — a fetch that failed, a landing page with no body, or a
+# content-starved span. Counting 91 such stubs as valid sources produced a
+# FALSE adequacy PASS (decision=proceed) on a corpus with no real grounded content.
+#
+# THE FIX: when the caller passes the actual `evidence_rows`, count toward the
+# grounded `evidence_rows` finding ONLY rows that are NOT degraded. A row is
+# degraded iff any of these flags is truthy on the row dict. `fetch_degraded` is
+# the semantic boolean the tier/authority layer sets; the concrete per-row flags
+# the fetch layer already writes (live_retriever.py) are read as the union so the
+# fix fires on the REAL production rows, not only on an aspirational future flag.
+#
+# We exclude ONLY content-less stubs (the flags below). A merely down-weighted but
+# GROUNDED row (`down_weighted` / low `relevance_weight`) is NOT excluded — per the
+# WEIGHT-AND-CONSOLIDATE DNA (§-1.3) a low-weight grounded source is still a real
+# source; dropping it would be a banned breadth cap. This change only STOPS a
+# false PASS; it never relaxes a real gate and adds no cap/floor.
+_DEGRADED_ROW_FLAGS: tuple[str, ...] = (
+    "fetch_degraded",
+    "content_starved",
+    "fetch_failed",
+    "landing_page",
+)
+
+
+def _row_is_content_less_stub(row: Any) -> bool:
+    """True iff ``row`` is a content-less stub per any degraded flag.
+
+    Reads the union of the tier/authority `fetch_degraded` boolean and the
+    concrete fetch-layer flags (`content_starved` / `fetch_failed` /
+    `landing_page`). A non-dict row is treated as not-a-stub (defensive — the
+    caller filters rows elsewhere); only truthy flags exclude a row.
+    """
+    if not isinstance(row, dict):
+        return False
+    return any(bool(row.get(flag)) for flag in _DEGRADED_ROW_FLAGS)
+
+
+def count_grounded_rows(evidence_rows: list[Any]) -> int:
+    """Count evidence rows that carry real grounded content (BUG-20).
+
+    Excludes content-less stubs (see ``_row_is_content_less_stub``). Used by
+    :func:`assess_corpus_adequacy` for the `evidence_rows` grounded threshold so
+    a stub-padded corpus cannot false-PASS adequacy.
+    """
+    return sum(1 for r in evidence_rows if not _row_is_content_less_stub(r))
+
+
 @dataclass
 class AdequacyThresholds:
     """Per-domain thresholds for corpus adequacy.
@@ -171,18 +221,35 @@ def assess_corpus_adequacy(
     domain: str,
     protocol: dict[str, Any] | None = None,
     override: AdequacyThresholds | None = None,
+    evidence_rows: list[Any] | None = None,
 ) -> CorpusAdequacyReport:
     """Return an AdequacyReport for the retrieved corpus.
 
     Args:
         tier_counts: dict mapping "T1"/"T2"/.../"T7"/"UNKNOWN" -> count.
         evidence_row_count: number of evidence rows AFTER content-starved
-            filtering (Fix-D).
+            filtering (Fix-D). Used for the grounded `evidence_rows` threshold
+            ONLY when ``evidence_rows`` is not supplied (back-compat path).
         domain: clinical / policy / tech / due_diligence.
         protocol: dict form of protocol.json (may carry adequacy overrides).
         override: explicit AdequacyThresholds, wins over all else.
+        evidence_rows: BUG-20 (I-arch-011) — the ACTUAL evidence row dicts. When
+            supplied, the grounded `evidence_rows` finding counts only rows that
+            are NOT content-less stubs (excludes `fetch_degraded` /
+            `content_starved` / `fetch_failed` / `landing_page` rows) so a
+            stub-padded corpus cannot false-PASS adequacy. When None, behaviour is
+            byte-identical to the prior callers (uses ``evidence_row_count``).
+            WIRING NOTE: the run-script wiring pass should pass
+            ``evidence_rows=retrieval.evidence_rows`` at each call site.
     """
     thr = _get_thresholds(domain, protocol, override)
+
+    # BUG-20: when the real rows are available, the grounded evidence count
+    # EXCLUDES content-less stubs. Falls back to evidence_row_count otherwise.
+    if evidence_rows is not None:
+        grounded_evidence_rows = count_grounded_rows(evidence_rows)
+    else:
+        grounded_evidence_rows = evidence_row_count
 
     total = sum(tier_counts.values())
     t1 = tier_counts.get("T1", 0)
@@ -226,7 +293,8 @@ def assess_corpus_adequacy(
     # GH#405: real quality signal for emerging-policy domains.
     _record("t3_plus_t4_plus_t6", t3 + t4 + t6,
             thr.min_t3_plus_t4_plus_t6, "min")
-    _record("evidence_rows", evidence_row_count,
+    # BUG-20: grounded count (stubs excluded when real rows were supplied).
+    _record("evidence_rows", grounded_evidence_rows,
             thr.min_evidence_rows, "min")
 
     low_quality_fraction = (t5 + t6) / max(total, 1)
@@ -267,7 +335,7 @@ def assess_corpus_adequacy(
         findings=findings,
         total_sources=total,
         tier_counts=dict(tier_counts),
-        evidence_rows=evidence_row_count,
+        evidence_rows=grounded_evidence_rows,
         notes=notes,
         thresholds=asdict(thr),
     )

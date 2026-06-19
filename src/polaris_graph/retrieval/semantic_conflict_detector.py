@@ -522,6 +522,70 @@ CLAIM B:
 JSON:"""
 
 
+def _extract_first_json_object(content: object) -> dict:
+    """I-arch-011 (B12): parse the FIRST complete JSON object out of a possibly-garbled
+    NLI-conflict judge response and return it as a dict.
+
+    Motivating fault: a "garbled-200" = a valid verdict object followed by trailing
+    reasoning text, e.g. ``{"verdict": "NEUTRAL", "confidence": 0.1}\\nReasoning: ...``.
+    A bare ``json.loads(content)`` raises ``json.JSONDecodeError: Extra data: line 2 ...``
+    on that input, which the ``except`` block treats as a transport/parse failure (a HOLD
+    under strict gates, or a fail-open neutral otherwise) — throwing away a salvageable
+    verdict.
+
+    Implementation: walk every ``{`` index and use ``json.JSONDecoder().raw_decode`` —
+    the stdlib decoder that parses ONE complete value and ignores trailing data. This is
+    brace-/quote-/escape-correct (a naive depth counter miscounts braces inside string
+    values). The first ``{`` that decodes to a dict wins, so a response with prose BEFORE
+    the JSON object is also rescued.
+
+    Selection rule: with ``response_format`` removed (B14), a prose-wrapped or multi-object
+    body is now the normal case, so "first dict wins" could select the WRONG object (e.g. a
+    leading ``{"note": "..."}`` ahead of the real ``{"verdict": ...}``). On THIS strict
+    consumer that is faithfulness-relevant: a non-verdict first dict would yield verdict=""
+    -> ``neutral`` -> ``("neutral", 0.0)``, silently DROPPING a real contradiction that
+    pre-fix failed closed (strict HOLD). To prevent that fail-closed -> fail-open regression,
+    this returns the first complete object that actually CARRIES the required ``"verdict"``
+    field, and RAISES if the scan finds none. The scan advances past each decoded object by
+    its end offset (not one char) so a nested sub-object is never mis-selected.
+
+    Fail-CLOSED contract (faithfulness): this function RAISES (never returns a default /
+    neutral / partial) on empty/None/non-str content, on content with no ``{``, on a lone
+    ``{`` or otherwise malformed/partial JSON, on a first value that is not a JSON object,
+    AND on a valid object that lacks ``"verdict"``. The caller's existing fail-closed
+    behaviour (strict -> HOLD, non-strict -> fail-open neutral) is therefore preserved
+    byte-for-byte for every genuine failure — only the valid-verdict-object-plus-trailing-
+    text case is newly rescued.
+
+    NOTE: this is intentionally duplicated from ``llm.entailment_judge`` rather than
+    cross-imported, to avoid a retrieval<->llm import cycle (lane file-scope + LAW V).
+    """
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("empty or non-str judge content")
+    decoder = json.JSONDecoder()
+    search_from = 0
+    while True:
+        start = content.find("{", search_from)
+        if start == -1:
+            raise ValueError("no verdict-bearing JSON object found in judge content")
+        try:
+            obj, end = decoder.raw_decode(content, start)
+        except json.JSONDecodeError as exc:
+            # FAIL-CLOSED (Codex P1 / faithfulness): a "{" that does NOT begin a COMPLETE JSON
+            # value means malformed / partial / truncated content. Do NOT advance one char into
+            # its interior — that would salvage a nested verdict object out of a malformed
+            # envelope (e.g. '{"wrapper":{"verdict":"NEUTRAL"}') and turn the strict fail-closed
+            # path into a fail-open one. Raise so the caller's existing strict-HOLD / neutral
+            # path fires. A COMPLETE leading non-verdict object is still skipped by its end
+            # offset on the success path below.
+            raise ValueError(
+                f"malformed JSON in judge content at offset {start}: {exc}"
+            ) from exc
+        if isinstance(obj, dict) and "verdict" in obj:
+            return obj
+        search_from = end
+
+
 class _SemanticContradictionJudge:
     """Synchronous httpx wrapper around a cross-document contradiction call.
 
@@ -618,7 +682,10 @@ class _SemanticContradictionJudge:
             "temperature": 0.0,
             "max_tokens": _sc_maxtok,
             "reasoning": {"effort": _sc_effort},
-            "response_format": {"type": "json_object"},
+            # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
+            # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
+            # mirror chain to 2. The brace-aware _extract_first_json_object parser (below) recovers
+            # the JSON verdict from the now-unconstrained response, so all 4 providers route.
         }
         # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
         # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
@@ -776,7 +843,14 @@ class _SemanticContradictionJudge:
                 return CONFLICT_UNSCORED_LABEL, 0.0
             data = _guard.value
             content = data["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
+            # I-arch-011 (B12): brace-aware first-complete-JSON-object extractor instead of a
+            # bare json.loads(content). A "garbled-200" (valid verdict object + trailing
+            # reasoning text) raised JSONDecodeError "Extra data: ..." and was treated as a
+            # parse failure (HOLD under strict gates / fail-open neutral otherwise), dropping a
+            # salvageable verdict. The extractor RAISES on every genuine failure
+            # (empty/None/lone-"{"/partial JSON), so those still hit the same fail-closed
+            # except-block below — only the object-plus-trailing-text case is newly rescued.
+            parsed = _extract_first_json_object(content)
             verdict = str(parsed.get("verdict", "")).strip().upper()
             confidence = float(parsed.get("confidence", 0.0) or 0.0)
             label = {"CONTRADICT": "contradict", "ENTAIL": "entail",

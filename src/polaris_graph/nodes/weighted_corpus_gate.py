@@ -36,9 +36,12 @@ The caller (``run_one_query``) decides to proceed-vs-refuse based on ``weighted_
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── flag (default OFF — matches the other PG_SWEEP_* capability flags) ────────
 _FLAG = "PG_SWEEP_WEIGHTED_CORPUS_GATE"
@@ -77,6 +80,46 @@ def _coerce_authority(value: Any) -> float | None:
     if x != x or x in (float("inf"), float("-inf")):  # NaN / inf
         return None
     return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+
+def _compute_authority_score_for_source(source: Any) -> float | None:
+    """I-arch-011 B11: deterministically COMPUTE a source's domain-aware ``authority_score`` from its
+    surface signals (url + title) when no pre-computed score is available on the object or the join map.
+
+    This is the documented-primary weighting path: it reuses the SAME deterministic, domain-aware
+    ``score_source_authority`` the rest of the pipeline already uses (e.g. plan_sufficiency_gate's
+    ``_enrich_authority_if_missing``), so the disclosure weight is the real authority signal, not the
+    flat per-tier prior. PURE + OFFLINE: no network, no LLM/judge, no spend, and — unlike
+    ``_enrich_authority_if_missing`` — NO row/object mutation (this module promises "no row mutation"),
+    so the score is computed and returned locally only.
+
+    Lazy import keeps the module's "no authority-package coupling at import time" posture. Returns None
+    on any failure (missing url, import error) so the caller falls back to the per-tier prior — the
+    disclosure is never blank, and a compute failure is a graceful WEIGHT fallback, never a drop.
+    """
+    url = str(getattr(source, "url", "") or "")
+    if not url:
+        return None
+    try:
+        from src.polaris_graph.authority.authority_model import score_source_authority
+        from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals
+
+        title = str(getattr(source, "title", "") or "")
+        result = score_source_authority(ClassificationSignals(url=url, title=title))
+        return float(result.authority_score)
+    except Exception:
+        # Graceful WEIGHT fallback to the per-tier prior; never a drop, never a
+        # raise. FAIL-LOUD via the log (not silent) so a regression that would
+        # silently collapse EVERY source back to tier_prior — re-introducing B11
+        # with no signal — is visible in the run log per LAW II / §9.4.
+        logger.warning(
+            "weighted_corpus_gate: deterministic authority_score recompute failed "
+            "for url=%r; falling back to the per-tier credibility prior for this "
+            "source's disclosure weight.",
+            url,
+            exc_info=True,
+        )
+        return None
 
 
 @dataclass
@@ -181,11 +224,14 @@ def build_corpus_credibility_disclosure(
 ) -> CorpusCredibilityDisclosure:
     """Build the deterministic, domain-aware corpus credibility disclosure — PURE, offline, no LLM.
 
-    Each source is weighted by its deterministic ``authority_score`` (computed upstream by the
-    authority package) when present — first from the source object's own ``.authority_score``
-    attribute, else from the optional ``authority_by_url`` join map (``{url: authority_score}``,
-    supplied by the caller from the evidence rows where the numeric authority actually lives in planner
-    mode) — and falls back to the per-tier nominal prior only when neither is available. The disclosure
+    Each source is weighted by its deterministic, domain-aware ``authority_score`` — preferring, in
+    order: (1) the source object's own ``.authority_score`` attribute; (2) the optional
+    ``authority_by_url`` join map (``{url: authority_score}``, supplied by the caller from the evidence
+    rows where the numeric authority lives in planner mode); (3) I-arch-011 B11: a deterministic compute
+    from the source's url/title via the same ``score_source_authority`` the rest of the pipeline uses
+    (pure, offline, no row mutation), so the domain-aware authority weighting actually runs instead of
+    silently collapsing to the flat prior. It falls back to the per-tier nominal ``tier_prior`` ONLY
+    when none of those three yields a score (so the disclosure is never blank). The disclosure
     records the tier mix, what the OLD gate would have refused on (``had_material_deviation``), and a
     source-weighted mean credibility — so the run honestly DISCLOSES that lower-tier sources are
     lower-credibility, rather than refusing the whole corpus on the source-type count.
@@ -200,11 +246,27 @@ def build_corpus_credibility_disclosure(
     for s in (classified_sources or []):
         tier = str(getattr(s, "tier", "") or "UNKNOWN")
         url = str(getattr(s, "url", "") or "")
-        # Prefer the source object's own authority_score; else the caller's per-url authority join;
-        # else the per-tier nominal prior (the disclosure is never blank).
+        # I-arch-011 B11: restore ``authority_score`` as the PRIMARY weight_basis so the documented
+        # deterministic, domain-aware authority weighting actually runs. The disclosure previously fell
+        # back to the flat per-tier ``tier_prior`` for EVERY source (all 528 on drb_90) because the
+        # ``CorpusSource`` objects carry no ``.authority_score`` attribute AND, in legacy / non-planner
+        # mode, no evidence row carries one either, so the ``authority_by_url`` join was empty. The
+        # original module comment (lines 16, 186-189) says ``tier_prior`` is the fallback used ONLY
+        # "when neither is available" — but "neither available" was the common case, so tier_prior was
+        # NOT a fallback, it was the rule. The fix RESTORES the intended order:
+        #   1. the source object's own ``.authority_score`` attribute;
+        #   2. the caller's per-url ``authority_by_url`` join (planner mode);
+        #   3. COMPUTE it deterministically from the source's url/title via the same domain-aware
+        #      ``score_source_authority`` the rest of the pipeline uses (offline, pure, no LLM/network);
+        #   4. ONLY when that genuinely cannot run does it fall to the per-tier ``tier_prior`` (so the
+        #      disclosure is never blank).
+        # This is a WEIGHT restoration, not a cap/floor/filter: every source still flows through (no
+        # drop), and strict_verify + the 4-role D8 release decision remain the only faithfulness gate.
         auth = _coerce_authority(getattr(s, "authority_score", None))
         if auth is None and url:
             auth = _coerce_authority(auth_by_url.get(url))
+        if auth is None and url:
+            auth = _coerce_authority(_compute_authority_score_for_source(s))
         if auth is not None:
             weight = auth
             basis = "authority_score"

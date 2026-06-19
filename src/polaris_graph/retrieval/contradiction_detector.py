@@ -253,6 +253,9 @@ def _find_value_generic(
     the first non-year/non-count number. NO clinical reject contexts. Pure."""
     if not text:
         return None
+    # B13: the confidence-interval BOUND region(s) ("... CI 2-9", "... CI 5 to 12").
+    # Numbers inside are interval bounds, not a measured outcome value.
+    ci_regions = _ci_bound_regions(text)
     candidates: list[tuple[float, str, str, int]] = []
     for m in _GENERIC_VALUE_RE.finditer(text):
         raw = (m.group("value") or "").replace(",", "")
@@ -265,6 +268,17 @@ def _find_value_generic(
         end_win = min(len(text), m.end() + 60)
         window = text[start_win:end_win]
         if _looks_like_year_or_count(value, unit, window, m.start() - start_win):
+            continue
+        # B13: skip a confidence-interval LEVEL ("95% CI" / "95 % confidence
+        # interval"). It is the statistical confidence level, not a measured
+        # outcome — anchored on THIS number's position so a real value elsewhere
+        # in the row (the point estimate) is unaffected.
+        if _is_confidence_level_at(text, m.start()):
+            continue
+        # B13: skip a CI BOUND that sits INSIDE the interval region (so "(95% CI
+        # 2-9)" emits neither the 95 level nor the 2/-9 bounds). A real point
+        # estimate outside the parenthetical is unaffected.
+        if _in_ci_bound_region(m.start(), ci_regions):
             continue
         candidates.append((value, unit, window, m.start()))
     if not candidates:
@@ -570,19 +584,82 @@ def _normalize_predicate(
     return None
 
 
-def _normalize_subject(text: str, fallback: str = "unknown") -> str:
-    """Extract the first drug name in the text, or fallback.
+def _normalize_subject(
+    text: str, fallback: str = "unknown", general_fallback: bool = False,
+) -> str:
+    """Extract the salient subject of the clause: the first drug name, or fallback.
 
     This is the legacy API used when no positional anchor is available.
     Prefer _subject_near_position() when you know where the numeric value
     is and want to attribute the number to the nearest drug, not the
     first drug to appear in the wider text.
+
+    B13 (I-arch-011) DOMAIN-GENERAL SUBJECT: ``general_fallback`` is OPT-IN and
+    defaults False so EVERY pre-existing caller (the clinical numeric path via
+    ``_subject_near_position`` line 621, and any other consumer) is byte-identical
+    — the drug-name-only behaviour and its ``fallback`` are unchanged. When the
+    caller opts in (the qualitative present-vs-absent detector, which runs on
+    device / procedure / population corpora where NO drug name appears), and the
+    drug allowlist finds nothing, we fall back to the in-file DOMAIN-AGNOSTIC noun
+    extractor (``_subject_general_noun``) instead of the empty/`fallback` string.
+    Without this, a non-drug clinical corpus (e.g. Parkinson / deep-brain-
+    stimulation safety) resolved EVERY qualitative assertion's subject to "" — so
+    Pass A (which skips empty-subject assertions) never fired and Pass B collapsed
+    every unrelated flag into one ``("", concept_type)`` bucket: real T1 safety
+    signals ("DBS is contraindicated in X") were diluted into indistinguishable
+    noise. Drug-name precedence is preserved (a named drug still wins), so the
+    existing clinical golden behaviour is unchanged. The contradiction surface is
+    ADVISORY (labels, never drops/holds): a real entity subject only makes a true
+    safety contradiction VISIBLE; faithfulness gates are untouched.
     """
     from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
     m = _DRUG_NAME_RE.search(text or "")
     if m:
         return m.group(1).lower()
+    if general_fallback:
+        noun = _subject_general_noun(text)
+        if noun:
+            return noun
     return fallback
+
+
+# B13 (I-arch-011): light, dependency-free clause-subject (noun-phrase head)
+# extraction for ANY domain (device / procedure / population / drug). Consistent
+# with the in-file ``_subject_generic`` machinery (reuses ``_GENERIC_SUBJECT_STOPWORDS``)
+# and the field-agnostic 2025 noun-phrase-head approach (head noun + descriptors,
+# no parser): the salient subject of an English clause is overwhelmingly the
+# noun-phrase head before the main verb. We take the FIRST content token (skipping
+# generic statistical / temporal / filler stopwords) — deterministic, so the SAME
+# entity phrased the same way ("DBS …" on both sides) resolves to the SAME token
+# and the two assertions group/conflict. Acronyms / proper nouns are preferred so
+# "DBS" / "Levodopa" win over a leading lowercase filler. Returns "" when no
+# content token is found (a SAFE empty — the caller keeps its own fallback).
+_SUBJECT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{1,}")
+
+
+def _subject_general_noun(text: str) -> str:
+    """First salient content-word subject token of the clause, or "" if none.
+
+    Domain-agnostic, deterministic, no LLM, no parser, never raises. Skips the
+    shared generic statistical/temporal/measurement filler stopwords so a real
+    entity (device, procedure, population, condition) anchors the subject. An
+    ALL-CAPS acronym or a Capitalized proper noun in the clause is preferred over
+    a leading lowercase common word (e.g. "DBS" over "the"), because the named
+    entity is the safety subject the reader cares about."""
+    if not text:
+        return ""
+    tokens = _SUBJECT_TOKEN_RE.findall(text)
+    first_content: str = ""
+    for tok in tokens:
+        low = tok.lower()
+        if low in _GENERIC_SUBJECT_STOPWORDS:
+            continue
+        # Prefer a named entity (acronym / proper noun) if one appears in-clause.
+        if tok.isupper() or tok[:1].isupper():
+            return low
+        if not first_content:
+            first_content = low
+    return first_content
 
 
 def _subject_near_position(
@@ -657,6 +734,69 @@ _DURATION_NUM_RE = re.compile(
     r"-?\d+(?:\.\d+)?\s*(?:week|month|year|day)s?",
     re.IGNORECASE,
 )
+# B13 (I-arch-011) confidence-interval reject. A "95% CI" / "95 % confidence
+# interval" token is the STATISTICAL CONFIDENCE LEVEL, not a measured outcome
+# value — the run misparsed the "95%" in "Mortality reduction (95% CI 2-9)" as a
+# 95% mortality value, then flagged a fake 3-contradiction artifact against a real
+# single-digit mortality figure. We reject a number that is the confidence LEVEL
+# directly before a CI / confidence-interval cue. We DO NOT reject a number merely
+# because the wider sentence contains a CI elsewhere (that would suppress the real
+# point estimate "8%" in "reduced to 8% (95% CI 5-12)"), and we DO NOT reject a
+# plain "95% of patients" value (no CI cue). Word-boundary "CI" only, so it never
+# fires on an unrelated capitalised "Ci"-prefixed token mid-word.
+_CONFIDENCE_INTERVAL_LEVEL_RE = re.compile(
+    r"-?\d+(?:\.\d+)?\s*%?\s*"
+    r"(?:\bci\b|confidence\s+interval|credible\s+interval)",
+    re.IGNORECASE,
+)
+
+
+def _is_confidence_level_at(text: str, num_pos: int) -> bool:
+    """True iff the number at ``num_pos`` in ``text`` is the confidence LEVEL of a
+    confidence/credible interval ("95% CI", "95 % confidence interval").
+
+    Anchored on the number's own position: a CI cue elsewhere in the row does NOT
+    reject a real point-estimate value. Pure, never raises."""
+    if not text:
+        return False
+    for m in _CONFIDENCE_INTERVAL_LEVEL_RE.finditer(text):
+        if m.start() == num_pos:
+            return True
+    return False
+
+
+# The CI cue token itself ("CI" / "confidence interval" / "credible interval"),
+# used to mark the START of a CI BOUND region. The region runs from the cue to the
+# closing parenthesis/bracket (or the next ';' / sentence end), so the interval
+# BOUNDS inside it ("2-9", "5 to 12") are not emitted as metric values either.
+_CI_CUE_RE = re.compile(
+    r"\b(?:ci|confidence\s+interval|credible\s+interval)\b", re.IGNORECASE,
+)
+
+
+def _ci_bound_regions(text: str) -> list[tuple[int, int]]:
+    """Char spans that hold confidence/credible-interval BOUNDS (not a value).
+
+    Each region starts just after a CI cue and ends at the next closing ``)``/``]``
+    (or ``;`` / sentence end) — the numbers inside are interval bounds, not a
+    measured outcome. Pure, never raises."""
+    regions: list[tuple[int, int]] = []
+    for m in _CI_CUE_RE.finditer(text or ""):
+        start = m.end()
+        end = len(text)
+        for ch_pos in range(start, len(text)):
+            if text[ch_pos] in ")];":
+                end = ch_pos
+                break
+        regions.append((start, end))
+    return regions
+
+
+def _in_ci_bound_region(num_pos: int, regions: list[tuple[int, int]]) -> bool:
+    """True iff ``num_pos`` falls inside any CI-bound region. Pure."""
+    return any(lo <= num_pos < hi for lo, hi in regions)
+
+
 # A valid claim usually carries a value-phrase verb. "Achieved 14.9%",
 # "reduced by 12%", "loss of 15%", "mean change -14.9%". This
 # whitelist prevents us from pulling random decimals that happen to be
@@ -1052,6 +1192,15 @@ def _is_reject_context(window: str, num_pos_in_window: int) -> bool:
     m = _DURATION_NUM_RE.search(near)
     if m and m.start() <= num_pos_in_window - near_start <= m.end():
         return True
+    # B13: confidence-interval LEVEL reject — only if the number under
+    # measurement IS the confidence level directly before a CI cue (e.g. the
+    # "95%" in "(95% CI 2-9)"). Anchored on the number's own position so a real
+    # point estimate elsewhere in the window (the "8%" in "8% (95% CI 5-12)") is
+    # not rejected.
+    num_local = num_pos_in_window - near_start
+    for ci in _CONFIDENCE_INTERVAL_LEVEL_RE.finditer(near):
+        if ci.start() <= num_local <= ci.start() + 2:
+            return True
     return False
 
 

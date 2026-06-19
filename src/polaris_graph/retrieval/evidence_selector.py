@@ -511,21 +511,40 @@ def _row_relevance(
 
 
 def _subquery_floor_enabled() -> bool:
-    """Kill-switch `PG_SELECT_SUBQUERY_FLOOR` (default OFF). OFF => the
-    whole-question `_row_relevance` score is used unchanged (byte-identical).
+    """Kill-switch `PG_SELECT_SUBQUERY_FLOOR`. Returns True under the redesign
+    default (I-arch-011 B16) OR the semantic scorer OR an explicit ON value.
 
     B1 (b1b10 redesign): the semantic scorer (`PG_RELEVANCE_SCORER=semantic_v2`)
     implies the sub-query floor for the LEXICAL FALLBACK path — it is MONOTONIC-UP
     (max over per-sub-query scores, each with a small denominator) so it can only
     OPEN the floor, never tighten it, mitigating the long-question denominator if
-    the embedder is unavailable and selection degrades to the lexical scorer. Safe
-    because: (a) the semantic path itself takes the per-sub-query max in cosine
-    space, so this only affects the lexical fallback; (b) when semantic_v2 is OFF
-    the env still governs => byte-identical default behavior."""
-    raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "0").strip().lower()
-    if raw not in ("0", "false", "no", "off", ""):
+    the embedder is unavailable and selection degrades to the lexical scorer.
+
+    I-arch-011 (B16, §-1.3 WEIGHT-not-FILTER): the whole-question denominator in
+    `_row_relevance` (len(overlap)/len(question+protocol tokens)) makes the floor
+    TIGHTER as the question gets longer — a 3-part research question demands ~22
+    exact-word matches per source, so the lexical `selection_relevance` stamp (used
+    as the ORDERING input downstream and as the legacy-path filter) buries on-topic
+    sources that match ONE facet. Under the credibility redesign (the §-1.3 default,
+    `PG_SWEEP_CREDIBILITY_REDESIGN` unset/on) the per-sub-query MAX is the correct
+    relevance normalization: it is MONOTONIC-UP (`_row_relevance_facet` returns
+    `max(whole_question, best_subquery)`, clamped to 1.0) so a row's score can only
+    RISE — the floor only ever OPENS, NEVER tightens. Tying it to the redesign flag
+    (rather than flipping the bare default) keeps it consistent with how this gate
+    already honors `_semantic_scorer_enabled()`, and the lift stays CONFINED to the
+    relevance-floor path (the caller passes empty sub-query sets on the tier-balanced
+    TRUNCATING path, where a score lift could reorder/displace a kept row).
+
+    Explicit `PG_SELECT_SUBQUERY_FLOOR=0` (off/false/no) forces it OFF even under the
+    redesign — the legacy whole-question denominator — for audit/reversal."""
+    raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False  # explicit OFF wins (audit/reversal)
+    if raw != "":
+        # Any explicit non-OFF value => ON (the prior "not in off-set => True" rule).
         return True
-    return _semantic_scorer_enabled()
+    # Unset: honor the semantic scorer OR the credibility-redesign default (§-1.3 B16).
+    return _semantic_scorer_enabled() or _credibility_redesign_enabled()
 
 
 def _subquery_token_sets(sub_queries: list[str] | None) -> list[set[str]]:

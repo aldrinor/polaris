@@ -12,10 +12,12 @@ relaxed; the load-bearing assertions are the EXCLUSIONS:
     surfacing it would be a FABRICATED citation;
   * relevance-to-question FIRST, then ``weight_mass`` ORDERS — the FULL surviving list is returned
     (no cap / target / top-N): breadth EMERGES, never forced;
-  * a member whose source row is PRESENT-and-below ``PG_RELEVANCE_FLOOR`` is EXCLUDED (the operator
-    #1264 relevance gate — no off-topic verified-but-peripheral findings) reusing the EXISTING floor;
-  * a member whose source row carries NO usable relevance score FALLS BACK to keep (pool membership
-    already implies the retrieval floor passed) — a missing score never SILENTLY excludes;
+  * I-arch-011 (B18, §-1.3 WEIGHT-not-FILTER): a member whose source row is PRESENT-and-below
+    ``PG_RELEVANCE_FLOOR`` is KEPT and sorted LAST (a below-floor ORDERING demotion), NEVER excluded.
+    The pre-I-arch-011 code RE-IMPOSED a hard ``relevance < floor`` DROP here — the FILTER-AND-CAP
+    anti-pattern §-1.3 forbids, which killed 729/746 unbound SUPPORTS; that drop is REMOVED;
+  * a member whose source row carries NO usable relevance score is keep-neutral (sentinel 0.0,
+    treated as NOT-below-floor) — pool membership already implies the retrieval floor passed;
   * ``credibility_analysis is None`` (always-release degrade / flag OFF) => ``[]`` => the render is
     byte-identical to the pre-fix path;
   * the master flag defaults OFF.
@@ -183,11 +185,12 @@ def test_master_flag_defaults_off(monkeypatch):
     assert breadth_enrichment_enabled() is False
 
 
-# ── I-arch-007 #1264 relevance gate (operator: no off-topic verified-but-peripheral findings) ──
+# ── I-arch-011 (B18) relevance is a WEIGHT, never a FILTER (§-1.3, keep-all-sort-below-floor-last) ──
 # Relevance lives on the evidence_pool ROW (`selection_relevance`, the score the retrieval gate
 # stamps at evidence_selector.py:2128), NOT on the BasketMember. These tests build a relevance-
 # bearing pool locally (never mutating the shared `_POOL`) and pin PG_RELEVANCE_FLOOR for
 # determinism. The floor + its (0.0, 1.0] validation come from the EXISTING `parse_relevance_floor`.
+# The floor now ORDERS (below-floor rows sort LAST); it NEVER drops a member.
 
 
 def _pool_with_relevance(scores: dict[str, float]) -> dict[str, dict]:
@@ -198,8 +201,11 @@ def _pool_with_relevance(scores: dict[str, float]) -> dict[str, dict]:
     }
 
 
-def test_below_floor_source_excluded(monkeypatch):
-    """A SUPPORTS member whose source row scores BELOW PG_RELEVANCE_FLOOR is NOT surfaced."""
+def test_below_floor_source_kept_and_sorted_last(monkeypatch):
+    """I-arch-011 (B18): a SUPPORTS member whose source row scores BELOW PG_RELEVANCE_FLOOR is
+    KEPT and sorted LAST (a below-floor ORDERING demotion) — NEVER excluded. The pre-I-arch-011
+    code DROPPED it (the §-1.3-forbidden FILTER-AND-CAP neck that killed 729/746 supports); this
+    test encodes the WEIGHT-not-FILTER fix and FAILS on the pre-fix drop."""
     monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
     pool = _pool_with_relevance({"ev1": 0.80, "ev2": 0.05})  # ev2 below the 0.30 floor
     baskets = [_basket("c1", 0.9, [_member("ev1", "SUPPORTS"), _member("ev2", "SUPPORTS")])]
@@ -208,7 +214,8 @@ def test_below_floor_source_excluded(monkeypatch):
         credibility_analysis=_analysis(baskets),
         contract_plans=[_contract_plan([], [])],
     )
-    assert out == ["ev1"]  # ev2 is on-pool but genuinely off-topic -> gated out
+    # KEEP-ALL: both surface. ev1 (above floor) first; ev2 (below floor) demoted LAST, not dropped.
+    assert out == ["ev1", "ev2"]
 
 
 def test_at_floor_kept_inclusive(monkeypatch):

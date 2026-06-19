@@ -303,6 +303,91 @@ def load_checklist(domain: str) -> list[ChecklistTopic]:
     return topics
 
 
+# ── BUG-20 (I-arch-011): domain-adaptive checklist routing ────────────────────
+# THE BUG: a `clinical` question routes UNCONDITIONALLY to clinical.yaml — the
+# GLP-1 / drug-efficacy template. Applied to a Parkinson's / deep-brain-stimulation
+# (DBS) question, 6 of its 7 topics are `requires_drug_intervention` and become
+# non-applicable (correctly, post-BUG-7), leaving a SINGLE applicable topic
+# (population_subgroups) that incidentally matches -> "1 of 1 covered" reads as
+# "100% complete". The topics a reviewer of a DBS question actually expects —
+# device efficacy (UPDRS-III), patient selection, hardware complications,
+# stimulation/programming adverse effects, warning signs — are NEVER MEASURED.
+# That is a false completeness PASS via the wrong-domain checklist.
+#
+# THE FIX: route the `clinical` question to a SUB-DOMAIN checklist whose
+# `routing_terms` match the QUESTION (e.g. clinical_neuro_device.yaml for a
+# Parkinson's/DBS question), so the applicable topics match what is being asked.
+# Routing is config-driven (LAW VI): each candidate sub-domain checklist declares
+# its own `routing_terms`; no question with zero matches changes domain, so every
+# current question stays byte-identical. Matching is against the QUESTION only —
+# never incidental evidence text — and the most-specific (most matched terms)
+# candidate wins.
+#
+# FAITHFULNESS NOTE: this only refines WHICH checklist supplies the completeness
+# DENOMINATOR. It never touches strict_verify / NLI / the 4-role D8 audit /
+# span-grounding, never drops or alters a verified claim, and adds no cap/floor.
+# Choosing the RIGHT checklist makes a false 100% honest — a faithfulness
+# improvement, not a relaxation.
+
+# `clinical`-rooted sub-domain checklists eligible for question routing. Each must
+# declare `routing_terms` in its YAML. Listed by parent domain so a future parent
+# domain can add routed sub-checklists without touching unrelated domains.
+_ROUTED_SUBDOMAINS: dict[str, tuple[str, ...]] = {
+    "clinical": ("clinical_neuro_device",),
+}
+
+
+def _load_routing_terms(domain: str) -> list[str]:
+    """Return the lower-cased ``routing_terms`` declared in {domain}.yaml.
+
+    Empty when the file is missing / has no routing_terms / yaml unavailable —
+    so a checklist with no routing_terms is never selected by the router.
+    """
+    if yaml is None:
+        return []
+    path = _CHECKLIST_DIR / f"{domain}.yaml"
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("[completeness] routing_terms parse failed for %r: %s", path, exc)
+        return []
+    raw = data.get("routing_terms") or []
+    return [str(t).lower().strip() for t in raw if str(t).strip()]
+
+
+def _route_checklist_domain(domain: str, research_question: str) -> str:
+    """Resolve the checklist domain to use for ``research_question`` (BUG-20).
+
+    Returns ``domain`` unchanged unless a registered sub-domain checklist's
+    ``routing_terms`` match the QUESTION. When two sub-domains match, the one with
+    the MOST matched terms wins (most-specific). A clean no-match leaves ``domain``
+    untouched -> byte-identical routing for every current question.
+    """
+    candidates = _ROUTED_SUBDOMAINS.get(domain)
+    if not candidates:
+        return domain
+    q_lower = (research_question or "").lower()
+    if not q_lower:
+        return domain
+    best_domain = domain
+    best_score = 0
+    for sub in candidates:
+        terms = _load_routing_terms(sub)
+        score = sum(1 for term in terms if term and term in q_lower)
+        if score > best_score:
+            best_score = score
+            best_domain = sub
+    if best_domain != domain:
+        logger.info(
+            "[completeness] BUG-20 routed domain=%r -> sub-domain=%r "
+            "(matched %d routing term(s) in the question)",
+            domain, best_domain, best_score,
+        )
+    return best_domain
+
+
 def _legacy_applies_if(
     topic: ChecklistTopic,
     research_question: str,
@@ -460,9 +545,13 @@ def check_completeness(
     Returns CompletenessReport with per-topic coverage + expand_queries
     for uncovered topics.
     """
-    topics = load_checklist(domain)
+    # BUG-20 (I-arch-011): route to a question-matched sub-domain checklist
+    # (e.g. a Parkinson's/DBS question -> clinical_neuro_device) instead of the
+    # fixed drug-efficacy clinical template. No-match -> domain unchanged.
+    resolved_domain = _route_checklist_domain(domain, research_question)
+    topics = load_checklist(resolved_domain)
     if not topics:
-        return CompletenessReport(domain=domain, notes=["no_checklist_loaded"])
+        return CompletenessReport(domain=resolved_domain, notes=["no_checklist_loaded"])
 
     # Build an all-evidence text blob for applies_if checks
     evidence_blob = " ".join(
@@ -564,7 +653,7 @@ def check_completeness(
     notes.extend(applicability_disclosures)
 
     return CompletenessReport(
-        domain=domain,
+        domain=resolved_domain,
         topics=coverages,
         total_applicable=applicable,
         total_covered=covered_n,

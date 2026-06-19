@@ -2196,6 +2196,146 @@ def _try_oa_resolution(
     return ""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch via the FORCED Zyte path.
+#
+# THE BUG: on the live cert run 96/528 sources fetched as DEGRADED (content-less
+# stub / landing-page shell) and were FLAGGED but NEVER re-fetched. The named B04
+# anchors (NEJM 489 chars, FDA P960009 266 chars) are anti-bot/paywall shells: the
+# free fetch cascade returns the shell with ``success=True``, so the in-cascade
+# Zyte LAST-resort (access_bypass:1745, which only fires after the free chain
+# FAILS) never gets a turn, and the no-DOI device PMA (FDA P960009) cannot be
+# rescued by the DOI-gated OA resolver either. So the disease-staging slot was
+# ungroundable — a real breadth loss, not a faithfulness call.
+#
+# THE FIX — ESCALATE, don't re-run the same path: for a row the fetch layer is
+# about to mark degraded, call Zyte DIRECTLY on the original URL (force the paid
+# browserHtml anti-bot solver — 2025 Proxyway benchmark: Zyte led all unblockers
+# at 93.14% on heavily protected sites) instead of re-deriving the identical shell
+# through the deterministic free cascade. On a usable, NON-content-starved result
+# the row's grounding span is REPOPULATED and the degraded flags are cleared, so
+# the row flows through the UNCHANGED strict_verify exactly like a full-text row.
+#
+# FAITHFULNESS-SAFE BY CONSTRUCTION: this touches the INPUT span only. It moves NO
+# gate (strict_verify / NLI / 4-role D8 / span-grounding) and adds NO cap/floor/
+# throttle — the re-fetched span is judged by the SAME pre-existing
+# ``is_content_starved`` heuristic the legacy path already used, never a new
+# threshold. A row that cannot be re-grounded STAYS LABELED degraded (it is never
+# passed off as full text), and the run FAILS LOUD when ``ZYTE_API_KEY`` is unset
+# (the Zyte fallback is otherwise a silent no-op without the key). Default-OFF
+# master flag (LAW VI) => no re-fetch => byte-identical legacy behaviour; the
+# later wiring pass owns turning it on for the cert slate.
+# ─────────────────────────────────────────────────────────────────────────────
+_ENV_REFETCH_DEGRADED = "PG_REFETCH_DEGRADED_VIA_ZYTE"
+
+
+def _refetch_degraded_enabled() -> bool:
+    """True iff the default-OFF degraded-row Zyte re-fetch is explicitly enabled.
+
+    LAW VI: env-overridable, default OFF (unset => no re-fetch => byte-identical
+    legacy behaviour). Recognized truthy values: 1/true/on/yes.
+    """
+    return os.environ.get(_ENV_REFETCH_DEGRADED, "").strip().lower() in (
+        "1", "true", "on", "yes",
+    )
+
+
+def _force_zyte_refetch(url: str, max_chars: int = DEFAULT_CONTENT_MAX_CHARS) -> str:
+    """Force a Zyte browser re-fetch of a single degraded URL; return clean text.
+
+    Calls ``AccessBypass._try_zyte`` DIRECTLY (bypassing the free-cascade-must-
+    fail-first gate), because for an anti-bot/paywall SHELL the free cascade
+    returns ``success=True`` with the shell and would re-derive the identical
+    stub on any plain re-fetch. ``_try_zyte`` already tries the cheap
+    httpResponseBody mode and ESCALATES to the paid JS-rendering browserHtml mode
+    when the cheap result is a shell, runs the same ``safe_trafilatura_extract``
+    every backend uses, and rejects paywall stubs internally — so a SUCCESS here
+    is real extracted full text, never a shell laundered as content.
+
+    STRICT NO-OP when ``ZYTE_API_KEY`` is absent (``_try_zyte`` itself returns a
+    failure result spending nothing); a LOUD warning is emitted at the call site
+    so a Zyte-blind run on the degraded rows is auditable instead of a silent
+    no-op. Returns the extracted content string on a usable Zyte success, or ""
+    on any failure / no key / timeout. NEVER raises (fail-OPEN per URL — one
+    degraded row's re-fetch must never abort the retrieval loop).
+    """
+    if not url:
+        return ""
+    try:
+        from src.tools.access_bypass import AccessBypass, polaris_asyncio_run
+    except Exception as exc:  # noqa: BLE001 — AccessBypass unavailable => no re-fetch.
+        logger.warning(
+            "[live_retriever] B02/B04 degraded re-fetch: AccessBypass "
+            "unavailable (%s) — cannot force Zyte for %s; row stays degraded.",
+            exc, url[:80],
+        )
+        return ""
+
+    result_holder: dict[str, Any] = {}
+
+    def _zyte_worker() -> None:
+        try:
+            bypass = AccessBypass()
+
+            async def _run() -> Any:
+                # Force the Zyte browser path on the ORIGINAL url directly.
+                return await bypass._try_zyte(url)
+
+            result_holder["value"] = polaris_asyncio_run(_run())
+        except Exception as exc:  # noqa: BLE001 — captured, surfaced as a miss.
+            result_holder["error"] = exc
+
+    worker = threading.Thread(target=_zyte_worker, daemon=True)
+    worker.start()
+    try:
+        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+    except ValueError:
+        deadline = 90.0
+    worker.join(timeout=deadline if deadline > 0 else None)
+    if worker.is_alive():
+        logger.warning(
+            "[live_retriever] B02/B04 degraded re-fetch: Zyte timed out after "
+            "%.0fs for %s — row stays degraded (thread abandoned as daemon).",
+            deadline, url[:80],
+        )
+        return ""
+    if "error" in result_holder:
+        logger.warning(
+            "[live_retriever] B02/B04 degraded re-fetch: Zyte raised for %s: "
+            "%s — row stays degraded.", url[:80], result_holder["error"],
+        )
+        return ""
+    result = result_holder.get("value")
+    content = getattr(result, "content", "") if result is not None else ""
+    if result is not None and getattr(result, "success", False) and content:
+        return str(content)[:max_chars]
+    return ""
+
+
+def _try_refetch_degraded_row(url: str, max_chars: int = DEFAULT_CONTENT_MAX_CHARS) -> str:
+    """Re-fetch a fetch-degraded row through the strongest path; return clean text.
+
+    Wraps :func:`_force_zyte_refetch`. FAILS LOUD when ``ZYTE_API_KEY`` is unset
+    (the strongest path is a silent no-op without the key) so a Zyte-blind run is
+    auditable; returns "" in that case (no recovery). On a usable Zyte success the
+    extracted full text is returned for the caller to re-ground against. Returns
+    "" on any failure — the caller then KEEPS the row labeled degraded (never a
+    fabricated full-text span). Never raises.
+    """
+    if not url:
+        return ""
+    if not os.getenv("ZYTE_API_KEY"):
+        logger.warning(
+            "[live_retriever] B02/B04 DEGRADED_REFETCH_NO_ZYTE %s — a degraded "
+            "stub cannot be re-fetched because ZYTE_API_KEY is UNSET (the Zyte "
+            "paid fallback is a silent no-op without the key). Row stays LABELED "
+            "fetch_degraded (NOT passed off as full text). Set ZYTE_API_KEY to "
+            "recover full text.", url[:80],
+        )
+        return ""
+    return _force_zyte_refetch(url, max_chars)
+
+
 def _unpaywall_get_oa_urls(doi: str) -> list[str]:
     """Query the Unpaywall v2 API for OA location URLs.
 
@@ -4348,6 +4488,66 @@ def run_live_retrieval(
             # when it is NOT already starved (avoid double-counting) so the two
             # signals are disjoint in the telemetry.
             _is_landing = (not _starved) and _is_landing_or_abstract_page(content)
+            # BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch. When this row
+            # is about to be flagged degraded (content-less stub / landing-page
+            # shell — e.g. the NEJM 489-char / FDA P960009 266-char anti-bot
+            # shells that left the disease-staging slot ungroundable) and the
+            # default-OFF master flag is enabled, ESCALATE to a forced Zyte browser
+            # re-fetch of the ORIGINAL url (a plain re-fetch would re-derive the
+            # identical shell through the deterministic free cascade). On a usable,
+            # NON-content-starved Zyte result, ADOPT the recovered full text: the
+            # row then proceeds through the normal full-text path below (real
+            # grounding span, degraded flags never set) and flows through the
+            # UNCHANGED strict_verify like any other row. On failure the row stays
+            # degraded (the unchanged down-weight/skip logic below runs) and is
+            # NEVER passed off as full text. FAIL-LOUD without ZYTE_API_KEY.
+            # Faithfulness-neutral: no gate moves, no cap/floor — the recovered
+            # span is judged by the SAME is_content_starved heuristic already used.
+            #
+            # The degraded set is the UNION of three EXISTING signals (no NEW
+            # threshold): (1) ``_starved`` (is_content_starved), (2) ``_is_landing``
+            # (landing/abstract RECORD page), and (3) ``not ok`` — the FETCH
+            # LAYER's OWN paywall-stub verdict for a NON-EMPTY short body (the
+            # paywall-stub gate in _fetch_content returns ok=False for the FDA
+            # P960009 266-char PMA stub class: thin REAL prose that clears the
+            # starvation floor and carries no landing marker, so signals 1+2 alone
+            # would MISS it). Reusing the fetch layer's settled ok=False here is
+            # NOT a new cap — it is the same stub decision already made upstream.
+            if (_starved or _is_landing or not ok) and _refetch_degraded_enabled():
+                _refetched = _try_refetch_degraded_row(
+                    cand.url, DEFAULT_CONTENT_MAX_CHARS,
+                )
+                if _refetched and not is_content_starved(_refetched):
+                    logger.info(
+                        "[live_retriever] B02/B04 RE-FETCH RECOVERED %r "
+                        "(stub_len=%d -> zyte_len=%d) — degraded shell upgraded "
+                        "to full text via forced Zyte; flows through UNCHANGED "
+                        "strict_verify.",
+                        cand.url, len(content), len(_refetched),
+                    )
+                    content = _refetched
+                    _starved = False
+                    _is_landing = False
+                else:
+                    # FAITHFULNESS: the re-fetch did not recover this row, so it is
+                    # NOT full text. A row that entered via the fetch layer's stub
+                    # verdict (``not ok``) but is neither starved nor a landing page
+                    # (the FDA P960009 thin-prose stub) would otherwise be admitted
+                    # as a NORMAL grounded row — laundering an unrecovered stub. So
+                    # mark it content-degraded (``_starved``) so the UNCHANGED
+                    # down-weight/skip path below labels + excludes it. This NEVER
+                    # passes a stub off as full text; it only fires under the
+                    # default-OFF re-fetch flag (OFF => block skipped => byte-
+                    # identical, including the legacy ``not ok`` admit behaviour).
+                    if not _starved and not _is_landing:
+                        _starved = True
+                    logger.warning(
+                        "[live_retriever] B02/B04 RE-FETCH STILL-DEGRADED %r "
+                        "(stub_len=%d ok=%s) — forced Zyte yielded no usable full "
+                        "text; row stays LABELED degraded (NOT passed off as full "
+                        "text).",
+                        cand.url, len(content), ok,
+                    )
             _redesign_on = _credibility_redesign_enabled()
             if _starved and not _redesign_on:
                 # LEGACY OFF path — byte-identical hard-drop (no row appended).

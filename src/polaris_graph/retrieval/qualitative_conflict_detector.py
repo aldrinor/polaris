@@ -528,7 +528,14 @@ def extract_qualitative_assertions(
         for sentence in _split_sentences(quote):
             # the drug usually appears once at the head of the sentence; a clause that names no drug
             # inherits the sentence subject (so 'X is contraindicated ... but safe in ...' keeps X).
-            sentence_subject = _normalize_subject(sentence, fallback="")
+            # B13 (I-arch-011): ``general_fallback=True`` makes the SENTENCE subject domain-general —
+            # a device / procedure / population entity (e.g. "dbs") is extracted when NO drug name is
+            # present, instead of "". Drug names still win. Without this, a non-drug clinical corpus
+            # (Parkinson / DBS safety) resolved EVERY qualitative subject to "" so unrelated safety
+            # flags collapsed into one ("", concept) bucket — diluting real T1 contradictions into
+            # noise. Advisory surface only (labels, never drops/holds); faithfulness gates untouched.
+            sentence_subject = _normalize_subject(
+                sentence, fallback="", general_fallback=True)
             for clause_raw in _split_clauses(sentence, lex["termination_terms"]):
                 clause = clause_raw.lower()
                 # true pseudo / no-assertion -> the concept is not asserted; skip this clause.
@@ -552,6 +559,13 @@ def extract_qualitative_assertions(
                         continue
                     cue, pos = hit
                     status = _classify_status(clause, cue, pos, base, lex)
+                    # B13 (I-arch-011): clause-level subject stays DRUG-ONLY so a clause that
+                    # names a drug binds to it, and a clause that loses its drug falls through to
+                    # ``sentence_subject``. The domain-general fallback is applied ONCE at the
+                    # SENTENCE level (above): on a non-drug corpus the sentence subject carries the
+                    # device/procedure entity which every clause inherits. Applying the general
+                    # fallback HERE too would let a per-clause filler noun ("constipation",
+                    # "contraindicated") override the real sentence subject and break inheritance.
                     subject = _normalize_subject(clause, fallback="") or sentence_subject
                     owner = lex["object_slot_owner"].get(concept_type, "object_slot")
                     object_slot, condition_scope = "", ""

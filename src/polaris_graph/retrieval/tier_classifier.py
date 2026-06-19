@@ -140,10 +140,20 @@ class ClassificationResult:
     source_class: str | None = None
     corroboration_count: int | None = None
     authority_confidence: str | None = None
-
-    @property
-    def is_decided(self) -> bool:
-        return self.tier != TierLevel.UNKNOWN
+    # ── I-arch-011 B17/B11 (KEYSTONE) ADDITIVE field. SEPARATES venue
+    # authority from fetch completeness. True when a KNOWN SCHOLARLY VENUE
+    # (Lancet / Brain / Movement Disorders, etc.) kept its venue-authority
+    # tier even though the fetched body came back as a SHORT STUB (< the T7
+    # stub threshold). The row is NOT demoted to the T7 length floor — it
+    # keeps its real venue tier/weight (WEIGHT, never a drop) — but it is
+    # LABELLED degraded so two SEPARATE downstream lanes can act on it:
+    #   * a FETCH/re-fetch lane re-pulls the full text;
+    #   * an ADEQUACY lane EXCLUDES degraded rows from grounded-content
+    #     counts (so an empty stub's venue authority can never launder it
+    #     into "adequate" grounded content — authority-weight and grounded-
+    #     content-adequacy stay separate signals).
+    # Default False = byte-identical to HEAD for every non-stub row.
+    fetch_degraded: bool = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -757,6 +767,43 @@ def _is_doi_org_journal_with_venue(signals: "ClassificationSignals") -> bool:
     return src_type == "journal" and bool(venue)
 
 
+def _is_known_scholarly_venue(signals: "ClassificationSignals") -> bool:
+    """I-arch-011 B17/B11 (KEYSTONE): True when the source is a recognized
+    scholarly VENUE on venue/identifier evidence ALONE — independent of how
+    much body text the fetcher happened to return.
+
+    This is the shared detector that drives the "do NOT demote a real journal
+    to the T7 length floor" carve-out on BOTH classifier paths (the legacy
+    rules path R1 and the authority-model path). A source qualifies when ANY
+    of these venue signals is present:
+      * the host is on PEER_REVIEWED_JOURNAL_DOMAINS (NEJM / Lancet / BMJ /
+        Nature / Brain via academic.oup.com / Movement Disorders via
+        onlinelibrary.wiley.com, ...) — parent-domain match;
+      * the URL is a doi.org canonical DOI whose registrant prefix is a known
+        peer-reviewed publisher (_has_peer_reviewed_doi_prefix);
+      * the URL is a doi.org canonical DOI that resolved to a real OpenAlex
+        JOURNAL venue (_is_doi_org_journal_with_venue);
+      * OpenAlex independently resolved the work to a JOURNAL source_type with
+        a non-empty venue name.
+
+    It is a VENUE-AUTHORITY signal, NOT a grounding/adequacy signal: a known
+    venue keeps its authority weight even when the fetch is an empty stub, but
+    the caller MUST set fetch_degraded=True so the stub is excluded from
+    grounded-content adequacy downstream (no laundering). Adds no cap/floor —
+    it only RESTORES the venue weighting the length-floor was clobbering.
+    """
+    domain = _normalize_domain(signals.url)
+    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS):
+        return True
+    if _has_peer_reviewed_doi_prefix(signals.url):
+        return True
+    if _is_doi_org_journal_with_venue(signals):
+        return True
+    src_type = (signals.openalex_source_type or "").strip().lower()
+    venue = (signals.openalex_venue or "").strip()
+    return src_type == "journal" and bool(venue)
+
+
 def _is_low_quality_oa(domain: str, url: str) -> bool:
     """I-bug-771 (#812): True if the source is a low-quality / high-volume OA
     publisher (MDPI) by domain OR by URL-embedded DOI prefix. Used to deny T1
@@ -1234,20 +1281,53 @@ def _classify_source_tier_rules(
         )
         return result
 
-    # ── Rule 1 (T7 stub): Tiny content = stub regardless of venue
+    # ── Rule 1 (T7 stub): Tiny content = stub.
     # This runs early because even a JAMA paper fetched as 500-char
     # abstract is effectively a stub for evaluator purposes.
+    #
+    # I-arch-011 B17/B11 (KEYSTONE) — SEPARATE venue authority from fetch
+    # completeness. The original rule demoted to T7 "regardless of venue",
+    # which is a regression of I-bug-775 (#815): it dropped real scholarly
+    # journals (Lancet / Brain / Movement Disorders) to T7 purely because
+    # the fetch returned a short stub, clobbering their domain-aware venue
+    # authority. The fix: when the source is a KNOWN SCHOLARLY VENUE (and not
+    # a genuine conference abstract, which stays T7 on its own merits), do
+    # NOT apply the length floor — let the source flow to the journal/venue
+    # rules below and earn its real venue tier — but LABEL it
+    # fetch_degraded=True so (a) a re-fetch lane can re-pull the full text and
+    # (b) the adequacy lane EXCLUDES it from grounded-content counts. This is
+    # WEIGHT-AND-LABEL, never a drop and never a cap: the empty stub keeps its
+    # venue authority weight but is barred from counting as grounded content,
+    # so venue authority cannot launder a contentless stub into "adequate".
     if signals.fetched_content_length and signals.fetched_content_length < T7_STUB_CONTENT_CHARS:
-        result.tier = TierLevel.T7
-        result.confidence = 1.0
-        result.matched_rules.append("R1_stub_content_length")
-        result.reasons.append(
-            f"Fetched body is {signals.fetched_content_length} chars "
-            f"(< {T7_STUB_CONTENT_CHARS} threshold) — classified T7 stub "
-            f"regardless of venue. Full-text retrieval would be needed "
-            f"to upgrade."
-        )
-        return result
+        if (
+            _is_known_scholarly_venue(signals)
+            and not _detect_conference_abstract(signals.title, signals.url)
+        ):
+            # Known journal fetched as a stub: keep venue authority (fall
+            # through to the venue rules), but mark the row degraded so the
+            # downstream adequacy lane does not count it as grounded content.
+            result.fetch_degraded = True
+            result.reasons.append(
+                f"Fetched body is {signals.fetched_content_length} chars "
+                f"(< {T7_STUB_CONTENT_CHARS} threshold) but the source is a "
+                f"known scholarly venue: KEEPING venue-authority tier rather "
+                f"than demoting to the T7 length floor (I-arch-011 B17). "
+                f"Labelled fetch_degraded=True — a re-fetch lane should pull "
+                f"the full text and the adequacy lane EXCLUDES this row from "
+                f"grounded-content counts until then."
+            )
+        else:
+            result.tier = TierLevel.T7
+            result.confidence = 1.0
+            result.matched_rules.append("R1_stub_content_length")
+            result.reasons.append(
+                f"Fetched body is {signals.fetched_content_length} chars "
+                f"(< {T7_STUB_CONTENT_CHARS} threshold) — classified T7 stub. "
+                f"Not a recognized scholarly venue (or is a conference "
+                f"abstract); full-text retrieval would be needed to upgrade."
+            )
+            return result
 
     # ── Rule 2a (T6): Low-provenance document hosts. A government PDF
     # re-hosted on Scribd has unknown authenticity; do NOT elevate to T3
@@ -2055,6 +2135,46 @@ def _classify_via_authority_model(
             authority=authority_result,
         )
     )
+
+    # ── I-arch-011 B17/B11 (KEYSTONE) — un-stub a known scholarly venue on the
+    # authority-model path too. The renderer's `stub_content_t7` rule demotes
+    # to "T7" purely by fetched-length, BEFORE any venue/authority rule, so a
+    # short-fetched Lancet/Brain/Movement-Disorders article renders "T7" here
+    # exactly as it did on the legacy path. `authority_score` is ALREADY
+    # correct (score_source_authority ignores fetch length); only the rendered
+    # TIER is corrupted. Fix: when the tier is "T7" AND the source is a known
+    # scholarly venue AND the content was a sub-threshold stub, RE-DERIVE the
+    # venue tier by re-rendering with the content-length lifted just above the
+    # stub threshold. The re-render keeps every OTHER rule intact, so a GENUINE
+    # conference abstract (the `conference_abstract_t7` rule) re-derives to
+    # STILL "T7" and is NOT un-stubbed — cleanly separating "T7 because the
+    # fetch was short" (un-stub it) from "T7 because it is actually an
+    # abstract" (leave it). When un-stubbed, mark fetch_degraded=True so the
+    # adequacy lane excludes the empty stub from grounded content (no
+    # laundering). WEIGHT-AND-LABEL, no cap/floor; authority_score untouched.
+    fetch_degraded = False
+    if (
+        tier_str == "T7"
+        and signals.fetched_content_length
+        and signals.fetched_content_length < T7_STUB_CONTENT_CHARS
+        and _is_known_scholarly_venue(signals)
+    ):
+        unstubbed_tier_str = render_clinical_tier(
+            ClinicalViewInput(
+                publication_type=signals.openalex_publication_type,
+                source_type=signals.openalex_source_type,
+                is_retracted=signals.openalex_is_retracted,
+                fetched_content_length=T7_STUB_CONTENT_CHARS,  # lift above stub
+                title=signals.title,
+                authority=authority_result,
+            )
+        )
+        if unstubbed_tier_str != "T7":
+            # The T7 was a length artifact, not a real abstract: restore the
+            # venue tier and label the row degraded for the adequacy/fetch lanes.
+            tier_str = unstubbed_tier_str
+            fetch_degraded = True
+
     tier = TierLevel(tier_str)
     confidence = _AUTHORITY_CONFIDENCE_TO_FLOAT.get(
         authority_result.authority_confidence.value, 0.5
@@ -2073,5 +2193,6 @@ def _classify_via_authority_model(
         source_class=authority_result.source_class.value,
         corroboration_count=authority_result.corroboration_count,
         authority_confidence=authority_result.authority_confidence.value,
+        fetch_degraded=fetch_degraded,
     )
     return result

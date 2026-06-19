@@ -1,0 +1,195 @@
+# Clinical neuro-device / neuromodulation completeness checklist — I-arch-011 BUG-20.
+#
+# Routed sub-domain of `clinical`. A deep-brain-stimulation (DBS) / Parkinson's
+# device question is NOT a drug-efficacy question: the GLP-1 / drug-pharmacology
+# clinical checklist (contraindications, pancreatitis/thyroid class risks, drug
+# interactions, FDA drug approval, …) is the WRONG template for it. Applied to a
+# DBS / Parkinson's question, 6 of its 7 topics are non-applicable, so the single
+# applicable topic reads as "100% covered" while the topics a reviewer actually
+# expects — device efficacy (UPDRS-III), patient selection, hardware
+# complications, stimulation/programming adverse effects, and warning signs —
+# are absent (BUG-20). `check_completeness` routes a Parkinson's/DBS question to
+# THIS checklist by `routing_terms`.
+#
+# Topics here are NON-drug (no `requires_drug_intervention`), so they actually
+# apply to a device/procedure question. None is marked `critical: true` — an
+# uncovered topic is surfaced as an ADVISORY gap (honest completeness
+# measurement), never a release HOLD (operator directive: the verifier labels
+# weak findings weak, it does not hold the report).
+#
+# Frontier-grounded (2025-2026, verified vs primary sources):
+#   - DBS narrative review 2025: https://www.mdpi.com/2227-9059/13/10/2430
+#   - STN-DBS 5-year outcomes (UPDRS-III, levodopa challenge):
+#       https://pmc.ncbi.nlm.nih.gov/articles/PMC12439180/
+#   - Motor-complications meta-analysis (35 studies, 1082 patients):
+#       https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12756497/
+#   - Adaptive DBS ADAPT-START (programming principles):
+#       https://www.nature.com/articles/s41531-026-01269-z
+#   - Hardware complications (infection ~5%, lead migration, fracture/IPG):
+#       https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8269991/
+#       https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0183711
+
+domain: clinical_neuro_device
+
+# Question terms that route a `clinical` question to this neuro-device checklist
+# instead of the default drug-pharmacology one. Config-driven (LAW VI) so the
+# router is extensible without code edits. Matched case-insensitively against the
+# research question only (never incidental evidence text).
+#
+# SAFETY: these are DEVICE-INDICATING terms only. We deliberately do NOT route on
+# the bare disease name ("parkinson") — a drug question that merely mentions
+# Parkinson's (e.g. "contraindications of levodopa in Parkinson's disease") must
+# STAY on the drug-pharmacology clinical checklist so its CRITICAL
+# `contraindications` topic (gating abort_critical_topic_uncovered) is enforced.
+# A disease name is not a device question. As a defence-in-depth backstop the
+# drug-gated `contraindications` (critical) + `drug_interactions` topics ALSO live
+# in this checklist (below), so even a device question that does involve a drug
+# never loses the critical contraindications check.
+routing_terms:
+  - "deep brain stimulation"
+  - "deep-brain stimulation"
+  - "dbs"
+  - "subthalamic"
+  - "subthalamic nucleus"
+  - "stn-dbs"
+  - "globus pallidus"
+  - "gpi-dbs"
+  - "neurostimulator"
+  - "neuromodulation"
+  - "implanted pulse generator"
+  - "ipg"
+
+topics:
+  - id: device_efficacy
+    label: Device efficacy (motor outcomes / UPDRS-III)
+    keywords:
+      - "updrs"
+      - "mds-updrs"
+      - "motor improvement"
+      - "tremor"
+      - "rigidity"
+      - "bradykinesia"
+      - "dyskinesia"
+      - "levodopa equivalent"
+      - "ledd"
+      - "off time"
+    expand_queries:
+      - "{topic} deep brain stimulation UPDRS-III motor outcome randomized"
+      - "{topic} STN-DBS long-term efficacy levodopa equivalent daily dose"
+
+  - id: patient_selection
+    label: Patient selection / candidacy criteria
+    keywords:
+      - "patient selection"
+      - "candidacy"
+      - "levodopa challenge"
+      - "levodopa response"
+      - "inclusion criteria"
+      - "exclusion criteria"
+      - "eligibility"
+      - "cognitive"
+      - "age"
+    expand_queries:
+      - "{topic} deep brain stimulation patient selection levodopa challenge criteria"
+
+  - id: hardware_complications
+    label: Hardware / surgical complications
+    keywords:
+      - "infection"
+      - "lead migration"
+      - "lead fracture"
+      - "hardware complication"
+      - "hemorrhage"
+      - "erosion"
+      - "ipg malfunction"
+      - "device failure"
+      - "reoperation"
+      - "explantation"
+    expand_queries:
+      - "{topic} deep brain stimulation hardware complications infection lead migration"
+
+  - id: stimulation_adverse_effects
+    label: Stimulation / programming adverse effects
+    keywords:
+      - "stimulation-induced"
+      - "dysarthria"
+      - "paresthesia"
+      - "gait"
+      - "balance"
+      - "mood"
+      - "impulsivity"
+      - "speech"
+      - "programming"
+      - "side effect"
+    expand_queries:
+      - "{topic} deep brain stimulation stimulation-induced adverse effects programming"
+
+  - id: warning_signs
+    label: Warning signs / when to seek care
+    keywords:
+      - "warning sign"
+      - "seek care"
+      - "emergency"
+      - "fever"
+      - "redness"
+      - "swelling"
+      - "wound"
+      - "sudden"
+      - "worsening"
+      - "device off"
+    expand_queries:
+      - "{topic} deep brain stimulation warning signs infection seek medical care"
+
+  - id: long_term_outcomes
+    label: Long-term outcomes / durability
+    keywords:
+      - "long-term"
+      - "five-year"
+      - "5-year"
+      - "durability"
+      - "sustained"
+      - "follow-up"
+      - "battery"
+      - "replacement"
+    expand_queries:
+      - "{topic} deep brain stimulation long-term five-year outcomes durability"
+
+  # ── Drug-gated safety backstop (BUG-20 / I-arch-011, mirroring BUG-7 #1262) ──
+  # A device question can still involve a drug (e.g. DBS vs best medical therapy
+  # comparisons, peri-operative medication). These two topics are
+  # `requires_drug_intervention: true`, so they apply ONLY when the robust
+  # scope-gate recognizer detects an actual drug/intervention in the QUESTION —
+  # dormant on a pure device question (no spurious hold), active only when a drug
+  # is present. This guarantees that routing a question to the neuro-device
+  # checklist can NEVER drop the CRITICAL contraindications check that gates
+  # `abort_critical_topic_uncovered`. On recognizer-unavailability the critical
+  # topic fails CLOSED (stays applicable + discloses) per BUG-7.
+  - id: contraindications
+    label: Contraindications / warnings
+    critical: true
+    requires_drug_intervention: true
+    keywords:
+      - "contraindicated"
+      - "contraindication"
+      - "warning"
+      - "boxed warning"
+      - "black box"
+      - "not recommended"
+      - "avoid"
+    expand_queries:
+      - "{drug} contraindications boxed warning FDA"
+
+  - id: drug_interactions
+    label: Drug interactions
+    requires_drug_intervention: true
+    keywords:
+      - "drug interaction"
+      - "interact"
+      - "co-administration"
+      - "concomitant"
+    applies_if:
+      - "drug"
+      - "medication"
+      - "therapy"
+    expand_queries:
+      - "{drug} drug interactions contraindicated medications"

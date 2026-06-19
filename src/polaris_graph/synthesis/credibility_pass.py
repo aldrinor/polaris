@@ -47,6 +47,34 @@ from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
 _MASTER_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
 
+# I-arch-008 HOP-A KEYSTONE (#1265): the basket consolidator re-clusters claims from scratch via
+# ``claim_graph.build_claim_graph`` whose FAIL-CLOSED ``build_merge_key`` singletons every clinical
+# numeric whose dose/comparator/effect_measure/endpoint is blank (the documented A13 residual). That
+# fragments 787 sources -> ~1781 mostly-singleton clusters (only 1 multi-member), so
+# ``verified_support_origin_count`` stays <=1 everywhere and the rendered header reads "Multi-source
+# corroborated (>=2 verified origins): 0". MEANWHILE ``finding_dedup.dedup_by_finding`` ALREADY groups
+# the SAME rows by numeric finding (787 -> ~99 clusters WITH member_indices + member_hosts), and that
+# grouping is on the LIVE run path (run_honest_sweep_r3.py:8079) — but it is thrown away for the basket
+# path. When this flag is ON the basket consolidator CONSUMES finding_dedup's already-computed cluster
+# grouping: it MERGES claim_graph's existing claim partition (never rebuilds members from rows, never
+# splits, never drops) so same-finding members land in ONE basket, then runs the EXISTING isolated
+# per-member verify UNCHANGED. Multi-source baskets EMERGE because the members are already grouped — NOT
+# because any member newly passes the gate (the set that passes ``_verify_member_in_isolation`` is
+# byte-identical: same claim.text, same span, same verify_fn). DEFAULT OFF => the legacy claim_graph
+# grouping runs byte-identical (§-1.3 WEIGHT-AND-CONSOLIDATE, never FILTER-AND-CAP).
+_ENV_BASKET_CONSUME_FINDING_DEDUP = "PG_BASKET_CONSUME_FINDING_DEDUP"
+
+
+def basket_consume_finding_dedup_enabled() -> bool:
+    """True iff the HOP-A keystone (consume finding_dedup grouping for baskets) is explicitly enabled.
+
+    DEFAULT OFF (unset / 0 / off / false / no) => the legacy claim_graph cluster grouping is used
+    verbatim => the assembled baskets, the rendered header, and the disclosure JSON are byte-identical
+    to the pre-change tree. ON => ``_regroup_graph_by_finding_dedup`` merges the claim partition using
+    finding_dedup membership before ``_assemble_baskets`` (grouping + origin-counting ONLY — the
+    per-member verify and strict_verify are NEVER touched)."""
+    return os.environ.get(_ENV_BASKET_CONSUME_FINDING_DEDUP, "").strip().lower() not in _OFF_VALUES
+
 # I-arch-007 ITEM 1b (#1264): bounded parallelism for the per-member isolated-verify loop in
 # ``_assemble_baskets``. The advisory pass verifies EVERY basket member against its OWN single span via
 # the production entailment judge — a SERIAL O(N) loop over hundreds of members at up to 150 s/call is the
@@ -354,6 +382,142 @@ def _run_member_verifies(
     return [v for v in results if v is not None]
 
 
+def _regroup_graph_by_finding_dedup(
+    graph: Any,
+    annotated: list[dict],
+    *,
+    gov_suffixes: tuple,
+    domain: str | None,
+) -> Any:
+    """HOP-A KEYSTONE (#1265): MERGE claim_graph's existing claim partition using
+    ``finding_dedup``'s already-computed cluster grouping, so same-finding members land in
+    ONE basket. Returns a NEW graph-shaped view (same ``claims`` objects, MERGED ``clusters``,
+    REMAPPED ``edges``); the input ``graph`` is never mutated.
+
+    FAITHFULNESS — grouping + relabel ONLY (the HARD constraint):
+      * The ``claims`` list (and every ``AtomicClaim.text`` / span the isolated verify reads) is
+        UNCHANGED — passed through by reference. So the set of members that pass
+        ``_verify_member_in_isolation`` downstream is byte-identical to the legacy grouping: same
+        claim text, same span, same verify_fn. No member newly passes any gate.
+      * Clusters are MERGED, never split and never dropped: the rebuilt partition covers EXACTLY the
+        same claim indices as the input (a partition refinement in reverse — union only). A
+        qualitative / raw / non-clinical claim that finding_dedup does not cluster keeps its OWN
+        legacy singleton id (finding_dedup only groups finding-bearing rows; everything else is left
+        exactly as claim_graph clustered it).
+      * ``verified_support_origin_count`` rises ONLY because distinct ALREADY-verified origins now
+        share a basket — never because acceptance was relaxed.
+      * EDGES are remapped to the merged ids so a CONTESTED basket (a refuter edge references it)
+        still renders CONTESTED — relabeling cluster ids without remapping edges would SILENTLY hide
+        a contradiction (clinical-lethal). Each edge's ``claim_cluster_ids`` is rewritten through the
+        same old->new map.
+
+    ``finding_dedup`` is on the LIVE run path already (run_honest_sweep_r3.py:8079); this consumes its
+    PURE grouping (no network, no LLM) with the SAME ``gov_suffixes`` + ``domain`` the rest of the
+    pass uses. Deferred import (mirrors the lazy ``verify_sentence_provenance`` import) — finding_dedup
+    imports credibility_pass inside its own function, so a function-local import here avoids the cycle.
+    """
+    from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding  # noqa: PLC0415
+
+    claims = list(getattr(graph, "claims", None) or [])
+    if not claims:
+        return graph
+
+    # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
+    # <=1/row); finding_dedup groups by the SAME numeric finding. Map evidence_id -> the NUMERIC claim
+    # index so a finding cluster's member rows resolve to the right atom to union. Non-numeric
+    # (qualitative/raw) claims are intentionally NOT in this map — they keep their legacy singleton id.
+    numeric_claim_idx_by_eid: dict[str, int] = {}
+    for ci, claim in enumerate(claims):
+        if str(getattr(claim, "kind", "") or "") != "numeric":
+            continue
+        eid = str(getattr(claim, "evidence_id", "") or "")
+        # First numeric atom per eid wins (deterministic; <=1 expected in practice).
+        numeric_claim_idx_by_eid.setdefault(eid, ci)
+
+    # finding_dedup member_indices are ROW indices into ``annotated`` -> resolve to evidence_id.
+    eid_by_row_index = {
+        i: str((row or {}).get("evidence_id") or "")
+        for i, row in enumerate(annotated or [])
+    }
+
+    dedup = dedup_by_finding(annotated, gov_suffixes=gov_suffixes, domain=domain)
+
+    # ── Union-Find over claim indices: union the numeric atoms that finding_dedup grouped together.
+    parent = list(range(len(claims)))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            # Deterministic representative: the lower claim index, so the rebuilt id is stable
+            # across runs (claims are in a deterministic extraction order).
+            parent[max(ra, rb)] = min(ra, rb)
+
+    for fcluster in (getattr(dedup, "clusters", None) or []):
+        member_claim_indices: list[int] = []
+        for row_index in (getattr(fcluster, "member_indices", None) or []):
+            eid = eid_by_row_index.get(int(row_index), "")
+            ci = numeric_claim_idx_by_eid.get(eid)
+            if ci is not None:
+                member_claim_indices.append(ci)
+        # Union all members of this finding cluster into one component (merge-only).
+        for ci in member_claim_indices[1:]:
+            _union(member_claim_indices[0], ci)
+
+    # ── Relabel: every claim in a merged component takes the EXISTING claim_cluster_id of its
+    #    component representative (a real ``clm_*`` id already on a member — never a new scheme, so
+    #    the downstream join key format is unchanged). Components that were never unioned keep their
+    #    own id verbatim (byte-identical for unmerged claims). old_id -> new_id for the edge remap.
+    rep_id_by_root: dict[int, str] = {}
+    for idx in range(len(claims)):
+        root = _find(idx)
+        if root not in rep_id_by_root:
+            rep_id_by_root[root] = str(getattr(claims[root], "claim_cluster_id", "") or "")
+
+    old_to_new: dict[str, str] = {}
+    new_clusters: dict[str, list[int]] = {}
+    for idx, claim in enumerate(claims):
+        old_id = str(getattr(claim, "claim_cluster_id", "") or "")
+        new_id = rep_id_by_root[_find(idx)]
+        if old_id and old_id != new_id:
+            old_to_new[old_id] = new_id
+        # Relabel the claim in place is UNSAFE (shared object); we only rebuild the clusters dict and
+        # the cluster_id_by_evidence binding from new_id, and _assemble_baskets reads members from the
+        # clusters dict + the binding — never re-reads claim.claim_cluster_id for the basket id. But to
+        # keep the basket's claim_cluster_id and the binding consistent we DO set it (these AtomicClaim
+        # objects are this pass's own, freshly built by build_claim_graph this call — not the caller's).
+        claim.claim_cluster_id = new_id
+        new_clusters.setdefault(new_id, []).append(idx)
+
+    if not old_to_new:
+        # No merge happened (e.g. finding_dedup found nothing to group) -> the legacy grouping stands.
+        return graph
+
+    # ── Remap edges so a refuter reference still lands on the MERGED cluster id (never hide a
+    #    contradiction). claim_cluster_ids that were not relabeled pass through unchanged.
+    new_edges: list = []
+    for edge in (getattr(graph, "edges", None) or []):
+        ids = tuple(sorted({
+            old_to_new.get(str(c), str(c))
+            for c in (getattr(edge, "claim_cluster_ids", ()) or ())
+            if str(c)
+        }))
+        new_edges.append(dataclasses.replace(edge, claim_cluster_ids=ids))
+
+    return dataclasses.replace(
+        graph,
+        claims=claims,
+        clusters=new_clusters,
+        edges=new_edges,
+        distinct_cluster_count=len(new_clusters),  # keep the count consistent with the merged partition
+    )
+
+
 def _assemble_baskets(
     graph: Any,
     weight_mass: list,
@@ -651,6 +815,16 @@ def _run_chain(
 
     # ── P5: claim graph (atomic claims + contradiction edges) ──
     graph = build_claim_graph(annotated, domain=domain)
+
+    # ── I-arch-008 HOP-A KEYSTONE (#1265): consume finding_dedup's already-computed grouping ──
+    # DEFAULT OFF => byte-identical (the legacy claim_graph fragmentation stands). ON => MERGE the
+    # claim partition using finding_dedup membership so same-finding members share ONE basket, BEFORE
+    # weight-mass aggregation so the mass keys agree with the merged ids. Grouping + relabel + edge
+    # remap ONLY — the claims/spans the isolated verify reads are untouched, so no member newly passes.
+    if basket_consume_finding_dedup_enabled():
+        graph = _regroup_graph_by_finding_dedup(
+            graph, annotated, gov_suffixes=gov_suffixes, domain=domain,
+        )
 
     # ── P6: origin-cluster weight-mass (mass = authority(canonical) ONLY; credibility disclosed) ──
     weight_mass = aggregate_weight_mass(graph.claims, annotated, adjusted_judgments)
