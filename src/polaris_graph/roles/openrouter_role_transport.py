@@ -174,10 +174,14 @@ _BENCHMARK_LINEUP_DEFAULT_SLUG = {
 # slipping past the gate. The family is the slug's provider prefix (`provider/model`): for all
 # four lineup members `slug.split("/")[0]` IS the family (z-ai / ibm-granite / qwen / deepseek).
 _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
-    # GLM-5.2 COMPARISON ARM (branch bot/glm52-vs-deepseek-compare): the generator is z-ai/glm-5.2,
-    # so the Mirror is re-picked to deepseek/deepseek-v4-pro (lane 'deepseek') to keep all 4 roles
-    # distinct families (glm/deepseek/minimax/qwen) and avoid GLM self-verifying GLM. Was 'z-ai'.
-    "mirror": "deepseek",
+    # PRODUCTION LOCK (CLAUDE.md §9.1.8): generator=deepseek/deepseek-v4-pro, so the Mirror is
+    # z-ai/glm-5.1 (lane 'z-ai') — a DIFFERENT family from the deepseek generator (two-family
+    # segregation; the 4 roles glm/deepseek?/minimax/qwen... actually deepseek-gen + z-ai-mirror +
+    # minimax-sentinel + qwen-judge are all distinct). The GLM-5.2 COMPARISON ARM (branch
+    # bot/glm52-vs-deepseek-compare) flips the generator to z-ai/glm-5.2 and re-picks the Mirror to
+    # deepseek; that arm must set this to 'deepseek'. For the production-lock run this is 'z-ai'
+    # (reverted from a glm52-arm carryover that had crashed the deepseek-lock resume at preflight).
+    "mirror": "z-ai",
     # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
     "sentinel": "minimax",
     "judge": "qwen",
