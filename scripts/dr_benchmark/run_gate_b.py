@@ -884,6 +884,13 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # the section floor, and the cited-evidence set are ALL untouched. Force-ON so a stray operator =0 cannot
     # silently restore the single-host blank-storm on the paid run. Default-OFF in code (byte-identical pin).
     "PG_JUDGE_PROVIDER_ROTATE": "1",
+    # I-arch-011 Codex diff-gate P2: the mirror chain has FOUR hosts (z-ai->baidu->novita->gmicloud) but the
+    # default retry budget is 2 (= 3 attempts), so rotation could not reach gmicloud. Raise to 3 (= 4
+    # attempts) so a blank on EVERY host before the last is still recoverable. Each extra attempt fires ONLY
+    # on a fault (a healthy call returns on attempt 1), so this never slows a healthy run; it only widens the
+    # rescue depth. Faithfulness-neutral (same fail-closed sentinel on exhaustion).
+    "PG_ENTAILMENT_RETRIES": "3",
+    "PG_CREDIBILITY_JUDGE_RETRIES": "3",
     # I-arch-007 ITEM 2 (#1264) BREADTH — force-ON the weighted unbound-SUPPORTS enrichment section so
     # the benchmark surfaces the ~437 span-verified sources the 5-entity contract funnel drops (the
     # 485->~13 collapse). §-1.3 WEIGHT-AND-CONSOLIDATE: the selection ORDERS by basket weight_mass and

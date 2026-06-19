@@ -266,18 +266,23 @@ def make_openrouter_credibility_caller(
         _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
             "1", "true", "yes", "on",
         )
-        # I-arch-011: provider-rotation chain (advisory latency fix — see module header). When enabled,
-        # walk the mirror `order` one-host-per-attempt on a blank/transport fault; the first attempt pins
-        # the chain LEAD (== gate_provider) so it is byte-identical to the single-provider pin.
-        _rotate_chain = (
-            _mirror_provider_chain() if (gate_provider and not _free_route
-                                         and _judge_provider_rotation_enabled()) else []
-        )
+        # I-arch-011: provider-rotation chain (advisory latency fix — see module header). Codex diff-gate
+        # P1: DERIVE the chain straight from the routing YAML when rotation is enabled, independent of
+        # `gate_provider` (the pathB contextvar may not reach the credibility-pass worker thread), so the
+        # rotation can never silently NO-OP when the slate force-ONs it. The YAML chain LEAD == the pinned
+        # mirror lead, so the first attempt is identical to the prior single-host pin.
+        _rotate_on = _judge_provider_rotation_enabled() and not _free_route
+        _rotate_chain = _mirror_provider_chain() if _rotate_on else []
+        if len(_rotate_chain) <= 1:
+            _rotate_chain = []  # nothing to rotate through -> single-host pin below
         _provider_cursor = 0
-        if gate_provider and not _free_route:
+        if _rotate_chain:
             json_body["provider"] = {
-                "order": [_rotate_chain[0] if len(_rotate_chain) > 1 else gate_provider],
-                "allow_fallbacks": False, "require_parameters": True,
+                "order": [_rotate_chain[0]], "allow_fallbacks": False, "require_parameters": True,
+            }
+        elif gate_provider and not _free_route:
+            json_body["provider"] = {
+                "order": [gate_provider], "allow_fallbacks": False, "require_parameters": True,
             }
 
         def _rotate_provider() -> None:

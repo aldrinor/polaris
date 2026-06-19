@@ -523,17 +523,30 @@ class _EntailmentJudge:
         )
         # I-arch-011: provider-rotation chain. When rotation is enabled, the mirror `order`
         # (z-ai->baidu->novita->gmicloud) is walked one-host-per-attempt by the retry loop on a
-        # blank/garbled 200. `_provider_cursor` is the current index; the first attempt pins the chain
-        # LEAD (== _gate_provider, so byte-identical to the single-pin first attempt). Empty/disabled ->
-        # [] -> the loop never rotates and the single-provider pin below is authoritative.
-        _rotate_chain: list[str] = (
-            _mirror_provider_chain() if (_gate_provider and not _free_route
-                                         and _judge_provider_rotation_enabled()) else []
-        )
+        # blank/garbled 200. Codex diff-gate P1: DERIVE the chain straight from the routing YAML when
+        # rotation is enabled — do NOT gate it on `_gate_provider` (the pathB contextvar), which is not
+        # guaranteed to reach the verify path on the direct run_gate_b production flow (run_one_query sets
+        # it inside gate_around_question, but a ThreadPool verify worker that did not copy that context
+        # would see None). Deriving from the YAML makes rotation impossible to silently NO-OP when the
+        # slate force-ONs it. The YAML chain LEAD == the pinned mirror lead (z-ai), so the first attempt
+        # is identical to the prior single-host pin; rotation only changes which host a RETRY hits.
+        _rotate_on = _judge_provider_rotation_enabled() and not _free_route
+        _rotate_chain: list[str] = _mirror_provider_chain() if _rotate_on else []
+        if len(_rotate_chain) <= 1:
+            _rotate_chain = []  # nothing to rotate through -> fall back to the single-host pin below
         _provider_cursor = 0
-        if _gate_provider and not _free_route:
+        if _rotate_chain:
+            # Rotation ON: pin the chain LEAD from the YAML directly (independent of _gate_provider) so the
+            # chain is pinned + rotatable even where the pathB role map did not propagate to this thread.
             json_body["provider"] = {
-                "order": [_rotate_chain[0] if len(_rotate_chain) > 1 else _gate_provider],
+                "order": [_rotate_chain[0]],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+            }
+        elif _gate_provider and not _free_route:
+            # Rotation OFF (or no chain configured): the byte-identical single-host pin (pre-I-arch-011).
+            json_body["provider"] = {
+                "order": [_gate_provider],
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }

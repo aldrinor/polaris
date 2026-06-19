@@ -121,6 +121,28 @@ def test_rotation_on_advances_off_blank_to_real_verdict(_mirror_pinned, monkeypa
     assert client.sent_orders[1] == ["baidu"], client.sent_orders
 
 
+def test_rotation_on_fires_without_pathb_role_map(monkeypatch):
+    """Codex diff-gate P1: rotation must NOT depend on the pathB `_gate_provider` contextvar. With NO
+    role map set (get_role_provider('mirror') == None) — the exact run_gate_b verify-worker case Codex
+    flagged — rotation must STILL derive the chain from the routing YAML, pin the lead, and advance off a
+    blank. This is the behavioral proof the fix can never silently NO-OP on the production path."""
+    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_ROUTING", "1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "1")
+    # Deliberately do NOT call set_role_providers -> get_role_provider('mirror') is None.
+    assert pathB_capture.get_role_provider("mirror") is None
+    judge = _fresh_judge()
+    client = _RecordingClient([_blank_200(), _entailed_200("Baidu")])
+    judge._client = client
+
+    verdict, _reason = judge.judge("a sentence", "a span that entails it")
+
+    assert verdict == "ENTAILED", verdict
+    assert len(client.sent_orders) >= 2, client.sent_orders
+    assert client.sent_orders[0] == ["z-ai"], client.sent_orders   # chain LEAD from YAML, not _gate_provider
+    assert client.sent_orders[1] == ["baidu"], client.sent_orders  # rotated off the blank
+
+
 def test_rotation_on_real_verdict_first_call_does_not_rotate(_mirror_pinned, monkeypatch):
     """ON but the lead host answers cleanly on attempt 0 -> exactly ONE POST, no rotation (the healthy
     common case stays a single fast call)."""
