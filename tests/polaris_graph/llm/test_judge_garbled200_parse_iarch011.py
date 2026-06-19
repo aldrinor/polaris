@@ -204,6 +204,24 @@ def test_fenced_json_code_block_is_rescued(extract):
             '{"x": [1, 2, {"verdict": "ENTAILED", "reason": "buried"}',
             id="malformed_outer_array_nested_verdict",
         ),
+        # Codex iter-3 P1: a verdict object nested inside a COMPLETE JSON CONTAINER (an array, or a
+        # wrapper object) must FAIL CLOSED. The extractor must raw_decode the OUTERMOST value and
+        # never pull a verdict out of a container's interior. Pre-iter-3 find("{") landed on the
+        # inner object and returned it (fail-open); pre-B12 json.loads returned a list and .get
+        # failed (closed). The new scan takes the earliest of "{"/"[" so the array decodes whole,
+        # has no top-level "verdict", and the scan fails closed.
+        pytest.param(
+            '[{"verdict": "CONTRADICTED", "reason": "in array"}]',
+            id="verdict_object_inside_array",
+        ),
+        pytest.param(
+            '[{"note": "x"}, {"verdict": "ENTAILED"}]',
+            id="verdict_object_inside_array_multi",
+        ),
+        pytest.param(
+            '{"items": [{"verdict": "NEUTRAL"}]}',
+            id="verdict_object_inside_wrapper_array",
+        ),
     ],
 )
 def test_genuine_failures_still_raise_fail_closed(extract, bad):

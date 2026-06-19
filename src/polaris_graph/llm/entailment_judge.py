@@ -323,27 +323,31 @@ def _extract_first_json_object(content: object) -> dict:
     decoder = json.JSONDecoder()
     search_from = 0
     while True:
-        start = content.find("{", search_from)
-        if start == -1:
+        # Scan for the next TOP-LEVEL JSON value, taking the EARLIEST of the next "{" or "[" so
+        # we raw_decode the OUTERMOST value and NEVER descend into a container's interior.
+        obj_idx = content.find("{", search_from)
+        arr_idx = content.find("[", search_from)
+        candidates = [i for i in (obj_idx, arr_idx) if i != -1]
+        if not candidates:
             raise ValueError("no verdict-bearing JSON object found in judge content")
+        start = min(candidates)
         try:
-            obj, end = decoder.raw_decode(content, start)
+            value, end = decoder.raw_decode(content, start)
         except json.JSONDecodeError as exc:
-            # FAIL-CLOSED (Codex P1 / faithfulness): a "{" that does NOT begin a COMPLETE JSON
-            # value means malformed / partial / truncated content. Do NOT advance one char into
-            # its interior — that would let a nested verdict object be salvaged out of a malformed
-            # envelope (e.g. '{"wrapper":{"verdict":"NEUTRAL","reason":"ok"}') and turn fail-closed
-            # into fail-open. Raise so the caller's existing retry/drop/hold path fires. A COMPLETE
-            # leading non-verdict object is still skipped by its end offset on the success path
-            # below, so a well-formed prose+object body is unaffected.
+            # FAIL-CLOSED (Codex P1): a "{"/"[" that does NOT begin a COMPLETE JSON value means
+            # malformed / partial / truncated content. Do NOT advance into its interior — that
+            # would salvage a nested verdict out of a malformed envelope (e.g.
+            # '{"wrapper":{"verdict":"NEUTRAL"}') and turn fail-closed into fail-open. Raise so
+            # the caller's existing retry/drop/hold path fires.
             raise ValueError(
                 f"malformed JSON in judge content at offset {start}: {exc}"
             ) from exc
-        if isinstance(obj, dict) and "verdict" in obj:
-            return obj
-        # A complete object lacking "verdict" (or a non-object JSON value): skip PAST it by
-        # its end offset so we never re-enter / mis-select a nested sub-object, then keep
-        # scanning for the real verdict object.
+        if isinstance(value, dict) and "verdict" in value:
+            return value
+        # A COMPLETE value that is NOT a verdict object — a non-verdict object, an ARRAY (a
+        # verdict nested in [ ... ] must FAIL CLOSED, not be pulled out — Codex iter-3 P1), or a
+        # scalar — is skipped PAST by its end offset; we keep scanning at the TOP LEVEL and never
+        # descend inside it. A verdict buried in a container is treated as absent (fail-closed).
         search_from = end
 
 
