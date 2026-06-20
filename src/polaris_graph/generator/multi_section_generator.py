@@ -54,6 +54,16 @@ from src.polaris_graph.generator.provenance_generator import (
     strict_verify,
     wrap_evidence_for_prompt,
 )
+# I-arch-011 #1268 PR-c: per-basket verified-compose (the PRIMARY section-prose producer when
+# PG_VERIFIED_COMPOSE is on). Re-exported here so callers + the replay harness share one source.
+from src.polaris_graph.generator.verified_compose import (  # noqa: F401
+    _ENRICHMENT_TITLE,
+    _compose_section_per_basket,
+    _section_baskets_for_compose,
+    _verified_compose_enabled,
+    build_verified_span_draft,
+    split_into_sentences,
+)
 
 logger = logging.getLogger("polaris_graph.multi_section")
 
@@ -3896,6 +3906,39 @@ async def _run_section(
         logger.info(
             "[multi_section] %s FIX-K verified-span render: sources=%d draft_chars=%d",
             section.title, len(section.ev_ids or []), len(raw),
+        )
+    elif (
+        _verified_compose_enabled()
+        and credibility_analysis is not None
+        and (_vc_baskets := _section_baskets_for_compose(section, credibility_analysis))
+    ):
+        # I-arch-011 PR-c: VERIFIED-COMPOSE PRIMARY — the section's prose is composed from ALL of its
+        # baskets (the contract-entity slots are a SUBSET), moving the scored breadth off the
+        # contract-slot bound (the keystone). The stub writer (returns "") forces the deterministic
+        # verbatim K-span per basket for the breadth MEASUREMENT — NO LLM, no spend; the production
+        # per-basket generator-role writer is finalized AFTER the measurement confirms breadth. The
+        # draft flows through the UNCHANGED _rewrite_draft_with_spans + strict_verify tail below,
+        # exactly like every other section (faithfulness untouched). DEFAULT-OFF flag.
+        from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+            verify_sentence_provenance as _vc_verify,
+        )
+        from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+            build_short_member_sentence as _vc_short_writer,
+        )
+        # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
+        # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
+        # (fires-through-render? short prose fits 150K? does D8/glm hang locally?) before the real
+        # per-basket abstractive writer (PR-c) is built. Replaced by the LLM writer once RC-D lands.
+        _vc_composed = _compose_section_per_basket(
+            _vc_baskets, evidence_pool,
+            writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
+        )
+        raw = "\n".join(c for c in _vc_composed if c and c.strip())
+        in_tok = out_tok = 0
+        section_atom_catalog = {}
+        logger.info(
+            "[multi_section] %s verified-compose PRIMARY: %d baskets -> draft_chars=%d",
+            section.title, len(_vc_baskets), len(raw),
         )
     else:
         raw, in_tok, out_tok, section_atom_catalog = await _call_section(

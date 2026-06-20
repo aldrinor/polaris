@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["Claim-local span resolution is exact-string and first-occurrence based: _claim_local_span at credibility_pass.py:+269 returns \"\" if claim.text is not a verbatim substring, and _member_global_span at verified_compose.py:+101 uses haystack.find(quote). Per the stated design this fails closed, so it is not a faithfulness blocker, but it can strand a legitimate SUPPORTS member on normalization/duplicate-text cases."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

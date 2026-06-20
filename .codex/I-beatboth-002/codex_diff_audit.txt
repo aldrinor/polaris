@@ -1,0 +1,10 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "scripts/iarch_beatboth002_f1_multicited_replay_harness.py:157-164 loads real corpus ids, then substitutes controlled _SPAN_* evidence rows. This is still a real-verifier fail-loud F1-1 harness, but weaker than the brief's real evidence-pool/report replay wording."
+  - "src/polaris_graph/generator/verified_compose.py:347,382 leaves connective caller-controlled and lowercases continuation text after per-clause verification. Default '; ' is safe and no caller is wired, but this should be fixed or constrained before production wiring."
+  - "scripts/iarch_beatboth002_f1_multicited_replay_harness.py:240-257 collapses drift citations to a set. It catches the simple union-pool regression via missing eid_d, but would not catch malformed output that retained both the rejected foreign token and bd fallback."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

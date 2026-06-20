@@ -1,0 +1,9 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "F1-1 must verify per-member clause units before final co-location; a whole-sentence abstractive writer that can add aggregate/relational connective text is outside this increment and would be P0 at diff gate."
+  - "ContradictionEdge fixture should be read narrowly for this increment: no consensus wording, with per-member attribution or labeled author-summary, without pulling default-on claim_graph/both_sides wiring forward from F1-3."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

@@ -269,6 +269,27 @@ def _row_span_text(row: dict) -> str:
     return str((row or {}).get("direct_quote") or (row or {}).get("statement") or "")
 
 
+def _claim_local_span(claim_text: str, row_text: str) -> str:
+    """ISSUE #1279 P1#2 — the CLAIM-LOCAL span text for the basket member's ``direct_quote``.
+
+    The downstream verified-compose acceptance region (``verified_compose._member_global_span``) is
+    recovered by LOCATING the member's ``direct_quote`` inside the global row text. If ``direct_quote``
+    is the WHOLE row (``_row_span_text(row)``), the region becomes ``(0, len(row))`` — the entire row —
+    and a composed sentence citing a DIFFERENT in-row claim's offsets passes the cross-claim region gate
+    (the P1#2 hole). The claim's OWN ``text`` (the extractor's ``context_snippet`` — a verbatim substring
+    of the row for numeric/qualitative claims) is the claim-LOCAL span, so the region is claim-specific.
+
+    Returns the claim-local span IFF it is a NON-EMPTY substring of ``row_text`` (so it resolves
+    downstream); otherwise returns ``""`` (FAIL-CLOSED: the member defines NO acceptance region and NO
+    verbatim-fallback span — never the whole row). This is strictly MORE restrictive than the full row.
+    """
+    local = str(claim_text or "").strip()
+    haystack = str(row_text or "")
+    if local and haystack and local in haystack:
+        return local
+    return ""
+
+
 _ENTAILMENT_FAILURE_PREFIXES = (
     # I-arch-010 FIX-2 Step 0 — the COMPLETE set of failure-reason prefixes the
     # ENTAILMENT block of ``verify_sentence_provenance`` can append (verified against
@@ -667,6 +688,14 @@ def _assemble_baskets(
                 # an unmapped member is its own independent origin (mirrors weight_mass)
                 origin_id = f"origin::{eid}"
             span = _row_span_text(row)
+            # ISSUE #1279 P1#2 (tightening): the member's ``direct_quote`` is the CLAIM-LOCAL span (the
+            # claim's own ``text`` / extractor ``context_snippet``), NOT the full row. The full row would
+            # make the downstream verified-compose acceptance region the WHOLE row, defeating the
+            # cross-claim region gate (a sentence citing a DIFFERENT in-row claim's offsets would pass).
+            # FAIL-CLOSED: when the claim-local span is unrecoverable (not a substring of the row), the
+            # member gets an EMPTY direct_quote -> ``_member_global_span`` returns None -> the member
+            # defines NO acceptance region and NO verbatim-fallback span (never the whole row).
+            claim_local_span = _claim_local_span(str(getattr(claim, "text", "") or ""), span)
             # ISOLATED per-member verification (design §5 FIX-3): the claim's TEXT against
             # THIS member's own single span — never a union of basket spans. The verdict was
             # precomputed (serial or bounded-parallel) and is consumed here in the ORIGINAL order.
@@ -688,8 +717,11 @@ def _assemble_baskets(
                 origin_cluster_id=origin_id,
                 credibility_weight=(getattr(ec, "credibility_weight", None) if ec else None),
                 authority_score=_clamp01(float(row.get("authority_score", 0.0) or 0.0)),
-                span=(0, len(span)),
-                direct_quote=span,
+                # ISSUE #1279 P1#2: the member's span + direct_quote are the CLAIM-LOCAL span (not the
+                # full row), so the verified-compose acceptance region is claim-specific. Empty when the
+                # claim-local span is unrecoverable (fail-closed: no region, no fallback span).
+                span=(0, len(claim_local_span)),
+                direct_quote=claim_local_span,
                 span_verdict=verdict,
                 member_tier=member_tier,
             ))
