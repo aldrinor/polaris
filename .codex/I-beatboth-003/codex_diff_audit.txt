@@ -1,0 +1,18 @@
+(1) CLOSED. `relevance_labels` is now a persisted `SentenceVerification` field, and it is assigned on the SV at patch lines 489-518 and 779-782. Insufficient and Refuted are separate persisted sets: fields at 499-510, classifier sets at 619-645, final SV cache at 824-831.
+
+(2) CLOSED. Refuted now gets a persisted contradiction route: `RELEVANCE_REFUTED_PREFIX` at 568-570, refuted warnings created at 642-645, appended when the action actually fires at 807-813, and `relevance_refuted_eids` cached separately at 824-831.
+
+(3) CLOSED. Minimum-retention now constructs and appends `relevance_statement_weak` at 783-805, including the actual weak warning at 800-803. The demote/refute sets are cleared at 804-805, and action warnings are only appended in the `else` branch at 806-813, so retained-weak statements do not carry stale demotion/refutation action warnings.
+
+(4) CLOSED. The harness now fail-loud asserts both persisted effects: contradiction warning plus separate refuted eid at 283-310, weak mark at 334-346, and non-zero failure via `HarnessFailure` / `main()` at 217-219 and 382-388.
+
+Non-regression invariants are preserved statically: always-release is asserted in harness/tests at 251-255, 323-326, 1393-1397, 1459-1463; never-strand is enforced at 783-805; strict_verify remains upstream/additive with relevance not feeding `is_verified` at 528-535 and 732-737; default-off byte identity is guarded at 709-720 and tested at 1486-1532. No novel P0/P1 found.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

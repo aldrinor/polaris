@@ -656,6 +656,36 @@ class SentenceVerification:
     # off the repair path, and `dataclasses.replace` (apply_disclosure_to_svs) carries
     # it through, so it survives the disclosure re-populate. Byte-identical when None.
     reanchor_original_slot_id: str | None = None
+    # I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL side-output. The FINAL
+    # (post-minimum-retention) set of this sentence's OWN evidence_ids the relevance judge
+    # labelled INSUFFICIENT (right entity, wrong relation) -> DEMOTE from inline support to
+    # listed-not-load-bearing. Computed ONCE in resolve_provenance_to_citations (serial parent
+    # context, OUT of the parallel-verify thread/X509 minefield) and CACHED here so BOTH
+    # render loops (the legacy resolver AND the V30 contract slot-regroup) drop the SAME eids
+    # — one source of truth, no re-judge, no retention re-decision drift. Additive, NEVER an
+    # input to is_verified or the six strict_verify checks; carried by `dataclasses.replace`.
+    # Default None (empty) => inert OFF the gate => byte-identical render.
+    #
+    # iter-2 (Codex P1#1b): Insufficient and Refuted are now TWO DISTINCT persisted sets, not
+    # one merged frozenset. This field is INSUFFICIENT-ONLY; ``relevance_refuted_eids`` below
+    # is REFUTED-ONLY. Both render loops exclude the UNION of the two from inline support.
+    relevance_demoted_eids: frozenset[str] | None = None
+    # iter-2 (Codex P1#1b + P1#2): the SEPARATE set of this sentence's OWN evidence_ids the
+    # relevance judge labelled REFUTED (the span CONTRADICTS the claim). Kept DISTINCT from the
+    # Insufficient demote set above so Refuted is ROUTED to a contradiction flag, not merely
+    # demoted: the ``relevance_refuted_contradiction:<eid>:...`` soft-warning below names each
+    # refuter, and this set carries the eid for inspection. Both render loops exclude these
+    # eids from inline support (same as demoted). Additive, NEVER an input to is_verified;
+    # carried by ``dataclasses.replace``. Default None (empty) => inert OFF the gate.
+    relevance_refuted_eids: frozenset[str] | None = None
+    # iter-2 (Codex P1#1a): the per-citation relevance LABEL side-output, PERSISTED (not
+    # computed-then-discarded). Maps every JUDGED evidence_id -> its canonical label
+    # (SUPPORTED / INSUFFICIENT / REFUTED) for THIS sentence, so the structured label is
+    # inspectable on the verification record (e.g. an audit can read why a cite was demoted /
+    # refuted, alongside the human-readable ``soft_warnings`` reasons). Additive, NEVER an
+    # input to is_verified or the six strict_verify checks; carried by ``dataclasses.replace``.
+    # Default None (empty) => inert OFF the gate => byte-identical render.
+    relevance_labels: dict[str, str] | None = None
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
@@ -3103,12 +3133,155 @@ def verified_corroborators_for_tokens(
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL — demotion at the
+# render chokepoint. strict_verify (invariant #3) is relevance-BLIND: it passes a
+# source that shares two incidental words without establishing the required RELATION
+# (the off-topic-but-topical case). This labels each ALREADY-strict-verified citation
+# Supported / Insufficient / Refuted and demotes the Insufficient/Refuted ones from
+# the INLINE support set, with a HARD minimum-retention guard (never strand a sentence
+# uncited). It is a NEW dimension ADDED on top of strict_verify, NEVER a relaxation /
+# replacement of it, NEVER an input to is_verified or the six strict_verify checks, and
+# NEVER a hold/abstain — the report ALWAYS ships. Default-OFF (PG_RELEVANCE_GATE) =>
+# byte-identical legacy render. Single render chokepoint: BOTH production render paths
+# (the legacy resolver AND the V30 contract slot-regroup) funnel through
+# resolve_provenance_to_citations, so wiring it HERE covers both (no silent no-op).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Telemetry: per-process counters so a run can prove the gate FIRED (and how much it
+# demoted) in the output, not just that the flag was set (§-1.4 fired-not-configured).
+_RELEVANCE_TELEMETRY: dict[str, int] = {
+    "citations_judged": 0,
+    "labeled_supported": 0,
+    "labeled_insufficient": 0,
+    "labeled_refuted": 0,
+    "demoted_from_support": 0,        # cites actually removed from the inline support set
+    "retention_kept_weak": 0,         # demotion BLOCKED by the minimum-retention guard
+    "sentences_marked_weak": 0,       # sentences whose last support would have been demoted
+    "contradiction_flagged": 0,       # sentences that gained a refuted-contradiction flag
+    "judge_errors": 0,                # judge returned a SUPPORTED keep-fallback on a fault
+}
+
+
+def get_relevance_telemetry() -> dict[str, int]:
+    """Snapshot of the relevance-gate counters (for the §-1.4 fired-in-output assertion)."""
+    return dict(_RELEVANCE_TELEMETRY)
+
+
+def reset_relevance_telemetry() -> None:
+    for _k in _RELEVANCE_TELEMETRY:
+        _RELEVANCE_TELEMETRY[_k] = 0
+
+
+# Per-SV soft-warning prefixes emitted by the demotion layer (additive, NEVER inputs to
+# is_verified — same precedent as the existing soft_warnings entries).
+RELEVANCE_DEMOTED_PREFIX = "relevance_demoted_insufficient"
+RELEVANCE_REFUTED_PREFIX = "relevance_refuted_contradiction"
+RELEVANCE_WEAK_PREFIX = "relevance_statement_weak"
+
+
+def _classify_sentence_citations(
+    sv: "SentenceVerification",
+    evidence_pool: dict[str, dict[str, Any]],
+    relevance_judge_fn,
+    corroborator_spans: dict[str, str] | None = None,
+) -> tuple[set[str], set[str], list[str], dict[str, str]]:
+    """Label each of a kept sentence's OWN cited tokens (Supported/Insufficient/Refuted)
+    and return ``(demote_eids, refute_eids, soft_warnings, labels)``.
+
+    iter-2 (Codex P1#1a): ``labels`` is the PERSISTED per-citation label side-output —
+    eid -> canonical label (SUPPORTED / INSUFFICIENT / REFUTED) for EVERY judged citation,
+    so the structured label survives onto the SentenceVerification (it was previously
+    computed implicitly and discarded). ``demote_eids`` is INSUFFICIENT-only and
+    ``refute_eids`` is REFUTED-only — two DISTINCT sets (Codex P1#1b), so Refuted is routed
+    to a contradiction flag, never merely folded into the demote set.
+
+    The CLAIM judged is the sentence's verifier-cleaned prose (citation artifacts stripped);
+    the SPAN is the token's cited sub-span of its evidence row's direct_quote — EXACTLY the
+    (claim, span) pair strict_verify already validated, so the relevance judge is the SAME
+    granularity. Only VALID tokens (evidence-id in pool, span in bounds) are judged; a token
+    strict_verify would have failed never reaches a kept sentence. Per-CITATION, not
+    per-sentence: an Insufficient/Refuted label removes ONLY that token's evidence_id from the
+    inline support set — the sentence and its remaining support citations are untouched (the
+    P0 crux: NEVER inherit the I-beatboth-001 'drop the whole sentence' option).
+
+    This function does NOT enforce minimum-retention — it only LABELS. The caller applies the
+    retention guard against the WHOLE sentence's surviving support set (including basket
+    corroborators), so a sentence is never stranded uncited.
+
+    ``corroborator_spans`` (eid -> span_text) carries the basket-corroborator INLINE citations
+    the resolver/contract-runner ADD to this sentence (members of the SAME claim basket the
+    generator did not cite directly). On the Gate-B contract path these are the DOMINANT inline
+    multi-citations (slot-fill emits one own-token per sentence), so the relevance gate MUST
+    judge them too or it is a near-no-op on the benchmark path. They are ADDITIVE citations:
+    demoting one can never strand the sentence (its own support remains + retention covers the
+    own-token case), so judging them is faithfulness-safe. SUPPORTS-membership was decided by
+    the SAME span-grounding check this gate calls relevance-blind, so they are exactly as
+    exposed as own tokens.
+    """
+    from src.polaris_graph.generator.relevance_judge import (  # noqa: PLC0415
+        LABEL_INSUFFICIENT,
+        LABEL_REFUTED,
+        LABEL_SUPPORTED,
+        judge_citation_relevance,
+    )
+
+    demote: set[str] = set()
+    refute: set[str] = set()
+    warnings: list[str] = []
+    labels: dict[str, str] = {}  # iter-2 P1#1a: persisted eid -> label for EVERY judged cite
+    claim = _verifier_cleaned_text(sv.sentence).strip()
+
+    def _judge_one(eid: str, span_text: str) -> None:
+        label, reason = judge_citation_relevance(
+            claim, span_text, relevance_judge_fn=relevance_judge_fn,
+        )
+        _RELEVANCE_TELEMETRY["citations_judged"] += 1
+        # iter-2 P1#1a: record the canonical label for THIS citation so the structured
+        # side-output lands on the SV (no longer computed-then-discarded). SUPPORTED kept
+        # citations are recorded too — an audit can see the full per-cite verdict map.
+        labels[eid] = label
+        if reason.startswith("judge_error:"):
+            _RELEVANCE_TELEMETRY["judge_errors"] += 1
+        if label == LABEL_SUPPORTED:
+            _RELEVANCE_TELEMETRY["labeled_supported"] += 1
+        elif label == LABEL_INSUFFICIENT:
+            _RELEVANCE_TELEMETRY["labeled_insufficient"] += 1
+            demote.add(eid)
+            warnings.append(f"{RELEVANCE_DEMOTED_PREFIX}:{eid}:{reason[:80]}")
+        elif label == LABEL_REFUTED:
+            _RELEVANCE_TELEMETRY["labeled_refuted"] += 1
+            refute.add(eid)
+            warnings.append(f"{RELEVANCE_REFUTED_PREFIX}:{eid}:{reason[:80]}")
+
+    # Judge the sentence's OWN cited tokens (the span strict_verify already validated).
+    for tok in sv.tokens:
+        ev = evidence_pool.get(tok.evidence_id)
+        if ev is None:
+            continue  # not a real pool row — never judged, never a support cite anyway
+        direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+        if tok.start < 0 or tok.end > len(direct_quote) or tok.start >= tok.end:
+            continue  # out-of-bounds span — strict_verify would not have kept it as support
+        _judge_one(tok.evidence_id, direct_quote[tok.start:tok.end])
+
+    # Judge the basket corroborators ADDED to this sentence (the dominant inline-cite path on
+    # the Gate-B contract slot-regroup). Skip any eid already judged as an own token.
+    _own_ids = {t.evidence_id for t in sv.tokens}
+    for _eid, _span in (corroborator_spans or {}).items():
+        if _eid in _own_ids or not _span:
+            continue
+        _judge_one(_eid, _span)
+
+    return demote, refute, warnings, labels
+
+
 def resolve_provenance_to_citations(
     kept_sentences: list[SentenceVerification],
     evidence_pool: dict[str, dict[str, Any]],
     *,
     baskets: list | None = None,
     cluster_id_by_evidence: dict[str, list[str]] | None = None,
+    relevance_judge_fn=None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Strip [#ev:...] tokens and replace with numbered citations.
 
@@ -3120,12 +3293,18 @@ def resolve_provenance_to_citations(
     rendered text). The public 2-tuple contract is byte-identical for every
     existing caller; a caller that needs the honest post-resolve verified count
     (F10, I-arch-004 A3) calls the ``_with_count`` variant directly.
+
+    I-beatboth-003 (#1280): ``relevance_judge_fn`` (injectable, default None) lets the
+    §-1.4 replay harness mock the SURE-RAG relevance judge with no model spend. It is only
+    consulted when ``PG_RELEVANCE_GATE`` is ON; None + flag-OFF => byte-identical legacy
+    render. Keyword-only with a None default so every positional caller is unaffected.
     """
     text, biblio, _emitted = resolve_provenance_to_citations_with_count(
         kept_sentences,
         evidence_pool,
         baskets=baskets,
         cluster_id_by_evidence=cluster_id_by_evidence,
+        relevance_judge_fn=relevance_judge_fn,
     )
     return text, biblio
 
@@ -3136,6 +3315,7 @@ def resolve_provenance_to_citations_with_count(
     *,
     baskets: list | None = None,
     cluster_id_by_evidence: dict[str, list[str]] | None = None,
+    relevance_judge_fn=None,
 ) -> tuple[str, list[dict[str, Any]], int]:
     """Strip [#ev:...] tokens, replace with numbered citations, AND return the
     count of sentences ACTUALLY emitted into the rendered text.
@@ -3173,6 +3353,21 @@ def resolve_provenance_to_citations_with_count(
     """
     ev_to_num: dict[str, int] = {}
     biblio: list[dict[str, Any]] = []
+
+    # I-beatboth-003 (#1280): SURE-RAG per-citation relevance gate. ON only under
+    # PG_RELEVANCE_GATE; when OFF the whole block below is skipped => byte-identical legacy
+    # render (no judge instantiated, no judge call, no demotion). The flag is read at call
+    # time (so the harness toggles per-case). The injected ``relevance_judge_fn`` lets the
+    # §-1.4 replay harness mock the judge with zero spend; production passes None -> the
+    # live GLM-5.2 OpenRouter judge.
+    _relevance_on = False
+    try:
+        from src.polaris_graph.generator.relevance_judge import (  # noqa: PLC0415
+            relevance_gate_enabled as _relevance_gate_enabled,
+        )
+        _relevance_on = _relevance_gate_enabled()
+    except ImportError:
+        _relevance_on = False
 
     # Index claim_cluster_id -> projected basket dict ONCE (the binding is
     # 1-to-MANY: one evidence_id can back several baskets, design §5 per-cluster
@@ -3325,9 +3520,116 @@ def resolve_provenance_to_citations_with_count(
             or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
         ):
             continue
-        # Assign citation numbers only for surviving sentences
+        # I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL + demotion.
+        # Compute the per-token labels for THIS sentence's own cited tokens, then DEMOTE the
+        # Insufficient/Refuted evidence_ids from the inline support set — UNLESS the
+        # minimum-retention guard trips. OFF path (_relevance_on False) leaves both sets empty
+        # => byte-identical legacy render below. The label is a NEW dimension; it NEVER feeds
+        # back into is_verified or strict_verify (the sentence is already KEPT here).
+        _demote_eids: set[str] = set()
+        _refute_eids: set[str] = set()
+        if _relevance_on:
+            # Build the corroborator (eid -> cited span text) map for THIS sentence so the
+            # relevance judge ALSO labels the basket corroborators the keystone adds inline
+            # (the dominant inline-cite path on the Gate-B contract slot-regroup). The member's
+            # ``direct_quote`` IS its rendered supporting span. Empty on the OFF/no-basket path.
+            _corro_spans: dict[str, str] = {}
+            if _carry_baskets:
+                _own_eids_for_corro = [t.evidence_id for t in sv.tokens]
+                _corro_eids_here = set(_verified_corroborators_for_tokens(_own_eids_for_corro))
+                for _ccid, _bdict in _basket_by_cluster.items():
+                    for _m in (_bdict.get("supporting_members") or []):
+                        _meid = str(_m.get("evidence_id") or "")
+                        if _meid in _corro_eids_here and _meid not in _corro_spans:
+                            _corro_spans[_meid] = str(_m.get("direct_quote") or "")
+            _demote_eids, _refute_eids, _rel_warnings, _rel_labels = _classify_sentence_citations(
+                sv, evidence_pool, relevance_judge_fn, _corro_spans,
+            )
+            # MINIMUM-RETENTION GUARD (InfoGain-RAG): the sentence's surviving INLINE support
+            # set = its own non-demoted/non-refuted tokens PLUS any basket corroborators that
+            # are themselves not demoted/refuted. If demotion would leave ZERO inline support
+            # (the statement's LAST citation would be stranded), DO NOT demote — keep every
+            # own token as support and mark the statement WEAK instead. Stranding a sentence
+            # cited->uncited is FORBIDDEN (it would WORSEN DeepTRACE Unsupported). The report
+            # ALWAYS ships either way (always-release).
+            _own_eids = [t.evidence_id for t in sv.tokens if t.evidence_id in evidence_pool]
+            _surviving_own = [
+                e for e in _own_eids if e not in _demote_eids and e not in _refute_eids
+            ]
+            _surviving_corro = [
+                e for e in _verified_corroborators_for_tokens(_own_eids)
+                if e not in _demote_eids and e not in _refute_eids
+            ]
+            # iter-2 P1#1a: PERSIST the structured per-citation LABEL map onto the SV. This is
+            # the JUDGE VERDICT for every judged cite (eid -> SUPPORTED/INSUFFICIENT/REFUTED) —
+            # orthogonal to the retention decision, so it is persisted UNCONDITIONALLY here
+            # (a retained-weak sentence still carries the honest INSUFFICIENT/REFUTED verdict
+            # in this map). Pre-fix this was COMPUTED then DISCARDED (the Codex P1 silent no-op):
+            # the labels never reached the verification record. Additive — never an input to
+            # is_verified.
+            if _rel_labels:
+                _merged_labels = dict(sv.relevance_labels or {})
+                _merged_labels.update(_rel_labels)
+                sv.relevance_labels = _merged_labels
+            if not _surviving_own and not _surviving_corro and _own_eids:
+                # Retention guard fires: un-demote (keep ALL own tokens as support), mark weak.
+                # iter-2 P1#3: ACTUALLY MARK THE STATEMENT WEAK — persist a
+                # ``relevance_statement_weak`` soft-warning on the SV (pre-fix only telemetry
+                # bumped; RELEVANCE_WEAK_PREFIX was defined but never constructed). The cite is
+                # KEPT (never stranded); the weak mark records that its last support did not
+                # establish the relation. Always-release: the sentence still ships.
+                #
+                # The ACTION soft-warnings (``relevance_demoted_insufficient`` /
+                # ``relevance_refuted_contradiction``) are DELIBERATELY NOT appended here: the
+                # retention guard un-demotes (the sets end EMPTY), so a "demoted"/"contradiction-
+                # flagged" warning would claim an action that did not happen — inconsistent with
+                # the (now empty) demote/refute sets. The honest verdict is still recorded in the
+                # ``relevance_labels`` map above; the only ACTION on this sentence is the weak
+                # mark. (Codex iter-2 internal-consistency: warnings must match the sets.)
+                _RELEVANCE_TELEMETRY["retention_kept_weak"] += len(_demote_eids) + len(_refute_eids)
+                _RELEVANCE_TELEMETRY["sentences_marked_weak"] += 1
+                _weak_eids = ",".join(sorted(_demote_eids | _refute_eids))
+                sv.soft_warnings = list(sv.soft_warnings) + [
+                    f"{RELEVANCE_WEAK_PREFIX}:{_weak_eids}"
+                ]
+                _demote_eids = set()
+                _refute_eids = set()
+            else:
+                # Demotion / contradiction-flag actually fires: PERSIST the human-readable
+                # demote/refute reason soft-warnings (``_rel_warnings``), which now MATCH the
+                # populated demote/refute sets below. (Moved into the else-branch per Codex
+                # iter-2: in the retention branch the sets are cleared, so these action warnings
+                # must NOT be present.)
+                if _rel_warnings:
+                    sv.soft_warnings = list(sv.soft_warnings) + list(_rel_warnings)
+                _RELEVANCE_TELEMETRY["demoted_from_support"] += len(_demote_eids) + len(_refute_eids)
+                if _refute_eids:
+                    _RELEVANCE_TELEMETRY["contradiction_flagged"] += 1
+            # CACHE the FINAL (post-retention) demote + refute sets on the SV so the V30 contract
+            # slot-regroup (contract_section_runner.py) drops the IDENTICAL eids without
+            # re-judging or re-deciding retention. The contract runner calls THIS resolve()
+            # with the SAME kept_sentences objects + SAME baskets, so the decision is valid for
+            # both render loops — one source of truth. Additive attributes; the OFF path never
+            # reaches here so they stay None (byte-identical). Carried by dataclasses.replace.
+            #
+            # iter-2 P1#1b + P1#2: Insufficient and Refuted are CACHED AS TWO DISTINCT SETS.
+            # ``relevance_demoted_eids`` is Insufficient-only (listed-not-load-bearing);
+            # ``relevance_refuted_eids`` is Refuted-only — the persisted CONTRADICTION-FLAG
+            # set. The contradiction is also recorded human-readably via the
+            # ``relevance_refuted_contradiction:<eid>:...`` soft-warning persisted above. Both
+            # render loops exclude the UNION of the two from inline support.
+            sv.relevance_demoted_eids = frozenset(_demote_eids)
+            sv.relevance_refuted_eids = frozenset(_refute_eids)
+
+        # Assign citation numbers only for surviving sentences. A demoted (Insufficient) or
+        # refuted token is EXCLUDED from the inline support set — it is NOT passed to _num_for,
+        # so it never becomes a numbered inline support cite (Insufficient => listed-not-load-
+        # bearing; Refuted => contradiction flag). On the OFF path both sets are empty so every
+        # token is included exactly as before (byte-identical).
         used_nums: list[int] = []
         for tok in sv.tokens:
+            if tok.evidence_id in _demote_eids or tok.evidence_id in _refute_eids:
+                continue
             n = _num_for(tok.evidence_id)
             if n not in used_nums:
                 used_nums.append(n)
@@ -3340,9 +3642,14 @@ def resolve_provenance_to_citations_with_count(
         # the sentence's own citation is never doubled. Faithfulness: SUPPORTS-only (the
         # verified_support_origin_count members), never the advisory clustered count;
         # _verified_corroborators_for_tokens returns [] on the OFF path => byte-identical.
+        # I-beatboth-003: a corroborator that the relevance judge demoted/refuted for THIS
+        # sentence is likewise excluded from the inline support set (consistency with the
+        # per-token demotion above); OFF path => sets empty => byte-identical.
         for _corro_eid in _verified_corroborators_for_tokens(
             [tok.evidence_id for tok in sv.tokens]
         ):
+            if _corro_eid in _demote_eids or _corro_eid in _refute_eids:
+                continue
             n = _num_for(_corro_eid)
             if n not in used_nums:
                 used_nums.append(n)

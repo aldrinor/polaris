@@ -628,6 +628,12 @@ async def run_contract_section(
     # to `llm_call` so existing callers stay byte-identical. The faithfulness gate
     # (per-sentence verify in the rescue-INELIGIBLE narrative stream) is unchanged.
     narrative_llm_call: Any = None,
+    # I-beatboth-003 (#1280): injectable SURE-RAG relevance judge. Threaded into the
+    # resolve_provenance_to_citations call below so the gate's per-citation demotion fires on
+    # THIS production render path (the V30 contract slot-regroup, which the §-1.4 harness
+    # mocks). None (default) => the live GLM-5.2 judge (gate only ON under PG_RELEVANCE_GATE);
+    # with the gate OFF the param is inert => byte-identical.
+    relevance_judge_fn: Any = None,
 ) -> tuple[Any, list[SlotFillPayload]]:
     """Run one contract SECTION. Returns (SectionResult,
     list[SlotFillPayload]). The payloads are threaded back to
@@ -1273,10 +1279,20 @@ async def run_contract_section(
     # Threading baskets here makes the resolver ALSO enrich biblio_slice with the
     # corroborator members' numbered rows via its _num_for, so the slot-regroup
     # below can look those corroborators up in ev_to_num.
+    # I-beatboth-003 (#1280): this call ALSO runs the SURE-RAG relevance gate (when
+    # PG_RELEVANCE_GATE is ON) and CACHES the FINAL post-retention demote + refute sets on each
+    # kept SV (sv.relevance_demoted_eids = Insufficient-only; sv.relevance_refuted_eids =
+    # Refuted-only — two DISTINCT sets per Codex iter-2 P1#1b, plus the persisted
+    # relevance_refuted_contradiction soft-warning). The slot-regroup below reads BOTH cached
+    # sets and drops their UNION — so the demotion fires in `sentences_by_slot` (the shipped
+    # body), not just the discarded `resolved_body`. OFF path => no judge call, sets stay None
+    # => byte-identical. Same kept_sentences objects + same baskets here as in the slot loop,
+    # so the cached decision is valid for both.
     resolved_body, biblio_slice = resolve_provenance_to_citations(
         kept_sentences, evidence_pool,
         baskets=_baskets,
         cluster_id_by_evidence=_cluster_id_by_evidence,
+        relevance_judge_fn=relevance_judge_fn,
     )
 
     # Build a per-sentence resolved list (parallel to
@@ -1343,10 +1359,31 @@ async def run_contract_section(
         )
         if slot_id is None:
             continue
+        # I-beatboth-003 (#1280): the cached FINAL (post-minimum-retention) sets of evidence_ids
+        # the SURE-RAG relevance judge demoted (Insufficient -> listed-not-load-bearing) or
+        # refuted (-> contradiction flag) for THIS sentence — computed ONCE in the resolve call
+        # above. EXCLUDE those eids from the inline support set here so the demotion fires in the
+        # SHIPPED slot body (not just the discarded flat resolved_body). None (OFF path / gate
+        # off) => empty => byte-identical legacy regroup. The retention guard already ran in
+        # resolve(), so a sentence whose last support would have been demoted has EMPTY sets
+        # here (never stranded).
+        #
+        # iter-2 (Codex P1#1b): Insufficient and Refuted are now cached as TWO DISTINCT sets on
+        # the SV. The inline-support exclusion is the UNION of the two — both an Insufficient
+        # demotion and a Refuted contradiction-flag remove the cite from inline support (the
+        # Refuted contradiction is ALSO recorded as the persisted
+        # ``relevance_refuted_contradiction`` soft-warning by resolve()). Reading both via
+        # getattr keeps the OFF/legacy path (no attribute) byte-identical.
+        _demoted_eids = (
+            (getattr(sv, "relevance_demoted_eids", None) or frozenset())
+            | (getattr(sv, "relevance_refuted_eids", None) or frozenset())
+        )
         # Build citation marker (preserve first-appearance order
         # within the sentence).
         used_nums: list[int] = []
         for tok in tokens:
+            if tok.evidence_id in _demoted_eids:
+                continue
             n = ev_to_num.get(tok.evidence_id)
             if n is not None and n not in used_nums:
                 used_nums.append(n)
@@ -1367,6 +1404,11 @@ async def run_contract_section(
             cluster_id_by_evidence=_cluster_id_by_evidence,
             evidence_pool=evidence_pool,
         ):
+            # I-beatboth-003: a corroborator the relevance judge demoted/refuted for THIS
+            # sentence is excluded from the inline support set too (consistency with the
+            # per-token demotion above + the legacy resolver). OFF path => empty => no-op.
+            if _corro_eid in _demoted_eids:
+                continue
             n = ev_to_num.get(_corro_eid)
             if n is not None and n not in used_nums:
                 used_nums.append(n)

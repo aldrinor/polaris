@@ -1,0 +1,1635 @@
+diff --git a/scripts/iarch_beatboth003_relevance_gate_replay_harness.py b/scripts/iarch_beatboth003_relevance_gate_replay_harness.py
+new file mode 100644
+index 00000000..94d50a37
+--- /dev/null
++++ b/scripts/iarch_beatboth003_relevance_gate_replay_harness.py
+@@ -0,0 +1,392 @@
++#!/usr/bin/env python3
++"""§-1.4 fail-loud BEHAVIORAL replay harness for the SURE-RAG per-citation relevance
++gate (I-beatboth-003, #1280) — INCREMENT 1 (F3-0).
++
++This harness drives the REAL ``strict_verify`` -> ``resolve_provenance_to_citations``
++render path with a MOCKED three-way judge (deterministic, NO model spend) and asserts the
++demotion / contradiction-routing / always-release / minimum-retention effects ACTUALLY
++APPEAR IN THE RENDERED OUTPUT. It is the mechanical embodiment of CLAUDE.md §-1.4:
++acceptance = "the effect ACTUALLY FIRES in the real output", NOT "Codex approved the diff"
++NOT "tests are green". It FAILS LOUD (non-zero exit) on a silent no-op.
++
++Assertions (each FAILS LOUD on violation):
++  (a) a citation the fake judge labels INSUFFICIENT is DEMOTED from a support cite to
++      listed-not-load-bearing (its inline ``[N]`` marker is GONE from the sentence).
++  (b) a REFUTED citation is routed to a contradiction flag (not a support cite) — its inline
++      marker is GONE and the sentence carries a contradiction soft-warning / flag.
++  (b-new) the REFUTED citation produces a PERSISTED CONTRADICTION FLAG on the verification
++      record: the SentenceVerification carries a ``relevance_refuted_contradiction`` soft-
++      warning AND the refuter's evidence_id is in the SEPARATE ``relevance_refuted_eids``
++      set (Refuted kept DISTINCT from Insufficient, not merely demoted). This proves the
++      Refuted label is ROUTED to an inspectable contradiction marker, not silently dropped.
++  (c) the report STILL ships (always-release) — the sentence text is present in the output.
++  (d) MINIMUM-RETENTION: a statement whose ONLY citation would be demoted is NOT stranded —
++      it retains >=1 inline citation (re-anchor / keep + mark weak), never cited->uncited.
++  (c-new) the last-cite-retention case PERSISTS the WEAK mark on the statement: the solo
++      sentence's SentenceVerification carries a ``relevance_statement_weak`` soft-warning
++      (the statement is ACTUALLY marked weak, not merely a telemetry bump).
++  (e) with the flag OFF, behavior is byte-identical — the injected judge is NEVER called
++      (a judge that RAISES if invoked proves it), and the rendered output equals the
++      no-judge baseline.
++
++Run it directly:
++    python scripts/iarch_beatboth003_relevance_gate_replay_harness.py
++Exit 0 = all behavioral assertions PASS. Exit 1 = a silent no-op / regression FIRED LOUD.
++
++RED-FIRST DISCIPLINE: run against the UNMODIFIED provenance_generator.py first — the
++demotion path does not exist yet, so (a)/(b)/(d) FAIL LOUD (the INSUFFICIENT/REFUTED markers
++still render as support cites). After F3-2/F3-3 wire the label semantics, the SAME harness
++must PASS.
++
++The two NEW assertions (b-new) + (c-new) are the §-1.4 completeness fix for diff-gate iter-2:
++they target the Codex P1 silent no-ops. Pre-fix, the per-citation LABEL side-output is
++COMPUTED then DISCARDED (``_rel_warnings`` never persisted), Refuted is collapsed into the
++Insufficient demote set (no separate ``relevance_refuted_eids``), and the minimum-retention
++guard only bumps telemetry (never marks the statement weak). Run this strengthened harness
++against the CURRENT (pre-fix) code: (b-new)+(c-new) RED-fail LOUD (the contradiction flag and
++the weak mark are absent from the SV). After the fix they GREEN.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++import sys
++
++# Deterministic, fully offline env BEFORE importing the gate module.
++os.environ.setdefault("PG_STRICT_VERIFY_ENTAILMENT", "off")  # no LLM in strict_verify
++os.environ.setdefault("PG_PROVENANCE_REANCHOR", "0")  # keep render path simple/byte-stable
++os.environ.setdefault("PG_SPAN_RESOLVER", "0")
++
++_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++if _REPO_ROOT not in sys.path:
++    sys.path.insert(0, _REPO_ROOT)
++
++from src.polaris_graph.generator import provenance_generator as pg  # noqa: E402
++from src.polaris_graph.generator import relevance_judge as rj  # noqa: E402
++
++
++class HarnessFailure(AssertionError):
++    """Raised when a behavioral assertion fails — surfaced as a non-zero exit."""
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Fixture corpus. Each evidence row's direct_quote is a span that PASSES the
++# deterministic strict_verify checks for its claim sentence (number match +
++# >=2 content-word overlap), so all three citations are KEPT by strict_verify.
++# The relevance judge (mocked) is what distinguishes their RELATION quality.
++# ─────────────────────────────────────────────────────────────────────────────
++def _evidence_pool() -> dict:
++    return {
++        "ev_support": {
++            "source_url": "https://example.org/trial-a",
++            "tier": "T1",
++            "statement": "Drug X reduced systolic blood pressure by 12 mmHg versus placebo.",
++            "direct_quote": "Drug X reduced systolic blood pressure by 12 mmHg versus placebo.",
++        },
++        "ev_offtopic": {
++            "source_url": "https://example.org/review-b",
++            "tier": "T2",
++            # Mentions the right entities ("Drug X", "blood pressure") WITHOUT establishing
++            # the reduction relation — the off-topic-but-topical INSUFFICIENT case. Carries
++            # the same "12" so it clears the numeric check, but the relation is wrong.
++            "statement": "Drug X and blood pressure were discussed at the 12th annual symposium.",
++            "direct_quote": "Drug X and blood pressure were discussed at the 12th annual symposium.",
++        },
++        "ev_refuter": {
++            "source_url": "https://example.org/trial-c",
++            "tier": "T1",
++            "statement": "Drug X increased systolic blood pressure by 12 mmHg in a subgroup.",
++            "direct_quote": "Drug X increased systolic blood pressure by 12 mmHg in a subgroup.",
++        },
++        "ev_solo_offtopic": {
++            "source_url": "https://example.org/news-d",
++            "tier": "T4",
++            "statement": "Therapy Y improved patient adherence rates by 30 percent overall.",
++            "direct_quote": "Therapy Y improved patient adherence rates by 30 percent overall.",
++        },
++    }
++
++
++# Span offsets are the FULL direct_quote length for each row, so the cited sub-span is the
++# whole sentence and the mock judge can recognize it by a distinctive substring. The numbers
++# (12 / 30) appear in each span so the deterministic strict_verify numeric check passes.
++_SPAN_SUPPORT = len(_evidence_pool()["ev_support"]["direct_quote"])
++_SPAN_OFFTOPIC = len(_evidence_pool()["ev_offtopic"]["direct_quote"])
++_SPAN_REFUTER = len(_evidence_pool()["ev_refuter"]["direct_quote"])
++_SPAN_SOLO = len(_evidence_pool()["ev_solo_offtopic"]["direct_quote"])
++
++
++def _multi_cited_draft() -> str:
++    """A sentence cited by THREE sources: one genuine support, one off-topic (INSUFFICIENT),
++    one refuter (REFUTED). After the gate, only ev_support stays a support cite."""
++    return (
++        "Drug X reduced systolic blood pressure by 12 mmHg versus placebo "
++        f"[#ev:ev_support:0-{_SPAN_SUPPORT}]"
++        f"[#ev:ev_offtopic:0-{_SPAN_OFFTOPIC}]"
++        f"[#ev:ev_refuter:0-{_SPAN_REFUTER}]."
++    )
++
++
++def _solo_cited_draft() -> str:
++    """A sentence whose ONLY citation is off-topic (INSUFFICIENT). Minimum-retention forbids
++    demoting it to zero — the citation must be KEPT (statement marked weak), never stranded."""
++    return (
++        "Therapy Y improved patient adherence rates by 30 percent overall "
++        f"[#ev:ev_solo_offtopic:0-{_SPAN_SOLO}]."
++    )
++
++
++# Mock judge: deterministic label by a distinctive substring of the cited span text (the
++# harness controls which span belongs to which row; matching on a contained substring is
++# robust to the exact start/end offsets).
++def _mock_judge(claim: str, span: str) -> "tuple[str, str]":
++    if "reduced systolic blood pressure" in span:
++        return (rj.LABEL_SUPPORTED, "establishes the reduction relation")
++    if "discussed at the 12th annual symposium" in span:
++        return (rj.LABEL_INSUFFICIENT, "mentions entity, wrong relation")
++    if "increased systolic blood pressure" in span:
++        return (rj.LABEL_REFUTED, "contradicts the reduction claim")
++    if "improved patient adherence" in span:
++        return (rj.LABEL_INSUFFICIENT, "off-topic for the cited claim")
++    return (rj.LABEL_SUPPORTED, "default")
++
++
++def _judge_that_raises(claim: str, span: str) -> "tuple[str, str]":
++    raise AssertionError(
++        "relevance judge was invoked while PG_RELEVANCE_GATE is OFF — OFF path is NOT a no-op!"
++    )
++
++
++_MARKER_RE = re.compile(r"\[(\d+)\]")
++
++
++def _inline_markers(sentence_region: str) -> set[str]:
++    return set(_MARKER_RE.findall(sentence_region))
++
++
++def _num_for_url(biblio: list, url: str) -> str | None:
++    for row in biblio:
++        if row.get("url") == url:
++            return str(row.get("num"))
++    return None
++
++
++def _render(draft: str, pool: dict, *, judge_fn, gate_on: bool) -> "tuple[str, list, list]":
++    """Drive the REAL strict_verify -> resolve path. judge_fn is injected so the gate is
++    mocked; gate_on toggles PG_RELEVANCE_GATE for this call.
++
++    Returns (rendered_text, bibliography, kept_sentences). The kept_sentences are the SAME
++    SentenceVerification objects the resolver mutates in place (it caches the final
++    post-retention demote/refute decision + soft-warnings on each SV), so the harness can
++    inspect the PERSISTED contradiction flag + weak mark on the verification record — the
++    (b-new) + (c-new) §-1.4 assertions that the per-citation label side-output actually
++    LANDS on the SV rather than being computed and discarded."""
++    pg.reset_relevance_telemetry()
++    prev = os.environ.get("PG_RELEVANCE_GATE")
++    os.environ["PG_RELEVANCE_GATE"] = "1" if gate_on else "0"
++    rj.reset_judge_singleton()
++    try:
++        report = pg.strict_verify(draft, pool, require_number_match=True)
++        # The render call accepts the injected judge via the new keyword (added in F3-3).
++        # When the keyword does not yet exist (RED, unmodified code) we fall back to the
++        # 2-arg call so the harness still drives the path and the assertions fail LOUD on
++        # the un-demoted output rather than on a TypeError.
++        try:
++            text, biblio = pg.resolve_provenance_to_citations(
++                report.kept_sentences, pool, relevance_judge_fn=judge_fn,
++            )
++        except TypeError:
++            text, biblio = pg.resolve_provenance_to_citations(
++                report.kept_sentences, pool,
++            )
++        return text, biblio, report.kept_sentences
++    finally:
++        if prev is None:
++            os.environ.pop("PG_RELEVANCE_GATE", None)
++        else:
++            os.environ["PG_RELEVANCE_GATE"] = prev
++
++
++def _check(cond: bool, msg: str) -> None:
++    if not cond:
++        raise HarnessFailure(msg)
++
++
++def _sv_soft_warnings(svs: list) -> list[str]:
++    """Flatten the persisted soft_warnings across all kept SentenceVerifications. Uses
++    getattr so a pre-fix SV (no soft_warnings populated by the gate) yields a value-RED
++    (empty list) rather than crashing — the assertion fails LOUD on the MISSING effect,
++    not on an AttributeError."""
++    out: list[str] = []
++    for sv in svs or []:
++        out.extend(list(getattr(sv, "soft_warnings", None) or []))
++    return out
++
++
++def _sv_refuted_eids(svs: list) -> set[str]:
++    """Union of the PERSISTED, SEPARATE Refuted-eid sets across kept SVs. getattr-guarded:
++    pre-fix this attribute does not exist -> empty set -> value-RED, not a crash. This is
++    the (b-new) proof that Refuted is kept DISTINCT from Insufficient (two sets), routed to
++    a contradiction marker rather than merely demoted into the Insufficient set."""
++    out: set[str] = set()
++    for sv in svs or []:
++        out |= set(getattr(sv, "relevance_refuted_eids", None) or frozenset())
++    return out
++
++
++def run() -> None:
++    pool = _evidence_pool()
++
++    # ── Case 1: multi-cited sentence (support + insufficient + refuter) ──────────
++    multi = _multi_cited_draft()
++    text, biblio, svs = _render(multi, pool, judge_fn=_mock_judge, gate_on=True)
++
++    # (c) always-release: the sentence text must still ship.
++    _check(
++        "reduced systolic blood pressure by 12 mmHg" in text,
++        "(c) always-release VIOLATED: the verified sentence did not ship in the output:\n" + text,
++    )
++
++    markers = _inline_markers(text)
++    n_support = _num_for_url(biblio, "https://example.org/trial-a")
++    n_offtopic = _num_for_url(biblio, "https://example.org/review-b")
++    n_refuter = _num_for_url(biblio, "https://example.org/trial-c")
++
++    # The genuine support citation MUST remain inline.
++    _check(
++        n_support is not None and n_support in markers,
++        f"(genuine support) VIOLATED: ev_support cite [{n_support}] is not an inline support "
++        f"marker. markers={sorted(markers)} text={text!r}",
++    )
++
++    # (a) INSUFFICIENT -> demoted: its inline support marker must be GONE.
++    _check(
++        n_offtopic is None or n_offtopic not in markers,
++        f"(a) DEMOTION VIOLATED: ev_offtopic (INSUFFICIENT) still renders as inline support "
++        f"cite [{n_offtopic}]. markers={sorted(markers)} text={text!r}",
++    )
++
++    # (b) REFUTED -> contradiction flag, not a support cite: inline marker GONE.
++    _check(
++        n_refuter is None or n_refuter not in markers,
++        f"(b) REFUTED-ROUTING VIOLATED: ev_refuter (REFUTED) still renders as inline support "
++        f"cite [{n_refuter}]. markers={sorted(markers)} text={text!r}",
++    )
++
++    # (b-new) §-1.4 COMPLETENESS: the REFUTED label must produce a PERSISTED, INSPECTABLE
++    # contradiction flag on the verification record — NOT just be removed from inline support
++    # (the Codex P1 silent no-op). Two persisted effects, both checked:
++    #   1. the SV carries a ``relevance_refuted_contradiction`` soft-warning naming the refuter
++    #      (the side-output the pre-fix code COMPUTED at _classify_sentence_citations then
++    #      DISCARDED at the _rel_warnings call site — never landed on the SV).
++    #   2. the refuter's eid is in the SEPARATE ``relevance_refuted_eids`` set, kept DISTINCT
++    #      from the Insufficient demote set (pre-fix Refuted was collapsed into one
++    #      ``relevance_demoted_eids`` frozenset — "merely demoted", no contradiction routing).
++    _all_warnings = _sv_soft_warnings(svs)
++    _refuted_eids = _sv_refuted_eids(svs)
++    _contradiction_marker = any(
++        w.startswith("relevance_refuted_contradiction") and "ev_refuter" in w
++        for w in _all_warnings
++    )
++    _check(
++        _contradiction_marker,
++        "(b-new) REFUTED-CONTRADICTION NOT PERSISTED: the REFUTED citation (ev_refuter) was "
++        "removed from inline support but NO 'relevance_refuted_contradiction' soft-warning "
++        "landed on the SentenceVerification — the contradiction flag was COMPUTED then "
++        f"DISCARDED (silent no-op). persisted soft_warnings={_all_warnings!r}",
++    )
++    _check(
++        "ev_refuter" in _refuted_eids,
++        "(b-new) REFUTED NOT KEPT SEPARATE: ev_refuter is not in the distinct "
++        "relevance_refuted_eids set — Refuted was merely collapsed into the Insufficient "
++        f"demote set, not routed to a contradiction flag. relevance_refuted_eids={sorted(_refuted_eids)}",
++    )
++
++    # (d) over-drop tripwire on the multi-cited sentence: it had >=1 inline cite before the
++    # gate, so it must retain >=1 after (it keeps ev_support). cited->uncited is FORBIDDEN.
++    _check(
++        len(markers) >= 1,
++        "(d) OVER-DROP TRIPWIRE: a previously-cited sentence went cited->UNCITED "
++        f"(stranded). markers={sorted(markers)} text={text!r}",
++    )
++
++    # ── Case 2: minimum-retention — solo off-topic citation must NOT strand ───────
++    solo = _solo_cited_draft()
++    text2, biblio2, svs2 = _render(solo, pool, judge_fn=_mock_judge, gate_on=True)
++    _check(
++        "improved patient adherence rates by 30 percent" in text2,
++        "(c/solo) always-release VIOLATED: the solo sentence did not ship:\n" + text2,
++    )
++    markers2 = _inline_markers(text2)
++    _check(
++        len(markers2) >= 1,
++        "(d) MINIMUM-RETENTION VIOLATED: a statement whose ONLY citation was INSUFFICIENT "
++        f"was STRANDED uncited. markers={sorted(markers2)} text={text2!r}",
++    )
++
++    # (c-new) §-1.4 COMPLETENESS: when the retention guard fires (the last support cite would
++    # have been demoted), the statement must be ACTUALLY MARKED WEAK — a persisted
++    # ``relevance_statement_weak`` soft-warning on the SV — NOT merely a telemetry counter
++    # bump (the Codex P1 silent no-op). Pre-fix RELEVANCE_WEAK_PREFIX is DEFINED but never
++    # constructed anywhere, so this RED-fails LOUD on the current code.
++    _solo_warnings = _sv_soft_warnings(svs2)
++    _check(
++        any(w.startswith("relevance_statement_weak") for w in _solo_warnings),
++        "(c-new) WEAK MARK NOT PERSISTED: the minimum-retention guard fired (citation kept) "
++        "but NO 'relevance_statement_weak' soft-warning landed on the SentenceVerification — "
++        "the statement was never actually marked weak, only telemetry bumped (silent no-op). "
++        f"persisted soft_warnings={_solo_warnings!r}",
++    )
++
++    # ── Case 3: OFF path is byte-identical AND never calls the judge ──────────────
++    # A judge that RAISES if called proves the OFF path never invokes it.
++    baseline_text, baseline_biblio, _baseline_svs = _render(
++        multi, pool, judge_fn=None, gate_on=False,
++    )
++    off_text, off_biblio, _off_svs = _render(
++        multi, pool, judge_fn=_judge_that_raises, gate_on=False,
++    )
++    _check(
++        off_text == baseline_text,
++        "(e) OFF byte-identity VIOLATED: PG_RELEVANCE_GATE=0 render differs from the "
++        f"no-judge baseline.\nbaseline={baseline_text!r}\noff={off_text!r}",
++    )
++    # With the gate OFF, ALL THREE original citations must still render as inline support
++    # (the gate did nothing) — confirms the OFF path is the legacy behavior.
++    off_markers = _inline_markers(off_text)
++    for url, lbl in (
++        ("https://example.org/trial-a", "support"),
++        ("https://example.org/review-b", "offtopic"),
++        ("https://example.org/trial-c", "refuter"),
++    ):
++        n = _num_for_url(off_biblio, url)
++        _check(
++            n is not None and n in off_markers,
++            f"(e) OFF path is NOT legacy: {lbl} cite [{n}] missing from the OFF render. "
++            f"markers={sorted(off_markers)} text={off_text!r}",
++        )
++
++    print("RELEVANCE-GATE REPLAY HARNESS: PASS")
++    print(f"  case1 multi-cite render: {text!r}")
++    print(f"  case2 solo-retention render: {text2!r}")
++    print(f"  case3 OFF byte-identical to baseline: {off_text == baseline_text}")
++
++
++def main() -> int:
++    try:
++        run()
++    except HarnessFailure as exc:
++        print("RELEVANCE-GATE REPLAY HARNESS: FAIL (behavioral assertion)", file=sys.stderr)
++        print(str(exc), file=sys.stderr)
++        return 1
++    except Exception as exc:  # noqa: BLE001 — any unexpected error is a loud failure
++        print("RELEVANCE-GATE REPLAY HARNESS: ERROR", file=sys.stderr)
++        import traceback
++        traceback.print_exc()
++        return 1
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/polaris_graph/generator/contract_section_runner.py b/src/polaris_graph/generator/contract_section_runner.py
+index adb1d19f..aff981d1 100644
+--- a/src/polaris_graph/generator/contract_section_runner.py
++++ b/src/polaris_graph/generator/contract_section_runner.py
+@@ -628,6 +628,12 @@ async def run_contract_section(
+     # to `llm_call` so existing callers stay byte-identical. The faithfulness gate
+     # (per-sentence verify in the rescue-INELIGIBLE narrative stream) is unchanged.
+     narrative_llm_call: Any = None,
++    # I-beatboth-003 (#1280): injectable SURE-RAG relevance judge. Threaded into the
++    # resolve_provenance_to_citations call below so the gate's per-citation demotion fires on
++    # THIS production render path (the V30 contract slot-regroup, which the §-1.4 harness
++    # mocks). None (default) => the live GLM-5.2 judge (gate only ON under PG_RELEVANCE_GATE);
++    # with the gate OFF the param is inert => byte-identical.
++    relevance_judge_fn: Any = None,
+ ) -> tuple[Any, list[SlotFillPayload]]:
+     """Run one contract SECTION. Returns (SectionResult,
+     list[SlotFillPayload]). The payloads are threaded back to
+@@ -1273,10 +1279,20 @@ async def run_contract_section(
+     # Threading baskets here makes the resolver ALSO enrich biblio_slice with the
+     # corroborator members' numbered rows via its _num_for, so the slot-regroup
+     # below can look those corroborators up in ev_to_num.
++    # I-beatboth-003 (#1280): this call ALSO runs the SURE-RAG relevance gate (when
++    # PG_RELEVANCE_GATE is ON) and CACHES the FINAL post-retention demote + refute sets on each
++    # kept SV (sv.relevance_demoted_eids = Insufficient-only; sv.relevance_refuted_eids =
++    # Refuted-only — two DISTINCT sets per Codex iter-2 P1#1b, plus the persisted
++    # relevance_refuted_contradiction soft-warning). The slot-regroup below reads BOTH cached
++    # sets and drops their UNION — so the demotion fires in `sentences_by_slot` (the shipped
++    # body), not just the discarded `resolved_body`. OFF path => no judge call, sets stay None
++    # => byte-identical. Same kept_sentences objects + same baskets here as in the slot loop,
++    # so the cached decision is valid for both.
+     resolved_body, biblio_slice = resolve_provenance_to_citations(
+         kept_sentences, evidence_pool,
+         baskets=_baskets,
+         cluster_id_by_evidence=_cluster_id_by_evidence,
++        relevance_judge_fn=relevance_judge_fn,
+     )
+ 
+     # Build a per-sentence resolved list (parallel to
+@@ -1343,10 +1359,31 @@ async def run_contract_section(
+         )
+         if slot_id is None:
+             continue
++        # I-beatboth-003 (#1280): the cached FINAL (post-minimum-retention) sets of evidence_ids
++        # the SURE-RAG relevance judge demoted (Insufficient -> listed-not-load-bearing) or
++        # refuted (-> contradiction flag) for THIS sentence — computed ONCE in the resolve call
++        # above. EXCLUDE those eids from the inline support set here so the demotion fires in the
++        # SHIPPED slot body (not just the discarded flat resolved_body). None (OFF path / gate
++        # off) => empty => byte-identical legacy regroup. The retention guard already ran in
++        # resolve(), so a sentence whose last support would have been demoted has EMPTY sets
++        # here (never stranded).
++        #
++        # iter-2 (Codex P1#1b): Insufficient and Refuted are now cached as TWO DISTINCT sets on
++        # the SV. The inline-support exclusion is the UNION of the two — both an Insufficient
++        # demotion and a Refuted contradiction-flag remove the cite from inline support (the
++        # Refuted contradiction is ALSO recorded as the persisted
++        # ``relevance_refuted_contradiction`` soft-warning by resolve()). Reading both via
++        # getattr keeps the OFF/legacy path (no attribute) byte-identical.
++        _demoted_eids = (
++            (getattr(sv, "relevance_demoted_eids", None) or frozenset())
++            | (getattr(sv, "relevance_refuted_eids", None) or frozenset())
++        )
+         # Build citation marker (preserve first-appearance order
+         # within the sentence).
+         used_nums: list[int] = []
+         for tok in tokens:
++            if tok.evidence_id in _demoted_eids:
++                continue
+             n = ev_to_num.get(tok.evidence_id)
+             if n is not None and n not in used_nums:
+                 used_nums.append(n)
+@@ -1367,6 +1404,11 @@ async def run_contract_section(
+             cluster_id_by_evidence=_cluster_id_by_evidence,
+             evidence_pool=evidence_pool,
+         ):
++            # I-beatboth-003: a corroborator the relevance judge demoted/refuted for THIS
++            # sentence is excluded from the inline support set too (consistency with the
++            # per-token demotion above + the legacy resolver). OFF path => empty => no-op.
++            if _corro_eid in _demoted_eids:
++                continue
+             n = ev_to_num.get(_corro_eid)
+             if n is not None and n not in used_nums:
+                 used_nums.append(n)
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 57a2075c..c9038ea4 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -656,6 +656,36 @@ class SentenceVerification:
+     # off the repair path, and `dataclasses.replace` (apply_disclosure_to_svs) carries
+     # it through, so it survives the disclosure re-populate. Byte-identical when None.
+     reanchor_original_slot_id: str | None = None
++    # I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL side-output. The FINAL
++    # (post-minimum-retention) set of this sentence's OWN evidence_ids the relevance judge
++    # labelled INSUFFICIENT (right entity, wrong relation) -> DEMOTE from inline support to
++    # listed-not-load-bearing. Computed ONCE in resolve_provenance_to_citations (serial parent
++    # context, OUT of the parallel-verify thread/X509 minefield) and CACHED here so BOTH
++    # render loops (the legacy resolver AND the V30 contract slot-regroup) drop the SAME eids
++    # — one source of truth, no re-judge, no retention re-decision drift. Additive, NEVER an
++    # input to is_verified or the six strict_verify checks; carried by `dataclasses.replace`.
++    # Default None (empty) => inert OFF the gate => byte-identical render.
++    #
++    # iter-2 (Codex P1#1b): Insufficient and Refuted are now TWO DISTINCT persisted sets, not
++    # one merged frozenset. This field is INSUFFICIENT-ONLY; ``relevance_refuted_eids`` below
++    # is REFUTED-ONLY. Both render loops exclude the UNION of the two from inline support.
++    relevance_demoted_eids: frozenset[str] | None = None
++    # iter-2 (Codex P1#1b + P1#2): the SEPARATE set of this sentence's OWN evidence_ids the
++    # relevance judge labelled REFUTED (the span CONTRADICTS the claim). Kept DISTINCT from the
++    # Insufficient demote set above so Refuted is ROUTED to a contradiction flag, not merely
++    # demoted: the ``relevance_refuted_contradiction:<eid>:...`` soft-warning below names each
++    # refuter, and this set carries the eid for inspection. Both render loops exclude these
++    # eids from inline support (same as demoted). Additive, NEVER an input to is_verified;
++    # carried by ``dataclasses.replace``. Default None (empty) => inert OFF the gate.
++    relevance_refuted_eids: frozenset[str] | None = None
++    # iter-2 (Codex P1#1a): the per-citation relevance LABEL side-output, PERSISTED (not
++    # computed-then-discarded). Maps every JUDGED evidence_id -> its canonical label
++    # (SUPPORTED / INSUFFICIENT / REFUTED) for THIS sentence, so the structured label is
++    # inspectable on the verification record (e.g. an audit can read why a cite was demoted /
++    # refuted, alongside the human-readable ``soft_warnings`` reasons). Additive, NEVER an
++    # input to is_verified or the six strict_verify checks; carried by ``dataclasses.replace``.
++    # Default None (empty) => inert OFF the gate => byte-identical render.
++    relevance_labels: dict[str, str] | None = None
+ 
+ 
+ def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
+@@ -3103,12 +3133,155 @@ def verified_corroborators_for_tokens(
+     return out
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL — demotion at the
++# render chokepoint. strict_verify (invariant #3) is relevance-BLIND: it passes a
++# source that shares two incidental words without establishing the required RELATION
++# (the off-topic-but-topical case). This labels each ALREADY-strict-verified citation
++# Supported / Insufficient / Refuted and demotes the Insufficient/Refuted ones from
++# the INLINE support set, with a HARD minimum-retention guard (never strand a sentence
++# uncited). It is a NEW dimension ADDED on top of strict_verify, NEVER a relaxation /
++# replacement of it, NEVER an input to is_verified or the six strict_verify checks, and
++# NEVER a hold/abstain — the report ALWAYS ships. Default-OFF (PG_RELEVANCE_GATE) =>
++# byte-identical legacy render. Single render chokepoint: BOTH production render paths
++# (the legacy resolver AND the V30 contract slot-regroup) funnel through
++# resolve_provenance_to_citations, so wiring it HERE covers both (no silent no-op).
++# ─────────────────────────────────────────────────────────────────────────────
++
++# Telemetry: per-process counters so a run can prove the gate FIRED (and how much it
++# demoted) in the output, not just that the flag was set (§-1.4 fired-not-configured).
++_RELEVANCE_TELEMETRY: dict[str, int] = {
++    "citations_judged": 0,
++    "labeled_supported": 0,
++    "labeled_insufficient": 0,
++    "labeled_refuted": 0,
++    "demoted_from_support": 0,        # cites actually removed from the inline support set
++    "retention_kept_weak": 0,         # demotion BLOCKED by the minimum-retention guard
++    "sentences_marked_weak": 0,       # sentences whose last support would have been demoted
++    "contradiction_flagged": 0,       # sentences that gained a refuted-contradiction flag
++    "judge_errors": 0,                # judge returned a SUPPORTED keep-fallback on a fault
++}
++
++
++def get_relevance_telemetry() -> dict[str, int]:
++    """Snapshot of the relevance-gate counters (for the §-1.4 fired-in-output assertion)."""
++    return dict(_RELEVANCE_TELEMETRY)
++
++
++def reset_relevance_telemetry() -> None:
++    for _k in _RELEVANCE_TELEMETRY:
++        _RELEVANCE_TELEMETRY[_k] = 0
++
++
++# Per-SV soft-warning prefixes emitted by the demotion layer (additive, NEVER inputs to
++# is_verified — same precedent as the existing soft_warnings entries).
++RELEVANCE_DEMOTED_PREFIX = "relevance_demoted_insufficient"
++RELEVANCE_REFUTED_PREFIX = "relevance_refuted_contradiction"
++RELEVANCE_WEAK_PREFIX = "relevance_statement_weak"
++
++
++def _classify_sentence_citations(
++    sv: "SentenceVerification",
++    evidence_pool: dict[str, dict[str, Any]],
++    relevance_judge_fn,
++    corroborator_spans: dict[str, str] | None = None,
++) -> tuple[set[str], set[str], list[str], dict[str, str]]:
++    """Label each of a kept sentence's OWN cited tokens (Supported/Insufficient/Refuted)
++    and return ``(demote_eids, refute_eids, soft_warnings, labels)``.
++
++    iter-2 (Codex P1#1a): ``labels`` is the PERSISTED per-citation label side-output —
++    eid -> canonical label (SUPPORTED / INSUFFICIENT / REFUTED) for EVERY judged citation,
++    so the structured label survives onto the SentenceVerification (it was previously
++    computed implicitly and discarded). ``demote_eids`` is INSUFFICIENT-only and
++    ``refute_eids`` is REFUTED-only — two DISTINCT sets (Codex P1#1b), so Refuted is routed
++    to a contradiction flag, never merely folded into the demote set.
++
++    The CLAIM judged is the sentence's verifier-cleaned prose (citation artifacts stripped);
++    the SPAN is the token's cited sub-span of its evidence row's direct_quote — EXACTLY the
++    (claim, span) pair strict_verify already validated, so the relevance judge is the SAME
++    granularity. Only VALID tokens (evidence-id in pool, span in bounds) are judged; a token
++    strict_verify would have failed never reaches a kept sentence. Per-CITATION, not
++    per-sentence: an Insufficient/Refuted label removes ONLY that token's evidence_id from the
++    inline support set — the sentence and its remaining support citations are untouched (the
++    P0 crux: NEVER inherit the I-beatboth-001 'drop the whole sentence' option).
++
++    This function does NOT enforce minimum-retention — it only LABELS. The caller applies the
++    retention guard against the WHOLE sentence's surviving support set (including basket
++    corroborators), so a sentence is never stranded uncited.
++
++    ``corroborator_spans`` (eid -> span_text) carries the basket-corroborator INLINE citations
++    the resolver/contract-runner ADD to this sentence (members of the SAME claim basket the
++    generator did not cite directly). On the Gate-B contract path these are the DOMINANT inline
++    multi-citations (slot-fill emits one own-token per sentence), so the relevance gate MUST
++    judge them too or it is a near-no-op on the benchmark path. They are ADDITIVE citations:
++    demoting one can never strand the sentence (its own support remains + retention covers the
++    own-token case), so judging them is faithfulness-safe. SUPPORTS-membership was decided by
++    the SAME span-grounding check this gate calls relevance-blind, so they are exactly as
++    exposed as own tokens.
++    """
++    from src.polaris_graph.generator.relevance_judge import (  # noqa: PLC0415
++        LABEL_INSUFFICIENT,
++        LABEL_REFUTED,
++        LABEL_SUPPORTED,
++        judge_citation_relevance,
++    )
++
++    demote: set[str] = set()
++    refute: set[str] = set()
++    warnings: list[str] = []
++    labels: dict[str, str] = {}  # iter-2 P1#1a: persisted eid -> label for EVERY judged cite
++    claim = _verifier_cleaned_text(sv.sentence).strip()
++
++    def _judge_one(eid: str, span_text: str) -> None:
++        label, reason = judge_citation_relevance(
++            claim, span_text, relevance_judge_fn=relevance_judge_fn,
++        )
++        _RELEVANCE_TELEMETRY["citations_judged"] += 1
++        # iter-2 P1#1a: record the canonical label for THIS citation so the structured
++        # side-output lands on the SV (no longer computed-then-discarded). SUPPORTED kept
++        # citations are recorded too — an audit can see the full per-cite verdict map.
++        labels[eid] = label
++        if reason.startswith("judge_error:"):
++            _RELEVANCE_TELEMETRY["judge_errors"] += 1
++        if label == LABEL_SUPPORTED:
++            _RELEVANCE_TELEMETRY["labeled_supported"] += 1
++        elif label == LABEL_INSUFFICIENT:
++            _RELEVANCE_TELEMETRY["labeled_insufficient"] += 1
++            demote.add(eid)
++            warnings.append(f"{RELEVANCE_DEMOTED_PREFIX}:{eid}:{reason[:80]}")
++        elif label == LABEL_REFUTED:
++            _RELEVANCE_TELEMETRY["labeled_refuted"] += 1
++            refute.add(eid)
++            warnings.append(f"{RELEVANCE_REFUTED_PREFIX}:{eid}:{reason[:80]}")
++
++    # Judge the sentence's OWN cited tokens (the span strict_verify already validated).
++    for tok in sv.tokens:
++        ev = evidence_pool.get(tok.evidence_id)
++        if ev is None:
++            continue  # not a real pool row — never judged, never a support cite anyway
++        direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
++        if tok.start < 0 or tok.end > len(direct_quote) or tok.start >= tok.end:
++            continue  # out-of-bounds span — strict_verify would not have kept it as support
++        _judge_one(tok.evidence_id, direct_quote[tok.start:tok.end])
++
++    # Judge the basket corroborators ADDED to this sentence (the dominant inline-cite path on
++    # the Gate-B contract slot-regroup). Skip any eid already judged as an own token.
++    _own_ids = {t.evidence_id for t in sv.tokens}
++    for _eid, _span in (corroborator_spans or {}).items():
++        if _eid in _own_ids or not _span:
++            continue
++        _judge_one(_eid, _span)
++
++    return demote, refute, warnings, labels
++
++
+ def resolve_provenance_to_citations(
+     kept_sentences: list[SentenceVerification],
+     evidence_pool: dict[str, dict[str, Any]],
+     *,
+     baskets: list | None = None,
+     cluster_id_by_evidence: dict[str, list[str]] | None = None,
++    relevance_judge_fn=None,
+ ) -> tuple[str, list[dict[str, Any]]]:
+     """Strip [#ev:...] tokens and replace with numbered citations.
+ 
+@@ -3120,12 +3293,18 @@ def resolve_provenance_to_citations(
+     rendered text). The public 2-tuple contract is byte-identical for every
+     existing caller; a caller that needs the honest post-resolve verified count
+     (F10, I-arch-004 A3) calls the ``_with_count`` variant directly.
++
++    I-beatboth-003 (#1280): ``relevance_judge_fn`` (injectable, default None) lets the
++    §-1.4 replay harness mock the SURE-RAG relevance judge with no model spend. It is only
++    consulted when ``PG_RELEVANCE_GATE`` is ON; None + flag-OFF => byte-identical legacy
++    render. Keyword-only with a None default so every positional caller is unaffected.
+     """
+     text, biblio, _emitted = resolve_provenance_to_citations_with_count(
+         kept_sentences,
+         evidence_pool,
+         baskets=baskets,
+         cluster_id_by_evidence=cluster_id_by_evidence,
++        relevance_judge_fn=relevance_judge_fn,
+     )
+     return text, biblio
+ 
+@@ -3136,6 +3315,7 @@ def resolve_provenance_to_citations_with_count(
+     *,
+     baskets: list | None = None,
+     cluster_id_by_evidence: dict[str, list[str]] | None = None,
++    relevance_judge_fn=None,
+ ) -> tuple[str, list[dict[str, Any]], int]:
+     """Strip [#ev:...] tokens, replace with numbered citations, AND return the
+     count of sentences ACTUALLY emitted into the rendered text.
+@@ -3174,6 +3354,21 @@ def resolve_provenance_to_citations_with_count(
+     ev_to_num: dict[str, int] = {}
+     biblio: list[dict[str, Any]] = []
+ 
++    # I-beatboth-003 (#1280): SURE-RAG per-citation relevance gate. ON only under
++    # PG_RELEVANCE_GATE; when OFF the whole block below is skipped => byte-identical legacy
++    # render (no judge instantiated, no judge call, no demotion). The flag is read at call
++    # time (so the harness toggles per-case). The injected ``relevance_judge_fn`` lets the
++    # §-1.4 replay harness mock the judge with zero spend; production passes None -> the
++    # live GLM-5.2 OpenRouter judge.
++    _relevance_on = False
++    try:
++        from src.polaris_graph.generator.relevance_judge import (  # noqa: PLC0415
++            relevance_gate_enabled as _relevance_gate_enabled,
++        )
++        _relevance_on = _relevance_gate_enabled()
++    except ImportError:
++        _relevance_on = False
++
+     # Index claim_cluster_id -> projected basket dict ONCE (the binding is
+     # 1-to-MANY: one evidence_id can back several baskets, design §5 per-cluster
+     # rule). Built only when basket data is present, so OFF stays a no-op.
+@@ -3325,9 +3520,116 @@ def resolve_provenance_to_citations_with_count(
+             or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
+         ):
+             continue
+-        # Assign citation numbers only for surviving sentences
++        # I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL + demotion.
++        # Compute the per-token labels for THIS sentence's own cited tokens, then DEMOTE the
++        # Insufficient/Refuted evidence_ids from the inline support set — UNLESS the
++        # minimum-retention guard trips. OFF path (_relevance_on False) leaves both sets empty
++        # => byte-identical legacy render below. The label is a NEW dimension; it NEVER feeds
++        # back into is_verified or strict_verify (the sentence is already KEPT here).
++        _demote_eids: set[str] = set()
++        _refute_eids: set[str] = set()
++        if _relevance_on:
++            # Build the corroborator (eid -> cited span text) map for THIS sentence so the
++            # relevance judge ALSO labels the basket corroborators the keystone adds inline
++            # (the dominant inline-cite path on the Gate-B contract slot-regroup). The member's
++            # ``direct_quote`` IS its rendered supporting span. Empty on the OFF/no-basket path.
++            _corro_spans: dict[str, str] = {}
++            if _carry_baskets:
++                _own_eids_for_corro = [t.evidence_id for t in sv.tokens]
++                _corro_eids_here = set(_verified_corroborators_for_tokens(_own_eids_for_corro))
++                for _ccid, _bdict in _basket_by_cluster.items():
++                    for _m in (_bdict.get("supporting_members") or []):
++                        _meid = str(_m.get("evidence_id") or "")
++                        if _meid in _corro_eids_here and _meid not in _corro_spans:
++                            _corro_spans[_meid] = str(_m.get("direct_quote") or "")
++            _demote_eids, _refute_eids, _rel_warnings, _rel_labels = _classify_sentence_citations(
++                sv, evidence_pool, relevance_judge_fn, _corro_spans,
++            )
++            # MINIMUM-RETENTION GUARD (InfoGain-RAG): the sentence's surviving INLINE support
++            # set = its own non-demoted/non-refuted tokens PLUS any basket corroborators that
++            # are themselves not demoted/refuted. If demotion would leave ZERO inline support
++            # (the statement's LAST citation would be stranded), DO NOT demote — keep every
++            # own token as support and mark the statement WEAK instead. Stranding a sentence
++            # cited->uncited is FORBIDDEN (it would WORSEN DeepTRACE Unsupported). The report
++            # ALWAYS ships either way (always-release).
++            _own_eids = [t.evidence_id for t in sv.tokens if t.evidence_id in evidence_pool]
++            _surviving_own = [
++                e for e in _own_eids if e not in _demote_eids and e not in _refute_eids
++            ]
++            _surviving_corro = [
++                e for e in _verified_corroborators_for_tokens(_own_eids)
++                if e not in _demote_eids and e not in _refute_eids
++            ]
++            # iter-2 P1#1a: PERSIST the structured per-citation LABEL map onto the SV. This is
++            # the JUDGE VERDICT for every judged cite (eid -> SUPPORTED/INSUFFICIENT/REFUTED) —
++            # orthogonal to the retention decision, so it is persisted UNCONDITIONALLY here
++            # (a retained-weak sentence still carries the honest INSUFFICIENT/REFUTED verdict
++            # in this map). Pre-fix this was COMPUTED then DISCARDED (the Codex P1 silent no-op):
++            # the labels never reached the verification record. Additive — never an input to
++            # is_verified.
++            if _rel_labels:
++                _merged_labels = dict(sv.relevance_labels or {})
++                _merged_labels.update(_rel_labels)
++                sv.relevance_labels = _merged_labels
++            if not _surviving_own and not _surviving_corro and _own_eids:
++                # Retention guard fires: un-demote (keep ALL own tokens as support), mark weak.
++                # iter-2 P1#3: ACTUALLY MARK THE STATEMENT WEAK — persist a
++                # ``relevance_statement_weak`` soft-warning on the SV (pre-fix only telemetry
++                # bumped; RELEVANCE_WEAK_PREFIX was defined but never constructed). The cite is
++                # KEPT (never stranded); the weak mark records that its last support did not
++                # establish the relation. Always-release: the sentence still ships.
++                #
++                # The ACTION soft-warnings (``relevance_demoted_insufficient`` /
++                # ``relevance_refuted_contradiction``) are DELIBERATELY NOT appended here: the
++                # retention guard un-demotes (the sets end EMPTY), so a "demoted"/"contradiction-
++                # flagged" warning would claim an action that did not happen — inconsistent with
++                # the (now empty) demote/refute sets. The honest verdict is still recorded in the
++                # ``relevance_labels`` map above; the only ACTION on this sentence is the weak
++                # mark. (Codex iter-2 internal-consistency: warnings must match the sets.)
++                _RELEVANCE_TELEMETRY["retention_kept_weak"] += len(_demote_eids) + len(_refute_eids)
++                _RELEVANCE_TELEMETRY["sentences_marked_weak"] += 1
++                _weak_eids = ",".join(sorted(_demote_eids | _refute_eids))
++                sv.soft_warnings = list(sv.soft_warnings) + [
++                    f"{RELEVANCE_WEAK_PREFIX}:{_weak_eids}"
++                ]
++                _demote_eids = set()
++                _refute_eids = set()
++            else:
++                # Demotion / contradiction-flag actually fires: PERSIST the human-readable
++                # demote/refute reason soft-warnings (``_rel_warnings``), which now MATCH the
++                # populated demote/refute sets below. (Moved into the else-branch per Codex
++                # iter-2: in the retention branch the sets are cleared, so these action warnings
++                # must NOT be present.)
++                if _rel_warnings:
++                    sv.soft_warnings = list(sv.soft_warnings) + list(_rel_warnings)
++                _RELEVANCE_TELEMETRY["demoted_from_support"] += len(_demote_eids) + len(_refute_eids)
++                if _refute_eids:
++                    _RELEVANCE_TELEMETRY["contradiction_flagged"] += 1
++            # CACHE the FINAL (post-retention) demote + refute sets on the SV so the V30 contract
++            # slot-regroup (contract_section_runner.py) drops the IDENTICAL eids without
++            # re-judging or re-deciding retention. The contract runner calls THIS resolve()
++            # with the SAME kept_sentences objects + SAME baskets, so the decision is valid for
++            # both render loops — one source of truth. Additive attributes; the OFF path never
++            # reaches here so they stay None (byte-identical). Carried by dataclasses.replace.
++            #
++            # iter-2 P1#1b + P1#2: Insufficient and Refuted are CACHED AS TWO DISTINCT SETS.
++            # ``relevance_demoted_eids`` is Insufficient-only (listed-not-load-bearing);
++            # ``relevance_refuted_eids`` is Refuted-only — the persisted CONTRADICTION-FLAG
++            # set. The contradiction is also recorded human-readably via the
++            # ``relevance_refuted_contradiction:<eid>:...`` soft-warning persisted above. Both
++            # render loops exclude the UNION of the two from inline support.
++            sv.relevance_demoted_eids = frozenset(_demote_eids)
++            sv.relevance_refuted_eids = frozenset(_refute_eids)
++
++        # Assign citation numbers only for surviving sentences. A demoted (Insufficient) or
++        # refuted token is EXCLUDED from the inline support set — it is NOT passed to _num_for,
++        # so it never becomes a numbered inline support cite (Insufficient => listed-not-load-
++        # bearing; Refuted => contradiction flag). On the OFF path both sets are empty so every
++        # token is included exactly as before (byte-identical).
+         used_nums: list[int] = []
+         for tok in sv.tokens:
++            if tok.evidence_id in _demote_eids or tok.evidence_id in _refute_eids:
++                continue
+             n = _num_for(tok.evidence_id)
+             if n not in used_nums:
+                 used_nums.append(n)
+@@ -3340,9 +3642,14 @@ def resolve_provenance_to_citations_with_count(
+         # the sentence's own citation is never doubled. Faithfulness: SUPPORTS-only (the
+         # verified_support_origin_count members), never the advisory clustered count;
+         # _verified_corroborators_for_tokens returns [] on the OFF path => byte-identical.
++        # I-beatboth-003: a corroborator that the relevance judge demoted/refuted for THIS
++        # sentence is likewise excluded from the inline support set (consistency with the
++        # per-token demotion above); OFF path => sets empty => byte-identical.
+         for _corro_eid in _verified_corroborators_for_tokens(
+             [tok.evidence_id for tok in sv.tokens]
+         ):
++            if _corro_eid in _demote_eids or _corro_eid in _refute_eids:
++                continue
+             n = _num_for(_corro_eid)
+             if n not in used_nums:
+                 used_nums.append(n)
+diff --git a/src/polaris_graph/generator/relevance_judge.py b/src/polaris_graph/generator/relevance_judge.py
+new file mode 100644
+index 00000000..6a647a40
+--- /dev/null
++++ b/src/polaris_graph/generator/relevance_judge.py
+@@ -0,0 +1,326 @@
++"""SURE-RAG-style three-way per-citation relevance judge (I-beatboth-003, #1280).
++
++WHY (helps both boards). ``strict_verify`` (provenance_generator) is relevance-BLIND:
++invariant #3's ``>=2-content-word`` overlap (``PG_PROVENANCE_MIN_CONTENT_OVERLAP``) PASSES
++a source that shares two incidental words without establishing the required RELATION —
++the "off-topic-but-topical" case (right entity named, wrong relation). These off-topic
++citations spike DeepTRACE citation-imprecision AND dilute DeepResearch-Bench-II relevance.
++
++WHAT this module is. A thin, INJECTABLE, three-way per-citation judge that runs ALONGSIDE
++strict_verify (never replacing it, never an input to ``is_verified`` or the six strict_verify
++checks). It returns one of three LABELS per (sentence, cited-span) pair:
++
++  * SUPPORTED   — the span establishes the required relation for the claim -> keep as a
++                  support citation.
++  * INSUFFICIENT — the span mentions the right entity WITHOUT establishing the required
++                  relation -> DEMOTE the citation to "listed, not load-bearing"
++                  (provenance_generator render layer drops it from the inline support set).
++  * REFUTED     — the span CONTRADICTS the claim -> route to a contradiction flag (the
++                  citation is removed from the support set; the sentence still ships).
++
++CRITICAL faithfulness invariants (CLAUDE.md §-1.3 / §-1.4 + the #1280 brief):
++
++  1. ALWAYS-RELEASE. This is a per-citation LABEL, NEVER a hold / abstain. SURE-RAG natively
++     ABSTAINS below threshold; POLARIS does NOT import the abstain. The report ALWAYS ships.
++  2. NEVER strand a statement uncited (minimum-retention). This module only LABELS; the
++     provenance_generator render layer enforces the minimum-retention guard (demote only if
++     >=1 support citation remains, else keep the citation + mark the statement weak).
++  3. The faithfulness ENGINE (strict_verify / NLI / 4-role D8 / span-grounding) is the ONLY
++     hard gate and is NEVER touched here. The relevance label is a NEW added dimension.
++  4. Default-OFF + byte-identical when off. ``relevance_gate_enabled()`` defaults False; with
++     the flag OFF the judge is NEVER instantiated and NO LLM call is made.
++  5. Judge model + threshold env-configurable (LAW VI). Default GLM-5.2 via OpenRouter.
++  6. Fail-loud means the HARNESS / acceptance fails on a silent no-op (the effect must FIRE
++     in the real output) — it does NOT mean runtime report suppression. On a judge TRANSPORT
++     / parse error at runtime the judge returns SUPPORTED (keep the cite the strict_verify gate
++     already passed) + a reason, so always-release holds (a runtime error never demotes or
++     holds; it only declines to add the relevance dimension for that one citation).
++
++The judge is INJECTABLE via a callable ``relevance_judge_fn(claim, span) -> (label, reason)``
++so the §-1.4 fail-loud replay harness can mock it deterministically with NO model spend.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++import time
++from typing import Callable, Optional
++
++logger = logging.getLogger("polaris_graph.relevance_judge")
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Public label taxonomy (NOT the NLI ENTAILED/NEUTRAL/CONTRADICTED taxonomy —
++# this is the SURE-RAG relevance/answerability taxonomy, deliberately distinct).
++# ─────────────────────────────────────────────────────────────────────────────
++LABEL_SUPPORTED = "SUPPORTED"
++LABEL_INSUFFICIENT = "INSUFFICIENT"
++LABEL_REFUTED = "REFUTED"
++_VALID_LABELS = frozenset({LABEL_SUPPORTED, LABEL_INSUFFICIENT, LABEL_REFUTED})
++
++# The signature of an injectable judge: (claim_text, cited_span_text) -> (label, reason).
++RelevanceJudgeFn = Callable[[str, str], "tuple[str, str]"]
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Env knobs (LAW VI — zero hard-coding). Read at call time so tests / the harness
++# can toggle without re-import.
++# ─────────────────────────────────────────────────────────────────────────────
++_ENV_FLAG = "PG_RELEVANCE_GATE"  # master ON/OFF; default OFF -> byte-identical
++_ENV_MODEL = "PG_RELEVANCE_MODEL"  # judge model; default GLM-5.2 via OpenRouter
++_ENV_REASONING_EFFORT = "PG_RELEVANCE_REASONING_EFFORT"
++_ENV_MAX_TOKENS = "PG_RELEVANCE_MAX_TOKENS"
++_ENV_TIMEOUT_S = "PG_RELEVANCE_TIMEOUT_S"
++# Campaign override: all-GLM-5.2 single family. The relevance judge is an evaluator-family
++# call; under all-GLM the generator IS GLM too, so check_family_segregation WOULD raise. The
++# campaign deliberately overrides §9.1.1 (MASTER_PLAN all-GLM-5.2 single-family lock). This
++# flag rides the SAME documented override rather than a new silent bypass: when set, the
++# relevance judge SKIPS the family-segregation guard. Default 0 -> guard stays ON.
++_ENV_ALLOW_SAME_FAMILY = "PG_RELEVANCE_ALLOW_SAME_FAMILY"
++
++# Conservative defaults. The model default is the campaign judge (GLM-5.2 via OpenRouter).
++# Per CLAUDE.md §9.1.8 the EXACT OpenRouter slug must be reconciled against /api/v1/models
++# before any LIVE run; the harness mocks the judge so the slug is not load-bearing here.
++_DEFAULT_MODEL = "z-ai/glm-5.2"
++_DEFAULT_REASONING_EFFORT = "high"
++_DEFAULT_MAX_TOKENS = 256
++_DEFAULT_TIMEOUT_S = 30.0
++
++
++def relevance_gate_enabled() -> bool:
++    """True iff the SURE-RAG relevance gate is ON (``PG_RELEVANCE_GATE`` truthy).
++
++    Default OFF -> the per-citation labeling block is skipped entirely and the verify ->
++    render path is byte-identical to HEAD. Read at call time (no import-time capture) so the
++    harness can flip it per-case."""
++    v = os.getenv(_ENV_FLAG, "0").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def _allow_same_family() -> bool:
++    v = os.getenv(_ENV_ALLOW_SAME_FAMILY, "0").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def normalize_label(raw: object) -> Optional[str]:
++    """Coerce a judge's raw verdict string to one of the three canonical labels, or None
++    when it is unrecognizable (the caller then treats it as a judge error -> SUPPORTED keep).
++
++    Accepts case-insensitive Supported/Insufficient/Refuted plus a few obvious synonyms
++    seen from reasoning models (e.g. "support", "irrelevant", "contradicted")."""
++    if raw is None:
++        return None
++    s = str(raw).strip().upper()
++    if not s:
++        return None
++    if s in _VALID_LABELS:
++        return s
++    if s.startswith("SUPPORT"):
++        return LABEL_SUPPORTED
++    if s.startswith("INSUFFICIENT") or s.startswith("IRRELEVANT") or s.startswith("OFF"):
++        return LABEL_INSUFFICIENT
++    if s.startswith("REFUT") or s.startswith("CONTRADICT"):
++        return LABEL_REFUTED
++    return None
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# The relevance prompt — SURE-RAG taxonomy, distinct from the NLI entailment prompt.
++# ─────────────────────────────────────────────────────────────────────────────
++_RELEVANCE_PROMPT = (
++    "You are a strict citation-relevance judge. You are given a CLAIM and a SPAN of source "
++    "text that is cited to support that claim. Decide whether the SPAN establishes the "
++    "specific RELATION the CLAIM asserts.\n\n"
++    "Return EXACTLY one label:\n"
++    "- SUPPORTED: the SPAN establishes the relation the CLAIM asserts (a conservative "
++    "paraphrase counts).\n"
++    "- INSUFFICIENT: the SPAN mentions the right entity or topic but does NOT establish the "
++    "required relation (right entity, wrong relation — off-topic-but-topical).\n"
++    "- REFUTED: the SPAN contradicts the CLAIM.\n\n"
++    "CLAIM:\n{claim}\n\nSPAN:\n{span}\n\n"
++    'Respond with ONLY a JSON object: {{"label": "SUPPORTED|INSUFFICIENT|REFUTED", '
++    '"reason": "<one short sentence>"}}'
++)
++
++
++def _extract_first_json_object(content: object) -> dict:
++    """Pull the first ``{...}`` JSON object out of a model response that may prepend
++    reasoning text. Mirrors entailment_judge._extract_first_json_object intent."""
++    text = content if isinstance(content, str) else str(content or "")
++    start = text.find("{")
++    if start < 0:
++        return {}
++    depth = 0
++    for i in range(start, len(text)):
++        c = text[i]
++        if c == "{":
++            depth += 1
++        elif c == "}":
++            depth -= 1
++            if depth == 0:
++                try:
++                    obj = json.loads(text[start:i + 1])
++                    return obj if isinstance(obj, dict) else {}
++                except (ValueError, TypeError):
++                    return {}
++    return {}
++
++
++class _RelevanceJudge:
++    """Synchronous httpx wrapper around an OpenRouter relevance call.
++
++    Lazy-initialized + only ever constructed when ``relevance_gate_enabled()`` is True AND
++    no judge fn was injected, so import-time / OFF-path cost is zero. Single-attempt + simple
++    by design (this is a per-citation LABEL, not the hard gate); a runtime transport/parse
++    fault returns SUPPORTED (keep the strict_verify-passed cite) so always-release holds."""
++
++    def __init__(self) -> None:
++        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++        if not api_key:
++            raise RuntimeError(
++                f"{_ENV_FLAG} requires OPENROUTER_API_KEY (the relevance judge calls OpenRouter)"
++            )
++        self._api_key = api_key
++        base_url = os.environ.get(
++            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
++        ).rstrip("/")
++        self._endpoint = f"{base_url}/chat/completions"
++        self._model = os.environ.get(_ENV_MODEL, _DEFAULT_MODEL)
++        # Two-family invariant (§9.1.1): the relevance judge is an evaluator-family call. Under
++        # the all-GLM-5.2 campaign override the generator IS GLM too, so the guard WOULD raise.
++        # Ride the SAME documented override (PG_RELEVANCE_ALLOW_SAME_FAMILY) — never a silent
++        # bypass. Default: the guard runs and fails loud on an un-overridden same-family config.
++        if not _allow_same_family():
++            from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
++                check_family_segregation,
++            )
++            check_family_segregation(evaluator_model=self._model)
++        else:
++            logger.info(
++                "[relevance] %s set: skipping check_family_segregation under the "
++                "all-GLM single-family campaign override", _ENV_ALLOW_SAME_FAMILY,
++            )
++        try:
++            self._timeout_s = float(os.environ.get(_ENV_TIMEOUT_S, _DEFAULT_TIMEOUT_S))
++        except (TypeError, ValueError):
++            self._timeout_s = _DEFAULT_TIMEOUT_S
++        self._client = self._build_client()
++
++    def _build_client(self):
++        import httpx  # local import: avoid forcing the dep on the OFF path
++
++        from src.utils.shared_ssl_context import get_shared_ssl_context
++        return httpx.Client(
++            verify=get_shared_ssl_context(),
++            timeout=httpx.Timeout(self._timeout_s),
++        )
++
++    def judge(self, claim: str, span: str) -> "tuple[str, str]":
++        """Return (label, reason). label is one of SUPPORTED/INSUFFICIENT/REFUTED.
++
++        On any transport/parse/empty fault -> ("SUPPORTED", "judge_error: <reason>"): the
++        citation already cleared the strict_verify hard gate, so declining to add the
++        relevance dimension keeps the pre-existing verified state (always-release; never a
++        runtime demotion or hold on a judge error)."""
++        prompt = _RELEVANCE_PROMPT.format(claim=claim, span=span)
++        effort = (os.environ.get(_ENV_REASONING_EFFORT, "").strip().lower()
++                  or _DEFAULT_REASONING_EFFORT)
++        if effort not in ("low", "medium", "high", "xhigh"):
++            effort = _DEFAULT_REASONING_EFFORT
++        try:
++            max_tokens = max(64, int(os.environ.get(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS)
++                                     or _DEFAULT_MAX_TOKENS))
++        except (TypeError, ValueError):
++            max_tokens = _DEFAULT_MAX_TOKENS
++        json_body = {
++            "model": self._model,
++            "messages": [{"role": "user", "content": prompt}],
++            "temperature": 0.0,
++            "max_tokens": max_tokens,
++            "reasoning": {"effort": effort},
++        }
++        headers = {
++            "Authorization": f"Bearer {self._api_key}",
++            "Content-Type": "application/json",
++        }
++        started = time.monotonic()
++        try:
++            response = self._client.post(self._endpoint, headers=headers, json=json_body)
++            response.raise_for_status()
++            data = response.json()
++            # Record judge spend against the per-run budget cap + cost ledger, mirroring the
++            # entailment judge. BudgetExceededError propagates (a cap breach aborts cleanly).
++            try:
++                from src.polaris_graph.llm import openrouter_client as _orc  # noqa: PLC0415
++                _usage = (data or {}).get("usage") or {}
++                _cost = _usage.get("cost")
++                if _cost is not None:
++                    _orc._add_run_cost(float(_cost))
++                    _orc.check_run_budget(0)
++            except ImportError:
++                pass
++            choices = (data or {}).get("choices") or []
++            content = ""
++            if choices:
++                content = ((choices[0] or {}).get("message") or {}).get("content") or ""
++            obj = _extract_first_json_object(content)
++            label = normalize_label(obj.get("label"))
++            reason = str(obj.get("reason") or "")[:200]
++            if label is None:
++                return (LABEL_SUPPORTED, f"judge_error: unparseable_verdict:{content[:80]!r}")
++            return (label, reason)
++        except Exception as exc:  # noqa: BLE001 — fail to SUPPORTED (keep cite), never hold
++            from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
++                BudgetExceededError,
++            )
++            if isinstance(exc, BudgetExceededError):
++                raise
++            dur_ms = int((time.monotonic() - started) * 1000)
++            logger.warning(
++                "[relevance] judge transport/parse fault (%dms) -> SUPPORTED keep: %s",
++                dur_ms, exc,
++            )
++            return (LABEL_SUPPORTED, f"judge_error: {type(exc).__name__}:{str(exc)[:120]}")
++
++
++_JUDGE_SINGLETON: Optional[_RelevanceJudge] = None
++
++
++def _get_judge() -> _RelevanceJudge:
++    """Process-lifetime singleton, built lazily on first use (only when the gate is ON and no
++    judge fn was injected). Never constructed on the OFF path."""
++    global _JUDGE_SINGLETON
++    if _JUDGE_SINGLETON is None:
++        _JUDGE_SINGLETON = _RelevanceJudge()
++    return _JUDGE_SINGLETON
++
++
++def reset_judge_singleton() -> None:
++    """Test/harness hook: drop the cached judge so a re-config takes effect."""
++    global _JUDGE_SINGLETON
++    _JUDGE_SINGLETON = None
++
++
++def judge_citation_relevance(
++    claim: str,
++    span: str,
++    *,
++    relevance_judge_fn: Optional[RelevanceJudgeFn] = None,
++) -> "tuple[str, str]":
++    """Label one (claim, cited-span) pair SUPPORTED / INSUFFICIENT / REFUTED.
++
++    ``relevance_judge_fn`` (injectable, default None) lets the §-1.4 fail-loud harness mock
++    the judge deterministically (NO model spend). When None, the live OpenRouter GLM-5.2 judge
++    is used. The returned label is ALWAYS one of the three canonical labels (an unrecognizable
++    verdict from an injected fn is coerced to SUPPORTED + a judge_error reason — keep the cite,
++    never strand) so the caller never has to handle an out-of-taxonomy value."""
++    if relevance_judge_fn is not None:
++        try:
++            raw_label, reason = relevance_judge_fn(claim, span)
++        except Exception as exc:  # noqa: BLE001 — an injected fn fault keeps the cite
++            return (LABEL_SUPPORTED, f"judge_error: injected_fn:{type(exc).__name__}")
++        label = normalize_label(raw_label)
++        if label is None:
++            return (LABEL_SUPPORTED, f"judge_error: injected_unparseable:{raw_label!r}")
++        return (label, str(reason or "")[:200])
++    return _get_judge().judge(claim, span)
+diff --git a/tests/polaris_graph/generator/test_relevance_gate_ibeatboth003.py b/tests/polaris_graph/generator/test_relevance_gate_ibeatboth003.py
+new file mode 100644
+index 00000000..4b5528a2
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_relevance_gate_ibeatboth003.py
+@@ -0,0 +1,438 @@
++"""Unit tests for the SURE-RAG per-citation relevance gate (I-beatboth-003, #1280).
++
++Covers the new ``relevance_judge`` helper (taxonomy normalization, injectable judge,
++always-release on judge error, OFF default) AND the demotion + minimum-retention wiring in
++``provenance_generator.resolve_provenance_to_citations`` (per-citation demote, refuted
++routing, never-strand guard, OFF byte-identity). The behavioral end-to-end §-1.4 assertions
++live in ``scripts/iarch_beatboth003_relevance_gate_replay_harness.py``; these are the
++focused unit checks.
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.generator import relevance_judge as rj
++from src.polaris_graph.generator import provenance_generator as pg
++
++
++# ── relevance_judge helper ───────────────────────────────────────────────────
++def test_gate_default_off(monkeypatch):
++    monkeypatch.delenv("PG_RELEVANCE_GATE", raising=False)
++    assert rj.relevance_gate_enabled() is False
++
++
++def test_gate_on_truthy(monkeypatch):
++    for v in ("1", "true", "on", "YES", "enabled"):
++        monkeypatch.setenv("PG_RELEVANCE_GATE", v)
++        assert rj.relevance_gate_enabled() is True
++
++
++def test_normalize_label_canonical():
++    assert rj.normalize_label("SUPPORTED") == rj.LABEL_SUPPORTED
++    assert rj.normalize_label("insufficient") == rj.LABEL_INSUFFICIENT
++    assert rj.normalize_label("Refuted") == rj.LABEL_REFUTED
++
++
++def test_normalize_label_synonyms():
++    assert rj.normalize_label("support") == rj.LABEL_SUPPORTED
++    assert rj.normalize_label("irrelevant") == rj.LABEL_INSUFFICIENT
++    assert rj.normalize_label("contradicted") == rj.LABEL_REFUTED
++
++
++def test_normalize_label_unrecognized_is_none():
++    assert rj.normalize_label("banana") is None
++    assert rj.normalize_label("") is None
++    assert rj.normalize_label(None) is None
++
++
++def test_injected_judge_used():
++    seen = {}
++
++    def fake(claim, span):
++        seen["claim"] = claim
++        seen["span"] = span
++        return (rj.LABEL_INSUFFICIENT, "wrong relation")
++
++    label, reason = rj.judge_citation_relevance("the claim", "the span", relevance_judge_fn=fake)
++    assert label == rj.LABEL_INSUFFICIENT
++    assert reason == "wrong relation"
++    assert seen == {"claim": "the claim", "span": "the span"}
++
++
++def test_injected_judge_unparseable_keeps_cite():
++    # An out-of-taxonomy verdict from an injected judge -> SUPPORTED keep (never strand).
++    label, reason = rj.judge_citation_relevance(
++        "c", "s", relevance_judge_fn=lambda c, s: ("maybe?", "unsure"),
++    )
++    assert label == rj.LABEL_SUPPORTED
++    assert reason.startswith("judge_error:")
++
++
++def test_injected_judge_raise_keeps_cite():
++    def boom(claim, span):
++        raise RuntimeError("transport down")
++
++    label, reason = rj.judge_citation_relevance("c", "s", relevance_judge_fn=boom)
++    assert label == rj.LABEL_SUPPORTED  # always-release: a judge fault never demotes
++    assert reason.startswith("judge_error:")
++
++
++# ── demotion + minimum-retention wiring in the resolver ──────────────────────
++def _pool():
++    return {
++        "ev_ok": {
++            "source_url": "u_ok", "tier": "T1",
++            "statement": "Aspirin reduced clot formation by 40 percent in the trial.",
++            "direct_quote": "Aspirin reduced clot formation by 40 percent in the trial.",
++        },
++        "ev_bad": {
++            "source_url": "u_bad", "tier": "T3",
++            "statement": "Aspirin was first synthesized in 1897 by Felix Hoffmann.",
++            "direct_quote": "Aspirin was first synthesized in 1897 by Felix Hoffmann.",
++        },
++    }
++
++
++def _sv(sentence, pool):
++    pg.reset_relevance_telemetry()
++    rep = pg.strict_verify(sentence, pool, require_number_match=True)
++    return rep.kept_sentences
++
++
++@pytest.fixture(autouse=True)
++def _offline(monkeypatch):
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "0")
++    monkeypatch.setenv("PG_SPAN_RESOLVER", "0")
++    rj.reset_judge_singleton()
++    yield
++
++
++def test_insufficient_citation_demoted(monkeypatch):
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    pool = _pool()
++    quote_ok = pool["ev_ok"]["direct_quote"]
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    draft = (
++        "Aspirin reduced clot formation by 40 percent "
++        f"[#ev:ev_ok:0-{len(quote_ok)}][#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++
++    def judge(claim, span):
++        if "reduced clot formation" in span:
++            return (rj.LABEL_SUPPORTED, "ok")
++        return (rj.LABEL_INSUFFICIENT, "off-topic history")
++
++    text, biblio = pg.resolve_provenance_to_citations(kept, pool, relevance_judge_fn=judge)
++    urls = {row["url"] for row in biblio}
++    assert "u_ok" in urls           # genuine support kept
++    assert "u_bad" not in urls      # INSUFFICIENT demoted out of the inline support set
++    assert "reduced clot formation by 40 percent" in text  # always-release: it ships
++    tel = pg.get_relevance_telemetry()
++    assert tel["labeled_insufficient"] == 1
++    assert tel["demoted_from_support"] == 1
++
++
++def test_minimum_retention_never_strands(monkeypatch):
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    pool = _pool()
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    # The ONLY citation is the off-topic one; demoting it would strand the statement.
++    draft = (
++        "Aspirin was first synthesized in 1897 by Felix Hoffmann "
++        f"[#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++    text, biblio = pg.resolve_provenance_to_citations(
++        kept, pool, relevance_judge_fn=lambda c, s: (rj.LABEL_INSUFFICIENT, "off"),
++    )
++    # Minimum-retention: the citation is KEPT (statement marked weak), never stranded.
++    assert "u_bad" in {row["url"] for row in biblio}
++    assert "[1]" in text
++    tel = pg.get_relevance_telemetry()
++    assert tel["sentences_marked_weak"] == 1
++    assert tel["demoted_from_support"] == 0
++
++
++# ── iter-2 (Codex diff-gate P1) persistence wiring ──────────────────────────
++# These cover the three iter-2 P1 fixes: the per-citation LABEL side-output is
++# PERSISTED (not computed-then-discarded), Refuted is kept SEPARATE from Insufficient
++# (two distinct sets + a contradiction soft-warning), and the minimum-retention guard
++# ACTUALLY marks the statement weak (a persisted soft-warning, not just telemetry).
++def _refuter_pool():
++    p = _pool()
++    p["ev_ref"] = {
++        "source_url": "u_ref", "tier": "T1",
++        "statement": "Aspirin increased clot formation by 40 percent in a subgroup.",
++        "direct_quote": "Aspirin increased clot formation by 40 percent in a subgroup.",
++    }
++    return p
++
++
++def test_refuted_persists_contradiction_flag_and_separate_set(monkeypatch):
++    # P1#1b + P1#2: a REFUTED citation is kept in the SEPARATE relevance_refuted_eids set
++    # (NOT collapsed into relevance_demoted_eids) AND a persisted
++    # relevance_refuted_contradiction soft-warning names it. The genuine support stays so the
++    # refuter is cleanly removed (never the last cite -> no retention-guard interference).
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    pool = _refuter_pool()
++    quote_ok = pool["ev_ok"]["direct_quote"]
++    quote_ref = pool["ev_ref"]["direct_quote"]
++    draft = (
++        "Aspirin reduced clot formation by 40 percent "
++        f"[#ev:ev_ok:0-{len(quote_ok)}][#ev:ev_ref:0-{len(quote_ref)}]."
++    )
++    kept = _sv(draft, pool)
++
++    def judge(claim, span):
++        if "reduced clot formation" in span:
++            return (rj.LABEL_SUPPORTED, "ok")
++        return (rj.LABEL_REFUTED, "contradicts: increased not reduced")
++
++    text, biblio = pg.resolve_provenance_to_citations(kept, pool, relevance_judge_fn=judge)
++    urls = {row["url"] for row in biblio}
++    assert "u_ok" in urls            # genuine support kept
++    assert "u_ref" not in urls       # REFUTED removed from inline support
++    assert "reduced clot formation by 40 percent" in text  # always-release: it ships
++
++    sv = kept[0]
++    # Two DISTINCT sets: refuter in relevance_refuted_eids, NOT in relevance_demoted_eids.
++    assert "ev_ref" in (sv.relevance_refuted_eids or frozenset())
++    assert "ev_ref" not in (sv.relevance_demoted_eids or frozenset())
++    # The structured per-citation label map is PERSISTED (P1#1a).
++    assert (sv.relevance_labels or {}).get("ev_ref") == rj.LABEL_REFUTED
++    assert (sv.relevance_labels or {}).get("ev_ok") == rj.LABEL_SUPPORTED
++    # The contradiction FLAG is a persisted, inspectable soft-warning naming the refuter.
++    assert any(
++        w.startswith("relevance_refuted_contradiction") and "ev_ref" in w
++        for w in sv.soft_warnings
++    ), f"no persisted contradiction soft-warning: {sv.soft_warnings!r}"
++    tel = pg.get_relevance_telemetry()
++    assert tel["labeled_refuted"] == 1
++    assert tel["contradiction_flagged"] == 1
++    assert tel["demoted_from_support"] == 1  # the refuter removed from inline support
++
++
++def test_insufficient_persists_label_and_demote_warning(monkeypatch):
++    # P1#1a: the INSUFFICIENT label + its demote soft-warning are PERSISTED on the SV (the
++    # side-output the pre-fix code computed then discarded). demoted set is Insufficient-only;
++    # refuted set is empty.
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    pool = _pool()
++    quote_ok = pool["ev_ok"]["direct_quote"]
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    draft = (
++        "Aspirin reduced clot formation by 40 percent "
++        f"[#ev:ev_ok:0-{len(quote_ok)}][#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++
++    def judge(claim, span):
++        if "reduced clot formation" in span:
++            return (rj.LABEL_SUPPORTED, "ok")
++        return (rj.LABEL_INSUFFICIENT, "off-topic history")
++
++    pg.resolve_provenance_to_citations(kept, pool, relevance_judge_fn=judge)
++    sv = kept[0]
++    assert "ev_bad" in (sv.relevance_demoted_eids or frozenset())
++    assert "ev_bad" not in (sv.relevance_refuted_eids or frozenset())
++    assert (sv.relevance_labels or {}).get("ev_bad") == rj.LABEL_INSUFFICIENT
++    assert any(
++        w.startswith("relevance_demoted_insufficient") and "ev_bad" in w
++        for w in sv.soft_warnings
++    ), f"no persisted demote soft-warning: {sv.soft_warnings!r}"
++
++
++def test_minimum_retention_persists_weak_mark(monkeypatch):
++    # P1#3: when the retention guard fires (the last support would be demoted), the statement
++    # is ACTUALLY MARKED WEAK via a persisted relevance_statement_weak soft-warning — not just
++    # a telemetry bump. The cite is KEPT (never stranded).
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    pool = _pool()
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    draft = (
++        "Aspirin was first synthesized in 1897 by Felix Hoffmann "
++        f"[#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++    text, biblio = pg.resolve_provenance_to_citations(
++        kept, pool, relevance_judge_fn=lambda c, s: (rj.LABEL_INSUFFICIENT, "off"),
++    )
++    assert "u_bad" in {row["url"] for row in biblio}  # kept, never stranded
++    assert "[1]" in text
++    sv = kept[0]
++    # The WEAK mark is PERSISTED on the SV (the P1#3 fix; pre-fix only telemetry bumped).
++    assert any(
++        w.startswith("relevance_statement_weak") for w in sv.soft_warnings
++    ), f"no persisted weak mark: {sv.soft_warnings!r}"
++    # Retention un-demoted: the demote/refute sets are empty (the cite was kept as support).
++    assert not (sv.relevance_demoted_eids or frozenset())
++    assert not (sv.relevance_refuted_eids or frozenset())
++    # Internal consistency (Codex iter-2): the demote/refute ACTION soft-warnings must NOT be
++    # present when the sets are empty (no action happened) — warnings must match the sets.
++    assert not any(
++        w.startswith("relevance_demoted_insufficient")
++        or w.startswith("relevance_refuted_contradiction")
++        for w in sv.soft_warnings
++    ), f"stale action warning on a retained-weak sentence: {sv.soft_warnings!r}"
++    # The honest verdict is still recorded in the label map (orthogonal to retention).
++    assert (sv.relevance_labels or {}).get("ev_bad") == rj.LABEL_INSUFFICIENT
++    tel = pg.get_relevance_telemetry()
++    assert tel["sentences_marked_weak"] == 1
++    assert tel["demoted_from_support"] == 0
++
++
++def test_off_path_persists_no_relevance_sidecar(monkeypatch):
++    # OFF byte-identity at the SV level: with the gate OFF the new side-output fields stay
++    # None / empty and NO relevance soft-warning is added (additive default-OFF inert).
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "0")
++    pool = _pool()
++    quote_ok = pool["ev_ok"]["direct_quote"]
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    draft = (
++        "Aspirin reduced clot formation by 40 percent "
++        f"[#ev:ev_ok:0-{len(quote_ok)}][#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++
++    def boom(claim, span):
++        raise AssertionError("judge must NOT be called on the OFF path")
++
++    pg.resolve_provenance_to_citations(kept, pool, relevance_judge_fn=boom)
++    sv = kept[0]
++    assert sv.relevance_demoted_eids is None
++    assert sv.relevance_refuted_eids is None
++    assert sv.relevance_labels is None
++    assert not any(w.startswith("relevance_") for w in sv.soft_warnings)
++
++
++def test_off_path_byte_identical(monkeypatch):
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "0")
++    pool = _pool()
++    quote_ok = pool["ev_ok"]["direct_quote"]
++    quote_bad = pool["ev_bad"]["direct_quote"]
++    draft = (
++        "Aspirin reduced clot formation by 40 percent "
++        f"[#ev:ev_ok:0-{len(quote_ok)}][#ev:ev_bad:0-{len(quote_bad)}]."
++    )
++    kept = _sv(draft, pool)
++
++    def boom(claim, span):
++        raise AssertionError("judge must NOT be called on the OFF path")
++
++    text_off, biblio_off = pg.resolve_provenance_to_citations(
++        kept, pool, relevance_judge_fn=boom,
++    )
++    kept2 = _sv(draft, pool)
++    text_base, biblio_base = pg.resolve_provenance_to_citations(kept2, pool)
++    assert text_off == text_base
++    assert [r["url"] for r in biblio_off] == [r["url"] for r in biblio_base]
++    # both original cites present on the OFF path
++    assert "[1][2]" in text_off
++
++
++# ── §-1.4 BEHAVIORAL proof on the PRODUCTION composer (V30 contract path) ─────
++# The legacy resolver (above) is NOT the shipped body under Gate-B
++# (PG_V30_PHASE2_ENABLED=1): every section ships through run_contract_section's
++# slot-regroup, which has its OWN inline-citation loop. This test drives the REAL
++# run_contract_section with the gate ON + a mock judge and proves the demoted citation
++# is ABSENT from the shipped slot body (result.verified_text) — the "fired in the real
++# output, not the discarded resolved_body" §-1.4 assertion.
++import pytest as _pytest  # noqa: E402
++
++
++@_pytest.mark.asyncio
++async def test_contract_path_demotion_fires_in_shipped_slot_body(monkeypatch):
++    # Reuse the REAL contract-path harness helpers (same machinery Gate-B uses).
++    lane = _pytest.importorskip(
++        "tests.polaris_graph.generator.test_lane_section_arch005_contract_path"
++    )
++    import yaml
++    from pathlib import Path
++    from src.polaris_graph.generator.contract_section_runner import run_contract_section
++    from src.polaris_graph.generator.live_deepseek_generator import _rewrite_draft_with_spans
++    from src.polaris_graph.generator.provenance_generator import strict_verify
++    from src.polaris_graph.synthesis.credibility_pass import (
++        BASKET_VERDICT_PARTIAL, BasketMember, ClaimBasket, CredibilityAnalysis,
++    )
++
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    monkeypatch.setenv("PG_RELEVANCE_GATE", "1")
++    rj.reset_judge_singleton()
++    pg.reset_relevance_telemetry()
++
++    with Path("config/scope_templates/clinical.yaml").open("r", encoding="utf-8") as f:
++        clinical_template = yaml.safe_load(f)
++    plan, pool = lane._build_contract_inputs(clinical_template)
++    assert {"surpass_1_primary", "surpass_2_primary"} <= set(pool)
++
++    # ev1 + ev2 SUPPORTS the SAME basket -> the contract slot for ev1 also renders ev2's
++    # corroborator marker. ev2's basket member carries an OFF-TOPIC span so the mock judge
++    # labels it INSUFFICIENT; it must be DEMOTED out of the shipped slot body — while ev1
++    # (the genuine support, its own sentence span = the endpoint) stays (never stranded).
++    _OFFTOPIC_SPAN = "Funding was provided by an unrelated educational grant."
++    members = [
++        lane._member("surpass_1_primary", "SUPPORTS"),
++        BasketMember(
++            evidence_id="surpass_2_primary", source_url="https://surpass_2_primary/",
++            source_tier="T1", origin_cluster_id="o::surpass_2_primary",
++            credibility_weight=0.8, authority_score=0.8,
++            span=(0, len(_OFFTOPIC_SPAN)), direct_quote=_OFFTOPIC_SPAN,
++            span_verdict="SUPPORTS",
++        ),
++    ]
++    basket = ClaimBasket(
++        claim_cluster_id="c_shared", claim_text="N=1879 enrolled.",
++        subject="trial", predicate="enrollment",
++        supporting_members=members, refuter_cluster_ids=(),
++        weight_mass=1.6, total_clustered_origin_count=2,
++        verified_support_origin_count=2, basket_verdict=BASKET_VERDICT_PARTIAL,
++    )
++    binding = {"surpass_1_primary": ["c_shared"], "surpass_2_primary": ["c_shared"]}
++    analysis = CredibilityAnalysis(
++        credibility_by_evidence=lane._covering_cred(pool),
++        origin_by_evidence={e: f"o::{e}" for e in pool},
++        claims=[], edges=[], weight_mass=[],
++        baskets=[basket], cluster_id_by_evidence=binding,
++    )
++
++    def mock_judge(claim, span):
++        # Deterministic by span CONTENT: ev1's own sentence span = the endpoint (SUPPORTED);
++        # ev2's basket corroborator span = the off-topic funding sentence (INSUFFICIENT).
++        if "Funding was provided" in span:
++            return (rj.LABEL_INSUFFICIENT, "off-topic corroborator")
++        return (rj.LABEL_SUPPORTED, "establishes the endpoint relation")
++
++    class _SR:
++        def __init__(self, **kwargs):
++            self.__dict__.update(kwargs)
++
++    result, _payloads = await run_contract_section(
++        plan, pool,
++        llm_call=lane._fake_llm, section_result_cls=_SR,
++        strict_verify_fn=strict_verify, rewrite_fn=_rewrite_draft_with_spans,
++        credibility_analysis=analysis,
++        relevance_judge_fn=mock_judge,
++    )
++    text = result.verified_text
++    biblio = result.biblio_slice
++    n1 = lane._num_for_evidence(biblio, "surpass_1_primary")
++    assert n1 is not None, "primary support must be numbered + kept"
++    # The gate FIRED: the judge was called on the real contract path.
++    tel = pg.get_relevance_telemetry()
++    assert tel["citations_judged"] >= 1, "relevance judge did NOT fire on the contract path"
++    # Always-release: the section body ships and the genuine support [n1] is present.
++    body1 = lane._slot_body_for(text, f"[{n1}]")
++    assert body1, "the surpass_1 slot body must ship (always-release)"
++    # The demoted INSUFFICIENT corroborator (ev2) must be ABSENT as inline support in the
++    # surpass_1 slot body — proving demotion fired in the SHIPPED contract body.
++    n2 = lane._num_for_evidence(biblio, "surpass_2_primary")
++    if n2 is not None:
++        assert f"[{n2}]" not in body1, (
++            "CONTRACT-PATH NO-OP: the INSUFFICIENT corroborator still renders as inline "
++            f"support in the shipped slot body. body={body1!r}"
++        )
