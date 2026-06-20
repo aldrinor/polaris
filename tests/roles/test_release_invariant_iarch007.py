@@ -276,6 +276,32 @@ def test_seam_screen_ran_true_clean_ships_body():
     assert assert_release_invariant(outcome) is outcome
 
 
+def test_seam_clinical_safety_floor_clean_screen_withholds_body():
+    """DECISION 2 (beat-both P2 Codex-gate P1): a CLINICAL safety-floor seam withholds the body
+    UNCONDITIONALLY — even when the standalone fabrication screen ran CLEAN. The four-role D8 (the
+    only hard safety gate) never adjudicated; strict_verify span-grounding is not safety-confirmation.
+    This is the run-#7 defect (status=released_insufficient_safety_evidence, body NOT withheld)."""
+    outcome = compute_release_outcome(
+        _seam_decision(),
+        zero_verified=False, zero_usable_evidence=False,
+        safety_floor_insufficient=True, coverage_fraction=0.8,
+        always_release=True, redaction_active=True,
+        seam_unadjudicated=True, fabrication_screen_ran=True,
+        fabrication_screen_found_fabrication=False,
+    )
+    # Clean screen would otherwise ship the body (test_seam_screen_ran_true_clean_ships_body); the
+    # clinical safety floor overrides that to a withhold.
+    assert outcome.body_withheld is True
+    assert outcome.compensating_screen_passed is False
+    assert outcome.normal_release_blocked is True
+    assert outcome.adjudicated is False
+    assert outcome.safety_floor == "insufficient"
+    # always-release still holds: the honest insufficient-safety DISCLOSURE ships (released=True), the
+    # un-judged findings body does not. The invariant accepts body_withheld as a safe terminal state.
+    assert outcome.released is True
+    assert assert_release_invariant(outcome) is outcome
+
+
 def test_seam_screen_ran_true_found_fabrication_withholds_body():
     """Screen ran but FOUND a fabricated identity -> body WITHHELD (conservative)."""
     outcome = compute_release_outcome(
