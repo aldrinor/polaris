@@ -56,6 +56,80 @@
 # stays STRICT: a genuinely contentless clinical question (no intervention stem,
 # no known name, no population marker) still hard-rejects as clinical_pico_unscoped.
 
+# ── I-arch-011 BEAT-BOTH FIX-P0-B (GENERAL, non-drug interventions) ──────────
+# The inn_stems/known_names layers below recognise DRUG/biologic interventions
+# only. A non-drug intervention — a DEVICE (deep brain stimulator, pacemaker,
+# cochlear implant, stent) or a PROCEDURE (ablation, transplantation, dialysis,
+# bypass) — carried NO recognition cue, so the scope gate + completeness gate read
+# the question as "no intervention" and the intervention-safety checklist
+# (contraindications, precautions, device/procedure-specific risks) was marked
+# NON-APPLICABLE. That suppressed required-safety COVERAGE on every device/
+# procedure question in EVERY clinical domain (cardiology, neurology, nephrology,
+# …), not just one. This is GENERAL recognition, config-driven (LAW VI), NOT a
+# per-disease or per-device allowlist: `procedure_stems` recognise the
+# morphological suffixes that coin procedure names generatively, and
+# `device_procedure_terms` seed the stemless device/procedure nouns. Additive,
+# precision-guarded the same way as drug recognition; RAISES recognition, never a
+# gate. It drives the safety checklist to be APPLICABLE so the gap is LABELLED and
+# retrieval/composition cover it — it NEVER holds a report (always-release).
+
+# Morphological suffix stems that generatively coin PROCEDURE names. Matched at a
+# word boundary with the same min_prefix_len/min_token_len precision guard as the
+# drug stems (a short English word ending in the substring does not match).
+procedure_stems:
+  min_prefix_len: 3
+  min_token_len: 7
+  stems:
+    - ectomy       # -ectomy surgical removal (thymectomy, lobectomy, mastectomy)
+    - ostomy       # -ostomy surgical opening (colostomy, tracheostomy)
+    - otomy        # -otomy  surgical incision (craniotomy, thoracotomy)
+    - oplasty      # -oplasty surgical repair/reshaping (angioplasty, arthroplasty)
+    - plasty       # -plasty repair/reshaping (broader; min_token_len guards)
+    - opexy        # -opexy surgical fixation (nephropexy, orchidopexy)
+    - odesis       # -odesis surgical fusion (arthrodesis)
+    - centesis     # -centesis surgical puncture/aspiration (amniocentesis, paracentesis)
+    - oscopy       # -oscopy endoscopic visualisation procedure (colonoscopy, arthroscopy)
+
+# Stemless DEVICE and PROCEDURE nouns (no morphological stem). A SEED list, additive
+# and expected to grow; recognition cue only, never a gate. Keep lowercase; matched
+# as whole words / phrases, case-insensitively.
+device_procedure_terms:
+  # Implantable / electrical-stimulation devices
+  - deep brain stimulation
+  - neurostimulator
+  - neurostimulation
+  - stimulator
+  - pacemaker
+  - defibrillator
+  - cochlear implant
+  - implant
+  - prosthesis
+  - prosthetic
+  - stent
+  - catheter
+  - electrode
+  - infusion pump
+  - shunt
+  # Procedures / therapies (stemless)
+  - ablation
+  - dialysis
+  - hemodialysis
+  - transplantation
+  - transplant
+  - bypass
+  - angioplasty
+  - endarterectomy
+  - radiotherapy
+  - radiation therapy
+  - chemotherapy
+  - phototherapy
+  - immunotherapy
+  - transfusion
+  - resection
+  - graft
+  - bariatric surgery
+  - stimulation therapy
+
 # WHO/USAN INN class stems. Each stem matches a token of the form
 #   <alphabetic prefix of >= min_prefix_len chars><stem>
 # at a word boundary, case-insensitively. Keep stems lowercase.

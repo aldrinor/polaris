@@ -2854,6 +2854,40 @@ _B18_B19_CONVERTIBLE_HOLDS: dict[str, str] = {
         "built/rendered, so the explicit 'Coverage gaps' disclosure may be incomplete. The ledger "
         "failure is DISCLOSED; the shipped report is otherwise strict_verify'd prose."
     ),
+    # FIX-P0-B (I-arch-011 #1271, ALWAYS-RELEASE): a domain checklist left a topic marked
+    # `critical: true` APPLICABLE but UNCOVERED (the F11 completeness HOLD at the set-site ~9881,
+    # gated by PG_SWEEP_CRITICAL_COMPLETENESS_HOLD). The shipped report.md is already
+    # strict_verify-clean span-grounded prose on the sections that DID verify; the uncovered
+    # critical topic is a COMPLETENESS gap, not a faithfulness defect — so under always-release the
+    # verified body SHIPS with the uncovered topic(s) DISCLOSED as a coverage gap rather than a
+    # hard-abort. This generalizes the operator-locked "verifier LABELS, never HOLDS" reframe to the
+    # completeness gate: the per-claim faithfulness CHECK (strict_verify / NLI / 4-role D8 / span
+    # grounding) is byte-unchanged — a real fabrication still HOLDS via the binding D8 path
+    # (`abort_four_role_release_held`, deliberately absent from this map). Domain-generic: any
+    # domain whose checklist carries a critical-but-uncovered topic converts identically. The
+    # SPECIFIC uncovered topic id(s) are appended to disclosed_gaps at the conversion site (so the
+    # gap is NAMED), on top of this generic disclosure header.
+    #
+    # REAL-RUN REACHABILITY (honest — read before trusting this entry):
+    #   * SEAM run (real benchmark path: run_gate_b sets PG_FOUR_ROLE_MODE=1): the binding 4-role D8
+    #     seam OVERWRITES `summary_status` at ~10385 BEFORE this disposition runs (~11362), so the
+    #     F11 hold set at ~9881 is superseded by the D8 verdict and NEVER reaches this map. On the
+    #     real path the report already ships under D8's decision; this entry is INERT there (and the
+    #     uncovered-critical topic is, separately, not yet surfaced into disclosed_gaps on the seam
+    #     path — that surfacing is a distinct follow-up, NOT this entry).
+    #   * NON-SEAM run (legacy, no D8): the F11 hold DOES reach this disposition and converts to
+    #     released_with_disclosed_gaps — but the A18 release-invariant (~11452) then correctly
+    #     fail-closes to four_role_held (body withheld) because no judge adjudicated. That is the
+    #     FAITHFUL outcome (a body cannot ship as released without real adjudication), NOT a bug.
+    # This entry is therefore the correct, forward-compatible, domain-generic disposition for the
+    # status IF it ever reaches b18 with D8 proof present; it never relaxes faithfulness. See the
+    # open_concerns in the FIX-P0-B build report + the always-release test module docstring.
+    "abort_critical_topic_uncovered": (
+        "critical_topic_uncovered: a completeness-checklist topic marked critical (e.g. "
+        "contraindications / boxed warnings) is APPLICABLE to this question but the corpus did not "
+        "cover it. The verified report body still ships; this completeness gap is DISCLOSED (LABEL "
+        "+ SHIP), never silently relaxed and never used to drop a verified claim."
+    ),
 }
 
 
@@ -11376,6 +11410,15 @@ async def run_one_query(
             # degradation was disclosed, never silently relaxed.
             manifest["released_with_disclosed_gaps_from"] = _b18_prior_status
             manifest.setdefault("disclosed_gaps", []).append(_b18_disclosed_gap)
+            # FIX-P0-B (I-arch-011 #1271): for the critical-topic-uncovered conversion, NAME the
+            # specific uncovered topic id(s) in disclosed_gaps (the generic header above does not
+            # carry them — the convertible-holds map is a static dict[str,str]). The uncovered list
+            # was recorded in summary["error"] at the set-site (~9863). This keeps the disposition
+            # helper domain-generic while still surfacing exactly WHICH critical topic was uncovered.
+            if _b18_prior_status == "abort_critical_topic_uncovered":
+                _crit_detail = summary.get("error")
+                if _crit_detail:
+                    manifest.setdefault("disclosed_gaps", []).append(str(_crit_detail))
         # B15 (I-arch-005 #1257, Codex iter-3 P0 fix): surface the verifier-degraded reliability
         # LABEL that the always-release B15 branch set on `summary` BEFORE it fell THROUGH the
         # binding 4-role D8 gate (it no longer short-circuits past D8). This runs AFTER D8 decided

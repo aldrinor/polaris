@@ -297,6 +297,15 @@ class _InterventionRecognizer:
     inn_stem_re: "_MinLenStemPattern"
     known_names_re: re.Pattern[str]
     exclude_words: frozenset[str]
+    # I-arch-011 FIX-P0-B (GENERAL, non-drug interventions): a DEVICE (deep brain
+    # stimulator, pacemaker, implant, stent) or a PROCEDURE (ablation,
+    # transplantation, -ectomy) must be recognised as an intervention too, not
+    # just a drug — otherwise the completeness gate marks device/procedure-safety
+    # slots NON-applicable in EVERY non-pharma domain. Optional (absent config
+    # sections -> None -> no match; backward-compatible). Domain-general,
+    # config-driven (LAW VI), NOT a per-disease/per-device allowlist.
+    procedure_stem_re: Optional["_MinLenStemPattern"] = None
+    device_term_re: Optional[re.Pattern[str]] = None
 
     def _known_search(self, text: str) -> Optional[re.Match[str]]:
         """Earliest known-name match whose token is not in the denylist."""
@@ -308,25 +317,36 @@ class _InterventionRecognizer:
     def find(self, text: str) -> Optional[str]:
         """Return the first recognised intervention token (lowercased) or None.
 
-        The token that appears EARLIEST in the text wins; on an exact-position
-        tie the known-name (exact, seed legacy list) is preferred over the
-        generative INN-stem match so a stemless legacy drug is reported by its
-        full name. (Any single intervention anchor is sufficient for the scope
+        The token that appears EARLIEST in the text wins across ALL recognisers
+        (drug INN-stem, legacy drug name, device term, procedure stem); on an
+        exact-position tie the known drug-name is preferred (it is appended first
+        below). Any single intervention anchor is sufficient for the scope
         decision, so the tie-break only affects which token is *reported*, never
-        whether the gate proceeds.) Tokens in `exclude_words` (common-English
-        collisions, e.g. accept/except for the `-cept` stem) are never
-        recognised.
+        whether the gate proceeds. Tokens in `exclude_words` (common-English
+        collisions, e.g. accept/except for the `-cept` stem) are never recognised.
         """
         if not text:
             return None
+        candidates: list[re.Match[str]] = []
         known = self._known_search(text)
+        if known is not None:
+            candidates.append(known)
         stem = self.inn_stem_re.search(text)  # already denylist-filtered
-        if known and stem:
-            chosen = known if known.start() <= stem.start() else stem
-        else:
-            chosen = known or stem
-        if chosen is None:
+        if stem is not None:
+            candidates.append(stem)
+        if self.device_term_re is not None:
+            dev = self.device_term_re.search(text)
+            if dev is not None:
+                candidates.append(dev)
+        if self.procedure_stem_re is not None:
+            proc = self.procedure_stem_re.search(text)
+            if proc is not None:
+                candidates.append(proc)
+        if not candidates:
             return None
+        # min() keeps the FIRST candidate on an exact-position tie -> known drug
+        # name (appended first) wins, preserving the prior reporting preference.
+        chosen = min(candidates, key=lambda m: m.start())
         return chosen.group(0).lower()
 
 
@@ -417,10 +437,57 @@ def _build_intervention_recognizer(
         str(w).strip().lower() for w in exclude_raw if str(w).strip()
     )
 
+    # I-arch-011 FIX-P0-B (GENERAL device/procedure recognition). Both sections
+    # are OPTIONAL — absent => the recogniser stays drug-only (backward-compatible).
+    # `procedure_stems` mirrors `inn_stems` (morphological suffixes that coin
+    # procedure names, e.g. -ectomy/-ostomy/-oscopy); `device_procedure_terms` is
+    # a seed list of stemless device/procedure NOUNS/phrases (deep brain
+    # stimulation, pacemaker, ablation, dialysis, ...). Domain-general, LAW VI.
+    procedure_stem_re: Optional[_MinLenStemPattern] = None
+    proc = data.get("procedure_stems")
+    if isinstance(proc, dict):
+        p_stems = [str(s).strip().lower() for s in (proc.get("stems") or []) if str(s).strip()]
+        if p_stems:
+            try:
+                p_min_prefix = int(proc.get("min_prefix_len", 3))
+                p_min_token = int(proc.get("min_token_len", 7))
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"{config_path}: procedure_stems min_prefix_len/min_token_len "
+                    f"must be integers: {exc}"
+                ) from exc
+            if p_min_prefix < 1 or p_min_token < 1:
+                raise RuntimeError(
+                    f"{config_path}: procedure_stems min_prefix_len/min_token_len "
+                    f"must be >= 1."
+                )
+            p_sorted = sorted(set(p_stems), key=len, reverse=True)
+            p_alt = "|".join(re.escape(s) for s in p_sorted)
+            p_re = re.compile(
+                rf"\b([a-z]{{{p_min_prefix},}}(?:{p_alt}))\b", re.IGNORECASE
+            )
+            procedure_stem_re = _MinLenStemPattern(p_re, p_min_token, exclude_words)
+
+    device_term_re: Optional[re.Pattern[str]] = None
+    dev_terms = data.get("device_procedure_terms") or []
+    if not isinstance(dev_terms, list):
+        raise RuntimeError(
+            f"{config_path}: 'device_procedure_terms' must be a list when "
+            f"present, got {type(dev_terms).__name__}."
+        )
+    dev_terms = [str(t).strip().lower() for t in dev_terms if str(t).strip()]
+    if dev_terms:
+        # Longest phrase first so "deep brain stimulation" wins over "stimulation".
+        dev_sorted = sorted(set(dev_terms), key=len, reverse=True)
+        dev_alt = "|".join(re.escape(t) for t in dev_sorted)
+        device_term_re = re.compile(rf"\b({dev_alt})\b", re.IGNORECASE)
+
     return _InterventionRecognizer(
         inn_stem_re=_MinLenStemPattern(inn_stem_re, min_token_len, exclude_words),
         known_names_re=known_names_re,
         exclude_words=exclude_words,
+        procedure_stem_re=procedure_stem_re,
+        device_term_re=device_term_re,
     )
 
 

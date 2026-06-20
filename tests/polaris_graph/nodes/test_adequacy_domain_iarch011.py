@@ -231,9 +231,22 @@ def test_drug_bearing_parkinsons_question_keeps_contraindications_check() -> Non
     assert contra2.applies is True  # levodopa present -> critical topic active
 
 
-def test_pure_device_question_does_not_spuriously_apply_drug_topics() -> None:
-    """A pure device question (no drug) must NOT have the drug-gated backstop
-    topics fire — they stay dormant so no spurious hold is introduced."""
+def test_pure_device_question_recognizes_device_intervention() -> None:
+    """FIX-P0-B (I-arch-011 #1271): a pure DEVICE question (deep brain stimulation,
+    no drug) is now DELIBERATELY recognized by the device/procedure recognizer, so
+    the critical ``contraindications`` topic — gated on a recognized intervention —
+    is APPLICABLE for the device run.
+
+    This UPDATES the prior behavior (pre-device-recognizer: ``applies is False``):
+    before the recognizer was taught device/procedure stems, a deep-brain-stimulation
+    question had NO recognized intervention, so the drug-gated critical topic stayed
+    dormant. Now the device IS recognized as an intervention, so device-safety
+    completeness (contraindications) correctly applies. The resulting
+    ``abort_critical_topic_uncovered`` hazard on an uncovered corpus is mitigated by
+    the always-release conversion to ``released_with_disclosed_gaps`` (verified body
+    ships, gap LABELED) — see
+    ``tests/.../test_critical_topic_uncovered_always_release_iarch011.py``.
+    """
     report = check_completeness(
         domain="clinical", research_question=_DBS_QUESTION, evidence_rows=[],
     )
@@ -242,6 +255,10 @@ def test_pure_device_question_does_not_spuriously_apply_drug_topics() -> None:
         (tc for tc in report.topics if tc.topic.id == "contraindications"), None
     )
     assert contra is not None
-    # No drug in the question -> the drug-gated critical topic is NON-applicable
-    # (dormant), so it cannot spuriously hold a pure-device report.
-    assert contra.applies is False
+    assert contra.topic.critical is True
+    # The device recognizer now recognizes the DBS device as an intervention, so the
+    # critical device-safety topic is APPLICABLE (not dormant). An uncovered corpus
+    # therefore SURFACES the gap (-> the always-release disclosed-gaps path), instead
+    # of the topic silently vanishing.
+    assert contra.applies is True
+    assert "contraindications" in report.uncovered_critical_topic_ids()
