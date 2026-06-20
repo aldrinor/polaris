@@ -1424,6 +1424,33 @@ def _is_markdown_header(block: str) -> bool:
     return bool(stripped) and "\n" not in stripped and bool(_MARKDOWN_HEADER_RE.match(stripped))
 
 
+def assemble_report_md(
+    title_md: str,
+    abstract_md: str,
+    body_md: str,
+    conclusion_md: str,
+    *,
+    dedup_enabled: bool,
+) -> str:
+    """Assemble the final report.md (I-arch-011 PR-d #1268).
+
+    The Abstract (front) + Conclusion (end) are INTENTIONAL verbatim re-presentations of body
+    sentences (a summary repeats the body — that is the point), so they MUST be EXEMPT from
+    paragraph-dedup (``dedup_identical_paragraphs`` keeps the FIRST content-identical paragraph and
+    would otherwise empty the ``## Conclusion`` / drop the body copy). So when a summary renders, dedup
+    the BODY ONLY and sandwich the abstract (after the title) + conclusion (end) around it.
+
+    When NO summary renders (``abstract_md == conclusion_md == ""``), the EXACT pre-PR-d path is used —
+    ``dedup_identical_paragraphs(title_md + body_md)`` over the whole thing — so the default-OFF render
+    is BYTE-IDENTICAL (including the pass-2 orphaned-title-header behaviour, where a title immediately
+    followed by ``## Key Findings`` is dropped). Pure."""
+    if abstract_md or conclusion_md:
+        body = dedup_identical_paragraphs(body_md) if dedup_enabled else body_md
+        return title_md + abstract_md + body + conclusion_md
+    whole = title_md + body_md
+    return dedup_identical_paragraphs(whole) if dedup_enabled else whole
+
+
 def dedup_identical_paragraphs(report_text: str) -> str:
     """BB5-P03: drop later body paragraphs that are content-identical (after
     citation-marker stripping + whitespace/case normalization) to an earlier
@@ -9485,16 +9512,44 @@ async def run_one_query(
                     )
         except Exception as _dd_exc:  # noqa: BLE001 — additive disclosure; never abort the report
             _log(f"[drop-disclosure] skipped (fail-open): {_dd_exc}")
-        final_report = (
-            f"# Research report: {q['question']}\n\n"
-            + _key_findings + sections_concat + methods + biblio_section + _drop_disclosure_md
-        )
+        # I-arch-011 PR-d (#1268): abstract (front) + conclusion (end) synthesis layer, drafted
+        # LAST from the ALREADY-strict_verify-PASSED body (SectionResult.verified_text) only —
+        # zero new sourced findings, no new LLM call (pure verbatim re-presentation in the default
+        # path). Default-OFF master flag PG_SYNTHESIS_ABSTRACT_CONCLUSION => both return "" so
+        # report.md is BYTE-IDENTICAL until the flag is set; Gate-B / the run slate activates it.
+        # Fail-open (additive summary; never abort the report). The abstract/conclusion sentences
+        # are VERBATIM re-presentations carrying the body's own citation tokens, so the post-gate
+        # reconcile_report_against_verdicts redactor finds + removes the abstract/conclusion copy
+        # in the SAME multi-occurrence loop it redacts the body copy (no orphan); the post-redaction
+        # refilter_abstract_conclusion_block then tidies the block (drops gap stubs / an empty block).
+        _abstract_md = ""
+        _conclusion_md = ""
+        try:
+            from src.polaris_graph.generator.abstract_conclusion import (
+                build_abstract,
+                build_conclusion,
+            )
+            _sections_for_synthesis = getattr(multi, "sections", []) or []
+            _abstract_md = build_abstract(_sections_for_synthesis)
+            _conclusion_md = build_conclusion(_sections_for_synthesis)
+        except Exception as _ac_exc:  # noqa: BLE001 — additive summary; never abort the report
+            _log(f"[abstract-conclusion] skipped (fail-open): {_ac_exc}")
         # BB5-P03 (#1179): de-dup content-identical paragraphs (after citation-marker stripping) and
         # drop any header orphaned by that drop, before render. Keeps the FIRST occurrence, so every
         # subject/predicate a PT08-checked record disclosed survives — the evaluator below reads this
         # same deduped text. Default ON via PG_SWEEP_LIMITATIONS_DEDUP; OFF leaves report byte-identical.
-        if _env_flag(_LIMITATIONS_DEDUP_ENV, default=True):
-            final_report = dedup_identical_paragraphs(final_report)
+        # I-arch-011 PR-d (#1268): assemble via assemble_report_md — when the Abstract/Conclusion
+        # synthesis blocks render, it dedups the BODY ONLY + sandwiches the verbatim abstract/conclusion
+        # (exempt from paragraph-dedup, which would otherwise empty the ## Conclusion / drop the body
+        # copy); when summaries are OFF (_abstract_md == _conclusion_md == "") it uses the EXACT pre-PR-d
+        # dedup(title+body) path, so default-OFF report.md is BYTE-IDENTICAL.
+        final_report = assemble_report_md(
+            f"# Research report: {q['question']}\n\n",
+            _abstract_md,
+            _key_findings + sections_concat + methods + biblio_section + _drop_disclosure_md,
+            _conclusion_md,
+            dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
+        )
         # SECTION-lane cross-wire (I-arch-005 #1257): PREPEND the SECTION lane's reliability
         # header (corroboration-strength counts) to the report.md ARTIFACT only. The field does
         # NOT exist on MultiSectionResult at this base -> getattr None -> render "" -> byte-
@@ -10891,6 +10946,13 @@ async def run_one_query(
                                     refilter_key_findings_block,
                                 )
                                 _b16_reconciled = refilter_key_findings_block(_b16_reconciled)
+                                # I-arch-011 PR-d (#1268): tidy the verbatim Abstract/Conclusion
+                                # blocks after the quarantine fallback redaction (same contract as
+                                # the primary site). No-op when OFF / nothing redacted.
+                                from src.polaris_graph.generator.abstract_conclusion import (  # noqa: PLC0415
+                                    refilter_abstract_conclusion_block,
+                                )
+                                _b16_reconciled = refilter_abstract_conclusion_block(_b16_reconciled)
                             _redact_report_path.write_text(_b16_reconciled, encoding="utf-8")
                             summary_status = "released_with_disclosed_gaps"
                             unified_status = to_unified_status(summary_status)
@@ -11002,6 +11064,17 @@ async def run_one_query(
                                 refilter_key_findings_block,
                             )
                             _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
+                            # I-arch-011 PR-d (#1268): the Abstract/Conclusion re-present body
+                            # claims verbatim, so the redactor already replaced an abstract/
+                            # conclusion copy of a non-VERIFIED claim with the gap stub in the same
+                            # pass. Tidy those blocks (drop gap stubs / an empty block) — no-op when
+                            # the flag is OFF or nothing in a block was redacted.
+                            from src.polaris_graph.generator.abstract_conclusion import (
+                                refilter_abstract_conclusion_block,
+                            )
+                            _reconciled_report = refilter_abstract_conclusion_block(
                                 _reconciled_report
                             )
                         _redact_report_path.write_text(
