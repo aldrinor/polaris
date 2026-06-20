@@ -276,11 +276,11 @@ def test_seam_screen_ran_true_clean_ships_body():
     assert assert_release_invariant(outcome) is outcome
 
 
-def test_seam_clinical_safety_floor_clean_screen_withholds_body():
-    """DECISION 2 (beat-both P2 Codex-gate P1): a CLINICAL safety-floor seam withholds the body
-    UNCONDITIONALLY — even when the standalone fabrication screen ran CLEAN. The four-role D8 (the
-    only hard safety gate) never adjudicated; strict_verify span-grounding is not safety-confirmation.
-    This is the run-#7 defect (status=released_insufficient_safety_evidence, body NOT withheld)."""
+def test_seam_clinical_safety_floor_clean_screen_ships_with_disclosure():
+    """ALWAYS-RELEASE (operator-locked: the verifier is a LABEL, never a HOLD): a CLINICAL safety-floor
+    seam with a CLEAN fabrication screen SHIPS the body — the unadjudicated state is DISCLOSED so the
+    user judges, NOT withheld. safety_floor_insufficient is a label on the run, not a gate. (Corrects
+    an earlier wrong withhold; reverted per operator 2026-06-20.)"""
     outcome = compute_release_outcome(
         _seam_decision(),
         zero_verified=False, zero_usable_evidence=False,
@@ -289,16 +289,15 @@ def test_seam_clinical_safety_floor_clean_screen_withholds_body():
         seam_unadjudicated=True, fabrication_screen_ran=True,
         fabrication_screen_found_fabrication=False,
     )
-    # Clean screen would otherwise ship the body (test_seam_screen_ran_true_clean_ships_body); the
-    # clinical safety floor overrides that to a withhold.
-    assert outcome.body_withheld is True
-    assert outcome.compensating_screen_passed is False
-    assert outcome.normal_release_blocked is True
+    # The body SHIPS (always-release) — the clean screen is a compensating pass; the safety floor is a
+    # LABEL, not a withhold.
+    assert outcome.released is True
+    assert outcome.body_withheld is False
+    assert outcome.compensating_screen_passed is True
     assert outcome.adjudicated is False
     assert outcome.safety_floor == "insufficient"
-    # always-release still holds: the honest insufficient-safety DISCLOSURE ships (released=True), the
-    # un-judged findings body does not. The invariant accepts body_withheld as a safe terminal state.
-    assert outcome.released is True
+    # The unadjudicated state is honestly DISCLOSED so the user judges.
+    assert _has_seam_unadjudicated_gap(outcome.disclosed_gaps)
     assert assert_release_invariant(outcome) is outcome
 
 

@@ -734,16 +734,14 @@ def _compute_seam_outcome(
         )
 
     # always-release ON, not hard-blocked: decide the body disposition from the screen result.
+    # ALWAYS-RELEASE PRINCIPLE (operator-locked: the verifier is a LABEL, never a HOLD): the D8 safety
+    # floor being unconfirmed does NOT withhold the body — the report ALWAYS ships and the unadjudicated
+    # state is DISCLOSED so the user judges (status=released_insufficient_safety_evidence + the seam
+    # disclosure below). safety_floor_insufficient is a LABEL, not a gate. (An earlier change wrongly
+    # forced a withhold here; reverted per operator 2026-06-20 — see feedback_always_release.)
     screen_clean = fabrication_screen_ran is True and not fabrication_screen_found_fabrication
-    # DECISION 2 (beat-both P2 Codex-gate P1 + operator "body NOT withheld is the DEFECT"): a clinical
-    # safety-floor seam is an UNCONDITIONAL body-withhold. The four-role D8 (the only hard safety gate)
-    # never adjudicated; strict_verify span-grounding is NOT safety-confirmation. A passing standalone
-    # fabrication screen does NOT make an un-adjudicated clinical findings body safe to ship. always-
-    # release still holds — the honest insufficient-safety DISCLOSURE artifact ships in the body's
-    # place; the un-judged findings body does not. (Completes the clinical carve-out; relaxes nothing,
-    # marks nothing verified — it only withholds MORE.)
-    body_withheld = (not screen_clean) or safety_floor_insufficient
-    compensating_screen_passed = screen_clean and not safety_floor_insufficient
+    body_withheld = not screen_clean
+    compensating_screen_passed = screen_clean
     if not screen_clean:
         # The body is withheld — surface WHY so the withhold is never silent (P0 #3).
         disclosed_gaps.append(_GAP_SEAM_FABRICATION_SCREEN_UNAVAILABLE)
