@@ -771,6 +771,19 @@ _V30_ALLOW_LEGACY_FALLBACK_ENV = "PG_V30_ALLOW_LEGACY_FALLBACK"
 _BIB_REQUIRE_LOCATOR_ENV = "PG_BIB_REQUIRE_LOCATOR"
 _TIER_DISCLOSURE_SINGLE_SOURCE_ENV = "PG_TIER_DISCLOSURE_SINGLE_SOURCE"
 
+# I-arch-011 PR-b (#1268) — Argus keep-all basket-corroboration render. When ON, each
+# cited claim's whole ClaimBasket is surfaced in report.md: the verified-support COUNT
+# (the basket's own verified_support_origin_count — NEVER len(members)), per-source
+# credibility WEIGHT + tier, the support label (member_tier==ENTAILMENT_VERIFIED), the
+# cluster-level CONTRADICT label (basket_verdict=="contested" / refuter_cluster_ids), and
+# — consuming the I-arch-010 member_tier seam — DETERMINISTIC_ONLY members surfaced
+# LABELED-weak (grounded-but-entailment-unverified), DISTINCT from verified support and
+# NEVER counted as support. UNVERIFIED (deterministic-garbage) members are not surfaced
+# (member_tier contract, credibility_pass.py:152). DETERMINISTIC read of the already-
+# projected basket dicts (provenance_generator._basket_for_biblio) — no new LLM call, no
+# faithfulness gate touched. DEFAULT OFF: flag unset => report.md is byte-identical.
+_BASKET_CORROBORATION_RENDER_ENV = "PG_BASKET_CORROBORATION_RENDER"
+
 
 def _benchmark_strict_gates_on() -> bool:
     """Shared benchmark strict-gates flag (default OFF). When ON, the four currently
@@ -1010,8 +1023,94 @@ def _bib_entry_has_locator(entry: "dict") -> bool:
     return bool(url or doi)
 
 
+def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+    """I-arch-011 PR-b (#1268): render the Argus keep-all per-claim basket-corroboration
+    block from the basket dicts ALREADY projected onto each bibliography row
+    (``row["baskets"]`` from ``provenance_generator._basket_for_biblio`` — present only
+    when ``PG_SWEEP_CREDIBILITY_REDESIGN`` is ON). Pure read; recomputes NO verdict and
+    issues NO LLM call.
+
+    We iterate ``row["baskets"]`` rather than each biblio row because a weak
+    DETERMINISTIC_ONLY member is NOT guaranteed to have its own bibliography row (rows
+    come from cited tokens + SUPPORTS corroborators only), so a per-row walk could never
+    surface it. The same basket is attached to every member's row, so we DEDUP by
+    ``claim_cluster_id`` and render each unique basket exactly once.
+
+    Per basket: the verified-support COUNT (the basket's own
+    ``verified_support_origin_count`` — the I-arch-010 invariant guarantees it counts only
+    ENTAILMENT_VERIFIED members, NEVER ``len(supporting_members)``), each member's
+    credibility WEIGHT + tier, the SUPPORT label (``member_tier ==
+    ENTAILMENT_VERIFIED``), the cluster-level CONTRADICT label
+    (``basket_verdict == "contested"`` / ``refuter_cluster_ids`` — there is no per-source
+    −1 edge, so contradict stays cluster-level), and — consuming the I-arch-010 seam —
+    ``member_tier == DETERMINISTIC_ONLY`` members surfaced LABELED-weak
+    (grounded-but-entailment-unverified), DISTINCT from verified support and NEVER counted
+    as support. ``member_tier == UNVERIFIED`` (deterministic garbage) members are NOT
+    surfaced (the member_tier contract, credibility_pass.py:152 — the members still live
+    in the basket upstream; we choose not to render garbage, not to drop a source).
+    Returns "" when no basket data is present => caller appends nothing."""
+    seen_clusters: set[str] = set()
+    blocks: list[str] = []
+    for b in bibliography:
+        for basket in (b.get("baskets") or []):
+            ccid = str(basket.get("claim_cluster_id") or "")
+            if not ccid or ccid in seen_clusters:
+                continue
+            seen_clusters.add(ccid)
+            members = basket.get("supporting_members") or []
+            # Verified support = ENTAILMENT_VERIFIED members (span_verdict==SUPPORTS by the
+            # I-arch-010 invariant). Weak = DETERMINISTIC_ONLY. UNVERIFIED is never surfaced.
+            verified = [
+                m for m in members
+                if str(m.get("member_tier") or "") == "ENTAILMENT_VERIFIED"
+            ]
+            weak = [
+                m for m in members
+                if str(m.get("member_tier") or "") == "DETERMINISTIC_ONLY"
+            ]
+            count = int(basket.get("verified_support_origin_count") or 0)
+            claim = str(basket.get("claim_text") or "").strip()[:160]
+            contested = (
+                str(basket.get("basket_verdict") or "") == "contested"
+                or bool(basket.get("refuter_cluster_ids"))
+            )
+            lines = [f"- **{claim or ccid}** — {count} verified independent source(s)"]
+            for m in verified:
+                _w = m.get("credibility_weight")
+                _ws = f"{float(_w):.2f}" if isinstance(_w, (int, float)) else "n/a"
+                lines.append(
+                    f"  - SUPPORT: {str(m.get('source_url') or m.get('evidence_id') or '')} "
+                    f"(tier {str(m.get('source_tier') or '')}, weight {_ws})"
+                )
+            for m in weak:
+                _w = m.get("credibility_weight")
+                _ws = f"{float(_w):.2f}" if isinstance(_w, (int, float)) else "n/a"
+                lines.append(
+                    f"  - GROUNDED-BUT-WEAK (entailment-unverified, NOT counted as support): "
+                    f"{str(m.get('source_url') or m.get('evidence_id') or '')} "
+                    f"(tier {str(m.get('source_tier') or '')}, weight {_ws})"
+                )
+            if contested:
+                lines.append(
+                    "  - CONTRADICTED: this claim has >=1 refuting cluster "
+                    "(see contradiction/both-sides block)"
+                )
+            blocks.append("\n".join(lines))
+    if not blocks:
+        return ""
+    return (
+        "\n\n## Source corroboration (per claim)\n\n"
+        "Each verified claim is shown against its WHOLE basket of supporting sources — "
+        "the count of independently verified sources, each source's credibility weight, "
+        "and support/contradict labels. Grounded-but-weak candidates are disclosed "
+        "separately and are NEVER counted as verified support.\n\n"
+        + "\n".join(blocks)
+        + "\n"
+    )
+
+
 def _render_bibliography_lines(
-    bibliography: "list[dict]", *, require_locator: bool
+    bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False
 ) -> str:
     """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
     to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
@@ -1019,7 +1118,12 @@ def _render_bibliography_lines(
     a NON-cited evidence gap (`[gap]` prefix, no resolvable locator). This NEVER fabricates a
     locator and NEVER drops the reader's awareness of the entry; it stops a citation marker from
     pointing at an empty URL. The upstream resolution (resolve the locator, or stop assigning a
-    citation number to a locator-less row) lives in multi_section_generator.py and is deferred."""
+    citation number to a locator-less row) lives in multi_section_generator.py and is deferred.
+
+    I-arch-011 PR-b (#1268): when ``corroboration_render`` (PG_BASKET_CORROBORATION_RENDER) is ON,
+    a per-claim Argus keep-all source-corroboration block is APPENDED after the bibliography
+    lines (count + per-source weights + support/contradict labels + LABELED-weak
+    DETERMINISTIC_ONLY candidates). Default-OFF keyword => byte-identical legacy render."""
     out = "\n\n## Bibliography\n"
     for b in bibliography:
         statement = str(b.get("statement", ""))[:200]
@@ -1048,6 +1152,11 @@ def _render_bibliography_lines(
                 if _doi:
                     locator = f"https://doi.org/{_doi}"
             out += f"[{b['num']}] {statement} — {locator} (tier {tier})\n"
+    # I-arch-011 PR-b (#1268): APPEND the per-claim Argus keep-all corroboration block.
+    # Default-OFF keyword => this is skipped entirely => the bibliography render above is
+    # byte-identical to the legacy output.
+    if corroboration_render:
+        out += _basket_corroboration_block(bibliography)
     return out
 
 
@@ -9319,6 +9428,13 @@ async def run_one_query(
         biblio_section = _render_bibliography_lines(
             multi.bibliography,
             require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=False),
+            # I-arch-011 PR-b (#1268): the LIVE wiring of the Argus keep-all basket-
+            # corroboration render. Default-OFF so report.md is byte-identical until the
+            # flag is set; ON appends the per-claim count + weights + support/contradict +
+            # LABELED-weak DETERMINISTIC_ONLY block.
+            corroboration_render=_env_flag(
+                _BASKET_CORROBORATION_RENDER_ENV, default=False
+            ),
         )
 
         # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary

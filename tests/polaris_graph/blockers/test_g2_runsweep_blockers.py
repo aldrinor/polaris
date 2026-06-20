@@ -391,3 +391,210 @@ def test_1240_token_honesty_snapshot_is_a_copy_not_a_live_ref():
     pg._TOKEN_HONESTY_TELEMETRY["malformed_dropped"] = 9
     assert snap["malformed_dropped"] == 0  # the earlier snapshot is unaffected
     pg.reset_token_honesty_telemetry()
+
+
+# ── I-arch-011 PR-b (#1268) Argus keep-all basket-corroboration render ────────────
+def _basket_bib_fixture() -> "list[dict]":
+    """A basket-bearing bibliography (mirrors the provenance_generator._basket_for_biblio
+    projection attached to each row as row["baskets"]). Cluster c1 has TWO
+    ENTAILMENT_VERIFIED supports (verified_support_origin_count=2), ONE DETERMINISTIC_ONLY
+    weak member, and ONE UNVERIFIED garbage member; it is CONTESTED. The SAME basket is
+    attached to both of its members' rows (the 1-to-many enrichment) so we can prove the
+    render dedups by claim_cluster_id."""
+    c1 = {
+        "claim_cluster_id": "c1",
+        "claim_text": "Tirzepatide reduced HbA1c by 2.1% at 40 weeks",
+        "verified_support_origin_count": 2,
+        "total_clustered_origin_count": 4,
+        "basket_verdict": "contested",
+        "refuter_cluster_ids": ("c9",),
+        "supporting_members": [
+            {"evidence_id": "ev_a", "source_url": "https://nejm.org/a", "source_tier": "T1",
+             "credibility_weight": 0.95, "authority_score": 0.9, "span_verdict": "SUPPORTS",
+             "member_tier": "ENTAILMENT_VERIFIED", "direct_quote": "2.1% reduction"},
+            {"evidence_id": "ev_b", "source_url": "https://lancet.com/b", "source_tier": "T1",
+             "credibility_weight": 0.88, "authority_score": 0.85, "span_verdict": "SUPPORTS",
+             "member_tier": "ENTAILMENT_VERIFIED", "direct_quote": "2.1% HbA1c drop"},
+            {"evidence_id": "ev_c", "source_url": "https://preprint.org/c", "source_tier": "T4",
+             "credibility_weight": 0.40, "authority_score": 0.3, "span_verdict": "UNSUPPORTED",
+             "member_tier": "DETERMINISTIC_ONLY", "direct_quote": "HbA1c improved"},
+            {"evidence_id": "ev_d", "source_url": "https://blog.example/d", "source_tier": "T7",
+             "credibility_weight": 0.05, "authority_score": 0.05, "span_verdict": "UNSUPPORTED",
+             "member_tier": "UNVERIFIED", "direct_quote": "diabetes news"},
+        ],
+    }
+    return [
+        {"num": 1, "statement": "NEJM RCT", "tier": "T1", "url": "https://nejm.org/a",
+         "baskets": [c1]},
+        {"num": 2, "statement": "Lancet RCT", "tier": "T1", "url": "https://lancet.com/b",
+         "baskets": [c1]},
+    ]
+
+
+def test_iarch011_prb_off_byte_identical_even_with_baskets():
+    # WIRING: flag-OFF (corroboration_render default) must be byte-identical to the legacy
+    # render even when the rows carry basket data — the corroboration block never appears.
+    bib = _basket_bib_fixture()
+    legacy = sweep._render_bibliography_lines(bib, require_locator=False)
+    explicit_off = sweep._render_bibliography_lines(
+        bib, require_locator=False, corroboration_render=False
+    )
+    assert legacy == explicit_off
+    assert "Source corroboration" not in legacy
+    assert "GROUNDED-BUT-WEAK" not in legacy
+
+
+def test_iarch011_prb_on_renders_count_weights_support_labels():
+    # WIRING: flag-ON appends the per-claim corroboration block with the COUNT (the basket's
+    # own verified_support_origin_count=2, NOT len(members)=4), per-source WEIGHTS, and the
+    # SUPPORT label for each ENTAILMENT_VERIFIED member.
+    bib = _basket_bib_fixture()
+    out = sweep._render_bibliography_lines(
+        bib, require_locator=False, corroboration_render=True
+    )
+    assert "## Source corroboration (per claim)" in out
+    # COUNT = verified_support_origin_count (2), never the 4 raw members.
+    assert "2 verified independent source(s)" in out
+    # Each ENTAILMENT_VERIFIED member is a SUPPORT line carrying its weight + tier.
+    assert "SUPPORT: https://nejm.org/a (tier T1, weight 0.95)" in out
+    assert "SUPPORT: https://lancet.com/b (tier T1, weight 0.88)" in out
+
+
+def test_iarch011_prb_deterministic_only_labeled_weak_never_counted_as_support():
+    # FAITHFULNESS: the DETERMINISTIC_ONLY member is surfaced LABELED-weak (disclosed),
+    # explicitly NOT counted as support and never as a SUPPORT line.
+    bib = _basket_bib_fixture()
+    out = sweep._render_bibliography_lines(
+        bib, require_locator=False, corroboration_render=True
+    )
+    # weak member appears under the grounded-but-weak label.
+    assert "GROUNDED-BUT-WEAK" in out
+    assert "https://preprint.org/c" in out
+    # the weak member is NEVER on a SUPPORT line.
+    assert "SUPPORT: https://preprint.org/c" not in out
+    # the disclosed count stays 2 — the weak member did not inflate it.
+    assert "3 verified independent source(s)" not in out
+    assert "2 verified independent source(s)" in out
+    # UNVERIFIED (deterministic garbage) is NOT surfaced at all.
+    assert "https://blog.example/d" not in out
+
+
+def test_iarch011_prb_renders_contested_label_and_dedups_by_cluster():
+    # The contested basket renders the cluster-level CONTRADICT label, and the basket
+    # (attached to BOTH rows) is rendered exactly ONCE (dedup by claim_cluster_id).
+    bib = _basket_bib_fixture()
+    out = sweep._render_bibliography_lines(
+        bib, require_locator=False, corroboration_render=True
+    )
+    assert "CONTRADICTED" in out
+    # the claim heading appears once, not once-per-member-row.
+    assert out.count("Tirzepatide reduced HbA1c by 2.1% at 40 weeks") == 1
+
+
+def test_iarch011_prb_no_baskets_appends_nothing():
+    # A bibliography with no basket data (the CREDIBILITY_REDESIGN-OFF path) appends nothing
+    # even with the flag ON — the block is "" and the render equals the legacy.
+    bib = _bib_fixture()
+    legacy = sweep._render_bibliography_lines(bib, require_locator=False)
+    on = sweep._render_bibliography_lines(
+        bib, require_locator=False, corroboration_render=True
+    )
+    assert on == legacy
+    assert "Source corroboration" not in on
+
+
+def test_iarch011_prb_live_wiring_call_site_reads_env_flag(monkeypatch):
+    # WIRING (the "fired in output, not config" trap): prove the LIVE render path reads the
+    # env flag, not just that the function accepts the kwarg. _env_flag is the exact helper
+    # the call site uses; assert the flag name resolves and toggles.
+    monkeypatch.delenv(sweep._BASKET_CORROBORATION_RENDER_ENV, raising=False)
+    assert sweep._env_flag(sweep._BASKET_CORROBORATION_RENDER_ENV, default=False) is False
+    monkeypatch.setenv(sweep._BASKET_CORROBORATION_RENDER_ENV, "1")
+    assert sweep._env_flag(sweep._BASKET_CORROBORATION_RENDER_ENV, default=False) is True
+
+
+def test_iarch011_prb_live_call_site_passes_corroboration_render_kwarg():
+    # WIRING (the "fired in output, not config" trap, §-1.4): a unit test that passes
+    # corroboration_render=True proves the FUNCTION works but NOT that the LIVE report.md
+    # assembly path passes the flag through. Assert the production call site actually wires
+    # the env flag into _render_bibliography_lines(corroboration_render=...). Structural
+    # source assertion over the single live call site, so a silent regression that drops the
+    # kwarg fails loud here.
+    import inspect
+    src = inspect.getsource(sweep)
+    # the only call to _render_bibliography_lines that feeds report.md.
+    assert "biblio_section = _render_bibliography_lines(" in src
+    call_start = src.index("biblio_section = _render_bibliography_lines(")
+    call_block = src[call_start:call_start + 800]
+    assert "corroboration_render=_env_flag(" in call_block
+    # the env flag IDENTIFIER (not its string value) is what the call site references.
+    assert "_BASKET_CORROBORATION_RENDER_ENV" in call_block
+
+
+def test_iarch011_prb_end_to_end_real_resolver_attaches_baskets_and_block_fires():
+    # BEHAVIORAL PROOF (§-1.4 "effect APPEARS in real output", not a hand-built dict):
+    # drive the PRODUCTION resolver (resolve_provenance_to_citations_with_count — the same
+    # function multi_section_generator.py:4085 calls) with a REAL ClaimBasket of REAL
+    # BasketMembers, so it attaches row["baskets"] exactly as the live report.md path does,
+    # THEN feed its REAL output through _basket_corroboration_block and assert the block
+    # fires with the correct count/weights/labels. This is the attach->render chain end to
+    # end, not a fixture that pre-bakes row["baskets"].
+    from src.polaris_graph.generator.provenance_generator import (
+        resolve_provenance_to_citations_with_count,
+        SentenceVerification,
+        parse_provenance_tokens,
+    )
+    from src.polaris_graph.synthesis.credibility_pass import (
+        ClaimBasket,
+        BasketMember,
+        MEMBER_TIER_ENTAILMENT_VERIFIED,
+        MEMBER_TIER_DETERMINISTIC_ONLY,
+        MEMBER_TIER_UNVERIFIED,
+    )
+
+    evidence_pool = {
+        "ev_a": {"source_url": "https://nejm.org/a", "tier": "T1", "statement": "HbA1c cut 2.1%"},
+        "ev_b": {"source_url": "https://lancet.com/b", "tier": "T1", "statement": "2.1% drop"},
+        "ev_c": {"source_url": "https://preprint.org/c", "tier": "T4", "statement": "improved"},
+        "ev_d": {"source_url": "https://blog.example/d", "tier": "T7", "statement": "news"},
+    }
+    sent = "Tirzepatide reduced HbA1c by 2.1% at 40 weeks [#ev:ev_a:0-13]."
+    sv = SentenceVerification(
+        sentence=sent, tokens=parse_provenance_tokens(sent),
+        is_verified=True, failure_reasons=[], soft_warnings=[],
+    )
+    members = [
+        BasketMember("ev_a", "https://nejm.org/a", "T1", "o1", 0.95, 0.9, (0, 13),
+                     "HbA1c cut 2.1%", "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+        BasketMember("ev_b", "https://lancet.com/b", "T1", "o2", 0.88, 0.85, (0, 8),
+                     "2.1% drop", "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+        BasketMember("ev_c", "https://preprint.org/c", "T4", "o3", 0.40, 0.3, (0, 8),
+                     "improved", "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY),
+        BasketMember("ev_d", "https://blog.example/d", "T7", "o4", 0.05, 0.05, (0, 4),
+                     "news", "UNSUPPORTED", MEMBER_TIER_UNVERIFIED),
+    ]
+    basket = ClaimBasket(
+        "c1", "Tirzepatide reduced HbA1c by 2.1% at 40 weeks", "Tirzepatide", "reduced HbA1c",
+        members, ("c9",), 2.7, 4, 2, "contested",
+    )
+    cluster_id_by_evidence = {"ev_a": ["c1"], "ev_b": ["c1"], "ev_c": ["c1"], "ev_d": ["c1"]}
+
+    _text, biblio, _emitted = resolve_provenance_to_citations_with_count(
+        [sv], evidence_pool, baskets=[basket],
+        cluster_id_by_evidence=cluster_id_by_evidence,
+    )
+    # the REAL resolver attached row["baskets"] with the member_tier carried through.
+    assert biblio and "baskets" in biblio[0]
+    tiers = [m["member_tier"] for m in biblio[0]["baskets"][0]["supporting_members"]]
+    assert tiers == ["ENTAILMENT_VERIFIED", "ENTAILMENT_VERIFIED",
+                     "DETERMINISTIC_ONLY", "UNVERIFIED"]
+
+    # the LIVE render path over the REAL resolver output.
+    blk = sweep._basket_corroboration_block(biblio)
+    assert "2 verified independent source(s)" in blk
+    assert "SUPPORT: https://nejm.org/a (tier T1, weight 0.95)" in blk
+    assert "SUPPORT: https://lancet.com/b (tier T1, weight 0.88)" in blk
+    assert "GROUNDED-BUT-WEAK" in blk and "https://preprint.org/c" in blk
+    assert "SUPPORT: https://preprint.org/c" not in blk      # weak never a support line
+    assert "https://blog.example/d" not in blk               # UNVERIFIED hidden
+    assert "CONTRADICTED" in blk
