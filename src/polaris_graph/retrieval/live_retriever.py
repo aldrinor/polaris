@@ -47,6 +47,7 @@ from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
 from src.polaris_graph.retrieval.query_decomposer import distill_keywords  # FX-18 (#1122)
+from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276): single-sourced shell vocab
 from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
@@ -2932,51 +2933,15 @@ _FORMATTING_NOISE_MARKERS = (
 )
 
 
-# I-run11-010 (#1056, S1): bot-challenge / access-denial stub markers. A publisher 302-redirect to a
-# captcha / "are you a robot" page can pass the length + alpha-ratio checks below (the ScienceDirect
-# stub that admitted the required Elsevier journals to the drb_72 pool was 340 chars, ~55% alpha) and
-# enter the evidence pool as a journal article — so claims "grounded" on it cannot verify. These are
-# VERY specific access-denial phrases (not generic short text), matched case-insensitively, and only
-# applied to SHORT bodies so a full article that merely mentions "captcha" is never false-dropped.
-_ACCESS_DENIAL_MARKERS = (
-    "are you a robot",
-    # Codex #1056 diff-gate P2: require the challenge-PAGE phrasing, not a bare "captcha" mention, so
-    # a short legitimate article/abstract that merely DISCUSSES CAPTCHA is not false-dropped.
-    "captcha challenge",
-    "captcha verification",
-    "complete the captcha",
-    "verify you are human",
-    "verifying you are human",
-    "confirm you are a human",
-    "please confirm you are",
-    "access denied",
-    "enable javascript and cookies",
-    "unusual traffic",
-    "checking your browser",
-    # I-arch-011 BEAT-BOTH RC-C (TI-05/06): the run-#7 killer — a pivotal-RCT span was grounded on a
-    # modern Cloudflare "security verification" interstitial that the prior markers missed (NLI caught
-    # it as "the span is a website security verification page" but only advisory). These are the
-    # current Cloudflare/anti-bot interstitial phrasings, all challenge-PAGE-specific (never real
-    # article prose).
-    "security verification",
-    "review the security of your connection",
-    "needs to review the security",
-    "verifying you are human",
-    "this process is automatic",
-    "请完成",  # CN: "please complete (the verification)"
-    "人机验证",  # CN: "human-machine verification"
-)
+# I-run11-010 (#1056, S1) / RC-C (TI-05/06): bot-challenge / access-denial stub markers + the
+# unambiguous Cloudflare challenge-page co-occurrence signatures. SINGLE-SOURCED in the leaf module
+# ``shell_detector`` (I-beatboth-001 #1276, LAW V: one list so the retrieval-time stub gate and the
+# cited-span faithfulness gate can NEVER drift — the markers were historically bolted on in waves,
+# which is exactly the divergence this consolidation prevents). Re-pointed here as module-level
+# aliases so every existing reference is byte-identical.
+_ACCESS_DENIAL_MARKERS = shell_detector.ACCESS_DENIAL_MARKERS
 _ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
-
-# I-arch-011 RC-C: UNAMBIGUOUS challenge-page signatures that NEVER co-occur in real article prose,
-# so they are safe to match at ANY length (the 3000-char gate let a LONG Cloudflare interstitial /
-# enrichment-concatenated shell through — TI-05/06). Each entry is an ALL-of co-occurrence tuple.
-_CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
-    ("cloudflare", "ray id"),
-    ("cloudflare", "performance & security"),
-    ("cloudflare", "checking if the site connection is secure"),
-    ("ddos protection by", "cloudflare"),
-)
+_CHALLENGE_PAGE_COOCCURRENCE = shell_detector.CHALLENGE_PAGE_COOCCURRENCE
 
 
 def _is_access_denial_stub(content: str) -> bool:
@@ -2984,17 +2949,13 @@ def _is_access_denial_stub(content: str) -> bool:
     content (I-run11-010 #1056 S1; RC-C TI-05/06 extends it). Keys on SPECIFIC access-denial phrases:
     short-body markers fire only on a short body (so a full article that merely quotes one is not
     false-dropped), while the UNAMBIGUOUS Cloudflare co-occurrence signatures fire at ANY length
-    (they never appear in real article prose, so a long challenge/enrichment-shell page is caught)."""
-    if not content:
-        return False
-    low = content.lower()
-    # Unambiguous challenge-page signatures — any length (closes the long-shell gap).
-    if any(all(tok in low for tok in combo) for combo in _CHALLENGE_PAGE_COOCCURRENCE):
-        return True
-    # Specific access-denial phrases — short bodies only (avoid false-dropping a full article).
-    if len(content.strip()) > _ACCESS_DENIAL_MAX_CHARS:
-        return False
-    return any(marker in low for marker in _ACCESS_DENIAL_MARKERS)
+    (they never appear in real article prose, so a long challenge/enrichment-shell page is caught).
+
+    I-beatboth-001 (#1276): delegates to ``shell_detector.is_access_denial_stub`` (the SINGLE
+    source of the vocabulary), passing THIS module's own ``_ACCESS_DENIAL_MAX_CHARS`` so the
+    short-body ceiling stays governed by ``PG_ACCESS_DENIAL_MAX_CHARS`` — byte-identical to the
+    prior inline implementation."""
+    return shell_detector.is_access_denial_stub(content, max_chars=_ACCESS_DENIAL_MAX_CHARS)
 
 
 def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:

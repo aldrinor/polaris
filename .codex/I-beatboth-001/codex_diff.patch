@@ -1,0 +1,1051 @@
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index acf3dd73..57a2075c 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -52,6 +52,15 @@ import unicodedata
+ from dataclasses import dataclass, field
+ from typing import Any, Optional
+ 
++# I-beatboth-001 (#1276): cited-span fetch-shell / boilerplate detector. Pure leaf module
++# (stdlib-only, no network, no heavy deps, no cycle — shell_detector imports nothing from this
++# package), so a module-top import is zero-cost and keeps the dependency direction clean (the
++# verifier must NOT pull the 4712-line live_retriever onto the hot per-sentence path).
++from src.polaris_graph.retrieval.shell_detector import (
++    cited_span_shell_detect_enabled as _cited_span_shell_detect_enabled,
++    is_cited_span_shell as _is_cited_span_shell,
++)
++
+ logger = logging.getLogger("polaris_graph.provenance_generator")
+ 
+ 
+@@ -1850,6 +1859,22 @@ def verify_sentence_provenance(
+                 f"span_invalid:{tok.evidence_id}:{tok.start}-{tok.end}"
+             )
+             continue
++        # I-beatboth-001 (#1276): fetch-shell / web-boilerplate gate. A cited source whose body
++        # is a CAPTCHA / security-verification interstitial, cookie-consent banner, HTTP 404/403
++        # page, language-nav menu, citation-UI chrome, or social-media boilerplate can NEVER
++        # ground a clinical claim — the run-#7 P0-1 leak (the 476-char Lancet CAPTCHA span
++        # grounding 6 units passed because the prose verbatim-copied the junk = the self-citation
++        # hole). Checked on the FULL ``direct_quote`` (a shell grounds nothing regardless of which
++        # sub-span the token cites), fail-closed exactly like ``span_out_of_bounds``: the failure
++        # goes non-empty and ``valid_token_found`` is NOT set, so the sentence drops and a shell
++        # can never ride on a real co-token. Faithfulness-TIGHTENING only; default-on, reverts
++        # byte-identical under PG_CITED_SPAN_SHELL_DETECT=0. This propagates to every render path
++        # (SUPPORTS-only enrichment surfacing, verified_support_origin_count, basket_verdict)
++        # through the existing verify wiring — no separate render filter (a weight_mass<=0 DROP
++        # would violate §-1.3: a legit unrated/judge-off T1 source can carry weight_mass=0).
++        if _cited_span_shell_detect_enabled() and _is_cited_span_shell(direct_quote):
++            failures.append(f"fetch_shell_cited_span:{tok.evidence_id}")
++            continue
+         valid_token_found = True
+         span_text = direct_quote[tok.start:tok.end]
+         span_stripped = _strip_dose_patterns(span_text)
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index f491386f..a21ac96d 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -47,6 +47,7 @@ from src.polaris_graph.retrieval.scope_query_validator import (
+     validate_amplified_queries,
+ )
+ from src.polaris_graph.retrieval.query_decomposer import distill_keywords  # FX-18 (#1122)
++from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276): single-sourced shell vocab
+ from src.polaris_graph.authority.authority_model import score_source_authority
+ from src.polaris_graph.authority.source_class import AuthoritySignals
+ from src.polaris_graph.retrieval.tier_classifier import (
+@@ -2932,51 +2933,15 @@ _FORMATTING_NOISE_MARKERS = (
+ )
+ 
+ 
+-# I-run11-010 (#1056, S1): bot-challenge / access-denial stub markers. A publisher 302-redirect to a
+-# captcha / "are you a robot" page can pass the length + alpha-ratio checks below (the ScienceDirect
+-# stub that admitted the required Elsevier journals to the drb_72 pool was 340 chars, ~55% alpha) and
+-# enter the evidence pool as a journal article — so claims "grounded" on it cannot verify. These are
+-# VERY specific access-denial phrases (not generic short text), matched case-insensitively, and only
+-# applied to SHORT bodies so a full article that merely mentions "captcha" is never false-dropped.
+-_ACCESS_DENIAL_MARKERS = (
+-    "are you a robot",
+-    # Codex #1056 diff-gate P2: require the challenge-PAGE phrasing, not a bare "captcha" mention, so
+-    # a short legitimate article/abstract that merely DISCUSSES CAPTCHA is not false-dropped.
+-    "captcha challenge",
+-    "captcha verification",
+-    "complete the captcha",
+-    "verify you are human",
+-    "verifying you are human",
+-    "confirm you are a human",
+-    "please confirm you are",
+-    "access denied",
+-    "enable javascript and cookies",
+-    "unusual traffic",
+-    "checking your browser",
+-    # I-arch-011 BEAT-BOTH RC-C (TI-05/06): the run-#7 killer — a pivotal-RCT span was grounded on a
+-    # modern Cloudflare "security verification" interstitial that the prior markers missed (NLI caught
+-    # it as "the span is a website security verification page" but only advisory). These are the
+-    # current Cloudflare/anti-bot interstitial phrasings, all challenge-PAGE-specific (never real
+-    # article prose).
+-    "security verification",
+-    "review the security of your connection",
+-    "needs to review the security",
+-    "verifying you are human",
+-    "this process is automatic",
+-    "请完成",  # CN: "please complete (the verification)"
+-    "人机验证",  # CN: "human-machine verification"
+-)
++# I-run11-010 (#1056, S1) / RC-C (TI-05/06): bot-challenge / access-denial stub markers + the
++# unambiguous Cloudflare challenge-page co-occurrence signatures. SINGLE-SOURCED in the leaf module
++# ``shell_detector`` (I-beatboth-001 #1276, LAW V: one list so the retrieval-time stub gate and the
++# cited-span faithfulness gate can NEVER drift — the markers were historically bolted on in waves,
++# which is exactly the divergence this consolidation prevents). Re-pointed here as module-level
++# aliases so every existing reference is byte-identical.
++_ACCESS_DENIAL_MARKERS = shell_detector.ACCESS_DENIAL_MARKERS
+ _ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
+-
+-# I-arch-011 RC-C: UNAMBIGUOUS challenge-page signatures that NEVER co-occur in real article prose,
+-# so they are safe to match at ANY length (the 3000-char gate let a LONG Cloudflare interstitial /
+-# enrichment-concatenated shell through — TI-05/06). Each entry is an ALL-of co-occurrence tuple.
+-_CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
+-    ("cloudflare", "ray id"),
+-    ("cloudflare", "performance & security"),
+-    ("cloudflare", "checking if the site connection is secure"),
+-    ("ddos protection by", "cloudflare"),
+-)
++_CHALLENGE_PAGE_COOCCURRENCE = shell_detector.CHALLENGE_PAGE_COOCCURRENCE
+ 
+ 
+ def _is_access_denial_stub(content: str) -> bool:
+@@ -2984,17 +2949,13 @@ def _is_access_denial_stub(content: str) -> bool:
+     content (I-run11-010 #1056 S1; RC-C TI-05/06 extends it). Keys on SPECIFIC access-denial phrases:
+     short-body markers fire only on a short body (so a full article that merely quotes one is not
+     false-dropped), while the UNAMBIGUOUS Cloudflare co-occurrence signatures fire at ANY length
+-    (they never appear in real article prose, so a long challenge/enrichment-shell page is caught)."""
+-    if not content:
+-        return False
+-    low = content.lower()
+-    # Unambiguous challenge-page signatures — any length (closes the long-shell gap).
+-    if any(all(tok in low for tok in combo) for combo in _CHALLENGE_PAGE_COOCCURRENCE):
+-        return True
+-    # Specific access-denial phrases — short bodies only (avoid false-dropping a full article).
+-    if len(content.strip()) > _ACCESS_DENIAL_MAX_CHARS:
+-        return False
+-    return any(marker in low for marker in _ACCESS_DENIAL_MARKERS)
++    (they never appear in real article prose, so a long challenge/enrichment-shell page is caught).
++
++    I-beatboth-001 (#1276): delegates to ``shell_detector.is_access_denial_stub`` (the SINGLE
++    source of the vocabulary), passing THIS module's own ``_ACCESS_DENIAL_MAX_CHARS`` so the
++    short-body ceiling stays governed by ``PG_ACCESS_DENIAL_MAX_CHARS`` — byte-identical to the
++    prior inline implementation."""
++    return shell_detector.is_access_denial_stub(content, max_chars=_ACCESS_DENIAL_MAX_CHARS)
+ 
+ 
+ def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
+diff --git a/src/polaris_graph/retrieval/shell_detector.py b/src/polaris_graph/retrieval/shell_detector.py
+new file mode 100644
+index 00000000..44df83cc
+--- /dev/null
++++ b/src/polaris_graph/retrieval/shell_detector.py
+@@ -0,0 +1,366 @@
++"""I-beatboth-001 (#1276) — fetch-shell / web-boilerplate detector (pure leaf module).
++
++WHY THIS EXISTS
++---------------
++run7 (drb_78 Parkinson's/DBS) shipped junk web-boilerplate spans as VERIFIED cited
++clinical findings (state/beatboth_campaign/PHASE1_ISSUES.md P0-1): a 476-char CAPTCHA /
++Cloudflare "Just a moment… Performing security verification… verifies you are not a bot"
++page grounded 6 top-of-report units, plus cookie-consent banners, an HTTP 404, a
++language-picker nav menu, citation-manager UI chrome ("Download Citation"/CrossRef), and
++YouTube related-video sidebars — all rendered as corroborated findings. They passed because
++the report prose verbatim-copies the junk span, so the numeric/content-overlap/entailment
++checks trivially hold (the "self-citation hole"). This is the I-bug-775 fetch-shell class.
++
++The existing ``live_retriever._is_access_denial_stub`` / ``is_content_starved`` runs at
++RETRIEVAL / refetch time on the full fetched body. But a shell already in the corpus (or a
++shell reloaded UNTOUCHED on resume — resume_refetch.py STILL-SHELL) never gets re-checked at
++the per-cited-span faithfulness gate (``verify_sentence_provenance``). This module is the
++single source of truth for shell vocabulary so the SAME detector covers both layers (LAW V:
++one list, no drift — the markers were historically bolted on in waves I-run11-010 then RC-C,
++which is exactly the divergence this consolidation prevents).
++
++POSTURE (binding)
++-----------------
++* STRICTER gate only — a shell can NEVER ground a claim; it is fail-closed in
++  ``verify_sentence_provenance``. Faithfulness is TIGHTENED, never relaxed.
++* DETERMINISTIC + pure: no LLM, no network, no row mutation. snake_case, LAW VI env knobs.
++* HIGH-PRECISION: every default-on marker is either a challenge-PAGE-specific phrase that
++  never appears in real article prose, or an ALL-of co-occurrence tuple. A loose phrase that
++  could appear in a legitimate clinical/methods/bibliography span is gated to a SHORT body
++  (so a full article that merely mentions the word is never false-dropped) — a false-drop
++  would itself be a §-1.3 breadth loss.
++"""
++
++from __future__ import annotations
++
++import os
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Shell vocabulary — THE single source of truth (LAW V). ``live_retriever``'s
++# constants re-point here; do not redefine them there.
++# ─────────────────────────────────────────────────────────────────────────────
++
++# Bot-challenge / access-denial markers (I-run11-010 #1056 S1; RC-C TI-05/06). VERY specific
++# access-denial phrasing — applied only to a SHORT body so a full article that merely quotes
++# one is never false-dropped.
++ACCESS_DENIAL_MARKERS: tuple[str, ...] = (
++    "are you a robot",
++    "captcha challenge",
++    "captcha verification",
++    "complete the captcha",
++    "verify you are human",
++    "verifying you are human",
++    "confirm you are a human",
++    "please confirm you are",
++    "access denied",
++    "enable javascript and cookies",
++    "unusual traffic",
++    "checking your browser",
++    # Modern Cloudflare / anti-bot interstitial phrasings (challenge-PAGE-specific).
++    "security verification",
++    "review the security of your connection",
++    "needs to review the security",
++    "this process is automatic",
++    "请完成",  # CN: "please complete (the verification)"
++    "人机验证",  # CN: "human-machine verification"
++)
++
++# UNAMBIGUOUS challenge-page signatures that NEVER co-occur in real article prose, safe to
++# match at ANY length (a long Cloudflare interstitial / enrichment-concatenated shell). Each
++# entry is an ALL-of co-occurrence tuple.
++CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
++    ("cloudflare", "ray id"),
++    ("cloudflare", "performance & security"),
++    ("cloudflare", "checking if the site connection is secure"),
++    ("ddos protection by", "cloudflare"),
++    # I-beatboth-001: the run-#7 anchor — "Just a moment..." + "security verification" +
++    # "you are not a bot" is the exact Lancet CAPTCHA span (drb_78 key=625). ALL-of, so a real
++    # article discussing bot detection cannot trip it.
++    ("just a moment", "this page is displayed while the website verifies you are not a bot"),
++    ("performing security verification", "protect against malicious bots"),
++)
++
++# I-beatboth-001 iter-2 (replay-found on the real drb_78 corpus) — ADDITIONAL any-length signatures
++# consumed ONLY by the cited-span gate ``is_cited_span_shell`` (NOT by the retrieval-time
++# ``is_access_denial_stub`` — kept separate so the retrieval gate stays byte-identical per the
++# patch's stated invariant). The crawler HTTP-error shell wrapper: the fetch layer emits "Target
++# URL returned error <4xx/5xx>" ONLY for an error page; paired ALL-of with "not found" this is a
++# fetch-shell artifact that NEVER appears in genuine article prose. Verified across all 794 drb_78
++# rows: fires on exactly the 2 real 404 shells (ev_540 @1500, ev_717 @6639) and ZERO real articles
++# — empirical proof it is safe at ANY length, closing the run-#7 leak where the 6639-char
++# conference-404 nav-page passed the short-body gate.
++CITED_SPAN_ANY_LENGTH_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
++    ("target url returned error", "not found"),
++)
++
++# I-beatboth-001 — ADDITIONAL high-precision chrome shell classes beyond bot-walls. Each is an
++# ALL-of co-occurrence tuple so it is chrome-specific and cannot fire on a clinical span that
++# merely contains one of the words (the adversarial negatives: a methods span with
++# "verification", a bibliography span with "crossref", a nutrition span with "cookie").
++#
++# PRECISION (I-beatboth-001 iter-2, Codex P1 #1): these chrome co-occurrence tuples are SHORT-BODY
++# ONLY — they do NOT fire at any length. Codex's finding establishes that these phrases ("we use
++# cookies"+"accept all", "download citation"+"crossref", …) DO appear in long real article bodies
++# (verified on the real drb_78 corpus: ev_694/ev_679/ev_295/ev_693 are genuine DBS/Parkinson's
++# articles carrying an incidental cookie / download-citation footer). There is therefore NO safe
++# length-agnostic firing of these classes — distinguishing a verbose all-chrome page from a long
++# article that discusses cookie policy needs content classification (alpha-ratio / NLI), which the
++# pipeline already does at other layers, not a string heuristic here. So a chrome class fires ONLY
++# on a SHORT body (the chrome IS the whole page); above the ceiling it does not fire and the long
++# real article passes. The unambiguous bot-wall / crawler-error ``CHALLENGE_PAGE_COOCCURRENCE``
++# signatures above remain any-length — those phrases never occur in real article prose.
++SHELL_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
++    # Cookie-consent banners (NOT a bibliography line that says "cookie"): the consent CTA +
++    # the policy/preferences chrome must co-occur.
++    ("we use cookies", "accept all"),
++    ("this website uses cookies", "cookie policy"),
++    ("manage your cookie preferences", "accept"),
++    ("cookies to improve your experience", "accept"),
++    # Citation-manager / publisher UI chrome rendered as a "finding" (P1-10 metadata-as-claim:
++    # CrossRef/Scite "Download Citation" website chrome). The download CTA + the manager names.
++    ("download citation", "crossref"),
++    ("export citation", "endnote"),
++    ("add to citation manager", "mendeley"),
++    ("track citations", "crossref"),
++    # Social-media boilerplate sidebars (YouTube related-video chrome, comment-wall footers).
++    ("new comments cannot be posted", "votes cannot be cast"),
++    ("subscribe", "watch later", "share"),
++    ("autoplay is paused", "up next"),
++)
++
++# Single-phrase shell markers that ARE challenge/error/chrome-specific but might appear in a
++# longer legitimate page, so they fire ONLY on a SHORT body (same safety shape as
++# ACCESS_DENIAL_MARKERS). Default-on is justified because each phrase is page-chrome that never
++# constitutes a clinical claim AND the short-body gate prevents false-dropping a real article.
++SHORT_BODY_SHELL_MARKERS: tuple[str, ...] = (
++    # HTTP error / not-found landing pages.
++    "404 not found",
++    "404 - not found",
++    "page not found",
++    "403 forbidden",
++    "error 404",
++    "error 403",
++    "the requested url was not found",
++    "this page could not be found",
++    "pàgina no trobada",  # CA: "page not found" (the run-#7 Catalan 404)
++    "página no encontrada",  # ES: "page not found"
++    # Language-selector / nav-only pages (a bare list of language names is not article prose).
++    "select your language",
++    "choose your language",
++    # Subscription / paywall interstitials with no body.
++    "subscribe to continue reading",
++    "to continue reading this article",
++    "create a free account to continue",
++)
++
++# I-beatboth-001 iter-2 (Codex P1 #2): the subset of single phrases that are NOT shell-specific
++# enough to fail-close a cited span on their own. Each of these can appear ONCE inside a
++# legitimate short abstract / methods / nav-bearing real page, so the cited-span gate requires
++# them to be CORROBORATED — fire only when (a) ANOTHER independent shell signal co-occurs
++# (multi-signal), OR (b) the body is VERY short (a bare stub page, governed by a much tighter
++# ceiling than the 3000-char one used for the unambiguous strong phrases). A real 1500-char
++# abstract that says "access denied" once trips neither clause and passes. Drawn from
++# ACCESS_DENIAL_MARKERS / SHORT_BODY_SHELL_MARKERS — this is a VIEW for the cited-span gate's
++# precision logic, NOT a separate vocabulary (LAW V: the strings still live in the shared tuples,
++# so the retrieval-time ``is_access_denial_stub`` stays byte-identical).
++AMBIGUOUS_SHELL_PHRASES: frozenset[str] = frozenset(
++    {
++        "access denied",  # legit: "access denied to the dataset was reported in 12% of cases"
++        "security verification",  # legit: a methods span describing outcome/security verification
++        "this process is automatic",  # legit: prose describing an automated clinical workflow
++        "change language",  # legit: nav chrome word; appears in real multilingual pages
++    }
++)
++
++# LAW VI — env knobs, no magic numbers.
++# Master kill-switch for the CITED-SPAN shell gate in verify_sentence_provenance. Default ON
++# (this is a faithfulness-TIGHTENING gate); set PG_CITED_SPAN_SHELL_DETECT=0 to revert to the
++# byte-identical pre-#1276 behaviour (a shell span verifies on numeric/content overlap as before).
++_ENV_ENABLED = "PG_CITED_SPAN_SHELL_DETECT"
++_OFF_VALUES = frozenset({"0", "false", "off", "no", "disabled"})
++
++# Max body length at which a STRONG (unambiguous) short-body single-phrase marker may fire (the
++# bot-wall + http-error + nav classes). A real article body is far longer; this guards against
++# false-dropping a full article that merely quotes one phrase. Shared default with live_retriever's
++# prior 3000.
++_ENV_SHORT_BODY_MAX = "PG_SHELL_SHORT_BODY_MAX_CHARS"
++_DEFAULT_SHORT_BODY_MAX = 3000
++
++# I-beatboth-001 iter-2 — chrome ceiling for the SHELL_COOCCURRENCE classes (cookie / citation-UI /
++# social). A genuine chrome shell is SHORT — a near-empty page whose whole body IS the widget
++# (verified on the real drb_78 corpus: the genuine chrome shells are <=1500 chars, while the rows
++# >800 carrying the same vocab are real articles with an incidental footer). A chrome class fires
++# ONLY when the body is at or under this ceiling; above it the class does NOT fire and the long
++# real article passes (no pure-string test can safely re-fire these on a long body — see the
++# SHELL_COOCCURRENCE comment). This is a plain length gate, deliberately NOT a "dominance ratio":
++# the ratio approach was dead code (matched-marker length can never reach 50% of an >800-char body)
++# AND, per Codex P1 #1, no length-agnostic firing of these classes is safe.
++_ENV_CHROME_MAX = "PG_SHELL_CHROME_MAX_CHARS"
++_DEFAULT_CHROME_MAX = 800
++
++# I-beatboth-001 iter-2 — the much-tighter ceiling under which a single AMBIGUOUS phrase may fire
++# WITHOUT a corroborating second signal (a bare "Access Denied" stub page is tiny). A real
++# abstract that says "access denied" once is well above this, so it is never false-dropped on a
++# single ambiguous phrase.
++_ENV_AMBIGUOUS_SHORT_BODY_MAX = "PG_SHELL_AMBIGUOUS_SHORT_BODY_MAX_CHARS"
++_DEFAULT_AMBIGUOUS_SHORT_BODY_MAX = 200
++
++
++def cited_span_shell_detect_enabled() -> bool:
++    """True (default) ⇒ the cited-span shell gate fires in ``verify_sentence_provenance``.
++
++    ``PG_CITED_SPAN_SHELL_DETECT=0`` (or off/false/no/disabled) ⇒ byte-identical pre-#1276
++    behaviour. Read at call time so tests toggle without re-import.
++    """
++    return os.environ.get(_ENV_ENABLED, "1").strip().lower() not in _OFF_VALUES
++
++
++def _env_int(name: str, default: int) -> int:
++    """Read a positive int env knob (LAW VI). A bad/empty/non-positive value falls back to the
++    safe default — never an unbounded ceiling that would let a long shell through, never a tiny
++    one that would over-fire on a clinical abstract."""
++    try:
++        value = int(os.environ.get(name, default) or default)
++    except (TypeError, ValueError):
++        return default
++    return value if value > 0 else default
++
++
++def _short_body_max_chars() -> int:
++    """The body-length ceiling under which STRONG short-body single-phrase markers may fire."""
++    return _env_int(_ENV_SHORT_BODY_MAX, _DEFAULT_SHORT_BODY_MAX)
++
++
++def _chrome_max_chars() -> int:
++    """The body-length ceiling under which a SHELL_COOCCURRENCE chrome class may fire (short-body
++    only — above this a long real article carrying the same chrome vocab must pass)."""
++    return _env_int(_ENV_CHROME_MAX, _DEFAULT_CHROME_MAX)
++
++
++def _ambiguous_short_body_max_chars() -> int:
++    """The much-tighter ceiling under which a single AMBIGUOUS phrase may fire without a co-signal."""
++    return _env_int(_ENV_AMBIGUOUS_SHORT_BODY_MAX, _DEFAULT_AMBIGUOUS_SHORT_BODY_MAX)
++
++
++def is_access_denial_stub(content: str, *, max_chars: int | None = None) -> bool:
++    """True if ``content`` looks like a bot-challenge / access-denial page rather than article
++    content. Mirrors the prior ``live_retriever._is_access_denial_stub`` byte-for-byte (the
++    short-body markers fire only on a short body; the unambiguous Cloudflare co-occurrence
++    signatures fire at any length), so re-pointing live_retriever here is behaviour-preserving.
++    """
++    if not content:
++        return False
++    low = content.lower()
++    if any(all(tok in low for tok in combo) for combo in CHALLENGE_PAGE_COOCCURRENCE):
++        return True
++    ceiling = max_chars if max_chars is not None else _short_body_max_chars()
++    if len(content.strip()) > ceiling:
++        return False
++    return any(marker in low for marker in ACCESS_DENIAL_MARKERS)
++
++
++def _chrome_class_present(low: str, body_len: int) -> bool:
++    """I-beatboth-001 iter-2 (Codex P1 #1) — True iff a SHELL_COOCCURRENCE chrome class is present
++    AND the body is SHORT enough to be the chrome page itself. A genuine cookie / citation-UI /
++    social chrome shell is a near-empty page whose whole body IS the widget; a long real article
++    merely carries an incidental footer. Per Codex's finding these chrome phrases DO appear in long
++    real article bodies, so there is no safe length-agnostic firing — the class fires ONLY on a
++    short body. Above the ceiling the long real article passes (no false-drop = no §-1.3 breadth
++    loss). This is a plain length gate, NOT a ratio: a ratio of matched-marker length to body length
++    can never exceed 50% of an >800-char body (dead code), and no string ratio can distinguish a
++    verbose all-chrome page from a long article discussing cookie policy — that needs the
++    content/NLI classification the pipeline already applies at other layers."""
++    if body_len > _chrome_max_chars():
++        return False
++    return any(all(tok in low for tok in combo) for combo in SHELL_COOCCURRENCE)
++
++
++def _ambiguous_phrase_fires(low: str, body_len: int) -> bool:
++    """I-beatboth-001 iter-2 (Codex P1 #2) — True iff an AMBIGUOUS single phrase ("access denied",
++    "security verification", "this process is automatic", "change language") may fail-close a cited
++    span. These are NOT shell-specific enough alone, so they require CORROBORATION: fire only when
++    (a) a SECOND independent shell signal co-occurs (multi-signal), OR (b) the body is VERY short (a
++    bare stub page, a much tighter ceiling than the strong-phrase 3000). A real abstract that says
++    "access denied" once is above the tight ceiling and carries no second signal, so it passes."""
++    present = [phrase for phrase in AMBIGUOUS_SHELL_PHRASES if phrase in low]
++    if not present:
++        return False
++    # (b) bare stub page — very short body, a single ambiguous phrase is enough.
++    if body_len <= _ambiguous_short_body_max_chars():
++        return True
++    # (a) multi-signal — a SECOND, independent shell signal must co-occur, AND the body must be
++    # SHORT. Every corroboration branch is bounded by ``_short_body_max_chars()`` for the SAME reason
++    # as the main path (Codex P1 #1): otherwise a long real article that happens to carry two
++    # ambiguous phrases (plausible once generalized off-clinical: a security/IT/systems-methods paper
++    # using "access denied" + "security verification"), or one ambiguous phrase plus an incidental
++    # cookie footer, would be false-dropped here at ANY length — re-opening exactly the finding the
++    # main path closed. A genuine corroborated stub is short; a long real article is not.
++    if body_len > _short_body_max_chars():
++        return False
++    # second signal: another ambiguous phrase, a strong access-denial marker, an HTTP/nav marker, or
++    # a (short-body) chrome class. A lone ambiguous phrase in a real short abstract trips none of it.
++    if len(present) >= 2:
++        return True
++    strong_denial = [m for m in ACCESS_DENIAL_MARKERS if m not in AMBIGUOUS_SHELL_PHRASES]
++    if any(marker in low for marker in strong_denial):
++        return True
++    if any(marker in low for marker in SHORT_BODY_SHELL_MARKERS):
++        return True
++    if _chrome_class_present(low, body_len):
++        return True
++    return False
++
++
++def is_cited_span_shell(direct_quote: str) -> bool:
++    """I-beatboth-001 (#1276) — True iff the cited source body is a fetch-shell / web-boilerplate
++    page that can NEVER ground a clinical claim (CAPTCHA / security-verification interstitial,
++    cookie-consent, HTTP 404/403, language-nav, citation-UI chrome, social-media boilerplate).
++
++    DETERMINISTIC + HIGH-PRECISION (iter-2 hardening, Codex 2×P1):
++      * The unambiguous any-length signatures — ``CHALLENGE_PAGE_COOCCURRENCE`` (bot-wall, shared
++        with the retrieval gate) and ``CITED_SPAN_ANY_LENGTH_COOCCURRENCE`` (crawler HTTP-error
++        wrapper, cited-span-only) — NEVER occur in real article prose, so they fire at ANY length
++        (the 476-char run-#7 CAPTCHA span and the 6639-char conference-404 shell are both caught).
++      * The chrome ``SHELL_COOCCURRENCE`` classes (cookie / citation-UI / social) fire ONLY on a
++        SHORT body (``_chrome_class_present``). Per Codex P1 #1 these phrases DO appear in long real
++        article bodies (the drb_78 corpus has 4 such genuine articles), so an incidental cookie
++        footer / citation widget inside a long real article is NOT a shell and passes.
++      * STRONG single-phrase markers (unambiguous bot-wall / http-error / nav / paywall) fire on a
++        SHORT body. AMBIGUOUS phrases ("access denied", "security verification", "this process is
++        automatic", "change language") require CORROBORATION — a second shell signal, or a
++        much-shorter body — so a legit short abstract mentioning one of them once is NOT dropped
++        (Codex P1 #2).
++
++    A false-drop is itself a §-1.3 breadth loss, so the bias is toward PASS unless the body is
++    clearly a shell. Used fail-closed in ``verify_sentence_provenance`` on each cited token's source
++    ``direct_quote`` — a token whose source is a shell fails exactly like ``span_out_of_bounds``, so
++    the sentence drops and the shell can never ride on a real co-token. This propagates to every
++    render path (the SUPPORTS-only enrichment surfacing, ``verified_support_origin_count``,
++    ``basket_verdict``) through the existing verify wiring; no separate render filter is needed.
++    """
++    if not direct_quote:
++        return False
++    low = direct_quote.lower()
++    body_len = len(direct_quote.strip())
++    # ANY-length unambiguous signatures: bot-wall challenge pages (shared with the retrieval gate)
++    # + the cited-span-only crawler HTTP-error wrappers (never appear in real article prose).
++    for combo in (*CHALLENGE_PAGE_COOCCURRENCE, *CITED_SPAN_ANY_LENGTH_COOCCURRENCE):
++        if all(tok in low for tok in combo):
++            return True
++    # Chrome co-occurrence classes (cookie / citation-UI / social) — SHORT-body only (Codex P1 #1):
++    # a long real article carrying the same chrome vocab as an incidental footer is NOT a shell.
++    if _chrome_class_present(low, body_len):
++        return True
++    # STRONG short-body single-phrase markers (bot-wall, http-error, nav, paywall): fire only on a
++    # short body so a real article is never false-dropped on a single incidental phrase. AMBIGUOUS
++    # phrases are EXCLUDED here — they go through the corroboration path below.
++    if body_len <= _short_body_max_chars():
++        strong_denial = [m for m in ACCESS_DENIAL_MARKERS if m not in AMBIGUOUS_SHELL_PHRASES]
++        if any(marker in low for marker in strong_denial):
++            return True
++        if any(marker in low for marker in SHORT_BODY_SHELL_MARKERS):
++            return True
++    # AMBIGUOUS single phrases — corroborated multi-signal OR very-short-body only (Codex P1 #2).
++    if _ambiguous_phrase_fires(low, body_len):
++        return True
++    return False
+diff --git a/tests/polaris_graph/generator/test_fetch_shell_cited_span_ibeatboth001.py b/tests/polaris_graph/generator/test_fetch_shell_cited_span_ibeatboth001.py
+new file mode 100644
+index 00000000..256524ad
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_fetch_shell_cited_span_ibeatboth001.py
+@@ -0,0 +1,533 @@
++"""I-beatboth-001 (#1276) — behavioral fail-loud test for the cited-span fetch-shell gate.
++
++§-1.4 behavioral acceptance: the effect must APPEAR in the real output path, not just a leaf
++unit. These tests prove, on the ACTUAL run-#7 [1] CAPTCHA span (drb_78 corpus, ev_128, 476
++chars), that:
++  1. the detector flags it AND a claim grounded on it FAILS verify_sentence_provenance
++     (the run-#7 self-citation hole — prose verbatim-copies the junk span — is now closed);
++  2. it propagates to the render gate: the shell member's isolated span_verdict is UNSUPPORTED,
++     it is ABSENT from select_unbound_supports_by_weight (the "Corroborated Weighted Findings"
++     surfacing) and never increments verified_support_origin_count — no weight_mass<=0 filter;
++  3. NORMAL real clinical spans STILL pass, including adversarial-borderline tokens (a methods
++     span with "verification", a bibliography span with "CrossRef", a nutrition span with
++     "cookie"): the gate is high-precision, never a §-1.3 breadth loss;
++  4. PG_CITED_SPAN_SHELL_DETECT=0 reverts to byte-identical legacy behaviour.
++
++The gate is faithfulness-TIGHTENING (junk rejected) — it never relaxes strict_verify / NLI /
++4-role / provenance.
++
++FAITHFULNESS DIRECTION (iter-2, anchored to the merge base = HEAD, which has NO cited-span shell
++gate): this change is STRICTLY TIGHTENING vs HEAD. Every shell catch here is NEW; ZERO
++previously-caught shells regress (at HEAD nothing was caught at this layer). The iter-2 precision
++work additionally STOPS 4 real false-drops (real DBS/Parkinson's articles ev_694/ev_679/ev_295/
++ev_693 that carry an incidental cookie / download-citation footer), which the iter-1 any-length
++chrome firing would have wrongly dropped — false-drops are themselves a §-1.3 breadth loss.
++
++CEDED-BY-DESIGN (disclosed, NOT a relaxation — none were caught at HEAD): a handful of real
++drb_78 shells are STRING-INDISTINGUISHABLE from legitimate short abstracts/articles, so a
++deterministic string gate cannot net them without re-introducing false-drops (the exact P1 #1
++defect). These are deliberately left to the relevance / NLI / strict_verify layers (§-1.3: the
++faithfulness engine is the hard gate, not a string list), captured as a follow-up issue:
++  * ev_689 — 1500-char CrossRef/Scite citation-manager chrome page (>800, identical in form to the
++    ``bibliography_with_crossref`` legit negative; also off-topic → relevance-gate's job).
++  * ev_715 / ev_109 / ev_272 — 559-char cookie-consent banners whose phrasing ("utilizes
++    technologies such as cookies" + "accept the default settings") does not match the exact
++    co-occurrence tuples; adding more phrasings is the §-1.3-banned whack-a-mole.
++  * ev_082 / ev_671 — 602/693-char content-starved abstract SKELETONS ("Abstract Objective:
++    Background: Methods: Results: Conclusions:" + incidental CrossRef text); their defect is
++    empty-section, which is ``is_content_starved``'s retrieval-layer job, not a shell-vocab match.
++NOTE on render-dump indices: the PHASE1_ISSUES P0-1 ``[424]/[440]/[448]`` (YouTube) and ``[612]``
++(language-nav) are ``live_corpus_dump.json`` render indices, not ``evidence_for_gen`` ev_ids — no
++YouTube / language-selector shell rows exist in this corpus snapshot (0 of 794), so they cannot be
++asserted here; that boundary is stated explicitly rather than left silently unchecked.
++
++CI vs LOCAL coverage (honesty): the drb_78 ``corpus_snapshot.json`` lives under ``outputs/`` which
++is gitignored (CLAUDE.md §5), so the ``test_iter2_real_corpus_*`` block ``pytest.skip``s when the
++snapshot is absent — it is LOCAL replay proof, not CI-enforced. The CI-ENFORCED guarantee is the
++SYNTHETIC cases (the CAPTCHA reject, ``long_article_with_cookie_footer`` / ``..._download_citation``
++/ ``abstract_with_access_denied_once`` not-shell, the ambiguous short-vs-long pair, the kill-switch)
++— they encode the SAME behaviors and run unconditionally.
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.generator.provenance_generator import verify_sentence_provenance
++from src.polaris_graph.retrieval.shell_detector import (
++    is_access_denial_stub,
++    is_cited_span_shell,
++)
++
++# ── The ACTUAL run-#7 [1] CAPTCHA span (drb_78 corpus_snapshot, ev_128, 476 chars). This is the
++# Lancet DBS-RCT anchor (doi 10.1016/s0140-6736(21)00218-x) that grounded 6 top-of-report units. ──
++RUN7_CAPTCHA_SPAN = (
++    "Title: Just a moment... URL Source: https://doi.org/10.1016/s0140-6736(21)00218-x "
++    "Warning: This page maybe requiring CAPTCHA, please make sure you are authorized to access "
++    "this page. Markdown Content: ![Image 1: Icon for www.thelancet.com]"
++    "(https://www.thelancet.com/favicon.ico) ## www.thelancet.com ## Performing security "
++    "verification This website uses a security service to protect against malicious bots. This "
++    "page is displayed while the website verifies you are not a bot."
++)
++
++# ── Adversarial NEGATIVES: real clinical spans that CONTAIN a borderline shell token but are
++# legitimate article prose. They MUST pass (a false-drop is a §-1.3 breadth loss). ──
++LEGIT_METHODS_SPAN = (
++    "In this randomized controlled trial, deep brain stimulation of the subthalamic nucleus "
++    "reduced motor symptoms by 9.5 points; outcome verification was performed by blinded "
++    "assessors using the UPDRS scale across 156 patients over 24 months of follow-up."
++)
++LEGIT_BIBLIOGRAPHY_SPAN = (
++    "Kocabicak E, Alptekin O. References are indexed in CrossRef and PubMed with full citation "
++    "metadata. Deep brain stimulation improved quality of life in advanced Parkinson disease "
++    "patients, as reported in this Movement Disorders systematic review of 1240 participants."
++)
++LEGIT_NUTRITION_SPAN = (
++    "A Mediterranean diet rich in antioxidants may slow neurodegeneration; one cohort study of "
++    "240 elderly adults that included a cookie-baking adherence intervention found a 3.4 point "
++    "cognitive benefit over 12 months relative to the control group."
++)
++
++# ── I-beatboth-001 iter-2 (Codex 2×P1) adversarial NEGATIVES: the EXACT false-drop scenarios
++# Codex named. A long real article body that incidentally carries page-chrome (cookie footer /
++# publisher "download citation" widget) is NOT a shell; a legit short abstract that says an
++# ambiguous phrase ("access denied") ONCE with no second shell signal is NOT a shell. These MUST
++# pass — a false-drop is a §-1.3 breadth loss. Built to genuinely EXCEED the chrome-dominance
++# ceiling (so they exercise the new dominance logic, not the old length gate). ──
++
++# A ~3.6k-char real Parkinson's/DBS article body with a cookie-consent footer appended. The cookie
++# co-occurrence ("we use cookies" + "accept all") matches but is a tiny incidental fraction of a
++# long real body, so chrome-dominance must NOT fire.
++_REAL_ARTICLE_PROSE = (
++    "Deep brain stimulation of the subthalamic nucleus is an established therapy for advanced "
++    "Parkinson disease. In this multicentre randomized controlled trial, 156 patients with motor "
++    "fluctuations were assigned to bilateral subthalamic stimulation or best medical therapy and "
++    "followed for 24 months. The primary outcome was the change in motor symptoms measured on the "
++    "Unified Parkinson Disease Rating Scale part III in the practically defined off-medication "
++    "state. Stimulation reduced motor symptoms by 9.5 points relative to a 1.2 point change in the "
++    "medical therapy group, a between-group difference that was both statistically significant and "
++    "clinically meaningful. Quality of life on the PDQ-39 summary index improved by 7.8 points in "
++    "the stimulation group. Dyskinesia duration fell from 4.2 to 1.6 hours per day and the daily "
++    "off time decreased by 3.1 hours. Adverse events included three intracerebral haemorrhages and "
++    "transient dysarthria; serious device-related events occurred in 8 percent of participants. "
++    "Cognitive outcomes were stable across the cohort with no significant decline on the Mattis "
++    "Dementia Rating Scale. The investigators concluded that subthalamic stimulation provides a "
++    "durable motor benefit and improved quality of life over best medical therapy in carefully "
++    "selected patients with advanced Parkinson disease and disabling motor complications, while "
++    "noting that surgical and stimulation-related adverse events require an experienced "
++    "multidisciplinary team and careful patient selection to mitigate. Long-term follow-up data "
++    "from the same cohort confirmed persistence of the motor benefit at five years, with attenuated "
++    "but maintained quality-of-life gains and no unexpected late safety signals across the surgical "
++    "and neurostimulation domains evaluated in the extension phase of the trial."
++) * 1  # ~1.6k chars of real prose
++REAL_ARTICLE_WITH_COOKIE_FOOTER = (
++    _REAL_ARTICLE_PROSE
++    + _REAL_ARTICLE_PROSE  # double it so the body is well above the 800-char chrome ceiling
++    + " We use cookies to improve your experience. Accept all and continue."
++)
++
++# A ~3.3k-char real bibliography-rich article body with a publisher "download citation" widget +
++# CrossRef inside genuine content. The ("download citation", "crossref") class matches but is a
++# tiny fraction of a long real body, so it must NOT fire.
++REAL_ARTICLE_WITH_DOWNLOAD_CITATION = (
++    _REAL_ARTICLE_PROSE
++    + _REAL_ARTICLE_PROSE
++    + " References are indexed in CrossRef and PubMed. Download Citation for offline use."
++)
++
++# A ~1.5k-char legitimate abstract that says "access denied" ONCE (describing a data-access barrier
++# reported in the study) with NO second shell signal. Must pass — ambiguous phrase alone, body far
++# above the tight ambiguous ceiling, no corroborating signal.
++LEGIT_ABSTRACT_WITH_ACCESS_DENIED = (
++    "This systematic review examined barriers to deep brain stimulation in advanced Parkinson "
++    "disease across 18 health systems. Among the most frequently reported structural barriers was "
++    "that access denied on the basis of age or insurance status accounted for a substantial share "
++    "of patients who were eligible but never referred for surgical evaluation. Across the included "
++    "cohorts, roughly 22 percent of clinically eligible patients faced an administrative barrier "
++    "before specialist assessment. The authors analysed referral pathways, reimbursement policy, "
++    "and geographic distance to implanting centres, and found that streamlined referral protocols "
++    "reduced the proportion of eligible patients turned away by 14 percentage points over a "
++    "two-year period. They concluded that policy-level interventions, rather than clinical "
++    "contraindications alone, drive much of the observed undertreatment, and recommended structured "
++    "referral criteria and centralised eligibility review to reduce inappropriate denial of access "
++    "to an effective therapy for disabling motor complications in this population."
++)
++
++_LEGIT_SPANS = {
++    "methods_with_verification": LEGIT_METHODS_SPAN,
++    "bibliography_with_crossref": LEGIT_BIBLIOGRAPHY_SPAN,
++    "nutrition_with_cookie": LEGIT_NUTRITION_SPAN,
++    # iter-2 (Codex 2×P1) false-drop scenarios:
++    "long_article_with_cookie_footer": REAL_ARTICLE_WITH_COOKIE_FOOTER,
++    "long_article_with_download_citation": REAL_ARTICLE_WITH_DOWNLOAD_CITATION,
++    "abstract_with_access_denied_once": LEGIT_ABSTRACT_WITH_ACCESS_DENIED,
++}
++
++
++def _grounded_sentence(span: str, eid: str = "ev_128") -> tuple[str, dict]:
++    """A claim whose prose verbatim-copies the span (the self-citation hole) + its pool."""
++    sentence = f"{span} [#ev:{eid}:0-{len(span)}]"
++    pool = {eid: {"evidence_id": eid, "direct_quote": span}}
++    return sentence, pool
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 1. The detector flags the real CAPTCHA shell; the run-#7 grounded claim FAILS verify.
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_run7_captcha_span_is_detected_as_shell():
++    assert is_cited_span_shell(RUN7_CAPTCHA_SPAN) is True
++    # The pre-existing retrieval-time stub gate must also agree (single-sourced vocab).
++    assert is_access_denial_stub(RUN7_CAPTCHA_SPAN) is True
++
++
++def test_run7_captcha_grounded_claim_fails_verify_sentence_provenance(monkeypatch):
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "1")
++    sentence, pool = _grounded_sentence(RUN7_CAPTCHA_SPAN)
++    result = verify_sentence_provenance(sentence, pool)
++    assert result.is_verified is False, (
++        "the run-#7 self-citation hole is OPEN: a claim grounded on the CAPTCHA span verified"
++    )
++    assert any(r.startswith("fetch_shell_cited_span:") for r in result.failure_reasons), (
++        f"expected a fetch_shell_cited_span failure, got {result.failure_reasons}"
++    )
++
++
++def test_shell_cannot_ride_on_a_real_co_token(monkeypatch):
++    """A multi-token sentence citing BOTH a shell and a real span must still DROP (option (a)):
++    a shell token poisons the whole sentence so the junk citation can never render on the back
++    of a legitimate co-token."""
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "1")
++    real = LEGIT_METHODS_SPAN
++    sentence = (
++        f"Deep brain stimulation reduced motor symptoms by 9.5 points. "
++        f"[#ev:ev_real:0-{len(real)}] [#ev:ev_128:0-{len(RUN7_CAPTCHA_SPAN)}]"
++    )
++    pool = {
++        "ev_real": {"evidence_id": "ev_real", "direct_quote": real},
++        "ev_128": {"evidence_id": "ev_128", "direct_quote": RUN7_CAPTCHA_SPAN},
++    }
++    result = verify_sentence_provenance(sentence, pool)
++    assert result.is_verified is False
++    assert any(r.startswith("fetch_shell_cited_span:ev_128") for r in result.failure_reasons)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 2. Render-gate PROPAGATION: shell → UNSUPPORTED → absent from the corroborated surfacing.
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_shell_member_is_unsupported_in_isolated_verify(monkeypatch):
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "1")
++    from src.polaris_graph.synthesis.credibility_pass import (
++        MEMBER_TIER_UNVERIFIED,
++        _verify_member_in_isolation,
++    )
++
++    row = {"evidence_id": "ev_128", "direct_quote": RUN7_CAPTCHA_SPAN, "authority_score": None}
++    verdict, tier = _verify_member_in_isolation(
++        "Performing security verification protect against malicious bots.",
++        row,
++        verify_fn=verify_sentence_provenance,
++    )
++    assert verdict == "UNSUPPORTED"
++    assert tier == MEMBER_TIER_UNVERIFIED
++
++
++def test_shell_absent_from_corroborated_weighted_findings(monkeypatch):
++    """The render gate, proven to fire — NOT a weight_mass<=0 filter. A shell member with
++    authority/weight_mass=0 (the §-1.3 case) never reaches the surfacing because its isolated
++    span_verdict is UNSUPPORTED, and it never increments verified_support_origin_count."""
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "1")
++    from types import SimpleNamespace
++
++    from src.polaris_graph.generator.weighted_enrichment import (
++        select_unbound_supports_by_weight,
++    )
++    from src.polaris_graph.synthesis.credibility_pass import (
++        BasketMember,
++        ClaimBasket,
++        _verify_member_in_isolation,
++    )
++
++    row = {"evidence_id": "ev_128", "direct_quote": RUN7_CAPTCHA_SPAN, "authority_score": None, "tier": "T7"}
++    verdict, tier = _verify_member_in_isolation(
++        "Performing security verification protect against malicious bots.",
++        row,
++        verify_fn=verify_sentence_provenance,
++    )
++    member = BasketMember(
++        evidence_id="ev_128", source_url="", source_tier="T7",
++        origin_cluster_id="origin::ev_128", credibility_weight=None, authority_score=0.0,
++        span=(0, len(RUN7_CAPTCHA_SPAN)), direct_quote=RUN7_CAPTCHA_SPAN,
++        span_verdict=verdict, member_tier=tier,
++    )
++    basket = ClaimBasket(
++        claim_cluster_id="clm_shell", claim_text="x", subject="", predicate="",
++        supporting_members=[member], refuter_cluster_ids=(), weight_mass=0.0,
++        total_clustered_origin_count=1,
++        verified_support_origin_count=(1 if verdict == "SUPPORTS" else 0),
++        basket_verdict="unverified",
++    )
++    analysis = SimpleNamespace(baskets=[basket])
++    selection = select_unbound_supports_by_weight(
++        evidence_pool={"ev_128": row}, credibility_analysis=analysis, contract_plans=[],
++    )
++    assert "ev_128" not in selection, "shell leaked into the Corroborated Weighted Findings render"
++    assert basket.verified_support_origin_count == 0, "shell counted as a corroborated origin"
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3. NEGATIVES — adversarial-borderline legitimate spans MUST pass (no false-drop).
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++@pytest.mark.parametrize("name,span", list(_LEGIT_SPANS.items()))
++def test_legit_borderline_span_not_flagged_as_shell(name, span):
++    assert is_cited_span_shell(span) is False, f"false-positive shell on {name}"
++
++
++@pytest.mark.parametrize("name,span", list(_LEGIT_SPANS.items()))
++def test_legit_borderline_grounded_claim_still_verifies(monkeypatch, name, span):
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "1")
++    sentence, pool = _grounded_sentence(span, eid="ev_real")
++    result = verify_sentence_provenance(sentence, pool)
++    assert result.is_verified is True, (
++        f"false-drop on a legitimate span ({name}): {result.failure_reasons}"
++    )
++
++
++def test_other_shell_classes_detected():
++    """Cookie-consent banner, HTTP 404, citation-UI chrome, social boilerplate — all shells."""
++    cookie = (
++        "We use cookies to improve your experience. Accept all cookies or manage your cookie "
++        "preferences. Cookie policy. Privacy policy."
++    )
++    not_found = (
++        "404 Not Found. The requested URL was not found on this server. Pàgina no trobada."
++    )
++    citation_ui = (
++        "Download Citation. Export to EndNote, Mendeley, RefWorks. Track citations via CrossRef "
++        "and Scite. Add to citation manager."
++    )
++    youtube = (
++        "Autoplay is paused. Up next. Subscribe. Watch later. Share. New comments cannot be "
++        "posted and votes cannot be cast."
++    )
++    for body in (cookie, not_found, citation_ui, youtube):
++        assert is_cited_span_shell(body) is True, f"missed shell class: {body[:40]!r}"
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3b. I-beatboth-001 iter-2 (Codex 2×P1) — PRECISION: the new dominance + multi-signal logic.
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_iter2_long_real_article_with_cookie_footer_is_not_shell():
++    """Codex P1 #1: a long real article body that incidentally carries a cookie footer
++    ("we use cookies" + "accept all") is NOT a shell — the chrome class is SHORT-body only, and the
++    body must genuinely exceed the chrome ceiling so this exercises the new gate, not the old
++    any-length firing."""
++    from src.polaris_graph.retrieval.shell_detector import _chrome_max_chars
++
++    assert len(REAL_ARTICLE_WITH_COOKIE_FOOTER.strip()) > _chrome_max_chars(), (
++        "test body too short — would not exercise the chrome short-body ceiling"
++    )
++    low = REAL_ARTICLE_WITH_COOKIE_FOOTER.lower()
++    assert "we use cookies" in low and "accept all" in low, "the cookie co-occurrence must match"
++    assert is_cited_span_shell(REAL_ARTICLE_WITH_COOKIE_FOOTER) is False
++
++
++def test_iter2_long_real_article_with_download_citation_is_not_shell():
++    """Codex P1 #1: a long real bibliography-bearing article body with a publisher
++    "Download Citation" + CrossRef widget inside genuine content is NOT a shell."""
++    from src.polaris_graph.retrieval.shell_detector import _chrome_max_chars
++
++    assert len(REAL_ARTICLE_WITH_DOWNLOAD_CITATION.strip()) > _chrome_max_chars()
++    low = REAL_ARTICLE_WITH_DOWNLOAD_CITATION.lower()
++    assert "download citation" in low and "crossref" in low, "the citation-UI class must match"
++    assert is_cited_span_shell(REAL_ARTICLE_WITH_DOWNLOAD_CITATION) is False
++
++
++def test_iter2_legit_abstract_with_access_denied_once_is_not_shell():
++    """Codex P1 #2: a legit ~1.5k-char abstract that says "access denied" ONCE, with NO second
++    shell signal, is NOT a shell — an ambiguous phrase alone above the tight ceiling does not fire."""
++    from src.polaris_graph.retrieval.shell_detector import _ambiguous_short_body_max_chars
++
++    assert "access denied" in LEGIT_ABSTRACT_WITH_ACCESS_DENIED.lower()
++    assert len(LEGIT_ABSTRACT_WITH_ACCESS_DENIED.strip()) > _ambiguous_short_body_max_chars()
++    assert is_cited_span_shell(LEGIT_ABSTRACT_WITH_ACCESS_DENIED) is False
++
++
++def test_iter2_real_cookie_shell_still_caught_short_body():
++    """A genuine tiny cookie-consent page (chrome IS the whole body) still fails closed via the
++    short-body dominance clause — tightening did NOT relax the real-shell catch."""
++    cookie_shell = (
++        "We use cookies to improve your experience. Accept all cookies or manage your cookie "
++        "preferences. Cookie policy."
++    )
++    assert is_cited_span_shell(cookie_shell) is True
++
++
++def test_iter2_ambiguous_multi_signal_fires_on_short_body():
++    """Multi-signal on a SHORT body: TWO ambiguous phrases co-occurring in a short stub fail closed
++    via the ambiguous multi-signal clause — corroboration, not a bare phrase, drives it."""
++    short_two_ambiguous = "Access denied. Security verification required before continuing."
++    low = short_two_ambiguous.lower()
++    assert "access denied" in low and "security verification" in low
++    assert is_cited_span_shell(short_two_ambiguous) is True
++
++
++def test_iter2_ambiguous_multi_signal_does_not_fire_on_long_body():
++    """Bounded corroboration (advisor catch): TWO ambiguous phrases inside a LONG real body must
++    NOT fail closed — the multi-signal clause is gated to a short body, so a long off-clinical
++    (security/IT/systems-methods) article using both "access denied" and "security verification"
++    is NOT a §-1.3 false-drop."""
++    from src.polaris_graph.retrieval.shell_detector import _short_body_max_chars
++
++    long_two_ambiguous = (
++        "This systems-security methods paper evaluates authorization controls in clinical data "
++        "platforms. When access denied events were logged, the security verification subsystem "
++        "recorded the failed attempt for audit. "
++        + ("Detailed real methodological content describing the evaluation and results. " * 60)
++    )
++    assert len(long_two_ambiguous.strip()) > _short_body_max_chars()
++    low = long_two_ambiguous.lower()
++    assert "access denied" in low and "security verification" in low
++    assert is_cited_span_shell(long_two_ambiguous) is False
++
++
++def test_iter2_bare_access_denied_stub_still_caught_very_short_body():
++    """A bare "Access Denied" stub page (very short body, single ambiguous phrase, no second
++    signal) still fails closed via the much-tighter ambiguous short-body ceiling."""
++    bare_stub = "Access Denied. You do not have permission to view this page."
++    assert is_cited_span_shell(bare_stub) is True
++
++
++def test_iter2_change_language_nav_requires_corroboration():
++    """"change language" moved to the ambiguous set: a real multilingual page that merely offers a
++    "change language" control inside a long real body is NOT dropped; a bare nav-only stub is."""
++    long_real = (
++        "This guideline describes the management of advanced Parkinson disease. "
++        + ("Detailed real clinical content describing therapy and outcomes. " * 30)
++        + " You may change language using the menu at the top of the page."
++    )
++    assert is_cited_span_shell(long_real) is False
++    nav_stub = "Change language. Select your language. English Español Français Deutsch 日本語."
++    assert is_cited_span_shell(nav_stub) is True
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3c. I-beatboth-001 iter-2 — REAL-CORPUS replay (§-1.4 behavioral acceptance on the actual
++#     drb_78 corpus_snapshot, not synthetic stand-ins). This is the evidence that the iter-2
++#     precision change loses ZERO genuine shells and stops the real false-drops Codex flagged.
++# ─────────────────────────────────────────────────────────────────────────────
++
++_DRB78_CORPUS = os.path.join(
++    "outputs", "corpus_backups", "extracted", "drb_78_parkinsons_dbs", "corpus_snapshot.json"
++)
++
++
++def _load_drb78_rows():
++    import json
++
++    if not os.path.exists(_DRB78_CORPUS):
++        pytest.skip(f"drb_78 corpus snapshot not present at {_DRB78_CORPUS}")
++    with open(_DRB78_CORPUS, encoding="utf-8") as fh:
++        snap = json.load(fh)
++    return {r["evidence_id"]: (r.get("direct_quote") or "") for r in snap["evidence_for_gen"]}
++
++
++# The genuine shells the run-#7 audit (PHASE1_ISSUES.md P0-1) found in this corpus. ALL must remain
++# fail-closed after the iter-2 precision change — faithfulness is NEVER relaxed to widen breadth.
++_REAL_SHELL_EVIDENCE_IDS = (
++    "ev_099",  # 476-char Lancet CAPTCHA / "Just a moment" security-verification interstitial
++    "ev_118",  # ditto (duplicate fetch)
++    "ev_030",  # 376-char "are you a robot" / captcha-challenge bot wall
++    "ev_704",  # 417-char Catalan "Pàgina no trobada" 404
++    "ev_540",  # 1500-char Dove Press "Target URL returned error 404" crawler shell
++    "ev_717",  # 6639-char conference "Page not found" + "Target URL returned error 404" 404 shell
++)
++
++# The real DBS/Parkinson's ARTICLES in this corpus that carry an INCIDENTAL chrome footer (cookie /
++# download-citation) inside genuine long prose. These are the exact false-drops Codex P1 #1 named —
++# the OLD any-length chrome firing would have wrongly dropped them. ALL must PASS (not-shell).
++_REAL_ARTICLE_WITH_INCIDENTAL_CHROME_IDS = (
++    "ev_694",  # 8836-char "Familial young-onset Parkinson's disease… SNCA duplication" + download-citation
++    "ev_679",  # 8800-char "Optimal target localisation… eight-year outcome for subthalamic stimulation"
++    "ev_295",  # 7074-char "Methodological aspects of deep brain stimulation" + we-use-cookies footer
++    "ev_693",  # 2016-char Toft & Dietrichs (Mov Disord) real article + cookie + download-citation chrome
++)
++
++
++@pytest.mark.parametrize("eid", _REAL_SHELL_EVIDENCE_IDS)
++def test_iter2_real_corpus_genuine_shell_still_rejected(eid):
++    """No faithfulness relaxation: every genuine shell in the real drb_78 corpus still fails closed,
++    including the 6639-char ev_717 crawler-404 that the short-body gate alone would have passed
++    (caught by the any-length crawler-error CHALLENGE signature added this iter)."""
++    rows = _load_drb78_rows()
++    assert eid in rows, f"{eid} missing from corpus snapshot"
++    assert is_cited_span_shell(rows[eid]) is True, (
++        f"{eid} (len={len(rows[eid].strip())}) leaked through — faithfulness was relaxed"
++    )
++
++
++@pytest.mark.parametrize("eid", _REAL_ARTICLE_WITH_INCIDENTAL_CHROME_IDS)
++def test_iter2_real_corpus_article_with_footer_now_passes(eid):
++    """Codex P1 #1 on REAL data: a genuine long DBS/Parkinson's article carrying an incidental
++    cookie / download-citation footer is NOT a shell. The OLD any-length chrome firing false-dropped
++    these; the iter-2 short-body chrome ceiling fixes it."""
++    rows = _load_drb78_rows()
++    assert eid in rows, f"{eid} missing from corpus snapshot"
++    body = rows[eid]
++    assert len(body.strip()) > 800, f"{eid} should be a long body, got {len(body.strip())}"
++    assert is_cited_span_shell(body) is False, (
++        f"{eid} (len={len(body.strip())}) false-dropped — a real article was lost (§-1.3 breadth)"
++    )
++
++
++def test_iter2_crawler_error_signature_fires_only_on_real_shells_corpuswide():
++    """The any-length crawler-error signature ("target url returned error" + "not found") must fire
++    on the 2 genuine 404 shells and ZERO real articles across all 794 drb_78 rows — the empirical
++    proof (not 'never in real prose' reasoning) that the any-length firing is safe. Uses the actual
++    cited-span-only constant, NOT a hand-copied phrase, so the test tracks the source of truth."""
++    from src.polaris_graph.retrieval.shell_detector import CITED_SPAN_ANY_LENGTH_COOCCURRENCE
++
++    rows = _load_drb78_rows()
++    fired = [
++        eid
++        for eid, body in rows.items()
++        if any(all(t in body.lower() for t in combo) for combo in CITED_SPAN_ANY_LENGTH_COOCCURRENCE)
++    ]
++    assert set(fired) == {"ev_540", "ev_717"}, (
++        f"crawler-error signature fired on {sorted(fired)} — expected exactly the 2 real 404 shells"
++    )
++
++
++def test_iter2_retrieval_gate_stays_byte_identical_on_crawler_shell():
++    """The crawler-error signature is CITED-SPAN-ONLY: the retrieval-time ``is_access_denial_stub``
++    must NOT see it, so its behaviour is byte-identical to pre-iter-2 (the patch invariant). ev_717
++    (6639-char 404) is caught by the cited-span gate but NOT by the retrieval stub gate."""
++    rows = _load_drb78_rows()
++    body = rows["ev_717"]
++    assert is_cited_span_shell(body) is True
++    assert is_access_denial_stub(body) is False, (
++        "retrieval gate changed — the crawler signature must be cited-span-only"
++    )
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 4. Kill-switch — OFF reverts to byte-identical legacy behaviour.
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_off_switch_restores_legacy_behaviour(monkeypatch):
++    monkeypatch.setenv("PG_CITED_SPAN_SHELL_DETECT", "0")
++    sentence, pool = _grounded_sentence(RUN7_CAPTCHA_SPAN)
++    result = verify_sentence_provenance(sentence, pool)
++    # Pre-#1276 the verbatim-copied junk span verified on numeric/content overlap.
++    assert result.is_verified is True
++    assert not any(r.startswith("fetch_shell_cited_span") for r in result.failure_reasons)

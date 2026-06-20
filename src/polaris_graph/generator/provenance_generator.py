@@ -52,6 +52,15 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+# I-beatboth-001 (#1276): cited-span fetch-shell / boilerplate detector. Pure leaf module
+# (stdlib-only, no network, no heavy deps, no cycle — shell_detector imports nothing from this
+# package), so a module-top import is zero-cost and keeps the dependency direction clean (the
+# verifier must NOT pull the 4712-line live_retriever onto the hot per-sentence path).
+from src.polaris_graph.retrieval.shell_detector import (
+    cited_span_shell_detect_enabled as _cited_span_shell_detect_enabled,
+    is_cited_span_shell as _is_cited_span_shell,
+)
+
 logger = logging.getLogger("polaris_graph.provenance_generator")
 
 
@@ -1849,6 +1858,22 @@ def verify_sentence_provenance(
             failures.append(
                 f"span_invalid:{tok.evidence_id}:{tok.start}-{tok.end}"
             )
+            continue
+        # I-beatboth-001 (#1276): fetch-shell / web-boilerplate gate. A cited source whose body
+        # is a CAPTCHA / security-verification interstitial, cookie-consent banner, HTTP 404/403
+        # page, language-nav menu, citation-UI chrome, or social-media boilerplate can NEVER
+        # ground a clinical claim — the run-#7 P0-1 leak (the 476-char Lancet CAPTCHA span
+        # grounding 6 units passed because the prose verbatim-copied the junk = the self-citation
+        # hole). Checked on the FULL ``direct_quote`` (a shell grounds nothing regardless of which
+        # sub-span the token cites), fail-closed exactly like ``span_out_of_bounds``: the failure
+        # goes non-empty and ``valid_token_found`` is NOT set, so the sentence drops and a shell
+        # can never ride on a real co-token. Faithfulness-TIGHTENING only; default-on, reverts
+        # byte-identical under PG_CITED_SPAN_SHELL_DETECT=0. This propagates to every render path
+        # (SUPPORTS-only enrichment surfacing, verified_support_origin_count, basket_verdict)
+        # through the existing verify wiring — no separate render filter (a weight_mass<=0 DROP
+        # would violate §-1.3: a legit unrated/judge-off T1 source can carry weight_mass=0).
+        if _cited_span_shell_detect_enabled() and _is_cited_span_shell(direct_quote):
+            failures.append(f"fetch_shell_cited_span:{tok.evidence_id}")
             continue
         valid_token_found = True
         span_text = direct_quote[tok.start:tok.end]

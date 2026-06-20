@@ -1,0 +1,17 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - The retrieval-stub "byte-identical" claim is true for `CITED_SPAN_ANY_LENGTH_COOCCURRENCE`: that tuple is only consumed by `is_cited_span_shell`, not `is_access_denial_stub`. There is a minor wording overclaim around the shared challenge co-occurrence list being single-sourced/expanded, but the added bot-wall phrases are tight and not an execution blocker.
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+Review answers:
+1. Chrome co-occurrence classes are now bounded by `PG_SHELL_CHROME_MAX_CHARS` via `_chrome_class_present`; long real articles with incidental cookie/download-citation chrome pass.
+2. Ambiguous phrases are separated into `_ambiguous_phrase_fires`; a long body with a lone `access denied`-style phrase does not drop.
+3. `("target url returned error", "not found")` is tight enough for default-on cited-span use and is cited-span-only. It does not affect the retrieval stub path.
+4. No strict verify/NLI/D8/provenance/span-grounding gate is relaxed. The verifier adds a fail-closed pre-`valid_token_found` rejection for shell sources.
+5. Ceding string-indistinguishable residual shells is acceptable for this iter. Adding looser tuples would recreate the iter-2 false-drop problem.
+
+verdict: APPROVE
