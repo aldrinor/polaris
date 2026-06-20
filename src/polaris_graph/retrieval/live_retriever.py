@@ -2953,19 +2953,47 @@ _ACCESS_DENIAL_MARKERS = (
     "enable javascript and cookies",
     "unusual traffic",
     "checking your browser",
+    # I-arch-011 BEAT-BOTH RC-C (TI-05/06): the run-#7 killer — a pivotal-RCT span was grounded on a
+    # modern Cloudflare "security verification" interstitial that the prior markers missed (NLI caught
+    # it as "the span is a website security verification page" but only advisory). These are the
+    # current Cloudflare/anti-bot interstitial phrasings, all challenge-PAGE-specific (never real
+    # article prose).
+    "security verification",
+    "review the security of your connection",
+    "needs to review the security",
+    "verifying you are human",
+    "this process is automatic",
     "请完成",  # CN: "please complete (the verification)"
     "人机验证",  # CN: "human-machine verification"
 )
 _ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
 
+# I-arch-011 RC-C: UNAMBIGUOUS challenge-page signatures that NEVER co-occur in real article prose,
+# so they are safe to match at ANY length (the 3000-char gate let a LONG Cloudflare interstitial /
+# enrichment-concatenated shell through — TI-05/06). Each entry is an ALL-of co-occurrence tuple.
+_CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
+    ("cloudflare", "ray id"),
+    ("cloudflare", "performance & security"),
+    ("cloudflare", "checking if the site connection is secure"),
+    ("ddos protection by", "cloudflare"),
+)
+
 
 def _is_access_denial_stub(content: str) -> bool:
-    """True if a (short) fetched body looks like a bot-challenge / access-denial page rather than
-    article content (I-run11-010 #1056 S1). Keys on SPECIFIC access-denial phrases AND a short length
-    so a legitimate full article that quotes one of these phrases is not false-dropped."""
-    if not content or len(content.strip()) > _ACCESS_DENIAL_MAX_CHARS:
+    """True if a fetched body looks like a bot-challenge / access-denial page rather than article
+    content (I-run11-010 #1056 S1; RC-C TI-05/06 extends it). Keys on SPECIFIC access-denial phrases:
+    short-body markers fire only on a short body (so a full article that merely quotes one is not
+    false-dropped), while the UNAMBIGUOUS Cloudflare co-occurrence signatures fire at ANY length
+    (they never appear in real article prose, so a long challenge/enrichment-shell page is caught)."""
+    if not content:
         return False
     low = content.lower()
+    # Unambiguous challenge-page signatures — any length (closes the long-shell gap).
+    if any(all(tok in low for tok in combo) for combo in _CHALLENGE_PAGE_COOCCURRENCE):
+        return True
+    # Specific access-denial phrases — short bodies only (avoid false-dropping a full article).
+    if len(content.strip()) > _ACCESS_DENIAL_MAX_CHARS:
+        return False
     return any(marker in low for marker in _ACCESS_DENIAL_MARKERS)
 
 

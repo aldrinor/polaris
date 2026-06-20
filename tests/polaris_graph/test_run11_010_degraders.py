@@ -94,6 +94,31 @@ def test_s1_long_article_mentioning_captcha_not_false_dropped():
     assert is_content_starved(article) is False
 
 
+def test_rc_c_security_verification_interstitial_is_starved():
+    """I-arch-011 BEAT-BOTH RC-C (TI-05/06): the run-#7 killer — a pivotal-RCT span grounded on a
+    modern Cloudflare 'security verification' interstitial that the prior markers missed. A SHORT
+    security-verification page is now caught."""
+    page = ("Just a moment... example.com needs to review the security of your connection before "
+            "proceeding. This process is automatic. " + "x " * 100)
+    assert is_content_starved(page) is True
+
+
+def test_rc_c_long_cloudflare_interstitial_caught_at_any_length():
+    """RC-C: the 3000-char gate let a LONG Cloudflare interstitial / enrichment-concatenated shell
+    through. The unambiguous co-occurrence signature (cloudflare + ray id) is caught at ANY length."""
+    long_shell = ("Verifying you are human. " * 200) + " Performance & security by Cloudflare. Ray ID: 8a1f2c."
+    assert len(long_shell) > 3000
+    assert is_content_starved(long_shell) is True
+
+
+def test_rc_c_real_article_mentioning_security_not_false_dropped():
+    """RC-C must NOT false-drop a real long article that merely discusses data security."""
+    article = ("This randomized controlled trial evaluated deep brain stimulation in Parkinson "
+               "disease. " * 60) + " The registry used standard data security verification protocols."
+    assert len(article) > 3000
+    assert is_content_starved(article) is False
+
+
 def test_s1_short_abstract_discussing_captcha_not_false_dropped():
     # Codex #1056 P2: a SHORT abstract that merely DISCUSSES captcha (bare word, <3000 chars) must
     # not be flagged — only the challenge-PAGE phrasing ("captcha challenge") signals access denial.
