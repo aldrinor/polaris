@@ -3,6 +3,12 @@
 This file is read by Codex and any coding agent working in this repo. It mirrors the binding
 LLM-governance rules in `CLAUDE.md` §9.1.8. `CLAUDE.md` is the full operating charter; read it first.
 
+## ★ BEAT-BOTH CAMPAIGN PROTOCOL — operator-locked 2026-06-20 (BINDING, read FIRST) ★
+Active mission: POLARIS **#1 on BOTH** DeepTRACE + DeepResearch-Bench-II. **THE BINDING PLAN = `state/beatboth_campaign/MASTER_PLAN.md`** (★ EXECUTION PROTOCOL section). Re-read it + `state/beatboth_campaign/loop_state.json` FIRST every tick; state the current PHASE + the single next action; deviation = STOP + flag (military anti-drift discipline).
+- **Phases:** P0 lock+pin → P1 forensic audit of run7 (log/memory/reasoning/citation/output line-by-line + 2 competitors, Claude + Codex independent) → P2 benchmark both (DeepTRACE + DRB-II judges via OpenRouter) → P3 consolidate issue list → P4 two-track fix (OBVIOUS = Codex Workflow now / UNCERTAIN = research 2026 best-practice then Codex Workflow) → P5 serious preflight+smoke → P6 fresh all-GLM-5.2 run (stablest+fastest server US/China, MAX parallelism, RETRY-UNTIL-ON never-degrade) → P7 VM 5-min forensic monitor → `state/beatboth_campaign/ONGOING_BUG_LOG.md` → P8 hamster loop until #1-on-both.
+- **Decisions 2026-06-20:** all-GLM-5.2 (two-family §9.1.1 dropped — test single strong family); sovereignty dropped (US/China ok); all benchmark judges via OpenRouter; $300 banked.
+- **Discipline:** NEVER substitute a count for an audit or a packer for a benchmark (the overnight drift); faithfulness gates never relaxed; speed via PARALLELISM + RETRY-not-degrade; stop ONLY at #1-on-both / real halt / operator stop.
+
 ## LLM MODEL + TOKEN MAX GOVERNANCE (operator-locked 2026-06-13 — GH I-arch-003 #1253)
 
 These are land-mine rules. Every LLM call in this repo is subject to them.
@@ -59,6 +65,22 @@ the raw-LLM-IO capture-dir mtime is THE truth (a big reasoning call can run ~9 m
 CPU state, `ep_poll`/`do_poll` wchan, and file mtimes corroborate. A run is HUNG only if llm_io AND log AND
 phase are ALL frozen past the timeout — only then kill PID-SCOPED (never name-global pkill; the operator
 runs concurrent codex sessions) + relaunch `--resume`.
+
+**Trace-the-path + replay-harness (§-1.4 — OUTPUT-defect debugging, operator-locked 2026-06-17):** when the
+OUTPUT is wrong/thin (breadth collapse, too-few citations, an empty section, dropped sources, a feature that
+"didn't fire") — NOT a crash — do NOT patch one symptom at a time. (1) **TRACE the whole data-flow end-to-end:**
+basket → consolidation (`finding_dedup`/`fact_dedup`) → generator (`multi_section`) → verify (`strict_verify`/
+NLI/4-role/provenance) → render; at each hop ask "what flows in/out, where is breadth lost?". (2) **Find EVERY
+chokepoint** (one reader per hop + a completeness critic), not just the one you tripped on — output the COMPLETE
+list (is it 3 landmines or 8?). (3) **Per chokepoint decide surgical-patch vs clean-module-REWRITE** — rewrite a
+detect-but-never-wire layer; NEVER rewrite the faithfulness engine (the proven crown jewel). (4) **Build a
+BEHAVIORAL replay-harness:** acceptance = the effect ACTUALLY APPEARS in the real output (e.g. `collapsed>0` +
+multi-source baskets on a real `corpus_snapshot.json`), FAILS LOUD if not — NOT "Codex approved the diff", NOT
+"tests green". (5) **Fix against the harness, then REPLAY all banked corpora end-to-end** (`resume_from_corpus`,
+no re-retrieval) and §-1.1-audit the real output; fix whatever it reveals; repeat until WIDE and FAITHFUL.
+WHY: diff-review/green-tests check CODE not OUTPUT-behavior → "committed + green + approved ≠ fired in the
+output." Kills the 3 worries at once: unknown landmines (trace finds them), rewrite-vs-patch (per-hop verdict),
+why reviews miss it (behavioral harness). First applied I-arch-008 (#1265). Mirrors `CLAUDE.md §-1.4`.
 
 **Evolution loop (quick-fix → quick-relaunch):** result lands → line-by-line audit (§-1.1) → if it fails the
 bar → forensic root-cause → FIX → relaunch ASAP (prefer `--resume` from the saved checkpoint to skip
