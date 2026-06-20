@@ -900,6 +900,17 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor as
     # every other section; on a degraded pass (credibility_analysis is None) the selection is empty.
     "PG_BREADTH_ENRICHMENT_ENABLED": "1",
+    # I-arch-011 (#1268): the COMPOSITION rebuild's default-OFF feature flags — slate-pinned "1" so
+    # apply_full_capability_benchmark_slate() FORCE-SETS them (it iterates THIS dict) and a stray operator
+    # =0 cannot keep the OLD composition. PR-a STORM-outline section scaffold / PR-b Argus keep-all
+    # basket-corroboration render / PR-c per-basket verified-compose (+ verbatim K-span fallback) / PR-d
+    # verbatim abstract+conclusion synthesis. Faithfulness-SAFE: strict_verify + the I-arch-010 tail engine
+    # are UNTOUCHED; flag-OFF byte-identical in code. Also in _BENCHMARK_FORCE_ON_FLAGS (force) +
+    # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed if any is off before spend).
+    "PG_STORM_OUTLINE_SECTIONS": "1",
+    "PG_BASKET_CORROBORATION_RENDER": "1",
+    "PG_VERIFIED_COMPOSE": "1",
+    "PG_SYNTHESIS_ABSTRACT_CONCLUSION": "1",
     # I-arch-011 run-5 794->9 collapse — two of the FOUR stacked breadth-restore conditions (the forensic
     # collapse_forensic_plan.json F4 + F5; F1 finding_key + F2 basket-decouple are code fixes). FAITHFULNESS-
     # NEUTRAL consolidation knobs — they MERGE/RENDER already-verified corroborators, never drop/cap.
@@ -1041,6 +1052,14 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
     # on the VM — the 2026-06-05 drb_72 smoke) ship as success. Fail closed if it is not active.
     "PG_RUN_HEALTH_GATE",
+    # I-arch-011 (#1268): the COMPOSITION rebuild's feature flags must be ON for a paid Gate-B run —
+    # OFF silently renders the OLD composition (no STORM outline scaffold / no keep-all basket render /
+    # no per-basket verified-compose / no abstract+conclusion), wasting the run on the pre-rebuild
+    # behaviour. Force-ON above; fail the run closed here if a stray operator =0 left any off.
+    "PG_STORM_OUTLINE_SECTIONS",
+    "PG_BASKET_CORROBORATION_RENDER",
+    "PG_VERIFIED_COMPOSE",
+    "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
     # I-cred-006b (#1170): the weighted-corpus gate must be ON for the beat-both run — OFF restores the
     # §-1.1-banned tier-count / material-deviation corpus REFUSAL that aborted the drb_72 dry-run
     # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
@@ -1111,6 +1130,16 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # =0 cannot silently keep the 5-entity contract funnel that dropped ~437 verified sources. Depends
     # on PG_SWEEP_CREDIBILITY_REDESIGN (the baskets it reads). Faithfulness-neutral (strict_verify gates).
     "PG_BREADTH_ENRICHMENT_ENABLED",
+    # I-arch-011 (#1268): force-on the COMPOSITION rebuild's default-OFF feature flags so a paid Gate-B run
+    # actually EXERCISES the rebuild — else it renders the OLD composition (the "committed but not wired
+    # into Gate-B" silent downgrade the I-arch-005 audit hit). PR-a STORM scaffold / PR-b basket-corroboration
+    # render / PR-c per-basket verified-compose (+ verbatim K-span fallback) / PR-d verbatim abstract+conclusion.
+    # Faithfulness-SAFE: strict_verify + the I-arch-010 tail engine UNTOUCHED. Each is also required-truthy in
+    # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS so a stray operator =0 fails the run closed before spend.
+    "PG_STORM_OUTLINE_SECTIONS",
+    "PG_BASKET_CORROBORATION_RENDER",
+    "PG_VERIFIED_COMPOSE",
+    "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
     # I-arch-007 ITEM 6 (#1264): force-on the A15 resume FETCH-SHELL re-fetch so an operator =0 cannot
     # survive the setdefault slate and silently let a --resume reload empty-shell anchors untouched (the
     # Q90 over-drop). Faithfulness-safe — re-fetches real content for the INPUT; touches no gate.
