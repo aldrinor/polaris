@@ -1781,6 +1781,155 @@ def _assign_evidence_to_planned_outline(
     return plans
 
 
+# I-arch-011 PR-a (#1268): STORM-outline section-scaffold adapter. DEFAULT-OFF
+# (PG_STORM_OUTLINE_SECTIONS) -> the chooser is byte-identical legacy sectioning.
+# Gate-B / the run slate sets it to route the report's section STRUCTURE (titles +
+# order) from the STORM outline. STRUCTURE-ONLY: asserts NO facts, touches NO
+# evidence content / strict_verify / tier classifier; `ev_ids` come exclusively
+# from the REAL evidence pool via `_assign_evidence_to_planned_outline`.
+_STORM_OUTLINE_SECTIONS_ENV = "PG_STORM_OUTLINE_SECTIONS"
+
+# I-arch-011 PR-a v2 (Codex diff-gate P1): the archetype every STORM scaffold
+# section that is NOT mechanism-titled carries, so the post-gen M-44 primary-
+# citation validator (`_section_is_primary_eligible`) STILL FIRES for STORM
+# sections (it is False on a blank archetype -> the suppression Codex flagged).
+# This value is M-44-eligible (in `_M44_PRIMARY_ELIGIBLE_ARCHETYPES`) but is NOT
+# `_M47_ARCHETYPE` -> M-44 fires on EVERY STORM section (>= legacy) while M-47 (the
+# transformative clamp/PK regen) fires ONLY on a Mechanism-titled section (= legacy
+# off-mode title routing + = legacy on-mode planner tagging). "Risk" is chosen over
+# "Quantitative-Comparison" only as the simplest M-44-eligible non-Mechanism tag;
+# the grep confirmed no other branch keys content transformation on the archetype
+# VALUE (only M-44/M-47 route on it; the prose templates key on `title`).
+_STORM_DEFAULT_ARCHETYPE = "Risk"
+
+
+def _storm_outline_sections_enabled() -> bool:
+    """Read the DEFAULT-OFF flag at call time (monkeypatch/env-testable)."""
+    return os.getenv(_STORM_OUTLINE_SECTIONS_ENV, "0").strip().lower() not in (
+        "0", "", "false", "no", "off",
+    )
+
+
+def _storm_section_archetype(title: str) -> str:
+    """I-arch-011 PR-a v2 (Codex diff-gate P1): assign each STORM scaffold section
+    an archetype that keeps the M-44/M-47 post-gen validators AT LEAST AS STRICT as
+    the legacy path — NEVER weaker (fail toward MORE validation).
+
+    Hybrid, mirroring legacy off-mode title routing + on-mode planner tagging:
+      - a Mechanism-titled section -> ``"Mechanism"`` so M-47 (clamp/PK extraction,
+        which REGENERATES the section when the cited subset holds a clamp/PK paper)
+        fires EXACTLY where legacy would (on a mechanism section, never elsewhere).
+      - every other section -> ``_STORM_DEFAULT_ARCHETYPE`` (M-44-eligible, NOT
+        ``_M47_ARCHETYPE``) so M-44 (primary-citation, honest-ships on failure)
+        fires on EVERY section, while M-47 stays OFF for non-mechanism sections.
+
+    Setting ``"Mechanism"`` on every section instead would point M-47's single
+    first-match regen at whatever STORM section sorts first — a non-mechanism
+    section could be regenerated if round-robin assigned it clamp/PK evidence. That
+    is an untested, content-transforming misfire; the hybrid avoids it and is
+    legacy-equivalent for M-47.
+    """
+    if (title or "").strip().lower() == _M47_ARCHETYPE.lower():
+        return _M47_ARCHETYPE
+    return _STORM_DEFAULT_ARCHETYPE
+
+
+def _build_storm_outline_section_plans(
+    storm_outline: list[Any] | None,
+    evidence: list[dict[str, Any]],
+    *,
+    partial_mode: bool = False,
+) -> list[SectionPlan] | None:
+    """I-arch-011 PR-a (#1268): build the report's section scaffold FROM the STORM
+    outline (structure-only adapter; WIRING job).
+
+    Returns ``None`` -> the chooser falls through to the UNTOUCHED legacy section
+    path (flag-OFF byte-identical by construction) when the flag is OFF, the
+    outline is empty/None, or no section carries a usable title. When ON with a
+    non-empty outline, STORM sections (sorted by ``order``) become the section
+    TITLES + ORDER and the EXISTING ``_assign_evidence_to_planned_outline``
+    (round-robin, ``sub_queries=None``) assigns rows from the REAL evidence pool.
+
+    FAITHFULNESS (Codex diff-gate P1 + P2):
+      - maps ONLY the title; never carries STORM-authored prose (description /
+        evidence_summary / search_keywords) into the plan or verified_text;
+      - each section carries a NON-BLANK archetype via ``_storm_section_archetype``
+        so M-44/M-47 are NEVER weaker than legacy (the P1 fix);
+      - DUPLICATE titles are deduped (case-insensitive) mirroring the legacy parser
+        ``seen_titles`` guard so section mapping / regen stays unambiguous (the P2
+        fix);
+      - never touches strict_verify / the tier classifier, never sources ``ev_ids``
+        from STORM. Empty-section disclosure is PR-c/PR-d scope, not here.
+    """
+    if not _storm_outline_sections_enabled():
+        return None
+    if not storm_outline:
+        return None
+    # I-arch-011 PR-a v3 (Codex re-land P1): the partial-saturation contract (``partial_mode``)
+    # PROMISES the delivered structure == the PRUNED sufficient sections ONLY (manifest status
+    # ``partial_saturation``). The STORM scaffold is a breadth-WIDENING device; under partial_mode
+    # it must NOT resurrect sections saturation pruned as under-covered — that would render an
+    # under-covered section while the manifest still claims a pruned partial report. So partial_mode
+    # DISABLES the scaffold and the caller falls through to the pruned ``research_plan`` branch.
+    # Full / PROCEED mode (default) is unchanged / byte-identical.
+    if partial_mode:
+        logger.info(
+            "[multi_section] STORM-outline scaffold SUPPRESSED under partial_saturation "
+            "(partial_mode=True): the pruned sufficient plan governs the delivered structure."
+        )
+        return None
+
+    # The producer (`run_storm_interviews`) returns `StormOutlineSection` Pydantic
+    # objects (NOT serialized); other callers may pass dicts. Read `title` / `order`
+    # defensively for both shapes.
+    def _field(sec: Any, name: str, default: Any) -> Any:
+        if isinstance(sec, dict):
+            val = sec.get(name, default)
+        else:
+            val = getattr(sec, name, default)
+        return default if val is None else val
+
+    indexed = list(enumerate(storm_outline))
+    # Sort by the STORM-declared `order` (stable on the original index for ties /
+    # missing order) so the scaffold preserves the outline's intended sequence.
+    indexed.sort(key=lambda pair: (int(_field(pair[1], "order", pair[0]) or 0), pair[0]))
+
+    items: list[SectionPlan] = []
+    seen_titles: set[str] = set()  # Codex P2: case-insensitive title-uniqueness guard.
+    for _idx, sec in indexed:
+        title = str(_field(sec, "title", "") or "").strip()
+        if not title:
+            continue
+        title_lower = title.lower()
+        if title_lower in seen_titles:
+            # Mirror the legacy parser (lines ~1212/1222/1244): drop duplicate
+            # titles so downstream section mapping / M-47 regen matching by title
+            # stays unambiguous.
+            logger.info(
+                "[multi_section] STORM scaffold dropped duplicate title %r", title,
+            )
+            continue
+        seen_titles.add(title_lower)
+        # Carry ONLY the title + a non-blank archetype (the M-44/M-47 routing key);
+        # `_assign_evidence_to_planned_outline` reads `.title` / `.archetype` /
+        # `.evidence_target` via getattr. evidence_target defaults to 0 -> global cap.
+        items.append(SectionPlan(
+            title=title,
+            focus=title,
+            ev_ids=[],
+            archetype=_storm_section_archetype(title),
+        ))
+
+    if not items:
+        return None
+
+    # Reuse the EXISTING assignment fn (round-robin arm) — sub_queries=None routes
+    # to the byte-identical `ev_ids[i::n_sections]` slice. ev_ids come ONLY from the
+    # real evidence pool; STORM supplies structure (titles/order/archetype) ONLY.
+    plans = _assign_evidence_to_planned_outline(items, evidence, sub_queries=None)
+    return plans or None
+
+
 def _build_archetype_fallback_outline(
     evidence: list[dict[str, Any]],
 ) -> list[SectionPlan]:
@@ -6463,6 +6612,13 @@ async def generate_multi_section_report(
     # set) so a non-clinical report is not forced into clinical "Efficacy/Safety" headers. The planner,
     # scope template, V30 contracts, and the section-PROSE prompt are ALL untouched.
     domain: str = "",
+    # I-arch-011 PR-a (#1268): STORM outline (list of `StormOutlineSection` objects
+    # or dicts) threaded from the sweep runner. Flag-ON + non-empty -> the section
+    # STRUCTURE (titles + order) is derived from it ABOVE the legacy research_plan /
+    # _call_outline selection. None/empty or flag-OFF -> legacy chooser runs BYTE-
+    # IDENTICALLY (other callers, e.g. graph.py, pass nothing). STRUCTURE-ONLY: no
+    # STORM-authored text reaches the plan / verified_text.
+    storm_outline: list[Any] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -6535,7 +6691,33 @@ async def generate_multi_section_report(
     # those pre-declared sections with NO LLM outline call (spend-free,
     # P1-11/P1-12). OFF branch (`research_plan is None`): the legacy
     # `_call_outline` path runs BYTE-IDENTICALLY (P1-1).
-    if research_plan is not None:
+    #
+    # I-arch-011 PR-a (#1268): the STORM-outline section-scaffold adapter sits ABOVE
+    # both legacy branches -> when the DEFAULT-OFF `PG_STORM_OUTLINE_SECTIONS` flag is
+    # ON and a non-empty STORM outline was threaded, the STORM outline WINS as the
+    # section structure (titles + order). The helper returns None when the flag is OFF
+    # / outline empty -> falls through to the UNTOUCHED legacy selection (byte-identical
+    # flag-OFF). It is computed UNCONDITIONALLY here (= None on graph.py / off-mode
+    # callers that pass no `storm_outline`) so the `_use_archetype` OR-in below never
+    # raises NameError. The v30_contract_plans layering below is UNCHANGED (contract +
+    # enrichment ON TOP). outline_ok=True + non-empty plans means the
+    # `research_plan is None` deterministic-fallback guard below does NOT clobber it.
+    _storm_scaffold_plans = _build_storm_outline_section_plans(
+        storm_outline, evidence, partial_mode=partial_mode,
+    )
+    if _storm_scaffold_plans is not None:
+        plans = _storm_scaffold_plans
+        retry_attempted = False
+        outline_in_tok = 0
+        outline_out_tok = 0
+        outline_ok = True
+        outline_reason_codes = ["storm_outline_sections"]
+        outline_fallback_used = False
+        logger.info(
+            "[multi_section] STORM-outline section scaffold: %d sections: %s",
+            len(plans), [p.title for p in plans],
+        )
+    elif research_plan is not None:
         retry_attempted = False
         outline_in_tok = 0
         outline_out_tok = 0
@@ -7458,7 +7640,21 @@ async def generate_multi_section_report(
     # supplied) the M-44/M-47 post-generation validators route on the field-
     # invariant archetype tag carried on each SectionResult, NOT on a clinical
     # title literal. OFF-mode keeps title-keyed routing byte-identically.
-    _use_archetype = research_plan is not None
+    #
+    # I-arch-011 PR-a v2 (Codex diff-gate P1): ALSO archetype-route when the STORM
+    # section scaffold is active. The two flags are independent — PG_USE_RESEARCH_PLANNER
+    # (research_plan) and PG_STORM_OUTLINE_SECTIONS (_storm_scaffold_plans) — and the
+    # STORM scaffold can run with `research_plan is None`. Without this OR-in, M-44/M-47
+    # would title-route on STORM's free-form titles (which won't match the legacy
+    # `_M44_PRIMARY_ELIGIBLE_SECTIONS` / `"mechanism"` literals) -> the primary-citation
+    # and mechanism validators would be SUPPRESSED for STORM sections (the Codex P1).
+    # OR-ing in the scaffold forces archetype routing, and every STORM section carries a
+    # non-blank archetype (`_storm_section_archetype`) so M-44 fires on EVERY section and
+    # M-47 fires only on a Mechanism-titled one. `_storm_scaffold_plans` is bound = None
+    # on every non-STORM path above, so this never weakens / never NameErrors. This var
+    # feeds ONLY the post-gen M-44/M-47 routing below; the pre-gen primary injection
+    # (`use_archetype=research_plan is not None`) is UNCHANGED.
+    _use_archetype = (research_plan is not None) or (_storm_scaffold_plans is not None)
 
     # M-44 (2026-04-22): post-generation same-sentence validator +
     # one-shot regeneration. For each primary-eligible section, scan

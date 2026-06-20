@@ -5097,6 +5097,13 @@ async def run_one_query(
         # direct_quote/evidence rows here). A STORM failure NEVER aborts the run (logged loud, fall
         # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
+        #
+        # I-arch-011 PR-a (#1268): function-level capture of the STORM outline (list of
+        # `StormOutlineSection` objects) so it survives to the generator call below.
+        # Initialized empty (the STORM block is conditional); populated inside the block
+        # from `_storm_out["storm_outline"]` and threaded to `generate_multi_section_report`
+        # as the `storm_outline=` kwarg. Empty / flag-OFF => byte-identical legacy sectioning.
+        _storm_outline: list = []
         if (not _resume_active) and (not _resume_from_fetch) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
             _storm_telemetry["enabled"] = True
             _storm_telemetry["firing_status"] = "attempted_empty"
@@ -5173,6 +5180,12 @@ async def run_one_query(
                 _storm_out.get("storm_conversations", []),
                 cap=int(os.getenv("PG_STORM_MAX_BENCHMARK_QUERIES", "30")),
             )
+            # I-arch-011 PR-a (#1268): capture the STORM outline (structure-only; the
+            # generator decides via PG_STORM_OUTLINE_SECTIONS whether to use it as the
+            # section scaffold). Only the section objects are carried; no STORM-authored
+            # prose enters retrieval or verified_text here.
+            _storm_outline = list(_storm_out.get("storm_outline", []) or [])
+            _storm_telemetry["outline_sections"] = len(_storm_outline)
             # BB-006 (I-beatboth-fix-000 #1171): ALSO harvest the STORM interview-search-result URLs
             # (the 478/540 real web URLs in _storm_out['web_results'] + ['academic_results']) as SEED
             # candidates — previously DISCARDED (only the synthesized interview QUESTIONS were re-used).
@@ -8529,6 +8542,11 @@ async def run_one_query(
             # identical; non-clinical = domain-neutral generic) so non-clinical reports don't get
             # clinical "Efficacy/Safety" headers.
             domain=str(q.get("domain", "")),
+            # I-arch-011 PR-a (#1268): the captured STORM outline. Flag-ON + non-empty =>
+            # the generator uses it as the report's section scaffold (titles + order) ABOVE
+            # the legacy research_plan / _call_outline selection. Empty / flag-OFF =>
+            # byte-identical legacy sectioning. STRUCTURE-ONLY: no STORM text in verified_text.
+            storm_outline=_storm_outline,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
