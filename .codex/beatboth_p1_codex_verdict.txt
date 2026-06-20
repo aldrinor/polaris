@@ -1,0 +1,70 @@
+I did the forensic pass read-only; no files modified.
+
+**Independent Issue List**
+- **CX-01 [P0] El6 device-safety contraindication is absent.** Evidence: `sections/05_dbs_device_contraindications_a.md:3` says the safety content “did not survive strict verification”; `human_gap_tasks.json:63-72` lists missing `diathermy_contraindication`, `mri_conditions`, `device_precaution`; gold requires diathermy/TMS/MR/security/battery at `.codex/I-safety-002b/gold_rubrics_pathB.md:66`. Root cause: FDA DBS PDF retrieval was shell/content-starved and the A15 recovered quote did not propagate into V30 contract rows. `have_solution=true`: fix FDA PDF extraction/accessdata fetch, propagate recovered FrameRow quotes into contract generation, and hard-fail safety-floor release if El6 remains empty.
+
+- **CX-02 [P0] Clinical safety-floor failed open.** Evidence: `run_log.txt:391-392` says D8 unadjudicated, `release_allowed=False`, `coverage=0.000`, but `body_withheld=False`; `manifest.json:7176-7183` ships `safety_floor_insufficient`; status at `manifest.json:7245`. Root cause: disclosed-gap mode still emits a normal-looking body for a clinical/safety-floor failure. `have_solution=true`: body should be withheld or downgraded to a clear non-answer until four-role safety coverage passes.
+
+- **CX-03 [P0] Four-role verifier client lifecycle bug disabled final adjudication.** Evidence: `run_log.txt:391`, `manifest.json:6630` show `Cannot send a request, as the client has been closed.` Root cause: judge client closed before D8 call. `have_solution=true`: isolate client lifecycle per verifier call or keep shared client open through D8; replay-gate on no seam errors.
+
+- **CX-04 [P0] Strict verification can pass off-topic self-quoted junk.** Evidence: junk sentences are accepted in `verification_details.json:21668-21700` Pakistan overpopulation, `21712-21718` YouTube boilerplate, `21756-21810` security/adaptive-UI content, `21937-21941` Mayo heart disease. Root cause: enrichment self-quotes source spans, so strict_verify proves span fidelity, not topical relevance. `have_solution=true`: require topical/source-domain relevance before any self-quoted enrichment reaches strict_verify.
+
+- **CX-05 [P0] Medical-device contraindications misclassified as non-applicable.** Evidence: `manifest.json:47` says `contraindications` are non-applicable because no known drug/intervention was recognized, despite DBS being the intervention. Root cause: applicability recognizer is drug-centric, not device/surgery-aware. `have_solution=true`: add medical-device/procedure intervention detection and force device-safety slots for DBS.
+
+- **CX-06 [P1] Basket consolidation did not fire.** Evidence: report discloses only 1 multi-source cluster vs 1347 single-origin at `sections/00_reliability_header.md:5-10`; run has `finding-dedup raw=794 distinct=64 collapsed=0 -> 794 generator rows` at `run_log.txt:70,477,551`. Code explains the failure: `credibility_pass.py:50-64` says fail-closed `claim_graph.build_merge_key` singletons clinical numerics; `credibility_pass.py:65-76,816-824` keeps the finding-dedup consumer behind default-off `PG_BASKET_CONSUME_FINDING_DEDUP`. `have_solution=true`: enable/remove the default-off gate and add a replay assertion for multi-source baskets on this corpus.
+
+- **CX-07 [P1] Merge-key design over-fragments clinical findings.** Evidence: `claim_graph.py:413-429` requires dose/comparator/effect/population-like dimensions; `claim_graph.py:508-536` explicitly says blank qualifiers force singletons. Root cause: absence of optional clinical dimensions is treated as non-equivalence. `have_solution=true`: consume finding_dedup groups now; later redesign merge keys to distinguish “unknown” from “not applicable.”
+
+- **CX-08 [P1] Consolidation telemetry is misleading.** Evidence: `finding_dedup.py:255-260` says redesign keeps all rows so `collapsed_row_count` becomes 0; logs still present `collapsed=0` as if no grouping happened. Root cause: the old “collapsed” metric no longer measures basket grouping. `have_solution=true`: log `clusters_with_members>1`, `max_member_count`, `multi_origin_cluster_count`, and unknown-subject singleton counts.
+
+- **CX-09 [P1] Qualitative/device facts are not basketed.** Evidence: `finding_dedup.py:29-40` is numeric-extraction centered; `credibility_pass.py:425-470` maps finding clusters through numeric claim indices. Root cause: family triggers and device precautions are qualitative/contract facts, so they bypass corroborated basket assembly. `have_solution=true`: extend basket consumption to qualitative assertion clusters and contract slot entities.
+
+- **CX-10 [P1] Missing family act-on synthesis layer.** Evidence: gold El4 at `.codex/I-safety-002b/gold_rubrics_pathB.md:64`; POLARIS has only scattered prose in `sections/06_population_subgroups.md:3` and `sections/07_safety.md:3`, while GPT has a synthesized trigger table at `outputs/.../gpt_5_5_pro/Q78_parkinsons_dbs.md:34-41`. Root cause: generator renders verified spans but does not synthesize into “call clinician / urgent / emergency” triggers. `have_solution=true`: post-verify a cited trigger table from verified atoms.
+
+- **CX-11 [P1] Parkinson staging coverage is hollow.** Evidence: `sections/03_parkinson_s_disease_staging_p.md:3` only defines MDS-UPDRS parts; gold El2/El3 require H&Y stages and advanced red flags at lines 61-63. Root cause: contract coverage accepted a scale definition as staging/progression coverage. `have_solution=true`: add mandatory H&Y 1-5, early/mid/advanced, and advanced-red-flag slots.
+
+- **CX-12 [P1] DBS support coverage is thin.** Evidence: gold El7 requires PT/OT/speech, fall prevention, caregiver and mental-health support at line 67; `sections/08_long_term_outcomes.md:3` contains scattered patient/family statements, not a support plan. Root cause: no post-DBS support template. `have_solution=true`: add a structured support section with rehabilitation, caregiver, programming, and mental-health escalation rows.
+
+- **CX-13 [P1] DBS overview lacks required target/limits synthesis.** Evidence: gold El5 at line 65 requires STN/GPi, benefits, limits; `sections/02_deep_brain_stimulation_clinica.md:3` is trial metadata, not an overview. Root cause: PICO extraction substituted for answer synthesis. `have_solution=true`: require target-specific STN/GPi and “what DBS does not improve” slots.
+
+- **CX-14 [P1] Honest framing incomplete.** Evidence: gold El8 at line 68 requires not-a-cure plus fatal ICH risk; `sections/07_safety.md:3` mentions complications but does not produce the required patient-facing framing. Root cause: safety facts are present as raw fragments, not normalized into the rubric. `have_solution=true`: add honest-framing acceptance checks over verified output.
+
+- **CX-15 [P1] Enrichment selector favors long junk.** Evidence: `weighted_enrichment.py:532-561` explicitly orders substantive units “longest-first”; `sections/09_corroborated_weighted_findings.md:3` then includes acupuncture, COVID, stroke BCI, cancer biology, etc. Root cause: length is used as salience. `have_solution=true`: score by question/entity overlap, source topic, evidence tier, and anti-boilerplate penalties.
+
+- **CX-16 [P1] Junk screen is too narrow.** Evidence: `_is_web_chrome` and `_make_junk_screen` are at `weighted_enrichment.py:491-516`; verified junk still includes security checks and YouTube boilerplate at `verification_details.json:21712-21854`. Root cause: boilerplate detection misses captcha/security pages, publisher chrome, mastheads, base64/image blobs, and unrelated-topic pages. `have_solution=true`: add content-type/topic quarantine before enrichment.
+
+- **CX-17 [P1] Masthead became a report heading and swallowed a huge block.** Evidence: `sections/10_the_american_society_for_exper.md:1-3` starts `# The American Society for Experimental NeuroTherapeutics, Inc. 2020` then dumps a massive source block. Root cause: source markdown headings are allowed to become section headings/body structure. `have_solution=true`: lock rendered headings to the SectionPlan allowlist; demote/strip source H1s and image/base64 payloads.
+
+- **CX-18 [P1] Retrieval corpus is heavily contaminated.** Evidence: `run_log.txt:11` fetched 711 from 1064 after a cap; bibliography contains off-topic COVID/cancer/general web sources at `sections/16_bibliography.md:31-40,561-580,595-608`. Root cause: weighted corpus acceptance discloses low credibility but does not stop off-topic sources from entering composition. `have_solution=true`: quarantine non-topical sources from generation while still disclosing corpus composition.
+
+- **CX-19 [P1] Credibility weighting is priors-only.** Evidence: `manifest.json:71` says 820 sources accepted with weighted mean 0.34; run notes judge unavailable/off in the log around credibility pass, and `manifest.json:5842` discloses unscored credibility. Root cause: no production judge signal, so weights cannot rescue source selection. `have_solution=true`: wire the locked open-weight judge path or prohibit “weighted findings” output in unscored mode.
+
+- **CX-20 [P1] Corpus adequacy/checklist false-green.** Evidence: `sections/12_methods.md:11-12` says 8/8 thresholds and 6/6 topics covered, while report misses gold El4/El6/El7. Root cause: adequacy measures retrieval/topic presence, not verified report coverage. `have_solution=true`: gate on gold-slot coverage in final verified text.
+
+- **CX-21 [P1] V30 frame coverage is retrieval-only but reads like answer coverage.** Evidence: `manifest.json:7296` explicitly says Phase-1 frame coverage reflects retrieval success only, not verified report coverage. Root cause: the same manifest key is semantically overloaded. `have_solution=true`: split retrieval coverage from verified report slot coverage and gate on the latter.
+
+- **CX-22 [P1] Contradiction disclosure emits bogus metrics.** Evidence: `sections/11_limitations.md:3` reports `10000000000000.0%`; `contradictions.json:234-238` has subject `unknown` and `possible_metric_mismatch`; `contradiction_detector.py:1646-1648,1764-1781,1825` computes and renders near-zero denominator ratios. Root cause: incomparable unknown-subject metrics are still numerically surfaced. `have_solution=true`: suppress/cap relative percentages for mismatch/unknown cases and render as detector artifacts only.
+
+- **CX-23 [P1] Qualitative safety detector is not a coverage detector.** Evidence: `sections/15_qualitative_safety_conflict_di.md:2-4` reports zero conflicts; missing diathermy still passes through as a gap. `qualitative_conflict_detector.py:674-763` compares present/absent assertions, not required safety concepts. Root cause: absence of a contraindication is not treated as a clinical coverage failure. `have_solution=true`: add required-concept coverage checks for diathermy, TMS, MRI conditions, scanner precautions, battery/programming.
+
+- **CX-24 [P1] Quantified analysis silently no-ops.** Evidence: `run_log.txt:390,564` says quantified analysis ran but produced no verified output and `manifest.quantified_analysis.fired=False`; `sections/13_capability_disclosures.md:2` says 4025 sourced numbers were extracted but not modeled. Root cause: phase can execute without producing user-visible verified analysis. `have_solution=true`: fail-loud or mark capability disabled before report generation.
+
+- **CX-25 [P2] Key findings are not key findings.** Evidence: `sections/01_key_findings.md:5-10` are copied fragments such as “67 Fatigue…” rather than answer-level conclusions. Root cause: summary builder selects section fragments instead of synthesizing verified atoms. `have_solution=true`: generate key findings from mandatory rubric slots after verification.
+
+- **CX-26 [P2] Report usability collapses into mega-paragraphs.** Evidence: `sections/07_safety.md:3`, `08_long_term_outcomes.md:3`, `09_corroborated_weighted_findings.md:3`, and `10...md:3` are giant paragraphs/blocks. Root cause: no paragraph/table shape constraints after verification. `have_solution=true`: enforce structured tables for stages, triggers, DBS precautions, and support; cap paragraph length.
+
+- **CX-27 [P2] Selection accounting is inconsistent.** Evidence: `run_log.txt:64,156,471,545` says `selected=794 of 789`. Root cause: resume snapshot/contract-row accounting likely double-counts added rows. `have_solution=true`: assert `selected<=base_input` unless added rows are separately logged.
+
+- **CX-28 [P2] Token-budget governance still failed in promotion.** Evidence: `run_log.txt:89-90` shows `ReasoningFirstTruncationError` and says to increase `max_tokens`. Root cause: provider/model cap handling still under-budgets a reasoning-first leg. `have_solution=true`: set promotion legs to true provider caps or split prompts; add no-truncation replay test.
+
+**Top 5 Root Causes Blocking Beat-Both**
+1. Safety-floor fail-open plus D8 client failure shipped an insufficient clinical report.
+2. El6 DBS device-safety source acquisition/contract propagation failed, dropping diathermy and MRI precautions.
+3. Basket consolidation is effectively disabled/default-off, while merge keys singleton most claims.
+4. Enrichment ranks long/self-quoted spans without topical relevance, so junk passes strict_verify.
+5. The generator lacks a verified synthesis layer for family triggers, staging, DBS precautions, and support.
+
+**Severity Count**
+P0: 5  
+P1: 19  
+P2: 4
