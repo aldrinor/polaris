@@ -281,6 +281,13 @@ def test_reanchor_judge_error_does_not_amplify_fail_open(monkeypatch):
     recover a sentence on the back of a degraded judge across the 40 windows."""
     monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    # I-arch-010 FIX-1: this test's whole structure assumes the judge_error sentence DROPS (it
+    # asserts total_kept==0, reanchor_attempts==1). Under the new default-advisory the sentence is
+    # KEPT directly and re-anchor never fires on it. Pin the kill-switch so this stays a
+    # legacy-hard-drop / no-fail-open-amplification regression test. The not-laundered-as-verified
+    # intent under the NEW default is covered by the credibility-pass tier classifier (harness case B:
+    # a judge_error member is member_tier=DETERMINISTIC_ONLY, span_verdict=UNSUPPORTED, never counted).
+    monkeypatch.setenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "0")
     fake = _JudgeErrorJudge()
     _install_judge(monkeypatch, fake)
 

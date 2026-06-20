@@ -3534,7 +3534,11 @@ def _recover_via_sibling_basket(
             # INDEPENDENT FULL-CLAIM entailment on the sibling's OWN single span —
             # the EXACTLY-ONE-token isolation verify (no union laundering). The
             # injected verify_fn is the SAME production strict_verify gate.
-            verdict = _verify_member_in_isolation(
+            # I-arch-010 FIX-2 Step 0: _verify_member_in_isolation now returns the
+            # (span_verdict, member_tier) 2-tuple — destructure so the guard still compares
+            # the BINARY span_verdict (not the whole tuple, which would always be != "SUPPORTS"
+            # and silently kill this sibling re-anchor leg).
+            verdict, member_tier = _verify_member_in_isolation(
                 safe_text, sibling_row, verify_fn=verify_sentence_provenance,
             )
             if verdict != "SUPPORTS":

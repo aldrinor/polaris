@@ -163,6 +163,17 @@ BASKET_VERDICT_PARTIAL = "partial"      # some but not all members verified
 BASKET_VERDICT_CONTESTED = "contested"  # >=1 refuter edge references this cluster (user judges)
 BASKET_VERDICT_UNVERIFIED = "unverified"  # no member verified alone
 
+# I-arch-010 FIX-2 Step 0 — the 3-value per-member entailment tier (the no-leak
+# classifier). ``span_verdict`` stays STRICTLY BINARY (SUPPORTS/UNSUPPORTED) so every
+# existing ``== "SUPPORTS"`` consumer (render/count/enrichment/biblio) is byte-unchanged;
+# ``member_tier`` is the ADDITIVE seam a downstream keep-with-labels layer (I-arch-011)
+# reads to surface grounded-but-weak candidates WITHOUT ever surfacing deterministic
+# garbage. Binding invariant: ``span_verdict == "SUPPORTS"`` iff
+# ``member_tier == MEMBER_TIER_ENTAILMENT_VERIFIED``.
+MEMBER_TIER_ENTAILMENT_VERIFIED = "ENTAILMENT_VERIFIED"      # (a)-(e) PASS AND genuine ENTAILED (judge ran, no error) — the ONLY counted/rendered tier
+MEMBER_TIER_DETERMINISTIC_ONLY = "DETERMINISTIC_ONLY"        # (a)-(e) PASS but entailment NEUTRAL/CONTRADICTED OR judge-errored — grounded-but-weak (I-arch-011-surfaceable)
+MEMBER_TIER_UNVERIFIED = "UNVERIFIED"                        # own span FAILS (a)-(e), or timed out / no evidence — never surfaced
+
 
 @dataclass
 class BasketMember:
@@ -187,6 +198,12 @@ class BasketMember:
     # (P5.x) distinction (a span shown as background, not support); isolated
     # strict_verify is pass/fail, so this assembly emits only the two binary values.
     span_verdict: str
+    # I-arch-010 FIX-2 Step 0 — the ADDITIVE 3-value entailment tier (see the
+    # MEMBER_TIER_* constants). Default UNVERIFIED so any legacy constructor that omits
+    # it is the safest (never-surfaced) tier. ``span_verdict`` stays binary; this field
+    # is the seam I-arch-011 reads to distinguish grounded-but-weak (DETERMINISTIC_ONLY)
+    # from deterministic garbage (UNVERIFIED). No TAIL consumer renders/counts it.
+    member_tier: str = MEMBER_TIER_UNVERIFIED
 
 
 @dataclass
@@ -252,12 +269,60 @@ def _row_span_text(row: dict) -> str:
     return str((row or {}).get("direct_quote") or (row or {}).get("statement") or "")
 
 
+_ENTAILMENT_FAILURE_PREFIXES = (
+    # I-arch-010 FIX-2 Step 0 — the COMPLETE set of failure-reason prefixes the
+    # ENTAILMENT block of ``verify_sentence_provenance`` can append (verified against
+    # provenance_generator.py: the NEUTRAL/CONTRADICTED drops at :2076/:2182/:2216 use
+    # ``entailment_failed:``; the legacy transport hard-drop at :2243 uses
+    # ``entailment_judge_error_fail_closed:``). A member whose failure_reasons are ALL
+    # in this set passed the deterministic (a)-(e) engine and only entailment is
+    # unsatisfied/inconclusive — grounded-but-weak (DETERMINISTIC_ONLY), DISTINCT from a
+    # member whose OWN span fails (a)-(e) (deterministic garbage, UNVERIFIED).
+    "entailment_failed:",
+    "entailment_judge_error_fail_closed:",
+)
+
+
+def _classify_member_tier(result: Any) -> tuple[str, str]:
+    """Map a full ``SentenceVerification`` result onto ``(span_verdict, member_tier)``.
+
+    ``span_verdict`` stays STRICTLY BINARY (the binding invariant
+    ``span_verdict == "SUPPORTS"`` iff ``member_tier == ENTAILMENT_VERIFIED``).
+    Reads ONLY ``is_verified`` / ``judge_error`` / ``failure_reasons`` — all already on
+    the object; the deterministic (a)-(e) engine and the entailment judge verdict logic
+    are NEVER touched (FROZEN, §-1.4).
+    """
+    is_verified = bool(getattr(result, "is_verified", False))
+    judge_error = bool(getattr(result, "judge_error", False))
+    if is_verified and not judge_error:
+        # genuine ENTAILED (judge ran, no error) — the ONLY counted/rendered tier.
+        return "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED
+    if is_verified and judge_error:
+        # FIX-1 transport-keep: passed (a)-(e), entailment INCONCLUSIVE (judge errored).
+        # NOT genuinely entailed → must NOT count/render as verified support (closes the
+        # judge_error leak). Grounded-but-weak: an I-arch-011 keep-with-label candidate.
+        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY
+    # is_verified == False below.
+    failure_reasons = list(getattr(result, "failure_reasons", None) or [])
+    if failure_reasons and all(
+        any(str(r).startswith(p) for p in _ENTAILMENT_FAILURE_PREFIXES)
+        for r in failure_reasons
+    ):
+        # deterministic (a)-(e) PASS but entailment NEUTRAL/CONTRADICTED (or any
+        # entailment failure when FIX-1 is off) — grounded-but-weak, same tier as the
+        # row above for I-arch-011's purpose (it cleared the deterministic engine).
+        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY
+    # the member's OWN span genuinely lacks the claim's number / content-overlap (or no
+    # failure reasons at all) — deterministic garbage; NEVER surfaced.
+    return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
+
+
 def _verify_member_in_isolation(
     claim_text: str,
     member_row: dict,
     *,
     verify_fn: Callable,
-) -> str:
+) -> tuple[str, str]:
     """Verify ONE member against ITS OWN single span — never a union (design §5 FIX-3).
 
     Builds a single-provenance-token sentence (``<claim_text> [#ev:<eid>:0-<len>]``)
@@ -266,14 +331,18 @@ def _verify_member_in_isolation(
     laundering path; one token means no union, so a member whose own span lacks the
     claim's number/content fails ALONE — even if a multi-citation union would pass.
 
-    Returns ``"SUPPORTS"`` iff the isolated sentence is verified, else ``"UNSUPPORTED"``.
-    The verifier is INJECTED (production ``verify_sentence_provenance`` by default; a
-    deterministic fake in tests) and is NEVER re-run as a gate — this is advisory.
+    Returns the 2-tuple ``(span_verdict, member_tier)`` (I-arch-010 FIX-2 Step 0).
+    ``span_verdict`` is ``"SUPPORTS"`` iff the isolated sentence is genuinely
+    entailment-verified, else ``"UNSUPPORTED"``; ``member_tier`` is the additive
+    3-value classification (see ``_classify_member_tier``). The verifier is INJECTED
+    (production ``verify_sentence_provenance`` by default; a deterministic fake in tests)
+    and is NEVER re-run as a gate — this is advisory.
     """
     eid = str((member_row or {}).get("evidence_id") or "")
     span = _row_span_text(member_row)
     if not eid or not span:
-        return "UNSUPPORTED"
+        # No evidence to verify against — the safest non-counted, never-surfaced tier.
+        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
     # Defensive single-token guarantee (the anti-laundering invariant, design §5
     # FIX-3): strip ANY stray provenance / calc token already in the claim text so
     # the appended one is the ONLY token. With exactly one token the verifier's
@@ -291,11 +360,11 @@ def _verify_member_in_isolation(
     try:
         result = verify_fn(sentence, pool)
     except Exception:
-        # Advisory path: a verifier failure on one member is conservatively UNSUPPORTED
-        # (never resurrects the member, never aborts the basket) — fail-closed for the
-        # strengthening count, which can only ever UNDERCOUNT, never inflate.
-        return "UNSUPPORTED"
-    return "SUPPORTS" if bool(getattr(result, "is_verified", False)) else "UNSUPPORTED"
+        # Advisory path: a verifier failure on one member is conservatively the safest
+        # tier (never resurrects the member, never aborts the basket) — fail-closed for
+        # the strengthening count, which can only ever UNDERCOUNT, never inflate.
+        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
+    return _classify_member_tier(result)
 
 
 def _run_member_verifies(
@@ -303,7 +372,7 @@ def _run_member_verifies(
     *,
     verify_fn: Callable,
     max_inflight: int,
-) -> list[str]:
+) -> list[tuple[str, str]]:
     """Run the per-member isolated verifies for ``tasks`` and return their verdicts IN ORDER.
 
     ``tasks`` is the FLAT, deterministically-ordered list of ``(claim_text, member_row)`` pairs
@@ -348,15 +417,15 @@ def _run_member_verifies(
 
     def _verify_one(
         idx: int, claim_text: str, member_row: dict, ctx: contextvars.Context
-    ) -> tuple[int, str, float]:
-        def _run() -> tuple[str, float]:
+    ) -> tuple[int, tuple[str, str], float]:
+        def _run() -> tuple[tuple[str, str], float]:
             reset_run_cost()  # isolate THIS member's spend in the copied context (parent re-adds a clean delta)
             verdict = _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
             return verdict, current_run_cost()
         verdict, delta = ctx.run(_run)
         return idx, verdict, delta
 
-    results: list[str | None] = [None] * n
+    results: list[tuple[str, str] | None] = [None] * n
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_inflight)
     try:
         futures = [
@@ -601,7 +670,11 @@ def _assemble_baskets(
             # ISOLATED per-member verification (design §5 FIX-3): the claim's TEXT against
             # THIS member's own single span — never a union of basket spans. The verdict was
             # precomputed (serial or bounded-parallel) and is consumed here in the ORIGINAL order.
-            verdict = verdicts[_verdict_cursor]
+            # I-arch-010 FIX-2 Step 0: the precomputed value is now a (span_verdict, member_tier)
+            # 2-tuple. span_verdict stays the BINARY gate for the strengthening count (only
+            # SUPPORTS — i.e. genuine ENTAILMENT_VERIFIED — increments it); member_tier is the
+            # additive seam stored on the member for the I-arch-011 keep-with-labels layer.
+            verdict, member_tier = verdicts[_verdict_cursor]
             _verdict_cursor += 1
             if verdict == "SUPPORTS":
                 verified_any = True
@@ -618,6 +691,7 @@ def _assemble_baskets(
                 span=(0, len(span)),
                 direct_quote=span,
                 span_verdict=verdict,
+                member_tier=member_tier,
             ))
 
         refuter_ids = tuple(sorted(refuters_by_cluster.get(cluster_id, set())))

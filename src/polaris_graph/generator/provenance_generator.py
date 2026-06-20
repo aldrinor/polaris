@@ -390,6 +390,27 @@ def _token_honest_drop_enabled() -> bool:
     return v in ("1", "true", "yes", "on", "enabled")
 
 
+def _entailment_judge_error_advisory_enabled() -> bool:
+    """I-arch-010 FIX-1. True (default) => a TRANSPORT ``judge_error`` (the judge
+    timed out / hung / returned a blank, surfaced as ``(ENTAILED, "judge_error: ...")``)
+    is demoted from a HARD drop to an ADVISORY soft-warning: the sentence is KEPT on
+    the deterministic (a)-(e) checks and labelled ``entailment_unverified_judge_error``.
+    The result's ``judge_error=True`` field stays the durable machine-readable marker
+    so a downstream count/render layer (the credibility-pass tier classifier) can refuse
+    to treat it as genuine entailment-verified support.
+
+    This is TRANSPORT-only: a genuine NEUTRAL / CONTRADICTED entailment verdict still
+    DROPS independently (that branch is untouched). Faithfulness is NOT relaxed — a
+    judge_error never means "entailed", only "the judge could not be reached".
+
+    Kill-switch: PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0/off/false/no reverts to the
+    byte-identical legacy hard-drop. Read at call time so tests can toggle without
+    re-import.
+    """
+    v = os.getenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "1").strip().lower()
+    return v not in ("0", "off", "false", "no", "disabled")
+
+
 # I-pipe-015 (#1240) — token-honesty telemetry. Module-level counters, read +
 # reset by the sweep (mirrors _REANCHOR_TELEMETRY). ONLY mutated on the
 # flag-ON path, so OFF-mode never touches them (byte-identity).
@@ -2173,8 +2194,25 @@ def verify_sentence_provenance(
                         )
                         _record_judge_outcome(verdict2, reason2)
                         if verdict2 == "ENTAILED" and reason2.startswith("judge_error:"):
-                            judge_error_flag = True
-                        if verdict2 in ("NEUTRAL", "CONTRADICTED"):
+                            # I-arch-010 FIX-1 (Codex re-gate P1): a RESCUE-call judge_error did
+                            # NOT overturn the genuine NEUTRAL/CONTRADICTED first verdict. The
+                            # rescue is the MORE-precise re-check and it ERRORED, so we hold a
+                            # genuine failure signal with NO confirmation of entailment. This is
+                            # NOT the pure-transport advisory case (that is the FIRST-judge error
+                            # at the top of this block, where NO genuine verdict precedes) —
+                            # advisory-keeping here would LAUNDER a genuine entailment failure into
+                            # is_verified=True. So fail closed under enforce on the ORIGINAL verdict;
+                            # do NOT set judge_error_flag (no advisory-keep).
+                            if mode == "enforce":
+                                ev_ids = ",".join(
+                                    sorted({t.evidence_id for t in tokens})
+                                )
+                                failures.append(
+                                    f"entailment_failed:{ev_ids}:"
+                                    f"verdict={verdict}:"
+                                    f"reason=rescue_judge_error_on_genuine_{verdict}"
+                                )
+                        elif verdict2 in ("NEUTRAL", "CONTRADICTED"):
                             if mode == "enforce":
                                 ev_ids = ",".join(
                                     sorted({t.evidence_id for t in tokens})
@@ -2240,7 +2278,18 @@ def verify_sentence_provenance(
         _emode_j = _emode_jerr()
         if _emode_j == "enforce":
             ev_ids = ",".join(sorted({t.evidence_id for t in tokens})) if tokens else ""
-            failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
+            if _entailment_judge_error_advisory_enabled():
+                # I-arch-010 FIX-1: TRANSPORT judge_error is demoted from a hard DROP
+                # to an advisory soft-warning. The sentence is KEPT on the deterministic
+                # (a)-(e) checks; ``judge_error=True`` (below) remains the durable marker
+                # so the credibility-pass tier classifier refuses to count/render it as
+                # genuine entailment-verified support (no leak). Genuine NEUTRAL/
+                # CONTRADICTED verdicts still DROP at :2076/:2182/:2216 (untouched).
+                soft_warnings.append(f"entailment_unverified_judge_error:{ev_ids}")
+            else:
+                # Kill-switch (PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0): byte-identical
+                # legacy hard-drop.
+                failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
         elif _emode_j == "warn":
             logger.warning(
                 "[provenance] WARN would_fail_closed_on_judge_error "
@@ -2920,6 +2969,10 @@ def _basket_for_biblio(basket: Any) -> dict[str, Any]:
             # ones counted in verified_support_origin_count; UNSUPPORTED members
             # are shown as context, never as support strength.
             "span_verdict": str(getattr(member, "span_verdict", "") or ""),
+            # I-arch-010 FIX-2 Step 0 — the additive 3-value entailment tier. Carried
+            # through the projection so the I-arch-011 keep-with-labels layer can read it;
+            # the render/count consumers below key ONLY on span_verdict (byte-unchanged).
+            "member_tier": str(getattr(member, "member_tier", "") or ""),
             "direct_quote": str(getattr(member, "direct_quote", "") or ""),
         })
     refuter_ids = tuple(
