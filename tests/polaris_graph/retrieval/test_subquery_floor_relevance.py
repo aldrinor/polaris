@@ -84,6 +84,11 @@ def test_target_row_scores_above_floor_against_best_facet() -> None:
 def test_floor_drops_target_when_flag_off(monkeypatch) -> None:
     """OFF: the over-aggressive whole-question floor drops the on-topic row."""
     monkeypatch.delenv("PG_SELECT_SUBQUERY_FLOOR", raising=False)
+    # I-beatboth-004 (#1281): the #1205 sub-query floor governs the LEGACY drop path.
+    # The PG_SWEEP_CREDIBILITY_REDESIGN="on" default is keep-all (§-1.3 WEIGHT-not-
+    # FILTER, breadth-maximal) where no row is ever dropped, so the floor is moot
+    # there. Pin the legacy path to exercise the floor feature under test.
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     sel = select_evidence_for_generation(
         research_question=_LONG_QUESTION,
         protocol=None,
@@ -138,6 +143,9 @@ def test_on_mode_is_superset_of_off_mode(monkeypatch) -> None:
         _classified(on_topic_general["url"], "T2"),
     ]
 
+    # I-beatboth-004 (#1281): pin the legacy drop path (redesign default is keep-all,
+    # where OFF and ON both keep every row so the throttle has nothing to open).
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     monkeypatch.delenv("PG_SELECT_SUBQUERY_FLOOR", raising=False)
     off = select_evidence_for_generation(
         research_question=_LONG_QUESTION, protocol=None,
@@ -163,6 +171,8 @@ def test_no_subqueries_is_byte_identical(monkeypatch) -> None:
     """Flag ON but NO sub-queries supplied => `_subquery_token_sets` is empty =>
     scoring falls back to the whole-question floor exactly (byte-identical)."""
     monkeypatch.setenv("PG_SELECT_SUBQUERY_FLOOR", "1")
+    # I-beatboth-004 (#1281): pin the legacy drop path (redesign default is keep-all).
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     assert _subquery_token_sets(None) == []
     assert _subquery_token_sets([]) == []
     sel = select_evidence_for_generation(

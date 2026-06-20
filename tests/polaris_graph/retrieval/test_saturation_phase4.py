@@ -851,8 +851,14 @@ def test_p4_7c_partial_mode_disables_all_five_out_of_plan_appenders():
     # V30 contract section is NOT injected into the outline.
     outline_titles = [getattr(p, "title", "") for p in result.outline]
     assert "CONTRACT SECTION SHOULD NOT RENDER" not in outline_titles
-    # The rendered structure is FIXED to the pruned plan's section(s) ONLY.
-    assert outline_titles == ["Kept Section"]
+    # I-beatboth-004 (#1281): B08 (_drop_ungroundable_sections, commit 71c5b759)
+    # now drops a planned section whose every ev_id is non-span-groundable at the
+    # PLAN level (one step earlier than the old _run_section drop). This spend-free
+    # fixture passes evidence=[] (empty pool), so "Kept Section" has zero groundable
+    # rows and is correctly dropped -> empty outline. Do NOT make it groundable to
+    # restore ["Kept Section"] — that triggers a live LLM render and breaks the
+    # spend-free seam.
+    assert outline_titles == []
 
 
 def test_p4_7c_full_mode_signature_default_preserves_appenders():
