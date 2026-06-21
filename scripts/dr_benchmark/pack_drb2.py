@@ -25,6 +25,7 @@ provably-non-answer junk. Faithfulness is untouched. LAW VI: all caps are env-ov
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -32,6 +33,22 @@ from pathlib import Path
 
 MAX_PAPER_CHARS = int(os.getenv("PACK_DRB2_MAX_PAPER_CHARS", "150000"))
 MAX_LINE_CHARS = int(os.getenv("PACK_DRB2_MAX_LINE_CHARS", "5000"))
+
+# I-beatboth-011 idx 15 (#1289): the DRB-II task catalog. A run's internal id (e.g. "task72") does
+# NOT equal its DRB-II `idx` field (task72 -> idx 56), so packing AI-labor prose with the wrong
+# `--idx 72` would score it against idx-72's task (Parkinson's) — a silent near-zero (§-1.4
+# silently-wrong-number). The topic-overlap guard below resolves the task at `--idx` and refuses a
+# report whose H1/opening shares ZERO content words with that task's (English) description.
+_DEFAULT_TASKS_JSONL = (
+    Path(__file__).resolve().parents[2] / "third_party" / "DeepResearch-Bench-II" / "tasks_and_rubrics.jsonl"
+)
+# Content word for topic-overlap: a >=3-char alpha token (drops the structural stopwords). Lowercased.
+_TOPIC_WORD_RE = re.compile(r"[a-z][a-z'-]{2,}")
+_TOPIC_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "this", "that", "from", "into", "over", "under", "about", "review",
+    "report", "research", "study", "analysis", "impact", "role", "case", "based", "using", "between",
+    "their", "these", "those", "which", "while", "have", "has", "are", "was", "were", "its", "via",
+})
 
 # A single-`#` H1 (`^#\s` — `## `/`### ` never match) is treated as a FOREIGN source
 # masthead ONLY when it appears AFTER report body sections (`## `) have begun. POLARIS's own
@@ -100,11 +117,81 @@ def answer_body(cleaned_md: str) -> str:
     return cleaned_md
 
 
+def _topic_words(text: str) -> set[str]:
+    """Lowercased content-word set for topic-overlap (drops structural stopwords)."""
+    return {w for w in _TOPIC_WORD_RE.findall((text or "").lower()) if w not in _TOPIC_STOPWORDS}
+
+
+def _load_drb2_tasks(tasks_jsonl: Path | None) -> list[dict]:
+    """Load the DRB-II task catalog (or [] when the file is absent/unreadable — the topic guard then
+    no-ops with a warning rather than blocking a legitimate run whose data file is not present)."""
+    if not tasks_jsonl or not Path(tasks_jsonl).exists():
+        return []
+    out: list[dict] = []
+    for line in Path(tasks_jsonl).read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return out
+
+
+def _resolve_idx_for_task_name(task_name: str, records: list[dict]) -> str | None:
+    """The DRB-II `idx` field of the record whose `id` == task_name (e.g. "task72" -> "56")."""
+    for r in records:
+        if str(r.get("id")) == str(task_name):
+            return str(r.get("idx"))
+    return None
+
+
+def _report_topic_text(report_md: str) -> str:
+    """The report's TOPIC surface: its first `# ` H1 plus the opening ~2000 chars of prose. Robust
+    against a generic H1 — a correctly-paired report's opening always names its own subject."""
+    h1 = ""
+    for line in (report_md or "").splitlines():
+        if _H1_RE.match(line):
+            h1 = line.lstrip("#").strip()
+            break
+    return f"{h1}\n{(report_md or '')[:2000]}"
+
+
+def _assert_drb2_topic_match(idx: int, report_md: str, records: list[dict]) -> None:
+    """FAIL LOUD (SystemExit) if the report's topic shares ZERO content words with the DRB-II task at
+    `idx` (resolved by the record's `idx` FIELD, the id<->idx offset). Uses the task's English
+    `description` (robust to zh prompts). No-ops when the catalog is unavailable or either side yields
+    no extractable topic words (never a false positive). Fires exactly on a wrong-idx mispairing
+    (AI-labor report vs idx-72 Parkinson's = zero shared words); never on a correct run."""
+    if not records:
+        print("[pack_drb2] WARN: DRB-II task catalog unavailable; idx<->topic guard skipped.")
+        return
+    rec = next((r for r in records if str(r.get("idx")) == str(idx)), None)
+    if rec is None:
+        print(f"[pack_drb2] WARN: no DRB-II task with idx={idx} in the catalog; topic guard skipped.")
+        return
+    desc_words = _topic_words(str(rec.get("description") or ""))
+    report_words = _topic_words(_report_topic_text(report_md))
+    if not desc_words or not report_words:
+        return  # cannot judge — do not false-positive
+    if not (desc_words & report_words):
+        raise SystemExit(
+            f"[pack_drb2] FAIL-LOUD topic mismatch at --idx {idx}: the report shares ZERO content "
+            f"words with DRB-II idx {idx} (id={rec.get('id')!r}, {str(rec.get('description'))[:90]!r}). "
+            f"You are almost certainly packing against the WRONG idx — the id<->idx offset is real "
+            f"(id 'task72' is idx 56, NOT 72). Pass the correct --idx (or --task-name). "
+            f"(§-1.4 silently-wrong-number)"
+        )
+
+
 def pack_one(
     report_md_path: Path,
     idx: int,
     *,
     task_id: object | None = None,
+    task_name: str | None = None,
+    tasks_jsonl: Path | None = None,
     out_dir: Path,
     model: str = "polaris",
     strict_truncation: bool = True,
@@ -112,13 +199,36 @@ def pack_one(
     """Pack ONE report.md into out_dir/<model>/idx-<idx>.md. Returns the written path.
 
     `task_id` (the DRB-II tasks_and_rubrics.jsonl idx) must equal `idx` — a mismatch means
-    we would score this report against the WRONG task's rubrics (FAIL LOUD)."""
+    we would score this report against the WRONG task's rubrics (FAIL LOUD).
+
+    I-beatboth-011 idx 15 (#1289): two stronger guards close the silently-wrong-idx landmine the
+    `task_id == idx` check misses (it passes when BOTH are wrong-but-equal):
+      (A) `task_name` (e.g. "task72") is resolved to its DRB-II `idx` field via the catalog and
+          asserted == `idx`, so the real id<->idx offset (task72 -> idx 56) is enforced in code.
+      (B) a topic-overlap guard refuses a report whose opening shares zero content words with the
+          task at `idx` (the AI-labor-vs-Parkinson's mispairing)."""
     if task_id is not None and int(task_id) != int(idx):
         raise SystemExit(
             f"[pack_drb2] FAIL-LOUD idx<->task mismatch: idx={idx} but task_id={task_id}. "
             f"Scoring against the wrong rubrics is forbidden (§-1.4 silently-wrong-number)."
         )
+    records = _load_drb2_tasks(tasks_jsonl)
+    # (A) id<->idx resolution: a `--task-name` must map (by the catalog's `idx` field) to `--idx`.
+    if task_name is not None:
+        resolved = _resolve_idx_for_task_name(task_name, records)
+        if resolved is None and records:
+            raise SystemExit(
+                f"[pack_drb2] FAIL-LOUD: --task-name {task_name!r} not found in the DRB-II catalog."
+            )
+        if resolved is not None and str(resolved) != str(idx):
+            raise SystemExit(
+                f"[pack_drb2] FAIL-LOUD id<->idx offset: --task-name {task_name!r} resolves to DRB-II "
+                f"idx {resolved}, but --idx {idx} was given. The run id ('task72') is NOT the idx "
+                f"(56) — pass --idx {resolved}. (§-1.4 silently-wrong-number)"
+            )
     report_md = report_md_path.read_text(encoding="utf-8", errors="replace")
+    # (B) topic-overlap belt-and-suspenders (fires on a wrong-idx mispairing, never on a correct run).
+    _assert_drb2_topic_match(idx, report_md, records)
     cleaned, stats = strip_junk(report_md)
     body = answer_body(cleaned)
     if strict_truncation and len(body) > MAX_PAPER_CHARS:
@@ -138,14 +248,17 @@ def pack_one(
 def main() -> None:
     ap = argparse.ArgumentParser(description="Pack a POLARIS report.md for DeepResearch-Bench-II.")
     ap.add_argument("--report", required=True, help="path to POLARIS report.md")
-    ap.add_argument("--idx", required=True, type=int, help="DRB-II task idx")
+    ap.add_argument("--idx", required=True, type=int, help="DRB-II task idx (the catalog `idx` field, NOT the run id number)")
     ap.add_argument("--task-id", type=int, default=None, help="tasks_and_rubrics.jsonl idx (asserted == --idx)")
+    ap.add_argument("--task-name", default=None, help="DRB-II task id e.g. 'task72' (resolved to its idx via the catalog and asserted == --idx)")
+    ap.add_argument("--tasks-jsonl", default=str(_DEFAULT_TASKS_JSONL), help="DRB-II tasks_and_rubrics.jsonl (for the id<->idx + topic-overlap guards)")
     ap.add_argument("--out-dir", default="report", help="output root (report/<model>/idx-N.md)")
     ap.add_argument("--model", default="polaris")
     ap.add_argument("--allow-truncation", action="store_true", help="measure-only: do NOT fail on over-budget body")
     args = ap.parse_args()
     out = pack_one(
         Path(args.report), args.idx, task_id=args.task_id,
+        task_name=args.task_name, tasks_jsonl=Path(args.tasks_jsonl) if args.tasks_jsonl else None,
         out_dir=Path(args.out_dir), model=args.model,
         strict_truncation=not args.allow_truncation,
     )
