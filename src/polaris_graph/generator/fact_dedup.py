@@ -306,6 +306,208 @@ def extract_signature(sentence: str) -> FactSignature:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# PROSE-repetition clustering — I-beatboth-011 §3.3 (#1289)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Coverage-map finding (.codex/I-beatboth-010/full_coverage.md §3.3): build_groups SKIPS any sentence
+# whose numeric FactSignature .is_empty() (the ~498-499 `continue`). So PURE-PROSE restatements (no
+# %/$/year token — e.g. report.md L39/L43's 10-15x Autor/Acemoglu sentences) NEVER cluster and the
+# audited prose repetition is structurally invisible. Worse, the L39/L43 case is INTRA-section, which
+# the numeric path's ≥2-distinct-section gate also excludes.
+#
+# Fix: a deterministic, offline, pure-python PROSE pass (NO new deps, NO embeddings) that clusters the
+# empty-signature sentences by content-word n-gram SHINGLE-SET EXACT JACCARD with a HIGH threshold
+# (default 0.82) so ONLY near-identical restatements cluster — conservative: it must NEVER merge
+# distinct claims. (MinHash+LSH is the scalable APPROXIMATION for trillion-token corpora; plain exact
+# Jaccard is correct at our hundreds-of-sentences scale.) A prose cluster with ≥2 OCCURRENCES (intra
+# OR cross section) becomes a RedundancyGroup that flows through the SAME keep-all cross-ref rewrite as
+# the numeric path — never dropping a source or a citation (§-1.3 consolidate-keep-all).
+#
+# GATED behind PG_FACT_DEDUP_PROSE (default OFF => build_groups is byte-identical to today; the
+# benchmark slate forces it ON). FAITHFULNESS: strict_verify / NLI / 4-role / span-grounding untouched.
+PROSE_DEDUP_ENV = "PG_FACT_DEDUP_PROSE"
+PROSE_JACCARD_ENV = "PG_FACT_DEDUP_PROSE_JACCARD"
+_PROSE_JACCARD_DEFAULT = "0.82"
+# A prose sentence must carry at least this many content words to be a clustering candidate (a very
+# short sentence shingle-overlaps too easily — false-positive risk).
+_PROSE_MIN_CONTENT_WORDS = 4
+
+# Citation tokens stripped before shingling: `[#ev:id:a-b]`, `[ev_id]`, `[12]`, etc. (the surface
+# citation markers are NOT content — only the prose words decide redundancy).
+_CITATION_TOKEN_RE = re.compile(r"\[(?:#ev:[^\]]*|ev_[^\]]*|\d+)\]")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+# A small, conservative English stopword set (deterministic; no external dep). Dropping stopwords keeps
+# the shingle set focused on CONTENT words so "the/and/of" padding does not inflate Jaccard.
+_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "for", "from", "had", "has",
+    "have", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them",
+    "they", "this", "to", "was", "were", "which", "with", "their", "these", "those", "than",
+})
+
+# Sentinel shingle frozenset for sentences too short to cluster — it shares nothing with anything
+# (a fresh object each call would still be empty; using a module-level empty frozenset is fine because
+# Jaccard against an empty set is 0, so it can never match).
+_PROSE_NO_MATCH: frozenset = frozenset()
+
+
+def _prose_dedup_enabled() -> bool:
+    """PG_FACT_DEDUP_PROSE gate. DEFAULT-OFF => build_groups is byte-identical (the prose pass is
+    entirely skipped). ON => the empty-numeric-signature sentences are clustered by prose Jaccard."""
+    return os.getenv(PROSE_DEDUP_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _read_prose_jaccard() -> float:
+    """Read PG_FACT_DEDUP_PROSE_JACCARD as a float in (0, 1]. Malformed/out-of-range => default 0.82
+    (logged once at WARNING, never raised — a typo must not crash a paid run)."""
+    raw = os.environ.get(PROSE_JACCARD_ENV, "").strip() or _PROSE_JACCARD_DEFAULT
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[fact_dedup] %s=%r is not a float; using default %s",
+            PROSE_JACCARD_ENV, raw, _PROSE_JACCARD_DEFAULT,
+        )
+        return float(_PROSE_JACCARD_DEFAULT)
+    if not (0.0 < value <= 1.0):
+        logger.warning(
+            "[fact_dedup] %s=%s out of (0,1]; using default %s",
+            PROSE_JACCARD_ENV, value, _PROSE_JACCARD_DEFAULT,
+        )
+        return float(_PROSE_JACCARD_DEFAULT)
+    return value
+
+
+def _prose_shingles(sentence: str) -> frozenset:
+    """Normalize a sentence to a content-word shingle set for prose-redundancy Jaccard.
+
+    Steps: lowercase -> strip the [#ev:...]/[ev_id]/[N] citation tokens -> word-tokenize (alnum) ->
+    drop stopwords -> take word-UNIGRAMS AND word-BIGRAMS (bigrams give order-sensitivity so
+    "AI raised productivity" != "productivity raised AI"). Returns a frozenset of shingle strings.
+    A sentence with fewer than `_PROSE_MIN_CONTENT_WORDS` content words returns the never-matching
+    sentinel `_PROSE_NO_MATCH` (so trivially-short prose is NOT clustered)."""
+    text = _CITATION_TOKEN_RE.sub(" ", sentence.lower())
+    words = [w for w in _WORD_RE.findall(text) if w not in _STOPWORDS]
+    if len(words) < _PROSE_MIN_CONTENT_WORDS:
+        return _PROSE_NO_MATCH
+    shingles: set[str] = set(words)  # unigrams
+    for i in range(len(words) - 1):  # bigrams
+        shingles.add(words[i] + " " + words[i + 1])
+    return frozenset(shingles)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    """Exact Jaccard similarity |a∩b| / |a∪b|. Empty-either side => 0.0 (never a match)."""
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if inter == 0:
+        return 0.0
+    return inter / len(a | b)
+
+
+# Polarity / negation guard for the prose-Jaccard pass (Codex #1289 iter-1 P1). Content-word shingle
+# Jaccard is polarity-BLIND: "X raised wages" vs "X lowered wages", or a long claim differing only by an
+# inserted "not", share almost all shingles and clear 0.82 — yet assert OPPOSITE claims. Clustering them
+# would cross-ref one real, opposing claim away (a silent claim drop). Two prose sentences may cluster
+# ONLY when their polarity signature matches exactly. Deterministic token sets; no external dep, no LLM.
+_NEGATION_CUES = frozenset({
+    "not", "no", "never", "none", "without", "cannot", "cant", "nor", "neither",
+    "lack", "lacks", "lacking", "absent", "fail", "fails", "failed", "failing", "nothing",
+})
+_DIRECTION_DOWN = frozenset({
+    "decline", "declined", "declines", "decrease", "decreased", "decreases", "reduce", "reduced",
+    "reduces", "reduction", "fell", "fall", "falls", "fallen", "drop", "dropped", "drops", "lower",
+    "lowered", "lowers", "fewer", "less", "loss", "losses", "lost", "shrink", "shrank", "shrunk",
+    "worsen", "worsened", "weaken", "weakened", "negative", "down", "slower", "slowed", "depress",
+    "depressed", "suppressed", "contracted", "contraction",
+})
+_DIRECTION_UP = frozenset({
+    "increase", "increased", "increases", "rise", "rose", "risen", "rises", "grew", "grow", "grows",
+    "growth", "higher", "more", "greater", "gain", "gained", "gains", "raise", "raised", "raises",
+    "expand", "expanded", "expands", "boost", "boosted", "improve", "improved", "improves",
+    "improvement", "positive", "up", "faster", "accelerate", "accelerated", "surged", "surge",
+})
+
+
+def _polarity_signature(sentence: str) -> tuple:
+    """A deterministic polarity fingerprint: (sorted negation cues present, has_contraction_negation,
+    has_DOWN-direction, has_UP-direction). Two prose sentences may cluster ONLY when their signatures
+    are equal, so a single inserted ``not`` / ``n't`` or a ``raised``↔``lowered`` antonym flip blocks
+    the merge even at Jaccard ~1.0. Pure guard (never a relax): it can only PREVENT a merge, never force
+    one — so it can only KEEP more sources, never drop one (§-1.3)."""
+    text = _CITATION_TOKEN_RE.sub(" ", (sentence or "").lower())
+    has_nt = "n't" in text or "n’t" in text
+    words = set(_WORD_RE.findall(text))
+    return (
+        tuple(sorted(words & _NEGATION_CUES)),
+        has_nt,
+        bool(words & _DIRECTION_DOWN),
+        bool(words & _DIRECTION_UP),
+    )
+
+
+def _build_prose_groups(
+    sections: dict[str, list[str]],
+    section_order: list[str],
+    threshold: float,
+) -> list["RedundancyGroup"]:
+    """Cluster the EMPTY-numeric-signature sentences (the ones build_groups currently skips) by
+    content-word shingle Jaccard >= threshold. A cluster with >=2 OCCURRENCES (intra OR cross section)
+    becomes a RedundancyGroup: primary = first occurrence in section_order, the rest redundants.
+
+    Reuses the SAME RedundancyGroup / SentenceLocation shapes the numeric path uses, so the downstream
+    rewrite (keep-all cross-ref) is unchanged. Deterministic greedy single-pass clustering: each
+    candidate joins the FIRST existing cluster whose representative shingle set is within threshold,
+    else opens a new cluster — correct at our scale and order-stable.
+    """
+    # Collect every empty-numeric-signature location (the prose candidates) in section_order.
+    prose_locs: list[SentenceLocation] = []
+    for section_title in section_order:
+        if section_title not in sections:
+            continue
+        for idx, sentence in enumerate(sections[section_title]):
+            sig = extract_signature(sentence)
+            if not sig.is_empty():
+                continue  # numeric sentences belong to the numeric path, NOT the prose path
+            prose_locs.append(SentenceLocation(
+                section=section_title, index=idx, sentence=sentence, signature=sig,
+            ))
+
+    # Greedy clustering by prose Jaccard. Each cluster is (representative_shingles, [locations]).
+    clusters: list[tuple[frozenset, list[SentenceLocation]]] = []
+    for loc in prose_locs:
+        sh = _prose_shingles(loc.sentence)
+        if sh is _PROSE_NO_MATCH or not sh:
+            continue  # too short to cluster — never a redundancy candidate
+        placed = False
+        loc_polarity = _polarity_signature(loc.sentence)
+        for rep, members in clusters:
+            # Polarity must match the cluster primary (Codex #1289 P1): NEVER merge an opposite-polarity
+            # claim ("raised" vs "lowered", or a "not" flip) even at high shingle-Jaccard, or a real
+            # opposing claim would be cross-reffed away. Guard-only: it can only keep claims separate.
+            if _polarity_signature(members[0].sentence) != loc_polarity:
+                continue
+            if _jaccard(sh, rep) >= threshold:
+                members.append(loc)
+                placed = True
+                break
+        if not placed:
+            clusters.append((sh, [loc]))
+
+    groups: list[RedundancyGroup] = []
+    for _rep, members in clusters:
+        if len(members) < 2:  # >=2 OCCURRENCES (intra OR cross section) — NOT a distinct-section gate
+            continue
+        primary = members[0]
+        redundants = members[1:]
+        groups.append(RedundancyGroup(
+            signature=primary.signature, primary=primary, redundants=redundants,
+        ))
+    return groups
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Grouping + redundancy identification
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -553,6 +755,16 @@ def build_groups(
             redundants=redundants,
         ))
 
+    # I-beatboth-011 §3.3 (#1289): PROSE-repetition pass — clusters the EMPTY-numeric-signature
+    # sentences (skipped above at the `sig.is_empty(): continue`) by content-word shingle Jaccard.
+    # GATED behind PG_FACT_DEDUP_PROSE (default OFF => this block is a no-op and `groups` is exactly
+    # the numeric-path result, byte-identical to today). Prose groups append to the SAME `groups` list
+    # so they route through the UNCHANGED keep-all cross-ref rewrite downstream (§-1.3 consolidate).
+    if _prose_dedup_enabled():
+        groups.extend(_build_prose_groups(
+            sections, section_order, _read_prose_jaccard(),
+        ))
+
     return groups
 
 
@@ -674,7 +886,29 @@ async def rewrite_redundant_sentences(
     out: dict[tuple[str, int], Optional[str]] = {}
     for (_group, loc), rewrite in zip(flat, rewrites):
         if isinstance(rewrite, str) and rewrite.strip():
-            out[(loc.section, loc.index)] = rewrite.strip()
+            rewrite_text = rewrite.strip()
+            # KEEP-ALL ENFORCEMENT (§-1.3; Codex #1289 iter-1 NOVEL-P0): a *successful* rewrite must NOT
+            # silently DROP a corroborating source. Keep-all is a GROUP-GLOBAL invariant: the redundant
+            # is cross-reffed to the PRIMARY (which is kept verbatim and carries ALL its own citations),
+            # so the redundant may safely shed a token it SHARES with the primary — but every source
+            # UNIQUE to this redundant (a citation token NOT in the primary) MUST survive the rewrite, or
+            # it vanishes from the report entirely. Require those unique-vs-primary tokens to be present;
+            # if any is missing, DISCARD the rewrite and KEEP the original cited sentence (emit no key —
+            # the absent-key branch in apply_rewrites preserves it). A false reject only forgoes an
+            # optimization; it can never drop a source. (The numeric path shares this guard, harmlessly.)
+            original_cites = set(_CITATION_TOKEN_RE.findall(loc.sentence or ""))
+            primary_cites = set(_CITATION_TOKEN_RE.findall(getattr(_group.primary, "sentence", "") or ""))
+            must_survive = original_cites - primary_cites  # sources unique to this redundant
+            rewrite_cites = set(_CITATION_TOKEN_RE.findall(rewrite_text))
+            if must_survive and not must_survive <= rewrite_cites:
+                logger.warning(
+                    "[fact_dedup] rewrite at (%s,%d) dropped redundant-unique citation token(s) %s "
+                    "(not carried by the primary); KEEPing the original cited sentence "
+                    "(consolidate-keep-all, §-1.3)",
+                    loc.section, loc.index, sorted(must_survive - rewrite_cites),
+                )
+                continue
+            out[(loc.section, loc.index)] = rewrite_text
         # else: a null/empty rewrite for THIS item means the merge produced nothing — KEEP the
         # original cited sentence (consolidate-keep-all, §-1.3) by emitting NO key for it, so
         # apply_rewrites' absent-key branch preserves the corroborating sentence rather than

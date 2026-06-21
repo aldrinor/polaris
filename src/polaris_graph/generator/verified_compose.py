@@ -45,6 +45,25 @@ _MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
 
 # A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
+# of every provenance token so a byte-identical re-emission of the same span can be detected and dropped
+# (faithfulness-neutral — same resolved span, no new claim).
+_EV_SPAN_RE = re.compile(r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]")
+
+
+def _resolved_spans(text: str) -> set[tuple[str, int, int]]:
+    """The distinct resolved (evidence_id, start, end) provenance tuples a composed unit carries.
+
+    Empty set for a unit with no ``[#ev:...]`` token (such a unit is NEVER a seen-span drop candidate —
+    zero tokens must not be a vacuous "all duplicate"). Identity is the RESOLVED span (ev_id+offsets),
+    so it is stable under both the stub and the real writer (both emit the same token grammar)."""
+    spans: set[tuple[str, int, int]] = set()
+    for m in _EV_SPAN_RE.finditer(text or ""):
+        try:
+            spans.add((m.group("ev_id"), int(m.group("start")), int(m.group("end"))))
+        except (ValueError, TypeError):
+            continue
+    return spans
 # Sentence split — terminal punctuation (incl. a closing provenance ``]``) + whitespace + a new
 # sentence start. Fixed-width lookbehind. Mirrors the conservative splitter used elsewhere.
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z0-9])")
@@ -447,12 +466,42 @@ def _compose_section_per_basket(
 ) -> list[str]:
     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
-    Returns one composed string per basket, in order. NEVER empty per basket. Order-stable."""
+    Returns one composed string per basket, in order. Order-stable.
+
+    I-beatboth-011 (#1289):
+      §3.5 placeholder-leak — DROP any per-basket result that is the internal insufficient-evidence
+        marker before appending (the same filter the sibling multi-cite path already applies at the
+        `_per_basket_verified_clause` :337-338 precedent). An empty post-suppression section routes
+        through the existing gap/abort handling (the producer no longer guarantees one unit per basket
+        when that unit would be the internal marker — leaking the marker into report.md is the bug).
+      idx8 seen-span — DROP a composed unit ONLY when it is a TRUE duplicate: ALL of its RESOLVED
+        (ev_id,start,end) provenance tuples already appear in an emitted sibling in THIS section AND its
+        whitespace-normalized text is byte-identical to that sibling (faithfulness-neutral — a true
+        duplicate adds nothing). A SUBSET span alone does NOT prove the same claim (Codex #1289 iter-1
+        P1: different prose can cite an overlapping span), so a DIFFERING claim that merely shares a
+        span subset is KEPT. A unit with NO provenance token is NEVER dropped (zero tokens must not be
+        vacuously "all duplicate")."""
     out: list[str] = []
+    seen_spans: set[tuple[str, int, int]] = set()
+    seen_texts: set[str] = set()
     for basket in (section_baskets or []):
-        out.append(_compose_one_basket(
+        composed = _compose_one_basket(
             basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
-        ))
+        )
+        # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
+        if composed.strip().startswith("[insufficient verified evidence"):
+            continue
+        # idx8 (Codex #1289 P1): drop a unit ONLY when it is a true duplicate — its resolved spans are
+        # already emitted AND its normalized text is byte-identical to a sibling. Requiring text
+        # identity (not merely a span subset) keeps every differing claim. Apply AFTER the §3.5 marker
+        # filter so a token-less marker never reaches this check.
+        spans = _resolved_spans(composed)
+        norm = " ".join(composed.split())
+        if spans and spans <= seen_spans and norm in seen_texts:
+            continue
+        seen_spans |= spans
+        seen_texts.add(norm)
+        out.append(composed)
     return out
 
 
