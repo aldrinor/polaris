@@ -843,6 +843,20 @@ _WEB_BOILERPLATE_LINE_RE = re.compile(
         r"^\s*Accept (all )?[Cc]ookies\s*$",             # cookie-consent button
         r"^\s*Cookie [Cc]onsent\s*$",                    # cookie-consent header
         r"^\s*Manage (your )?[Cc]ookies?.*$",            # cookie-consent button
+        # I-beatboth-011 idx 46/68 (#1289): high-precision BODY social-chrome (Scribd / Facebook /
+        # YouTube) + journal masthead/ISSN. These sit AFTER ``Markdown Content:`` in the body, so the
+        # preamble drop never touches them. EVERY pattern is whole-line + MULTI-TOKEN anchored — a bare
+        # "Share"/"Download"/"subscribers"/"cite" in real prose is NEVER matched (the §-1.3 no-real-
+        # claim-dropped invariant; only fetch chrome is removed).
+        r"^\s*Like\s+Comment\s+Share\s*$",                       # Facebook reaction bar
+        r"^\s*Download free for \d+ days\s*$",                   # Scribd upsell (IGNORECASE covers casing)
+        r"^\s*Upload Document\s*$",                              # Scribd nav
+        r"^\s*blob:https?://localhost[/\w:.\-]*\s*$",            # Facebook inline blob image URL line
+        r"^\s*Tap to unmute\s*$",                                # YouTube player chrome
+        r"^\s*[\d.,]+[KMB]\s+subscribers\s+Subscribed\b.*$",     # YouTube channel header (K/M/B count REQUIRED — never a bare "1000 subscribers subscribed" prose line)
+        r"^\s*Share\s+Save\s+Download\b.*$",                     # YouTube action row
+        r"^\s*Cite this paper as\b.*$",                          # journal masthead cite chrome
+        r"^\s*ISSN\s*:?\s*\d{4}-\d{3}[\dXx]\s*$",                # bare ISSN identifier row
     ]),
     re.MULTILINE | re.IGNORECASE,
 )
@@ -1030,6 +1044,28 @@ _JINA_INLINE_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# I-beatboth-011 idx 46/68 (#1289): INLINE social-chrome (Scribd / Facebook / YouTube nav + journal
+# masthead/ISSN). The banked corpus shows these COLLAPSED inline in the cited body (16x ISSN, 16x
+# "Tap to unmute", 13x YouTube "<count>K subscribers Subscribed", 12x "Share Save Download", Scribd
+# "Download free for N days", FB "Like Comment Share", masthead "Cite this paper as"), so the
+# whole-line allowlist misses them just like the inline reader headers. Each alternative is a
+# DISTINCTIVE multi-token chrome signature anchored so it can NEVER match legitimate prose: the
+# YouTube subscriber run REQUIRES a K/M/B count (so "1000 subscribers subscribed" in prose is not
+# matched), and every other phrase is a fixed multi-word nav literal. Removed token-only; surrounding
+# prose is preserved (tier weighting handles residual low-value nav).
+_INLINE_SOCIAL_CHROME_RE = re.compile(
+    r"|".join([
+        r"Like\s+Comment\s+Share",                                   # Facebook reaction bar
+        r"Download free for \d+ days",                               # Scribd upsell
+        r"Tap to unmute(?:\s+\d+x)?",                                # YouTube player
+        r"[\d.,]+[KMB]\s+subscribers\s+Subscribed(?:\s+\d+)?",       # YouTube channel header (K/M count REQUIRED)
+        r"Share\s+Save\s+Download(?:\s+Download)?",                  # YouTube action row (sometimes doubled)
+        r"Cite this paper as\s*:?",                                  # journal masthead cite chrome
+        r"ISSN\s*:?\s*\d{4}-\d{3}[\dXx]",                            # ISSN identifier
+    ]),
+    re.IGNORECASE,
+)
+
 # The reader preamble sits at the very TOP of the fetched content. Only treat a
 # `Markdown Content:` marker as the preamble terminator if it appears within this
 # many chars of the start, so a stray "Markdown Content:" deep in real prose can
@@ -1087,6 +1123,9 @@ def clean_fetch_body(content: "Optional[str]") -> CleanedFetch:
     # Remove any residual inline reader marker tokens (a second embedded preamble
     # deep in the body that the head-window drop + whole-line strip both miss).
     text = _JINA_INLINE_TOKEN_RE.sub(" ", text)
+    # I-beatboth-011 idx 46/68: remove inline social-chrome (Scribd/FB/YouTube/masthead) the same way —
+    # distinctive multi-token nav literals, anchored so prose is never touched.
+    text = _INLINE_SOCIAL_CHROME_RE.sub(" ", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = text.strip()
 

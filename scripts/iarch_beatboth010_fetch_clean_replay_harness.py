@@ -54,6 +54,25 @@ _HEADER_TOKENS = re.compile(
     re.IGNORECASE,
 )
 
+# I-beatboth-011 idx 46/68 (#1289): high-precision BODY social-chrome (Scribd / Facebook / YouTube)
+# + journal masthead/ISSN. These sit AFTER ``Markdown Content:`` so the FIX-A preamble drop misses
+# them — only the extended whole-line allowlist catches them. ALL multi-token (a bare
+# "Share"/"subscribers"/"cite" in real prose is never matched) so this token set is a faithful
+# leak detector.
+_SOCIAL_CHROME_TOKENS = re.compile(
+    r"|".join([
+        r"Like Comment Share",
+        r"Download free for \d+ days",
+        r"Upload Document",
+        r"Tap to unmute",
+        r"\bsubscribers\s+Subscribed\b",
+        r"Share Save Download",
+        r"Cite this paper as",
+        r"\bISSN\s*:?\s*\d{4}-\d{3}[\dXx]\b",
+    ]),
+    re.IGNORECASE,
+)
+
 
 def _fail(msg: str) -> None:
     print(f"FAIL I-beatboth-010 FIX-A replay: {msg}")
@@ -135,10 +154,80 @@ def main() -> None:
         f"{len(efg)} direct_quote rows (was {len(dirty_rows)} dirty / {total_dq_hits} hits); "
         f"real prose preserved (probe {probe.get('evidence_id')} -> {len(cleaned_probe)} chars)."
     )
+
+    # (C) idx 46/68 — the EXTENDED allowlist strips Scribd/FB/YouTube body social-chrome + masthead/ISSN
+    # (deterministic: these phrases may not be in THIS banked AI-labor corpus, so a synthetic body proves
+    # recall) while keeping real prose with the same bare words (precision). Plus: ZERO social-chrome
+    # survives in any cleaned banked row.
+    _social_chrome = [
+        "Like Comment Share",
+        "Download free for 30 days",
+        "Upload Document",
+        "Tap to unmute",
+        "2.75K subscribers Subscribed 0 Share Save Download",
+        "Share Save Download 1.2M views",
+        "Cite this paper as: Smith et al. 2024",
+        "ISSN: 0002-8282",
+    ]
+    _real_prose = [
+        "Researchers share the view that automation displaced routine workers [1].",
+        "You can download the dataset from the appendix to reproduce the results.",
+        "The journal reported 50000 subscribers in 2023, a record figure.",
+        "Firms cite labor costs as the primary driver of AI adoption.",
+    ]
+    cleaned_social = clean_fetch_body("\n".join(_social_chrome + _real_prose)).cleaned_text
+    surviving_chrome = [c for c in _social_chrome if c in cleaned_social]
+    dropped_prose = [p for p in _real_prose if p not in cleaned_social]
+    if surviving_chrome:
+        _fail(f"(C) idx46 social-chrome SURVIVED clean_fetch_body: {surviving_chrome}")
+    if dropped_prose:
+        _fail(f"(C) idx46 over-strip — real prose dropped: {dropped_prose}")
+    residual_social = sum(
+        1 for e in efg
+        if _SOCIAL_CHROME_TOKENS.search(clean_fetch_body(e.get("direct_quote", "") or "").cleaned_text)
+    )
+    if residual_social:
+        _fail(f"(C) idx46: {residual_social} cleaned banked rows still carry social-chrome tokens")
     print(
-        "PASS I-beatboth-010 FIX-A: the banked corpus proves the crawl-header leak fired in the cited "
-        "direct_quote rows (RED); clean_fetch_body strips every header token whole-line while preserving "
-        "assertional prose (GREEN). Faithfulness gates untouched."
+        f"(C) idx46 ok: all {len(_social_chrome)} social-chrome lines stripped, all {len(_real_prose)} "
+        f"real-prose lines kept; 0 social-chrome residual across {len(efg)} cleaned banked rows."
+    )
+
+    # (D) idx 45 — BASKET-LAYER propagation. The basket member's source span is
+    # credibility_pass._row_span_text(row) = row['direct_quote'] (or 'statement'); the claim-local span
+    # is a SUBSTRING of it. So a fetch-cleaned row -> a clean member span by construction. Prove it on
+    # the real function: for every banked row, the member source resolved from the CLEANED row carries
+    # ZERO header AND social chrome (today's harness stopped at corpus_snapshot, never the basket layer).
+    from src.polaris_graph.synthesis.credibility_pass import _row_span_text  # noqa: PLC0415
+    basket_dirty = 0
+    sample = None
+    for e in efg:
+        dq = e.get("direct_quote", "") or ""
+        if not dq:
+            continue
+        cleaned_row = {"direct_quote": clean_fetch_body(dq).cleaned_text}
+        member_src = _row_span_text(cleaned_row)
+        if _HEADER_TOKENS.search(member_src) or _SOCIAL_CHROME_TOKENS.search(member_src):
+            basket_dirty += 1
+            if sample is None:
+                sample = e.get("evidence_id")
+    if basket_dirty:
+        _fail(
+            f"(D) idx45: {basket_dirty} basket-member source spans (credibility_pass._row_span_text on "
+            f"the cleaned row) still carry chrome (sample {sample}); the clean does not propagate to the "
+            f"basket layer."
+        )
+    print(
+        f"(D) idx45 ok: all {len(efg)} basket-member source spans (via credibility_pass._row_span_text on "
+        f"the cleaned rows) carry ZERO header/social chrome — the fetch clean propagates to the basket layer."
+    )
+
+    print(
+        "PASS I-beatboth-010 FIX-A (+ I-beatboth-011 idx 45/46): the banked corpus proves the crawl-header "
+        "leak fired in the cited direct_quote rows (RED); clean_fetch_body strips every header token AND the "
+        "extended Scribd/FB/YouTube/masthead social-chrome whole-line while preserving assertional prose "
+        "(GREEN); and the cleaned span propagates chrome-free to the basket-member layer (idx45). "
+        "Faithfulness gates untouched."
     )
 
 
