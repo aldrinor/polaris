@@ -2926,6 +2926,169 @@ def load_a12_checkpoint(run_dir: "Path", checkpoint_name: str) -> "dict | None":
     return _payload
 
 
+# I-beatboth-008 (#1285) commit-2 build B: STORM-outline resume durability.
+# A --resume re-enters at the post-selection corpus_snapshot (or the post-fetch
+# fetch_snapshot), which is AFTER the STORM interview phase. The STORM block at
+# ~L5326 is guarded by `not _resume_active and not _resume_from_fetch`, so a resume
+# SKIPS the producer and `_storm_outline` would silently collapse to [] — the STORM
+# scaffold never fires on a resume (the bug). These two helpers persist the captured
+# outline on the fresh run and restore it on the resume so the scaffold survives.
+#
+# DATA ONLY: the payload carries section titles / order / keywords / descriptions
+# (STRUCTURE), never STORM-authored prose into verified_text and never any verdict.
+# A resume STILL re-runs every faithfulness gate (strict_verify / NLI / 4-role / D8);
+# this restores only the section scaffold the generator threads at ~L8768.
+_STORM_OUTLINE_CHECKPOINT = "storm_outline.json"
+_STORM_OUTLINE_STAGE = "post_interview"
+# Shared by BOTH persist + load so they can NEVER drift (a hardcoded `1` in each would be
+# the exact silent-drift class P1-3 guards against). Bump iff the SCAFFOLD field set below
+# changes incompatibly.
+_STORM_OUTLINE_SCHEMA_VERSION = 1
+# The ONLY fields persisted per section (§-1.3 DATA-ONLY contract, I-beatboth-008 P1-2). These
+# are the STRUCTURAL scaffold fields the generator's `_build_storm_outline_section_plans`
+# consumes (it reads title + order; description + search_keywords are structural too). The
+# STORM-AUTHORED PROSE fields `evidence_summary` / `perspectives` (and any future verdict) are
+# DELIBERATELY EXCLUDED — they are never written, so a resume can never replay STORM prose as a
+# verified surface. The producer's fallback path also tacks on `storm_outline_degraded*` keys
+# (storm_interviews.py:1611) that are likewise dropped by this explicit allow-list projection.
+_STORM_OUTLINE_SCAFFOLD_FIELDS = ("title", "description", "search_keywords", "order")
+
+
+def _project_storm_outline_scaffold(section: "object") -> "dict | None":
+    """Project ONE StormOutlineSection (pydantic object OR dict OR fallback-dict) down to the
+    DATA-ONLY scaffold fields `_STORM_OUTLINE_SCAFFOLD_FIELDS`. Pick by NAME from whichever shape
+    (never a `dict(section)`-minus-keys, which would leak the fallback extras / any future field
+    / prose). Returns the projected dict, or None for an unrecognized shape (caller skips it,
+    never aborts)."""
+    if hasattr(section, "model_dump"):
+        _src = section.model_dump()
+    elif isinstance(section, dict):
+        _src = section
+    else:  # pragma: no cover - defensive; unexpected shape, skip not abort
+        return None
+    # Explicit allow-list: copy ONLY the 4 scaffold keys that are present; omit the rest.
+    # NEVER carries evidence_summary / perspectives / any verdict or prose.
+    return {_k: _src[_k] for _k in _STORM_OUTLINE_SCAFFOLD_FIELDS if _k in _src}
+
+
+def write_storm_outline_checkpoint(
+    run_dir: "Path", outline: "list"
+) -> "Path | None":
+    """Persist the captured STORM outline (post-interview) so a --resume can restore the
+    section scaffold the producer block skips. ATOMIC (temp + os.replace). Best-effort /
+    FAIL-OPEN: a write failure is logged by the caller and NEVER aborts the paid run
+    (the outline is a structural convenience, not a faithfulness artifact). Items are
+    `StormOutlineSection` pydantic objects; dicts are handled defensively. Each section is
+    projected to the DATA-ONLY scaffold fields ONLY (title/description/search_keywords/order);
+    `evidence_summary` / `perspectives` (STORM prose) and any verdict are NEVER persisted
+    (§-1.3, I-beatboth-008 P1-2). Returns the path written, or None on failure."""
+    try:
+        _sections = []
+        for _s in (outline or []):
+            _proj = _project_storm_outline_scaffold(_s)
+            if _proj is not None:
+                _sections.append(_proj)
+        payload = {
+            "schema_version": _STORM_OUTLINE_SCHEMA_VERSION,
+            "stage": _STORM_OUTLINE_STAGE,
+            "storm_outline": _sections,
+            # EXPLICIT invariant marker (§-1.3): a §-1.1 auditor sees on the artifact
+            # itself that this is STRUCTURE-ONLY DATA, no verdict, no STORM prose.
+            "faithfulness_invariant": (
+                "DATA ONLY; section titles/order/keywords/description (structure) — no "
+                "verdict, no STORM-authored prose (evidence_summary / perspectives are "
+                "NEVER persisted); a resume re-runs every faithfulness gate."
+            ),
+        }
+        _path = Path(run_dir) / _STORM_OUTLINE_CHECKPOINT
+        _tmp = _path.with_name(_path.name + ".tmp")
+        _tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(_tmp, _path)  # atomic publish
+        return _path
+    except Exception:  # noqa: BLE001 — FAIL-OPEN: checkpoint is best-effort, never a run blocker
+        return None
+
+
+def load_storm_outline_checkpoint(run_dir: "Path") -> "list | None":
+    """RESUME LOADER for the STORM outline. Returns a list of `StormOutlineSection`
+    objects if the checkpoint is PRESENT-and-valid, or None ONLY if the file is ABSENT.
+
+    FAIL-LOUD (mirrors the A12 loaders): a PRESENT file that is malformed RAISES — never a
+    silent empty default. "Malformed" means: corrupt JSON, not a JSON object, the wrong
+    `schema_version`, the wrong `stage`, a MISSING `storm_outline` key, a non-list
+    `storm_outline`, or a section dict that fails `StormOutlineSection(**d)`. This is the
+    P1-3 fix: the OLD `_payload.get("storm_outline", [])` returned [] for a present-but-
+    malformed file ({}, missing key, wrong schema/stage), silently reproducing the exact
+    resume STORM no-op this checkpoint exists to prevent. An EMPTY-but-valid outline
+    (`storm_outline: []`) legitimately returns [] (not a malformed file). STRUCTURE-ONLY:
+    no verdict is read."""
+    _path = Path(run_dir) / _STORM_OUTLINE_CHECKPOINT
+    if not _path.is_file():
+        return None  # ABSENT — the ONLY None case (fresh run / no snapshot)
+    from src.polaris_graph.agents.storm_interviews import StormOutlineSection
+    with _path.open(encoding="utf-8") as _handle:
+        _payload = json.load(_handle)  # raises on corrupt JSON -> fail loud
+    if not isinstance(_payload, dict):
+        raise ValueError(
+            f"STORM outline checkpoint is not a JSON object: {_path}"
+        )
+    _ver = _payload.get("schema_version")
+    if _ver != _STORM_OUTLINE_SCHEMA_VERSION:
+        raise ValueError(
+            f"STORM outline checkpoint schema_version {_ver!r} != expected "
+            f"{_STORM_OUTLINE_SCHEMA_VERSION!r} (present-but-malformed; refusing to silently "
+            f"drop the STORM scaffold): {_path}"
+        )
+    _stage = _payload.get("stage")
+    if _stage != _STORM_OUTLINE_STAGE:
+        raise ValueError(
+            f"STORM outline checkpoint stage {_stage!r} != expected "
+            f"{_STORM_OUTLINE_STAGE!r} (present-but-malformed): {_path}"
+        )
+    if "storm_outline" not in _payload:
+        raise ValueError(
+            f"STORM outline checkpoint is missing the required 'storm_outline' key "
+            f"(present-but-malformed; would have silently restored [] under the old "
+            f".get default): {_path}"
+        )
+    _sections = _payload["storm_outline"]
+    if not isinstance(_sections, list):
+        raise ValueError(
+            f"STORM outline checkpoint 'storm_outline' is not a list: {_path}"
+        )
+    # P1-3 (commit-2 iter-3) SECTION-LEVEL FAIL-LOUD: validate each section EXPLICITLY before
+    # construction — do NOT rely on `StormOutlineSection(**d)` to raise on a malformed section.
+    # The `normalize_field_names` model_validator (storm_interviews.py:380-383, mode="before")
+    # COERCES missing/None `title`/`description` to "" and gives the remaining fields defaults,
+    # so `StormOutlineSection(**{})` constructs ONE BLANK-TITLE section instead of raising. A
+    # blank-title section then SILENTLY NO-OPS in `_build_storm_outline_section_plans` (blank
+    # titles are dropped) — the exact resume STORM no-op this checkpoint exists to prevent.
+    # An EMPTY-but-valid outline (`storm_outline: []`) skips this loop and legitimately yields [].
+    for _i, _d in enumerate(_sections):
+        if not isinstance(_d, dict):
+            raise ValueError(
+                f"STORM outline checkpoint section {_i} is not a dict "
+                f"(present-but-malformed; would not construct a usable scaffold section): "
+                f"{_d!r} in {_path}"
+            )
+        _title = _d.get("title")
+        if not isinstance(_title, str) or not _title.strip():
+            raise ValueError(
+                f"STORM outline checkpoint section {_i} has a missing/blank scaffold 'title' "
+                f"({_title!r}); a blank-title section silently no-ops the STORM scaffold builder "
+                f"(_build_storm_outline_section_plans drops blank titles) — refusing to silently "
+                f"restore a no-op scaffold (the P1-3 resume no-op this checkpoint prevents): "
+                f"{_path}"
+            )
+    # Each section is now a dict with a usable non-blank scaffold title. The persisted dicts
+    # carry ONLY the scaffold fields; the omitted required fields (evidence_summary /
+    # perspectives) fall back to the pydantic schema defaults ("" / []).
+    return [StormOutlineSection(**_d) for _d in _sections]
+
+
 def finalize_run_artifact(
     run_dir: "Path | None",
     summary: dict,
@@ -4659,6 +4822,12 @@ async def run_one_query(
         _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
         _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
         _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+        # I-beatboth-008 (#1285) commit-2 build B: the restored STORM outline. Initialized
+        # to None HERE — BEFORE `if resume:` — so it is defined on the FRESH path too (the
+        # clobber-fix seed at ~L5325 reads it unconditionally; a fresh run skips `if resume:`
+        # entirely, so an init inside that block would NameError at the seed). Fresh: None ->
+        # [] -> STORM populates. Resume: load_storm_outline_checkpoint restores it below.
+        _resumed_storm_outline: "list | None" = None
         # A12 (iarch007 P1): the post-generation / post-verification checkpoints. These are loaded
         # for OBSERVABILITY + DATA carry on a --resume — they are NOT a re-entry point that replays
         # a verdict. The §-1.3 ABSOLUTE invariant is enforced here: a checkpoint that smuggled a
@@ -4682,6 +4851,13 @@ async def run_one_query(
             # verdict ever leaked in). They never SUPPRESS a gate re-run.
             _a12_postgen_payload = load_a12_checkpoint(run_dir, _A12_POSTGEN_CHECKPOINT)
             _a12_postverify_payload = load_a12_checkpoint(run_dir, _A12_POSTVERIFY_CHECKPOINT)
+            # I-beatboth-008 (#1285) commit-2 build B: restore the STORM outline so a --resume
+            # FIRES the STORM scaffold instead of bypassing the producer. UNCONDITIONAL inside
+            # `if resume:` (applies to BOTH _resume_active and _resume_from_fetch): STORM runs
+            # BEFORE fetch, so storm_outline.json exists on either snapshot. FAIL-LOUD on corrupt
+            # (mirrors the A12 loaders); None if absent. The seed at ~L5325 threads it into the
+            # producer-skipped path so it survives to the generator @ ~L8768.
+            _resumed_storm_outline = load_storm_outline_checkpoint(run_dir)
 
         log_path = run_dir / "run_log.txt"
         # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
@@ -5322,7 +5498,14 @@ async def run_one_query(
         # Initialized empty (the STORM block is conditional); populated inside the block
         # from `_storm_out["storm_outline"]` and threaded to `generate_multi_section_report`
         # as the `storm_outline=` kwarg. Empty / flag-OFF => byte-identical legacy sectioning.
-        _storm_outline: list = []
+        #
+        # I-beatboth-008 (#1285) commit-2 build B CLOBBER-FIX: seed from the RESTORED outline
+        # (None on a fresh run / when absent -> []). WITHOUT this, the unconditional `= []` here
+        # would overwrite the resume-restore done at ~L4685 and the STORM scaffold would silently
+        # no-op on every resume. Fresh: None -> [] -> the STORM block below populates it. Resume:
+        # the producer block below is skipped (resume guard), so this restored value survives
+        # untouched to the generator @ ~L8768.
+        _storm_outline: list = list(_resumed_storm_outline or [])
         if (not _resume_active) and (not _resume_from_fetch) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
             _storm_telemetry["enabled"] = True
             _storm_telemetry["firing_status"] = "attempted_empty"
@@ -5405,6 +5588,17 @@ async def run_one_query(
             # prose enters retrieval or verified_text here.
             _storm_outline = list(_storm_out.get("storm_outline", []) or [])
             _storm_telemetry["outline_sections"] = len(_storm_outline)
+            # I-beatboth-008 (#1285) commit-2 build B: PERSIST the captured outline (atomic,
+            # FAIL-OPEN) so a later --resume can restore the STORM scaffold (the resume re-enters
+            # AFTER this producer block, which is `not _resume_active and not _resume_from_fetch`-
+            # guarded, so it would otherwise collapse _storm_outline to []). DATA ONLY: structure,
+            # no STORM prose, no verdict — a resume still re-runs every faithfulness gate.
+            _storm_outline_ckpt_path = write_storm_outline_checkpoint(run_dir, _storm_outline)
+            if _storm_outline_ckpt_path is None:
+                _log(
+                    "[storm]       WARN: failed to persist storm_outline.json "
+                    f"(resume would skip the STORM scaffold) (slug={q['slug']})"
+                )
             # BB-006 (I-beatboth-fix-000 #1171): ALSO harvest the STORM interview-search-result URLs
             # (the 478/540 real web URLs in _storm_out['web_results'] + ['academic_results']) as SEED
             # candidates — previously DISCARDED (only the synthesized interview QUESTIONS were re-used).

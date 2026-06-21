@@ -509,13 +509,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
     "PG_LIVE_CONTENT_MAX": "50000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
-    "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
+    "PG_LIVE_RETRIEVER_MAX_WORKERS": "24",
+    # I-beatboth-008 (#1285) commit-2 build A: per-HOST politeness concurrency for the parallel
+    # fetch pool (live_retriever:4093 _env_int, CALL-time). 6 lets distinct hosts fetch wider while
+    # same-host stays capped — concurrency only, faithfulness-neutral. Read at call time inside the
+    # sweep chain (imported AFTER the slate), so the env-set lands without a rebind.
+    "PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT": "6",
     # F01/F16 (A3): the global LLM concurrency cap. llm_provider.get_semaphore() reads this at
     # CALL time (per-loop rebind), so the slate value lands without an import-time freeze. FLOOR
     # semantics (max(existing, 5)): an operator may RAISE it but never silently drop below the
     # safe default of 5 (cloud rate-limit / GPU-OOM guard). NOT part of the ~1000-URL fetch sum —
     # it caps concurrent LLM calls, not URLs.
-    "PG_MAX_CONCURRENT_LLM": "5",
+    "PG_MAX_CONCURRENT_LLM": "8",
     # I-ready-003 (#1074) P1: scale the post-fetch loop budget to the ~1000-URL cap. The live_retriever
     # now takes max(this, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET) so the loop never silently truncates
     # the corpus mid-classification. 1000 URLs * 4s = 4000s.
@@ -876,7 +881,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # client) lands — the slate value is INERT until 1b's parallelism is enabled atop 2a (plan §8 PR-2).
     # FLOAT/INT values -> force-EXACT (the int-FLOOR path is wrong for the wall; force the chosen pair).
     "PG_CREDIBILITY_PASS_WALL_S": "3000",
-    "PG_CREDIBILITY_PASS_MAX_INFLIGHT": "16",
+    # I-beatboth-008 (#1285) commit-2 build A: raise the credibility-pass parallelism 16 -> 20. The
+    # WALL_S sizing invariant still holds with margin (worst healthy ~619 members @ 40s / inflight-20 ≈
+    # 1238s < 3000s wall, MORE headroom than the inflight-16 ≈ 1548s). Read at call time
+    # (credibility_pass._pass_max_inflight, force-EXACT below). Concurrency only — verdicts unchanged.
+    "PG_CREDIBILITY_PASS_MAX_INFLIGHT": "20",
     # ITEM 4 (deploy commit 376ac812): the sentinel transport-fault degrade-and-continue. A single
     # blank/non-JSON sentinel HTTP-200 used to tear down the WHOLE D8 seam -> coverage hardcoded 0.0 ->
     # curator_gap emptiness (~177 claims). ON marks ONLY that claim sentinel-unavailable (fail-CLOSED
@@ -973,7 +982,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # widens the map fan-out (breadth-positive, not a throttle). Code defaults already equal these, so
     # slate-absent runs are byte-identical — pinned for clarity + drift-protection.
     "PG_DISTILL_MAP_CALL_WALL_S": "1800",
-    "PG_DISTILL_MAX_PARALLEL": "8",
+    # I-beatboth-008 (#1285) commit-2 build A: widen the distill MAP fan-out 8 -> 12 (more sources in
+    # flight; the per-call wall above bounds each one). Read at call time in the sweep chain (imported
+    # AFTER the slate) — env-set lands without a rebind. A worker/concurrency knob only: it changes how
+    # many MAP calls run in parallel, never the per-call prompt envelope or which findings are produced.
+    # (Codex commit-2 iter-2 P1-1: PG_DISTILL_MICROBATCH_SIZE was REMOVED from this slate — it batches
+    # sources PER distill MAP call, changing the LLM prompt envelope + WHICH findings are produced, so it
+    # is faithfulness-adjacent and out of scope for a parallelism-only commit.) Breadth-positive throughput
+    # only; consolidate-keep-all DNA + faithfulness gates untouched.
+    "PG_DISTILL_MAX_PARALLEL": "12",
     # I-arch-011 FIX-C (run #6 enrichment-verify "freeze" — the wiring gap): the I-arch-006 fix#19
     # bounded-PARALLEL findings verify (provenance_generator._parallel_verify_workers) exists but was
     # NEVER set in the slate, so the 737-source breadth-enrichment section verified its ~1839
@@ -988,7 +1005,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # worker exception still propagates fail-loud. Behavioral proof on the banked drb_78 corpus + REAL
     # glm-5.1 judge (scripts/iarch011_parallel_verify_gate.py): the enrichment verify COMPLETES in
     # 17.4min (was ~173min serial) and keeps 1746 cited / 657 distinct sources on the enforce path.
-    "PG_PARALLEL_VERIFY": "16",
+    # I-beatboth-008 (#1285) commit-2 build A: raise the bounded findings-verify parallelism 16 -> 24.
+    # The per-call total-deadline in entailment_judge (PG_ENTAILMENT_TOTAL_S) is what keeps it HANG-SAFE;
+    # 24 only widens how many in flight. Read at call time (provenance_generator._parallel_verify_workers,
+    # force-EXACT below). FAITHFULNESS-NEUTRAL: ``map`` preserves input order + copies the parent
+    # contextvars context, so kept/dropped is byte-identical to serial — concurrency changes timing only.
+    "PG_PARALLEL_VERIFY": "24",
     # I-arch-011 B02/B04 (FETCH lane): re-fetch fetch_degraded rows through the live-retriever Zyte
     # cascade on the FRESH (non-resume) path too — PG_RESUME_REFETCH_DEGRADED above covers the
     # --resume path, and this is INERT on a resume (no live fetch runs). Default OFF in code so a
@@ -1022,6 +1044,47 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # child cannot wedge the fetch (an OOM/SIGKILL/timeout child exit is recorded LOUD by
     # safe_trafilatura_extract -> regex-fallback + fetch-degraded, not a silent gap).
     "PG_TRAFILATURA_SUBPROCESS": "1",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-beatboth-008 (#1285) commit-2 build A — PARALLELISM SLATE (worker counts / concurrency only;
+    # NO verification logic touched). FAITHFULNESS-NEUTRAL throughout: every knob below changes only how
+    # many units run concurrently, never which units pass/drop. The 5 EXISTING slate values raised above
+    # (PG_PARALLEL_VERIFY 16->24, PG_CREDIBILITY_PASS_MAX_INFLIGHT 16->20, PG_DISTILL_MAX_PARALLEL 8->12,
+    # PG_LIVE_RETRIEVER_MAX_WORKERS 16->24, PG_MAX_CONCURRENT_LLM 5->8) live at their original sites; the
+    # NEW knobs that have no prior slate home are added here.
+    #
+    # PG_FOUR_ROLE_CLAIM_WORKERS: per-claim Mirror->Sentinel->Judge compute parallelism in the D8 seam.
+    # CRITICAL import-timing (#1285 comment): sweep_integration.py:155 reads this AT IMPORT into the
+    # module global `_CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS","6")))`, and
+    # run_gate_b.py:61 imports sweep_integration at THIS module's OWN top level — which executes BEFORE
+    # apply_full_capability_benchmark_slate() ever runs. So setting the env in the slate alone is a SILENT
+    # NO-OP: `_CLAIM_WORKERS` is already frozen at the default. apply_full_capability_benchmark_slate()
+    # therefore REBINDS the live module attribute after the floor loop (see the rebind block in that
+    # function) so the slate value ACTUALLY takes effect. The seam reads `_CLAIM_WORKERS` as a module
+    # global at CALL time (sweep_integration.py:493/600/625), so the post-import reassignment is honored.
+    "PG_FOUR_ROLE_CLAIM_WORKERS": "12",
+    # Section-parallelism (concurrency only; faithfulness-NEUTRAL — each section is still generated and
+    # verified INDEPENDENTLY and IDENTICALLY, results merged back in the original `plans` order; the knob
+    # is a Semaphore bound, never a section TARGET). Two collaborating envs, BOTH set to 6 so section
+    # concurrency is genuinely 6 on every path:
+    #   - PG_MAX_PARALLEL_SECTIONS IS consumed: run_honest_sweep_r3.py:8806 reads it as the
+    #     `max_parallel_sections` kwarg default to generate_multi_section_report (default "3"). (The prior
+    #     comment here claimed "no consumer in src/" — that was STALE/WRONG; corrected per Codex commit-2
+    #     iter-2 P2.)
+    #   - PG_PARALLEL_SECTIONS is the per-call OVERRIDE: multi_section_generator.py:7242 reads it at CALL
+    #     time and, when >=1, REPLACES the caller-supplied max_parallel_sections kwarg.
+    # Setting the kwarg-default (PG_MAX_PARALLEL_SECTIONS=6) AND the override (PG_PARALLEL_SECTIONS=6)
+    # makes 6 the effective section concurrency regardless of which path constructs the generator.
+    "PG_MAX_PARALLEL_SECTIONS": "6",
+    "PG_PARALLEL_SECTIONS": "6",
+    # PG_BYPASS_MAX_INFLIGHT: AccessBypass concurrent-fetch ceiling (access_bypass.py:319, read at CALL
+    # time inside the fetch path; module pulled via the sweep chain AFTER the slate, so the env-set lands
+    # without a rebind). 20 widens the paywall-bypass fan-out — fetch throughput only.
+    "PG_BYPASS_MAX_INFLIGHT": "20",
+    # PG_STORM_CONCURRENCY: parallel STORM interviews (storm_interviews.py:1410, read at CALL time;
+    # imported via the sweep chain after the slate). 8 doubles the default-4 interview fan-out so the
+    # outline-research phase finishes sooner. Discovery throughput only — faithfulness-neutral.
+    "PG_STORM_CONCURRENCY": "8",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1501,6 +1564,20 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     )
     set_four_role_reasoning_effort(os.environ.get("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh"))
     set_verifier_llm_timeout_seconds(int(os.environ.get("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900")))
+    # I-beatboth-008 (#1285) commit-2 build A — IMPORT-TIMING REBIND for PG_FOUR_ROLE_CLAIM_WORKERS.
+    # sweep_integration.py:155 reads this env AT IMPORT into the module global
+    # `_CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS","6")))`, and run_gate_b.py:61
+    # imports sweep_integration at THIS module's OWN top level — which runs BEFORE this slate ever does.
+    # So the slate's os.environ set above is a SILENT NO-OP on `_CLAIM_WORKERS` (already frozen at the
+    # default). REBIND the live module attribute here (same fix class as the four setters above) so the
+    # slate value ACTUALLY takes effect. The D8 seam reads `_CLAIM_WORKERS` as a module global at CALL
+    # time (sweep_integration.py:493/600/625), so this post-import reassignment is honored on the run.
+    # FAITHFULNESS-NEUTRAL: worker count only — the per-claim verdicts + D8 reduction are unchanged.
+    # The module is already in sys.modules (imported at run_gate_b:61), so this import is free.
+    import src.polaris_graph.roles.sweep_integration as _sweep_integration
+    _sweep_integration._CLAIM_WORKERS = max(
+        1, int(os.environ.get("PG_FOUR_ROLE_CLAIM_WORKERS", "6"))
+    )
 
 
 def preflight_full_capability(smoke_scale: bool = False) -> None:
