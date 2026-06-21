@@ -830,6 +830,9 @@ _WEB_BOILERPLATE_LINE_RE = re.compile(
         r"^\s*URL Source\s*:.*$",                       # Jina/Crawl4AI header
         r"^\s*Markdown Content\s*:.*$",                  # Jina/Crawl4AI header
         r"^\s*Title\s*:.*$",                             # crawl Title: header line
+        r"^\s*Published Time\s*:.*$",                    # Jina/Crawl4AI header (I-beatboth-010)
+        r"^\s*Number of Pages\s*:.*$",                   # Jina/Crawl4AI header (I-beatboth-010)
+        r"^\s*Warning:\s*Target URL returned error \d+.*$",  # Jina fetch-error line (I-beatboth-010)
         r"^\s*Split View\s*$",                           # IDEAS/RePEc nav
         r"^\s*Cite\s+Cite\s*$",                          # duplicated cite chrome
         r"^\s*Views?\s*$",                               # bare "Views" counter label
@@ -984,6 +987,115 @@ def is_boilerplate_or_nonassertional(sentence: str) -> bool:
             return True
 
     return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-beatboth-010 (#1288) FIX-A — shared fetch-body cleaner.
+#
+# The Jina/Crawl4AI reader emits a metadata PREAMBLE before the article body:
+#
+#     Title: <title>
+#     URL Source: <url>
+#     Published Time: <ts>
+#     Number of Pages: <n>
+#     Warning: Target URL returned error 403: Forbidden    (optional)
+#     Markdown Content: <the actual article body …>
+#
+# In the banked v3 corpus 335/586 cited `direct_quote` rows carried this preamble
+# verbatim — and ~330 of them had it COLLAPSED INLINE (newlines gone), so the
+# whole-line `strip_web_boilerplate` allowlist caught only ~5. The body proper
+# always begins after the `Markdown Content:` marker, so the robust, faithfulness-
+# safe cleaner DROPS the preamble up to and including that marker, then runs the
+# whole-line allowlist for any residual chrome lines. This is INPUT hygiene only:
+# the preamble is pure fetch metadata (title / url / timestamp / page count /
+# fetch-error), never an assertional claim, so strict_verify / NLI / 4-role /
+# span-grounding are untouched. In a fresh run this runs BEFORE the provenance
+# quote is built, so span offsets are computed on the cleaned body and stay
+# self-consistent.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The `Markdown Content:` marker that separates the Jina reader preamble from the
+# article body. Matched case-insensitively anywhere in the head window.
+_JINA_MARKDOWN_CONTENT_RE = re.compile(r"Markdown Content\s*:", re.IGNORECASE)
+
+# Bare Jina/Crawl4AI reader marker TOKENS. Some fetched pages embed a SECOND
+# reader preamble inline deep in the body (e.g. an aeaweb.org listing page with an
+# "About the _AER_" nav block past the head window). These literal tokens are pure
+# reader artifacts that never occur in legitimate article prose, so after the
+# head-preamble drop they are removed wherever they remain — the token only, the
+# surrounding text is preserved (tier weighting handles residual low-value nav).
+_JINA_INLINE_TOKEN_RE = re.compile(
+    r"(?:URL Source|Markdown Content|Published Time|Number of Pages)\s*:"
+    r"|Warning:\s*Target URL returned error \d+:?",
+    re.IGNORECASE,
+)
+
+# The reader preamble sits at the very TOP of the fetched content. Only treat a
+# `Markdown Content:` marker as the preamble terminator if it appears within this
+# many chars of the start, so a stray "Markdown Content:" deep in real prose can
+# never truncate a legitimate body. Env-overridable per LAW VI.
+_JINA_PREAMBLE_MAX_CHARS_DEFAULT = 4000
+
+
+@dataclass(frozen=True)
+class CleanedFetch:
+    """Structured result of :func:`clean_fetch_body` (Codex iter-1 P2 contract).
+
+    ``cleaned_text`` is the article body with crawl-reader chrome removed.
+    ``shell_reason`` is ``None`` when the cleaned body carries real assertional
+    content, or a short reason string when the WHOLE cleaned unit is a fetch
+    shell / boilerplate stub (so the caller can route it to the existing
+    METADATA_ONLY / not_extractable gap branch — NOT a new hard drop).
+    """
+
+    cleaned_text: str
+    shell_reason: "Optional[str]"
+
+
+def clean_fetch_body(content: "Optional[str]") -> CleanedFetch:
+    """Strip Jina/Crawl4AI reader chrome from fetched content (I-beatboth-010).
+
+    Two mechanisms, in order:
+      1. If a ``Markdown Content:`` marker appears within the head preamble window,
+         drop everything up to and including it — that removes the inline OR
+         whole-line ``Title:/URL Source:/Published Time:/Number of Pages:/Warning:``
+         preamble that the whole-line allowlist alone misses when the reader
+         collapsed the newlines.
+      2. Run :func:`strip_web_boilerplate` for any residual whole-line crawl-chrome.
+
+    Returns a :class:`CleanedFetch`. Allowlist-only, faithfulness-neutral input
+    hygiene: it removes only confirmed fetch metadata / chrome, never assertional
+    prose; the strict_verify / NLI / 4-role / span-grounding gates keep full
+    strictness on everything that remains.
+    """
+    if not content:
+        return CleanedFetch(content or "", "empty_fetch_body")
+
+    text = content
+    marker = _JINA_MARKDOWN_CONTENT_RE.search(text)
+    if marker is not None:
+        preamble_max = int(
+            os.getenv(
+                "PG_JINA_PREAMBLE_MAX_CHARS",
+                str(_JINA_PREAMBLE_MAX_CHARS_DEFAULT),
+            )
+        )
+        if marker.start() <= preamble_max:
+            text = text[marker.end():]
+
+    text = strip_web_boilerplate(text)
+    # Remove any residual inline reader marker tokens (a second embedded preamble
+    # deep in the body that the head-window drop + whole-line strip both miss).
+    text = _JINA_INLINE_TOKEN_RE.sub(" ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = text.strip()
+
+    shell_reason: "Optional[str]" = None
+    if not text:
+        shell_reason = "empty_after_clean"
+    elif is_boilerplate_or_nonassertional(text):
+        shell_reason = "boilerplate_or_error_stub"
+    return CleanedFetch(text, shell_reason)
 
 
 # M-23c: Structural markers for content quality scoring.

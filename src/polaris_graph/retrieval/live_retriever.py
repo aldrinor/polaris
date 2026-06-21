@@ -2070,6 +2070,12 @@ def refetch_for_extraction_with_diagnostics(
             # Continue to build the quote — the shell may still contain
             # enough abstract text to hit ≥100 chars. Eligibility is
             # determined by the provenance-quote length check below.
+        # I-beatboth-010 (#1288) FIX-A: strip Jina/Crawl4AI reader chrome (Title:/
+        # URL Source:/Published Time:/Number of Pages:/Markdown Content: preamble)
+        # BEFORE the provenance quote is built, so the cited direct_quote is clean
+        # at source. Input hygiene only — faithfulness gates untouched.
+        from src.tools.access_bypass import clean_fetch_body
+        content = clean_fetch_body(content).cleaned_text
         quote = _build_provenance_quote(
             content, head_chars=min(1500, max_chars), window_chars=500,
             max_total_chars=max_chars,
@@ -4547,8 +4553,14 @@ def run_live_retrieval(
                 _trace_drop(cand.url, "content_starved")
                 drop_reasons["content_starved"] += 1
             else:
+                # I-beatboth-010 (#1288) FIX-A: strip Jina/Crawl4AI reader chrome
+                # before building the PERSISTED, cited direct_quote (Codex iter-1
+                # P1: this is the evidence_for_gen.direct_quote path). Input hygiene
+                # only; full_content_length below keeps the raw fetched length.
+                from src.tools.access_bypass import clean_fetch_body
+                _cleaned_for_quote = clean_fetch_body(content).cleaned_text
                 direct_quote = _build_provenance_quote(
-                    content, head_chars=1500, window_chars=500,
+                    _cleaned_for_quote, head_chars=1500, window_chars=500,
                 )
                 _row = {
                     "evidence_id": f"ev_{i:03d}",

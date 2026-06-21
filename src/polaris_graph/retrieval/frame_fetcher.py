@@ -1079,6 +1079,16 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
                 return "", ""
             if not content:
                 return "", ""
+            # I-beatboth-010 (#1288) FIX-A: strip Jina/Crawl4AI reader chrome
+            # (Title:/URL Source:/Published Time:/Number of Pages:/Markdown
+            # Content: preamble) BEFORE the shell check + evidence binding, so the
+            # fetched body returned from this path is clean. Input hygiene only;
+            # faithfulness gates untouched. An all-chrome body cleans to empty and
+            # is then correctly routed to the existing METADATA_ONLY gap branch.
+            from src.tools.access_bypass import clean_fetch_body
+            content = clean_fetch_body(content).cleaned_text
+            if not content:
+                return "", ""
             # A1 (iarch006 RC1): reject a fetch-layer SHELL (page furniture
             # / soft-404 / docket index / JS-wrapper / content-starved)
             # BEFORE it is bound as evidence. Keys on fetch-integrity only,

@@ -2035,6 +2035,12 @@ async def _analyze_batch(
         # FIX-047-K3: Strip non-article content (cookie banners, nav menus)
         # before passing to LLM. T047 audit: 24 evidence pieces from junk.
         content = _strip_non_article_content(content)
+        # I-beatboth-010 (#1288) FIX-A: strip the Jina/Crawl4AI reader preamble
+        # (Title:/URL Source:/Published Time:/Number of Pages:/Markdown Content:)
+        # that _strip_non_article_content does not cover. Input hygiene only —
+        # faithfulness gates untouched.
+        from src.tools.access_bypass import clean_fetch_body
+        content = clean_fetch_body(content).cleaned_text
         # FIX-H7: Strip markdown artifacts from markdown-fetched content.
         # Jina Reader and Firecrawl return markdown with link syntax, image
         # tags, and header markers that pollute evidence extraction.
