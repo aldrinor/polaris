@@ -82,9 +82,16 @@ def _coerce_authority(value: Any) -> float | None:
     return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
 
 
-def _compute_authority_score_for_source(source: Any) -> float | None:
+def _compute_authority_score_for_source(source: Any) -> "tuple[float | None, bool]":
     """I-arch-011 B11: deterministically COMPUTE a source's domain-aware ``authority_score`` from its
     surface signals (url + title) when no pre-computed score is available on the object or the join map.
+
+    I-beatboth-010 (#1288) FIX-B: returns ``(authority_score, is_low_confidence)``. ``is_low_confidence``
+    is True when ``score_source_authority`` reports ``AuthorityConfidence.LOW`` — the url+title-only path
+    with thin OpenAlex coverage, where Signal A (scholarly) is 0.0 and Signal B (institutional) is the
+    neutral 0.40, so the blended score is a flat, non-discriminating ~0.39 for ~93% of sources. The
+    caller then prefers the DISCRIMINATING per-tier prior for the disclosed weight (WEIGHT-strengthening,
+    no drop). A genuinely high/medium-confidence computed score is still used as authority_score.
 
     This is the documented-primary weighting path: it reuses the SAME deterministic, domain-aware
     ``score_source_authority`` the rest of the pipeline already uses (e.g. plan_sufficiency_gate's
@@ -99,14 +106,18 @@ def _compute_authority_score_for_source(source: Any) -> float | None:
     """
     url = str(getattr(source, "url", "") or "")
     if not url:
-        return None
+        return None, True
     try:
-        from src.polaris_graph.authority.authority_model import score_source_authority
+        from src.polaris_graph.authority.authority_model import (
+            AuthorityConfidence,
+            score_source_authority,
+        )
         from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals
 
         title = str(getattr(source, "title", "") or "")
         result = score_source_authority(ClassificationSignals(url=url, title=title))
-        return float(result.authority_score)
+        is_low = result.authority_confidence == AuthorityConfidence.LOW
+        return float(result.authority_score), is_low
     except Exception:
         # Graceful WEIGHT fallback to the per-tier prior; never a drop, never a
         # raise. FAIL-LOUD via the log (not silent) so a regression that would
@@ -119,7 +130,7 @@ def _compute_authority_score_for_source(source: Any) -> float | None:
             url,
             exc_info=True,
         )
-        return None
+        return None, True
 
 
 @dataclass
@@ -265,14 +276,36 @@ def build_corpus_credibility_disclosure(
         auth = _coerce_authority(getattr(s, "authority_score", None))
         if auth is None and url:
             auth = _coerce_authority(auth_by_url.get(url))
-        if auth is None and url:
-            auth = _coerce_authority(_compute_authority_score_for_source(s))
         if auth is not None:
+            # (1)/(2): a genuine pre-computed authority_score (the source object's own
+            # attribute or the planner-mode per-url join) carries a real OpenAlex-backed
+            # signal -> use it as the primary disclosure weight.
             weight = auth
             basis = "authority_score"
         else:
-            weight = _tier_prior(tier)
-            basis = "tier_prior"
+            # (3) I-beatboth-010 (#1288) FIX-B: compute the score from url+title. On the
+            # thin-OpenAlex url+title-only path that score is a flat, NON-discriminating
+            # ~0.39 blend at LOW confidence (Signal A scholarly=0.0, Signal B institutional
+            # =neutral 0.40), so on drb_72 553/592 sources collapsed to the identical
+            # 0.3315 — AER == YouTube == Scribd == OECD, and the discriminating
+            # _DEFAULT_TIER_CREDIBILITY_PRIOR was dead code. When the computed score is LOW
+            # confidence, use the DISCRIMINATING per-tier prior (T1=0.95 .. T6=0.30 ..
+            # UNKNOWN=0.20) as the disclosed WEIGHT so a journal out-weighs YouTube/Scribd.
+            # Keep the computed score only when it is genuinely NOT low-confidence. This is
+            # WEIGHT-strengthening only: every source still flows through (no drop/cap/
+            # floor), and strict_verify + the 4-role D8 release decision remain the only
+            # faithfulness gate. (REJECTED the journal-floor/min_t1_count variant — that is
+            # the §-1.1/§-1.3-banned metadata-as-quality cap the operator reversed 2026-06-07.)
+            computed_score, computed_is_low = (
+                _compute_authority_score_for_source(s) if url else (None, True)
+            )
+            computed_score = _coerce_authority(computed_score)
+            if computed_score is not None and not computed_is_low:
+                weight = computed_score
+                basis = "authority_score"
+            else:
+                weight = _tier_prior(tier)
+                basis = "tier_prior"
         weight_sum += weight
         per_source.append(SourceCredibilityRow(
             url=str(getattr(s, "url", "") or ""),
