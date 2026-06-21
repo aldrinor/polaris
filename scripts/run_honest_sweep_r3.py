@@ -1152,7 +1152,19 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                 if str(m.get("member_tier") or "") == "DETERMINISTIC_ONLY"
             ]
             count = int(basket.get("verified_support_origin_count") or 0)
-            claim = str(basket.get("claim_text") or "").strip()[:160]
+            # I-beatboth-011 idx 62/9 (#1289): clean the corroboration-block HEADER the same way the
+            # SEMANTIC-contradiction render does. _normalize_claim_summary is wired at the semantic
+            # block (:1465) but was MISSING here, so a raw scraped consent/privacy/bibliography line
+            # surfaced as a "verified claim" header. When the cleaned header is pure web/nav chrome
+            # (not a claim), fall back to subject-predicate / the cluster id. HEADER TEXT ONLY — it
+            # never removes a supporting_member or source; count + verdict are untouched (faithfulness-
+            # neutral, same layer/role as the existing :1465 wiring).
+            from src.tools.access_bypass import is_boilerplate_or_nonassertional  # noqa: PLC0415
+            claim = _normalize_claim_summary(str(basket.get("claim_text") or ""), quote_trim=160)
+            if not claim or is_boilerplate_or_nonassertional(claim):
+                _subj = str(basket.get("subject") or "").strip()
+                _pred = str(basket.get("predicate") or "").strip()
+                claim = (f"{_subj} {_pred}".strip()) or ccid
             contested = (
                 str(basket.get("basket_verdict") or "") == "contested"
                 or bool(basket.get("refuter_cluster_ids"))
@@ -2117,7 +2129,9 @@ def build_no_verified_sections_abort_body(
     head = (
         f"# Research report: {research_question}\n\n"
         "## Pipeline verdict\n\n"
-        f"DeepSeek V3.2-Exp generated {len(sections)} "
+        # I-beatboth-011 idx 33 (#1289): name the LIVE generator in the user-facing abort body, not a
+        # stale hardcoded model string (the run is all-GLM-5.2).
+        f"{os.environ.get('PG_GENERATOR_MODEL') or 'The generator'} generated {len(sections)} "
         "section(s), but EVERY section failed Phase-4 strict_verify: "
         "the cited evidence did not support the claims, or the "
         "generator did not emit provenance tokens.\n\n"
@@ -2159,7 +2173,8 @@ def build_excessive_gap_abort_body(
     head = (
         f"# Research report: {research_question}\n\n"
         "## Pipeline verdict\n\n"
-        f"DeepSeek V3.2-Exp generated {total} section(s), but only "
+        # I-beatboth-011 idx 33 (#1289): live generator slug, not a stale hardcoded model name.
+        f"{os.environ.get('PG_GENERATOR_MODEL') or 'The generator'} generated {total} section(s), but only "
         f"{verified_count} ({frac:.0%}) produced Phase-4 strict_verify'd "
         f"prose — below the required floor of {min_fraction:.0%}. The remaining "
         "sections are gap disclosures (no cited evidence supported their "
@@ -7626,7 +7641,10 @@ async def run_one_query(
              f"floor_dropped={_floor_dropped_count}")
         _log(f"              full_tiers={evidence_selection.full_counts} "
              f"selected_tiers={evidence_selection.selected_counts}")
-        _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
+        # I-beatboth-011 idx 33 (#1289): log the LIVE generator slug, not the stale hardcoded
+        # generator name that pre-dated the all-GLM-5.2 run. The runner classifies by the
+        # "[generation]" prefix, not the model substring, so this is log-honesty only.
+        _log(f"[generation]  multi-section {os.environ.get('PG_GENERATOR_MODEL') or 'unknown'}, "
              f"evidence={len(evidence_for_gen)}...")
         t0 = time.time()
         # R-6 Gap-3: pass uncovered-topic labels so the Limitations
@@ -9003,6 +9021,9 @@ async def run_one_query(
                         "PG_SWEEP_CREDIBILITY_REDESIGN", ""
                     ),
                 },
+                # I-beatboth-011 idx 33 (#1289) SECONDARY: record the live generator slug in the
+                # checkpoint's model_pin (was {}), so the post-gen provenance names the real model.
+                model_pin={"generator": os.environ.get("PG_GENERATOR_MODEL", "") or "unknown"},
             )
             if _a12_postgen_path is not None:
                 _log(
@@ -9774,7 +9795,11 @@ async def run_one_query(
                 if _drop_summary["support_failed_count"] > 0:
                     # Reasons SPLIT by disposition (Codex diff-gate P2): the support-failed claim
                     # count uses ONLY the support-failed reason tally, never the un-provenanced
-                    # hygiene reasons — so the disclosed count and reasons match exactly.
+                    # hygiene reasons. I-beatboth-011 idx 36 (#1289): the claim count is PER-CLAIM
+                    # while the reason counts are tallied PER FAILED CHECK, so a claim failing more
+                    # than one check contributes to more than one reason — the two need not be equal
+                    # (the divergence is BIDIRECTIONAL). Both numbers are individually correct; the
+                    # report text below states the relationship so they never read as a contradiction.
                     _reason_md = ", ".join(
                         f"{k}: {v}"
                         for k, v in sorted(_drop_summary["support_failed_reason_counts"].items())
@@ -9785,7 +9810,10 @@ async def run_one_query(
                         "pass span/numeric/entailment verification against their own cited source and "
                         "were REMOVED from the findings above (not asserted as fact). They are "
                         "disclosed here rather than silently dropped. "
-                        f"Drop reasons: {_reason_md}.\n"
+                        f"Drop reasons: {_reason_md}. "
+                        "(Reason counts are tallied per failed verification check, so a claim that "
+                        "failed more than one check is counted under each; the reason counts therefore "
+                        "need not sum to the claim count above.)\n"
                     )
         except Exception as _dd_exc:  # noqa: BLE001 — additive disclosure; never abort the report
             _log(f"[drop-disclosure] skipped (fail-open): {_dd_exc}")
