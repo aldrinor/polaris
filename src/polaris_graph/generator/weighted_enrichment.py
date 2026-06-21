@@ -435,6 +435,19 @@ _WEB_CHROME_MARKERS = (
     "sign in to continue",
     "subscribe to read",
     "log in to view",
+    # I-beatboth-011 §3.4 idx68 (#1289): social-media / repository / masthead chrome that leaked into
+    # cited spans in banked v3 (Scribd, Facebook, YouTube, journal masthead). HIGH-PRECISION multi-word
+    # anchors ONLY (never bare "share"/"download"/"subscribers", which appear in real prose) — P1-4:
+    # allowlist input-hygiene, NOT a length/quality drop of real content.
+    "download free for 30 days",          # Scribd
+    "report this document",               # Scribd
+    "is this content inappropriate",      # Scribd
+    "like comment share",                 # Facebook
+    "subscribers subscribed",             # YouTube channel chrome
+    "share save download",                # YouTube action bar
+    "tap to unmute",                      # YouTube player chrome
+    "skip navigation",                    # YouTube / generic nav
+    "cite this paper as",                 # journal masthead citation widget
 )
 
 # Trailing sentence-terminal punctuation stripped before the ``[ev_id]`` marker is

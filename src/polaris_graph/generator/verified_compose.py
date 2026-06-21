@@ -159,6 +159,35 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
     return True
 
 
+_JUNK_SCREEN = None
+
+
+def _compose_junk_screen(unit: str) -> bool:
+    """I-beatboth-011 §3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome —
+    INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
+    consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
+    ``weighted_enrichment._make_junk_screen`` (``is_boilerplate_or_nonassertional`` + the high-precision
+    multi-word chrome list). P1-4: allowlist-anchored only — a real short sentence is KEPT (no length
+    drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a §-1.3
+    DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
+    if THAT is unavailable keep the unit (never silently drop real prose)."""
+    global _JUNK_SCREEN
+    if _JUNK_SCREEN is None:
+        try:
+            from src.polaris_graph.generator.weighted_enrichment import _make_junk_screen
+            _JUNK_SCREEN = _make_junk_screen()
+        except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
+            try:
+                from src.tools.access_bypass import is_boilerplate_or_nonassertional as _b
+                _JUNK_SCREEN = lambda t: bool(_b(t))  # noqa: E731
+            except Exception:
+                _JUNK_SCREEN = lambda _t: False  # noqa: E731 — keep content; never drop real prose
+    try:
+        return bool(_JUNK_SCREEN(unit))
+    except Exception:
+        return False
+
+
 def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
@@ -179,6 +208,10 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         # (Codex P1-3) so downstream resolution anchors to the verified span, never 0-len of a span
         # that may differ from the global row for a shared source.
         units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
+        # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
+        # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+        units = [u for u in units if not _compose_junk_screen(u)]
         out = []
         for u in units:
             # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
@@ -209,6 +242,9 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
             continue
         start, _end = gspan
         units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); if EVERY
+        # unit is chrome, fall through to the next SUPPORTS member. Real short sentences are KEPT (P1-4).
+        units = [u for u in units if not _compose_junk_screen(u)]
         if not units:
             continue
         first = units[0]
