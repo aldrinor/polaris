@@ -371,11 +371,35 @@ async def _pre_pass_one_basket(
     LAST attempt's draft is returned (even if failing) — the unchanged compose loop re-verifies it
     and falls back to the K-span if it does not pass (the pre-pass NEVER emits the K-span itself).
     Returns None only when the basket has no resolvable SUPPORTS member (writer skipped)."""
-    from src.polaris_graph.generator.verified_compose import _basket_supports_members  # noqa: PLC0415
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        _basket_supports_members,
+        _compose_junk_screen,
+    )
 
     members = _basket_supports_members(basket)
     if not members:
         return None
+
+    # §3.1 input-screen (#1289, advisor 2026-06-21): drop chrome members BEFORE the LLM writer call.
+    # The abstractive path emits via the precomputed dict, NOT build_verified_span_draft, so the §3.4
+    # OUTPUT junk screen never runs on it — AND a paraphrase mangles the multi-word chrome markers, so
+    # only an INPUT screen catches them. Reuse the §3.4 high-precision allowlist screen on each
+    # member's verified span text. Faithfulness-safe (§-1.3): boilerplate is not a corroborating
+    # source. A MIXED basket (chrome member + real member) keeps the real member + its citation; an
+    # ALL-chrome basket leaves zero members -> writer skipped (None) -> the loop K-span-falls-back and
+    # §3.4 screens that too, so the all-chrome basket emits nothing (it never cascades a REAL section
+    # to empty — only baskets that carry no real content drop out).
+    screened_members = [
+        m for m in members
+        if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
+    ]
+    if not screened_members:
+        logger.info(
+            "[abstractive_writer] basket=%s all SUPPORTS members screened as chrome -> writer skipped "
+            "(K-span fallback)", _basket_key(basket),
+        )
+        return None
+    members = screened_members
 
     revise_reasons: Optional[list[str]] = None
     last_draft = ""

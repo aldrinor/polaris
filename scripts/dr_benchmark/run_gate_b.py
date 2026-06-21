@@ -612,6 +612,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # dropped claims), which is not in this benchmark's scope. judge_error fail-closed is now keyed on the
     # entailment mode (provenance_generator.py), independent of the rescue switch.
     "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+    # I-beatboth-011 §3.1 ROUTE C (#1289, operator keystone): the FAITHFUL ABSTRACTIVE WRITER as the
+    # per-basket prose producer (multi_section_generator.py:3949). Replaces the deterministic short-writer
+    # RENDER PROBE (which was only ever a render-path probe, never the real prose producer) with one
+    # LLM-rephrased, RE-VERIFIED declarative sentence per basket. SAFE BY CONSTRUCTION: (a) fail-closed
+    # activation requires PG_STRICT_VERIFY_ENTAILMENT=enforce (set ABOVE — both land); (b) every rewrite
+    # is re-run through the UNCHANGED strict_verify + a STRICTER writer wrapper (no local-window rescue +
+    # judge_error fail-closed + numeric-completeness), degrading to the verbatim K-span on any failure;
+    # (c) §3.1 input-screen drops chrome members before the writer call. This is the producer that turns
+    # the verbatim span-dump into plain declarative prose WITHOUT relaxing faithfulness. Default-OFF in
+    # code => the slate ACTIVATES it for the cert run (force-ON below). Writer budgets use the module
+    # defaults (glm-5.2 generator arm, reasoning 8192, per-call 120s deadline -> K-span, concurrency 8).
+    "PG_ABSTRACTIVE_WRITER": "1",
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
@@ -1176,6 +1188,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_BASKET_CORROBORATION_RENDER",
     "PG_VERIFIED_COMPOSE",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
+    # I-beatboth-011 §3.1 ROUTE C (#1289): the abstractive writer must be ON for the cert run — OFF
+    # silently reverts to the deterministic short-writer RENDER PROBE (verbatim span-dump). Fail the run
+    # closed if a stray operator =0 left it off (its fail-closed activation also needs entailment=enforce).
+    "PG_ABSTRACTIVE_WRITER",
     # I-cred-006b (#1170): the weighted-corpus gate must be ON for the beat-both run — OFF restores the
     # §-1.1-banned tier-count / material-deviation corpus REFUSAL that aborted the drb_72 dry-run
     # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
@@ -1256,6 +1272,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_BASKET_CORROBORATION_RENDER",
     "PG_VERIFIED_COMPOSE",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
+    # I-beatboth-011 §3.1 ROUTE C (#1289): force-on the faithful abstractive writer (the per-basket prose
+    # PRODUCER inside PG_VERIFIED_COMPOSE). OFF reverts the cert run to the verbatim short-writer render
+    # probe. Fail-closed activation also needs PG_STRICT_VERIFY_ENTAILMENT=enforce (force-on above).
+    "PG_ABSTRACTIVE_WRITER",
     # I-arch-007 ITEM 6 (#1264): force-on the A15 resume FETCH-SHELL re-fetch so an operator =0 cannot
     # survive the setdefault slate and silently let a --resume reload empty-shell anchors untouched (the
     # Q90 over-drop). Faithfulness-safe — re-fetches real content for the INPUT; touches no gate.
@@ -1649,6 +1669,20 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
                 f"is a silent no-op without it), so D8 concurrency would silently halve to the import default. "
                 f"Restore the _CLAIM_WORKERS rebind in apply_full_capability_benchmark_slate."
             )
+    # I-beatboth-011 §3.1 ROUTE C (#1289, advisor 2026-06-21): EXERCISE the abstractive-writer ON path at
+    # preflight. The slate force-sets PG_ABSTRACTIVE_WRITER=1; its activation is FAIL-CLOSED and requires
+    # PG_STRICT_VERIFY_ENTAILMENT=enforce (a paraphrase's only semantic guarantee is the entailment leg).
+    # Calling assert_activation_preconditions() HERE catches a mis-set entailment mode BEFORE spend, not at
+    # the first section mid-run. Only assert when the writer is actually ON (an operator may legitimately
+    # disable it for a verbatim-only run). Faithfulness gate — runs on smoke + full alike.
+    if os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+        from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
+            assert_activation_preconditions as _assert_aw_preconditions,
+        )
+        try:
+            _assert_aw_preconditions()
+        except RuntimeError as _awe:
+            raise RuntimeError(f"benchmark preflight FAILED: {_awe}") from _awe
     # F03 (A3): the verified-section-FRACTION coverage-honesty floor must be ACTIVE (a float in (0, 1])
     # for the cert run — a 0/absent value disables the gate and lets a mostly-gap clinical report ship
     # GREEN (the "built-it-then-left-it-off" failure). Checked FIRST (fail-fast on a faithfulness gate;
