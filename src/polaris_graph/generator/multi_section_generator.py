@@ -3893,6 +3893,16 @@ async def _run_section(
     # Step 3b commit 3: _call_section now returns the atom_catalog as
     # 4th tuple element. Preserve for Step 3b commit 4 final-hook
     # validator wiring on SectionResult.
+    #
+    # I-beatboth-009 (#1287): drafts that ALREADY carry full [#ev:...] provenance
+    # tokens — the FIX-K verbatim-span render AND the verified-compose PRIMARY
+    # per-basket render — must BYPASS the REDUCE-marker filter below. That filter
+    # (I-perm-016) DROPS any sentence lacking a [[finding:]] marker, which these
+    # directly-tokened drafts never carry, so in REDUCE mode it silently ate the
+    # ENTIRE draft (raw -> "" -> verified=0, dropped=0 — never reached strict_verify).
+    # They flow straight to the UNCHANGED _rewrite_draft_with_spans + strict_verify
+    # tail instead (faithfulness gate untouched).
+    _draft_directly_tokened = False
     if _evsr:
         # FIX K: deterministic verbatim-span draft — NO LLM. Each source's own
         # sentence-units (legacy [ev_id]-tagged per unit) feed the UNCHANGED
@@ -3907,6 +3917,7 @@ async def _run_section(
             "[multi_section] %s FIX-K verified-span render: sources=%d draft_chars=%d",
             section.title, len(section.ev_ids or []), len(raw),
         )
+        _draft_directly_tokened = True  # I-beatboth-009 (#1287): already [#ev:]-tokened; skip REDUCE filter
     elif (
         _verified_compose_enabled()
         and credibility_analysis is not None
@@ -3967,6 +3978,7 @@ async def _run_section(
             "[multi_section] %s verified-compose PRIMARY: %d baskets -> draft_chars=%d",
             section.title, len(_vc_baskets), len(raw),
         )
+        _draft_directly_tokened = True  # I-beatboth-009 (#1287): already [#ev:]-tokened; skip REDUCE filter
     else:
         raw, in_tok, out_tok, section_atom_catalog = await _call_section(
             section, ev_subset, model, temperature, max_tokens_per_section,
@@ -3988,7 +4000,10 @@ async def _run_section(
     # legacy [ev_XXX] marker is then rebound to a full [#ev:...] token by the
     # unchanged sentence-aware span rewriter.
     # Distillate None (legacy) -> raw is unchanged (byte-identical).
-    if distillate is not None:
+    # I-beatboth-009 (#1287): directly-[#ev:]-tokened drafts (FIX-K / verified-compose
+    # PRIMARY) carry no [[finding:]] markers and MUST NOT pass through this REDUCE-marker
+    # filter — it would drop the entire draft. They go straight to the rewrite+verify tail.
+    if distillate is not None and not _draft_directly_tokened:
         from src.polaris_graph.generator.evidence_distiller import (
             filter_and_strip_reduce_markers,
         )
