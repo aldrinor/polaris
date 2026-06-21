@@ -98,22 +98,22 @@ def main() -> None:
         _fail("the filter left a token behind; expected the whole draft eaten")
     print("RED ok: filter_and_strip_reduce_markers eats the [#ev:]-tokened draft -> '' (token lost = the bug).")
 
-    # (B) GREEN — the fix routes directly-tokened drafts AROUND the filter, so the grounded prose +
-    # its provenance token reach the UNCHANGED _rewrite_draft_with_spans + strict_verify tail intact.
-    # (Verification through that tail is exercised end-to-end by the fresh re-run; here we assert the
-    # token-bearing draft SURVIVES the bypass, which the filter path destroyed.)
+    # (B) GREEN — END-TO-END: bypassing the filter (bug #1 fix), the directly-tokened draft now passes
+    # the UNCHANGED strict_verify gate (bug #2 fix, token-before-period, makes split_into_sentences keep
+    # the token attached so it grounds). RED baseline before EITHER fix = kept 0.
     bypassed = draft  # the fix's `_draft_directly_tokened` branch skips filter_and_strip_reduce_markers
     rewritten, _conv, _unver = _rewrite_draft_with_spans(bypassed, pool)
-    if parse_provenance_tokens(rewritten) and rewritten.strip():
-        print(f"GREEN ok: bypassing the filter, the draft + its provenance token survive to the verify tail: {rewritten!r}")
-    else:
-        _fail(f"bypassed draft lost its token/content before the verify tail: {rewritten!r}")
+    report = strict_verify(rewritten, pool)
+    kept = len(getattr(report, "kept_sentences", []) or [])
+    if kept < 1:
+        _fail(f"directly-tokened draft did NOT verify when the filter is bypassed (kept={kept}); "
+              f"token-orphan (bug #2) or filter (bug #1) still active. {report!r}")
+    print(f"GREEN ok: bypassing the filter, the draft verifies end-to-end through strict_verify (kept={kept}).")
 
     print(
         "PASS I-beatboth-009: the REDUCE-marker filter destroys already-grounded [#ev:] prose (RED); "
-        "the _draft_directly_tokened fix routes it around the filter so the grounded, tokened draft "
-        "reaches the unchanged strict_verify tail intact (GREEN). End-to-end verify count is the re-run's "
-        "gate. Faithfulness untouched."
+        "with the _draft_directly_tokened bypass (bug #1) + token-before-period (bug #2) the SAME "
+        "production draft passes the unchanged strict_verify gate end-to-end (GREEN). Faithfulness untouched."
     )
 
 

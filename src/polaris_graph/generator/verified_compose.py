@@ -181,8 +181,12 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
         out = []
         for u in units:
-            u = u if u[-1:] in ".!?]" else u + "."
-            out.append(f"{u} [#ev:{eid}:{start}-{end}]")
+            # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
+            # downstream strict_verify splitter (split_into_sentences: terminal-punct + whitespace +
+            # [A-Z0-9]) keeps it ATTACHED. The prior "U. [#ev:...]" form orphaned the token into a
+            # contentless fragment -> no_provenance_token -> verified=0 (the P6 v2 STORM-section zero).
+            u_core = _strip_terminal_punct(u)
+            out.append(f"{u_core} [#ev:{eid}:{start}-{end}].")
         if out:
             return " ".join(out)
     return None
@@ -213,8 +217,12 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
         off = quote.find(first)
         tok_start = start + (off if off >= 0 else 0)
         tok_end = tok_start + len(first)
-        first = first if first[-1:] in ".!?]" else first + "."
-        return f"{first} [#ev:{eid}:{tok_start}-{tok_end}]"
+        # I-beatboth-009 (#1287): emit the token BEFORE the terminal period so split_into_sentences
+        # keeps it attached (the prior "first. [#ev:...]" orphaned the token -> no_provenance_token ->
+        # verified=0). tok_start/tok_end are UNCHANGED (they still index the member's real global span),
+        # so faithfulness is identical — only the display punctuation moves.
+        first_display = _strip_terminal_punct(first)
+        return f"{first_display} [#ev:{eid}:{tok_start}-{tok_end}]."
     return ""
 
 
