@@ -101,7 +101,13 @@ def _role_pins() -> list[RolePin]:
     provider per role via /api/v1/models/<id>/endpoints (the env is a candidate list)."""
     slug_by_role = {role: _resolve_role_slug(role) for role in _LOCKED_ROLES}
     # N-way family segregation on the effective 4-role map (raises RuntimeError on collision).
-    validate_role_families(slug_by_role)
+    # I-beatboth-008 (#1285): honor the lock's family_policy.allowed_collisions (the single
+    # source of truth) so the operator-approved all-GLM-5.2 generator+mirror collision PASSES
+    # while a NON-listed same-family collision still RAISES. validate_role_families already
+    # honors allowed_collisions under all_distinct (openrouter_client.py:774-787).
+    _fp = load_lock().get("family_policy", {})
+    _allowed_collisions = [tuple(str(x) for x in pair) for pair in _fp.get("allowed_collisions", [])]
+    validate_role_families(slug_by_role, allowed_collisions=_allowed_collisions)
     surrogate_fields = ("provider_name", "model")
     return [
         RolePin(role, slug_by_role[role], "", surrogate_fields)

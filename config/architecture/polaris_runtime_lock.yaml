@@ -47,32 +47,38 @@ promotion_to_locked_requires:
 
 required_roles:
   generator:
-    # GLM-5.2 COMPARISON ARM (branch bot/glm52-vs-deepseek-compare — EXPERIMENT ONLY, do NOT merge to
-    # the production lock): generator swapped deepseek/deepseek-v4-pro -> z-ai/glm-5.2 (MIT, 753B MoE,
-    # 1M ctx, served on Friendli = highest OpenRouter stability). Family glm. The Mirror is swapped to
-    # deepseek-v4-pro below so all 4 roles remain DISTINCT families (glm/deepseek/minimax/qwen) and the
-    # GLM-5.2 generator is never self-judged by its own glm lineage. Same I-arch-007-fixed pipeline.
+    # I-beatboth-008 (#1285, operator-approved 2026-06-20): all-GLM-5.2 -> generator switched
+    # deepseek/deepseek-v4-pro -> z-ai/glm-5.2 (family glm). Generator + mirror are now BOTH glm-5.2
+    # (two-family relaxation, operator-approved; see family_policy.allowed_collisions). The minimax
+    # Sentinel + qwen Judge D8 roles stay independent; deterministic strict_verify floor unchanged.
+    # MIT, 1M context, max reasoning (xhigh), Friendli-lead serving route.
+    model_slug: z-ai/glm-5.2
+    family: glm
+    serving_route: openrouter
+    license: MIT
+    # I-beatboth-008 (#1285): glm-5.2 released 2026-06 (the 2026-04-24 date was a stale carryover
+    # from the prior deepseek-v4-pro generator; glm-5.2 released 2026-06 like the mirror block).
+    released: 2026-06
+    role_description: |
+      Recall-heavy synthesis at MAX reasoning. 1M context window. The primary
+      report generator; native citation grounding.
+
+  mirror:
+    # I-beatboth-008 (#1285, operator-signed 2026-06-20): MIRROR upgraded z-ai/glm-5.1 -> z-ai/glm-5.2
+    # (MIT, 1M ctx, ~4x faster real-shape: 2.7s Z.AI vs 11.7s on the 5.1 chain). Also the family for the
+    # entailment / credibility / semantic-conflict side-judges (legacy_compat) -> the upgrade speeds the
+    # credibility pass. all-GLM-5.2: the generator AND the mirror are BOTH glm now (gen+mirror share the
+    # glm lineage — the operator-approved two-family relaxation, family_policy.allowed_collisions
+    # [[generator, mirror]]). The minimax Sentinel + qwen Judge D8 roles stay INDEPENDENT lineages (the
+    # D8 arbiters are never glm), and the deterministic strict_verify floor is unchanged.
     model_slug: z-ai/glm-5.2
     family: glm
     serving_route: openrouter
     license: MIT
     released: 2026-06
     role_description: |
-      [GLM-5.2 ARM] Recall-heavy synthesis at MAX reasoning. 1M context window, open-weight MIT.
-      Comparison arm vs the deepseek-v4-pro generator on the identical 5 corpus snapshots.
-
-  mirror:
-    # GLM-5.2 COMPARISON ARM: Mirror swapped z-ai/glm-5.1 -> deepseek/deepseek-v4-pro so the GLM-5.2
-    # generator is NOT self-judged by its own glm lineage (anti-self-bias; symmetric with the DeepSeek
-    # arm, which is judged by the GLM Mirror). Family deepseek. Keeps all 4 roles distinct.
-    model_slug: deepseek/deepseek-v4-pro
-    family: deepseek
-    serving_route: openrouter
-    license: MIT
-    released: 2026-04-24
-    role_description: |
-      Calibration auditor. Native citation grounding via <co> spans.
-      Tests claims the Generator cannot self-verify.
+      Calibration auditor. Tests claims the Generator cannot self-verify.
+      Native citation grounding via <co> spans.
 
   sentinel:
     # I-run11-004: Sentinel replaced (broken Granite Guardian -> CERTIFIED MiniMax-M2 running the
@@ -123,7 +129,8 @@ deterministic_layers:
 
 family_policy:
   default_policy: all_distinct
-  allowed_collisions: []          # empty = no collisions permitted
+  # I-beatboth-008 #1285: operator-approved all-GLM-5.2 -> generator+mirror both glm (two-family relaxation; deterministic strict_verify floor + minimax/qwen D8 stay independent)
+  allowed_collisions: [[generator, mirror]]
   rationale: |
     Two-family invariant (CLAUDE.md §9.1) extended to N-way. Each role's
     family-lineage must differ from every other role. Closed-source family

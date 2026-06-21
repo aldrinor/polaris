@@ -49,14 +49,18 @@ from src.polaris_graph.roles.openrouter_role_transport import (
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
 # BENCHMARK-STAGE OpenRouter lineup slugs (P1-1). I-run11-004: lock + benchmark now converge —
-# Mirror z-ai/glm-5.1, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge qwen.
-_MIRROR_SLUG = "z-ai/glm-5.1"
+# Mirror z-ai/glm-5.2, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge qwen.
+# I-beatboth-008 (#1285): all-GLM-5.2 — the Mirror is upgraded z-ai/glm-5.1 -> z-ai/glm-5.2 (the
+# generator is also z-ai/glm-5.2 now; that gen+mirror collision is the operator-approved
+# family_policy.allowed_collisions pair — see test_family_check_passes_on_benchmark_lineup).
+_MIRROR_SLUG = "z-ai/glm-5.2"
 _SENTINEL_SLUG = "minimax/minimax-m2"
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
 
-# Writer/generator (unchanged in the lock + benchmark lineup) — referenced by the preflight
-# catalog fixtures so the 4th OpenRouter entry is realistic.
-_WRITER_SLUG = "deepseek/deepseek-v4-pro"
+# Writer/generator — I-beatboth-008 (#1285): all-GLM-5.2 switched the generator
+# deepseek/deepseek-v4-pro -> z-ai/glm-5.2 (same slug as the Mirror; the allowed_collisions pair).
+# Referenced by the preflight catalog fixtures so the 4th OpenRouter entry is realistic.
+_WRITER_SLUG = "z-ai/glm-5.2"
 
 _ALL_ROLES = (
     ("mirror", _MIRROR_SLUG),
@@ -173,12 +177,14 @@ def test_sends_pinned_slug_and_max_reasoning(role, slug):
 
 
 def test_benchmark_lineup_slugs_and_families():
-    """P1-1: the transport's served slug == the benchmark lineup == verifier_model_slugs (pinned),
-    and the active families are deepseek/z-ai/ibm-granite/qwen (4 distinct)."""
+    """P1-1: the transport's served slug == the benchmark lineup == verifier_model_slugs (pinned).
+    I-beatboth-008 (#1285): the all-GLM-5.2 verifier lineup is z-ai/minimax/qwen (Mirror upgraded
+    to z-ai/glm-5.2). The generator is also z-ai/glm-5.2 — that gen+mirror collision is the
+    operator-approved allowed_collisions pair; the other roles stay distinct lineages."""
     lineup = benchmark_verifier_lineup()
     assert lineup == {
-        "mirror": _MIRROR_SLUG,        # z-ai/glm-5.1
-        "sentinel": _SENTINEL_SLUG,    # ibm-granite/granite-4.1-8b
+        "mirror": _MIRROR_SLUG,        # z-ai/glm-5.2
+        "sentinel": _SENTINEL_SLUG,    # minimax/minimax-m2
         "judge": _JUDGE_SLUG,          # qwen/qwen3.6-35b-a3b
     }
 
@@ -540,25 +546,36 @@ def test_preflight_openrouter_non_200_fails_loud():
 
 
 def test_family_check_passes_on_benchmark_lineup(monkeypatch):
-    # P1-1: in openrouter mode the 4-distinct-family check asserts on the ACTIVE benchmark
-    # families (generator deepseek from the lock + benchmark verifiers z-ai/minimax/qwen),
-    # which are 4 distinct lineages — it must PASS (no collision).
+    # I-beatboth-008 (#1285) re-premise: all-GLM-5.2 — the generator is now z-ai/glm-5.2 (same
+    # family as the Mirror). In openrouter mode the family check derives the generator family the
+    # same provider-prefix way as the verifiers (z-ai), so generator==mirror=="z-ai". That single
+    # collision is the operator-signed family_policy.allowed_collisions pair [[generator, mirror]]
+    # in the lock, so the check must still PASS — but ONLY for that pair. The sentinel (minimax)
+    # and judge (qwen) stay distinct lineages, so the active families are {z-ai, minimax, qwen} =
+    # 3 distinct. The NEGATIVE case (an UNLISTED same-family collision RAISES) is the binding
+    # invariant and is asserted by test_family_check_fails_loud_on_cross_family_override below.
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
     fams = run_gate_b.assert_four_role_families_distinct()
     assert fams == {
-        "generator": "deepseek",
+        "generator": "z-ai",
         "mirror": "z-ai",
         "sentinel": "minimax",
         "judge": "qwen",
     }
-    assert len(set(fams.values())) == 4
+    # gen+mirror share the allowed_collisions z-ai lineage; the other two are distinct -> 3 families.
+    assert fams["generator"] == fams["mirror"] == "z-ai"
+    assert len(set(fams.values())) == 3
 
 
 def test_family_check_fails_loud_on_cross_family_override(monkeypatch):
-    # P1-1 clinical-lethal guard: a PG_<ROLE>_MODEL override that leaves the role's family lane
-    # must FAIL LOUD (not silently pass on a static family map). PG_JUDGE_MODEL=z-ai/glm-5.1 would
-    # serve Judge AND Mirror as z-ai (same family self-verifying) — the active-family-from-slug
-    # derivation must catch it. This reproduces the hole a static-map family check would miss.
+    # P1-1 clinical-lethal guard / the BINDING NEGATIVE case: an UNLISTED same-family collision
+    # must FAIL LOUD even under the all-GLM-5.2 allowed_collisions relaxation. I-beatboth-008
+    # (#1285): gen+mirror are BOTH z-ai (the operator-approved allowed_collisions pair), so a
+    # PG_JUDGE_MODEL=z-ai/glm-5.1 override puts a THIRD role into the z-ai lineage — the Judge would
+    # then share z-ai with the generator+mirror (same family self-verifying). The (generator, judge)
+    # pair is NOT in allowed_collisions, so the active-family-from-slug derivation must RAISE. This
+    # proves the relaxation is scoped to ONLY the signed pair and the two-family invariant still
+    # holds for every other role.
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
     monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")
     with pytest.raises((RuntimeError, ValueError), match="(?i)judge|lane|collision"):
@@ -566,13 +583,16 @@ def test_family_check_fails_loud_on_cross_family_override(monkeypatch):
 
 
 def test_family_check_passes_on_in_lane_override(monkeypatch):
-    # An IN-LANE override (same provider prefix as the default) is accepted — only a cross-family
-    # re-pick is rejected. PG_MIRROR_MODEL=z-ai/glm-5.1-pro stays in the z-ai lane.
+    # An IN-LANE override (same provider prefix as the default) is accepted — only an UNLISTED
+    # cross-family re-pick is rejected. PG_MIRROR_MODEL=z-ai/glm-5.2-pro stays in the z-ai lane.
+    # I-beatboth-008 (#1285): all-GLM-5.2 — the generator is also z-ai now, so gen+mirror are the
+    # allowed_collisions z-ai pair; with sentinel(minimax)+judge(qwen) distinct that is 3 families.
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)
-    monkeypatch.setenv("PG_MIRROR_MODEL", "z-ai/glm-5.1-pro")
+    monkeypatch.setenv("PG_MIRROR_MODEL", "z-ai/glm-5.2-pro")
     fams = run_gate_b.assert_four_role_families_distinct()
     assert fams["mirror"] == "z-ai"
-    assert len(set(fams.values())) == 4
+    assert fams["generator"] == fams["mirror"] == "z-ai"  # the allowed_collisions pair
+    assert len(set(fams.values())) == 3
 
 
 def test_stage_marker_records_benchmark_openrouter(monkeypatch, tmp_path):

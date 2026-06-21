@@ -35,9 +35,29 @@ def _clear_flags():
 
 
 def test_families_are_four_distinct_lineages():
+    # I-beatboth-008 (#1285) re-premise: all-GLM-5.2 — the generator AND the mirror are now BOTH
+    # z-ai/glm-5.2 (the operator-signed family_policy.allowed_collisions pair [[generator, mirror]]
+    # in the lock). The 4 roles are still ENUMERATED, but the active families are {z-ai (gen+mirror),
+    # minimax (sentinel), qwen (judge)} = 3 distinct lineages — the gen+mirror collision is the ONE
+    # permitted pair. The two-family invariant for every OTHER role is asserted by the negative
+    # collision test below.
     fams = g.assert_four_role_families_distinct()
     assert set(fams) == {"generator", "mirror", "sentinel", "judge"}
-    assert len(set(fams.values())) == 4               # all distinct
+    assert fams["generator"] == fams["mirror"]        # the allowed_collisions z-ai pair
+    assert len(set(fams.values())) == 3               # gen+mirror share z-ai; sentinel+judge distinct
+
+
+def test_unlisted_same_family_collision_raises(monkeypatch):
+    """I-beatboth-008 (#1285) BINDING NEGATIVE case: the all-GLM-5.2 allowed_collisions relaxation
+    is scoped to ONLY the [[generator, mirror]] pair. An UNLISTED same-family collision MUST still
+    FAIL LOUD — the two-family invariant is preserved for every other role. PG_JUDGE_MODEL into the
+    z-ai lineage puts a THIRD role (Judge) into the generator+mirror family; the (generator, judge)
+    pair is NOT in allowed_collisions, so the family check must RAISE. monkeypatch auto-reverts the
+    env so it does not leak into later tests in this file (which has no env-isolation fixture)."""
+    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
+    monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")
+    with pytest.raises((RuntimeError, ValueError), match="(?i)judge|lane|collision"):
+        g.assert_four_role_families_distinct()
 
 
 def test_preflight_fails_loud_when_endpoint_unset(monkeypatch):

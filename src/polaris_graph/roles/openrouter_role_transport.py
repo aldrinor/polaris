@@ -157,7 +157,8 @@ _BENCHMARK_LINEUP_ENV = {
     "judge": "PG_JUDGE_MODEL",
 }
 _BENCHMARK_LINEUP_DEFAULT_SLUG = {
-    "mirror": "z-ai/glm-5.1",
+    # I-beatboth-008 (#1285): all-GLM-5.2 -> mirror z-ai/glm-5.1 -> z-ai/glm-5.2 (== lock model_slug).
+    "mirror": "z-ai/glm-5.2",
     # I-run11-004: benchmark Sentinel is the CERTIFIED MiniMax-M2 decomposition detector
     # (replaces the general ibm-granite/granite-4.1-8b, which mislabeled grounded claims). The
     # benchmark default mode for the Sentinel is "decomposition" (see sentinel_adapter).
@@ -174,13 +175,14 @@ _BENCHMARK_LINEUP_DEFAULT_SLUG = {
 # slipping past the gate. The family is the slug's provider prefix (`provider/model`): for all
 # four lineup members `slug.split("/")[0]` IS the family (z-ai / ibm-granite / qwen / deepseek).
 _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
-    # PRODUCTION LOCK (CLAUDE.md §9.1.8): generator=deepseek/deepseek-v4-pro, so the Mirror is
-    # z-ai/glm-5.1 (lane 'z-ai') — a DIFFERENT family from the deepseek generator (two-family
-    # segregation; the 4 roles glm/deepseek?/minimax/qwen... actually deepseek-gen + z-ai-mirror +
-    # minimax-sentinel + qwen-judge are all distinct). The GLM-5.2 COMPARISON ARM (branch
-    # bot/glm52-vs-deepseek-compare) flips the generator to z-ai/glm-5.2 and re-picks the Mirror to
-    # deepseek; that arm must set this to 'deepseek'. For the production-lock run this is 'z-ai'
-    # (reverted from a glm52-arm carryover that had crashed the deepseek-lock resume at preflight).
+    # I-beatboth-008 (#1285) all-GLM-5.2: generator AND mirror are BOTH z-ai/glm-5.2, so they share
+    # the provider-prefix lane 'z-ai' (`slug.split("/")[0]`). The 'z-ai' value below is UNCHANGED —
+    # it is still the correct provider prefix of the Mirror's glm-5.2 slug. What CHANGED is that the
+    # generator now ALSO lands in this 'z-ai' lane (deepseek -> glm-5.2), so gen+mirror is a real
+    # same-lane collision; it is PERMITTED only via the lock's family_policy.allowed_collisions
+    # [[generator, mirror]] (run_gate_b.assert_four_role_families_distinct honors it). The minimax
+    # Sentinel + qwen Judge stay independent lanes (the D8 arbiters are never glm-lineage). A NON-
+    # listed same-lane re-pick (e.g. PG_JUDGE_MODEL into 'z-ai') still FAILS LOUD here.
     "mirror": "z-ai",
     # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
     "sentinel": "minimax",

@@ -26,7 +26,12 @@ def test_cj_001_different_families_pass() -> None:
     assert (gen, ev) == ("deepseek", "qwen")
 
 
-def test_cj_001_same_family_raises() -> None:
+def test_cj_001_same_family_raises(monkeypatch) -> None:
+    # I-beatboth-008 (#1285): the campaign .env sets PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1
+    # (autoloaded by src/__init__.py for the operator-approved all-GLM-5.2 run). Clear it here so
+    # this crown-jewel test verifies the DEFAULT-OFF raise — the permit must not contaminate it.
+    # This keeps the test verifying the default-OFF behavior; it does not weaken the invariant.
+    monkeypatch.delenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", raising=False)
     with pytest.raises(RuntimeError, match=r"same training-lineage family"):
         check_family_segregation(
             generator_model="qwen/qwen3-32b",

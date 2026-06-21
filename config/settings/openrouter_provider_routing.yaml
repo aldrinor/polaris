@@ -5,23 +5,18 @@
 # Re-generate before a demo to refresh health. LAW VI: consumed as config, never inlined.
 roles:
   generator:
-    model: deepseek/deepseek-v4-pro
-    # I-arch-003 (#1253, operator 2026-06-14): pin the fp8 FULL-CAP providers first so the generator gets the
-    # MAX output budget (WandB/Parasail = 1,048,576; the rest >= 384,000). All fp8 (better than DeepInfra fp4,
-    # which is excluded). Verified live: WandB + Parasail both serve deepseek-v4-pro @ max_tokens=384000,
-    # finish=stop, valid content (2026-06-14). WandB first (also the reliable Judge provider); the prior
-    # health-ranked chain stays as fallback. Parasail removed from `ignore`.
-    order: [wandb, siliconflow, baidu, novita, streamlake, gmicloud, deepseek]
-    # I-arch-003 (#1253) Codex gate P2: gmicloud reports max_completion_tokens=None on the
-    # /endpoints API (no explicit completion cap -> bounded by context_length=1048576). Verified live
-    # 2026-06-14: GMICloud serves deepseek-v4-pro at max_tokens=384000 cleanly (finish=stop), so it is
-    # NOT a hidden low-cap that could 400 the 384000 generator budget. Kept in the fp8 chain.
-    # Parasail RE-IGNORED 2026-06-14: live re-test returned "Provider returned error" 1/3 calls (flaky) —
-    # confirms its original demotion. WandB leads (operator pick; 4/4 reliable, one 180s cold-start then warm);
-    # the proven fp8 full-cap chain (>=384,000) backs it. DeepInfra (fp4/16384) stays excluded.
-    ignore: [atlas-cloud, parasail, fireworks, digitalocean, together]
+    model: z-ai/glm-5.2  # I-beatboth-008 #1285 (operator-approved 2026-06-20): generator switched deepseek-v4-pro -> glm-5.2 (all-GLM-5.2; gen+mirror both glm-5.2)
+    # I-beatboth-008 (#1285, 2026-06-20): glm-5.2 generator chain. Live probe (glm-5.2, 3x, max_tokens=2000):
+    # Friendli 3/3 contentful 3.3s 1M-ctx/1048576-out = STABLEST+FASTEST+MAXCAP (LEAD); Novita 3/3 6.7s 131072;
+    # Z.AI 3/3 9.8s first-party 131072; Phala 3/3 22.3s 1048576 (slow tail). Fireworks+Cloudflare 2/3 (429)
+    # DROPPED. All 4 chained providers serve glm-5.2 status=0. allow_fallbacks:false keeps off-list hosts out.
+    order: [friendli, novita, z-ai, phala]
+    # I-beatboth-008 #1285 ignore: providers that DO NOT serve glm-5.2 or are flaky on it. deepinfra/fireworks/
+    # cloudflare/atlas-cloud flaky or 429; baidu/gmicloud/wandb/siliconflow/streamlake serve only deepseek-v4-pro
+    # or glm-5.1 (not glm-5.2) -> would 404 every generator call under allow_fallbacks:false.
+    ignore: [deepinfra, fireworks, cloudflare, atlas-cloud, baidu, gmicloud, wandb, siliconflow, streamlake]
   mirror:
-    model: z-ai/glm-5.1
+    model: z-ai/glm-5.2  # I-beatboth-008 #1285 (operator-signed 2026-06-20): mirror upgrade 5.1->5.2 (MIT, 1M ctx, ~4x faster: 2.7s Z.AI vs 11.7s on the 5.1 chain)
     # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run
     # GLM-5.1 returned blank verdicts on 23/126 Parasail calls (~18%) but 0/39 on Io Net and 1/17 on
     # Friendli — a flaky-PROVIDER empty-200 defect, NOT the model. Model unchanged (operator + Codex
@@ -46,9 +41,18 @@ roles:
     # (z-ai/glm-5.1); same verdicts, faster+reliable host only (operator pre-approved host
     # non-sovereignty for the judges 2026-06-13). Chain-MIN max_completion_tokens stays 131072
     # (z-ai/baidu/novita), so no token-cap regression.
-    order: [z-ai, baidu, novita, gmicloud]
-    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks, atlas-cloud]
-    notes: "I-arch-011 2026-06-18: AtlasCloud demoted out (real-shape bake-off ~38s/call vs ~9s + intermittent blank-200s on drb_78); z-ai-led fp8 chain (z-ai/baidu/novita/gmicloud), all real-shape-validated valid; chain-MIN max_tokens stays 131072 (no regression). I-arch-003 2026-06-14 prior: atlas-cloud lead (now reverted for speed)."
+    # I-beatboth-008 #1285 (2026-06-20): glm-5.2 chain. Live /endpoints probe: baidu + gmicloud DO NOT serve
+    # glm-5.2 (only 5.1) -> DROPPED (under allow_fallbacks:false they would 404 on every mirror call). glm-5.2
+    # is served status=0 + max_completion_tokens>=131072 by z-ai (first-party, health-probed 2.7s clean),
+    # novita (fp8, in the proven 5.1 chain), friendli (1,048,576 cap), phala (1,048,576 cap). Z.AI leads; the
+    # behavioral_canary (PG_BEHAVIORAL_CANARY=1) validates the lead pre-spend; provider-rotation handles a
+    # blank-200 host. Chain-MIN max_completion_tokens = 131072 (z-ai/novita) — no token-cap regression.
+    # I-beatboth-008 #1285 (2026-06-20): mirror chain reordered z-ai-lead -> friendli-lead. Live glm-5.2 probe:
+    # Friendli 3.3s 1M-cap = fastest+stablest+max-cap; Novita 6.7s; Z.AI 9.8s; Phala 22.3s (slow tail). Same
+    # providers, friendli-first to match the generator lead. Chain-MIN max_completion_tokens stays 131072 (novita/z-ai).
+    order: [friendli, novita, z-ai, phala]
+    ignore: [chutes, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks, atlas-cloud, baidu, gmicloud]
+    notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
   sentinel:
     model: minimax/minimax-m2
     order: [google-vertex, novita, atlas-cloud, minimax]

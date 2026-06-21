@@ -59,7 +59,9 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv(
     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
 )
-OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v4-pro")
+# I-beatboth-008 (#1285): all-GLM-5.2 -> the no-model-given default tracks the lock's generator
+# fallback (env_vars.generator.fallbacks=[OPENROUTER_DEFAULT_MODEL]); deepseek -> z-ai/glm-5.2.
+OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-5.2")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
 # R-2 (readiness gate): hard per-run cost cap — a RUNAWAY-LOOP GUARD,
@@ -576,26 +578,19 @@ def set_max_cost_per_run(value: float) -> float:
 # Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    # DeepSeek V4 Pro is THE generator (operator directive 2026-05-14).
+    # I-beatboth-008 (#1285, operator-approved 2026-06-20): all-GLM-5.2 -> the generator
+    # default is now z-ai/glm-5.2 (generator + mirror both glm-5.2; two-family relaxation,
+    # operator-approved). MUST equal config/architecture/polaris_runtime_lock.yaml
+    # required_roles.generator.model_slug (verify_lock asserts lock model_slug == code default).
+    # Stays env-var-driven (operator sets the model via .env / run-gate, not hardcoded in the slate).
     #
-    # History: I-bug-091 (2026-05-09) reverted the default to V3.2-Exp
-    # because V4 Pro is reasoning-first — it emits CoT-style planning and,
-    # critically, exhausted max_tokens mid-planning, tripping the I-bug-089
-    # SF-15 fail-loud and crashing the pipeline before any section was
-    # written.
-    #
-    # I-gen-003 (2026-05-14) fixes the crash:
-    #   - ReasoningFirstTruncationError (typed) + a 20000-token
-    #     PG_REASONING_FIRST_MIN_MAX_TOKENS floor give V4 Pro room to both
-    #     finish reasoning AND emit the cited paragraph — smoke #3 ran all
-    #     6 sections with zero truncation crash.
-    #   - _call_section catches that exception and returns an empty draft
-    #     so a truncation degrades to an honest abort_no_verified_sections
-    #     rather than a hard error_unexpected.
-    # V4 Pro's report-layer citation tightness vs the evaluator gate is
-    # tracked separately (I-gen-003 PT11 / normalization work). V3.2-Exp
-    # is obsolete — NOT a fallback.
-    "deepseek/deepseek-v4-pro",
+    # History (deepseek-v4-pro generator era): I-bug-091 (2026-05-09) reverted to V3.2-Exp
+    # because V4 Pro is reasoning-first and exhausted max_tokens mid-planning; I-gen-003
+    # (2026-05-14) fixed the crash with ReasoningFirstTruncationError + the 20000-token
+    # PG_REASONING_FIRST_MIN_MAX_TOKENS floor. glm-5.2 is also reasoning-first (same lineage as
+    # glm-5.1), so it is registered in _ALWAYS_REASON_MODELS below; the 40%-reasoning-cap keeps
+    # xhigh from starving content.
+    "z-ai/glm-5.2",
 )
 # I-meta-001 (#933): 4-role architecture env vars per the locked stack
 # (config/architecture/polaris_runtime_lock.yaml). Each role has its own knob;
@@ -606,7 +601,7 @@ PG_GENERATOR_MODEL = os.getenv(
 # 56-item fixture) and the MIRROR is z-ai/glm-5.1 (the operator re-pick; Cohere is not on
 # OpenRouter). These defaults MUST equal config/architecture/polaris_runtime_lock.yaml
 # (verify_lock asserts lock model_slug == code default). Judge unchanged.
-PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.1")
+PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.2")  # I-beatboth-008 #1285: mirror 5.1->5.2 (== lock model_slug)
 PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
 
@@ -708,6 +703,20 @@ def check_family_segregation(
             f"HONEST-REBUILD Phase 1c: evaluator model '{eval_model}' does "
             f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
         )
+    if gen_family == eval_family and os.getenv(
+        "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "0"
+    ).strip() in ("1", "true", "True"):
+        # I-beatboth-008 (#1285, operator-approved 2026-06-20): all-GLM-5.2 two-family relaxation.
+        # The independent-lineage self-bias safeguard is DELIBERATELY disabled for this run (disclosed
+        # LOUD, never silent). The deterministic strict_verify floor + minimax Sentinel + qwen Judge D8
+        # roles remain independent. Default-OFF: unset => the RuntimeError below still fires (crown-jewel
+        # two-family invariant preserved for every non-campaign caller + the crown-jewel test).
+        logger.warning(
+            "[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family %r and "
+            "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED "
+            "for this run (operator-approved all-GLM-5.2). Disclosed.", gen_family,
+        )
+        return (gen_family, eval_family)
     if gen_family == eval_family:
         raise RuntimeError(
             f"HONEST-REBUILD Phase 1c: generator and evaluator are in the "
@@ -795,8 +804,12 @@ def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct
 # response-shape-centric recovery (per memory architectural_response_
 # shape_centric_recovery). Do not remove the GLM-5.1 entry on the basis
 # of "stale model ref" — it's needed for the reasoning-first branch.
+# I-beatboth-008 (#1285, 2026-06-20): z-ai/glm-5.2 added — same reasoning-first lineage as
+# glm-5.1, so under xhigh + large generator prompts it routes output to reasoning_content. Adding
+# it here auto-propagates to _REASONING_FIRST_MODELS (via the splat below), enabling the
+# 40%-reasoning-cap so xhigh does not starve content (the glm-5.1 xhigh-blank class).
 _ALWAYS_REASON_MODELS = frozenset({
-    "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
+    "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1", "z-ai/glm-5.2",
 })
 
 # I-bug-089 (2026-05-09): models that route to reasoning_content even when

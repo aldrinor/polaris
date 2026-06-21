@@ -101,14 +101,23 @@ def verify_lock_against_code() -> dict:
             f"add to src/polaris_graph/llm/openrouter_client.py:_FAMILY_PREFIXES"
         )
 
-    # Family policy: all_distinct
-    if lock.get("family_policy", {}).get("default_policy") == "all_distinct":
-        seen: dict[str, str] = {}
+    # Family policy: all_distinct (I-beatboth-008 #1285 — honor allowed_collisions
+    # so the operator-approved all-GLM-5.2 generator+mirror pair PASSES while a
+    # NON-listed same-family collision still RAISES; the lock is the single source
+    # of truth for which pairs may collide).
+    fp = lock.get("family_policy", {})
+    if fp.get("default_policy") == "all_distinct":
+        allowed = {tuple(sorted(str(x) for x in pair)) for pair in fp.get("allowed_collisions", [])}
+        seen = {}
         for role, fam in declared_families.items():
             if fam in seen:
+                other_role = seen[fam]
+                if tuple(sorted([role, other_role])) in allowed:
+                    # Operator-approved collision (e.g. all-GLM-5.2 generator+mirror).
+                    continue
                 raise LockMismatch(
-                    f"family policy violation: role {role!r} and role {seen[fam]!r} "
-                    f"share family {fam!r}; allowed_collisions is empty"
+                    f"family policy violation: role {role!r} and role {other_role!r} "
+                    f"share family {fam!r}; allowed_collisions={sorted(allowed)}"
                 )
             seen[fam] = role
 

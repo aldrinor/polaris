@@ -84,6 +84,7 @@ from src.polaris_graph.roles.openai_compatible_transport import (
 from src.polaris_graph.roles.openrouter_role_transport import (
     FOUR_ROLE_STAGE,
     OpenRouterRoleTransport,
+    _family_from_slug,
     benchmark_verifier_family,
     benchmark_verifier_lineup,
     openrouter_base_url,
@@ -248,17 +249,50 @@ def assert_four_role_families_distinct() -> dict[str, str]:
     """
     lock = load_lock()
     if four_role_transport_mode() == _TRANSPORT_OPENROUTER:
-        fams = {"generator": str(lock["required_roles"]["generator"]["family"])}
+        # I-beatboth-008 (#1285) P1-1: derive the generator family the SAME provider-prefix way
+        # the verifiers do (`benchmark_verifier_family` -> `_family_from_slug` = slug.split("/")[0]),
+        # from the generator's ACTIVE slug (PG_GENERATOR_MODEL override, else the lock's model_slug).
+        # The prior code read the lock's `family` FIELD ('glm') for the generator while the verifiers
+        # report the provider PREFIX ('z-ai' for z-ai/glm-5.2) — two inconsistent label spaces, so on
+        # the all-GLM-5.2 stack gen='glm' vs mirror='z-ai' never matched by string and the
+        # distinctness loop passed by ACCIDENT (it never consulted allowed_collisions). Deriving the
+        # generator family the identical provider-prefix way makes gen='z-ai' == mirror='z-ai' -> the
+        # real same-lineage collision is DETECTED -> the allowed_collisions [[generator, mirror]] pair
+        # below is what permits it (emptying allowed_collisions now correctly RAISES).
+        generator_slug = os.getenv("PG_GENERATOR_MODEL") or str(
+            lock["required_roles"]["generator"]["model_slug"]
+        )
+        fams = {"generator": _family_from_slug(generator_slug)}
         for role in _VERIFIER_ROLES:
             fams[role] = benchmark_verifier_family(role)
     else:
         roles = ("generator", *_VERIFIER_ROLES)
         fams = {r: str(lock["required_roles"][r]["family"]) for r in roles}
-    if len(set(fams.values())) != len(fams):
-        raise RuntimeError(
-            "Gate-B preflight: 4-role family collision — all roles must be distinct "
-            f"lineages for the active transport mode, got {fams}"
-        )
+    # I-beatboth-008 (#1285): honor the lock's family_policy.allowed_collisions instead of a
+    # bare set-length distinctness check. On the all-GLM-5.2 stack the openrouter branch passes
+    # only by LABEL MISMATCH — the generator's family is sourced from the lock ('glm') while the
+    # mirror's benchmark slug 'z-ai/glm-5.2' yields the provider-prefix family 'z-ai' — i.e. the
+    # same GLM-5.2 lineage carries two labels, so the old len(set)!=len() check passed by accident.
+    # The self_host branch sources ALL four families from the lock, so gen+mirror are BOTH 'glm':
+    # a real same-family collision that must be skipped ONLY for the operator-approved
+    # allowed_collisions pair. A NON-listed same-family collision (e.g. a re-pick that puts the
+    # Judge into the Mirror's family) still RAISES. Pattern mirrors validate_role_families
+    # (openrouter_client.py:774-787): continue-without-recording so a THIRD same-family role raises.
+    fp = lock.get("family_policy", {})
+    allowed = {tuple(sorted(str(x) for x in pair)) for pair in fp.get("allowed_collisions", [])}
+    seen = {}
+    for role, fam in fams.items():
+        if fam in seen:
+            other_role = seen[fam]
+            if tuple(sorted([role, other_role])) in allowed:
+                continue
+            raise RuntimeError(
+                "Gate-B preflight: 4-role family collision — all roles must be distinct "
+                f"lineages for the active transport mode (got {fams}); role {role!r} and "
+                f"role {other_role!r} share family {fam!r} and the pair is not in "
+                f"allowed_collisions={sorted(allowed)}"
+            )
+        seen[fam] = role
     return fams
 
 

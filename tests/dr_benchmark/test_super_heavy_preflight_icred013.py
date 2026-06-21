@@ -578,7 +578,9 @@ def test_openrouter_probe_request_matches_production(monkeypatch, role):
     import scripts.dr_benchmark.super_heavy_preflight as m
     import scripts.dr_benchmark.run_gate_b as rgb
 
-    slugs = {"mirror": "z-ai/glm-5.1", "sentinel": "minimax/minimax-m2", "judge": "qwen/qwen3.6-35b-a3b"}
+    # I-beatboth-008 (#1285): all-GLM-5.2 — the benchmark Mirror slug is upgraded z-ai/glm-5.1 ->
+    # z-ai/glm-5.2 (the production verifier lineup the probe must match field-for-field).
+    slugs = {"mirror": "z-ai/glm-5.2", "sentinel": "minimax/minimax-m2", "judge": "qwen/qwen3.6-35b-a3b"}
     slug = slugs[role]
     monkeypatch.setattr(rgb, "four_role_transport_mode", lambda: "openrouter")
     os.environ["OPENROUTER_API_KEY"] = "test-key"

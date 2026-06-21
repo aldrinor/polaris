@@ -16,9 +16,11 @@ from scripts.dr_benchmark.pathB_run_gate import GateError
 # polaris_runtime_lock.yaml). _role_pins() now returns generator/mirror/sentinel/judge, and
 # the post-run gate enforces completeness in BOTH directions (every pinned role observed AND
 # every observed role pinned), so the captured calls must be exactly these four roles.
-_GEN_SLUG = "deepseek/deepseek-v4-pro"
-# I-run11-004: Mirror z-ai/glm-5.1, Sentinel CERTIFIED minimax/minimax-m2 (decomposition).
-_MIRROR_SLUG = "z-ai/glm-5.1"
+# I-beatboth-008 (#1285) all-GLM-5.2: generator AND mirror are both z-ai/glm-5.2 (two-family
+# relaxation via the lock's family_policy.allowed_collisions [[generator, mirror]]); Sentinel
+# CERTIFIED minimax/minimax-m2 (decomposition) + Judge qwen stay independent D8 arbiters.
+_GEN_SLUG = "z-ai/glm-5.2"
+_MIRROR_SLUG = "z-ai/glm-5.2"
 _SENTINEL_SLUG = "minimax/minimax-m2"
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
 
@@ -185,12 +187,16 @@ def test_role_pins_env_overrides_applied(monkeypatch) -> None:
     assert pins["generator"] == _GEN_SLUG  # untouched, lock-sourced
 
 
-# --- a same-family 4-role map fails LOUD at pin-build via validate_role_families ---
+# --- a NON-ALLOWED same-family 4-role map fails LOUD at pin-build via validate_role_families ---
 def test_role_pins_rejects_family_collision(monkeypatch) -> None:
+    # I-beatboth-008 (#1285): under the all-GLM-5.2 lock the generator defaults to z-ai/glm-5.2
+    # (family 'glm'), and (generator, mirror) is the ONLY operator-approved allowed_collision.
+    # Force the judge into the 'glm' family -> collides with the generator on a pair that is NOT
+    # in allowed_collisions, so _role_pins must still raise LOUD. (The prior judge->deepseek
+    # collision premise was stale: the generator is no longer deepseek post all-GLM-5.2 switch.)
     monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
-    # Force the judge into the deepseek family -> collides with the generator (deepseek).
-    monkeypatch.setenv("PG_JUDGE_MODEL", "deepseek/deepseek-v4-pro")
+    monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")  # family 'glm' -> non-allowed collision
     from src.polaris_graph.benchmark.pathB_runner import _role_pins
     with pytest.raises(RuntimeError, match="family"):
         _role_pins()
