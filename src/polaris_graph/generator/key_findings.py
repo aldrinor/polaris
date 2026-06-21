@@ -166,9 +166,15 @@ def build_key_findings(sections: list[Any]) -> str:
             break
     if not bullets:
         return ""
+    # I-beatboth-011 §3.2 (#1289): HONEST self-cert label (was the over-claiming absolute
+    # "span-verified statement" — a verbatim self-quote tautologically passes strict_verify, so the
+    # absolute phrasing implied a guarantee the engine does not make). State the REAL guarantee.
+    # LABEL honesty only — the faithfulness engine is UNTOUCHED.
     header = (
         "## Key Findings\n\n"
-        "_Each finding below is a verbatim, span-verified statement carried up from the body section "
-        "named in bold; citations are the body's._\n\n"
+        "_Each finding below is verbatim text carried up from a cited body span; it passes strict_verify "
+        "(span bounds + numeric match + ≥2 content-word grounding) but is single-origin unless marked "
+        "corroborated, and span-grounding is NOT a peer-reviewed or on-topic guarantee. Citations are "
+        "the body's._\n\n"
     )
     return header + "\n".join(bullets) + "\n\n"

@@ -144,42 +144,64 @@ def _harvest_conclusion_sentences(sections: list[Any]) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Block builders (front abstract + end conclusion)
 # ─────────────────────────────────────────────────────────────────────────────
+# I-beatboth-011 §3.2 (#1289): HONEST self-cert label. The prior absolute "span-verified
+# statement" phrasing over-claimed — it is the §-1.1 lethal-miss a blind reader hears by ear: a
+# verbatim self-quote tautologically passes strict_verify, so the absolute phrasing implied a
+# guarantee the engine does not make (on-topic / peer-reviewed / corroborated). State the REAL guarantee +
+# denominator discipline instead (mirrors the Reliability header). LABEL honesty only — the
+# faithfulness engine (strict_verify / NLI / 4-role D8 / span-grounding) is UNTOUCHED.
 _ABSTRACT_HEADER = (
     "## Abstract\n\n"
-    "_Each sentence below is a verbatim, span-verified statement carried up from the body; "
-    "citations are the body's. This summary introduces no new claim._\n\n"
+    "_Each sentence below is verbatim text carried up from a cited body span; it passes strict_verify "
+    "(evidence-id in pool, span bounds, numeric match, ≥2 content-word grounding) but is single-origin "
+    "unless marked corroborated, and span-grounding is NOT a peer-reviewed or on-topic guarantee. "
+    "Citations are the body's; this summary introduces no new claim._\n\n"
 )
 _CONCLUSION_HEADER = (
     "## Conclusion\n\n"
-    "_Each sentence below is a verbatim, span-verified statement from the body; citations are "
-    "the body's. This conclusion introduces no new claim._\n\n"
+    "_Each sentence below is verbatim text carried up from a cited body span; it passes strict_verify "
+    "(span bounds + numeric match + ≥2 content-word grounding) but is single-origin unless marked "
+    "corroborated, and span-grounding is NOT a peer-reviewed or on-topic guarantee. Citations are the "
+    "body's; this conclusion introduces no new claim._\n\n"
+)
+# idx32/42 render-gate: a run whose binding D8 gate did NOT certify release MUST NOT stamp a
+# verification-complete label. The caller passes ``release_certified=False`` when
+# release_allowed is False / the 4-role D8 is incomplete; the block then leads with this caveat.
+_NOT_CERTIFIED_CAVEAT = (
+    "_⚠️ BINDING D8 GATE INCOMPLETE — NOT RELEASE-CERTIFIED. The 4-role adjudication did not complete "
+    "/ the release gate withheld this run, so the statements below are span-grounded but NOT release-"
+    "verified. Treat as provisional._\n\n"
 )
 
 
-def build_abstract(sections: list[Any]) -> str:
-    """Return a markdown ``## Abstract`` block: verbatim, span-verified headline findings carried
+def build_abstract(sections: list[Any], release_certified: bool = True) -> str:
+    """Return a markdown ``## Abstract`` block: verbatim span-grounded headline findings carried
     up from the body, drafted LAST. Returns "" when disabled (flag-OFF byte-identity). When the
     body has NO verified prose, renders the disclosed insufficient-evidence line (NEVER empty
-    fabricated filler)."""
+    fabricated filler). ``release_certified=False`` (idx32/42) prepends the NOT-RELEASE-CERTIFIED
+    caveat for a run whose binding D8 gate did not certify release."""
     if not synthesis_abstract_conclusion_enabled():
         return ""
+    _caveat = "" if release_certified else _NOT_CERTIFIED_CAVEAT
     sentences = _harvest_abstract_sentences(sections)
     if not sentences:
-        return _ABSTRACT_HEADER + _INSUFFICIENT_EVIDENCE + "\n\n"
-    return _ABSTRACT_HEADER + " ".join(sentences) + "\n\n"
+        return _ABSTRACT_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
+    return _ABSTRACT_HEADER + _caveat + " ".join(sentences) + "\n\n"
 
 
-def build_conclusion(sections: list[Any]) -> str:
-    """Return a markdown ``## Conclusion`` block: verbatim, span-verified closing findings carried
+def build_conclusion(sections: list[Any], release_certified: bool = True) -> str:
+    """Return a markdown ``## Conclusion`` block: verbatim span-grounded closing findings carried
     up from the body, drafted LAST. Returns "" when disabled (flag-OFF byte-identity). When the
     body has NO verified prose, renders the disclosed insufficient-evidence line (NEVER empty
-    fabricated filler)."""
+    fabricated filler). ``release_certified=False`` (idx32/42) prepends the NOT-RELEASE-CERTIFIED
+    caveat for a run whose binding D8 gate did not certify release."""
     if not synthesis_abstract_conclusion_enabled():
         return ""
+    _caveat = "" if release_certified else _NOT_CERTIFIED_CAVEAT
     sentences = _harvest_conclusion_sentences(sections)
     if not sentences:
-        return _CONCLUSION_HEADER + _INSUFFICIENT_EVIDENCE + "\n\n"
-    return _CONCLUSION_HEADER + " ".join(sentences) + "\n\n"
+        return _CONCLUSION_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
+    return _CONCLUSION_HEADER + _caveat + " ".join(sentences) + "\n\n"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
