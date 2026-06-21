@@ -626,6 +626,10 @@ _STATUS_TIERS: dict[str, int] = {
     # taxonomy. KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES (test_saturation_phase4 +
     # test_md9_regression_lab). 4-role-held + user-cancel are terminal aborts (tier 2, no report).
     "abort_four_role_release_held": 2,
+    # I-beatboth-006 (#1283) Fix C.3: a force-closed role transport reached the D8 seam with
+    # PG_ROLE_TRANSPORT_DEGRADE OFF -> disclosed hard halt, no trustworthy report (tier 2).
+    # MUST stay mirrored with runner.UNIFIED_STATUS_VALUES (status-schema-parity gate).
+    "abort_role_transport_exhausted": 2,
     # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed — a
     # material non-VERIFIED claim present in the body could not be redacted; no trustworthy
     # report (tier 2). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.

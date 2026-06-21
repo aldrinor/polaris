@@ -489,6 +489,38 @@ def _route_seam_worker_exception(exc: BaseException) -> str:
     return f"seam_error:{type(exc).__name__}:{str(exc)[:120]}"
 
 
+def _role_transport_abort_manifest(
+    exc: BaseException,
+    *,
+    run_id: str,
+    q: dict,
+    retrieval=None,
+    run_cost: float = 0.0,
+) -> dict:
+    """I-beatboth-006 (#1283) Fix C.3 (Codex diff-gate iter-3 P1): build the DISCLOSED hard-halt
+    manifest dict for a `RoleTransportExhaustedError` that reached the run-driver's outer handler with
+    PG_ROLE_TRANSPORT_DEGRADE OFF. PURE (no I/O) so the RESULTING manifest.status — the VALUE, not a
+    structural proxy — is unit-callable: the real outer `except` clause builds the manifest VIA this
+    helper, so deleting the wiring flips the helper's behavioral test RED (the `_credibility_abort_status`
+    / `_route_seam_worker_exception` extract-then-execute precedent).
+
+    `status` is the typed exception's `.status` routed through `to_unified_status` (so it is the
+    DISCLOSED `abort_role_transport_exhausted` terminal, registered in UNIFIED_STATUS_VALUES /
+    PipelineStatus / KNOWN_STATUS_VALUES — NOT the generic released_with_disclosed_gaps the seam-held
+    path produces, NOT the error_unexpected default). The disclosed halt-artifact path (when present) is
+    surfaced as `role_transport_halt_artifact`. Faithfulness-neutral: pure status/envelope construction.
+    """
+    manifest = _base_manifest_envelope(
+        run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+    )
+    manifest["status"] = to_unified_status(getattr(exc, "status", "") or "")
+    manifest["error"] = str(exc)[:500]
+    halt_artifact = getattr(exc, "halt_artifact", None)
+    if halt_artifact is not None:
+        manifest["role_transport_halt_artifact"] = str(halt_artifact)
+    return manifest
+
+
 def _credibility_abort_status(exc: BaseException) -> str | None:
     """I-cred-008b (#1162) — Codex #008b P1-1: classify an exception that reached run_one_query's handler.
 
@@ -11890,7 +11922,13 @@ async def run_one_query(
         # Mirrors the _JournalOnlyAbort / abort_budget_exceeded named-abort contract: catch-and-set (no
         # re-raise) so the teardown below still runs. The status is identity-mapped through
         # to_unified_status (registered in UNIFIED_STATUS_VALUES / PipelineStatus / KNOWN_STATUS_VALUES).
-        _rte_status = to_unified_status(getattr(_rte_abort, "status", "") or "")
+        # Build the DISCLOSED hard-halt manifest VIA the pure helper so the RESULTING manifest.status
+        # is the unit-test subject (deleting this handler flips the helper's behavioral test RED).
+        run_cost = current_run_cost()
+        _rte_manifest = _role_transport_abort_manifest(
+            _rte_abort, run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+        )
+        _rte_status = _rte_manifest["status"]
         _log(
             f"[role_transport] ABORT: status={_rte_status} — {_rte_abort} "
             f"(halt_artifact={getattr(_rte_abort, 'halt_artifact', None)})"
@@ -11899,15 +11937,6 @@ async def run_one_query(
         summary["error"] = str(_rte_abort)[:300]
         try:
             if run_dir is not None:
-                run_cost = current_run_cost()
-                _rte_manifest = _base_manifest_envelope(
-                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
-                )
-                _rte_manifest["status"] = _rte_status
-                _rte_manifest["error"] = str(_rte_abort)[:500]
-                _rte_halt_artifact = getattr(_rte_abort, "halt_artifact", None)
-                if _rte_halt_artifact is not None:
-                    _rte_manifest["role_transport_halt_artifact"] = str(_rte_halt_artifact)
                 _rte_manifest = augment_v6_manifest(
                     _rte_manifest,
                     external_run_id=q.get("external_run_id"),

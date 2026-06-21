@@ -58,6 +58,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_discovery_degraded",    # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop)
         "abort_safety_refused",        # I-ready-007 (#1072): input harm-refusal before retrieval
         "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
+        "abort_role_transport_exhausted",  # I-beatboth-006 (#1283) Fix C.3: force-closed role transport reached the D8 seam with PG_ROLE_TRANSPORT_DEGRADE OFF -> disclosed hard halt
         "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed (material non-VERIFIED claim present-but-unredactable)
         "abort_required_entity_ledger_failed",  # I-arch-004 F27 (#1213/h3): strict-gate force-on RequiredEntityLedger raised -> HOLD instead of silently dropping the Coverage-gaps disclosure
         "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only required contract slot non-journal

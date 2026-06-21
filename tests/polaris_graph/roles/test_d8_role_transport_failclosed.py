@@ -60,6 +60,7 @@ from src.polaris_graph.roles.sweep_integration import (
 # a mirrored predicate), so the harness asserts the REAL run-driver wiring — the `_credibility_abort_status`
 # (#008b P1-1) precedent. The import is heavy-but-OFFLINE (the module has no top-level network/spend).
 from scripts.run_honest_sweep_r3 import (  # noqa: E402
+    _role_transport_abort_manifest,
     _route_seam_worker_exception,
     to_unified_status,
 )
@@ -604,25 +605,65 @@ def _handler_wires_manifest_status(handler: "_ast.ExceptHandler") -> bool:
     return routes_via_unifier and writes_manifest_status
 
 
-def test_run_driver_outer_handler_wires_role_transport_exhausted_into_manifest_status():
-    """Codex diff-gate iter-3 P1 — link 2 (the RESULTING manifest.status write). The run-driver
-    (run_honest_sweep_r3.py) MUST have a dedicated `except RoleTransportExhaustedError` handler whose
-    body routes the exception's `.status` through `to_unified_status` and assigns `manifest['status']`.
-    PRE-FIX (no dedicated handler): the typed seam exception falls to the generic broad-except ->
-    manifest.status becomes released_with_disclosed_gaps / error_unexpected, so this goes RED. POST-FIX
-    the handler exists and wires manifest['status'] -> GREEN. Structural (not a live run) because a
-    full run_one_query manifest assertion needs retrieval/generation/corpus unavailable offline."""
+def test_role_transport_abort_manifest_status_is_the_disclosed_abort():
+    """Codex diff-gate iter-3 P1 — link 2, BEHAVIORAL (the RESULTING manifest.status VALUE). The
+    run-driver's outer `except RoleTransportExhaustedError` handler BUILDS the manifest VIA the pure
+    `_role_transport_abort_manifest` helper; this calls that SAME production helper on a real typed
+    exception and asserts the manifest dict it returns carries status='abort_role_transport_exhausted'
+    (the DISCLOSED hard halt), DISTINCT from the generic released_with_disclosed_gaps the seam-held path
+    produces and from the error_unexpected default. RED if the helper/handler is removed (the run-driver
+    can no longer produce a manifest at all -> ImportError) OR if the taxonomy entry is dropped
+    (status degrades to error_unexpected). Executes the real mapping code, not a structural proxy."""
+    exc = RoleTransportExhaustedError(
+        "force-closed role transport with degrade OFF -> disclosed hard halt",
+        status=_ROLE_TRANSPORT_EXHAUSTED_STATUS,
+        halt_artifact=None,
+    )
+    manifest = _role_transport_abort_manifest(
+        exc,
+        run_id="run-rte-0",
+        q={"slug": "d8rte", "domain": "general", "question": "q?"},
+        retrieval=None,
+        run_cost=0.0,
+    )
+    assert manifest["status"] == _ROLE_TRANSPORT_EXHAUSTED_STATUS == "abort_role_transport_exhausted", (
+        "the run-driver's role-transport abort manifest MUST carry the DISCLOSED "
+        "abort_role_transport_exhausted status (the VALUE, not a structural proxy)"
+    )
+    # The bite: the disclosed abort is DISTINCT from the generic seam-held release and the catch-all.
+    assert manifest["status"] != "released_with_disclosed_gaps", (
+        "the role-transport hard halt MUST NOT resolve to the generic released_with_disclosed_gaps the "
+        "seam broad-except produces — that is exactly the Codex diff-gate P1 the run-driver fixes."
+    )
+    assert manifest["status"] != "error_unexpected"
+    # The manifest is self-documenting: it carries the faulted-role error context.
+    assert "error" in manifest and manifest["error"]
+
+
+def test_run_driver_outer_handler_invokes_the_role_transport_abort_manifest_helper():
+    """Codex diff-gate iter-3 P1 — link 2 STRUCTURAL backstop: the run-driver's dedicated
+    `except RoleTransportExhaustedError` handler MUST call `_role_transport_abort_manifest` (the helper
+    whose RESULTING status the behavioral test above asserts). Together: delete the helper-call wiring
+    -> the behavioral test loses its production caller and THIS structural test goes RED, proving the
+    handler is genuinely wired (not just that the helper exists). A full run_one_query manifest assertion
+    is infeasible offline (needs retrieval/generation/corpus), so this pins the handler->helper edge."""
     source = _RUN_DRIVER_PATH.read_text(encoding="utf-8")
     handlers = _role_transport_except_handlers(source)
     assert handlers, (
         "run_honest_sweep_r3.py has NO dedicated `except RoleTransportExhaustedError` handler -> the "
         "typed seam exception falls to the generic broad-except and manifest.status becomes the GENERIC "
         "released_with_disclosed_gaps / error_unexpected, NOT the disclosed abort_role_transport_exhausted "
-        "(Codex diff-gate P1). Wire a handler that sets manifest['status'] from the exception's .status."
+        "(Codex diff-gate P1). Wire a handler that builds the manifest via _role_transport_abort_manifest."
     )
-    wiring_handlers = [h for h in handlers if _handler_wires_manifest_status(h)]
-    assert wiring_handlers, (
-        "a `except RoleTransportExhaustedError` handler exists but NONE wires the exception's .status "
-        "into manifest['status'] via to_unified_status — the disclosed abort_role_transport_exhausted "
-        "manifest status is not actually produced (Codex diff-gate P1)."
+    invokes_helper = any(
+        isinstance(sub, _ast.Call)
+        and isinstance(sub.func, _ast.Name)
+        and sub.func.id == "_role_transport_abort_manifest"
+        for h in handlers
+        for sub in _ast.walk(h)
+    )
+    assert invokes_helper, (
+        "the `except RoleTransportExhaustedError` handler exists but does NOT call "
+        "_role_transport_abort_manifest -> the disclosed abort_role_transport_exhausted manifest.status "
+        "is not produced from the typed exception (Codex diff-gate P1)."
     )
