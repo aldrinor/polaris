@@ -25,7 +25,7 @@ from typing import Callable
 from src.polaris_graph.llm import openrouter_client as _orc
 
 _ENV_MODEL = "PG_CREDIBILITY_JUDGE_MODEL"
-_DEFAULT_MODEL = "z-ai/glm-5.1"                       # open-weight (MIT), sovereign; override via env
+_DEFAULT_MODEL = "z-ai/glm-5.2"                       # I-beatboth-008 #1285: mirror upgrade 5.1->5.2; open-weight (MIT), sovereign; override via env
 _ENV_MAX_TOKENS = "PG_CREDIBILITY_JUDGE_MAX_TOKENS"
 # I-arch-002 (#1251): the judge model (GLM-5.1) is a REASONING model. At max_tokens=512 it burned the
 # whole budget on its internal reasoning and got TRUNCATED mid-thought (finish=length) -> the content was

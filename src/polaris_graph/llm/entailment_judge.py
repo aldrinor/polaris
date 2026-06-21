@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
 
 # I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
 # non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
-_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
+_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.2"  # I-beatboth-008 (#1285, operator-signed 2026-06-20): mirror upgrade 5.1->5.2
 _ENTAILMENT_TIMEOUT_S = 30.0
 # I-arch-006 HANG-J1/J2 (#1262): the entailment JUDGE is the verifier and had NO total deadline — a bare
 # float `httpx.Client(timeout=30.0)` makes 30s the per-read GAP timeout, which httpx RESETS on every byte.

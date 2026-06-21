@@ -66,7 +66,7 @@ _DEFAULT_MIN_CONFIDENCE = 0.7
 
 # I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
 # non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
-_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
+_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.2"  # I-beatboth-008 (#1285): mirror upgrade 5.1->5.2
 _JUDGE_TIMEOUT_S = 30.0
 # I-arch-006 HANG-J1 sibling (#1262): the semantic-conflict judge had the SAME bare-float per-read gap
 # timeout that let a trickled / idle-open OpenRouter socket run UNBOUNDED. Tight read-stall (dead socket
