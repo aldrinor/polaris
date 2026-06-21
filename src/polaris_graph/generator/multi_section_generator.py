@@ -3925,14 +3925,41 @@ async def _run_section(
         from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
             build_short_member_sentence as _vc_short_writer,
         )
-        # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
-        # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
-        # (fires-through-render? short prose fits 150K? does D8/glm hang locally?) before the real
-        # per-basket abstractive writer (PR-c) is built. Replaced by the LLM writer once RC-D lands.
-        _vc_composed = _compose_section_per_basket(
-            _vc_baskets, evidence_pool,
-            writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
-        )
+        # I-beatboth-005 (#1282): the FAITHFUL ABSTRACTIVE WRITER. Default-OFF
+        # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
+        # below are BYTE-IDENTICAL and the new module is NEVER imported on the hot path (the flag is
+        # read inline, no module touch). ON => an awaited async PRE-PASS precomputes one
+        # LLM-rewritten verified draft per basket and the SYNC writer_fn is a pure precomputed-dict
+        # lookup; the writer-specific verify WRAPPER (allow_local_window_fallback=False +
+        # judge_error-fail-closed + numeric-completeness) is injected through the existing verify_fn
+        # parameter, so _compose_section_per_basket / _compose_one_basket /
+        # verify_sentence_provenance are UNTOUCHED (the engine never learns it is wrapped).
+        # Fail-closed: the writer REFUSES to activate unless entailment=enforce.
+        if os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+            from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
+                abstractive_pre_pass,
+                assert_activation_preconditions,
+                make_abstractive_writer_fn,
+                make_writer_verify_fn,
+            )
+            assert_activation_preconditions()
+            _vc_writer_verify = make_writer_verify_fn(_vc_verify)
+            _vc_precomputed = await abstractive_pre_pass(
+                _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
+            )
+            _vc_composed = _compose_section_per_basket(
+                _vc_baskets, evidence_pool,
+                writer_fn=make_abstractive_writer_fn(_vc_precomputed), verify_fn=_vc_writer_verify,
+            )
+        else:
+            # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
+            # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
+            # (fires-through-render? short prose fits 150K? does D8/glm hang locally?). Byte-identical
+            # to the pre-#1282 behavior; replaced by the LLM writer when PG_ABSTRACTIVE_WRITER is ON.
+            _vc_composed = _compose_section_per_basket(
+                _vc_baskets, evidence_pool,
+                writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
+            )
         raw = "\n".join(c for c in _vc_composed if c and c.strip())
         in_tok = out_tok = 0
         section_atom_catalog = {}

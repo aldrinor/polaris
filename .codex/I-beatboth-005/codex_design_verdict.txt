@@ -1,0 +1,28 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Entailment-enforce is not sufficient as specified: `verify_sentence_provenance` keeps transport-level entailment judge errors by default via `PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=1`, returning `is_verified=True` with `judge_error=True`. `_compose_one_basket` only checks `is_verified` plus region, so a paraphrase with a valid token, numeric match, and content overlap can render without a real entailment verdict. Writer activation must either force hard-drop on judge_error or treat `res.judge_error` / `entailment_unverified_judge_error` as writer failure and fallback."
+  - "The canonical-token mechanism is not truly bound to the cited span under current verifier defaults: `_compose_one_basket` calls `verify_fn(sentence, scoped_pool)` with `allow_local_window_fallback=True`. A sentence whose bound span is NEUTRAL/CONTRADICTED can pass on a same-row local window; with `PG_SPAN_RESOLVER` default off, the original canonical token remains and the region gate can still pass. The writer path must verify with `allow_local_window_fallback=False`, or otherwise require a re-anchored token that still satisfies the basket-region contract."
+  - "Numeric completeness cannot remain an open option for v1. Strict verify is sentence-to-span only, so dropping a span numeric passes. The writer module must require every substantive numeric from each provided span to appear verbatim in the rewrite, else retry/fallback, with a replay fixture proving the guard fires through `_rewrite_draft_with_spans`."
+  - "The async writer is not buildable as described against the existing sync compose API. `_compose_one_basket` calls `draft = writer_fn(...)` synchronously, while the design proposes an async OpenRouter writer and concurrent semaphore. The design needs an explicit async adapter/async composer or precomputed drafts; a raw async `writer_fn` swap would not execute correctly."
+p2:
+  - "Current `_compose_one_basket` can keep earlier verified sentences and append the K-span after a later failure; the design says whole-basket retry/fallback and no half-rewritten basket. This is not a faithfulness blocker, but the design/harness expectations must match the real behavior."
+  - "Harness W1-W5 are directionally right but incomplete: add judge-error-advisory, local-window fallback/non-entailing-bound-span, numeric-drop completeness, and flag-off byte-identical/no-hot-path-import fixtures."
+  - "Model governance needs tightening: the writer is a generator-role LLM call, so `PG_ABSTRACTIVE_WRITER_MODEL` must be lock-governed or alias the generator lock, with token caps in conformance. Do not leave it as an unconstrained side knob."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fail closed on entailment judge errors for the writer path."
+  - "Disable local-window fallback, or require safe re-anchor, for writer verification."
+  - "Make numeric completeness a required writer-local gate for v1."
+  - "Specify the async integration with the sync compose loop."
+
+open_question_calls:
+  1_numeric_completeness: "Required for v1. Implement in the writer module, not the verifier: every substantive span numeric must appear verbatim or the basket retries/falls back."
+  2_retry_count: "Use 1 retry by default, then K-span fallback. More retries should wait for measured fallback rate."
+  3_granularity: "Per-basket v1 is right, with one sentence per SUPPORTS member, but define all-or-partial fallback explicitly. Per-cluster belongs after F1-1/relational guards."
+  4_dump_structure: "Scope this issue to writer prose only. Section structure cleanup can be separate."
+  5_entailment_failclosed: "Yes, but current guard is insufficient. Check enforce at call time, treat judge_error advisory as failure, and verify with span-local semantics."
+  6_model_lock: "Tie the writer to the generator role in the runtime lock/conformance gate; do not leave a free model knob outside governance."
+
+verdict: REQUEST_CHANGES

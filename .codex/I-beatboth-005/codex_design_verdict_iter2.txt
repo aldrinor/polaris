@@ -1,0 +1,15 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+p1_closure_check:
+  p1_1_judge_error: "CLOSED - §3.2a lines 127-136 demotes getattr(res, 'judge_error', False) in the writer wrapper; provenance_generator.py:637 defines the bool field and :2336-2339 advisory-keeps with the durable marker."
+  p1_2_local_window: "CLOSED - §3.2b lines 140-146 pins allow_local_window_fallback=False in the wrapper; verified_compose.py:245 calls the injected verify_fn and provenance_generator.py:1771 shows the shared default remains True."
+  p1_3_numeric_completeness: "CLOSED - §3.2c lines 148-162 and §5.1 line 261 require span-to-sentence numeric completeness in make_writer_verify_fn; provenance_generator.py:1969-1997 shows the engine is sentence-to-span only, with numeric definitions at :708-724 and :930-937."
+  p1_4_async_adapter: "CLOSED - §3.4a lines 188-200 specifies awaited _abstractive_pre_pass plus sync dict lookup writer_fn; verified_compose.py:241 shows writer_fn is sync, :397-412 keeps compose sync, and multi_section_generator.py:3799/:3944 confirms _run_section is async."
+  engine_untouched: "CONFIRMED - §3.1 line 109 and §6 line 276 keep verify_sentence_provenance, entailment/NLI, D8, provenance, build_verified_span_draft, _compose_one_basket, _compose_section_per_basket, region gate, and section tail unchanged; existing injection seams are verified_compose.py:232-245 and :397-412."
+  default_off_byte_identical: "CONFIRMED - §3.6 lines 221-224 keeps the existing short-writer lambda plus bare _vc_verify when PG_ABSTRACTIVE_WRITER is off and adds an entailment-enforce activation guard; current hot path is multi_section_generator.py:3922-3935, and strict_verify.py:173/:176-197 supports the enforce-mode check."
+verdict: APPROVE
