@@ -37,8 +37,11 @@ never a silent empty `RoleResponse` a downstream fail-closed parser would mis-ha
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import logging
 import os
+import threading
 from typing import Any
 
 import httpx
@@ -48,6 +51,13 @@ from src.polaris_graph.roles.role_transport import (
     RoleRequest,
     RoleResponse,
 )
+from src.polaris_graph.roles.role_transport_deadline import (
+    default_role_http_client as _default_role_http_client,
+    post_with_total_deadline as _post_with_total_deadline,
+    role_transport_total_s as _role_transport_total_s,
+)
+
+logger = logging.getLogger(__name__)
 
 # The OpenAI-compatible chat-completions path appended to each role's base_url.
 _CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
@@ -459,8 +469,45 @@ class OpenAICompatibleRoleTransport:
     captures the call under the Path-B gate, and returns a `RoleResponse`.
     """
 
-    def __init__(self, http_client: httpx.Client) -> None:
-        self._http_client = http_client
+    def __init__(self, http_client: httpx.Client, *, http_client_factory=None) -> None:
+        # I-beatboth-006 (#1283) + Codex P1 (the iarch007 shared-client cascade): the 4-role/D8 seam
+        # can share ONE transport instance across up to PG_FOUR_ROLE_CLAIM_WORKERS concurrent claim
+        # workers (sweep_integration.py). A total-deadline FORCE-CLOSE (Fix A) must therefore NEVER
+        # close a client a SIBLING worker is mid-read on, or it would cascade-abort the seam. So the
+        # client is THREAD-LOCAL: the CONSTRUCTING thread (and every test) uses the INJECTED client;
+        # each NEW worker thread lazily builds its OWN client from the factory. A force-close + rebuild
+        # then only ever touches the CALLING thread's client — no cross-worker cascade. Mirrors
+        # openrouter_role_transport.py:955-999 (the proven thread-local pattern). The factory (default
+        # = a fresh timeout-configured client) is also the REBUILD source after a force-close.
+        # Keyword-only + defaulted so EVERY existing positional caller is byte-identical.
+        self._http_client_factory = http_client_factory or (
+            lambda: _default_role_http_client(_TIMEOUT_SECONDS)
+        )
+        self._tls = threading.local()
+        self._tls.client = http_client  # the constructing thread (tests + the single-threaded path)
+
+    @property
+    def _http_client(self) -> httpx.Client:
+        """This THREAD's role-transport client (lazily built from the factory for a new worker thread).
+
+        Per-thread so a total-deadline force-close on one claim worker can NEVER tear down a sibling
+        worker's in-flight POST on a shared client. F3 (I-arch-011): rebuild a client that was CLOSED
+        however it was closed, not only an absent (`None`) one — a force-closed-but-not-None client
+        would otherwise survive in TLS and the next POST would hit a closed client. `httpx.Client`
+        exposes `is_closed` (flips True on `.close()`), so a closed client is transparently replaced
+        with a fresh open one here BEFORE the next role call. Byte-identical on the healthy path
+        (`is_closed` False). FAITHFULNESS-NEUTRAL: transport client lifecycle repair only. Mirrors
+        openrouter_role_transport.py:969-994."""
+        client = getattr(self._tls, "client", None)
+        if client is None or getattr(client, "is_closed", False):
+            client = self._http_client_factory()
+            self._tls.client = client
+        return client
+
+    @_http_client.setter
+    def _http_client(self, value: httpx.Client) -> None:
+        # The rebuild-after-force-close path replaces ONLY this thread's client.
+        self._tls.client = value
 
     def complete(self, request: RoleRequest) -> RoleResponse:
         """Perform one self-host completion for `request`. SYNC. Fails loud on error.
@@ -484,14 +531,80 @@ class OpenAICompatibleRoleTransport:
             headers["Authorization"] = f"Bearer {api_key}"
 
         with _pathb_capture.llm_role(request.role):
-            try:
-                http_response = self._http_client.post(
-                    url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
-                )
-            except httpx.HTTPError as exc:
-                raise RoleTransportError(
-                    f"self-host {request.role!r} transport error at {url}: {exc}"
-                ) from exc
+            # I-beatboth-006 (#1283) Fix A: bound the SOVEREIGN POST by the SAME proven force-close
+            # total wall-deadline the OpenRouter path uses, so a trickle-hung sovereign socket on a D8
+            # claim worker cannot hang the gate forever. httpx's read timeout is a per-BYTE gap that a
+            # trickle-fed keep-alive socket resets indefinitely (the failure class this closes); the
+            # wrapper runs the POST on a 1-worker executor, waits at most total_s, and on expiry FORCE-
+            # CLOSES the client so the orphaned worker's blocked read errors out and the thread exits.
+            # On a force-close: rebuild THIS thread's client + retry within PG_ROLE_TRANSPORT_RETRIES,
+            # else fall through to the SAME fail-closed RoleTransportError (consumed per-claim by Fix C).
+            # FAITHFULNESS-NEUTRAL: client lifecycle + wall-deadline only; healthy path byte-identical.
+            transport_retries = max(0, int(os.getenv("PG_ROLE_TRANSPORT_RETRIES", "2")))
+            http_response = None
+            for transport_attempt in range(transport_retries + 1):
+                try:
+                    http_response = _post_with_total_deadline(
+                        self._http_client, url,
+                        json_body=body, headers=headers,
+                        timeout=_TIMEOUT_SECONDS, total_s=_role_transport_total_s(),
+                    )
+                    break
+                except concurrent.futures.TimeoutError as exc:
+                    # The HARD total-deadline fired -> _post_with_total_deadline already FORCE-CLOSED
+                    # this thread's hung client. Rebuild a FRESH client + retry (bounded); on exhaustion
+                    # raise the SAME fail-closed RoleTransportError. The getter rebuilds any closed
+                    # client up-front, so this explicit rebuild is belt-and-suspenders.
+                    try:
+                        self._http_client = self._http_client_factory()
+                    except Exception as rebuild_exc:  # noqa: BLE001
+                        # LAW II §9.4: never swallow silently — the getter is the real safety net, but log.
+                        logger.warning(
+                            "[polaris graph] #1283: sovereign %s role client rebuild after total-"
+                            "deadline force-close FAILED at %s: %s — the getter will rebuild on next use.",
+                            request.role, url, rebuild_exc,
+                        )
+                    if transport_attempt < transport_retries:
+                        logger.warning(
+                            "[polaris graph] #1283: sovereign %s role POST exceeded the total-deadline "
+                            "(PG_ROLE_TRANSPORT_TOTAL_S) (attempt %d/%d) at %s — force-closed + rebuilt, "
+                            "retrying so the D8 gate can ADJUDICATE.",
+                            request.role, transport_attempt + 1, transport_retries + 1, url,
+                        )
+                        continue
+                    raise RoleTransportError(
+                        f"self-host {request.role!r} role POST exceeded the total-deadline at {url}"
+                    ) from exc
+                except RuntimeError as exc:
+                    # F3 (I-arch-011) defense-in-depth: a force-closed client that was reused raises a
+                    # plain `RuntimeError: Cannot send a request, as the client has been closed`. Narrowed
+                    # to the closed-client signature so an UNRELATED RuntimeError re-raises unchanged
+                    # (LAW II §9.4). Rebuild + retry (bounded); on exhaustion fail closed.
+                    if "has been closed" not in str(exc):
+                        raise
+                    try:
+                        self._http_client = self._http_client_factory()
+                    except Exception as rebuild_exc:  # noqa: BLE001
+                        logger.warning(
+                            "[polaris graph] #1283: sovereign %s role client rebuild after a closed-"
+                            "client RuntimeError FAILED at %s: %s — the getter will rebuild on next use.",
+                            request.role, url, rebuild_exc,
+                        )
+                    if transport_attempt < transport_retries:
+                        logger.warning(
+                            "[polaris graph] #1283: sovereign %s role POST hit a CLOSED transport "
+                            "client (attempt %d/%d) at %s — rebuilt a fresh client, retrying.",
+                            request.role, transport_attempt + 1, transport_retries + 1, url,
+                        )
+                        continue
+                    raise RoleTransportError(
+                        f"self-host {request.role!r} role POST hit a closed transport client "
+                        f"at {url}: {exc}"
+                    ) from exc
+                except httpx.HTTPError as exc:
+                    raise RoleTransportError(
+                        f"self-host {request.role!r} transport error at {url}: {exc}"
+                    ) from exc
 
             if http_response.status_code != httpx.codes.OK:
                 raise RoleTransportError(

@@ -37,7 +37,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextvars
+import datetime
 import json
+import logging
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -52,6 +54,68 @@ from src.polaris_graph.llm.openrouter_client import (
     current_run_cost,
     reset_run_cost,
 )
+from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
+
+logger = logging.getLogger(__name__)
+
+# I-beatboth-006 (#1283) Fix C.3: the disclosed HARD-HALT manifest status + halt-artifact reason
+# used when the per-role transport degrade is OFF (operator explicitly disabled it) and a
+# `RoleTransportError` propagates to the seam. This is NEVER a raw teardown with a bare coverage=0 —
+# the seam writes a disclosed `state/halt_<utc>_role_transport_exhausted.md` artifact (§3.0 halt-
+# marker convention) and re-raises a TYPED `RoleTransportExhaustedError` carrying this status, so the
+# fault is a DISCLOSED outcome. (With the flag ON — the default — a force-close is consumed per-claim
+# upstream and never reaches here; this branch fires only on the flag-OFF / genuinely-unexpected path.)
+_ROLE_TRANSPORT_EXHAUSTED_STATUS = "abort_role_transport_exhausted"
+
+
+class RoleTransportExhaustedError(RuntimeError):
+    """A force-closed role `RoleTransportError` propagated to the D8 seam with the degrade flag OFF.
+
+    Carries the disclosed manifest `status` (`abort_role_transport_exhausted`) and the path to the
+    `state/halt_<utc>_role_transport_exhausted.md` artifact the seam wrote BEFORE re-raising, so the
+    outcome is a DISCLOSED hard halt — never a bare coverage=0 teardown. The default-ON path never
+    raises this (a force-close is consumed per-claim); it fires only when an operator explicitly set
+    `PG_ROLE_TRANSPORT_DEGRADE=0` and a role transport-faulted."""
+
+    def __init__(self, message: str, *, status: str, halt_artifact: Path | None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.halt_artifact = halt_artifact
+
+
+def _write_role_transport_halt_artifact(exc: RoleTransportError) -> Path | None:
+    """Write the disclosed `state/halt_<utc>_role_transport_exhausted.md` halt marker (Fix C.3).
+
+    Records the faulted role's exception type + message so the operator sees WHY the D8 seam hard-
+    halted with the degrade flag OFF. Best-effort: a write failure must not mask the original fault
+    (we still re-raise the typed error), so it is logged loudly and returns None. The `state/` dir is
+    the repository-standard halt-marker location (§3.0); created if absent."""
+    try:
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        halt_dir = Path("state")
+        halt_dir.mkdir(parents=True, exist_ok=True)
+        artifact = halt_dir / f"halt_{ts}_role_transport_exhausted.md"
+        artifact.write_text(
+            "# HALT: role_transport_exhausted (I-beatboth-006 #1283 Fix C.3)\n\n"
+            f"- utc: {ts}\n"
+            f"- status: {_ROLE_TRANSPORT_EXHAUSTED_STATUS}\n"
+            f"- reason: a role `RoleTransportError` propagated to the D8 seam with "
+            f"`PG_ROLE_TRANSPORT_DEGRADE` OFF.\n"
+            f"- faulted_role_error: {type(exc).__name__}: {exc}\n\n"
+            "The per-role transport degrade (default ON) was explicitly disabled, so a force-closed "
+            "Mirror/Judge/Sentinel transport HARD-HALTS the run loudly with this disclosed status "
+            "instead of degrading per-claim to UNSUPPORTED. Re-enable `PG_ROLE_TRANSPORT_DEGRADE` "
+            "(default) for the per-claim fail-closed disclosed adjudication.\n",
+            encoding="utf-8",
+        )
+        return artifact
+    except Exception:  # noqa: BLE001 — a halt-artifact write failure must not mask the original fault.
+        logger.warning(
+            "[polaris graph] #1283: failed to write role_transport_exhausted halt artifact "
+            "(the typed RoleTransportExhaustedError is still re-raised).",
+            exc_info=True,
+        )
+        return None
 from src.polaris_graph.roles.release_policy import (
     CoverageLedger,
     D8ClaimRow,
@@ -428,18 +492,32 @@ def _compute_claim_results(
     # thread pool for one item is pure overhead).
     if _CLAIM_WORKERS == 1 or n <= 1:
         out: list[tuple[ClaimPipelineResult, float | None]] = []
-        for claim in claims:
-            result = run_claim_pipeline(
-                transport,
-                claim_id=claim.claim_id,
-                claim=claim.claim_text,
-                evidence_documents=claim.evidence_documents,
-                severity=claim.severity,
-                s0_categories=claim.s0_categories,
-                model_slugs=model_slugs,
-                timestamp=timestamp,
-            )
-            out.append((result, None))
+        try:
+            for claim in claims:
+                result = run_claim_pipeline(
+                    transport,
+                    claim_id=claim.claim_id,
+                    claim=claim.claim_text,
+                    evidence_documents=claim.evidence_documents,
+                    severity=claim.severity,
+                    s0_categories=claim.s0_categories,
+                    model_slugs=model_slugs,
+                    timestamp=timestamp,
+                )
+                out.append((result, None))
+        except RoleTransportError as _rte:
+            # I-beatboth-006 (#1283) Fix C.3 — SAME disclosed hard-halt on the SEQUENTIAL path (flag
+            # OFF / unexpected propagated RTE): write the halt artifact + re-raise the TYPED error,
+            # never a raw propagation. Flag-ON (default) consumes it per-claim upstream, so this fires
+            # only when PG_ROLE_TRANSPORT_DEGRADE is OFF — consistent with the parallel branch below.
+            _halt_artifact = _write_role_transport_halt_artifact(_rte)
+            raise RoleTransportExhaustedError(
+                f"D8 seam role transport exhausted ({type(_rte).__name__}: {_rte}); "
+                f"PG_ROLE_TRANSPORT_DEGRADE is OFF -> disclosed hard halt "
+                f"(status={_ROLE_TRANSPORT_EXHAUSTED_STATUS}).",
+                status=_ROLE_TRANSPORT_EXHAUSTED_STATUS,
+                halt_artifact=_halt_artifact,
+            ) from _rte
         return out
 
     # PARALLEL path (Codex iter-2 P1.1 + P1.2; I-arch-004 F22 HARD cap): each claim is submitted with
@@ -582,9 +660,29 @@ def _compute_claim_results(
                         f"(settled=${current_run_cost():.4f}, cap=${cap:.4f}); blocked pre-spend so "
                         f"the parallel 4-role spend cannot overshoot the cap (hard ceiling)."
                     )
+    except RoleTransportError as _rte:
+        # I-beatboth-006 (#1283) Fix C.3 — the DISCLOSED HARD-HALT branch. With the degrade flag ON
+        # (default) a force-close is consumed PER-CLAIM upstream (role_pipeline C.1 / judge_adapter
+        # C.2 / sentinel_adapter) and NEVER reaches here, so the seam keeps adjudicating. A
+        # `RoleTransportError` reaching `_compute_claim_results` is BY CONSTRUCTION the flag-OFF (or a
+        # genuinely-unexpected) case — the three adapter `transport.complete()` calls are the only RTE
+        # sources, and flag-ON each catches it. Convert it to a DISCLOSED outcome (NOT a bare
+        # coverage=0 teardown): write the `state/halt_*_role_transport_exhausted.md` artifact, tear the
+        # pool down NON-BLOCKING (same P2.2 cleanup as the broad arm), then re-raise a TYPED
+        # `RoleTransportExhaustedError` carrying the `abort_role_transport_exhausted` status + artifact
+        # path. Faithfulness untouched — this is the disclosure/halt path only.
+        _halt_artifact = _write_role_transport_halt_artifact(_rte)
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise RoleTransportExhaustedError(
+            f"D8 seam role transport exhausted ({type(_rte).__name__}: {_rte}); "
+            f"PG_ROLE_TRANSPORT_DEGRADE is OFF -> disclosed hard halt "
+            f"(status={_ROLE_TRANSPORT_EXHAUSTED_STATUS}).",
+            status=_ROLE_TRANSPORT_EXHAUSTED_STATUS,
+            halt_artifact=_halt_artifact,
+        ) from _rte
     except BaseException:
-        # On ANY failure (BudgetExceededError from the cap OR a propagated worker exception) cancel
-        # still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the
+        # On ANY OTHER failure (BudgetExceededError from the cap OR a propagated worker exception)
+        # cancel still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the
         # existing budget-abort / fail-closed path in run_four_role_evaluation handles it. No
         # `except: pass` — the error always propagates.
         pool.shutdown(wait=False, cancel_futures=True)

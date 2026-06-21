@@ -32,6 +32,7 @@ otherwise collide and break rewrite/gap traceability).
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,6 +50,7 @@ from src.polaris_graph.roles.mirror_adapter import (
     run_mirror,
 )
 from src.polaris_graph.roles.mirror_contract import MirrorPass1, MirrorPass2
+from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
 from src.polaris_graph.roles.release_policy import D8ClaimRow
 from src.polaris_graph.roles.role_transport import (
     EvidenceDocument,
@@ -83,6 +85,42 @@ _SENTINEL_OVERRIDE_DOWNGRADE_FROM = (_VERDICT_VERIFIED, _VERDICT_PARTIAL)
 # slugs => ~$0.003/call). This replicates entailment_judge.py:231-234 (the I-bug-100 P2 fix).
 _FLOOR_PROMPT_TOKENS = 500
 _FLOOR_COMPLETION_TOKENS = 100
+
+# I-beatboth-006 (#1283) Fix C — the SINGLE seam degrade switch. A force-closed Mirror OR Judge OR
+# Sentinel `RoleTransportError` (the bounded transport's fail-closed output, §3.1/§1.3) maps to a
+# PER-CLAIM fail-closed disclosed adjudication (D8 verdict UNSUPPORTED for THIS claim + a
+# `<{role}_role_unavailable>` disclosure record) instead of tearing the whole seam down. Generalizes
+# the precedent `PG_SENTINEL_TRANSPORT_DEGRADE` to one switch for the whole D8 seam (Mirror catch
+# site C.1 + Judge adapter C.2 + Sentinel adapter). Default ON. `PG_SENTINEL_TRANSPORT_DEGRADE` is
+# honored as a back-compat ALIAS for the Sentinel arm (read in sentinel_adapter.py). NOTE: because
+# `BlankVerdictError` SUBCLASSES `RoleTransportError`, a blank-verdict exhaustion ALSO degrades to
+# per-claim UNSUPPORTED here — tightening-only (UNSUPPORTED is never credited), consistent with the
+# existing Sentinel arm. LAW VI: env-driven, read at CALL time so a slate override after import wins.
+_ROLE_TRANSPORT_DEGRADE_ENV = "PG_ROLE_TRANSPORT_DEGRADE"
+_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV = "PG_SENTINEL_TRANSPORT_DEGRADE"
+_DEGRADE_OFF_TOKENS = ("0", "false", "no", "off")
+# The synthetic disclosure-record marker substring (in `raw_text`); the C.2-merge selectors key off
+# `served_model is None` + this substring so ONLY the synthetic unavailable record is propagated,
+# never a real served-call record (which carries a served_model and already transited RecordingTransport).
+_ROLE_UNAVAILABLE_MARKER = "_role_unavailable>"
+
+
+def role_transport_degrade_enabled() -> bool:
+    """Whether the per-role transport-fault degrade (Fix C) is ON (default ON). LAW VI: read lazily.
+
+    OFF iff `PG_ROLE_TRANSPORT_DEGRADE` is explicitly off (-> re-raise the `RoleTransportError` so the
+    seam HARD-HALTS loudly per §3.3 C.3); the legacy `PG_SENTINEL_TRANSPORT_DEGRADE` is honored as the
+    SAME back-compat ALIAS the Judge + Sentinel arms read (consulted only when the new switch is unset),
+    so a legacy-only `PG_SENTINEL_TRANSPORT_DEGRADE=0` config degrades/halts ALL THREE roles UNIFORMLY
+    — the Mirror arm is never left out of step with Judge/Sentinel. Absent/other -> ON (the default-safe
+    per-claim fail-closed disclosed adjudication). Mirrors judge_adapter._role_transport_degrade_enabled."""
+    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+    if primary is not None:
+        return primary.strip().lower() not in _DEGRADE_OFF_TOKENS
+    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+    if alias is not None:
+        return alias.strip().lower() not in _DEGRADE_OFF_TOKENS
+    return True
 
 
 def compute_role_call_cost(model_slug: str, usage: dict[str, Any] | None) -> float:
@@ -329,12 +367,54 @@ def run_claim_pipeline(
         citation_id = _first_grounded_citation_id(mirror_records)
     except (MirrorCitationError, MirrorBindingError, MirrorParseError):
         mirror_failed_closed = True
+    except RoleTransportError as exc:
+        # I-beatboth-006 (#1283) Fix C.1: a force-closed Mirror `RoleTransportError` (the bounded
+        # transport's fail-closed output, §3.1) must NOT propagate to the seam teardown. Compose
+        # step-1 keys off the `mirror_failed_closed` BOOL (a returned tuple would not fire it, and
+        # Sentinel+Judge would still run on a hung socket), so the Mirror fault MUST drive the bool
+        # HERE — this is the ONLY site that sets it. Set `mirror_failed_closed=True` (compose returns
+        # UNSUPPORTED + the `if not mirror_failed_closed:` short-circuit at :334 skips Sentinel+Judge —
+        # fast-fail, no further transport calls on a hung socket) and append the synthetic
+        # `<mirror_role_unavailable>` disclosure record DIRECTLY to `recording.records` (so the
+        # served-identity / audit layer sees the Mirror was unavailable for THIS claim, and the record
+        # reaches `ClaimPipelineResult.records`). FAIL-CLOSED, can only tighten — never a synthesized
+        # PASS. Flag OFF (operator disabled the degrade) -> re-raise so the §3.3 C.3 seam hard-halt
+        # branch (not a raw teardown) handles it. `_compose_final_verdict` (LOCKED) is UNTOUCHED.
+        if not role_transport_degrade_enabled():
+            raise
+        mirror_failed_closed = True
+        recording.records.append(
+            RoleCallRecord(
+                role="mirror",
+                model_slug=mirror_slug,
+                served_model=None,
+                raw_text=(
+                    f"<mirror_role_unavailable>{type(exc).__name__}: {exc}"
+                    "</mirror_role_unavailable>"
+                ),
+                parsed=None,
+            )
+        )
 
     # --- stage 15 + 16: Sentinel -> Judge (only if Mirror produced a grounded claim) -----
     if not mirror_failed_closed:
-        sentinel_result, _sentinel_records = run_sentinel(
+        # I-beatboth-006 (#1283) Fix C.2-merge-sentinel: the already-shipped Sentinel degrade
+        # (sentinel_adapter.py, PG_SENTINEL_TRANSPORT_DEGRADE) builds its `<sentinel_role_unavailable>`
+        # `RoleCallRecord` (served_model=None) and returns it, but this call site previously DISCARDED
+        # the list into `_sentinel_records` while `ClaimPipelineResult.records` is sourced ONLY from
+        # `recording.records` (RecordingTransport.complete appends ONLY after a SUCCESSFUL complete(),
+        # never on the raising `RoleTransportError` path). So the disclosure record never reached
+        # `ClaimPipelineResult.records`. Consume the list and append ONLY the synthetic marked record
+        # (served_model is None + the `_role_unavailable>` marker) — selective, degrade-only,
+        # exactly-once. The Sentinel `blank_records` carry a REAL served_model (each blank-200 already
+        # transited RecordingTransport.complete -> already in recording.records), so the predicate
+        # selects ONLY the synthetic unavailable record, never a blank-retry record (no double-count).
+        sentinel_result, sentinel_records = run_sentinel(
             recording, claim, evidence_documents, model_slug=sentinel_slug
         )
+        for _rec in sentinel_records:
+            if _rec.served_model is None and _ROLE_UNAVAILABLE_MARKER in (_rec.raw_text or ""):
+                recording.records.append(_rec)  # degrade-only, exactly-once
         # F06 (GH I-arch-004): atom-coverage completeness cross-check. The decomposition Sentinel's
         # GROUNDED verdict only gates on the model's OWN atom bookkeeping (non-empty atoms, zero
         # unsupported); it never checks that the atoms COVER every assertion in the claim. A half-
@@ -367,7 +447,18 @@ def run_claim_pipeline(
         # this is a no-op — the request builder ignores `sentinel_atoms`. The Sentinel-override
         # block below is UNTOUCHED and still fires unconditionally on the UNGROUNDED/unparsed path;
         # the atom detail only enriches the GROUNDED-path prompt where the Judge is sole arbiter.
-        raw_judge_verdict, _judge_records = run_judge(
+        # I-beatboth-006 (#1283) Fix C.2-merge: the Judge adapter (C.2) builds a fail-closed UNSUPPORTED
+        # verdict + a `<judge_role_unavailable>` `RoleCallRecord` (served_model=None) on a force-close
+        # `RoleTransportError` and returns them in `(UNSUPPORTED, [record])`. Its VERDICT flows straight
+        # through compose (never None), but this call site previously DISCARDED the record-list into
+        # `_judge_records` while `ClaimPipelineResult.records` comes ONLY from `recording.records`. On
+        # the success path `run_judge`'s served call already transited RecordingTransport.complete() ->
+        # its {parsed=None} record is ALREADY in recording.records (the adapter ALSO returns a
+        # {parsed=verdict} record for the SAME call), so appending the WHOLE list would double-count.
+        # Append ONLY the synthetic marked record (served_model is None + marker) — uniquely built in
+        # the adapter's except arm, NEVER transited a successful complete() (the call raised), so this
+        # yields it exactly once.
+        raw_judge_verdict, judge_records = run_judge(
             recording,
             claim,
             evidence_text,
@@ -376,6 +467,9 @@ def run_claim_pipeline(
             model_slug=judge_slug,
             sentinel_atoms=sentinel_result.atoms,
         )
+        for _rec in judge_records:
+            if _rec.served_model is None and _ROLE_UNAVAILABLE_MARKER in (_rec.raw_text or ""):
+                recording.records.append(_rec)  # degrade-only, exactly-once
         judge_result = raw_judge_verdict
 
     final_verdict = _compose_final_verdict(

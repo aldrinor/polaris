@@ -125,6 +125,28 @@ def _sentinel_blank_retries() -> int:
     return value if value > 0 else 0
 
 
+# I-beatboth-006 (#1283) Fix C: the UNIFIED seam degrade switch (default ON). The Sentinel arm reads
+# PG_ROLE_TRANSPORT_DEGRADE as the primary switch (one switch for Mirror+Judge+Sentinel) and honors
+# the legacy PG_SENTINEL_TRANSPORT_DEGRADE as a back-compat ALIAS, so an operator who set only the
+# old switch still degrades/halts the Sentinel arm identically. Mirrors judge_adapter's helper.
+_ROLE_TRANSPORT_DEGRADE_ENV = "PG_ROLE_TRANSPORT_DEGRADE"
+_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV = "PG_SENTINEL_TRANSPORT_DEGRADE"
+_DEGRADE_OFF_TOKENS = ("0", "false", "no", "off")
+
+
+def _role_transport_degrade_enabled() -> bool:
+    """Whether a force-closed Sentinel `RoleTransportError` degrades to per-claim fail-closed (default
+    ON). OFF iff PG_ROLE_TRANSPORT_DEGRADE is explicitly off; the legacy PG_SENTINEL_TRANSPORT_DEGRADE
+    is the back-compat ALIAS (consulted only when the new switch is unset). LAW VI: read lazily."""
+    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+    if primary is not None:
+        return primary.strip().lower() not in _DEGRADE_OFF_TOKENS
+    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+    if alias is not None:
+        return alias.strip().lower() not in _DEGRADE_OFF_TOKENS
+    return True
+
+
 def _is_blank_raw_text(raw_text: str | None) -> bool:
     """The transport-blank discriminator: a success HTTP-200 whose body is None,
     empty, or whitespace-only. This is the ONLY predicate that triggers the FIX 2
@@ -436,11 +458,15 @@ def run_sentinel(
         # holding the entire report. The recall cost of ONE transport-faulted claim (already
         # bounded-retried + provider-failed-over) is the correct trade vs nuking the real adjudication
         # of every other claim. Mirror/Judge verdicts on this and all other claims are untouched.
-        # Default-ON under the always-release regime; OFF (PG_SENTINEL_TRANSPORT_DEGRADE in
-        # {0,false,no,off}) = byte-identical legacy propagate->HOLD. Genuine VERDICT-level faults
-        # (parse/contract — the model responded un-classifiably) still fail-closed UNGROUNDED via the
-        # broad except below. A BudgetExceededError is already re-raised hard ABOVE this branch.
-        if os.getenv("PG_SENTINEL_TRANSPORT_DEGRADE", "1").strip().lower() in ("0", "false", "no", "off"):
+        # Default-ON under the always-release regime; OFF = byte-identical legacy propagate->HOLD
+        # (which sweep_integration C.3 now converts to a DISCLOSED hard halt, not a raw teardown).
+        # Genuine VERDICT-level faults (parse/contract — the model responded un-classifiably) still
+        # fail-closed UNGROUNDED via the broad except below. A BudgetExceededError is already re-raised
+        # hard ABOVE this branch. I-beatboth-006 (#1283) Fix C: the switch is the UNIFIED seam degrade
+        # flag PG_ROLE_TRANSPORT_DEGRADE (one switch for Mirror+Judge+Sentinel); the legacy
+        # PG_SENTINEL_TRANSPORT_DEGRADE is honored as a back-compat ALIAS so an operator who set only
+        # the old switch still degrades/halts the Sentinel arm identically.
+        if not _role_transport_degrade_enabled():
             raise
         record = RoleCallRecord(
             role=_ROLE,

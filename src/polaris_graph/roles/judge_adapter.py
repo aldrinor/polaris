@@ -22,6 +22,7 @@ from src.polaris_graph.roles.judge_contract import (
     Verdict,
     parse_judge_verdict,
 )
+from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
 from src.polaris_graph.roles.role_transport import (
     RoleCallRecord,
     RoleRequest,
@@ -30,6 +31,36 @@ from src.polaris_graph.roles.role_transport import (
 )
 
 _ROLE = "judge"
+
+# I-beatboth-006 (#1283) Fix C.2: the fail-closed verdict a force-closed Judge transport maps to.
+# UNSUPPORTED is the SAME fail-closed verdict the Mirror-fail and Sentinel-unsafe paths already
+# converge on (`role_pipeline._compose_final_verdict`) — a non-credited (uncovered) claim, never a
+# synthesized PASS, never None. `_compose_final_verdict` returns `raw_judge_verdict` on the
+# sentinel-grounded path, so the verdict MUST be a concrete token (a None there yields no verdict).
+_JUDGE_FAIL_CLOSED_VERDICT: Verdict = "UNSUPPORTED"
+
+# I-beatboth-006 (#1283) Fix C: the single seam degrade switch (default ON). Generalizes the
+# Sentinel precedent; `PG_SENTINEL_TRANSPORT_DEGRADE` is honored as a back-compat ALIAS so an
+# operator who only set the old switch still degrades the Judge identically. Read at CALL time.
+_ROLE_TRANSPORT_DEGRADE_ENV = "PG_ROLE_TRANSPORT_DEGRADE"
+_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV = "PG_SENTINEL_TRANSPORT_DEGRADE"
+_DEGRADE_OFF_TOKENS = ("0", "false", "no", "off")
+
+
+def _role_transport_degrade_enabled() -> bool:
+    """Whether a force-closed Judge `RoleTransportError` degrades to per-claim UNSUPPORTED (default ON).
+
+    OFF iff `PG_ROLE_TRANSPORT_DEGRADE` is explicitly off; the legacy `PG_SENTINEL_TRANSPORT_DEGRADE`
+    is honored as a back-compat ALIAS (off only if it is explicitly off AND the new switch is unset),
+    so an operator who set only the old switch to off still hard-halts the Judge arm consistently.
+    LAW VI: env-driven, read lazily so a slate override after import wins."""
+    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+    if primary is not None:
+        return primary.strip().lower() not in _DEGRADE_OFF_TOKENS
+    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+    if alias is not None:
+        return alias.strip().lower() not in _DEGRADE_OFF_TOKENS
+    return True
 
 # Bounded Qwen context (F4: do not assume unbounded). The verdict is a single enum token,
 # so a small ceiling is sufficient and keeps the arbiter from drifting into prose.
@@ -236,7 +267,34 @@ def run_judge(
         max_tokens=max_tokens,
         sentinel_atoms=sentinel_atoms,
     )
-    response: RoleResponse = transport.complete(request)
+    # I-beatboth-006 (#1283) Fix C.2: a force-closed Judge `RoleTransportError` (the bounded
+    # transport's fail-closed output, §3.1) — which SURVIVED the transport's own bounded retries —
+    # must NOT propagate to the seam teardown. Map it to a PER-CLAIM fail-closed disclosed
+    # adjudication: a CONCRETE UNSUPPORTED verdict (NEVER None — compose returns `raw_judge_verdict`
+    # on the sentinel-grounded path) + a `<judge_role_unavailable>` disclosure record as the SOLE
+    # returned record (the pipeline C.2-merge propagates it into recording.records). The claim is
+    # disclosed UNSUPPORTED -> a non-credited (uncovered) claim, never a synthesized PASS. This can
+    # only TIGHTEN. A `BudgetExceededError` is NOT a `RoleTransportError`, so it propagates unchanged
+    # (the cap still bites). The existing `JudgeEnumError` fail-LOUD on a non-enum verdict token is
+    # UNCHANGED (a transport fault is NOT a verdict-parse fault — it is NOT wrapped here). Flag OFF
+    # (operator disabled the degrade) -> re-raise so the §3.3 C.3 seam hard-halt branch handles it.
+    # NOTE: `BlankVerdictError` subclasses `RoleTransportError`, so a blank-verdict exhaustion ALSO
+    # degrades here — tightening-only, consistent with the Sentinel arm.
+    try:
+        response: RoleResponse = transport.complete(request)
+    except RoleTransportError as exc:
+        if not _role_transport_degrade_enabled():
+            raise
+        record = RoleCallRecord(
+            role=_ROLE,
+            model_slug=model_slug,
+            served_model=None,
+            raw_text=(
+                f"<judge_role_unavailable>{type(exc).__name__}: {exc}</judge_role_unavailable>"
+            ),
+            parsed=_JUDGE_FAIL_CLOSED_VERDICT,
+        )
+        return _JUDGE_FAIL_CLOSED_VERDICT, [record]
     # FAIL LOUD: a non-enum verdict raises JudgeEnumError here and is NOT caught.
     verdict = parse_judge_verdict(response.raw_text)
     record = RoleCallRecord(

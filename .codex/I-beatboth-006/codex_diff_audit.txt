@@ -1,0 +1,13 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: [
+  "none; CLAIM 1 VERIFIED: lines 13-15 quote `+from src.polaris_graph.roles.sweep_integration import (` / `+    RoleTransportExhaustedError as _RoleTransportExhaustedError,` / `+)`.",
+  "none; CLAIM 2 VERIFIED: lines 126,136,141,149 quote `+    except _RoleTransportExhaustedError as _rte_abort:` / `+        _rte_status = to_unified_status(getattr(_rte_abort, \"status\", \"\") or \"\")` / `+        summary[\"status\"] = _rte_status` / `+                _rte_manifest[\"status\"] = _rte_status`.",
+  "none; CLAIM 3 VERIFIED: ordering lines 126 then 169 quote `+    except _RoleTransportExhaustedError as _rte_abort:` appears before `except Exception as exc:`; self-passthrough lines 31-33 quote `+    \"abort_role_transport_exhausted\": \"abort_role_transport_exhausted\",`.",
+  "none; CLAIM 4 VERIFIED: mapping test lines 692-700 quote `mapped = to_unified_status(...)`, `assert mapped == ... == \"abort_role_transport_exhausted\"`, `assert mapped != \"released_with_disclosed_gaps\"`; taxonomy lines 708-710 assert membership; AST manifest wiring lines 784-805 assert dedicated handler plus `manifest['status']` via `to_unified_status`.",
+  "none; CLAIM 5 VERIFIED: helper lines 72-78 quote budget re-raise, role-transport re-raise, timeout -> `seam_timeout`, generic -> `seam_error:<Type>:...`; seam uses helper lines 107-118; fail-closed/disclosure tests lines 479-489 and 565-581; patch scope only two diff headers at lines 1 and 172, so no D8/faithfulness engine file bytes are modified."
+]
+verdict: APPROVE

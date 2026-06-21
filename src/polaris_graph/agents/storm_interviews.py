@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
 from src.polaris_graph.llm.openrouter_client import (
     NoEndpointError,
     OpenRouterClient,
@@ -125,7 +126,13 @@ def _resolve_outline_time_reserve() -> float:
 # the openrouter_client reasoning-ON branch which (pre-fix) had NO 32768 floor. The old default 4096
 # sat below V4-Pro's ~17-18k reasoning footprint, so the multi-perspective outline JSON could truncate.
 # Default raised 4096 -> 32768 to match the reasoning-first floor (branch-2 floor now backstops too).
-PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "32768"))
+# I-beatboth-006 (#1283) Fix B: raise the in-code DEFAULT 32768 -> 64000 (the PROVEN provider-safe
+# reference PG_SECTION_MAX_TOKENS uses, multi_section_generator.py:447 — sections render at 64000 on
+# the live generator chain, so the outline rides the SAME path/model/provider safely), so a deploy
+# that forgets the .env override is not silently starved per §9.1.8 (never starve a reasoning-first
+# call). The resolver clamp (_call_impl) still reconciles DOWN to the served model's real cap, so the
+# generous budget is honored only up to that cap — a CAP, not a target (billed by actual usage).
+PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "64000"))
 PG_STORM_PERSONA_MAX_TOKENS = int(os.getenv("PG_STORM_PERSONA_MAX_TOKENS", "2048"))
 PG_STORM_SEARCH_QUERIES_PER_QUESTION = int(os.getenv("PG_STORM_SEARCH_QUERIES_PER_QUESTION", "3"))
 PG_STORM_WEB_RESULTS_PER_QUERY = int(os.getenv("PG_STORM_WEB_RESULTS_PER_QUERY", "5"))
@@ -1198,15 +1205,25 @@ async def _generate_outline_from_conversations(
         # ORGANIZATIONAL scaffold (faithfulness-neutral; the fallback is already a disclosed degrade),
         # so this only converts a HANG into the existing safe fallback. Env-overridable (LAW VI), read
         # at call time (no import-freeze).
-        result = await asyncio.wait_for(
-            client.generate_structured(
-                prompt=prompt,
-                schema=StormOutlinePlan,
-                max_tokens=PG_STORM_OUTLINE_MAX_TOKENS,
-                reasoning_enabled=True,
-            ),
-            timeout=float(os.getenv("PG_STORM_OUTLINE_CALL_TIMEOUT_S", "300")),
-        )
+        # I-beatboth-006 (#1283) Fix D: tag the outline call with the "generator" role so
+        # `current_role_provider()` resolves its provider from the gate's per-role resolved generator
+        # singleton (preflight-resolved against PG_GENERATOR_MODEL = GLM-5.2 -> GLM-5.2-routable BY
+        # CONSTRUCTION), NOT the deepseek-specific `role_provider_routing("generator")` chain. The
+        # outline then rides the EXACT provider the sections ride, and the gate's single-valued served-
+        # identity assertion (pathB_run_gate.py:782-785) PROVES it (a mis-route fails the run loudly).
+        # Scoped to JUST this outline call (not run_storm_interviews wholesale); a ctx-mgr so the role
+        # never leaks to STORM's other calls. Gate-OFF: `_ROLE_PROVIDER` is None -> resolves to None ->
+        # falls back to the env-driven path exactly as before (byte-identical when not gated).
+        with _pathb_capture.llm_role("generator"):
+            result = await asyncio.wait_for(
+                client.generate_structured(
+                    prompt=prompt,
+                    schema=StormOutlinePlan,
+                    max_tokens=PG_STORM_OUTLINE_MAX_TOKENS,
+                    reasoning_enabled=True,
+                ),
+                timeout=float(os.getenv("PG_STORM_OUTLINE_CALL_TIMEOUT_S", "300")),
+            )
 
         if result and result.sections:
             logger.info(

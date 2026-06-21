@@ -1,0 +1,11 @@
+APPROVE. The iter-3 P1 is closed by design: Judge and Sentinel returned unavailable records are no longer left in discarded `_judge_records` / `_sentinel_records`; the design explicitly merges only synthetic marked records into `recording.records`, which is the sole source for `ClaimPipelineResult.records`.
+
+Verified against source: `RecordingTransport.complete()` only records after successful `transport.complete()`, `run_claim_pipeline` currently drops both adapter record lists, and `_compose_final_verdict` remains the locked fail-closed path. The harness requirement is now load-bearing: it checks hung Judge and hung Sentinel directly through `run_claim_pipeline`, requires exactly-one disclosure record, and guards the success path against duplicate served-call records. No source edits or tests were run.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

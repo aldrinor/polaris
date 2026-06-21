@@ -54,6 +54,13 @@ from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
 from src.polaris_graph.nodes.journal_only_filter import (  # noqa: E402  # I-ready-017 #1134
     JournalOnlyAbort as _JournalOnlyAbort,
 )
+# I-beatboth-006 (#1283) Fix C.3: the typed DISCLOSED role-transport hard-halt the D8 seam raises
+# (PG_ROLE_TRANSPORT_DEGRADE OFF) — carries status=abort_role_transport_exhausted + the halt-artifact
+# path. Imported at module scope so the outer run-driver handler maps it to that disclosed manifest
+# status (NOT the generic released_with_disclosed_gaps / error_unexpected).
+from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+    RoleTransportExhaustedError as _RoleTransportExhaustedError,
+)
 # I-cred-008b (#1162): the credibility-disclosure coverage-gap abort (named manifest status).
 from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
     CredibilityPassError as _CredPassErrForAbort,
@@ -264,6 +271,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
     "abort_conflict_judge_unavailable",  # I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge ERRORED under the strict-gate benchmark slate — FAIL CLOSED, the run HOLDS for human review rather than the judge's fail-open ('neutral', 0.0) silently dropping a possible real contradiction. NO conflict is fabricated; "could not adjudicate", not "a conflict exists".
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+    "abort_role_transport_exhausted",  # I-beatboth-006 (#1283) Fix C.3: a force-closed role RoleTransportError reached the D8 seam with PG_ROLE_TRANSPORT_DEGRADE OFF -> sweep_integration raises the TYPED RoleTransportExhaustedError carrying THIS status + writes state/halt_*_role_transport_exhausted.md. The run-driver maps that typed exception to this DISCLOSED hard-halt manifest.status (NOT the generic released_with_disclosed_gaps / error_unexpected). MUST stay mirrored with PipelineStatus + KNOWN_STATUS_VALUES (status-schema-parity gate).
     "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
     "abort_required_entity_ledger_failed",  # I-arch-004 F27 (#1213/h3 forensic): under the strict-gate benchmark slate, the FORCE-ON RequiredEntityLedger raised (build/render/write) — the legacy fail-soft would silently DROP the honest "Coverage gaps" disclosure and ship as success, overstating completeness; HOLD instead (release-blocking). Only fires under PG_BENCHMARK_STRICT_GATES + PG_REQUIRED_ENTITY_LEDGER (both forced-on by Gate-B). Off => byte-identical fail-soft.
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
@@ -304,6 +312,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
     "four_role_released": "success",
     "four_role_held": "abort_four_role_release_held",
+    # I-beatboth-006 (#1283) Fix C.3: the disclosed role-transport hard-halt status is already a unified
+    # `abort_` name; identity-map it so to_unified_status passes it through (NOT error_unexpected).
+    "abort_role_transport_exhausted": "abort_role_transport_exhausted",
     # I-perm-001 (#1195) always-release: the outcome already carries a unified status; map it to
     # itself so to_unified_status passes it through (NOT error_unexpected).
     "released_with_disclosed_gaps": "released_with_disclosed_gaps",
@@ -436,6 +447,46 @@ def _resolve_four_role_seam_timeout() -> float:
         _FOUR_ROLE_SEAM_TIMEOUT_FLOOR,
         multiple * float(get_generator_timeout_seconds()),
     )
+
+
+def _route_seam_worker_exception(exc: BaseException) -> str:
+    """I-beatboth-006 (#1283) Fix C.3 (Codex diff-gate iter-3 P1): classify an exception raised by the
+    4-role D8 seam worker into the seam's HELD-reason string OR re-raise it for a dedicated outer
+    handler. PURE + behavioral so the routing is unit-testable on real exception objects (NOT a
+    mirrored predicate) — exactly the `_credibility_abort_status` precedent (#008b P1-1). The seam
+    block calls this in a single `except BaseException` so the production routing IS the test subject.
+
+    Routing (order is load-bearing — most-specific first):
+
+      * ``BudgetExceededError`` (PG_MAX_COST_PER_RUN breach) -> RE-RAISE: must reach the existing outer
+        ``abort_budget_exceeded`` handler (the clean budget-abort contract), NEVER be swallowed into a
+        held ``seam_error``.
+      * ``RoleTransportExhaustedError`` (force-closed role with PG_ROLE_TRANSPORT_DEGRADE OFF) ->
+        RE-RAISE: the seam already wrote the DISCLOSED ``state/halt_*_role_transport_exhausted.md``
+        artifact and the typed error carries ``status=abort_role_transport_exhausted``; it MUST
+        propagate to the dedicated outer handler that maps it to the DISCLOSED hard-halt
+        manifest.status — NEVER the generic ``released_with_disclosed_gaps`` the held path produces.
+      * ``concurrent.futures.TimeoutError`` (the seam WALL fired) -> ``"seam_timeout"`` (HELD).
+      * any OTHER seam failure -> ``"seam_error:<Type>:<msg[:120]>"`` (HELD, fail-closed).
+
+    The block-local imports (the seam block imports these at its top) are re-imported HERE so the helper
+    is self-contained and unit-callable — mirrors the in-file local-import idiom. Faithfulness-neutral:
+    pure routing, touches NO gate; a re-raise only changes WHICH disclosed abort label the run carries.
+    """
+    import concurrent.futures as _seam_futures  # noqa: PLC0415
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        BudgetExceededError as _SeamBudgetExceededError,
+    )
+    from src.polaris_graph.roles.sweep_integration import (  # noqa: PLC0415
+        RoleTransportExhaustedError,
+    )
+    if isinstance(exc, _SeamBudgetExceededError):
+        raise exc
+    if isinstance(exc, RoleTransportExhaustedError):
+        raise exc
+    if isinstance(exc, _seam_futures.TimeoutError):
+        return "seam_timeout"
+    return f"seam_error:{type(exc).__name__}:{str(exc)[:120]}"
 
 
 def _credibility_abort_status(exc: BaseException) -> str | None:
@@ -10411,7 +10462,6 @@ async def run_one_query(
             import concurrent.futures as _seam_futures
             import contextvars as _seam_cv
             from src.polaris_graph.llm.openrouter_client import (
-                BudgetExceededError as _SeamBudgetExceededError,
                 _RUN_COST_CTX as _seam_cost_ctx,
             )
             # I-run11-004: default raised 2400 -> 7200s. 2400 was the run-12 truncator — the
@@ -10490,17 +10540,18 @@ async def run_one_query(
                 four_role_result = _seam_pool.submit(_seam_worker).result(
                     timeout=_seam_timeout
                 )
-            except _seam_futures.TimeoutError:
-                _seam_held_reason = "seam_timeout"
-            except _SeamBudgetExceededError:
-                # A verifier cap breach (PG_MAX_COST_PER_RUN) MUST propagate to the existing outer
-                # abort_budget_exceeded handler (the clean budget-abort contract) — NOT be swallowed
-                # into a held seam_error (Codex diff-gate iter-2 P1). The worker's `finally` already
-                # updated the cost holder, so the `finally` below reconciles the full spend before
-                # this re-raises.
-                raise
-            except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
-                _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
+            except Exception as _seam_exc:  # noqa: BLE001 - routed by the pure classifier below
+                # I-beatboth-006 (#1283) Fix C.3 (Codex diff-gate iter-3 P1): the seam exception
+                # routing is the EXTRACTED pure `_route_seam_worker_exception` so the production
+                # routing IS the unit-test subject (the `_credibility_abort_status` #008b precedent),
+                # NOT a mirrored predicate. It RE-RAISES a PG_MAX_COST_PER_RUN BudgetExceededError (to
+                # the outer abort_budget_exceeded handler) and a RoleTransportExhaustedError (to the
+                # dedicated outer handler that maps it to the DISCLOSED abort_role_transport_exhausted
+                # manifest.status — NEVER the generic released_with_disclosed_gaps the held path
+                # produces); a seam-WALL TimeoutError -> "seam_timeout" (HELD); any OTHER failure ->
+                # "seam_error:<Type>:<msg>" (HELD, fail-closed). On a re-raise the `finally` below
+                # still reconciles spend + tears the pool down first.
+                _seam_held_reason = _route_seam_worker_exception(_seam_exc)
             finally:
                 # Codex AC1-gate iter-2 P1-1: clear the live flag UNDER _hb_lock so it is mutually
                 # exclusive with the worker's check-then-write in _hb_claims. An in-flight callback
@@ -11829,6 +11880,49 @@ async def run_one_query(
                 summary["cost_usd"] = run_cost
         except Exception as _ja_mw:  # noqa: BLE001 — best-effort; never mask the abort
             _log(f"[journal_only] abort manifest-write-also-failed: {_ja_mw}")
+    except _RoleTransportExhaustedError as _rte_abort:
+        # I-beatboth-006 (#1283) Fix C.3 (Codex diff-gate P1): a force-closed role RoleTransportError
+        # reached the D8 seam with PG_ROLE_TRANSPORT_DEGRADE OFF. The seam already wrote the DISCLOSED
+        # state/halt_*_role_transport_exhausted.md artifact and raised this TYPED error carrying
+        # status=abort_role_transport_exhausted; it propagated past the seam's broad-except (which would
+        # otherwise have mapped it to the generic released_with_disclosed_gaps). Map it to the DISCLOSED
+        # hard-halt manifest.status here — the run is HELD, never a generic top-level exception status.
+        # Mirrors the _JournalOnlyAbort / abort_budget_exceeded named-abort contract: catch-and-set (no
+        # re-raise) so the teardown below still runs. The status is identity-mapped through
+        # to_unified_status (registered in UNIFIED_STATUS_VALUES / PipelineStatus / KNOWN_STATUS_VALUES).
+        _rte_status = to_unified_status(getattr(_rte_abort, "status", "") or "")
+        _log(
+            f"[role_transport] ABORT: status={_rte_status} — {_rte_abort} "
+            f"(halt_artifact={getattr(_rte_abort, 'halt_artifact', None)})"
+        )
+        summary["status"] = _rte_status
+        summary["error"] = str(_rte_abort)[:300]
+        try:
+            if run_dir is not None:
+                run_cost = current_run_cost()
+                _rte_manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                _rte_manifest["status"] = _rte_status
+                _rte_manifest["error"] = str(_rte_abort)[:500]
+                _rte_halt_artifact = getattr(_rte_abort, "halt_artifact", None)
+                if _rte_halt_artifact is not None:
+                    _rte_manifest["role_transport_halt_artifact"] = str(_rte_halt_artifact)
+                _rte_manifest = augment_v6_manifest(
+                    _rte_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                _rte_manifest = _attach_tool_utilization(_rte_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(_rte_manifest, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = _rte_manifest
+                summary["cost_usd"] = run_cost
+        except Exception as _rte_mw:  # noqa: BLE001 — best-effort; never mask the abort
+            _log(f"[role_transport] abort manifest-write-also-failed: {_rte_mw}")
     except Exception as exc:
         tb = traceback.format_exc()
         # I-cred-008b (#1162) — Codex #008b P1-1 fix: route the credibility-disclosure COVERAGE-GAP
