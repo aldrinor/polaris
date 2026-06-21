@@ -597,8 +597,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_MAX_SUBQUERIES": "15",
     # Agentic per-round web breadth (was stuck at 6 via the PG_WEB_PER_ROUND typo).
     "PG_AGENTIC_WEB_PER_ROUND": "10",
-    # Budget cap (spend ceiling enforced per run).
-    "PG_MAX_COST_PER_RUN": "25",
+    # Budget cap (spend ceiling enforced per run). I-beatboth-011 idx52 (#1289): raised 25 -> 150.
+    # At 25 the D8 4-role gate hard-stopped on BudgetExceededError mid-adjudication (gen ~$11 + full D8
+    # ~$13 settles ~$24, and the budget-reservation admission control needs cap > settled_peak + the
+    # 12-worker reservation ~$42 floor). 150 is HEADROOM, not a target — billing is by actual usage
+    # (~$24-42/run); without it a fresh cert run aborts as judge_skipped_d8_binding before D8 finishes.
+    "PG_MAX_COST_PER_RUN": "150",
     # I-ready-002 (#1071) P0: BINDING faithfulness verifier. The entailment judge runs as a binding DROP
     # gate AND (Codex iter-1 fix) fails closed on a judge_error (the judge's fail-open "ENTAILED",
     # "judge_error:..." sentinel) when PG_STRICT_VERIFY_ENTAILMENT=enforce. Force it on so the benchmark's
@@ -998,7 +1002,7 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # run wall and looks frozen (the run-#6 "deadlock" was this serial grind, NOT a per-call deadlock;
     # the per-call total-deadline was proven sound by scripts/iarch011_entailment_deadline_repro.py).
     # Cap concurrency at 16 (matches PG_CREDIBILITY_PASS_MAX_INFLIGHT). The per-call total-deadline in
-    # entailment_judge (PG_ENTAILMENT_TOTAL_S=45) is what makes it HANG-SAFE — parallelism alone is not
+    # entailment_judge (PG_ENTAILMENT_TOTAL_S, now slate-pinned to 300 per idx53) is what makes it HANG-SAFE — parallelism alone is not
     # (list(map())+shutdown(wait=True) would block on a never-returning future). FAITHFULNESS-NEUTRAL:
     # the parallel path copies the parent contextvars context and ``map`` preserves input order, so
     # kept/dropped is byte-identical to the serial loop (concurrency changes timing, not verdicts); a
@@ -1062,6 +1066,21 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # function) so the slate value ACTUALLY takes effect. The seam reads `_CLAIM_WORKERS` as a module
     # global at CALL time (sweep_integration.py:493/600/625), so the post-import reassignment is honored.
     "PG_FOUR_ROLE_CLAIM_WORKERS": "12",
+    # I-beatboth-011 idx19 (#1289): pin the D8 4-role reasoning effort to MEDIUM in the FULL slate. It was
+    # pinned ONLY in _SMOKE_SCALE_OVERRIDES, so a full benchmark ran the qwen Judge at the
+    # apply-default xhigh (the setter below defaults to "xhigh") — the judge then spends its whole token
+    # budget on reasoning before the 5-token enum verdict, minute-scale per claim (the D8 grind the
+    # coverage map traced). medium returns content even on the slow providers (per the standing
+    # fact_mirror_blank_xhigh_effort prescription). FAITHFULNESS-NEUTRAL: the verdict ladder already falls
+    # back to "low"; effort governs latency, not the gate. Force-EXACT below so it reaches the live setter.
+    "PG_FOUR_ROLE_REASONING_EFFORT": "medium",
+    # I-beatboth-011 idx53 (#1289): the per-claim entailment total-deadline. It was set NOWHERE in the
+    # slate, so verify ran at the 150s CODE default (not the 45s the stale comments above claimed) — a slow
+    # GLM call holds a worker slot up to 150s. 300 matches the sibling per-call walls
+    # PG_CREDIBILITY_JUDGE_TOTAL_S / PG_ROLE_TRANSPORT_TOTAL_S (=300). NOT 45: 45 is only ~5s above the 40s
+    # healthy max and would force-close valid 41–60s calls → fail-closed sentinel → a §-1.3
+    # lose-a-corroborator DROP. Read at call time in entailment_judge; force-EXACT below.
+    "PG_ENTAILMENT_TOTAL_S": "300",
     # Section-parallelism (concurrency only; faithfulness-NEUTRAL — each section is still generated and
     # verified INDEPENDENTLY and IDENTICALLY, results merged back in the original `plans` order; the knob
     # is a Semaphore bound, never a section TARGET). Two collaborating envs, BOTH set to 6 so section
@@ -1366,6 +1385,15 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # is the SAME verdict the caller already handles).
     "PG_CREDIBILITY_JUDGE_TOTAL_S",
     "PG_ROLE_TRANSPORT_TOTAL_S",
+    # I-beatboth-011 (#1289): the per-claim entailment total-deadline (idx53) is the THIRD sibling wall —
+    # force-EXACT "300" for the same reason as the two above (transport-only, must not be raised/lowered
+    # off the chosen value; the stale slate comments claimed 45 but it was set NOWHERE → ran the 150s code
+    # default). And the D8 4-role reasoning effort (idx19) must be force-EXACT "medium" so it reaches the
+    # live setter below (which otherwise defaults to xhigh) — the cause of the D8 grind. Both faithfulness-
+    # neutral: deadline is transport-only (fail-closed sentinel = same verdict the caller handles); effort
+    # governs latency, and the verdict ladder already falls back to "low".
+    "PG_ENTAILMENT_TOTAL_S",
+    "PG_FOUR_ROLE_REASONING_EFFORT",
     # I-arch-011 (verify-speed): the judge provider-rotation flag. Force-EXACT "1" so a stray operator =0
     # cannot silently restore the single-host z-ai blank-storm (which DROPS verified sentences in enforce
     # mode -> breadth collapse). Faithfulness-neutral-to-improving (same glm-5.1 model, next healthy host).
@@ -1604,6 +1632,23 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
         _assert_faith_slate()
     except _FaithSlateErr as _fse:
         raise RuntimeError(f"benchmark preflight FAILED: {_fse}") from _fse
+    # I-beatboth-011 idx59 (#1289): fail-CLOSED that the PG_FOUR_ROLE_CLAIM_WORKERS rebind actually took.
+    # The slate value only reaches the D8 seam via a post-import REBIND of _sweep_integration._CLAIM_WORKERS
+    # in apply_full_capability_benchmark_slate (the env set alone is a silent no-op — the module global was
+    # frozen at the import default 6). A future refactor dropping the rebind would SILENTLY halve D8
+    # concurrency with no signal. Read the LIVE module attribute and compare to the env INT — value-agnostic
+    # (never a hardcoded 12), smoke-safe. FAITHFULNESS-NEUTRAL: worker count only.
+    if not smoke_scale:
+        import src.polaris_graph.roles.sweep_integration as _sweep_integration_check
+        _live_cw = int(getattr(_sweep_integration_check, "_CLAIM_WORKERS", 0))
+        _env_cw = int(os.environ.get("PG_FOUR_ROLE_CLAIM_WORKERS", "6"))
+        if _live_cw != _env_cw:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: _sweep_integration._CLAIM_WORKERS={_live_cw} != "
+                f"PG_FOUR_ROLE_CLAIM_WORKERS={_env_cw} — the D8 claim-worker REBIND did not take (the env set "
+                f"is a silent no-op without it), so D8 concurrency would silently halve to the import default. "
+                f"Restore the _CLAIM_WORKERS rebind in apply_full_capability_benchmark_slate."
+            )
     # F03 (A3): the verified-section-FRACTION coverage-honesty floor must be ACTIVE (a float in (0, 1])
     # for the cert run — a 0/absent value disables the gate and lets a mostly-gap clinical report ship
     # GREEN (the "built-it-then-left-it-off" failure). Checked FIRST (fail-fast on a faithfulness gate;
