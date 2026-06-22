@@ -528,6 +528,59 @@ _ROLE_BLANK_MAX_RETRIES_DEFAULT = "3"
 _ROLE_CALL_TIMEOUT_S_ENV = "PG_ROLE_CALL_TIMEOUT_S"
 _ROLE_CALL_TIMEOUT_S_DEFAULT = "3600.0"
 
+# #1290 landmine-3 (TRACK termination-ROTATE): on a total-deadline FORCE-CLOSE the retry rebuilds the
+# SAME body and re-POSTs to the SAME slow host (live: 339 same-host 300s force-closes, 0 rotations),
+# so every retry re-eats the wall and the 4-role gate grinds. When this is ON, a force-close ADDS the
+# targeted (slow) provider to `body["provider"]["ignore"]` so the NEXT retry — bounded by
+# PG_ROLE_TRANSPORT_RETRIES — re-POSTs to the next healthy provider in `order`. SAME role/model on
+# every host -> faithfulness-NEUTRAL (only WHICH provider the retry targets changes; the verdict
+# parsing, role adjudication, and span-grounding are untouched). Reuses the existing judge env name
+# (`PG_JUDGE_PROVIDER_ROTATE`, parsed identically to credibility_judge_caller / entailment_judge) but
+# DEFAULTS ON for the 4-role transport (the two judge consumers default it OFF; run_gate_b forces it
+# ON for the benchmark anyway). The on-default is intentional: the operator wants the grind fixed by
+# default on the paid 4-role path. LAW VI: env-gated, read lazily so a runtime override is honored.
+_ENV_FORCE_CLOSE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+
+
+def force_close_provider_rotation_enabled() -> bool:
+    """Whether a total-deadline force-close ADVANCES off the slow provider (default ON).
+
+    Parsed IDENTICALLY to the judge consumers' truthy set (`1/true/yes/on`) so a benchmark that sets
+    `PG_JUDGE_PROVIDER_ROTATE=1` keeps it on here too; the ONLY difference is the default — ON here
+    (vs OFF in credibility_judge_caller / entailment_judge), because the operator wants the
+    force-close grind rotated by default on the 4-role transport. Any other value (`0/false/no/off`)
+    reverts to the pre-rotation byte-identical behavior (retry the same provider).
+    """
+    return os.getenv(_ENV_FORCE_CLOSE_PROVIDER_ROTATE, "1").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _targeted_provider_for_force_close(body: dict) -> str | None:
+    """The provider a force-closed POST was (almost certainly) stuck on, for the rotate-ignore list.
+
+    A force-close has NO response body (unlike the blank-200 path, which reads `raw["provider"]`), so
+    the slow host is inferred from the pinned routing: under `allow_fallbacks: False` OpenRouter
+    attempts `provider.order` in rank sequence and (live evidence: 339 SAME-host 300s force-closes)
+    sticks on the FIRST not-yet-ignored entry rather than cascading. So the targeted host is the first
+    `order` slug not already in `ignore`. Returns None when routing is absent / order is empty / every
+    listed provider is already ignored — in which case the caller no-ops the rotation and retries as
+    before (forward progress is still guaranteed: a different head is targeted whenever one exists).
+    """
+    provider = body.get("provider")
+    if not isinstance(provider, dict):
+        return None
+    order = provider.get("order")
+    if not isinstance(order, list) or not order:
+        return None
+    ignore = provider.get("ignore")
+    ignored = {str(s) for s in ignore} if isinstance(ignore, list) else set()
+    for slug in order:
+        slug_s = str(slug)
+        if slug_s and slug_s not in ignored:
+            return slug_s
+    return None
+
 
 def role_blank_watchdog_enabled() -> bool:
     """Whether the #1226 blank-bound + wall-clock watchdog is ON (kill-switch, default ON).
@@ -1182,6 +1235,27 @@ class OpenRouterRoleTransport:
                                     request.role, url, rebuild_exc,
                                 )
                             if transport_attempt < transport_retries:
+                                # #1290 landmine-3 (TRACK termination-ROTATE): rotate OFF the slow host
+                                # before the next POST. The force-close left no response body, so the
+                                # targeted (slow) provider is inferred from the pinned `order` (first
+                                # not-yet-ignored slug) and appended to `body["provider"]["ignore"]`
+                                # (the SAME in-place ignore-list the blank-200 path grows below). The
+                                # NEXT _post_with_total_deadline then re-POSTs to the next healthy
+                                # provider in `order` instead of re-eating the 300s wall on the same
+                                # host. Faithfulness-NEUTRAL: only the retry's PROVIDER changes — the
+                                # verdict parsing / role adjudication / span-grounding are untouched.
+                                if force_close_provider_rotation_enabled():
+                                    slow_provider = _targeted_provider_for_force_close(body)
+                                    if slow_provider and isinstance(body.get("provider"), dict):
+                                        ignore_list = body["provider"].setdefault("ignore", [])
+                                        if slow_provider not in ignore_list:
+                                            ignore_list.append(slow_provider)
+                                            logger.warning(
+                                                "[polaris graph] #1290 ROTATE: %s role force-close at "
+                                                "%s — added slow provider %r to the retry ignore-list "
+                                                "(now %r) so the next attempt targets a different host.",
+                                                request.role, url, slow_provider, ignore_list,
+                                            )
                                 logger.warning(
                                     "[polaris graph] #1264: %s role POST exceeded the total-deadline "
                                     "(PG_ROLE_TRANSPORT_TOTAL_S) (attempt %d/%d) at %s — force-closed + "
