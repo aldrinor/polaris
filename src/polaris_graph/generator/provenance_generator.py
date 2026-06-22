@@ -3085,6 +3085,45 @@ def build_basket_supports_by_cluster(
     return out
 
 
+def verified_corroborators_with_clusters_for_tokens(
+    token_ev_ids: list[str],
+    *,
+    basket_supports_by_cluster: dict[str, list[str]],
+    cluster_id_by_evidence: dict[str, list[str]] | None,
+    evidence_pool: dict[str, dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Like ``verified_corroborators_for_tokens`` but ALSO returns, per corroborator,
+    the SELECTED claim cluster it was pulled in through — the own-token's single
+    ``claim_cluster_id``. Order is deterministic (token order, then member order); a
+    corroborator eid is emitted once (first own-token that pulls it in wins, via the
+    ``seen`` dedup), and its paired cluster is THAT own-token's cluster.
+
+    I-beatboth-011 (#1289) P1 (multi-cluster span): a corroborator eid can be a SUPPORTS
+    member of SEVERAL clusters with DIFFERENT claim-local ``direct_quote`` spans. The
+    grounding filter must read the span of the cluster the corroborator was ACTUALLY
+    selected through (this own-token's single cluster ``_ccids[0]``) — NOT a global
+    first-match across all clusters, which could read a sibling cluster's (wrong) span and
+    so drop a true grounder or keep a wrong one. This sibling exposes that selected cluster
+    so the caller can resolve the RIGHT claim-local span.
+    """
+    if not basket_supports_by_cluster:
+        return []
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for _eid in token_ev_ids:
+        _ccids = (cluster_id_by_evidence or {}).get(_eid, []) or []
+        # Anti-cross-claim: only an UNAMBIGUOUS single-cluster token may corroborate
+        # (a multi-cluster token can't be attributed to ONE claim -> skip its expansion).
+        if len(_ccids) != 1:
+            continue
+        _selected_cluster = _ccids[0]
+        for _support_eid in basket_supports_by_cluster.get(_selected_cluster, []):
+            if _support_eid not in seen and _support_eid in evidence_pool:
+                seen.add(_support_eid)
+                out.append((_support_eid, _selected_cluster))
+    return out
+
+
 def verified_corroborators_for_tokens(
     token_ev_ids: list[str],
     *,
@@ -3114,23 +3153,206 @@ def verified_corroborators_for_tokens(
 
     Module-level (extracted from the resolver's former nested closure) so the V30
     contract slot-regroup uses the IDENTICAL logic — single source of truth for the
-    keystone's faithfulness rules.
+    keystone's faithfulness rules. Thin wrapper over
+    ``verified_corroborators_with_clusters_for_tokens`` (the return shape stays
+    ``list[str]`` so the un-editable contract caller keeps compiling byte-identically).
     """
-    if not basket_supports_by_cluster:
-        return []
-    seen: set[str] = set()
-    out: list[str] = []
-    for _eid in token_ev_ids:
-        _ccids = (cluster_id_by_evidence or {}).get(_eid, []) or []
-        # Anti-cross-claim: only an UNAMBIGUOUS single-cluster token may corroborate
-        # (a multi-cluster token can't be attributed to ONE claim -> skip its expansion).
-        if len(_ccids) != 1:
-            continue
-        for _support_eid in basket_supports_by_cluster.get(_ccids[0], []):
-            if _support_eid not in seen and _support_eid in evidence_pool:
-                seen.add(_support_eid)
-                out.append(_support_eid)
-    return out
+    return [
+        _eid
+        for _eid, _ccid in verified_corroborators_with_clusters_for_tokens(
+            token_ev_ids,
+            basket_supports_by_cluster=basket_supports_by_cluster,
+            cluster_id_by_evidence=cluster_id_by_evidence,
+            evidence_pool=evidence_pool,
+        )
+    ]
+
+
+def corroborator_span_grounds_sentence(
+    sentence_claim: str,
+    corroborator_span: str,
+    *,
+    min_content_overlap: int = MIN_CONTENT_WORD_OVERLAP,
+) -> bool:
+    """Does ``corroborator_span`` actually carry THIS sentence's claim?
+
+    I-beatboth-011 (#1289) — anti-mis-attribution corroborator filter (defect #6).
+    ``verified_corroborators_for_tokens`` attaches a basket member's inline ``[N]`` to a
+    sentence by CLUSTER MEMBERSHIP (the member's OWN span SUPPORTS the cluster claim), NOT by
+    whether that member's span grounds the SPECIFIC sentence being rendered. Within one
+    cluster, sentence S1 (cited via own-token ev_A) and sentence S2 (cited via own-token
+    ev_B) both pull in EVERY SUPPORTS member as corroborators — so ev_B's ``[N]`` glues onto
+    S1 even though ev_B's span never carries S1's exact assertion. Observed in
+    ``drb_72_ai_labor``: [85] (a Mapping-AI page-header span) glued to a BLS sentence only
+    [84] grounds; [17]/[19] (World-Bank / EPI spans lacking "displacement") glued to a
+    displacement sentence only [18] grounds.
+
+    This applies the SAME content-word-overlap predicate ``strict_verify`` (invariant #3)
+    already uses for own-token grounding — a READ of that predicate's logic via the shared
+    module-level ``_content_words`` helper, NOT a change to the faithfulness engine. A
+    corroborator is kept ONLY if its span shares >= ``min_content_overlap`` distinctive
+    content words with the sentence's claim. This TIGHTENS faithfulness (removes UNSUPPORTED
+    cross-claim attributions); it can never relax it.
+
+    TWO sufficient grounding paths (mirroring how strict_verify recognises grounding, but
+    LOOSER on lexical overlap because an INDEPENDENT corroborator legitimately paraphrases the
+    same fact with fewer shared words than a generated own-token, which is drawn FROM its span):
+
+      * NUMERIC corroboration — EVERY decimal figure in the claim also appears in the span
+        (the same "every decimal in sentence appears in span" rule strict_verify invariant #3
+        uses, via ``_decimals_in``) AND the span shares >= 1 distinctive content word with the
+        claim. A corroborator that independently reports the SAME figure (e.g. "14.9%") is
+        genuine multi-citation even when it paraphrases the surrounding prose; the >=1 word
+        guard blocks a bare-number coincidence.
+      * LEXICAL corroboration — the span shares >= ``min_content_overlap`` distinctive content
+        words with the claim (the content-word path for qualitative claims).
+
+    A corroborator is KEPT if EITHER path holds; it is dropped only when its span neither
+    carries the claim's figures nor shares its distinctive vocabulary. This TIGHTENS
+    faithfulness (removes UNSUPPORTED cross-claim attributions) while preserving genuine
+    multi-citation (§-1.3). NOTE (residual, surfaced in coordination): a member whose span
+    shares only GENERIC vocabulary (e.g. a wrong automation source sharing
+    "change"/"employment"/"occupations") can still clear a purely-mechanical overlap floor —
+    that residual is what the LLM relevance gate (``PG_RELEVANCE_GATE``, lines below) catches;
+    this filter STACKS beneath it at zero spend.
+    """
+    if not sentence_claim or not corroborator_span:
+        # No claim text or no span to compare => cannot affirm grounding. Conservative:
+        # an empty span carries no claim, so it must not be attached as inline support.
+        return False
+    _claim_words = _content_words(sentence_claim)
+    _span_words = _content_words(corroborator_span)
+    _overlap = len(_claim_words & _span_words)
+    if _overlap >= min_content_overlap:
+        return True  # lexical corroboration (qualitative claim)
+    # Numeric corroboration: the span independently carries every figure the claim asserts AND
+    # shares at least one distinctive content word (so it is the SAME claim, not a coincidental
+    # number match — the >=1 guard blocks "50% of X" matching any span that merely contains
+    # "50"). Mirrors strict_verify's numeric branching (invariant #3, lines ~1969-2002): the
+    # DECIMAL branch additionally checks %-expressed integers, and a claim with NO decimal is
+    # carried by its standalone INTEGERS. I-beatboth-011 P1#4: the prior path checked ONLY
+    # ``_decimals_in`` => a genuine corroborator for an integer-percentage ("50%"/"19%") or a
+    # plain integer claim was false-dropped unless it ALSO shared two lexical content words,
+    # losing real multi-citation. We now READ the SAME ``_INTEGER_PERCENT_RE`` / ``_numbers_in``
+    # predicates strict_verify uses for own tokens (no engine change), so integer-% / integer-
+    # only corroboration is preserved with the identical figure-in-span rule.
+    _span_decimals = _decimals_in(corroborator_span)
+    _span_numbers = _numbers_in(corroborator_span)
+    _span_int_only = _span_numbers - _span_decimals
+    _claim_decimals = _decimals_in(sentence_claim)
+    if _claim_decimals:
+        if not _claim_decimals.issubset(_span_decimals):
+            return False
+        # The decimal(s) are carried. A %-expressed integer beside the decimal (strict_verify
+        # ``_INTEGER_PERCENT_RE`` minus decimals) is ALSO part of the claim — require it in the
+        # span's integer-only set too (mirrors strict_verify lines ~1981-1991).
+        _claim_pct_ints = {
+            m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_claim)
+        } - _claim_decimals
+        if _claim_pct_ints and not _claim_pct_ints.issubset(_span_int_only):
+            return False
+        return _overlap >= 1
+    # No decimals: the INTEGERS are the claim. I-beatboth-011 P1 (plain integer-only): mirror
+    # strict_verify's no-decimal branch EXACTLY (lines ~1992-2002) — there EVERY standalone
+    # integer the claim asserts (``_numbers_in(sentence_stripped)``) must appear in a cited
+    # span's number set (``aggregated_span_numbers``). The prior corroborator path checked ONLY
+    # the %-expressed integers (``_INTEGER_PERCENT_RE``), so a TRUE grounding corroborator for a
+    # PLAIN integer-only claim (e.g. "5,172 agents were tested", "47 occupations") was wrongly
+    # DETACHED whenever its lexical overlap was below the 2-word floor — even when ALL the
+    # asserted integers ARE present in its span. We now READ the SAME ``_numbers_in`` predicate
+    # strict_verify uses (no engine change): if the claim asserts integers and the span's number
+    # set contains ALL of them, that grounds it (independent of lexical overlap), with the >=1
+    # content-word coincidence guard retained so a bare-number match is never enough.
+    _claim_numbers = _numbers_in(sentence_claim)
+    if _claim_numbers and _claim_numbers.issubset(_span_numbers):
+        return _overlap >= 1
+    # Fallback: a claim whose ONLY figures are %-expressed integers (the prior path). Kept for
+    # parity with the strict_verify decimal-branch %-integer check; ``_numbers_in`` above already
+    # subsumes the standalone-integer case, so this only fires when ``_numbers_in`` is empty yet a
+    # %-expressed integer survives (defensive — same >=1 coincidence guard).
+    _claim_pct_ints = {
+        m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_claim)
+    }
+    if _claim_pct_ints and _claim_pct_ints.issubset(_span_int_only):
+        return _overlap >= 1
+    return False
+
+
+def _claim_local_corroborator_span(
+    corroborator_eid: str,
+    basket_by_cluster: dict[str, dict[str, Any]],
+    *,
+    selected_cluster_id: str | None = None,
+) -> str:
+    """The basket member's CLAIM-LOCAL supporting span (its ``direct_quote``) for the
+    given corroborator evidence_id.
+
+    I-beatboth-011 (#1289) P1#2: the anti-mis-attribution filter must ground a corroborator
+    against the SPAN THE BASKET STORED for that member — ``BasketMember.direct_quote``, the
+    claim-local cited span set by ``credibility_pass`` (and preserved verbatim through
+    ``_basket_for_biblio`` at the projection above) — NOT the broad ``evidence_pool`` row text
+    (which can be the whole page/row and would let a cross-claim span clear the overlap floor).
+    Returns "" when the eid is in no projected basket member — the caller treats an
+    empty span as ungrounded (conservative drop), never as a row-text fallback.
+
+    I-beatboth-011 (#1289) P1 (multi-cluster span): a corroborator eid can be a SUPPORTS member
+    of SEVERAL clusters with DIFFERENT claim-local spans. ``selected_cluster_id`` is the cluster
+    the corroborator was ACTUALLY selected through (``verified_corroborators_with_clusters_for_tokens``
+    pairs each corroborator with its own-token's single cluster). When supplied, resolve the span
+    from THAT cluster's member ONLY — so the grounding check reads the RIGHT claim-local span for
+    the selected cluster, never a sibling cluster's (which would drop a true grounder or keep a
+    wrong one). When None (the contract path, until it threads the cluster — see coordination_notes),
+    fall back to the FLAT FIRST-WINS scan across all clusters (the prior behaviour).
+    """
+    if selected_cluster_id is not None:
+        _bdict = basket_by_cluster.get(selected_cluster_id) or {}
+        for _m in (_bdict.get("supporting_members") or []):
+            if str(_m.get("evidence_id") or "") == corroborator_eid:
+                return str(_m.get("direct_quote") or "")
+        # The corroborator is not a member of the SELECTED cluster — ungrounded for THIS
+        # selection (conservative). Do NOT fall through to a sibling cluster's span: that is
+        # exactly the cross-cluster mis-read this fix removes.
+        return ""
+    for _bdict in basket_by_cluster.values():
+        for _m in (_bdict.get("supporting_members") or []):
+            if str(_m.get("evidence_id") or "") == corroborator_eid:
+                _span = str(_m.get("direct_quote") or "")
+                if _span:
+                    return _span
+    return ""
+
+
+def corroborator_grounds_sentence_via_basket(
+    sentence_claim: str,
+    corroborator_eid: str,
+    basket_by_cluster: dict[str, dict[str, Any]],
+    *,
+    selected_cluster_id: str | None = None,
+) -> bool:
+    """THE single (sentence, corroborator) grounding verdict, computed identically at every
+    render site (the legacy resolver append loop + its retention guard, AND the V30 contract
+    slot-regroup) so they can NEVER diverge.
+
+    I-beatboth-011 (#1289): bundles P1#2 (read the member's CLAIM-LOCAL ``direct_quote``, not
+    the broad evidence_pool row) with the ``corroborator_span_grounds_sentence`` predicate
+    (P1#4-corrected numeric paths). Wiring this ONE function at all three sites closes P1#1
+    (contract path was unfiltered) and P1#3 (the retention guard used unfiltered corroborators
+    and could strand a sentence). Faithfulness-TIGHTENING only — it removes UNSUPPORTED
+    attributions; the engine predicates are READ, never altered. Empty claim-local span =>
+    ungrounded => not attached (conservative), consistent across all sites.
+
+    I-beatboth-011 (#1289) P1 (multi-cluster span): ``selected_cluster_id`` threads the cluster
+    the corroborator was selected through to ``_claim_local_corroborator_span``, so a corroborator
+    that is a member of several clusters is grounded against the SELECTED cluster's span, not a
+    sibling's. None => the prior global first-match scan (the contract path lands here until it
+    threads the cluster — coordination_notes).
+    """
+    _span = _claim_local_corroborator_span(
+        corroborator_eid, basket_by_cluster, selected_cluster_id=selected_cluster_id
+    )
+    if not _span:
+        return False
+    return corroborator_span_grounds_sentence(sentence_claim, _span)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3405,6 +3627,21 @@ def resolve_provenance_to_citations_with_count(
         build_basket_supports_by_cluster(_basket_by_cluster) if _carry_baskets else {}
     )
 
+    def _verified_corroborators_with_clusters_for_tokens(
+        token_ev_ids: list[str],
+    ) -> list[tuple[str, str]]:
+        """Thin wrapper binding the module-level
+        ``verified_corroborators_with_clusters_for_tokens`` to this resolve call's basket
+        index + binding + pool. Returns (corroborator_eid, selected_cluster_id) pairs so the
+        I-beatboth-011 P1 grounding filter reads the SELECTED cluster's claim-local span (not a
+        sibling cluster's). Returns [] on the OFF path => byte-identical legacy render."""
+        return verified_corroborators_with_clusters_for_tokens(
+            token_ev_ids,
+            basket_supports_by_cluster=_basket_supports_by_cluster,
+            cluster_id_by_evidence=cluster_id_by_evidence,
+            evidence_pool=evidence_pool,
+        )
+
     def _verified_corroborators_for_tokens(token_ev_ids: list[str]) -> list[str]:
         """Thin wrapper binding the module-level ``verified_corroborators_for_tokens``
         to this resolve call's basket index + binding + pool (so the legacy inline
@@ -3556,9 +3793,24 @@ def resolve_provenance_to_citations_with_count(
             _surviving_own = [
                 e for e in _own_eids if e not in _demote_eids and e not in _refute_eids
             ]
+            # I-beatboth-011 P1#3: the retention guard's surviving-corroborator set MUST be the
+            # FILTERED set — only corroborators whose claim-local span actually grounds THIS
+            # sentence (the SAME decision the append loop below applies). Pre-fix this used the
+            # UNFILTERED ``_verified_corroborators_for_tokens`` output, so the guard could decide
+            # "an own-token demotion is safe, a corroborator will remain" while the append loop
+            # then filtered that (ungrounded) corroborator off — stranding the sentence with ZERO
+            # citations (it had a true grounding member). Building both from the identical
+            # (eid, selected_cluster) pairs means the guard never strands.
+            # I-beatboth-011 P1 (multi-cluster span): pass each corroborator's SELECTED cluster so
+            # its claim-local span is read from the cluster it was actually selected through.
+            _guard_claim_text = _verifier_cleaned_text(sv.sentence)
             _surviving_corro = [
-                e for e in _verified_corroborators_for_tokens(_own_eids)
-                if e not in _demote_eids and e not in _refute_eids
+                e for e, _ccid in _verified_corroborators_with_clusters_for_tokens(_own_eids)
+                if e not in _demote_eids
+                and e not in _refute_eids
+                and corroborator_grounds_sentence_via_basket(
+                    _guard_claim_text, e, _basket_by_cluster, selected_cluster_id=_ccid
+                )
             ]
             # iter-2 P1#1a: PERSIST the structured per-citation LABEL map onto the SV. This is
             # the JUDGE VERDICT for every judged cite (eid -> SUPPORTED/INSUFFICIENT/REFUTED) —
@@ -3645,10 +3897,39 @@ def resolve_provenance_to_citations_with_count(
         # I-beatboth-003: a corroborator that the relevance judge demoted/refuted for THIS
         # sentence is likewise excluded from the inline support set (consistency with the
         # per-token demotion above); OFF path => sets empty => byte-identical.
-        for _corro_eid in _verified_corroborators_for_tokens(
+        #
+        # I-beatboth-011 (#1289) — anti-mis-attribution corroborator filter (defect #6).
+        # A corroborator is attached by CLUSTER membership, not by whether its span grounds
+        # THIS sentence. Before appending its [N], require that its span actually carries the
+        # sentence's claim (>= MIN_CONTENT_WORD_OVERLAP distinctive content words — the SAME
+        # predicate strict_verify uses for own tokens, READ here, never the engine). This
+        # removes UNSUPPORTED cross-claim attributions (e.g. [85] glued to a BLS sentence only
+        # [84] grounds) — faithfulness-TIGHTENING, never a relaxation. Own tokens (above) are
+        # NEVER filtered (already strict-verified). Genuine corroborators that share the claim's
+        # content words are KEPT, so real multi-citation (§-1.3) is preserved; only a member
+        # whose span does NOT carry this sentence's claim is dropped. The sentence ALWAYS
+        # retains its own tokens, so it is never stranded uncited.
+        # I-beatboth-011 P1#2: ground each corroborator against the basket member's CLAIM-LOCAL
+        # ``direct_quote`` (via corroborator_grounds_sentence_via_basket), NOT the broad
+        # evidence_pool row text — the SAME decision the retention guard (above) and the V30
+        # contract slot-regroup now use, so the three sites can never diverge.
+        # I-beatboth-011 P1 (multi-cluster span): iterate (eid, selected_cluster) pairs and
+        # ground each corroborator against the span of the cluster it was SELECTED through, so a
+        # corroborator that is a member of several clusters reads the RIGHT claim-local span.
+        _corro_claim_text = _verifier_cleaned_text(sv.sentence)
+        for _corro_eid, _corro_ccid in _verified_corroborators_with_clusters_for_tokens(
             [tok.evidence_id for tok in sv.tokens]
         ):
             if _corro_eid in _demote_eids or _corro_eid in _refute_eids:
+                continue
+            if not corroborator_grounds_sentence_via_basket(
+                _corro_claim_text, _corro_eid, _basket_by_cluster,
+                selected_cluster_id=_corro_ccid,
+            ):
+                # This member's claim-local span does not carry THIS sentence's claim —
+                # attaching its [N] would be a wrong-claim citation (mis-attribution). Skip it.
+                # (It still appears in the bibliography as basket context; it is only withheld
+                # from inline support for this specific sentence.)
                 continue
             n = _num_for(_corro_eid)
             if n not in used_nums:

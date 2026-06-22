@@ -64,6 +64,80 @@ def _resolved_spans(text: str) -> set[tuple[str, int, int]]:
         except (ValueError, TypeError):
             continue
     return spans
+
+
+# I-arch-011 #1269 B11 (compose-repetition) — a number-token signature for the carve-out below.
+# Standalone integers / decimals (incl. a %/$ neighbour), used ONLY to decide whether a same-span
+# restatement adds a NEW statistic (it survives) or is a pure reword (it collapses). Conservative:
+# a single shared 800-char span can carry >1 distinct statistic, so a sentence that introduces a
+# number absent from its kept same-footprint siblings is KEPT — never dropped as "duplicate".
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def _number_tokens(text: str) -> frozenset[str]:
+    """The distinct number tokens in ``text`` AFTER stripping every ``[#ev:...]`` provenance token
+    (so the span offsets in the token never count as content numbers). Empty for non-numeric prose."""
+    stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    return frozenset(m.group(0) for m in _NUMBER_TOKEN_RE.finditer(stripped))
+
+
+def dedup_same_span_sentences(sentences: list) -> tuple[list, list]:
+    """I-arch-011 #1269 B11 — collapse degenerate same-span restatements to ONE rendering per
+    distinct resolved-span FOOTPRINT (the (ev_id,start,end) SET a sentence cites), keep-FIRST.
+
+    THE DEFECT this fixes: the legacy section producer emitted ONE verified span (e.g.
+    ``brynjolfsson_genai_at_work:0-800``) as 18 near-identical sentences — 18x the SAME footprint,
+    zero added breadth (canary autopsy B11 / §-1.1 DO_NOT_SHIP). The §-1.3 reading: repetition of the
+    SAME span is NOT corroboration; corroboration is DISTINCT works (distinct ev_ids). This pass keeps
+    one sentence per distinct footprint so breadth comes from distinct works, not from re-citing one
+    span N times.
+
+    FAITHFULNESS (by construction): every dropped sentence cites a footprint already emitted by a
+    KEPT sibling — it is an already-strict_verify-PASSED restatement of an already-rendered span, so
+    removing it can never drop a claim that is not still present, and it NEVER touches strict_verify /
+    NLI / 4-role / span-grounding (it runs AFTER them, on the kept list). It is CONSOLIDATE-keep-one,
+    NOT a cap/thinner/target — there is no fixed N; the bound is content identity (one per footprint).
+
+    DISTINCT-WORK SAFETY: a different ev_id => a different footprint => never collapsed. Multi-source
+    corroborators (NBER ev_228 + MIT ev_224, etc.) carry DIFFERENT ev_ids and can never be merged or
+    dropped by this pass — it only ever collapses re-citations of the IDENTICAL span set.
+
+    NUMBER CARVE-OUT (conservative, advisor 2026-06-21): a same-footprint sentence that introduces a
+    number token absent from ALL its kept same-footprint siblings is KEPT (a single 800-char span can
+    state >1 statistic; do not lose a genuine second number). A pure reword (no new number) collapses.
+
+    Order-preserving, pure. A sentence with NO provenance token is NEVER a duplicate candidate (zero
+    footprint must not be vacuously "all duplicate") — it is always kept. ``sentences`` may be any
+    objects exposing a ``.sentence`` str (the production SentenceVerification) OR plain strings.
+
+    Returns ``(kept, dropped)`` — ``kept`` is the deduped list in input order; ``dropped`` is the
+    collapsed redundant objects (the caller routes them into the existing dedup-redundant telemetry)."""
+    kept: list = []
+    dropped: list = []
+    # footprint (frozenset of (ev_id,start,end)) -> union of number tokens already KEPT for it.
+    seen_numbers_by_footprint: dict[frozenset, frozenset[str]] = {}
+    for sv in (sentences or []):
+        text = sv if isinstance(sv, str) else str(getattr(sv, "sentence", "") or "")
+        footprint = frozenset(_resolved_spans(text))
+        if not footprint:
+            kept.append(sv)  # no provenance token -> never a same-span duplicate
+            continue
+        nums = _number_tokens(text)
+        if footprint not in seen_numbers_by_footprint:
+            # First sentence for this footprint — always keep; seed its number set.
+            seen_numbers_by_footprint[footprint] = nums
+            kept.append(sv)
+            continue
+        # A later sentence on the SAME footprint: keep ONLY if it adds a number absent from every
+        # kept sibling on this footprint (a genuinely new statistic inside the shared span); else it
+        # is a pure reword of an already-rendered span -> collapse (faithfulness-neutral).
+        new_numbers = nums - seen_numbers_by_footprint[footprint]
+        if new_numbers:
+            seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | nums
+            kept.append(sv)
+        else:
+            dropped.append(sv)
+    return kept, dropped
 # Sentence split — terminal punctuation (incl. a closing provenance ``]``) + whitespace + a new
 # sentence start. Fixed-width lookbehind. Mirrors the conservative splitter used elsewhere.
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z0-9])")
@@ -711,6 +785,12 @@ def _compose_section_per_basket(
     out: list[str] = []
     seen_spans: set[tuple[str, int, int]] = set()
     seen_texts: set[str] = set()
+    # I-arch-011 #1269 B11 (compose-repetition): a SECOND, stronger key — the exact resolved-span
+    # FOOTPRINT (frozenset) already emitted -> the union of its kept number tokens. A later unit with
+    # the IDENTICAL footprint that adds NO new number is a pure reword of an already-rendered span ->
+    # collapse (the 18x-same-span degenerate-repetition defect). This is footprint EQUALITY, not the
+    # subset key Codex #1289 rejected, and it is faithfulness-neutral (same span, already verified).
+    seen_numbers_by_footprint: dict[frozenset, frozenset[str]] = {}
     _multicited_on = _multicited_compose_enabled()
     for basket in (section_baskets or []):
         # keystone-F1: surface a >=2-corroborator basket as ONE multi-cited sentence (flag-gated,
@@ -739,8 +819,22 @@ def _compose_section_per_basket(
         # filter so a token-less marker never reaches this check.
         spans = _resolved_spans(composed)
         norm = " ".join(composed.split())
+        footprint = frozenset(spans)
+        # I-arch-011 #1269 B11: footprint-EQUALITY same-span collapse (the 18x-degenerate-repetition
+        # defect). A unit whose EXACT footprint was already emitted AND that adds NO new number token is
+        # a pure reword of an already-rendered span -> drop (faithfulness-neutral; same verified span).
+        # The conservative number carve-out keeps a same-span unit that states a genuinely NEW statistic.
+        if footprint and footprint in seen_numbers_by_footprint:
+            unit_numbers = _number_tokens(composed)
+            if not (unit_numbers - seen_numbers_by_footprint[footprint]):
+                continue
+            seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
+        # idx8 legacy key (subset-of-already-emitted + byte-identical text) — retained so a unit whose
+        # spans are a SUBSET (not equal) of an emitted sibling AND is text-identical still collapses.
         if spans and spans <= seen_spans and norm in seen_texts:
             continue
+        if footprint and footprint not in seen_numbers_by_footprint:
+            seen_numbers_by_footprint[footprint] = _number_tokens(composed)
         seen_spans |= spans
         seen_texts.add(norm)
         out.append(composed)

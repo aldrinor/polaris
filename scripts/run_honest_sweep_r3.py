@@ -1133,6 +1133,329 @@ def _bib_entry_has_locator(entry: "dict") -> bool:
     return bool(url or doi)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-arch-011 #1289 render-boundary screen — defects #2(render)/#3/#5/#10.
+#
+# The §-1.1 audit of drb_72 found 12 DO_NOT_SHIP defects, ALL in the render /
+# consolidation / composition / disclosure layer (the faithfulness engine is
+# correct — zero fabricated findings). These helpers screen the ALREADY-
+# strict_verify-PASSED body + Key-Findings block at the assemble_report_md
+# boundary. They NEVER touch strict_verify / NLI / 4-role / span-grounding and
+# NEVER drop a real source — they remove page-furniture that was cited because
+# it is a VERBATIM span of fetched CHROME (a masthead, nav rail, ISSN, share-
+# button, ResearchGate metadata), correct a self-disclosure numeric error from
+# the actual sidecar, and guard a dangling cross-ref to files that do not exist.
+# All env-gated; OFF / no-match yields byte-identical output.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# #2 (render side): a CHROME SPAN that survives strict_verify because it IS a
+# verbatim fetched-page-furniture span (journal masthead volume/number/pages run,
+# ISSN, ResearchGate "CITATIONS n READS n", left-rail nav "same series", raw fetch
+# framing "Markdown Content:" / "URL Source:", MIT Sloan "#main-content"). These are
+# NOT caught by access_bypass.is_boilerplate_or_nonassertional (which keys on
+# WHOLE-LINE boilerplate) because they render as a grammatical-looking fragment. The
+# detector targets the SPECIFIC furniture shapes the §-1.1 audit enumerated, so a
+# real finding sentence ("AI adoption raised productivity by 14% ...[12]") never
+# matches (no volume/ISSN/metadata/fetch-framing token).
+_RENDER_CHROME_SPAN_RE = re.compile(
+    r"\bVolume\s+\d+\s*,?\s*(?:Number|No\.?|Issue)\s+\d+\b"        # journal masthead volume/number
+    r"|\bPages?\s+\d+\s*[-‐-―]\s*\d+\b"                   # masthead page range "Pages 3-30"
+    r"|\bISSN\b\s*:?\s*\d"                                          # ISSN
+    r"|\bCITATIONS\b\s+\d+\s+\bREADS\b\s+\d+"                       # ResearchGate metadata
+    r"|\bMarkdown Content\s*:|\bURL Source\s*:|\bPublished Time\s*:"  # raw fetch framing
+    r"|\bNumber of Pages\s*:|\bCite this paper as\b"                # crawl/journal framing
+    r"|#main-content|Twitter-intent|twitter\.com/intent"  # nav / share-button UI anchors
+    # ILO LEFT-RAIL "same series" NAV: the ILO working-paper left rail lists sibling papers under a
+    # "same series" heading followed by "- Working paper <title>" nav rows (the audit's ILO bullet:
+    # "...Occupational Exposure same series - Working paper Insights from job vacancy data..."). The
+    # FULL nav signature is "same series" IMMEDIATELY followed by a "- Working paper" nav row — a bare
+    # mid-sentence "same series" (e.g. a real finding "papers in the same series show declining wages")
+    # carries NO "- Working paper" follow-on and is left untouched. Tightened 2026-06-22 (#1289 P1):
+    # the prior bare "\bsame series\b" over-stripped real prose; precision beats recall (§-1.1 forbids
+    # a pattern that catches legitimate text — over-strip deletes a real finding, worse than a leak).
+    r"|same series\s*[-‐-―]\s*working paper"
+    # OECD LEFT-RAIL TOPICS NAV: the OECD topics left rail dumps the site's topic taxonomy under a
+    # "The listed topics include <comma-list>" nav header (the audit's "OECD Topics left-rail"). The
+    # FULL nav signature requires the "listed" nav-header word — "listed topics include <taxonomy>" —
+    # NOT a bare mid-sentence "topics include" (e.g. a real finding "survey topics include automation
+    # and employment effects" introduces a subject, not a nav rail). Tightened 2026-06-22 (#1289 P1):
+    # the prior optional "(?:listed\s+)?" made "listed" non-required, so a bare "topics include" inside
+    # real prose over-matched; requiring "listed" anchors the pattern to the nav-list header only.
+    # (TOC-anchor "N.N.N Title" and "Share Help" shapes were considered but rejected: a bare
+    # "N.N.N X" / "Share ... Help" run appears in real prose too, so screening on it risks dropping a
+    # real finding — §-1.1 forbids a pattern that catches legitimate text. The shapes that survived in
+    # THIS corpus (masthead volume/number/pages, ISSN, ResearchGate metadata, OECD listed-topics-nav,
+    # ILO "same series - Working paper", raw fetch framing) are all unambiguous page-furniture
+    # signatures.)
+    r"|\blisted\s+topics?\s+include\b",
+    re.IGNORECASE,
+)
+
+
+def _span_is_render_chrome(text: str) -> bool:
+    """#2 (render side): True iff a composed span still carries a named page-furniture /
+    masthead / nav / fetch-framing token after the access_bypass cleaner. PURE. Used to
+    drop a Key-Findings bullet or route a section body to the gap path so page furniture
+    is never presented as a finding. Never drops a real source — only changes RENDER."""
+    if not text:
+        return False
+    from src.tools.access_bypass import clean_fetch_body  # noqa: PLC0415
+    cleaned = clean_fetch_body(text).cleaned_text
+    return bool(_RENDER_CHROME_SPAN_RE.search(text) or _RENDER_CHROME_SPAN_RE.search(cleaned))
+
+
+def _placeholder_bib_nums(bibliography: "list[dict]") -> "set[str]":
+    """#3: the set of bibliography citation numbers that are CONTRACT-SLOT PLACEHOLDERS, not
+    real sources — a row whose ``statement`` is just the ``evidence_id`` slug (e.g.
+    "fourth_industrial_revolution_framing"), i.e. a slot that did not bind a real titled source.
+    PURE + deterministic. A section whose ONLY citations are placeholders (and whose body is not
+    already a gap-disclosure stub) is resting solely on an unbound slot → routed to the gap path.
+    This is a PROVENANCE discriminator (slug == slug), not a topic / semantic / magic-number
+    heuristic, so it never mis-flags a real section (which cites a real-titled row)."""
+    out: set[str] = set()
+    for b in bibliography or []:
+        num = str(b.get("num") or "").strip()
+        stmt = str(b.get("statement") or "").strip()
+        eid = str(b.get("evidence_id") or "").strip()
+        if num and eid and stmt == eid:
+            out.add(num)
+    return out
+
+
+# #3 / #10 — the canonical gap-disclosure marker (mirrors key_findings._GAP_MARKER_RE). A
+# section body carrying this is ALREADY routed to the gap path; we must not double-route it.
+_RENDER_GAP_MARKER_RE = re.compile(
+    r"curator-actionable gap|did not survive strict verification|"
+    r"did not survive (?:4-role )?verification",
+    re.IGNORECASE,
+)
+_RENDER_CITATION_NUM_RE = re.compile(r"\[(\d+)\]")
+_RENDER_HEADER_RE = re.compile(r"^#{1,6}\s")
+
+
+def _screen_key_findings_chrome(key_findings_md: str) -> str:
+    """#2 (render side): drop any Key-Findings BULLET whose lifted span is page-furniture
+    chrome (journal masthead / nav / metadata / fetch-framing). build_key_findings lifts the
+    first CITED sentence per section; when that sentence is a verbatim chrome span it renders
+    as a "- **Key Findings.** onomic Perspectives—Volume 33 ..." masthead bullet. Screens ONLY
+    the ``- **...**`` bullet lines; the heading + intro line and any non-bullet content are
+    untouched. If every bullet is chrome the whole block is dropped (no empty heading). PURE;
+    never drops a real finding (a real finding carries no masthead/nav/metadata token)."""
+    if not key_findings_md:
+        return key_findings_md
+    lines = key_findings_md.split("\n")
+    kept: list[str] = []
+    bullet_total = 0
+    bullet_kept = 0
+    for ln in lines:
+        if ln.lstrip().startswith("- **"):
+            bullet_total += 1
+            if _span_is_render_chrome(ln):
+                continue  # chrome bullet — drop
+            bullet_kept += 1
+        kept.append(ln)
+    # If the block had bullets and ALL were chrome, drop the now-bulletless block entirely
+    # (heading + intro with zero findings is worse than no block).
+    if bullet_total > 0 and bullet_kept == 0:
+        return ""
+    return "\n".join(kept)
+
+
+def _screen_offtopic_chrome_sections(
+    body_md: str, placeholder_nums: "set[str]"
+) -> str:
+    """#3 + #2(section bodies): route an OFF-TOPIC / CHROME section through the existing gap
+    path by DROPPING it (header + body), leaving the header orphaned so the downstream
+    ``dedup_identical_paragraphs`` pass-2 orphan-drop clears it — i.e. the off-topic span
+    never renders as a finding while the source is untouched in the bibliography (and its
+    real gap, if any, is still disclosed by its own contract-slot section).
+
+    A ``### Header`` section is dropped when (and only when) it is NOT already a gap-disclosure
+    stub AND either:
+      (a) every citation in its body points ONLY at placeholder contract-slot rows — an unbound
+          slot (the WEF "Five technologies are reshaping water security[7]" Background, whose sole
+          cite [7] is the fourth_industrial_revolution_framing slug), OR
+      (b) its body, after stripping the header + citation markers, is a SINGLE short span that is
+          render-chrome (a masthead/nav fragment standing alone as the section body).
+
+    Dropping (vs. emitting a stub) avoids fabricating a slug-specific stub and never duplicates an
+    existing disclosure. Sections with ANY real (non-placeholder) citation, or a multi-sentence
+    body, are left byte-identical. PURE; never drops a SOURCE — only an off-topic/chrome SPAN that
+    was never a real finding (the cited row remains in the bibliography)."""
+    if not body_md:
+        return body_md
+    blocks = body_md.split("\n\n")
+    out: list[str] = []
+    i = 0
+    while i < len(blocks):
+        block = blocks[i]
+        first = block.splitlines()[0] if block.splitlines() else ""
+        if not _RENDER_HEADER_RE.match(first.lstrip()):
+            out.append(block)
+            i += 1
+            continue
+        # Collect this section's body blocks (until the next header or end).
+        body_blocks: list[str] = []
+        j = i + 1
+        while j < len(blocks):
+            nf = blocks[j].splitlines()[0] if blocks[j].splitlines() else ""
+            if _RENDER_HEADER_RE.match(nf.lstrip()):
+                break
+            body_blocks.append(blocks[j])
+            j += 1
+        body_text = "\n\n".join(b for b in body_blocks if b.strip())
+        if not body_text.strip() or _RENDER_GAP_MARKER_RE.search(body_text):
+            # empty section, or already a gap stub — leave untouched.
+            out.append(block)
+            for b in body_blocks:
+                out.append(b)
+            i = j
+            continue
+        cites = set(_RENDER_CITATION_NUM_RE.findall(body_text))
+        body_no_cite = _RENDER_CITATION_NUM_RE.sub("", body_text).strip()
+        only_placeholder = bool(cites) and cites <= placeholder_nums
+        # single-span chrome: <=1 sentence-ending punctuation and render-chrome
+        is_short_chrome = (
+            body_no_cite.count(".") <= 1 and _span_is_render_chrome(body_no_cite)
+        )
+        if only_placeholder or is_short_chrome:
+            # Drop the off-topic/chrome section: emit ONLY the (now orphaned) header, which
+            # dedup_identical_paragraphs pass-2 then removes. The body span is dropped.
+            out.append(block)
+            i = j
+            continue
+        out.append(block)
+        for b in body_blocks:
+            out.append(b)
+        i = j
+    return "\n\n".join(out)
+
+
+def _strip_dangling_gap_crossref(body_md: str, run_dir: "str | None") -> str:
+    """#10: remove the dangling "See manifest.frame_coverage_report and human_gap_tasks.json
+    for per-entity detail." cross-ref from the gap-disclosure boilerplate WHEN those files do
+    not exist in this run's output directory. The pointer is generated unconditionally by the
+    contract-runner but ``human_gap_tasks.json`` / a manifest ``frame_coverage_report`` block
+    are not always produced, leaving a broken pointer. Only the dangling SENTENCE is removed;
+    the gap disclosure itself ("... curator-actionable gap.") is preserved. If the referenced
+    files DO exist, the pointer is left byte-identical. PURE except a guarded os.path.exists."""
+    if not body_md or "frame_coverage_report" not in body_md:
+        return body_md
+    import os as _os  # noqa: PLC0415
+    import json as _json  # noqa: PLC0415
+    gap_tasks_exists = False
+    frame_cov_exists = False
+    if run_dir and _os.path.isdir(run_dir):
+        gap_tasks_exists = _os.path.exists(_os.path.join(run_dir, "human_gap_tasks.json"))
+        _manifest_p = _os.path.join(run_dir, "manifest.json")
+        if _os.path.exists(_manifest_p):
+            try:
+                with open(_manifest_p, encoding="utf-8") as _mf:
+                    _m = _json.load(_mf)
+                frame_cov_exists = bool(
+                    isinstance(_m, dict) and _m.get("frame_coverage_report")
+                )
+            except Exception:  # noqa: BLE001 — a malformed manifest means the ref is dangling
+                frame_cov_exists = False
+    if gap_tasks_exists and frame_cov_exists:
+        return body_md  # both targets exist — pointer is valid, leave untouched.
+    # Strip the dangling pointer sentence; keep any trailing [N] citation marker attached to
+    # the disclosure so the body's citation still resolves.
+    return re.sub(
+        r"\s*See manifest\.frame_coverage_report and human_gap_tasks\.json "
+        r"for per-entity detail\.",
+        "",
+        body_md,
+    )
+
+
+def _contradiction_magnitude_range(contradictions_path: "str | None") -> "tuple[str, str] | None":
+    """#5: compute the REAL min/max relative-difference range from the run's
+    contradictions.json. Each entry's ``relative_difference`` is a fraction (1.5543 == 155.43%).
+    Returns (min_pct_str, max_pct_str) formatted as human percentages, or None when the sidecar
+    is missing / has no numeric entries. Reads the ACTUAL entries — never hardcodes. PURE
+    except the guarded file read."""
+    if not contradictions_path:
+        return None
+    import os as _os  # noqa: PLC0415
+    import json as _json  # noqa: PLC0415
+    if not _os.path.exists(contradictions_path):
+        return None
+    try:
+        with open(contradictions_path, encoding="utf-8") as _cf:
+            entries = _json.load(_cf)
+    except Exception:  # noqa: BLE001 — unreadable sidecar => cannot correct, leave prose as-is
+        return None
+    rels = [
+        e.get("relative_difference")
+        for e in (entries or [])
+        if isinstance(e, dict) and isinstance(e.get("relative_difference"), (int, float))
+    ]
+    if not rels:
+        return None
+    return (_format_percent(min(rels) * 100.0), _format_percent(max(rels) * 100.0))
+
+
+def _format_percent(pct: float) -> str:
+    """#5: format a percentage for the Limitations magnitude-range prose. Small values get one
+    decimal (33.3%); very large values use a magnitude word (96.9 trillion %) rather than a
+    20-digit integer. PURE + deterministic. The huge endpoint is a real divide-by-near-zero
+    artifact in the data — we render WHAT THE DATA SAYS, never filter the outlier."""
+    if pct < 0:
+        pct = abs(pct)
+    scales = [
+        (1e12, "trillion"),
+        (1e9, "billion"),
+        (1e6, "million"),
+        (1e3, "thousand"),
+    ]
+    for factor, word in scales:
+        if pct >= factor:
+            return f"{pct / factor:.1f} {word} %".replace(".0 ", " ")
+    if pct >= 100:
+        return f"{pct:,.0f}%"
+    return f"{pct:.1f}%"
+
+
+def _correct_contradiction_magnitude_range(body_md: str, contradictions_path: "str | None") -> str:
+    """#5: replace the WRONG contradiction-magnitude range in the Limitations prose with the
+    REAL min/max computed from contradictions.json. The composer emitted
+    "... ranging from 155.4% to over 165 million percent" — 155.4% is merely the FIRST entry
+    (not the min) and "165 million percent" is a hallucinated max; ground truth is min 33.3%,
+    max ~96.9 trillion %. Targets ONLY the "ranging from X to Y" clause that follows a
+    "relative differences" / "disagree on magnitude" anchor, so the adjacent "30 contradictions"
+    / "15%" / tier numbers in the same sentence are never touched. No-op (byte-identical) when
+    the anchor/clause is absent or the sidecar yields no range. PURE except the guarded read."""
+    if not body_md:
+        return body_md
+    rng = _contradiction_magnitude_range(contradictions_path)
+    if rng is None:
+        return body_md
+    lo, hi = rng
+    # Anchor on "relative difference(s) ... ranging from <X> to <Y>" and replace the WHOLE
+    # endpoints clause. The clause terminator is an em/en-dash, " though"/" but", a newline, or a
+    # period that ENDS the sentence (period + space + capital / end-of-text) — NOT a decimal point
+    # inside "155.4%" (so the value clause is captured in full, not truncated at the first ".").
+    _term = r"(?:\s*[—–]|\s+though\b|\s+but\b|\n|\.\s+[A-Z]|\.\s*$)"
+    pattern = re.compile(
+        r"(relative difference[s]?\s+(?:of\s+|by\s+)?ranging\s+from\s+)"
+        r"(?:(?!" + _term + r").)+",
+        re.IGNORECASE,
+    )
+    replacement = rf"\g<1>{lo} to {hi}"
+    new_body, n = pattern.subn(replacement, body_md, count=1)
+    if n:
+        return new_body
+    # Fallback: anchor on "disagree on magnitude ... ranging from X to Y".
+    pattern2 = re.compile(
+        r"(disagree[s]?\s+on\s+magnitude[^\n]*?ranging\s+from\s+)"
+        r"(?:(?!" + _term + r").)+",
+        re.IGNORECASE,
+    )
+    new_body2, n2 = pattern2.subn(rf"\g<1>{lo} to {hi}", body_md, count=1)
+    return new_body2 if n2 else body_md
+
+
 def _basket_corroboration_block(bibliography: "list[dict]") -> str:
     """I-arch-011 PR-b (#1268): render the Argus keep-all per-claim basket-corroboration
     block from the basket dicts ALREADY projected onto each bibliography row
@@ -9854,7 +10177,11 @@ async def run_one_query(
         # and is recorded in cross_file_deferred.
         biblio_section = _render_bibliography_lines(
             multi.bibliography,
-            require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=False),
+            # #1289 defect #9: default ON so a CITED bibliography entry whose URL AND DOI are
+            # both blank (e.g. [11]/[12]/[13] T1 rows) is relabeled to a disclosed evidence gap
+            # — never rendered as a resolvable [N] T1 citation pointing at nothing. Keeps the
+            # citation number so the body's [N] still resolves; never fabricates a locator.
+            require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=True),
             # I-arch-011 PR-b (#1268): the LIVE wiring of the Argus keep-all basket-
             # corroboration render. Default-OFF so report.md is byte-identical until the
             # flag is set; ON appends the per-claim count + weights + support/contradict +
@@ -9879,6 +10206,50 @@ async def run_one_query(
             _key_findings = build_key_findings(getattr(multi, "sections", []))
         except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[key-findings] skipped (fail-open): {_exc}")
+        # #1289 defect #2 (render side): screen the Key-Findings BULLETS for page-furniture
+        # chrome (journal masthead "...Volume 33, Number 2...Pages 3-30", ResearchGate metadata,
+        # left-rail nav, raw fetch framing). build_key_findings lifts the first CITED sentence per
+        # section; when that sentence IS a verbatim chrome span it survived strict_verify (it is a
+        # real span of fetched chrome) and rendered as a masthead bullet. Default-ON kill-switch
+        # PG_SWEEP_KEY_FINDINGS_CHROME_SCREEN; fail-open (never abort the report).
+        if _env_flag("PG_SWEEP_KEY_FINDINGS_CHROME_SCREEN", default=True):
+            try:
+                _key_findings = _screen_key_findings_chrome(_key_findings)
+            except Exception as _kf_exc:  # noqa: BLE001 — additive screen; never abort the report
+                _log(f"[key-findings-chrome-screen] skipped (fail-open): {_kf_exc}")
+        # #1289 defect #3 + #2(section bodies): route an OFF-TOPIC / CHROME section through the gap
+        # path (drop the span; the now-orphaned header is cleared by dedup_identical_paragraphs).
+        # A section whose ONLY citations are placeholder contract-slot rows (the WEF
+        # "...water security[7]" Background) or whose sole body is a render-chrome fragment never
+        # renders as a finding. Default-ON kill-switch PG_SWEEP_OFFTOPIC_SECTION_SCREEN; fail-open.
+        if _env_flag("PG_SWEEP_OFFTOPIC_SECTION_SCREEN", default=True):
+            try:
+                _placeholder_nums = _placeholder_bib_nums(getattr(multi, "bibliography", []) or [])
+                sections_concat = _screen_offtopic_chrome_sections(
+                    sections_concat, _placeholder_nums
+                )
+            except Exception as _ot_exc:  # noqa: BLE001 — additive screen; never abort the report
+                _log(f"[offtopic-section-screen] skipped (fail-open): {_ot_exc}")
+        # #1289 defect #10: guard the dangling "See manifest.frame_coverage_report and
+        # human_gap_tasks.json ..." cross-ref when those files do not exist in this run dir.
+        # Default-ON kill-switch PG_SWEEP_GAP_CROSSREF_GUARD; fail-open.
+        if _env_flag("PG_SWEEP_GAP_CROSSREF_GUARD", default=True):
+            try:
+                sections_concat = _strip_dangling_gap_crossref(sections_concat, str(run_dir))
+            except Exception as _xr_exc:  # noqa: BLE001 — additive guard; never abort the report
+                _log(f"[gap-crossref-guard] skipped (fail-open): {_xr_exc}")
+        # #1289 defect #5: correct the contradiction-magnitude range in the Limitations prose with
+        # the REAL min/max computed from the run's contradictions.json sidecar (written above by
+        # render_qualitative_disclosure). The composer emitted a wrong "155.4% to over 165 million
+        # percent"; ground truth is min 33.3% / max ~96.9 trillion %. Default-ON kill-switch
+        # PG_SWEEP_CONTRADICTION_RANGE_FIX; fail-open. Reads the actual entries — never hardcodes.
+        if _env_flag("PG_SWEEP_CONTRADICTION_RANGE_FIX", default=True):
+            try:
+                sections_concat = _correct_contradiction_magnitude_range(
+                    sections_concat, str(run_dir / _QUAL_SIDECAR_FILENAME)
+                )
+            except Exception as _cr_exc:  # noqa: BLE001 — additive fix; never abort the report
+                _log(f"[contradiction-range-fix] skipped (fail-open): {_cr_exc}")
         # B5/B7 (operator-locked 2026-06-14) — strict_verify SILENT-DROP HOLE closure. Aggregate the
         # per-section dropped-sentence dispositions into a DISCLOSED block so a claim that failed span
         # verification against its own source is never SILENTLY deleted. Counts + reasons ONLY — the

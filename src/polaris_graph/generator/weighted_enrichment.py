@@ -406,6 +406,53 @@ _DEFAULT_SPANS_PER_SOURCE = 3
 # unchanged strict_verify gate still independently judges every surviving unit.
 _MIN_UNIT_CHARS = 40
 
+# I-beatboth-011 #4 (#1289) — RENDER-SAFETY char bound on a single emitted unit.
+# A clean claim sentence is at most a few hundred chars; a unit longer than this is
+# NOT a sentence — it is a fetch-shell / raw-extraction blob (the drb_72 defect was a
+# ~75K-char raw academic-equation dump that carried a literal NUL byte and self-quoted
+# straight into report.md, making it binary-corrupt). This is an allowlist-side
+# RENDER bound on a single SURFACED unit, NOT a breadth cap (the number of SOURCES
+# surfaced is uncapped) and NOT a faithfulness gate (strict_verify is untouched). A
+# real long-but-legitimate quote is split into sentence units upstream by
+# ``split_into_sentences``; a single unit exceeding this bound is structurally a blob,
+# never a clinical sentence. Env-overridable (LAW VI); fail-loud on a non-int; floored
+# at ``_MIN_UNIT_CHARS`` so the bound can never silently zero the render.
+_ENV_MAX_UNIT_CHARS = "PG_BREADTH_ENRICHMENT_MAX_UNIT_CHARS"
+_DEFAULT_MAX_UNIT_CHARS = 600
+
+# C0 control bytes (and DEL) that MUST NEVER reach the rendered report — a literal NUL
+# (\x00) at byte offset 220201 made drb_72 report.md binary-corrupt and unshowable.
+# We strip every C0 control char EXCEPT \n and \t (which are legitimate whitespace in
+# a multi-line quote). 0x7F (DEL) is included. This is byte-hygiene on the emitted
+# render text, never a verdict and never a content drop.
+_C0_CONTROL_KEEP = {"\n", "\t"}
+
+# CAPTCHA / Cloudflare / security-interstitial stubs that fetch as a grammatical-looking
+# SENTENCE (so ``is_boilerplate_or_nonassertional`` does NOT catch them) and would
+# otherwise self-quote into the report. Allowlist input-hygiene, NEVER a verdict, NEVER a
+# quality/length drop of real content.
+#
+# I-beatboth-011 #7 P1 (#1289): the bare trigger phrase "just a moment" is NOT enough to
+# drop a member — real substantive prose can carry it ("Just a moment — the data show
+# wages rose 5% in 2023"). Dropping such prose would violate §-1.3 keep-all. A drop now
+# requires the trigger AND a STRONG WAF / security co-token (BYTE-IDENTICAL predicate
+# shared with ``finding_dedup._is_captcha_stub`` so consolidation and render agree). The
+# co-tokens are high-precision multi-word / branded anchors a real clinical sentence (any
+# language) never contains.
+_CAPTCHA_STUB_TRIGGER = "just a moment"
+_WAF_CO_TOKENS = (
+    "performing security verification",   # Cloudflare / generic WAF
+    "checking your browser",              # Cloudflare "checking your browser before accessing"
+    "cloudflare",                         # Cloudflare attribution / interstitial brand
+    "ray id",                             # Cloudflare error footer "Ray ID: ..."
+    "cf-ray",                             # Cloudflare response-header / footer token
+    "enable javascript and cookies",      # Cloudflare retry prompt
+    "ddos protection",                    # Cloudflare attribution stub
+    "attention required",                 # Cloudflare 1020 / block interstitial title
+    "verifying you are human",            # hCaptcha / Cloudflare Turnstile
+    "needs to review the security of your connection",  # Cloudflare interstitial body
+)
+
 # Web-chrome / cookie-consent / nav markers that read as a grammatical SENTENCE.
 # These slip past ``is_boilerplate_or_nonassertional`` + ``strip_web_boilerplate``
 # (which catch error-pages + line-level chrome, not sentence-form consent text) —
@@ -511,6 +558,58 @@ def spans_per_source() -> int:
     return max(1, val)
 
 
+def max_unit_chars() -> int:
+    """Render-safety char bound on a single emitted unit (I-beatboth-011 #4).
+
+    Default ``_DEFAULT_MAX_UNIT_CHARS``. Fail-loud on a non-integer (LAW II — no
+    silent fallback to a guessed value); floored at ``_MIN_UNIT_CHARS`` so the bound
+    can never silently zero the render. A unit longer than this is structurally a
+    fetch-shell / raw-extraction blob, never a clinical sentence.
+    """
+    raw = os.environ.get(_ENV_MAX_UNIT_CHARS)
+    if raw is None or not raw.strip():
+        return _DEFAULT_MAX_UNIT_CHARS
+    try:
+        val = int(raw.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{_ENV_MAX_UNIT_CHARS}={raw!r} is not an integer "
+            f"(per-unit render char bound)"
+        ) from exc
+    return max(_MIN_UNIT_CHARS, val)
+
+
+def _strip_control_bytes(text: str) -> str:
+    """Strip C0 control bytes (and DEL 0x7F) EXCEPT \\n and \\t from render text.
+
+    The drb_72 defect leaked a literal NUL byte (``\\x00``) into report.md, making it
+    binary-corrupt and unshowable. This removes every ``ord(ch) < 32`` control char
+    plus ``0x7F`` while KEEPING newline/tab (legitimate whitespace in a multi-line
+    quote). Byte-hygiene on the emitted render text, never a verdict, never a content
+    drop of a real claim — only non-printable control bytes are removed.
+    """
+    if not text:
+        return text
+    return "".join(
+        ch
+        for ch in text
+        if ch in _C0_CONTROL_KEEP or (ord(ch) >= 32 and ord(ch) != 0x7F)
+    )
+
+
+def _is_captcha_stub(text: str) -> bool:
+    """True iff ``text`` is a CAPTCHA / security-interstitial stub (allowlist-only).
+
+    I-beatboth-011 #7 P1 (#1289): the bare trigger phrase ("just a moment") is NOT
+    sufficient — a genuinely substantive sentence can contain it. A drop requires the
+    trigger AND a strong WAF / security co-token (BYTE-IDENTICAL predicate shared with
+    ``finding_dedup._is_captcha_stub``). §-1.3 keep-all: real prose carrying a bare
+    "just a moment" with no security co-token is never dropped.
+    """
+    low = text.lower()
+    return (_CAPTCHA_STUB_TRIGGER in low) and any(tok in low for tok in _WAF_CO_TOKENS)
+
+
 def is_enrichment_section(section: Any) -> bool:
     """True iff ``section`` is THIS module's weighted-enrichment section.
 
@@ -533,34 +632,53 @@ def _make_junk_screen() -> Any:
     """Combined junk screen: the production boilerplate helper OR the K chrome list.
 
     ``is_boilerplate_or_nonassertional`` catches error-pages / non-assertional
-    units; ``_is_web_chrome`` catches sentence-form consent/nav text it misses.
-    Both are allowlist input-hygiene, never a verdict. Import-fails fall back to the
-    chrome screen alone (never fail-open to nothing — the screen is load-bearing for
-    self-quotes per the advisor's hard requirement).
+    units; ``strip_web_boilerplate`` (applied as a whole-unit reduce-to-empty test)
+    catches whole-line crawl chrome; ``_is_web_chrome`` catches sentence-form
+    consent/nav text both miss; ``_is_captcha_stub`` (I-beatboth-011 #7, #1289)
+    catches CAPTCHA / Cloudflare security interstitials that read as a sentence. ALL
+    are allowlist input-hygiene, never a verdict. Import-fails fall back to the chrome
+    + CAPTCHA screens alone (never fail-open to nothing — the screen is load-bearing
+    for self-quotes per the advisor's hard requirement).
     """
     try:
         from src.tools.access_bypass import (  # noqa: PLC0415
             is_boilerplate_or_nonassertional as _boiler,
+            strip_web_boilerplate as _strip_boiler,
         )
     except Exception:  # pragma: no cover - access_bypass import is stable in-tree
-        return _is_web_chrome
+        def _screen_fallback(text: str) -> bool:
+            return _is_web_chrome(text) or _is_captcha_stub(text)
+        return _screen_fallback
 
     def _screen(text: str) -> bool:
-        return bool(_boiler(text)) or _is_web_chrome(text)
+        if bool(_boiler(text)) or _is_web_chrome(text) or _is_captcha_stub(text):
+            return True
+        # A unit that is ENTIRELY whole-line crawl chrome reduces to "" under
+        # strip_web_boilerplate — that is pure boilerplate, never a real claim.
+        return not (_strip_boiler(text) or "").strip()
 
     return _screen
 
 
-def _emit_unit(unit: str, eid: str) -> str:
-    """Render one verbatim unit with its ``[ev_id]`` marker INSIDE the sentence.
+def _emit_unit(unit: str, eids: Any) -> str:
+    """Render one verbatim unit with its ``[ev_id]`` marker(s) INSIDE the sentence.
 
-    Strips trailing terminal punctuation then appends ``[eid].`` so the marker
-    survives strict_verify's re-split (see ``_TERMINAL_PUNCT``).
+    Strips trailing terminal punctuation then appends ``[eid]`` for each evidence_id
+    (I-beatboth-011 #7 multi-citation: a same-work group emits ALL its grounding
+    co-citation markers on the one unit) followed by ``.`` so every marker sits INSIDE
+    the sentence unit and survives strict_verify's re-split (see ``_TERMINAL_PUNCT``).
+    Accepts a single id (str) or an ordered list of ids; the order is preserved
+    (representative first) and is deterministic.
     """
+    if isinstance(eids, str):
+        ids = [eids]
+    else:
+        ids = [str(e) for e in (eids or []) if str(e)]
     core = unit.rstrip()
     while core and core[-1] in _TERMINAL_PUNCT:
         core = core[:-1].rstrip()
-    return f"{core} [{eid}]."
+    marker_str = "".join(f" [{eid}]" for eid in ids)
+    return f"{core}{marker_str}."
 
 
 def _substantive_units(direct_quote: str, *, is_junk: Any) -> list[str]:
@@ -577,10 +695,20 @@ def _substantive_units(direct_quote: str, *, is_junk: Any) -> list[str]:
         split_into_sentences,
     )
 
+    max_chars = max_unit_chars()
     units: list[str] = []
     for raw_unit in split_into_sentences(direct_quote) or []:
-        unit = (raw_unit or "").strip()
+        # I-beatboth-011 #4 (#1289): strip C0 control bytes (incl. a literal NUL) from
+        # the unit BEFORE any length/screen check so a control byte can never reach the
+        # render and the bound measures clean printable chars.
+        unit = _strip_control_bytes(raw_unit or "").strip()
         if len(unit) < _MIN_UNIT_CHARS:
+            continue
+        # I-beatboth-011 #4 (#1289): a unit longer than the render bound is structurally
+        # a fetch-shell / raw-extraction blob (the 75K equation dump), never a clinical
+        # sentence — DROP it. NOT a breadth cap (source count uncapped); NOT a verify
+        # gate (strict_verify untouched). A real long quote is sentence-split upstream.
+        if len(unit) > max_chars:
             continue
         if not any(ch.isalpha() for ch in unit):
             continue
@@ -596,22 +724,266 @@ def _substantive_units(direct_quote: str, *, is_junk: Any) -> list[str]:
     return units
 
 
+# I-beatboth-011 #7 (#1289) — SAME-WORK CONSOLIDATION identity (§-1.3 CONSOLIDATE-
+# DON'T-DROP). Two unbound SUPPORTS members are the SAME WORK when they share a
+# normalized DOI, else a folded title PLUS a corroborating discriminator. KEEP ALL
+# their URLs as corroborating locators of the ONE work, but COUNT/PRESENT them as ONE
+# source (multi-URL corroboration), never N independent sources. Identity ladder
+# mirrors the existing ``_m51_canonical_identity`` convention (evidence_selector.py:
+# 2781): DOI first, else title(+discriminator), else (fallback) the evidence_id itself
+# so a member with neither stays its own distinct unit (never wrongly merged).
+#
+# I-beatboth-011 #4 (#1289) — P1 OVER-MERGE FIX (§-1.3: NEVER merge distinct works;
+# under-merge is safe, over-merge corrupts breadth/attribution). The no-DOI branch
+# MUST NOT merge on folded TITLE ALONE — two genuinely DIFFERENT works can share a
+# normalized title and would be wrongly collapsed, losing distinct corroborators. So
+# the no-DOI key requires the folded title PLUS the FIRST PRESENT corroborating
+# discriminator the records share, in this fixed priority order: publication YEAR →
+# first-author SURNAME → VENUE/journal → URL HOST. A priority-ordered composite (NOT
+# pairwise OR / union-find, which is non-transitive and over-merges through chains) is
+# a plain equality key, biased to UNDER-merge. Title-with-no-discriminator stays its
+# own ev-id singleton (distinct). This key computation is the SHARED canonical contract
+# with ``synthesis/finding_dedup.py`` and is duplicated BYTE-FOR-BYTE there (the
+# no-new-source-file rule forbids a shared module).
+_DOI_PREFIX_RE = re.compile(r"^\s*(?:doi\s*:?\s*|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
+_TITLE_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+# Publication-year validity bounds (SHARED with the selector's _row_year convention
+# at evidence_selector.py:769-770 and finding_dedup._row_year). Outside => absent.
+_MIN_YEAR = 1900
+_MAX_YEAR = 2100
+
+
+def _normalize_doi(raw: Any) -> str:
+    """Normalized DOI for same-work grouping ('' when absent/unusable).
+
+    SHARED contract with ``finding_dedup._normalize_doi``: strip a leading
+    ``doi:`` / ``https://doi.org/`` / ``http://dx.doi.org/`` prefix, lowercase,
+    ``rstrip("/")``; a USABLE DOI starts with the ``10.`` registrant prefix.
+    """
+    doi = str(raw or "").strip()
+    if not doi:
+        return ""
+    doi = _DOI_PREFIX_RE.sub("", doi).strip().lower().rstrip("/")
+    # A usable DOI starts with the ``10.`` registrant prefix; anything else is noise.
+    return doi if doi.startswith("10.") else ""
+
+
+def _normalize_title(raw: Any) -> str:
+    """Normalized title key for same-work grouping ('' when too short to be safe).
+
+    SHARED with ``finding_dedup._fold_title``: lowercase, collapse non-alphanumeric
+    runs to a single space, strip; require >= 12 chars (a tiny/generic title is an
+    over-merge risk).
+    """
+    title = str(raw or "").strip().lower()
+    title = _TITLE_NORMALIZE_RE.sub(" ", title).strip()
+    # Guard against an over-merge on a tiny/generic title: require real substance.
+    return title if len(title) >= 12 else ""
+
+
+def _record_title(ev: dict[str, Any]) -> str:
+    """The record's title across the schema aliases (``source_title`` is canonical;
+    ``title`` / ``page_title`` / ``name`` are the validator-mapped variants).
+
+    SHARED precedence with ``finding_dedup._row_title`` so the two consolidators
+    fold the SAME title field.
+    """
+    for key in ("source_title", "title", "page_title", "name"):
+        value = ev.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _record_year(ev: dict[str, Any]) -> str:
+    """Publication year as a discriminator token ('' when absent/invalid).
+
+    Reads ``ev['year']`` else ``ev['metadata']['year']`` and validates [1900, 2100]
+    — the SHARED convention with the selector's ``_row_year`` (evidence_selector.py:
+    793-809) and ``finding_dedup._row_year``.
+    """
+    val = ev.get("year")
+    if val is None:
+        meta = ev.get("metadata")
+        if isinstance(meta, dict):
+            val = meta.get("year")
+    if val is None:
+        return ""
+    try:
+        year = int(val)
+    except (TypeError, ValueError):
+        return ""
+    return str(year) if _MIN_YEAR <= year <= _MAX_YEAR else ""
+
+
+def _first_author_surname(ev: dict[str, Any]) -> str:
+    """First-author surname (folded) as a discriminator token ('' when absent).
+
+    Records carry ``authors`` (a list, family-name-first, e.g. ``["Autor D", ...]``)
+    or a singular ``author`` string. The surname is the FIRST whitespace token of the
+    first author, lowercased + non-alphanumerics stripped. SHARED with
+    ``finding_dedup._first_author_surname``.
+    """
+    raw = ev.get("authors")
+    first = ""
+    if isinstance(raw, (list, tuple)):
+        for entry in raw:
+            if entry and str(entry).strip():
+                first = str(entry).strip()
+                break
+    elif raw:
+        first = str(raw).strip()
+    if not first:
+        single = ev.get("author")
+        if single and str(single).strip():
+            first = str(single).strip()
+    if not first:
+        return ""
+    surname = first.split()[0] if first.split() else ""
+    surname = _TITLE_NORMALIZE_RE.sub("", surname.lower())
+    return surname
+
+
+def _record_venue(ev: dict[str, Any]) -> str:
+    """Venue/journal (folded) as a discriminator token ('' when absent).
+
+    Reads ``venue`` else ``journal``, lowercased with non-alphanumeric runs
+    collapsed to a single space and trimmed. SHARED with ``finding_dedup._row_venue``.
+    """
+    raw = ev.get("venue") or ev.get("journal") or ""
+    text = str(raw).strip().lower()
+    if not text:
+        return ""
+    text = _TITLE_NORMALIZE_RE.sub(" ", text)
+    return _WHITESPACE_RUN_RE.sub(" ", text).strip()
+
+
+def _record_host(ev: dict[str, Any]) -> str:
+    """URL host (no leading ``www.``) as the WEAKEST discriminator token.
+
+    Same-work fetches usually span DIFFERENT hosts, so host merges almost nothing —
+    it is last in the priority order purely as a safety net. SHARED with
+    ``finding_dedup._row_host`` (which delegates to ``_host_of``); the host reduction
+    here is inlined (no urllib import already present) but produces the SAME token.
+    """
+    from urllib.parse import urlparse  # noqa: PLC0415
+
+    url = str(ev.get("source_url", "") or ev.get("url", "") or "")
+    if not url:
+        return ""
+    host = (urlparse(url).hostname or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _title_discriminator(ev: dict[str, Any]) -> str:
+    """The STRICT corroborating discriminator for the no-DOI title branch.
+
+    I-beatboth-011 #4 P2 hardening (#1289): the no-DOI key MUST be strong enough that
+    two DISTINCT works sharing a title cannot merge on a single weak signal. A single
+    weak signal alone (year-only or host-only) is NOT enough. The token requires the
+    folded title PLUS either:
+      * a STRONG discriminator (first-author surname and/or venue) — every present
+        STRONG/year signal is folded in (year → author → venue, fixed order), so a
+        differing year OR differing author OR differing venue yields a DIFFERENT token
+        and the two works do NOT merge; OR
+      * two INDEPENDENT WEAK signals (year AND host) when no strong signal is present.
+
+    HOST IS ENABLING-ONLY, NEVER BLOCKING. Same-work members are the same work fetched
+    at DIFFERENT URLs, so they (almost) always differ on host (the ``_record_host``
+    safety-net premise + §-1.3). Host therefore appears ONLY as the SECOND weak signal
+    alongside year, and NEVER in the strong-path token — otherwise every legitimate
+    same-work merge (which spans different hosts) would be blocked.
+
+    Returns '' when neither a strong signal nor (year AND host) is present, so the record
+    stays a title-only singleton and is never merged on title alone. SHARED contract with
+    ``finding_dedup._title_discriminator`` (byte-identical key string).
+    """
+    year = _record_year(ev)
+    surname = _first_author_surname(ev)
+    venue = _record_venue(ev)
+    host = _record_host(ev)
+    if surname or venue:
+        parts: list[str] = []
+        if year:
+            parts.append("y:" + year)
+        if surname:
+            parts.append("a:" + surname)
+        if venue:
+            parts.append("v:" + venue)
+        return "|".join(parts)
+    if year and host:
+        return "y:" + year + "|h:" + host
+    return ""
+
+
+def _work_identity(eid: str, ev: dict[str, Any]) -> str:
+    """Same-work group key for one member: DOI, else title(+discriminator), else its
+    own ev_id.
+
+    I-beatboth-011 #4 (#1289): the no-DOI branch NEVER merges on folded title ALONE
+    (two different works can share a title). It requires the folded title AND the
+    FIRST present discriminator (year → first-author surname → venue → host).
+    Title-with-no-discriminator falls through to the evidence_id (never a constant),
+    so a member with neither a DOI nor (usable title + discriminator) stays its OWN
+    distinct unit — consolidation can only MERGE genuine same-work duplicates, never
+    collapse unrelated works. Matches ``finding_dedup._same_work_key``.
+    """
+    doi = _normalize_doi(ev.get("doi"))
+    if doi:
+        return f"doi:{doi}"
+    title = _normalize_title(_record_title(ev))
+    if title:
+        discriminator = _title_discriminator(ev)
+        if discriminator:
+            return f"title:{title}|{discriminator}"
+    return f"ev:{eid}"
+
+
+def _member_quote(ev: dict[str, Any]) -> str:
+    """The member's render-safe direct quote (control bytes stripped)."""
+    raw = (ev.get("direct_quote") or ev.get("statement") or "")
+    return _strip_control_bytes(str(raw)).strip()
+
+
 def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
     """Deterministic verbatim-span draft for the enrichment section (FIX K).
 
-    For each ev_id (in the caller's relevance/weight order), emit up to
-    ``spans_per_source()`` of that source's own verbatim sentence-units, each with
-    its legacy ``[ev_id]`` marker placed INSIDE the sentence, so
-    ``_rewrite_draft_with_spans`` binds each unit to its best in-quote span and
-    ``strict_verify`` validates it. A source whose quote is boilerplate/chrome /
-    pool-absent / has no substantive unit contributes nothing. Returns the joined
-    draft ("" => caller renders the existing gap stub, never a silent success). NO
-    LLM, NO faithfulness-gate touch.
+    Emits, in the caller's relevance/weight order, up to ``spans_per_source()`` of each
+    WORK's own verbatim sentence-units, each with its legacy ``[ev_id]`` marker placed
+    INSIDE the sentence, so ``_rewrite_draft_with_spans`` binds each unit to its best
+    in-quote span and ``strict_verify`` validates it.
+
+    I-beatboth-011 #4 (#1289) — RENDER SAFETY: every emitted span is control-byte
+    sanitized (NO NUL / C0 bytes ever reach the report) and a unit exceeding the render
+    char bound (a 75K raw-extraction blob) is dropped. A CAPTCHA / Cloudflare security
+    stub member is dropped by the junk screen.
+
+    I-beatboth-011 #7 (#1289) — SAME-WORK CONSOLIDATION (§-1.3 CONSOLIDATE-DON'T-DROP):
+    members that are the SAME WORK (same normalized DOI, else title) are grouped into
+    ONE multi-citation unit-set — counted/presented as ONE source — instead of N. ALL
+    the work's URLs are KEPT as corroborating locators: a corroborator's ``[ev_id]``
+    marker is attached to a unit ONLY when that corroborator's OWN quote actually
+    contains the emitted unit, so every emitted marker is span-grounded by construction
+    (this NEVER changes which members verify — the representative would verify alone;
+    corroborators only ADD already-grounding co-citations). A truncated-intro duplicate
+    of the representative contributes its URL as a corroborator, not a separate source.
+
+    A source whose quote is boilerplate/chrome/CAPTCHA, pool-absent, or has no
+    substantive unit contributes nothing. Returns the joined draft ("" => caller renders
+    the existing gap stub, never a silent success). NO LLM, NO faithfulness-gate touch.
     """
     pool = evidence_pool or {}
     is_junk = _make_junk_screen()
     budget = spans_per_source()
-    parts: list[str] = []
+
+    # Group ev_ids into same-work buckets, PRESERVING the caller's relevance/weight
+    # order: a work's bucket is keyed by its FIRST-seen member, so the highest-ordered
+    # member of each work is the representative and the bucket order is the work order.
+    work_order: list[str] = []
+    work_members: dict[str, list[str]] = {}
     for ev_id in (ev_ids or []):
         eid = str(ev_id or "")
         if not eid:
@@ -619,10 +991,42 @@ def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
         ev = pool.get(eid)
         if not isinstance(ev, dict):
             continue
-        direct_quote = (ev.get("direct_quote") or ev.get("statement") or "").strip()
+        direct_quote = _member_quote(ev)
+        # Drop CAPTCHA stubs / boilerplate at the WHOLE-member level up front.
         if not direct_quote or is_junk(direct_quote):
             continue
-        units = _substantive_units(direct_quote, is_junk=is_junk)
+        key = _work_identity(eid, ev)
+        if key not in work_members:
+            work_members[key] = []
+            work_order.append(key)
+        work_members[key].append(eid)
+
+    parts: list[str] = []
+    for key in work_order:
+        member_eids = work_members[key]
+        representative = member_eids[0]
+        rep_ev = pool.get(representative)
+        if not isinstance(rep_ev, dict):
+            continue
+        rep_quote = _member_quote(rep_ev)
+        units = _substantive_units(rep_quote, is_junk=is_junk)
+        if not units:
+            continue
+        # Pre-compute each corroborator's sanitized quote ONCE for the contains-check.
+        corroborator_quotes = [
+            (m, _member_quote(pool[m]))
+            for m in member_eids[1:]
+            if isinstance(pool.get(m), dict)
+        ]
         for unit in units[:budget]:
-            parts.append(_emit_unit(unit, eid))
+            # The representative ALWAYS grounds (its own quote contains the unit). Attach
+            # a corroborator marker ONLY when that corroborator's own quote also contains
+            # the unit — so every emitted marker is span-grounded and no member's verify
+            # status changes. ALL same-work members retain their URL as a co-locator;
+            # those whose fetch differs simply do not add a (would-fail) marker.
+            markers = [representative]
+            for m_eid, m_quote in corroborator_quotes:
+                if unit in m_quote and m_eid not in markers:
+                    markers.append(m_eid)
+            parts.append(_emit_unit(unit, markers))
     return " ".join(parts)

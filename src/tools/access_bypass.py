@@ -862,6 +862,18 @@ _WEB_BOILERPLATE_LINE_RE = re.compile(
         # "password"/"image"/"logo" in real prose is NEVER matched (only a line that IS the chrome unit).
         r"^\s*Change Password\s+Old Password\s+New Password\b.*$",   # Wiley/publisher login-nav line (3-token anchored)
         r"^\s*!\[Image\b[^\]]{0,120}\]\([^)\s]{0,300}\)\s*$",        # a line that IS one markdown image ``![Image N: ...](url)``
+        # I-beatboth-011 b2 (#1289): whole-LINE forms of the NEW chrome classes (these also appear
+        # standalone as their OWN line in some fetched bodies). MULTI-TOKEN / STRUCTURE anchored. These
+        # are deliberately TIGHT (no greedy ``.*$`` prose tail): when the chrome is collapsed inline as a
+        # PREFIX of a line that continues into real prose (the drb_72 report.md reality), the inline
+        # ``_INLINE_SOCIAL_CHROME_RE`` removes the chrome token-only and PRESERVES the prose — a greedy
+        # whole-line ``.*$`` here would instead delete the trailing real sentence, so it is forbidden.
+        r"^\s*(?:onomic|Economic) Perspectives\s*[—–]\s*Volume\s+\d+,\s*Number\s+\d+(?:\s*[—–]\s*[\w\s]+)?(?:\s*[—–]\s*Pages\s+[\d–\-]+)?\s*$",  # JEP masthead/running-header line (bounded chrome tail only)
+        r"^\s*CITATIONS\s+\d+\s+READS\s+\d+\s*$",                    # ResearchGate "CITATIONS N READS N" metadata line
+        r"^\s*\d+\s+authors,\s+including\s*:\s*$",                   # ResearchGate "N authors, including:" line (COLON anchored, no prose tail)
+        r"^\s*Crossref reports the following \S+ citing(?:\s+this\s+\w+)?\.?\s*$",  # Crossref citing-articles line (bounded)
+        r"^\s*Share\s+Help\s*$",                                     # MDPI "Share Help" action bar line
+        r"^\s*#main-content\s*$",                                    # MIT skip-to-content nav anchor line
     ]),
     re.MULTILINE | re.IGNORECASE,
 )
@@ -1081,6 +1093,38 @@ _INLINE_SOCIAL_CHROME_RE = re.compile(
         r"\S*logo-header[-\w]*\.png\)(?:\]\([^)\s]{0,300}\))?",            # masthead image URL ``.../logo-header-<digits>.png)`` (+ optional ``](url)`` link tail)
         r"\S*/pb-assets/\S+",                                              # publisher /pb-assets/ asset URL token
         r"\S*favicon[\w.\-]*\.(?:ico|png|svg|gif|jpe?g)\b",                # favicon image file (extension REQUIRED — never bare "favicon" prose)
+        # I-beatboth-011 b2 (#1289): NEW inline chrome classes seen VERBATIM in the drb_72 report.md
+        # Key-Findings/Comparative/Implications/Limitations bodies (page furniture that survived
+        # strict_verify because chrome IS verbatim source text). Every pattern is MULTI-TOKEN /
+        # STRUCTURE anchored so a real economics sentence in ANY language is NEVER screened (the §-1.3
+        # no-real-claim-dropped invariant); removed token-only, surrounding prose preserved. Adversarial
+        # near-misses these must NOT match: "Trading volume rose; Number 2 ranked…", "12 countries,
+        # including Brazil", "see section 2.3.2 for details", "papers in the same series examine wages".
+        r"(?:onomic|Economic) Perspectives\s*[—–]\s*Volume\s+\d+,\s*Number\s+\d+",  # JEP masthead/running-header (full AND the truncated "onomic Perspectives—Volume" form; em-dash U+2014 / en-dash U+2013 both handled; "Volume N, Number N" structure anchors it away from prose)
+        r"CITATIONS\s+\d+\s+READS\s+\d+",                                  # ResearchGate metadata block ("CITATIONS 12 READS 345")
+        r"\d+\s+authors,\s+including\s*:",                                 # ResearchGate author block (COLON discriminates from "12 countries, including Brazil")
+        r"Crossref reports the following \S+ citing",                      # ResearchGate/Crossref citing-articles nav
+        r"\[\s*Twitter\s*\]\(https?://\S*",                               # markdown share-button "[ Twitter ](http…)"
+        r"https?://twitter\.com/intent/\S+",                              # Twitter-intent share URL
+        # I-beatboth-011 b2-fix (#1289): Codex diff-review P1 over-strip catches. Three of the b2
+        # inline patterns were TOO BROAD under the global IGNORECASE sub() (a real economics sentence
+        # could be screened — over-strip is WORSE than a recoverable chrome leak per §-1.1/§-1.3):
+        #   • bare ``Share\s+Help\b`` ate lowercase prose ("workers share help to retrain") and is
+        #     not structurally tied to MDPI chrome -> REMOVED. The genuine standalone MDPI "Share Help"
+        #     action-bar LINE is still screened by the whole-line ``^\s*Share\s+Help\s*$`` allowlist
+        #     (above), and any residual inline leak is a recoverable chrome bullet the render-boundary
+        #     screen in run_honest_sweep_r3.py drops via a safer path.
+        #   • bare ``-\s+Working paper`` matched ordinary markdown/list prose ("- Working paper 245
+        #     examines wage effects"); "working paper" is common economics content -> TIGHTENED to the
+        #     FULL ILO series-nav literal (the hyphen-led title + the fixed "Insights from job vacancy
+        #     data" nav tail are BOTH required), so a bare "- Working paper …" body line is never matched.
+        #   • bare three-part ``\d+\.\d+\.\d+ Title Case`` stripped legitimate in-prose section refs
+        #     ("Section 2.3.2 Skill-Biased Technological Change shows rising inequality"); it was not
+        #     anchored to a TOC-only context -> REMOVED. A TOC-only line is still screened by the
+        #     whole-line allowlist path; an in-prose section reference is real content and stays.
+        r"-\s+Working paper\s+Insights from job vacancy data\b",          # ILO series-nav run (FULL literal: hyphen-led title + the fixed "Insights from job vacancy data" nav tail BOTH required; a bare "- Working paper …" markdown/list line in real prose is NEVER matched)
+        r"\d+\s+Pages\s+-\s+\d+\s+\w+ \d{4}",                             # ILO "56 Pages - 10 February 2026" series-listing run (Pages-date structure; distinct from Jina "Number of Pages:")
+        r"#main-content\b",                                               # MIT skip-to-content nav anchor
     ]),
     re.IGNORECASE,
 )

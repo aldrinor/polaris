@@ -465,6 +465,66 @@ def _synth_frame_row_for_corroborator(
     )
 
 
+def contract_sentence_citation_nums(
+    sv: Any,
+    tokens: list,
+    ev_to_num: dict[str, int],
+    *,
+    basket_supports_by_cluster: dict[str, list[str]],
+    cluster_id_by_evidence: Any,
+    evidence_pool: dict[str, dict[str, Any]],
+    basket_by_cluster: dict[str, dict[str, Any]],
+) -> list[int]:
+    """The V30 contract slot-regroup's per-sentence citation-number decision, extracted so the
+    benchmark render path's attachment logic is behaviorally testable WITHOUT the async
+    LLM-driven ``run_contract_section`` machinery (§-1.4: prove the effect fires in the OUTPUT,
+    not that a string is present).
+
+    Returns the ordered list of bibliography numbers attached to THIS sentence:
+      * its OWN strict-verified tokens (minus relevance-demoted/refuted eids), then
+      * each basket corroborator whose CLAIM-LOCAL span grounds THIS sentence
+        (``corroborator_grounds_sentence_via_basket`` — the SAME single decision the legacy
+        resolver applies, so a corroborator filtered off S1 can NOT be reattached to S1 via the
+        section-wide ``ev_to_num`` it earned on S2). Faithfulness-TIGHTENING; engine untouched.
+    OFF path (empty ``basket_supports_by_cluster``) => only own tokens => byte-identical regroup.
+    """
+    from .provenance_generator import (  # noqa: PLC0415
+        verified_corroborators_with_clusters_for_tokens,
+        corroborator_grounds_sentence_via_basket,
+        _verifier_cleaned_text,
+    )
+
+    _demoted_eids = (
+        (getattr(sv, "relevance_demoted_eids", None) or frozenset())
+        | (getattr(sv, "relevance_refuted_eids", None) or frozenset())
+    )
+    used_nums: list[int] = []
+    for tok in tokens:
+        if tok.evidence_id in _demoted_eids:
+            continue
+        n = ev_to_num.get(tok.evidence_id)
+        if n is not None and n not in used_nums:
+            used_nums.append(n)
+    _corro_claim_text = _verifier_cleaned_text(getattr(sv, "sentence", "") or "")
+    for _corro_eid, _corro_ccid in verified_corroborators_with_clusters_for_tokens(
+        [tok.evidence_id for tok in tokens],
+        basket_supports_by_cluster=basket_supports_by_cluster,
+        cluster_id_by_evidence=cluster_id_by_evidence,
+        evidence_pool=evidence_pool,
+    ):
+        if _corro_eid in _demoted_eids:
+            continue
+        if not corroborator_grounds_sentence_via_basket(
+            _corro_claim_text, _corro_eid, basket_by_cluster,
+            selected_cluster_id=_corro_ccid,
+        ):
+            continue
+        n = ev_to_num.get(_corro_eid)
+        if n is not None and n not in used_nums:
+            used_nums.append(n)
+    return used_nums
+
+
 async def _fill_one_slot(
     slot: ContractSlotPlan,
     entity_id: str,
@@ -659,12 +719,13 @@ async def run_contract_section(
         _BOGUS_EV_MARKER_RE,
         _RESOLVE_MIN_CONTENT_WORDS,
         _RESOLVE_MIN_PROSE_CHARS,
-        # I-arch-005 B6/B8 (#1257): the keystone INLINE multi-citation basket render —
-        # the SAME module-level helpers the legacy resolver uses, so the V30 contract
-        # slot-regroup expands corroborators with IDENTICAL faithfulness logic.
+        # I-arch-005 B6/B8 (#1257): the keystone basket index helpers the V30 contract
+        # slot-regroup feeds into the extracted contract_sentence_citation_nums helper (which
+        # itself imports verified_corroborators_for_tokens + the I-beatboth-011 P1#1 claim-local
+        # corroborator filter), so the per-sentence attachment decision is IDENTICAL to the
+        # legacy resolver's.
         _basket_for_biblio,
         build_basket_supports_by_cluster,
-        verified_corroborators_for_tokens,
     )
 
     # I-arch-004 F32 (#1255): resolve the narrative-paragraph adapter. None => use
@@ -752,8 +813,13 @@ async def run_contract_section(
         _baskets is not None and _cluster_id_by_evidence is not None
     )
     _basket_supports_by_cluster: dict[str, list[str]] = {}
+    # I-beatboth-011 P1#1: hoist the per-cluster PROJECTED basket map to function scope (default
+    # empty) so the V30 slot-regroup below can ground each corroborator against its CLAIM-LOCAL
+    # span via corroborator_grounds_sentence_via_basket — the SAME anti-mis-attribution filter
+    # the legacy resolver applies. On the OFF path it stays {} and the corro loop never fires
+    # (empty _basket_supports_by_cluster => no corroborators) => byte-identical regroup.
+    _basket_by_cluster: dict[str, dict[str, Any]] = {}
     if _carry_baskets:
-        _basket_by_cluster: dict[str, dict[str, Any]] = {}
         for _basket in (_baskets or []):
             _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
             if _ccid:
@@ -1374,44 +1440,23 @@ async def run_contract_section(
         # Refuted contradiction is ALSO recorded as the persisted
         # ``relevance_refuted_contradiction`` soft-warning by resolve()). Reading both via
         # getattr keeps the OFF/legacy path (no attribute) byte-identical.
-        _demoted_eids = (
-            (getattr(sv, "relevance_demoted_eids", None) or frozenset())
-            | (getattr(sv, "relevance_refuted_eids", None) or frozenset())
-        )
-        # Build citation marker (preserve first-appearance order
-        # within the sentence).
-        used_nums: list[int] = []
-        for tok in tokens:
-            if tok.evidence_id in _demoted_eids:
-                continue
-            n = ev_to_num.get(tok.evidence_id)
-            if n is not None and n not in used_nums:
-                used_nums.append(n)
-        # I-arch-005 B6/B8 (#1257): INLINE multi-citation basket render on the V30
-        # contract path (the keystone reaching the benchmark report). Append the
-        # citation markers for every OTHER independently span-verified (SUPPORTS)
-        # member of the basket(s) this sentence's OWN cited sources back — via the
-        # SAME module-level helper the legacy resolver uses (SUPPORTS-only, never the
-        # advisory clustered count; a MULTI-cluster token is NOT expanded — anti
-        # cross-claim, §-1.1 lethal). Each corroborator was already numbered into
-        # biblio_slice by the resolver above (baskets were threaded into it), so
-        # ev_to_num resolves it; dedup'd against used_nums so the sentence's own
-        # citation is never doubled. Empty index (OFF path) => no corroborators added
-        # => byte-identical legacy single-citation regroup.
-        for _corro_eid in verified_corroborators_for_tokens(
-            [tok.evidence_id for tok in tokens],
+        # I-arch-005 B6/B8 (#1257) own-token + INLINE multi-citation basket render on the V30
+        # contract path (the keystone reaching the benchmark report), I-beatboth-003 demotion,
+        # and the I-beatboth-011 P1#1 claim-local-span corroborator filter are computed by ONE
+        # extracted module-level helper (contract_sentence_citation_nums) so the benchmark-path
+        # attachment decision is behaviorally testable and IDENTICAL to the legacy resolver's:
+        # a corroborator filtered off S1 there can NOT be reattached to S1 here via the
+        # section-wide ev_to_num it earned on S2. Empty index (OFF path) => own tokens only =>
+        # byte-identical legacy single-citation regroup.
+        used_nums = contract_sentence_citation_nums(
+            sv,
+            tokens,
+            ev_to_num,
             basket_supports_by_cluster=_basket_supports_by_cluster,
             cluster_id_by_evidence=_cluster_id_by_evidence,
             evidence_pool=evidence_pool,
-        ):
-            # I-beatboth-003: a corroborator the relevance judge demoted/refuted for THIS
-            # sentence is excluded from the inline support set too (consistency with the
-            # per-token demotion above + the legacy resolver). OFF path => empty => no-op.
-            if _corro_eid in _demoted_eids:
-                continue
-            n = ev_to_num.get(_corro_eid)
-            if n is not None and n not in used_nums:
-                used_nums.append(n)
+            basket_by_cluster=_basket_by_cluster,
+        )
         markers = "".join(f"[{n}]" for n in used_nums)
         sentences_by_slot.setdefault(slot_id, []).append(stripped + markers)
         _emitted_into_slots += 1

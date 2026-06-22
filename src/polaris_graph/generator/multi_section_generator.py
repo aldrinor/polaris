@@ -62,6 +62,7 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     _section_baskets_for_compose,
     _verified_compose_enabled,
     build_verified_span_draft,
+    dedup_same_span_sentences,
     split_into_sentences,
 )
 
@@ -4261,6 +4262,29 @@ async def _run_section(
     # actually ships.
     report.total_kept = len(report_kept_after_m41c)
 
+    # I-arch-011 #1269 B11 (compose-repetition): collapse degenerate SAME-SPAN restatements within
+    # this section so a single verified span (e.g. brynjolfsson_genai_at_work:0-800) renders ONCE,
+    # not 18x (canary autopsy B11 / §-1.1 DO_NOT_SHIP on drb_72). FAITHFULNESS-NEUTRAL: every dropped
+    # sentence cites a resolved (ev_id,start,end) FOOTPRINT already emitted by a KEPT sibling — it is
+    # an already-strict_verify-PASSED reword of an already-rendered span; the verify engine is never
+    # touched (this runs AFTER it). It is CONSOLIDATE-keep-one (§-1.3), NOT a cap/thinner/target —
+    # the bound is content identity (one per footprint), and a different ev_id is never collapsed, so
+    # DISTINCT-work corroborators (the breadth the audit wants) are untouched. A conservative number
+    # carve-out keeps a same-span sentence that states a genuinely NEW statistic. DEFAULT-ON; set
+    # PG_COMPOSE_SAME_SPAN_DEDUP=0 for byte-identical legacy behavior.
+    _same_span_collapsed: list = []
+    if os.getenv("PG_COMPOSE_SAME_SPAN_DEDUP", "1").strip().lower() not in ("", "0", "false", "off", "no"):
+        _dd_kept, _same_span_collapsed = dedup_same_span_sentences(report.kept_sentences)
+        if _same_span_collapsed:
+            report.kept_sentences = _dd_kept
+            report.total_kept = len(_dd_kept)
+            logger.info(
+                "[multi_section] B11 same-span dedup: collapsed %d degenerate same-span "
+                "restatement(s) in section %r (%d -> %d kept)",
+                len(_same_span_collapsed), section.title,
+                len(_same_span_collapsed) + len(_dd_kept), len(_dd_kept),
+            )
+
     # I-cred-008b (#1162) SITE 1/4 (legacy per-section): populate the advisory per-claim
     # disclosure on the kept SVs IMMEDIATELY BEFORE resolve, so the fields ride along into
     # kept_sentences_pre_resolve (set from report.kept_sentences below). None => byte-identical
@@ -4332,10 +4356,15 @@ async def _run_section(
         # overstates what actually shipped. The dropped delta is reflected in
         # sentences_dropped below so verified + dropped stays consistent.
         sentences_verified=resolved_emitted,
+        # I-arch-011 #1269 B11: include the same-span dedup-collapsed restatements so the section
+        # total stays honest (they were removed from report.total_kept above; without this they would
+        # silently vanish from the dropped accounting). They are ALSO surfaced as the redundant SVs in
+        # dropped_sentences_dedup_redundant below (the existing dedup-redundant telemetry bucket).
         sentences_dropped=(
             report.total_dropped
             + m41c_drop_count
             + max(0, report.total_kept - resolved_emitted)
+            + len(_same_span_collapsed)
         ),
         regen_attempted=regen_attempted,
         dropped_due_to_failure=dropped_due_to_failure,
@@ -4357,6 +4386,12 @@ async def _run_section(
         # but failed the policy filter; without this field they would
         # be invisible in verification_details.json.
         dropped_sentences_m41c_underframed=list(report_dropped_m41c or []),
+        # I-arch-011 #1269 B11: the same-span dedup-collapsed restatements, surfaced in the existing
+        # dedup-redundant telemetry bucket so the operator SEES the degenerate-repetition collapse in
+        # verification_details.json (mirrors the cross-section fact_dedup convention at ~7680).
+        dropped_sentences_dedup_redundant=[
+            str(getattr(_sv, "sentence", "") or "") for _sv in _same_span_collapsed
+        ],
         # Step 3b commit 4: thread atom_catalog onto SectionResult so
         # the orchestrator's final-remap-hook validator uses the same
         # numbering V4 Pro saw in the prompt.
