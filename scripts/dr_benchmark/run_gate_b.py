@@ -621,9 +621,20 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # judge_error fail-closed + numeric-completeness), degrading to the verbatim K-span on any failure;
     # (c) §3.1 input-screen drops chrome members before the writer call. This is the producer that turns
     # the verbatim span-dump into plain declarative prose WITHOUT relaxing faithfulness. Default-OFF in
-    # code => the slate ACTIVATES it for the cert run (force-ON below). Writer budgets use the module
-    # defaults (glm-5.2 generator arm, reasoning 8192, per-call 120s deadline -> K-span, concurrency 8).
+    # code => the slate ACTIVATES it for the cert run (force-ON below). Writer model = glm-5.2 generator
+    # arm; the reasoning/concurrency/deadline budgets are TUNED below (not the slow module defaults).
     "PG_ABSTRACTIVE_WRITER": "1",
+    # I-beatboth-011 (a) (#1289): writer reasoning/concurrency/deadline tuning so Route C FIRES under
+    # load. The resume run timed out 22/44 baskets ("writer call exceeded 120s deadline") because the
+    # writer's default reasoning budget is 8192 (GLM burns it) -> each rephrase ran slow; the §3.1 smoke
+    # at reasoning=2048 completed in 3.2s. A rephrase is a copy-edit, not analysis (§9.1.8 forbids
+    # STARVING reasoning into EMPTY content; 8192 here causes SLOWNESS, not starvation, and 2048 is
+    # smoke-proven sufficient). Lower the reasoning budget + writer concurrency (cut all-GLM endpoint
+    # self-contention vs the D8 verify fan-out) + modest deadline headroom. Timing-only; faithfulness-
+    # neutral. Force-EXACT below so a stray .env cannot restore the slow 8192/8/120 defaults.
+    "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS": "2048",
+    "PG_ABSTRACTIVE_WRITER_CONCURRENCY": "4",
+    "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S": "180",
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
@@ -1364,6 +1375,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
 # around capability-enabling flags keep their original meaning.
 _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_SWEEP_ANALYST_SYNTHESIS",
+    # I-beatboth-011 (a) (#1289): force-EXACT the writer tuning so a stray .env cannot restore the slow
+    # 8192-reasoning / concurrency-8 / 120s defaults that timed out Route C on the resume run.
+    "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS",
+    "PG_ABSTRACTIVE_WRITER_CONCURRENCY",
+    "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S",
     # I-arch-005 PREFLIGHT FIX (#1257): B1 selects its scorer by a STRING value, not a boolean — force-EXACT
     # to 'semantic_v2' (the numeric FLOOR path would crash on float('semantic_v2')) so an .env='lexical'
     # cannot silently revert B1 to the legacy lexical scorer + bypass the restored relevance filter.
