@@ -818,6 +818,33 @@ _LINK_MARKDOWN_RE = re.compile(r"\[([^\]]*)\]\((?:https?://[^)]*)\)")
 _BARE_URL_RE = re.compile(r"https?://\S+")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
 
+# I-beatboth-011 b2 (#1289): a TRUNCATED / dangling image-markdown masthead. The COMPLETE
+# `_IMAGE_MARKDOWN_RE` (`![alt](url)`) cannot match a fragment whose closing `)` was cut off when the
+# basket claim_text was capped (e.g. `... ![Image 4: shutterstock_2248569299](`), and these dangling
+# image mastheads are the DOMINANT crawl-chrome residue surviving in the rendered "## Bibliography"
+# corroboration headers. This strips an unterminated `![...]( ...` from the `![` marker to end-of-line
+# (or end-of-string). End-anchored so it only eats a trailing fragment — a complete `![alt](url)`
+# mid-string is left to `_IMAGE_MARKDOWN_RE`; a bare `!` or `[` in real prose is never matched (the
+# `![` two-char marker is required). INPUT-hygiene only: removes confirmed image-masthead chrome,
+# never an assertional claim (§-1.3 no-source-dropped).
+_DANGLING_IMAGE_MARKDOWN_RE = re.compile(r"!\[[^\n]*$")
+
+# I-beatboth-011 b2 (#1289): the named crawl-chrome tokens this fix screens a rendered TITLE/HEADER
+# for. If any survives the cleaner (e.g. an inline image fragment too mangled to strip, or a marker
+# the whole-line allowlist missed), the caller falls back to a non-chrome label rather than titling
+# the source with crawl chrome. Substring (not whole-line) so it catches the inline-collapsed shape.
+_NAMED_TITLE_CHROME_RE = re.compile(
+    r"Markdown Content|URL Source|Published Time\s*:|Number of Pages|!\[Image|ISSN\s*:?\s*\d|Cite this paper as",
+    re.IGNORECASE,
+)
+
+
+def _title_has_named_chrome(text: str) -> bool:
+    """I-beatboth-011 b2 (#1289): True iff a rendered bibliography TITLE/HEADER still carries a named
+    crawl-chrome token after cleaning. PURE; used to trigger the non-chrome-label fallback so a source
+    is never TITLED with crawl chrome. Never drops the source — only changes the displayed string."""
+    return bool(text) and bool(_NAMED_TITLE_CHROME_RE.search(text))
+
 # BB5-P03 — env knob: when the outline already produced a Limitations section,
 # suppress the appended synthesized one (default ON — the duplicate header + the
 # verbatim-duplicated paragraph are the drb_90 defect). Citation markers are
@@ -1159,9 +1186,33 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             # (not a claim), fall back to subject-predicate / the cluster id. HEADER TEXT ONLY — it
             # never removes a supporting_member or source; count + verdict are untouched (faithfulness-
             # neutral, same layer/role as the existing :1465 wiring).
-            from src.tools.access_bypass import is_boilerplate_or_nonassertional  # noqa: PLC0415
-            claim = _normalize_claim_summary(str(basket.get("claim_text") or ""), quote_trim=160)
-            if not claim or is_boilerplate_or_nonassertional(claim):
+            #
+            # I-beatboth-011 b2 (#1289): the prior screen used only _normalize_claim_summary (which strips
+            # image markdown / bare URLs / numbered-biblio lines) + the WHOLE-LINE-anchored
+            # is_boilerplate_or_nonassertional. Neither catches crawl chrome that is COLLAPSED INLINE
+            # mid-string in the basket claim_text — the dominant shape in the banked v3 corpus
+            # ("...Number of Pages: 6 Markdown Content: ...", "...URL Source: <url> Published Time: ...
+            # Markdown Content: ...", inline "![Image N: ...](url)" mastheads, "ISSN: 1234-5678",
+            # "Cite this paper as:"). 175/175 chrome hits in the rendered "## Bibliography" area across 5
+            # recent corpora traced to this header (the numbered [N] bibliography lines below were already
+            # clean: 0/0 statement-field chrome). access_bypass.clean_fetch_body applies the proven
+            # idx46/68 INLINE regexes (_JINA_INLINE_TOKEN_RE + _INLINE_SOCIAL_CHROME_RE) plus the
+            # Markdown-Content preamble drop, so it removes the inline reader/journal chrome the
+            # whole-line allowlist misses while leaving a real title byte-identical. Run it FIRST, then
+            # _normalize_claim_summary trims, then the chrome screen / subject-predicate fallback. HEADER
+            # TEXT ONLY — clean_fetch_body is INPUT hygiene that removes only confirmed fetch chrome,
+            # never a supporting_member, count, or verdict (faithfulness-neutral; §-1.3 no-source-dropped).
+            from src.tools.access_bypass import (  # noqa: PLC0415
+                clean_fetch_body,
+                is_boilerplate_or_nonassertional,
+            )
+            _raw_claim = str(basket.get("claim_text") or "")
+            _dechromed = clean_fetch_body(_raw_claim).cleaned_text if _raw_claim else ""
+            claim = _normalize_claim_summary(_dechromed, quote_trim=160)
+            # I-beatboth-011 b2 (#1289): fall back when the cleaned header is empty, is whole-line
+            # boilerplate, OR still carries a NAMED crawl-chrome token (a fragment too mangled for the
+            # inline regexes to fully strip) — so a source is never TITLED with residual crawl chrome.
+            if not claim or is_boilerplate_or_nonassertional(claim) or _title_has_named_chrome(claim):
                 _subj = str(basket.get("subject") or "").strip()
                 _pred = str(basket.get("predicate") or "").strip()
                 claim = (f"{_subj} {_pred}".strip()) or ccid
@@ -1221,9 +1272,53 @@ def _render_bibliography_lines(
     DETERMINISTIC_ONLY candidates). Default-OFF keyword => byte-identical legacy render."""
     out = "\n\n## Bibliography\n"
     for b in bibliography:
-        statement = str(b.get("statement", ""))[:200]
+        # I-beatboth-011 b2 (#1289): screen the rendered source TITLE/label for crawl chrome BEFORE
+        # truncating. In the banked v3 corpora the numbered-entry `statement` was already clean
+        # (0/0 chrome across 5 recent bibliographies — the inline reader/journal chrome surfaced in
+        # the per-claim corroboration HEADER, fixed above), but the displayed title is render-hygiene-
+        # sensitive, so we defensively run the same INPUT-hygiene cleaner (clean_fetch_body applies
+        # the proven idx46/68 inline regexes + the Markdown-Content preamble drop). Clean the FULL
+        # title first, THEN truncate, so a leading chrome run can't shove the real title past [:200].
+        # When the title is WHOLLY chrome (nothing real survives), fall back to the URL, then a
+        # domain-derived label, then `source <num>` — NEVER blank, and the citation NUMBER and the
+        # bibliography ENTRY itself are untouched, so the body's [N] markers still resolve and no
+        # source is ever removed (faithfulness-neutral; §-1.3 no-source-dropped).
+        from src.tools.access_bypass import clean_fetch_body  # noqa: PLC0415
+        from urllib.parse import urlsplit  # noqa: PLC0415
+        _raw_statement = str(b.get("statement", ""))
         url = b.get("url", "")
         tier = b.get("tier", "")
+        # Use clean_fetch_body ALONE here (NOT _normalize_claim_summary): clean_fetch_body leaves a real
+        # clean title byte-identical, whereas _normalize_claim_summary would also strip a statement that
+        # legitimately starts with a number ("1. Introduction ...") or carries a bare URL, clobbering a
+        # real title. The numbered-entry statement field is already chrome-free in the banked corpora
+        # (0/0), so this is purely defensive render-hygiene; keeping it to clean_fetch_body preserves the
+        # #1239 "byte-identical legacy render" invariant for require_locator=False.
+        _cleaned_statement = (
+            clean_fetch_body(_raw_statement).cleaned_text.strip() if _raw_statement else ""
+        )
+        # I-beatboth-011 b2 (#1289, P2): also strip a COMPLETE-then-TRUNCATED `![Image...` masthead
+        # whose closing `)` was capped off. clean_fetch_body removes complete images but not a capped
+        # fragment, so a real title PREFIX + dangling image would otherwise be screened as chrome and
+        # fall back to the domain, losing the real title. Complete-image strip runs first (same order
+        # as _normalize_claim_summary) so a `![img](url) <real title>` keeps the real title. A clean
+        # title carries no `![...` tail, so _destripped == _cleaned_statement and this is byte-identical
+        # for clean titles (the #1239 invariant is preserved — only a dangling-image title is altered).
+        if _cleaned_statement:
+            _destripped = _DANGLING_IMAGE_MARKDOWN_RE.sub(
+                " ", _IMAGE_MARKDOWN_RE.sub(" ", _cleaned_statement)
+            )
+            if _destripped != _cleaned_statement:
+                _cleaned_statement = _WHITESPACE_RUN_RE.sub(" ", _destripped).strip()
+        if _cleaned_statement and not _title_has_named_chrome(_cleaned_statement):
+            statement = _cleaned_statement[:200]
+        else:
+            # Wholly-chrome (or empty) title: fall back to a non-chrome label so the entry never
+            # renders as a blank/chrome title. domain (human-readable) > DOI > `source <num>`.
+            _url_s = str(url or "").strip()
+            _domain = urlsplit(_url_s).netloc.strip() if _url_s else ""
+            _doi = str(b.get("doi") or "").strip()
+            statement = (_domain or _doi or f"source {b.get('num', '')}".strip())[:200]
         if require_locator and not _bib_entry_has_locator(b):
             # #1239 (Codex iter-1 REQUEST_CHANGES): a cited-but-locator-less entry must KEEP its
             # citation number so the report BODY's [N] marker still resolves (the old code dropped
@@ -1263,7 +1358,14 @@ def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
     ``quote_trim`` chars (adding an ellipsis when truncated). Pure string op."""
     if not text:
         return ""
+    # I-beatboth-011 b2 (#1289): strip COMPLETE inline images FIRST, THEN a TRUNCATED/dangling
+    # `![...` masthead whose closing `)` was capped off (the complete-image regex cannot match a
+    # fragment). Order matters: running the end-anchored dangling regex first would eat a complete
+    # `![img](url) <real claim>` all the way to EOL, dropping the real claim (prior gate P1). With
+    # complete images removed first, any remaining `![...$` is genuinely unclosed, so the real claim
+    # before/around a complete image is preserved.
     cleaned = _IMAGE_MARKDOWN_RE.sub(" ", text)
+    cleaned = _DANGLING_IMAGE_MARKDOWN_RE.sub(" ", cleaned)
     cleaned = _LINK_MARKDOWN_RE.sub(r"\1", cleaned)
     cleaned = _BIBLIO_LINE_RE.sub(" ", cleaned)
     cleaned = _BARE_URL_RE.sub(" ", cleaned)
