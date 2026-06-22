@@ -857,6 +857,11 @@ _WEB_BOILERPLATE_LINE_RE = re.compile(
         r"^\s*Share\s+Save\s+Download\b.*$",                     # YouTube action row
         r"^\s*Cite this paper as\b.*$",                          # journal masthead cite chrome
         r"^\s*ISSN\s*:?\s*\d{4}-\d{3}[\dXx]\s*$",                # bare ISSN identifier row
+        # I-beatboth-011 b1 (#1289): publisher login-nav line + image-URL masthead line that leaked into
+        # the answer BODY (drb_72 report.md). Whole-line + MULTI-TOKEN anchored — a bare
+        # "password"/"image"/"logo" in real prose is NEVER matched (only a line that IS the chrome unit).
+        r"^\s*Change Password\s+Old Password\s+New Password\b.*$",   # Wiley/publisher login-nav line (3-token anchored)
+        r"^\s*!\[Image\b[^\]]{0,120}\]\([^)\s]{0,300}\)\s*$",        # a line that IS one markdown image ``![Image N: ...](url)``
     ]),
     re.MULTILINE | re.IGNORECASE,
 )
@@ -1062,6 +1067,20 @@ _INLINE_SOCIAL_CHROME_RE = re.compile(
         r"Share\s+Save\s+Download(?:\s+Download)?",                  # YouTube action row (sometimes doubled)
         r"Cite this paper as\s*:?",                                  # journal masthead cite chrome
         r"ISSN\s*:?\s*\d{4}-\d{3}[\dXx]",                            # ISSN identifier
+        # I-beatboth-011 b1 (#1289): publisher login-nav run + image-URL masthead chrome that leaked into
+        # the answer BODY/Key-Findings in the banked v3 run (drb_72 report.md carried the literal Wiley
+        # masthead+login-nav run ``.../logo-header-1690978619437.png) ## Change Password Old Password New
+        # Password Too Short.[13]...`` cited as a "verified independent source"). These collapse INLINE in
+        # the cited body so the whole-line allowlist misses them, exactly like the idx46 social chrome.
+        # EVERY pattern is MULTI-TOKEN / STRUCTURE anchored so a bare ``password``/``image``/``logo``/
+        # ``favicon`` mid-sentence in real prose is NEVER matched (the §-1.3 no-real-claim-dropped
+        # invariant); removed token-only, surrounding prose preserved.
+        r"Change Password\s+Old Password\s+New Password"
+        r"(?:\s+(?:Very Strong|Too Short|Too Long|Strong|Medium|Weak))*",  # Wiley login-nav run + trailing password-strength meter (anchored to the 3-token form; meter labels stripped ONLY when they follow the login-nav, so a bare "Weak"/"Strong" in real prose is never touched)
+        r"!\[Image\b[^\]]{0,120}\]\([^)\s]{0,300}\)",                      # markdown image ``![Image N: ...](url)`` (full structure)
+        r"\S*logo-header[-\w]*\.png\)(?:\]\([^)\s]{0,300}\))?",            # masthead image URL ``.../logo-header-<digits>.png)`` (+ optional ``](url)`` link tail)
+        r"\S*/pb-assets/\S+",                                              # publisher /pb-assets/ asset URL token
+        r"\S*favicon[\w.\-]*\.(?:ico|png|svg|gif|jpe?g)\b",                # favicon image file (extension REQUIRED — never bare "favicon" prose)
     ]),
     re.IGNORECASE,
 )

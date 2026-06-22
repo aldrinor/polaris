@@ -44,6 +44,7 @@ degraded pass (``credibility_analysis is None``) also yields an empty selection 
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, NamedTuple
 
 # LAW VI: env-overridable, default OFF (unset => byte-identical legacy render).
@@ -448,6 +449,25 @@ _WEB_CHROME_MARKERS = (
     "tap to unmute",                      # YouTube player chrome
     "skip navigation",                    # YouTube / generic nav
     "cite this paper as",                 # journal masthead citation widget
+    # I-beatboth-011 b1 (#1289): publisher login-nav + image-URL masthead chrome that self-quoted into the
+    # answer BODY/Key-Findings in banked v3 (drb_72 report.md carried the literal Wiley masthead+login-nav
+    # run ".../logo-header-1690978619437.png) ## Change Password Old Password New Password Too Short.[13]").
+    # HIGH-PRECISION multi-word anchors ONLY (never bare "password"/"image"/"logo"/"favicon", which appear
+    # in real prose) — allowlist input-hygiene, NOT a length/quality drop of real content.
+    "change password old password new password",  # Wiley/publisher login-nav run
+    "/pb-assets/",                                 # publisher asset path segment (slash-anchored)
+    "![image",                                     # markdown image leader "![Image N: ...]" (structure-anchored)
+)
+
+# Structure-anchored web-chrome asset URLs that a bare substring marker cannot express
+# precisely — I-beatboth-011 b1 (#1289). Each REQUIRES a file extension / digit-stamp so a
+# real-prose mention ("the favicon was redesigned", "a logo-header CSS class") is NEVER matched
+# (the §-1.3 no-real-claim-dropped invariant). favicon coverage was missing entirely; logo-header
+# was a bare substring (over-screen risk) — both are now extension/path-anchored here.
+_WEB_CHROME_RE = re.compile(
+    r"favicon[\w.\-]*\.(?:ico|png|svg|gif|jpe?g)\b"   # favicon.<ext> asset file
+    r"|\blogo-header[-\w]*\.png\b",                   # masthead image URL logo-header-<stamp>.png
+    re.IGNORECASE,
 )
 
 # Trailing sentence-terminal punctuation stripped before the ``[ev_id]`` marker is
@@ -504,7 +524,9 @@ def is_enrichment_section(section: Any) -> bool:
 def _is_web_chrome(text: str) -> bool:
     """True iff ``text`` carries a sentence-form web-chrome / cookie-consent marker."""
     low = text.lower()
-    return any(marker in low for marker in _WEB_CHROME_MARKERS)
+    if any(marker in low for marker in _WEB_CHROME_MARKERS):
+        return True
+    return bool(_WEB_CHROME_RE.search(text))
 
 
 def _make_junk_screen() -> Any:
