@@ -1982,7 +1982,9 @@ def refetch_for_extraction_with_diagnostics(
           eligible: bool — True iff quote was emitted (≥100 chars)
           failure_mode: str — one of:
             '' (eligible), 'exception', 'fetch_failed',
-            'thin_content', 'paywall_shell'
+            'thin_content', 'paywall_shell', 'fetch_shell'
+            ('fetch_shell' = clean_fetch_body reported the whole body is a
+            boilerplate/interstitial shell — not extractable, not cited)
           exception_type: str — class name when failure_mode=exception
     """
     diagnostics: dict[str, Any] = {
@@ -2075,7 +2077,26 @@ def refetch_for_extraction_with_diagnostics(
         # BEFORE the provenance quote is built, so the cited direct_quote is clean
         # at source. Input hygiene only — faithfulness gates untouched.
         from src.tools.access_bypass import clean_fetch_body
-        content = clean_fetch_body(content).cleaned_text
+        _cf = clean_fetch_body(content)
+        content = _cf.cleaned_text
+        # I-beatboth-011 idx49 (#1289): when clean_fetch_body reports the WHOLE
+        # cleaned body is a fetch SHELL (boilerplate / soft-404 / Cloudflare or
+        # "security check required" interstitial that leaked through as cited
+        # evidence on drb_72), route it to the EXISTING not-extractable failure
+        # branch instead of building a cited quote from the junk — mirroring the
+        # frame_fetcher METADATA_ONLY gap path (frame_fetcher.py:1098-1105). This
+        # consumes the EXISTING `shell_reason` signal and the EXISTING early-return
+        # failure path; it adds NO new drop/cap/threshold. The `empty_after_clean`
+        # case is already caught by the `len(quote) < 100` gate below; the leak this
+        # closes is a >100-char `boilerplate_or_error_stub` interstitial.
+        if _cf.shell_reason:
+            logger.info(
+                "[refetch_for_extraction] fetch-shell rejected url=%s reason=%s "
+                "len=%d → not-extractable (not cited as evidence)",
+                (url or "")[:200], _cf.shell_reason, len(content),
+            )
+            diagnostics["failure_mode"] = "fetch_shell"
+            return "", diagnostics  # failure (settled in finally)
         quote = _build_provenance_quote(
             content, head_chars=min(1500, max_chars), window_chars=500,
             max_total_chars=max_chars,
@@ -3627,6 +3648,10 @@ def run_live_retrieval(
         "content_starved": 0,
         "landing_page": 0,
         "down_weighted": 0,
+        # I-beatboth-011 idx49 (#1289): rows skipped because clean_fetch_body
+        # reported the whole body is a fetch SHELL (boilerplate/interstitial).
+        # Telemetry label only — not a threshold.
+        "fetch_shell": 0,
     }
     # Populated inside the Step-3 off-topic block; stays None when the filter is
     # disabled or only seeds are present (honest absence, never a faked count).
@@ -4558,7 +4583,31 @@ def run_live_retrieval(
                 # P1: this is the evidence_for_gen.direct_quote path). Input hygiene
                 # only; full_content_length below keeps the raw fetched length.
                 from src.tools.access_bypass import clean_fetch_body
-                _cleaned_for_quote = clean_fetch_body(content).cleaned_text
+                _cf_quote = clean_fetch_body(content)
+                _cleaned_for_quote = _cf_quote.cleaned_text
+                # I-beatboth-011 idx49 (#1289): when clean_fetch_body reports the
+                # WHOLE cleaned body is a fetch SHELL (boilerplate / soft-404 /
+                # Cloudflare or "security check required" interstitial — the junk
+                # that leaked through as cited evidence on drb_72), SKIP it the same
+                # way the existing content-starved branch above skips a row: trace
+                # the drop + count it + `continue` so NO cited evidence row is
+                # appended. This guard sits at the TOP of the else so it pre-empts
+                # the redesign-ON down-weight-and-KEEP branch below — a down-weighted
+                # row is still appended (still emitted as cited evidence), so a
+                # confirmed fetch-shell must be dropped, never down-weighted. Mirrors
+                # frame_fetcher's METADATA_ONLY gap path (frame_fetcher.py:1098-1105).
+                # This consumes the EXISTING `shell_reason` signal and the EXISTING
+                # skip mechanism (no new drop/cap/threshold; §-1.3: removes only
+                # confirmed fetch-junk, never a real source).
+                if _cf_quote.shell_reason:
+                    logger.info(
+                        "[live_retriever] fetch-shell evidence rejected for %r "
+                        "(reason=%s len=%d) → existing skip/gap branch, NOT cited",
+                        cand.url, _cf_quote.shell_reason, len(content),
+                    )
+                    _trace_drop(cand.url, "fetch_shell")
+                    drop_reasons["fetch_shell"] += 1
+                    continue
                 direct_quote = _build_provenance_quote(
                     _cleaned_for_quote, head_chars=1500, window_chars=500,
                 )
