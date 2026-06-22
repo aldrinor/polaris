@@ -10891,10 +10891,23 @@ async def run_one_query(
             # promptly so the held manifest is written AT PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS; the
             # orphaned worker thread exits on its own per-call timeout. Mirrors audit_ir/parallel_fetch.py.
             _hb("four_role_started")  # I-obs-001 #1141 AC1: bracket the up-to-7200s verifier phase
+            # I-beatboth-011 #1290: the seam .result() below BLOCKS the event-loop thread for up to its
+            # timeout, so a long seam can STARVE the enclosing asyncio.wait_for(run_one_query, run-wall)
+            # — the run never terminates at its advertised wall. Cap the wait by the REMAINING run-wall
+            # budget (the deadline ctx is set by run_gate_b_query BEFORE run_one_query is entered) so the
+            # blocking call can never overrun the run-wall. Defensive: if the deadline is unset (a
+            # non-benchmark path) keep the resolved seam timeout, so behaviour is unchanged there.
+            _seam_wall_deadline = _RUN_WALL_CLOCK_DEADLINE_CTX.get()
+            if _seam_wall_deadline is not None:
+                _seam_effective_timeout = max(
+                    1.0, min(float(_seam_timeout), _seam_wall_deadline - time.monotonic())
+                )
+            else:
+                _seam_effective_timeout = float(_seam_timeout)
             _seam_pool = _seam_futures.ThreadPoolExecutor(max_workers=1)
             try:
                 four_role_result = _seam_pool.submit(_seam_worker).result(
-                    timeout=_seam_timeout
+                    timeout=_seam_effective_timeout
                 )
             except Exception as _seam_exc:  # noqa: BLE001 - routed by the pure classifier below
                 # I-beatboth-006 (#1283) Fix C.3 (Codex diff-gate iter-3 P1): the seam exception

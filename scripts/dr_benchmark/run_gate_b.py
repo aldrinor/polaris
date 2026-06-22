@@ -548,6 +548,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # values and fixes ONLY the missing run-level guard + the inverted run-wall ordering). A legit single-
     # query run is ~86 min, so 10800 (3h) clears it with margin yet still catches a total hang.
     "PG_RUN_WALL_CLOCK_SEC": "10800",
+    # I-beatboth-011 #1290: BOUND the 4-role D8 seam in the FULL slate (was pinned ONLY in
+    # _SMOKE_SCALE_OVERRIDES) so a full/--resume run cannot grind the default max(7200, 4*6500)=26000s
+    # (~7.2h) the path-audit caught. The env wins outright in _resolve_four_role_seam_timeout
+    # (run_honest_sweep_r3.py:437); rides _BENCHMARK_FORCE_EXACT_FLAGS so a stale operator .env cannot
+    # restore the grind. 7200 < run-wall 10800 so the seam terminates inside the wall; the seam .result()
+    # is ADDITIONALLY capped by the remaining run-wall budget at the call site. 7200 = the historical
+    # floor, generous for the parallelized (PG_PARALLEL_VERIFY) per-claim 4-role verify.
+    "PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS": "7200",
     # Evidence-extraction depth.
     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
     "PG_DEEPENER_EVIDENCE_CAP": "500",
@@ -1380,6 +1388,10 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS",
     "PG_ABSTRACTIVE_WRITER_CONCURRENCY",
     "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S",
+    # I-beatboth-011 #1290: force-EXACT the 4-role D8 seam bound so a stale operator .env (or unset, which
+    # makes _resolve_four_role_seam_timeout return the max(7200,4*6500)=26000s ~7.2h default) cannot
+    # restore the grind past the run-wall.
+    "PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS",
     # I-arch-005 PREFLIGHT FIX (#1257): B1 selects its scorer by a STRING value, not a boolean — force-EXACT
     # to 'semantic_v2' (the numeric FLOOR path would crash on float('semantic_v2')) so an .env='lexical'
     # cannot silently revert B1 to the legacy lexical scorer + bypass the restored relevance filter.
@@ -1668,6 +1680,25 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
         _assert_faith_slate()
     except _FaithSlateErr as _fse:
         raise RuntimeError(f"benchmark preflight FAILED: {_fse}") from _fse
+    # I-beatboth-011 #1290: fail-CLOSED that the 4-role D8 seam timeout is BOUNDED BELOW the run-wall, so
+    # the seam can never grind past the wall (the 7.2h default max(7200,4*6500) the path-audit caught). The
+    # full slate force-pins PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS, but a refactor dropping that pin would
+    # silently restore the grind with no signal — so assert the LIVE resolved values here. Value-agnostic
+    # (no hardcoded bound), smoke-safe (smoke pins 1800 < run-wall). Timeout plumbing only — faithfulness
+    # untouched. This is the seam<=run-wall ordering the preflight previously OMITTED (only checked
+    # generator<section<run-wall).
+    from scripts.run_honest_sweep_r3 import (
+        _resolve_four_role_seam_timeout as _resolve_seam,
+        run_wall_clock_seconds as _run_wall_secs,
+    )
+    _seam_to = float(_resolve_seam())
+    _run_wall = float(_run_wall_secs())
+    if not (_seam_to <= _run_wall):
+        raise RuntimeError(
+            f"benchmark preflight FAILED: 4-role D8 seam timeout {_seam_to:.0f}s EXCEEDS the run-wall "
+            f"{_run_wall:.0f}s (PG_RUN_WALL_CLOCK_SEC) — the seam would grind past the wall (the ~7.2h "
+            f"default class). Pin PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS below the run-wall in the slate."
+        )
     # I-beatboth-011 idx59 (#1289): fail-CLOSED that the PG_FOUR_ROLE_CLAIM_WORKERS rebind actually took.
     # The slate value only reaches the D8 seam via a post-import REBIND of _sweep_integration._CLAIM_WORKERS
     # in apply_full_capability_benchmark_slate (the env set alone is a silent no-op — the module global was
