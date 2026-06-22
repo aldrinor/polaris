@@ -179,7 +179,22 @@ def _is_paywall_publisher_host(url: str) -> bool:
 # word). Env-additive via PG_JUNK_SOURCE_HOSTS. Kept deliberately tiny + high
 # precision — these are confirmed non-source pages, not "low quality" sources
 # (low-quality real sources STAY at low weight per §-1.3).
+#
+# I-beatboth-011 drb_78 extension (#1289): social / login / video-platform hosts
+# that are NON-EVIDENCE pages (a post / login wall / flashcard set / video chrome),
+# never a citable source. The §-1.1 audit of drb_78 found facebook.com (3x),
+# reddit.com, linkedin.com, quizlet.com cited as "sources" — the facebook posts
+# even rendered their `[Log In](https://www.facebook.com/login/device-based/...)`
+# wall as a section HEADER. These are EXACT-suffix matched (host == d OR host
+# endswith '.' + d) so a real host merely CONTAINING the token is NEVER caught —
+# e.g. ``oatext.com`` / ``exponent.com`` do not end with ``.x.com`` and are not
+# ``== x.com``, so they pass untouched; a real journal/gov/news source is never
+# on this list. A real journal whose fetched BODY happens to carry a social
+# share-bar / login-CTA (e.g. a BMJ article body with ``* [Log In](...)``) is NOT
+# host-dropped — only the chrome STRING is stripped by ``_INLINE_SOCIAL_CHROME_RE``
+# (faithfulness-preserving: the real source stays, the page furniture goes).
 _JUNK_SOURCE_HOSTS = (
+    # Homework-help / Q&A-not-source.
     "chegg.com",
     "coursehero.com",
     "studocu.com",
@@ -189,6 +204,24 @@ _JUNK_SOURCE_HOSTS = (
     "brainly.in",
     "sparknotes.com",
     "bartleby.com",
+    # Social / login / non-evidence pages (drb_78). A post or login wall is not a
+    # citable source; sometimes it reports a real journal, but the JOURNAL is the
+    # source (retrieved on its own host at full weight), not the social repost.
+    "facebook.com",
+    "fb.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "reddit.com",
+    "linkedin.com",
+    "pinterest.com",
+    "tiktok.com",
+    "tumblr.com",
+    "threads.net",
+    "t.co",
+    # Video platforms (player chrome, not assertional source text).
+    "youtube.com",
+    "youtu.be",
 )
 
 # Error-shell / interstitial signatures. A body DOMINATED by one of these is a
@@ -209,6 +242,21 @@ _ERROR_SHELL_SIGNATURES = (
     "verify you are human",
     "performing security verification",
     "just a moment",
+    # CAPTCHA / anti-bot challenge interstitials (drb_78 audit: biorxiv CAPTCHA,
+    # u-picardie Anubis bot-wall both cited as findings). High-precision full
+    # phrases a real clinical/economic body never carries as its whole content.
+    "this question is for testing whether",
+    "making sure you're not a bot",
+    "you are a human visitor and to prevent automated spam",
+    # .gov fetch-navigation chrome (drb_78 audit: ncbi span was the .gov masthead,
+    # not the article). The dominance test still keeps a real .gov article whose
+    # body merely STARTS with this masthead (residual content survives stripping).
+    "official websites use .gov",
+    "share sensitive information only on official, secure websites",
+    # Site-outage / maintenance interstitials (drb_78 audit: stanfordhealthcare
+    # outage notice rendered as prose).
+    "users may be experiencing issues",
+    "we are working closely with our technical teams",
 )
 
 # SECONDARY error-shell chrome phrases. These commonly SURROUND a primary
@@ -1569,6 +1617,21 @@ _INLINE_SOCIAL_CHROME_RE = re.compile(
         r"-\s+Working paper\s+Insights from job vacancy data\b",          # ILO series-nav run (FULL literal: hyphen-led title + the fixed "Insights from job vacancy data" nav tail BOTH required; a bare "- Working paper …" markdown/list line in real prose is NEVER matched)
         r"\d+\s+Pages\s+-\s+\d+\s+\w+ \d{4}",                             # ILO "56 Pages - 10 February 2026" series-listing run (Pages-date structure; distinct from Jina "Number of Pages:")
         r"#main-content\b",                                               # MIT skip-to-content nav anchor
+        # I-beatboth-011 drb_78 (#1289): LOGIN-CTA chrome that leaked into KEPT real-source bodies
+        # (a BMJ/Wiley article body whose footer carries ``* [Subscribe](url) * [Log In](url)``) AND
+        # into the social-post bodies that this corpus cited as headers. EVERY pattern is STRUCTURE
+        # anchored to a markdown CTA-LINK or a login-URL form so a bare ``log in``/``subscribe``/
+        # ``sign in`` in real prose is NEVER matched (the §-1.3 no-real-claim-dropped invariant —
+        # over-strip is worse than a recoverable leak). The CTA link + its bracketed URL are removed
+        # token-only; surrounding prose is preserved (so the real journal body keeps its content,
+        # the host screen having already dropped the social-post SOURCES). The optional leading
+        # ``*``/``-`` markdown list bullet is consumed with the CTA so a stranded bullet is not left.
+        r"(?:[*\-]\s*)?\[\s*Log\s*[Ii]n\s*\]\([^)\s]*\)",                  # markdown ``[Log In](url)`` CTA (login wall)
+        r"(?:[*\-]\s*)?\[\s*Sign\s*[Ii]n\s*\]\([^)\s]*\)",                 # markdown ``[Sign In](url)`` CTA
+        r"(?:[*\-]\s*)?\[\s*Subscribe\s*\]\([^)\s]*\)",                    # markdown ``[Subscribe](url)`` CTA (publisher paywall nav)
+        r"(?:[*\-]\s*)?\[\s*Log\s*[Ii]n\s+to\s+Facebook\s*\]\([^)\s]*\)",  # ``[Log In to Facebook](url)`` CTA
+        r"https?://[^\s)]*/login/device-based[^\s)]*",                     # Facebook device-based login URL token
+        r"https?://[^\s)]*login_attempt=\d[^\s)]*",                        # any login_attempt=N redirect URL token
     ]),
     re.IGNORECASE,
 )

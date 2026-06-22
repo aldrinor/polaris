@@ -1516,6 +1516,106 @@ def _strip_dangling_gap_crossref(body_md: str, run_dir: "str | None") -> str:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-beatboth-011 drb_78 (#1289) render HEADER-SANITY screen.
+#
+# The §-1.1 audit of drb_78 found `#`/`##`/`###` header lines whose text is NOT a
+# section title but a garbled scraped fragment — a login wall, a URL, or a full
+# sentence. The catastrophic one (drb_78 report.md L60):
+#
+#     # Parkinson's disease affects... - Parkinson's Foundation [Log In](https://www.facebook.com/login/device-based/regular/login/?login_attempt=1&...).[39].[41] It is common ...
+#
+# i.e. a facebook login wall rendered as an H1 heading, carrying a URL, a
+# `[Log In]` CTA, `[N]` citation tokens, and a trailing sentence. A second
+# (L128): `## Adverse events The model accounted for both treatment-speci [...]
+# associated with increasing postural instability.` — a truncated sentence as a
+# header. Once the junk-host SOURCE screen drops the facebook posts these will
+# not re-form, but a KEPT real source can still produce a header carrying a `[N]`
+# citation / URL / truncation marker, so this is the backstop.
+#
+# HIGH-PRECISION (the §-1.1/§-1.3 over-strip ban): a header is dropped ONLY when
+# it carries an UNAMBIGUOUS chrome/garble signal — a URL (`http`), a login-CTA
+# (`[Log In]`/`login_attempt`/`device-based`), a `[N]` citation token, or a
+# `[...]` truncation marker. Real section titles in this corpus run to 13 words
+# (e.g. "Research Gaps, Policy Implications, and Future Directions for
+# Family-Centered PD and DBS Care") and carry NONE of those signals, so WORD
+# COUNT is NEVER a standalone drop trigger (it would kill a legitimate long
+# title). The `# Research report: <question>` H1 title is EXEMPT — it legitimately
+# carries the verbatim research question (often a long, `?`-ending sentence) and
+# is structural, not scraped chrome.
+#
+# FAITHFULNESS: a POST-strict_verify RENDER cleanup. It removes a garbled non-
+# claim HEADER LINE only; it never mutates a verified claim's span text, never
+# drops a real source, and never touches strict_verify / NLI / 4-role / span-
+# grounding. A dropped garbled header was never an assertional finding.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Header line: `#`..`######` + at least one space + text. Mirrors `_RENDER_HEADER_RE`
+# but CAPTURES the heading text so its content can be inspected.
+_HEADER_SANITY_LINE_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+# The structural H1 title prefix — exempt from the screen (it carries the verbatim
+# research question, which is legitimately a long `?`-ending sentence).
+_HEADER_SANITY_TITLE_PREFIX = "# Research report:"
+# Unambiguous chrome / garble signals in a heading's TEXT. A real section title
+# carries none of these.
+_HEADER_SANITY_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+_HEADER_SANITY_LOGIN_CTA_RE = re.compile(
+    r"\[\s*log\s*in\s*\]|\[\s*sign\s*in\s*\]|login_attempt|device-based",
+    re.IGNORECASE,
+)
+_HEADER_SANITY_CITATION_RE = re.compile(r"\[\d+\]")
+_HEADER_SANITY_TRUNCATION_RE = re.compile(r"\[\s*\.\.\.\s*\]|\.\.\. ")
+
+
+def _header_line_is_garbled(line: str) -> bool:
+    """I-beatboth-011 drb_78 (#1289): True iff a markdown header LINE is a garbled
+    scraped fragment (a URL / login-CTA / `[N]`-citation / `[...]`-truncation), not a
+    real section title. PURE. The `# Research report:` H1 title is EXEMPT. WORD COUNT
+    is never a drop trigger (real titles run long). Never touches strict_verify."""
+    if not line:
+        return False
+    m = _HEADER_SANITY_LINE_RE.match(line)
+    if not m:
+        return False
+    text = m.group(2)
+    # EXEMPT the structural H1 research-report title (verbatim research question).
+    if line.lstrip().startswith(_HEADER_SANITY_TITLE_PREFIX):
+        return False
+    return bool(
+        _HEADER_SANITY_URL_RE.search(text)
+        or _HEADER_SANITY_LOGIN_CTA_RE.search(text)
+        or _HEADER_SANITY_CITATION_RE.search(text)
+        or _HEADER_SANITY_TRUNCATION_RE.search(text)
+    )
+
+
+def _screen_garbled_headers(report_md: str) -> str:
+    """I-beatboth-011 drb_78 (#1289): drop garbled scraped HEADER lines from the
+    assembled report markdown.
+
+    Operates LINE-BY-LINE on the FINAL assembled report. A `#`..`######` header
+    line carrying an UNAMBIGUOUS chrome/garble signal (URL / login-CTA / `[N]`
+    citation token / `[...]` truncation marker) is removed — it is page furniture
+    or a truncated sentence that was lifted into heading position, never a real
+    section title. The `# Research report:` H1 title is EXEMPT. Real section
+    titles (which carry NONE of those signals, however long) are byte-preserved.
+
+    SCOPE (honest): line-START headers only (`^#{1,6} `). An INLINE pseudo-header
+    embedded MID-SENTENCE (e.g. ``... remains unresolved.[5] _March 30, 2021_ ##
+    Navigating the Future ... ### Dr.[15]`` inside the Abstract) is NOT a header
+    line and is left untouched here — removing it would require rewriting verified
+    span prose (a composition defect, out of scope for this hygiene screen).
+
+    FAITHFULNESS: POST-strict_verify RENDER cleanup. Removes a non-claim header
+    line only; never mutates a verified claim's span, never drops a source, never
+    touches the faithfulness engine. PURE."""
+    if not report_md:
+        return report_md
+    lines = report_md.split("\n")
+    kept = [ln for ln in lines if not _header_line_is_garbled(ln)]
+    return "\n".join(kept)
+
+
 def _contradiction_magnitude_range(contradictions_path: "str | None") -> "tuple[str, str] | None":
     """#5: compute the REAL min/max relative-difference range from the run's
     contradictions.json. Each entry's ``relative_difference`` is a fraction (1.5543 == 155.43%).
@@ -10592,6 +10692,18 @@ async def run_one_query(
             _conclusion_md,
             dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
         )
+        # I-beatboth-011 drb_78 (#1289): HEADER-SANITY screen on the ASSEMBLED report — drop any
+        # `#`..`######` header LINE that is a garbled scraped fragment (a URL / login-CTA / `[N]`
+        # citation / `[...]` truncation marker), e.g. the facebook login-wall that rendered as an
+        # H1 in drb_78. The `# Research report:` H1 title is EXEMPT; real (even long) section titles
+        # carry none of those signals and are byte-preserved. POST-strict_verify render cleanup —
+        # removes a non-claim header line only, never a verified span / source / faithfulness gate.
+        # Default-ON kill-switch PG_SWEEP_HEADER_SANITY_SCREEN; fail-open (never abort the report).
+        if _env_flag("PG_SWEEP_HEADER_SANITY_SCREEN", default=True):
+            try:
+                final_report = _screen_garbled_headers(final_report)
+            except Exception as _hs_exc:  # noqa: BLE001 — additive screen; never abort the report
+                _log(f"[header-sanity-screen] skipped (fail-open): {_hs_exc}")
         # SECTION-lane cross-wire (I-arch-005 #1257): PREPEND the SECTION lane's reliability
         # header (corroboration-strength counts) to the report.md ARTIFACT only. The field does
         # NOT exist on MultiSectionResult at this base -> getattr None -> render "" -> byte-

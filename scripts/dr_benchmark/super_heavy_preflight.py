@@ -316,17 +316,39 @@ def _default_credibility_judge_probe() -> str | None:
     slug = credibility_judge_model()
     # max_tokens=1 keeps the probe ~free; the caller is the EXACT sync path _apply_judge uses.
     caller = make_openrouter_credibility_caller(max_tokens=1)
-    try:
-        caller("ok")
-    except GateError:
-        raise
-    except Exception as exc:  # transport / 404 / cap breach -> fail closed
-        raise GateError(
-            f"super-heavy preflight: credibility judge slug {slug!r} is NOT alive in its production "
-            f"call shape ({type(exc).__name__}: {exc}) — the credibility pass is active "
-            f"({_CREDIBILITY_REDESIGN_FLAG}) but its judge route is dead. Aborting BEFORE spend."
-        )
-    return slug
+    # I-beatboth-011: under the concurrent benchmark fleet the credibility-judge endpoint is
+    # intermittently 429-saturated. A 429 means BUSY, not DEAD — the production _apply_judge path
+    # already tolerates it (retry / mirror-rotate / degrade), so fail-closing the whole PAID run on
+    # a momentary rate-limit burst is a false alarm that kills good runs. Tolerate a TRANSIENT
+    # (429 / rate-limit / timeout / connection / overloaded) error here with bounded backoff; a
+    # NON-transient error (404 / auth / model-not-found) still fails closed immediately. This is a
+    # reachability probe ONLY — strict_verify / NLI / 4-role / span-grounding are untouched and
+    # faithfulness is NOT relaxed. Bound is env-tunable (default 6 attempts: ~5+10+20+30+30s).
+    _probe_retries = max(1, int(os.getenv("PG_PREFLIGHT_JUDGE_PROBE_RETRIES", "6") or "6"))
+    _last_exc: Exception | None = None
+    for _attempt in range(_probe_retries):
+        try:
+            caller("ok")
+            return slug
+        except GateError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — classified below
+            _last_exc = exc
+            _m = str(exc).lower()
+            _transient = (
+                "429" in _m or "too many requests" in _m or "rate limit" in _m
+                or "rate-limit" in _m or "timeout" in _m or "timed out" in _m
+                or "connection" in _m or "temporarily" in _m or "overloaded" in _m
+            )
+            if not _transient or _attempt == _probe_retries - 1:
+                break
+            time.sleep(min(5 * (2 ** _attempt), 30))
+    raise GateError(
+        f"super-heavy preflight: credibility judge slug {slug!r} is NOT alive in its production "
+        f"call shape ({type(_last_exc).__name__}: {_last_exc}) after {_probe_retries} attempt(s) — "
+        f"the credibility pass is active ({_CREDIBILITY_REDESIGN_FLAG}) but its judge route is dead "
+        f"or sustainedly saturated. Aborting BEFORE spend."
+    )
 
 
 async def _default_storm_probe() -> int:
