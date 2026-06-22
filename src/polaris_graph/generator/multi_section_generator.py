@@ -3971,6 +3971,14 @@ async def _run_section(
                 _vc_baskets, evidence_pool,
                 writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
             )
+        # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
+        # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE
+        # multi-cited sentence surfacing ALL the basket's corroborators (the §-1.3 consolidate-keep-all
+        # reading) with the relational-quantifier guard stripping any unlicensed aggregate predicate —
+        # WHEN PG_VERIFIED_COMPOSE_MULTICITED is ON. DEFAULT-OFF => this branch is byte-identical (the
+        # section producer takes the unchanged single-basket K-span path). Each multi-cited clause still
+        # passes the UNCHANGED strict_verify per-clause in the _rewrite_draft_with_spans + strict_verify
+        # tail below; faithfulness is untouched (composition layer only).
         raw = "\n".join(c for c in _vc_composed if c and c.strip())
         in_tok = out_tok = 0
         section_atom_catalog = {}

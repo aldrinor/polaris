@@ -989,6 +989,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_BASKET_CORROBORATION_RENDER": "1",
     "PG_VERIFIED_COMPOSE": "1",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION": "1",
+    # I-beatboth-011 keystone-F1 (#1284, Codex gate P0): the multi-citation synthesis flag MUST ride the
+    # slate (force-ON + preflight-required) or the keystone is WIRED-BUT-DEAD on the paid run — the exact
+    # false-done the gate caught. ON => a >=2-DISTINCT-origin basket renders as ONE multi-cited sentence
+    # surfacing all its corroborators; each clause re-passes the UNCHANGED strict_verify; flag-OFF byte-id.
+    "PG_VERIFIED_COMPOSE_MULTICITED": "1",
     # I-arch-011 run-5 794->9 collapse — two of the FOUR stacked breadth-restore conditions (the forensic
     # collapse_forensic_plan.json F4 + F5; F1 finding_key + F2 basket-decouple are code fixes). FAITHFULNESS-
     # NEUTRAL consolidation knobs — they MERGE/RENDER already-verified corroborators, never drop/cap.
@@ -1161,6 +1166,9 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
 # preflight still passes, letting the paid run go with the evidence deepener silently off.
 _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_STORM_ENABLED_IN_BENCHMARK",
+    # I-beatboth-011 keystone-F1 (#1284): fail-CLOSED if the multi-citation synthesis flag is off before
+    # spend — the keystone's central feature must FIRE on the paid run, never be silently wired-but-dead.
+    "PG_VERIFIED_COMPOSE_MULTICITED",
     "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
@@ -1255,6 +1263,9 @@ _BENCHMARK_MIN_COST_CAP_USD = 20.0
 # conservative .env value is a capability downgrade). Everything else in the slate is a numeric FLOOR.
 _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_STORM_ENABLED_IN_BENCHMARK",
+    # I-beatboth-011 keystone-F1 (#1284): force-ON the multi-citation synthesis so a stray operator =0
+    # cannot leave the keystone wired-but-dead on the paid run (the Codex-gate false-done).
+    "PG_VERIFIED_COMPOSE_MULTICITED",
     "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_ENABLE_TOOL_TRACKER",
     # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly

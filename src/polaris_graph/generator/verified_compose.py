@@ -102,6 +102,25 @@ def _basket_supports_members(basket: Any) -> list[Any]:
     return supports
 
 
+def _distinct_origin_supports(basket: Any) -> list[Any]:
+    """The basket's SUPPORTS members deduped to ONE per distinct ORIGIN (highest credibility weight
+    kept), so a multi-cited sentence corroborates across DISTINCT sources and never re-cites the SAME
+    origin twice (Codex gate P1: same-origin duplicate members must NOT render as a 'corroborated'
+    multi-cite). Origin identity = ``origin_cluster_id`` (fallback ``evidence_id``). Order-stable
+    (weight desc, inherited from ``_basket_supports_members``)."""
+    seen: set[str] = set()
+    out: list[Any] = []
+    for m in _basket_supports_members(basket):
+        origin = str(
+            getattr(m, "origin_cluster_id", "") or getattr(m, "evidence_id", "") or id(m)
+        )
+        if origin in seen:
+            continue
+        seen.add(origin)
+        out.append(m)
+    return out
+
+
 def _basket_scoped_pool(basket: Any, evidence_pool: dict) -> dict:
     """The verify pool scoped to THIS basket's member evidence_ids — using the GLOBAL rows (so the
     cited token OFFSETS stay anchored to the global ``evidence_pool[eid]`` exactly as downstream
@@ -410,6 +429,43 @@ def _lowercase_first_alpha(text: str) -> str:
     return text
 
 
+def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional[str]:
+    """Co-locate N already-strict_verify-PASSED single-source clauses into ONE multi-cited sentence.
+
+    Extracted (I-beatboth-011 keystone-F1 F1-2b, #1284) from ``compose_multicited_sentence`` so BOTH
+    the cross-basket producer AND the within-basket producer share ONE join contract. Each input clause
+    is a string that ALREADY carries its own ``[#ev:<id>:<a>-<b>]`` provenance token(s) and ALREADY
+    passed the UNCHANGED ``strict_verify`` against its own span (the caller is responsible for that —
+    this helper NEVER verifies, NEVER relaxes a gate, NEVER edits a clause's claim; it only joins).
+
+    The clauses are joined by a SEMANTICALLY-NEUTRAL ``connective`` (default ``"; "``) with each
+    continuation lowercased at its first alpha char, so the result stays ONE sentence under the
+    production ``_SENT_SPLIT_RE`` (terminal ``.!?]`` + whitespace + ``[A-Z0-9]``) and asserts NO
+    emergent aggregate predicate — each clause keeps its OWN token, so the joined sentence still passes
+    ``strict_verify`` PER CLAUSE exactly as each clause did alone. Joining with ``". "`` would re-split
+    the clauses and defeat the multi-cited requirement; ``"; "`` + a lowercased continuation keeps the
+    co-location as one sentence (the join-char invariant).
+
+    Returns ``None`` when FEWER THAN TWO non-empty clauses are supplied (a single clause is not a
+    multi-cited synthesis — the caller keeps the unchanged single-cite path). Pure; order-preserving.
+    """
+    clean = [str(c).strip() for c in (clauses or []) if c and str(c).strip()]
+    if len(clean) < 2:
+        return None
+    parts = [clean[0].rstrip()]
+    for clause in clean[1:]:
+        cont = _strip_terminal_punct(clause).lstrip()
+        cont = _lowercase_first_alpha(cont)
+        # Append the connective to the PREVIOUS part (after its provenance token), then the
+        # continuation — the splitter sees ``...] ; <lower>...`` and keeps it as one sentence.
+        parts[-1] = parts[-1].rstrip()
+        parts.append(cont)
+    sentence = connective.join(parts)
+    if sentence and sentence[-1:] not in ".!?]":
+        sentence = sentence + "."
+    return sentence
+
+
 def compose_multicited_sentence(
     baskets: list,
     evidence_pool: dict,
@@ -423,10 +479,10 @@ def compose_multicited_sentence(
 
     Each contributing basket yields exactly one clause via ``_per_basket_verified_clause`` (verified
     against its OWN basket's scoped pool + own-region gate — the UNCHANGED P1-2/P1-1 contract). The
-    clauses are then joined by a SEMANTICALLY-NEUTRAL ``connective`` (default ``"; "``) with each
-    continuation lowercased at its first alpha char, so the result stays ONE sentence under the
-    production sentence splitter and asserts NO emergent aggregate predicate (the F1-2 guard is
-    deferred; this producer never licenses a relational quantifier).
+    clauses are then joined by ``_join_verified_clauses`` (a SEMANTICALLY-NEUTRAL connective, each
+    continuation lowercased) so the result stays ONE sentence under the production sentence splitter and
+    asserts NO emergent aggregate predicate (this cross-basket producer never licenses a relational
+    quantifier).
 
     Returns ``None`` when FEWER THAN TWO baskets yield a verified clause — a single-basket result is
     NOT a multi-cited synthesis, so the caller keeps the existing single-basket prose for it (this
@@ -440,21 +496,183 @@ def compose_multicited_sentence(
         )
         if clause is not None:
             clauses.append(clause)
-    if len(clauses) < 2:
-        # Not a multi-cited synthesis — the caller falls back to the per-basket producer.
+    return _join_verified_clauses(clauses, connective=connective)
+
+
+# ── I-beatboth-011 keystone-F1 (#1284) — WITHIN-BASKET multi-cited verified synthesis ──────────────
+#
+# The §-1.3 DNA reading of corroboration: when ONE claim basket carries >=2 isolated-``SUPPORTS`` members
+# (the same claim, multiple independent sources), surface that corroboration as ONE sentence carrying
+# ALL of their citations — NOT collapsed to the single strongest member (the legacy K-span). Each
+# member contributes ONE single-source clause that INDEPENDENTLY passes the UNCHANGED strict_verify
+# against its OWN span (via the existing single-member per-basket contract), the
+# ``relational_quantifier_guard`` drops any unlicensed aggregate predicate, then ``_join_verified_clauses``
+# co-locates them. A single-member basket returns the UNCHANGED single-cite K-span draft (byte-identical
+# — the producer adds breadth, it NEVER rewrites the one-source path).
+
+
+def _single_member_basket(basket: Any, member: Any) -> Any:
+    """A shallow COPY of ``basket`` whose ``supporting_members`` is the single ``member`` — so the
+    existing ``_per_basket_verified_clause`` machinery (basket-scoped verify pool + own-region gate,
+    the UNCHANGED P1-2/P1-1 contract) runs over ONE member at a time. Pure: copies the dataclass via
+    ``dataclasses.replace`` when available, else a lightweight attribute shim; never mutates the input.
+    Refuter references + verdict are preserved so the guard still sees the basket's contested state."""
+    # I-beatboth-011 keystone-F1 (#1284, Codex gate P0-2): give the sub-basket a member-UNIQUE
+    # claim_cluster_id so the abstractive writer (keyed by claim_cluster_id) CANNOT return the parent
+    # WHOLE-basket draft for this single member — its cluster-keyed lookup MISSES -> _member_writer_clause
+    # returns None -> the UNGUARDED verbatim K-span fallback fires. This is exactly what the relational-
+    # quantifier guard's KNOWN-BOUND assumed; without it a source-written quantifier embedded in the
+    # abstractive whole-basket frame would reach the guard and be stripped (misquoting the source). The
+    # DEFAULT writer (build_short_member_sentence) ignores claim_cluster_id, so its verbatim-span path is
+    # unaffected. NOTE: a member-unique cluster id never re-collides with a real basket id (the ``::member::``
+    # infix is not produced by the clusterer), so the only effect is forcing the abstractive miss.
+    _sub_cid = (
+        f"{str(getattr(basket, 'claim_cluster_id', '') or '')}::member::"
+        f"{str(getattr(member, 'evidence_id', '') or id(member))}"
+    )
+    import dataclasses  # noqa: PLC0415
+    if dataclasses.is_dataclass(basket):
+        try:
+            return dataclasses.replace(basket, supporting_members=[member], claim_cluster_id=_sub_cid)
+        except (TypeError, ValueError):
+            pass
+    # Non-dataclass fallback: a read-only shim exposing the same attributes with a 1-member roster.
+    class _OneMemberBasket:  # noqa: N801 — local shim type
+        pass
+    shim = _OneMemberBasket()
+    for name in ("claim_cluster_id", "claim_text", "subject", "predicate", "refuter_cluster_ids",
+                 "weight_mass", "total_clustered_origin_count", "verified_support_origin_count",
+                 "basket_verdict"):
+        setattr(shim, name, getattr(basket, name, None))
+    shim.claim_cluster_id = _sub_cid  # override the parent's id (P0-2: force the abstractive lookup miss)
+    shim.supporting_members = [member]
+    return shim
+
+
+def _member_verbatim_clause(basket: Any, member: Any, evidence_pool: dict) -> Optional[str]:
+    """ONE member's VERBATIM K-span clause: the member's own verified ``direct_quote`` tagged with its
+    OWN real global ``[#ev:<id>:<start>-<end>]`` token (the existing ``build_verified_span_draft`` shape,
+    scoped to a single member via a 1-member sub-basket). Faithful-BY-CONSTRUCTION — it IS the verified
+    span, so it re-passes the UNCHANGED ``strict_verify`` trivially and carries the source's OWN words
+    (a quantifier in the source's words is what the source SAID, never a fabricated aggregate — so the
+    relational-quantifier guard MUST NOT touch this path). Returns None when the member has no resolvable
+    verified span (the producer then skips this member)."""
+    return build_verified_span_draft(_single_member_basket(basket, member), evidence_pool)
+
+
+def _member_writer_clause(
+    sub_basket: Any,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+) -> Optional[str]:
+    """ONE member's WRITER-SYNTHESIZED clause — and ONLY the writer's output, NEVER a K-span fallback.
+
+    Mirrors ``_compose_one_basket``'s writer+verify head (basket-scoped pool + per-sentence
+    ``strict_verify`` + the own-region P1-1 gate, all UNCHANGED) but DROPS the K-span fallback tail: it
+    returns the verified writer prose, or ``None`` if the writer produced nothing or any sentence failed
+    verify/region. This is the ONLY text the relational-quantifier guard is allowed to touch — so the
+    guard can NEVER mutate a verbatim K-span (a quantifier the SOURCE wrote stays verbatim; the producer
+    supplies the K-span fallback SEPARATELY, unguarded). Pure read of the production verifier; no relax."""
+    scoped_pool = _basket_scoped_pool(sub_basket, evidence_pool)
+    regions = _basket_member_regions(sub_basket, evidence_pool)
+    draft = writer_fn(sub_basket, scoped_pool) or ""
+    kept: list[str] = []
+    for sentence in split_into_sentences(draft):
+        res = verify_fn(sentence, scoped_pool)
+        verified_text = str(getattr(res, "sentence", "") or "").strip() or sentence.strip()
+        if bool(getattr(res, "is_verified", False)) and _tokens_within_basket_regions(verified_text, regions):
+            kept.append(verified_text)
+        else:
+            return None  # writer prose failed verify/region -> NO writer clause (caller uses K-span)
+    if not kept:
         return None
-    parts = [clauses[0].rstrip()]
-    for clause in clauses[1:]:
-        cont = _strip_terminal_punct(clause).lstrip()
-        cont = _lowercase_first_alpha(cont)
-        # Append the connective to the PREVIOUS part (after its provenance token), then the
-        # continuation — the splitter sees ``...] ; <lower>...`` and keeps it as one sentence.
-        parts[-1] = parts[-1].rstrip()
-        parts.append(cont)
-    sentence = connective.join(parts)
-    if sentence and sentence[-1:] not in ".!?]":
-        sentence = sentence + "."
-    return sentence
+    joined = " ".join(kept).strip()
+    return joined or None
+
+
+def compose_basket_multicited_sentence(
+    basket: Any,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    connective: str = "; ",
+) -> Optional[str]:
+    """Compose ONE multi-cited sentence from a SINGLE basket's >=2 corroborating verified members.
+
+    For a basket with exactly ONE isolated-``SUPPORTS`` member (or none), returns the UNCHANGED
+    single-cite path — ``build_verified_span_draft`` — so the one-source contract is byte-identical (the
+    producer NEVER rewrites a single-source claim). For a basket with >=2 ``SUPPORTS`` members it builds
+    ONE single-source clause PER member and co-locates them:
+
+      1. For each ``SUPPORTS`` member, attempt a WRITER-SYNTHESIZED clause via the EXISTING single-member
+         per-basket contract (``_per_basket_verified_clause`` over a 1-member sub-basket) — so the clause
+         INDEPENDENTLY passes the UNCHANGED ``strict_verify`` against its OWN span + lands within its OWN
+         member region (the P1-2/P1-1 gates, untouched). The relational-quantifier guard runs ONLY on
+         this writer-synthesized clause (a fabricated aggregate predicate over a single member's claim is
+         the only thing it can target). If the guard annihilates it (a pure predicate, no span) OR the
+         writer produced nothing/failed verify, the member FALLS BACK to its OWN VERBATIM K-span
+         (``_member_verbatim_clause``) — which the guard NEVER touches (the source's own words, incl. any
+         quantifier the source itself wrote, are faithful-by-construction and must be preserved verbatim).
+      2. Joins the surviving per-member clauses via ``_join_verified_clauses`` — each clause keeps its OWN
+         ``[#ev:...]`` token, so the joined sentence STILL passes ``strict_verify`` PER CLAUSE exactly as
+         each clause did alone (decimals, multilingual content, etc. ride inside each member's own span).
+
+    The relational-quantifier guard targets ONLY the writer's synthesized output — NEVER a verbatim
+    K-span — so it can never misquote a source by deleting a word the source actually wrote. The abstractive
+    writer (keyed by ``claim_cluster_id``) precomputes a WHOLE-basket draft per basket, not per member; the
+    sub-basket lookup therefore misses (or returns a draft that fails the single-member scoped pool) and the
+    member cleanly falls back to its own verbatim K-span — so the keystone multi-cite ALWAYS fires from the
+    deterministic verbatim spans regardless of the writer path (the writer can only IMPROVE a member's
+    phrasing, never gate the multi-cite). Returns the joined multi-cited sentence; if fewer than TWO members
+    yield a clause it falls back to the basket's single-cite K-span (always-release — never a silent empty).
+    Faithfulness: the engine is never touched; the guard only DROPS an unsupported quantifier from
+    SYNTHESIZED prose; verbatim spans are preserved; the single-source path is byte-identical. The caller
+    re-runs the UNCHANGED ``strict_verify`` over the rendered draft.
+    """
+    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
+        guard_relational_quantifier,
+    )
+    # P1: corroborate across DISTINCT origins only — same-origin duplicate members must not render as a
+    # multi-cited "corroborated" sentence (each clause cites a distinct source).
+    supports = _distinct_origin_supports(basket)
+    # Single-source (or no verified source): UNCHANGED single-cite path — byte-identical to legacy.
+    if len(supports) < 2:
+        return build_verified_span_draft(basket, evidence_pool)
+
+    clauses: list[str] = []
+    for member in supports:
+        sub = _single_member_basket(basket, member)
+        clause: Optional[str] = None
+        # (1a) WRITER-synthesized clause ONLY (no K-span fallback bundled in — so the guard can never
+        # touch a verbatim span). None => the writer produced nothing or failed verify/region.
+        written = _member_writer_clause(
+            sub, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+        )
+        if written:
+            # The guard runs ONLY on this synthesized prose: strip any unlicensed relational quantifier
+            # the writer fabricated. None => the synthesis was a pure aggregate predicate with no span
+            # left; fall back to the member's verbatim span rather than drop the corroborator.
+            guarded = guard_relational_quantifier(written, basket)
+            if guarded and guarded.strip():
+                clause = guarded.strip()
+        if clause is None:
+            # (1b) VERBATIM K-span fallback — the source's own words, NEVER guard-touched (a quantifier
+            # the SOURCE wrote is faithful; deleting it would misquote the source). Faithful-by-construction.
+            verbatim = _member_verbatim_clause(basket, member, evidence_pool)
+            if verbatim and verbatim.strip():
+                clause = verbatim.strip()
+        if clause:
+            clauses.append(clause)
+
+    joined = _join_verified_clauses(clauses, connective=connective)
+    if joined is not None:
+        return joined
+    # Fewer than TWO members yielded a clause — always-release the basket's single-cite K-span rather
+    # than strand the corroborated basket (never empty).
+    return build_verified_span_draft(basket, evidence_pool)
 
 
 def _compose_section_per_basket(
@@ -480,16 +698,40 @@ def _compose_section_per_basket(
         duplicate adds nothing). A SUBSET span alone does NOT prove the same claim (Codex #1289 iter-1
         P1: different prose can cite an overlapping span), so a DIFFERING claim that merely shares a
         span subset is KEPT. A unit with NO provenance token is NEVER dropped (zero tokens must not be
-        vacuously "all duplicate")."""
+        vacuously "all duplicate").
+
+    I-beatboth-011 keystone-F1 (#1284): when ``PG_VERIFIED_COMPOSE_MULTICITED`` is ON (DEFAULT-OFF =>
+    byte-identical), a basket carrying >=2 corroborating isolated-``SUPPORTS`` members is composed via
+    ``compose_basket_multicited_sentence`` — ONE multi-cited sentence surfacing ALL its corroborators
+    (the §-1.3 consolidate-keep-all reading) instead of collapsing to the single strongest member.
+    A single-``SUPPORTS`` (or zero) basket routes the UNCHANGED ``_compose_one_basket`` path. The
+    relational-quantifier guard inside the multi-cited producer drops any unlicensed aggregate predicate;
+    each clause still passes the UNCHANGED ``strict_verify`` per-clause. The downstream §3.5 marker filter
+    + idx8 seen-span dedup are applied identically to the multi-cited unit."""
     out: list[str] = []
     seen_spans: set[tuple[str, int, int]] = set()
     seen_texts: set[str] = set()
+    _multicited_on = _multicited_compose_enabled()
     for basket in (section_baskets or []):
-        composed = _compose_one_basket(
-            basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
-        )
+        # keystone-F1: surface a >=2-corroborator basket as ONE multi-cited sentence (flag-gated,
+        # default-OFF). A single-source basket falls through to the UNCHANGED single-basket producer
+        # (the multi-cited producer itself returns the same K-span draft for <2 SUPPORTS, but routing
+        # explicitly keeps the default-OFF path byte-identical with NO new import/call when the flag is
+        # off, and only invokes the new producer for genuinely-corroborated baskets when on).
+        if _multicited_on and len(_distinct_origin_supports(basket)) >= 2:
+            composed = compose_basket_multicited_sentence(
+                basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+            ) or ""
+        else:
+            composed = _compose_one_basket(
+                basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+            )
         # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
-        if composed.strip().startswith("[insufficient verified evidence"):
+        # Also skip an empty multi-cited result (a basket with no resolvable span at all) — the §3.5
+        # filter for ``_compose_one_basket`` never sees an empty unit (it always returns at least the
+        # disclosure), but the multi-cited producer can return ``""`` when even the K-span is absent;
+        # an empty unit must not be appended (it would render a blank line, never a silent success).
+        if not composed.strip() or composed.strip().startswith("[insufficient verified evidence"):
             continue
         # idx8 (Codex #1289 P1): drop a unit ONLY when it is a true duplicate — its resolved spans are
         # already emitted AND its normalized text is byte-identical to a sibling. Requiring text
