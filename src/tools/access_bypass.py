@@ -140,6 +140,450 @@ def _is_paywall_publisher_host(url: str) -> bool:
         hosts.extend(h.strip().lower() for h in extra.split(",") if h.strip())
     return any(h in netloc for h in hosts)
 
+
+# ---------------------------------------------------------------------------
+# I-beatboth-011 junk-SOURCE screen (#1289).
+#
+# A high-precision, faithfulness-NEUTRAL screen for non-source pages that
+# should never be cited / listed in the bibliography / surfaced as a per-claim
+# corroborator. This drops ONLY junk — it never drops a real journal /
+# repository / gov / news source (§-1.3 keep-all for REAL sources). Two signals,
+# both deliberately narrow:
+#
+#   (1) HOST allowlist of homework-help / Q&A-not-source domains. These are NOT
+#       primary sources; a Chegg "Solved ..." page stands in for a real paper but
+#       is paywalled homework chrome. The list is exact-suffix matched (host == d
+#       OR host endswith "." + d) so "notchegg.com" or a real domain that merely
+#       CONTAINS the token is never caught. Env-additive via
+#       PG_JUNK_SOURCE_HOSTS (comma-sep). Repositories/journals/news/gov are NOT
+#       on the list — openalex.org, arxiv.org, pubmed, doi.org, oecd.org, etc. all
+#       pass the host screen untouched.
+#
+#   (2) ERROR-SHELL text signatures: a fetched body that IS an error/interstitial
+#       page ("doesn't work properly without JavaScript", "Page Not Found",
+#       "Access Denied", a CAPTCHA stub, ...). A real article can quote such a
+#       phrase in prose, so — mirroring is_boilerplate_or_nonassertional's
+#       length-gate — a TEXT match drops the source ONLY when the signature
+#       DOMINATES the body: the body is short AND the residual after removing the
+#       signature is trivially small. The banked drb_72 junk is a 117-char body
+#       that is verbatim the JS-error shell; a 1027-char real abstract on the same
+#       host (openalex.org) is untouched.
+#
+# This is SOURCE-level input hygiene applied at corpus consumption, never a
+# faithfulness verdict: strict_verify / NLI / 4-role / span-grounding are
+# untouched. A claim left with only a junk corroborator falls to its other
+# corroborators or to the honest strict_verify gap path (no fabrication).
+# ---------------------------------------------------------------------------
+
+# Homework-help / Q&A-not-source hosts. EXACT domain suffixes only (never a bare
+# word). Env-additive via PG_JUNK_SOURCE_HOSTS. Kept deliberately tiny + high
+# precision — these are confirmed non-source pages, not "low quality" sources
+# (low-quality real sources STAY at low weight per §-1.3).
+_JUNK_SOURCE_HOSTS = (
+    "chegg.com",
+    "coursehero.com",
+    "studocu.com",
+    "quizlet.com",
+    "scribd.com",
+    "brainly.com",
+    "brainly.in",
+    "sparknotes.com",
+    "bartleby.com",
+)
+
+# Error-shell / interstitial signatures. A body DOMINATED by one of these is a
+# fetch-failure shell, not a source. High-precision multi-word phrases a real
+# clinical/economic sentence (any language) does not carry as its WHOLE body.
+# At least one PRIMARY signature must be present for a body to be flagged.
+_ERROR_SHELL_SIGNATURES = (
+    "doesn't work properly without javascript",
+    "does not work properly without javascript",
+    "enable javascript and cookies to continue",
+    "please enable javascript",
+    "your browser is not supported",
+    "your browser is no longer supported",
+    "page not found",
+    "404 not found",
+    "access denied",
+    "please verify you are a human",
+    "verify you are human",
+    "performing security verification",
+    "just a moment",
+)
+
+# SECONDARY error-shell chrome phrases. These commonly SURROUND a primary
+# signature in a real interstitial body ("We're sorry but our site ... Please
+# enable it to continue."). They are NOT sufficient alone (they can appear in
+# real prose), but they ARE stripped — along with every primary signature —
+# before the residual-content dominance test, so a body that is ONLY shell
+# chrome leaves no distinctive content words, while a real article wrapped around
+# an error phrase keeps its substantive words and is NOT flagged.
+_ERROR_SHELL_CHROME = (
+    "we're sorry but",
+    "we are sorry but",
+    "please enable it to continue",
+    "please enable cookies",
+    "please try again",
+    "to continue",
+    "enable it to continue",
+    "enabled",
+    "javascript",
+    "cookies",
+    "browser",
+    "website",
+    "research website",
+)
+
+# WAF / HTTP-error CO-TOKENS (Codex P1-1, #1289). A genuine block / interstitial
+# page carries one of these alongside the primary signature — exactly the M-23d
+# `_is_paywalled` http_error_signals posture (cloudflare-blocked, rate-limit, a
+# bare HTTP status, a CAPTCHA/security-verification stub, a Jina "returned error"
+# line). When ANY of these co-occurs with a primary signature in a SHORT body the
+# body is unambiguously a fetch-failure shell — no coverage math needed. A real
+# source TITLE / snippet that merely CONTAINS "access denied" / "just a moment"
+# does NOT carry a WAF co-token, so it stays on the coverage path (which keeps it
+# unless the signature DOMINATES). Whole-substring, lowercased; high-precision
+# multi-word/structured so a real sentence never trips one.
+_ERROR_SHELL_WAF_COTOKENS = (
+    "cloudflare",
+    "cf-ray",
+    "rate limit",
+    "rate limited",
+    "403 forbidden",
+    "404 not found",
+    "500 internal server",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout",
+    "returned error",
+    "target url returned error",
+    "captcha",
+    "performing security verification",
+    "verify you are a human",
+    "ddos protection",
+    "checking your browser before",
+)
+
+# Codex P1-1 (#1289): COVERAGE-dominance threshold + minimum-content floor for
+# the error-shell text screen. The pre-fix gate flagged ANY short (<=400-char)
+# body containing a primary signature whose residual was <=3 distinctive words —
+# which over-strips a real source whose short TITLE / snippet merely CONTAINS a
+# generic phrase ("Access Denied: A Memoir", a paper titled "Just a Moment ...").
+#
+# THE FIX (high-precision, conservative — drops FEWER, never more): on the
+# no-co-token path a body is a shell ONLY when the error signature DOMINATES the
+# body — the stripped-signature COVERAGE ratio is >= _ERROR_SHELL_MIN_COVERAGE of
+# the body's alphabetic content AND the body carries enough total content
+# (>= _ERROR_SHELL_MIN_DOMINANCE_ALPHA alpha-chars) for "dominance" to be
+# meaningful. A bare 2-3-word title ("Access Denied", "Just a Moment") is below
+# the content floor and is KEPT; a substantive titled body ("Access Denied:
+# barriers to healthcare ...") is below the coverage ratio and is KEPT; the
+# banked drb_72 JS-error shell (~0.88 coverage, 96 alpha-chars) still drops. The
+# residual<=3-words guard is RETAINED as the outer gate. Both env-overridable
+# (LAW VI); a malformed value falls back to the conservative default.
+_ENV_ERROR_SHELL_MIN_COVERAGE = "PG_JUNK_SOURCE_SHELL_MIN_COVERAGE"
+_DEFAULT_ERROR_SHELL_MIN_COVERAGE = 0.80
+_ENV_ERROR_SHELL_MIN_DOMINANCE_ALPHA = "PG_JUNK_SOURCE_SHELL_MIN_ALPHA"
+_DEFAULT_ERROR_SHELL_MIN_DOMINANCE_ALPHA = 40
+
+# A body longer than this is structurally NOT an error shell — a real article
+# body. The error-shell text screen only fires on a SHORT body the signature
+# dominates. Env-overridable (LAW VI); fail-loud on a non-int.
+_ENV_JUNK_SHELL_MAX_CHARS = "PG_JUNK_SOURCE_SHELL_MAX_CHARS"
+_DEFAULT_JUNK_SHELL_MAX_CHARS = 400
+
+
+# Codex P1-2 (#1289): public suffixes / bare TLDs that must NEVER be accepted as
+# an env-provided junk host. A bare "com" / "org" / "edu" / "co.uk" as a suffix
+# would suffix-match and DROP every real source on that TLD. The hardcoded locked
+# list above is exact registrable domains and is NOT subject to this validation;
+# ONLY PG_JUNK_SOURCE_HOSTS entries are validated.
+_PUBLIC_SUFFIX_BLOCKLIST = frozenset({
+    # Bare TLDs.
+    "com", "org", "net", "edu", "gov", "mil", "int", "co", "io", "ai", "info",
+    "biz", "name", "pro", "us", "uk", "ca", "au", "de", "fr", "jp", "cn", "in",
+    "eu", "ac", "nz", "za", "br", "mx", "sg", "tr", "ar",
+    # Multi-label public suffixes (Codex P1-2 #1289 expansion): a bare entry
+    # here would suffix-match and DROP every real registrable domain under it.
+    "gov.uk", "ac.uk", "co.uk", "org.uk",
+    "com.br", "com.au", "net.au", "org.au", "gov.au", "edu.au",
+    "co.in", "net.in", "org.in", "co.nz", "co.jp", "co.za",
+    "com.cn", "com.mx", "com.sg", "com.tr", "com.ar", "com.co",
+})
+
+# Codex P1-2 (#1289): registry tokens that, when they are the FIRST label of a
+# 2-label env host, mean the host is itself a public suffix (e.g. "com.br",
+# "co.in") rather than a registrable domain. An env host must have a REAL
+# registrable label in front of a public suffix to be accepted — beyond the
+# explicit `_PUBLIC_SUFFIX_BLOCKLIST` this catches a multi-label suffix that
+# slipped the hand list. A genuine junk host ("studymoose.com") has a real word
+# ("studymoose") in front of "com", so it is still accepted.
+_PUBLIC_SUFFIX_REGISTRY_LABELS = frozenset({
+    "com", "org", "net", "edu", "gov", "co", "ac", "mil", "int",
+    "gob", "go", "or", "ne", "ad",
+})
+
+# Codex P1-2 (#1289): known-real / scholarly registrable domains an env entry
+# must NEVER be allowed to add to the junk-drop list (a fat-fingered
+# PG_JUNK_SOURCE_HOSTS=doi.org would otherwise drop every DOI-resolved source).
+# Exact registrable-domain match (a real *.gov / *.edu host is additionally
+# protected structurally by `_env_junk_host_is_safe`).
+_KNOWN_REAL_DOMAIN_BLOCKLIST = frozenset({
+    "doi.org", "dx.doi.org",
+    "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov",
+    "nlm.nih.gov", "nih.gov",
+    "arxiv.org", "biorxiv.org", "medrxiv.org", "ssrn.com",
+    "openalex.org", "semanticscholar.org", "crossref.org", "datacite.org",
+    "orcid.org", "core.ac.uk", "base-search.net", "doaj.org",
+    "sciencedirect.com", "elsevier.com", "linkinghub.elsevier.com",
+    "springer.com", "link.springer.com", "springeropen.com",
+    "wiley.com", "onlinelibrary.wiley.com",
+    "nature.com", "science.org", "sciencemag.org",
+    "tandfonline.com", "sagepub.com", "journals.sagepub.com",
+    "oup.com", "academic.oup.com", "cambridge.org", "jstor.org",
+    "plos.org", "frontiersin.org", "mdpi.com", "bmj.com", "thelancet.com",
+    "nejm.org", "jamanetwork.com", "cell.com", "pnas.org", "ahajournals.org",
+    "oecd.org", "worldbank.org", "imf.org", "who.int", "un.org", "europa.eu",
+    "bls.gov", "census.gov", "cdc.gov", "fda.gov", "nber.org", "ideas.repec.org",
+    "repec.org", "researchgate.net", "scholar.google.com", "google.com",
+    "wikipedia.org", "reuters.com", "nytimes.com", "bbc.com", "bbc.co.uk",
+})
+
+
+def _env_junk_host_is_safe(host: str) -> bool:
+    """Codex P1-2 (#1289): True iff ``host`` is a VALID env-provided junk-host
+    entry (safe to add to the suffix-drop rule).
+
+    Rejects (so a bad env value can never drop real sources):
+      - empty / no-dot tokens (a bare "com"/"org" is not a registrable domain),
+      - a bare public suffix or TLD (``_PUBLIC_SUFFIX_BLOCKLIST``),
+      - a multi-label public suffix NOT on the hand list: a leading-``*.``-stripped
+        2-label host whose FIRST label is a registry token (``com.br``, ``co.in``,
+        ``org.au``, ``net.au`` ...) has no real registrable label in front of a
+        public suffix, so it would suffix-drop every real source under it,
+      - a known-real / scholarly registrable domain (``_KNOWN_REAL_DOMAIN_BLOCKLIST``),
+      - any ``*.gov`` / ``*.edu`` / ``*.int`` / ``*.mil`` host (gov/academic),
+      - any ``*.ac.<tld>`` / ``*.edu.<tld>`` / ``*.gov.<tld>`` academic host.
+    Accepts an arbitrary OTHER full registrable host (e.g. ``studymoose.com``,
+    ``coursehero.org``) — the env-additive feature is preserved; only unsafe
+    values are filtered. Pure, no network."""
+    if not host or "." not in host:
+        return False
+    # Strip a leading wildcard label (``*.example.com`` => ``example.com``) so a
+    # wildcarded public suffix can never sneak past the label-count checks.
+    h = host.strip().lower().strip(".")
+    if h.startswith("*."):
+        h = h[2:]
+    h = h.strip(".")
+    if not h or "." not in h:
+        return False
+    if h in _PUBLIC_SUFFIX_BLOCKLIST:
+        return False
+    if h in _KNOWN_REAL_DOMAIN_BLOCKLIST:
+        return False
+    labels = h.split(".")
+    tld = labels[-1]
+    # Reject whole gov/academic/treaty TLDs (a *.gov / *.edu host is real).
+    if tld in ("gov", "edu", "int", "mil"):
+        return False
+    # Reject academic second-level suffixes (e.g. *.ac.uk, *.edu.au, *.gov.au).
+    if len(labels) >= 2 and labels[-2] in ("ac", "edu", "gov"):
+        return False
+    # Codex P1-2 (#1289) robustness beyond the hand list: a 2-label host whose
+    # FIRST label is a registry token (com/org/net/co/ac/...) IS a public suffix
+    # (``com.br``, ``co.in``, ``net.au``), not a registrable domain — reject so a
+    # multi-label suffix missed from `_PUBLIC_SUFFIX_BLOCKLIST` can never drop
+    # real sources. A real junk host has a true word label in front ("studymoose"
+    # before "com"), so it survives this check.
+    if len(labels) == 2 and labels[0] in _PUBLIC_SUFFIX_REGISTRY_LABELS:
+        return False
+    return True
+
+
+def _junk_source_hosts() -> "tuple[str, ...]":
+    """The junk-host suffix list (default + VALIDATED PG_JUNK_SOURCE_HOSTS additive).
+
+    The hardcoded locked list (``_JUNK_SOURCE_HOSTS``) is authoritative and is NOT
+    validated. Codex P1-2 (#1289): every PG_JUNK_SOURCE_HOSTS entry passes
+    ``_env_junk_host_is_safe`` first — a bare public suffix / TLD / known-real or
+    scholarly domain is silently ignored with a LAW-II warning so a bad env value
+    can never suffix-drop real sources."""
+    hosts = list(_JUNK_SOURCE_HOSTS)
+    extra = os.getenv("PG_JUNK_SOURCE_HOSTS", "").strip()
+    if extra:
+        for raw in extra.split(","):
+            cand = raw.strip().lower()
+            if not cand:
+                continue
+            if _env_junk_host_is_safe(cand):
+                hosts.append(cand)
+            else:
+                logger.warning(
+                    "[ACCESS] P1-2: ignoring invalid PG_JUNK_SOURCE_HOSTS entry "
+                    "%r (bare suffix / TLD / known-real domain would drop real "
+                    "sources)", _safe_log_str(cand, 80),
+                )
+    return tuple(hosts)
+
+
+def is_junk_source_host(url: str) -> bool:
+    """True iff the URL host is a known homework-help / Q&A-not-source domain.
+
+    Exact-suffix match on the lowercased netloc (host == d OR host endswith
+    '.' + d) so a real domain merely CONTAINING a junk token is never caught.
+    Pure, no network. Repositories / journals / gov / news are not on the list.
+    """
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse as _urlparse  # noqa: PLC0415
+        netloc = (_urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    if not netloc:
+        return False
+    # Drop a leading "www." and any :port for the suffix comparison.
+    host = netloc.split("@")[-1].split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return any(host == d or host.endswith("." + d) for d in _junk_source_hosts())
+
+
+def _junk_shell_max_chars() -> int:
+    """Body-length ceiling above which the error-shell text screen never fires."""
+    raw = os.getenv(_ENV_JUNK_SHELL_MAX_CHARS)
+    if raw is None or not raw.strip():
+        return _DEFAULT_JUNK_SHELL_MAX_CHARS
+    try:
+        val = int(raw.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{_ENV_JUNK_SHELL_MAX_CHARS}={raw!r} is not an integer "
+            f"(junk error-shell body-length ceiling)"
+        ) from exc
+    return max(0, val)
+
+
+def _error_shell_min_coverage() -> float:
+    """Codex P1-1 (#1289): minimum signature COVERAGE ratio (0..1) for the
+    no-co-token dominance path. A malformed / out-of-range value falls back to
+    the conservative default (over-strip is worse than a recoverable leak)."""
+    raw = os.getenv(_ENV_ERROR_SHELL_MIN_COVERAGE)
+    if raw is None or not raw.strip():
+        return _DEFAULT_ERROR_SHELL_MIN_COVERAGE
+    try:
+        val = float(raw.strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_ERROR_SHELL_MIN_COVERAGE
+    if not (0.0 < val <= 1.0):
+        return _DEFAULT_ERROR_SHELL_MIN_COVERAGE
+    return val
+
+
+def _error_shell_min_dominance_alpha() -> int:
+    """Codex P1-1 (#1289): minimum total alphabetic content (chars) for the
+    no-co-token dominance path to fire. A bare 2-3-word title is below this floor
+    and is KEPT. A malformed / <=0 value falls back to the conservative
+    default."""
+    raw = os.getenv(_ENV_ERROR_SHELL_MIN_DOMINANCE_ALPHA)
+    if raw is None or not raw.strip():
+        return _DEFAULT_ERROR_SHELL_MIN_DOMINANCE_ALPHA
+    try:
+        val = int(raw.strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_ERROR_SHELL_MIN_DOMINANCE_ALPHA
+    if val <= 0:
+        return _DEFAULT_ERROR_SHELL_MIN_DOMINANCE_ALPHA
+    return val
+
+
+def is_error_shell_text(text: str) -> bool:
+    """True iff ``text`` is a fetch-error / interstitial SHELL, not real content.
+
+    High-precision + length-gated. The body must be SHORT (<= the env ceiling)
+    AND carry a PRIMARY error-shell signature, AND its distinctive residual after
+    removing every signature must be trivially small (<= 3 words). Then ONE of two
+    independent confirmations must hold (Codex P1-1, #1289 — the OR keeps the
+    screen conservative; a real source that merely CONTAINS a generic phrase is
+    NOT a shell):
+
+      (1) CO-TOKEN: a WAF / HTTP-error co-token (cloudflare-blocked, rate-limit,
+          a bare HTTP status, a CAPTCHA/security-verification stub, a Jina
+          "returned error" line) co-occurs with the signature — exactly the M-23d
+          ``_is_paywalled`` posture. A genuine block page carries one of these; a
+          real article TITLE / snippet does not.
+      (2) DOMINANCE: the signature DOMINATES the body — the stripped-signature
+          COVERAGE ratio is >= ``_error_shell_min_coverage()`` of the body's
+          alphabetic content AND the body has enough total content
+          (>= ``_error_shell_min_dominance_alpha()`` alpha-chars) for "dominance"
+          to be meaningful. A bare 2-3-word title ("Access Denied", "Just a
+          Moment") falls below the content floor and is KEPT; a substantive titled
+          body ("Access Denied: barriers to healthcare ...") falls below the
+          coverage ratio and is KEPT; the banked drb_72 JS-error shell
+          (~0.88 coverage, 96 alpha-chars, no co-token) DROPS via this path.
+
+    A long article that merely quotes an error phrase in prose is NEVER flagged
+    (length-gate + residual-word + coverage all exclude it). When in doubt, KEEP
+    the source (§-1.3 — only genuine junk dropped; the faithfulness engine is the
+    only hard gate). Mirrors the ``is_boilerplate_or_nonassertional`` error-page
+    length-gate.
+    """
+    if not text:
+        return False
+    stripped = text.strip()
+    if not stripped or len(stripped) > _junk_shell_max_chars():
+        return False
+    lowered = stripped.lower()
+    # Require at least one PRIMARY error-shell signature to be present.
+    if not any(sig in lowered for sig in _ERROR_SHELL_SIGNATURES):
+        return False
+    # Total alphabetic content (Unicode words) BEFORE stripping signatures — the
+    # denominator for the coverage ratio and the input to the content floor.
+    body_words = re.findall(r"[^\W\d_]+", lowered, re.UNICODE)
+    total_alpha = sum(len(w) for w in body_words)
+    if total_alpha == 0:
+        return False
+    # DOMINANCE residual: strip every primary signature AND the secondary
+    # shell-chrome phrases, then measure what real content remains. A pure shell
+    # page leaves essentially nothing; a real article that merely quotes an error
+    # phrase keeps its substantive vocabulary and is NOT flagged.
+    residual = lowered
+    for phrase in (*_ERROR_SHELL_SIGNATURES, *_ERROR_SHELL_CHROME):
+        residual = residual.replace(phrase, " ")
+    residual_words_all = re.findall(r"[^\W\d_]+", residual, re.UNICODE)
+    residual_alpha = sum(len(w) for w in residual_words_all)
+    residual_distinct = [w for w in residual_words_all if len(w) > 2]
+    # Outer precision gate: a body with substantive residual prose is a real
+    # article wrapped around an error phrase — never a shell.
+    if len(residual_distinct) > 3:
+        return False
+    # Confirmation (1): a WAF / HTTP-error co-token makes it an unambiguous block
+    # page regardless of coverage (a short genuine interstitial may be co-token-
+    # dominated rather than signature-dominated).
+    if any(tok in lowered for tok in _ERROR_SHELL_WAF_COTOKENS):
+        return True
+    # Confirmation (2): the signature DOMINATES the body by coverage AND the body
+    # carries enough total content for dominance to be meaningful (so a bare
+    # 2-3-word title is KEPT, not flagged).
+    coverage = (total_alpha - residual_alpha) / total_alpha
+    return (
+        coverage >= _error_shell_min_coverage()
+        and total_alpha >= _error_shell_min_dominance_alpha()
+    )
+
+
+def is_junk_source(url: str = "", text: str = "") -> bool:
+    """True iff a source is a non-citable JUNK page (host OR error-shell body).
+
+    Faithfulness-NEUTRAL SOURCE screen (§-1.3): drops ONLY confirmed junk
+    (homework-help/Q&A host, or a fetch-error shell body), never a real
+    journal/repository/gov/news source. Either signal alone is sufficient; both
+    are high-precision. Never a verify verdict — applied at corpus consumption so
+    junk never enters the basket / bibliography / corroboration / citation.
+    """
+    return is_junk_source_host(url) or is_error_shell_text(text)
+
+
 # ---------------------------------------------------------------------------
 # Crawl4AI availability flag (set on first import attempt)
 # ---------------------------------------------------------------------------

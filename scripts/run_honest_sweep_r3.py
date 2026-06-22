@@ -845,6 +845,153 @@ def _title_has_named_chrome(text: str) -> bool:
     is never TITLED with crawl chrome. Never drops the source — only changes the displayed string."""
     return bool(text) and bool(_NAMED_TITLE_CHROME_RE.search(text))
 
+
+# ---------------------------------------------------------------------------
+# I-beatboth-011 junk-SOURCE screen helper (#1289). Codex P1-1: the junk screen
+# was wired at ONE seam (~6963) but BYPASSED by two later fresh-run injection
+# paths (the required-entity lane prepend ~8333, and the saturation gap-round
+# merge ~8713). Hoist the EXACT predicate + env gate + telemetry of the 6963
+# seam into a single module-level helper so all three seams share ONE source of
+# truth. A row/source that is NOT junk passes through byte-identical; the env
+# kill-switch `PG_JUNK_SOURCE_SCREEN=0` makes every caller a no-op (LAW VI).
+# ---------------------------------------------------------------------------
+def _junk_ev_row_text(_row: Any) -> str:
+    """Fetched-body text of an evidence row (dict OR object); '' when absent."""
+    if isinstance(_row, dict):
+        return str(_row.get("direct_quote") or _row.get("statement") or "")
+    return str(
+        getattr(_row, "direct_quote", "") or getattr(_row, "statement", "") or ""
+    )
+
+
+def _junk_ev_row_url(_row: Any) -> str:
+    """Source URL of an evidence row (dict OR object); '' when absent."""
+    if isinstance(_row, dict):
+        return str(_row.get("source_url") or _row.get("url") or "")
+    return str(getattr(_row, "source_url", "") or getattr(_row, "url", "") or "")
+
+
+def _junk_src_url(_src: Any) -> str:
+    """URL of a classified source (dict OR CorpusSource object); '' when absent."""
+    if isinstance(_src, dict):
+        return str(_src.get("url") or _src.get("source_url") or "")
+    return str(getattr(_src, "url", "") or getattr(_src, "source_url", "") or "")
+
+
+def _screen_junk_evidence(
+    rows: "list[Any] | None",
+    srcs: "list[Any] | None",
+    *,
+    log: "Any" = None,
+    run_dir: "Any" = None,
+    label: str = "",
+) -> "tuple[list[Any], list[Any], dict[str, list[dict[str, str]]]]":
+    """Drop confirmed JUNK rows/sources before they reach generator/bibliography.
+
+    SINGLE source of truth for the junk-SOURCE screen (Codex P1-1, #1289). Same
+    predicate as the original 6963 seam: ``is_junk_source(url, text)`` on each
+    evidence row (host junk OR error-shell body) and ``is_junk_source_host(url)``
+    on each classified source (host only — sources carry no fetched body). Same
+    env gate, same log line, same excluded-json telemetry shape.
+
+    Args:
+      rows: evidence rows to screen (``None`` => no row screen, e.g. the
+        required-entity lane which has no separate classified_sources merge).
+      srcs: classified sources to screen (``None`` => no source screen).
+      log: optional ``_log`` callable; a drop summary is logged when given.
+      run_dir: optional ``Path``; excluded telemetry is written under it.
+      label: a distinct seam tag so telemetry (log + json filename) shows which
+        seam dropped what. ``""`` == the canonical initial seam (byte-identical
+        log + ``junk_source_excluded.json`` path).
+
+    Returns ``(kept_rows, kept_srcs, excluded)`` where ``excluded`` carries the
+    dropped row/source url+reason lists. When ``PG_JUNK_SOURCE_SCREEN=0`` the
+    original list objects are returned unchanged (byte-identical legacy no-op).
+    """
+    _rows_in = list(rows) if rows is not None else []
+    _srcs_in = list(srcs) if srcs is not None else []
+    if os.getenv("PG_JUNK_SOURCE_SCREEN", "1").strip() == "0":
+        # Kill-switch: return the ORIGINAL objects unchanged (no copy, no drops).
+        return (
+            rows if rows is not None else [],
+            srcs if srcs is not None else [],
+            {"evidence_rows_excluded": [], "classified_sources_excluded": []},
+        )
+
+    from src.tools.access_bypass import (  # noqa: PLC0415
+        is_junk_source as _is_junk_source,
+        is_junk_source_host as _is_junk_source_host,
+    )
+
+    _rows_kept: list[Any] = []
+    _rows_excluded: list[dict[str, str]] = []
+    if rows is not None:
+        for _row in _rows_in:
+            # Evidence rows carry the fetched body (direct_quote) AND the URL, so
+            # both signals apply (host junk + error-shell body).
+            if _is_junk_source(_junk_ev_row_url(_row), _junk_ev_row_text(_row)):
+                _rows_excluded.append(
+                    {"url": _junk_ev_row_url(_row)[:300], "reason": "junk_source"}
+                )
+            else:
+                _rows_kept.append(_row)
+
+    _srcs_kept: list[Any] = []
+    _srcs_excluded: list[dict[str, str]] = []
+    if srcs is not None:
+        for _src in _srcs_in:
+            # CorpusSource carries no fetched body — screen on HOST only.
+            if _is_junk_source_host(_junk_src_url(_src)):
+                _srcs_excluded.append(
+                    {"url": _junk_src_url(_src)[:300], "reason": "junk_source_host"}
+                )
+            else:
+                _srcs_kept.append(_src)
+
+    if (_rows_excluded or _srcs_excluded):
+        _seam = f" [{label}]" if label else ""
+        if log is not None:
+            log(
+                f"[junk_screen]{_seam} dropped {len(_rows_excluded)} junk "
+                f"evidence_rows ({len(_rows_in)} -> {len(_rows_kept)}) and "
+                f"{len(_srcs_excluded)} junk classified_sources "
+                f"({len(_srcs_in)} -> {len(_srcs_kept)})"
+            )
+        if run_dir is not None:
+            # Canonical filename for the initial seam (label==""); a distinct,
+            # non-clobbering filename for each later seam so per-round drops are
+            # not overwritten (the gap round fires repeatedly).
+            _fname = (
+                "junk_source_excluded.json"
+                if not label
+                else f"junk_source_excluded_{label}.json"
+            )
+            try:
+                (run_dir / _fname).write_text(
+                    json.dumps(
+                        {
+                            "evidence_rows_excluded": _rows_excluded,
+                            "classified_sources_excluded": _srcs_excluded,
+                        },
+                        indent=2, sort_keys=True, default=str,
+                    ) + "\n",
+                    encoding="utf-8",
+                )
+            except Exception as _js_write_exc:  # noqa: BLE001 — telemetry best-effort
+                if log is not None:
+                    log(f"[junk_screen]{_seam} excluded-telemetry write skipped: "
+                        f"{_js_write_exc}")
+
+    return (
+        _rows_kept if rows is not None else [],
+        _srcs_kept if srcs is not None else [],
+        {
+            "evidence_rows_excluded": _rows_excluded,
+            "classified_sources_excluded": _srcs_excluded,
+        },
+    )
+
+
 # BB5-P03 — env knob: when the outline already produced a Limitations section,
 # suppress the appended synthesized one (default ON — the duplicate header + the
 # verbatim-duplicated paragraph are the drb_90 defect). Citation markers are
@@ -6960,6 +7107,41 @@ async def run_one_query(
             except Exception as _fetch_snap_exc:  # noqa: BLE001 — checkpoint is best-effort
                 _log(f"[checkpoint]  post-fetch snapshot save skipped (fail-open): {_fetch_snap_exc}")
 
+        # I-beatboth-011 junk-SOURCE screen (#1289). At THIS single corpus-
+        # consumption seam — after every retrieval/merge lane AND after the
+        # fresh/resume branch reconcile, but BEFORE selection / the approval gate /
+        # any downstream consumer — drop confirmed JUNK sources so they never enter
+        # the basket, get a citation number, list in the bibliography, or surface as
+        # a per-claim corroborator. Junk = a homework-help / Q&A-not-source HOST
+        # (chegg/coursehero/...) OR a fetch-error SHELL body ("...doesn't work
+        # properly without JavaScript..."). HIGH-PRECISION + faithfulness-NEUTRAL
+        # (§-1.3): a real journal/repository/gov/news source is NEVER dropped — the
+        # host list is exact-suffix only and the shell-text screen is length-gated +
+        # dominance-gated, so e.g. a real 1027-char openalex.org abstract survives
+        # while the 117-char JS-error-shell row on the SAME host is dropped. This
+        # runs in BOTH fresh and replay (it sits after the resume reconstruct, like
+        # the journal_only filter below). It is SOURCE input-hygiene, never a verify
+        # verdict: strict_verify / NLI / 4-role / span-grounding are untouched, and a
+        # claim left with only a junk corroborator falls to its other corroborators
+        # or to the honest strict_verify gap path (no fabrication). Env kill-switch
+        # PG_JUNK_SOURCE_SCREEN=0 reverts to byte-identical legacy behavior (LAW VI).
+        # Codex P1-1 (#1289): the inline predicate is hoisted into the single
+        # module-level `_screen_junk_evidence` helper so this seam, the
+        # required-entity lane (~8333), and the saturation gap round (~8713) all
+        # share ONE source of truth. The helper carries the env gate
+        # (PG_JUNK_SOURCE_SCREEN=0 => byte-identical no-op returning the original
+        # objects), the same log line, and the same junk_source_excluded.json
+        # telemetry (label=="" keeps the canonical filename here).
+        retrieval.evidence_rows, retrieval.classified_sources, _ = (
+            _screen_junk_evidence(
+                retrieval.evidence_rows,
+                retrieval.classified_sources,
+                log=_log,
+                run_dir=run_dir,
+                label="",
+            )
+        )
+
         # I-ready-017 #1134: journal_only SINGLE source-filter. After ALL
         # retrieval stages, restrict the citeable corpus to peer-reviewed
         # journal articles BEFORE the approval gate measures `dist`/`adequacy`
@@ -7778,6 +7960,54 @@ async def run_one_query(
                 EvidenceSelection as _EvidenceSelection,
             )
             evidence_for_gen = list(_resume_payload.get("evidence_for_gen") or [])
+            # I-beatboth-011 junk-SOURCE screen (#1289) — RESUME path. On a post-selection
+            # corpus_snapshot resume, selection is SKIPPED and the snapshot's billed
+            # ``evidence_for_gen`` pool is consumed DIRECTLY by generation (it does NOT pass
+            # through the retrieval.evidence_rows screen above, which only feeds selection).
+            # So the SAME junk-source screen MUST be applied here, or junk that was baked into
+            # the snapshot before this fix (a Chegg homework row, a JS-error-shell row)
+            # survives the replay and is cited / listed in the bibliography / per-claim
+            # corroboration. HIGH-PRECISION + faithfulness-NEUTRAL (§-1.3): only confirmed junk
+            # (homework-help/Q&A host OR fetch-error-shell body) is dropped; a real
+            # journal/repository/gov/news row is KEPT (a real openalex.org abstract on the same
+            # host as the shell survives). Same predicate, same shape, same kill-switch as the
+            # retrieval-side screen above. SOURCE input-hygiene only — strict_verify / NLI /
+            # 4-role / span-grounding untouched; a claim left with only a junk corroborator falls
+            # to its other corroborators or the honest gap path (no fabrication).
+            if os.getenv("PG_JUNK_SOURCE_SCREEN", "1").strip() != "0":
+                from src.tools.access_bypass import (  # noqa: PLC0415
+                    is_junk_source as _is_junk_source_efg,
+                )
+
+                def _efg_row_text(_row: Any) -> str:
+                    if isinstance(_row, dict):
+                        return str(_row.get("direct_quote") or _row.get("statement") or "")
+                    return str(
+                        getattr(_row, "direct_quote", "")
+                        or getattr(_row, "statement", "")
+                        or ""
+                    )
+
+                def _efg_row_url(_row: Any) -> str:
+                    if isinstance(_row, dict):
+                        return str(_row.get("source_url") or _row.get("url") or "")
+                    return str(
+                        getattr(_row, "source_url", "")
+                        or getattr(_row, "url", "")
+                        or ""
+                    )
+
+                _efg_before = len(evidence_for_gen)
+                _efg_kept = [
+                    _row for _row in evidence_for_gen
+                    if not _is_junk_source_efg(_efg_row_url(_row), _efg_row_text(_row))
+                ]
+                if len(_efg_kept) != _efg_before:
+                    _log(
+                        f"[junk_screen] resume evidence_for_gen junk dropped: "
+                        f"{_efg_before} -> {len(_efg_kept)}"
+                    )
+                evidence_for_gen = _efg_kept
             # A15 (iarch006 epic-failure): resume-snapshot REFRESH detector + RE-FETCH. drb_90's first
             # run crashed on a 402 with degraded retrieval; the RESUME reloaded the frozen corpus with
             # NO re-retrieval, so the failed-fetch / shell / content-starved rows were reloaded untouched
@@ -8179,6 +8409,21 @@ async def run_one_query(
                             search_fn=_req_search_fn,
                             retrieval_fn=run_live_retrieval,
                         )
+                        # Codex P1-1 (#1289): the required-entity lane runs the
+                        # SAME `run_live_retrieval` fetch chain, so its fresh rows
+                        # can be Chegg / JS-error-shell junk. Screen them HERE —
+                        # before the dedup/append loop below — so junk never enters
+                        # retrieval.evidence_rows nor the `_req_new_rows` prepend
+                        # onto evidence_for_gen. Rows only (no separate
+                        # classified_sources merge on this lane). Same helper/
+                        # predicate; PG_JUNK_SOURCE_SCREEN=0 => byte-identical.
+                        _req_screened_rows, _, _ = _screen_junk_evidence(
+                            _req_result.evidence_rows,
+                            None,
+                            log=_log,
+                            run_dir=run_dir,
+                            label="req_entity",
+                        )
                         # Merge discovered rows into the corpus with the SAME
                         # canonical-URL dedup + global evidence_id renumber the
                         # saturation gap-round uses, so the billed pool never
@@ -8196,7 +8441,7 @@ async def run_one_query(
                             for _r in retrieval.evidence_rows
                         }
                         _req_new_rows: list[dict[str, Any]] = []
-                        for _ev in _req_result.evidence_rows:
+                        for _ev in _req_screened_rows:
                             _canon = _req_canon_url(
                                 _ev.get("source_url") or _ev.get("url") or ""
                             )
@@ -8588,6 +8833,25 @@ async def run_one_query(
                         seed_urls=[],
                         research_frame=_retrieval_frame,
                         anchor_seed=False,   # GAP round: no broad anchor re-run
+                    )
+                    # Codex P1-1 (#1289): a saturation gap round runs the SAME
+                    # `run_live_retrieval` fetch chain AFTER the initial junk
+                    # screen, so its fresh rows can be Chegg / JS-error-shell junk.
+                    # Screen HERE — right after retrieval returns, BEFORE the
+                    # journal filter, BEFORE the merge into
+                    # retrieval.classified_sources, and BEFORE the novelty
+                    # denominator reads `_gap_ret.evidence_rows` — so junk never
+                    # reaches evidence_for_gen / the bibliography / novelty math.
+                    # Same helper/predicate; PG_JUNK_SOURCE_SCREEN=0 =>
+                    # byte-identical no-op.
+                    _gap_ret.evidence_rows, _gap_ret.classified_sources, _ = (
+                        _screen_junk_evidence(
+                            _gap_ret.evidence_rows,
+                            _gap_ret.classified_sources,
+                            log=_log,
+                            run_dir=run_dir,
+                            label="gap_round",
+                        )
                     )
                     # I-ready-017 #1134 (Codex diff-gate P1-1): a saturation gap
                     # round re-retrieves AFTER the single source-filter, so its
