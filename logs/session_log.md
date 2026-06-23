@@ -5778,3 +5778,16 @@
 - EVIDENCE/FINDINGS: py_compile x5 OK; gate0 fail-loud registration verified (known pass / drb_90 exempt / drb_99 raises / non-bench ignored); closed-loop 1.00 > floor 0.40 ranking still fires; --idx/slug mismatch refused. Ground truth via Explore agent (real slugs, generate() signature, floor amplified set, resume question field) — no re-guessing.
 - STATUS: 7 P1 + 2 P2 resolved + smoke-green; Codex gate iter 2 in flight.
 - NEXT_STEP: read iter-2 verdict inline; if APPROVE, commit; else fix + iter 3 (cap 5).
+
+[2026-06-23 (qgen determination KILLED — metric too slow + non-discriminating)]
+- ACTION: Killed the 4-task query-gen determination (pid 37076) ~40min in, ~$16.7 spent, after an early-read probe exposed two blockers.
+- RATIONALE (S-1.4 behavioral discipline working): the real output revealed what diff-review couldn't. (1) SPEED: floor corpus = 1.15M chars / 313 sources = ~24 chunks; each UNCOVERED point judges all 24 chunks serially -> ~1370 GLM calls per method per task -> full run ~10k calls, hours, $50+. (2) DISCRIMINATION: coverage ~0 for both (canary 0/57; probe point[0]+[11] False) because the DRB-II info_recall rubric demands citing an EXACT named study; neither floor nor closed-loop retrieves those exact papers at equal budget -> 0 vs 0 = INCONCLUSIVE, no winner.
+- EVIDENCE: probe judged 2/6 points in 180s (~2min/point); corpus 1,150,013 chars; both sampled points uncovered.
+- STATUS: harness + GATE0 work COMMITTED (4d3abdeb, Codex-APPROVED) stands. The DETERMINATION metric needs a redesign: (a) finding-level coverage not exact-named-study; (b) compact per-source digest corpus (1-2 chunks not 24) + parallel judge. Faithfulness engine untouched throughout.
+- NEXT_STEP: present findings to operator + propose the finding-level + fast-judge metric redesign.
+
+[2026-06-23 (DRIFT CORRECTION: build the locked candidate roster, not a 2-method toy)]
+- ACTION: Operator flagged "very serious diff and drift" — I ran floor vs a self-written generic closed_loop_gap_requery as if it were the bake-off, then asked the operator to choose which frontier methods to build. The Codex-approved brief (.codex/I-qgen-001/brief.md L56-66) LOCKS the full candidate roster + coverage/faithfulness scoreboards. Killed the off-spec toy run. Launched a research workflow (wmkxfw3nk) to extract each candidate's portable query-gen scaffold from its PRIMARY arXiv source (frontier-tech mandate, no hallucination), then build a faithful adapter per runnable method.
+- RATIONALE: the plan is the source of truth; a generic stand-in for the named methods is exactly the hallucinated-substitute the frontier-tech mandate bans; asking the operator to re-pick a locked list is drift. Memory feedback_execute_locked_plan_no_generic_standin_2026_06_23 written.
+- AFFECTED_FILES: memory/feedback_execute_locked_plan_no_generic_standin_2026_06_23.md, MEMORY.md, qgen_methods.py (to be extended with the real adapters).
+- STATUS: research workflow in flight (11 candidates parallel, primary-source). NEXT: read roster, build faithful adapters for runnable methods, run ALL + floor through the coverage harness on DRB-II info_recall, Codex-gate.

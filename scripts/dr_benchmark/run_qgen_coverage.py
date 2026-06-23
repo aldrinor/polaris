@@ -152,6 +152,43 @@ def make_glm_llm():
     return llm
 
 
+def make_glm_judge_llm():
+    """A REASONING-EXCLUDED, THREAD-SAFE GLM-5.2 callable for the fast judge + query-list generation.
+
+    GLM-5.2's reasoning is EFFORT-based, not token-capped — `reasoning_max_tokens` does NOT reduce
+    it (a YES/NO call still burned ~700-2700 reasoning tokens => 5-33s each; cf.
+    fact_mirror_blank_xhigh_effort). The right knob is `reasoning_exclude=True`: skip the reasoning
+    pass entirely and answer directly. THREAD-SAFETY (bug fix): the coverage judge calls this from a
+    ThreadPoolExecutor, and each call does asyncio.run() on a FRESH event loop per thread. An
+    OpenRouterClient holds an aiohttp session bound to ONE loop, so SHARING one client across worker
+    threads deadlocks (8 threads x 8 loops on one session => hang at ~5 calls). Fix: a THREAD-LOCAL
+    client — every worker thread constructs its own client on first use, so no loop-bound state is
+    shared across threads.
+    """
+    import threading
+
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+    model = os.getenv("PG_QGEN_BACKBONE_MODEL", "z-ai/glm-5.2")
+    max_tokens = int(os.getenv("PG_QGEN_JUDGE_MAX_TOKENS", "1200"))
+    _tls = threading.local()
+
+    def _client() -> "OpenRouterClient":
+        c = getattr(_tls, "client", None)
+        if c is None:
+            c = OpenRouterClient(model=model)
+            _tls.client = c
+        return c
+
+    def llm(prompt: str) -> str:
+        resp = asyncio.run(
+            _client().generate(prompt=prompt, max_tokens=max_tokens, reasoning_exclude=True)
+        )
+        return getattr(resp, "content", "") or ""
+
+    return llm
+
+
 def make_glm_coverage_judge():
     """A coverage judge (required_point, corpus_text) -> bool, backed by GLM-5.2.
 
