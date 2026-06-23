@@ -1,0 +1,83 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: [
+  "GATE 0 is necessary but not sufficient. It checks right-question launch, packed-question equality, and title-stub rejection, but it does not require immutable artifact lineage from task_id -> packed prompt -> raw answer -> rendered report -> judge input -> score row. Split-brain scoring can still survive through stale report reads, stale packed prompts, or evaluator/report mismatches. Add manifest hashes and negative canaries for each former drb_72 failure mode before any bake-off score is trusted.",
+  "The bake-off currently confounds query-generation mechanism with full-system differences. AgentCPM/WARP, DuMate, WebWeaver, FS-Researcher, Tongyi, etc. include planning, retrieval, memory, writing, and sometimes trained-agent behavior; standalone scores cannot by themselves identify which query-generation front-end POLARIS should secure. Add a controlled mode where each runnable candidate emits normalized query/roadmap artifacts into identical POLARIS retrieval/generation/verification budgets; standalone full-stack scores may screen, but not decide the mechanism.",
+  "The screening design is too noisy for decision-grade selection. A 10-15 task subset with no repeated/paired design, confidence intervals, retrieval snapshot/cache, or minimum effect threshold can select the wrong top 1-2 under GLM-5.2 and web-retrieval variance. Require a locked stratified task list, fixed tool/retrieval budget, paired per-task scoring, bootstrap/significance or non-overlap criteria, and reruns for finalists.",
+  "Faithfulness non-regression is directionally right but not operational. 'Watched' and 'regresses => loses' need quantitative gates: baseline floor, allowed tolerance, per-metric noninferiority thresholds for DEER/DeepTRACE/DeepScholar sentence-verifiability, and a policy for citation precision / unsupported-claim severity. Without that, coverage gains can be accepted or rejected arbitrarily.",
+  "The frontier mandate is not yet executable. The plan names the required seven, but lacks a build-start primary-source rescan with inclusion/exclusion logging, exact arXiv/repo/version pins, and runnability evidence. Primary-source scan indicates additional 2025-2026 candidates needing include/exclude rationale, including PokeeResearch-7B arXiv 2510.15862 with repo, DeepResearch-R1/DeepResearch-9K arXiv 2603.01152 with repo, and DOLORES arXiv 2605.11388; I could not verify ScaffoldAgent arXiv 2606.20122 from public search results.",
+  "GLM-5.2 adaptation rules are underspecified. Some candidates are framework-level, some are trained agents/models, and some may depend on native tool stacks. The plan must define whether candidates run as native systems, GLM-5.2-backed scaffolds, or excluded as unrunnable; otherwise the result mixes mechanism quality, model training, tool availability, and adapter effort."
+]
+p2: [
+  "Add contamination/leakage checks for public benchmark overlap, since several cited systems report on DeepResearch Bench / DeepResearch Bench II directly. If the locked set is not private or held out, require an overlap audit against released training/eval data.",
+  "Define resource normalization: same search provider class, max searches, wall-clock budget, token caps, retry policy, and parallelism policy per candidate. Otherwise stronger breadth may just be higher spend or longer runtime.",
+  "Final acceptance should explicitly require the winning mechanism to improve real rendered POLARIS output after porting, not merely win the standalone bake-off. The current Step E opens the porting brief; the decision to secure should remain provisional until integrated POLARIS replay plus §-1.1 audit passes."
+]
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "Add artifact-lineage manifests and negative canaries to GATE 0.",
+  "Separate query-generation mechanism effects from full-system effects with a normalized POLARIS-controlled evaluation path.",
+  "Strengthen screening/finals with paired statistics, reruns, fixed budgets, and retrieval determinism.",
+  "Turn faithfulness watch metrics into hard quantitative non-regression gates.",
+  "Add build-start primary-source frontier rescan with exact repo/version pins and inclusion/exclusion rationale.",
+  "Define GLM-5.2 adaptation/exclusion rules for trained-agent versus scaffold candidates."
+]
+
+=== ITER 2 (resolves iter-1 6xP1 + 3xP2) ===
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: [
+  "P1: SCREEN still gates the field. The plan says SCREEN is confounded and not decision-grade, but also says it 'narrows the field.' That can eliminate a portable GLM-5.2 query-gen mechanism before DECIDE. Fix: DECIDE must run every verified runnable class-(ii) mechanism plus POLARIS floor; SCREEN can be reported separately only.",
+  "P1: DECIDE isolation is still underspecified for adaptive query mechanisms. WebWeaver, IterResearch, DuMate, DOLORES, and ScaffoldAgent-style systems update outlines/queries based on retrieved evidence, not just one-shot query artifacts. Fix: define a fixed adapter API where the candidate sees identical POLARIS retrieval observations under identical budgets and may issue iterative normalized query/roadmap calls; use a deterministic search snapshot keyed by query, not a pre-shared evidence basket that neutralizes query quality.",
+  "P1: ScaffoldAgent can no longer remain 'excluded until verified.' I verified a primary arXiv source exists: arXiv:2606.20122, submitted 2026-06-18, 'ScaffoldAgent: Utility-Guided Dynamic Outline Optimization for Open-Ended Deep Research' (https://arxiv.org/abs/2606.20122). Fix: promote it into the build-start rescan/classification table; exclude only if runnability/adapter evidence fails.",
+  "P1: taxonomy must split composite papers into portable mechanism vs trained weights. AgentCPM-Report is an 8B trained agent, but WARP is also a framework/policy for dynamic outline revision (arXiv:2602.06540, https://arxiv.org/abs/2602.06540). If the whole candidate is classified trained-only, the bake-off can miss a portable GLM-5.2 front-end. Fix: classify subcomponents, not just papers."
+]
+p2: [
+  "Add multiple-comparison control for many candidates/metrics, e.g. paired bootstrap winner-vs-floor and winner-vs-runner-up with Holm/FDR plus the locked minimum effect threshold.",
+  "Gate 0 lineage should hash candidate adapter version, prompt template, retrieval snapshot ID, judge model/version, and scorer config in addition to artifact chain.",
+  "For train/eval leakage, record overlap at exact question, paraphrase/semantic, and source-domain levels; prefer held-out tasks where any candidate reports on DRB/DRB-II."
+]
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "SCREEN must not pre-filter DECIDE candidates.",
+  "DECIDE needs an explicit adaptive query-agent interface and deterministic retrieval snapshot semantics.",
+  "ScaffoldAgent must be included in rescan/classification now that a primary source is confirmed.",
+  "Composite systems must be decomposed so portable scaffolds are not hidden under trained-agent labels."
+]
+
+=== ITER 3 (resolves iter-2 4xP1 + 3xP2) ===
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: [
+  "Add an explicit DECIDE evidence-basket schema guard: candidates may emit normalized queries/roadmap/gap labels and select retrieved source IDs, but common POLARIS code should perform chunking, dedup, provenance, and basket construction. This preserves closed-loop adaptation without letting candidate-specific summarization decide the bake-off.",
+  "Extend GATE 0 lineage manifest to include the GLM-5.2 query-agent backbone exact model/provider/revision, decoding params, reasoning/token caps, timeout/retry policy, and execution seed. Current judge/scorer/template/snapshot hashes are good; this is reproducibility hardening.",
+  "Frontier rescan artifact should be an explicit build-start file with include/exclude rationale and exact pins. Primary-source spot-check supports the promoted/current set: ScaffoldAgent https://arxiv.org/abs/2606.20122; AgentCPM-Report https://arxiv.org/abs/2602.06540; DuMate https://arxiv.org/abs/2606.07299; DOLORES https://arxiv.org/abs/2605.11388; FS-Researcher https://arxiv.org/abs/2602.01566; PokeeResearch https://arxiv.org/abs/2510.15862; DeepResearch-9K/R1 https://arxiv.org/abs/2603.01152; WebWeaver https://arxiv.org/abs/2509.13312; IterResearch/Tongyi https://arxiv.org/abs/2511.07327 and https://arxiv.org/abs/2510.24701; ConvergeWriter https://arxiv.org/abs/2509.12811."
+]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+=== ITER 4 (scoreboard-only decision; no human gate; §-1.1 mechanized via faithfulness scoreboards) ===
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: [
+  "P1-SCOREBOARD-CANARY-GAP: With the human §-1.1 audit removed, GATE 0 must prove the faithfulness scoreboards catch semantic unsupportedness, not only question mismatch, lineage mismatch, and unreachable/title-stub citations. As written, a scorer path that checks reachability/lineage but misses a reachable-yet-unsupported or contradicted claim could pass GATE 0 and still select an unfaithful candidate. Resolution: bind one negative canary to each scoreboard's real DECIDE scoring path: reachable cited source text, unsupported/contradicted generated claim, required fail at DEER per-claim, DeepTRACE per-statement, and DeepScholar per-sentence granularity against the final rendered artifact."
+]
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "Add the semantic-support negative canary requirement to GATE 0, or explicitly redefine an existing negative canary to cover reachable-but-unsupported/contradicted claims for all three faithfulness scoreboards."
+]
+
+=== ITER 5 (resolves iter-4 P1 semantic-support canary; 5-cap final) ===
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

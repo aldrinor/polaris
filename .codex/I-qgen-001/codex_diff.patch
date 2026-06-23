@@ -1,0 +1,1062 @@
+diff --git a/scripts/dr_benchmark/gate0_lineage.py b/scripts/dr_benchmark/gate0_lineage.py
+new file mode 100644
+index 00000000..978aec0b
+--- /dev/null
++++ b/scripts/dr_benchmark/gate0_lineage.py
+@@ -0,0 +1,225 @@
++"""GATE 0 — artifact-lineage enforcement for the benchmark harness (I-qgen-001, GH #1291).
++
++The drb_72 disaster had two harness-integrity failures that produced trustworthy-looking
++garbage scores:
++  1. WRONG QUESTION: the sweep launched a hardcoded "Fourth Industrial Revolution" prompt
++     that was NOT the canonical DeepResearch-Bench-II idx-56 question.
++  2. SPLIT-BRAIN SCORING: the DeepTRACE/DRB pack used the canonical question while the report
++     answered the substituted one.
++
++This module is the single source of truth that makes those impossible. It binds every
++benchmark run to the canonical question by idx (no drifting hardcoded copies) and provides a
++fail-loud equality check: launched == packed == answered == canonical. Nothing is hardcoded
++that can silently drift from the gold file.
++
++No magic numbers, no silent fallbacks: a mismatch raises GateZeroLineageError (fail loud).
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import re
++from dataclasses import dataclass
++from typing import Any
++
++# Canonical gold file (DeepResearch-Bench-II tasks + rubrics).
++DEFAULT_TASKS_PATH = os.path.join(
++    "third_party", "DeepResearch-Bench-II", "tasks_and_rubrics.jsonl"
++)
++
++# slug -> canonical DRB-II idx. The id<->idx offset is real (task72 -> idx 56, NOT 72);
++# binding by idx is what prevents the drb_72 wrong-question failure. The slug strings here
++# MUST be byte-identical to the launchable slugs in SWEEP_QUERIES (run_honest_sweep_r3.py) —
++# bare "drb_76"/"drb_78" never matched the real "drb_76_gut_microbiota_crc"/"drb_78_parkinsons_dbs"
++# slugs, so GATE0 silently skipped them (Codex iter-2 P1). Resolve any new slug from the gold
++# file before adding it here; never guess.
++SLUG_TO_IDX: dict[str, int] = {
++    "drb_72_ai_labor": 56,
++    "drb_75_metal_ions_cvd": 62,
++    "drb_76_gut_microbiota_crc": 66,
++    "drb_78_parkinsons_dbs": 72,
++}
++
++# DRB-EN slugs the sweep launches that have NO DeepResearch-Bench-II gold task (no canonical
++# idx, no info_recall rubric) — they CANNOT be canonically bound or coverage-scored. Listed
++# EXPLICITLY so the fail-loud registration check does not trip on them and so the omission is
++# documented, never a silent gap. drb_90 (ADAS liability) is simply not in the DRB-II gold file.
++DRB_SLUGS_WITHOUT_CANONICAL_GOLD: frozenset[str] = frozenset({"drb_90_adas_liability"})
++
++# A DRB-EN benchmark slug looks like ``drb_<id>_<topic>``. Used to decide whether the
++# registration check applies (non-benchmark sweep slugs are never gated).
++_DRB_SLUG_PATTERN = re.compile(r"^drb_\d+")
++
++
++def is_benchmark_slug(slug: str) -> bool:
++    """True iff ``slug`` is a DRB-EN benchmark slug (``drb_<id>_...``)."""
++    return bool(_DRB_SLUG_PATTERN.match(slug or ""))
++
++
++def assert_drb_slug_registered(slug: str) -> None:
++    """Fail loud if a ``drb_*`` slug is neither canonically mapped nor an explicit no-gold slug.
++
++    Catches a renamed/added benchmark slug (e.g. a future ``drb_NN``) that would otherwise
++    launch a hardcoded question with NO canonical binding — the exact silent gap that let
++    ``drb_76``/``drb_78`` (bare names) and ``drb_90`` slip past the GATE0 override. Non-benchmark
++    slugs are ignored.
++    """
++    if not is_benchmark_slug(slug):
++        return
++    if slug in SLUG_TO_IDX or slug in DRB_SLUGS_WITHOUT_CANONICAL_GOLD:
++        return
++    raise GateZeroLineageError(
++        f"GATE0: benchmark slug {slug!r} is UNREGISTERED — neither in SLUG_TO_IDX "
++        f"(canonically bound) nor DRB_SLUGS_WITHOUT_CANONICAL_GOLD (explicit no-gold). "
++        f"Resolve its gold idx from {DEFAULT_TASKS_PATH} and add it, or register it as no-gold. "
++        f"Never let a benchmark slug launch a hardcoded question unbound (the drb_72 failure)."
++    )
++
++
++class GateZeroLineageError(RuntimeError):
++    """Raised fail-loud when benchmark artifact lineage is violated.
++
++    A run that raises this is INVALID and must be excluded from any score. This is the
++    structural guard against the drb_72 wrong-question / split-brain-scoring failures.
++    """
++
++
++def _normalize(text: str) -> str:
++    """Whitespace-normalize a question for comparison (semantics preserved, layout ignored)."""
++    return " ".join((text or "").split())
++
++
++def sha256_text(text: str) -> str:
++    """Stable sha256 of normalized text."""
++    return hashlib.sha256(_normalize(text).encode("utf-8")).hexdigest()
++
++
++def load_canonical_question(idx: int, tasks_path: str = DEFAULT_TASKS_PATH) -> str:
++    """Return the canonical question prompt for a DRB-II idx, straight from the gold file.
++
++    Fails loud if the gold file is missing or the idx is not present — never returns a
++    silent default.
++    """
++    if not os.path.isfile(tasks_path):
++        raise GateZeroLineageError(
++            f"GATE0: canonical tasks file not found: {tasks_path} — cannot verify lineage"
++        )
++    with open(tasks_path, encoding="utf-8") as handle:
++        for line in handle:
++            line = line.strip()
++            if not line:
++                continue
++            record = json.loads(line)
++            if record.get("idx") == idx:
++                prompt = record.get("prompt")
++                if not prompt:
++                    raise GateZeroLineageError(
++                        f"GATE0: idx={idx} present but has empty 'prompt' in {tasks_path}"
++                    )
++                return prompt
++    raise GateZeroLineageError(
++        f"GATE0: idx={idx} not found in canonical tasks file {tasks_path}"
++    )
++
++
++def canonical_question_for_slug(slug: str, tasks_path: str = DEFAULT_TASKS_PATH) -> str:
++    """Canonical question for a benchmark slug (via SLUG_TO_IDX)."""
++    if slug not in SLUG_TO_IDX:
++        raise GateZeroLineageError(
++            f"GATE0: slug {slug!r} has no canonical idx mapping — resolve it from the gold "
++            f"file and add it to SLUG_TO_IDX before running (never guess the idx)"
++        )
++    return load_canonical_question(SLUG_TO_IDX[slug], tasks_path)
++
++
++def assert_launched_question_is_canonical(
++    slug: str, launched_question: str, tasks_path: str = DEFAULT_TASKS_PATH
++) -> str:
++    """Fail loud unless the launched question equals the canonical question for the slug.
++
++    Returns the canonical question (so callers can launch THAT, not a hardcoded copy).
++    This is the structural fix for the drb_72 wrong-question bug.
++    """
++    canonical = canonical_question_for_slug(slug, tasks_path)
++    if sha256_text(launched_question) != sha256_text(canonical):
++        raise GateZeroLineageError(
++            "GATE0 WRONG-QUESTION: launched question != canonical for slug "
++            f"{slug!r}.\n  launched(sha)={sha256_text(launched_question)[:16]} : "
++            f"{_normalize(launched_question)[:120]!r}\n  canonical(sha)="
++            f"{sha256_text(canonical)[:16]} : {_normalize(canonical)[:120]!r}"
++        )
++    return canonical
++
++
++def assert_no_split_brain(
++    slug: str,
++    packed_question: str,
++    answered_question: str,
++    tasks_path: str = DEFAULT_TASKS_PATH,
++) -> None:
++    """Fail loud unless packed == answered == canonical (the split-brain guard).
++
++    `packed_question` = the question handed to the judge/scorer pack.
++    `answered_question` = the question the report (corpus_snapshot) actually answered.
++    Both must equal the canonical question, or the score is meaningless.
++    """
++    canonical = canonical_question_for_slug(slug, tasks_path)
++    c = sha256_text(canonical)
++    p = sha256_text(packed_question)
++    a = sha256_text(answered_question)
++    if not (p == c and a == c):
++        raise GateZeroLineageError(
++            "GATE0 SPLIT-BRAIN: packed/answered/canonical question mismatch for slug "
++            f"{slug!r}.\n  canonical(sha)={c[:16]}\n  packed(sha)   ={p[:16]} "
++            f"({'OK' if p == c else 'MISMATCH'})\n  answered(sha) ={a[:16]} "
++            f"({'OK' if a == c else 'MISMATCH'})"
++        )
++
++
++def build_lineage_manifest(
++    *,
++    slug: str,
++    launched_question: str,
++    packed_question: str,
++    answered_question: str,
++    rendered_report: str,
++    judge_input: str,
++    score_row: Any,
++    backbone_model: str,
++    decoding_params: dict[str, Any],
++    prompt_template_id: str,
++    retrieval_snapshot_id: str,
++    judge_model_version: str,
++    scorer_config_id: str,
++    execution_seed: int,
++    tasks_path: str = DEFAULT_TASKS_PATH,
++) -> dict[str, Any]:
++    """Build the immutable lineage manifest for a benchmark run.
++
++    Hashes the full artifact chain (task -> question -> answer -> report -> judge input ->
++    score) PLUS the reproducibility surface (backbone model, decoding, template, retrieval
++    snapshot, judge model/version, scorer config, seed). Asserts canonical equality first,
++    so a manifest cannot be built for a wrong-question or split-brain run.
++    """
++    canonical = assert_launched_question_is_canonical(slug, launched_question, tasks_path)
++    assert_no_split_brain(slug, packed_question, answered_question, tasks_path)
++    return {
++        "slug": slug,
++        "canonical_idx": SLUG_TO_IDX[slug],
++        "canonical_question_sha": sha256_text(canonical),
++        "launched_question_sha": sha256_text(launched_question),
++        "packed_question_sha": sha256_text(packed_question),
++        "answered_question_sha": sha256_text(answered_question),
++        "rendered_report_sha": sha256_text(rendered_report),
++        "judge_input_sha": sha256_text(judge_input),
++        "score_row_sha": sha256_text(json.dumps(score_row, sort_keys=True, default=str)),
++        "backbone_model": backbone_model,
++        "decoding_params_sha": sha256_text(json.dumps(decoding_params, sort_keys=True)),
++        "prompt_template_id": prompt_template_id,
++        "retrieval_snapshot_id": retrieval_snapshot_id,
++        "judge_model_version": judge_model_version,
++        "scorer_config_id": scorer_config_id,
++        "execution_seed": execution_seed,
++    }
+diff --git a/scripts/dr_benchmark/qgen_coverage_harness.py b/scripts/dr_benchmark/qgen_coverage_harness.py
+new file mode 100644
+index 00000000..bafe12b9
+--- /dev/null
++++ b/scripts/dr_benchmark/qgen_coverage_harness.py
+@@ -0,0 +1,265 @@
++"""Query-generation COVERAGE-ISOLATION harness (I-qgen-001, GH #1291).
++
++Operator method (2026-06-22): test ONLY query generation, fast, no e2e. A query-gen
++method's only job is COVERAGE — getting the right evidence into the corpus. So we measure
++exactly that and nothing downstream:
++
++    run the method's queries -> retrieve -> for each REQUIRED point (a DRB-II info_recall
++    rubric) ask "is its evidence present in the retrieved corpus?" -> coverage fraction.
++
++NO report generation, NO rendering, NO DeepTRACE judge here — those gate the faithfulness
++sections + the final combined run. ISOLATION: every method sees the SAME retrieve() and the
++SAME coverage judge(); only the queries differ. The canonical question is bound via
++gate0_lineage so coverage is scored against the RIGHT rubrics (the drb_72 wrong-question fix).
++
++retrieve() and judge() are injected (the runner wires POLARIS retrieval + the GLM-5.2 judge),
++so this module is deterministic and unit-testable on stubs.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass, field
++from typing import Any, Callable, Protocol, runtime_checkable
++
++from scripts.dr_benchmark.gate0_lineage import (
++    DEFAULT_TASKS_PATH,
++    GateZeroLineageError,
++    SLUG_TO_IDX,
++    load_canonical_question,
++)
++
++# query -> list of evidence rows [{"url": str, "text": str}]. In a real run this is wrapped
++# in a deterministic per-query snapshot cache so every method sees identical retrieval.
++RetrieveFn = Callable[[str], list[dict[str, str]]]
++# (required_point, corpus_text) -> True iff the corpus carries the evidence for the point.
++CoverageJudgeFn = Callable[[str, str], bool]
++
++
++def load_required_points(idx: int, tasks_path: str = DEFAULT_TASKS_PATH) -> list[str]:
++    """The info_recall rubric points (the required evidence) for a canonical DRB-II idx.
++
++    These are exactly what a complete corpus must let the report cover. Fail loud if the
++    idx or its rubric is missing — never a silent empty list.
++    """
++    if not os.path.isfile(tasks_path):
++        raise GateZeroLineageError(f"required-points: tasks file not found: {tasks_path}")
++    with open(tasks_path, encoding="utf-8") as handle:
++        for line in handle:
++            line = line.strip()
++            if not line:
++                continue
++            record = json.loads(line)
++            if record.get("idx") == idx:
++                rubric = (record.get("content") or {}).get("rubric") or {}
++                points = rubric.get("info_recall")
++                if not points:
++                    raise GateZeroLineageError(
++                        f"required-points: idx={idx} has no info_recall rubric"
++                    )
++                return [str(p) for p in points]
++    raise GateZeroLineageError(f"required-points: idx={idx} not found in {tasks_path}")
++
++
++def load_blocked_references(idx: int, tasks_path: str = DEFAULT_TASKS_PATH) -> dict | None:
++    """The DRB-II BLOCKED reference for an idx (the source the report must NOT view/cite), or
++    None if the task has none.
++
++    DRB-II's blocked mechanism is what forces INDEPENDENT multi-source synthesis: a method that
++    "covers" a point only via the forbidden source has cheated, and DRB-II scores that support as
++    INVALID. So the harness must exclude the blocked source before scoring coverage. Shape in the
++    gold file: ``{"title": str, "authors": [str], "urls": [str]}``. Raises only if the idx itself
++    is absent (a bad idx); an absent blocked FIELD is legitimate -> None.
++    """
++    if not os.path.isfile(tasks_path):
++        raise GateZeroLineageError(f"blocked-refs: tasks file not found: {tasks_path}")
++    with open(tasks_path, encoding="utf-8") as handle:
++        for line in handle:
++            line = line.strip()
++            if not line:
++                continue
++            record = json.loads(line)
++            if record.get("idx") == idx:
++                # Ground truth (verified idx 1-56): the blocked reference lives at content.blocked
++                # (top-level 'blocked' is absent). We read content.blocked PRIMARY and fall back to
++                # a top-level 'blocked' so the loader is correct under either layout — robust to any
++                # row-format drift (Codex iter-3 flagged a top-level path; this makes the question moot).
++                blocked = (record.get("content") or {}).get("blocked")
++                if not (isinstance(blocked, dict) and blocked):
++                    blocked = record.get("blocked")
++                return blocked if isinstance(blocked, dict) and blocked else None
++    raise GateZeroLineageError(f"blocked-refs: idx={idx} not found in {tasks_path}")
++
++
++def _normalize_url(url: str) -> str:
++    """Normalize a URL for blocked-source matching: drop scheme, leading www, trailing slash,
++    query/fragment. Lossy on purpose so mirror URLs of the same paper still match."""
++    u = (url or "").strip().lower()
++    for prefix in ("https://", "http://"):
++        if u.startswith(prefix):
++            u = u[len(prefix) :]
++    if u.startswith("www."):
++        u = u[4:]
++    u = u.split("#", 1)[0].split("?", 1)[0]
++    return u.rstrip("/")
++
++
++def make_blocked_filter(blocked: dict | None) -> Callable[[dict], bool]:
++    """Return ``is_blocked(row) -> bool``: True iff a retrieved row is the forbidden source.
++
++    Matches on URL (normalized, against every blocked mirror URL) OR on the blocked title
++    appearing in the row text. No-op (always False) when there is no blocked reference.
++    """
++    if not blocked:
++        return lambda row: False
++    blocked_urls = {_normalize_url(u) for u in (blocked.get("urls") or []) if u}
++    blocked_title = " ".join((blocked.get("title") or "").split()).lower()
++
++    def is_blocked(row: dict) -> bool:
++        url = _normalize_url(row.get("url") or "")
++        if url and url in blocked_urls:
++            return True
++        text = " ".join((row.get("text") or "").split()).lower()
++        if blocked_title and len(blocked_title) >= 20 and blocked_title in text:
++            return True
++        return False
++
++    return is_blocked
++
++
++@dataclass
++class CoverageBudget:
++    """Identical budget every method runs under (isolation: only query quality varies)."""
++
++    max_query_rounds: int = field(
++        default_factory=lambda: int(os.getenv("PG_QGEN_MAX_QUERY_ROUNDS", "4"))
++    )
++    max_queries: int = field(
++        default_factory=lambda: int(os.getenv("PG_QGEN_MAX_QUERIES", "24"))
++    )
++
++
++@runtime_checkable
++class QueryGenMethod(Protocol):
++    """A query-generation method under test. Its ONLY job: assemble the best corpus.
++
++    `name` identifies it; `generate_corpus` runs its (possibly iterative/closed-loop) query
++    logic against the SHARED retrieve(), returning the assembled corpus. Methods may NOT
++    summarize/transform evidence text (common code owns that downstream); they only choose
++    WHAT to search and WHICH retrieved rows to keep.
++    """
++
++    name: str
++
++    def generate_corpus(
++        self, question: str, retrieve: RetrieveFn, budget: CoverageBudget
++    ) -> list[dict[str, str]]: ...
++
++
++@dataclass
++class CoverageResult:
++    method: str
++    idx: int
++    covered: int
++    total: int
++    coverage: float
++    n_sources: int
++    n_queries_issued: int
++    per_point: list[dict[str, Any]]
++    # Blocked (forbidden) rows this method retrieved and that were DROPPED before scoring — so a
++    # method cannot win coverage via the prohibited DRB-II source. >0 means the method DID surface
++    # the blocked source (telemetry; the rows were excluded from the corpus regardless).
++    blocked_dropped: int = 0
++
++
++def score_coverage(
++    method_name: str,
++    idx: int,
++    required_points: list[str],
++    corpus: list[dict[str, str]],
++    judge: CoverageJudgeFn,
++    n_queries_issued: int,
++) -> CoverageResult:
++    """Coverage = fraction of required points whose evidence is present in the corpus."""
++    corpus_text = "\n\n".join((row.get("text") or "") for row in corpus)
++    per_point: list[dict[str, Any]] = []
++    covered = 0
++    for point in required_points:
++        is_covered = bool(judge(point, corpus_text))
++        # Keep the FULL rubric point (not truncated) so the §-1.1 audit can read exactly which
++        # required point was/was not covered; a short preview rides alongside for skim-reading.
++        per_point.append(
++            {"point": point, "point_preview": point[:160], "covered": is_covered}
++        )
++        if is_covered:
++            covered += 1
++    total = len(required_points)
++    return CoverageResult(
++        method=method_name,
++        idx=idx,
++        covered=covered,
++        total=total,
++        coverage=(covered / total) if total else 0.0,
++        n_sources=len(corpus),
++        n_queries_issued=n_queries_issued,
++        per_point=per_point,
++    )
++
++
++def run_coverage_test(
++    idx: int,
++    methods: list[QueryGenMethod],
++    retrieve: RetrieveFn,
++    judge: CoverageJudgeFn,
++    budget: CoverageBudget | None = None,
++    tasks_path: str = DEFAULT_TASKS_PATH,
++    blocked_refs: dict | None = None,
++) -> list[CoverageResult]:
++    """Run every method on the canonical question, score coverage, return ranked results.
++
++    The canonical question + required points come straight from the gold file (gate0_lineage),
++    so the wrong-question failure cannot recur. Every method gets the SAME retrieve()/judge().
++
++    blocked_refs (the DRB-II forbidden source, via load_blocked_references): when provided, any
++    retrieved row matching it is DROPPED before it can reach a method's corpus — uniformly for
++    every method — so coverage cannot be won by retrieving the prohibited source (Codex iter-2 P1).
++    """
++    budget = budget or CoverageBudget()
++    question = load_canonical_question(idx, tasks_path)
++    required_points = load_required_points(idx, tasks_path)
++    is_blocked = make_blocked_filter(blocked_refs)
++
++    results: list[CoverageResult] = []
++    for method in methods:
++        counting_retrieve, counter = _counting(retrieve)
++        blocked_count = {"n": 0}
++
++        def blocked_filtered(query: str, _cr=counting_retrieve, _bc=blocked_count):
++            kept: list[dict[str, str]] = []
++            for row in _cr(query):
++                if is_blocked(row):
++                    _bc["n"] += 1  # forbidden source: count it, never let it into the corpus
++                else:
++                    kept.append(row)
++            return kept
++
++        corpus = method.generate_corpus(question, blocked_filtered, budget)
++        result = score_coverage(
++            method.name, idx, required_points, corpus, judge, counter["n"]
++        )
++        result.blocked_dropped = blocked_count["n"]
++        results.append(result)
++    results.sort(key=lambda r: r.coverage, reverse=True)
++    return results
++
++
++def _counting(retrieve: RetrieveFn) -> tuple[RetrieveFn, dict[str, int]]:
++    """Wrap retrieve() to count how many queries a method issued (isolation telemetry)."""
++    counter = {"n": 0}
++
++    def wrapped(query: str) -> list[dict[str, str]]:
++        counter["n"] += 1
++        return retrieve(query)
++
++    return wrapped, counter
+diff --git a/scripts/dr_benchmark/qgen_methods.py b/scripts/dr_benchmark/qgen_methods.py
+new file mode 100644
+index 00000000..01c7552b
+--- /dev/null
++++ b/scripts/dr_benchmark/qgen_methods.py
+@@ -0,0 +1,121 @@
++"""Query-gen method adapters for the coverage-isolation harness (I-qgen-001, GH #1291).
++
++Each method's ONLY job: assemble the best corpus via the SHARED retrieve(). Methods decide
++WHAT to search and WHICH retrieved rows to keep — they never transform evidence text
++(common POLARIS code owns chunking/dedup/provenance downstream). Isolation: same retrieve()
++for everyone, only the queries differ.
++
++- FloorMethod: current POLARIS query-gen (question anchor + a fixed set of facet queries).
++- ClosedLoopMethod: the frontier mechanism (WebWeaver/IterResearch family) — decompose the
++  question into the method's OWN sub-points (never the gold rubrics), seed-retrieve, then
++  gap-driven re-query. Uses an injected LLM (GLM-5.2 in a real run; stubbable in tests).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Callable
++
++from scripts.dr_benchmark.qgen_coverage_harness import CoverageBudget, RetrieveFn
++
++# (prompt) -> completion text. Wires GLM-5.2 in a real run; stubbable in unit tests.
++LlmFn = Callable[[str], str]
++
++
++def _dedup_keep(rows: list[dict], seen_urls: set[str]) -> list[dict]:
++    """Keep rows with a new URL (common-code dedup, identical for every method)."""
++    out: list[dict] = []
++    for row in rows or []:
++        url = (row.get("url") or "").strip()
++        if url and url not in seen_urls:
++            seen_urls.add(url)
++            out.append(row)
++    return out
++
++
++@dataclass
++class FloorMethod:
++    """Current POLARIS query generation: the question anchor + a fixed list of facet queries.
++
++    Open-loop / plan-once — exactly the behaviour the diagnosis flagged as two steps behind
++    the frontier. This is the floor every candidate must beat.
++    """
++
++    facets: list[str] = field(default_factory=list)
++    name: str = "floor_template_facets"
++
++    def generate_corpus(
++        self, question: str, retrieve: RetrieveFn, budget: CoverageBudget
++    ) -> list[dict[str, str]]:
++        seen: set[str] = set()
++        corpus: list[dict[str, str]] = []
++        for query in ([question] + list(self.facets))[: budget.max_queries]:
++            corpus += _dedup_keep(retrieve(query), seen)
++        return corpus
++
++
++@dataclass
++class ClosedLoopMethod:
++    """Frontier closed loop: coverage-contract -> seed-retrieve -> gap-driven re-query.
++
++    The method builds its OWN coverage contract by decomposing the question (it never sees
++    the gold rubrics — that would be answer-key leakage). After seeding, it asks the LLM
++    which sub-topics are still thin and re-queries for exactly those, up to the budget.
++    """
++
++    llm: LlmFn
++    name: str = "closed_loop_gap_requery"
++
++    def generate_corpus(
++        self, question: str, retrieve: RetrieveFn, budget: CoverageBudget
++    ) -> list[dict[str, str]]:
++        seen: set[str] = set()
++        corpus: list[dict[str, str]] = []
++        # Budget is enforced by QUERIES ISSUED (not unique URLs) so every method competes
++        # under the same query budget cap — a query that returns many or few URLs must not
++        # change how many queries a method is allowed to spend (Codex iter-2 P1).
++        queries_issued = 0
++
++        contract = self._decompose(question)
++        for query in [question] + contract:
++            if queries_issued >= budget.max_queries:
++                break
++            corpus += _dedup_keep(retrieve(query), seen)
++            queries_issued += 1
++
++        for _ in range(budget.max_query_rounds):
++            if queries_issued >= budget.max_queries:
++                break
++            gaps = self._find_gaps(question, contract, corpus)
++            if not gaps:
++                break
++            for query in gaps:
++                if queries_issued >= budget.max_queries:
++                    break
++                corpus += _dedup_keep(retrieve(query), seen)
++                queries_issued += 1
++        return corpus
++
++    def _decompose(self, question: str) -> list[str]:
++        raw = self.llm(
++            "Decompose this research question into 6-10 specific sub-topics a COMPLETE "
++            "answer must cover. Return ONE short search query per line, no numbering, no prose.\n\n"
++            f"QUESTION:\n{question}"
++        )
++        return [ln.strip() for ln in (raw or "").splitlines() if ln.strip()][:10]
++
++    def _find_gaps(
++        self, question: str, contract: list[str], corpus: list[dict[str, str]]
++    ) -> list[str]:
++        retrieved = "\n".join(
++            ((row.get("url") or "") + " " + (row.get("text") or "")[:120])
++            for row in corpus[:60]
++        )
++        raw = self.llm(
++            "Given the question, its sub-topics, and the sources retrieved so far, list up "
++            "to 4 SHORT search queries for sub-topics still THIN or MISSING. One query per "
++            "line, no numbering. If coverage is already adequate, return nothing.\n\n"
++            f"QUESTION:\n{question}\n\nSUB-TOPICS:\n" + "\n".join(contract)
++            + f"\n\nRETRIEVED SO FAR:\n{retrieved}"
++        )
++        return [ln.strip() for ln in (raw or "").splitlines() if ln.strip()][:4]
+diff --git a/scripts/dr_benchmark/run_qgen_coverage.py b/scripts/dr_benchmark/run_qgen_coverage.py
+new file mode 100644
+index 00000000..8a4bf6d7
+--- /dev/null
++++ b/scripts/dr_benchmark/run_qgen_coverage.py
+@@ -0,0 +1,349 @@
++"""Runner for the query-gen COVERAGE-ISOLATION bake-off (I-qgen-001, GH #1291).
++
++Wires the pure harness (qgen_coverage_harness + qgen_methods) to REAL POLARIS retrieval
++and a REAL GLM-5.2 coverage judge, then ranks the query-gen methods by required-point
++coverage on a canonical DRB-II task. NO report generation / rendering / DeepTRACE judge —
++this scores ONLY query generation, on the COVERAGE axis it drives.
++
++Two modes:
++  --dry-run  : a deterministic STUB world (no API spend). Proves the wiring end-to-end and
++               that the harness ranks correctly. Default.
++  --real     : real Serper/S2 retrieval + real GLM-5.2 judge. Requires the env gate
++               PG_QGEN_AUTHORIZED_SPEND=1 (the one wall Claude does NOT self-authorize) and
++               the usual run keys (.env). Every retrieved query is cached to disk keyed by
++               sha256(query) so every method sees IDENTICAL retrieval (isolation) and re-runs
++               are free.
++
++The floor method's queries are POLARIS's CURRENT query-gen output (anchor + decomposed
++sub-queries via query_decomposer) — the real baseline every candidate must beat.
++"""
++
++from __future__ import annotations
++
++import argparse
++import asyncio
++import hashlib
++import json
++import os
++import sys
++
++from scripts.dr_benchmark.gate0_lineage import SLUG_TO_IDX
++from scripts.dr_benchmark.qgen_coverage_harness import (
++    CoverageBudget,
++    load_required_points,
++    run_coverage_test,
++)
++from scripts.dr_benchmark.qgen_methods import ClosedLoopMethod, FloorMethod
++
++_CACHE_DIR = os.path.join("outputs", "qgen_coverage", "retrieval_cache")
++# Bump when the cached row schema or retrieval semantics change, so a stale cache cannot
++# silently feed a new run. Part of the cache key alongside the query + domain.
++_CACHE_SCHEMA_VERSION = "v1"
++
++
++def _qkey(query: str, domain: str | None) -> str:
++    """Cache key = sha256(schema_version | domain | normalized query). Including domain +
++    version stops cross-domain or post-change cache reuse from contaminating a real run."""
++    payload = f"{_CACHE_SCHEMA_VERSION}|{domain or ''}|{query.strip().lower()}"
++    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
++
++
++# --------------------------------------------------------------------------- floor queries
++def _sweep_query_spec(slug: str) -> dict:
++    """The SWEEP_QUERIES spec dict for a slug (from run_honest_sweep_r3) — fail loud if absent."""
++    from scripts.run_honest_sweep_r3 import SWEEP_QUERIES
++
++    for spec in SWEEP_QUERIES:
++        if isinstance(spec, dict) and spec.get("slug") == slug:
++            return spec
++    raise SystemExit(
++        f"[qgen] floor: slug {slug!r} not found in SWEEP_QUERIES — cannot build the real "
++        f"POLARIS floor query set. Add the slug, or this task is not a sweep query."
++    )
++
++
++def floor_queries(slug: str, question: str) -> list[str]:
++    """POLARIS's CURRENT query-gen FACETS for a benchmark slug (the floor under test).
++
++    The live sweep builds the effective list as anchor + build_amplified_query_list(
++    hand_authored=q["amplified"], decomposed=decompose_question(question), regulatory, trial)
++    (run_honest_sweep_r3.py ~L6156). The hand-authored "amplified" set is the BULK of the real
++    floor, so we pull it from SWEEP_QUERIES by slug — benchmarking the ACTUAL current POLARIS
++    query-gen, not a crippled decompose-only floor (Codex iter-2 P1).
++
++    Scope: regulatory/trial expansions are DOMAIN-BACKEND augmentations (a retrieval-section
++    concern), deliberately excluded so this isolation test measures query GENERATION, not the
++    domain backends (a separate section's bake-off). The anchor question is added by FloorMethod,
++    so it is NOT in the returned facet list.
++    """
++    from src.polaris_graph.retrieval.query_decomposer import (
++        build_amplified_query_list,
++        decompose_question,
++    )
++
++    spec = _sweep_query_spec(slug)
++    return build_amplified_query_list(
++        hand_authored=list(spec.get("amplified", [])),
++        decomposed=decompose_question(question),
++        regulatory=[],
++        trial=[],
++    )
++
++
++# --------------------------------------------------------------------------- real retrieve
++def _row_text(row: dict) -> str:
++    """Assemble per-source corpus text from a POLARIS evidence row.
++
++    METRIC LABEL (Codex P2): this measures POLARIS GENERATOR-VISIBLE evidence coverage —
++    title + statement + the grounding span (direct_quote) that the row actually carries forward,
++    NOT the full fetched body. It answers "can the report ground this point on what retrieval
++    surfaced", which is the right query-gen coverage signal. If a future test needs raw
++    source-retrieval coverage (evidence anywhere in the fetched body, even un-quoted), persist a
++    richer ``coverage_text`` field on the row and read it here instead.
++    """
++    parts = [row.get("title") or "", row.get("statement") or "", row.get("direct_quote") or ""]
++    return " ".join(p for p in parts if p).strip()
++
++
++def make_real_retrieve(domain: str | None = None):
++    """A per-query retrieve() backed by run_live_retrieval, cached to disk by query hash."""
++    from src.polaris_graph.retrieval.live_retriever import run_live_retrieval
++
++    os.makedirs(_CACHE_DIR, exist_ok=True)
++
++    def retrieve(query: str) -> list[dict[str, str]]:
++        cache_path = os.path.join(_CACHE_DIR, f"{_qkey(query, domain)}.json")
++        if os.path.isfile(cache_path):
++            with open(cache_path, encoding="utf-8") as handle:
++                return json.load(handle)
++        result = run_live_retrieval(
++            research_question=query, amplified_queries=[], domain=domain, anchor_seed=True
++        )
++        rows = [
++            {"url": r.get("source_url") or "", "text": _row_text(r)}
++            for r in (result.evidence_rows or [])
++        ]
++        with open(cache_path, "w", encoding="utf-8") as handle:
++            json.dump(rows, handle, ensure_ascii=False)
++        return rows
++
++    return retrieve
++
++
++# --------------------------------------------------------------------------- real GLM judge
++def make_glm_llm():
++    """An LLM callable (prompt -> text) backed by the locked GLM-5.2 mirror backbone.
++
++    The model is INSTANCE-scoped on OpenRouterClient — generate(prompt, system="", max_tokens=...)
++    has NO model/messages kwargs — so we construct the client pinned to z-ai/glm-5.2 (the lock's
++    mirror/backbone) and call generate(prompt=...). max_tokens is set GENEROUSLY (a cap, not a
++    target — billed by actual usage) per the repo LLM-governance rule: never starve reasoning.
++    """
++    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
++
++    model = os.getenv("PG_QGEN_BACKBONE_MODEL", "z-ai/glm-5.2")
++    client = OpenRouterClient(model=model)
++    max_tokens = int(os.getenv("PG_QGEN_LLM_MAX_TOKENS", "8192"))
++
++    def llm(prompt: str) -> str:
++        resp = asyncio.run(client.generate(prompt=prompt, max_tokens=max_tokens))
++        return getattr(resp, "content", "") or ""
++
++    return llm
++
++
++def make_glm_coverage_judge():
++    """A coverage judge (required_point, corpus_text) -> bool, backed by GLM-5.2.
++
++    Asks: does the corpus contain evidence that lets a report cover this required point? Strict
++    YES/NO; defaults to NO on ambiguity (under-claim coverage, never over-claim). The corpus is
++    CHUNKED into windows so EVERY source is judged — never truncated to the first N chars, which
++    let row order / truncation decide the score (Codex iter-2 P1). Returns True as soon as any
++    chunk supports the point (short-circuit). A chunk-count cap is logged HONESTLY if hit.
++    """
++    llm = make_glm_llm()
++    window = int(os.getenv("PG_QGEN_JUDGE_WINDOW_CHARS", "48000"))
++    # A SANITY bound only — NOT a truncation point. Every chunk is judged; if a corpus is so
++    # large it would exceed this, we FAIL LOUD rather than silently score a prefix (Codex P1-7).
++    hard_max_chunks = int(os.getenv("PG_QGEN_JUDGE_HARD_MAX_CHUNKS", "500"))
++
++    def judge(point: str, corpus_text: str) -> bool:
++        text = corpus_text or ""
++        chunks = [text[i : i + window] for i in range(0, max(len(text), 1), window)] or [""]
++        if len(chunks) > hard_max_chunks:
++            raise RuntimeError(
++                f"[qgen-judge] corpus {len(text)} chars -> {len(chunks)} chunks exceeds the "
++                f"sanity bound {hard_max_chunks}. Refusing to silently score a truncated prefix "
++                f"(row order must NOT decide coverage). Raise PG_QGEN_JUDGE_HARD_MAX_CHUNKS "
++                f"(cost is fine) or investigate the corpus size."
++            )
++        for chunk in chunks:  # judge EVERY chunk so every source is seen; short-circuit on YES
++            prompt = (
++                "You are scoring RETRIEVAL COVERAGE. Given a REQUIRED point a complete report "
++                "must cover and a CHUNK of the retrieved corpus, answer strictly YES or NO: does "
++                "this chunk contain evidence that would let a report COVER the required point? "
++                "Answer NO if absent, only tangential, or ambiguous.\n\n"
++                f"REQUIRED POINT:\n{point}\n\nCORPUS CHUNK:\n{chunk}\n\n"
++                "Answer with one word: YES or NO."
++            )
++            if (llm(prompt) or "").strip().upper().startswith("YES"):
++                return True
++        return False
++
++    return judge
++
++
++# --------------------------------------------------------------------------- stub world
++def _stub_retrieve_and_judge():
++    """A deterministic stub world for --dry-run (no spend): the floor reaches a couple of
++    points; the closed loop's gap re-query reaches more. Proves wiring + ranking only."""
++    world = {
++        "ai": [{"url": "u/ai", "text": "generative ai labor market evidence positive views"}],
++        "negative": [{"url": "u/neg", "text": "negative views job displacement evidence"}],
++        "challenge": [{"url": "u/ch", "text": "specific challenges reskilling evidence"}],
++        "opportunit": [{"url": "u/op", "text": "future opportunities new occupations evidence"}],
++    }
++
++    def retrieve(query: str) -> list[dict[str, str]]:
++        q = query.lower()
++        out: list[dict[str, str]] = []
++        for key, rows in world.items():
++            if key in q:
++                out += rows
++        return out
++
++    def judge(point: str, corpus_text: str) -> bool:
++        p = point.lower()
++        ct = corpus_text.lower()
++        for token in ("positive", "negative", "challenge", "opportunit"):
++            if token in p and token in ct:
++                return True
++        return False
++
++    def stub_llm(prompt: str) -> str:
++        if "Decompose" in prompt:
++            return "ai labor market\nnegative views\nspecific challenges\nfuture opportunities"
++        if "THIN or MISSING" in prompt:
++            return "negative views\nspecific challenges\nfuture opportunities"
++        return ""
++
++    return retrieve, judge, stub_llm
++
++
++# --------------------------------------------------------------------------- main
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description="Query-gen coverage-isolation bake-off")
++    parser.add_argument("--slug", default="drb_72_ai_labor", help="benchmark slug (gate0)")
++    parser.add_argument("--idx", type=int, default=None, help="override canonical idx")
++    parser.add_argument("--real", action="store_true", help="real retrieval + GLM judge (spend)")
++    parser.add_argument("--out", default="outputs/qgen_coverage/result.json")
++    parser.add_argument("--domain", default=None)
++    args = parser.parse_args(argv)
++
++    from scripts.dr_benchmark.gate0_lineage import (
++        DRB_SLUGS_WITHOUT_CANONICAL_GOLD,
++        assert_drb_slug_registered,
++        is_benchmark_slug,
++    )
++
++    # Fail loud on an unregistered drb_* benchmark slug (the silent-gap class).
++    assert_drb_slug_registered(args.slug)
++    if args.slug in DRB_SLUGS_WITHOUT_CANONICAL_GOLD:
++        print(
++            f"[qgen] slug {args.slug!r} has NO DRB-II gold task (no info_recall rubric) — it "
++            f"cannot be coverage-scored. Aborting.",
++            file=sys.stderr,
++        )
++        return 2
++    mapped = SLUG_TO_IDX.get(args.slug)
++    if is_benchmark_slug(args.slug):
++        # A benchmark slug is CANONICALLY bound; --idx may only CONFIRM, never override — the
++        # id<->idx mismatch is the exact drb_72 disaster class.
++        if args.idx is not None and args.idx != mapped:
++            print(
++                f"[qgen] REFUSED: --idx {args.idx} != canonical idx {mapped} for benchmark slug "
++                f"{args.slug!r}. The id/idx mismatch is the drb_72 disaster class — drop --idx.",
++                file=sys.stderr,
++            )
++            return 2
++        idx = mapped  # not None: registration passed AND slug is not in the no-gold set
++    else:
++        # A non-benchmark slug has no canonical mapping; --idx is REQUIRED to pick the rubric set.
++        if args.idx is None:
++            print(
++                f"[qgen] non-benchmark slug {args.slug!r} needs an explicit --idx (no canonical "
++                f"mapping).",
++                file=sys.stderr,
++            )
++            return 2
++        idx = args.idx
++
++    required = load_required_points(idx)
++    print(f"[qgen] idx={idx} slug={args.slug} required_points={len(required)} mode={'REAL' if args.real else 'DRY-RUN'}")
++
++    if args.real:
++        if os.getenv("PG_QGEN_AUTHORIZED_SPEND") != "1":
++            print(
++                "[qgen] REAL mode needs PG_QGEN_AUTHORIZED_SPEND=1 (operator spend gate). "
++                "Claude does NOT self-authorize spend. Aborting.",
++                file=sys.stderr,
++            )
++            return 3
++        retrieve = make_real_retrieve(domain=args.domain)
++        judge = make_glm_coverage_judge()
++        llm = make_glm_llm()
++    else:
++        retrieve, judge, llm = _stub_retrieve_and_judge()
++
++    # The floor's queries: real POLARIS query-gen in REAL mode; a stub set in dry-run.
++    from scripts.dr_benchmark.qgen_coverage_harness import load_canonical_question
++
++    if args.real:
++        question = load_canonical_question(idx)
++        facets = floor_queries(args.slug, question)
++    else:
++        facets = ["ai labor market", "negative", "challenge", "opportunit"]
++
++    # Load the DRB-II BLOCKED reference (forbidden source) so it is excluded from EVERY method's
++    # corpus before scoring — no method can win coverage via the prohibited source (Codex P1).
++    from scripts.dr_benchmark.qgen_coverage_harness import load_blocked_references
++
++    blocked_refs = load_blocked_references(idx)
++    if blocked_refs:
++        print(
++            f"[qgen] BLOCKED reference for idx {idx}: "
++            f"{(blocked_refs.get('title') or '')[:70]!r} "
++            f"({len(blocked_refs.get('urls', []))} urls) — excluded from every method's corpus"
++        )
++
++    methods = [FloorMethod(facets=facets), ClosedLoopMethod(llm=llm)]
++    results = run_coverage_test(
++        idx, methods, retrieve, judge, budget=CoverageBudget(), blocked_refs=blocked_refs
++    )
++
++    print("\n=== COVERAGE RANKING (query-gen isolation) ===")
++    for rank, r in enumerate(results, 1):
++        print(
++            f"  #{rank} {r.method:<26} coverage={r.coverage:.3f} ({r.covered}/{r.total}) "
++            f"sources={r.n_sources} queries={r.n_queries_issued} blocked_dropped={r.blocked_dropped}"
++        )
++
++    os.makedirs(os.path.dirname(args.out), exist_ok=True)
++    with open(args.out, "w", encoding="utf-8") as handle:
++        json.dump(
++            {
++                "idx": idx,
++                "slug": args.slug,
++                "mode": "real" if args.real else "dry_run",
++                "results": [r.__dict__ for r in results],
++            },
++            handle,
++            ensure_ascii=False,
++            indent=2,
++        )
++    print(f"\n[qgen] wrote {args.out}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 33ba596b..c263c37e 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -5526,13 +5526,36 @@ async def run_one_query(
+         _a12_postgen_payload: dict | None = None
+         _a12_postverify_payload: dict | None = None
+         if resume:
++            # GATE0-RESUME (I-qgen-001 #1291, Codex iter-2 P1): a snapshot built for a DIFFERENT
++            # (drifted) question must NOT be reused after GATE0 canonicalizes the launched
++            # question — reusing a stale wrong-question corpus recreates the exact split-brain
++            # corpus/report lineage GATE0 exists to prevent. Both snapshots store "question";
++            # fail loud on mismatch rather than silently resuming on the wrong corpus.
++            from scripts.dr_benchmark.gate0_lineage import sha256_text as _gate0_sha_resume
++
++            def _assert_snapshot_question(_payload: "dict | None", _kind: str) -> None:
++                _snap_q = (_payload or {}).get("question")
++                if _snap_q is not None and _gate0_sha_resume(_snap_q) != _gate0_sha_resume(
++                    research_question
++                ):
++                    raise RuntimeError(
++                        f"[GATE0-RESUME] {_kind} snapshot in {run_dir} was built for a DIFFERENT "
++                        f"question than this run's canonical question — refusing to resume on a "
++                        f"stale wrong-question corpus (split-brain lineage).\n"
++                        f"  snapshot(sha)={_gate0_sha_resume(_snap_q)[:16]} : {_snap_q[:90]!r}\n"
++                        f"  run(sha)={_gate0_sha_resume(research_question)[:16]} : "
++                        f"{research_question[:90]!r}"
++                    )
++
+             # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
+             # the earlier (post-fetch) one only when the later one is absent.
+             if _snapshot_path(run_dir).exists():
+                 _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
++                _assert_snapshot_question(_resume_payload, "corpus")
+                 _resume_active = True
+             elif _fetch_snapshot_path(run_dir).exists():
+                 _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
++                _assert_snapshot_question(_resume_fetch_payload, "fetch")
+                 _resume_from_fetch = True
+             # A12 checkpoints are additive DATA — load whichever exist (verdict-free; raises if a
+             # verdict ever leaked in). They never SUPPRESS a gate re-run.
+@@ -13294,6 +13317,36 @@ async def main_async() -> int:
+                 print(f"  {s}")
+             return 2
+ 
++    # GATE 0 (I-qgen-001 #1291): bind every benchmark question to the CANONICAL gold file by
++    # idx, so a hardcoded/substituted question (the drb_72 wrong-question failure) can never
++    # reach the run. gate0_lineage fails loud on a broken/missing gold file; we log when a
++    # hardcoded copy had drifted from canonical. Copies each dict so global SWEEP_QUERIES is
++    # not mutated. This is the structural fix: the launched question == canonical by construction.
++    from scripts.dr_benchmark.gate0_lineage import (
++        SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
++        canonical_question_for_slug as _gate0_canonical_q,
++        sha256_text as _gate0_sha,
++        assert_drb_slug_registered as _gate0_assert_registered,
++    )
++    _gate0_bound = []
++    for _q in queries_to_run:
++        _slug = _q.get("slug") if isinstance(_q, dict) else None
++        # FAIL LOUD on any drb_* benchmark slug that is neither canonically mapped nor an
++        # explicit no-gold slug — closes the silent gap where a renamed/new benchmark slug
++        # (bare drb_76/drb_78, or drb_90) launched a hardcoded question with NO binding.
++        if _slug:
++            _gate0_assert_registered(_slug)
++        if isinstance(_q, dict) and _slug in _GATE0_SLUG_TO_IDX:
++            _canon = _gate0_canonical_q(_slug)
++            if _gate0_sha(_q.get("question", "")) != _gate0_sha(_canon):
++                print(
++                    f"[GATE0] slug {_slug}: launched question OVERRIDDEN with canonical "
++                    f"(idx {_GATE0_SLUG_TO_IDX[_slug]}); the hardcoded copy had drifted"
++                )
++            _q = {**_q, "question": _canon}
++        _gate0_bound.append(_q)
++    queries_to_run = _gate0_bound
++
+     print("=" * 72)
+     if args.only:
+         print(f"R-3 SINGLE-QUERY RUN — slug={args.only}")

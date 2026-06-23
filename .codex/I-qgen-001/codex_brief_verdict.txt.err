@@ -1,0 +1,110 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ef590-5870-7f22-a2ee-41a6f7c7a039
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+FRONTIER-TECH MANDATE: this plan must reference only 2025-2026 frontier methods, verified against primary sources (arXiv IDs + repos given below). No grandfather downgrade. Re-scan the frontier at build-start.
+
+# Brief — I-qgen-001: Query-Generation Bake-off (first instance of the standard pipeline-section review, GH #1291)
+
+REVIEW THIS PLAN for soundness (this is a brief/plan gate, NOT a code gate). Judge whether the methodology will produce a TRUSTWORTHY, decision-grade result and whether the acceptance criteria are correct. Do NOT run anything.
+
+## Goal
+Empirically decide which query-generation MECHANISM POLARIS should secure in its closed-loop coverage front-end, by bake-off on the locked benchmark set, on GLM-5.2, in VMs, faithfulness engine untouched.
+
+## Context (verified this session; see docs/session_2026_06_22_diagnosis_and_querygen_frontier.md)
+- POLARIS's live query-gen = template/planner "amplified facets", verified TWO steps behind the closed-loop frontier (STORM is wired but PG_STORM_ENABLED_IN_BENCHMARK=0). Query-gen is the highest-leverage stage (it decides coverage; everything downstream is capped by it).
+- The drb_72 disaster invalidated the last benchmark run via wrong-question + split-brain-scoring + Title-only-stub bugs. Those MUST be fixed before any score is trusted.
+
+## Candidates (2026 patterns named by operator) + REQUIRED baselines
+- 2026 candidates: AgentCPM-Report/WARP (open 8B, arXiv 2602.06540), DuMate (2606.07299), FS-Researcher (2602.01566), ScaffoldAgent (2606.20122).
+- VERIFIED 2025 baselines (MUST be in the bake-off, else we pick "best of 4" when a 2025 system may beat all four): IterResearch/Tongyi (2510.24701/2511.07327, open-weight), WebWeaver (2509.13312), ConvergeWriter (2509.12811).
+- FLOOR baseline: current POLARIS template-facets behaviour.
+
+## Operative metric
+- Coverage PRIMARY: DeepResearch Bench II info_recall + DeepResearch Bench v1 RACE.
+- Faithfulness WATCHED (must not regress): DEER + DeepTRACE + DeepScholar-Bench sentence-verifiability.
+- A candidate that lifts coverage but regresses faithfulness LOSES — POLARIS identity is faithfulness.
+
+## Plan (the standard process, applied)
+- GATE 0 (precondition): fix + sanity-canary the benchmark harness — right question launched, packed-question == answered-question, Title-only stubs rejected. Canary must pass on a known report BEFORE any bake-off scoring. This is a hard blocker.
+- STEP A: confirm candidate RUNNABILITY — which of the 7 (4 candidates + 3 baselines) have runnable open code adaptable to GLM-5.2. Unrunnable ones are documented, not faked. (AgentCPM/WebWeaver/IterResearch/ConvergeWriter are open; DuMate/FS-Researcher/ScaffoldAgent runnability to confirm.)
+- STEP B: VM bake-off — each RUNNABLE candidate × a stratified benchmark SUBSET (e.g. 10-15 tasks across themes) × GLM-5.2, parallel across VMs. Score both axes. Screening ranks them.
+- STEP C: FINALS — full benchmark eval on the top 1-2.
+- STEP D: §-1.1 line-by-line audit of the winning output (data + human quality), not a leaderboard number alone.
+- STEP E: decision → open the "port winner into POLARIS closed-loop front-end" brief (Codex diff-gated); faithfulness engine untouched.
+
+## What to check (the bar)
+- Is GATE 0 sufficient to prevent another drb_72? Are the three harness bugs the RIGHT precondition, or is one missing?
+- Is the candidate+baseline set correct — is it a real decision (baselines + floor included), not a best-of-4?
+- Is the metric correct — coverage primary, faithfulness watched, and is "regresses faithfulness => loses" the right rule?
+- Is the standalone-bake-off-to-select-then-port framing honest (the standalone number selects the mechanism; the integrated POLARIS run decides)?
+- Is the acceptance (behavioural effect in real output + §-1.1 audit, not green tests) correctly the §-1.4 standard?
+- Any P0/P1 execution risk that would make the result untrustworthy or the decision wrong.
+
+## Output schema (this exact schema; loose prose rejected)
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+codex
+I’ll treat “do not run anything” as no repo commands or benchmark execution. I’m going to verify the frontier-method set against primary web sources only, because the review hinges on whether the plan’s candidate universe is current and runnable enough to trust.
+web search: 
+web search: arXiv 2602.06540 AgentCPM-Report WARP GitHub
+web search: 
+web search: arXiv 2509.13312 WebWeaver GitHub deep research
+web search: 
+web search: "ScaffoldAgent" "2606.20122"
+web search: 
+web search: "ScaffoldAgent" LLM agent deep research 2026
+web search: 
+web search: site:github.com AgentCPM-Report WARP
+web search: 
+web search: AgentCPM-Report GitHub
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1: [
+  "GATE 0 is necessary but not sufficient. It checks right-question launch, packed-question equality, and title-stub rejection, but it does not require immutable artifact lineage from task_id -> packed prompt -> raw answer -> rendered report -> judge input -> score row. Split-brain scoring can still survive through stale report reads, stale packed prompts, or evaluator/report mismatches. Add manifest hashes and negative canaries for each former drb_72 failure mode before any bake-off score is trusted.",
+  "The bake-off currently confounds query-generation mechanism with full-system differences. AgentCPM/WARP, DuMate, WebWeaver, FS-Researcher, Tongyi, etc. include planning, retrieval, memory, writing, and sometimes trained-agent behavior; standalone scores cannot by themselves identify which query-generation front-end POLARIS should secure. Add a controlled mode where each runnable candidate emits normalized query/roadmap artifacts into identical POLARIS retrieval/generation/verification budgets; standalone full-stack scores may screen, but not decide the mechanism.",
+  "The screening design is too noisy for decision-grade selection. A 10-15 task subset with no repeated/paired design, confidence intervals, retrieval snapshot/cache, or minimum effect threshold can select the wrong top 1-2 under GLM-5.2 and web-retrieval variance. Require a locked stratified task list, fixed tool/retrieval budget, paired per-task scoring, bootstrap/significance or non-overlap criteria, and reruns for finalists.",
+  "Faithfulness non-regression is directionally right but not operational. 'Watched' and 'regresses => loses' need quantitative gates: baseline floor, allowed tolerance, per-metric noninferiority thresholds for DEER/DeepTRACE/DeepScholar sentence-verifiability, and a policy for citation precision / unsupported-claim severity. Without that, coverage gains can be accepted or rejected arbitrarily.",
+  "The frontier mandate is not yet executable. The plan names the required seven, but lacks a build-start primary-source rescan with inclusion/exclusion logging, exact arXiv/repo/version pins, and runnability evidence. Primary-source scan indicates additional 2025-2026 candidates needing include/exclude rationale, including PokeeResearch-7B arXiv 2510.15862 with repo, DeepResearch-R1/DeepResearch-9K arXiv 2603.01152 with repo, and DOLORES arXiv 2605.11388; I could not verify ScaffoldAgent arXiv 2606.20122 from public search results.",
+  "GLM-5.2 adaptation rules are underspecified. Some candidates are framework-level, some are trained agents/models, and some may depend on native tool stacks. The plan must define whether candidates run as native systems, GLM-5.2-backed scaffolds, or excluded as unrunnable; otherwise the result mixes mechanism quality, model training, tool availability, and adapter effort."
+]
+p2: [
+  "Add contamination/leakage checks for public benchmark overlap, since several cited systems report on DeepResearch Bench / DeepResearch Bench II directly. If the locked set is not private or held out, require an overlap audit against released training/eval data.",
+  "Define resource normalization: same search provider class, max searches, wall-clock budget, token caps, retry policy, and parallelism policy per candidate. Otherwise stronger breadth may just be higher spend or longer runtime.",
+  "Final acceptance should explicitly require the winning mechanism to improve real rendered POLARIS output after porting, not merely win the standalone bake-off. The current Step E opens the porting brief; the decision to secure should remain provisional until integrated POLARIS replay plus §-1.1 audit passes."
+]
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "Add artifact-lineage manifests and negative canaries to GATE 0.",
+  "Separate query-generation mechanism effects from full-system effects with a normalized POLARIS-controlled evaluation path.",
+  "Strengthen screening/finals with paired statistics, reruns, fixed budgets, and retrieval determinism.",
+  "Turn faithfulness watch metrics into hard quantitative non-regression gates.",
+  "Add build-start primary-source frontier rescan with exact repo/version pins and inclusion/exclusion rationale.",
+  "Define GLM-5.2 adaptation/exclusion rules for trained-agent versus scaffold candidates."
+]
+tokens used
+22,856

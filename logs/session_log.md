@@ -5714,3 +5714,67 @@
 - EVIDENCE/FINDINGS: Single-writer build (after two parallel-workflow collisions). Codex-gated TWICE (second gate caught the shared-client force-close cascade P1 -> thread-local fix). Preflight run TWICE: first = NO_GO (found the residual thread-hang on the 2 un-hardened sync-POST sites) -> hardened -> second = GO with death_gone=true, no_contract_cap=true, always_basket_citation=true, faithfulness_intact=true, behavioral 89/0, Codex APPROVE. Deployed via scp to 5 VMs; all 5 resumed from corpus_snapshot and reported BEHAVIORAL_CANARY_OK, live now: Q72 drb_72_ai_labor, Q76 drb_76_gut_microbiota_crc, Q75 drb_75_metal_ions_cvd, Q90 drb_90_adas_liability, Q78 drb_78_parkinsons_dbs.
 - STATUS: Built + hardened + dual-Codex-gated + 2x-preflighted (NO_GO then GO) + deployed live to 5 VMs (all BEHAVIORAL_CANARY_OK). Faithfulness gates untouched throughout (transport-only + advisory changes). Multi-citation per claim (contract_section_runner.py:1364-1372) was already wired — proven by new tests, not changed.
 - NEXT_STEP: Monitor all 5 runs to terminal; on first completion, run the §-1.1 dual beat-both audit on the real report.md (per-claim, cited-span, line-by-line); regen-from-snapshot any run that hangs.
+
+[2026-06-22] APODIX/TELUS PITCH save before reboot — deck reframed (cover 'Every claim checkable'; Guarantee owns truth-limit), PDF + speaking script delivered. Positioning locked: verify-and-delete/checkable-not-true; never say 'sovereign AI'. Red-team 0/6 (engine not a moat). Uri-memo regulatory pivot UNRESOLVED. Benchmark goal: #1 on DeepTRACE(edge) + DeepResearch-Bench-II(coverage, AI21 64.38%). Resume: state/apodix_pitch_resume.md
+
+[2026-06-23 06:45:29]
+- ACTION: Beat-both disaster diagnosis + query-generation frontier research session (multi-agent + Codex cross-checks). Saved progress before operator reboot.
+- RATIONALE: First real benchmark scores on drb_72 were catastrophic (DRB-II 0.071/info_recall 0/57; DeepTRACE 95% unsupported). Ran read-only multi-agent root-cause diagnosis + Codex cross-read (converged): largely a harness-wiring bug (WRONG QUESTION launched at run_honest_sweep_r3.py:4238 + split-brain scoring) plus 2 missing organs (coverage contract, cross-source synthesis); faithfulness engine found CORRECT. Then mapped the benchmark landscape, Telus buyer fit, the search-tool stack, and the query-generation frontier (triple-verified). Conclusion: POLARIS runs BELOW-STORM template facets; the verified fix is a closed-loop coverage front-end (2025 spine WebWeaver/IterResearch/ConvergeWriter/TTD-DR + 2026 patterns AgentCPM-WARP/DuMate/FS-Researcher/ScaffoldAgent), faithfulness untouched.
+- DOCS/RESEARCH: arXiv 2509.04499 (DeepTRACE), 2601.08536 (DRB-II), 2506.11763 (DeepResearch Bench), 2509.13312 (WebWeaver), 2510.24701/2511.07327 (Tongyi/IterResearch), 2509.12811 (ConvergeWriter), 2507.16075 (TTD-DR), 2602.06540 (AgentCPM-Report), 2606.07299 (DuMate), 2602.01566 (FS-Researcher), 2606.20122 (ScaffoldAgent); sakana.ai/marlin (Sakana Marlin + AB-MCTS 2503.04412).
+- SYNC: docs/session_2026_06_22_diagnosis_and_querygen_frontier.md (re-entry doc), memory/project_querygen_frontier_and_disaster_diagnosis_2026_06_22.md, MEMORY.md index.
+- AFFECTED_FILES: docs/session_2026_06_22_diagnosis_and_querygen_frontier.md (new); memory/* (new); logs/session_log.md.
+- EVIDENCE/FINDINGS: 14 vast.ai instances destroyed (all success:true, 0 remaining, billing stopped). Diagnosis file:line anchors: run_honest_sweep_r3.py:4238-4269 (wrong question), workforce.yaml:167-357 + multi_section_generator.py:6968-6973 (corpus-shaped sections), completeness_checker.py (keyword coverage gate), relational_quantifier_guard.py (strip-always), pack_deeptrace.py + run_deeptrace.py:181 (DeepTRACE artifacts). Query-gen: PG_STORM_ENABLED_IN_BENCHMARK=0 (STORM dormant); live path = template/planner facets.
+- STATUS: No code changed. Research + diagnosis complete and triple-verified. Beat-both campaign PAUSED for re-strategy. Faithfulness engine untouched/correct.
+- NEXT_STEP: Draft the Step-1 build brief — closed-loop coverage front-end (coverage-contract generator + gap-detector on finding_dedup baskets + re-query loop + behavioral replay harness), faithfulness untouched, frontier-tech mandate, Codex-gated. Operator decisions open: targets, sovereignty (Serper/OpenRouter US-routing vs Telus), build scope.
+
+[2026-06-23 17:39:27]
+- ACTION: Stood up the STANDARD PROCESS — systematic pipeline-section review via Claude Codex bake-off in VM (operator directive). Created GH Issue #1291 (I-qgen-001), authored docs/standard_process_pipeline_section_review.md + .codex/I-qgen-001/brief.md, launched the Codex brief gate.
+- RATIONALE: Operator wants every pipeline section's "which approach to secure" decision made data-driven via a Claude Codex bake-off on the locked benchmark set (GLM-5.2, VM, Codex-gated), as a repeatable standard. First instance = query generation (4 named 2026 candidates + verified 2025 baselines + current floor). Baked in two non-negotiables: GATE 0 harness-fix precondition (drb_72 lesson) and the standalone-bake-off-selects-then-port honest framing.
+- DOCS/RESEARCH: GH #1291; benchmark set from the 2026-06-22 relevance filter; query-gen frontier refs in docs/session_2026_06_22_diagnosis_and_querygen_frontier.md §5/§8.
+- SYNC: docs/standard_process_pipeline_section_review.md (new), .codex/I-qgen-001/brief.md (new), docs/session_2026_06_22_diagnosis_and_querygen_frontier.md §9, logs/session_log.md.
+- AFFECTED_FILES: docs/standard_process_pipeline_section_review.md; .codex/I-qgen-001/brief.md; docs/session_2026_06_22_diagnosis_and_querygen_frontier.md; logs/session_log.md.
+- EVIDENCE/FINDINGS: GH issue #1291 created (https://github.com/aldrinor/polaris/issues/1291). Codex brief gate launched (task bhvgeckyg). Standard process = 9 steps with GATE 0 harness-validity precondition.
+- STATUS: Process + docs + issue done; Codex brief gate in flight; no code changed; no VM (all destroyed) — execution pending re-provision + harness fix. Faithfulness engine untouched.
+- NEXT_STEP: Read Codex brief verdict; if APPROVE, the build sequence is GATE-0 harness fix (+canary) -> confirm candidate runnability -> VM bake-off -> §-1.1 audit -> decision. If REQUEST_CHANGES, iterate the brief (5-cap).
+
+[2026-06-23 17:48:29]
+- ACTION: I-qgen-001 brief gate APPROVED by Codex (iter 3). Bake-off plan execution-ready.
+- RATIONALE: Codex brief gate caught 6 real P1 design holes iter 1, 4 iter 2, 0 iter 3 (clean convergence). Final plan hardened with: hash-chained lineage + negative canaries (GATE 0), SCREEN-advisory + DECIDE-controlled-isolation with deterministic per-query retrieval snapshot + adapter API for closed-loop candidates + common-code basket build, decision-grade statistics, hard faithfulness non-regression gates, subcomponent taxonomy. ScaffoldAgent (2606.20122) verified by Codex and promoted; PokeeResearch/DeepResearch-R1/DOLORES added to rescan.
+- DOCS/RESEARCH: .codex/I-qgen-001/codex_brief_verdict.txt (iter1 REQUEST_CHANGES 6P1 -> iter2 REQUEST_CHANGES 4P1 -> iter3 APPROVE); candidate arXiv pins in brief.
+- SYNC: .codex/I-qgen-001/brief.md (iter3 APPROVED + P2 incorporated), docs/session_2026_06_22_diagnosis_and_querygen_frontier.md §9a, logs/session_log.md.
+- AFFECTED_FILES: .codex/I-qgen-001/brief.md; .codex/I-qgen-001/codex_brief_verdict.txt; docs/session_2026_06_22_diagnosis_and_querygen_frontier.md; logs/session_log.md.
+- EVIDENCE/FINDINGS: verdict: APPROVE, 0 P0 / 0 P1, convergence_call accept_remaining, remaining_blockers_for_execution []. GH #1291.
+- STATUS: Standard process established + first-instance bake-off plan Codex-APPROVED. No code changed. Execution pending VM re-provision + GATE 0 harness fix. Faithfulness engine untouched.
+- NEXT_STEP: Begin execution per approved plan — GATE 0 harness fix (+ 3 negative canaries) FIRST; then frontier rescan file + candidate classify/runnability; then VM bake-off. Operator decision: authorize VM re-provision + spend for the bake-off.
+
+[2026-06-23 18:13:23]
+- ACTION: I-qgen-001 brief FINAL APPROVE (iter 5) after operator scoreboard-only directive; recorded never-silent-model-downgrade rule (operator set /model Opus 4.8).
+- RATIONALE: Operator: bake-off decision is SCOREBOARD-ONLY, no human gate (§-1.1 mechanized via DEER/DeepTRACE/DeepScholar). Re-gate caught 1 real P1 (GATE 0 must prove scoreboards catch reachable-but-unsupported claims, not just reachability) -> added 4th negative canary -> APPROVE. Separately, operator flagged silent model downgrade as lethal -> keep Opus 4.8 session; sub-agents inherit; surface every model change.
+- SYNC: .codex/I-qgen-001/brief.md (iter5 APPROVED), docs/session_2026_06_22_diagnosis_and_querygen_frontier.md §9b, memory/feedback_never_silent_model_downgrade_keep_opus48_2026_06_22.md, MEMORY.md, logs/session_log.md.
+- AFFECTED_FILES: .codex/I-qgen-001/brief.md; .codex/I-qgen-001/codex_brief_verdict.txt; docs/session_2026_06_22_diagnosis_and_querygen_frontier.md; memory/*; logs/session_log.md.
+- EVIDENCE/FINDINGS: iter5 verdict APPROVE (0 P0/0 P1, accept_remaining, no blockers). Trajectory RC->RC->APPROVE->RC->APPROVE across 5 iters. GH #1291.
+- STATUS: Bake-off plan LOCKED + Codex-APPROVED (scoreboard-only). No code changed. Execution pending VM re-provision + GATE-0 harness build. Session model = Opus 4.8. Faithfulness engine untouched.
+- NEXT_STEP: Begin execution at GATE 0 (local harness fix + 4 negative canaries), then frontier rescan, then VM bake-off — on operator go + VM/spend authorization.
+
+[2026-06-23 18:39:25]
+- ACTION: Refined I-qgen-001 + the standard process to ISOLATION scoring (operator directive): per-section, score on the axis it drives, no e2e per candidate; query-gen scored on required-point retrieval COVERAGE; combine section-winners -> one final full run.
+- RATIONALE: Operator: no time for full-e2e bake-off; test each section in isolation on its benchmark axis (query-gen=coverage), pick highest, lock, combine, one full run for top overall score. Faster + isolates each section.
+- SYNC: GH #1291 comment, docs/standard_process_pipeline_section_review.md, .codex/I-qgen-001/brief.md, logs/session_log.md.
+- AFFECTED_FILES: scripts/dr_benchmark/gate0_lineage.py (new, canonical binding); scripts/run_honest_sweep_r3.py (canonical binding wired); scripts/dr_benchmark/run_deeptrace.py (Title-stub->unreachable); docs/*; .codex/I-qgen-001/*; logs/session_log.md.
+- STATUS: GATE 0 canonical-question binding built + smoke-green (drb_72 now launches canonical incl blocked-ref + table). Method refined to coverage-isolation. Building the query-gen coverage-isolation harness next. No VM/spend. Branch bot/I-qgen-001-gate0-harness.
+- NEXT_STEP: Build the query-gen coverage-isolation harness (canonical rubrics loader + per-method queries -> retrieve -> required-point coverage scorer + method adapters), Codex diff-gate, then run the coverage test (local/light) to rank methods.
+
+[2026-06-23 (qgen coverage harness build)]
+- ACTION: Built the query-gen COVERAGE-ISOLATION harness (I-qgen-001 #1291) and launched the Codex diff-gate as a Claude Codex Workflow (task w20xkk8t2).
+- RATIONALE: operator method — test each pipeline section in isolation on the axis it drives (query-gen -> coverage), no e2e per candidate; pick winner; combine winners for one final full run. Codex is the ONLY review gate (operator corrected: do not use the Claude advisor tool, use Codex — this is a Claude Codex Workflow).
+- AFFECTED_FILES: scripts/dr_benchmark/qgen_coverage_harness.py (NEW), scripts/dr_benchmark/qgen_methods.py (NEW), scripts/dr_benchmark/run_qgen_coverage.py (NEW), scripts/dr_benchmark/gate0_lineage.py (canonical binding), scripts/run_honest_sweep_r3.py (GATE0 wiring), .codex/I-qgen-001/diff_review_brief.md + codex_diff.patch (NEW), state/qgen_coverage_run_one_go_ahead.md (NEW).
+- EVIDENCE/FINDINGS: all 5 files py_compile OK. Controlled stub smoke: closed-loop coverage 1.00 (5/5) > floor 0.40 (2/5), ranked #1 — the effect fires in the output (§-1.4). Real gold-file rubric loader: idx 56 -> 57 info_recall points (correct question). Runner dry-run end-to-end green (canonical load -> methods -> retrieve -> judge -> rank -> JSON).
+- STATUS: harness BUILT + behaviorally proven on stubs + real rubrics. Codex diff-gate in flight. Scored real run needs operator spend authorization (PG_QGEN_AUTHORIZED_SPEND=1) — the one wall Claude does not self-cross.
+- NEXT_STEP: read the Codex verdict inline when the gate returns; fix any P0/P1; then commit + present the one-go-ahead launch sheet for the real coverage run.
+
+[2026-06-23 (qgen harness iter-2 fixes)]
+- ACTION: Fixed all 7 Codex iter-1 P1 + 2 P2 for the query-gen coverage harness; re-launched Codex gate iter 2 (task wrg2mj3ow).
+- AFFECTED_FILES: scripts/dr_benchmark/gate0_lineage.py, qgen_coverage_harness.py, qgen_methods.py, run_qgen_coverage.py, scripts/run_honest_sweep_r3.py, .codex/I-qgen-001/diff_review_brief.md + codex_diff.patch (937 lines).
+- EVIDENCE/FINDINGS: py_compile x5 OK; gate0 fail-loud registration verified (known pass / drb_90 exempt / drb_99 raises / non-bench ignored); closed-loop 1.00 > floor 0.40 ranking still fires; --idx/slug mismatch refused. Ground truth via Explore agent (real slugs, generate() signature, floor amplified set, resume question field) — no re-guessing.
+- STATUS: 7 P1 + 2 P2 resolved + smoke-green; Codex gate iter 2 in flight.
+- NEXT_STEP: read iter-2 verdict inline; if APPROVE, commit; else fix + iter 3 (cap 5).

@@ -5526,13 +5526,36 @@ async def run_one_query(
         _a12_postgen_payload: dict | None = None
         _a12_postverify_payload: dict | None = None
         if resume:
+            # GATE0-RESUME (I-qgen-001 #1291, Codex iter-2 P1): a snapshot built for a DIFFERENT
+            # (drifted) question must NOT be reused after GATE0 canonicalizes the launched
+            # question — reusing a stale wrong-question corpus recreates the exact split-brain
+            # corpus/report lineage GATE0 exists to prevent. Both snapshots store "question";
+            # fail loud on mismatch rather than silently resuming on the wrong corpus.
+            from scripts.dr_benchmark.gate0_lineage import sha256_text as _gate0_sha_resume
+
+            def _assert_snapshot_question(_payload: "dict | None", _kind: str) -> None:
+                _snap_q = (_payload or {}).get("question")
+                if _snap_q is not None and _gate0_sha_resume(_snap_q) != _gate0_sha_resume(
+                    research_question
+                ):
+                    raise RuntimeError(
+                        f"[GATE0-RESUME] {_kind} snapshot in {run_dir} was built for a DIFFERENT "
+                        f"question than this run's canonical question — refusing to resume on a "
+                        f"stale wrong-question corpus (split-brain lineage).\n"
+                        f"  snapshot(sha)={_gate0_sha_resume(_snap_q)[:16]} : {_snap_q[:90]!r}\n"
+                        f"  run(sha)={_gate0_sha_resume(research_question)[:16]} : "
+                        f"{research_question[:90]!r}"
+                    )
+
             # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
             # the earlier (post-fetch) one only when the later one is absent.
             if _snapshot_path(run_dir).exists():
                 _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+                _assert_snapshot_question(_resume_payload, "corpus")
                 _resume_active = True
             elif _fetch_snapshot_path(run_dir).exists():
                 _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
+                _assert_snapshot_question(_resume_fetch_payload, "fetch")
                 _resume_from_fetch = True
             # A12 checkpoints are additive DATA — load whichever exist (verdict-free; raises if a
             # verdict ever leaked in). They never SUPPRESS a gate re-run.
@@ -13293,6 +13316,36 @@ async def main_async() -> int:
             for s in available:
                 print(f"  {s}")
             return 2
+
+    # GATE 0 (I-qgen-001 #1291): bind every benchmark question to the CANONICAL gold file by
+    # idx, so a hardcoded/substituted question (the drb_72 wrong-question failure) can never
+    # reach the run. gate0_lineage fails loud on a broken/missing gold file; we log when a
+    # hardcoded copy had drifted from canonical. Copies each dict so global SWEEP_QUERIES is
+    # not mutated. This is the structural fix: the launched question == canonical by construction.
+    from scripts.dr_benchmark.gate0_lineage import (
+        SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
+        canonical_question_for_slug as _gate0_canonical_q,
+        sha256_text as _gate0_sha,
+        assert_drb_slug_registered as _gate0_assert_registered,
+    )
+    _gate0_bound = []
+    for _q in queries_to_run:
+        _slug = _q.get("slug") if isinstance(_q, dict) else None
+        # FAIL LOUD on any drb_* benchmark slug that is neither canonically mapped nor an
+        # explicit no-gold slug — closes the silent gap where a renamed/new benchmark slug
+        # (bare drb_76/drb_78, or drb_90) launched a hardcoded question with NO binding.
+        if _slug:
+            _gate0_assert_registered(_slug)
+        if isinstance(_q, dict) and _slug in _GATE0_SLUG_TO_IDX:
+            _canon = _gate0_canonical_q(_slug)
+            if _gate0_sha(_q.get("question", "")) != _gate0_sha(_canon):
+                print(
+                    f"[GATE0] slug {_slug}: launched question OVERRIDDEN with canonical "
+                    f"(idx {_GATE0_SLUG_TO_IDX[_slug]}); the hardcoded copy had drifted"
+                )
+            _q = {**_q, "question": _canon}
+        _gate0_bound.append(_q)
+    queries_to_run = _gate0_bound
 
     print("=" * 72)
     if args.only:

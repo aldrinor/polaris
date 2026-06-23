@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: [
+  "scripts/dr_benchmark/qgen_coverage_harness.py:210 - QueryGenMethod still relies on adapter discipline to return only retrieved rows; current FloorMethod/ClosedLoopMethod comply, so this is not an execution blocker, but future candidate adapters should be schema-constrained to queries/source IDs.",
+  "scripts/dr_benchmark/gate0_lineage.py:187 - build_lineage_manifest is present but not wired into sweep artifact emission; canonical override plus resume question checks protect the current run path, so this is observability only."
+]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
