@@ -104,10 +104,14 @@ The convergent recipe across the WCXB benchmark, the OmniDocBench/table-extracti
    never silently substitute.
 3. **HTML main-content extraction — a UNION, not one extractor (the #1 2026 finding).** Per WCXB
    (arXiv 2605.21097), no single deterministic extractor wins across page types: top systems converge
-   on articles (F1 ~0.93) but diverge on structured pages (0.41–0.84). The frontier recipe runs
-   Trafilatura **and** Resiliparse (and optionally rs-trafilatura / MinerU-HTML) and unions/votes their
-   output to lift recall on non-article pages. **Faithfulness rule: deterministic extractors only —
-   they keep verbatim spans; never let an LLM rewrite a span the verifier later checks.**
+   on articles (F1 ~0.93) but diverge on structured pages (0.41–0.84). **Independently corroborated** by
+   "Beyond a Single Extractor" (arXiv 2602.19548, Feb 2026), which shows combining extractors via a
+   union lifts DCLM-Baseline token yield by up to **71%** while holding quality, and that extractor
+   choice on structured content (tables/code) swings downstream tasks by up to 10 pts (WikiTQ) / 3 pts
+   (HumanEval) — a second, non-WCXB source for the union thesis (dissolves the §8 COI-alone concern).
+   The frontier recipe runs Trafilatura **and** Resiliparse (and optionally rs-trafilatura / MinerU-HTML)
+   and unions/votes their output to lift recall on non-article pages. **Faithfulness rule: deterministic
+   extractors only — they keep verbatim spans; never let an LLM rewrite a span the verifier later checks.**
 4. **Line-level boilerplate strip** — remove boilerplate *lines inside* an otherwise-good page (nav,
    cookie banners, social chrome, mastheads). The only technique that fixes chrome-mixed-into-content
    without dropping the page. **POLARIS already does this** (`clean_fetch_body`). Allowlist-only,
@@ -157,6 +161,14 @@ a self-reported or COI'd number.
 March 2026) shows **TEDS correlates only r=0.68 with human judgment** vs **r=0.93 for an LLM-as-judge
 semantic score** across 21 parsers. So use TEDS as the cheap pre-filter and an LLM-judge (on the
 sovereign GLM slate, not GPT) as the deciding arbiter for the clinical-PDF lane.
+
+**Second independent PDF yardstick (verified):** ParseBench (arXiv 2604.08538, April 2026, LlamaIndex)
+scores ~2,000 human-verified enterprise pages across five capability axes — **tables, charts,
+content-faithfulness, semantic-formatting, visual-grounding** (14 methods benched). Use it alongside
+OmniDocBench-v1.6 + TEDS so the clinical-PDF lane is decided on at least two independent harnesses, not
+one. Its content-faithfulness and per-axis framing aligns with this doc's own caveat that a single
+aggregate (raw TEDS) hides per-capability collapse — but its top scorer (LlamaParse Agentic, 84.9%) is a
+proprietary SaaS, so ParseBench is a **measurement reference, not a candidate source** for sovereign use.
 
 ---
 
@@ -208,16 +220,29 @@ cap/floor on is auto-reject until line-by-line grounded.**
    Resiliparse (Apache-2.0) and union/vote, to recover the non-article recall WCXB shows a single
    extractor loses (F1 0.41–0.84 on structured pages). Deterministic only; verbatim-preserving.
    Flag-gated; bake off rs-trafilatura and MinerU-HTML-0.6B as candidates-to-beat, never default-on.
-2. **Stronger anti-bot fetch tier (Camoufox, MPL-2.0).** A Firefox-fork stealth browser that bypasses
-   anti-bot systems Chromium trips, raising the *free-tier* fetch-success ceiling before the paid Zyte
-   fallback fires (fewer `PAYWALL_STUB` shells, lower Zyte spend). MPL-2.0 is file-level copyleft —
-   usable as a separate fetch backend (not statically linked into a proprietary binary). Behavioral
-   accept on bypass-success-rate on the anti-bot slice.
+2. **Stronger anti-bot fetch tier — bake off Camoufox vs Nodriver/Patchright, do NOT crown Camoufox
+   unbenchmarked.** Camoufox (MPL-2.0) is a Firefox-fork stealth browser that bypasses anti-bot systems
+   Chromium trips, raising the *free-tier* fetch-success ceiling before the paid Zyte fallback fires
+   (fewer `PAYWALL_STUB` shells, lower Zyte spend). MPL-2.0 is file-level copyleft — usable as a separate
+   fetch backend (not statically linked into a proprietary binary). **But this doc's own rule is "bake
+   off, don't crown on one number" (§1, §4), so Camoufox is a CANDIDATE, not a foregone pick:** the 2026
+   head-to-head benchmark (Ian L. Paterson, May 2026, 7 stealth tools × 31 Cloudflare/anti-bot targets,
+   651 verdicts) ranks **Nodriver 28 OK > Camoufox = Patchright 25 OK** — i.e. Nodriver (Chromium-CDP
+   stealth) actually leads Camoufox on that slice, and the real differentiator is *automation-protocol
+   fingerprinting*, not the browser engine. So reframe ADD-2 to **bake Camoufox vs Nodriver/Patchright on
+   POLARIS's own anti-bot URL slice** (the head-to-head as reference, not as the decider), behavioral
+   accept on bypass-success-rate. Camoufox keeps one unique edge worth the union: it passed google-search
+   where Chromium-based tools failed.
 3. **Clinical-PDF lane: bake off MinerU2.5 vs the incumbent Docling.** MinerU2.5 / MinerU2.5-Pro is the
    2026 PDF-parsing frontier (OmniDocBench-v1.6 SOTA 95.69, beating Gemini 3 Pro / Qwen3-VL-235B) at
    1.2B params, vLLM-served. License is custom-Apache (commercial-OK well under the 100M-MAU / $20M-mo
    thresholds; attribution required) — sovereign-deployable for POLARIS. Decide on the clinical table
-   slice with the LLM-judge arbiter (§4), not raw TEDS.
+   slice with the LLM-judge arbiter (§4), not raw TEDS. **Lower-resource third candidate:** LiteParse
+   (Apache-2.0, LlamaIndex, v2.1.2 June 2026) is a deterministic, local-first PDF parser (PDFium text +
+   Tesseract OCR + spatial grid-projection to preserve column/indentation layout) — CPU-cheap, no GPU,
+   and deterministic (unlike the generative VLMs), so it is a faithfulness-safe bake-off entry where a
+   1.2B VLM's GPU cost is not justified. Bake it in the same clinical-PDF slice; it is lighter than
+   Docling/MinerU but targets the same faithful-layout problem.
 4. **Confirm the bad-fetch screen fires at every fetch seam.** `shell_detector` + `is_content_starved`
    exist; behaviorally verify they screen crawl4ai, Zyte, AND the PDF/Sci-Hub paths (not just one),
    so a challenge-page/paywall-shell never reaches extraction on any backend. Behavioral, not "confirm
@@ -246,9 +271,12 @@ Open-source-first (sovereignty). Every license below is verified against the pri
 - **rs-trafilatura** (license UNVERIFIED — single-author, pre-1.0) — WCXB F1 0.859 @ 44 ms (the number
   to beat behaviorally). **COI flag: the WCXB benchmark author (Murrough Foley) and rs-trafilatura
   appear to be the same author** — treat the leaderboard rank as a candidate-to-bench, not a crown.
-- **MinerU-HTML (0.6B)** (license ASSUMED same as MinerU custom-Apache — **VERIFY** the HTML artifact
-  is not a distinct weight/license before adopting) — neural HTML extractor; WCXB F1 0.827 @ 1,570 ms
-  (slow). Bake-off candidate for hard structured pages only.
+- **MinerU-HTML (0.6B)** (introduced in AICC, arXiv 2511.16397, Nov 2025; paper CC-BY-4.0 — the HTML
+  artifact's weight license still maps to MinerU custom-Apache, honor attribution) — a model-based HTML
+  extractor that reformulates content extraction as **sequence labeling** (extractive/deterministic, not
+  free-form generative — load-bearing for the §3/§6 faithfulness rule). AICC reports **81.8% ROUGE-N F1
+  vs Trafilatura's 63.6%**; WCXB independently scores it F1 0.827 @ 1,570 ms (slow). Bake-off candidate
+  for hard structured pages only.
 - **jusText** (BSD) — classic 3rd union member (WCXB F1 0.707). Cheap diversity.
 
 **Clinical-PDF / structured lane (layout-aware, table-preserving):**
@@ -258,6 +286,10 @@ Open-source-first (sovereignty). Every license below is verified against the pri
   GPU/vLLM per PDF — the bake-off must weigh GPU/latency cost against accuracy, not crown on accuracy
   alone; Docling's layout models are far lighter, so MinerU2.5 must EARN the GPU cost on the clinical
   slice.
+- **LiteParse** (Apache-2.0, LlamaIndex / run-llama, v2.1.2 June 2026) — deterministic, local-first PDF
+  parser (PDFium text + Tesseract OCR + spatial grid-projection for column/indentation faithfulness).
+  CPU-only, no GPU, deterministic → faithfulness-safe lower-resource bake-off candidate where MinerU2.5's
+  GPU cost is not justified. Lighter than Docling/MinerU; same faithful-layout target.
 - **PyMuPDF (fitz)** (AGPL-3.0 / commercial) — incumbent text-only fallback. **AGPL flag (LIVE
   exposure, not hypothetical):** this is in the CURRENT floor (`_extract_pdf_text` fallback), so the
   AGPL obligation already applies to the deployed pipeline — verify it against the hosted-service model;
@@ -276,6 +308,10 @@ Open-source-first (sovereignty). Every license below is verified against the pri
 **Extraction scoring harness:**
 - **WCXB** (CC-BY-4.0) — the independent main-content F1 yardstick (2,008 pages, 7 page types).
 - **OmniDocBench v1.6** (CVPR-2025 lineage) — the independent PDF-parsing yardstick.
+- **ParseBench** (CC-BY-4.0, arXiv 2604.08538, LlamaIndex, April 2026) — second independent PDF yardstick
+  (~2,000 human-verified pages; 5 axes: tables/charts/content-faithfulness/semantic-formatting/visual-
+  grounding; 14 methods). Measurement reference alongside OmniDocBench-v1.6 — its top scorer is a SaaS,
+  so it is a yardstick, not a sovereign source.
 - **LLM-as-judge semantic table score** (per arXiv 2603.18652) on the sovereign GLM slate — the
   deciding table-fidelity arbiter (TEDS r=0.68 vs LLM-judge r=0.93 vs humans).
 
@@ -300,6 +336,14 @@ reranker (retrieval), embedder Qwen3-Embedding-8B (I-arch-009), claim-level dedu
   before relying on it as a shipped fallback; pdfplumber is the permissive alternative.
 - **Vendor benchmark numbers are not cross-comparable** (WCXB F1 vs OmniDocBench score vs FinTabNet
   TEDS measure different things on different data). None is a head-to-head — hence the isolation bake-off.
+- **Camoufox is NOT an unbenchmarked crown — it may lose the anti-bot slice to Nodriver.** The one 2026
+  head-to-head we have (Ian L. Paterson, May 2026, 7 tools × 31 targets, 651 verdicts) ranks Nodriver 28
+  OK > Camoufox = Patchright 25 OK, and finds the real differentiator is automation-protocol
+  fingerprinting, not browser engine. That benchmark is a single secondary source (one author's slice of
+  Cloudflare targets), so it is a *reason to bake off*, not a verdict — POLARIS must run Camoufox vs
+  Nodriver/Patchright on its own anti-bot URL slice. (Note: the gap-finder's claimed "Camoufox
+  maintenance-gap / performance-regression" flag could NOT be confirmed at the cited benchmark URL, so it
+  is not asserted here.)
 - **The exact per-source contribution of each junk shape needs a behavioral replay (§-1.4)** on a banked
   `corpus_snapshot.json` before the bake-off invests in new tooling. Highest-confidence claims: (a) the
   line-level strip is the correct chrome mechanism and is already wired; (b) the highest-value
@@ -313,6 +357,25 @@ reranker (retrieval), embedder Qwen3-Embedding-8B (I-arch-009), claim-level dedu
 - **WCXB: A Multi-Type Web Content Extraction Benchmark** — arXiv 2605.21097, submitted 2026-05-20,
   CC-BY-4.0 (Murrough Foley). 2,008 pages / 7 page types / 1,613 domains. Leaderboard:
   https://webcontentextraction.org/ ; repo https://github.com/Murrough-Foley/web-content-extraction-benchmark
+- **Beyond a Single Extractor: Re-thinking HTML-to-Text Extraction for LLM Pretraining** — arXiv
+  2602.19548, submitted 2026-02-23, arXiv license (paper; methods use Trafilatura/Resiliparse, Apache-2.0).
+  Second, non-WCXB source for the union thesis: union of extractors lifts DCLM-Baseline token yield by up
+  to 71%; extractor choice on tables/code swings downstream tasks (WikiTQ +10 pts, HumanEval +3 pts).
+- **AICC: Parse HTML Finer, Make Models Better — A 7.3T AI-Ready Corpus Built by a Model-Based HTML
+  Parser** — arXiv 2511.16397, submitted 2025-11-20, CC-BY-4.0. The primary source for **MinerU-HTML**: a
+  0.6B sequence-labeling (extractive, not generative) HTML extractor; 81.8% ROUGE-N F1 vs Trafilatura
+  63.6%; introduces the AICC 7.3T-token corpus.
+- **ParseBench: A Document Parsing Benchmark for AI Agents** — arXiv 2604.08538, submitted 2026-04-09,
+  CC-BY-4.0 (LlamaIndex). ~2,000 human-verified pages; 14 methods × 5 axes (tables/charts/content-
+  faithfulness/semantic-formatting/visual-grounding); top scorer LlamaParse Agentic 84.9% (SaaS,
+  yardstick-only). Second independent PDF yardstick alongside OmniDocBench-v1.6.
+- **LiteParse** — Apache-2.0, https://github.com/run-llama/liteparse (LlamaIndex; v2.1.2 released
+  2026-06-19). Deterministic, local-first PDF parser (PDFium text + Tesseract OCR + spatial grid-
+  projection). CPU-only, faithfulness-safe lower-resource clinical-PDF candidate.
+- **Anti-detect browser benchmark (head-to-head)** — Ian L. Paterson, published 2026-05-13 (updated
+  2026-06-07), secondary source (no license; references OSS tools Nodriver / Patchright / curl-cffi /
+  Camoufox). 7 stealth tools × 31 Cloudflare/anti-bot targets, 651 verdicts: Nodriver 28 OK > Camoufox =
+  Patchright 25 OK. https://ianlpaterson.com/blog/anti-detect-browser-benchmark-patchright-nodriver-curl-cffi/
 - **Beyond String Matching: Semantic Evaluation of PDF Table Extraction** — arXiv 2603.18652,
   March 2026 (Horn & Keuper, IMLA Offenburg / Mannheim). TEDS r=0.68 vs LLM-judge r=0.93; 21 parsers.
 - **MinerU2.5: A Decoupled Vision-Language Model for Efficient High-Resolution Document Parsing** —
@@ -365,6 +428,11 @@ benched against a 2026 challenger.
 | Method | Date / status | Frontier or floor — and what it bakes against |
 |---|---|---|
 | WCXB benchmark | 2026-05 (arXiv 2605.21097) | **Frontier** — the 2026 main-content yardstick + the union-of-extractors evidence |
+| Beyond a Single Extractor | 2026-02 (arXiv 2602.19548) | **Frontier** — second, non-WCXB source for union-of-extractors (71% token-yield) |
+| AICC / MinerU-HTML | 2025-11 (arXiv 2511.16397) | **Frontier** — primary source for MinerU-HTML (0.6B sequence-labeling, 81.8 vs 63.6 ROUGE-N F1) |
+| ParseBench | 2026-04 (arXiv 2604.08538) | **Frontier (yardstick)** — second independent PDF-parsing harness (SaaS top scorer; reference only) |
+| LiteParse | 2026-06 (v2.1.2, Apache-2.0) | **Frontier** — deterministic CPU-only clinical-PDF candidate; bake vs Docling/MinerU2.5 |
+| Anti-bot head-to-head benchmark | 2026-05 (Paterson) | **Frontier (yardstick)** — Nodriver 28 > Camoufox 25; reframes ADD-2 to a bake-off, not a crown |
 | MinerU2.5-Pro | 2026-04 (arXiv 2604.04771) | **Frontier** — 2026 PDF-parsing SOTA; the clinical-PDF ADD |
 | "Beyond String Matching" table eval | 2026-03 (arXiv 2603.18652) | **Frontier** — TEDS-is-not-enough; the table-fidelity arbiter |
 | Camoufox | 2026-active (MPL-2.0) | **Frontier** — 2026 anti-bot stealth fetch |
@@ -383,11 +451,45 @@ benched against a 2026 challenger.
 - **The clinical-PDF question is Docling-vs-MinerU2.5, not "add a lane"** — POLARIS already has a
   Docling lane; the frontier is whether MinerU2.5's 95.69 OmniDocBench beats it on POLARIS's own
   journal-PDF slice, decided by an LLM-judge table score (TEDS alone is too weak, r=0.68).
-- **Anti-bot moved to stealth-Firefox (Camoufox)** in 2026 because Chromium is the easier fingerprint
-  to detect — a free-tier fetch lever that reduces Zyte spend without replacing it.
+- **Anti-bot is a bake-off, not a Camoufox crown** — the 2026 head-to-head (Paterson) ranks Nodriver 28
+  > Camoufox = Patchright 25 on a 31-target Cloudflare slice and shows automation-protocol fingerprinting
+  (not engine) is the real differentiator. So the free-tier fetch lever is "bake Camoufox vs
+  Nodriver/Patchright on POLARIS's own slice" — still a Zyte-spend reducer, not a Zyte replacement.
 - **Generative extractors got better but are still the wrong tool here** — for a provenance-gated
   pipeline the deterministic union wins on both faithfulness AND (per WCXB) raw F1/latency.
 
 **Net:** the design is 2025/2026-current; the highest-value corrections from the audit are (1) move
 from one HTML extractor to a deterministic union (WCXB-grounded), and (2) frame the clinical-PDF lane
 as a Docling-vs-MinerU2.5 bake-off decided on an LLM-judge table score, not raw TEDS.
+
+---
+
+## 12. Recency-completeness note (2026-06-24, I-recency-001 #1296)
+
+This doc is now **recency-complete** for the 2025/2026 fetch+extraction frontier: a completeness critic
+flagged 5 missing candidates; each was primary-source-verified (year + URL + license) and folded in.
+
+**Added (all verified 2025/2026, all real):**
+- **Beyond a Single Extractor** (arXiv 2602.19548, Feb 2026, arXiv license) — second, non-WCXB source for
+  the union-of-extractors thesis (71% token yield); dissolves the §8 WCXB-COI-alone concern. → §3, §8, §9, §11.
+- **AICC / MinerU-HTML** (arXiv 2511.16397, Nov 2025, CC-BY-4.0) — the previously-missing primary source
+  for MinerU-HTML; confirms it is a 0.6B **sequence-labeling extractive** (not generative) parser, 81.8 vs
+  63.6 ROUGE-N F1 over Trafilatura; resolves the §7 "VERIFY license/artifact" flag. → §7, §9, §11.
+- **ParseBench** (arXiv 2604.08538, Apr 2026, CC-BY-4.0, LlamaIndex) — second independent PDF-parsing
+  yardstick alongside OmniDocBench-v1.6 (SaaS top scorer → reference, not a sovereign source). → §4, §7, §9, §11.
+- **LiteParse** (run-llama/liteparse, Apache-2.0, v2.1.2 Jun 2026) — deterministic CPU-only clinical-PDF
+  candidate (PDFium + Tesseract + grid-projection), faithfulness-safe lower-resource bake-off entry vs
+  Docling/MinerU2.5. → §6, §7, §9, §11.
+- **Anti-bot head-to-head benchmark** (Paterson, May 2026, secondary source) — demotes the unbenchmarked
+  "Camoufox crown" to a **bake-off** (Nodriver 28 > Camoufox = Patchright 25; protocol-fingerprinting is
+  the real axis). Dated-crown correction. → §6 ADD-2, §8, §11.
+
+**Honest corrections vs the gap-finder's claims (per LAW II — assert only what the source supports):**
+- ParseBench: used the verified abstract numbers (~2,000 human-verified pages, 14 methods, 5 axes); the
+  gap-finder's "167,000+ test rules" figure was NOT in the abstract and is not asserted.
+- LiteParse: it is PDFium + Tesseract (not "TypeScript-native parser" / "Tesseract.js" as the gap-finder
+  wrote); the verified-from-repo description is used.
+- Camoufox: the gap-finder's "maintenance-gap / performance-regression" flag could NOT be confirmed at the
+  cited benchmark URL, so it is omitted (only the verified ranking is asserted).
+
+**Rejected (none — all 5 verified real, 2025/2026, and relevant).**

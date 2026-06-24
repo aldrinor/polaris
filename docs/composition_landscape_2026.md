@@ -114,6 +114,7 @@ Open-source-first (sovereignty). Year + URL + license per candidate. **C = faith
 | **STORM** | 2024-02 | arXiv:2402.14207; github.com/stanford-oval/storm | code MIT (verify LICENSE file); FreshWiki data CC-BY-SA | A (outline used) | **Incumbent FLOOR, partly adopted.** Perspective-guided question-asking → hierarchical outline. POLARIS uses the OUTLINE stage only (`PG_STORM_OUTLINE_SECTIONS`). Article stage = Class-A, NOT adopted. |
 | **Co-STORM** | 2024-08 | arXiv:2408.15232; same repo | same as STORM | A (mind-map) | Collaborative discourse + dynamic mind-map (hierarchical concept structure). The mind-map is a structuring idea worth studying for outline organization; the human-in-loop discourse is out of scope for an autonomous pipeline. |
 | **AgentCPM-Report (WARP)** | 2026-02 | arXiv:2602.06540 | CC-BY-4.0 (paper); code/weights NOT confirmed | A | **Dynamic outline EVOLUTION** — "Writing As Reasoning Policy" interleaves Evidence-Based Drafting + Reasoning-Driven Deepening, revising the outline as it writes rather than committing upfront. Pattern of interest: a *revisable* scaffold vs POLARIS's fixed STORM scaffold. Writing step is Class-A; only the outline-revision pattern is admissible. |
+| **UniCreative** | 2026-04 | arXiv:2604.05517 | arXiv nonexclusive-distrib (paper); code on GitHub (verify) | A | **Adaptive plan-vs-direct SWITCHING** (Findings ACL 2026). Reference-free RL (AC-GenRM adaptive constraint-aware reward + ACPO) where the model learns to autonomously pick rigorous planning vs direct generation per task. Pattern of interest: treating the outline/plan as a *callable, mode-switched* resource — a third revisable-scaffold contender alongside AgentCPM-Report (WARP). Writing step is Class-A free generation; only the adaptive-scaffold pattern is admissible. |
 
 ### Citation insertion / attribution (in scope — INSERTION only, NOT verification)
 
@@ -122,6 +123,8 @@ Open-source-first (sovereignty). Year + URL + license per candidate. **C = faith
 | **GenerationPrograms** | 2025-06 | arXiv:2506.14580 | arXiv standard; code on GitHub (verify license) | **B** | **LEAD adoptable.** Two-stage: build an executable PROGRAM of modular text operations (paraphrase / compress / fuse) over source passages, then EXECUTE → text whose attribution is inherent, not retroactive. Each operation keeps provenance to its source. This is POLARIS's verify-then-organize DNA expressed as a generation framework — the right pattern to upgrade the verified-compose writer. |
 | **LongCite** | 2024-09 | arXiv:2409.02897; github.com/THUDM/LongCite | open weights (LongCite-glm4-9b, -llama3.1-8b); verify model card license | A (trained-in) | Sentence-level fine-grained citations in long-context QA; LongCite-45k dataset. The model GENERATES citations (Class A), so not a body-writer for POLARIS, but the **sentence-level granularity target + CoF (coarse-to-fine) data recipe** are a yardstick for citation density/precision, and the GLM-4-9B base is sovereign-relevant. |
 | **FullCite** (Structured Inline Citation Generation) | 2026-06 | arXiv:2606.07130 | verify | A/B hybrid | **Most-recent on-point citation-insertion method.** Generates structured inline citations linking each claim to source doc + supporting evidence via three strategies: prompt-based, **constrained decoding over a citation GRAMMAR**, and post-hoc span alignment. The constrained-decoding-over-grammar strategy is directly relevant to POLARIS's `[#ev:id:start-end]` token grammar — a way to make the writer emit only well-formed, span-anchored citations by construction. Pattern-inspiration for citation insertion. |
+| **TROVE** | 2025-03 | arXiv:2503.15289 | CC-BY-4.0 (paper); dataset released | A (benchmark) | **Fine-grained text-provenance benchmark.** Traces each target sentence to its SOURCE sentences AND annotates the relationship (quotation / compression / inference / others) across 11 scenarios, multi- and long-document (0–10k+ tokens). Yardstick + relationship-taxonomy for citation-INSERTION correctness — the taxonomy refines §5c's "the span actually supports the sentence" check beyond a binary, and pairs with ALCE/LongCite as a metric def. Not a method/body-writer. |
+| **Citation Grounding (legal)** | 2026-05 | arXiv:2606.00898 | CC-BY-4.0 (paper); code to verify | A (benchmark) | **Newest domain-specific citation-correctness eval** (legal, Ukrainian-court citation graph). Three grounding axes — citation precision (does the cited provision EXIST), relevance (contextually appropriate), temporality (valid at the relevant date). The three-axis decomposition maps onto POLARIS's `[#ev:...]` insertion-correctness check (ev_id exists / span supports / span is the right version). Domain is legal, not clinical, so metric-def/yardstick only — not a method. |
 | **ALCE** | 2023-05 | arXiv:2305.14627; github.com/princeton-nlp/ALCE | code on GitHub (EMNLP 2023) | A (benchmark) | **2023 FLOOR / yardstick only — do NOT crown.** First citation-generation benchmark (fluency / correctness / citation quality on ASQA/QAMPARI/ELI5). Useful as the citation-quality metric definition, not a method. |
 
 ### Multi-section synthesis / long-form report writers (mostly Class A — yardsticks)
@@ -134,6 +137,11 @@ Open-source-first (sovereignty). Year + URL + license per candidate. **C = faith
 | **Deep-Reporter** | 2026-04 | arXiv:2604.10741; github.com/fangda-ye/Deep-Report | code on GitHub (verify license) | A (grounded) | Grounded MULTIMODAL long-form: agentic search + **checklist-guided incremental synthesis** ("optimal citation placement") + recurrent context management. The **checklist-guided incremental synthesis + citation-placement** idea is the most on-point composition pattern of the 2026 cohort. Multimodal scope is out; the checklist-incremental compose pattern is a yardstick worth a hard look. |
 | **ADORE** (Trustworthy Enterprise RAG) | 2026-01 | arXiv:2601.18267 | verify | A | Outline-draft → iterative retrieve → **reflection audits evidence against the outline** (missing sections / weak support) → revise outline. The reflect-against-outline loop is a coverage/completeness pattern; pairs naturally with POLARIS's STORM scaffold + the I-arch-007 breadth funnel. |
 | **DeepWriter** | 2025-07 | arXiv:2507.14189 | verify | A (grounded) | Fact-grounded multimodal writing over an OFFLINE knowledge base — close to POLARIS's "compose from a fixed verified corpus" setting. Yardstick for offline-corpus grounded synthesis. |
+| **RAPID** | 2025-03 | arXiv:2503.00751; github.com/USTC-StarTeam/RaPID | arXiv nonexclusive-distrib; code on GitHub (verify) | A | Retrieval-augmented long-text generation: retrieval-augmented preliminary OUTLINE + attribute-constrained search + plan-guided article generation (ACL 2025, FreshWiki-2024). The outline+plan-then-write loop is on the composition+retrieval seam; POLARIS's corpus is fixed (not re-retrieving at compose), so the COMPOSE leaf is Class-A free generation — yardstick for retrieval-augmented outline planning, not a body writer. |
+| **Disco-RAG** | 2026-01 | arXiv:2601.04377 | CC-BY-4.0 (paper); code to verify | A | **Discourse-aware RAG.** Builds intra-chunk discourse trees (local hierarchy) + inter-chunk rhetorical graphs (cross-passage coherence), folded into a planning blueprint that conditions generation. The rhetorical-structure-conditioned planning is relevant to outline scaffold + section routing (§1); compose leaf is Class-A. Yardstick/pattern for discourse-coherent section organization. |
+| **Story2Proposal** | 2026-03 | arXiv:2603.27065; github.com/AgentAlphaAGI/Idea2Paper | arXiv nonexclusive-distrib; code on GitHub (verify) | A | Contract-governed multi-agent scientific-manuscript writer (architect / writer / refiner / renderer + a generate-evaluate-adapt loop under a persistent shared *visual contract*). The document-level structural-CONTRACT pattern (a tracked section/element state the agents may not violate) rhymes with POLARIS's slot-bound contract section runner — pattern of interest for structural-contract composition safety. Class-A write step; pattern only. |
+| **Writer-R1** | 2026-03 | arXiv:2603.15061; code on GitHub (verify) | A | Memory-augmented Replay Policy Optimization (MRPO): self-reflection + RL with auto-constructed evaluative criteria as reward, no human annotation. Class-A free generation with reflection — a recent frontier method alongside OmniThink/WriteHERE; yardstick for self-reflective writing quality, not an adoptable. |
+| **sui-1** | 2026-01 | arXiv:2601.08472; ellamind/sui-1-24b (HuggingFace) | paper CC-BY-4.0; open weights (24B, verify model-card license) | B-adjacent (grounded) | **Open-weights grounded, verifiable long-form summarization with inline citations** — synthetic CoT + multi-stage-verification data (22k examples, 5 languages); every claim traceable to a source sentence; task-specific training beats scale. The closest public model to POLARIS's citation-grounded compose DNA. BUT POLARIS's hard constraint is "the only new LLM call is the EXISTING generator role, no new model/slug" (§1) — so sui-1 enters as a Class-B *example + yardstick* for citation-grounded summarization, NOT a runtime adoptable and NOT a new crown (GenerationPrograms remains the lead Class-B adoptable, as a PATTERN on the existing writer). |
 
 ### Faithfulness-by-construction anchors + cautions
 
@@ -209,6 +217,22 @@ an automatic fail regardless of (a)–(c).
 FAIL LOUD if it does not — not "green tests," not "Codex approved the diff." The standalone bake-off SELECTS
 the mechanism; the integrated POLARIS run DECIDES; a §-1.1 line-by-line audit of the winning output is required
 before any LOCK (per `standard_process_pipeline_section_review.md` step 6).
+
+**Secondary measurement references (metric-def yardsticks for the isolation axis — NONE is a body writer):**
+- **LongWeave** (2025-10, arXiv:2510.24345, CC0) — long-form benchmark with **Constraint-Verifier Evaluation
+  (CoV-Eval)**: define verifiable targets, synthesize queries/materials/constraints, score against them
+  (up to 64K/8K tokens, 23 models). The CoV-Eval *construction pattern* (objective, verifiable targets rather
+  than a reference) is the right way to make §5(b)/(c) organization+citation checks objective; it reports even
+  strong models cap well below ceiling on 8K outputs — a sober yardstick.
+- **LongEval** (2025-02, arXiv:2502.19103) — long-text benchmark evaluating BOTH direct and plan-based
+  paradigms (content quality, structural coherence, information density). The dual direct-vs-plan design is
+  methodologically on-point for the §5 composition bake-off (free-but-verified prose vs program/plan-based
+  compose).
+- **Lost in Stories** (2026-03, arXiv:2603.05890) — **ConStory-Bench** consistency-error taxonomy (2,000
+  prompts; 5 categories / 19 subtypes: factual, temporal, character, world-rule, causal) + ConStory-Checker
+  (contradiction detection grounded in textual evidence). Narrative-domain, but the factual/temporal/causal
+  inconsistency taxonomy is exactly what §5(d) faithfulness-preservation must watch for when a compose step
+  recombines source atoms (§4) — a checklist of failure modes for the bake-off, not a clinical fixture.
 
 ---
 
@@ -324,6 +348,13 @@ DeepScholar-Bench (live public faithfulness board) and ReportBench (2-axis regre
   transferable pattern is "exclude unsupported findings / trace every reported finding to a deterministic
   feature," which POLARIS already enforces via strict_verify. The structured-section discipline is the
   transferable part, not the image models.
+- **The multimodal text-chart frontier is orthogonal and OUT of scope.** Multimodal DeepResearcher
+  (arXiv:2506.02454, June **2025** per arXiv — the gap-file "2026" label was wrong) generates text-chart
+  interleaved reports from an agentic framework (research → exemplar textualization → plan → multimodal
+  generation; "Formal Description of Visualization"). The structural pattern (agentic plan → execute across text
+  AND chart blocks) is transferable in principle, but POLARIS's scope is TEXT composition (§Scope) and the
+  multimodal slice is out — same orthogonality already noted for Deep-Reporter's multimodal scope (§3). Listed
+  for completeness of the frontier snapshot, not as an adoptable.
 
 ### License flags
 - **STORM / Co-STORM** (stanford-oval/storm): README states only the FreshWiki DATA license (CC-BY-SA). The
@@ -360,18 +391,51 @@ labeled as such, none crowned as the current adoptable. The adoptable contest is
 (2025-06)**, and the 2026 cohort (AgentCPM-Report 2026-02, ADORE 2026-01, Deep-Reporter 2026-04, the
 2601.13217 multi-turn caution) is folded in.
 
+**Recency-COMPLETE (2026-06-24, I-recency-001 #1296).** A completeness-critic pass surfaced 12 further
+2025/2026 candidates the first draft missed; each was primary-source verified (exact title + date + license at
+its arXiv page) and folded in above. **None displaces GenerationPrograms as the lead Class-B adoptable** and
+**no dated-crown correction was warranted** (the gap audit flagged none, and the only open-weights Class-B
+candidate — sui-1, a NEW 24B model — cannot be a runtime adoptable under the "only the existing generator role,
+no new model" constraint, so it enters as an example/yardstick). The additions, by slot:
+- **Outline-revision patterns (Class-A write step, scaffold pattern only):** UniCreative (2026-04, adaptive
+  plan-vs-direct switching) — joins AgentCPM-Report/WARP.
+- **Citation-correctness metric-defs (yardsticks, not methods):** TROVE (2025-03, fine-grained provenance +
+  relationship taxonomy), Citation Grounding (2026-05, legal precision/relevance/temporality).
+- **Multi-section synthesis (Class-A yardsticks/patterns; one Class-B EXAMPLE):** RAPID (2025-03, retrieval-aug
+  outline+plan), Disco-RAG (2026-01, discourse-aware planning), Story2Proposal (2026-03, structural-contract
+  multi-agent), Writer-R1 (2026-03, MRPO RL writing), **sui-1 (2026-01, open-weights 24B citation-grounded —
+  example/yardstick only, NOT a new model adopted)**.
+- **Isolation-axis measurement references (§5 metric-defs):** LongWeave (2025-10, CoV-Eval), LongEval
+  (2025-02, direct-vs-plan), Lost in Stories (2026-03, ConStory consistency-error taxonomy).
+- **§8 out-of-scope completeness note:** Multimodal DeepResearcher (date CORRECTED to 2025-06 per arXiv; the
+  gap file's "2026" was wrong) — multimodal text-chart, orthogonal to text composition.
+- Also reconciled FullCite (2026-06, already in §3/§7) into the §9 table + §10 list for table coherence.
+
 | Method | Year | Status in this report |
 |---|---|---|
 | STORM | 2024-02 | Incumbent FLOOR; outline stage adopted (structure-only); article stage NOT adopted (Class A) |
 | ALCE | 2023-05 | YARDSTICK / metric-definition only — not crowned |
 | LongCite / LongWriter | 2024-09 / 2024-08 | YARDSTICK (citation granularity / long-output) — not a body writer |
 | OmniThink | 2025-01 | Class-A yardstick; value is retrieval-loop, not composition |
+| LongEval | 2025-02 | Benchmark (direct-vs-plan paradigms) — §5 metric-def yardstick |
+| RAPID | 2025-03 | Class-A yardstick (retrieval-augmented outline + plan-then-write) |
 | WriteHERE | 2025-03 | Class-A yardstick (recursive decomposition pattern) |
+| TROVE | 2025-03 | Benchmark (fine-grained text provenance + relationship taxonomy) — citation-correctness metric def |
 | GenerationPrograms | 2025-06 | **LEAD adoptable** (Class B; executable-operation compose) |
+| Multimodal DeepResearcher | 2025-06 | OUT of scope (multimodal text-chart) — §8 completeness note |
 | DeepWriter | 2025-07 | Class-A yardstick (offline-corpus grounded synthesis) |
+| LongWeave | 2025-10 | Benchmark (CoV-Eval constraint-verifier) — §5 metric-def yardstick |
 | ADORE | 2026-01 | Coverage pattern (reflect-against-outline) |
+| Disco-RAG | 2026-01 | Class-A yardstick/pattern (discourse-aware RAG planning) |
+| sui-1 | 2026-01 | Class-B-adjacent EXAMPLE/yardstick (open-weights 24B citation-grounded summarizer; no new model adopted) |
 | AgentCPM-Report | 2026-02 | Outline-revision pattern (WARP); Class-A write step |
+| Lost in Stories | 2026-03 | Benchmark (ConStory consistency-error taxonomy) — §5(d) failure-mode checklist |
+| Story2Proposal | 2026-03 | Class-A pattern (structural-contract multi-agent manuscript writer) |
+| Writer-R1 | 2026-03 | Class-A yardstick (memory-augmented RL writing, MRPO) |
+| UniCreative | 2026-04 | Outline-revision pattern (adaptive plan-vs-direct switching); Class-A write step |
 | Deep-Reporter | 2026-04 | Checklist-incremental-synthesis pattern (multimodal/Class A) |
+| Citation Grounding (legal) | 2026-05 | Benchmark (citation precision/relevance/temporality) — citation-correctness metric def |
+| FullCite | 2026-06 | Citation-insertion pattern (constrained decoding over citation grammar) |
 | "Unreliable multi-turn report" | 2026-01 | Caution — argues for single-pass verify-each-sentence |
 
 **What the recency pass says we should keep watching (the field moves monthly):** the 2026 long-form cohort
@@ -397,4 +461,17 @@ bake-off, and a fresh "is anything newer?" search should run again at bake-off t
 - "Deep Research Agents are Unreliable at Multi-turn Report" — arXiv:2601.13217 (multi-turn caution, 2026)
 - ALCE — arXiv:2305.14627 ; github.com/princeton-nlp/ALCE (citation-eval benchmark, 2023 floor)
 - Faithfulness survey (quotation = faithful-by-construction) — arXiv:2508.15396 (2025)
+- FullCite (structured inline citation generation) — arXiv:2606.07130 (constrained-decoding citation grammar, 2026)
+- RAPID — arXiv:2503.00751 ; github.com/USTC-StarTeam/RaPID (retrieval-augmented outline + plan-then-write, ACL 2025)
+- LongWeave — arXiv:2510.24345 (CoV-Eval constraint-verifier long-form benchmark, 2025, CC0)
+- LongEval — arXiv:2502.19103 (direct-vs-plan long-text benchmark, 2025)
+- TROVE — arXiv:2503.15289 (fine-grained text-provenance benchmark + relationship taxonomy, 2025, CC-BY-4.0)
+- Disco-RAG — arXiv:2601.04377 (discourse-aware RAG planning, 2026, CC-BY-4.0)
+- sui-1 — arXiv:2601.08472 ; ellamind/sui-1-24b (open-weights citation-grounded summarizer, EXAMPLE/yardstick only, 2026, CC-BY-4.0)
+- Story2Proposal — arXiv:2603.27065 ; github.com/AgentAlphaAGI/Idea2Paper (structural-contract multi-agent manuscript writer, 2026)
+- Writer-R1 — arXiv:2603.15061 (memory-augmented RL writing / MRPO, 2026)
+- Lost in Stories / ConStory-Bench — arXiv:2603.05890 (long-form consistency-error taxonomy, 2026)
+- UniCreative — arXiv:2604.05517 (adaptive plan-vs-direct RL writing, Findings ACL 2026)
+- Citation Grounding (legal) — arXiv:2606.00898 (citation precision/relevance/temporality, 2026, CC-BY-4.0)
+- Multimodal DeepResearcher — arXiv:2506.02454 (text-chart interleaved reports, OUT of scope/multimodal, 2025)
 - Cross-ref: consolidation (Argus/eTracer patterns) — `docs/consolidation_landscape_2026.md`

@@ -45,7 +45,8 @@ One named tool per row. License and role in short cells.
 | Qwen3-Embedding-8B | Apache-2.0 | OSS pick: the basket vectorizer. POLARIS already chose this in I-arch-009 for the quality gate. Reuse it. |
 | bge-m3 (BAAI) | MIT | OSS pick: the MultiClaimNet-winning multilingual embedder. Dense plus sparse in one model. |
 | sentence-transformers | Apache-2.0 | OSS engine: community-detection and agglomerative clustering, keep-all members. The exact SOTA recipe. |
-| MultiClaimNet | Dataset, verify Zenodo | Method: embed then agglomerative cluster is the 2025 same-claim SOTA (0.574 ARI). |
+| Claim2Vec | Paper CC-BY-4.0; no official code | Method, current facet-2 leader (April 2026): contrastive fine-tune of a multilingual encoder on similar-claim pairs; improves clustering across 3 datasets, 14 embedders, 7 algorithms. Re-implement the fine-tune over the Qwen3/bge-m3 vectorizer. |
+| MultiClaimNet | Dataset, verify Zenodo | Baseline (March 2025): the dataset + embed-then-agglomerative recipe (0.574 ARI). Superseded as the clustering recipe by Claim2Vec's contrastive fine-tune; keep as the dataset and the agglomerative baseline. |
 
 ### Facet 3 — Multi-source corroboration and weighting
 
@@ -101,8 +102,8 @@ This is the spine. Six steps, in order. For each step: the 2025/2026 SOTA method
 
 ### Step 2 — Clustering into baskets (group same-claim sources)
 
-- SOTA method: embed each decontextualized claim, then agglomerative or community-detection clustering at a distance threshold, keep-all members. MultiClaimNet recipe.
-- OSS pick: Qwen3-Embedding-8B (Apache-2.0, already in-tree) plus sentence-transformers community detection. A hybrid lexical-plus-dense candidate generation, then an NLI same-claim confirm, to preserve the conservative never-over-merge rule.
+- SOTA method: embed each decontextualized claim, then agglomerative or community-detection clustering at a distance threshold, keep-all members. The 2026 leader is Claim2Vec (April 2026) — a contrastive fine-tune of the multilingual encoder on similar-claim pairs that improves clustering across 3 datasets, 14 embedders, and 7 algorithms; the MultiClaimNet (March 2025) embed-then-agglomerative recipe is now the baseline (0.574 ARI).
+- OSS pick: Qwen3-Embedding-8B (Apache-2.0, already in-tree) plus sentence-transformers community detection, with a Claim2Vec-style contrastive fine-tune layered on the vectorizer (re-implement; paper-only, no official code). A hybrid lexical-plus-dense candidate generation, then an NLI same-claim confirm, to preserve the conservative never-over-merge rule.
 - POLARIS plug-point: `finding_dedup.py` and `fact_dedup.py` group by literal numeric keys or exact content-word Jaccard. `claim_graph.py` is the field-agnostic upgrade already in-tree but default-off (`PG_SWEEP_CLAIM_GRAPH`, confirmed empty default). Swap its SHA-1 literal-key grouping for embedding-plus-NLI grouping.
 
 ### Step 3 — Corroboration and weighting (decide basket strength)
@@ -163,7 +164,7 @@ Honest, weight-and-consolidate DNA, faithfulness engine frozen.
 Open-source first. Behavioral acceptance, not vendor score. Every acceptance below means the effect appears in the real rendered output on a banked corpus and fails loud if it does not.
 
 - Facet 1, atomic claims: re-implemented Claimify on the sovereign GLM or DeepSeek slate, versus the live regex extractor; plus CORE (MIT) as the semantic canonicalizer versus current lexical Jaccard. Accept on extraction coverage and span-faithfulness, and on how many equivalent-phrasing atoms collapse into one basket without over-merging distinct clinical claims.
-- Facet 2, clustering: bge-m3 plus agglomerative versus Qwen3-Embedding-8B plus community detection, both keep-all; plus the hybrid lexical-then-NLI confirm; plus activating `claim_graph.py` with embedding-plus-NLI grouping. Accept on paraphrase claims correctly landing in one basket while conservative-singleton holds.
+- Facet 2, clustering: bge-m3 plus agglomerative versus Qwen3-Embedding-8B plus community detection, both keep-all; plus a Claim2Vec-style contrastive fine-tune (April 2026, paper-only — re-implement) over the chosen vectorizer as the contrastive-tune arm; plus the hybrid lexical-then-NLI confirm; plus activating `claim_graph.py` with embedding-plus-NLI grouping. Accept on paraphrase claims correctly landing in one basket while conservative-singleton holds.
 - Facet 3, corroboration: crowd-kit Dawid-Skene or M-MSR for reliability-weighted consensus; Beta-Binomial basket confidence on the scikit-learn backbone; CRED-1 down-weight overlay. Accept on a more discriminative, calibrated strength signal in the real output, weight-only, no count inflation, and on the split-brain fix making retrieval coherent.
 - Facet 4, conflict: ModernCE-large-nli (MIT) as the primary local always-on NLI, versus the incumbent capped GLM-5.2; the c-variant zero-shot DeBERTa as contender; ConflictRAG two-stage cheap-then-LLM pattern. Accept on contradiction-pair recall and precision, cost, and latency.
 - Facet 5, reduce: LLMxMapReduce V1 confidence-calibration reduce; LLMxMapReduce-V2 hierarchical scaling for wide corpora; CAHM recursive re-grounded merge as the lightest port; control arm keeps current consolidation and bolts the chosen reduce on top. Accept on cross-source coverage in the real wide-corpus output. Exclude XpandA — no verified OSS license.
@@ -178,7 +179,7 @@ Open-source first. Behavioral acceptance, not vendor score. Every acceptance bel
 
 - Facet 7 is incomplete in the input. Sections 1 and 4 mark it so. Re-run it before any bake-off.
 - One facet path was wrong in the input (the semantic conflict detector). I corrected and re-verified it. Treat any other in-input path as needing a repo check.
-- The frontier methods Claimify, ConflictRAG, MedRAGChecker, and the dual-perspective and uncertainty-gated papers have no confirmed open code release or a license-TBD repo. They are design references, not vendorable code.
+- The frontier methods Claimify, Claim2Vec, ConflictRAG, MedRAGChecker, and the dual-perspective and uncertainty-gated papers have no confirmed open code release or a license-TBD repo. They are design references, not vendorable code. Claim2Vec is CC-BY-4.0 on the paper with no weights/code released — re-implement the contrastive fine-tune in-house.
 - Several SOTA reference implementations use closed judges — DeepTRACE uses GPT-5, MedRAGChecker trains from GPT-4. The metric is reusable; the judge must be swapped to the sovereign open-weight slate.
 
 ### License flags — must verify before adoption
@@ -212,7 +213,9 @@ Severity-ordered. Every repo claim and every flagged paper below was verified by
 
 ---
 
-## P1 — MATERIAL MISSING METHOD that is ALSO a dated-method crown (gaps a + d)
+## P1 — MATERIAL MISSING METHOD that is ALSO a dated-method crown (gaps a + d) — RESOLVED 2026-06-24 (I-recency-001 #1296)
+
+**RESOLUTION (2026-06-24, I-recency-001 #1296):** Claim2Vec is now inserted into the Facet-2 table, the Step-2 spine, the Section-4 bake-off, and the §5 license flags; MultiClaimNet is demoted from "the 2025 same-claim SOTA" to the dataset + agglomerative baseline (0.574 ARI). The recency note below records the addition. Per §-1.1 / frontier-tech mandate, the demotion is justified by recency (a 2026 contrastive-fine-tune method on the same task exists), not by a verified head-to-head ARI — the primary source confirms broad clustering gains across 3 datasets / 14 embedders / 7 algorithms but does not itself report beating MultiClaimNet's specific 0.574 ARI. The original P1 finding is retained below for the record.
 
 **1. Claim2Vec (arXiv 2604.09812, Panchendrarajan & Zubiaga, submitted 2026-04-10, rev 2026-04-14) is absent, and it post-dates and beats the method the synthesis crowns as facet-2 SOTA.**
 - The synthesis (Facet 2 table + Section 1) crowns **MultiClaimNet (2503.22280, March 2025)** as "the 2025 same-claim SOTA (0.574 ARI)" via "embed then agglomerative cluster." Claim2Vec is the **April-2026** follow-on: it fine-tunes the multilingual encoder with **contrastive learning on similar-claim pairs** and reports it "significantly improves clustering performance across 3 datasets, 14 embedding models, and 7 clustering algorithms" — i.e. the embedder POLARIS would plug into Step 2 should be a contrastively-tuned one, not a stock Qwen3/bge-m3. Crowning a March-2025 dataset paper as the current clustering recipe while a 2026 method that improves the exact same task exists is a dated-crown miss per the operator's "no dated method as current" rule.
@@ -246,3 +249,21 @@ Severity-ordered. Every repo claim and every flagged paper below was verified by
 - **The contested judge default is correct against the LIVE code.** The synthesis says the semantic conflict detector defaults to `z-ai/glm-5.2` — verified at `semantic_conflict_detector.py:69` (env-overridable via `PG_ENTAILMENT_MODEL` at :623), with `MAX_PAIRS=60` / `MAX_ROWS=200` at :63-64. The module's own **docstring at line 30 is STALE** ("Gemma-4-31B by default") but the code default was migrated to GLM-5.2 (#1249/#1252/#1285), so the synthesis matched the code, not the stale comment. This is a one-line repo-hygiene nit (fix the docstring), NOT a synthesis error.
 - **All three high-risk future-dated papers exist and resolve correctly** (no hallucinated primary source): Vinod & Erk 2604.11036 (real, biomedical uncertainty-gated fact-checking, 2026-04-13); CRED-1 2604.20856 (real, 2026-02-25 — the facet's internal "2604 vs Feb-2026" inconsistency resolves to Feb-25-2026; the arXiv ID prefix is simply non-chronological, CRED-1 is genuine and CC-BY-4.0).
 - **The frozen-faithfulness-engine rule is respected throughout.** No recommendation touches strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding; every ADD is an advisory weight/label/consolidation. The synthesis correctly rejects SeCon-RAG's drop behavior and preserves the single-token isolation invariant. No "cap/drop/thin dressed up" survived except the two latent risks named in P2 above.
+
+---
+
+## Recency-completeness note — 2026-06-24 (I-recency-001 #1296)
+
+This landscape is now **recency-complete** for the 2025/2026 facet-2 (same-claim clustering / basketing) frontier: the completeness-critic's one missing candidate has been verified at its primary source and inserted, and the dated crown it flagged has been demoted.
+
+**Added (1):**
+
+- **Claim2Vec** — 2026-04-10 (rev 2026-04-14), arXiv 2604.09812 (`https://arxiv.org/abs/2604.09812`), license **CC-BY-4.0 on the paper; no official code/weights released** (re-implement the contrastive fine-tune in-house). Why: contrastive fine-tune of a multilingual encoder on similar-claim pairs that improves clustering across 3 datasets, 14 embedders, and 7 algorithms — the current facet-2 leader. Slotted into the Facet-2 table, the Step-2 spine, the Section-4 bake-off, and the §5 license flags.
+
+**Demoted (dated crown, 1):**
+
+- **MultiClaimNet** (2503.22280, March 2025) — moved from "the 2025 same-claim SOTA recipe" to the dataset + embed-then-agglomerative **baseline** (0.574 ARI). The demotion is justified by recency (a 2026 contrastive-fine-tune method on the same task now exists), not by a verified head-to-head — the Claim2Vec primary source confirms broad clustering gains but does not itself report beating MultiClaimNet's specific 0.574 ARI.
+
+**Rejected (0):** the critic's sole gap candidate for this doc verified clean; nothing was rejected. (The critic's P3 adjacent methods JointCQ and Distill-and-Align were not in this doc's gap array and were not added; they remain enumerate-and-justify-exclusion items per P3, not recency gaps.)
+
+This note records URL + date + license + ref for the addition, since the facet tables are Tool | License | Role and carry no URL column.

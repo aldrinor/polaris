@@ -100,12 +100,16 @@ The hardcoded vocab is the ceiling.
 | **MedScore** | 2025-05-24 | [arXiv 2505.18452](https://arxiv.org/abs/2505.18452) ; [github.com/Heyuan9/MedScore](https://github.com/Heyuan9/MedScore) | ⚠️ default decomposition uses **GPT-4o-mini** (closed) — re-implement on the sovereign slate | Domain-adapted decompose-then-verify; extracts ~3× more valid condition-aware clinical claims than FActScore/VeriScore/CORE/DnDScore. Replaces the hardcoded clinical vocab with a learned condition-aware decomposer. |
 | **DnDScore (decontextualize + decompose)** | 2024-12 | [arXiv 2412.13175](https://arxiv.org/abs/2412.13175) (EMNLP 2025) | ⚠️ paper | Method: decontextualize each atom so paraphrases compare WITHOUT losing the qualifier (e.g. keep the entity "He" refers to). **Elevate to a hard requirement for [2]** (see §-1.1 over-merge risk). |
 | **Distill-and-Align Decomposition** | 2026-02 | [arXiv 2602.21857](https://arxiv.org/abs/2602.21857) | ⚠️ paper | Newest (2026) decomposition-for-verification method; verify whether it adds over Claimify+CORE before adopting. |
+| **MedRAGChecker** | 2026-01-10 | [arXiv 2601.06519](https://arxiv.org/abs/2601.06519) | ⚠️ CC-BY-4.0 paper; **no public code repo found** (re-implement on the GLM slate) | **Biomedical-clinical, dead-center on the bridge.** Decompose answer → atomic claims, then estimate per-claim support by combining evidence-grounded **NLI** with biomedical **knowledge-graph consistency**, in a reliability-weighted ensemble that flags unsupported/contradicted claims and distinguishes *retrieval* vs *generation* failures. Spans [1] (decompose-to-verify) AND [3] (reliability-weighted ensemble precedent). Yardstick/design-reference for the clinical decomposer; the KG-consistency signal is an additive WEIGHT, never a verify gate. |
 
-> These five are already in `consolidation_landscape_2026.md` §Facet-1; reproduced here
-> only to attach the *bridge requirement*: **the extractor's output must be the
-> qualifier-complete, polarity-tagged atom that [2] keys on.** Today POLARIS's regex atom
-> carries the clinical qualifiers (dose/arm/endpoint) but no polarity field; that polarity
-> field is what [2] needs to flag rather than hide a contradiction.
+> The first five (Claimify / CORE / VeriScore / MedScore / DnDScore / Distill-and-Align)
+> are already in `consolidation_landscape_2026.md` §Facet-1; reproduced here only to attach
+> the *bridge requirement*: **the extractor's output must be the qualifier-complete,
+> polarity-tagged atom that [2] keys on.** **MedRAGChecker (last row) is the net-new
+> bridge addition** — a clinical decompose→NLI→KG reliability-weighted verifier that spans
+> [1] and [3]. Today POLARIS's regex atom carries the clinical qualifiers
+> (dose/arm/endpoint) but no polarity field; that polarity field is what [2] needs to flag
+> rather than hide a contradiction.
 
 **Provisional frontier pick to beat:** re-implemented **Claimify** (selection +
 disambiguation + drop-on-ambiguity) on the sovereign slate, with **CORE** (MIT) as the
@@ -213,7 +217,21 @@ source weighting**. The calibration machinery is built and untested-in-productio
 > crowd-kit / scikit-learn / CRED-1 are in `consolidation_landscape_2026.md` §Facet-3/6;
 > the bridge addition is the **positive-weight floor** as a hard requirement (its own
 > completeness critic flagged crowd-kit's zero-collapse as a disguised drop), and the
-> **basket representation** the next section needs.
+> **basket representation** the next section needs. **MedRAGChecker** (Stage-1 table,
+> 2026-01-10) is also the clinical precedent for the *reliability-weighted ensemble* this
+> stage needs — its per-claim reliability weighting across NLI + KG signals is the
+> biomedical proof-of-concept for a weighted (never-dropped) basket confidence.
+>
+> **Reliability-weighting pitfall to bake into the gate (clinical-safety-critical):**
+> *"What Makes a Medical Checker Trainable?"* ([arXiv 2605.25988](https://arxiv.org/abs/2605.25988),
+> 2026-05-25, ⚠️ CC-BY-4.0 paper, biomedical) diagnoses two failure modes that hit exactly
+> this Stage-3→4 boundary: **signal collapse** (a log-prob checker labels >97% of claims
+> NEUTRAL → the reliability signal is uninformative and the weighting is flat-by-accident)
+> and **reward hacking** (a too-strong checker is gamed into ultra-short, search-avoiding
+> answers). The lesson: a reliability-weighting scheme that *looks* calibrated can be
+> silently inert. The Axis-B harness below must therefore assert the weighting is
+> ACTUALLY discriminating members, not collapsed to neutral — a §-1.4 behavioral check, not
+> a config check.
 
 **Provisional frontier pick to beat:** **crowd-kit reliability-weighted consensus (with a
 hard weight>0 floor) + a Beta-Binomial calibrated basket posterior** on the scikit-learn
@@ -265,6 +283,9 @@ members Stage-2 put in one basket.
 | **"Are Finer Citations Always Better?"** | 2026 | [arXiv 2604.01432](https://arxiv.org/abs/2604.01432) | ⚠️ paper | Granularity tradeoff — fine-grained constraints can fracture semantic dependencies. Tempers over-fragmenting the per-clause invariant. |
 | **sui-1** | 2026-01-13 | [arXiv 2601.08472](https://arxiv.org/abs/2601.08472) ; HF `ellamind/sui-1-24b` | ⚠️ CC-BY-4.0 (weights open, non-Apache) | 24B grounded-summarization model, sentence-level inline cites, 84% LLM-judge faithfulness. **Yardstick only** (CC-BY, sentence-level not per-member). Useful as a competitor to beat on a faithfulness bench. |
 | **LLMxMapReduce V1 / CAHM** | 2024/25 | [github.com/thunlp/LLMxMapReduce](https://github.com/thunlp/LLMxMapReduce) ; CAHM (MIT) | ✅ Apache-2.0 / MIT | The attributed *reduce* shape for wide-corpus synthesis (confidence-calibration reduce; recursive re-grounded merge). The bolt-on for abstractive cross-basket synthesis — but the reduce output must re-enter the frozen strict_verify per clause, never resolve conflict in place of it. |
+| **eTracer** | 2026-01-07 | [arXiv 2601.03669](https://arxiv.org/abs/2601.03669) ; [github.com/chubohao/eTracer](https://github.com/chubohao/eTracer) | ⚠️ paper claims "code+data available" but the repo URL returned **404 at fetch time (2026-06-24)** — NOT verifiably public, license unconfirmed → yardstick/design-reference only until reachable | **Independently corroborates the doc's central thesis: grounds at the CLAIM level, not the sentence level.** Post-hoc aligns each response claim to contextual evidence that SUPPORTS or CONTRADICTS it, biomedical (high-stakes) focus. Confirms POLARIS's isolation property (per-member > per-sentence) is the right frontier, and pre-surfaces contradicting evidence into the basket — directly feeding [2]'s contradiction-flag and [4]'s contested rendering. |
+| **EvidenceRL** | 2026-03-20 | [arXiv 2603.19532](https://arxiv.org/abs/2603.19532) ; [github.com/Wizaaard/EvidenceRL](https://github.com/Wizaaard/EvidenceRL) | ⚠️ code public but **NO LICENSE file → all-rights-reserved by default, NOT vendorable** — yardstick/pattern only | GRPO RL framework that enforces evidence adherence at TRAINING time (cardiac diagnosis + legal): F1@3 37.0→54.5, grounding 47.6→78.2, hallucinations ~5× lower, faithfulness 32.8→67.6%. Newest evidence-grounded-generation method with code; pattern reference for a verify-loop training signal, NOT a drop-in deploy. The trained adherence is an upstream WEIGHT on a better writer, never a substitute for the frozen per-clause verify. |
+| **FullCite** ("Explicit Evidence Grounding via Structured Inline Citation Generation") | 2026-06-05 | [arXiv 2606.07130](https://arxiv.org/abs/2606.07130) | ⚠️ CC-BY-4.0 paper; code repo NOT confirmed | **Newest (June 2026) and dead-center on Stage-4 fine-grained grounding.** Generates structured inline citations linking each claim to BOTH source document AND the supporting span; tests prompt-based / constrained-decoding-over-citation-grammar / posthoc-span-alignment on ASQA/BioASQ/ExpertQA. Key finding: LLMs find the right *document* easily but **struggle to identify the precise supporting SPAN** — which is exactly the per-member span-isolation problem POLARIS's single-token verify already solves. Yardstick: the published frontier still fails the span step POLARIS enforces. |
 
 **The honest finding (per the task's "be honest where POLARIS leads"):** every OSS
 attribution candidate optimizes **citation precision/recall at sentence granularity** —
@@ -274,6 +295,15 @@ single-token isolated per-member verify + basket-id-bound verbatim fallback is A
 the published frontier on the anti-laundering property.** The 2025/2026 frontier is ahead
 only on (a) abstractive fluency of the attributed synthesis (LongCite/sui-1 read better)
 and (b) it is not gated OFF.
+
+The newest 2026 papers SHARPEN this finding rather than overturn it: **FullCite**
+(2026-06) reports that even strong LLMs reliably retrieve the right *document* but
+**struggle to identify the precise supporting span** — i.e. the span step is the published
+frontier's open failure, and it is exactly the step POLARIS's single-token isolated verify
+enforces by construction. **eTracer** (2026-01) independently argues claim-level grounding
+beats sentence-level — the same property POLARIS leads on. Neither is a drop-in that beats
+the isolation; both are corroborating yardsticks that the isolation property is the right
+target.
 
 **Provisional frontier pick to beat:** **POLARIS's own `compose_basket_multicited_sentence`
 turned ON**, with a **LongCite-style writer** as the abstractive phrasing arm — prefer the
@@ -349,6 +379,18 @@ On a banked `corpus_snapshot.json` basket fixture:
 did not fire — `collapsed>0` / multi-source baskets appear / a planted laundering case is
 caught / no corroborator dropped — NOT "Codex approved" and NOT "tests green."
 
+### 2025/2026 measurement yardsticks for this axis (benchmarks + standards, not deploy candidates)
+
+These are the newest external harnesses to BENCHMARK the bridge against — all closed/paper
+or dataset-only, so yardstick-only under the sovereignty rule (re-implement the metric on
+the GLM slate; never link the judge).
+
+| Yardstick | Date | Primary source | License | What it measures (and why this axis needs it) |
+|---|---|---|---|---|
+| **CiteVQA** | 2026-05-13 | [arXiv 2605.12882](https://arxiv.org/abs/2605.12882) ; [github.com/opendatalab/CiteVQA](https://github.com/opendatalab/CiteVQA) | ⚠️ benchmark; arXiv nonexclusive-distrib (verify repo license) | **Catches Attribution Hallucination — correct answer + WRONG citation — the exact laundering failure this doc exists to prevent.** Strict Attributed Accuracy (SAA) credits a prediction ONLY when answer AND cited region are both correct. 1,897 questions, 711 PDFs, 7 domains, 2 languages; even Gemini-3.1-Pro scores SAA 76.0, strongest open MLLM just 22.5. A ready-made Axis-B fixture proving joint-entailment laundering is real and measurable. |
+| **CiteGuard** | 2025-10-15 (ACL 2026 Main) | [arXiv 2510.17853](https://arxiv.org/abs/2510.17853) ; [github.com/KathCYM/CiteGuard](https://github.com/KathCYM/CiteGuard) | ✅ **dual-licensed (repo-confirmed 2026-06-24): Code=MIT, Dataset=CC-BY-4.0** | Citation *validation* (not synthesis): reframes evaluation as citation-attribution-alignment (does the cite match what a human author would include), 68.1% on the **CiteME** benchmark (≈ human 69.2%), retrieval-aware agent recovers missing context. A harness for measuring how well the FROZEN strict_verify is performing — NOT a composition candidate. |
+| **AAR — "From Fluent to Verifiable"** | 2026-02-14 | [arXiv 2602.13855](https://arxiv.org/abs/2602.13855) | ⚠️ paper; no code | Defines **claim-level auditability as a first-class design target** for deep-research agents — the Auditable Autonomous Research (AAR) standard: provenance coverage, provenance soundness, contradiction transparency, audit effort, with continuous validation DURING synthesis (not post-hoc). The framing for the whole isolation axis: it names auditability as the bottleneck once generation is cheap — exactly the breadth-and-faithfulness tradeoff [4] manages. Use its four axes as the scoring rubric over the gold-set. |
+
 ### Gold-set construction (sovereign, no closed judge)
 
 Seed from real fetched clinical spans in banked corpora (`state/iarch007_corpus_checkpoints.json`,
@@ -394,3 +436,58 @@ isolation); it is behind on the two SOFT ones (semantic basketing, calibrated co
 Closing Stage-2 (NLI confirm over a contrastive embedder, co-basket-by-target) feeds more
 true corroborators into the keep-all primitive POLARIS already leads on — which is exactly
 the weight-and-consolidate DNA, with the faithfulness engine never touched.
+
+---
+
+## RECENCY-COMPLETENESS NOTE  *(I-recency-001 #1296, 2026-06-24)*
+
+This landscape is **recency-complete as of 2026-06-24.** A completeness-critic pass
+(I-recency-001 #1296) re-scanned the 2025/2026 frontier for claim-extraction →
+basketing → consolidation → composition methods this doc missed, primary-source-verified
+each at its arXiv URL (real, dated 2025/2026, topic confirmed) and fetched the code repos
+to confirm or correct the license, then inserted the genuine omissions. Every addition's
+existence + date + topic was arXiv-fetch-verified; every code-bearing candidate's license
+was repo-fetch-verified (CiteGuard confirmed MIT+CC-BY; eTracer's repo 404'd; EvidenceRL
+confirmed no-LICENSE). None is a pre-2024 method and none is faked.
+
+**Added (8 candidates):**
+- **MedRAGChecker** (2026-01-10, [2601.06519](https://arxiv.org/abs/2601.06519), ⚠️ CC-BY-4.0
+  paper, no code) → **Stage 1** table — biomedical decompose→atomic-claims + NLI + KG-consistency
+  reliability-weighted ensemble; also the Stage-3 reliability-ensemble precedent.
+- **eTracer** (2026-01-07, [2601.03669](https://arxiv.org/abs/2601.03669), ⚠️ repo URL
+  **404 at fetch time** → not verifiably public, yardstick only) → **Stage 4** table —
+  claim-level (not sentence-level) support/contradict grounding; corroborates the isolation
+  thesis.
+- **EvidenceRL** (2026-03-20, [2603.19532](https://arxiv.org/abs/2603.19532), ⚠️ code public
+  but NO LICENSE → not vendorable, yardstick only) → **Stage 4** table — GRPO training-time
+  evidence-adherence signal.
+- **FullCite** (2026-06-05, [2606.07130](https://arxiv.org/abs/2606.07130), ⚠️ CC-BY-4.0
+  paper) → **Stage 4** table — claim→document+span inline citation; finding "LLMs miss the
+  precise span" sharpens POLARIS's span-isolation lead. The newest method in the doc.
+- **CiteVQA** (2026-05-13, [2605.12882](https://arxiv.org/abs/2605.12882), ⚠️ benchmark) →
+  **Isolation Axis B** — Attribution-Hallucination benchmark + Strict Attributed Accuracy.
+- **CiteGuard** (2025-10-15, ACL 2026 Main, [2510.17853](https://arxiv.org/abs/2510.17853),
+  ✅ repo-confirmed dual: Code=MIT / Dataset=CC-BY-4.0) → **Isolation Axis B** —
+  citation-validation harness (CiteME), measures verify quality.
+- **AAR / "From Fluent to Verifiable"** (2026-02-14, [2602.13855](https://arxiv.org/abs/2602.13855),
+  ⚠️ paper) → **Isolation Axis** — claim-level auditability standard (provenance coverage /
+  soundness / contradiction transparency / audit effort) as the gold-set scoring rubric.
+- **"What Makes a Medical Checker Trainable?"** (2026-05-25, [2605.25988](https://arxiv.org/abs/2605.25988),
+  ⚠️ paper) → **Stage 3 / Axis B boundary** — signal-collapse + reward-hacking failure modes
+  for reliability-weighting; a §-1.4 behavioral check that the weighting is not silently inert.
+
+**Verification corrections vs the gap list:** CiteGuard's benchmark is **CiteME**, not
+"CiteMesh" (gap-list typo); its dual MIT-code / CC-BY-4.0-dataset license **was confirmed
+by fetching the repo** (the gap list's MIT+CC-BY claim was right; the abstract page just
+doesn't show it). **eTracer's repo (github.com/chubohao/eTracer) returned 404** on fetch —
+the paper advertises code+data but the link is not currently reachable, so it is recorded
+as yardstick-only, not the ✅ the gap list implied. CiteVQA's strongest-system score is
+**SAA 76.0 (Gemini-3.1-Pro)**, confirmed. The "Medical Checker" paper date is **2026-05-25**
+per arXiv (gap list said 05-28). FullCite's real title is "Explicit Evidence Grounding via
+Structured Inline Citation Generation."
+
+**Rejected: none.** All 8 gap candidates verified as real, 2025/2026, and bridge-relevant.
+
+**Sovereignty / frozen-engine posture unchanged:** every addition is an advisory WEIGHT, a
+CONSOLIDATION input, a yardstick, or a measurement standard. None links a closed judge into
+the binary and none touches the faithfulness engine (strict_verify / NLI / 4-role / provenance).

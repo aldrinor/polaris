@@ -190,6 +190,16 @@ frozensets with a data-driven weight.
   BERT models + GPT-3.5/4. **Key sovereignty fact: the fine-tuned encoder beats the generative LLM** —
   SciBERT **F1 0.839** vs GPT-4 **0.645** vs GPT-3.5 0.540 → a small local BERT is both more accurate AND
   cheaper than an LLM judge for this task. **Code + data are public (GitHub) — OSS.**
+- **GRT/IRGT/SWGRT trial-design classifier** — Aghaarabi & Murray, **JMIR Medical Informatics 2025**, vol 13,
+  e63267, published **2025-05-09** (fetched). Primary: https://medinform.jmir.org/2025/1/e63267. Fine-tuned
+  **BioMedBERT** to detect *trial-DESIGN* specificity beyond publication-type — **group-randomized (GRT),
+  individually-randomized group-treatment (IRGT), and stepped-wedge group-randomized (SWGRT)** designs.
+  Sensitivity/specificity: GRT 0.94/0.90, IRGT 0.81/0.97, SWGRT 0.96/0.99, negatives 0.95/0.93. **License:
+  CC-BY-4.0 open-access** (confirm any released model/data repo license before deploy). **Why it matters
+  here:** it is a 2025 *third* clinical-tagger candidate for the isolation bake-off alongside PubMedBERT
+  (publication-type) and StudyTypeTeller (14 study-types) — it captures the cluster-randomization structure
+  the other two do not, which is load-bearing for correctly tiering cluster-trial evidence (a GRT/SWGRT is
+  not the same risk-of-bias profile as an individually-randomized RCT) feeding the T1/T2/T4 ladder.
 - **Why this matters here:** POLARIS's T1-vs-T2-vs-T4 split currently rests on **hand-rolled title
   regexes** (`_PRIMARY_STUDY_TITLE_MARKERS`, `_detect_systematic_review_from_title`,
   `_GUIDELINE_*` markers) — 16 passes of whack-a-mole. PubMedBERT publication-type tagging is the
@@ -205,6 +215,34 @@ frozensets with a data-driven weight.
   hosts, `corroboration.py`) is the seed of this.** The independence-COLLAPSE machinery (origin clusters,
   copy-invariance) is the **consolidation** section's job; here it matters only as the *authority* input
   (PageRank authority of the canonical origin). Cross-ref `docs/consolidation_landscape_2026.md` §3.
+- **RAGRank — the named primary-source candidate for citation-graph authority weighting.** arXiv 2510.20768
+  (Jia, Ramesh, Shamsi, Zhang & Liu), **2025-10-23** (v1; v2 2025-12-15), ACSAC-2025 poster. Primary:
+  https://arxiv.org/abs/2510.20768. Applies **PageRank as a source-credibility algorithm over the corpus
+  citation graph to counter RAG poisoning** — assigns a LOWER authority score to malicious/poisoned
+  documents while promoting trusted content; the poisoning/echo-chamber defense is exactly Signal D's job.
+  **License: CC-BY-SA-4.0** (paper); **no public code repo found** on the arXiv page → method/pattern
+  reference, not a vendorable implementation (the PageRank primitive is re-implementable sovereignly over
+  the OpenAlex citation graph). This is the concrete OSS-pattern candidate the doc previously under-specified
+  as "RAGRank lineage"; verify any released repo's license before vendoring.
+
+### 4.6 Clinical health-source authority framework — the domain-specific authority axis
+- **"Authority Signals in AI Cited Health Sources: A Framework for Evaluating Source Credibility in ChatGPT
+  Responses"** — Jacques, Datuowei, Jones, Basch, Vanderpool, Udeozo & Chapa, arXiv 2601.17109,
+  **2026-01-23**. Primary: https://arxiv.org/abs/2601.17109. **License: CC-BY-4.0**; research materials
+  released on Zenodo (clean to reference).
+- Operationalizes a **four-domain authority framework** for HEALTH-domain sources: **Author Credentials**
+  ("who wrote it"), **Institutional Affiliation** ("who published it"), **Quality Assurance** ("how was it
+  vetted"), **Digital Authority** ("how does AI find it"). Built from a study of **615 sources cited across
+  100 HealthSearchQA questions** entered into ChatGPT 5.2 Pro; **>75% of cited sources were established
+  institutional hosts** (Mayo Clinic, Cleveland Clinic, NHS, PubMed, Wikipedia).
+- **Why it matters here:** it is a 2026 domain-specific instantiation of source-credibility weighting,
+  complementary to AuthorityBench's generic domain/entity authority (§4.1) — it names the clinical authority
+  axes (clinician credentials, institutional vetting) that a generic web-PageRank prior cannot see. Directly
+  relevant to the §5 CLINICAL SLICE and the §2 credibility-ignorance failure mode: it is a *down-weight /
+  weight* recipe, never a gate, and it confirms the doc's DNA that authority is a disclosed per-source signal.
+  Use as a **feature-recipe / gold-label inspiration** for the clinical health-source authority axis; the
+  framework itself is descriptive (no released scorer model), so it is yardstick + axis-definition, not a
+  drop-in classifier.
 
 ---
 
@@ -229,8 +267,12 @@ on banked rows.
    this is the cleanest isolation test because it grades the *weight*, not just the tier bucket.
 5. **CLINICAL SLICE (mandatory):** a labeled clinical-venue/study-type set — PubMed publication-type
    ground truth (RCT / SR-MA / guideline / narrative / case report) from the PubMedBERT 1.2M corpus or
-   the StudyTypeTeller 2,645-abstract corpus → measure whether the tier ladder puts **RCT/cohort at T1,
-   SR/MA/guideline at T2, narrative/case at T4**. This is the §-1.1 clinical-safety control: a mis-tiered
+   the StudyTypeTeller 2,645-abstract corpus, plus the **GRT/IRGT/SWGRT trial-design labels** (JMIR Med
+   Inform 2025, §4.4) for cluster-randomization structure → measure whether the tier ladder puts
+   **RCT/cohort at T1, SR/MA/guideline at T2, narrative/case at T4** (and does not laund a cluster-trial's
+   weaker design into the individually-randomized-RCT bucket). The **clinical health-source authority
+   axes** (author credentials / institutional vetting / quality-assurance, §4.6) are the domain-specific
+   weight to grade alongside the tier bucket. This is the §-1.1 clinical-safety control: a mis-tiered
    contraindication-bearing case report laundered to T1 is the lethal failure this axis exists to catch.
 
 **Acceptance is behavioral (§-1.4), weight-not-filter (§-1.3):** a candidate wins on (a) higher per-tier
@@ -341,6 +383,16 @@ vendor number. Every candidate flows weight-not-filter — fail loud if any drop
   Any LLM-judge addition must be skew-audited and ensembled, never a single oracle.
 - **OpenAlex freemium shift (Feb 2026):** an API key is now required at volume. Verify the run env carries
   a key, else the authority model's OpenAlex signals silently thin (a fail-loud check is warranted).
+- **Emerging code-first venue-credibility trend (forward-looking, not adoptable).** "Review the Code, Not
+  the Story: A Vision and Protocol for Code-First Peer Review" (Chen, arXiv 2606.07683, **2026-06-03**,
+  https://arxiv.org/abs/2606.07683) proposes shifting peer-review credibility from author-controlled
+  manuscripts to **venue-controlled execution of code + minimal claim manifests** (reproducibility layer,
+  code-audit layer, credibility safeguards). It is explicitly a **vision/protocol paper, no released
+  implementation** (license: arXiv non-exclusive) → not a candidate, but it signals that *venue credibility
+  is starting to move from text/metadata authority toward reproducibility/code-audit signals.* It
+  reinforces the doc's "never hardwire a single external rater as ground truth" principle (§6 DO NOT add):
+  a future credibility weight may incorporate a reproducibility signal, but that is over the horizon and
+  out of scope for the current metadata/graph-based authority weight. Watch-only.
 
 ### License flags — verify before adoption
 - **AuthorityBench** (arXiv 2603.25092): code+benchmark "available," arXiv nonexclusive-distrib license —
@@ -354,6 +406,14 @@ vendor number. Every candidate flows weight-not-filter — fail loud if any drop
 - **PubMedBERT publication-type tagger** (medRxiv 2025): base PubMedBERT is MIT; **fine-tuned-weight /
   dataset release license under-specified** — verify before deploy.
 - **StudyTypeTeller** (PMC12657658): generative-LLM method; confirm any released model/data license.
+- **GRT/IRGT/SWGRT trial-design classifier** (JMIR Med Inform 2025, e63267): paper **CC-BY-4.0** open-access
+  (clean to reference); confirm any released BioMedBERT fine-tune weights/data repo license before deploy.
+- **RAGRank** (arXiv 2510.20768): paper **CC-BY-SA-4.0**; **no public code repo found** → PageRank pattern
+  is re-implementable sovereignly over the OpenAlex citation graph; verify any later-released repo license.
+- **Authority Signals in AI Cited Health Sources** (arXiv 2601.17109): **CC-BY-4.0**; materials on Zenodo —
+  descriptive framework (no scorer model), so axis-definition / gold-label inspiration only.
+- **Code-first peer review** (arXiv 2606.07683): arXiv non-exclusive license; **vision paper, no code** —
+  watch-only trend, not adoptable.
 - **Retraction Watch / Crossref** CSV: open (CC-BY) — clean to vendor.
 - **crowd-kit** (Apache-2.0), **scikit-learn** (BSD-3): clean if a learned head needs a reliability/agg
   backbone (cross-ref consolidation §5).
@@ -386,6 +446,10 @@ source during this research (not from training memory).
 | LLM domain-credibility judge | 2025 | arXiv 2502.04426 | Genuine 2025 frontier |
 | PubMedBERT pub-type tagger | 2025-03/04 | medRxiv 2025.03.06.25323516 | Genuine 2025 frontier (clinical slice) |
 | StudyTypeTeller | 2025 | PMC12657658 | Genuine 2025 frontier |
+| GRT/IRGT/SWGRT trial-design classifier | 2025-05-09 | JMIR Med Inform e63267 | Genuine 2025 frontier (clinical slice, §4.4) — CC-BY-4.0 |
+| RAGRank (PageRank anti-poisoning authority) | 2025-10-23 | arXiv 2510.20768 | Genuine 2025 frontier (§4.5) — CC-BY-SA-4.0, no repo |
+| Authority Signals in AI Cited Health Sources | 2026-01-23 | arXiv 2601.17109 | Genuine 2026 frontier (§4.6 clinical authority axis) — CC-BY-4.0 |
+| Code-first peer review (vision) | 2026-06-03 | arXiv 2606.07683 | Genuine 2026 frontier TREND (§8 watch-only, no code) |
 | OpenAlex `is_retracted` blind-spot study | 2024 (rev) | arXiv 2403.13339 | Recent; the data finding still holds 2026 |
 
 **The signal-source providers (NOT crowned as "methods," correctly classified as classic-but-still-SOTA),
@@ -408,6 +472,21 @@ finishing the wire-up and adding the learned head + the clinical study-type tagg
 - **Wikipedia source-reliability / WP:RSP** as a crowd-curated domain-credibility label source — an open,
   non-captured alternative label set worth adding to the §5 gold mix.
 
+**Recency-COMPLETE as of 2026-06-24 (ref I-recency-001 #1296).** A completeness-critic re-scan surfaced four
+2025/2026 candidates missing from the first pass; all four were primary-source-verified (date + URL +
+license) and inserted:
+1. **RAGRank** (arXiv 2510.20768, 2025-10-23, CC-BY-SA-4.0, no repo) → §4.5 as the named citation-graph /
+   PageRank anti-poisoning authority candidate (previously under-specified as "RAGRank lineage").
+2. **GRT/IRGT/SWGRT trial-design classifier** (JMIR Med Inform e63267, 2025-05-09, CC-BY-4.0) → §4.4 + §5
+   as the third clinical-tagger candidate, adding cluster-randomization structure beyond publication-type.
+3. **Authority Signals in AI Cited Health Sources** (arXiv 2601.17109, 2026-01-23, CC-BY-4.0) → new §4.6 +
+   §5 clinical slice as the domain-specific clinical health-source authority axis.
+4. **Code-first peer review** (arXiv 2606.07683, 2026-06-03, vision paper, no code) → §8 as a watch-only
+   venue-credibility trend (reproducibility/code-audit), reinforcing the §6 "no single hardwired rater".
+
+No gap candidate was rejected — all four cleared the frontier-tech mandate (2025/2026, primary-verified,
+genuinely relevant; licenses range CC-BY-4.0/CC-BY-SA-4.0 OSS-referenceable to vision-paper watch-only).
+
 ---
 
 ## 10. Primary sources (2025/2026)
@@ -421,6 +500,17 @@ finishing the wire-up and adding the learned head + the clinical study-type tagg
 - Publication-Type Tagging using Transformer Models — medRxiv 2025.03.06.25323516,
   https://www.medrxiv.org/content/10.1101/2025.03.06.25323516.full.pdf — PubMedBERT 1.2M-article tagger
 - StudyTypeTeller — PMC12657658 (2025) — LLM study-type classifier, 14 study types
+- GRT/IRGT/SWGRT trial-design classifier — Aghaarabi & Murray, JMIR Med Inform 2025 (2025-05-09),
+  https://medinform.jmir.org/2025/1/e63267 — fine-tuned BioMedBERT for cluster-randomization trial designs;
+  CC-BY-4.0
+- RAGRank: PageRank to counter poisoning in CTI RAG pipelines — arXiv 2510.20768 (2025-10-23),
+  https://arxiv.org/abs/2510.20768 — PageRank source-credibility over the citation graph; CC-BY-SA-4.0,
+  no code repo found
+- Authority Signals in AI Cited Health Sources — arXiv 2601.17109 (2026-01-23),
+  https://arxiv.org/abs/2601.17109 — four-domain clinical health-source authority framework; CC-BY-4.0
+- Review the Code, Not the Story (code-first peer review, vision) — arXiv 2606.07683 (2026-06-03),
+  https://arxiv.org/abs/2606.07683 — venue-controlled reproducibility/code-audit credibility trend; vision
+  paper, no code (watch-only)
 - (Non-)retracted papers in OpenAlex — arXiv 2403.13339 — OpenAlex `is_retracted` incompleteness vs
   Retraction Watch
 - Retraction Watch in the Crossref API (production schema Jan 2025) —

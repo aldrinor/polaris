@@ -131,6 +131,7 @@ yardstick-only NC/closed models and the genuine 2026 frontier methods.
 | **FactCG-DeBERTa-L** | NAACL 2025 (Jan 2025) | 0.4B | **MIT** (weights `yaxili96/FactCG-DeBERTa-v3-Large`) | 75.6 (beats GPT-4o) | arXiv 2501.17144; github.com/derenlei/FactCG | **Lead OSS pure-NLI pick.** Graph-multi-hop synthetic training (CG2C); SOTA-class at 0.4B, fully MIT, CPU-servable. Directly fills the deberta-mnli slot the config already declares. |
 | **LettuceDetect** (KRLabs/TU Wien) | Feb 2025 | ModernBERT base/large (~0.15-0.4B) | **MIT** (code + weights + pip) | (token-level; beats all prior encoder models on RAGTruth) | arXiv 2502.17125; github.com/KRLabsOrg/LettuceDetect | **Co-lead OSS pick (token-level).** ModernBERT encoder, 4-8k context, ~30x smaller than the best prompt-based models, **token-level** unsupported-span flagging — maps directly onto POLARIS's span-grounding. MIT, pip-installable, sovereign. |
 | **MiniCheck-Flan-T5-L** | EMNLP 2024 | 0.8B | **Apache-2.0** (lib + weights) | 75.0 | arXiv 2404.10774; github.com/Liyan06/MiniCheck | The model POLARIS already CONFIGURES (`MiniCheckConfig`) but never wired live. Incumbent-floor for Lane A; cheap, proven, Apache. |
+| **HalluGuard** | Oct 1 2025 | 4B | **Apache-2.0** (model + datasets, *upon acceptance*) | **75.7 full**; RAGTruth subset **84.0** (matches MiniCheck-7B / Granite Guardian 3.3) | arXiv 2510.00880 | **Lane A/B bridge — heavier than the sub-1B encoders (4B *reasoning* model, not a CPU-only checker).** Evidence-grounded SRM, ORPO preference-tuned, emits a justification. Edges FactCG's 75.6 on full AggreFact, but weights are Apache *upon acceptance* (not yet released) → FactCG stays the deployable-today Lane-A lead until HalluGuard ships. First Apache-track 4B reasoning model of the 2025/2026 wave. |
 | **HHEM-2.1-Open** (Vectara) | 2024 (updated 2025) | T5-based, <600MB | **Apache-2.0** | (RAG-tuned; not a top AggreFact row but RAG-native) | huggingface.co/vectara/hallucination_evaluation_model | RAG-specific factual-consistency classifier, 0.6s/judgment on RTX 3090, CPU ~1.5s. Strong corroborator candidate; 4M+ downloads. |
 | **ModernCE-large-nli** | 2025 | ModernBERT-large (~0.4B) | **MIT** | (general NLI cross-encoder; bench needed) | huggingface.co/dleemiller/ModernCE-large-nli | Already named in `consolidation_landscape_2026.md` (facet-4). 8192 context, always-on local. Keep consistent across docs: same model, different slot (here = per-claim entailment, there = basket conflict). |
 | **MoritzLaurer/tasksource deberta-v3 zeroshot-v2.0-c** | 2024 | 0.4B | **MIT (c-variant data-clean)** | (zero-shot NLI baseline) | huggingface.co/MoritzLaurer | Sovereign zero-shot stance/NLI fallback; the **c-variant** is the commercially-clean one (non-c is research-only). Baseline contender. |
@@ -161,7 +162,8 @@ yardstick-only NC/closed models and the genuine 2026 frontier methods.
 | **RT4CHART — retromorphic context-faithfulness** | 2026 | arXiv 2603.27752 | Decomposes the answer into independently verifiable claims, **strict context-only evidence** requirement, fine-grained per-claim diagnosis. Mirrors POLARIS's per-sentence isolation. | Method; pattern-inspiration. |
 | **RAGLens / SAE white-box detectors** | Dec 2025 / 2026 | arXiv 2512.08892; 2604.05358 | Sparse-autoencoder feature-based faithfulness flag from the generator's OWN activations — real-time, white-box. Only works if you control the generator weights (sovereign deploy can). | Forward-looking; not a drop-in checker. |
 | **FaithJudge** (Vectara) | 2025/2026 | vectara (HHEM successor) | LLM-as-judge over a pool of human-annotated hallucination examples — improves judge consistency. Pattern for the Lane-B prompt. | Method; consistent-with the GLM-5.2 judge upgrade. |
-| **HalluGuard** | Oct 2 2025 | arXiv 2510.00880 | Small **reasoning** model, evidence-grounded, competes with MiniCheck. | **CC-BY-4.0 (paper)**; verify weight license. Bench as a Lane-A/B hybrid. |
+| **FaithLens** | Dec 23 2025 (ACL 2026 Findings) | arXiv 2512.20182 | 8B faithfulness-hallucination detector that **detects AND explains**; CoT + rule-based RL (rewards accuracy + explanation quality). **Claims to outperform GPT-5.2 and o3 on 12 diverse tasks** (NOT on LLM-AggreFact — no AggreFact row reported, so it does not touch the 77.4 ceiling). | Paper, `nonexclusive-distrib`; **weights unreleased / license unverified** → not a deployable Lane-B candidate today. Track for weight release, then bench vs GLM-5.2 / Granite Guardian. |
+| **DeepFact** (co-evolving bench + agent) | Mar 6 2026 | arXiv 2603.05912 | **DeepFact-Bench** (versioned deep-research-report factuality benchmark, auditable rationales) + **DeepFact-Eval** (document-level verification agent). Introduces **Audit-then-Score (AtS)**: benchmark labels are revisable — a verifier that disagrees submits evidence, an auditor adjudicates, accepted revisions update the benchmark before scoring (expert accuracy 60.8→90.9% over 4 rounds). Mirrors POLARIS's per-claim isolation; the AtS pattern could inform the banked `corpus_snapshot.json` acceptance gate (§-1.4). | **CC-BY-4.0** (bench + agent). Method/benchmark, not a drop-in checker; newest verify-space frontier method (Mar 2026). |
 | **InFi-Check** | Jan 2026 | arXiv 2601.06666 | Interpretable + **fine-grained** fact-checking of LLMs — per-claim diagnosis with explanations, the 2026 successor direction to FENICE/FactCG. | Method; verify weight release. Track as the interpretable-fine-grained 2026 entry. |
 
 ### Clinical gold sets (the isolation-axis clinical slice)
@@ -239,6 +241,7 @@ slice picks the discriminator, then the winner must agree with the frozen mechan
 - FactCG-DeBERTa-L (0.4B, MIT) — **co-lead candidate to bench (pure NLI)**
 - LettuceDetect (ModernBERT, MIT) — **co-lead candidate to bench (token-level span flagging)**
 - MiniCheck-Flan-T5-L (0.8B, Apache-2.0) — incumbent-floor / already-configured
+- HalluGuard (4B reasoning, Apache *upon acceptance*) — Lane-A/B bridge; bench when weights ship (75.7 full / 84.0 RAGTruth)
 - HHEM-2.1-Open (T5, Apache-2.0) — RAG-native corroborator
 - ModernCE-large-nli (ModernBERT, MIT) — long-context, cross-doc consistent with consolidation doc
 - FENICE (NLI+claim-extraction, OSS) — interpretable span-aligned option
@@ -257,7 +260,7 @@ slice picks the discriminator, then the winner must agree with the frozen mechan
 - MedHal (Apache-2.0), MedHallu, MedNLI control, RAGTruth-clinical
 
 **2026 methods to track (not yet drop-in):**
-- GSAR typed grounding, RT4CHART retromorphic, RAGLens/SAE white-box, FaithJudge, HalluGuard, InFi-Check (interpretable fine-grained, Jan 2026)
+- GSAR typed grounding, RT4CHART retromorphic, RAGLens/SAE white-box, FaithJudge, FaithLens (8B, beats GPT-5.2 on 12 tasks — weights unreleased), DeepFact / AtS co-evolving benchmark (CC-BY, Mar 2026), InFi-Check (interpretable fine-grained, Jan 2026)
 
 ---
 
@@ -305,7 +308,9 @@ slice picks the discriminator, then the winner must agree with the frozen mechan
 - HHEM-2.1-Open (Vectara, 2024/2025) — huggingface.co/vectara/hallucination_evaluation_model (Apache-2.0)
 - ModernCE-large-nli (2025) — huggingface.co/dleemiller/ModernCE-large-nli (MIT)
 - FENICE (ACL Findings 2024) — arXiv 2403.02270 ; github.com/Babelscape/FENICE
-- HalluGuard (Oct 2025) — arXiv 2510.00880 (CC-BY-4.0)
+- HalluGuard (Oct 1 2025) — arXiv 2510.00880 (4B evidence-grounded SRM; Apache-2.0 model + datasets *upon acceptance*; 75.7 full LLM-AggreFact / 84.0 RAGTruth subset)
+- FaithLens (Dec 23 2025, ACL 2026 Findings) — arXiv 2512.20182 (8B detect-and-explain; beats GPT-5.2 + o3 on 12 diverse tasks; `nonexclusive-distrib`, weights unreleased — yardstick/track-only)
+- DeepFact: Co-Evolving Benchmarks and Agents for Deep Research Factuality (Mar 6 2026) — arXiv 2603.05912 (DeepFact-Bench + DeepFact-Eval; Audit-then-Score revisable-label methodology; CC-BY-4.0)
 - GSAR typed grounding (Apr 2026) — arXiv 2604.23366
 - RT4CHART retromorphic (2026) — arXiv 2603.27752
 - RAGLens / SAE faithfulness (Dec 2025) — arXiv 2512.08892 ; 2604.05358
@@ -332,8 +337,11 @@ the genuine 2025/2026 entries separately.**
 | **FactCG-DeBERTa-L** | Jan 2025 | **genuine 2025 frontier** | NAACL 2025, beats GPT-4o at 0.4B, MIT. Co-lead Lane-A pick (pure NLI). |
 | **LettuceDetect** | Feb 2025 | **genuine 2025 frontier** | ModernBERT token-level span detector, MIT, ~30x smaller than best prompt models. Co-lead Lane-A pick (token-level). Found via the recency re-check. |
 | **InFi-Check** | Jan 2026 | **genuine 2026 frontier** | Interpretable fine-grained fact-checking. Track as the 2026 interpretable entry. Found via the recency re-check. |
+| **HalluGuard** | Oct 2025 | **genuine 2025 frontier** | 4B evidence-grounded SRM, Apache-2.0 *upon acceptance*; 75.7 full / 84.0 RAGTruth. Elevated to a Lane-A/B-bridge candidate (2026-06-24 re-check); FactCG stays the deployable-today Lane-A lead until HalluGuard weights ship. |
+| **FaithLens** | Dec 2025 | **genuine 2025 frontier (method/yardstick)** | 8B detect-and-explain; claims to beat GPT-5.2 + o3 on 12 diverse tasks. Weights unreleased / license unverified → frontier-track + yardstick, NOT a deployable Lane-B candidate. Does not touch the 77.4 AggreFact ceiling (no AggreFact row reported). Added 2026-06-24 re-check. |
+| **DeepFact** | Mar 2026 | **genuine 2026 frontier (method/benchmark)** | Co-evolving DeepFact-Bench + DeepFact-Eval with Audit-then-Score revisable labels; CC-BY-4.0. The newest verify-space frontier method; pattern, not a drop-in checker. Added 2026-06-24 re-check. |
 | **Granite Guardian 3.3-8B** | Aug 2025 | **genuine 2025 frontier** | #3 on LLM-AggreFact, Apache-2.0, hybrid-thinking. Lead Lane-B pick. |
-| **HalluGuard / MedHal / MedHallu / GSAR / RT4CHART / RAGLens / FaithJudge** | 2025-2026 | **genuine 2025/2026** | The newest entries; GSAR (Apr 2026) and RT4CHART (2026) are the genuine 2026 methods. Clinical sets are 2025. |
+| **MedHal / MedHallu / GSAR / RT4CHART / RAGLens / FaithJudge** | 2025-2026 | **genuine 2025/2026** | The newest entries; GSAR (Apr 2026) and RT4CHART (2026) are the genuine 2026 methods. Clinical sets are 2025. |
 | **ModernCE-large-nli** | 2025 | **genuine 2025** | ModernBERT-based NLI cross-encoder, MIT. Consistent with consolidation doc. |
 | **MiniCheck-Flan-T5-L** | 2024 | **incumbent floor (retained, justified)** | The model POLARIS already CONFIGURES; Apache, proven, still a top-10 AggreFact row in 2026. Retained as the Lane-A floor, NOT crowned as frontier. |
 | **HHEM-2.1-Open** | 2024 (2025 update) | **incumbent floor (retained, justified)** | 4M+ downloads, RAG-native, Apache, sub-second. Still the standard cheap RAG-consistency check in 2026. Corroborator role. |
@@ -350,11 +358,35 @@ fine-grained entry. The re-search also confirmed **no newer model has displaced 
 the 77.4 top of LLM-AggreFact** (HHEM-2.1 sits at 71.8; the leading deployables remain FactCG/Granite/
 LettuceDetect), so the 77.4 ceiling yardstick holds.
 
+**Completeness re-check (2026-06-24, ref I-recency-001 #1296) — now recency-complete.** A
+completeness-critic pass against this doc surfaced three more primary-source-verified 2025/2026 entries,
+all now inserted (each WebFetch-verified at its arXiv abstract):
+- **HalluGuard (Oct 1 2025, arXiv 2510.00880)** — 4B evidence-grounded small *reasoning* model;
+  **75.7 full LLM-AggreFact / 84.0 RAGTruth subset**; Apache-2.0 (model + datasets) *upon acceptance*.
+  Elevated from a §4 frontier-methods mention into the **Lane-A table** as the Lane-A/B bridge (heavier
+  than the sub-1B encoders). It edges FactCG's 75.6 on full AggreFact, but its weights are not yet
+  released, so **FactCG-DeBERTa-L stays the deployable-today Lane-A lead** — no crown is moved.
+- **FaithLens (Dec 23 2025, arXiv 2512.20182, ACL 2026 Findings)** — 8B detect-and-explain faithfulness
+  model claiming to beat GPT-5.2 + o3 **on 12 diverse tasks (NOT on LLM-AggreFact)**. Weights are
+  unreleased and the license is `nonexclusive-distrib`/unverified, so it lands in the **frontier-methods
+  table as a track/yardstick entry, not a deployable Lane-B candidate** — Granite Guardian 3.3-8B stays
+  the Lane-B lead. Because it reports no AggreFact row, it **does not touch the 77.4 ceiling**.
+- **DeepFact (Mar 6 2026, arXiv 2603.05912, CC-BY-4.0)** — co-evolving **DeepFact-Bench + DeepFact-Eval**
+  with the **Audit-then-Score** revisable-label methodology. Added to the **frontier-methods table**; a
+  pattern/benchmark for the per-claim acceptance gate, not a drop-in checker.
+
+No gap candidate was rejected: all three verified as real, post-2024, and relevant; FaithLens is added
+honestly as a non-deployable frontier/yardstick entry (its weights are unreleased — LAW II), not crowned.
+
 **Net:** the recommendations ARE 2025/2026-current at the top of each lane (FactCG Jan-2025 +
 LettuceDetect Feb-2025 co-leading Lane A, Granite Guardian Aug-2025 leading Lane B), the retained 2024
 models are each justified as the genuine incumbent floor for a class that did not churn as fast as
 retrieval, and the only "old old method" present — deberta-v3-large-mnli — is the POLARIS config's own
 dormant declaration, named as the defect the bake-off fixes, not crowned. The genuine 2026 methods
-(GSAR typed grounding, RT4CHART, RAGLens/SAE, InFi-Check) are surfaced as forward-track patterns, with
-GSAR's signal-derived-vs-model-inferred typed grounding the most directly relevant to POLARIS's open
-"untraceable citation = faithfulness defect?" question.
+(GSAR typed grounding, RT4CHART, RAGLens/SAE, InFi-Check, **DeepFact / Audit-then-Score**) are surfaced
+as forward-track patterns, with GSAR's signal-derived-vs-model-inferred typed grounding the most
+directly relevant to POLARIS's open "untraceable citation = faithfulness defect?" question. The
+2026-06-24 completeness re-check (I-recency-001 #1296) added **HalluGuard** (Lane-A/B bridge),
+**FaithLens** (frontier/yardstick — weights unreleased), and **DeepFact** (frontier benchmark) without
+moving a deployable crown; this doc is now **recency-complete** for the 2025/2026 faithfulness-verifier
+frontier.
