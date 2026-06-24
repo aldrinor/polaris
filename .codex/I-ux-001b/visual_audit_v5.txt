@@ -1,0 +1,23 @@
+## Per iter-4 fix — resolved at A+?
+- ladder labels (Very low / Low / Moderate / High) → **RESOLVED-A+**
+- source span climax (declarative header, dropped noise) → **RESOLVED-A on desktop / PARTIAL on mobile**
+- emotional moment / summoned cast → **RESOLVED-A**
+
+## Desktop v5 grade
+**A.** More defensible than v4. The right rail is cleaner and the source span now reads like the evidentiary climax. Still just short of A+ because the visual system remains slightly procedural rather than iconic.
+
+## Mobile v5 grade
+**A-.** Strong, usable, credible. The mobile sheet has good hierarchy, but the “Here is the exact passage…” line weakens the climax compared with desktop. It feels explanatory, not decisive.
+
+## ONE thing that would lock A+ (if not yet there)
+Make the verified evidence span feel like a **sealed clinical proof artifact**.
+
+Concrete spec: turn the quoted span card into the dominant object in the right rail / mobile sheet with a subtle “source excerpt” treatment:
+- 2px verified-green left rule continuing through the source card and quote card as one grouped evidence block.
+- Header exactly: **The exact passage that supports this claim**
+- Remove the mobile italic explainer.
+- Make the quoted numbers `-0.15`, `-0.39`, `-0.45` 600 weight, green, and align them visually with the active claim marker `1`.
+- Add a small bottom-right “matched 6/6 numbers” verification stamp inside the quote card, not as another checklist line.
+
+## Greenlight to implementation? Y/N + one-line rationale
+**Y, with that one treatment included during implementation** — v5 is already credible and polished; the last A+ move is making the source span feel less like a panel section and more like the unforgettable proof object.

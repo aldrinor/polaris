@@ -44,6 +44,14 @@ ENV PORT=3000
 # resolves to IPv6 ::1, but the healthcheck + Caddy reach it on IPv4. Force
 # 0.0.0.0 so 127.0.0.1 (healthcheck) and webui:3000 (Caddy) both connect.
 ENV HOSTNAME=0.0.0.0
+# I-ux-001a Codex iter-2 P1: the server-side GPG verifier
+# (web/lib/gpg_verify_bundle.ts) shells out to gpg + gpgv to verify the
+# audit-bundle signature against a BAKED-IN trust root (the pubkey is public
+# per docs/carney_secret_inventory.md #1). Install gnupg (gpg + gpgv on
+# Alpine) so the verifier path works in production — without it every signed
+# bundle silently degrades to `present_unverified` and the inspector never
+# renders the green "Signed bundle" pill.
+RUN apk add --no-cache gnupg
 # Standalone output: contains a minimal server.js + only the deps needed
 # to run it. Requires output: 'standalone' in next.config.ts (P1-004).
 COPY --from=builder /app/.next/standalone ./

@@ -37,9 +37,25 @@ export interface LoadedBundle {
   metadata: BundleMetadata;
   reasoningTrace: ReasoningTraceRecord[];
   sources: Record<string, string>;
-  /** True iff manifest.yaml.asc exists and is non-empty on disk for this bundle.
-   * Derived during load — NOT a manifest field. Codex diff iter-1 P2. */
-  signaturePresent: boolean;
+  /** Honest tri-valued signature state per I-ux-001a (Codex iter-4 P2 on the
+   * I-ux-001 plan: boolean `signaturePresent` could render "Signed bundle"
+   * from any non-empty `.asc`, including the historical placeholder fixture).
+   *   - "missing"             — no manifest.yaml.asc on disk
+   *   - "present_unverified"  — file present, but it does NOT GPG-verify
+   *                              against the shipped trust-root pubkey
+   *                              (docs/carney_handover/polaris_demo_pubkey.asc),
+   *                              or fingerprint doesn't match the pinned key.
+   *                              Client loader always returns at most this
+   *                              state (no GPG in the browser).
+   *   - "gpg_verified"        — file present AND `gpg --verify` PASS against
+   *                              the trust root in an isolated keyring AND
+   *                              the signing-key fingerprint matches the
+   *                              pinned canonical key. The ONLY state the UI
+   *                              may label "Signed bundle." */
+  signatureState: "missing" | "present_unverified" | "gpg_verified";
+  /** Hex fingerprint of the signing key when signatureState=gpg_verified;
+   * undefined otherwise. Surfaced for the receipt view. */
+  signatureKeyFingerprint?: string;
 }
 
 export interface VerifiedReportShape {
@@ -138,17 +154,14 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
       );
     }
 
-    // Signature presence check (Codex diff iter-1 P2): mirror the conformance
-    // requirement — manifest.yaml.asc MUST exist and be non-empty for a v1.0
-    // bundle. The UI surfaces this boolean transparently; cryptographic
-    // verification belongs to operator-side `gpg --verify` tooling.
-    let signaturePresent = false;
-    try {
-      const stat = await fs.stat(path.join(dir, "manifest.yaml.asc"));
-      signaturePresent = stat.isFile() && stat.size > 0;
-    } catch {
-      signaturePresent = false;
-    }
+    // Signature state (tri-valued per I-ux-001a). The boolean check this
+    // replaces could call a non-empty placeholder `.asc` "signed". This now
+    // requires an actual `gpg --verify` PASS against the shipped trust root
+    // in an isolated keyring (so the host's default keyring cannot satisfy
+    // the check) AND a fingerprint match to the pinned canonical key
+    // (state/polaris_gpg_keyid.txt).
+    const { verifyBundleSignature } = await import("./gpg_verify_bundle");
+    const sig = await verifyBundleSignature(dir);
 
     return {
       runId,
@@ -159,7 +172,8 @@ export async function loadBundle(runId: string): Promise<LoadedBundle | null> {
       metadata,
       reasoningTrace,
       sources,
-      signaturePresent,
+      signatureState: sig.state,
+      signatureKeyFingerprint: sig.fingerprint,
     };
   } catch (err) {
     // Graceful: a missing/unreadable/malformed bundle renders the pending

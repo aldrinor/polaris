@@ -16,7 +16,9 @@
  *   - each declared file is present in the tar
  *   - SHA-256 of each file matches manifest hash (browser crypto.subtle)
  *   - byte size matches manifest size
- *   - signaturePresent: derived from manifest.yaml.asc existence + non-empty
+ *   - signatureState: tri-valued (I-ux-001a) — "missing" if no .asc, else
+ *     "present_unverified" (the client/browser never returns "gpg_verified";
+ *     full crypto verify is the offline CLI path)
  *
  * GPG cryptographic verify is out of scope (requires CLI / pgp.js + key
  * trust UX, both browser-impractical for Carney handover).
@@ -316,8 +318,16 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
     }
   }
 
+  // Tri-valued signature state per I-ux-001a. CLIENT loader can NEVER return
+  // gpg_verified — the browser has no gpg(1) + no trust root. At best the
+  // `.asc` is present in the uploaded tarball; full crypto verification is
+  // the offline CLI path (signed bundle → `gpg --verify` against the
+  // shipped pubkey at docs/carney_handover/polaris_demo_pubkey.asc).
   const signatureFile = _findFile(files, "manifest.yaml.asc");
-  const signaturePresent = !!signatureFile && signatureFile.bytes.length > 0;
+  const signatureState: "missing" | "present_unverified" | "gpg_verified" =
+    signatureFile && signatureFile.bytes.length > 0
+      ? "present_unverified"
+      : "missing";
 
   // runId for offline mode: derive from filename (BundleMetadata doesn't
   // carry run_id; it's a session-level field outside the v1.0 freeze).
@@ -334,6 +344,6 @@ export async function loadBundleFromTarGz(file: File): Promise<LoadedBundle> {
     metadata,
     reasoningTrace,
     sources,
-    signaturePresent,
+    signatureState,
   };
 }

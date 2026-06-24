@@ -1,0 +1,24 @@
+## Per-criterion (iter-3 resolution)
+- 1 [trust root]: RESOLVED — `TRUST_ROOT_BASE64` decodes byte-for-byte to `docs/carney_handover/polaris_demo_pubkey.asc`, and `PINNED_FP` matches `state/polaris_gpg_keyid.txt`. The new test locks both plus the GPG-parsed fingerprint path.
+- 2 [build script stale signature comments]: RESOLVED — `Signature: NONE` and `NO .asc` are gone from `scripts/build_canonical_demo_bundle.py`; signing/default and `--unsigned` behavior are described accurately.
+- 3 [stale `gpg --verify` / `GNUPGHOME` comments]: PARTIAL — still present in non-blocking comments/docs, e.g. `web/lib/gpg_verify_bundle.ts:6`, `web/lib/inspector_bundle_loader.ts:50`, `scripts/check_signed_bundles.py:13`. Workflow-critical CI comments now say `gpgv`.
+- 4 [new issues from iter-3 fix]: RESOLVED — no P0/P1 found. The base64 const format is covered, `tsc --noEmit` passes, and `git diff --check HEAD~4..HEAD` is clean.
+
+## Findings
+
+### P0
+None.
+
+### P1
+None.
+
+### P2
+None.
+
+### P3 / deferred_polish
+- `scripts/check_signed_bundles.py:13` still says “ISOLATED temporary GNUPGHOME” although the implementation now uses `gpgv` with a freshly dearmored keyring. Low-risk stale wording.
+- `web/lib/gpg_verify_bundle.ts:31` says `TRUST_ROOT_ARMORED is BASE64-encoded`; the constant is now `TRUST_ROOT_BASE64`. Low-risk comment typo.
+- I could not run the GPG-backed checks end-to-end in this sandbox: Git-for-Windows `gpg` fails with `couldn't create signal pipe, Win32 error 5`, and `tempfile` writes under `%LOCALAPPDATA%\Temp` are denied. I did verify the base64/pin equality directly and ran web typecheck successfully.
+
+## Verdict
+verdict: APPROVE

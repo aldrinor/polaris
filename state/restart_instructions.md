@@ -2,109 +2,94 @@
 
 ## Boot ritual (mandatory per CLAUDE.md §10)
 
-1. Read `CLAUDE.md` completely (project directives, especially §3.0 + §10).
-2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS).
-3. Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
-4. Read `state/active_issue.json` — currently shows `I-carney-001` umbrella with `next_pr_task_id: I-arch-001a`.
-5. **Read `.codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt`** — the iter-5 force-APPROVE'd architecture plan for Posture C live submission, with residuals captured.
-6. State explicitly to user: active issue ID + current step + next action.
-
-## CURRENT WORKSTREAM (resume point as of 2026-05-12 22:00 UTC)
-
-**I-carney-001 — Carney 1-week production deploy (Posture C live submission)** — GH#462 umbrella.
-
-**Scope**: Boss directive 2026-05-12. User picked Posture C (live submission, ~3-4 week timeline). Demo target: 2026-06-05 to 2026-06-09.
-
-**Codex APPROVE'd architectural decisions** (brief v1 iters 1-4 converged):
-- Sovereignty bar **(c)** — Canadian-hosted public-policy research; foreign API egress permitted (OpenRouter/Serper/Semantic Scholar); transparency endpoint discloses
-- Vendor **AWS ca-central-1 Montréal** — m7i-flex.4xlarge EC2 single-instance docker-compose
-- Auth **static_accounts** — admin/operator/viewer pre-provisioned named accounts
-- Concurrency **1 active research run** + N viewers
-- Terminology: "Canadian-hosted public-policy research" (NOT "sovereign Canadian AI")
-
-**Codex APPROVE'd architecture plan** (brief v2 iter 5 force-APPROVE per §8.3.1):
-- 12 sub-issues opened GH#463-474
-- Force-APPROVE artifact `.codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt` captures residuals
-- Residuals are I-arch-001d scope (verifier-span text, Pydantic Literal values, VerifiedReport required fields)
-
-**24-day calendar**:
-
-| Day | Issue | Title |
-|---|---|---|
-| 1-3 | GH#463 I-arch-001a | run_store schema + pipeline-A manifest augmentation |
-| 4-6 | GH#464 I-arch-001b | v30_contract_synthesizer + 8 template golden fixtures |
-| 4-6 | GH#465 I-arch-001c | scope_domain mapping at actor boundary |
-| 7-8 | GH#466 I-arch-001d | artifact_to_slice_chain bridge + loader extension |
-| 9-10 | GH#467 I-arch-001e | SSE Redis Streams + async + Last-Event-ID |
-| 11 | GH#468 I-arch-001f | e2e test with pinned AuditIR fixture |
-| 12-13 | GH#469 I-carney-005 | Deploy substrate (Dockerfile/entrypoint/compose/Next/GPG) |
-| 14 | GH#470 I-carney-002 | AWS Canada infra |
-| 14-15 | GH#471 I-carney-003 | Sovereignty + transparency endpoint |
-| 16-17 | GH#472 I-carney-004 | Static_accounts auth + GPG keys |
-| 18-22 | GH#473 I-carney-006 | Live-submission rehearsal §-1.1 audit |
-| 23-24 | GH#474 I-carney-007 | Demo runbook + Codex sign-off |
-
-**Next concrete action**: write `.codex/I-arch-001a/brief.md` and run Codex iter 1.
-
-## Deferred (post-Carney-demo)
-
-Phase 0 hardware + sovereign migration chain (#257-271 in TaskCreate; GH#85-91, #199-206) is deferred until after the Carney demo lands. Posture (c) means the Carney demo uses OpenRouter, not sovereign vLLM. The sovereign migration becomes Phase 2 of the project (replace OpenRouter with vLLM on OVH H200 or similar once Carney's office signs off on the audit-grade public-policy research deliverable).
-
-## F-snowball workstream (completed earlier this session 2026-05-12)
-
-6 PRs merged: #447 (canonical-pin), #456 (backend graph endpoint), #458 (ClaimGraph component), #459 (interactions+a11y), #460 (BFS expand), #461 (PNG/JSON export + Playwright). 8 GH issues closed (#448-455). The `/runs/[runId]/graph` route is live.
-
-## Boot ritual (mandatory per CLAUDE.md §10)
-
-1. Read `CLAUDE.md` completely.
-2. Read `polaris-controls/CHARTER.md` + `PLAN.md`.
-3. Verify SHAs against `state/polaris_restart/charter_sha_pin.txt`.
+1. Read `CLAUDE.md` completely (project directives, especially §-1, §3.0, §10).
+2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested at `C:\POLARIS\polaris-controls\`).
+3. Verify BOTH SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
 4. Read `state/active_issue.json`.
-5. Read `.codex/I-carney-001/codex_brief_v2_iter5_force_approve.txt`.
-6. Active issue is `I-arch-001a` (GH#463). Next step: write brief.
+5. Read `docs/stier_experience_directive_2026_05_24.md` — the operator's S-tier directive (Codex decides everything, no checkpoints, frontier-BEATING bar).
+6. Re-load CHARTER `I-ux-001` umbrella issue **#872** for the current S-tier workstream.
+
+## CURRENT WORKSTREAM (resume point as of 2026-05-24)
+
+**I-ux-001 — S-tier experience initiative** (GH#872 umbrella) — execute all pages at frontier-BEATING bar.
+
+### Status as of this handover
+
+| Sub-issue | GH# | State | What landed |
+|---|---|---|---|
+| I-ux-001 plan | umbrella #872 | APPROVED (Codex uncapped iter 5 v4) | `docs/stier_experience_plan.md` |
+| I-ux-001a — Prereq 0: signed-bundle moat | #873 | OPERATOR MERGE QUEUE (codex-required PASS) | `web/lib/gpg_verify_bundle.ts`, tri-state SignatureBadge, gpgv-isolated keyring verifier, CI guard `scripts/check_signed_bundles.py`, Dockerfile gnupg install |
+| I-ux-001a — Real demo signed bundle | #875 | OPERATOR MERGE QUEUE | `scripts/build_canonical_demo_bundle.py` signs by default; ships `polaris_demo_pubkey.asc` + `state/polaris_gpg_keyid.txt` |
+| I-ux-001b — Figma hero prototype | #877 | OPERATOR MERGE QUEUE | 5 Codex visual-audit rounds B → B+ → A → A/A → A/A-+GREENLIGHT; v6 applied A+ unlock spec (unified Sealed evidence block + "matched 6 of 6 numbers" stamp + sentence-case ladder); Figma file `Is7pehpxPdn3ZOOgCsyUjs`; screenshots `web/p2shots/I-ux-001b/hero_stage{2,4}_v{1..6}_*.png` |
+| I-ux-001c — Hero implementation | #878 | **NEXT WORK** | Next.js + Tailwind v4 build of the prototyped hero |
+
+### Operator standing directive (2026-05-24) — REMAINS BINDING
+
+Anchored in `docs/stier_experience_directive_2026_05_24.md` + memory `feedback_codex_decides_all_stier_uncapped_2026_05_24.md` + `.claude/hooks/stier_session_start.py` + `.claude/hooks/stier_stop_hook.py`:
+
+- **Codex decides EVERYTHING.** NEVER ask operator. NEVER use Opus advisor() tool.
+- **NO ITERATION CAP** on the I-ux-001 plan review (per-Issue diff/brief gates keep §8.3.1 5-cap).
+- **DON'T checkpoint / report status / pause / ask "should I continue."** Forbidden self-stops per §8.3.10.
+- **§8.4 resource discipline:** ONE `codex exec` at a time; kill YOUR strays (codex/python/node); NEVER touch operator's other-project processes.
+- **LAW II — Real Data Only, No Silent Fallbacks, Fail Loudly.**
+- **`gh pr merge --admin` REVOKED.** Operator handles morning merge.
+- **Brand red `#c8102e` LOCKED.**
+- **Honest sovereignty wording only** (LLM via OpenRouter-US disclosed at /transparency).
+- **Per-sentence provability + signed two-family bundle = core differentiator** — do not dilute.
+- **Demo reviewer credential is a REAL SECRET** — use without echoing/committing.
+- **When context nears full:** update `state/restart_instructions.md` (this file) → auto-compact → continue.
+
+## NEXT CONCRETE ACTION
+
+**Open `I-ux-001c — Hero implementation` (GH#878)** — Next.js + Tailwind v4 build of the Codex-greenlit proof-replay prototype.
+
+### Step-by-step from cold boot
+
+1. Boot ritual (§3.1 step 0 canonical pin + CHARTER+PLAN SHA).
+2. `git checkout polaris && git pull` (ensure #873/#875/#877 merged by operator overnight; if not, work proceeds on a branch off `bot/I-ux-001b-foundation`).
+3. `git checkout -b bot/I-ux-001c-hero-implementation`.
+4. **GitHub Issue already exists: #878.** Read it.
+5. **Comprehensive grep adjacent files** (§-1.2 step 2):
+   - `web/components/inspector/inspector_proof_header.tsx` (current hero band — needs upgrade)
+   - `web/components/inspector/bundle_header.tsx` (SignatureBadge tri-state — already correct)
+   - `web/components/inspector/family_segregation_badge.tsx`
+   - `web/lib/inspector_bundle_loader.ts` (now returns `signatureState`)
+   - `web/app/inspector/[runId]/page.tsx` (current consumer)
+   - `web/app/runs/[runId]/page.tsx` (target location for Proof Replay tab)
+   - `web/components/proof_replay/*` (any existing proof-replay components from P2-seq-07 #746)
+   - `web/components/citation_chip*` (P2-seq-04 #743), `verdict_chip*` (#744), `evidence_card*` (#745)
+   - `docs/web/proof_replay_storyboard.md` — 6-beat reveal, mobile bottom-sheet, reduced-motion equivalent
+   - `docs/web/components_catalogue.md` — ClaimSentence, ProofPanel, FaithfulnessChip (checklist grammar), CertaintyBadge (ordinal ladder), unified SourceCard+SourceSpanPreview Sealed evidence block, SignaturePill, WhatThisDoesNotProve, IntendedUseBanner
+   - `docs/web/design_tokens_v2.md` — type, two-judgment color (faithfulness green/amber/magenta-red vs brand red; evidence-strength slate-blue ordinal), motion tokens
+6. **Smoke test offline:** verify the existing real signed bundle at `web/public/canonical_bundles/v1_canonical_success/` loads with `signatureState=gpg_verified` (depends on #875).
+7. **Write brief `.codex/I-ux-001c/brief.md`** — start with §8.3.1 cap directive verbatim. Reference v6 screenshots + storyboard + catalogue + tokens. Acceptance: built page matches prototype at the same A+ bar via Codex `codex exec -i live_render.png` visual audit; Time-to-first-proof <400ms; claim-to-claim switch <120ms perceived; six microstates + reduced-motion; WCAG 2.2 AA (axe 0); verified LIVE on polarisresearch.ca.
+8. Codex brief gate → diff → Codex diff gate → live visual audit → operator merge queue.
+
+### Reference artifacts
+
+- **v6 desktop screenshot:** `web/p2shots/I-ux-001b/hero_stage2_v6_desktop.png` (164805 bytes)
+- **v6 mobile screenshot:** `web/p2shots/I-ux-001b/hero_stage4_v6_mobile.png` (46649 bytes)
+- **Codex iter-5 verdict (greenlight):** `.codex/I-ux-001b/visual_audit_v5.txt`
+- **Figma file:** `Is7pehpxPdn3ZOOgCsyUjs` (desktop node 1:2, mobile node 14:2)
+- **Real signed bundle:** `web/public/canonical_bundles/v1_canonical_success/` (signed by `FB221F...01CC`, GPG-verifiable offline via `scripts/check_signed_bundles.py`)
 
 ## Workflow rules (binding)
 
 Per CLAUDE.md §3.0 + plan §7.A LOCKED A2 + §7.B LOCKED B1:
 
-- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` AND `.codex/<issue_id>/codex_diff.patch` AND `outputs/audits/<issue_id>/claude_audit.md`.
-- **Codex:** reviews. Two APPROVE gates per Issue (brief + diff). 5-iter cap per §8.3.1.
+- **Claude:** writes code (briefs + diffs + claude_audit).
+- **Codex:** reviews. Two APPROVE gates per Issue (brief + diff). 5-iter cap per §8.3.1 (NOT the umbrella plan — that's uncapped per I-ux-001 directive).
 - **User:** spec owner + after-the-fact merge gate. Reads `git log` in morning (B1 pure auto-merge). CI required check `polaris/codex-required` enforces.
 
 **Per-Issue 5-artifact triple** (CI rejects PR without these):
 - `.codex/<issue_id>/brief.md`
 - `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
-- `.codex/<issue_id>/codex_diff.patch`
+- `.codex/<issue_id>/codex_diff.patch` (with `# canonical-diff-sha256: <hex>` trailer)
 - `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE)
-- `outputs/audits/<issue_id>/claude_audit.md`
+- `outputs/audits/<issue_id>/claude_audit.md` (`git add -f` past .gitignore `outputs/*` rule)
 
-**Forbidden:**
-- `gh pr merge --admin` (REVOKED per CHARTER §1)
-- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
-- Autonomous task pickup (user assigns; Claude doesn't pick)
-- "While we're at it" polish in same PR
-- STATUS blocks / recap text between work items
+## Deferred workstreams
 
-## Halt conditions (each emits `state/halt_<utc>_<reason>.md`)
-
-- canonical pin SHA mismatch
-- CHARTER.md OR PLAN.md SHA pin mismatch
-- issue jump attempt
-- PR opened with missing artifact triple
-- Codex unavailable >1h
-- 2-cycle repeated root cause
-- 200-LOC PR cap exceeded
-- 3+ PRs queued for user in 24h (reviewer fatigue)
-
-## Critical memory entries
-
-- `polaris_restart_2026_05_05.md` — cage tightened, role split, per-Issue triple
-- `forbidden_admin_merge.md` — `gh pr merge --admin` REVOKED
-- `feedback_codex_iteration_5cap_2026_05_06.md` — 5-iter cap per Codex review; force-APPROVE at iter 5
-- `feedback_dont_pause_keep_executing_2026_05_07.md` — Claude is working hand, not decision-maker
-- `feedback_route_policy_questions_to_codex.md` — brief Codex first; don't enumerate options to user
-- `feedback_codex_approve_is_user_approve.md` — Codex APPROVE = user approve for engineering decisions
-
-## Old auto-loop pattern (REVOKED 2026-05-05)
-
-The previous "triangle loop" + auto-resume + `gh pr merge --admin` pattern is REVOKED. See `failure_28_commits_2026_05_03.md` for why.
+- **#871 / I-bug-900 URGENT** — live clinical run aborts `corpus_inadequate`; tier-classifier mis-tiers FDA/NICE/PubMed; T1=0; demo blocker. Codex said sequence in parallel, not before hero ships.
+- **P3 run-quality bugs** — #702 #703 #675 #676 #537.
+- **Phase 0 hardware + sovereign migration chain** — deferred until after Carney demo lands. Posture (c) means Carney demo uses OpenRouter; sovereign vLLM on OVH H200 becomes Phase 2.
