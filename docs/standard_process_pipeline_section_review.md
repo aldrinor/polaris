@@ -32,20 +32,27 @@ The drb_72 disaster (2026-06-22) showed two failure modes that this process stru
 - Every external runtime is pattern-inspiration only until proven on our own slate (frontier-tech rule).
 - Single-writer per artifact; PID-scoped python-only kills; orphan-process audit between runs (§8.4).
 
-## Instances
-- **I-qgen-001 (GH #1291)** — query generation (first instance). ⚠️ **PROVISIONAL — recency-completion
-  pending (I-recency-001 #1296).** Bake-off (10 methods, drb_72, DRB-II info_recall coverage, on a VM) →
-  IterResearch/Tongyi won (0.386); floor last (0.000). Wired flag-gated (`PG_QGEN_ITERRESEARCH`),
-  Codex-APPROVED, committed under **I-qgen-002 (#1292)**, commit 84bb2d86. **NOT a lock:** field is
-  recency-INCOMPLETE — 2 methods (FS-Researcher/ConvergeWriter) errored + never scored, single task only,
-  floor 0.000 looks like a harness hang. Must clear the recency bar before lock.
-- **I-ret-002 (GH #1294)** — retrieval, per-layer. ⚠️ **PROVISIONAL** pending recency-completion (#1296).
-  dedup → POLARIS ContentDeduplicator held (1.0/1.0; the 2025 SemHash LOST). embedder → Qwen3-Embedding-8B
-  (0.7173) HELD vs jina-v5-text-small (Feb 2026 leaderboard leader, 0.7132). reranker → Qwen3-Reranker-4B
-  (0.7654) HELD vs jina-reranker-v3 (Sep 2025). Gaps (dep-conflict models) running in isolated envs.
+## Instances — LOCKED picks (recency-complete 2026-06-24, I-recency-001 #1296)
+**All 4 retrieval+qgen sections cleared the recency bar; picks LOCKED (wiring + offline smoke test in progress,
+NO e2e spend until the whole pipeline is confirmed — operator directive 2026-06-24).**
+- **I-qgen (GH #1291/#1292) — query-gen → FS-Researcher (LOCKED, balanced).** Full validated-judge bake-off:
+  general drb_72 webweaver 0.596 > **fs_researcher 0.561** > dumate 0.456 > convergewriter 0.316; clinical 3-slug
+  avg convergewriter 0.399 > **fs_researcher 0.351** ≈ warp 0.346 > webweaver 0.263. FS-Researcher 2nd on both,
+  never weak. **OVERTURN:** the prior provisional IterResearch ("0.386", wired `PG_QGEN_ITERRESEARCH` commit
+  84bb2d86) scored 0.000 general / ~0.232 clinical under the validated judge = near-WORST; old win was a harness
+  artifact. **WIRING FIX REQUIRED:** re-point from IterResearch to a new `PG_QGEN_FS_RESEARCHER` production module
+  (mirror `iterresearch_query_gen.py`); do NOT ship the IterResearch wiring.
+- **I-ret-002 (GH #1294) — retrieval, per-layer. LOCKED:**
+  - **dedup → ContentDeduplicator** (1.0/1.0; 2025 SemHash LOST 0.978). Incumbent; already active.
+  - **embedder → Qwen3-Embedding-8B (balanced).** general QZhou 0.7257 > **Qwen3-8B 0.7173** > granite-r2 0.7162 >
+    jina-v5 0.7132 > bge-m3 0.6304 > all-MiniLM 0.6174 > MEDTE 0.5632; clinical MEDTE 0.8263 > **Qwen3-8B 0.7939** >
+    QZhou 0.6883. Qwen3-8B = 2nd on both (no axis collapse). nemotron-8b = documented tooling-incompatible
+    (eager bypass loads + sanity-passes, mteb RetrievalEvaluator degenerate over 7 attempts; non-pick).
+  - **reranker → Qwen3-Reranker-4B.** general MAP 4B 0.7654 ≈ 8B 0.7674 (noise, 2x size); **clinical CMedQA MAP
+    4B 0.8329 = decisive** (jina-v3 0.7601, gte 0.512). Wins BOTH axes. Latest challengers all lost.
 - **I-cons-001 (GH #1295)** — consolidation/baskets. Landscape done (`docs/consolidation_landscape_2026.md`);
   bake-off not yet run.
-- (next) composition · verify-render · …
+- (next deep-research) composition · verify-render · …
 
 ## RECENCY-COMPLETENESS — a HARD gate before any section LOCK (operator-locked 2026-06-24, #1296)
 A section winner is valid ONLY when its candidate field is **recency-complete**: every recency-verified

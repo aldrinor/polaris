@@ -6467,15 +6467,23 @@ async def run_one_query(
                 iterresearch_enabled as _iterresearch_enabled,
                 run_iterresearch_retrieval as _run_iterresearch_retrieval,
             )
-            if _iterresearch_enabled():
-                # I-qgen-002 (#1292): IterResearch (Tongyi) adaptive query-gen — the I-qgen-001
-                # (#1291) bake-off WINNER (DRB-II info_recall coverage 0.386 vs the template-facet
-                # floor's 0.000). Flag PG_QGEN_ITERRESEARCH (default OFF => the legacy branch below
-                # runs, byte-identical). The IterResearch loop derives each query from the evolving
-                # report, and EACH query still flows through the SAME run_live_retrieval (scope gate,
-                # tier classify, fetch, provenance) — only query SELECTION changes; the faithfulness
-                # engine is untouched. The per-round results are merged into one LiveRetrievalResult
-                # so downstream (consolidation -> generation -> verify -> render) is unchanged.
+            from src.polaris_graph.retrieval.fs_researcher_query_gen import (
+                fs_researcher_enabled as _fs_researcher_enabled,
+                run_fs_researcher_retrieval as _run_fs_researcher_retrieval,
+            )
+            if _fs_researcher_enabled() or _iterresearch_enabled():
+                # Adaptive query-gen. I-recency-001 (#1296): FS-Researcher (arXiv 2602.01566) WON the
+                # recency-completion re-bake-off under a positive-control-validated judge (balanced:
+                # general 0.561 / clinical 0.351, 2nd on both) and SUPERSEDES IterResearch — whose
+                # earlier "0.386" win did NOT reproduce (validated judge: 0.000 general / ~0.232
+                # clinical = near-worst). FS-Researcher takes PRECEDENCE here (PG_QGEN_FS_RESEARCHER);
+                # IterResearch (PG_QGEN_ITERRESEARCH) remains as a fallback. Both default OFF => the
+                # legacy branch below runs, byte-identical. The llm worker + per_query_retrieve are
+                # method-agnostic (shared); only the loop DRIVER differs. EACH generated query still
+                # flows through the SAME run_live_retrieval (scope gate, tier classify, fetch,
+                # provenance) — only query SELECTION changes; the faithfulness engine is untouched.
+                # The per-query results are merged into one LiveRetrievalResult so downstream
+                # (consolidation -> generation -> verify -> render) is unchanged.
                 import asyncio as _iter_asyncio
                 import concurrent.futures as _iter_futures
                 import contextvars as _iter_contextvars
@@ -6561,14 +6569,24 @@ async def run_one_query(
                         progress_cb=_hb,
                     )
 
-                retrieval, _iter_queries = _run_iterresearch_retrieval(
-                    q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
-                )
-                _log(
-                    f"[iterresearch] #1292 adaptive query-gen (bake-off winner) issued "
-                    f"{len(_iter_queries)} queries; merged corpus="
-                    f"{len(retrieval.evidence_rows)} evidence rows"
-                )
+                if _fs_researcher_enabled():
+                    retrieval, _iter_queries = _run_fs_researcher_retrieval(
+                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
+                    )
+                    _log(
+                        f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "
+                        f"winner issued {len(_iter_queries)} queries; merged corpus="
+                        f"{len(retrieval.evidence_rows)} evidence rows"
+                    )
+                else:
+                    retrieval, _iter_queries = _run_iterresearch_retrieval(
+                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
+                    )
+                    _log(
+                        f"[iterresearch] #1292 adaptive query-gen (SUPERSEDED by FS-Researcher #1296) "
+                        f"issued {len(_iter_queries)} queries; merged corpus="
+                        f"{len(retrieval.evidence_rows)} evidence rows"
+                    )
             else:
                 retrieval = run_live_retrieval(
                     research_question=q["question"],

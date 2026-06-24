@@ -51,9 +51,18 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-# Model specification - DO NOT CHANGE without updating all consumers
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_DIMENSIONS = 384
+# Model specification - DO NOT CHANGE without updating all consumers.
+# Flag-gated (PG_EMBEDDER_MODEL): default/unset => all-MiniLM-L6-v2 (current, 384-dim, byte-identical).
+# PG_EMBEDDER_MODEL=qwen3 => Qwen3-Embedding-8B, the recency-completion balanced pick (I-recency-001
+# #1296: general 0.7173 / clinical 0.7939 nDCG@10). NOTE: 4096-dim => the vector store collection must
+# be REBUILT fresh at that dim (an e2e-deploy concern; the model loads on GPU only during a run).
+_EMBEDDER_SELECTION = os.getenv("PG_EMBEDDER_MODEL", "").strip().lower()
+if _EMBEDDER_SELECTION in ("qwen3", "qwen3-8b", "qwen3-embedding-8b"):
+    EMBEDDING_MODEL_NAME = "Qwen/Qwen3-Embedding-8B"
+    EMBEDDING_DIMENSIONS = 4096
+else:
+    EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+    EMBEDDING_DIMENSIONS = 384
 
 # Batch processing
 DEFAULT_BATCH_SIZE = 32

@@ -183,12 +183,42 @@ class EmbeddingConfig(BaseModel):
     device: str = "auto"
     max_seq_length: int = 512
 
+    @classmethod
+    def from_env(cls, data: Optional[dict] = None) -> "EmbeddingConfig":
+        """Flag-gated embedder selection (PG_EMBEDDER_MODEL). Default/unset => YAML / all-MiniLM-L6-v2
+        (current behaviour, byte-identical). Set PG_EMBEDDER_MODEL=qwen3 (or qwen3-8b) to select
+        Qwen3-Embedding-8B — the recency-completion balanced pick (I-recency-001 #1296: general 0.7173
+        / clinical 0.7939 nDCG@10, 2nd on both axes). The model serves on GPU and is only LOADED during
+        a run; this overlay is SELECTION only (no model load, no spend)."""
+        import os
+        cfg = dict(data or {})
+        sel = os.getenv("PG_EMBEDDER_MODEL", "").strip().lower()
+        if sel in ("qwen3", "qwen3-8b", "qwen3-embedding-8b"):
+            cfg["provider"] = "sentence_transformers"
+            cfg["model"] = "Qwen/Qwen3-Embedding-8B"
+            cfg["dimension"] = 4096       # Qwen3-Embedding-8B native hidden dim
+            cfg["max_seq_length"] = 8192
+        return cls(**cfg)
+
 
 class CrossEncoderConfig(BaseModel):
-    """Cross-encoder configuration."""
+    """Cross-encoder / reranker configuration."""
     model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     batch_size: int = 16
     device: str = "auto"
+
+    @classmethod
+    def from_env(cls, data: Optional[dict] = None) -> "CrossEncoderConfig":
+        """Flag-gated reranker selection (PG_RERANKER_MODEL). Default/unset => YAML / ms-marco-MiniLM
+        (current). Set PG_RERANKER_MODEL=qwen3 (or qwen3-reranker-4b / 1 / true / on) to select
+        Qwen/Qwen3-Reranker-4B — the recency-completion pick (I-recency-001 #1296: wins BOTH axes,
+        general MAP 0.7654 + clinical CMedQA MAP 0.8329). GPU-served; loads only during a run."""
+        import os
+        cfg = dict(data or {})
+        sel = os.getenv("PG_RERANKER_MODEL", "").strip().lower()
+        if sel in ("qwen3", "qwen3-reranker-4b", "1", "true", "on", "yes"):
+            cfg["model"] = "Qwen/Qwen3-Reranker-4B"
+        return cls(**cfg)
 
 
 class NLIModelConfig(BaseModel):
@@ -365,8 +395,8 @@ def load_models() -> Models:
 
     return Models(
         llm=LLMConfig(**data.get("llm", {})),
-        embedding=EmbeddingConfig(**data.get("embedding", {})),
-        cross_encoder=CrossEncoderConfig(**data.get("cross_encoder", {})),
+        embedding=EmbeddingConfig.from_env(data.get("embedding", {})),
+        cross_encoder=CrossEncoderConfig.from_env(data.get("cross_encoder", {})),
         nli=NLIModelConfig(**data.get("nli", {})),
         minicheck=MiniCheckConfig(**data.get("minicheck", {})),
         chunking=ChunkingConfig(

@@ -19,7 +19,7 @@ import math
 import os
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -2247,6 +2247,99 @@ def _relevance_floor_selection(
     )
 
 
+# ── I-recency-001 (#1296): flag-gated cross-encoder rerank of the SELECTED set ──
+# A SELF-CONTAINED, default-OFF reorder applied ONLY at the FINAL return of the
+# tier-balanced truncating path in `select_evidence_for_generation`. When
+# `PG_RERANKER_MODEL` is set (qwen3 / qwen3-reranker-4b / 1 / true / on / yes), the
+# ALREADY-selected rows are reordered DESC by a CrossEncoder relevance score of
+# (research_question, statement+direct_quote) — the recency-completion reranker pick
+# (Qwen/Qwen3-Reranker-4B via `CrossEncoderConfig.from_env`). The model handle is
+# LAZY-imported INSIDE the ON branch (no module-level `sentence_transformers` import,
+# nothing loads when OFF).
+#
+# CONTRACT — pure IDENTITY no-op when OFF (default): same rows in, same list object
+# semantics out (`selected_rows` returned unchanged) so the tier-balanced selection
+# CONTRACT (counts, dropped_count) is byte-identical. When ON it REORDERS ONLY (same
+# set of rows, never adds/drops one) so the contract still holds — only generator
+# ORDER changes. A load/scoring failure FALLS BACK LOUDLY to the original order
+# (LAW II: no silent capability degrade; a reorder of an already-verified-downstream
+# set is faithfulness-safe — the original order is itself a valid result, and
+# strict_verify / the 4-role evaluator re-check every sentence regardless of order).
+# The GPU model loads ONLY during a real run; in offline tests the lazy import is
+# never reached (OFF) or is mocked (ON-path tests), so this is $0 to exercise.
+_RERANKER_ON_VALUES = frozenset(
+    {"qwen3", "qwen3-reranker-4b", "1", "true", "on", "yes"}
+)
+
+
+def _reranker_selection_enabled() -> bool:
+    """True iff `PG_RERANKER_MODEL` is an ON value. Default/unset => OFF (identity)."""
+    return os.environ.get("PG_RERANKER_MODEL", "").strip().lower() in _RERANKER_ON_VALUES
+
+
+def _maybe_rerank_selection(
+    selected_rows: list[dict[str, Any]],
+    research_question: str,
+) -> list[dict[str, Any]]:
+    """Flag-gated CrossEncoder rerank of the ALREADY-selected evidence rows.
+
+    OFF (default / `PG_RERANKER_MODEL` unset): returns ``selected_rows`` UNCHANGED
+    with NO import of `sentence_transformers` — a pure identity no-op.
+
+    ON: reorders the SAME rows DESC by CrossEncoder relevance to
+    ``research_question`` (scoring each row's ``statement + direct_quote`` — the same
+    text surface the lexical/semantic scorers read). Reorder only: the returned list
+    is a permutation of the input (same rows, none added or dropped). Any
+    load/scoring failure FALLS BACK LOUDLY to the original order.
+    """
+    if not _reranker_selection_enabled():
+        return selected_rows  # identity — no model import, no spend
+    if len(selected_rows) <= 1:
+        return selected_rows  # nothing to reorder
+    try:
+        # LAZY import — nothing loads unless the flag is ON.
+        from sentence_transformers import CrossEncoder
+
+        from src.config.core import CrossEncoderConfig
+
+        model_name = CrossEncoderConfig.from_env().model
+        encoder = CrossEncoder(model_name)
+        pairs = [
+            [
+                research_question or "",
+                " ".join(
+                    str(row.get(k, "") or "")
+                    for k in ("statement", "direct_quote")
+                ),
+            ]
+            for row in selected_rows
+        ]
+        scores = encoder.predict(pairs)
+        # Stable DESC sort by score; ties keep the input (tier-balanced) order.
+        order = sorted(
+            range(len(selected_rows)),
+            key=lambda i: (-float(scores[i]), i),
+        )
+        reranked = [selected_rows[i] for i in order]
+        # Defensive invariant: the rerank is a pure permutation (no add/drop).
+        if len(reranked) != len(selected_rows):
+            _LOGGER.warning(
+                "[select] reranker returned %d rows for a %d-row selection — "
+                "FALLING BACK to the original order (reorder must be a permutation).",
+                len(reranked), len(selected_rows),
+            )
+            return selected_rows
+        return reranked
+    except Exception as exc:  # import / load / scoring failure
+        _LOGGER.warning(
+            "[select] PG_RERANKER_MODEL set but the cross-encoder rerank failed "
+            "(%s) — FELL BACK LOUDLY to the tier-balanced order (no reorder). This "
+            "is not a silent degrade: the original order is a valid result.",
+            str(exc)[:200],
+        )
+        return selected_rows
+
+
 def select_evidence_for_generation(
     *,
     research_question: str,
@@ -2380,7 +2473,7 @@ def select_evidence_for_generation(
     # path -> the tier-balanced max_rows selection below is byte-identical (and
     # adds NO new row key).
     if relevance_floor is not None:
-        return _relevance_floor_selection(
+        _floor_selection = _relevance_floor_selection(
             scored=scored,
             relevance_floor=relevance_floor,
             full_counts=full_counts,
@@ -2389,6 +2482,30 @@ def select_evidence_for_generation(
             semantic_requested=_semantic_scorer_enabled(),
             semantic_fell_back=_semantic_fell_back,
         )
+        # I-recency-001 (#1296) wiring fix: the production live call passes
+        # `relevance_floor`, so it returns HERE — it never reaches the
+        # tier-balanced final-return wrap at the bottom of this function. Apply
+        # the SAME flag-gated CrossEncoder rerank to the floor path so the
+        # reranker ACTUALLY fires on the production path (the gap this fix
+        # closes). §-1.3 KEEP-ALL is preserved: the floor path is
+        # consolidate/keep-all (no max_rows cap), and `_maybe_rerank_selection`
+        # is a PURE PERMUTATION of the SAME rows — it never drops, adds, or
+        # filters a corroborator. OFF (default, `PG_RERANKER_MODEL` unset) the
+        # helper returns the SAME list object untouched, so the `is` check below
+        # returns the floor selection BYTE-IDENTICAL (same rows, order, counts,
+        # dropped_count, strategy, notes) and NO `sentence_transformers` import
+        # happens. ON it reorders only; `dataclasses.replace` swaps in the
+        # reranked rows while preserving EVERY other field (counts/dropped/
+        # strategy/the floor's honest-drop notes), so the keep-all CONTRACT is
+        # untouched. The faithfulness engine (strict_verify / NLI / 4-role) is
+        # downstream and re-checks every sentence regardless of order.
+        _floor_reranked = _maybe_rerank_selection(
+            _floor_selection.selected_rows, research_question
+        )
+        if _floor_reranked is _floor_selection.selected_rows:
+            # OFF / single-row / loud-fallback → same object → byte-identical.
+            return _floor_selection
+        return replace(_floor_selection, selected_rows=_floor_reranked)
 
     # I-perm-003 (#1197): corpus-size-scaled budget (default OFF). Fixed-cap
     # (tier-balanced max_rows) path only — the relevance-floor mode above already
@@ -2918,6 +3035,15 @@ def select_evidence_for_generation(
     )
 
     selected_rows = [item[3] for item in selected]
+    # I-recency-001 (#1296): flag-gated CrossEncoder rerank applied ONLY here, at the
+    # FINAL return of the tier-balanced truncating path. Pure IDENTITY no-op when
+    # `PG_RERANKER_MODEL` is unset (default) — no `sentence_transformers` import, no
+    # model load, no spend. When ON it REORDERS the SAME rows (a permutation: nothing
+    # added or dropped), so `selected_counts`/`full_counts`/`dropped_count` below stay
+    # byte-identical (they derive from `selected`/`evidence_rows`, not from the row
+    # ORDER). The faithfulness engine downstream re-checks every sentence regardless
+    # of order, so a reorder cannot relax faithfulness.
+    selected_rows = _maybe_rerank_selection(selected_rows, research_question)
     selected_counts: dict[str, int] = {}
     for _, _, tier, _ in selected:
         selected_counts[tier] = selected_counts.get(tier, 0) + 1
