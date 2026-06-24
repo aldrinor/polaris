@@ -1,0 +1,733 @@
+{
+  "summary": "Draft the per-layer retrieval isolation bake-off spec (candidates + metric + GATE-0 canary) for I-ret-002, §-1.1-compliance critiqued",
+  "agentCount": 9,
+  "logs": [],
+  "result": {
+    "specs": [
+      {
+        "layer": "search_discovery",
+        "holding_condition": "IterResearch (Tongyi) queries are HELD FIXED — the I-qgen-001 winner wired as PG_QGEN_ITERRESEARCH (commit 84bb2d86) — and the SAME IterResearch query set feeds every candidate via the deterministic per-query snapshot cache (outputs/qgen_coverage/retrieval_cache pattern, keyed by sha256(query)). Everything downstream of search stays at current POLARIS default: fetch (crawl4ai + Zyte), extract (Trafilatura + clean_fetch_body line strip), near-dup dedup, the lexical rerank, tier/authority weight, finding_dedup/fact_dedup consolidation/baskets, AND the faithfulness engine (strict_verify / NLI / 4-role / provenance). ONLY the search backend varies: the `_serper_search` call in live_retriever.py (SERPER_ENDPOINT) is abstracted behind a `SearchProvider.search(query) -> ranked[url, title, snippet]` adapter (src/search/serper_client.py is the existing seam); each candidate is one adapter. CRITICAL ISOLATION POINT: the score is taken on the RANKED URL RESULT LIST that search returns, BEFORE fetch/extract — so this measures discovery+ranking, not the fetch lane (a separate section's bake-off). Corpus-access APIs (OpenAlex / PubMed / arXiv) are held FIXED as the academic access lane, NOT bake-off candidates, because they are unranked access paths; the one exception is Semantic Scholar's relevance-ranked /search endpoint, which IS a ranked search and so enters as a candidate (justified ranking comparison vs Serper web rank). Budget identical per candidate: same query rounds, same per-query result k (POLARIS default), same wall/token caps.",
+        "candidates": [
+          {
+            "name": "Serper (Google SERP) — current POLARIS search backend",
+            "impl_id": "https://google.serper.dev/search (SERPER_API_KEY); src/search/serper_client.py SerperClient; live_retriever.py _serper_search",
+            "license": "Proprietary SaaS (operator-keyed); query API, not a model",
+            "runnable": "yes",
+            "role": "baseline",
+            "impl_notes": "THE FLOOR every candidate must beat. Already the live-path provider. Adapter just returns the existing ranked items (url/title/snippet) without fetch. Hold num=PG default; paginate to PG_SERPER_TOTAL_PER_QUERY exactly as production. No GPU.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "Exa (neural/long-tail search)",
+            "impl_id": "pip: exa-py ; POST https://api.exa.ai/search (EXA_API_KEY held); endpoint type='neural'/'auto'",
+            "license": "Proprietary SaaS (operator-keyed)",
+            "runnable": "yes",
+            "role": "candidate",
+            "impl_notes": "Neural embedding-ranked search — the long-tail recall lever the landscape doc names as a parallel-to-Serper add. Adapter calls /search with the FIXED IterResearch query, returns results[].url ranked, NO contents fetch (use_autoprompt=False to keep the held-fixed query verbatim — do NOT let Exa rewrite the query, that would break the holding condition). No GPU.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "Semantic Scholar relevance-ranked search",
+            "impl_id": "GET https://api.semanticscholar.org/graph/v1/paper/search (S2_API_KEY held); pip: semanticscholar",
+            "license": "Proprietary SaaS / free academic API (operator-keyed)",
+            "runnable": "yes",
+            "role": "candidate",
+            "impl_notes": "Justified ranking candidate (NOT a raw access path): /paper/search returns relevance-RANKED papers, distinct from unranked OpenAlex/PubMed access. Adapter returns ranked externalIds.DOI->URL + openAccessPdf.url. Academic-only recall; expected strong on the DRB-II named-study findings, weak on gov/news findings — that contrast is the signal. No GPU.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "Firecrawl search",
+            "impl_id": "pip: firecrawl-py ; POST https://api.firecrawl.dev/v2/search (FIRECRAWL_API_KEY held)",
+            "license": "Proprietary SaaS (operator-keyed); code MIT, hosted search is SaaS",
+            "runnable": "yes",
+            "role": "candidate",
+            "impl_notes": "Agent-search API returning ranked web results. Adapter calls /v2/search with scrapeOptions DISABLED (search-only, no fetch) so we score the URL ranking before the held-fixed POLARIS fetch lane. No GPU.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "SearXNG (sovereign metasearch, self-host)",
+            "impl_id": "Docker: searxng/searxng (docker pull searxng/searxng); local JSON API GET http://127.0.0.1:8080/search?format=json",
+            "license": "AGPL-3.0 (self-hosted aggregator; sovereign, no key)",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "impl_notes": "The ONLY sovereign search option (landscape §6). Self-host on the VM as a container; aggregates Google/Bing/arXiv/PubMed/S2 engines. runnable=needs_gpu marks 'must stand up the VM service' (it is CPU-only, no GPU model — flag is honest 'needs the VM container up', not a model GPU need). Adapter hits the local JSON API with the FIXED query; configure a stable engine set + pin the container image sha so the snapshot is reproducible. ~0.5GB RAM, 0 GPU.",
+            "gpu_gb_estimate": "0 GPU (CPU container, ~0.5GB RAM)"
+          },
+          {
+            "name": "Tavily",
+            "impl_id": "pip: tavily-python (TAVILY_API_KEY — NOT held)",
+            "license": "Proprietary SaaS",
+            "runnable": "no_key",
+            "role": "candidate",
+            "impl_notes": "De-facto 2025/26 agent-search API (LLM-ready excerpts). NOT tested — no key. Noted honestly, not faked. Add to the bake-off only if a key is provisioned.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "Parallel.ai search",
+            "impl_id": "Parallel.ai search API (PARALLEL_API_KEY — NOT held)",
+            "license": "Proprietary SaaS",
+            "runnable": "no_key",
+            "role": "candidate",
+            "impl_notes": "Agent-search API returning ranked LLM-ready results. NOT tested — no key. Noted, not faked.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          },
+          {
+            "name": "Brave Search",
+            "impl_id": "GET https://api.search.brave.com/res/v1/web/search (BRAVE_API_KEY — NOT held)",
+            "license": "Proprietary SaaS",
+            "runnable": "no_key",
+            "role": "yardstick_non_sovereign",
+            "impl_notes": "The one large INDEPENDENT Western index after Bing Search retired 2025-08-11 (landscape §10) — strong recall yardstick. NOT tested — no key. Noted honestly. Non-sovereign, so a yardstick not an adoption candidate.",
+            "gpu_gb_estimate": "0 (HTTP API)"
+          }
+        ],
+        "metric": {
+          "name": "Gold-source recall@k (per required-finding, on the ranked URL list pre-fetch)",
+          "definition": "For each DRB-II info_recall required finding f (idx 56/62/66/72), the gold fixture names f's canonical source URL/DOI (gold_url(f)). For a candidate search backend, run the FIXED IterResearch query set, collect the union of ranked URL results within rank-k (k = the held-identical POLARIS per-query result budget). Score(f) = 1 iff normalized(gold_url(f)) appears in that ranked result set, else 0; recall = mean over all f. URL normalization (reuse harness _normalize_url + DOI-canonicalization) so a publisher mirror / ?utm / trailing-slash variant of the gold source still matches. The DRB-II blocked source is excluded before scoring (reuse make_blocked_filter) so no candidate scores via the forbidden source. Paired per-finding-per-task; bootstrap CI + Holm/FDR vs the Serper baseline + a locked minimum-effect threshold; finalists rerun >=3x on the frozen per-query snapshot. The result list is the REAL output of each search backend.",
+          "ground_truth_source": "DRB-II tasks_and_rubrics.jsonl info_recall rubrics (third_party/DeepResearch-Bench-II) — the SAME ground truth the query-gen bake-off used — resolved to per-finding canonical source URLs in a NEW labeled fixture (drb_gold_sources.jsonl). The info_recall items are prose findings that NAME specific studies by title (verified: idx56 has 57 findings naming ~14 distinct studies, ZERO embedded URLs), so the title->URL/DOI resolution is the fixture to build.",
+          "section_1_1_compliant_why": "It is NOT a banned count/pattern/metadata proxy: it never rewards 'how many sources' or 'does term X appear' — a backend returning 500 junk URLs and 0 gold sources scores 0.0, a backend returning 5 URLs that include every gold source scores 1.0. It is per-finding recall against a per-finding LABELED gold source (the DRB-II info_recall ground truth), scored at the discovery seam (URL surfaced) instead of the corpus-text seam, with EVERY required finding scored (no sampling) and full rubric text retained for the audit. It is not a metadata comparison between candidates; each is scored independently against the fixed gold.",
+          "faithfulness_safe_why": "This layer changes ONLY which backend lists URLs before fetch; strict_verify/NLI/4-role/provenance are downstream and never invoked in this isolation test, so they cannot be touched or relaxed. No candidate can lift recall by weakening a faithfulness gate (the gates don't run here), and search rank enters POLARIS as a WEIGHT into consolidation — never a hard drop (§-1.3); the only hard drop is the unchanged obvious-junk structural floor. The winning backend is later re-validated e2e where the faithfulness gates do run, before adoption."
+        },
+        "gate0_canary": "Four fail-loud checks; the harness is GREEN (and no candidate score is trusted) only when ALL pass. (1) POSITIVE — feed a synthetic ranked URL list KNOWN to contain every gold source URL for the idx; recall MUST equal 1.000 exactly. (2) NEGATIVE — feed a junk-only ranked list with NO gold URL; recall MUST equal 0.000 exactly (proves the scorer grants zero fake credit — the drb_72 'fake numbers that look real' guard). (3) URL-NORMALIZATION canary — present the gold DOI as a publisher mirror / trailing-slash / ?utm= variant; it MUST still match recall=1.0 (proves the normalizer is not silently MISSING real hits, the inverse disaster that would understate every candidate). (4) LINEAGE canary — reuse gate0_lineage: assert launched==packed==answered==canonical idx so recall is scored against the RIGHT task's findings and the RIGHT gold fixture row; a wrong-idx or wrong-fixture binding fails loud (the drb_72 wrong-question structural guard).",
+        "ground_truth_to_build": "BUILD FIRST — drb_gold_sources.jsonl (the one prerequisite; it does not exist). For each registered DRB-II idx (56/62/66/72) map each info_recall finding -> its canonical gold source URL/DOI. Size: ~14 distinct named studies per task -> ~50-60 gold sources total. Resolve each quoted study title via Crossref + OpenAlex title lookup, VERIFY the DOI resolves and the returned title matches the rubric title (fail loud on ambiguity, never guess), exclude the DRB-II blocked source. Freeze + sha-pin the fixture in the lineage manifest so the gold cannot drift. The rest is reuse: the per-query deterministic snapshot cache, gate0_lineage canonical binding, make_blocked_filter, and _normalize_url already exist in scripts/dr_benchmark/.",
+        "notes": "Reuses the I-qgen-001 coverage harness machinery but INVERTS the variable: query-gen held retrieve() fixed and varied queries; search_discovery holds IterResearch queries fixed and varies the search backend at the _serper_search seam. The score is taken on the RANKED URL LIST PRE-FETCH (not corpus text) precisely to isolate discovery/ranking from the held-fixed fetch+extract lane — this is the cleaner isolation point and matches the task's stated metric direction (recall of required-finding SOURCE URLs). The task's metric direction is honored, but its phrasing ('recall of the DRB-II required-finding SOURCE URLs') assumes the gold file already lists URLs; it does NOT (info_recall items are prose findings naming studies by title, verified zero URLs), which is exactly why drb_gold_sources.jsonl must be built and is flagged needs_fixture. Sovereignty read: SearXNG is the only sovereign candidate; Serper/Exa/S2/Firecrawl/Tavily/Parallel/Brave are non-sovereign — a strong non-sovereign winner is a yardstick that informs which engines to configure inside SearXNG, not necessarily the adopted backend. Run candidates in parallel (cost not the constraint); single-writer per snapshot; orphan-process audit between runs (§8.4)."
+      },
+      {
+        "layer": "fetch_crawl (fetch + unblock engine; the stage that turns a discovered URL into a retrieved page body, before extraction/strip/weight)",
+        "holding_condition": "FIXED for every candidate: (1) IterResearch/Tongyi query set (the I-qgen-001 winner, flag PG_QGEN_ITERRESEARCH ON) — identical queries; (2) Serper search at POLARIS default — so the SAME ranked URL set (the search-winner output, frozen to a banked url_list.json per topic) is the input to every fetch engine; (3) extraction held CONSTANT at Trafilatura 2.0.0 (safe_trafilatura_extract, the content-of-record) applied identically to whatever HTML/markdown each engine returns, so the bake-off measures FETCH (did the real body come back vs a 403/login-wall/stub), not extractor differences; (4) clean_fetch_body line-level strip, ContentDeduplicator, tier/authority weighting, consolidation, and the faithfulness engine all at current POLARIS default and BYPASSED for scoring (we score the raw recovered body against the reference, upstream of weight). ONLY the fetch/unblock engine varies. Each engine is driven in SINGLE-ENGINE mode (no fallback cascade) so a candidate's score is its own, not the integrated cascade's.",
+        "candidates": [
+          {
+            "name": "crawl4ai (sovereign default)",
+            "impl_id": "pip install crawl4ai==0.9.0 ; then crawl4ai-setup (installs Playwright chromium)",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 GB GPU (CPU + headless chromium, ~1-2 GB RAM per browser; cap PG_CRAWL4AI_CONCURRENCY=2 per §8.4). 'needs_gpu' only in the sense it runs on the GPU VM for parity, no model loaded.",
+            "impl_notes": "from crawl4ai import AsyncWebCrawler; async with AsyncWebCrawler() as c: res = await c.arun(url); feed res.html into safe_trafilatura_extract for the held-constant extraction. This IS the current POLARIS sovereign fetch engine (access_bypass.py crawl4ai path) — it is the FLOOR every candidate must beat. Bound concurrency to 2 browsers; reuse reset_crawl4ai_semaphore_state between topics."
+          },
+          {
+            "name": "Zyte API (paywall/anti-bot unblock; operator-keyed)",
+            "impl_id": "pip install zyte-api==0.10.0 ; key from ZYTE_API_KEY in /home/ubuntu/polaris_run/.env on the VM",
+            "license": "proprietary SaaS (operator has a paid key; per landscape §5 the one place no OSS equal exists)",
+            "runnable": "no_key",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 GB (remote API; no local model)",
+            "impl_notes": "from zyte_api import AsyncZyteAPI; request {'url': url, 'browserHtml': true} (render) — for paywalled journals also try {'httpResponseBody': true}. Feed browserHtml into the SAME safe_trafilatura_extract. MUST copy ZYTE_API_KEY + PG_ZYTE* from polaris_run/.env into the bake-off env or it silently no-ops (per fact_zyte_key_location memory). Marked no_key because the key lives only on the VM, not this workstation. This is the lever expected to win on the paywalled/anti-bot URL stratum."
+          },
+          {
+            "name": "Firecrawl fetch (have key)",
+            "impl_id": "pip install firecrawl-py==4.30.2 ; key from FIRECRAWL_API_KEY",
+            "license": "proprietary SaaS (open-source self-host core is AGPL-3.0; the hosted API used here is proprietary)",
+            "runnable": "no_key",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 GB (remote API)",
+            "impl_notes": "from firecrawl import Firecrawl; app.scrape(url, formats=['html']) then feed the returned html into safe_trafilatura_extract (do NOT use Firecrawl's own markdown/LLM-extract output as content-of-record — landscape §5 DO-NOT-add: LLM-semantic extraction is a fabrication/omission hazard for a provenance-gated pipeline; we want its FETCH only). Note the access_bypass firecrawl circuit-breaker already exists. no_key: needs FIRECRAWL_API_KEY in the bake-off env."
+          },
+          {
+            "name": "Playwright (raw, no anti-bot service)",
+            "impl_id": "pip install playwright==1.60.0 ; python -m playwright install chromium",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 GB GPU (~1-2 GB RAM per chromium context; run headless, cap concurrency)",
+            "impl_notes": "from playwright.async_api import async_playwright; page.goto(url, wait_until='networkidle'); html = await page.content(); feed into safe_trafilatura_extract. The RAW-render floor: JS rendering with no paywall/anti-bot unblock and no boilerplate handling — isolates 'how much does the Zyte/Firecrawl UNBLOCK layer add over plain headless render'. Lower bound for the WALLED stratum."
+          }
+        ],
+        "metric": {
+          "name": "Per-URL body-recovery verdict + main-content reference-recall (judged on a FIXED URL set against a labeled reference body)",
+          "definition": "On the FROZEN url_list.json (identical for every engine), two judged quantities per URL, both against the labeled fixture — never against a count or a length floor: (A) RECOVERY VERDICT in {RECOVERED, WALLED (403/login/paywall-stub), SOFT_STUB (200 but boilerplate/error-shell/empty-after-clean), FETCH_ERROR}, assigned by comparing the engine's returned body to the fixture's labeled outcome class + the human-labeled reference main-content; the fixture's gold class is the ground truth, the engine's body is matched to it. (B) COMPLETENESS = main-content reference-recall = fraction of the labeled reference main-content (sentence/long-span level) that is present, verbatim, in the engine's returned body (WebMainBench-style longest-common-span / ROUGE-recall over the GOLD body span, in [0,1]); this is recall of the KNOWN-correct article body, not a char count and not a threshold. Layer score per engine = mean COMPLETENESS over the fixed set (a URL the engine WALLED or STUBbed scores its true low recall, so failures are penalised by the same continuous reference-recall, no separate count). Stratified report: recovery-verdict distribution + mean completeness within each URL stratum (OA-journal / paywalled-journal / gov-org / news / social-SEO) so a Zyte win on the paywalled stratum is visible and not washed out. WINNER = highest mean reference-recall with NO recall regression (no real article body the floor recovered that the candidate loses) on the OA/gov strata — a candidate that gains paywalled bodies but drops OA bodies is rejected (recall-preservation gate).",
+          "ground_truth_source": "A net-new labeled fixture (fetch_crawl_refbody_fixture) — see ground_truth_to_build. URLs are drawn from the banked corpus snapshots (outputs/corpus_backups/extracted/drb_72|drb_76|drb_90/corpus_snapshot.json: each has retrieval.classified_sources = 849/… real URLs with tier_reasons like 'Fetched body is 377 chars (<1000) -> T7 stub'), but the corpus snapshots store URLs + tier-reasons ONLY, NOT reference bodies — so the human-labeled reference main-content per URL is the net-new ground truth. Reference labeling method = WebMainBench/MainWebBench protocol (human-marked main-content span per page), the independent extraction yardstick named in retrieval_landscape_2026.md §10.",
+          "section_1_1_compliant_why": "It is NOT a banned count/pattern/metadata proxy: (1) the denominator is a FIXED, identical URL set, so the score can never be gamed by 'fetch more URLs' — every engine is judged on the exact same pages, so this is per-URL judged QUALITY against ground truth, not 'how many sources'; (2) COMPLETENESS is reference-RECALL of a human-labeled correct body span, the §-1.1-sanctioned 'real corpus quality against ground truth (junk-reduction / recall-preservation)' construction — it is NOT a length threshold (a 1200-char floor would be the banned string/threshold proxy), NOT pattern-presence ('does the page mention X'), NOT a metadata comparison ('engine A has N more sources'); (3) it is FULL-set, not sample-based — every URL in the fixture is judged, no 'we audited 5 of 50'; (4) the recovery verdict is a per-URL adjudication against gold (RECOVERED/WALLED/STUB/ERROR with the labeled reference), the §-1.1 per-item verdict shape, not a string-presence PASS/FAIL gate-table.",
+          "faithfulness_safe_why": "Fetch is byte-deterministic: every candidate returns RAW page bytes, then the SAME held-constant Trafilatura extractor runs — no LLM rewrite of any span at any candidate, so a verbatim span the strict_verify/NLI/provenance gate later checks is never altered by this layer. Firecrawl's and Zyte's own LLM/auto-extract outputs are explicitly DISCARDED (we consume their fetch HTML only) precisely to avoid the fabrication/omission hazard the landscape §5 'DO NOT add LLM-semantic extractors as content-of-record' flags. The faithfulness engine (strict_verify / span-grounding / NLI / 4-role / provenance) is BYPASSED for scoring and entirely UNTOUCHED — this layer only changes WHICH true bytes arrive, never how they are verified; recovering MORE real body can only help the downstream gate, never relax it."
+        },
+        "gate0_canary": "Two-extreme pre-banked separation canary that proves the harness scores a KNOWN input correctly BEFORE any engine is trusted (the drb_72 'fake numbers that look real' guard). Feed the scorer two banked bodies whose correct scores are already known, bypassing all four fetch engines: (1) KNOWN-GOOD = the real AEA jep.33.2.3 automation/labor article body (the REAL fixture already in outputs/audits/drb_72_2026_06_12/runA_final/evidence_pool.json and the idx49 harness), with gold verdict=RECOVERED and gold reference=its own body → MUST score completeness ~1.0; AND a lightly-truncated copy of that same body (first 60% only) → MUST score completeness ~0.6, proving the recall metric is continuous and not a 0/1 threshold. (2) KNOWN-JUNK = the banked scirp.org reference-listing shell body from the same pool (clean_fetch_body returns shell_reason='empty_after_clean'; is_boilerplate_or_nonassertional flags it), with gold verdict=SOFT_STUB → MUST score completeness ~0.0 and verdict=SOFT_STUB. The harness PASSES (and only then are candidates run) iff it scores good≈1.0, truncated≈0.6, junk≈0.0 AND the per-URL recovery verdicts match gold. FAIL-LOUD non-zero exit if the scorer cannot separate these three pre-known extremes — a harness that can't tell the AEA article from the scirp shell, or can't see the 60% truncation, is the wrong-question/Title-only-stub/split-brain bug and no candidate score is believed. Reuse the existing deterministic detectors (clean_fetch_body.shell_reason, is_boilerplate_or_nonassertional in access_bypass.py:1437) as the independent cross-check that the junk gold label is itself correct.",
+        "ground_truth_to_build": "BUILD IT — fetch_crawl_refbody_fixture (net-new; the corpus snapshots have URLs but NOT reference bodies). Size: ~60-100 URLs, sampled stratified across 5 strata (OA-journal, paywalled-journal, gov/.org, news, social/SEO-spam) by drawing real URLs from the banked retrieval.classified_sources lists in outputs/corpus_backups/extracted/drb_72_ai_labor + drb_76_gut_microbiota_crc + drb_90_adas_liability/corpus_snapshot.json (849 + … real URLs already classified, incl. confirmed stubs like the sciencedirect '377-char T7 stub' and the scirp shell). Per URL, label: (a) the human-verified main-content reference span (WebMainBench/MainWebBench marking protocol — the independent yardstick from landscape §10), and (b) the gold recovery verdict {RECOVERED/WALLED/SOFT_STUB/FETCH_ERROR} fixed at fixture-build time from a one-time render. Seed the labeling with the AEA-real + scirp-shell bodies already banked in the drb_72 evidence_pool.json / idx49 harness (those become the GATE-0 canary rows, already verified). Honest note: because live pages drift (a paywall/wall state can change), re-snapshot raw HTML per URL into the fixture at build time and score engines against that frozen snapshot for the wall/stub strata, while the RECOVERY verdict is re-judged live to measure each engine's real unblock power — both numbers reported. Store under tests/fixtures/fetch_crawl_refbody/ (real-data fixture, allowed there per LAW VI).",
+        "notes": "Isolation honored: no report generation, no render, no DeepTRACE judge — pure fetch→(held Trafilatura)→score-vs-reference. Candidate runnability is honest: crawl4ai + Playwright are Apache-2.0 and run on the GPU VM with chromium (no model, ~1-2 GB RAM/browser, concurrency-capped per §8.4); Zyte + Firecrawl are no_key from THIS workstation (keys live in /home/ubuntu/polaris_run/.env on the VM) and are remote APIs (0 GB local). crawl4ai is the BASELINE FLOOR (current POLARIS sovereign engine) and Playwright-raw is the second floor (render-without-unblock), so the bake-off always includes the current behaviour, not just new candidates (per the standard-process 'verified baselines AND the current POLARIS behaviour as the floor' rule). Weight-not-filter (§-1.3) is respected: this layer applies NO quality drop — the only hard drop in the whole stack is the obvious-junk structural floor (clean_fetch_body shell + junk_detection), which is held at default and not part of the bake-off; a SOFT_STUB scores low reference-recall (a measurement) but is never hard-dropped by the metric. Sovereignty caveat surfaced honestly: Zyte/Firecrawl are non-sovereign — if Zyte wins only the paywalled stratum, the decision is 'keep crawl4ai sovereign default + Zyte as the keyed unblock fallback for paywalled URLs' (the current architecture), not 'replace the sovereign engine'. The standalone number SELECTS; the integrated combined run (all section winners ON) DECIDES, per the standard process §44-49. GitHub anchor: I-ret-002 #1294, retrieval section of docs/standard_process_pipeline_section_review.md. Relevant code: src/tools/access_bypass.py (fetch_with_bypass:2134 cascade — driven SINGLE-ENGINE here; clean_fetch_body:1661; is_boilerplate_or_nonassertional:1437; safe_trafilatura_extract:943); existing behavioral harness pattern to mirror: scripts/iarch_beatboth011_idx49_fetchshell_evidence_harness.py."
+      },
+      {
+        "layer": "content_extraction",
+        "holding_condition": "ISOLATION on the extraction layer only. HELD FIXED: (1) IterResearch/Tongyi queries (PG_QGEN_ITERRESEARCH, the I-qgen-001 winner) and the entire rest of the retrieval stack — Serper discovery, crawl4ai+Zyte fetch/unblock — at current POLARIS default, so every candidate receives BYTE-IDENTICAL fetched HTML for each page (the same banked raw-HTML snapshot is the shared input). (2) The line-level strip clean_fetch_body/strip_web_boilerplate (access_bypass.py:1661/1412) is held fixed and applied IDENTICALLY downstream of every extractor (same code, same patterns) — we vary ONLY the content-of-record extractor that produces the body the strip then cleans; junk-reduction differences therefore attribute to the extractor, not the strip. (3) Nothing downstream is re-run: there is NO basket/consolidation, NO generator (multi_section), NO verify, NO render — the metric scores extractor OUTPUT directly against gold. (4) The faithfulness engine (strict_verify/NLI/4-role/provenance) is not invoked or modified. Only the extractor binary varies across candidates; all else is pinned by sha256 lineage manifest (extractor id+version, HTML snapshot id, strip code rev, scorer config, gold rev).",
+        "candidates": [
+          {
+            "name": "Trafilatura 2.x (incumbent content-of-record)",
+            "impl_id": "pip: trafilatura==2.1.0 (Apache-2.0); called via POLARIS safe_trafilatura_extract (access_bypass.py:943)",
+            "license": "Apache-2.0",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (CPU/libxml2)",
+            "impl_notes": "THE current POLARIS extractor of record and the floor every candidate must beat. Run trafilatura.extract(html, output_format='markdown', include_tables=True, include_links=False) through the existing guarded entrypoint so the bench matches production behavior exactly (size-gate + SIGSEGV containment via PG_TRAFILATURA_SUBPROCESS=1). Published WebMainBench Html+MD F1=0.6402 (Dripper paper Table 2, arXiv 2511.23119) — this is the recall/precision NON-REGRESSION floor (advisor pt E)."
+          },
+          {
+            "name": "MinerU-HTML (Dripper, SLM structured/clinical lane)",
+            "impl_id": "HF model: opendatalab/MinerU-HTML (v1.1, base Qwen/Qwen3-0.6B); pip: mineru-html (pip install .[baselines] from github.com/opendatalab/MinerU-HTML); paper arXiv 2511.23119",
+            "license": "Apache-2.0 (code AND model weights — verified on HF README, OpenDatalab Shanghai AILab 2025)",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~4 GB (Qwen3-0.6B fp16 via vLLM; allocate ~8GB headroom)",
+            "impl_notes": "LEAD candidate for the clinical/table lane. CONFIRMED EXTRACTIVE not generative (Dripper paper: classifies DOM blocks main/other via constrained JSON decoding {\"1\":\"main\",...} then reconstructs C={mi in M | y_i=1} from the ORIGINAL DOM — text is verbatim, no paraphrase, 'eliminates format hallucinations') → faithfulness-safe as content-of-record. Serve via vLLM (VLLM_USE_V1=1 for the state machine). Published WebMainBench F1=0.8779 (fallback variant 0.8925), TABLE fidelity TEDS 0.739 vs Trafilatura 0.341 — the load-bearing edge for clinical dose/trial tables that ROUGE alone misses (see TEDS sub-metric)."
+          },
+          {
+            "name": "Resiliparse (recall-biased ensemble partner)",
+            "impl_id": "pip: resiliparse (chatnoir-resiliparse, Apache-2.0); resiliparse.extract.html2text.extract_plain_text(html, main_content=True)",
+            "license": "Apache-2.0",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "Fast C++ heuristic extractor; the recall-biased partner in the union (per 'Beyond a Single Extractor' arXiv 2602.19548 — only ~39% of pages survive all extractors, so union raises token yield). Published WebMainBench TEXT F1=0.6290 (Dripper Table 2) — also the SECONDARY GATE-0 anchor."
+          },
+          {
+            "name": "jusText (3rd union member)",
+            "impl_id": "pip: justext (Apache-2.0 / BSD); justext.justext(html, justext.get_stoplist('English'))",
+            "license": "Apache-2.0/BSD-2-Clause",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "Heuristic boilerplate-removal extractor; the third member of the Apple union. MUST set language='English' (stoplist) for the clinical fixture — its published 0.4783 is partly a multilingual mis-set artifact; do not tank it unfairly (advisor pt F). En-set so junk-removal is measured on-domain."
+          },
+          {
+            "name": "readability-lxml (last-resort fallback baseline)",
+            "impl_id": "pip: readability-lxml==0.8.4.1; readability.Document(html).summary()",
+            "license": "Apache-2.0",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "The 2010 DOM-scoring heuristic POLARIS keeps ONLY as last-resort fallback after Trafilatura. Benched as the second floor (what production falls back to). Published WebMainBench Html+MD F1=0.6543 (Dripper Table 2) — a GATE-0 anchor. Flagged dated in the recency audit; included so the bake-off proves the upgrade beats BOTH current floors, not just the primary."
+          },
+          {
+            "name": "union(trafilatura+resiliparse+justext) — deterministic ensemble",
+            "impl_id": "composite (no single package): deterministic merge of the three extractor outputs",
+            "license": "Apache-2.0 (union of Apache components)",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "NOT a package — define deterministic semantics: run all three extractors on the same HTML, take the line-level UNION of their main-body lines, then near-dup collapse (datasketch MinHash, fixed seed/threshold) to drop lines >=3 extractors duplicate. Pure-extractive (all members verbatim) → faithfulness-safe. Tests the 2602.19548 'one extractor never suffices' deployment pattern for recall-max; the precision cost is exactly what the precision/recall split measures."
+          },
+          {
+            "name": "ReaderLM-v2 (generative upper-bound yardstick — NEVER content-of-record)",
+            "impl_id": "HF model: jinaai/ReaderLM-v2 (1.5B, HTML->Markdown SLM)",
+            "license": "CC-BY-NC-4.0 (non-commercial — INSPIRATION/YARDSTICK ONLY, never deployed)",
+            "runnable": "needs_gpu",
+            "role": "yardstick_non_sovereign",
+            "gpu_gb_estimate": "~6-8 GB (1.5B, fp16, vLLM)",
+            "impl_notes": "GENERATIVE (rewrites text token-by-token) → a fabrication/omission hazard for a provenance-gated pipeline; benched ONLY as the non-sovereign upper-bound that concretely demonstrates the never-crown guard (faithfulness rule). Even if its ROUGE-F1 tops the board it is STRUCTURALLY DISQUALIFIED as content-of-record because strict_verify needs verbatim spans. Its purpose is to prove the decision rule refuses a higher number when verbatim-preservation fails — the §-1.1 anti-gaming demonstration."
+          }
+        ],
+        "metric": {
+          "name": "Gold-referenced extraction precision/recall + ROUGE-N F1 (general) + TEDS table-fidelity (clinical subset)",
+          "definition": "For each fetched page with a human-labeled gold main body: PRIMARY = WebMainBench's OFFICIAL ROUGE-N F1 scorer (N=5, jieba-tokenized — the paper's exact config, NOT hand-rolled) between candidate extractor output and gold Markdown. To make junk-reduction and completeness §-1.1-legal we DECOMPOSE F1 into its two reportable halves: COMPLETENESS/main-body recall = ROUGE-N recall of candidate vs gold (did real main content survive); JUNK = 1 - precision = fraction of candidate n-grams NOT present in the gold main body (chrome/nav/ads/SEO boilerplate that leaked in). 'Junk reduction' = the candidate's (1-precision) is LOWER than the Trafilatura-incumbent baseline's (1-precision) ON THE SAME pages. SECONDARY (clinical table subset only) = TEDS (Tree-Edit-Distance Similarity) of the extracted table tree vs the gold table tree — captures row/col structure that n-gram ROUGE cannot (a dose table flattened to the right words in the wrong cells scores high on ROUGE but is clinically dangerous). DECISION RULE: among candidates that do NOT regress recall below the Trafilatura incumbent floor (minus tolerance) — the weight-not-filter recall floor (§-1.3) — winner = highest F1, with ties broken toward the DETERMINISTIC/extractive extractor (never the generative one). A precision gain bought by recall loss does NOT auto-win. Paired bootstrap CIs + Holm/FDR + minimum-effect threshold over the locked page list decide significance (mirrors I-qgen-001).",
+          "ground_truth_source": "PRIMARY general yardstick + GATE-0 anchor: WebMainBench (OpenDataLab, 7,809 HTML-tag-level human-annotated pages with gold Markdown, ROUGE-N F1; the same set whose per-extractor numbers are published in Dripper arXiv 2511.23119 Table 2). Filter to its biomedical/scientific domains where extractable. CLINICAL fixture (must be BUILT, see ground_truth_to_build): ~50-100 pages spanning POLARIS's REAL source types (peer-review journal HTML, FDA label / EMA SmPC, ClinicalTrials.gov, clinical guideline, preprint), table-bearing pages OVERSAMPLED, each hand-labeled with gold main body + gold table trees — this is §-1.1 point 4 (domain-appropriate benchmark), not scope creep.",
+          "section_1_1_compliant_why": "It is NOT a banned proxy. It does NOT count words/citations/sources (the decision is overlap-against-truth, not 'how many'). It does NOT do pattern-presence — junk is defined as n-grams ABSENT FROM THE HUMAN GOLD BODY, never as 'lines matching a boilerplate regex' (that regex-presence definition is explicitly the §-1.1 landmine and is rejected; the regex strip is held fixed, not used as the scorer). It does NOT compare metadata between systems. It is NOT sample-based — every page in the locked list is scored, claim-equivalent here being every page's full body against its full gold. It is NOT a string-presence PASS/FAIL — it is a continuous precision/recall/F1 against a labeled reference. Critically, it CANNOT be computed on unlabeled POLARIS HTML (that would force the banned regex/count definition), which is precisely WHY a labeled clinical fixture must be built before any in-domain score is trusted.",
+          "faithfulness_safe_why": "This layer scores ONLY the quality of the extracted body text vs a labeled reference; it never invokes, reads, modifies, or relaxes the faithfulness engine (strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding) — those are not in the data path of this isolation test at all. Faithfulness is in fact STRENGTHENED, not touched: every content-of-record candidate is required to be EXTRACTIVE/verbatim (Trafilatura, Resiliparse, jusText, union, MinerU-HTML all preserve source wording — MinerU verified extractive in the Dripper paper: emits DOM-block labels, reconstructs from the original DOM, 'eliminates format hallucinations'), so the spans strict_verify later checks are byte-identical to the fetched source. The generative ReaderLM-v2 is benched as a yardstick but is STRUCTURALLY barred from being crowned as content-of-record precisely because rewriting a span would break the verifier's span match — the metric's tie-break and the never-crown rule enforce that, so a better ROUGE number can never buy a faithfulness regression."
+        },
+        "gate0_canary": "MANDATORY before any candidate is trusted (anti-drb_72). THREE checks, all must pass or the harness FAILS LOUD (non-zero exit, no scores emitted): (1) POSITIVE deterministic canary — feed the GOLD main body itself in as the 'extraction'; the official WebMainBench scorer MUST return F1 ~= 1.0 (>= 0.99). Proves the scorer rewards perfect extraction. (2) NEGATIVE deterministic canary (the drb_72 'garbage that looks real' guard) — hand-build a fixture page = pure nav/ads/cookie-banner/SEO boilerplate with NONE of the gold main body; the scorer MUST return F1 ~= 0 (<= 0.05). Proves the scorer scores junk LOW — drb_72 was a high score on garbage, so this is the load-bearing check. (3) PUBLISHED-NUMBER reproduction — run the OFFICIAL scorer (ROUGE-N N=5 jieba, exact per-extractor variant: Trafilatura Html+MD, Resiliparse TEXT) on the WebMainBench split and reproduce the Dripper Table-2 anchors within a stated tolerance band: Trafilatura ~=0.6402, Resiliparse ~=0.6290, Readability ~=0.6543, jusText(en) ~=0.4783, MinerU-HTML ~=0.8779 (each +/- tolerance). A config mismatch (wrong N, wrong tokenizer, wrong variant, wrong split) shows up here as an anchor miss and is treated as a HARNESS BUG, not an extractor result — exactly the wiring-bug class drb_72 hid. Lineage sha256 manifest (scorer config + tokenizer + split + gold rev + each extractor id/version) is pinned and printed; harness is GREEN only when (1)+(2)+(3) all pass.",
+        "ground_truth_to_build": "PARTIAL reuse + REQUIRED build. REUSE for the general yardstick + GATE-0 anchors: WebMainBench (opendatalab, ~7,809 labeled pages, gold Markdown, official ROUGE-N scorer; gives the published per-extractor numbers for the GATE-0 reproduction check) — no build needed, filter to biomedical/scientific domains where the field allows. BUILD (needs_fixture, the clinical-decision relevance the general set cannot cover): a small clinical extraction fixture of ~50-100 real pages spanning POLARIS's actual source types (peer-review journal HTML, FDA label / EMA SmPC, ClinicalTrials.gov record, clinical guideline, preprint), with table-bearing pages OVERSAMPLED, each hand-labeled with (a) gold main body Markdown and (b) gold table trees (for TEDS). Rationale: WebMainBench is general/multilingual and ROUGE n-gram overlap is blind to table row/col structure — yet MinerU's whole reason to be a candidate is clinical table fidelity (TEDS 0.739 vs Trafilatura 0.341). Without this fixture the clinical table case is invisible to the bench, so the clinical-relevance verdict for every candidate is honestly marked needs_fixture until it is built.",
+        "notes": "All ids/licenses primary-source verified 2026-06-23: MinerU-HTML opendatalab/MinerU-HTML v1.1 base Qwen3-0.6B, Apache-2.0 weights AND code (HF README), CONFIRMED EXTRACTIVE/verbatim from Dripper arXiv 2511.23119 (DOM-block label-and-reconstruct, no paraphrase) → safe as content-of-record. ReaderLM-v2 is CC-BY-NC-4.0 + generative → yardstick-only, structurally never crowned (demonstrates the §-1.1 anti-gaming guard). Published WebMainBench anchors (Dripper Table 2) double as deterministic GATE-0 reproduction targets. Mirrors I-qgen-001 structure: SCREEN(advisory)/DECIDE(isolation), locked page list + paired bootstrap + Holm/FDR + min-effect, finalists rerun >=3x. Honest open items: (a) confirm WebMainBench ships an official eval script (if not, GATE-0 reproduction uses the paper's published config to re-derive — still anchored, just re-implemented and tolerance-checked against the published numbers); (b) verify resiliparse extras vs core pip name (chatnoir-resiliparse) at build time; (c) the clinical fixture build is the gating dependency before any in-domain (vs general-yardstick) decision is trusted. Faithfulness engine untouched throughout; recall is a hard non-regression floor vs the Trafilatura incumbent (weight-not-filter, §-1.3); the only hard drop at this layer remains the obvious-junk structural floor, unchanged. Relevant repo files for the build brief: src/tools/access_bypass.py (safe_trafilatura_extract:943, clean_fetch_body:1661, strip_web_boilerplate:1412); docs/retrieval_landscape_2026.md §3/§5/§6."
+      },
+      {
+        "layer": "quality_weight",
+        "holding_condition": "IterResearch/Tongyi queries are FIXED (the I-qgen-001 winner, PG_QGEN_ITERRESEARCH default), and the ENTIRE rest of the retrieval stack stays at current POLARIS default — Serper discovery, crawl4ai+Zyte fetch, Trafilatura extraction, clean_fetch_body line-strip, ContentDeduplicator near-dup, tier_classifier + authority_model weighting, no reranker. NO retrieval is re-run: the fixture is drawn from a banked corpus_snapshot.json produced under exactly these fixed defaults, so 'queries fixed' is satisfied by construction. The quality_weight model sits at landscape step 7 (after extraction/strip/dedup), so EVERY candidate scores the IDENTICAL post-extraction, post-clean_fetch_body, post-dedup body text for each source — only the scoring model varies. AUC is rank-based, so the heterogeneous candidate score scales (fastText hq-probability vs 0–5 edu regression vs taxonomy category index) need no normalization for the cross-candidate comparison. The output is consumed ONLY as a per-source WEIGHT into the existing authority_model blend; in the bake-off it is NEVER used as a drop/filter — no threshold is applied to remove a source.",
+        "candidates": [
+          {
+            "name": "DCLM fastText classifier (OH-2.5 + ELI5)",
+            "impl_id": "mlfoundations/fasttext-oh-eli5",
+            "license": "MIT (model card header), Apache-2.0 code",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU fastText; ~1-2 GB RAM)",
+            "impl_notes": "fastText .bin; load with `import fasttext; m=fasttext.load_model('model.bin')`. REQUIRES numpy<2.0. Output __label__hq probability = the weight (rank by P(hq)). Normalize/lowercase text, strip newlines, score the post-extraction body. Pure CPU, fastest candidate."
+          },
+          {
+            "name": "Ultra-FineWeb verification-loop fastText",
+            "impl_id": "openbmb/Ultra-FineWeb-classifier",
+            "license": "Apache-2.0 (verified on model card)",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU fastText; ~1-2 GB RAM)",
+            "impl_notes": "fastText, released 2025-06-16. Run via repo `infer_single_content.py` (single) or `infer_folder.py` (batch). REQUIRES numpy<2.0 per model card. Output = Pred label + Pred score; rank by Pred score (P of high-quality). 99x cheaper verification loop than DCLM per paper; CPU-only."
+          },
+          {
+            "name": "Essential-Web EAI-Distill-0.5b taxonomy annotator",
+            "impl_id": "EssentialAI/eai-taxonomy-0.5b",
+            "license": "UNDER-SPECIFIED on card (HTTP 401) — base is Qwen2.5-0.5B (Apache-2.0); VERIFY-BEFORE-ADOPT",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~2-3 GB (0.5B params, bf16; fits any single GPU, can also run CPU slowly)",
+            "impl_notes": "Generative SLM distilled from Qwen2.5-32B; emits a 12-field taxonomy (arXiv 2506.14111), NOT a scalar. For the weight use the document-quality / content-complexity / reasoning-depth axis (e.g. the 'reasoning depth' / 'technical correctness' field) as an ordinal weight — NOT the Free-Decimal-Correspondence (FDC) field, which is TOPIC and would leak relevance into this layer. Load via transformers AutoModelForCausalLM; parse the structured label output. GGUF mirror QuantFactory/eai-distill-0.5b-GGUF available for CPU."
+          },
+          {
+            "name": "FineWeb-Edu classifier",
+            "impl_id": "HuggingFaceFW/fineweb-edu-classifier",
+            "license": "Apache-2.0 (verified on model card)",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~1-2 GB (Snowflake-arctic-embed-m BERT + linear regression head; trivial on any GPU)",
+            "impl_notes": "BERT-like regression head on Snowflake-arctic-embed-m; outputs a continuous 0–5 educational-value score = the weight (rank by score). Load via transformers AutoModelForSequenceClassification, max 512 tokens — score the lead body span. Educational value is a quality PROXY, not clinical authority (honest caveat). CPU-runnable but GPU is faster for the full fixture."
+          },
+          {
+            "name": "Nemotron-CC ensemble (Nemotron-4 + Mixtral edu + DCLM)",
+            "impl_id": "nvidia/nemocurator-fineweb-nemotron-4-edu-classifier (+ nvidia/nemocurator-fineweb-mixtral-edu-classifier + mlfoundations/fasttext-oh-eli5)",
+            "license": "NVIDIA Open Model License + Apache-2.0 (verified on Nemotron-4 card) — VERIFY commercial-use clause before adopt",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~3-4 GB total (two arctic-embed-m BERT heads on GPU + one CPU fastText)",
+            "impl_notes": "Per Nemotron-CC paper the ensemble = mean of the per-model normalized 0–5 edu scores (the two NVIDIA arctic-embed heads) fused with DCLM fastText; specify mean-of-normalized as the fusion. Both NVIDIA heads = AutoModelForSequenceClassification, 512-tok. The +5.6 MMLU-over-DCLM result motivates testing it; the weight = the fused score."
+          },
+          {
+            "name": "POLARIS heuristic score_content_quality (current floor)",
+            "impl_id": "src/polaris_graph/retrieval/content_quality_gate.py::score_content_quality",
+            "license": "in-repo (proprietary POLARIS)",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (pure heuristic, no model)",
+            "impl_notes": "The incumbent. Re-purposed here as a RANKER (use the returned 0.0–1.0 score as the weight), NOT as the document-gate drop it ships as — the gate stays default-OFF. Answers the load-bearing question: does any learned classifier actually beat the heuristic POLARIS already has? Run it on the identical post-extraction body."
+          },
+          {
+            "name": "Constant / random weight",
+            "impl_id": "n/a (numpy uniform or fixed 0.5)",
+            "license": "n/a",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0",
+            "impl_notes": "Sanity floor: a constant or uniform-random weight must score AUC ~0.5. Any candidate not clearly above this is signal-free. Doubles as half of the GATE-0 metric canary (tied scores -> AUC 0.5)."
+          },
+          {
+            "name": "LLM-judge quality score (GLM-5.2)",
+            "impl_id": "GLM-5.2 via OpenRouter (z-ai/glm-5.1 per runtime lock legacy_compat / GLM-5.2 campaign backbone)",
+            "license": "API (non-sovereign-as-judge; informative ceiling only)",
+            "runnable": "no_key",
+            "role": "yardstick_non_sovereign",
+            "gpu_gb_estimate": "0 (API)",
+            "impl_notes": "Prompt the backbone to emit a 0–1 source-quality score; rank by it. Included as the informative CEILING: landscape §7 reports GPT-5 kappa~=0 on AI-slop detection, so a high LLM ceiling would be surprising and a low one confirms automatic quality detection is immature. NOT a production pick (LLM-in-extraction-loop is a faithfulness hazard); yardstick only."
+          }
+        ],
+        "metric": {
+          "name": "Quality-weight ranking AUC on an on-topic clinical authoritative-vs-SEO-spam fixture",
+          "definition": "For each candidate, score every fixture source -> a scalar weight, then compute ROC-AUC of that weight against the binary human label (1=authoritative, 0=on-topic SEO-spam/shallow), grouping by clinical topic so authoritative and spam items are paired WITHIN the same subject (the score must separate quality, not topic). PRIMARY = ROC-AUC; SECONDARY = average precision / PR-AUC (robustness when spam is the rare class). Recall-preservation GUARD, expressed without any drop: fraction of human-labeled T1/T2/T3 authoritative sources that land in the bottom weight-decile must stay near zero (directly tests 'does the weight demote a real authoritative source' while never filtering). Winner = highest ROC-AUC with the guard near zero. The weight is NEVER thresholded to remove a source anywhere in the test.",
+          "ground_truth_source": "A purpose-built labeled fixture (see ground_truth_to_build): clinical sources drawn from the banked corpus_snapshot.json (fixed-default IterResearch retrieval), each HUMAN dual-annotated authoritative vs on-topic-spam with inter-annotator kappa reported. Labels are produced INDEPENDENTLY of all five candidate classifiers AND independently of tier_classifier/authority_model — using human judgement against the cited body text — so the ground truth is not circular (avoids the drb_72 fake-real-number trap). Anchor reference for label definitions: DRB-II / §-1.1 source-credibility rubrics for what 'authoritative' means in a clinical corpus.",
+          "section_1_1_compliant_why": "It is NOT a count, pattern-presence, metadata comparison, or string-presence PASS/FAIL. It scores REAL post-extraction corpus body text against an INDEPENDENT human ground-truth of source quality, measuring whether the learned weight RANKS authoritative-above-spam (a genuine quality judgement on real content), not 'how many sources' or 'does the text contain token X'. It is whole-fixture, not sample-based (every fixture item scored). The labels come from human line-by-line reading of the cited content, the §-1.1 standard itself.",
+          "faithfulness_safe_why": "ROC-AUC integrates over ALL thresholds without ever committing to a drop point — it is the formal statement of weight-not-filter, so by construction this metric cannot be used as a hard filter. The layer's output is consumed only as a per-source WEIGHT surfaced to consolidation/authority_model; the obvious-junk structural floor (junk_detection.py) is untouched and remains the only hard drop. The faithfulness engine (strict_verify / span-grounding / NLI / 4-role / provenance) is never invoked, read, or modified by this bake-off — it operates downstream on whatever sources survive, identical regardless of which quality-weight model wins. No span text is rewritten (all candidates are scorers, not extractors), so the verbatim spans the verifier later checks are byte-identical across candidates."
+        },
+        "gate0_canary": "TWO halves, both must pass before any candidate AUC is trusted. (A) METRIC canary: feed the AUC scorer three synthetic (label, score) sets with KNOWN-correct answers — perfectly-ranked -> AUC must equal exactly 1.0; perfectly-inverted -> exactly 0.0; all-tied/constant -> exactly 0.5. If any deviates, the harness is mis-wired (the drb_72 'fake numbers that look real' failure) and NO score is trusted. (B) MODEL-WIRING canary (the half a metric-only canary misses): for EACH loaded candidate, feed one obviously-authoritative doc (e.g. an FDA label / Cochrane review body) and one obvious-garbage doc (cookie-banner + keyword-stuffed spam) and ASSERT the model ranks authoritative strictly above garbage AND that the two scores DIFFER (not a constant) — this proves the classifier actually loaded and emits real varying signal rather than silently returning a stub/constant that would still produce a real-looking AUC. A candidate failing (B) is excluded as non-functional, not scored.",
+        "ground_truth_to_build": "YES — build a labeled fixture first. Name: clinical_quality_weight_fixture.jsonl. Size: ~300-500 sources (target >=150 authoritative + >=150 on-topic-spam) drawn from the banked corpus_snapshot.json, grouped into ~15-25 clinical topics so each topic contains BOTH authoritative and on-topic-spam items (forces the metric to separate quality, not topic). CRITICAL: both classes must be ON-TOPIC to the same clinical questions, varying only quality/authority — a 'good clinical vs random web junk' fixture would measure topic relevance (the reranker layer's job), not quality. Each item = {url, post_extraction_body, topic_id, label, annotator_notes}. Dual human annotation, inter-annotator kappa reported, labels independent of all five candidates and of tier_classifier/authority_model. Zero-shot scoring note: all five listed candidates are pretrained and scored zero-shot, so the entire fixture is a clean held-out test set (apples-to-apples). IF a re-seeded clinical fastText (landscape §6 ADD-1) is later added, it must get a separate train split and be scored only on held-out items, and the fixture sized up accordingly — flagged so this is never left ambiguous.",
+        "notes": "Scope honesty: fastText candidates (DCLM, Ultra-FineWeb) are CPU 'yes'; the BERT/SLM/ensemble candidates are 'needs_gpu' (all tiny, <4 GB); the LLM-judge yardstick is 'no_key'. ALL candidates are equally blocked on the fixture — runnable reflects per-candidate compute reality, the fixture is the global ground_truth_to_build (more informative than collapsing all to needs_fixture). HONEST interpretation caveat: DCLM / FineWeb-Edu / Nemotron-CC measure EDUCATIONAL value — a quality PROXY, not clinical authority (a terse FDA label may score LOW on 'educational' while being maximally authoritative). The bake-off honestly tests whether a general web-quality prior TRANSFERS to clinical-authority ranking; a mediocre winner is a valid finding and may argue for the re-seeded clinical fastText (§6 ADD-1) instead. Automatic AI-slop/SEO-spam detection is genuinely immature (landscape §7: AUPRC 0.52-0.55, GPT-5 kappa~=0) — hence the LLM-judge ceiling yardstick and the rule that the winner is consumed only as a LOW-WEIGHT down-rank, never a gate. License verify-before-adopt: EssentialAI taxonomy card 401'd (base Qwen2.5-0.5B is Apache-2.0; full fine-tune license unconfirmed) and Nemotron-4 carries the NVIDIA Open Model License alongside Apache-2.0 — both must be license-cleared before any production port (sovereignty). The winner is ported into the existing authority_model blend (authority_score = clamp01(sum_signal(w*score)) * junk_cap * corroboration) as a new learned-content-quality signal weight; the standalone AUC SELECTS, the final combined integrated run DECIDES."
+      },
+      {
+        "layer": "dedup (near-duplicate collapse on extracted source bodies, run BEFORE basket weight / consolidation)",
+        "holding_condition": "IterResearch/Tongyi queries are held FIXED (the I-qgen-001 winner, flag PG_QGEN_ITERRESEARCH). The rest of the retrieval stack is at current POLARIS default and is used only to PRODUCE the held-fixed shared corpus: Serper search → crawl4ai/Zyte fetch → Trafilatura extract → clean_fetch_body line-level strip (access_bypass.py). The SAME extracted+cleaned bodies (the `evidence_for_gen` records of a banked corpus_snapshot.json) feed EVERY dedup candidate — no candidate re-retrieves or re-extracts. Downstream is NOT run: basket-weight / consolidation (finding_dedup/fact_dedup), generator (multi_section), verify (strict_verify/NLI/4-role/provenance), render (report.md/bibliography.json) are all OFF. We score the candidate's near-dup CLUSTERING directly against per-pair gold labels. The 'dedup runs before basket weight so corroboration is not double-counted' requirement is verified STRUCTURALLY (the dedup hop sits pre-consolidation in the pipeline order) — NOT re-measured downstream, because measuring it downstream would break isolation. Only the dedup mechanism varies.",
+        "candidates": [
+          {
+            "name": "POLARIS incumbent ContentDeduplicator (MinHash-128 + SimHash-64, O(N^2) pairwise, keep_first DROP)",
+            "impl_id": "src/utils/content_deduplicator.py (in-repo; stdlib hashlib only, no extra dep)",
+            "license": "in-repo (POLARIS)",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (CPU, pure-Python stdlib hashing)",
+            "impl_notes": "THE FLOOR per standard-process step 2. Instantiate ContentDeduplicator(DeduplicationConfig(near_duplicate_threshold=0.85)); call .deduplicate(items, content_key) on the snapshot evidence bodies; read result.clusters / result.duplicates for the merged pairs to score. NOTE its current keep_first behavior DROPS the duplicate (collision with consolidate-keep-all DNA) — for the ISOLATION metric we only score its clustering decisions (which pairs it merges), not its drop side-effect. Its `deduplication_ratio` (line 132) is the BANNED count and is NOT the metric. O(N^2) over ~500 bodies is fine offline."
+          },
+          {
+            "name": "SimHash standalone (64-bit, Hamming-distance threshold)",
+            "impl_id": "src/utils/content_deduplicator.py::_compute_simhash + _simhash_distance (isolate the SimHash path; or `simhash` PyPI 1.11 as cross-check)",
+            "license": "in-repo (POLARIS) / simhash PyPI: MIT",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "Dated reference baseline per landscape sec.10 (SimHash 2002, MinHash+LSH beats it for text). Bench it standalone with a swept Hamming-distance threshold so the bake-off shows WHY the field moved off it. Reuse the in-repo _compute_simhash/_simhash_distance to avoid a new dep; cluster by Hamming distance <= k over the 64-bit fingerprints."
+          },
+          {
+            "name": "MinHash + LSH (datasketch MinHashLSH, real LSH index + threshold sweep)",
+            "impl_id": "pip install datasketch==1.6.5 ; datasketch.MinHash + datasketch.MinHashLSH (alt pipeline wrapper: pip install text-dedup, Apache-2.0)",
+            "license": "datasketch: MIT ; text-dedup: Apache-2.0",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (CPU)",
+            "impl_notes": "The 2025 production-standard dedup (FineWeb2/RedPajama-V2/Olmo3 all run it). Tokenize each cleaned body into word n-gram shingles (n=3..5 sweep), MinHash(num_perm=128..256), insert into MinHashLSH(threshold=0.7..0.9 sweep), query each doc for its near-dup bucket → connected components = clusters. Score precision/recall of those clusters vs gold. Sweep (num_perm, shingle_n, threshold) and report the operating point that maximizes recall subject to the precision floor (point 4)."
+          },
+          {
+            "name": "SemHash + Model2Vec static embedder (semantic near-dup via potion-base-8M)",
+            "impl_id": "pip install semhash ; from semhash import SemHash ; default encoder minishlab/potion-base-8M (Model2Vec static), Vicinity ANN backend",
+            "license": "semhash: MIT ; model2vec: MIT ; minishlab/potion-base-8M weights: MIT",
+            "runnable": "yes",
+            "role": "candidate",
+            "gpu_gb_estimate": "0 (static lookup-table embedder, CPU; ~30MB weights downloaded from HF, no GPU)",
+            "impl_notes": "SemHash.from_records(records).self_deduplicate() returns a DeduplicationResult whose .selected/.filtered + per-record duplicate clusters (with similarity) are readable for scoring (verified via repo docs). Pin the encoder explicitly to minishlab/potion-base-8M for determinism. THIS is the candidate that can WIN on spun/paraphrased syndication (byte/shingle methods miss spun copies) but is also the one MOST at risk of FALSE-MERGING two distinct independent sources that paraphrase the same claim — i.e. the faithfulness/precision arm (stratum a of the fixture) is precisely where it must be stress-tested. Sweep its similarity threshold."
+          }
+        ],
+        "metric": {
+          "name": "Pairwise near-dup collapse Precision/Recall against per-pair gold labels (recall maximized subject to a precision floor)",
+          "definition": "On a labeled near-dup fixture, enumerate EVERY unordered pair (i,j) of source bodies (exhaustive over all C(N,2) pairs — not a sample). Each pair has a gold label gold(i,j) in {syndicated_copy, distinct} from the dual-annotated fixture. Each candidate produces clusters; system(i,j)=merged iff i,j land in the same cluster. Then: RECALL = (#pairs gold=syndicated_copy AND system=merged) / (#pairs gold=syndicated_copy)  [collapses real duplicates]; PRECISION = (#pairs gold=syndicated_copy AND system=merged) / (#pairs system=merged)  [does NOT merge distinct sources]. FALSE-MERGE-RATE = (#pairs gold=distinct AND system=merged) / (#pairs gold=distinct) — the faithfulness arm, reported separately on the hard-negative stratum (distinct sources that paraphrase the SAME claim). DECISION RULE is asymmetric (a false-merge destroys an independent corroborator; a missed dup merely fails to consolidate): WINNER = max RECALL on the syndicated stratum SUBJECT TO false-merges-of-distinct-same-claim-pairs near zero (precision floor, e.g. FALSE-MERGE-RATE <= 0.01). Raw F1 is explicitly NOT the selector. Sweep each candidate's threshold(s) and report its best feasible operating point.",
+          "ground_truth_source": "A labeled near-dup fixture BUILT from the banked, held-fixed real corpus snapshots already on disk (state/reserved_corpus_snapshots/*.json and outputs/corpus_backups/extracted/*/corpus_snapshot.json — 6 snapshots, each ~500 `evidence_for_gen` records carrying source_url + direct_quote/statement body + tier + doi/pmid + title). These already contain the real syndication distribution a deep-research crawl produces: one press release reposted across news sites; one journal abstract mirrored on PubMed + publisher + ResearchGate. Per-pair labels are DUAL-ANNOTATED by Claude AND Codex independently with adjudication of disagreements (operationalizes the sec.-1.1 parallel-audit rule on the ground truth itself), each pair labeled syndicated_copy vs distinct with a quoted-span justification.",
+          "section_1_1_compliant_why": "It is NOT a count-as-quality proxy: the score is binary-classification accuracy of merge decisions ANCHORED TO A PER-PAIR HUMAN/DUAL-AI GOLD LABEL, the textbook dedup metric — not 'how many sources survived'. It explicitly does NOT use the incumbent's deduplication_ratio = 1 - unique/original (content_deduplicator.py:132), which IS the banned source-count metric. It is NOT pattern-presence (no 'does the body contain string X'), NOT metadata comparison, and NOT sample-based: precision/recall are computed EXHAUSTIVELY over every labeled pair in the fixture, not over a sampled subset. The unit scored is a real merge decision on real extracted body text against a cited-span gold label.",
+          "faithfulness_safe_why": "This layer never touches strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding — those engines are OFF in the isolation test and unchanged in the pipeline. Dedup is upstream of consolidation and the verifier; it only collapses byte/semantic near-copies of the SAME body so corroboration is not double-counted in basket weight. The PRECISION / FALSE-MERGE-RATE arm is itself a faithfulness guard: it FAILS any candidate that merges two DISTINCT independent sources carrying the same claim (which would silently delete a real corroborator, violating sec.-1.3 consolidate-keep-all). A dedup candidate can never drop a distinct claim and can never relax the verifier; the only hard drop in the stack remains the obvious-junk structural floor, which is a different layer."
+        },
+        "gate0_canary": "BIDIRECTIONAL canary (the drb_72 'fake numbers that look real' defense) — the harness must score UP for good behavior AND DOWN for known-bad, on 4 fixed micro-inputs, BEFORE any candidate is trusted: (POSITIVE-1) two byte-identical bodies -> harness MUST report that pair recall=1.0 (clustered). (POSITIVE-2) two obviously-distinct bodies (AI-labor vs Parkinsons-DBS, pulled from two different snapshots) -> harness MUST report precision=1.0 on them (NOT clustered, no false merge). (NEGATIVE-1, no-op control) feed a stub dedup that clusters NOTHING -> harness MUST report RECALL=0.0 on the syndicated stratum (if it reports high recall, the scorer is hallucinating merges — STOP). (NEGATIVE-2, over-merge control) feed a stub dedup that clusters EVERYTHING into one cluster -> harness MUST report PRECISION ~ base-rate and FALSE-MERGE-RATE=1.0 (if it reports high precision, the scorer is not actually checking the distinct-pair labels — STOP). Only when all four hold (good->up, no-op->recall floor, over-merge->precision/false-merge floor) is the harness trusted and the bake-off allowed to run. This proves the harness reads the gold labels and computes both arms correctly, not just that it can emit a plausible 1.0.",
+        "ground_truth_to_build": "BUILD a labeled near-dup pair fixture (the snapshots exist but carry NO near-dup pair labels). Source: the 6 banked held-fixed corpus snapshots (state/reserved_corpus_snapshots/ + outputs/corpus_backups/extracted/), ~500 evidence bodies each. Size/composition: from these, assemble ~300-500 source bodies into a fixture with TWO adversarial discriminating strata (without them every candidate scores ~1.0 and the bake-off is theater): (a) HARD NEGATIVES — pairs of DISTINCT independent sources that paraphrase the SAME claim (different URL/author/outlet, same finding), which MUST NOT merge — this is the faithfulness/precision arm and where SemHash semantic similarity is most likely to wrongly merge a real corroborator; (b) TRUE POSITIVES — spun/syndicated copies of one body (press release reposted across outlets; abstract mirrored on PubMed/publisher/ResearchGate; light-rewrite spam), which MUST merge — where byte-exact misses and MinHash/semantic catch. Plus easy controls (byte-identical, fully-unrelated). Per-pair labels DUAL-ANNOTATED Claude+Codex independently with adjudication, each label carrying the cited-span justification. Persist under tests/fixtures/ (per LAW VI). Estimated build: ~0.5 day of dual-annotation + adjudication; no GPU, no re-retrieval.",
+        "notes": "All four candidates are CPU-only (0 GPU): MinHash/SimHash are stdlib hashing; SemHash's potion-base-8M is a Model2Vec STATIC lookup-table embedder (~30MB, no GPU). All licenses are MIT/Apache-2.0 — fully sovereign — so there is NO yardstick_non_sovereign row for this layer (honest: none exists; I did not invent one). The incumbent ContentDeduplicator is the role=baseline floor per standard-process step 2. PORTING NOTE (not part of the isolation metric, for the later wire-in diff): the winning mechanism must be wired in CONSOLIDATE-keep-all-in-basket mode (group same-body copies, keep all source_urls as multi-citation, collapse only the corroboration WEIGHT), NOT the incumbent's keep_first DROP — per sec.-1.3 'consolidate, don't drop'. The faithfulness engine is untouched throughout."
+      },
+      {
+        "layer": "reranker (cross-encoder relevance+credibility rerank, ISOLATION) — POLARIS retrieval bake-off layer, I-ret-002 #1294",
+        "holding_condition": "FIXED: the IterResearch/Tongyi query set (I-qgen-001 winner, PG_QGEN_ITERRESEARCH) AND the candidate pool it produced. The reranker is fed ONE frozen, banked, byte-identical pre-rerank candidate pool — built once from the IterResearch queries on the gold-bearing idxs (drb_72→56, drb_75→62, drb_76→66, drb_78→72) — so every reranker sees the EXACT same input rows (no live re-retrieval per candidate; that re-retrieval would leak query-gen variance into a reranker comparison and break isolation). Rest of the stack held at CURRENT POLARIS default: Serper discovery, crawl4ai+Zyte fetch, Trafilatura extraction, clean_fetch_body line-strip, all-MiniLM embedder (NOT the not-yet-wired Qwen3-Embedding-8B), content_quality_gate OFF. ONLY the reranker varies: it changes the ORDER and the top-K selection of the frozen pool. The faithfulness engine (strict_verify/NLI/4-role/provenance) is never invoked in this isolation test and never touched — rerank changes order/selection upstream of it, never the gates.",
+        "candidates": [
+          {
+            "name": "Current POLARIS lexical rerank (_rerank_and_reserve, no-model token-overlap)",
+            "impl_id": "src/polaris_graph/retrieval/live_retriever.py:3178 _rerank_and_reserve",
+            "license": "in-repo (POLARIS)",
+            "runnable": "yes",
+            "role": "baseline",
+            "gpu_gb_estimate": "0 (CPU, no model load)",
+            "impl_notes": "The current-default FLOOR per standard_process step 2 (never bake-off only new candidates). Wrap _rerank_and_reserve + _lexical_relevance_score as a RerankFn over the frozen pool. No torch. This is what every model candidate must beat; if a 4B reranker cannot beat lexical token-overlap, it is not worth the GPU under §8.4."
+          },
+          {
+            "name": "BGE-reranker-v2-m3 (dated 2024 baseline)",
+            "impl_id": "BAAI/bge-reranker-v2-m3",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "baseline",
+            "gpu_gb_estimate": "~2-3 GB (0.6B, fp16)",
+            "impl_notes": "Dated-model baseline (the one pre-2025 reranker in the slate; landscape §10 flags it superseded). FlagEmbedding FlagReranker or sentence-transformers CrossEncoder; compute_score on (query, doc_text) pairs. Establishes the 'old SOTA' line the 2025/2026 Apache cohort must clear."
+          },
+          {
+            "name": "gte-reranker-modernbert-base (149M) — lead candidate",
+            "impl_id": "Alibaba-NLP/gte-reranker-modernbert-base",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~0.6-1 GB (149M, fp16; 8192-tok ctx)",
+            "impl_notes": "Landscape lead pick (top accuracy/lowest cost, matters under §8.4). sentence-transformers CrossEncoder('Alibaba-NLP/gte-reranker-modernbert-base', trust_remote_code=True); rank query vs each candidate's extracted body. Behavioral bake-off decides, NOT the vendor leaderboard."
+          },
+          {
+            "name": "mxbai-rerank-base-v2 (0.5B, RL-trained)",
+            "impl_id": "mixedbread-ai/mxbai-rerank-base-v2",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~1-1.5 GB (0.5B, fp16)",
+            "impl_notes": "pip install mxbai-rerank; from mxbai_rerank import MxbaiRerankV2; .rank(query, documents). RL-tuned for instruction-aware relevance — strong fit for the 'rank credible+relevant above on-topic-spam' instruction."
+          },
+          {
+            "name": "zerank-1-small (1.7B, base Qwen3-4B) — CALIBRATED scores",
+            "impl_id": "zeroentropy/zerank-1-small",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~4-5 GB (1.7B, fp16)",
+            "impl_notes": "Apache-2.0 (only zerank-2 is CC-BY-NC; verified the card). Calibrated relevance scores make the FIXED off-topic drop-threshold trustworthy across queries — directly serves the 'calibrated drop-threshold for the OFF-TOPIC half' requirement. sentence-transformers CrossEncoder or the zeroentropy reranker API class."
+          },
+          {
+            "name": "Qwen3-Reranker-4B",
+            "impl_id": "Qwen/Qwen3-Reranker-4B",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~8-10 GB (4B, fp16)",
+            "impl_notes": "Yes/no-token relevance head. NOT the presumptive pick (4B GPU/latency cost under §8.4); included so the cost/accuracy frontier is measured, not assumed. transformers AutoModelForCausalLM with the Qwen3-Reranker yes/no scoring template, or vLLM."
+          },
+          {
+            "name": "Qwen3-Reranker-8B",
+            "impl_id": "Qwen/Qwen3-Reranker-8B",
+            "license": "apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~16-18 GB (8B, fp16)",
+            "impl_notes": "Largest Apache candidate; bench to know the accuracy ceiling and whether the small models close the gap. vLLM recommended for throughput on the frozen pool (hundreds of pairs per query)."
+          },
+          {
+            "name": "llama-nemotron-rerank-1b-v2 (yardstick, non-sovereign)",
+            "impl_id": "nvidia/llama-nemotron-rerank-1b-v2",
+            "license": "NVIDIA Open Model License (NOT Apache)",
+            "runnable": "needs_gpu",
+            "role": "yardstick_non_sovereign",
+            "gpu_gb_estimate": "~2.5-3 GB (1B, fp16)",
+            "impl_notes": "Landscape named it top-of-leaderboard, but the weight license is NVIDIA Open Model License, NOT Apache -> CANNOT deploy in the sovereign pipeline. Benched ONLY as a yardstick-to-beat so we know how far the Apache cohort is from the best 1B reranker; never selectable as the winner."
+          }
+        ],
+        "metric": {
+          "name": "Credibility-graded NDCG@K + required-source recall@K guard + off-topic-drop precision (triplet)",
+          "definition": "On the labeled candidate pool for each IterResearch query, three facets scored together (K = the current POLARIS fetch cap). (1) JUNK-REDUCTION — credibility-GRADED-gain NDCG@K and MRR: each candidate carries an ordinal gain credible-relevant(3) > low-credibility-relevant(2) > on-topic-spam(1) > off-topic(0); NDCG@K rewards a reranker that puts credible-relevant rows above on-topic-spam above off-topic. Graded (never a binary cut) is exactly where weight-not-filter lives in the metric. (2) RECALL-PRESERVATION GUARD — required-source recall@K = fraction of DRB-II info_recall-bearing sources still present in top-K after rerank; this MUST NOT regress vs the lexical floor. Catches an aggressive reranker that wins NDCG while burying a required source below the fetch cap (the over-drop / weight-not-filter violation). (3) DROP SUB-METRIC — on the OFF-TOPIC half ONLY, at the calibrated drop-threshold: off-topic-drop precision/recall = must drop off-topic items, must NOT drop on-topic-spam or credible-relevant (those are DEMOTED by low gain, never dropped — the only hard drop is the obvious-junk floor, which is a different layer). Winner = highest graded-NDCG@K AND non-regressing required-source recall@K AND clean off-topic-drop precision. No facet is a count of sources.",
+          "ground_truth_source": "RELEVANCE half: DRB-II info_recall rubrics (third_party/DeepResearch-Bench-II/tasks_and_rubrics.jsonl) — a candidate is relevance-positive iff it supplies a required info_recall point (same legitimacy as the I-qgen-001 coverage harness), with the blocked-reference excluded via load_blocked_references. CREDIBILITY half: an INDEPENDENT authority-rubric annotation (judge + authority rubric, Codex/human cross-audited per §-1.1.5) — deliberately NOT POLARIS's own tier/authority_score field, because grading the pipeline by its own metadata is the banned 'metadata comparison'. ON-TOPIC-SPAM + OFF-TOPIC negatives: labeled exemplars injected into the fixture (the natural snapshot pool has them removed/under-represented), each tagged with its gain class. Frozen as a versioned fixture so every reranker is scored against identical labels.",
+          "section_1_1_compliant_why": "It is NDCG/MRR over per-candidate ground-truth RANKING LABELS, not a count. Relevance labels come from DRB-II info_recall (claim-grounded, the same source §-1.1 already accepts for coverage); credibility labels are annotated INDEPENDENTLY of POLARIS's own tier field (so it is not the banned tier-vs-tier metadata comparison). It is not word/citation/source counting ('how many sources' is explicitly rejected — the score is positional quality of the ranking), not pattern-presence ('does it mention X'), not a string-presence PASS/FAIL, and not sample-based (every candidate in the frozen pool for the gold idxs is labeled and scored). The graded gain encodes credibility as a WEIGHT (ordinal gain), never a hard filter, satisfying §-1.3.",
+          "faithfulness_safe_why": "The reranker only re-orders and selects top-K of the frozen candidate pool BEFORE the faithfulness engine ever runs; this isolation test never invokes strict_verify/NLI/4-role/provenance, never relaxes any threshold, and produces no report. The metric scores ranking quality against external labels, not faithfulness — so it cannot trade faithfulness for a higher number. The required-source recall@K guard further ensures rerank cannot silently drop evidence the verifier would later need (no over-drop), and credibility is a demotion-weight not a drop, so a credible-relevant source is never removed by this layer."
+        },
+        "gate0_canary": "TWO-PART canary; no reranker is trusted until BOTH pass. PART A (lineage, reuse gate0_lineage.py): assert the labeled fixture is bound to the canonical DRB-II idx (load_canonical_question / SLUG_TO_IDX), info_recall points loaded from the gold file, blocked-reference excluded — so relevance labels are scored against the RIGHT rubric (the drb_72 wrong-question fix). PART B (scorer-math, the drb_72 'fake numbers that look real' gate — the part the task mandates beyond lineage): hand-build a ~6-item labeled mini-fixture with gains, e.g. [credible-relevant=3, credible-relevant=3, low-cred-relevant=2, on-topic-spam=1, off-topic=0, off-topic=0]; (i) feed ONE fixed permutation whose NDCG@K was computed BY HAND and assert harness output == that hand value (bit-for-bit, fail loud on mismatch); (ii) assert perfect ideal ordering -> NDCG@K == 1.0 and fully-reversed ordering -> the known-low hand value; (iii) assert MRR matches a hand value for a known first-relevant position; (iv) threshold check: assert the calibrated drop-threshold drops the two OFF-TOPIC items but does NOT drop the on-topic-spam(1) or any credible-relevant(3) item; (v) recall-guard check: assert required-source recall@K computes correctly when a known required source is pushed below K. 'The harness runs' is NOT the canary — the canary is 'the harness reproduces a hand-computed score and a hand-specified drop decision.'",
+        "ground_truth_to_build": "BUILD a labeled relevance+credibility candidate-pool fixture (the frozen pool can be EXTRACTED from banked corpus_snapshot.json retrieval.classified_sources/evidence_rows for the gold idxs, but it must then be LABELED — it cannot be reused as-is). Why not reuse: evidence_for_gen is POST-selection (junk already removed) and the natural pool's tier field is POLARIS self-grading, so neither can discriminate rerankers. Steps: (1) take the pre-rerank pool (~849 classified_sources / ~797 evidence_rows per idx) from the 4 gold-bearing snapshots (drb_72/75/76/78); (2) relevance-label each candidate via DRB-II info_recall (does it supply a required point); (3) credibility-label each candidate via an INDEPENDENT authority rubric, judge-annotated + Codex/human cross-audited (NOT the tier field); (4) INJECT and label on-topic-SEO-spam exemplars + off-topic exemplars (the natural pool under-represents pure on-topic spam — it dies at the SERP/off-topic filter — so the discriminating negatives must be added); (5) freeze as a versioned fixture with per-candidate gain in {0,1,2,3}. Size: ~4 gold idxs x ~800-1000 labeled candidates + ~10-20 injected spam/off-topic exemplars per idx. Every model-based candidate is runnable=needs_gpu AND its scoring is needs_fixture (depends on this fixture); the lexical floor is runnable=yes but still scored against the same fixture.",
+        "notes": "Repo ids verified live (2026-06-23): Qwen/Qwen3-Reranker-4B & -8B (apache-2.0), Alibaba-NLP/gte-reranker-modernbert-base (149M, apache-2.0), mixedbread-ai/mxbai-rerank-base-v2 (apache-2.0), zeroentropy/zerank-1-small (apache-2.0 — only zerank-2 is CC-BY-NC), BAAI/bge-reranker-v2-m3 (apache-2.0, dated baseline). nvidia/llama-nemotron-rerank-1b-v2 is NVIDIA Open Model License (NOT Apache) -> yardstick_non_sovereign, never selectable as winner (sovereignty). Harness pattern mirrors scripts/dr_benchmark/qgen_coverage_harness.py (injected RerankFn + judge, deterministic, unit-testable on stubs) and reuses gate0_lineage.py for PART-A binding. Winner is selected on the standalone isolation number, then PORTED into POLARIS as the real cross-encoder replacing _rerank_and_reserve (flag-gated, calibrated off-topic-only drop-threshold), Codex-gated on the diff per standard_process steps 7-8; the integrated run decides. Faithfulness gates untouched throughout."
+      },
+      {
+        "layer": "embedder_late_interaction (the query↔source relevance-scoring substrate: single-vector bi-encoder vs token-level late-interaction MaxSim). This layer CONTROLS off-topic separation and reasoning-retrieval recall; it is the same chokepoint I-arch-009 diagnosed as a RANK-INVERT (all-MiniLM scored off-topic sources ABOVE on-topic ones, AUC<0.5).",
+        "holding_condition": "FIXED: IterResearch/Tongyi adaptive queries (PG_QGEN_ITERRESEARCH, the I-qgen-001 winner, commit 84bb2d86) — the same query set feeds every candidate. FIXED at current POLARIS default: Serper search, crawl4ai+Zyte fetch, Trafilatura extract-of-record (safe_trafilatura_extract), clean_fetch_body line-level strip, ContentDeduplicator near-dup, tier/authority weighting, finding_dedup/fact_dedup consolidation, and the entire faithfulness engine (strict_verify / NLI / 4-role / provenance / span-grounding) — NONE touched or relaxed. ISOLATION mechanism: each candidate is scored over the SAME banked corpus_snapshot.json per question (the 5 banked DRB questions under outputs/corpus_backups/extracted/<slug>/corpus_snapshot.json), so the retrieved candidate set is byte-identical across embedders and ONLY the query→source-text scoring function varies. NO retrieval re-run, NO report generation, NO render, NO DeepTRACE/coverage judge. VARY ONLY: the embedder / late-interaction scorer that maps (IterResearch query, source body) → relevance, loaded once per candidate then freed before the next (low peak VRAM, §8.4). Weight-not-filter preserved: the score is surfaced as a relevance WEIGHT to consolidation; the only hard drop remains the obvious-junk structural floor (junk_detection.py), which is unchanged.",
+        "candidates": [
+          {
+            "name": "all-MiniLM-L6-v2 (current production embedder — the FLOOR)",
+            "impl_id": "sentence-transformers/all-MiniLM-L6-v2",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "baseline",
+            "gpu_gb_estimate": "<1 GB (22M params, fp32; runs on CPU but bench on GPU for apples-to-apples timing)",
+            "impl_notes": "SentenceTransformer(model).encode(query)/encode(source); cosine = stored selection_relevance. This is EMBEDDING_MODEL_NAME in src/utils/embedding_service.py:55 — the exact production floor. 256-token cap is the known defect (truncates long clinical bodies before scoring). Reuse the I-arch-009 scorer scaffold scripts/relevance_scorer_bakeoff.py candidate 'baseline_cosine' verbatim."
+          },
+          {
+            "name": "Qwen3-Embedding-8B (decided pick I-arch-009 — the candidate-to-confirm)",
+            "impl_id": "Qwen/Qwen3-Embedding-8B",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~16-18 GB (8B params, bf16; ~32GB fp32 — load bf16)",
+            "impl_notes": "SentenceTransformer('Qwen/Qwen3-Embedding-8B') with the query prompt template (prompt_name='query' / Instruct: ... wrapper per the model card) for the query side, plain encode for source side; flexible dim 32-4096 (use default 4096). This is the I-arch-009 decision — the bake-off CONFIRMS it behaviorally vs the late-interaction layer, not re-litigates it. Reuse candidate 'qwen3_embedding_8b' from relevance_scorer_bakeoff.py."
+          },
+          {
+            "name": "gte-modernbert-embed (single-vector, long-context Apache challenger)",
+            "impl_id": "Alibaba-NLP/gte-modernbert-base",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~1-2 GB (149M params, bf16)",
+            "impl_notes": "SentenceTransformer('Alibaba-NLP/gte-modernbert-base', trust_remote_code=True); 8192-token context (vs MiniLM 256) is the relevant axis — tests whether long clinical bodies score better when not truncated. Cheap, sovereign, ModernBERT base shared with the ColBERT candidate (clean architecture comparison)."
+          },
+          {
+            "name": "EmbeddingGemma (sub-500M on-device single-vector)",
+            "impl_id": "google/embeddinggemma-300m",
+            "license": "Gemma (gated; review-and-agree, commercial-permitted but NON-sovereign per CLAUDE.md §9.1.8 no-Gemma lock)",
+            "runnable": "needs_gpu",
+            "role": "yardstick_non_sovereign",
+            "gpu_gb_estimate": "~1 GB (300M params, bf16)",
+            "impl_notes": "SentenceTransformer('google/embeddinggemma-300m') with the prescribed query/document prompts; gated HF login required. Scored as a YARDSTICK only — Gemma is on the §9.1.8 no-gemma sovereignty exclusion, so it can inform the ceiling but CANNOT be the production pick. Mark gated: needs HF token accept."
+          },
+          {
+            "name": "Granite-Embedding-R2 (IBM Apache long-context single-vector)",
+            "impl_id": "ibm-granite/granite-embedding-english-r2",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~1 GB (149M params, 768-dim, 8192-token context)",
+            "impl_notes": "SentenceTransformer('ibm-granite/granite-embedding-english-r2'); sovereign Apache long-context bi-encoder, direct size-matched comparator to gte-modernbert and the ColBERT base."
+          },
+          {
+            "name": "GTE-ModernColBERT-v1 (LEAD late-interaction candidate — NEW first-class layer, Apache-clean)",
+            "impl_id": "lightonai/GTE-ModernColBERT-v1",
+            "license": "Apache-2.0",
+            "runnable": "needs_gpu",
+            "role": "candidate",
+            "gpu_gb_estimate": "~1-2 GB (0.1B params, bf16; PyLate stores multi-vector token embeddings — index RAM grows with corpus token count, ~hundreds of MB for a banked corpus_snapshot)",
+            "impl_notes": "pip install -U pylate; from pylate import models, indexes, retrieve; models.ColBERT('lightonai/GTE-ModernColBERT-v1'); encode docs is_query=False, queries is_query=True; score = MaxSim (retrieve.ColBERT over a PLAID/Voyager index, or rank.rerank for the fixed candidate set — use rank.rerank since the candidate set per question is fixed by the snapshot). 128-dim per-token vectors, 8k+ context. This is the SOVEREIGN late-interaction pick (Apache base trained on PyLate). Token-level MaxSim is the claimed edge on out-of-domain + reasoning retrieval."
+          },
+          {
+            "name": "Reason-ModernColBERT (late-interaction reasoning-retrieval SOTA — ceiling probe, non-commercial)",
+            "impl_id": "lightonai/Reason-ModernColBERT",
+            "license": "CC-BY-NC-4.0 (ReasonIR training data is cc-by-nc; reproducible to Apache via a <2h fine-tune per the LightOn card)",
+            "runnable": "needs_gpu",
+            "role": "yardstick_non_sovereign",
+            "gpu_gb_estimate": "~1-2 GB (149M params, bf16; 8192-token context)",
+            "impl_notes": "Same PyLate loader as GTE-ModernColBERT-v1 (models.ColBERT('lightonai/Reason-ModernColBERT')). Beats all models up to 7B on BRIGHT (reasoning-intensive retrieval) — the deep-research regime. CC-BY-NC blocks PRODUCTION (Carney commercial), so it is a CEILING YARDSTICK: it quantifies the reasoning-retrieval headroom and, if it wins big, justifies the <2h Apache re-fine-tune as a follow-up. NOT a presumptive production pick."
+          }
+        ],
+        "metric": {
+          "name": "Dual-axis isolation relevance score: (A) AUC(on-topic > off-topic) separation + (B) reasoning-retrieval recall@k on non-lexical evidence",
+          "definition": "Per banked question, over the FIXED candidate set in that question's corpus_snapshot.json: AXIS A (separation, drives single-vector + late-interaction) — score every source with the candidate (single-vector: query↔body cosine; late-interaction: query↔body MaxSim), then compute AUC = P(score(on-topic source) > score(off-topic source)) across all POS×NEG pairs from the hand-checked labeled set. AUC=1.0 means every on-topic source ranks above every off-topic contaminant; AUC<0.5 is the rank-inversion failure I-arch-009 found. A candidate is admissible iff AUC>0.5 on EVERY question AND no regression vs the all-MiniLM floor on drb_76/drb_78 (the two where whitening hurt). AXIS B (reasoning retrieval, the late-interaction CLAIMED EDGE) — on a small per-question fixture of expert-rubric-required claims whose supporting corpus source does NOT lexically overlap the IterResearch query (a reasoning hop), rank all sources by the candidate and report recall@k (k = the count actually fed to consolidation at POLARIS default) of the gold supporting source(s). Winner per axis is the highest mean across questions with the admissibility gate satisfied; the late-interaction layer is adopted ONLY if it wins Axis B materially over the best single-vector (its purpose-built regime), else the single-vector embedder is the pick and late-interaction is shelved. Borderline rows (scores within a small band of the POS/NEG boundary) are PRINTED and read by eye (§-1.1), never regex-trusted.",
+          "ground_truth_source": "AXIS A: the hand-checkable LABEL_SETS already banked in scripts/relevance_scorer_bakeoff.py (per-question POSITIVE = must-hit-both-facet-lists on-topic keywords, NEGATIVE = the specific off-topic content that contaminated THAT corpus, e.g. drb_72 ai_labor POS=AI∧labor, NEG=ptsd/colorectal/parkinson) — drawn from the REAL banked corpora, counts+samples printed for eye-verification. AXIS B: a NEW small labeled fixture (see ground_truth_to_build) derived from the DRB-II expert rubrics for those 5 questions — each gold (claim → supporting source) pair hand-verified to be a genuine reasoning hop (the source supports the rubric point without lexically matching the query).",
+          "section_1_1_compliant_why": "It is NOT a count and NOT a pattern-presence/metadata proxy. AUC is a per-pair ordering of REAL corpus sources by whether on-topic content out-ranks the actual off-topic contamination in that corpus — it measures corpus relevance QUALITY (does the scorer keep the right sources high and the junk low), exactly the junk-reduction/recall-preservation the layer controls. It is not 'how many sources' (banned), not 'does the report mention X' (banned), not a string-presence PASS/FAIL gate (banned), not a sample-based audit (every POS×NEG pair is scored, and borderline rows are read individually per §-1.1). Recall@k of gold reasoning-hop evidence is recall-PRESERVATION on real ground truth, not a citation tally. No metadata comparison between systems — each candidate is scored on the same real corpus against the same hand-checked labels.",
+          "faithfulness_safe_why": "This layer scores relevance to ORDER/WEIGHT sources for consolidation; it never reads, gates, or alters the faithfulness engine. strict_verify / NLI / 4-role / provenance / span-grounding run unchanged downstream on whatever the consolidation receives. The relevance score is surfaced as a WEIGHT (weight-not-filter §-1.3), never a hard drop — the only hard drop is the unchanged obvious-junk structural floor. A better embedder can only raise the on-topic mass entering an UNCHANGED verifier; it cannot relax any faithfulness threshold, cannot let an unsupported claim pass, and touches no span the verifier later checks (no LLM rewrite of any source body — all candidates are encoders/late-interaction scorers, not generators)."
+        },
+        "gate0_canary": "MANDATORY pre-candidate harness-validity proof, two synthetic checks the AUC/MaxSim harness MUST pass BEFORE any candidate score is trusted (kills the drb_72 'fake numbers that look real' failure): (CANARY-1, known-correct) feed a TRIVIAL labeled set — POS = 5 strings that are pure on-topic for a question (verbatim from its POS facets), NEG = 5 strings that are pure off-topic (verbatim from its NEG list) — through the FULL scoring+AUC code path; a competent scorer MUST return AUC=1.0 (perfect separation). If the harness returns anything other than ~1.0 on an unambiguous input, the harness is wired wrong (split-brain scoring / wrong-query binding / Title-only-stub) and NO candidate is run. (CANARY-2, known-inverted) feed a DELIBERATELY rank-inverted oracle — a fake scorer that returns +1 for NEG and −1 for POS — and assert the harness reports AUC<0.5 (and specifically ~0.0). This proves the AUC computation has the POS/NEG polarity correct and is not silently symmetric. (CANARY-3, identity binding) assert the query the harness scores against == the IterResearch query bound to that snapshot (print both, compare) — prevents the drb_72 wrong-question/packed≠answered defect at this layer. All three print their inputs+outputs for eye-verification (§-1.1) and FAIL LOUD (non-zero exit) on mismatch. Only after all three pass is any real candidate trusted.",
+        "ground_truth_to_build": "PARTIAL — Axis A reuses existing, Axis B must be built. AXIS A: none to build — reuse scripts/relevance_scorer_bakeoff.py LABEL_SETS (5 questions, hand-checkable POS/NEG keyword registry already banked and §-1.1-verified). AXIS B (the late-interaction reasoning-retrieval fixture): BUILD a small labeled set — for each of the 5 banked questions, 5-10 (expert-rubric-required-claim → gold-supporting-source-id-in-snapshot) pairs, selected so the support is a genuine reasoning hop (source does NOT lexically overlap the IterResearch query), each pair hand-verified against the DRB-II rubric and the actual snapshot body span. Size: ~25-50 gold pairs total, hand-checkable in a sitting, stored as tests/fixtures/I-ret-002/reasoning_retrieval_goldset.json with the supporting span quoted inline so a reviewer can eye-confirm the hop. This fixture is REQUIRED before the late-interaction Axis-B claim can be scored; without it, only Axis A (separation) is decidable and the late-interaction candidates cannot be crowned on their claimed edge. Mark candidates needing it: needs_fixture for the Axis-B portion.",
+        "notes": "Repo ids + licenses web-verified 2026-06-23: lightonai/GTE-ModernColBERT-v1 = Apache-2.0 (note suffix is -v1 not -base), lightonai/Reason-ModernColBERT = CC-BY-NC-4.0, Qwen/Qwen3-Embedding-8B = Apache-2.0, Alibaba-NLP/gte-modernbert-base = Apache-2.0, ibm-granite/granite-embedding-english-r2 = Apache-2.0, google/embeddinggemma-300m = Gemma license (gated, non-sovereign per §9.1.8 no-gemma lock). PyLate = `pip install -U pylate` (github.com/lightonai/pylate). HARNESS REUSE: scripts/relevance_scorer_bakeoff.py is the proven I-arch-009 scaffold (AUC-on-real-corpus, single-model-load-then-free, prints borderline rows) — extend it with a PyLate late-interaction branch (MaxSim via pylate rank.rerank over the FIXED snapshot candidate set, not a fresh retrieval) and the GATE-0 canaries; do NOT re-implement. SCOPE HONESTY: this is ISOLATION — no e2e, no render, no judge; the winner is wired flag-gated then validated in the SINGLE combined end-to-end run at the end of the section sequence (per standard_process doc §44-49). all-MiniLM is the explicit FLOOR (must be beaten, not assumed-beaten). Late-interaction adopted ONLY if it wins Axis B materially; otherwise Qwen3-Embedding-8B stands as the I-arch-009 single-vector pick and ColBERT is shelved with the number on record. DECISION RULE for non-sovereign yardsticks (EmbeddingGemma, Reason-ModernColBERT): they bound the ceiling and can justify a sovereign follow-up (e.g. the <2h Apache re-fine-tune of Reason-ModernColBERT) but can NEVER be the production pick."
+      }
+    ],
+    "critics": [
+      {
+        "banned_proxy_violations": [
+          {
+            "layer": "reranker",
+            "metric": "off-topic-drop precision/recall sub-metric (facet 3) + 'calibrated drop-threshold'",
+            "why_banned": "This is the strongest §-1.3 violation in the design. The metric explicitly REWARDS a hard DROP at a calibrated threshold ('off-topic-drop precision/recall = must drop off-topic items') — that is a new hard filter beyond the obvious-junk structural floor, contradicting both the layer's own claim ('the only hard drop is the obvious-junk floor') and §-1.3 ('everything else is a WEIGHT — never a DROP/CAP/THIN'). Verified against src/polaris_graph/retrieval/live_retriever.py:3178 _rerank_and_reserve: the incumbent does a count-cut by score (top-K), NOT a semantic off-topic drop — so the proposed drop-threshold is genuinely NEW behavior the bake-off is optimizing for. A reranker selected for 'clean off-topic-drop precision' is selected to be a better FILTER, which is exactly the weight-not-filter breach the standard exists to catch.",
+            "fix": "Drop the off-topic-drop facet entirely OR re-cast it as a pure DEMOTION-weight check (off-topic items get gain 0 and sink in graded-NDCG@K, but are never removed). If an off-topic hard-cut is genuinely wanted it must be a SEPARATE explicitly-justified structural floor with its own §-1.3 sign-off, not folded into the reranker score as a rewarded sub-metric. NDCG@K (facet 1) + required-source recall@K guard (facet 2) already capture all the legitimate signal without any drop."
+          },
+          {
+            "layer": "search_discovery",
+            "metric": "Gold-source recall@k against a single canonical gold_url(f) per required finding",
+            "why_banned": "Borderline-banned via basket-faithfulness (§-1.3) inversion. The metric scores a backend 1 ONLY if it surfaces the ONE canonical gold_url(f); a backend that surfaces an equally-valid ALTERNATE source carrying the same finding (a publisher mirror not in the normalizer's map, a different primary study supporting the same DRB-II point, a gov restatement) scores 0. That penalizes legitimate corroboration diversity and rewards exact-URL matching — a single-source-truth proxy, the blind spot §-1.3 BASKET FAITHFULNESS names ('never a single URL/span'). It is not a count-of-sources proxy (that part is clean), but the single-URL gold makes it a pattern-match-the-canonical-URL proxy rather than a did-you-discover-a-valid-source-for-the-finding measure.",
+            "fix": "Make gold_url(f) a per-finding SOURCE SET (the canonical study DOI PLUS accepted equivalents: known mirrors, the gov/agency restatement, alternative primary sources the DRB-II rubric would accept), and score recall as 'union(ranked URLs) intersects the gold SET'. Build the equivalent-set during fixture construction (Crossref/OpenAlex already give mirror DOIs); fail loud on a finding with zero resolvable sources, never on a finding where a valid alternate exists."
+          },
+          {
+            "layer": "quality_weight",
+            "metric": "Quality-weight ranking AUC (authoritative vs on-topic-spam), with topic-grouped pairing",
+            "why_banned": "Risk of a 'source-TYPE = better' proxy in disguise — the exact 'more/better sources' trap the task warned about. Pairing is only WITHIN-topic, not within source-TYPE. If authoritative items are predominantly journals/FDA-labels and spam items are predominantly blog/SEO domains, a candidate can win high AUC by learning domain/source-type register (journal-ese vs blog-ese), NOT by judging quality on equal-type content. The educational-value classifiers (DCLM/FineWeb-Edu/Nemotron-CC) are explicitly admitted to measure a register PROXY, which makes this leakage path live. Separately, the recall-preservation guard is defined on 'human-labeled T1/T2/T3 authoritative' — if those tier labels are derived from or anchored to POLARIS's own tier_classifier vocabulary, the guard becomes circular (grading the pipeline by its own metadata, a §-1.1 banned metadata comparison).",
+            "fix": "Add within-source-TYPE pairs to the fixture (authoritative AND spam drawn from the SAME register where possible: a sloppy journal-style content-farm vs a real journal; an authoritative .gov page vs a spammy .gov-mimic), and report AUC stratified by source-type so a register-only winner is exposed. State explicitly in the fixture spec that the T1/T2/T3 'authoritative' labels are human judgments of the BODY TEXT, defined independently of tier_classifier output, with the tier vocabulary not shown to annotators — and assert this in the lineage manifest."
+          },
+          {
+            "layer": "embedder_late_interaction (Axis A)",
+            "metric": "AUC(on-topic > off-topic) over keyword-derived POS/NEG label sets",
+            "why_banned": "Mild pattern-presence-as-ground-truth. Verified in scripts/relevance_scorer_bakeoff.py label_rows(): POS = all(any(kw in text) for facet) and NEG = any(neg_kw in text) — pure substring matching ('ptsd', 'parkinson', 'AI'∧'labor'). The GOLD LABELS are themselves built by the §-1.1-banned 'does term X appear' construction. The metric over those labels (AUC) is fine, but its ground truth is keyword presence, so a source genuinely on-topic that avoids the keyword is mislabeled NEG, and an off-topic source that happens to contain a keyword is mislabeled POS. The design's mitigation (print borderline rows + eye-verify) tempers but does not remove the dependency on pattern-derived labels.",
+            "fix": "Keep the keyword sets as a fast PRE-FILTER for candidate label rows, but require the final POS/NEG gold to be HUMAN-confirmed by reading the body (the eye-verification must be a hard gating step that overrides the keyword label and is recorded per-row), not just a spot-check of borderline cases. Report how many keyword-labeled rows were flipped on human read as a fixture-quality signal."
+          }
+        ],
+        "faithfulness_risks": [
+          {
+            "layer": "reranker",
+            "risk": "The off-topic drop-threshold, once ported to production, sits UPSTREAM of strict_verify/NLI/4-role and silently removes evidence the verifier would otherwise see. Unlike a down-weight, a dropped source cannot be recovered into a basket — so an aggressive calibrated threshold can starve the faithfulness engine of a real corroborator (the over-drop failure §-1.3 forbids), even though the isolation test itself never invokes the gates.",
+            "fix": "Forbid the reranker from removing any non-junk source in production; it may only re-ORDER. If a fetch-cap count-cut is unavoidable, keep the existing count-cut semantics + the required-source recall@K guard as a hard non-regression gate, and never add a semantic drop. Re-validate e2e that post-rerank baskets still contain every verifier-needed source before adoption."
+          },
+          {
+            "layer": "content_extraction",
+            "risk": "MinerU-HTML and union are asserted extractive/verbatim, but only MinerU is primary-source-confirmed extractive (Dripper paper). The union candidate does near-dup MinHash collapse of three extractors' lines — if any member silently normalizes whitespace/punctuation or re-orders, the surviving 'verbatim' span can drift from source bytes, breaking the byte-identity strict_verify depends on. The faithfulness-safe claim rests on every member being byte-faithful, which is asserted not proven for the union merge step.",
+            "fix": "Add a fixture-build assertion that every extractor output span is a verbatim substring of the fetched HTML's text (byte-for-byte, modulo a declared whitespace-normalization that is identical to production's clean_fetch_body). Fail the candidate if any line in its output is not a verbatim source span. Make this a GATE-0 check for the union candidate specifically."
+          },
+          {
+            "layer": "dedup",
+            "risk": "SemHash semantic merge can FALSE-MERGE two distinct independent sources that paraphrase the same claim — silently deleting a real corroborator (the §-1.3 consolidate-keep-all violation). The design correctly identifies this as the precision arm, but the PORTING NOTE (wire winner in keep-all basket mode) is described, not tested by the isolation metric — so a winner could be adopted and then wired in DROP mode by mistake, reintroducing the incumbent's keep_first drop the design itself flags as a DNA collision.",
+            "fix": "The metric already guards false-merge well; the gap is the wire-in. Require the eventual port to ship a behavioral replay assertion (§-1.4) that on a real corpus_snapshot the deduped output retains ALL source_urls per merged cluster as multi-citation (collapsed corroboration WEIGHT, zero dropped URLs), failing loud if any source_url disappears."
+          }
+        ],
+        "ground_truth_gaps": [
+          {
+            "layer": "search_discovery",
+            "what_missing": "drb_gold_sources.jsonl does not exist — per-finding title->canonical-URL/DOI resolution for ~50-60 named studies across idx 56/62/66/72. The design confirms info_recall items name studies by title with ZERO embedded URLs.",
+            "how_to_get_it": "Resolve each quoted study title via Crossref + OpenAlex title lookup, verify the DOI resolves AND the returned title matches the rubric title (fail loud on ambiguity, never guess), exclude the DRB-II blocked source, sha-pin in the lineage manifest. CRITICAL ADD per the violation above: capture a per-finding equivalent-source SET, not one URL.",
+            "blocks_run": true
+          },
+          {
+            "layer": "fetch_crawl",
+            "what_missing": "fetch_crawl_refbody_fixture (~60-100 URLs) with human-labeled main-content reference spans (WebMainBench/MainWebBench protocol) AND gold recovery verdicts — corpus snapshots store URLs+tier-reasons only, NOT reference bodies.",
+            "how_to_get_it": "Stratified-sample real URLs from the banked classified_sources, hand-label main-content span + recovery class per URL, re-snapshot raw HTML per URL to freeze the wall/stub state, seed with the already-banked AEA-real + scirp-shell bodies as GATE-0 rows. Store under tests/fixtures/fetch_crawl_refbody/.",
+            "blocks_run": true
+          },
+          {
+            "layer": "content_extraction",
+            "what_missing": "The clinical extraction fixture (~50-100 pages with gold main-body Markdown AND gold table trees for TEDS) does not exist; only the general WebMainBench reuse is in hand. Also an open question whether WebMainBench ships an official eval script.",
+            "how_to_get_it": "Hand-label real pages across POLARIS source types (journal HTML, FDA label, EMA SmPC, ClinicalTrials.gov, guideline, preprint), oversample table-bearing pages. Confirm/obtain the official ROUGE-N scorer; if absent, re-implement to the paper config and tolerance-check against published Table-2 anchors (this is the strongest layer — anchors are external ground truth).",
+            "blocks_run": true
+          },
+          {
+            "layer": "quality_weight",
+            "what_missing": "clinical_quality_weight_fixture.jsonl (~300-500 sources, >=150 authoritative + >=150 on-topic-spam, ~15-25 topics) with dual-human labels and kappa. MISSING from the spec: within-source-TYPE pairs, and an explicit statement that 'authoritative' labels are independent of POLARIS tier vocabulary.",
+            "how_to_get_it": "Draw from banked corpus_snapshot.json, dual-annotate authoritative vs on-topic-spam by reading body text (tier vocabulary withheld from annotators), report kappa. Add same-register pairs. Persist under tests/fixtures/.",
+            "blocks_run": true
+          },
+          {
+            "layer": "dedup",
+            "what_missing": "Labeled near-dup PAIR fixture (~300-500 bodies, hard-negative + true-positive strata) — snapshots carry bodies but NO per-pair labels. Ground-truth gap: labels are dual-annotated by Claude+Codex (AI), NOT human, in a clinical-safety context.",
+            "how_to_get_it": "Assemble adversarial strata from the 6 banked snapshots; dual-annotate per-pair with cited-span justification. For clinical §-1.1, escalate at least the hard-negative (distinct-same-claim) stratum to a human adjudicator since AI-vs-AI agreement is not the §-1.1 human-read standard; record who adjudicates each disagreement.",
+            "blocks_run": true
+          },
+          {
+            "layer": "reranker",
+            "what_missing": "Labeled relevance+credibility candidate-pool fixture (~4 gold idxs x ~800-1000 candidates + injected spam/off-topic exemplars), with credibility labels annotated INDEPENDENTLY of POLARIS tier field.",
+            "how_to_get_it": "Extract pre-rerank pool from banked snapshots, relevance-label via DRB-II info_recall, credibility-label via an independent authority rubric (judge + Codex/human cross-audit, NOT tier), inject+label on-topic-spam and off-topic exemplars, freeze versioned with per-candidate gain {0,1,2,3}.",
+            "blocks_run": true
+          },
+          {
+            "layer": "embedder_late_interaction",
+            "what_missing": "Axis A label sets exist (keyword-derived, in relevance_scorer_bakeoff.py) but need human-read confirmation per the pattern-presence violation. Axis B (reasoning-retrieval recall@k on non-lexical evidence) fixture does NOT exist and the layer-7 metric/gate0 detail is truncated in the provided design — partially verified only.",
+            "how_to_get_it": "For Axis B, derive hand-verified (rubric-claim -> non-lexically-overlapping supporting source) pairs from the DRB-II expert rubrics for the 5 questions. Read the full I-ret-002 design / docs/standard_process_pipeline_section_review.md to audit the actual layer-7 metric+gate0 (truncated here). For Axis A, gate the keyword labels behind a human body-read.",
+            "blocks_run": true
+          }
+        ],
+        "gate0_weaknesses": [
+          {
+            "layer": "search_discovery",
+            "weakness": "All four canaries (positive/negative/normalization/lineage) feed SYNTHETIC ranked lists to the scorer — they prove the scorer math and the idx binding, but NOT that each search candidate actually LOADED and returned real varying output. An Exa call returning [] (key issue / use_autoprompt misconfig), an unkeyed candidate, or a SearXNG container not up would each score a BELIEVABLE LOW recall, not fail loud — the drb_72 'garbage that scores like a real number' wiring failure for which the metric-only canary is blind.",
+            "fix": "Add a per-candidate LIVENESS canary (the missing half, present only in quality_weight's Part B): before scoring, issue each backend a known-easy query whose top result is pre-known (e.g. 'WHO antimicrobial resistance' -> who.int) and ASSERT the candidate returns a non-empty ranked list containing it; a candidate returning empty/constant is marked NON-FUNCTIONAL and excluded, never scored 0.0 as if it discovered nothing."
+          },
+          {
+            "layer": "fetch_crawl",
+            "weakness": "GATE-0 feeds three pre-banked bodies to the SCORER, bypassing all four fetch engines — it validates the completeness scorer (good~1.0/trunc~0.6/junk~0.0) but proves nothing about whether each ENGINE actually fetches. Specifically, per fact_zyte_key_location memory, Zyte SILENTLY NO-OPS without ZYTE_API_KEY — an unkeyed Zyte would return walls/errors on every URL and score a real-looking low recovery, indistinguishable from Zyte genuinely failing to unblock.",
+            "fix": "Add a per-engine liveness+key assertion: assert ZYTE_API_KEY (and PG_ZYTE*) is present in the bake-off env and that Zyte returns a RECOVERED body on a known-fetchable control URL before any stratum is scored; same for FIRECRAWL_API_KEY; assert crawl4ai/Playwright return non-empty HTML on the control URL. A keyless or load-failed engine is marked non-functional, not scored."
+          },
+          {
+            "layer": "reranker",
+            "weakness": "GATE-0 Part B is strong on scorer-math (hand-computed NDCG, ideal=1.0, drop/recall-guard checks) but has NO per-candidate model-wiring liveness check. A reranker that load-fails to a constant score (trust_remote_code error, wrong template, OOM fallback) would still produce a real-looking NDCG ~ the base ordering, not fail loud.",
+            "fix": "Add a per-candidate wiring canary mirroring quality_weight Part B: feed each loaded reranker one obviously-relevant and one obviously-irrelevant doc for a fixed query and ASSERT it ranks relevant strictly above irrelevant AND the two scores DIFFER (not constant). Exclude any candidate that fails as non-functional."
+          },
+          {
+            "layer": "embedder_late_interaction",
+            "weakness": "Layer-7 gate0 is truncated in the provided design (cannot be fully audited). For Axis A, the same per-candidate liveness gap applies: an embedder that load-fails to constant/zero vectors yields AUC~0.5, indistinguishable from a genuinely signal-free model. The late-interaction PyLate path (MaxSim over a multi-vector index) is a distinct, more fragile wiring than single-vector cosine and needs its own load-success assertion.",
+            "fix": "Read the full design to audit the actual gate0, then ensure a per-candidate liveness canary: assert each embedder/MaxSim scorer separates one hand-built on-topic vs off-topic pair with differing (non-constant) scores before trusting its AUC; assert the PyLate index built and returned per-token vectors (not empty) for the late-interaction candidates specifically."
+          },
+          {
+            "layer": "quality_weight",
+            "weakness": "Strongest gate0 in the set (it IS the model that has the per-candidate Part-B wiring canary the others lack — use it as the template). Residual gap: Part B uses one authoritative + one garbage doc; a model could pass that single pair yet be near-random on the real fixture, and the metric canary's all-tied=0.5 check does not catch a model that loaded but is mis-prompted.",
+            "fix": "Minor: broaden Part B to a handful (3-5) of obvious authoritative/garbage pairs per candidate and require correct ranking on all, to reduce the chance a lucky single pair passes a mis-wired model."
+          },
+          {
+            "layer": "dedup",
+            "weakness": "GATE-0 is bidirectional and strong (positive byte-identical, positive distinct, no-op recall floor, over-merge precision/false-merge floor) — it tests scorer math well. Gap: like the others it feeds the SCORER, not each dedup MECHANISM end-to-end; a candidate whose library import/threshold-sweep silently produced empty clusters would behave as the no-op control and score recall=0.0 (correctly low) but be misread as 'this method is bad' rather than 'this method did not run'.",
+            "fix": "Minor: add a per-candidate functional assertion that on the two byte-identical control bodies the LIVE candidate (not a stub) actually emits a cluster of size 2, distinguishing 'method ran and chose not to merge' from 'method failed to run'."
+          }
+        ],
+        "verdict": "needs_fixes_material",
+        "bottom_line": "This is a careful, mostly §-1.1-compliant design — content_extraction is genuinely strong (external published-number anchors as ground truth), and most metrics are real recall/AUC/NDCG against labeled gold rather than banned counts. It is NOT yet ready to write into a Codex-gated brief: there are two material defects that must be fixed first — (1) the reranker's 'calibrated off-topic-drop' sub-metric is a NEW hard FILTER the bake-off would optimize for, a direct §-1.3 weight-not-filter breach (verified: the incumbent _rerank_and_reserve only count-cuts, so this drop is genuinely new), and (2) search_discovery's single-canonical-gold_url scoring violates §-1.3 basket-faithfulness (a valid alternate source scores 0). The single biggest risk, though, is GROUND-TRUTH: every one of the seven layers is blocked on a net-new, unbuilt fixture, and three of them have ground-truth-quality concerns (single-URL gold not a source-set; quality_weight winnable by source-TYPE register unless paired within-type; dedup gold labeled by Claude+Codex AI rather than humans in a clinical-safety context). Compounding it: most gate0 canaries test scorer-MATH on synthetic inputs but lack the per-candidate LIVENESS canary (only quality_weight has it) — so an unkeyed Zyte, an empty Exa list, or a load-failed reranker/embedder would score a believable-low number instead of failing loud, which is precisely the drb_72 wiring class the whole process exists to stop. Fix the reranker drop, make the search gold a per-finding source-set, add per-candidate liveness canaries everywhere, escalate the dedup hard-negative labels to human adjudication, and confirm quality_weight/reranker credibility labels are independent of POLARIS's own tier metadata — then it is brief-ready. (Note: layer-7 embedder was truncated in the input; its metric/gate0 were only partially verifiable and should be re-audited against the full design file before briefing.)"
+      },
+      {
+        "banned_proxy_violations": [],
+        "faithfulness_risks": [
+          {
+            "layer": "embedder_late_interaction",
+            "risk": "Axis-A AUC uses keyword-defined POS/NEG label sets (the existing relevance_scorer_bakeoff LABEL_SETS: e.g. drb_72 POS=AI AND labor keywords, NEG=ptsd/colorectal/parkinson). The SCORE being ranked is the embedder's query<->body similarity (a real quality signal, not a banned count), so this is NOT a banned-proxy violation. But the GROUND-TRUTH LABELS are keyword-membership, so a source genuinely on-topic without the registry keyword is mislabeled NEG and an off-topic source containing the keyword is mislabeled POS — the AUC then measures 'agreement with a keyword heuristic', not true on/off-topic separation. Verified: LABEL_SETS in scripts/relevance_scorer_bakeoff.py drives label_rows() and only covers the banked slugs.",
+            "fix": "Treat keyword labels as a coarse pre-filter, then have a judge (or human) confirm the borderline POS/NEG rows the design already says to print and eye-read (§-1.1); report the count of keyword-only vs judge-confirmed labels per question so the AUC's label validity is auditable, not assumed."
+          },
+          {
+            "layer": "content_extraction",
+            "risk": "GATE-0 check #3 (reproduce Dripper Table-2 anchors: Trafilatura ~0.6402, MinerU ~0.8779, etc.) is the strongest harness-integrity gate in the design IFF an OFFICIAL WebMainBench ROUGE-N(N=5, jieba) scorer exists. The design's own 'honest open item (a)' admits it may not ship one, in which case the fallback is to RE-DERIVE the scorer and tolerance-check against the same published numbers — which is self-fitting/circular (you tune the re-implementation until it reproduces the anchors, so the anchors can no longer independently validate it).",
+            "fix": "Before building, confirm opendatalab/WebMainBench ships an executable eval script. If yes, GATE-0 #3 is sound. If no, have an independent party (Codex) re-derive the scorer blind before comparing to anchors, or downgrade #3 to an advisory band and rely on the non-circular #1 (perfect-input->F1~1) and #2 (junk->F1~0) checks."
+          }
+        ],
+        "ground_truth_gaps": [
+          {
+            "layer": "search_discovery",
+            "what_missing": "drb_gold_sources.jsonl does not exist and is genuinely net-new. VERIFIED in primary source: DRB-II info_recall items carry ZERO embedded URLs (idx56=57 items/0 urls, idx62=23/0, idx66=48/0, idx72=47/0); they name studies by quoted title. The title->canonical-URL/DOI resolution must be built before any recall@k can be computed. The blocked-reference (content.blocked) DOES carry urls (verified, e.g. idx72 has pubmed+mdpi urls) so the make_blocked_filter exclusion path is real.",
+            "how_to_get_it": "Build the fixture as the design states (Crossref+OpenAlex title lookup, verify DOI resolves and title matches, fail-loud on ambiguity, sha-pin). Single hard prerequisite for the layer.",
+            "blocks_run": true
+          },
+          {
+            "layer": "search_discovery",
+            "what_missing": "FALSE 'reuse' claim. The metric promises cross-host mirror matching ('a publisher mirror / ?utm / trailing-slash variant still matches') and claims to 'reuse harness _normalize_url + DOI-canonicalization'. VERIFIED: the existing _normalize_url (qgen_coverage_harness.py:95) only strips scheme/www/query/fragment/trailing-slash on the SAME host. It does NOT canonicalize a DOI across hosts (doi.org/10.x vs aeaweb.org/articles?id=10.x vs pubmed.ncbi.nlm.nih.gov/NNN are different strings and will NOT match). Without cross-host DOI canon, a candidate that surfaces the gold paper on a different host scores 0 — the metric is not measurable as designed. The DOI-canon piece does not exist and must be BUILT.",
+            "how_to_get_it": "Build a DOI/identifier-keyed matcher: resolve each ranked URL to a DOI/PMID (Crossref/Unpaywall/regex) and match on the canonical identifier, not the host string. Reclassify in the brief as a build item, not a reuse.",
+            "blocks_run": true
+          },
+          {
+            "layer": "search_discovery + reranker",
+            "what_missing": "idx66 gold-source denominator collapses. VERIFIED: only 3 of 48 idx66 info_recall items carry a quoted title; the other 45 are untitled prose findings. Under the design's own 'never guess, fail loud on ambiguity' rule, untitled findings cannot be resolved to a gold source and drop out, so idx66 recall is computed over ~3-6 gold sources vs idx56's ~14 — a thin, unrepresentative number (drb_72 in a new dress). Same title->source gap hits the reranker relevance labels (a candidate 'supplies info_recall point f' requires resolving f to a source).",
+            "how_to_get_it": "Resolve gold at the CLAIM level not the title level (judge maps each untitled finding to its supporting source) and report per-idx gold-N so the thin denominator is visible; or explicitly mark idx66's number low-confidence. Blocks the validity of the idx66 score specifically.",
+            "blocks_run": true
+          },
+          {
+            "layer": "reranker",
+            "what_missing": "Largest judge-labeling lift. The credibility half needs an INDEPENDENT authority annotation over the full pre-rerank pool. VERIFIED pool size: ~849 classified_sources / ~797 evidence_rows PER idx x 4 idx = ~3,200-4,000 candidates each needing relevance+credibility labels. Tier field exists but is the banned self-grading the design correctly excludes.",
+            "how_to_get_it": "Budget the ~3.4k-candidate judge-annotation explicitly (parallel judge runs, Codex/human cross-audit on a sample per §-1.1.5), reuse the claim-level resolution from the search fix, report per-idx label coverage.",
+            "blocks_run": true
+          },
+          {
+            "layer": "quality_weight",
+            "what_missing": "clinical_quality_weight_fixture.jsonl: 300-500 sources HUMAN dual-annotated authoritative-vs-on-topic-spam with inter-annotator kappa, labels independent of tier_classifier/authority_model AND of the 5 candidates. Largest pure-human labeling lift (no existing label source; the snapshot tier field is the excluded self-grading). On-topic-spam class must also be ASSEMBLED — the natural pool under-represents pure on-topic SEO-spam (it dies at upstream filters).",
+            "how_to_get_it": "Plan human dual-annotation as a discrete work item with a kappa target and an independent labeler pair; pre-source on-topic-spam exemplars. No shortcut — a model-labeled fixture would be circular against the model candidates.",
+            "blocks_run": true
+          },
+          {
+            "layer": "dedup",
+            "what_missing": "HARD METRIC-VS-BUILD CONTRADICTION. The metric says precision/recall are computed 'EXHAUSTIVELY over every labeled pair... not a sample' over ~300-500 bodies. VERIFIED arithmetic: C(300,2)=44,850 and C(500,2)=124,750 pairs. The build estimate is '~0.5 day of dual-annotation'. 45k-125k dual-annotated+adjudicated pairs is impossible in 0.5 day — the 'exhaustive' claim and the 0.5-day estimate are mutually exclusive; as written the layer cannot be built.",
+            "how_to_get_it": "Reconcile before briefing: either (a) shrink the exhaustively-labeled body set to N~50-80 (C(80,2)=3,160 pairs, dual-annotatable) and state the metric is exhaustive over that smaller frozen set, or (b) use a candidate-proposed-pair blocking protocol (label pairs any candidate merges + a sampled negative set) which VOIDS the 'exhaustive over all C(N,2)' wording and must be re-described honestly.",
+            "blocks_run": true
+          },
+          {
+            "layer": "fetch_crawl + content_extraction",
+            "what_missing": "Reference BODIES are net-new for both layers. VERIFIED: corpus_snapshot retrieval.classified_sources rows carry only {url,title,tier,tier_reasons,domain} — NO body. So fetch_crawl_refbody_fixture (60-100 URLs, human main-content span + gold recovery verdict) and the clinical extraction fixture (50-100 pages, gold main body + gold table trees for TEDS) are both from-scratch human-labeling builds. evidence_for_gen DOES carry direct_quote bodies (~1.3k chars, useful for seeding the GATE-0 canary rows but not a full main-content reference span). The design correctly flags both as needs_fixture.",
+            "how_to_get_it": "Both fixtures need the WebMainBench/MainWebBench human main-content marking protocol; budget as discrete labeling work. fetch_crawl correctly notes live-page drift (re-snapshot raw HTML at build time, score wall/stub strata against the frozen snapshot).",
+            "blocks_run": true
+          }
+        ],
+        "gate0_weaknesses": [
+          {
+            "layer": "search_discovery + fetch_crawl + reranker",
+            "weakness": "SYSTEMIC GATE-0 GAP (the single biggest weakness): these three layers' canaries validate only the SCORER on SYNTHETIC inputs (synthetic ranked URL lists, banked pre-known bodies, hand-computed mini-fixtures). NONE asserts that a LIVE candidate adapter returns real, varying, non-stub output for a known-easy query — exactly the 'Title-only-stub harness bug' the mandate names. The design ITSELF documents the failure: Zyte 'silently no-ops without ZYTE_API_KEY' (memory-confirmed historical incident) and Exa 'must use use_autoprompt=False or it rewrites the query' (a holding-condition break a synthetic-scorer canary cannot see). A stubbed/keyless/misconfigured candidate returns empty or degraded, scores a real-looking LOW number, and is misread as 'this backend is bad at discovery' — a trustworthy-looking wrong number, the drb_72 class. By contrast quality_weight (Part B: each loaded model must rank authoritative>garbage AND scores must differ) and dedup (no-op stub->recall=0, over-merge stub->false-merge=1) DO test candidate wiring — proving the pattern is known and just omitted on three layers.",
+            "fix": "Port the per-candidate LIVENESS smoke from quality_weight Part B / dedup to search_discovery, fetch_crawl, reranker: before scoring, feed each live candidate ONE known-easy input (a query whose top result is obvious / a URL whose body is banked) and ASSERT it returns a real, non-stub, query-appropriate, VARYING result; fail loud and exclude as non-functional rather than scoring it. For search, also assert Exa did not rewrite the held-fixed query (compare the issued query) and Zyte/Firecrawl keys are present-and-firing (grep the response, per the Zyte memory)."
+          },
+          {
+            "layer": "content_extraction",
+            "weakness": "GATE-0 check #3 (reproduce Dripper published per-extractor anchors) is potentially circular — see faithfulness_risks: if no official WebMainBench scorer exists, the re-derived scorer is tuned until it hits the same published numbers, so the anchors stop being an independent validator.",
+            "fix": "Confirm the official scorer exists first; if not, make the re-derivation blind/independent before comparing to anchors, or downgrade #3 to advisory and rely on the non-circular #1 (perfect-input->1.0) and #2 (junk->0.0) checks."
+          }
+        ],
+        "verdict": "needs_fixes_material",
+        "bottom_line": "Not ready to write into a Codex-gated brief as-is. The design is genuinely §-1.1/§-1.3 disciplined (no banned-proxy violations — it pre-empts deduplication_ratio and frames every metric as recall/AUC/NDCG against labels, weight-not-filter intact), and its load-bearing primary-source claims I checked are TRUE (gold sources don't exist, corpus rows carry no bodies, evidence_for_gen has direct_quote bodies, the slug->idx offset and blocked-ref loader are real). It is needs_fixes_MATERIAL not minor because two findings each produce a confident-but-untrustworthy number — the drb_72 standard for 'material'. Biggest risk: three layers (search_discovery, fetch_crawl, reranker) have GATE-0 canaries that test only the scorer on synthetic inputs and never assert a live candidate returns real non-stub output — and the design itself documents the exact stub failure modes (Zyte silent no-op without key, Exa query-rewrite) those canaries are blind to; a stubbed candidate scores a real-looking LOW number misread as a genuine result. Close second: idx66's gold denominator collapses to ~3-6 sources (only 3 of 48 info_recall items carry a resolvable title) yielding a thin, unrepresentative recall, and the dedup metric's 'exhaustive over all C(N,2) pairs' is arithmetically impossible (45k-125k pairs) against its '0.5-day' build estimate. All four high-labeling/high-build fixtures (quality_weight human, reranker ~3.4k judge, both refbody fixtures) plus the false 'reuse _normalize_url+DOI-canon' claim must be fixed before briefing; none require a redesign — they are scoped additions (port the liveness canary, claim-level gold resolution, reconcile the dedup pair-count, budget the human/judge labeling)."
+      }
+    ]
+  }
+}

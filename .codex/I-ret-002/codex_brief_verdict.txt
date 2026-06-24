@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Strengthen search liveness from non-empty ranked list to known-easy expected-result/nonconstant output."
+  - "Make §6 reranker credibility wording match the global two-family adjudication requirement."
+  - "Add dedup handoff assertion that cluster/member source IDs are preserved in keep-all provenance mode."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

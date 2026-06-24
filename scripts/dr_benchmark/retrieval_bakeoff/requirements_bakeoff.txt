@@ -1,0 +1,51 @@
+# I-ret-002 retrieval per-layer bake-off — consolidated deps (VM install).
+# Built by the 7-layer build Workflow (wf_db2d3afb-d68); all 7 offline smokes green in merged tree.
+#
+# ⚠️ NUMPY CONFLICT (flagged by quality_weight build): fasttext needs numpy<2.0; torch/transformers
+#    commonly want numpy>=2.x. They may NOT co-reside. On the GPU VM use TWO envs:
+#      env_fasttext  : fasttext + numpy<2.0    (quality_weight DCLM + Ultra-FineWeb candidates only)
+#      env_torch     : everything else (torch/transformers/sentence-transformers/pylate/mteb, numpy>=2)
+#    Run those two quality_weight candidates under env_fasttext; all other candidates under env_torch.
+
+# --- search_discovery (CPU) ---
+httpx>=0.27            # search providers (Serper/Exa/SemanticScholar/Firecrawl/SearXNG adapters)
+exa-py                 # Exa neural search
+firecrawl-py>=2.0.0    # Firecrawl search+fetch
+
+# --- fetch_crawl (CPU + headless Chromium) ---
+crawl4ai>=0.6.0        # + run `crawl4ai-setup` to fetch Playwright Chromium
+zyte-api>=0.7.0
+playwright>=1.45.0     # + `playwright install chromium`
+
+# --- content_extraction (CPU; MinerU-HTML needs GPU) ---
+trafilatura==2.1.0
+chatnoir-resiliparse
+justext
+readability-lxml==0.8.4.1
+jieba                  # official WebMainBench ROUGE-N tokenizer (anchor path)
+rouge_score            # WebMainBench official ROUGE-N scorer dep (NOT auto-installed; pin it)
+apted                  # TEDS table-fidelity (clinical subset)
+# mineru-html + vllm   # needs_gpu structured/clinical lane (install on GPU VM)
+# WebMainBench official scorer: NOT pip-installable -> clone github.com/opendatalab/MinerU-HTML and
+#   set PG_WEBMAINBENCH_REPO; use the 545 human-gold subset (groundtruth_content) as true-gold anchor,
+#   NOT the 7,809 html2text full set (per precondition_findings.md refinement 1).
+
+# --- quality_weight (env split — see numpy note) ---
+# env_fasttext: fasttext + numpy<2.0
+# env_torch:    huggingface_hub + transformers + torch  (FineWeb-Edu / Nemotron-CC / Essential-Web SLM)
+huggingface_hub
+
+# --- dedup (CPU) ---
+datasketch             # MinHash + MinHashLSH
+semhash                # SemHash near-dup
+model2vec              # StaticModel (minishlab/potion-base-8M)
+
+# --- reranker + embedder (GPU) ---
+torch                  # GPU
+transformers
+sentence-transformers  # CrossEncoders + single-vector embedders
+mxbai-rerank           # mxbai-rerank-base-v2
+mteb>=2.16             # Qwen3-Embedding/Reranker MUST load via mteb.get_model (instruction-prefix/logit
+                       #   landmine) — never bare SentenceTransformer/CrossEncoder (precondition refinement 2)
+pylate                 # late-interaction ColBERT MaxSim (GTE-ModernColBERT; Reason-ModernColBERT = NC yardstick only)
+einops                 # some ModernBERT remote code
