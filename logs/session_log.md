@@ -5791,3 +5791,11 @@
 - RATIONALE: the plan is the source of truth; a generic stand-in for the named methods is exactly the hallucinated-substitute the frontier-tech mandate bans; asking the operator to re-pick a locked list is drift. Memory feedback_execute_locked_plan_no_generic_standin_2026_06_23 written.
 - AFFECTED_FILES: memory/feedback_execute_locked_plan_no_generic_standin_2026_06_23.md, MEMORY.md, qgen_methods.py (to be extended with the real adapters).
 - STATUS: research workflow in flight (11 candidates parallel, primary-source). NEXT: read roster, build faithful adapters for runnable methods, run ALL + floor through the coverage harness on DRB-II info_recall, Codex-gate.
+
+[2026-06-23 (I-qgen-002 #1292: IterResearch production query-gen upgrade)]
+- ACTION: Wired IterResearch (Tongyi) adaptive query-gen into the production sweep (the I-qgen-001 #1291 bake-off winner: 0.386 DRB-II coverage vs floor 0.000). New module src/polaris_graph/retrieval/iterresearch_query_gen.py (workspace-reconstruction loop + per-round LiveRetrievalResult merge, all injectable/stub-testable) + flag-gated branch at run_honest_sweep_r3.py retrieval call site (PG_QGEN_ITERRESEARCH, default OFF => byte-identical). Codex diff-gate launched (task wjrdsue2p).
+- RATIONALE: operator directive — upgrade pipeline to the bake-off winner. Faithfulness untouched: only query SELECTION changes; every IterResearch query flows through the UNCHANGED run_live_retrieval; per-round results merged so downstream contract preserved. Flag-gated + default-off keeps it reversible (single-task result; confirm on drb_75/76/78 next session).
+- AFFECTED_FILES: src/polaris_graph/retrieval/iterresearch_query_gen.py (NEW), scripts/run_honest_sweep_r3.py (flag-gated retrieval branch), .codex/I-qgen-002/diff_review_brief.md + codex_diff.patch.
+- EVIDENCE: py_compile OK both; stub smoke — adaptive loop issues 3 queries (STOP at round 4), merges 9 dedup evidence rows, flag defaults OFF; production import resolves, LiveRetrievalResult merge-factory valid.
+- STATUS: upgrade WIRED + smoke-green + flag-gated (reversible). Codex gate in flight. Real e2e (flag ON, full sweep on a VM) is the final validation — next session (needs a VM per the never-run-locally rule).
+- NEXT_STEP: read Codex verdict; commit on APPROVE; e2e VM validation + 4-task significance + fix the 2 errored adapters next session.

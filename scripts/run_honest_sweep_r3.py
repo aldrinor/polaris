@@ -6463,20 +6463,127 @@ async def run_one_query(
                     f"{', '.join(_a12_stages)} — every gate STILL re-runs (no stored verdict replayed)"
                 )
         else:
-            retrieval = run_live_retrieval(
-                research_question=q["question"],
-                amplified_queries=_amplified_effective,
-                protocol=_retrieval_protocol,
-                max_serper=_max_serper,
-                max_s2=_max_s2,
-                fetch_cap=_fetch_cap,
-                enable_openalex_enrich=True,
-                enable_prefetch_filter=False,
-                domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
-                seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
-                research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
-                progress_cb=_hb,  # GH #1258 PART 2: tick the heartbeat during fetch + classify
+            from src.polaris_graph.retrieval.iterresearch_query_gen import (
+                iterresearch_enabled as _iterresearch_enabled,
+                run_iterresearch_retrieval as _run_iterresearch_retrieval,
             )
+            if _iterresearch_enabled():
+                # I-qgen-002 (#1292): IterResearch (Tongyi) adaptive query-gen — the I-qgen-001
+                # (#1291) bake-off WINNER (DRB-II info_recall coverage 0.386 vs the template-facet
+                # floor's 0.000). Flag PG_QGEN_ITERRESEARCH (default OFF => the legacy branch below
+                # runs, byte-identical). The IterResearch loop derives each query from the evolving
+                # report, and EACH query still flows through the SAME run_live_retrieval (scope gate,
+                # tier classify, fetch, provenance) — only query SELECTION changes; the faithfulness
+                # engine is untouched. The per-round results are merged into one LiveRetrievalResult
+                # so downstream (consolidation -> generation -> verify -> render) is unchanged.
+                import asyncio as _iter_asyncio
+                import concurrent.futures as _iter_futures
+                import contextvars as _iter_contextvars
+
+                from src.polaris_graph.llm.openrouter_client import OpenRouterClient as _IterORC
+                from src.polaris_graph.llm.openrouter_client import _RUN_COST_CTX as _IterCostCtx
+                from src.polaris_graph.retrieval.live_retriever import (
+                    LiveRetrievalResult as _IterLRR,
+                )
+
+                _iter_model = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.2")
+                _iter_max_tokens = int(os.getenv("PG_QGEN_ITERRESEARCH_MAX_TOKENS", "8192"))
+
+                def _iter_llm(_prompt: str) -> str:
+                    # Mirrors the proven _planner_llm worker wrapper (this file ~6005) — three Codex
+                    # #1292 fixes:
+                    #  - iter1 P1: run_one_query is async, so asyncio.run() on the running loop crashes ->
+                    #    drive the coroutine on a WORKER THREAD with its own loop.
+                    #  - iter2 P1: an OpenRouterClient's httpx.AsyncClient is loop-bound; asyncio.run()
+                    #    closes that loop -> build a FRESH client INSIDE the worker per call and close it.
+                    #  - iter3 P1: the worker had EMPTY ContextVar state, so the policy LLM spend
+                    #    accumulated only in the worker snapshot and was LOST to the parent run cost /
+                    #    manifest / budget guard. Fix: copy_context() for READ visibility + write the cost
+                    #    DELTA back to the parent _RUN_COST_CTX (fires even on raise — partial bill).
+                    _parent_cost_before = _IterCostCtx.get()
+                    _worker_cost_after = [_parent_cost_before]
+
+                    async def _run() -> str:
+                        _client = _IterORC(model=_iter_model)
+                        try:
+                            _resp = await _client.generate(
+                                prompt=_prompt, max_tokens=_iter_max_tokens, reasoning_exclude=True
+                            )
+                            return getattr(_resp, "content", "") or ""
+                        finally:
+                            _worker_cost_after[0] = _IterCostCtx.get()
+                            if hasattr(_client, "close"):
+                                try:
+                                    await _client.close()
+                                except Exception:
+                                    pass
+
+                    _parent_ctx = _iter_contextvars.copy_context()
+
+                    def _worker() -> str:
+                        return _parent_ctx.run(lambda: _iter_asyncio.run(_run()))
+
+                    try:
+                        with _iter_futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                            return _ex.submit(_worker).result()
+                    finally:
+                        _cost_delta = _worker_cost_after[0] - _parent_cost_before
+                        if _cost_delta > 0:
+                            _IterCostCtx.set(_parent_cost_before + _cost_delta)
+
+                _iter_seed_used = {"done": False}
+
+                def _iter_per_query_retrieve(*, research_question: str, **_kw):
+                    # Codex #1292 iter3 P1: the IterResearch-GENERATED query must be the SOLE searched
+                    # query. Passing it as run_live_retrieval's `research_question` with the default
+                    # anchor_seed=True makes the scope validator REINSERT the original protocol anchor and
+                    # DROP the generated query (re-running the original question every round = 35x cost, no
+                    # adaptivity). Fix = the gap-round pattern (this file ~9036): keep the ORIGINAL question
+                    # as scope context, issue the GENERATED query via amplified_queries=[...] with
+                    # anchor_seed=False so only that query is fired.
+                    _seed = None
+                    if not _iter_seed_used["done"]:
+                        _seed = _retrieval_seed_urls  # preserve the layer-4 DOI seed (1st query only)
+                        _iter_seed_used["done"] = True
+                    return run_live_retrieval(
+                        research_question=q["question"],          # original question = scope context only
+                        amplified_queries=[research_question],     # the IterResearch query is the ONE fired
+                        anchor_seed=False,                          # do NOT re-fire the broad anchor
+                        protocol=_retrieval_protocol,
+                        max_serper=_max_serper,
+                        max_s2=_max_s2,
+                        fetch_cap=_fetch_cap,
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        domain=_retrieval_domain,
+                        seed_urls=_seed,
+                        research_frame=_retrieval_frame,
+                        progress_cb=_hb,
+                    )
+
+                retrieval, _iter_queries = _run_iterresearch_retrieval(
+                    q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
+                )
+                _log(
+                    f"[iterresearch] #1292 adaptive query-gen (bake-off winner) issued "
+                    f"{len(_iter_queries)} queries; merged corpus="
+                    f"{len(retrieval.evidence_rows)} evidence rows"
+                )
+            else:
+                retrieval = run_live_retrieval(
+                    research_question=q["question"],
+                    amplified_queries=_amplified_effective,
+                    protocol=_retrieval_protocol,
+                    max_serper=_max_serper,
+                    max_s2=_max_s2,
+                    fetch_cap=_fetch_cap,
+                    enable_openalex_enrich=True,
+                    enable_prefetch_filter=False,
+                    domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
+                    seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
+                    research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
+                    progress_cb=_hb,  # GH #1258 PART 2: tick the heartbeat during fetch + classify
+                )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
              f"fetched={retrieval.candidates_fetched}, "
