@@ -51,8 +51,21 @@ NO e2e spend until the whole pipeline is confirmed — operator directive 2026-0
   - **reranker → Qwen3-Reranker-4B.** general MAP 4B 0.7654 ≈ 8B 0.7674 (noise, 2x size); **clinical CMedQA MAP
     4B 0.8329 = decisive** (jina-v3 0.7601, gte 0.512). Wins BOTH axes. Latest challengers all lost.
 - **I-cons-001 (GH #1295)** — consolidation/baskets. Landscape done (`docs/consolidation_landscape_2026.md`);
-  bake-off not yet run.
-- (next deep-research) composition · verify-render · …
+  bake-off in progress under I-bakeoff-001.
+- **Downstream-section landscapes — ALL recency-complete** (commit 46a4e243, completeness-critic pass
+  2026-06-24, #1296): `docs/{fetch_extraction,credibility_tier,composition,verify_models,render,
+  claim_basket_composition_bridge}_landscape_2026.md`. The single-pass landscapes were NOT complete — an
+  adversarial completeness-critic found gaps in ALL 6 (33 candidates added, 2 honestly rejected). Lesson:
+  "wrote a landscape" ≠ "complete" — only the critic pass made it true.
+
+## Section bake-off campaign — I-bakeoff-001 (GH #1297), 2026-06-24
+Concurrent ISOLATION bake-offs for the 6 downstream sections (fetch/extraction · credibility/tier ·
+consolidation/baskets · composition · verify-models · render), each candidate scored ONLY on the axis its
+section controls — NEVER end-to-end, NO e2e spend until every section is locked (operator-locked 2026-06-24).
+Driven by a Claude Codex Workflow on vast box 42317451 (2× RTX 3090 Ti); GATE 0 (harness validity canary) is
+a hard precondition Codex-gated before any score is trusted; faithfulness engine frozen; per-model isolated
+envs; monitor + relaunch on agent failure. Winners flag-gated; the single e2e run happens ONCE at the very
+end after query-gen + retrieval-trio + these 6 are all locked.
 
 ## RECENCY-COMPLETENESS — a HARD gate before any section LOCK (operator-locked 2026-06-24, #1296)
 A section winner is valid ONLY when its candidate field is **recency-complete**: every recency-verified
