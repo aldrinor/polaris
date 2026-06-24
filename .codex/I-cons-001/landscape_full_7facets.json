@@ -1,0 +1,701 @@
+{
+  "summary": "Deep-research the 2025/2026 best-practice + open-source landscape for the consolidation/baskets arena (I-cons-001 #1295)",
+  "agentCount": 9,
+  "logs": [
+    "facet atomic_claim_extraction: done (1/7 ok)",
+    "facet same_claim_clustering_basketing: done (2/7 ok)",
+    "facet multisource_corroboration_weighting: done (3/7 ok)",
+    "facet contradiction_stance_conflict: done (4/7 ok)",
+    "facet multidoc_consolidate_distill_mapreduce: done (5/7 ok)",
+    "facet setbased_claim_verification: done (6/7 ok)",
+    "facet deepresearch_stack_consolidation: done (7/7 ok)"
+  ],
+  "result": {
+    "facets": [
+      {
+        "facet": "atomic_claim_extraction",
+        "best_practice_2025_2026": [
+          {
+            "name": "Claimify (Metropolitansky & Larson, Microsoft)",
+            "what": "4-stage LLM claim extraction: Sentence-Splitting -> Selection (keep only sentences with verifiable propositions, drop opinion/speculation) -> Disambiguation (resolve referential/structural ambiguity, DROP a sentence if ambiguity cannot be confidently resolved) -> Decomposition (rewrite each clarified sentence into atomic, decontextualized, self-contained claims). The disambiguation gate is the novel part: it refuses to emit a claim it cannot confidently ground, which directly matches POLARIS's clinical-safety 'never fabricate' posture.",
+            "url": "https://arxiv.org/abs/2502.10855",
+            "why_sota": "ACL 2025 main conference; the reference method for extracting verifiable, decontextualized claims from LLM/long-form text. Outperforms prior decomposition on the BingCheck benchmark on coverage + entailment-to-source. Its 'extract only when ambiguity is resolved' rule is the SOTA answer to the over-/under-decomposition failure that pure-regex extraction cannot handle.",
+            "license": "Paper CC-BY-4.0; NO official code from Microsoft (method-only)",
+            "date": "2025-02-15 (rev 2025-06-06)"
+          },
+          {
+            "name": "CORE (Jiang et al.) — decompose-and-dedup to a non-redundant core",
+            "what": "The decompose-AND-dedup canonicalization piece this facet is about. Takes subclaims from any decomposer and (1) filters claims not entailed by the source (faithfulness), (2) scores informativeness, (3) DEDUPLICATES via Mixed-Integer Linear Programming, selecting the smallest set of mutually-non-entailing (= non-redundant) atomic claims. Output is a canonical 'core' claim set — exactly the dedup-ready atoms POLARIS needs before basket clustering.",
+            "url": "https://github.com/zipJiang/Core",
+            "why_sota": "Formalizes claim canonicalization/dedup as constrained optimization rather than ad-hoc string matching; the de-facto 'dedup half' of the Decompose-Then-Verify paradigm. Semantic (entailment-based) uniqueness instead of POLARIS's current lexical numeric-signature/shingle-Jaccard. MIT-licensed and runs on local RoBERTa-NLI or a vLLM OpenAI-compatible endpoint => sovereign.",
+            "license": "MIT (code); paper arXiv",
+            "date": "2024 (NAACL-era), actively maintained through 2025"
+          },
+          {
+            "name": "MedScore — domain-adapted clinical claim decomposition",
+            "what": "Decomposes free-form MEDICAL answers into verifiable claims with a clinical-domain-adapted decomposition prompt (respects symptom/diagnosis/treatment/contraindication claim structures that generic FActScore-style decomposition mis-parses). Emits one (sentence_id, claim, claim_id) record per atomic claim — the structured, dedup-ready shape.",
+            "url": "https://arxiv.org/pdf/2505.18452",
+            "why_sota": "Accepted ACL 2026 (publish 2026-07-02); the single most on-target frontier item for a sovereign CLINICAL pipeline. Directly replaces POLARIS's hardcoded clinical-regex endpoint vocabulary with a generalizable, model-agnostic clinical decomposer. Repo supports locally-hosted vLLM / HuggingFace models (sovereign), not only closed APIs.",
+            "license": "Repo license unconfirmed on GitHub (LICENSE file not surfaced) — VERIFY before adoption; default config uses closed gpt-4o-mini but vLLM/HF backends supported",
+            "date": "2025-05 (v2 Oct 2025); ACL 2026"
+          },
+          {
+            "name": "DnDScore — Decontextualization + Decomposition for factuality",
+            "what": "Studies the interaction of DECOMPOSITION and DECONTEXTUALIZATION: a decomposed atom must be made context-independent (resolve pronouns/ellipsis to the full entity) so it is checkable and dedup-comparable in isolation, but evaluated WITH the decontextualized context to avoid losing the qualifier that distinguishes two near-identical claims (e.g. timepoint/population).",
+            "url": "https://aclanthology.org/2025.emnlp-main.1205.pdf",
+            "why_sota": "EMNLP 2025 main. The canonical treatment of decontextualization for atomic claims — the exact axis POLARIS's lexical canonicalization misses (it folds DOI/title but does not semantically decontextualize the claim text). Cautions that naive pronoun-replacement does not always help, which guards against over-canonicalization that would merge distinct clinical claims.",
+            "license": "Paper open (ACL Anthology)",
+            "date": "2025 (EMNLP); arXiv 2412.13175 (2024-12)"
+          },
+          {
+            "name": "The Alignment Bottleneck in Decomposition-Based Claim Verification",
+            "what": "Diagnostic 2026 result: decomposition can HURT when decomposed atoms drift from the source claim's intent/structure ('alignment bottleneck'). Progress depends less on how aggressively you split and more on keeping every atom faithful to its source span.",
+            "url": "https://arxiv.org/pdf/2602.10380",
+            "why_sota": "Feb-2026 frontier caution that re-centers the goal: SOTA atomic extraction is span-faithful decomposition, not maximal splitting. Validates POLARIS's atom-first, span-grounded design (literal_text + span offsets) as the right architecture and warns against an unconstrained LLM decomposer that loses source fidelity.",
+            "license": "Paper open (arXiv)",
+            "date": "2026-02-12"
+          },
+          {
+            "name": "VeriScore — verifiable-claim extractor (open-weight)",
+            "what": "Three-step factuality pipeline whose stage 1 is a claim EXTRACTOR fine-tuned to pull only VERIFIABLE claims (not every sentence), shipped as an open-weight Mistral-based model. Distinguishes verifiable vs unverifiable content before decomposition — reduces junk atoms entering the basket layer.",
+            "url": "https://github.com/Yixiao-Song/VeriScore",
+            "why_sota": "EMNLP 2024 Findings; the practical OSS baseline that fixes FActScore's 'extract everything' over-generation. Apache-2.0, pip-installable, fine-tuned extractor on HuggingFace (SYX/mistral_based_claim_extractor) runs fully locally => sovereign for the extraction step (only its Serper retrieval is non-sovereign, which POLARIS already replaces with its own retrieval).",
+            "license": "Apache-2.0 (code + model)",
+            "date": "2024-06 (arXiv 2406.19276); used through 2025/2026"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "CORE (zipJiang/Core)",
+            "repo_or_pip": "pip install Core@git+https://github.com/zipJiang/Core.git (not yet on PyPI)",
+            "what_it_does": "Decompose-then-dedup-to-core: entailment filter + informativeness scorer + MILP deduplication to a minimal non-redundant atomic-claim set. Backends: local RoBERTa-NLI (Zhengping/roberta-large-unli) OR vLLM OpenAI-compatible. SOVEREIGN-capable.",
+            "license": "MIT",
+            "maturity": "Low adoption (~8 stars, 18 commits) but actively maintained with CI; comprehensive docs + FActScore integration example. Research-grade, integratable."
+          },
+          {
+            "name": "VeriScore (Yixiao-Song/VeriScore)",
+            "repo_or_pip": "pip install --upgrade veriscore",
+            "what_it_does": "Verifiable-claim extractor (stage 1) + verification. Open-weight Mistral-based extractor (HF: SYX/mistral_based_claim_extractor) runs locally; extracts only verifiable claims, filtering opinion/unverifiable text.",
+            "license": "Apache-2.0",
+            "maturity": "Published EMNLP 2024 Findings, pip package + released fine-tuned model; production-usable for the extraction step (retrieval step is swappable)."
+          },
+          {
+            "name": "MedScore (Heyuan9/MedScore)",
+            "repo_or_pip": "pip install git+https://github.com/Heyuan9/MedScore.git",
+            "what_it_does": "Clinical-domain-adapted claim decomposition for free-form medical text; emits structured (sentence_id, claim, claim_id) atoms. Backends: local vLLM, HuggingFace, OpenAI, TogetherAI.",
+            "license": "UNCONFIRMED (LICENSE file not surfaced — must verify); ACL 2026",
+            "maturity": "New (ACL 2026, ~5 stars, 94 commits, active). Most clinically on-target but license + sovereign-default need confirmation."
+          },
+          {
+            "name": "FActScore (shmsw25/FActScore) + OpenFActScore",
+            "repo_or_pip": "pip install factscore ; OpenFActScore arXiv 2507.05965",
+            "what_it_does": "The original atomic-fact decomposition baseline ('short statements each with one piece of information'). OpenFActScore (2025) is the open-weight re-release that swaps the closed GPT decomposer/scorer for open models => sovereign.",
+            "license": "MIT (FActScore)",
+            "maturity": "Foundational/widely-cited (EMNLP 2023); OpenFActScore 2025 restores sovereign operation. Mature but superseded for verifiable-only extraction by VeriScore/Claimify."
+          },
+          {
+            "name": "deshwalmahesh/claimify (and ClaimsMCP, ClaimeAI)",
+            "repo_or_pip": "github.com/deshwalmahesh/claimify (no pip)",
+            "what_it_does": "Unofficial Claimify 4-stage reimplementation; LLM-backend-agnostic via a user-supplied llm(prompt,temperature)->str fn (works with any OpenAI-compatible/local endpoint).",
+            "license": "NO LICENSE DECLARED (= all-rights-reserved, NOT safely usable as-is)",
+            "maturity": "Toy (14 stars, 2 commits, no releases). Reference-only; do NOT vendor — re-implement Claimify's 4 stages in-house against the paper instead."
+          }
+        ],
+        "current_polaris": "POLARIS has TWO atom-extraction code paths; only one is LIVE. LIVE: src/polaris_graph/generator/claim_atom_extractor.py (I-gen-005) — a pure-Python, deterministic, NO-LLM REGEX extractor (module docstring lines 48-51 'INTENTIONALLY pure-Python regex — no LLM call'). It produces structured ClaimAtom records (claim_atom_extractor.py:65-99: entity/endpoint/comparator/timepoint/value/unit + span_start/span_end + literal_text) with a NumberRole classifier (lines 107-116) and a HARDCODED clinical endpoint vocabulary (_ENDPOINT_VOCAB lines 182-302: HbA1c, MACE, eGFR...), drug list (lines 326-345) and trial list (lines 347-367). It is imported by the live generator path: multi_section_generator.py, evidence_distiller.py, sentinel_contract.py, atom_refusal_validator.py (grep confirmed). LEGACY/DEAD on the live path: src/utils/atomic_decomposer.py — an LLM decomposer (Min et al. 2023 FActScore-style) but its initialize() imports KIMIClient then falls back to GeminiClient (atomic_decomposer.py:125-137; Gemini = §9.1.8 sovereignty violation); only consumer is src/agents/auditor_agent.py (pipeline-C legacy). CANONICALIZATION/DEDUP (consolidation side) is entirely LEXICAL, not semantic: fact_dedup.py builds a numeric FactSignature (percent/dollar-±5%-bucket/year, lines 252-305) and groups by overlap (build_groups, _signatures_overlap lines 532-600), plus an OFF-by-default prose pass using content-word shingle Jaccard >=0.82 + a polarity guard (_build_prose_groups lines 450-507, PG_FACT_DEDUP_PROSE). benchmark/claim_dedup.py does Claimify-CITED dedup but again lexical: numeric-signature-conflict + content-token Jaccard>=0.80 + subject-token swap guard (dedup_claims lines 162-194). synthesis/finding_dedup.py consolidates by a conservative finding key (subject/predicate/value/unit/dose/arm/endpoint, _finding_key lines 381-412) and same-work DOI/folded-title folding (lines 316-336) — keep-all corroboration, NOT atomic-claim canonicalization.",
+        "gap_vs_frontier": "Two-axis gap. (1) EXTRACTION: POLARIS's live extractor is REGEX with a hardcoded clinical vocabulary (claim_atom_extractor.py:182-367). It cannot extract any out-of-vocabulary claim, any qualitative/non-numeric claim, or any non-clinical-domain claim (the §-1.3 'generalize off clinical' need), and has no Selection/Disambiguation gate — the frontier (Claimify) uses LLM semantic decomposition that (a) keeps only verifiable propositions, (b) DROPS claims whose ambiguity cannot be resolved, and (c) decontextualizes each atom. The only LLM decomposer in-tree (atomic_decomposer.py) is dead AND non-sovereign (Gemini fallback). (2) CANONICALIZATION/DEDUP: POLARIS dedup is purely LEXICAL — numeric-signature buckets + shingle/content-token Jaccard + DOI/title folding. The frontier is SEMANTIC: DnDScore decontextualization (resolve each atom to a context-free, comparable form) + CORE's entailment-based, MILP dedup-to-non-redundant-core. Lexical Jaccard cannot tell that 'tirzepatide cut HbA1c by 2.3 points' and 'A1C fell 2.3% with Mounjaro' are the SAME atomic claim (different surface, same fact) — so equivalent phrasings that should land in ONE basket stay split, fragmenting corroboration. NUANCE from 2026 (Alignment Bottleneck, 2602.10380): the fix is NOT maximal LLM splitting — it is SPAN-FAITHFUL decomposition; POLARIS's existing span-grounding (literal_text + offsets) is the right substrate to bolt a faithful LLM decomposer onto, and CORE's entailment filter is in-scope as a PRE-verify canonicalizer (distinct from the frozen strict_verify/NLI/4-role engine).",
+        "bakeoff_candidates": [
+          "Claimify 4-stage decomposition (re-implement in-house against arXiv 2502.10855 on the sovereign GLM/DeepSeek slate — Selection+Disambiguation+Decomposition+decontextualize) vs the live pure-regex claim_atom_extractor.py, scored on extraction coverage + span-faithfulness on a banked clinical corpus_snapshot",
+          "CORE (MIT, zipJiang/Core) entailment+MILP dedup-to-non-redundant-core as the SEMANTIC canonicalizer feeding the basket layer, vs current lexical fact_dedup/claim_dedup Jaccard — measure how many equivalent-phrasing atoms correctly collapse into ONE basket WITHOUT over-merging distinct clinical claims (§-1.1 lethal direction). NOTE: use only CORE's decompose+dedup halves; its entailment step must NOT replace the frozen strict_verify/NLI/4-role engine",
+          "MedScore (Heyuan9/MedScore, ACL 2026, vLLM-sovereign — VERIFY repo license first) clinical-domain-adapted decomposer as the drop-in replacement for the hardcoded _ENDPOINT_VOCAB regex, on clinical free-form text",
+          "VeriScore open-weight Mistral extractor (Apache-2.0) as a verifiable-vs-unverifiable PRE-filter before decomposition, to keep opinion/unverifiable text out of baskets",
+          "DnDScore decontextualization pass (EMNLP 2025) layered on each atom before dedup, to make equivalent phrasings comparable while preserving the qualifier (timepoint/population) that must keep distinct claims separate",
+          "Hybrid baseline: keep the live regex extractor for high-precision numeric clinical atoms + add an LLM semantic decomposer (on the sovereign slate) for qualitative/out-of-vocab/non-clinical claims, dedup-canonicalized by CORE — measured against the regex-only and LLM-only ends"
+        ],
+        "license_flags": [
+          "atomic_decomposer.py (in-tree, legacy) falls back to GeminiClient — closed/non-sovereign, violates CLAUDE.md §9.1.8 no-gemma/no-closed; it is dead on the live path but should be removed/flagged",
+          "deshwalmahesh/claimify: NO LICENSE DECLARED = all-rights-reserved, NOT safely vendorable; toy maturity (14 stars, 2 commits) — re-implement Claimify in-house from the CC-BY-4.0 paper instead",
+          "Claimify itself: method-only, no official Microsoft open-source code",
+          "MedScore (Heyuan9/MedScore): repo LICENSE not confirmed on GitHub — must verify before adoption; default config uses closed gpt-4o-mini (sovereign vLLM/HF backends ARE supported, so swap the default)",
+          "AFEV (arXiv 2506.07446): GPT-3.5-only, no code released => inspiration-only, non-sovereign — do not adopt as a runtime",
+          "VeriScore retrieval step uses Serper API (non-sovereign) — extraction model is Apache-2.0 + local; only adopt the extractor, keep POLARIS's own retrieval",
+          "FActScore default decomposer is closed-GPT; use OpenFActScore (2507.05965) for the sovereign variant"
+        ]
+      },
+      {
+        "facet": "same_claim_clustering_basketing",
+        "best_practice_2025_2026": [
+          {
+            "name": "MultiClaimNet — embedding + agglomerative same-claim clustering (bge-m3)",
+            "what": "First dedicated same-claim CLUSTER benchmark + method: embed each claim with a multilingual sentence-transformer (bge-m3 best), then agglomerative clustering at a distance threshold groups claims asserting the SAME underlying fact. Cluster membership is keep-all (every corroborating claim stays in the cluster). Pairwise 'same claim?' gold labels were produced by 7 LLMs (GPT-4/Phi-3-14B/Falcon-40B unanimous).",
+            "url": "https://arxiv.org/html/2503.22280v1",
+            "why_sota": "Best result on the 85.3K-claim MultiClaim set: bge-m3 + agglomerative = 0.574 ARI / 0.967 V-measure. Establishes the 2025 SOTA recipe for basketing (semantic embedding clustering, not surface keys), and is exactly the consolidate-keep-all primitive POLARIS needs.",
+            "date": "2025-03-28",
+            "license": "dataset on Zenodo (15100352); annotation via open + closed LLMs — verify Zenodo license before reuse"
+          },
+          {
+            "name": "SemEval-2025 Task 7 — fact-checked claim retrieval / matching SOTA encoders",
+            "what": "Multilingual+crosslingual previously-fact-checked claim retrieval (claim-matching = 'can these two claims be verified by the same evidence'). Bi-encoder dense retrievers fine-tuned for claim similarity are the workhorse; the canonical 'are these the same claim' decision.",
+            "url": "https://arxiv.org/html/2505.10740v1",
+            "why_sota": "Top systems: multilingual-e5-large-instruct (63.23 avg), NVIDIA NV-Embed-v2 best in some configs. Notable caveat for clinical sovereignty: a BM25 lexical baseline beat SOTA multilingual embedders monolingually — argues for a HYBRID lexical+dense matcher, not dense-only.",
+            "date": "2025-05-16",
+            "license": "task data CC-BY (verify); e5 models MIT, NV-Embed-v2 CC-BY-NC (non-sovereign, FLAG)"
+          },
+          {
+            "name": "Qwen3-Embedding-8B — MTEB #1 multilingual encoder for the clustering primitive",
+            "what": "Foundation-model text embedding (0.6B/4B/8B) used as the vectorizer feeding agglomerative/community-detection clustering. Instruction-tunable embeddings let you steer 'cluster by same factual claim'.",
+            "url": "https://arxiv.org/html/2506.05176v1",
+            "why_sota": "#1 on MTEB multilingual (70.58), MTEB clustering 57.65 (8B). Apache-2.0, sovereign-deployable via sentence-transformers/vLLM. POLARIS already chose Qwen3-Embedding-8B in I-arch-009 (#1266) for the quality gate — reuse it as the basketing vectorizer.",
+            "date": "2025-06-05",
+            "license": "Apache-2.0"
+          },
+          {
+            "name": "Claimify — decontextualized atomic-claim extraction (canonical claim units)",
+            "what": "3-stage LLM pipeline (Selection → Disambiguation → Decomposition) producing specific, verifiable, DECONTEXTUALIZED atomic claims. Decontextualization is the missing pre-step that makes two paraphrases of the same fact cluster reliably (resolves pronouns/ellipsis before matching).",
+            "url": "https://arxiv.org/abs/2502.10855",
+            "why_sota": "Outperforms prior extraction; the decontextualized claim is the unit MultiClaimNet/VeriScore cluster over. Directly addresses POLARIS's prose-claim under-clustering (literal Jaccard can't match paraphrases).",
+            "date": "2025-02-15",
+            "license": "Microsoft Research method; community OSS reimpls (MIT-ish) — no official MS release, FLAG"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "sentence-transformers (clustering: community_detection + agglomerative + fast_clustering)",
+            "repo_or_pip": "pip install sentence-transformers (UKPLab/sentence-transformers)",
+            "what_it_does": "Drop-in same-claim basketing: embed claims, then util.community_detection (fast, threshold-based, keep-ALL members via init_max_size = N) or agglomerative clustering. fast_clustering handles 50k sentences in <5s. This is the exact MultiClaimNet/SemEval recipe, sovereign + offline.",
+            "license": "Apache-2.0",
+            "maturity": "mature, production-standard"
+          },
+          {
+            "name": "bge-m3 (BAAI)",
+            "repo_or_pip": "pip install FlagEmbedding ; hf BAAI/bge-m3",
+            "what_it_does": "The MultiClaimNet-winning multilingual embedder for the cluster vectorizer; dense+sparse+ColBERT multi-vector in one model (hybrid lexical+dense matching, which SemEval-2025 showed matters).",
+            "license": "MIT",
+            "maturity": "mature, widely deployed"
+          },
+          {
+            "name": "Qwen3-Embedding (0.6B/4B/8B)",
+            "repo_or_pip": "hf Qwen/Qwen3-Embedding-8B via sentence-transformers / transformers>=4.51 / vllm>=0.8.5",
+            "what_it_does": "MTEB-#1 instruction-steerable embedder for the basket vectorizer; already the I-arch-009 quality-gate model in POLARIS so reusing it adds no new dependency or sovereignty risk.",
+            "license": "Apache-2.0",
+            "maturity": "mature (2025), SOTA"
+          },
+          {
+            "name": "SemHash (MinishLab)",
+            "repo_or_pip": "pip install semhash",
+            "what_it_does": "Fast embedding-based semantic near-duplicate detection/clustering (Model2Vec static embeddings) — a CPU-cheap candidate-generation stage to find same-claim neighbors before an exact NLI-equivalence confirm; consolidate (keep representatives + members), not hard-drop.",
+            "license": "MIT",
+            "maturity": "emerging (2025), active"
+          },
+          {
+            "name": "VeriScore / Claimify community reimpls",
+            "repo_or_pip": "github.com/deshwalmahesh/claimify ; VeriScore (Wadden/UMass)",
+            "what_it_does": "Atomic + decontextualized claim extraction so the unit fed to the clusterer is a self-contained claim — the pre-step that makes paraphrase claims cluster. Pair with an NLI bi-directional-entailment 'same claim?' confirm.",
+            "license": "VeriScore code open (verify); Claimify reimpl unofficial — FLAG official-MS-release absent",
+            "maturity": "research-grade, usable as reference"
+          }
+        ],
+        "current_polaris": "POLARIS basketing is DETERMINISTIC key-equality + exact-Jaccard, with NO embedding/NLI semantic clustering for grouping. (1) synthesis/finding_dedup.py:381-412 `_finding_key` groups rows by an exact tuple (subject/predicate/value/unit/dose/arm/endpoint) from the clinical-tuned `extract_numeric_claims`; under PG_SWEEP_CREDIBILITY_REDESIGN it KEEPS ALL same-claim rows as a basket (the collapse-drop is bypassed, finding_dedup.py:737-789, collapsed_row_count->0) and counts corroboration over independent registrable-domains (finding_dedup.py:696-712). Same-work duplicates (same DOI / folded-title+discriminator) consolidate via `consolidate_same_work` (finding_dedup.py:316-336,455-546) so 4 URLs of one Autor paper = ONE origin. Documented RESIDUAL 2 (finding_dedup.py:29-41): INERT on non-clinical numerics. (2) synthesis/claim_graph.py is the field-agnostic upgrade -- atomic-claim extraction + stance clustering by SHA-1 of a conservative normalized key (claim_graph.py:33-47,112-119) with an INJECTED NLI judge -- but NLI is used only for conflict/refute EDGES, not same-claim grouping, and it is DEFAULT-OFF (PG_SWEEP_CLAIM_GRAPH). (3) generator/fact_dedup.py:666-768 build_groups clusters numeric sentences by FactSignature overlap and prose sentences by exact content-word shingle Jaccard>=0.82 (fact_dedup.py:381-507) with a deterministic polarity/negation guard (fact_dedup.py:433-447). generator/weighted_enrichment.py surfaces basket `supporting_members` with span_verdict==SUPPORTS, ordered by relevance then weight_mass, keep-all-sort-below-floor-last (weighted_enrichment.py:222-265). Net: grouping is literal/numeric only -- corroboration is computed correctly once items are in a basket, but two PARAPHRASES of the same prose claim never land in the same basket.",
+        "gap_vs_frontier": "POLARIS groups same-claim by LITERAL keys: exact numeric-signature equality (finding_dedup `_finding_key`, fact_dedup FactSignature) or exact content-word shingle Jaccard (fact_dedup >=0.82). The 2025/2026 frontier groups by SEMANTIC equivalence -- embedding clustering (MultiClaimNet: bge-m3 + agglomerative, 0.574 ARI) and/or NLI bi-directional-entailment / LLM 'same claim?' confirm -- over DECONTEXTUALIZED atomic claims (Claimify/VeriScore). Three concrete gaps: (1) PARAPHRASE BLINDNESS -- a prose claim restated in different words (no shared %/$/year, Jaccard<0.82) forms its OWN singleton basket, so corroboration is UNDER-counted exactly where the weight-and-consolidate DNA needs it (qualitative clinical claims: 'not recommended' vs 'should be avoided' vs 'contraindicated' never cluster). (2) NON-CLINICAL INERTNESS -- finding_dedup's clinical-tuned numeric extractor yields no key for economics/policy numerics (RESIDUAL 2), so those corroborators don't basket; claim_graph would fix this but is DEFAULT-OFF and unused. (3) NLI is wired only for CONFLICT edges, never for same-claim EQUIVALENCE grouping -- the frontier's core basketing primitive (bidirectional entailment = same claim) is absent. The faithfulness engine (FROZEN) is untouched by all of this -- basketing is a credibility WEIGHT, so adding semantic clustering only raises corroboration recall, never relaxes a verify gate. Caveat from SemEval-2025: dense-only under-performs BM25 monolingually, so the right design is a HYBRID lexical+dense candidate-gen + a precision NLI/LLM 'same claim?' confirm to preserve POLARIS's conservative-singleton (never over-merge) invariant.",
+        "license_flags": [
+          "NV-Embed-v2 is CC-BY-NC (non-commercial) — NON-SOVEREIGN, do NOT use; prefer Qwen3-Embedding (Apache-2.0) or bge-m3 (MIT)",
+          "multilingual-e5-large-instruct is MIT (OK)",
+          "Claimify has NO official Microsoft OSS release — only unofficial community reimplementations; verify each reimpl's license before adoption",
+          "MultiClaimNet dataset license not stated in paper — must verify on Zenodo (15100352) before any reuse of its labels",
+          "GPT-4/Falcon used only for MultiClaimNet GOLD annotation, not required at inference — sovereign clustering uses OSS embedder + OSS NLI judge only"
+        ],
+        "bakeoff_candidates": [
+          "bge-m3 + sentence-transformers agglomerative clustering (MultiClaimNet SOTA recipe, keep-all members) — primary basketing candidate",
+          "Qwen3-Embedding-8B + util.community_detection (fast, threshold keep-all) — reuse the I-arch-009 quality-gate embedder, zero new dependency",
+          "Hybrid candidate-gen: bge-m3 sparse+dense (or BM25) neighbor retrieval → NLI bidirectional-entailment 'same claim?' confirm via the EXISTING injected judge in claim_graph.py — precision gate preserving conservative-singleton",
+          "Activate claim_graph.py (PG_SWEEP_CLAIM_GRAPH) as the field-agnostic basket layer, swapping its SHA-1 literal-key grouping for embedding+NLI semantic grouping — closes RESIDUAL 2 and paraphrase blindness in one module already in-tree",
+          "Claimify/VeriScore-style decontextualized atomic-claim extraction as the PRE-step so paraphrase claims are normalized before clustering (community reimpl, sovereign LLM)",
+          "SemHash (Model2Vec) CPU candidate-generation stage for cheap same-claim neighbor finding before the NLI confirm — latency-bound bake-off baseline"
+        ]
+      },
+      {
+        "facet": "multisource_corroboration_weighting",
+        "best_practice_2025_2026": [
+          {
+            "name": "Uncertainty-Aware Web-Conditioned Scientific Fact-Checking (Vinod & Erk)",
+            "what": "The single closest published match to POLARIS's whole basket pipeline IN ITS NATIVE DOMAIN (scientific/biomedical fact-checking): atomic predicate-argument decomposition -> a compact evidence-grounded per-fact checker -> UNCERTAINTY-GATED multi-source web corroboration (consult external sources ONLY when calibrated confidence is low) -> abstain-with-NEI rather than override the context when evidence conflicts. The corroboration step is gated by calibrated confidence, which is exactly the calibrated-basket-confidence + label-don't-silently-override posture POLARIS approximates.",
+            "url": "https://arxiv.org/abs/2604.11036",
+            "why_sota": "PRIMARY-SOURCE VERIFIED (title/authors Ashwin Vinod & Katrin Erk / date 2026-04-13 / CC-BY-4.0 confirmed by fetch). It is more directly the SOTA-comparator and prior-art for corroboration-weighting than any crowd-voting or news-credibility paper reasoned onto baskets by analogy, because its native task IS evidence-source corroboration for high-stakes clinical fact-checking. Pair it with the OSS picks as the design reference for uncertainty-GATED (not always-on) corroboration.",
+            "date": "2026-04-13",
+            "license": "CC BY 4.0 (paper); code release not confirmed on the abstract page"
+          },
+          {
+            "name": "Reliability-aware iterative truth discovery (Dawid-Skene / M-MSR / CRH family) via crowd-kit",
+            "what": "Jointly estimate per-source RELIABILITY and the consensus truth in one EM loop: a source that agrees with high-weight sources gains weight; a value asserted by high-weight sources is more likely true. This is the weight<->consensus feedback POLARIS lacks (its source weight is a fixed authority prior; its consensus is a raw independent-origin count). Maps onto baskets as: members=sources, claim value=label, credibility=worker reliability.",
+            "url": "https://github.com/Toloka/crowd-kit",
+            "why_sota": "The 2015 truth-discovery concept (TruthFinder/CRH, arXiv:1505.02463) is FOUNDATIONAL not current; what makes it 2025/2026-current is the maintained crowd-kit implementation (PRIMARY-SOURCE VERIFIED: v1.4.2 Oct-2025, Apache-2.0, scikit-learn fit_predict API, Dawid-Skene/M-MSR/GLAD/MACE/Wawa). Frame as '2015 concept realized via the current crowd-kit impl', never 'TruthFinder is the current method'. Gives a reliability-aware credibility-weighted consensus value to replace the flat origin COUNT.",
+            "date": "2025-10 (crowd-kit v1.4.2); concept 2015 (arXiv:1505.02463)",
+            "license": "crowd-kit Apache-2.0 (sovereign-OK, commercial-OK); concept arXiv"
+          },
+          {
+            "name": "Beyond Majority Voting: Optimal Weight / Inverse Surprising Popularity (Ai, Pan, Simchi-Levi, Tambe, Xu)",
+            "what": "Aggregate multiple answers by assigning DIFFERENTIATED weights from first- AND second-order information (latent heterogeneity + correlation across answerers), provably beating majority voting. Applied BY ANALOGY to baskets it would upgrade POLARIS's BINARY copy-or-origin independence to a CONTINUOUS correlation-aware down-weight, so two partially-redundant non-copy sources count as less than two full independent origins.",
+            "url": "https://arxiv.org/abs/2510.01499",
+            "why_sota": "PRIMARY-SOURCE VERIFIED and DOMAIN-CAVEAT VERIFIED: its native task is aggregating multiple LLM ANSWERS (datasets MMLU, UltraFeedback, ARMMAN), NOT evidence-source corroboration. It is a legitimate pattern TRANSFER for the correlation-continuum idea, but must be labeled domain-mismatched (model-vote aggregation), NOT crowned 'the SOTA primitive for weighting corroborators'. v2 rev 2026-05-19; ICML-2026-class.",
+            "date": "2025-10-01 (v1), rev 2026-05-19",
+            "license": "arXiv nonexclusive-distrib 1.0; no code release found at fetch time — REIMPLEMENT from the paper"
+          },
+          {
+            "name": "Bayesian Beta-Binomial calibrated basket confidence + scikit-learn calibration backbone",
+            "what": "Turn a basket into a CALIBRATED probability + credible interval: combine per-source agreement evidence with source-reliability WEIGHTS into a Beta posterior (unreliable sources down-weight the update); then score the calibration with Brier/ECE. Replaces POLARIS's log1p-of-a-count strength signal (compute_signal_d) and its 4-value basket_verdict LABEL with a probability the existing calibration_metrics.py can verify.",
+            "url": "https://scikit-learn.org/stable/modules/calibration.html",
+            "why_sota": "The principled, sovereign, fully-OSS path to a calibrated basket confidence (scikit-learn BSD-3 CalibratedClassifierCV/calibration_curve + Brier). POLARIS already SHIPS the offline scorer (calibration_metrics.py Brier/ECE/MCE) but with NO production caller — this wires the proof loop. The Beta-Binomial posterior is a small deterministic update reimplementable from standard Bayesian sources.",
+            "date": "2025/2026 (scikit-learn maintained; Beta-Binomial is standard)",
+            "license": "scikit-learn BSD-3-Clause (sovereign-OK)"
+          },
+          {
+            "name": "CRED-1 open multi-signal domain credibility dataset (negative-signal)",
+            "what": "Offline 2,672-domain transparent composite credibility table (0.0-1.0) from openly-licensed source lists (OpenSources.co, Iffy.news) plus computed signals (domain age/WHOIS, Tranco popularity, Google Fact-Check frequency, Safe-Browsing). Pure-stdlib Python, fully reproducible, no NewsGuard/MBFC API. A deterministic auditable DOWN-weight for known-problematic news/web/social domains.",
+            "url": "https://arxiv.org/abs/2604.20856",
+            "why_sota": "PRIMARY-SOURCE VERIFIED (arXiv:2604.20856, github.com/aloth/cred-1, CC-BY-4.0, v1.0 Feb-2026). CRITICAL NUANCE the prior run missed: it is a NEGATIVE-signal dataset — it lists ONLY domains with known credibility ISSUES; a domain ABSENT from CRED-1 must be treated as neutral/unknown, NOT reliable. So it can sharpen the §-1.3 'social/web stays low-weight' down-weighting of known-bad domains, but it can NEVER up-weight a source — wire it as a down-weight-only overlay, never as the authority prior.",
+            "date": "2026-02",
+            "license": "CC BY 4.0 (open, commercial-OK, attribution)"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "crowd-kit",
+            "repo_or_pip": "pip install crowd-kit (github.com/Toloka/crowd-kit)",
+            "what_it_does": "Mature truth-discovery / label-aggregation toolkit (VERIFIED v1.4.2, Oct-2025, active): Dawid-Skene, One-Coin D-S, M-MSR, GLAD, MACE, Wawa, Zero-Based-Skill, KOS. scikit-learn fit_predict API on (task, worker, label) DataFrames. The reliability-aware weighted-aggregation engine for deciding a credibility-weighted consensus over a basket's noisy members with per-source reliability ESTIMATION — replaces POLARIS's flat independent-origin COUNT.",
+            "license": "Apache-2.0 (sovereign-OK, commercial-OK)"
+          },
+          {
+            "name": "scikit-learn (calibration backbone)",
+            "repo_or_pip": "pip install scikit-learn",
+            "what_it_does": "CalibratedClassifierCV / calibration_curve / brier_score_loss — the production backbone to WIRE POLARIS's already-built calibration_metrics.py (Brier/ECE/MCE/reliability-bins, currently offline-only, zero production callers) into a live basket-confidence calibration loop that PROVES the disclosed confidences are calibrated.",
+            "license": "BSD-3-Clause (sovereign-OK)"
+          },
+          {
+            "name": "CRED-1 domain-credibility dataset",
+            "repo_or_pip": "github.com/aloth/cred-1 ; Zenodo (10.5281/zenodo.18769460)",
+            "what_it_does": "Offline 2,672-domain NEGATIVE-signal credibility table (fake/unreliable/mixed/conspiracy/satire), pure-stdlib reproducible, no NewsGuard/MBFC API. Drop-in deterministic DOWN-weight for KNOWN-problematic news/web/social domains. Absent domain = neutral/unknown (not reliable), so it overlays the tier authority_score as a down-weight-only signal — never an up-weight.",
+            "license": "CC BY 4.0 (open, commercial-OK, attribution)"
+          },
+          {
+            "name": "Optimal Weight / Inverse Surprising Popularity (reimplement from arXiv:2510.01499)",
+            "repo_or_pip": "arXiv:2510.01499 — no public repo at fetch time (REIMPLEMENT)",
+            "what_it_does": "Small deterministic continuous correlation-aware weighting. Pattern source to upgrade independence_collapse.py from binary copy/origin to a graded down-weight of partially-redundant sources. DOMAIN CAVEAT: native task is multi-LLM-answer aggregation, not evidence corroboration — transfer the correlation-continuum idea only.",
+            "license": "arXiv nonexclusive-distrib 1.0 (no code license — reimplement)"
+          },
+          {
+            "name": "RobotReviewer / Trialstreamer (clinical study-quality weighting reference)",
+            "repo_or_pip": "github.com/ijmarshall/robotreviewer ; trialstreamer",
+            "what_it_does": "Clinical evidence-aggregation precedent: Cochrane RoB-2-style per-study risk weighting + PICO/effect extraction across multiple trials — the domain-correct analogue of weighting clinical corroborators by STUDY QUALITY (GRADE-adjacent), not just host independence. REFERENCE/PATTERN ONLY.",
+            "license": "RobotReviewer GPL-3.0 (copyleft — do NOT link into the sovereign binary; depends on external MEDLINE services, sovereignty check required)"
+          }
+        ],
+        "current_polaris": "POLARIS has a deep, well-architected corroboration/weighting stack that is genuinely the §-1.3 weight-and-consolidate DNA in code, but it weights by FIXED authority priors and aggregates by a COUNT of independent origins — no reliability<->consensus feedback, no correlation continuum, no calibrated posterior. Grounded (every claim read in-repo): (1) synthesis/weight_mass.py:160-180 — cluster_mass = authority_score(canonical_origin) ONLY; copies contribute ZERO (copy-uninflatable 'vax-defense', KBT arXiv:1502.03519); credibility_weight is CARRIED but DELIBERATELY NOT a mass factor (:161-167 comment proves folding it in breaks the no-inflation invariant). ADVISORY, default-OFF PG_SWEEP_WEIGHT_MASS (:36-42 — zero production callers, pure library). (2) synthesis/credibility_pass.py:209-233,611-762 — per-claim ClaimBasket keeps ALL supporting_members (never drops, §-1.3); verified_support_origin_count (the only strengthening count) = DISTINCT origin clusters whose member passed ISOLATED single-token per-member span verify (_verify_member_in_isolation:341-388, anti-laundering); basket_verdict is a LABEL only (full/partial/contested/unverified, :161-164) from counts + refuter edges, never resurrects a dropped sentence. (3) authority/corroboration.py:58-80 — corroboration_count = count_independent_hosts (eTLD+1 registrable domains via PSL); compute_signal_d turns it into a log1p sub-score (the closest thing to a consensus-confidence, but a monotone COUNT transform, not agreement- or reliability-weighted). (4) generator/weighted_enrichment.py:286-329 — surfaces the FULL ordered unbound-SUPPORTS basket (no cap, below-floor sorted-last-not-dropped, B18) through the UNCHANGED strict_verify; generator/fact_dedup.py same-work (DOI/title+discriminator) consolidation so N URLs of one paper = ONE source. (5) synthesis/calibration_metrics.py:79-129 — Brier/ECE/MCE/reliability-bins EXIST but PURE offline, NO production caller. The frozen faithfulness engine (strict_verify/NLI/4-role/provenance) is the only hard gate and is untouched — everything above is ADVISORY weight/label. FLAG-SPLIT (verified): the SAME flag PG_SWEEP_CREDIBILITY_REDESIGN defaults ON in synthesis/selection (credibility_pass.py:118 getenv(...,'on')) but OFF in retrieval (live_retriever.py:379 in-set with empty default) — so on an unset/default run the down-weight-don't-drop redesign is LIVE in synthesis but the retriever's content-starved rows still HARD-DROP (split-brain, same class as the I-arch-007 602->22 funnel).",
+        "gap_vs_frontier": "Five concrete gaps, all in ADVISORY weight/consensus/confidence layers, none touching the frozen faithfulness engine: (1) NO reliability-aware truth-discovery — POLARIS source weight = a fixed authority prior (credibility_skill capped at clamp01(authority)+uplift); the frontier (crowd-kit Dawid-Skene/M-MSR, concept arXiv:1505.02463) iterates weight<->consensus so a source's weight reflects its AGREEMENT with other credible sources, not just its venue. (2) Correlation is BINARY — independence_collapse is copy-or-origin (TF-IDF cosine>=0.85 + host-collapse); the OW/ISP continuum (2510.01499, DOMAIN-TRANSFERRED) would partially down-weight two partially-redundant non-copy sources POLARIS counts as two full independent origins. (3) Consensus strength is a COUNT, not a credibility-weighted aggregate — verified_support_origin_count and compute_signal_d are origin counts / log1p-of-a-count; the credibility_weight POLARIS computes is REFUSED entry into the strength signal (by design, to protect no-inflation — but a credibility-weighted consensus a la reliability-discovery, or the confidence-weighted-consensus / Roundtable-Policy pattern arXiv:2509.16839 which the facet scope literally names under 'consensus / weighted voting', would be more discriminative WITHOUT inflation if it weights members already in the basket, never adds count). (4) NO calibrated basket confidence — basket_verdict is a 4-value label; no Beta-Binomial/Bayesian posterior turning a basket into a calibrated probability + credible interval (the native pattern in arXiv:2604.11036's uncertainty-GATED corroboration). (5) calibration_metrics.py is UNWIRED — the Brier/ECE machinery that would PROVE basket confidences are calibrated has zero production caller. PLUS a verified repo split-brain (flag default ON in synthesis, OFF in retrieval) the prior run only half-corrected. NUANCE: arXiv:2604.11036 (Vinod & Erk, 2026) is the missing NATIVE-domain prior-art the facet should compare against; the facet's headline pick 2510.01499 is model-vote aggregation transferred by analogy and must be demoted from 'the SOTA primitive' to 'domain-transferred pattern'. CRED-1 is NEGATIVE-signal (down-weight known-bad only, never up-weight; absent=neutral). Sovereignty: POLARIS authority priors lean journal/gov; CRED-1 (CC BY 4.0) gives news/web/social a transparent offline down-weight without a NewsGuard/MBFC API.",
+        "license_flags": [
+          "RobotReviewer / Trialstreamer — GPL-3.0 (COPYLEFT, sovereignty-blocking if linked): reference/PATTERN ONLY; do NOT link into the sovereign binary or it forces GPL on POLARIS. Both also depend on external MEDLINE services — sovereignty check required before any live wiring (the clinical lane runs offline/sovereign).",
+          "NewsGuard / MBFC credibility APIs — PROPRIETARY / closed / sovereignty-blocking: avoid entirely; CRED-1 (CC BY 4.0, offline, pure-stdlib) is the open sovereign substitute.",
+          "Beyond Majority Voting OW/ISP (arXiv:2510.01499) — arXiv nonexclusive-distrib 1.0, NO code release found at fetch time: REIMPLEMENT from the paper (algorithm small/deterministic). Plus DOMAIN CAVEAT: native task is multi-LLM-answer aggregation (MMLU/UltraFeedback/ARMMAN), transferred by analogy — pattern-inspiration, not a verified evidence-corroboration method.",
+          "Roundtable confidence-weighted-consensus (arXiv:2509.16839) — paper reported CC-BY-4.0 but code license UNVERIFIED at fetch time: pattern-inspiration only per the frontier-tech-only / unverified-external-runtime rule; do not vendor blind. (Named in gap_vs_frontier, not on the verified best-practice list.)",
+          "Uncertainty-Aware Web-Conditioned Scientific Fact-Checking (arXiv:2604.11036) — paper CC BY 4.0, code release NOT confirmed on the abstract page: cite-as-prior-art + design reference, treat as pattern-only until a licensed repo is confirmed.",
+          "CRED-1 (arXiv:2604.20856 / github.com/aloth/cred-1) — CC BY 4.0 (open, commercial-OK, ATTRIBUTION required). NOT sovereignty-blocking, but NEGATIVE-signal: down-weights known-bad domains only, absent=neutral/unknown (never up-weight) — wire as a down-weight overlay, never as the authority prior.",
+          "SOVEREIGN-OK, commercial-OK, safe to vendor: crowd-kit (Apache-2.0), scikit-learn (BSD-3-Clause). CRED-1 (CC BY 4.0) is sovereign-OK with attribution."
+        ],
+        "bakeoff_candidates": [
+          "crowd-kit Dawid-Skene / M-MSR (Apache-2.0) — reliability-aware weighted aggregation over a basket: estimate per-source reliability from cross-source agreement and produce a credibility-weighted consensus value + per-source weight, replacing the flat independent-origin COUNT. Acceptance = behavioral on a banked corpus_snapshot.json (§-1.4 replay-harness): a more discriminative/calibrated strength signal appears in the real rendered output, WITHOUT relaxing the frozen strict_verify gate and WITHOUT adding to any count (weight-only, never inflate).",
+          "Beta-Binomial / mixture-prior Bayesian basket confidence (scikit-learn BSD-3 backbone) — turn each basket into a calibrated posterior probability + credible interval, weighting corroborators by credibility_weight. Acceptance = score against the already-built offline calibration_metrics.py Brier/ECE on §-1.1-audited claims (1=held up, 0=did not) and PROVE calibration beats compute_signal_d's log1p count. This is the highest-value bake-off because it also WIRES the dead calibration_metrics.py.",
+          "CRED-1 (CC BY 4.0, NEGATIVE-signal) domain-credibility overlay — deterministic offline DOWN-weight for KNOWN-bad news/web/social domains vs the current LLM-judge+authority-prior. Acceptance = agreement with tier_classifier authority_score on overlapping known-bad domains; confirm it only down-weights (absent=neutral, never up-weight). Sharpens the §-1.3 'social stays low-weight' DNA.",
+          "Optimal Weight / ISP (reimplemented from arXiv:2510.01499, DOMAIN-TRANSFERRED) — continuous correlation-aware weighting to upgrade independence_collapse from binary copy/origin to a graded down-weight of partially-redundant sources. Acceptance = does it change which baskets read 'multi-source corroborated (>=2 verified origins)' on the banked corpus? HARD GUARD: it must lower a basket's DISCLOSED STRENGTH SIGNAL only — never remove a member, never gate a sentence, or it becomes a §-1.3-banned correlation-cap.",
+          "arXiv:2604.11036 uncertainty-GATED corroboration (Vinod & Erk, native clinical fact-checking) — adopt as the design reference + cite-as-prior-art: corroborate (consult more sources) ONLY when calibrated basket confidence is low, and abstain-with-NEI rather than override. Acceptance = a calibrated-confidence gate on the corroboration step appears in the output and never silently overrides a verified claim. Pattern-only (code release unconfirmed).",
+          "FIX the verified flag split-brain (live_retriever.py:379 default-OFF vs credibility_pass.py:118 default-ON for the SAME PG_SWEEP_CREDIBILITY_REDESIGN) — a repo-grounded bake-off/regression: make the retriever default match synthesis so the down-weight-don't-drop redesign is coherent on an unset run. Acceptance = on a default run, content-starved retrieval rows are DOWN-WEIGHTED (kept at low weight) not hard-dropped, verified in the real pool on a banked corpus."
+        ]
+      },
+      {
+        "facet": "contradiction_stance_conflict",
+        "best_practice_2025_2026": [
+          {
+            "name": "ConflictRAG (two-stage conflict detection + Entropy-TOPSIS source arbitration + CARS metric)",
+            "what": "Detects knowledge conflicts AMONG retrieved sources (source-vs-source, the exact intra-basket problem) with a 2-stage detector: a lightweight embedding-based MLP classifier first, then selective LLM refinement only on hard cases (62% API-cost reduction, 90.8% detection accuracy). Adds an Entropy-TOPSIS data-driven source-credibility arbitration (+7.1% selection accuracy over manual heuristics) and a Conflict-Aware RAG Score (CARS) for diagnostic eval.",
+            "url": "https://arxiv.org/abs/2605.17301",
+            "why_sota": "Most recent (May 17 2026, rev Jun 8 2026) and directly on-point: it is source-vs-source conflict + a credibility-weighted arbitration, which is precisely POLARIS's basket-faithfulness verdict need. The cheap-classifier-first / LLM-only-on-hard-pairs design is the cost-and-sovereignty lever POLARIS's currently-capped LLM-NLI pass lacks.",
+            "license": "License unconfirmed (arXiv distribution license only; no code/license declared on the abstract page)",
+            "date": "2026-05-17"
+          },
+          {
+            "name": "ModernCE-large-nli (ModernBERT-large NLI cross-encoder)",
+            "what": "A 395M-param cross-encoder that outputs the 3 NLI labels (contradiction / neutral / entailment) over a claim pair — i.e. a local, deterministic, sovereign stance/conflict judge. 8192-token context (long enough for full evidence spans, not just sentences); 1838MB GPU vs 3250MB for DeBERTa-v3-large.",
+            "url": "https://huggingface.co/dleemiller/ModernCE-large-nli",
+            "why_sota": "2025 OSS NLI SOTA: MNLI-mismatched 92.02 and SNLI 91.10 vs DeBERTa-v3-large 90.79 / 88.98, at ~half the memory and a much longer context. MIT-licensed and runnable fully offline — it can judge EVERY basket pair with no API spend and no socket-hang class, unlike a remote LLM judge.",
+            "license": "MIT",
+            "date": "2025"
+          },
+          {
+            "name": "FaithfulRAG fact-level conflict modeling (ACL 2025) — adjacent, NOT the same problem",
+            "what": "Models conflict at the FACT level between the LLM's parametric knowledge and the retrieved context, with a self-thinking reconciliation step. Code at github.com/DeepLearnXMU/Faithful-RAG (a.k.a. XMUDeepLIT/Faithful-RAG).",
+            "url": "https://arxiv.org/abs/2506.08938",
+            "why_sota": "Frontier (ACL 2025) and frequently cited, but it solves parametric-vs-context conflict, NOT source-vs-source disagreement within a basket. Listed so the bake-off does NOT mis-adopt it: POLARIS's faithfulness engine already pins generation to context, so the fact-level decomposition idea is the transferable part, not the parametric-reconciliation mechanism.",
+            "license": "Code public on GitHub (repo license to be confirmed before any vendoring)",
+            "date": "2025-06-10"
+          },
+          {
+            "name": "SeCon-RAG Conflict-Aware Filtering (Q/C/M consistency) — explicitly the ANTI-pattern for POLARIS",
+            "what": "A two-stage trustworthy-RAG framework whose Conflict-Aware Filtering uses LLM semantic reasoning over three consistency dimensions (Query / Corpus / Model) to FILTER OUT contradictory or poisoned evidence before generation.",
+            "url": "https://arxiv.org/html/2510.09710v1",
+            "why_sota": "2025 and a clean articulation of the Q/C/M conflict-reasoning rubric, BUT it DROPS conflicting evidence — directly anti-§-1.3 (weight-and-consolidate, surface-not-filter, keep-all corroborators). Included only as the contrast case: adopt its Q/C/M reasoning prompt as a per-basket stance signal, NEVER its filter-and-drop posture.",
+            "license": "License unconfirmed (no code/license declared in the HTML)",
+            "date": "2025-10-10"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "ModernCE-large-nli",
+            "repo_or_pip": "huggingface.co/dleemiller/ModernCE-large-nli (via sentence-transformers / transformers)",
+            "what_it_does": "Local ModernBERT-large cross-encoder emitting contradiction/neutral/entailment over a claim pair; 8192-ctx, ~1.8GB GPU. Sovereign, free, always-on stance/NLI judge for every basket pair.",
+            "license": "MIT",
+            "maturity": "Released 2025; beats DeBERTa-v3-large on MNLI-mm/SNLI; production-usable single-file load"
+          },
+          {
+            "name": "sileod/deberta-v3-large-tasksource-nli",
+            "repo_or_pip": "huggingface.co/sileod/deberta-v3-large-tasksource-nli",
+            "what_it_does": "DeBERTa-v3-large multi-task-trained on 600 tasksource tasks (incl. ANLI, FEVER, many NLI) — strong entailment/contradiction head, robust on adversarial NLI (ANLI) where ModernCE is slightly weaker.",
+            "license": "License UNCONFIRMED on the card — must verify before sovereign use",
+            "maturity": "Widely used 2024-2025; IBM model-recycling #1 for its architecture"
+          },
+          {
+            "name": "MoritzLaurer/deberta-v3-large-zeroshot-v2.0 (and the '-c' commercial variant)",
+            "repo_or_pip": "huggingface.co/MoritzLaurer/deberta-v3-large-zeroshot-v2.0",
+            "what_it_does": "Zero-shot entailment classifier (hypothesis 'true / not-true'); maps stance support/refute/neutral to entail/contradict/neutral via hypothesis templates — good for arbitrary claim-pair stance without fine-tuning.",
+            "license": "MIT base; the NON-'-c' weights are trained on ANLI/WANLI (research-only data) — use the '-c' variant (Mixtral-synthetic + MNLI + FEVER) for commercial/sovereign",
+            "maturity": "v2.0 Dec 2023, maintained through 2025; very widely deployed"
+          },
+          {
+            "name": "FaithfulRAG (reference implementation)",
+            "repo_or_pip": "github.com/DeepLearnXMU/Faithful-RAG",
+            "what_it_does": "Fact-level conflict modeling + self-thinking reconciliation (parametric-vs-context). Pattern-inspiration for fact-level decomposition only.",
+            "license": "Repo public; license to confirm",
+            "maturity": "ACL 2025 artifact"
+          },
+          {
+            "name": "NegEx / ConText assertion-status cues (already vendored in POLARIS)",
+            "repo_or_pip": "rule lexicon (Chapman 2001 / Harkema-Chapman 2009) — config/clinical_safety/qualitative_conflict_lexicon.yaml",
+            "what_it_does": "Deterministic, no-LLM PRESENT/ABSENT/INDETERMINATE assertion polarity — the no-number/no-cost detector for contraindication-present-vs-absent (lethal-miss class).",
+            "license": "Public-domain clinical NLP method",
+            "maturity": "Production in POLARIS qualitative_conflict_detector.py; default ON"
+          }
+        ],
+        "current_polaris": "POLARIS already runs a THREE-detector intra-basket conflict stack feeding a claim-graph and a both-sides composer — this facet is well-built, the gap is wiring/sovereignty, not absence. (1) NUMERIC: contradiction_detector.py — deterministic regex (subject,predicate,value,unit), >10% rel-diff flags ContradictionRecord (:480-507, incl. the A17 not_comparable commensurability guard :494-507); disclose-both, never drop; B9 generic non-clinical path. (2) QUALITATIVE: qualitative_conflict_detector.py:1-27 — NegEx/ConText rule-cue PRESENT/ABSENT 2-pass (hard conflict + review_flag), NO LLM, default ON (:94-97). (3) SEMANTIC NLI: semantic_conflict_detector.py — LLM-NLI judge default z-ai/glm-5.2 (:69), cluster-by-salient-words -> pairs -> CONTRADICT/ENTAIL/NEUTRAL conf>=0.7, but DEFAULT OFF (:222) and COST-CAPPED at MAX_PAIRS=60 / MAX_ROWS=200 (:63-65) with a conflict_unscored disclosed-gap label and strict_fail_closed (:325). These three feed claim_graph.py (imports all three as edge sources :58-71) which builds ContradictionEdge objects between claim CLUSTERS/baskets (:190, recall-first), and both_sides.py:68 compose_both_sides emits per-contested-cluster BothSidesBlocks ordered by Phase-6 origin-cluster weight_mass (never headcount, low-weight side kept not dropped), with dissent_recall_builder.py targeting the minority side. A within-basket stance primitive also already exists: fact_dedup.py:433 _polarity_signature blocks merging opposite-polarity prose (raised vs lowered, inserted 'not') at high Jaccard, so support/refute prose never silently consolidates. (Note: anti_sycophancy/stance_delta.py:45 classifies agree/disagree/hedge but for PROMPT-DRIFT across 4 framings, NOT basket stance — out of facet.)",
+        "gap_vs_frontier": "The machinery exists but is (a) NOT WIRED and (b) NOT SOVEREIGN/ALWAYS-ON. Three concrete deltas vs the frontier: (1) The semantic NLI edge source — the only detector that catches prose-only directional disagreement with no number and no NegEx cue (the F12 lethal-miss class) — is a REMOTE LLM (GLM-5.2), default OFF, and hard-capped to 60 judged pairs. The 2025/2026 frontier (ModernCE-large-nli, MIT, 8192-ctx, local) makes it feasible to run a deterministic NLI cross-encoder on EVERY basket pair with zero API spend, full sovereignty, and no socket-hang/cost-cap class — turning a capped, optional pass into an always-on basket attribute. (2) both_sides.py and dissent_recall_builder.py are DEFAULT-OFF pure libraries with NO production caller — the basket-level both-sides surfacing and minority-recall the task asks for is composed but not rendered into the actual report path. (3) No credibility-WEIGHTED structured stance verdict per basket: POLARIS has tier weights and weight_mass ordering, but unlike ConflictRAG's Entropy-TOPSIS it does not aggregate them into a single surfaced support/refute stance vector (count + summed authority weight per side + agreement) decorating the basket — the §-1.3 basket-faithfulness verdict is implied by the both-sides block, not emitted as a first-class structured attribute. Faithfulness engine stays untouched throughout (advisory/disclosure only).",
+        "bakeoff_candidates": [
+          "ModernCE-large-nli (MIT, ModernBERT-large, 8192-ctx) — primary sovereign pick: local always-on NLI cross-encoder to replace/supplement the capped GLM-5.2 LLM-NLI edge source",
+          "sileod/deberta-v3-large-tasksource-nli — adversarial-NLI-robust contender (verify license first)",
+          "MoritzLaurer/deberta-v3-large-zeroshot-v2.0-c (commercial '-c' variant) — zero-shot stance via hypothesis templates, sovereignty-safe data",
+          "current GLM-5.2 LLM-NLI judge (semantic_conflict_detector.py) — incumbent baseline to beat on contradiction-pair recall/precision + cost + latency",
+          "ConflictRAG Entropy-TOPSIS arbitration pattern — adopt as the credibility-weighted per-basket stance-verdict aggregator (pattern-inspiration; license-blocked from vendoring)",
+          "Two-stage cheap-classifier-then-LLM-refine (ConflictRAG pattern) — embedding/MLP or ModernCE first pass, LLM only on the hard residual, measured on cost-vs-recall"
+        ],
+        "license_flags": [
+          "sileod/deberta-v3-large-tasksource-nli — license NOT stated on the model card; must confirm before any sovereign/commercial deployment",
+          "MoritzLaurer deberta-v3-large-zeroshot-v2.0 NON-'-c' weights — trained on ANLI/WANLI (research/non-commercial training data); use the '-c' variant (Mixtral-synthetic + MNLI + FEVER) for sovereign/commercial use",
+          "ConflictRAG (arXiv 2605.17301) — no code/license declared; pattern-inspiration only, do NOT vendor without a license",
+          "SeCon-RAG (arXiv 2510.09710) — no license declared AND its filter-and-drop posture is anti-§-1.3 (drops conflicting evidence); adopt the Q/C/M reasoning rubric only, never the filtering",
+          "FaithfulRAG (github.com/DeepLearnXMU/Faithful-RAG) — repo license to be confirmed; in any case parametric-vs-context, not the source-vs-source basket problem"
+        ]
+      },
+      {
+        "facet": "multidoc_consolidate_distill_mapreduce",
+        "best_practice_2025_2026": [
+          {
+            "name": "LLMxMapReduce (V1)",
+            "what": "Map -> collapse -> reduce over a long multi-source input. Extracts a STRUCTURED INFORMATION unit per chunk; a structured information PROTOCOL handles inter-chunk DEPENDENCY and an IN-CONTEXT CONFIDENCE CALIBRATION mechanism resolves inter-chunk CONFLICT at reduce time. Model-agnostic. This is the direct upgrade target for POLARIS's REDUCE conflict handling (today plain contradiction_key string-equality).",
+            "url": "https://arxiv.org/abs/2410.09342",
+            "why_sota": "ACL 2025 long paper; ablations show the structured protocol + confidence calibration let a divide-and-conquer pipeline beat representative OPEN and COMMERCIAL long-context LLMs, and it transfers across models.",
+            "date": "arXiv Oct 2024; ACL Jul 2025",
+            "license": "Apache-2.0 (verified raw LICENSE, thunlp)"
+          },
+          {
+            "name": "LLMxMapReduce-V2 (entropy-driven convolutional test-time scaling; SurveyGO)",
+            "what": "Stacked 'convolutional' scaling layers progressively integrate hundreds of sources into one long grounded article, plus Best-of-N self-refinement. Purpose-built for long-form grounded report/survey generation from EXTREMELY LONG multi-source resources — the exact POLARIS multi-section grounded-report job. Ships the SurveyEval benchmark.",
+            "url": "https://arxiv.org/abs/2504.05732",
+            "why_sota": "Current best OSS recipe for turning a large source set into one long grounded document; hierarchical (not flat) reduce, with a published survey-writing benchmark and a live system (SurveyGO).",
+            "date": "arXiv Apr 2025",
+            "license": "Apache-2.0 (verified, same thunlp repo)"
+          },
+          {
+            "name": "LLMxMapReduce-V3 (MCP-driven hierarchically-modular survey agent)",
+            "what": "Agentic, hierarchically-modular pipeline for interactive in-depth survey generation over a long corpus — the agent evolution of the same map-reduce DNA.",
+            "url": "https://arxiv.org/abs/2510.10890",
+            "why_sota": "Newest (Oct 2025) instantiation of hierarchical map-reduce; useful as the modular-agent pattern reference, heavier than a fixed report contract needs.",
+            "date": "arXiv Oct 2025; code released Sep 13 2025",
+            "license": "Apache-2.0 (verified, same thunlp repo)"
+          },
+          {
+            "name": "Context-Aware Hierarchical Merging (CAHM)",
+            "what": "Bottom-up RECURSIVE merge of per-chunk summaries with context-aware RE-GROUNDING at each merge level to suppress hallucination during merging — the faithfulness-oriented hierarchical-reduce recipe that fixes POLARIS's flat single-pass reduce.",
+            "url": "https://arxiv.org/abs/2502.00977",
+            "why_sota": "Cleanest published, MIT-licensed, grounding-aware hierarchical-merge method; matches POLARIS's span-grounded ethos and is the lightest to port as the REDUCE shape.",
+            "date": "arXiv Feb 2025",
+            "license": "MIT (verified raw LICENSE, Litu Ou)"
+          },
+          {
+            "name": "XpandA — question-driven multi-agent divide-and-conquer (long-context vs map-reduce evidence)",
+            "what": "Dynamic partitioning + shared-memory question-guided agent protocol + selective replay over 1k-1M-token contexts. Quantifies the divide-and-conquer advantage over full-context and RAG.",
+            "url": "https://arxiv.org/abs/2505.20625",
+            "why_sota": "Reports ~20% quality gain and 1.5x speedup over full-context, RAG, and prior agent methods — strong 2025 evidence that for FAITHFUL multi-source synthesis you still want per-source distill + structured reduce, not raw long-context stuffing.",
+            "date": "arXiv May 2025 (latest rev Sep 2025)",
+            "license": "UNVERIFIED — no public repo LICENSE located; cite as evidence only, do not adopt as code"
+          },
+          {
+            "name": "LangGraph map-reduce (Send API)",
+            "what": "Supported framework pattern for multi-doc summarization: dynamic runtime fan-out (Send) + state reducers (operator.add) to combine concurrent per-source workers + independent worker state. Supersedes LangChain legacy load_summarize_chain map_reduce mode for new builds.",
+            "url": "https://python.langchain.com/docs/how_to/summarize_map_reduce/",
+            "why_sota": "Current recommended engineering pattern (LangGraph v1.0, Oct 2025); POLARIS's asyncio.Semaphore+gather fan-out is already an equivalent, so this is parity not a gap-closer.",
+            "date": "LangGraph v1.0, Oct 2025",
+            "license": "MIT"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "LLMxMapReduce (V1) — structured information protocol + in-context confidence calibration reduce",
+            "repo_or_pip": "github.com/thunlp/LLMxMapReduce (arXiv 2410.09342; ACL 2025)",
+            "what_it_does": "Map -> collapse -> reduce; structured information unit per chunk, inter-chunk DEPENDENCY via structured protocol, inter-chunk CONFLICT via confidence calibration at reduce. Maps onto POLARIS MAP(distill)->REDUCE(compose) and upgrades the conflict layer.",
+            "license": "Apache-2.0 (verified: raw LICENSE on main, 'Copyright 2023 thunlp, Apache License Version 2.0') — sovereignty-clean",
+            "maturity": "ACL 2025 long paper; ~874 stars; actively maintained (V1 Sep 2024, V2 Apr 2025, V3 Sep 2025); powers SurveyGO."
+          },
+          {
+            "name": "LLMxMapReduce-V2 — entropy-driven convolutional test-time scaling (SurveyGO) + SurveyEval",
+            "repo_or_pip": "github.com/thunlp/LLMxMapReduce (arXiv 2504.05732, Apr 2025)",
+            "what_it_does": "Stacked convolutional scaling layers progressively integrate hundreds of sources into one long grounded article; Best-of-N self-refinement; ships SurveyEval. Best OSS recipe for long-form grounded multi-source report generation.",
+            "license": "Apache-2.0 (verified, same repo) — sovereignty-clean",
+            "maturity": "Apr 2025; live online system (SurveyGO); same actively-maintained repo. Research-to-production."
+          },
+          {
+            "name": "LLMxMapReduce-V3 — MCP-driven hierarchically-modular survey agent",
+            "repo_or_pip": "github.com/thunlp/LLMxMapReduce (arXiv 2510.10890, Oct 2025)",
+            "what_it_does": "Agentic hierarchical-modular pipeline for interactive in-depth survey generation over a long corpus; agent evolution of the map-reduce DNA.",
+            "license": "Apache-2.0 (verified, same repo) — sovereignty-clean",
+            "maturity": "Code released Sep 13 2025; newest, heavier (full agent system); pattern reference more than drop-in for a fixed report contract."
+          },
+          {
+            "name": "CAHM — Context-Aware Hierarchical Merging",
+            "repo_or_pip": "github.com/Leonard907/CAHM (arXiv 2502.00977, Feb 2025)",
+            "what_it_does": "Bottom-up recursive merge of per-chunk summaries with context-aware re-grounding at each level to reduce hallucination — faithfulness-oriented hierarchical-reduce recipe that fixes POLARIS's flat single-pass reduce.",
+            "license": "MIT (verified: raw LICENSE on main, 'Copyright ... Litu Ou', standard MIT text) — sovereignty-clean",
+            "maturity": "Feb 2025 paper (Edinburgh/Lapata group); research-grade reference implementation; best studied as a design to port."
+          },
+          {
+            "name": "LangGraph map-reduce (Send API)",
+            "repo_or_pip": "pip install langgraph (langchain-ai/langgraph; docs how_to/summarize_map_reduce)",
+            "what_it_does": "Dynamic runtime fan-out (Send) + state reducers (operator.add) + independent worker state for parallel per-source map then combine. POLARIS's asyncio.Semaphore+gather is a direct equivalent.",
+            "license": "MIT — sovereignty-clean",
+            "maturity": "Production; LangGraph v1.0 (Oct 2025). Parity with POLARIS, not a gap-closer."
+          },
+          {
+            "name": "XpandA — question-driven multi-agent divide-and-conquer (long-context evidence)",
+            "repo_or_pip": "arXiv 2505.20625 (May 2025; rev Sep 2025) — public code/license NOT located",
+            "what_it_does": "Dynamic partitioning + shared-memory question-guided agent protocol + selective replay over 1k-1M-token contexts; quantifies map-reduce advantage over full-context and RAG (~20% quality, 1.5x speed).",
+            "license": "UNVERIFIED — no public repo LICENSE located; cite as trade-off EVIDENCE only, do not adopt as code",
+            "maturity": "Research paper only; pattern/benchmark reference."
+          }
+        ],
+        "current_polaris": "POLARIS already implements a real per-source-distill -> per-section-reduce map-reduce, gated behind PG_SECTION_DISTILL. (1) MAP: src/polaris_graph/generator/evidence_distiller.py — distill_section_evidence (evidence_distiller.py:1658) runs one LLM MAP call PER SOURCE (micro-batched 1..3, asyncio.Semaphore(parallel) fan-out, _max_parallel default 8 at :173), extracting atomic span-grounded DistilledFinding rows validated FAIL-CLOSED (_validate_finding :849: support_quote must locate in direct_quote via exact/whitespace/fuzzy recovery; fuzzy recoveries get a BLOCKING per-finding entailment via the unchanged verify_sentence_provenance; numbers-in-span telemetry-only/non-blocking per #1217). Every source yields >=1 finding OR a CoverageRow (LAW II, no silent drop). (2) REDUCE: a single-pass per-section compose over the VALIDATED_FINDINGS_LEDGER only (render_reduce_user :441, _REDUCE_SYSTEM :303), wired at multi_section_generator.py:3886 (distill_section_evidence) and :2743-2768 (section_reduce call); reducer never sees raw quotes, every sentence must carry a [[finding:]] marker + exact [ev_XXX] cite, uncited prose stripped (:4017 filter_and_strip_reduce_markers); strict_verify re-checks every reduced sentence (faithfulness engine FROZEN). (3) CONFLICT: _cluster_contradictions (evidence_distiller.py:1632) groups findings by exact-string contradiction_key when >=2 distinct sources share it — passed to REDUCE as framing only. (4) CROSS-SOURCE CONSOLIDATION is separate passes: finding_dedup.dedup_by_finding (synthesis/finding_dedup.py:575) clusters rows by numeric FINDING and (under PG_SWEEP_CREDIBILITY_REDESIGN) KEEPS ALL same-claim rows as a basket with corroboration_count + consolidate_same_work (:455, same-DOI/folded-title => one source, keep all URLs); generator/weighted_enrichment.py surfaces the full ordered SUPPORTS basket (ClaimBasket.supporting_members) with no cap; cross-section restatements handled by generator/fact_dedup.py build_groups/dedup_pass (numeric signature + #1289 prose-Jaccard, keep-all cross-ref rewrite). Scope is strictly PER-SECTION: section_title/section_focus thread through MAP and REDUCE (evidence_distiller.py:1687-1688), so there is NO single global multi-document reduce — sections compose independently then dedup.",
+        "gap_vs_frontier": "POLARIS is NOT missing map-reduce (it has one); the gap is the SHAPE of the reduce and the conflict protocol. (A) FLAT vs HIERARCHICAL reduce: POLARIS's REDUCE is a single-pass, per-section compose over a flat findings ledger (render_reduce_user / section_reduce); the 2025-2026 frontier (LLMxMapReduce-V2 entropy-driven convolutional scaling 2504.05732; V3 2510.10890; CAHM recursive context-aware merge 2502.00977) does ITERATIVE/HIERARCHICAL merge that preserves cross-source structure and salience as the corpus grows — on a wide corpus POLARIS's flat ledger -> single completion can lose cross-source interdependencies and starve coverage. (B) Cross-source SYNTHESIS is bolted on, not unified: POLARIS composes sections independently then runs separate dedup/basket passes (finding_dedup, fact_dedup, weighted_enrichment); there is no single global multi-document reduce producing 'one grounded answer' with cross-source relationships first-class, which the frontier provides. (C) CONFLICT handling is primitive: _cluster_contradictions uses exact-string contradiction_key equality (>=2 sources) fed as framing only; the frontier (LLMxMapReduce structured information protocol + in-context CONFIDENCE CALIBRATION) actually RESOLVES inter-source conflict at reduce time — POLARIS leaves resolution implicit and relies on the faithfulness gate to DROP, not reconcile. CONSTRAINT: every candidate slots in as the reduce/consolidation layer FEEDING the frozen strict_verify/NLI/4-role engine — none may resolve conflict in place of it. NOTE: POLARIS's basket/keep-all DNA (§-1.3) is AHEAD of vanilla map-reduce (which collapses duplicates); the right move keeps the basket consolidation and upgrades only the reduce shape + conflict protocol. License posture: every adoptable candidate is Apache-2.0 (LLMxMapReduce V1/V2/V3) or MIT (CAHM, LangGraph) — sovereignty-clean; XpandA is license-unverified (evidence only).",
+        "bakeoff_candidates": [
+          "LLMxMapReduce V1 structured-information-protocol + in-context confidence-calibration REDUCE (Apache-2.0) — port the conflict-calibration reduce to replace the flat single-pass compose; FEEDS, does not replace, strict_verify",
+          "LLMxMapReduce-V2 entropy-driven convolutional hierarchical scaling (Apache-2.0) — adopt hierarchical/iterative merge for WIDE corpora long-form grounded sections; Best-of-N self-refine optional",
+          "CAHM context-aware hierarchical recursive merge (MIT) — faithfulness-oriented bottom-up merge with per-level re-grounding; closest to POLARIS span-grounded ethos; lightest to port as the REDUCE shape",
+          "Control arm: keep POLARIS basket/keep-all consolidation (finding_dedup + weighted_enrichment + fact_dedup) AS-IS, bolt the chosen hierarchical reduce on top — baseline",
+          "LangGraph Send-API map-reduce orchestration (MIT) — only if reframing the existing asyncio.Semaphore+gather fan-out; parity baseline, low expected delta",
+          "EXCLUDE from bakeoff (evidence only, not adoptable): XpandA 2505.20625 (no verified OSS license) and raw long-context stuffing — cite for the map-reduce-beats-long-context trade-off"
+        ],
+        "license_flags": [
+          "LLMxMapReduce V1/V2/V3 (thunlp): Apache-2.0 — VERIFIED from raw LICENSE on main; sovereignty-clean, no NC/closed restriction.",
+          "CAHM (Leonard907): MIT — VERIFIED from raw LICENSE on main; sovereignty-clean.",
+          "LangGraph: MIT — sovereignty-clean.",
+          "XpandA (arXiv 2505.20625): public code repo + license NOT located — UNVERIFIED. Do NOT adopt as code; use as trade-off evidence only.",
+          "No CC-BY-NC / closed-source / non-sovereign item is REQUIRED for this facet — every adoptable candidate is Apache-2.0 or MIT."
+        ]
+      },
+      {
+        "facet": "setbased_claim_verification",
+        "best_practice_2025_2026": [
+          {
+            "name": "DeepTRACE factual-support matrix (per-(statement,source) support, set-max aggregation)",
+            "what": "Builds a Statement x Source binary 'factual-support matrix' via an LLM judge (GPT-5) scoring each (statement, source) pair independently; a statement is 'Unsupported' iff NO cited source supports it (max-over-the-cited-set), and Citation Accuracy = sum(CitationMtx (.) FactualSupportMtx)/sum(CitationMtx). This is the canonical 2025 definition of 'statement supported by its cited SET' and is one of POLARIS's two benchmark targets.",
+            "url": "https://arxiv.org/abs/2509.04499",
+            "date": "2025-09-04",
+            "license": "arXiv paper (CC-BY); audit framework, GPT-5 judge is the reference impl (closed)",
+            "why_sota": "Defines the field-standard set-based citation-faithfulness primitive and is POLARIS's headline DeepTRACE leaderboard target. Crucially its support model is per-source-then-max-over-set, i.e. the SAME shape POLARIS already uses (per-member isolation) — confirms POLARIS is aligned with the SOTA metric, not behind it. Honest limit: GPT-5 judge correlates only 0.62 Pearson with human labels."
+          },
+          {
+            "name": "MedRAGChecker calibrated set-level support score P* (NLI(set) + KG, logistic fusion)",
+            "what": "Clinical claim-level verifier: decomposes a long-form medical answer into atomic claims, verifies EACH claim against the WHOLE retrieved evidence set D (not per-chunk) by combining evidence-grounded NLI with biomedical knowledge-graph consistency signals, and fuses textual-NLI probability + KG support into ONE calibrated support score P* via logistic fusion; aggregates per-claim Entail/Neutral/Contradict into answer-level faithfulness / hallucination / safety-critical-error rates.",
+            "url": "https://arxiv.org/abs/2601.06519",
+            "date": "2026-01",
+            "license": "paper; anonymous repo (license TBD at submission); GPT-4.1/4o teacher, open-weight distilled students (Meditron3-8B, Med42-Llama3-8B, Med-Qwen2-7B)",
+            "why_sota": "The clearest 2026 example of genuine SET-level (not per-span) basket faithfulness in the clinical domain: it aggregates the multi-evidence set INTO one calibrated confidence layered on NLI, plus a domain KG cross-check, and emits a safety-critical-error rate — exactly the advisory basket-confidence layer POLARIS lacks. Distilled open-weight students make it sovereign-portable."
+          },
+          {
+            "name": "Credibility-weighted multi-source aggregation with source-level disagreement + claim/negation calibration",
+            "what": "Retrieves multiple sources per claim, computes a verdict per source, then AGGREGATES them with explicit source-level-disagreement modeling and source-credibility weighting; runs both the claim AND its negation (dual perspective) and calibrates raw per-source confidence because LLM confidence is not comparable across models. Agreement across sources yields sharp high-confidence peaks; disagreement is surfaced rather than silently max-pooled.",
+            "url": "https://arxiv.org/pdf/2602.18693",
+            "date": "2026-02",
+            "license": "CC-BY 4.0 (paper); anonymous repo (4open.science)",
+            "why_sota": "Directly the basket-faithfulness frontier POLARIS aspires to in §-1.3: decide a claim against its WHOLE basket of corroborators, WEIGHTED by credibility, with disagreement made explicit and confidence CALIBRATED before combination. The claim+negation dual check is a concrete anti-one-sidedness mechanism that maps onto the DeepTRACE one-sided/overconfident metrics."
+          },
+          {
+            "name": "Natural-logic proof-based evidence-SET sufficiency (faithful-by-construction)",
+            "what": "Generates a natural-logic proof (sequence of lexical mutations + NatLog operators) over the retrieved evidence to decide veracity AND whether the evidence SET is SUFFICIENT for the claim; the proof itself is the explanation, so sufficiency/veracity are 'faithful by construction' rather than a post-hoc score. Zero-shot LLM variants (2024-2025) remove the trained seq2seq dependency.",
+            "url": "https://arxiv.org/pdf/2410.03341",
+            "date": "2024-10 (zero-shot NatLog+LLM); ProoFVer lineage 2022 (TACL)",
+            "why_sota": "Provides a SET-level SUFFICIENCY verdict (is the basket enough to support the claim?) with a human-auditable proof — a property POLARIS's per-member-max model cannot produce. The proof artifact is a natural fit for POLARIS's signed-bundle / Proof-Replay UI and never launders fragments because each mutation step is span-anchored."
+          },
+          {
+            "name": "AVeriTeC 2025 open-weights set-verdict pipelines (HerO 2 / CTU AIC) with explicit Conflicting/Cherry-picking label + Ev2R eval",
+            "what": "Decomposes a claim into question-answer evidence pairs, predicts veracity over the assembled QA-pair SET, and emits one of {Supported, Refuted, Not-Enough-Evidence, Conflicting-Evidence/Cherry-picking} — a set-level label that includes an explicit disagreement verdict. The 2025 shared task mandated open-weights, single-GPU (<=23GB), <=1-min systems, scored by Ev2R recall (LLM-based, reference-free).",
+            "url": "https://aclanthology.org/2025.fever-1.15/",
+            "date": "2025-07",
+            "license": "shared-task overview (ACL); HerO repo CC-BY-NC, FLAG; CTU AIC RAG pipeline",
+            "why_sota": "Demonstrates a fully SOVEREIGN (open-weights, single-GPU, sub-minute) set-level veracity pipeline that produces a 'Conflicting Evidence / Cherry-picking' verdict — the exact output POLARIS needs when a basket's corroborators disagree. Sets the realistic compute/latency envelope for an advisory basket-aggregation layer on the VM."
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "MiniCheck (library + Flan-T5/DeBERTa weights)",
+            "repo_or_pip": "github.com/Liyan06/MiniCheck (pip: minicheck); HF lytang/MiniCheck-Flan-T5-Large, lytang/MiniCheck-DeBERTa-v3-Large",
+            "what_it_does": "SOTA-efficient sentence-vs-grounding-document entailment (binary supported/unsupported) on LLM-AggreFact; >500 docs/min on one A6000; supports concatenating multiple grounding chunks as the 'document'. Use as the per-member entailment PRIMITIVE feeding a set-aggregator — NOT as a replacement gate.",
+            "license": "Library Apache-2.0; Flan-T5/DeBERTa variants are open and sovereign-runnable; Bespoke-MiniCheck-7B weights are CC-BY-NC (commercial requires Bespoke license)",
+            "maturity": "EMNLP 2024, widely adopted, actively maintained; production-grade inference path (vLLM + prefix caching)"
+          },
+          {
+            "name": "RAGChecker",
+            "repo_or_pip": "github.com/amazon-science/RAGChecker (pip: ragchecker)",
+            "what_it_does": "Claim-level entailment framework: extracts claims from a response and checks each against the retrieved context SET (and ground truth), producing fine-grained faithfulness / context-precision / context-recall metrics rather than response-level scores. The claim-vs-context-set checker is the reusable aggregation component.",
+            "license": "Apache-2.0",
+            "maturity": "Amazon Science, 2024-2025, packaged + documented; pluggable judge (can swap the default GPT judge for a sovereign open-weight model)"
+          },
+          {
+            "name": "HerO 2 (AVeriTeC open-weights fact-verification pipeline)",
+            "repo_or_pip": "github.com/ssu-humane/HerO",
+            "what_it_does": "End-to-end open-weight claim verification: BM25 + SFR-Embedding-2_R retrieval, Llama-3 question generation, Llama-3.1-8B/70B fine-tuned veracity prediction over the evidence set, emitting a 4-way label including Conflicting-Evidence/Cherry-picking. Reference for a sovereign set-level veracity head.",
+            "license": "CC-BY-NC 4.0 (FLAG: non-commercial — code/dataset cannot ship in a commercial sovereign product as-is; usable as design reference / pattern-inspiration only)",
+            "maturity": "AVeriTeC 2024 runner-up / 2025 HerO 2, peer-reviewed, runs on a single GPU"
+          },
+          {
+            "name": "VeriScore / VeriFastScore",
+            "repo_or_pip": "github.com/Yixiao-Song/VeriScore (pip: veriscore); VeriFastScore model + data released on HF",
+            "what_it_does": "Long-form factuality: decomposes text into verifiable atomic claims and verifies each against retrieved evidence; VeriFastScore (2025) fine-tunes Llama-3.1-8B to extract+verify ALL claims jointly (6.6x faster), an open-weight one-pass claim-set verifier.",
+            "license": "Code MIT/Apache-class (per repo); VeriFastScore weights open-weight on HF; default evidence backend is Google Search (swap for sovereign retrieval)",
+            "maturity": "VeriScore EMNLP 2024 Findings; VeriFastScore EMNLP 2025 Findings — recent, model+data public"
+          },
+          {
+            "name": "Ev2R (reference-free evidence-evaluation rubric)",
+            "repo_or_pip": "github.com/Raldir/Ev2R (AVeriTeC 2025 official scorer)",
+            "what_it_does": "LLM-based reference-free scoring of whether a retrieved evidence SET supports a verdict (Ev2R recall) — the metric used to grade AVeriTeC 2025. Reusable as an offline set-level faithfulness scorer in a behavioral replay harness, not as an inline gate.",
+            "license": "open (academic, MIT-class per repo); judge model is swappable to an open-weight sovereign model",
+            "maturity": "FEVER/AVeriTeC 2025 official adoption; new but immediately benchmark-relevant"
+          }
+        ],
+        "current_polaris": "POLARIS does PER-MEMBER-ISOLATED entailment + CORROBORATION-AS-WEIGHT, NOT set-level joint verification. (1) Per-member isolation: credibility_pass._verify_member_in_isolation (credibility_pass.py:362-388) verifies each basket member ALONE against its OWN span. The anti-laundering invariant is explicit at L367-379: it strips any stray provenance/calc token and appends exactly ONE token spanning that member's own span ('With exactly one token the verifier's per-token union loop cannot aggregate this member's span with any other — a member whose own span lacks the claim fails ALONE'), and pool={eid: dict(member_row)} (L380) isolates the verifier to that single source. (2) span_verdict is strictly BINARY SUPPORTS/UNSUPPORTED (credibility_pass.py:167-200), and the per-member verify is ADVISORY — '_verify_member_in_isolation is never re-run as a gate' (L360, L418-420); on verifier exception it fails-closed to UNSUPPORTED/UNVERIFIED (L383-387). (3) The SET is aggregated only as a WEIGHT, never as a joint entailment: ClaimBasket (credibility_pass.py:210-229) keeps ALL supporting_members and carries weight_mass + corroboration. corroboration_count is computed over INDEPENDENT registrable-domains (finding_dedup.py:696-721, count_independent_hosts) with same-work de-padding (finding_dedup.py:455-546, consolidate_same_work) so N URLs of one paper count as ONE origin — and the module is explicit this is 'a Signal-D WEIGHT, never a gate' (finding_dedup.py:630). (4) Downstream, weighted_enrichment.select_unbound_supports_by_weight (weighted_enrichment.py:286-329) surfaces a basket member ONLY if its own span_verdict=='SUPPORTS' (L210-211), then ORDERS by relevance then weight_mass — keep-all-sort-below-floor-last, never a set-level verdict. So the whole-basket signal exists as a credibility WEIGHT and a max-over-members surfacing rule, but there is NO calibrated set-level entailment/sufficiency verdict that asks 'does this basket JOINTLY support the claim?'.",
+        "gap_vs_frontier": "The gap is per-member-isolation-plus-corroboration-WEIGHT vs a calibrated SET-LEVEL support/sufficiency VERDICT — and it is deliberate, not an omission. POLARIS's single-token anti-laundering invariant (credibility_pass.py:367-379) intentionally BLOCKS the naive frontier move of running NLI over the concatenated union of a basket (which can manufacture support no single source makes — evidence laundering). The frontier (MedRAGChecker's logistic-fused P* over the whole set; dual-perspective credibility-weighted aggregation with explicit source disagreement; natural-logic proof-based set SUFFICIENCY; AVeriTeC's Conflicting/Cherry-picking set-label) adds an ADVISORY set-level layer ON TOP of per-span verification: (a) a CALIBRATED basket-confidence that combines the per-member binary verdicts + corroboration weight + agreement into one probability (POLARIS today exposes binary span_verdict + an uncalibrated weight_mass, never a fused confidence); (b) an explicit DISAGREEMENT verdict when corroborators conflict (POLARIS has refuter_cluster_ids advisory data but no surfaced Conflicting/Cherry-picking basket label); (c) a faithful-by-construction SUFFICIENCY check (is the basket ENOUGH?). Because POLARIS's faithfulness engine (strict_verify/NLI/4-role/provenance) is FROZEN and untouchable, the only sovereign-correct improvement is a NEW advisory aggregation layer that consumes the existing per-member verdicts + weight_mass — it must NEVER concatenate spans into a joint-entailment gate (that re-opens laundering) and must NEVER relax the per-span gate. Sovereignty caveat: DeepTRACE (GPT-5), MedRAGChecker teacher (GPT-4.1/4o), RAGChecker/VeriScore default judges, and SAFE/FActScore are GPT-judge-dependent; HerO is CC-BY-NC. Any candidate must run on open-weight judges (the GLM-5.2 / Qwen / Llama-3.1 distilled-student route) to stay sovereign.",
+        "bakeoff_candidates": [
+          "MedRAGChecker calibrated set-support score P* (logistic fusion of set-NLI prob + biomedical-KG support) as an ADVISORY basket-confidence head on top of POLARIS's frozen per-member span_verdicts + weight_mass — clinical-native, distilled open-weight students (Meditron3-8B / Med42-Llama3-8B), NO span concatenation (consumes per-member verdicts, so no laundering) [arXiv 2601.06519]",
+          "Dual-perspective credibility-weighted aggregation with explicit source-level-disagreement modeling + claim/negation calibration — combine POLARIS's per-member SUPPORTS/UNSUPPORTED verdicts weighted by authority_score/weight_mass into a calibrated basket confidence AND a surfaced Conflicting/Cherry-picking label [arXiv 2602.18693, CC-BY-4.0]",
+          "Natural-logic proof-based evidence-SET SUFFICIENCY verdict (faithful-by-construction, span-anchored, no union laundering) emitting a human-auditable proof artifact for the signed-bundle/Proof-Replay UI [zero-shot NatLog+LLM arXiv 2410.03341; ProoFVer lineage]",
+          "AVeriTeC HerO 2 / CTU AIC 4-way set-verdict head (Supported/Refuted/NEI/Conflicting-Cherry-picking) as a sovereign open-weights, single-GPU, sub-minute pattern for the basket-disagreement label — use as design reference only (HerO weights CC-BY-NC) [ACL 2025.fever-1.15]",
+          "MiniCheck-Flan-T5-Large / MiniCheck-DeBERTa-v3-Large (Apache lib, sovereign weights) as the per-member entailment PRIMITIVE feeding the chosen set-aggregator — NOT as a gate (the frozen engine owns the per-span gate) [arXiv 2404.10774; github.com/Liyan06/MiniCheck]",
+          "RAGChecker claim-vs-context-set entailment with a SWAPPED open-weight judge (GLM-5.2/Qwen) as an offline behavioral-replay set-faithfulness scorer in the §-1.4 harness — Apache-2.0 [arXiv 2408.08067; github.com/amazon-science/RAGChecker]",
+          "Ev2R reference-free set-support recall (open-weight judge) as the offline acceptance metric that proves a new basket-aggregation layer actually fired WIDE+FAITHFUL on banked corpora [github.com/Raldir/Ev2R, AVeriTeC-2025 official]"
+        ],
+        "license_flags": [
+          "DeepTRACE reference implementation uses GPT-5 as the support judge — closed/non-sovereign; the metric is reusable but must be reimplemented on an open-weight judge",
+          "MedRAGChecker uses GPT-4.1/GPT-4o as the training TEACHER (closed); only the distilled open-weight students (Meditron3-8B/Med42/Med-Qwen2) are sovereign — verify the public repo license before adopting (anonymous 4open.science at submission)",
+          "HerO / HerO 2 (ssu-humane/HerO) code + dataset are CC-BY-NC 4.0 — NON-COMMERCIAL; cannot ship in a commercial sovereign product, design-reference/pattern-inspiration only",
+          "Bespoke-MiniCheck-7B model weights are CC-BY-NC (commercial use requires a Bespoke Labs license) — use the Apache-lib + open MiniCheck-Flan-T5/DeBERTa variants instead for sovereignty",
+          "Dual-perspective multi-source paper (arXiv 2602.18693) is CC-BY-4.0 (OK) but its repo is an anonymous 4open.science link with license TBD — confirm before code reuse",
+          "RAGChecker / VeriScore / SAFE / FActScore default to GPT/Google-Search judges (non-sovereign) — must swap to an open-weight judge + sovereign retrieval to qualify",
+          "CRITICAL non-license flag: any candidate that verifies a claim against the CONCATENATED UNION of basket spans is laundering-prone and violates POLARIS's single-token anti-laundering invariant (credibility_pass.py:367-379) — reject as an inline gate; admissible only as an ADVISORY layer over already-isolated per-member verdicts"
+        ]
+      },
+      {
+        "facet": "deepresearch_stack_consolidation",
+        "current_polaris": "POLARIS already consolidates at CLAIM-and-WORK level, ahead of the public stacks (STORM/GPT-Researcher dedup only at URL level). The basket primitive is `ClaimBasket` (src/polaris_graph/synthesis/credibility_pass.py:210) whose `supporting_members: list[BasketMember]` keeps ALL sources, never dropped (credibility_pass.py:227, docstring 213/146 \"CONSOLIDATE, don't DROP\"); baskets are built at credibility_pass.py:755 (`supporting_members=members`). Finding-level consolidation: `synthesis/finding_dedup.py:dedup_by_finding` (line 575) clusters rows by a conservative numeric `_finding_key` (subject/predicate/value/unit/dose/arm/endpoint — finding_dedup.py:381) into `FindingCluster` (line 549) carrying `corroboration_count` = independent registrable-domains (line 712), and under PG_SWEEP_CREDIBILITY_REDESIGN BYPASSES the non-representative drop so every same-claim row flows through as a basket (collapsed_row_count honestly 0, line 737-742). Same-WORK de-padding: `consolidate_same_work` (finding_dedup.py:455) groups rows by normalized DOI else folded-title+discriminator (`_same_work_key` line 316) so N URLs of one paper count as ONE origin while KEEPING all member URLs/evidence_ids as corroborating locators (line 773-779), with the identical byte-for-byte key duplicated in `generator/weighted_enrichment.py:_work_identity` (line 922) for render-side multi-citation (`build_verified_span_draft` line 951 emits ALL same-work `[ev_id]` markers on one unit, line 1027-1031). Origin-cluster weighting: `synthesis/weight_mass.py:weight_mass` sums authority over INDEPENDENT origins so 50 copies count once (advisory, default-OFF, line 1-15). Cross-section restatement is handled in `generator/fact_dedup.py` (numeric signatures + a gated prose-Jaccard pass, line 450) via keep-all cross-ref rewrite (rewrite_redundant_sentences line 826, keep-all on failure line 876). Breadth surfacing: `weighted_enrichment.select_unbound_supports_by_weight` (line 286) offers the FULL ordered unbound-SUPPORTS basket members with the relevance floor demoted to an ORDERING weight, not a drop (B18, line 300-312).",
+        "gap_vs_frontier": "POLARIS is AHEAD of STORM/GPT-Researcher on this axis (they dedup only per-URL with one citation index per source — StormInformationTable.construct_url_to_info / _merge_new_info_to_references; GPT-Researcher only added URL-dedup) and has already adopted Argus-style keep-all baskets (weighted_enrichment.py is \"I-arch-011 B18\"; MEMORY notes \"Argus keep-all baskets\"). Two real gaps remain. (1) UNIFICATION: the 2026 frontier (Argus, arXiv 2605.16217) holds claims, evidence, GAP nodes, CONFLICT nodes, depends_on/used_in edges in ONE typed evidence graph that drives navigation and synthesis; POLARIS instead runs SEPARATE passes (finding_dedup -> consolidate_same_work -> weight_mass -> contradiction_detector/both_sides -> weighted_enrichment) with no single graph substrate, so gap-nodes (\"which claim still lacks support\") and conflict-nodes are not first-class objects co-located with the baskets. (2) CONSOLIDATION SCOPE: finding_dedup clustering is keyed on numeric findings; QUALITATIVE same-claim corroboration (no %/$/year) consolidates only via the gated prose-Jaccard surface-shingle heuristic in fact_dedup, not a semantic claim-equivalence cluster. CRITICAL DNA NOTE: the DOMINANT external consolidation pattern is LOSSY and DNA-INCOMPATIBLE — Tongyi Research-Synthesis and LangChain ODR both consolidate by LLM-SUMMARIZING/COMPRESSING findings and \"discarding redundant intermediate steps.\" That is the OPPOSITE of §-1.3 keep-all-baskets and must NOT be adopted as POLARIS's consolidation step (it would silently drop corroborators and relax faithfulness). The frontier move compatible with POLARIS is the evidence-GRAPH substrate (Argus) + STORM's information-table-as-shared-state, NOT compression.",
+        "best_practice_2025_2026": [
+          {
+            "name": "Argus — Evidence Assembly / shared evidence graph (Searcher + Navigator)",
+            "what": "Reframes deep research as assembling a jigsaw from complementary evidence pieces over ONE shared typed evidence graph: claim nodes, evidence nodes (exact excerpts/tables), GAP nodes (claims with weak/missing/stale support), CONFLICT nodes (disagreeing sources), scope-limit and definition nodes, with supports/depends_on/missing_for/used_in edges; a Navigator tracks which claims lack support and dispatches targeted searches, then synthesizes source-traced answers. This is the keep-all-compatible frontier: it makes corroboration AND gaps AND conflicts first-class graph objects rather than lossy summaries.",
+            "url": "https://arxiv.org/abs/2605.16217",
+            "why_sota": "The cleanest 2026 statement of consolidation-as-graph-assembly; directly generalizes POLARIS's basket idea by unifying baskets + gap-tracking + conflict surfacing in one substrate. Authors Zhang/Su/Du/An/Bing/Wang.",
+            "date": "2026-05-15",
+            "license": "arXiv preprint, paper-only — no public code repo or OSS license; implement-the-pattern, not pip-installable"
+          },
+          {
+            "name": "STORM / Co-STORM information-table + reorganizable knowledge base",
+            "what": "StormInformationTable consolidates retrieved snippets by URL/source (construct_url_to_info merges all snippets per URL, _merge_new_info_to_references assigns one unified citation index per unique source) and serves as shared state for outline+article generation; Co-STORM adds a dynamic hierarchical mind-map / knowledge base that is reorganized (knowledge_base.reorganize()) before report generation, synthesizing 50-100+ sources.",
+            "url": "https://github.com/stanford-oval/storm",
+            "why_sota": "Best OSS reference for a persistent, queryable, citation-indexed shared consolidation table; high citation recall 84.83% / precision 85.18%. POLARIS already exceeds it (claim/work-level vs URL-level) but STORM's table-as-shared-state is the integration pattern for unifying POLARIS's separate passes.",
+            "date": "2025-01-23",
+            "license": "MIT"
+          },
+          {
+            "name": "Tongyi DeepResearch Research-Synthesis (Heavy mode) — DNA-INCOMPATIBLE, documented as a caution",
+            "what": "Parallel agents each emit a COMPRESSED report S_T^u that 'preserves essential reasoning/findings while discarding redundant intermediate steps'; a synthesis model consolidates all compressed reports in one context window. Consolidation = LLM summarization, lossy by design.",
+            "url": "https://arxiv.org/abs/2510.24701",
+            "why_sota": "State-of-the-art benchmark scores (HLE 32.9, BrowseComp 43.4), and the dominant industrial consolidation pattern — included precisely to FLAG it as antithetical to §-1.3 keep-all (it drops corroborators); POLARIS must NOT route consolidation through compression.",
+            "date": "2025-10-28",
+            "license": "Apache-2.0 (model + framework, Alibaba-NLP/DeepResearch)"
+          },
+          {
+            "name": "LangChain Open Deep Research — compression-model synthesis (DNA-INCOMPATIBLE caution)",
+            "what": "Supervisor/researcher multi-agent graph isolates each sub-topic in its own context window, then a dedicated 'compression model' compresses research findings before a final-report writer synthesizes; consolidation is again summarization, not keep-all baskets.",
+            "url": "https://github.com/langchain-ai/open_deep_research",
+            "why_sota": "Most-cited OSS multi-agent DR framework (top-10 Deep Research Bench), MIT-licensed and sovereign-deployable; its context-isolation pattern is reusable, but its compression-based consolidation is the lossy approach POLARIS deliberately rejects.",
+            "date": "2025-08-14",
+            "license": "MIT"
+          }
+        ],
+        "open_source_solutions": [
+          {
+            "name": "Stanford STORM / Co-STORM (knowledge_storm)",
+            "repo_or_pip": "pip install knowledge-storm ; github.com/stanford-oval/storm (v1.1.0, 2025-01-23)",
+            "what_it_does": "StormInformationTable consolidates snippets per URL with unified citation indices; Co-STORM reorganizable knowledge base / mind-map as shared consolidation state across 50-100+ sources. Reference for a queryable citation-indexed table to unify POLARIS's separate consolidation passes.",
+            "license": "MIT",
+            "maturity": "Mature, widely adopted, actively maintained (peer-reviewed NAACL/EMNLP)"
+          },
+          {
+            "name": "LangChain Open Deep Research (open_deep_research)",
+            "repo_or_pip": "pip install open-deep-research ; github.com/langchain-ai/open_deep_research",
+            "what_it_does": "LangGraph supervisor/researcher graph with per-subtopic context isolation and a configurable compression model + final synthesis writer. Useful for the context-isolation/parallel pattern ONLY; its compression-based consolidation is DNA-incompatible (lossy).",
+            "license": "MIT",
+            "maturity": "Mature, top-10 Deep Research Bench, production-grade, active"
+          },
+          {
+            "name": "GPT-Researcher (gpt-researcher)",
+            "repo_or_pip": "pip install gpt-researcher ; github.com/assafelovic/gpt-researcher",
+            "what_it_does": "planner->executors->publisher pipeline; recently added URL-level dedup to avoid redundant scraping and a recursive Deep Research tree. Consolidation is publisher-aggregation of vetted snippets — URL-level only, below POLARIS's claim/work-level baskets.",
+            "license": "Apache-2.0 (FLAG: bundles PyMuPDF which is AGPL-3.0 — transitive copyleft, audit before sovereign deployment)",
+            "maturity": "Mature (27.5k stars), #1 on CMU DeepResearchGym (May 2025), active"
+          },
+          {
+            "name": "Tongyi DeepResearch (Alibaba-NLP/DeepResearch)",
+            "repo_or_pip": "github.com/Alibaba-NLP/DeepResearch ; hf: Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
+            "what_it_does": "Agentic DR with Heavy-mode Research-Synthesis: parallel agents emit COMPRESSED reports consolidated by a synthesis model. Frontier benchmarks, but consolidation = lossy summarization, DNA-incompatible for the keep-all basket step.",
+            "license": "Apache-2.0",
+            "maturity": "Mature/SOTA open agent (Sep-Oct 2025), 30.5B MoE, active"
+          }
+        ],
+        "license_flags": [
+          "Argus (arXiv 2605.16217, 2026-05-15): paper-only, NO public repo or OSS license — frontier pattern to implement, not a pip-installable dependency",
+          "GPT-Researcher: Apache-2.0 BUT bundles PyMuPDF (AGPL-3.0) — transitive network-copyleft risk; audit/replace PyMuPDF before sovereign deployment",
+          "Tongyi DeepResearch + LangChain ODR: licenses are sovereign-OK (Apache-2.0 / MIT) but their consolidation METHOD (LLM compression/summarization) is faithfulness-LOSSY and must NOT replace POLARIS keep-all baskets — DNA-incompatible, not a license issue but a §-1.3 blocker"
+        ],
+        "bakeoff_candidates": [
+          "Argus-style UNIFIED evidence graph: refactor POLARIS's separate passes (finding_dedup baskets + consolidate_same_work + weight_mass + contradiction_detector/both_sides) into one typed graph substrate where baskets are evidence->claim supports edges and GAP/CONFLICT are first-class co-located nodes — keep-all preserved, faithfulness engine untouched; pattern only (no OSS dep)",
+          "STORM information-table-as-shared-state: adopt a persistent citation-indexed consolidation table (knowledge_storm StormInformationTable pattern, MIT) as the single shared object the basket passes read/write, replacing pass-to-pass dict hand-off — integration pattern, not its URL-level dedup (POLARIS is already finer-grained)",
+          "Semantic qualitative-claim clustering for non-numeric corroboration: bake off the current gated prose-Jaccard (fact_dedup) vs an NLI/embedding claim-equivalence clusterer to consolidate qualitative same-claim baskets — must stay keep-all (cluster-and-keep, never compress)",
+          "EXPLICIT REJECT in the bake-off: Tongyi Research-Synthesis / LangChain ODR compression-model consolidation — document as the DNA-incompatible lossy baseline that the keep-all basket design must BEAT, never adopt"
+        ]
+      }
+    ],
+    "synthesis": "All gaps closed. Facet-4 confirmed: `MAX_PAIRS=60`, `MAX_ROWS=200`, default judge `z-ai/glm-5.2`, default-OFF. Facet-5 confirmed: `PG_SECTION_DISTILL` gate, `contradiction_key` string field used for conflict clustering. `claim_graph` confirmed default-OFF (`PG_SWEEP_CLAIM_GRAPH`, empty default). \n\nThe facet-7 input (deepresearch_stack_consolidation) is truncated in my input — it ends mid-sentence at `weighted_enrichment.select_unbo` with no `best_practice_2025_2026`, `bakeoff_candidates`, or `license_flags`. I'll flag that honestly per LAW II. Now writing the report as my final message.\n\n---\n\n# POLARIS Basket-Pipeline Landscape Report — I-cons-001 (#1295)\n\n## Section 0 — How this report is grounded\n\nThis report synthesizes 7 facet researches into one map of the 2025/2026 best practice for the consolidation-and-baskets layer of POLARIS, and what to keep, add, or fix.\n\nTwo honesty notes up front, per LAW II.\n\nFirst, I verified every load-bearing claim about the current POLARIS code against the repo myself. I read the actual files. The verified files are: `claim_atom_extractor.py`, `finding_dedup.py`, `credibility_pass.py`, `weighted_enrichment.py`, `weight_mass.py`, `calibration_metrics.py`, `semantic_conflict_detector.py`, `claim_graph.py`, `evidence_distiller.py`, `both_sides.py`, `atomic_decomposer.py`, and `live_retriever.py`. One facet path was wrong in the input and I corrected it: the semantic NLI conflict detector lives at `src/polaris_graph/retrieval/semantic_conflict_detector.py`, not under `synthesis/`. The defaults it claims (60 judged pairs, 200 rows, GLM-5.2 judge, default-off) are correct.\n\nSecond, the seventh facet input — deepresearch_stack_consolidation — arrived truncated. It ends mid-sentence inside its current-POLARIS description and carries no best-practice list, no bake-off candidates, and no license flags. So this report covers that facet only for the current-POLARIS state it did describe (claim-level and work-level keep-all baskets ahead of public STORM and GPT-Researcher, which dedup only at the URL level). Sections 1 and 4 mark it as input-incomplete rather than inventing entries.\n\nThe frozen-engine rule governs everything below. The faithfulness engine — strict_verify, the NLI entailment check, the 4-role D8 release policy, provenance, span-grounding — is the only hard gate and is never touched. Every item in this report is an advisory weight, a consolidation, or a label that feeds that frozen engine. Nothing here relaxes a verify gate. This is the weight-and-consolidate DNA, not filter-and-cap.\n\n---\n\n## Section 1 — Per-facet best-practice recipe table (2025/2026)\n\nOne named tool per row. License and role in short cells.\n\n### Facet 1 — Atomic claim extraction\n\n| Tool | License | Role |\n|---|---|---|\n| Claimify (Microsoft) | Paper CC-BY-4.0; no official code | Method: 4-stage LLM extraction that drops a claim when ambiguity cannot be resolved. Re-implement in-house. |\n| CORE (zipJiang) | MIT | OSS pick: entailment filter plus MILP dedup to a minimal non-redundant claim set. Sovereign via local NLI or vLLM. |\n| MedScore | License unconfirmed | Clinical-domain decomposer. Replaces the hardcoded clinical regex vocabulary. Verify license first. |\n| VeriScore | Apache-2.0 | OSS pick: open-weight extractor that keeps only verifiable claims. Pre-filters opinion before decomposition. |\n| DnDScore | Paper open | Method: decontextualize each atom so paraphrases compare, without losing the qualifier. |\n\n### Facet 2 — Same-claim clustering and basketing\n\n| Tool | License | Role |\n|---|---|---|\n| Qwen3-Embedding-8B | Apache-2.0 | OSS pick: the basket vectorizer. POLARIS already chose this in I-arch-009 for the quality gate. Reuse it. |\n| bge-m3 (BAAI) | MIT | OSS pick: the MultiClaimNet-winning multilingual embedder. Dense plus sparse in one model. |\n| sentence-transformers | Apache-2.0 | OSS engine: community-detection and agglomerative clustering, keep-all members. The exact SOTA recipe. |\n| MultiClaimNet | Dataset, verify Zenodo | Method: embed then agglomerative cluster is the 2025 same-claim SOTA (0.574 ARI). |\n\n### Facet 3 — Multi-source corroboration and weighting\n\n| Tool | License | Role |\n|---|---|---|\n| crowd-kit | Apache-2.0 | OSS pick: reliability-aware truth discovery (Dawid-Skene, M-MSR). Replaces the flat origin count. |\n| scikit-learn | BSD-3 | OSS engine: calibration backbone to wire the dead `calibration_metrics.py`. |\n| CRED-1 | CC-BY-4.0 | OSS pick: offline negative-signal domain table. Down-weights known-bad domains only. Never up-weights. |\n| Vinod and Erk uncertainty-gated fact-checking | Paper CC-BY-4.0 | Method, native clinical domain: corroborate only when basket confidence is low; abstain rather than override. |\n\n### Facet 4 — Contradiction, stance, conflict\n\n| Tool | License | Role |\n|---|---|---|\n| ModernCE-large-nli | MIT | OSS pick: local always-on NLI cross-encoder. 8192 context, 1.8GB. Replaces the capped remote GLM judge. |\n| MoritzLaurer deberta-v3-large-zeroshot-v2.0-c | MIT base, c-variant data clean | OSS pick: zero-shot stance via hypothesis templates, sovereign-safe. |\n| ConflictRAG | No license declared | Method: cheap-classifier-first then LLM-only-on-hard-pairs; credibility-weighted arbitration. Pattern only. |\n| NegEx / ConText | Public-domain method | Already in POLARIS: deterministic present/absent assertion polarity. The no-LLM contraindication detector. |\n\n### Facet 5 — Multi-doc consolidate, distill, map-reduce\n\n| Tool | License | Role |\n|---|---|---|\n| LLMxMapReduce V1 | Apache-2.0 | OSS pick: structured-information protocol plus in-context confidence calibration at reduce time. |\n| LLMxMapReduce-V2 | Apache-2.0 | OSS pick: hierarchical entropy-driven scaling for wide-corpus long-form grounded reports. |\n| CAHM | MIT | OSS pick: bottom-up recursive merge with re-grounding at each level. Lightest to port. Closest to POLARIS span-grounded ethos. |\n| LangGraph map-reduce | MIT | Parity baseline: POLARIS asyncio fan-out already equals this. Not a gap-closer. |\n\n### Facet 6 — Set-based claim verification\n\n| Tool | License | Role |\n|---|---|---|\n| MiniCheck (Flan-T5 / DeBERTa) | Apache lib, open weights | OSS pick: per-member entailment primitive feeding a set aggregator. Not a gate. 7B variant is non-commercial — avoid it. |\n| RAGChecker | Apache-2.0 | OSS pick: claim-versus-context-set entailment, judge swappable. Offline replay scorer. |\n| Dual-perspective credibility-weighted aggregation | Paper CC-BY-4.0 | Method: combine per-member verdicts into one calibrated basket confidence plus a conflict label. |\n| MedRAGChecker | Repo TBD; students open | Method, clinical-native: calibrated set-support score over the whole set, plus a safety-error rate. |\n\n### Facet 7 — Deep-research stack consolidation\n\nInput incomplete. The facet text was truncated and carried no best-practice list. The only grounded fact it gave: POLARIS already consolidates at claim level and work level, ahead of the public STORM and GPT-Researcher stacks, which dedup only at the URL level. No tool table can be built from the input as received.\n\n---\n\n## Section 2 — THE BASKET PIPELINE: the ordered chain\n\nThis is the spine. Six steps, in order. For each step: the 2025/2026 SOTA method, the open-source pick, and the POLARIS plug-point.\n\n### Step 1 — Atomic claims (from prose to checkable atoms)\n\n- SOTA method: Claimify four stages — split, select only verifiable propositions, disambiguate and drop when ambiguity cannot be resolved, decompose into self-contained atoms. The drop-on-ambiguity rule matches the clinical never-fabricate posture.\n- OSS pick: VeriScore (Apache-2.0) as a pre-filter for verifiable-versus-not, then CORE (MIT) for entailment-filtered atoms.\n- POLARIS plug-point: `claim_atom_extractor.py`. Confirmed live — imported by `multi_section_generator.py`, `evidence_distiller.py`, `sentinel_contract.py`, and `atom_refusal_validator.py`. It is pure regex with a hardcoded clinical vocabulary and no LLM. The plug-in adds a span-faithful LLM decomposer beside it for out-of-vocabulary and non-clinical claims.\n\n### Step 2 — Clustering into baskets (group same-claim sources)\n\n- SOTA method: embed each decontextualized claim, then agglomerative or community-detection clustering at a distance threshold, keep-all members. MultiClaimNet recipe.\n- OSS pick: Qwen3-Embedding-8B (Apache-2.0, already in-tree) plus sentence-transformers community detection. A hybrid lexical-plus-dense candidate generation, then an NLI same-claim confirm, to preserve the conservative never-over-merge rule.\n- POLARIS plug-point: `finding_dedup.py` and `fact_dedup.py` group by literal numeric keys or exact content-word Jaccard. `claim_graph.py` is the field-agnostic upgrade already in-tree but default-off (`PG_SWEEP_CLAIM_GRAPH`, confirmed empty default). Swap its SHA-1 literal-key grouping for embedding-plus-NLI grouping.\n\n### Step 3 — Corroboration and weighting (decide basket strength)\n\n- SOTA method: reliability-aware truth discovery — a source's weight reflects its agreement with other credible sources, not just its venue. Plus a negative-signal domain down-weight.\n- OSS pick: crowd-kit Dawid-Skene or M-MSR (Apache-2.0) for reliability-weighted consensus; CRED-1 (CC-BY-4.0) as a down-weight-only overlay for known-bad domains.\n- POLARIS plug-point: `weight_mass.py` sums authority over independent origins, copies count zero — confirmed, and confirmed default-off with no production caller. `corroboration.py` counts independent registrable domains. The plug-in upgrades the flat count to a reliability-weighted consensus, weight-only, never adding to any count.\n\n### Step 4 — Conflict detection (find disagreement inside a basket)\n\n- SOTA method: run NLI over every basket pair to catch prose-only directional disagreement with no number and no assertion cue, then arbitrate by credibility weight.\n- OSS pick: ModernCE-large-nli (MIT, local, 8192 context). Always-on, zero API spend, no socket-hang class.\n- POLARIS plug-point: `semantic_conflict_detector.py` (under `retrieval/`, confirmed). It is a remote GLM-5.2 judge, default-off, hard-capped to 60 judged pairs and 200 rows. The frozen-engine constraint holds: this detector is advisory, it feeds labels and the both-sides composer, it never gates a sentence. ModernCE makes the capped optional pass an always-on local basket attribute.\n\n### Step 5 — Set verification (does the whole basket support the claim?)\n\n- SOTA method: a calibrated set-level support score that fuses per-member verdicts plus corroboration weight plus agreement into one probability, with an explicit conflicting or cherry-picking label.\n- OSS pick: MiniCheck as the per-member primitive feeding a set aggregator; the dual-perspective credibility-weighted aggregation pattern for the calibrated confidence.\n- POLARIS plug-point: `credibility_pass.py`, the `_verify_member_in_isolation` path. Critical constraint, verified at line 369: each member is verified alone, against its own span, with exactly one provenance token so the verifier cannot aggregate spans across members. This is the anti-laundering invariant. No frontier set-verifier may concatenate basket spans into a joint-entailment gate — that re-opens evidence laundering. The set layer is admissible only as an advisory confidence over already-isolated per-member verdicts.\n\n### Step 6 — Synthesis and reduce (compose one grounded answer)\n\n- SOTA method: hierarchical or iterative merge that preserves cross-source structure as the corpus grows, with conflict resolved at reduce time by confidence calibration. Not a flat single pass.\n- OSS pick: CAHM (MIT) for the recursive re-grounded merge shape; LLMxMapReduce V1 (Apache-2.0) for the confidence-calibration reduce.\n- POLARIS plug-point: `evidence_distiller.py`, gated by `PG_SECTION_DISTILL` (confirmed). The map step is per-source and fail-closed today. The reduce is a single-pass per-section compose, and conflict clustering uses exact-string `contradiction_key` equality (confirmed). Upgrade only the reduce shape and the conflict protocol. The reduce still feeds the frozen strict_verify; it never resolves conflict in place of it.\n\n---\n\n## Section 3 — KEEP vs ADD vs FIX against current POLARIS\n\nHonest, weight-and-consolidate DNA, faithfulness engine frozen.\n\n### KEEP — POLARIS is genuinely ahead here\n\n- The keep-all basket primitive. `ClaimBasket` keeps every supporting member, never drops. This is ahead of the public deep-research stacks, which dedup only at URL level.\n- Claim-level and work-level consolidation. `finding_dedup.py` keeps all same-claim rows as a basket under the redesign flag and de-pads same-work duplicates so N URLs of one paper count as one origin.\n- The anti-laundering single-token isolation in `credibility_pass.py`. This is a correct, deliberate defense. Do not let any set-verifier override it.\n- The frozen faithfulness engine. Untouched by everything in this report.\n- The breadth-surfacing rule in `weighted_enrichment.py`: full ordered list, keep-all, sort-below-floor-last, no cap.\n\n### ADD — the real gaps, advisory only\n\n- Semantic and paraphrase clustering. This is the single biggest real gap. Today grouping is literal — numeric signatures or exact Jaccard. Two paraphrases of one clinical claim, for example \"not recommended\" versus \"should be avoided\" versus \"contraindicated\", never land in one basket, so corroboration is under-counted exactly where the DNA needs it. Add embedding-plus-NLI clustering.\n- Calibrated basket confidence. Today a basket carries a 4-value label and an uncalibrated weight. Add a Beta-Binomial or logistic-fused posterior that turns a basket into a calibrated probability, weighting members already in the basket, never adding to a count.\n- Reliability-aware weighting. Today source weight is a fixed authority prior. Add a reliability-weighted consensus so weight reflects agreement with other credible sources.\n- A surfaced conflict label. Today disagreement is implied by the both-sides block. Add an explicit conflicting or cherry-picking attribute on the basket.\n\n### FIX — verified, repo-grounded, highest confidence, do these first\n\n- The flag split-brain. Verified directly: `credibility_pass.py:118` reads `getenv(PG_SWEEP_CREDIBILITY_REDESIGN, \"on\")` — default ON in synthesis. `live_retriever.py:379` reads the same flag with an empty default and an in-set test — default OFF in retrieval. So on an unset run, the down-weight-don't-drop redesign is live in synthesis but the retriever still hard-drops content-starved rows. This is the same funnel class as the I-arch-007 collapse. Make the retriever default match synthesis.\n- Wire the dead modules. All verified as default-off or no-production-caller: `calibration_metrics.py` (Brier, ECE, MCE — pure offline, zero callers), `both_sides.py` (`PG_SWEEP_BOTHSIDES_DISCLOSURE`, no caller), `weight_mass.py` (`PG_SWEEP_WEIGHT_MASS`, no caller), `claim_graph.py` (`PG_SWEEP_CLAIM_GRAPH`, default-off). The machinery exists; it is built but not rendered into the report path.\n- Remove or flag `atomic_decomposer.py`. Verified: its `initialize()` falls back to `GeminiClient` at lines 133-134, a sovereignty violation. It is dead on the live path — only `auditor_agent.py` (pipeline-C) and `schemas.py` reference it. Flag it for removal.\n\n---\n\n## Section 4 — Bake-off candidate list per facet\n\nOpen-source first. Behavioral acceptance, not vendor score. Every acceptance below means the effect appears in the real rendered output on a banked corpus and fails loud if it does not.\n\n- Facet 1, atomic claims: re-implemented Claimify on the sovereign GLM or DeepSeek slate, versus the live regex extractor; plus CORE (MIT) as the semantic canonicalizer versus current lexical Jaccard. Accept on extraction coverage and span-faithfulness, and on how many equivalent-phrasing atoms collapse into one basket without over-merging distinct clinical claims.\n- Facet 2, clustering: bge-m3 plus agglomerative versus Qwen3-Embedding-8B plus community detection, both keep-all; plus the hybrid lexical-then-NLI confirm; plus activating `claim_graph.py` with embedding-plus-NLI grouping. Accept on paraphrase claims correctly landing in one basket while conservative-singleton holds.\n- Facet 3, corroboration: crowd-kit Dawid-Skene or M-MSR for reliability-weighted consensus; Beta-Binomial basket confidence on the scikit-learn backbone; CRED-1 down-weight overlay. Accept on a more discriminative, calibrated strength signal in the real output, weight-only, no count inflation, and on the split-brain fix making retrieval coherent.\n- Facet 4, conflict: ModernCE-large-nli (MIT) as the primary local always-on NLI, versus the incumbent capped GLM-5.2; the c-variant zero-shot DeBERTa as contender; ConflictRAG two-stage cheap-then-LLM pattern. Accept on contradiction-pair recall and precision, cost, and latency.\n- Facet 5, reduce: LLMxMapReduce V1 confidence-calibration reduce; LLMxMapReduce-V2 hierarchical scaling for wide corpora; CAHM recursive re-grounded merge as the lightest port; control arm keeps current consolidation and bolts the chosen reduce on top. Accept on cross-source coverage in the real wide-corpus output. Exclude XpandA — no verified OSS license.\n- Facet 6, set verification: MedRAGChecker calibrated set-support as an advisory head; dual-perspective credibility-weighted aggregation with a conflict label; MiniCheck as the per-member primitive; RAGChecker and Ev2R as offline replay scorers. Accept only as advisory layers over isolated per-member verdicts — no span concatenation, no inline gate.\n- Facet 7, deep-research stack: input incomplete, no candidates can be listed. Re-run the facet research to populate this row.\n\n---\n\n## Section 5 — Honest uncertainty and license flags\n\n### Uncertainty\n\n- Facet 7 is incomplete in the input. Sections 1 and 4 mark it so. Re-run it before any bake-off.\n- One facet path was wrong in the input (the semantic conflict detector). I corrected and re-verified it. Treat any other in-input path as needing a repo check.\n- The frontier methods Claimify, ConflictRAG, MedRAGChecker, and the dual-perspective and uncertainty-gated papers have no confirmed open code release or a license-TBD repo. They are design references, not vendorable code.\n- Several SOTA reference implementations use closed judges — DeepTRACE uses GPT-5, MedRAGChecker trains from GPT-4. The metric is reusable; the judge must be swapped to the sovereign open-weight slate.\n\n### License flags — must verify before adoption\n\n- `atomic_decomposer.py` in-tree falls back to Gemini, closed and non-sovereign. Dead on the live path. Remove or flag.\n- deshwalmahesh/claimify: no license declared, all-rights-reserved. Do not vendor. Re-implement from the paper.\n- MedScore: repo license not surfaced; default config uses a closed model though sovereign backends exist. Verify and swap the default.\n- NV-Embed-v2: CC-BY-NC, non-commercial, non-sovereign. Do not use. Prefer Qwen3-Embedding Apache-2.0 or bge-m3 MIT.\n- sileod deberta-v3-large-tasksource-nli: license not stated. Verify before sovereign use.\n- MoritzLaurer zeroshot non-c weights: trained on research-only NLI data. Use the c-variant for commercial sovereign use.\n- HerO and Bespoke-MiniCheck-7B: CC-BY-NC, non-commercial. Design reference only. Use the Apache MiniCheck library with the open Flan-T5 or DeBERTa variants instead.\n- RobotReviewer and Trialstreamer: GPL-3.0 copyleft. Pattern reference only — do not link into the sovereign binary.\n- NewsGuard and MBFC: proprietary closed APIs. Avoid. CRED-1 (CC-BY-4.0, offline) is the open substitute, and it is down-weight-only — absent domain means neutral, never reliable.\n- ConflictRAG and SeCon-RAG: no license declared. Pattern only. SeCon-RAG also drops conflicting evidence, which is anti-DNA — adopt its reasoning rubric, never its filtering.\n- XpandA: no verified OSS license. Trade-off evidence only, not adoptable code.\n- Clean and safe to vendor, sovereign-OK: crowd-kit (Apache-2.0), scikit-learn (BSD-3), Qwen3-Embedding (Apache-2.0), bge-m3 (MIT), sentence-transformers (Apache-2.0), ModernCE-large-nli (MIT), LLMxMapReduce V1/V2/V3 (Apache-2.0), CAHM (MIT), LangGraph (MIT), CORE (MIT), VeriScore (Apache-2.0), RAGChecker (Apache-2.0), MiniCheck library (Apache-2.0), CRED-1 (CC-BY-4.0, attribution required).\n\nVerified current-POLARIS files: `claim_atom_extractor.py`, `finding_dedup.py`, `credibility_pass.py`, `weighted_enrichment.py`, `weight_mass.py`, `calibration_metrics.py`, `retrieval/semantic_conflict_detector.py`, `claim_graph.py`, `evidence_distiller.py`, `both_sides.py`, `atomic_decomposer.py`, `live_retriever.py`.",
+    "critic": "All three papers exist and resolve correctly. Key finding: **Claim2Vec (2604.09812, April 2026)** is a genuine, newer, dead-center facet-2 method that the synthesis MISSES — and it beats the MultiClaimNet (March 2025) recipe the synthesis crowns as \"the 2025 same-claim SOTA.\" This is both a missing-method gap (a) and a dated-crown gap (d). The CRED-1 date inconsistency in the facet (2604=April but text says Feb) resolves to **Feb 25, 2026** — the arXiv ID prefix is just non-chronological; CRED-1 is real. Vinod & Erk is real.\n\nI have what I need. The synthesis is durable (it's already my input, not something I need to persist). Let me write the final gap list, severity-ordered.\n\n# COMPLETENESS-CRITIC GAP LIST — I-cons-001 (#1295)\n\nSeverity-ordered. Every repo claim and every flagged paper below was verified by me (file reads + arXiv primary-source fetches). Bottom line: the synthesis is largely sound and its repo claims hold, but it has **one material missing method that is also a dated-crown error**, plus three DNA-hardening gaps in its ADD recommendations that must be named as hard requirements, not gestured at.\n\n---\n\n## P1 — MATERIAL MISSING METHOD that is ALSO a dated-method crown (gaps a + d)\n\n**1. Claim2Vec (arXiv 2604.09812, Panchendrarajan & Zubiaga, submitted 2026-04-10, rev 2026-04-14) is absent, and it post-dates and beats the method the synthesis crowns as facet-2 SOTA.**\n- The synthesis (Facet 2 table + Section 1) crowns **MultiClaimNet (2503.22280, March 2025)** as \"the 2025 same-claim SOTA (0.574 ARI)\" via \"embed then agglomerative cluster.\" Claim2Vec is the **April-2026** follow-on: it fine-tunes the multilingual encoder with **contrastive learning on similar-claim pairs** and reports it \"significantly improves clustering performance across 3 datasets, 14 embedding models, and 7 clustering algorithms\" — i.e. the embedder POLARIS would plug into Step 2 should be a contrastively-tuned one, not a stock Qwen3/bge-m3. Crowning a March-2025 dataset paper as the current clustering recipe while a 2026 method that improves the exact same task exists is a dated-crown miss per the operator's \"no dated method as current\" rule.\n- Primary source: https://arxiv.org/abs/2604.09812\n- Fix: add Claim2Vec to the Facet-2 table and the Step-2 bake-off as the contrastive-fine-tune option layered on the Qwen3/bge-m3 vectorizer; demote MultiClaimNet to \"the dataset + agglomerative baseline,\" not \"the SOTA recipe.\"\n\n---\n\n## P2 — DNA-violation risk in the ADD recommendations (gap c) — name them as hard floors, not mentions\n\n**2. crowd-kit reliability weighting can drive a source weight to ZERO = a disguised drop.** Section 1/3/4 recommend crowd-kit Dawid-Skene / M-MSR to replace the \"flat origin count\" with a reliability-weighted consensus. A Dawid-Skene reliability estimate can legitimately collapse a disagreeing source's weight to ~0, which is an **effective drop** — exactly the FILTER-AND-CAP the weight-and-consolidate DNA forbids (§-1.3: \"Social media STAYS at low weight... Do NOT hard-drop a source to hit a number\"). The synthesis never states a positive-weight floor. Fix: any reliability-weighting recommendation must carry an explicit **weight > 0 floor** (the member stays in the basket, ranked last, never removed and never zeroed). Primary source for the DNA constraint is internal (CLAUDE.md §-1.3); the method is https://github.com/Toloka/crowd-kit.\n\n**3. embedding+NLI basket clustering carries clinical-lethal over-merge risk that is mentioned but not made a hard requirement.** The single biggest ADD (Section 3, \"semantic and paraphrase clustering\") would merge \"not recommended\" / \"should be avoided\" / \"contraindicated\" into one basket. The synthesis lists this as the *benefit* but only \"gestures at conservative-singleton.\" Over-merge in the wrong direction (collapsing \"contraindicated\" with \"recommended\", or two distinct dose claims) is the §-1.1 lethal direction. Fix: make **never-over-merge / conservative-singleton a named hard acceptance gate** on the Step-2 bake-off (bidirectional-NLI-entailment confirm REQUIRED before two atoms share a basket; a precision floor on the same-claim judge), not a sentence. The synthesis's own DnDScore citation (preserve the distinguishing qualifier) is the lever — elevate it to a gate.\n\n---\n\n## P3 — Scope / honesty gaps (gap a, lower severity)\n\n**4. Facet 7 (deepresearch_stack_consolidation) is truncated in the synthesis input and yields no method table.** The synthesis honestly flags this (Section 1 Facet 7, Section 5). I confirm the input is genuinely incomplete — it ends mid-sentence with no best-practice list. This is a real completeness hole, not a synthesis error: re-run that facet before any bake-off. No fix to the synthesis text needed beyond what it already says; flagged here so the operator sees the landscape is one-facet-short.\n\n**5. Two adjacent 2025/2026 methods surfaced by my own searches are absent but LOWER materiality — confirm-or-discard, don't auto-add.**\n- **JointCQ (2510.19310, Oct 2025)** — joint claim + query generation for hallucination detection. Touches Step 1 (extraction) but its native task is detection, not basket consolidation; likely out-of-scope, but the synthesis should state why it was excluded rather than silently omit.\n- **Distill-and-Align Decomposition (2602.21857, Feb 2026)** — decomposition for claim verification; overlaps Step 1/Step 5. Verify whether it adds over Claimify+CORE before listing.\n- These are not blockers; they are \"enumerate-and-justify-exclusion\" items so the landscape is demonstrably complete.\n\n---\n\n## NOT GAPS — verified clean (so the operator can trust these)\n\n- **Every load-bearing repo claim in the synthesis holds.** I read the files. Confirmed: `credibility_pass.py:118` defaults `\"on\"`; `live_retriever.py:379` defaults OFF (the split-brain funnel is real and correctly flagged); `weighted_enrichment.py:222-265` is genuine keep-all-sort-below-floor-last with no cap; `weight_mass.py:161-172` carries credibility as disclosed-not-folded and copy_count with copies contributing zero mass; `credibility_pass.py:341-388` single-token anti-laundering isolation is real; `both_sides.py` / `weight_mass.py` / `claim_graph.py` are default-OFF with \"no production caller\"; `calibration_metrics.py` has **zero importers** (grep-confirmed); `atomic_decomposer.py:133` Gemini fallback is real and it is dead on the live path.\n- **The contested judge default is correct against the LIVE code.** The synthesis says the semantic conflict detector defaults to `z-ai/glm-5.2` — verified at `semantic_conflict_detector.py:69` (env-overridable via `PG_ENTAILMENT_MODEL` at :623), with `MAX_PAIRS=60` / `MAX_ROWS=200` at :63-64. The module's own **docstring at line 30 is STALE** (\"Gemma-4-31B by default\") but the code default was migrated to GLM-5.2 (#1249/#1252/#1285), so the synthesis matched the code, not the stale comment. This is a one-line repo-hygiene nit (fix the docstring), NOT a synthesis error.\n- **All three high-risk future-dated papers exist and resolve correctly** (no hallucinated primary source): Vinod & Erk 2604.11036 (real, biomedical uncertainty-gated fact-checking, 2026-04-13); CRED-1 2604.20856 (real, 2026-02-25 — the facet's internal \"2604 vs Feb-2026\" inconsistency resolves to Feb-25-2026; the arXiv ID prefix is simply non-chronological, CRED-1 is genuine and CC-BY-4.0).\n- **The frozen-faithfulness-engine rule is respected throughout.** No recommendation touches strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding; every ADD is an advisory weight/label/consolidation. The synthesis correctly rejects SeCon-RAG's drop behavior and preserves the single-token isolation invariant. No \"cap/drop/thin dressed up\" survived except the two latent risks named in P2 above."
+  }
+}

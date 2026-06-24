@@ -33,13 +33,28 @@ The drb_72 disaster (2026-06-22) showed two failure modes that this process stru
 - Single-writer per artifact; PID-scoped python-only kills; orphan-process audit between runs (§8.4).
 
 ## Instances
-- **I-qgen-001 (GH #1291)** — query generation (first instance). ✅ **SECTION DONE 2026-06-23.**
-  Bake-off (10 methods, drb_72, DRB-II info_recall coverage, on a VM) → **WINNER: IterResearch/Tongyi
-  (0.386)**; current POLARIS floor LAST (0.000). Upgrade wired flag-gated (`PG_QGEN_ITERRESEARCH`) +
-  Codex-APPROVED + committed under **I-qgen-002 (GH #1292)**, commit 84bb2d86. Brief: `.codex/I-qgen-001/`.
-  Open follow-ups (rolled into the FINAL combined run, not now): 4-task significance, 2 errored
-  adapters (FS-Researcher/ConvergeWriter), cap judge concurrency.
-- (next) retrieval · consolidation/baskets · composition · verify-render · …
+- **I-qgen-001 (GH #1291)** — query generation (first instance). ⚠️ **PROVISIONAL — recency-completion
+  pending (I-recency-001 #1296).** Bake-off (10 methods, drb_72, DRB-II info_recall coverage, on a VM) →
+  IterResearch/Tongyi won (0.386); floor last (0.000). Wired flag-gated (`PG_QGEN_ITERRESEARCH`),
+  Codex-APPROVED, committed under **I-qgen-002 (#1292)**, commit 84bb2d86. **NOT a lock:** field is
+  recency-INCOMPLETE — 2 methods (FS-Researcher/ConvergeWriter) errored + never scored, single task only,
+  floor 0.000 looks like a harness hang. Must clear the recency bar before lock.
+- **I-ret-002 (GH #1294)** — retrieval, per-layer. ⚠️ **PROVISIONAL** pending recency-completion (#1296).
+  dedup → POLARIS ContentDeduplicator held (1.0/1.0; the 2025 SemHash LOST). embedder → Qwen3-Embedding-8B
+  (0.7173) HELD vs jina-v5-text-small (Feb 2026 leaderboard leader, 0.7132). reranker → Qwen3-Reranker-4B
+  (0.7654) HELD vs jina-reranker-v3 (Sep 2025). Gaps (dep-conflict models) running in isolated envs.
+- **I-cons-001 (GH #1295)** — consolidation/baskets. Landscape done (`docs/consolidation_landscape_2026.md`);
+  bake-off not yet run.
+- (next) composition · verify-render · …
+
+## RECENCY-COMPLETENESS — a HARD gate before any section LOCK (operator-locked 2026-06-24, #1296)
+A section winner is valid ONLY when its candidate field is **recency-complete**: every recency-verified
+absolute-latest model/method either RAN on the section axis, OR is documented as genuinely un-runnable
+(license-NC → yardstick-only OK; OOM/dep-conflict must be retried in a per-model ISOLATED env before being
+called un-runnable). A pick is **PROVISIONAL**, never "decided," until then. Re-check "is anything newer?"
+at DECISION time, not just design time. Picking best-of-an-old-subset in a clinical pipeline is the §-1.1
+lethal class. The latest models have conflicting deps → build per-model isolated conda/venv envs on the VM.
+Ref: `feedback_bakeoff_must_include_absolute_latest_or_lethal_2026_06_24`.
 
 ## Section sequence + when the e2e run happens (operator-locked 2026-06-23)
 Per section: (1) isolation bake-off → pick winner, (2) wire the winner flag-gated + Codex-gate +
