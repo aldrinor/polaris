@@ -33,8 +33,20 @@ The drb_72 disaster (2026-06-22) showed two failure modes that this process stru
 - Single-writer per artifact; PID-scoped python-only kills; orphan-process audit between runs (§8.4).
 
 ## Instances
-- **I-qgen-001 (GH #1291)** — query generation (first instance). Brief: `.codex/I-qgen-001/`.
-- (future) retrieval · consolidation/baskets · composition · verify-render · …
+- **I-qgen-001 (GH #1291)** — query generation (first instance). ✅ **SECTION DONE 2026-06-23.**
+  Bake-off (10 methods, drb_72, DRB-II info_recall coverage, on a VM) → **WINNER: IterResearch/Tongyi
+  (0.386)**; current POLARIS floor LAST (0.000). Upgrade wired flag-gated (`PG_QGEN_ITERRESEARCH`) +
+  Codex-APPROVED + committed under **I-qgen-002 (GH #1292)**, commit 84bb2d86. Brief: `.codex/I-qgen-001/`.
+  Open follow-ups (rolled into the FINAL combined run, not now): 4-task significance, 2 errored
+  adapters (FS-Researcher/ConvergeWriter), cap judge concurrency.
+- (next) retrieval · consolidation/baskets · composition · verify-render · …
+
+## Section sequence + when the e2e run happens (operator-locked 2026-06-23)
+Per section: (1) isolation bake-off → pick winner, (2) wire the winner flag-gated + Codex-gate +
+commit. **NO per-section e2e.** The single end-to-end VM run happens ONCE, at the very end, after
+EVERY section's winner is wired — that combined run (all winners ON together) is the integrated
+validation + where interaction effects surface + where the final benchmark score is taken. So the
+query-gen e2e is deferred into that final combined run, not run standalone now.
 
 ## REFINEMENT (operator directive 2026-06-22) — ISOLATION scoring, no e2e per candidate
 The bake-off does NOT run full e2e per candidate. Each section is scored IN ISOLATION on the benchmark axis it drives, then winners are combined for ONE final full run.
