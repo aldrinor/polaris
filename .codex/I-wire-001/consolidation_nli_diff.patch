@@ -1,0 +1,831 @@
+diff --git a/scripts/fire_test_consolidation_nli.py b/scripts/fire_test_consolidation_nli.py
+new file mode 100644
+index 00000000..982bb791
+--- /dev/null
++++ b/scripts/fire_test_consolidation_nli.py
+@@ -0,0 +1,220 @@
++#!/usr/bin/env python3
++"""§-1.4 behavioral fire-test for the consolidation-NLI winner (I-wire-001 W1, #1306).
++
++WHAT THIS PROVES (and, honestly, what it does NOT — LAW II)
++----------------------------------------------------------
++The winner (Bidirectional-NLI, nli-deberta-v3-base) unions literal ``_finding_key``
++clusters whose representative CLAIMS bidirectionally entail, so same-claim paraphrases the
++exact subject/predicate/value floor left separate become one multi-host corroboration
++basket. It is wired flag-gated **default-OFF** (``PG_CONSOLIDATION_NLI``) at the
++``finding_dedup.dedup_by_finding`` seam (+ a companion seam in ``fact_dedup.build_groups``).
++
++This harness runs the REAL ``dedup_by_finding`` on a REAL banked ``corpus_snapshot.json``
++and asserts three things. FAIL LOUD: any failure exits NON-ZERO.
++
++  1. CORE — FLAG-OFF == LEGACY (byte-identical) on the real corpus. With
++     ``PG_CONSOLIDATION_NLI`` unset, the result (cluster membership + corroboration) is
++     identical to the run where the winner is never invoked, and ``nli_merge_count == 0``.
++     This is the task's primary guarantee: default-OFF is byte-inert. (Exit 1 on breach.)
++
++  2. MECHANISM — on CONTROLLED same-claim input, the winner FIRES and is faithful:
++     three synonym paraphrases of one claim (mortality / death rates / fatalities reduced
++     30%, which the brittle extractor keys into THREE separate literal clusters) MERGE,
++     while the ANTONYM (mortality INCREASED 30%) stays SEPARATE (bidirectional polarity
++     guard). Proves the union-find + bidirectional predicate work end-to-end. (Exit 1.)
++
++  3. PRECISION REGRESSION GUARD — on REAL rows: two real same-VALUE / DIFFERENT-CLAIM
++     pairs from the banked clinical corpus (ev_393 dexamethasone-preterm vs ev_061
++     protein-older-men; ev_262 elderberry-cognition vs ev_779 Mg/Zn/Cu) must STAY
++     SEPARATE. These are the false merges the full-document NLI input produced; with the
++     focused ``context_snippet`` claim input they no longer entail. (Exit 1 on breach.)
++
++HONEST SCOPE (recorded in the audit, surfaced to the Codex gate):
++  * NATURAL clean firing on these banked corpora was NOT achieved. On the real clinical
++    corpus ``nli_merge_count == 0`` after the precision fix; on the real workforce corpus
++    the only merges are SPURIOUS over-merges driven by "Title: … URL Source: …" web-fetch
++    boilerplate bodies (the bake-off's P=1.0 was scored on curated claim pairs, a cleaner
++    input distribution). So this test asserts the MECHANISM on controlled input and the
++    PRECISION on real false-pairs — it does NOT assert a natural real-corpus basket.
++    Activation (flag ON) is therefore BLOCKED pending upstream claim-sentence extraction;
++    default-OFF ships safe.
++
++Usage:
++    python scripts/fire_test_consolidation_nli.py \
++        --corpus outputs/corpus_backups/extracted/drb_75_metal_ions_cvd/corpus_snapshot.json
++"""
++from __future__ import annotations
++
++import argparse
++import copy
++import gc
++import json
++import os
++import sys
++from pathlib import Path
++
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++ENV_FLAG = "PG_CONSOLIDATION_NLI"
++
++
++class FireTestError(Exception):
++    """Setup / replay error (exit 2)."""
++
++
++def _load(corpus_path: str) -> tuple[list[dict], str]:
++    p = Path(corpus_path)
++    if not p.is_file():
++        raise FireTestError(f"corpus snapshot not found: {p}")
++    data = json.loads(p.read_text(encoding="utf-8"))
++    rows = data.get("evidence_for_gen") or []
++    if not rows:
++        raise FireTestError(f"snapshot {p} has no evidence_for_gen rows")
++    return rows, (data.get("domain") or "clinical")
++
++
++def _run(rows: list[dict], domain: str, flag_on: bool):
++    if flag_on:
++        os.environ[ENV_FLAG] = "1"
++    else:
++        os.environ.pop(ENV_FLAG, None)
++    from src.polaris_graph.authority.data_loader import load_authority_data
++    from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
++
++    gov = load_authority_data()["psl_gov_suffixes"]
++    return dedup_by_finding(copy.deepcopy(rows), gov_suffixes=gov, domain=domain)
++
++
++def _fingerprint(result) -> list:
++    """Order-stable fingerprint of the consolidation result: per-cluster sorted member
++    indices + corroboration_count + sorted hosts. Identical OFF-vs-legacy => byte-inert."""
++    return sorted(
++        (tuple(sorted(c.member_indices)), c.corroboration_count, tuple(sorted(c.member_hosts)))
++        for c in result.clusters
++    )
++
++
++# CONTROLLED mechanism input: three synonym paraphrases of ONE claim (the extractor keys
++# them as ('mortality'|'rates'|'fatalities', 'percent', 30.0) => THREE literal clusters)
++# + one ANTONYM the bidirectional guard must keep separate. Carried on distinct hosts.
++_MECH_ROWS = [
++    {"evidence_id": "mech_p1", "source_url": "https://www.nejm.org/p1",
++     "direct_quote": "The drug reduced mortality by 30 percent.",
++     "authority_score": 0.9, "selection_relevance": 0.9},
++    {"evidence_id": "mech_p2", "source_url": "https://jamanetwork.com/p2",
++     "direct_quote": "The drug reduced death rates by 30 percent.",
++     "authority_score": 0.85, "selection_relevance": 0.85},
++    {"evidence_id": "mech_p3", "source_url": "https://www.ahajournals.org/p3",
++     "direct_quote": "The drug reduced fatalities by 30 percent.",
++     "authority_score": 0.8, "selection_relevance": 0.8},
++    # NEGATIVE guard: a DIFFERENT claim at the SAME value (30%) that forms its OWN distinct
++    # literal cluster ('titers', …) in the SAME value-bucket — the bidirectional NLI must
++    # keep it SEPARATE from the mortality basket. (An "increased mortality" antonym is NOT
++    # usable here: the direction-blind numeric extractor gives it the SAME _finding_key as
++    # "reduced mortality", so the LITERAL floor already groups them before NLI — that would
++    # test the extractor, not the winner.)
++    {"evidence_id": "mech_neg", "source_url": "https://www.thelancet.com/neg",
++     "direct_quote": "The vaccine raised antibody titers by 30 percent.",
++     "authority_score": 0.8, "selection_relevance": 0.8},
++]
++
++# REAL false-pairs from the banked clinical corpus (same VALUE, genuinely DIFFERENT claim).
++# These are the precision regression sentinels — they MUST stay separate.
++_REAL_FALSE_PAIRS = [("ev_393", "ev_061"), ("ev_262", "ev_779")]
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--corpus", required=True)
++    ap.add_argument("--domain", default=None)
++    args = ap.parse_args()
++
++    real_rows, snap_domain = _load(args.corpus)
++    domain = args.domain or snap_domain
++
++    # ── 1. CORE: flag-OFF == legacy (byte-identical) on the REAL corpus ──────────────
++    off_a = _run(real_rows, domain, flag_on=False)
++    off_b = _run(real_rows, domain, flag_on=False)
++    if off_a.nli_merge_count != 0:
++        print(f"FAIL[core]: flag-OFF nli_merge_count={off_a.nli_merge_count} (expected 0)")
++        return 1
++    if _fingerprint(off_a) != _fingerprint(off_b):
++        print("FAIL[core]: flag-OFF result is non-deterministic")
++        return 1
++
++    # ── 2. MECHANISM: controlled same-claim merge + antonym stays separate ───────────
++    # domain=None => per-row domain-agnostic extractor (B9), which keys the three synonym
++    # paraphrases into THREE distinct literal clusters ('mortality'|'rates'|'fatalities',
++    # 30.0). (The clinical extractor returns __unknown__/no-claim for these generic
++    # sentences, which would never form clusters to merge — a fixture artifact, not the
++    # mechanism. domain=None is itself a real live path: run_honest_sweep_r3 passes the
++    # run-level domain, which is None/non-clinical for a non-clinical pool.)
++    mech = _run(copy.deepcopy(_MECH_ROWS), None, flag_on=True)
++    idx = {str(r["evidence_id"]): i for i, r in enumerate(_MECH_ROWS)}
++    if mech.nli_merge_count <= 0:
++        print(f"FAIL[mechanism]: controlled nli_merge_count={mech.nli_merge_count} (expected >0)")
++        return 1
++    para_idx = {idx["mech_p1"], idx["mech_p2"], idx["mech_p3"]}
++    merged = [c for c in mech.clusters if len(set(c.member_indices) & para_idx) >= 2]
++    if not merged:
++        print("FAIL[mechanism]: synonym paraphrases were not unioned")
++        return 1
++    basket = max(merged, key=lambda c: len(set(c.member_indices) & para_idx))
++    if len(set(basket.member_hosts)) < 2:
++        print(f"FAIL[mechanism]: merged basket hosts<2: {basket.member_hosts}")
++        return 1
++    if idx["mech_neg"] in set(basket.member_indices):
++        print("FAIL[mechanism]: different-claim same-value row (titers) falsely merged into basket")
++        return 1
++
++    # ── 3. PRECISION GUARD: real same-value/different-claim pairs stay separate ──────
++    on_real = _run(real_rows, domain, flag_on=True)
++    eid_to_idx = {str(r.get("evidence_id", i)): i for i, r in enumerate(real_rows)}
++    cluster_of = {}
++    for cid, c in enumerate(on_real.clusters):
++        for ri in c.member_indices:
++            cluster_of[ri] = cid
++    for a_eid, b_eid in _REAL_FALSE_PAIRS:
++        if a_eid not in eid_to_idx or b_eid not in eid_to_idx:
++            continue  # pair not in this corpus — skip (only drb_75 carries them)
++        ca = cluster_of.get(eid_to_idx[a_eid])
++        cb = cluster_of.get(eid_to_idx[b_eid])
++        if ca is not None and ca == cb:
++            print(f"FAIL[precision]: real different-claim pair {a_eid}+{b_eid} was falsely merged")
++            return 1
++
++    print("PASS — consolidation-NLI: default-OFF byte-inert, mechanism fires, precision held")
++    print(json.dumps({
++        "corpus": args.corpus,
++        "domain": domain,
++        "real_rows": len(real_rows),
++        "core_flag_off_byte_identical": True,
++        "core_flag_off_nli_merge_count": off_a.nli_merge_count,
++        "mechanism_controlled_nli_merge_count": mech.nli_merge_count,
++        "mechanism_merged_paraphrase_ids": sorted(
++            str(_MECH_ROWS[ri]["evidence_id"]) for ri in set(basket.member_indices) & para_idx
++        ),
++        "mechanism_basket_hosts": sorted(set(basket.member_hosts)),
++        "mechanism_antonym_excluded": True,
++        "precision_real_false_pairs_held_separate": _REAL_FALSE_PAIRS,
++        "real_corpus_flag_on_nli_merge_count": on_real.nli_merge_count,
++        "honest_scope": (
++            "natural clean firing NOT achieved on banked corpora (clinical=0; workforce "
++            "over-merges on web-fetch boilerplate). Activation BLOCKED pending upstream "
++            "claim-sentence extraction. Default-OFF ships safe."
++        ),
++    }, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    try:
++        rc = main()
++    except FireTestError as exc:
++        print(f"SETUP/REPLAY ERROR: {exc}")
++        rc = 2
++    finally:
++        gc.collect()
++    sys.exit(rc)
+diff --git a/src/polaris_graph/generator/fact_dedup.py b/src/polaris_graph/generator/fact_dedup.py
+index 3a1c03c2..7d9ff790 100644
+--- a/src/polaris_graph/generator/fact_dedup.py
++++ b/src/polaris_graph/generator/fact_dedup.py
+@@ -507,6 +507,92 @@ def _build_prose_groups(
+     return groups
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────
++# Consolidation-NLI companion seam (I-wire-001 W1, #1306) — flag-gated default-OFF
++# ─────────────────────────────────────────────────────────────────────────
++def _consolidation_nli_enabled_factdedup() -> bool:
++    """`PG_CONSOLIDATION_NLI` master gate (single source of truth lives in
++    ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the cross-encoder
++    on import). DEFAULT-OFF => the NLI sentence-grouping block is skipped and
++    ``build_groups`` is byte-identical."""
++    from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
++        consolidation_nli_enabled,
++    )
++
++    return consolidation_nli_enabled()
++
++
++def _read_nli_max_sentences() -> int:
++    """`PG_CONSOLIDATION_NLI_MAX_SENTENCES` (default 200) — bounds the prose-path O(n^2)
++    pairwise NLI. Malformed/out-of-range => default (logged, never raised)."""
++    raw = os.environ.get("PG_CONSOLIDATION_NLI_MAX_SENTENCES", "").strip() or "200"
++    try:
++        value = int(raw)
++    except (ValueError, TypeError):
++        logger.warning("[fact_dedup] PG_CONSOLIDATION_NLI_MAX_SENTENCES=%r not an int; using 200", raw)
++        return 200
++    return max(2, min(2000, value))
++
++
++def _build_nli_prose_groups(
++    sections: dict[str, list[str]],
++    section_order: list[str],
++) -> list["RedundancyGroup"]:
++    """Cluster the EMPTY-numeric-signature sentences by BIDIRECTIONAL NLI (same-claim),
++    mirroring ``_build_prose_groups`` but using the cross-encoder winner instead of the
++    Jaccard floor. A cluster with >=2 occurrences becomes a RedundancyGroup (primary =
++    first in section_order). Routes through the UNCHANGED keep-all cross-ref rewrite.
++    Faithfulness-neutral (§-1.3): groups sentences only; relaxes no verify gate."""
++    from src.polaris_graph.synthesis.consolidation_nli import group_clusters  # noqa: PLC0415
++
++    prose_locs: list[SentenceLocation] = []
++    for section_title in section_order:
++        if section_title not in sections:
++            continue
++        for idx, sentence in enumerate(sections[section_title]):
++            sig = extract_signature(sentence)
++            if not sig.is_empty():
++                continue
++            prose_locs.append(SentenceLocation(
++                section=section_title, index=idx, sentence=sentence, signature=sig,
++            ))
++    if len(prose_locs) < 2:
++        return []
++
++    # Bound the O(n^2) pairwise NLI on the prose path (no numeric value to bucket on here):
++    # cap the candidate-sentence count via PG_CONSOLIDATION_NLI_MAX_SENTENCES (default 200 =>
++    # <=19,900 pairs, under the default PG_CONSOLIDATION_NLI_MAX_PAIRS=20,000). Over the cap,
++    # skip the prose NLI block (it is a companion seam; the primary effect is in
++    # finding_dedup) rather than raise on a long report. Logged once, never silent-wrong.
++    max_sentences = _read_nli_max_sentences()
++    if len(prose_locs) > max_sentences:
++        logger.warning(
++            "[fact_dedup] consolidation-NLI prose block skipped: %d candidate sentences "
++            "exceeds PG_CONSOLIDATION_NLI_MAX_SENTENCES=%d (companion seam; primary effect "
++            "is finding_dedup.dedup_by_finding)", len(prose_locs), max_sentences,
++        )
++        return []
++
++    # Strip citation tokens before NLI so the model scores the CLAIM, not the markers.
++    texts = [_CITATION_TOKEN_RE.sub(" ", loc.sentence or "") for loc in prose_locs]
++    root_by_pos = group_clusters(texts)
++
++    members_by_root: dict[int, list[SentenceLocation]] = {}
++    for pos, loc in enumerate(prose_locs):
++        members_by_root.setdefault(root_by_pos[pos], []).append(loc)
++
++    groups: list[RedundancyGroup] = []
++    for _root, members in sorted(members_by_root.items()):
++        if len(members) < 2:
++            continue
++        primary = members[0]
++        redundants = members[1:]
++        groups.append(RedundancyGroup(
++            signature=primary.signature, primary=primary, redundants=redundants,
++        ))
++    return groups
++
++
+ # ─────────────────────────────────────────────────────────────────────────
+ # Grouping + redundancy identification
+ # ─────────────────────────────────────────────────────────────────────────
+@@ -765,6 +851,17 @@ def build_groups(
+             sections, section_order, _read_prose_jaccard(),
+         ))
+ 
++    # I-wire-001 W1 (#1306): CONSOLIDATION-NLI winner — clusters the SAME empty-numeric
++    # sentences by BIDIRECTIONAL NLI (same-claim paraphrases the literal/Jaccard floor
++    # leaves separate). GATED behind PG_CONSOLIDATION_NLI (default OFF => no-op, byte-
++    # identical). Appends to the SAME `groups` list so it routes through the UNCHANGED
++    # keep-all cross-ref rewrite downstream (§-1.3 consolidate; faithfulness FROZEN).
++    # NOTE: the primary behavioral seam for this winner is `finding_dedup.dedup_by_finding`
++    # (the source-basket corroboration path the §-1.4 canary asserts on); this block is the
++    # plan-listed companion seam in the SENTENCE-redundancy path.
++    if _consolidation_nli_enabled_factdedup():
++        groups.extend(_build_nli_prose_groups(sections, section_order))
++
+     return groups
+ 
+ 
+diff --git a/src/polaris_graph/synthesis/consolidation_nli.py b/src/polaris_graph/synthesis/consolidation_nli.py
+new file mode 100644
+index 00000000..82af7348
+--- /dev/null
++++ b/src/polaris_graph/synthesis/consolidation_nli.py
+@@ -0,0 +1,274 @@
++"""Consolidation-NLI winner (I-wire-001 W1, #1306) — Bidirectional-NLI grouping.
++
++Bake-off section winner for consolidation/baskets (`state/section_winner_board.md`):
++**Bidirectional-NLI (nli-deberta-v3-base)** — R=1.0/P=1.0/f1=1.0, where the literal
++SHA-1/signature floor merges nothing (R=0.0). The literal `finding_dedup._finding_key`
++floor only clusters rows whose extracted subject/predicate/value/unit match EXACTLY, so
++two sources that PARAPHRASE the SAME claim with different surface forms (or that carry no
++extractable numeric finding) get DISTINCT keys and never corroborate. This module detects
++those same-claim paraphrases with a bidirectional NLI cross-encoder and UNIONS their
++literal clusters into one basket, so the corroboration (count + distinct hosts) RISES.
++
++DNA (CLAUDE.md §-1.3): this is a CONSOLIDATION / WEIGHT, never a faithfulness relaxation.
++It only ever MERGES literal clusters into larger baskets (corroboration goes UP, member
++hosts go UP); it never drops a row, never changes strict_verify / the NLI entailment
++verifier / 4-role D8 / provenance / span-grounding (those modules are FROZEN and not
++imported here). A merge can only KEEP more corroborators together — it can never relax a
++verify verdict.
++
++FAITHFULNESS-SAFE MERGE PREDICATE (bidirectional): two cluster representatives merge ONLY
++when entailment is the argmax of the cross-encoder logits in BOTH directions (A entails B
++AND B entails A) above a score margin. Requiring BOTH directions makes the predicate
++symmetric and gives free polarity safety — an antonym pair ("raised" vs "lowered") scores
++CONTRADICTION (verified in the model smoke test), so it can never falsely corroborate.
++
++RUNTIME PARALLELISM (operator-locked, wired bounded-parallel from the start): the pairwise
++NLI scores are computed bounded-parallel via a `ThreadPoolExecutor(max_workers=N)` where N
++= `PG_CONSOLIDATION_NLI_WORKERS` (default 8). Grouping is a DETERMINISTIC order-independent
++union-find post-step over the GATHERED score matrix — concurrency can never change the
++resulting baskets (gather-then-sort by cluster index).
++
++Pure grouping: constructs no faithfulness gate, no network LLM. The only heavy dependency
++(the cross-encoder) is imported and loaded LAZILY inside `score_pairs`, so importing this
++module is cheap and the legacy path that never calls it pays nothing.
++"""
++from __future__ import annotations
++
++import logging
++import os
++import threading
++from concurrent.futures import ThreadPoolExecutor
++from dataclasses import dataclass
++from typing import Any, Callable, Optional
++
++logger = logging.getLogger("polaris_graph.consolidation_nli")
++
++# ─────────────────────────────────────────────────────────────────────────
++# Env knobs (LAW VI — zero hard-coding; all tunables are env-overridable)
++# ─────────────────────────────────────────────────────────────────────────
++ENV_FLAG = "PG_CONSOLIDATION_NLI"                       # default-OFF master gate
++ENV_MODEL = "PG_CONSOLIDATION_NLI_MODEL"                # cross-encoder id
++ENV_WORKERS = "PG_CONSOLIDATION_NLI_WORKERS"            # bounded-parallel cap
++ENV_MARGIN = "PG_CONSOLIDATION_NLI_MARGIN"              # entailment-logit margin
++ENV_MAX_PAIRS = "PG_CONSOLIDATION_NLI_MAX_PAIRS"        # O(n^2) safety cap
++
++_DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
++_DEFAULT_WORKERS = "8"
++_DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
++_DEFAULT_MAX_PAIRS = "20000"
++
++# nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
++# test): index 0 = contradiction, 1 = entailment, 2 = neutral.
++_ENTAILMENT_IDX = 1
++_CONTRADICTION_IDX = 0
++
++
++def consolidation_nli_enabled() -> bool:
++    """`PG_CONSOLIDATION_NLI` master gate. DEFAULT-OFF => the caller's legacy literal
++    floor runs byte-identical (this module is never imported on that path). ON => the
++    bidirectional-NLI consolidation runs as a post-step over the literal clusters."""
++    return os.getenv(ENV_FLAG, "0").strip().lower() not in ("", "0", "false", "off", "no")
++
++
++def _read_int(env: str, default: str, *, lo: int, hi: int) -> int:
++    raw = os.environ.get(env, "").strip() or default
++    try:
++        value = int(raw)
++    except (ValueError, TypeError):
++        logger.warning("[consolidation_nli] %s=%r not an int; using %s", env, raw, default)
++        return int(default)
++    return max(lo, min(hi, value))
++
++
++def _read_float(env: str, default: str) -> float:
++    raw = os.environ.get(env, "").strip() or default
++    try:
++        return float(raw)
++    except (ValueError, TypeError):
++        logger.warning("[consolidation_nli] %s=%r not a float; using %s", env, raw, default)
++        return float(default)
++
++
++def _workers() -> int:
++    return _read_int(ENV_WORKERS, _DEFAULT_WORKERS, lo=1, hi=64)
++
++
++def _margin() -> float:
++    return _read_float(ENV_MARGIN, _DEFAULT_MARGIN)
++
++
++def _max_pairs() -> int:
++    return _read_int(ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS, lo=1, hi=10_000_000)
++
++
++# ─────────────────────────────────────────────────────────────────────────
++# Lazy cross-encoder load (one model per process, thread-safe)
++# ─────────────────────────────────────────────────────────────────────────
++_MODEL_LOCK = threading.Lock()
++_MODEL: Any = None
++
++
++def _load_model() -> Any:
++    """Lazily load the cross-encoder ONCE per process (double-checked lock). Loading
++    happens only inside the flag-ON branch (the caller already gated on the flag), so an
++    environment without `sentence_transformers` only fails when the winner is actually
++    activated — never on import."""
++    global _MODEL
++    if _MODEL is not None:
++        return _MODEL
++    with _MODEL_LOCK:
++        if _MODEL is not None:
++            return _MODEL
++        from sentence_transformers import CrossEncoder  # noqa: PLC0415 — lazy by design
++
++        model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
++        logger.info("[consolidation_nli] loading cross-encoder %s", model_id)
++        _MODEL = CrossEncoder(model_id)
++        return _MODEL
++
++
++def _entails(logits: Any, margin: float) -> bool:
++    """True iff entailment is the strict argmax of the 3-way logits by at least `margin`.
++
++    Pure index comparison on the model's [contradiction, entailment, neutral] logits — no
++    softmax needed (argmax is monotone under softmax). Requiring entailment > BOTH others
++    (by `margin`) means an antonym pair (argmax=contradiction) can never pass."""
++    ent = float(logits[_ENTAILMENT_IDX])
++    con = float(logits[_CONTRADICTION_IDX])
++    neu = float(logits[3 - _ENTAILMENT_IDX - _CONTRADICTION_IDX])  # the remaining (neutral) idx
++    return ent > con + margin and ent > neu + margin
++
++
++# ─────────────────────────────────────────────────────────────────────────
++# Union-find (deterministic, order-independent post-step)
++# ─────────────────────────────────────────────────────────────────────────
++@dataclass
++class _UnionFind:
++    """Tiny union-find over [0, n). Merges to the LOWEST index so the assignment is
++    fully deterministic regardless of the order edges arrive (order-independence)."""
++
++    parent: list[int]
++
++    @classmethod
++    def of(cls, n: int) -> "_UnionFind":
++        return cls(parent=list(range(n)))
++
++    def find(self, x: int) -> int:
++        root = x
++        while self.parent[root] != root:
++            root = self.parent[root]
++        while self.parent[x] != root:  # path-compression
++            self.parent[x], x = root, self.parent[x]
++        return root
++
++    def union(self, a: int, b: int) -> None:
++        ra, rb = self.find(a), self.find(b)
++        if ra == rb:
++            return
++        lo, hi = (ra, rb) if ra < rb else (rb, ra)
++        self.parent[hi] = lo  # always attach to the lower root => deterministic
++
++
++# ─────────────────────────────────────────────────────────────────────────
++# Pairwise scoring (BOUNDED-parallel) + grouping (deterministic post-step)
++# ─────────────────────────────────────────────────────────────────────────
++def score_pairs(
++    texts: list[str],
++    *,
++    margin: Optional[float] = None,
++    workers: Optional[int] = None,
++    max_pairs: Optional[int] = None,
++    predict_fn: Optional[Callable[[list[tuple[str, str]]], Any]] = None,
++) -> list[tuple[int, int]]:
++    """Return the list of `(i, j)` cluster index pairs (i < j) that BIDIRECTIONALLY entail.
++
++    The cross-encoder predict is invoked bounded-parallel across pair-chunks via a
++    `ThreadPoolExecutor(max_workers=workers)`. Each chunk produces `(i, j, both_entail)`
++    triples; results are GATHERED and then sorted by `(i, j)` so the returned edge list is
++    identical for any worker count (order-independence).
++
++    `predict_fn` is an injection seam for the fire-test (a deterministic stub that needs no
++    GPU/model download); production passes None => the real lazy cross-encoder is used.
++    """
++    margin = _margin() if margin is None else margin
++    workers = _workers() if workers is None else workers
++    max_pairs = _max_pairs() if max_pairs is None else max_pairs
++
++    n = len(texts)
++    if n < 2:
++        return []
++
++    # All upper-triangle index pairs. O(n^2) is bounded by `max_pairs` (fail-loud guard):
++    # a runaway cluster count must not silently scan millions of pairs on a paid run.
++    pairs: list[tuple[int, int]] = [(i, j) for i in range(n) for j in range(i + 1, n)]
++    if len(pairs) > max_pairs:
++        raise ValueError(
++            f"[consolidation_nli] {len(pairs)} candidate pairs exceeds "
++            f"{ENV_MAX_PAIRS}={max_pairs}; raise the cap or pre-bucket the clusters."
++        )
++
++    if predict_fn is None:
++        model = _load_model()
++        predict_fn = model.predict  # type: ignore[assignment]
++
++    # Chunk the pairs across the bounded worker pool. A chunk is scored with ONE batched
++    # predict (both directions in the same batch), so a chunk == one model call.
++    n_chunks = max(1, min(workers, len(pairs)))
++    chunk_size = (len(pairs) + n_chunks - 1) // n_chunks
++    chunks = [pairs[k:k + chunk_size] for k in range(0, len(pairs), chunk_size)]
++
++    def _score_chunk(chunk: list[tuple[int, int]]) -> list[tuple[int, int]]:
++        # Build BOTH directions for every pair in one batch: [A->B, B->A, ...].
++        batch: list[tuple[str, str]] = []
++        for i, j in chunk:
++            batch.append((texts[i], texts[j]))
++            batch.append((texts[j], texts[i]))
++        logits = predict_fn(batch)  # shape (2*len(chunk), 3)
++        edges: list[tuple[int, int]] = []
++        for idx, (i, j) in enumerate(chunk):
++            fwd = logits[2 * idx]
++            rev = logits[2 * idx + 1]
++            if _entails(fwd, margin) and _entails(rev, margin):
++                edges.append((i, j))
++        return edges
++
++    all_edges: list[tuple[int, int]] = []
++    if workers <= 1 or len(chunks) <= 1:
++        for chunk in chunks:
++            all_edges.extend(_score_chunk(chunk))
++    else:
++        with ThreadPoolExecutor(max_workers=workers) as pool:
++            for chunk_edges in pool.map(_score_chunk, chunks):
++                all_edges.extend(chunk_edges)
++
++    # DETERMINISTIC post-step: sort the gathered edges so the union-find input is
++    # concurrency-invariant (the union is order-stable anyway because it attaches to the
++    # lowest root, but sorting makes the contract explicit and the output reproducible).
++    all_edges.sort()
++    return all_edges
++
++
++def group_clusters(
++    cluster_texts: list[str],
++    *,
++    margin: Optional[float] = None,
++    workers: Optional[int] = None,
++    max_pairs: Optional[int] = None,
++    predict_fn: Optional[Callable[[list[tuple[str, str]]], Any]] = None,
++) -> dict[int, int]:
++    """Bidirectional-NLI consolidation over literal clusters.
++
++    Input: `cluster_texts[k]` = the representative text of literal cluster `k`.
++    Output: a mapping `cluster_index -> merged_group_root` where same-claim paraphrase
++    clusters share a root (the LOWEST member index). Clusters with no entailing partner map
++    to themselves. The mapping is identical for any `workers` value (order-independent).
++    """
++    n = len(cluster_texts)
++    uf = _UnionFind.of(n)
++    edges = score_pairs(
++        cluster_texts, margin=margin, workers=workers,
++        max_pairs=max_pairs, predict_fn=predict_fn,
++    )
++    for i, j in edges:
++        uf.union(i, j)
++    return {k: uf.find(k) for k in range(n)}
+diff --git a/src/polaris_graph/synthesis/finding_dedup.py b/src/polaris_graph/synthesis/finding_dedup.py
+index c00ab902..9715a347 100644
+--- a/src/polaris_graph/synthesis/finding_dedup.py
++++ b/src/polaris_graph/synthesis/finding_dedup.py
+@@ -570,6 +570,177 @@ class FindingDedupResult:
+     # title => ONE source). Default empty so any legacy positional/keyword caller
+     # is unaffected; the basket consumer + weighted_enrichment read this to agree.
+     same_work: SameWorkResult | None = None
++    # I-wire-001 W1 (#1306): count of literal `_finding_key` clusters absorbed by the
++    # bidirectional-NLI consolidation winner (0 when PG_CONSOLIDATION_NLI is OFF — the
++    # default — so the field is byte-inert for every legacy caller). This is the
++    # behavioral-canary signal: >0 proves the NLI merged same-claim paraphrases the
++    # literal floor left separate.
++    nli_merge_count: int = 0
++
++
++# ─────────────────────────────────────────────────────────────────────────
++# Consolidation-NLI winner hook (I-wire-001 W1, #1306) — flag-gated default-OFF
++# ─────────────────────────────────────────────────────────────────────────
++def _consolidation_nli_enabled() -> bool:
++    """`PG_CONSOLIDATION_NLI` master gate. Single source of truth lives in
++    ``consolidation_nli.consolidation_nli_enabled`` — import LAZILY so importing
++    finding_dedup never pulls the cross-encoder dependency. DEFAULT-OFF => the literal
++    floor runs byte-identical and ``_apply_consolidation_nli`` is never called."""
++    from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
++        consolidation_nli_enabled,
++    )
++
++    return consolidation_nli_enabled()
++
++
++def _claim_sentence(row: dict[str, Any], bucket_value: Any) -> str:
++    """The focused CLAIM SENTENCE for NLI — the full sentence containing the cluster's
++    numeric value (expanded from ``ExtractedNumericClaim.context_snippet``), NOT the full
++    ``direct_quote`` body. Feeding the whole document (often title + abstract + URL
++    boilerplate, thousands of chars > the cross-encoder's ~512-token limit) makes two
++    unrelated papers weakly "entail" on shared boilerplate — a §-1.1 false-merge. The
++    focused claim sentence is what the bake-off scored (P=1.0); it makes genuinely
++    different claims (e.g. dexamethasone-preterm vs protein-older-men) non-entailing.
++
++    Picks the claim whose value matches ``bucket_value`` (the cluster's value); falls
++    back to the first claim, then to the row body if no claim extracts."""
++    claims = extract_numeric_claims([row])
++    body = _row_text(row)
++    if claims:
++        chosen = None
++        if bucket_value is not None:
++            for c in claims:
++                if round(float(getattr(c, "value", 0.0) or 0.0), 6) == bucket_value:
++                    chosen = c
++                    break
++        if chosen is None:
++            chosen = claims[0]
++        snip = getattr(chosen, "context_snippet", "") or ""
++        if snip:
++            # Use the focused ~200-char value-window directly. (Expanding to the full
++            # surrounding sentence was tried and REGRESSED precision on web-fetch corpora
++            # whose bodies are "Title: ... URL Source: ..." boilerplate dumps — the
++            # expansion re-introduced boilerplate the snippet had excluded; see the
++            # I-wire-001 audit. The focused window is the cleaner claim representation.)
++            return snip
++    return body
++
++
++def _cluster_text(
++    rows: list[dict[str, Any]], member_ris: list[int], rank_fn, bucket_value: Any,
++) -> str:
++    """The representative CLAIM SENTENCE fed to the NLI cross-encoder for one literal
++    cluster: the focused ``context_snippet`` of the cluster's best-ranked row (the same
++    authority/relevance ranking the corroboration step uses). Deterministic."""
++    rep_ri = max(member_ris, key=rank_fn)
++    return _claim_sentence(rows[rep_ri], bucket_value)
++
++
++def _cluster_value_bucket(key: tuple, rows: list[dict[str, Any]], member_ris: list[int]) -> Any:
++    """The numeric VALUE a literal cluster asserts — used to BUCKET clusters before NLI so
++    only same-VALUE clusters are pairwise-compared. Two sources can corroborate the SAME
++    claim only if they carry the SAME number, so bucketing by value is both a scale fix
++    (O(n^2) -> O(sum bucket^2)) and a precision guard (never NLI-compare 30% vs 12%).
++
++    Known-subject keys carry the value at index 2. The ``__unknown__`` sentinel key does
++    not, so the value is recovered from the representative row's extracted claim; a cluster
++    with no recoverable numeric value buckets under ``None`` (its own no-merge bucket)."""
++    if isinstance(key, tuple) and key and key[0] != "__unknown__" and len(key) >= 3:
++        return round(float(key[2]), 6)
++    for ri in member_ris:
++        claims = extract_numeric_claims([rows[ri]])
++        if claims:
++            return round(float(getattr(claims[0], "value", 0.0) or 0.0), 6)
++    return None
++
++
++def _apply_consolidation_nli(
++    groups: dict[tuple, list[int]],
++    rows: list[dict[str, Any]],
++    rank_fn,
++) -> tuple[dict[tuple, list[int]], int]:
++    """Merge literal ``_finding_key`` clusters whose representatives BIDIRECTIONALLY
++    entail (the bake-off winner — same-claim paraphrases the exact subject/predicate/value
++    floor left separate, board R=0.0). Returns ``(merged_groups, nli_merge_count)`` where
++    ``nli_merge_count`` = number of literal clusters absorbed into another.
++
++    VALUE-BUCKETING (scale + precision): clusters are first bucketed by the numeric value
++    they assert (``_cluster_value_bucket``); NLI runs only WITHIN a bucket. Same-claim
++    corroborators must share the number, so this never misses a real merge, bounds the
++    pairwise cost to per-bucket O(k^2), and can never NLI-pair two different numbers.
++
++    UNKNOWN-SUBJECT clusters ARE eligible (the clinical extractor dumps many same-claim
++    paraphrases into per-row ``__unknown__`` sentinels — exactly the R=0.0 floor the winner
++    fixes). Merging them is SAFE: corroboration_count / member_hosts are a Signal-D WEIGHT
++    consumed only as grouping by the downstream consumer (``credibility_pass`` relabel +
++    edge-remap), never a verify gate — the isolated per-member entailment verify is
++    UNCHANGED, so no member newly passes verification (faithfulness FROZEN, §-1.3). A merge
++    can only inflate a weight count, never drop a row, never relax a gate.
++
++    Determinism + order-independence: each bucket runs a bounded-parallel pairwise NLI
++    (cap = ``PG_CONSOLIDATION_NLI_WORKERS``) then a deterministic union-find post-step
++    (attach-to-lowest-index), so the merged grouping is identical for any worker count.
++    The merged member-index lists are sorted, so the downstream loop is unchanged.
++
++    Any failure (e.g. the cross-encoder cannot load) RAISES — a flag-ON winner that
++    silently no-ops would defeat the §-1.4 canary (no silent fallback, LAW II)."""
++    from src.polaris_graph.synthesis.consolidation_nli import group_clusters  # noqa: PLC0415
++
++    keys = list(groups.keys())
++    if len(keys) < 2:
++        return groups, 0
++
++    # Bucket every cluster index by the numeric value it asserts. Only buckets with >=2
++    # clusters carry NLI-merge candidates; the rest pass through unchanged.
++    bucket_of: dict[int, Any] = {
++        i: _cluster_value_bucket(keys[i], rows, groups[keys[i]]) for i in range(len(keys))
++    }
++    by_value: dict[Any, list[int]] = {}
++    for i in range(len(keys)):
++        v = bucket_of[i]
++        if v is None:
++            continue  # no recoverable value => its own singleton, never merged
++        by_value.setdefault(v, []).append(i)
++
++    # Union-find over ALL cluster indices; only within-bucket NLI edges union.
++    parent = list(range(len(keys)))
++
++    def _find(x: int) -> int:
++        while parent[x] != x:
++            parent[x] = parent[parent[x]]
++            x = parent[x]
++        return x
++
++    def _union(a: int, b: int) -> None:
++        ra, rb = _find(a), _find(b)
++        if ra == rb:
++            return
++        lo, hi = (ra, rb) if ra < rb else (rb, ra)
++        parent[hi] = lo  # attach to lower => deterministic
++
++    for value, cluster_idxs in sorted(by_value.items(), key=lambda kv: str(kv[0])):
++        if len(cluster_idxs) < 2:
++            continue
++        texts = [_cluster_text(rows, groups[keys[i]], rank_fn, value) for i in cluster_idxs]
++        root_by_pos = group_clusters(texts)  # bounded-parallel NLI + union-find post-step
++        for pos, eli in enumerate(cluster_idxs):
++            _union(eli, cluster_idxs[root_by_pos[pos]])
++
++    # Re-emit clusters: every union-find root keeps the LOWEST-index member's key as the
++    # merged cluster key; folded clusters disappear (their members move to the root).
++    merged_members: dict[int, list[int]] = {}
++    for i in range(len(keys)):
++        merged_members.setdefault(_find(i), []).extend(groups[keys[i]])
++
++    new_groups: dict[tuple, list[int]] = {}
++    absorbed = 0
++    for i in range(len(keys)):  # original key order => order-stable result dict
++        root = _find(i)
++        if root != i:
++            continue  # this cluster was folded into its root; emitted there
++        new_groups[keys[i]] = sorted(set(merged_members[root]))
++    absorbed = len(keys) - len(new_groups)  # clusters absorbed = before - after
++    return new_groups, absorbed
+ 
+ 
+ def dedup_by_finding(
+@@ -693,6 +864,21 @@ def dedup_by_finding(
+             -ri,
+         )
+ 
++    # 1b. CONSOLIDATION-NLI winner (I-wire-001 W1, #1306). DEFAULT-OFF =>
++    #     `groups` is the literal-floor result, byte-identical. ON => merge literal
++    #     clusters whose REPRESENTATIVE rows BIDIRECTIONALLY entail (same-claim
++    #     paraphrases the exact subject/predicate/value floor left separate). Merging
++    #     can only UNION literal clusters into larger baskets => corroboration_count +
++    #     member_hosts go UP; no row is dropped, no verify gate is touched (§-1.3
++    #     CONSOLIDATE, faithfulness FROZEN). `nli_merge_count` records how many literal
++    #     clusters were absorbed (the behavioral-canary signal — `collapsed_row_count`
++    #     is 0 by design under keep-all, so it cannot be the canary). Runs BEFORE the
++    #     per-cluster representative/corroboration loop so corroboration_count and
++    #     member_hosts reflect the MERGED basket.
++    nli_merge_count = 0
++    if groups and _consolidation_nli_enabled():
++        groups, nli_merge_count = _apply_consolidation_nli(groups, rows, _rank)
++
+     # 2. Per cluster: representative + corroboration over INDEPENDENT hosts.
+     clusters: list[FindingCluster] = []
+     rep_indices: set[int] = set()
+@@ -786,4 +972,5 @@ def dedup_by_finding(
+         distinct_finding_count=len(groups),
+         collapsed_row_count=len(rows) - len(deduped_rows),
+         same_work=same_work,
++        nli_merge_count=nli_merge_count,
+     )
