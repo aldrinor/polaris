@@ -1,0 +1,524 @@
+diff --git a/scripts/fire_test_reranker_noise_fix.py b/scripts/fire_test_reranker_noise_fix.py
+new file mode 100644
+index 00000000..ea475484
+--- /dev/null
++++ b/scripts/fire_test_reranker_noise_fix.py
+@@ -0,0 +1,126 @@
++#!/usr/bin/env python3
++"""FIRE-TEST for I-bug-reranker-noise (#1312): real signal, not random-head noise.
++
++Proves the fix at ``evidence_selector._maybe_rerank_selection`` works END-TO-END: the
++Qwen3-Reranker, loaded the CORRECT way (causal-LM yes/no logits via
++``qwen_reranker_scorer.score_query_document_relevance``), produces a REAL relevance signal
++— a clearly-relevant passage scores markedly higher than clearly-irrelevant junk, and
++``_maybe_rerank_selection`` REORDERS the selected rows so the relevant row rises to the top.
++
++The pre-fix CrossEncoder load minted a random classification head -> ~0.5 noise for every
++pair (no signal, no meaningful reorder). FAIL LOUD (non-zero exit) if the signal is absent.
++
++DEVICE / SIZE NOTE: this box has no GPU, and the production WINNER (Qwen3-Reranker-4B, ~8GB)
++is too heavy to load on CPU here. The bug AND the fix are LOADER-LEVEL and architecture-
++identical across 0.6B/4B/8B (same causal-LM, same yes/no template), so we fire-test on
++``Qwen/Qwen3-Reranker-0.6B`` on CPU as a faithful proxy. Production keeps PG_RERANKER_MODEL
++-> 4B, GPU-served. Override the proxy id with PG_FIRE_TEST_RERANKER_MODEL if desired.
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++
++_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
++_REPO_ROOT = os.path.abspath(os.path.join(_THIS_DIR, ".."))
++if _REPO_ROOT not in sys.path:
++    sys.path.insert(0, _REPO_ROOT)
++
++# CPU-feasible proxy for the GPU-served 4B winner (loader is size-independent).
++_PROXY_MODEL_ID = os.environ.get("PG_FIRE_TEST_RERANKER_MODEL", "Qwen/Qwen3-Reranker-0.6B")
++
++# Minimum margin between the relevant and the junk score. A random head gives ~0 margin
++# (both ~0.5); a working causal-LM scorer separates them by a wide gap. A modest floor
++# proves "real signal, not noise" without overfitting an exact number.
++_MIN_MARGIN = 0.20
++
++
++def main() -> int:
++    from src.polaris_graph.retrieval.evidence_selector import _maybe_rerank_selection
++    from src.polaris_graph.retrieval.qwen_reranker_scorer import (
++        score_query_document_relevance,
++    )
++
++    query = "What is the cardiovascular benefit of semaglutide in adults with obesity?"
++    relevant_doc = (
++        "In the SELECT trial, semaglutide 2.4 mg reduced the risk of major adverse "
++        "cardiovascular events by 20% compared with placebo in adults with overweight or "
++        "obesity and established cardiovascular disease."
++    )
++    junk_doc = (
++        "The municipal parking authority announced revised weekend tariffs for the "
++        "downtown garage, effective the first of next month, alongside new bicycle racks."
++    )
++
++    print(f"[fire-test] loading {_PROXY_MODEL_ID} (causal-LM yes/no scoring) ...", flush=True)
++    scores = score_query_document_relevance(
++        query, [relevant_doc, junk_doc], model_id=_PROXY_MODEL_ID, device="cpu"
++    )
++    rel_score, junk_score = scores[0], scores[1]
++    margin = rel_score - junk_score
++    print(f"[fire-test] P(yes) relevant = {rel_score:.4f}", flush=True)
++    print(f"[fire-test] P(yes) junk     = {junk_score:.4f}", flush=True)
++    print(f"[fire-test] margin          = {margin:.4f} (min required {_MIN_MARGIN})", flush=True)
++
++    failures: list[str] = []
++    if not (rel_score > junk_score):
++        failures.append(
++            f"relevant ({rel_score:.4f}) did NOT outscore junk ({junk_score:.4f}) — "
++            "no relevance signal (looks like the random-head noise the fix removes)."
++        )
++    if margin < _MIN_MARGIN:
++        failures.append(
++            f"margin {margin:.4f} < {_MIN_MARGIN}: signal too weak to distinguish from "
++            "~0.5 noise (a working reranker separates relevant from junk by a wide gap)."
++        )
++
++    # End-to-end: _maybe_rerank_selection must REORDER selected rows so the relevant row
++    # rises above the junk row. Junk is placed FIRST so a real reorder is observable.
++    os.environ["PG_RERANKER_MODEL"] = "qwen3"
++    os.environ["PG_FIRE_TEST_RERANKER_MODEL"] = _PROXY_MODEL_ID  # carried into config? no — see below
++    selected_rows = [
++        {"id": "junk", "statement": junk_doc, "direct_quote": ""},
++        {"id": "relevant", "statement": relevant_doc, "direct_quote": ""},
++    ]
++    # The production path reads the model id from CrossEncoderConfig.from_env() (-> 4B). To keep
++    # the e2e reorder check CPU-feasible we patch that single config call to the proxy id; the
++    # SCORING CODE under test (qwen_reranker_scorer + _maybe_rerank_selection wiring) is unchanged.
++    import src.config.core as _core
++
++    _orig_from_env = _core.CrossEncoderConfig.from_env
++
++    def _proxy_from_env(data=None):
++        cfg = _orig_from_env(data)
++        cfg.model = _PROXY_MODEL_ID
++        return cfg
++
++    _core.CrossEncoderConfig.from_env = staticmethod(_proxy_from_env)
++    try:
++        reranked = _maybe_rerank_selection(selected_rows, query)
++    finally:
++        _core.CrossEncoderConfig.from_env = staticmethod(_orig_from_env)
++
++    order_ids = [r["id"] for r in reranked]
++    print(f"[fire-test] reordered ids (junk-first input) = {order_ids}", flush=True)
++    if order_ids[0] != "relevant":
++        failures.append(
++            f"_maybe_rerank_selection did NOT promote the relevant row to the top "
++            f"(got order {order_ids}) — the reorder is not driven by real relevance."
++        )
++
++    if failures:
++        print("\n[FIRE-TEST FAILED]", flush=True)
++        for f in failures:
++            print(f"  - {f}", flush=True)
++        return 1
++    print(
++        f"\n[FIRE-TEST PASSED] real signal (margin {margin:.4f}) + correct reorder "
++        f"(relevant promoted above junk). The causal-LM loader produces relevance, not noise.",
++        flush=True,
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 6b33da10..3979e47e 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -2251,11 +2251,14 @@ def _relevance_floor_selection(
+ # A SELF-CONTAINED, default-OFF reorder applied ONLY at the FINAL return of the
+ # tier-balanced truncating path in `select_evidence_for_generation`. When
+ # `PG_RERANKER_MODEL` is set (qwen3 / qwen3-reranker-4b / 1 / true / on / yes), the
+-# ALREADY-selected rows are reordered DESC by a CrossEncoder relevance score of
+-# (research_question, statement+direct_quote) — the recency-completion reranker pick
+-# (Qwen/Qwen3-Reranker-4B via `CrossEncoderConfig.from_env`). The model handle is
+-# LAZY-imported INSIDE the ON branch (no module-level `sentence_transformers` import,
+-# nothing loads when OFF).
++# ALREADY-selected rows are reordered DESC by the recency-completion reranker pick
++# (Qwen/Qwen3-Reranker-4B via `CrossEncoderConfig.from_env`) scored with its CANONICAL
++# causal-LM yes/no-logit method (`qwen_reranker_scorer.score_query_document_relevance` on
++# (research_question, statement+direct_quote)). NOTE: a Qwen3 reranker is an
++# AutoModelForCausalLM — loading it via `sentence_transformers.CrossEncoder` mints a RANDOM
++# score head and returns ~0.5 NOISE (the #1312 bug this path fixes). The scorer module is
++# LAZY-imported INSIDE the ON branch (no module-level torch/transformers import, nothing
++# loads when OFF).
+ #
+ # CONTRACT — pure IDENTITY no-op when OFF (default): same rows in, same list object
+ # semantics out (`selected_rows` returned unchanged) so the tier-balanced selection
+@@ -2281,12 +2284,12 @@ def _maybe_rerank_selection(
+     selected_rows: list[dict[str, Any]],
+     research_question: str,
+ ) -> list[dict[str, Any]]:
+-    """Flag-gated CrossEncoder rerank of the ALREADY-selected evidence rows.
++    """Flag-gated causal-LM reranker reorder of the ALREADY-selected evidence rows.
+ 
+     OFF (default / `PG_RERANKER_MODEL` unset): returns ``selected_rows`` UNCHANGED
+-    with NO import of `sentence_transformers` — a pure identity no-op.
++    with NO import of torch/transformers — a pure identity no-op.
+ 
+-    ON: reorders the SAME rows DESC by CrossEncoder relevance to
++    ON: reorders the SAME rows DESC by Qwen3-Reranker relevance to
+     ``research_question`` (scoring each row's ``statement + direct_quote`` — the same
+     text surface the lexical/semantic scorers read). Reorder only: the returned list
+     is a permutation of the input (same rows, none added or dropped). Any
+@@ -2297,24 +2300,37 @@ def _maybe_rerank_selection(
+     if len(selected_rows) <= 1:
+         return selected_rows  # nothing to reorder
+     try:
+-        # LAZY import — nothing loads unless the flag is ON.
+-        from sentence_transformers import CrossEncoder
+-
++        # LAZY import — nothing (incl. torch/transformers) loads unless the flag is ON.
++        # The reranker WINNER (Qwen/Qwen3-Reranker-4B, I-recency-001 #1296) is an
++        # AutoModelForCausalLM, NOT a sequence-classification model. Loading it through
++        # sentence_transformers.CrossEncoder mints a FRESH RANDOM classification head ->
++        # encoder.predict() returns ~0.5 NOISE (the winner was effectively not running;
++        # I-bug-reranker-noise #1312). The canonical bake-off method scores P("yes") via the
++        # causal-LM next-token "yes"/"no" logits — that is what qwen_reranker_scorer does.
+         from src.config.core import CrossEncoderConfig
++        from src.polaris_graph.retrieval.qwen_reranker_scorer import (
++            score_query_document_relevance,
++        )
+ 
+-        model_name = CrossEncoderConfig.from_env().model
+-        encoder = CrossEncoder(model_name)
+-        pairs = [
+-            [
+-                research_question or "",
+-                " ".join(
+-                    str(row.get(k, "") or "")
+-                    for k in ("statement", "direct_quote")
+-                ),
+-            ]
++        _ce_cfg = CrossEncoderConfig.from_env()
++        model_name = _ce_cfg.model
++        # Honor a configured device override (PG_*/YAML). The "auto" default is the
++        # SENTINEL for "let the scorer GPU-first auto-resolve" (cuda-if-available else
++        # cpu) — pass None for it, NOT the literal "auto" (which would crash .to("auto")).
++        device_override = _ce_cfg.device if (_ce_cfg.device and _ce_cfg.device != "auto") else None
++        documents = [
++            " ".join(
++                str(row.get(k, "") or "")
++                for k in ("statement", "direct_quote")
++            )
+             for row in selected_rows
+         ]
+-        scores = encoder.predict(pairs)
++        scores = score_query_document_relevance(
++            research_question or "",
++            documents,
++            model_id=model_name,
++            device=device_override,
++        )
+         # Stable DESC sort by score; ties keep the input (tier-balanced) order.
+         order = sorted(
+             range(len(selected_rows)),
+@@ -2332,7 +2348,7 @@ def _maybe_rerank_selection(
+         return reranked
+     except Exception as exc:  # import / load / scoring failure
+         _LOGGER.warning(
+-            "[select] PG_RERANKER_MODEL set but the cross-encoder rerank failed "
++            "[select] PG_RERANKER_MODEL set but the Qwen3-Reranker causal-LM rerank failed "
+             "(%s) — FELL BACK LOUDLY to the tier-balanced order (no reorder). This "
+             "is not a silent degrade: the original order is a valid result.",
+             str(exc)[:200],
+diff --git a/src/polaris_graph/retrieval/qwen_reranker_scorer.py b/src/polaris_graph/retrieval/qwen_reranker_scorer.py
+new file mode 100644
+index 00000000..6c4ca1d6
+--- /dev/null
++++ b/src/polaris_graph/retrieval/qwen_reranker_scorer.py
+@@ -0,0 +1,125 @@
++"""Qwen3-Reranker causal-LM yes/no-logit relevance scorer (I-bug-reranker-noise, #1312).
++
++WHY THIS EXISTS. The recency-completion reranker WINNER is ``Qwen/Qwen3-Reranker-4B``
++(I-recency-001 #1296). It was *scored* in the bake-off via the model authors' canonical
++causal-LM method — append a fixed ``Judge whether ... "yes" or "no"`` template, run one
++forward pass, and read ``softmax(logit["yes"], logit["no"])[1]`` as P(relevant). Production,
++however, loaded the SAME model id through ``sentence_transformers.CrossEncoder``. A Qwen3
++reranker is an ``AutoModelForCausalLM``, NOT a sequence-classification head; ``CrossEncoder``
++attaches a FRESH, RANDOMLY-INITIALIZED classification head to it. That head was never trained,
++so ``encoder.predict()`` returns ~0.5 NOISE — the reranker winner was, in effect, NOT running
++in production (the reorder it produced was random). The bake-off file documents this exact
++trap (``scripts/dr_benchmark/retrieval_bakeoff/reranker/run_bakeoff.py`` lines 27-29, 130):
++"loading a Qwen reranker via CrossEncoder mints a random score head -> ~0.5 noise; the
++canonical method scores P('yes')".
++
++WHAT THIS MODULE IS. A tiny, lazy, GPU-first scorer that reproduces the bake-off's proven
++``_build_qwen_causal_fn`` method as production code (the bake-off lives under ``scripts/`` and
++must NOT be imported by ``src/``). It exposes one callable:
++
++    score_query_document_relevance(query, documents, *, model_id, device=None) -> list[float]
++
++returning P("yes") in [0, 1] per document, in INPUT ORDER (a higher score = more relevant).
++
++INVARIANTS PRESERVED BY THE CALLER (``evidence_selector._maybe_rerank_selection``):
++  * torch / transformers are imported LAZILY *inside* this module's functions, and this module
++    is itself imported lazily by the caller only on the reranker-ON path — so the default-OFF
++    selection path pays ZERO import / model cost.
++  * Any load/scoring failure is the CALLER's concern: it falls back LOUDLY to the original
++    (tier-balanced) order. This module simply raises on failure; it never returns a silent stub.
++  * Model id stays a ``.env`` knob (``PG_RERANKER_MODEL`` -> ``CrossEncoderConfig.from_env``);
++    this module is id-agnostic and works for 0.6B / 4B / 8B identically (same architecture, same
++    template) — which also makes the fix CPU-fire-testable on the 0.6B while production serves
++    the 4B on GPU.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Optional, Sequence
++
++logger = logging.getLogger("polaris_graph.qwen_reranker_scorer")
++
++# The fixed scoring template from the Qwen3-Reranker model card (verbatim with the bake-off's
++# proven ``_build_qwen_causal_fn``). The model answers "yes"/"no"; we read the next-token logits
++# of those two tokens and softmax them -> P("yes") = relevance.
++_SYSTEM_PREFIX = (
++    "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query "
++    'and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n'
++    "<|im_start|>user\n"
++)
++_ASSISTANT_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
++_INSTRUCT = "Given a web search query, retrieve relevant passages that answer the query"
++
++# Per-document input truncation length (tokens). A CAP, not a target — long docs are truncated
++# so the single forward pass stays bounded. Matches the bake-off's max_length.
++_MAX_INPUT_TOKENS = 4096
++
++
++def _resolve_device(device: Optional[str]) -> str:
++    """GPU-first: ``cuda`` when available, else ``cpu``. Honors an explicit override."""
++    if device:
++        return device
++    import torch  # lazy
++
++    return "cuda" if torch.cuda.is_available() else "cpu"
++
++
++def score_query_document_relevance(
++    query: str,
++    documents: Sequence[str],
++    *,
++    model_id: str,
++    device: Optional[str] = None,
++) -> list[float]:
++    """Score each document's relevance to ``query`` as P("yes") in [0, 1], in input order.
++
++    Loads ``model_id`` as an ``AutoModelForCausalLM`` (the CORRECT class for a Qwen3 reranker)
++    and reads the next-token "yes"/"no" logits — the canonical, bake-off-proven method. A real
++    relevance signal: a clearly-relevant document scores markedly HIGHER than junk (unlike the
++    ~0.5 noise the random CrossEncoder head produced).
++
++    Raises on any load/scoring failure (the caller falls back loudly to the original order).
++    torch + transformers are imported here, lazily, so the reranker-OFF path never touches them.
++    """
++    docs = list(documents)
++    if not docs:
++        return []
++
++    import torch  # lazy — nothing here loads on the reranker-OFF path
++    from transformers import AutoModelForCausalLM, AutoTokenizer
++
++    resolved_device = _resolve_device(device)
++    logger.info(
++        "[qwen-reranker] loading %s on %s (causal-LM yes/no-logit scoring; NOT CrossEncoder)",
++        model_id, resolved_device,
++    )
++    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
++    model = (
++        AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
++        .to(resolved_device)
++        .eval()
++    )
++    token_id_no = tokenizer.convert_tokens_to_ids("no")
++    token_id_yes = tokenizer.convert_tokens_to_ids("yes")
++
++    def _score_one(document: str) -> float:
++        text = (
++            _SYSTEM_PREFIX
++            + f"<Instruct>: {_INSTRUCT}\n<Query>: {query or ''}\n<Document>: {document}"
++            + _ASSISTANT_SUFFIX
++        )
++        inputs = tokenizer(
++            text,
++            return_tensors="pt",
++            truncation=True,
++            max_length=_MAX_INPUT_TOKENS,
++        ).to(resolved_device)
++        with torch.no_grad():
++            last_token_logits = model(**inputs).logits[0, -1]
++        yes_no_pair = torch.stack(
++            [last_token_logits[token_id_no], last_token_logits[token_id_yes]]
++        ).float()
++        return float(torch.softmax(yes_no_pair, dim=0)[1])
++
++    return [_score_one(d) for d in docs]
+diff --git a/tests/polaris_graph/retrieval/test_embedder_reranker_wiring_smoke.py b/tests/polaris_graph/retrieval/test_embedder_reranker_wiring_smoke.py
+index d645a4f3..8c1649a3 100644
+--- a/tests/polaris_graph/retrieval/test_embedder_reranker_wiring_smoke.py
++++ b/tests/polaris_graph/retrieval/test_embedder_reranker_wiring_smoke.py
+@@ -99,42 +99,52 @@ def _rows():
+     ]
+ 
+ 
+-class _ExplodingCrossEncoder:
+-    """Sentinel: constructing this is a test FAILURE — proves NO model load on the OFF path."""
++# The FIXED rerank path no longer loads a `sentence_transformers.CrossEncoder` (a Qwen3
++# reranker is an AutoModelForCausalLM — CrossEncoder mints a RANDOM head -> ~0.5 noise, the
++# #1312 bug). It now calls `qwen_reranker_scorer.score_query_document_relevance` lazily inside
++# the ON branch. So we STUB that scorer (not CrossEncoder) to keep these tests $0 / no model
++# load. The scorer is imported function-locally in `_maybe_rerank_selection`, so we MUST patch
++# the attribute on the SOURCE module (`qwen_reranker_scorer`), not on `evidence_selector`.
++
++def _exploding_score(*a, **k):
++    """Sentinel scorer: calling this is a test FAILURE — proves NO model load on the OFF path."""
++    raise AssertionError(
++        "score_query_document_relevance was called on the OFF path — a model load / spend "
++        "would occur."
++    )
+ 
+-    def __init__(self, *a, **k):  # noqa: D401
+-        raise AssertionError(
+-            "CrossEncoder was constructed on the OFF path — a model load / spend would occur."
+-        )
+ 
++def _stub_score(query, documents, *, model_id, device=None):
++    """ON-path stub scorer: deterministic relevant>>junk scores so we can assert a real reorder.
+ 
+-class _StubCrossEncoder:
+-    """ON-path stub: returns deterministic scores so we can assert a real reorder. $0 (no weights)."""
++    Accepts the EXACT kwargs the caller passes (``model_id`` and, after the P2 device wire,
++    ``device``) — omitting ``device`` would make this go green now but red once the caller
++    passes it, so accepting it is the behavioural proof that the P2 device argument is wired.
++    Scores by the row text so ev_002 ('gamma...birds') sorts FIRST, ev_000 LAST. $0 (no weights).
++    """
++    out = []
++    for doc in documents:
++        if "birds" in doc:
++            out.append(0.9)
++        elif "dogs" in doc:
++            out.append(0.5)
++        else:
++            out.append(0.1)
++    return out
+ 
+-    def __init__(self, model_name, *a, **k):
+-        self.model_name = model_name
+ 
+-    def predict(self, pairs):
+-        # Score by the row text so ev_002 ('gamma...birds') sorts FIRST, ev_000 LAST.
+-        # pairs are [question, statement+direct_quote]; rank descending by a marker.
+-        out = []
+-        for _q, doc in pairs:
+-            if "birds" in doc:
+-                out.append(0.9)
+-            elif "dogs" in doc:
+-                out.append(0.5)
+-            else:
+-                out.append(0.1)
+-        return out
++def _patch_scorer(monkeypatch, fn):
++    """Patch the scorer on its SOURCE module (it is imported function-locally by the caller)."""
++    import src.polaris_graph.retrieval.qwen_reranker_scorer as qrs
++    monkeypatch.setattr(qrs, "score_query_document_relevance", fn)
+ 
+ 
+ def test_rerank_helper_is_identity_when_off(monkeypatch):
+-    """OFF (PG_RERANKER_MODEL unset): identity no-op AND the CrossEncoder is NEVER constructed."""
++    """OFF (PG_RERANKER_MODEL unset): identity no-op AND the scorer is NEVER called."""
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    # Patch the lazily-imported symbol so ANY construction raises — proving no model load.
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _ExplodingCrossEncoder)
++    # Patch the lazily-imported scorer so ANY call raises — proving no model load on OFF.
++    _patch_scorer(monkeypatch, _exploding_score)
+ 
+     with _env("PG_RERANKER_MODEL", None):
+         rows = _rows()
+@@ -144,11 +154,10 @@ def test_rerank_helper_is_identity_when_off(monkeypatch):
+ 
+ 
+ def test_rerank_helper_reorders_when_on(monkeypatch):
+-    """ON (PG_RERANKER_MODEL=qwen3): rows are REORDERED by the (stub) cross-encoder, same set."""
++    """ON (PG_RERANKER_MODEL=qwen3): rows are REORDERED by the (stub) Qwen3-Reranker, same set."""
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
++    _patch_scorer(monkeypatch, _stub_score)
+ 
+     with _env("PG_RERANKER_MODEL", "qwen3"):
+         rows = _rows()
+@@ -161,15 +170,13 @@ def test_rerank_helper_reorders_when_on(monkeypatch):
+ 
+ 
+ def test_rerank_helper_loud_fallback_on_failure(monkeypatch):
+-    """ON but the cross-encoder load/scoring blows up => LOUD fallback to the original order."""
++    """ON but the scorer load/scoring blows up => LOUD fallback to the original order."""
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    class _BoomCrossEncoder:
+-        def __init__(self, *a, **k):
+-            raise RuntimeError("simulated load failure")
++    def _boom_score(*a, **k):
++        raise RuntimeError("simulated load failure")
+ 
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _BoomCrossEncoder)
++    _patch_scorer(monkeypatch, _boom_score)
+ 
+     with _env("PG_RERANKER_MODEL", "qwen3"):
+         rows = _rows()
+@@ -223,8 +230,7 @@ def test_select_evidence_rerank_is_wired_at_final_return(monkeypatch):
+     """
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
++    _patch_scorer(monkeypatch, _stub_score)
+ 
+     common = dict(
+         research_question="what about birds?",
+@@ -315,12 +321,11 @@ def _floor_common():
+ 
+ def test_select_floor_path_rerank_is_identity_when_off(monkeypatch):
+     """OFF (PG_RERANKER_MODEL unset): the relevance-floor return is BYTE-IDENTICAL
+-    (same rows, same order, same counts) AND the CrossEncoder is NEVER constructed."""
++    (same rows, same order, same counts) AND the scorer is NEVER called."""
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    # Exploding sentinel: if the OFF path ever constructs a CrossEncoder, FAIL.
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _ExplodingCrossEncoder)
++    # Exploding sentinel: if the OFF path ever calls the scorer, FAIL (no model load on OFF).
++    _patch_scorer(monkeypatch, _exploding_score)
+ 
+     rows_a = _floor_rows()
+     with _env("PG_RERANKER_MODEL", None):
+@@ -352,14 +357,13 @@ def test_select_floor_path_rerank_is_identity_when_off(monkeypatch):
+ 
+ 
+ def test_select_floor_path_rerank_reorders_when_on(monkeypatch):
+-    """ON (PG_RERANKER_MODEL=qwen3, stub cross-encoder): the relevance-floor return
++    """ON (PG_RERANKER_MODEL=qwen3, stub scorer): the relevance-floor return
+     keeps the SAME rows but REORDERS them, and counts/dropped are UNCHANGED —
+     proving the reranker fires on the PRODUCTION (floor) path as a pure permutation
+     that preserves the consolidate/keep-all contract. $0 — stub, no model load."""
+     from src.polaris_graph.retrieval import evidence_selector as es
+ 
+-    import sentence_transformers
+-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
++    _patch_scorer(monkeypatch, _stub_score)
+ 
+     rows_off = _floor_rows()
+     with _env("PG_RERANKER_MODEL", None):

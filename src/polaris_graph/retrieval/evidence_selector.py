@@ -2277,11 +2277,14 @@ def _relevance_floor_selection(
 # A SELF-CONTAINED, default-OFF reorder applied ONLY at the FINAL return of the
 # tier-balanced truncating path in `select_evidence_for_generation`. When
 # `PG_RERANKER_MODEL` is set (qwen3 / qwen3-reranker-4b / 1 / true / on / yes), the
-# ALREADY-selected rows are reordered DESC by a CrossEncoder relevance score of
-# (research_question, statement+direct_quote) — the recency-completion reranker pick
-# (Qwen/Qwen3-Reranker-4B via `CrossEncoderConfig.from_env`). The model handle is
-# LAZY-imported INSIDE the ON branch (no module-level `sentence_transformers` import,
-# nothing loads when OFF).
+# ALREADY-selected rows are reordered DESC by the recency-completion reranker pick
+# (Qwen/Qwen3-Reranker-4B via `CrossEncoderConfig.from_env`) scored with its CANONICAL
+# causal-LM yes/no-logit method (`qwen_reranker_scorer.score_query_document_relevance` on
+# (research_question, statement+direct_quote)). NOTE: a Qwen3 reranker is an
+# AutoModelForCausalLM — loading it via `sentence_transformers.CrossEncoder` mints a RANDOM
+# score head and returns ~0.5 NOISE (the #1312 bug this path fixes). The scorer module is
+# LAZY-imported INSIDE the ON branch (no module-level torch/transformers import, nothing
+# loads when OFF).
 #
 # CONTRACT — pure IDENTITY no-op when OFF (default): same rows in, same list object
 # semantics out (`selected_rows` returned unchanged) so the tier-balanced selection
@@ -2307,12 +2310,12 @@ def _maybe_rerank_selection(
     selected_rows: list[dict[str, Any]],
     research_question: str,
 ) -> list[dict[str, Any]]:
-    """Flag-gated CrossEncoder rerank of the ALREADY-selected evidence rows.
+    """Flag-gated causal-LM reranker reorder of the ALREADY-selected evidence rows.
 
     OFF (default / `PG_RERANKER_MODEL` unset): returns ``selected_rows`` UNCHANGED
-    with NO import of `sentence_transformers` — a pure identity no-op.
+    with NO import of torch/transformers — a pure identity no-op.
 
-    ON: reorders the SAME rows DESC by CrossEncoder relevance to
+    ON: reorders the SAME rows DESC by Qwen3-Reranker relevance to
     ``research_question`` (scoring each row's ``statement + direct_quote`` — the same
     text surface the lexical/semantic scorers read). Reorder only: the returned list
     is a permutation of the input (same rows, none added or dropped). Any
@@ -2323,24 +2326,37 @@ def _maybe_rerank_selection(
     if len(selected_rows) <= 1:
         return selected_rows  # nothing to reorder
     try:
-        # LAZY import — nothing loads unless the flag is ON.
-        from sentence_transformers import CrossEncoder
-
+        # LAZY import — nothing (incl. torch/transformers) loads unless the flag is ON.
+        # The reranker WINNER (Qwen/Qwen3-Reranker-4B, I-recency-001 #1296) is an
+        # AutoModelForCausalLM, NOT a sequence-classification model. Loading it through
+        # sentence_transformers.CrossEncoder mints a FRESH RANDOM classification head ->
+        # encoder.predict() returns ~0.5 NOISE (the winner was effectively not running;
+        # I-bug-reranker-noise #1312). The canonical bake-off method scores P("yes") via the
+        # causal-LM next-token "yes"/"no" logits — that is what qwen_reranker_scorer does.
         from src.config.core import CrossEncoderConfig
+        from src.polaris_graph.retrieval.qwen_reranker_scorer import (
+            score_query_document_relevance,
+        )
 
-        model_name = CrossEncoderConfig.from_env().model
-        encoder = CrossEncoder(model_name)
-        pairs = [
-            [
-                research_question or "",
-                " ".join(
-                    str(row.get(k, "") or "")
-                    for k in ("statement", "direct_quote")
-                ),
-            ]
+        _ce_cfg = CrossEncoderConfig.from_env()
+        model_name = _ce_cfg.model
+        # Honor a configured device override (PG_*/YAML). The "auto" default is the
+        # SENTINEL for "let the scorer GPU-first auto-resolve" (cuda-if-available else
+        # cpu) — pass None for it, NOT the literal "auto" (which would crash .to("auto")).
+        device_override = _ce_cfg.device if (_ce_cfg.device and _ce_cfg.device != "auto") else None
+        documents = [
+            " ".join(
+                str(row.get(k, "") or "")
+                for k in ("statement", "direct_quote")
+            )
             for row in selected_rows
         ]
-        scores = encoder.predict(pairs)
+        scores = score_query_document_relevance(
+            research_question or "",
+            documents,
+            model_id=model_name,
+            device=device_override,
+        )
         # Stable DESC sort by score; ties keep the input (tier-balanced) order.
         order = sorted(
             range(len(selected_rows)),
@@ -2358,7 +2374,7 @@ def _maybe_rerank_selection(
         return reranked
     except Exception as exc:  # import / load / scoring failure
         _LOGGER.warning(
-            "[select] PG_RERANKER_MODEL set but the cross-encoder rerank failed "
+            "[select] PG_RERANKER_MODEL set but the Qwen3-Reranker causal-LM rerank failed "
             "(%s) — FELL BACK LOUDLY to the tier-balanced order (no reorder). This "
             "is not a silent degrade: the original order is a valid result.",
             str(exc)[:200],

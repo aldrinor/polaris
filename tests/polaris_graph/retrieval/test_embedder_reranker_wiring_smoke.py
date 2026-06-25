@@ -99,42 +99,52 @@ def _rows():
     ]
 
 
-class _ExplodingCrossEncoder:
-    """Sentinel: constructing this is a test FAILURE — proves NO model load on the OFF path."""
+# The FIXED rerank path no longer loads a `sentence_transformers.CrossEncoder` (a Qwen3
+# reranker is an AutoModelForCausalLM — CrossEncoder mints a RANDOM head -> ~0.5 noise, the
+# #1312 bug). It now calls `qwen_reranker_scorer.score_query_document_relevance` lazily inside
+# the ON branch. So we STUB that scorer (not CrossEncoder) to keep these tests $0 / no model
+# load. The scorer is imported function-locally in `_maybe_rerank_selection`, so we MUST patch
+# the attribute on the SOURCE module (`qwen_reranker_scorer`), not on `evidence_selector`.
 
-    def __init__(self, *a, **k):  # noqa: D401
-        raise AssertionError(
-            "CrossEncoder was constructed on the OFF path — a model load / spend would occur."
-        )
+def _exploding_score(*a, **k):
+    """Sentinel scorer: calling this is a test FAILURE — proves NO model load on the OFF path."""
+    raise AssertionError(
+        "score_query_document_relevance was called on the OFF path — a model load / spend "
+        "would occur."
+    )
 
 
-class _StubCrossEncoder:
-    """ON-path stub: returns deterministic scores so we can assert a real reorder. $0 (no weights)."""
+def _stub_score(query, documents, *, model_id, device=None):
+    """ON-path stub scorer: deterministic relevant>>junk scores so we can assert a real reorder.
 
-    def __init__(self, model_name, *a, **k):
-        self.model_name = model_name
+    Accepts the EXACT kwargs the caller passes (``model_id`` and, after the P2 device wire,
+    ``device``) — omitting ``device`` would make this go green now but red once the caller
+    passes it, so accepting it is the behavioural proof that the P2 device argument is wired.
+    Scores by the row text so ev_002 ('gamma...birds') sorts FIRST, ev_000 LAST. $0 (no weights).
+    """
+    out = []
+    for doc in documents:
+        if "birds" in doc:
+            out.append(0.9)
+        elif "dogs" in doc:
+            out.append(0.5)
+        else:
+            out.append(0.1)
+    return out
 
-    def predict(self, pairs):
-        # Score by the row text so ev_002 ('gamma...birds') sorts FIRST, ev_000 LAST.
-        # pairs are [question, statement+direct_quote]; rank descending by a marker.
-        out = []
-        for _q, doc in pairs:
-            if "birds" in doc:
-                out.append(0.9)
-            elif "dogs" in doc:
-                out.append(0.5)
-            else:
-                out.append(0.1)
-        return out
+
+def _patch_scorer(monkeypatch, fn):
+    """Patch the scorer on its SOURCE module (it is imported function-locally by the caller)."""
+    import src.polaris_graph.retrieval.qwen_reranker_scorer as qrs
+    monkeypatch.setattr(qrs, "score_query_document_relevance", fn)
 
 
 def test_rerank_helper_is_identity_when_off(monkeypatch):
-    """OFF (PG_RERANKER_MODEL unset): identity no-op AND the CrossEncoder is NEVER constructed."""
+    """OFF (PG_RERANKER_MODEL unset): identity no-op AND the scorer is NEVER called."""
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    # Patch the lazily-imported symbol so ANY construction raises — proving no model load.
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _ExplodingCrossEncoder)
+    # Patch the lazily-imported scorer so ANY call raises — proving no model load on OFF.
+    _patch_scorer(monkeypatch, _exploding_score)
 
     with _env("PG_RERANKER_MODEL", None):
         rows = _rows()
@@ -144,11 +154,10 @@ def test_rerank_helper_is_identity_when_off(monkeypatch):
 
 
 def test_rerank_helper_reorders_when_on(monkeypatch):
-    """ON (PG_RERANKER_MODEL=qwen3): rows are REORDERED by the (stub) cross-encoder, same set."""
+    """ON (PG_RERANKER_MODEL=qwen3): rows are REORDERED by the (stub) Qwen3-Reranker, same set."""
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
+    _patch_scorer(monkeypatch, _stub_score)
 
     with _env("PG_RERANKER_MODEL", "qwen3"):
         rows = _rows()
@@ -161,15 +170,13 @@ def test_rerank_helper_reorders_when_on(monkeypatch):
 
 
 def test_rerank_helper_loud_fallback_on_failure(monkeypatch):
-    """ON but the cross-encoder load/scoring blows up => LOUD fallback to the original order."""
+    """ON but the scorer load/scoring blows up => LOUD fallback to the original order."""
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    class _BoomCrossEncoder:
-        def __init__(self, *a, **k):
-            raise RuntimeError("simulated load failure")
+    def _boom_score(*a, **k):
+        raise RuntimeError("simulated load failure")
 
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _BoomCrossEncoder)
+    _patch_scorer(monkeypatch, _boom_score)
 
     with _env("PG_RERANKER_MODEL", "qwen3"):
         rows = _rows()
@@ -223,8 +230,7 @@ def test_select_evidence_rerank_is_wired_at_final_return(monkeypatch):
     """
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
+    _patch_scorer(monkeypatch, _stub_score)
 
     common = dict(
         research_question="what about birds?",
@@ -315,12 +321,11 @@ def _floor_common():
 
 def test_select_floor_path_rerank_is_identity_when_off(monkeypatch):
     """OFF (PG_RERANKER_MODEL unset): the relevance-floor return is BYTE-IDENTICAL
-    (same rows, same order, same counts) AND the CrossEncoder is NEVER constructed."""
+    (same rows, same order, same counts) AND the scorer is NEVER called."""
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    # Exploding sentinel: if the OFF path ever constructs a CrossEncoder, FAIL.
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _ExplodingCrossEncoder)
+    # Exploding sentinel: if the OFF path ever calls the scorer, FAIL (no model load on OFF).
+    _patch_scorer(monkeypatch, _exploding_score)
 
     rows_a = _floor_rows()
     with _env("PG_RERANKER_MODEL", None):
@@ -352,14 +357,13 @@ def test_select_floor_path_rerank_is_identity_when_off(monkeypatch):
 
 
 def test_select_floor_path_rerank_reorders_when_on(monkeypatch):
-    """ON (PG_RERANKER_MODEL=qwen3, stub cross-encoder): the relevance-floor return
+    """ON (PG_RERANKER_MODEL=qwen3, stub scorer): the relevance-floor return
     keeps the SAME rows but REORDERS them, and counts/dropped are UNCHANGED —
     proving the reranker fires on the PRODUCTION (floor) path as a pure permutation
     that preserves the consolidate/keep-all contract. $0 — stub, no model load."""
     from src.polaris_graph.retrieval import evidence_selector as es
 
-    import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _StubCrossEncoder)
+    _patch_scorer(monkeypatch, _stub_score)
 
     rows_off = _floor_rows()
     with _env("PG_RERANKER_MODEL", None):
