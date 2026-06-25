@@ -1102,6 +1102,16 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # function) so the slate value ACTUALLY takes effect. The seam reads `_CLAIM_WORKERS` as a module
     # global at CALL time (sweep_integration.py:493/600/625), so the post-import reassignment is honored.
     "PG_FOUR_ROLE_CLAIM_WORKERS": "12",
+    # I-wire-003 B1 (#1317): bound concurrent JUDGE POSTs UNDER the sustainable OpenRouter rate. With
+    # PG_FOUR_ROLE_CLAIM_WORKERS=12 each firing mirror->sentinel->judge, the single rate-limited qwen
+    # Judge saw up to ~12 simultaneous POSTs -> the 429 STORM (21 judge HTTP-429s, 153/1220 claims in
+    # ~77 min). This caps concurrent Judge POSTs to a small STEADY value that stays under the throttle
+    # (a steady-but-slower judge with full-jitter backoff finishes FASTER than a storm that 429s and
+    # burns minutes in retry). Mirror/Sentinel parallelism is UNTOUCHED (only the judge role acquires
+    # the throttle). FAITHFULNESS-NEUTRAL: concurrency only — never which claim passes/holds. The
+    # transport reads this LAZILY on first judge call, so the slate value (set after import) is honored
+    # without a rebind hook. Calibrate via the four_role_rate_limit_telemetry.json the run now writes.
+    "PG_FOUR_ROLE_JUDGE_CONCURRENCY": "4",
     # I-beatboth-011 idx19 (#1289): pin the D8 4-role reasoning effort to MEDIUM in the FULL slate. It was
     # pinned ONLY in _SMOKE_SCALE_OVERRIDES, so a full benchmark ran the qwen Judge at the
     # apply-default xhigh (the setter below defaults to "xhigh") — the judge then spends its whole token

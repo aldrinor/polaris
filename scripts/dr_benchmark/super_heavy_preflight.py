@@ -272,7 +272,8 @@ def _default_verifier_slug_probe(http_client=None) -> dict[str, str]:
     (``_build_probe_request``), so the probe hits the SAME endpoint path, the SAME auth presence/absence,
     and the SAME body/provider/reasoning routing the production verifier call uses (closes both P1-1
     self_host endpoint+auth and P1-2 openrouter provider-routing false-pass classes). Returns
-    ``{role: slug}`` of the slugs proven alive; raises GateError on the first dead slug (fail closed).
+    ``{role: slug}`` of the slugs proven alive; raises GateError on a slug that stays dead after the
+    bounded 429/transient-transport backoff (fail closed only on a sustained NON-transient failure).
 
     ``http_client`` is threaded into ``_real_chat_completion_alive`` so the offline smoke can drive the
     real dead-slug -> GateError leaf with a faked 404 transport (no network). Any endpoint/config
@@ -282,16 +283,42 @@ def _default_verifier_slug_probe(http_client=None) -> dict[str, str]:
 
     slugs = verifier_model_slugs()  # {mirror, sentinel, judge: slug} for the ACTIVE transport mode
     alive: dict[str, str] = {}
+    # I-wire-003 B2: under the concurrent benchmark fleet a verifier-slug endpoint is intermittently
+    # 429-saturated. A 429 (or other transient transport error) means BUSY, not DEAD — fail-closing the
+    # whole PAID run on a momentary rate-limit burst is a false alarm that kills good runs. Mirror the
+    # sibling _default_credibility_judge_probe EXACTLY: tolerate a TRANSIENT (429 / rate-limit / timeout /
+    # connection / overloaded) error with bounded exponential backoff; a NON-transient error (404 / auth /
+    # model-not-found) still fails closed immediately, and a GateError still re-raises immediately. This is
+    # a reachability probe ONLY — strict_verify / NLI / 4-role / span-grounding are untouched and
+    # faithfulness is NOT relaxed. Bound is env-tunable (default 6 attempts: ~5+10+20+30+30s).
+    _probe_retries = max(1, int(os.getenv("PG_PREFLIGHT_VERIFIER_PROBE_RETRIES", "6") or "6"))
     for role, slug in slugs.items():
-        try:
-            ok = _real_chat_completion_alive(role, slug, http_client=http_client)
-        except GateError:
-            raise
-        except Exception as exc:  # any transport / 404 / NoEndpoint / config failure -> fail closed
+        ok = False
+        _last_exc: Exception | None = None
+        for _attempt in range(_probe_retries):
+            try:
+                ok = _real_chat_completion_alive(role, slug, http_client=http_client)
+                _last_exc = None
+                break
+            except GateError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — classified below
+                _last_exc = exc
+                _m = str(exc).lower()
+                _transient = (
+                    "429" in _m or "too many requests" in _m or "rate limit" in _m
+                    or "rate-limit" in _m or "timeout" in _m or "timed out" in _m
+                    or "connection" in _m or "temporarily" in _m or "overloaded" in _m
+                )
+                if not _transient or _attempt == _probe_retries - 1:
+                    break
+                time.sleep(min(5 * (2 ** _attempt), 30))
+        if _last_exc is not None:  # transport / 404 / NoEndpoint / config failure -> fail closed
             raise GateError(
                 f"super-heavy preflight: verifier role {role!r} slug {slug!r} is NOT alive in its "
-                f"production call shape ({type(exc).__name__}: {exc}) — a dead/misrouted verifier "
-                f"route would silently degrade the 4-role gate. Aborting BEFORE spend."
+                f"production call shape ({type(_last_exc).__name__}: {_last_exc}) after {_probe_retries} "
+                f"attempt(s) — a dead/misrouted verifier route would silently degrade the 4-role gate. "
+                f"Aborting BEFORE spend."
             )
         if not ok:
             raise GateError(

@@ -148,6 +148,59 @@ def test_1237_quantified_force_on_and_fired_passes():
     assert sweep._quantified_readiness_failed(True, True, {"fired": True}) is False
 
 
+# ── I-wire-003 B4 (#1317): canary distinguishes ran+honest-empty from silently-broke ──
+def test_b4_canary_honest_empty_does_not_fail_readiness():
+    # The differentiator RAN and honestly produced nothing: an explicit Writer decline
+    # (declined_no_spec / no_spec_returned) or every computed sentence dropped by Regime C
+    # (no_verified_sentences). These are legitimate non-fires the run DISCLOSES — they must
+    # NOT trip the readiness abort (the #1237 fired-only gate wrongly lumped them with breakage).
+    for status_key, status_val in (
+        ("quantified_status", "declined_no_spec"),
+        ("firing_status", "no_spec_returned"),
+        ("firing_status", "no_verified_sentences"),
+    ):
+        tel = {"fired": False, status_key: status_val}
+        assert sweep._quantified_readiness_failed(True, True, tel) is False, status_val
+
+
+def test_b4_canary_broke_or_skipped_fails_readiness():
+    # The differentiator SILENTLY BROKE or was SKIPPED: a transport/parse fault, a malformed
+    # spec rejected by build_quantified_spec, a sandbox execution failure, or no telemetry at
+    # all (skipped). Each must FAIL readiness loudly (force-on but no clean differentiator).
+    for status_key, status_val in (
+        ("quantified_status", "parse_error"),
+        ("quantified_status", "empty_transport"),
+        ("firing_status", "spec_provider_error"),
+        ("firing_status", "spec_validation_rejected"),
+        ("firing_status", "execution_failed"),
+    ):
+        tel = {"fired": False, status_key: status_val}
+        assert sweep._quantified_readiness_failed(True, True, tel) is True, status_val
+    # No telemetry object at all == force-enabled but the block was skipped -> fail.
+    assert sweep._quantified_readiness_failed(True, True, None) is True
+
+
+def test_b4_canary_unclassifiable_no_op_falls_back_to_fail():
+    # An older / unrecognized telemetry shape with no typed status AND not fired: the gate must
+    # NOT silently pass it — it falls back to the #1237 fired-only semantics (fail loud), so a
+    # shape the classifier cannot read can never become a silent green.
+    assert sweep._quantified_readiness_failed(
+        True, True, {"fired": False, "firing_status": "some_unknown_future_status"}
+    ) is True
+    assert sweep._quantified_readiness_failed(True, True, {"fired": False}) is True
+
+
+def test_b4_status_of_prefers_typed_status_then_firing_status():
+    # _quantified_status_of prefers the machine-readable quantified_status, falls back to
+    # firing_status, and returns '' when neither is present.
+    assert sweep._quantified_status_of(
+        {"quantified_status": "parse_error", "firing_status": "spec_provider_error"}
+    ) == "parse_error"
+    assert sweep._quantified_status_of({"firing_status": "no_verified_sentences"}) == \
+        "no_verified_sentences"
+    assert sweep._quantified_status_of({"fired": False}) == ""
+
+
 # ── F27 (#1213/h3) required-entity ledger fail-soft -> strict HOLD ────────────────
 def test_f27_ledger_off_never_holds():
     # strict OFF -> the force-on ledger's fail-soft is the legacy behavior: a ledger failure

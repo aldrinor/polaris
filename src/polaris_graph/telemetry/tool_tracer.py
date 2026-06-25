@@ -295,6 +295,69 @@ class ToolTracer:
         }
         return funnel
 
+    def clinical_pdf_winner_status(self) -> dict[str, Any]:
+        """I-wire-003 B3 (#1317): clinical-PDF winner (W4 mineru25) degradation flag.
+
+        Derived ONLY from the recorded ``pdf_extract`` rows (the SAME source as
+        :meth:`manifest` / :meth:`discovery_funnel`) so it can never fabricate — a
+        degradation is reported iff the access layer actually recorded a mineru25
+        fallback. The W4 selector (``_maybe_mineru25_extract``) records, on EVERY
+        non-win branch, a ``pdf_extract`` row with ``requested_extractor=='mineru25'``
+        and a ``fallback_reason`` (``no_gpu`` / ``mineru25_empty`` /
+        ``mineru25_timeout`` / ``mineru25_error``) plus ``selected_extractor`` (the
+        CPU fallback that actually ran, e.g. ``docling``). When the operator did NOT
+        request mineru25 (``PG_CLINICAL_PDF_EXTRACTOR`` unset / ``docling``) the
+        selector is never called, so no such row exists and ``degraded`` stays False
+        — the docling default is a legit baseline, NOT a degradation.
+
+        Returns ALWAYS (every manifest carries the key) with shape::
+
+            {"requested": bool, "degraded": bool, "fallback_count": int,
+             "win_count": int, "reasons": {reason: count, ...},
+             "selected_extractors": [...], "source": "tool_trace.pdf_extract"}
+
+        ``requested`` is True iff at least one pdf_extract row mentions mineru25 (a
+        win OR a fallback), so a future run that asked for the winner but silently ran
+        docling on EVERY PDF is observable (``requested`` True, ``win_count`` 0,
+        ``degraded`` True). Pure + reset-free: the tracer is reset per query, so the
+        flag never leaks across a sweep.
+        """
+        with self._lock:
+            calls = list(self._calls)
+
+        rows = [c for c in calls if c.tool_name == "pdf_extract"]
+        fallbacks = [
+            c for c in rows
+            if isinstance(c.metadata, dict)
+            and c.metadata.get("requested_extractor") == "mineru25"
+            and c.metadata.get("fallback_reason")
+        ]
+        wins = [
+            c for c in rows
+            if isinstance(c.metadata, dict)
+            and c.metadata.get("selected_extractor") == "mineru25"
+        ]
+        reasons: dict[str, int] = {}
+        for c in fallbacks:
+            key = str(c.metadata.get("fallback_reason"))
+            reasons[key] = reasons.get(key, 0) + 1
+        selected = sorted(
+            {
+                str(c.metadata.get("selected_extractor"))
+                for c in fallbacks
+                if c.metadata.get("selected_extractor")
+            }
+        )
+        return {
+            "requested": bool(fallbacks or wins),
+            "degraded": bool(fallbacks),
+            "fallback_count": len(fallbacks),
+            "win_count": len(wins),
+            "reasons": reasons,
+            "selected_extractors": selected,
+            "source": "tool_trace.pdf_extract",
+        }
+
 
 # ── process-global singleton ─────────────────────────────────────────────
 _global_tracer: Optional[ToolTracer] = None
@@ -348,6 +411,11 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
       so the success-path ON-mode output is unchanged; abort paths now carry
       the same key.
 
+    When ON it ALSO stamps two derived (no-fabrication) keys from the SAME rows:
+    ``discovery_funnel`` (FX-20) and ``clinical_pdf_winner_degraded`` (I-wire-003
+    B3 #1317 — the W4 mineru25 clinical-PDF winner degradation flag, top-level and
+    assertable so a silent docling fallback is observable). Both are OFF-only no-ops.
+
     Additive + fail-safe: existing manifest keys are never altered, and any
     telemetry error (tracer/import/disk) is swallowed + logged so it can never
     abort the manifest write. Mutates ``manifest`` in place and also returns it.
@@ -379,6 +447,12 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
         # recorded rows (no fabrication). Additive + only when the tracker is ON (this whole
         # function is a no-op when OFF), so OFF-mode manifest.json stays byte-identical.
         manifest["discovery_funnel"] = _tracer.discovery_funnel()
+        # I-wire-003 B3 (#1317): clinical-PDF winner (W4 mineru25) degradation flag, derived from
+        # the SAME pdf_extract rows. Top-level + assertable: a future run that silently degraded the
+        # winner to docling shows ``clinical_pdf_winner_degraded.degraded`` True with the reason
+        # histogram, so the preflight / run-health backstop can fail LOUD instead of shipping a
+        # silent W4 no-op. Additive + ON-only (no-op when OFF) so OFF-mode byte-identity holds.
+        manifest["clinical_pdf_winner_degraded"] = _tracer.clinical_pdf_winner_status()
     except Exception as exc:  # noqa: BLE001 — telemetry must never abort the run
         logger.warning("attach_tool_utilization: skipped: %s", exc)
     return manifest

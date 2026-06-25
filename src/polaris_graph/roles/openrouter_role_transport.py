@@ -92,6 +92,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import random
 import threading
 import time
 
@@ -631,7 +632,20 @@ def _watchdog_expired(start_monotonic: float, timeout_s: float, now_monotonic: f
 # RoleTransportError below -> release HELD (fail-closed; the gate is never weakened). LAW VI:
 # every knob is env-driven (named, no magic numbers), read LAZILY per-call (mirrors the adjacent
 # PG_ROLE_TRANSPORT_RETRIES pattern so an override set after import is honored).
-_ROLE_HTTP_RETRY_MAX_DEFAULT = "5"
+#
+# I-wire-003 B1 (#1317): the certify run hit 21 judge HTTP-429s and certified only 153/1220 claims
+# in ~77 min — a SELF-INFLICTED 429 STORM (PG_FOUR_ROLE_CLAIM_WORKERS=12 x 3 roles -> up to ~36
+# concurrent POSTs hammering the qwen judge) made WORSE by a WEAK flat-exponential backoff (no
+# jitter -> every storming worker that 429s at the same instant retries in lock-step at the SAME
+# delay, re-colliding). Two fixes here, plus a bounded JUDGE-CONCURRENCY semaphore below:
+#   - MORE retries (5 -> 8): a steady-but-slower judge under a real rate limit needs more attempts
+#     to ride out a sustained throttle window before it fails closed.
+#   - FULL-JITTER exponential backoff (`_compute_backoff_delay`): de-correlates the retry herd so
+#     storming workers no longer retry in lock-step. AWS-architecture-blog "Exponential Backoff And
+#     Jitter" — full jitter (sleep = uniform(0, capped_exp)) minimizes total work + collision vs
+#     equal/decorrelated jitter. A server-supplied `Retry-After` is honored AS-IS (clamped to cap),
+#     NOT jittered (the server told us exactly when to come back).
+_ROLE_HTTP_RETRY_MAX_DEFAULT = "8"
 _ROLE_HTTP_RETRY_STATUS_DEFAULT = "429,503"
 _ROLE_HTTP_BACKOFF_BASE_SECONDS_DEFAULT = "2.0"
 _ROLE_HTTP_BACKOFF_CAP_SECONDS_DEFAULT = "60.0"
@@ -653,6 +667,132 @@ def _parse_retry_after_seconds(value: str | None) -> float | None:
     except (ValueError, AttributeError):
         return None
     return float(seconds) if seconds >= 0 else None
+
+
+def _compute_backoff_delay(
+    attempt: int,
+    base: float,
+    cap: float,
+    retry_after: float | None,
+    rng: random.Random | None = None,
+) -> float:
+    """The seconds to sleep before retry `attempt` (0-based) — FULL-JITTER backoff (I-wire-003 B1).
+
+    Pure + deterministic-under-injected-rng, so the schedule (grows, jitters, caps) is unit-testable
+    with NO live calls. Two cases:
+
+    1. A parsed, NON-negative server `Retry-After` (already integer-seconds via
+       `_parse_retry_after_seconds`) is honored AS-IS, only CLAMPED to `cap` (a hostile/misconfigured
+       7200s header can never make the judge sleep past the cap and stall the D8 run). NOT jittered:
+       the server stated exactly when to retry.
+    2. No usable header -> FULL JITTER over the capped exponential window: `ceiling = min(cap,
+       base * 2**attempt)`, returned delay = `uniform(0, ceiling)`. Full jitter (AWS architecture
+       blog, "Exponential Backoff And Jitter") de-correlates a retry herd: storming workers that all
+       429'd at the same instant no longer wake in lock-step and re-collide, which is what turns a
+       transient throttle into a self-sustaining 429 storm.
+
+    `rng` (default the module `random`) is injectable so a test can pin `random.uniform` and assert
+    the schedule mechanically. `base`/`cap` are clamped non-negative; the exponent is bounded so a
+    pathological `attempt` cannot overflow before the `min(cap, ...)` clamp.
+    """
+    base = max(0.0, base)
+    cap = max(0.0, cap)
+    if retry_after is not None:
+        return min(cap, max(0.0, retry_after))
+    # Bound the exponent BEFORE the shift so a huge `attempt` cannot produce a giant int (the
+    # min(cap, ...) clamps it anyway, but we never want to materialize an enormous intermediate).
+    safe_attempt = min(max(0, attempt), 30)
+    ceiling = min(cap, base * (2 ** safe_attempt))
+    if ceiling <= 0.0:
+        return 0.0
+    sampler = rng if rng is not None else random
+    return sampler.uniform(0.0, ceiling)
+
+
+# === I-wire-003 B1 (#1317): 429-storm telemetry counter (process-global, lock-guarded) =========
+# A fail-loud (= honest VISIBLE) counter of how many retryable HTTP statuses (429/503) the verifier
+# transport saw, so the manifest can record "429s seen" next to "claims certified" and the NEXT run
+# is judged on whether the storm shrank. This is a TELEMETRY counter ONLY — it never changes a
+# verdict or a retry decision (the existing exhausted-retry RoleTransportError already provides the
+# loud FAIL-on-exhaustion). The sweep RESETS it per run (`reset_rate_limit_counter`) so the manifest
+# number is per-query, not cumulative across a multi-query process. Lock-guarded because the 4-role
+# seam increments it from up to PG_FOUR_ROLE_CLAIM_WORKERS concurrent worker threads.
+_RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_HITS: dict[str, int] = {}
+
+
+def reset_rate_limit_counter() -> None:
+    """Zero the per-run 429/503 telemetry counter (called by the sweep at the start of each query)."""
+    with _RATE_LIMIT_LOCK:
+        _RATE_LIMIT_HITS.clear()
+
+
+def _record_rate_limit_hit(role: str, status_code: int) -> None:
+    """Increment the per-run telemetry counter for a retryable HTTP status (thread-safe)."""
+    key = f"{role}:{status_code}"
+    with _RATE_LIMIT_LOCK:
+        _RATE_LIMIT_HITS[key] = _RATE_LIMIT_HITS.get(key, 0) + 1
+        _RATE_LIMIT_HITS["total"] = _RATE_LIMIT_HITS.get("total", 0) + 1
+
+
+def rate_limit_counter_snapshot() -> dict[str, int]:
+    """A copy of the per-run 429/503 counter for the manifest (`{role:status: n, total: N}`)."""
+    with _RATE_LIMIT_LOCK:
+        return dict(_RATE_LIMIT_HITS)
+
+
+# === I-wire-003 B1 (#1317): bounded JUDGE concurrency throttle (lazy-init semaphore) ============
+# THE STORM SOURCE: PG_FOUR_ROLE_CLAIM_WORKERS concurrent claim workers each fire mirror->sentinel->
+# judge, so the qwen Judge (the single rate-limited model) sees up to `claim_workers` simultaneous
+# POSTs. A small STEADY concurrency UNDER the sustainable OpenRouter rate finishes FASTER than a
+# storm that 429s and burns minutes in backoff. This module-level semaphore caps how many Judge
+# POSTs run AT ONCE, regardless of how many claim workers exist; mirror/sentinel parallelism is
+# UNTOUCHED (only the judge role acquires it). FAITHFULNESS-NEUTRAL: it changes only HOW MANY judge
+# calls run concurrently, never which claim passes/holds.
+#
+# Import-timing (the documented _CLAIM_WORKERS / set_four_role_reasoning_effort hazard): the size is
+# read LAZILY on FIRST acquire (not at import), so the benchmark slate's PG_FOUR_ROLE_JUDGE_CONCURRENCY
+# set AFTER this module imports is honored — no rebind hook needed. The semaphore is acquired around
+# the WHOLE judge complete() call and released in `finally` (held across backoff sleeps too), so the
+# cap genuinely bounds concurrent load rather than letting a backing-off judge yield its slot.
+# LAW VI: env-tunable; default a conservative single-digit value, calibrated by the manifest counter.
+_JUDGE_CONCURRENCY_ENV = "PG_FOUR_ROLE_JUDGE_CONCURRENCY"
+_JUDGE_CONCURRENCY_DEFAULT = "4"
+_JUDGE_SEMAPHORE_LOCK = threading.Lock()
+_JUDGE_SEMAPHORE: threading.BoundedSemaphore | None = None
+_JUDGE_SEMAPHORE_SIZE: int | None = None
+
+
+def judge_concurrency_limit() -> int:
+    """The bounded max concurrent Judge POSTs (PG_FOUR_ROLE_JUDGE_CONCURRENCY, default 4; min 1).
+
+    Read lazily so a slate/env override set after import is honored. Clamped to >= 1 (a 0/negative
+    value would deadlock every judge call); an unparseable override falls back to the default.
+    """
+    raw = os.getenv(_JUDGE_CONCURRENCY_ENV, _JUDGE_CONCURRENCY_DEFAULT)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(_JUDGE_CONCURRENCY_DEFAULT)
+    return max(1, value)
+
+
+def _judge_semaphore() -> threading.BoundedSemaphore:
+    """The process-wide Judge-concurrency semaphore, lazily sized from the env on first use.
+
+    Built once at first acquire (NOT at import) so the benchmark slate's value — set AFTER this
+    module imports, the documented _CLAIM_WORKERS import-timing hazard — is honored without a rebind
+    hook. If the env was raised between calls the semaphore is rebuilt at the new size; lowering
+    mid-run is intentionally NOT honored (a live BoundedSemaphore cannot shrink below outstanding
+    acquires without risking a ValueError on release), which is safe — the run only ever loosens.
+    """
+    global _JUDGE_SEMAPHORE, _JUDGE_SEMAPHORE_SIZE
+    desired = judge_concurrency_limit()
+    with _JUDGE_SEMAPHORE_LOCK:
+        if _JUDGE_SEMAPHORE is None or (_JUDGE_SEMAPHORE_SIZE or 0) < desired:
+            _JUDGE_SEMAPHORE = threading.BoundedSemaphore(desired)
+            _JUDGE_SEMAPHORE_SIZE = desired
+        return _JUDGE_SEMAPHORE
 
 # LAW VI: base URL + key come from the SAME env vars openrouter_client reads (single source of
 # truth). Read lazily (function-level) so import never depends on env presence.
@@ -1063,6 +1203,25 @@ class OpenRouterRoleTransport:
         request-derived `model`). Reasoning is separated from the bare verdict (I-meta-002-q1b)
         and sanitized OUT of the Path-B capture channel.
         """
+        # I-wire-003 B1 (#1317): bound concurrent JUDGE POSTs under the sustainable OpenRouter rate.
+        # ONLY the judge role acquires the throttle (mirror/sentinel parallelism untouched). Acquire
+        # BEFORE any per-call timing/watchdog start so QUEUE time waiting for a judge slot is never
+        # charged against the per-call wall-clock watchdog (which would force-close steady progress —
+        # task item 3). Released in `finally` (so it is held across backoff sleeps too — that is what
+        # makes the cap genuinely bound concurrent load, not merely concurrent slot-holding).
+        _judge_sema = _judge_semaphore() if request.role == "judge" else None
+        if _judge_sema is not None:
+            _judge_sema.acquire()
+        try:
+            return self._complete_inner(request)
+        finally:
+            if _judge_sema is not None:
+                _judge_sema.release()
+
+    def _complete_inner(self, request: RoleRequest) -> RoleResponse:
+        """The full single-completion body (POST + retry loop + parse). Wrapped by `complete()` so
+        the Judge-concurrency semaphore (I-wire-003 B1) is acquired/released around the WHOLE call,
+        outside the per-call wall-clock watchdog."""
         base_url, api_key, model_slug = openrouter_role_endpoint(request.role)
         normalized_messages = _normalize_messages(request)
         body = _build_openrouter_body(request, model_slug, normalized_messages)
@@ -1323,6 +1482,12 @@ class OpenRouterRoleTransport:
                                 f"OpenRouter {request.role!r} transport error at {url}: {exc}"
                             ) from exc
 
+                    # I-wire-003 B1 (#1317): record EVERY retryable status seen (429/503) into the
+                    # per-run telemetry counter — BEFORE the retry-budget check, so the manifest
+                    # reflects the TRUE storm size even on the final (budget-exhausted) hit that
+                    # falls through to the fail-closed raise below. Telemetry only; never gates.
+                    if http_response.status_code in retryable_statuses:
+                        _record_rate_limit_hit(request.role, http_response.status_code)
                     # I-beatboth-429 (#1173): bounded exponential backoff on a RETRYABLE HTTP status
                     # (429 / 503), honoring `Retry-After`. RESILIENCE ONLY — when the budget is
                     # exhausted (or the status is NOT retryable) we fall through to the UNCHANGED
@@ -1332,16 +1497,16 @@ class OpenRouterRoleTransport:
                         http_response.status_code in retryable_statuses
                         and rate_limit_attempt < rate_limit_max
                     ):
-                        delay = _parse_retry_after_seconds(
-                            http_response.headers.get("Retry-After")
+                        # I-wire-003 B1 (#1317): FULL-JITTER backoff (was a flat exponential, no
+                        # jitter — every lock-step-storming worker retried at the SAME delay and
+                        # re-collided). `_compute_backoff_delay` honors a clamped server `Retry-After`
+                        # as-is and otherwise samples uniform(0, capped-exp) to de-correlate the herd.
+                        delay = _compute_backoff_delay(
+                            rate_limit_attempt,
+                            backoff_base,
+                            backoff_cap,
+                            _parse_retry_after_seconds(http_response.headers.get("Retry-After")),
                         )
-                        if delay is None:
-                            delay = backoff_base * (2 ** rate_limit_attempt)
-                        # I-beatboth-429 Codex iter-1 P1: a server-supplied Retry-After is NOT trusted
-                        # unbounded — clamp BOTH the header value AND the exponential backoff to
-                        # backoff_cap so a hostile/misconfigured `Retry-After` (e.g. 7200s) can never
-                        # make the judge sleep past the cap (which would itself stall the 4-role run).
-                        delay = min(backoff_cap, delay)
                         # #1226: before SLEEPING on a rate-limit backoff, honor the wall-clock
                         # watchdog — if the composed loop has already blown its budget, abort loudly
                         # instead of sleeping another `delay` seconds and hanging the D8 gate. OFF ->

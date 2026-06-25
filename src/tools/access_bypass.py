@@ -4046,6 +4046,21 @@ class AccessBypass:
         import time as _time
 
         def _record(backend: str, status: str, latency_ms: float, **meta: object) -> None:
+            # I-wire-003 B3 (#1317): LOUD canary on EVERY winner-degrade branch. A
+            # ``fallback_reason`` in meta means mineru25 (W4 clinical-PDF winner) did
+            # NOT win and the run silently fell back to a CPU extractor. Emit a single
+            # grep-able token so a future run cannot silently degrade the winner —
+            # the run-log surface for the manifest ``clinical_pdf_winner_degraded``
+            # flag (derived from the SAME row recorded just below). Fail-safe: a log
+            # error can never break extraction.
+            _reason = meta.get("fallback_reason")
+            if _reason:
+                logger.warning(
+                    "[W4-CANARY] clinical_pdf_winner_degraded=true reason=%s "
+                    "selected_extractor=%s url=%s — mineru25 requested but did NOT "
+                    "win; verify on the GPU fetch host (B3 #1317).",
+                    _reason, meta.get("selected_extractor", backend), url[:60],
+                )
             # Highest-visibility event (point 8) via the EXISTING tool tracer:
             # lands in tool_trace.jsonl + manifest['tool_utilization'] + the live
             # console (_tool_event renders backend_used). Fail-safe: a tracer

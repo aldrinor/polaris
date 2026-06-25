@@ -524,6 +524,71 @@ def test_real_verifier_probe_passes_on_200_envelope(monkeypatch):
     }
 
 
+# ---------------------------------------------------------------- I-wire-003 B2: 429 backoff (no live calls)
+# Mirrors the sibling _default_credibility_judge_probe's bounded 429-backoff: a TRANSIENT 429 followed by a
+# 200 must NOT fail the paid run closed. Driven through the REAL _real_chat_completion_alive leaf with a
+# faked transport that returns 429 the first call(s) then 200 — NO network, NO spend. time.sleep is
+# monkeypatched so the bounded backoff does not actually wait.
+def _mock_429_then_200_client(fail_times: int):
+    """httpx client whose handler returns HTTP-429 for the first ``fail_times`` calls, then 200."""
+    import httpx
+
+    state = {"n": 0}
+
+    def _handler(request):
+        state["n"] += 1
+        if state["n"] <= fail_times:
+            return httpx.Response(
+                429, json={"error": {"message": "Too Many Requests", "code": 429}}
+            )
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "ok"}}], "model": "probe"}
+        )
+
+    return httpx.Client(transport=httpx.MockTransport(_handler))
+
+
+def test_verifier_probe_retries_transient_429_then_succeeds(monkeypatch):
+    """A simulated 429 (BUSY, not DEAD) followed by a 200 must NOT raise GateError — the bounded backoff
+    retries the transient failure and passes once the route answers, exactly like the sibling
+    _default_credibility_judge_probe. No live calls; time.sleep is stubbed so the test is instant."""
+    import scripts.dr_benchmark.super_heavy_preflight as m
+    import scripts.dr_benchmark.run_gate_b as rgb
+
+    monkeypatch.setattr(rgb, "four_role_transport_mode", lambda: "openrouter")
+    monkeypatch.setattr(rgb, "verifier_model_slugs", lambda: {"mirror": "z-ai/glm-5.1"})
+    monkeypatch.setattr(m.time, "sleep", lambda *_a, **_k: None)  # no real backoff wait
+    os.environ["OPENROUTER_API_KEY"] = "test-key"
+    os.environ["PG_PREFLIGHT_VERIFIER_PROBE_RETRIES"] = "6"
+
+    client = _mock_429_then_200_client(fail_times=2)  # 2 transient 429s, then 200
+    try:
+        alive = m._default_verifier_slug_probe(http_client=client)  # must NOT raise GateError
+    finally:
+        client.close()
+    assert alive == {"mirror": "z-ai/glm-5.1"}
+
+
+def test_verifier_probe_fails_closed_after_sustained_429(monkeypatch):
+    """A 429 that NEVER clears within the retry budget still fails closed (a sustained-saturation route is
+    treated as dead before spend) — the backoff tolerates transient bursts, never a genuine hard outage."""
+    import scripts.dr_benchmark.super_heavy_preflight as m
+    import scripts.dr_benchmark.run_gate_b as rgb
+
+    monkeypatch.setattr(rgb, "four_role_transport_mode", lambda: "openrouter")
+    monkeypatch.setattr(rgb, "verifier_model_slugs", lambda: {"mirror": "z-ai/glm-5.1"})
+    monkeypatch.setattr(m.time, "sleep", lambda *_a, **_k: None)
+    os.environ["OPENROUTER_API_KEY"] = "test-key"
+    os.environ["PG_PREFLIGHT_VERIFIER_PROBE_RETRIES"] = "3"
+
+    client = _mock_429_then_200_client(fail_times=999)  # never clears
+    try:
+        with pytest.raises(GateError, match=r"mirror|NOT alive"):
+            m._default_verifier_slug_probe(http_client=client)
+    finally:
+        client.close()
+
+
 # --------------------------------------------------------------------------- P1: probe MATCHES production
 # These tests prove the I-cred-013 diff-gate P1 fix: the verifier-slug probe REUSES the production
 # transports' OWN request construction, so it hits the SAME endpoint path, SAME auth presence/absence,

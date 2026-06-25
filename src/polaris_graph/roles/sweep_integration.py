@@ -55,6 +55,11 @@ from src.polaris_graph.llm.openrouter_client import (
     reset_run_cost,
 )
 from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
+from src.polaris_graph.roles.openrouter_role_transport import (
+    judge_concurrency_limit,
+    rate_limit_counter_snapshot,
+    reset_rate_limit_counter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +163,12 @@ _CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS", "6")))
 # after EACH claim completes ({"done": k, "total": n}), so a hung mid-compute is visible on disk
 # DURING compute — the role_call_log only grows during the later, parent-only reduction.
 FOUR_ROLE_COMPUTE_PROGRESS_FILENAME = "four_role_compute_progress.json"
+
+# I-wire-003 B1 (#1317): per-query rate-limit telemetry sidecar — the fail-loud (= honest visible)
+# "429s seen / claims certified" counter the manifest reader judges the NEXT run by. Written by
+# `run_four_role_evaluation` next to the run; the transport's per-run 429/503 counter is RESET at the
+# start of each evaluation so the number is per-query (not cumulative across a multi-query process).
+FOUR_ROLE_RATE_LIMIT_TELEMETRY_FILENAME = "four_role_rate_limit_telemetry.json"
 
 
 # I-arch-004 F22 (#1255, h4): HARD cap under parallel 4-role via ATOMIC budget RESERVATION.
@@ -787,6 +798,12 @@ def run_four_role_evaluation(
             )
         seen_ids.add(claim_id)
 
+    # I-wire-003 B1 (#1317): zero the transport's per-run 429/503 telemetry counter BEFORE compute
+    # so the sidecar written below reflects THIS query's storm only (not a cumulative multi-query
+    # total in a long-lived process). Resilient: the counter lives in the OpenRouter transport, but
+    # resetting it is harmless on the self-host route (the counter simply stays at zero).
+    reset_rate_limit_counter()
+
     d8_rows: list[D8ClaimRow] = []
     all_records: list[RoleCallRecord] = []
     final_verdicts: dict[str, str] = {}
@@ -895,6 +912,34 @@ def run_four_role_evaluation(
     # line-by-line alongside the generator's reasoning_trace.jsonl. (Kept as the final write even
     # though I-run11-001 also writes incrementally above — idempotent same-content rewrite.)
     _write_role_call_log(role_calls_path, role_call_log)
+
+    # I-wire-003 B1 (#1317): persist the fail-loud "429s seen / claims certified" telemetry sidecar
+    # so the NEXT run is judged on whether the storm shrank. Claims-certified is a SWEEP concept (a
+    # VERIFIED final verdict), computed HERE from final_verdicts; 429s-seen is the transport counter
+    # snapshot. Best-effort write (a telemetry I/O failure must never abort the verdict path).
+    try:
+        _certified = sum(1 for v in final_verdicts.values() if v == _VERDICT_VERIFIED)
+        _rl = rate_limit_counter_snapshot()
+        (run_dir / FOUR_ROLE_RATE_LIMIT_TELEMETRY_FILENAME).write_text(
+            json.dumps(
+                {
+                    "rate_limit_hits": _rl,
+                    "rate_limit_hits_total": _rl.get("total", 0),
+                    "claims_total": len(final_verdicts),
+                    "claims_certified": _certified,
+                    "judge_concurrency_limit": judge_concurrency_limit(),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning(
+            "[polaris graph] I-wire-003 B1: failed to write the 429 telemetry sidecar at %s: %s",
+            run_dir / FOUR_ROLE_RATE_LIMIT_TELEMETRY_FILENAME, exc,
+        )
 
     # The D8 threshold is loaded from config (LAW VI, pure file read — no network).
     config = load_d8_policy_config(d8_config_path)

@@ -221,6 +221,60 @@ class SpecProviderTransportError(RuntimeError):
     """
 
 
+def parse_quantified_spec_response(text: str, *, sourced_count: int = 0) -> "dict | None":
+    """I-wire-003 B4 (#1317): PURE parse + classify of the quantified-spec Writer's raw text
+    response, extracted from the (unimportable) ``_q_spec_provider`` closure so the
+    transport-vs-decline split is directly unit-testable.
+
+    Recovers a single JSON object from ``text`` (the model's content, or its reasoning stream
+    when content was empty — the GLM-5.2 / deepseek reasoning-first misroute) and classifies it:
+
+      * no parseable ``{...}`` object .......... RAISE SpecProviderTransportError (empty/no-JSON
+        body or unparseable — a TRANSPORT/PARSE fault, not a benign decline).
+      * parses but is not a dict ............... RAISE SpecProviderTransportError.
+      * dict MISSING the ``model_id`` key ...... RAISE SpecProviderTransportError (a
+        truncated/partial spec — the closing brace arrived but the required key was never
+        written; classifying it as a decline would masquerade breakage as honest-empty).
+      * dict with ``model_id`` in {None,'','none'} -> return None (the EXPLICIT Writer decline:
+        "the numbers do not support a defensible model" -> declined_no_spec). NOT a fault.
+      * otherwise .............................. return the spec dict.
+
+    Faithfulness-neutral: a ModelSpec is structured DATA validated downstream by
+    build_quantified_spec (exact datapoint_ref + pure-arithmetic formulas) — never verified
+    prose. This helper touches no gate/threshold; it is pure observability over WHY the
+    quantified section did or did not land. ``sourced_count`` only enriches the error message."""
+    import json as _pj
+    import re as _pre
+
+    match = _pre.search(r"\{.*\}", text or "", _pre.DOTALL)
+    if not match:
+        raise SpecProviderTransportError(
+            "quantified spec_provider returned empty/no-JSON body "
+            f"(content+reasoning empty or unparseable; {sourced_count} sourced "
+            "numbers were available)"
+        )
+    try:
+        obj = _pj.loads(match.group(0))
+    except _pj.JSONDecodeError as jde:
+        raise SpecProviderTransportError(
+            f"quantified spec_provider emitted non-JSON: {str(jde)[:160]}"
+        ) from jde
+    if not isinstance(obj, dict):
+        raise SpecProviderTransportError(
+            "quantified spec_provider emitted JSON that is not a spec object "
+            f"(got {type(obj).__name__})"
+        )
+    if "model_id" not in obj:
+        raise SpecProviderTransportError(
+            "quantified spec_provider emitted a JSON object with NO 'model_id' "
+            "key (truncated/partial spec — not an explicit Writer decline)"
+        )
+    if obj.get("model_id") in (None, "", "none"):
+        # EXPLICIT Writer decline -> benign None return -> declined_no_spec.
+        return None
+    return obj
+
+
 # ─────────────────────────────────────────────────────────────────
 # BUG-B-101 fix: unified manifest.status taxonomy.
 #
@@ -1201,22 +1255,85 @@ def _d8_success_without_audit(
     return bool(strict and unified_status == "success" and not d8_audit_ran)
 
 
+# I-wire-003 B4 (#1317): the typed-status families that distinguish a SILENTLY-BROKEN /
+# SKIPPED quantified differentiator (the no-op the readiness gate must FAIL LOUD on) from a
+# RAN-AND-LEGITIMATELY-EMPTY one (the Writer honestly declined to model, or every computed
+# sentence failed Regime C — an HONEST empty the run discloses but does NOT abort on).
+#
+# BROKE/SKIPPED (fail readiness): the differentiator did not run cleanly to completion — a
+# transport/parse fault (spec_provider raised, non-JSON body, truncated/partial spec), a
+# malformed spec rejected by build_quantified_spec, or a sandbox execution failure. These are
+# the QUANTIFIED_STATUS_PARSE_ERROR / QUANTIFIED_STATUS_EMPTY_TRANSPORT typed statuses plus the
+# matching `firing_status` strings. A10 (run_honest_sweep_r3.py:_q_spec_provider) RAISES on
+# every empty/no-JSON/truncated branch, so `no_spec_returned` can ONLY reach here as an EXPLICIT
+# Writer decline -> it is NOT in this broke set.
+_QUANTIFIED_BROKE_STATUSES = frozenset({
+    "parse_error", "empty_transport",            # quantified_status (typed verdict)
+    "spec_provider_error", "spec_validation_rejected", "execution_failed",  # firing_status
+})
+# RAN-HONEST-EMPTY (do NOT fail readiness — disclose only): an explicit Writer decline (no
+# defensible model over the sourced numbers) or every computed sentence dropped by Regime C
+# (the faithfulness gate doing its job). These are legitimate non-fires, not silent breakage.
+_QUANTIFIED_HONEST_EMPTY_STATUSES = frozenset({
+    "declined_no_spec",                          # quantified_status (typed verdict)
+    "no_spec_returned", "no_verified_sentences",  # firing_status
+})
+
+
+def _quantified_status_of(telemetry: dict) -> str:
+    """I-wire-003 B4 (#1317): the discrete typed status of a quantified-telemetry dict.
+    Prefers the machine-readable `quantified_status` (I-pipe-012, default-ON) and falls back to
+    the always-present `firing_status` (FIX D-2). Both name WHY the section did or did not land,
+    in the same broke-vs-honest-empty taxonomy. Returns '' when neither key is present (an
+    older / pre-typed-status telemetry shape — handled by the caller's fired-fallback). PURE."""
+    return str(telemetry.get("quantified_status") or telemetry.get("firing_status") or "")
+
+
 def _quantified_readiness_failed(
     strict: bool, force_enabled: bool, telemetry: "dict | None"
 ) -> bool:
-    """#1237: under strict gates, if quantified analysis is force-enabled
-    (PG_ENABLE_QUANTIFIED_ANALYSIS=1) but produced NO verified quantified output, fail
-    readiness LOUDLY instead of proceeding silently. Keys on the existing normalized `fired`
-    boolean (telemetry["fired"], computed by _normalize_quantified_telemetry) so this hook
-    works regardless of the exact typed-status strings quantified_analysis.py emits
-    (declined / empty_transport / parse_error). Returns True iff readiness must fail. PURE.
-    Off => False => unchanged."""
+    """#1237 + I-wire-003 B4 (#1317): under strict gates, if quantified analysis is
+    force-enabled (PG_ENABLE_QUANTIFIED_ANALYSIS=1) but the differentiator SILENTLY BROKE or
+    was SKIPPED, fail readiness LOUDLY instead of shipping a differentiator-less run as success.
+
+    B4 hardening — distinguish "ran + legitimately empty" from "silently skipped" (the #1237
+    fired-only gate lumped them, so a clean Writer decline tripped the same abort as a broken
+    transport). The gate now consumes the typed status:
+
+      * telemetry is None .................. force-enabled yet NO telemetry object exists -> the
+        block did not run at all (skipped) -> FAIL readiness.
+      * status in BROKE set ................ transport/parse/validation/execution fault -> the
+        differentiator broke -> FAIL readiness (even though `fired` is also False).
+      * status in HONEST-EMPTY set ......... explicit Writer decline OR every sentence dropped by
+        Regime C -> RAN and honestly produced nothing -> do NOT fail readiness (disclosed via
+        quantified_degradation_disclosure; never an abort).
+      * fired True ......................... the differentiator landed -> do NOT fail readiness.
+      * no typed status AND not fired ...... older/unknown telemetry shape with no verified
+        output -> fall back to the #1237 fired-only behavior (FAIL) so the guard never regresses
+        to a silent pass on a shape it cannot classify.
+
+    Returns True iff readiness must fail. PURE. Off (not strict / not force_enabled) => False =>
+    byte-identical to the legacy path. Touches NO faithfulness gate — it only forbids labeling a
+    broken/skipped force-on run as success, and only ever DEMOTES a would-be success."""
     if not (strict and force_enabled):
         return False
     if telemetry is None:
         # Force-enabled yet no telemetry object at all == the silent no-op this guards.
         return True
-    return not bool(telemetry.get("fired"))
+    if bool(telemetry.get("fired")):
+        # The differentiator landed (>=1 verified quantified sentence) — ready.
+        return False
+    status = _quantified_status_of(telemetry)
+    if status in _QUANTIFIED_BROKE_STATUSES:
+        # Silently broke (transport/parse/validation/execution) — fail loud.
+        return True
+    if status in _QUANTIFIED_HONEST_EMPTY_STATUSES:
+        # Ran and honestly produced nothing (decline / all-dropped) — disclose, do not abort.
+        return False
+    # No recognizable typed status AND not fired: an older telemetry shape we cannot classify.
+    # Fall back to the #1237 fired-only semantics (fail) so we never silently pass an
+    # unclassifiable no-op.
+    return True
 
 
 def _required_entity_ledger_failed_under_strict(
@@ -9714,6 +9831,16 @@ async def run_one_query(
                 "raw_row_count": _dedup.raw_row_count,
                 "distinct_finding_count": _dedup.distinct_finding_count,
                 "collapsed_row_count": _dedup.collapsed_row_count,
+                # I-wire-002 (#1316): surface the bidirectional-NLI consolidation
+                # winner's behavioral canary (I-wire-001 W1 #1306) into the manifest.
+                # `nli_merge_count` = literal `_finding_key` clusters absorbed into a
+                # larger same-claim basket by the NLI post-step (0 when
+                # PG_CONSOLIDATION_NLI is OFF). Previously the field existed on
+                # FindingDedupResult but reached NO artifact, so the replay-preflight
+                # could not distinguish "NLI winner fired" from the legacy literal
+                # collapse — the exact wins-on-gold-but-silent gap the harness exists to
+                # catch. Now observable in manifest['finding_dedup'].
+                "nli_merge_count": _dedup.nli_merge_count,
                 "clusters": [
                     {
                         "finding_key": list(c.finding_key),
@@ -10393,7 +10520,6 @@ async def run_one_query(
         ):
             try:
                 import json as _q_json
-                import re as _q_re
 
                 from src.polaris_graph.generator.quantified_analysis import (
                     run_quantified_section,
@@ -10440,12 +10566,34 @@ async def run_one_query(
                         f"SOURCED NUMBERS (JSON): {_q_json.dumps(_shortlist)[:8000]}"
                     )
                     _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    # I-wire-003 B4 (#1317): ROOT-CAUSE of the quantified silent no-op
+                    # (phase-7 canary fired in the I-wire-002 replay preflight). On the VM
+                    # the generator is z-ai/glm-5.2 (an _ALWAYS_REASON model). With the old
+                    # max_tokens=4000 the GLM branch in OpenRouterClient._call (the GLM-5
+                    # two-pool block, openrouter_client.py:1778) floors only to
+                    # PG_GLM5_MIN_MAX_TOKENS=4096 — far below the ~17K-char reasoning prelude
+                    # GLM-5.2 emits before content (openrouter_client.py:3368-3372). The whole
+                    # 4096 budget is consumed by reasoning, content comes back EMPTY, the
+                    # reasoning stream itself truncates before the JSON object closes, the
+                    # `{.*}` recovery finds no complete object -> SpecProviderTransportError ->
+                    # spec_provider_error -> spec_produced=False -> fired=False (the exact
+                    # drb72/drb90 fixture shape: 111 sourced numbers in, spec_produced=False).
+                    # Fix per §9.1.8 (reasoning + max_tokens ALWAYS go MAX, never starve): give
+                    # the reasoning-first generator a generous, env-tunable budget so it can
+                    # finish BOTH its reasoning prelude AND emit the closing-brace JSON spec.
+                    # A ModelSpec is small DATA validated downstream by build_quantified_spec
+                    # (exact datapoint_ref + pure-arithmetic formulas) — NOT verified prose —
+                    # so a generous cap adds ZERO faithfulness risk (the cap is billed by
+                    # actual usage; it is free insurance, not a target). LAW VI: env-tunable.
+                    _q_spec_max_tokens = int(
+                        os.environ.get("PG_QUANTIFIED_SPEC_MAX_TOKENS", "32768")
+                    )
                     try:
                         _resp = await _client.generate(
                             # I-perm-017 (#1208 Bug-3): request JSON mode so the model
                             # emits the ModelSpec into `content`, and raise max_tokens
                             # off the starvation floor.
-                            _prompt, max_tokens=4000, temperature=0.0,
+                            _prompt, max_tokens=_q_spec_max_tokens, temperature=0.0,
                             response_format={"type": "json_object"},
                         )
                     finally:
@@ -10463,35 +10611,16 @@ async def run_one_query(
                     # so reasoning-as-JSON is safe here and adds no faithfulness risk.
                     if not _txt.strip():
                         _txt = getattr(_resp, "reasoning", "") or ""
-                    # A10 (iarch006 epic-failure): fail-loud SPLIT — a TRANSPORT/PARSE fault
-                    # (empty body / no parseable JSON, or a JSONDecodeError) is a REAL failure and
-                    # must NOT be laundered as a benign Writer decline. RAISE the typed
-                    # SpecProviderTransportError so it lands in run_quantified_section's existing
-                    # bounded-retry + spec_provider_error (QUANTIFIED_STATUS_PARSE_ERROR) lane. ONLY
-                    # the explicit model DECLINE (model_id in None/''/'none') keeps `return None`
-                    # (-> declined_no_spec). This separates the two populations the reserved
-                    # QUANTIFIED_STATUS_EMPTY_TRANSPORT status was reserved for; it changes NO
-                    # faithfulness gate or threshold (pure observability over WHY the section is empty).
-                    _m = _q_re.search(r"\{.*\}", _txt, _q_re.DOTALL)
-                    if not _m:
-                        raise SpecProviderTransportError(
-                            "quantified spec_provider returned empty/no-JSON body "
-                            f"(content+reasoning empty or unparseable; {len(_sourced)} sourced "
-                            "numbers were available)"
-                        )
-                    try:
-                        _obj = _q_json.loads(_m.group(0))
-                    except _q_json.JSONDecodeError as _q_jde:
-                        raise SpecProviderTransportError(
-                            f"quantified spec_provider emitted non-JSON: {str(_q_jde)[:160]}"
-                        ) from _q_jde
-                    if (not isinstance(_obj, dict)
-                            or _obj.get("model_id") in (None, "", "none")):
-                        # EXPLICIT Writer decline (or a JSON value that is not a spec dict): a
-                        # legitimate "the numbers do not support a defensible model" — keep the
-                        # benign None return (-> declined_no_spec). NOT a transport fault.
-                        return None
-                    return _obj
+                    # A10 (iarch006) + I-wire-003 B4 (#1317): fail-loud SPLIT of transport/parse
+                    # faults vs an explicit Writer decline, in the PURE module-level
+                    # `parse_quantified_spec_response` helper (extracted so the truncated-spec /
+                    # missing-model_id classification is directly unit-testable instead of buried
+                    # in this unimportable closure). A TRANSPORT/PARSE fault (empty/no-JSON body,
+                    # JSONDecodeError, non-dict, or a truncated dict missing model_id) RAISES
+                    # SpecProviderTransportError -> spec_provider_error (QUANTIFIED_STATUS_PARSE_ERROR);
+                    # ONLY an explicit decline (model_id in None/''/'none') returns None
+                    # (-> declined_no_spec). Faithfulness-neutral.
+                    return parse_quantified_spec_response(_txt, sourced_count=len(_sourced))
 
                 _q_section_md, _quantified_telemetry = await run_quantified_section(
                     q["question"], _q_ev_pool,
