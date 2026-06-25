@@ -6767,6 +6767,203 @@ async def run_one_query(
                 _log(f"                {f.severity.upper():<8} {f.name}: "
                      f"{f.observed} vs threshold {f.threshold}")
 
+        # ── W7 (I-wire-001 #1305): CRAG sufficiency CLASSIFIER + loop-back ──
+        # WINNER: adequacy_crag (bal-acc 1.0 vs count-floor 0.9167). When
+        # `PG_ADEQUACY_CRAG` is ON, the CRAG retrieval-confidence CLASSIFIER
+        # (Yan et al. 2024 — ported from the bake-off `crag_design`) REPLACES
+        # the count-floor as the STOP decision: it grades the WHOLE corpus
+        # CORRECT / AMBIGUOUS / INCORRECT by RELEVANCE/CONFIDENCE, not by a
+        # fixed N-source threshold (the count-floor was exactly the bug). On a
+        # not-sufficient verdict it fires a BOUNDED corrective retrieval
+        # loop-back targeted at the gap, merges, and RE-GRADES — instead of the
+        # single-pass abort_corpus_inadequate.
+        #
+        # FLAG-OFF (default): this whole block is skipped — the legacy
+        # count-floor `adequacy.decision` path runs BYTE-IDENTICALLY. The lazy
+        # imports + the LLM call + the artifact write all live inside the ON
+        # branch, so no new import is executed and no new file is written when
+        # the flag is unset.
+        #
+        # BOUNDED: at most `PG_ADEQUACY_CRAG_MAX_LOOPS` (default 1) loop-backs;
+        # the DECISION is sequential (re-graded after each round), the per-round
+        # retrieval fan-out is PARALLEL and owned by run_live_retrieval (no
+        # second concurrency knob — §-1.3 anti-knob).
+        #
+        # FAITHFULNESS FROZEN: CRAG only decides WHETHER to widen the corpus;
+        # every merged source still flows through the unchanged tier classifier
+        # + strict_verify / 4-role / provenance engine downstream. The CRAG
+        # classifier never gates a sentence and never relaxes a faithfulness gate.
+        if os.getenv("PG_ADEQUACY_CRAG", "").strip().lower() in {
+            "1", "true", "on", "yes",
+        }:
+            from src.polaris_graph.nodes import crag_adequacy_loop as _crag_adq
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient as _CragOpenRouterClient,
+            )
+
+            # Mirror-GLM grader (§9.1.8: the aux classifier is NOT one of the 4
+            # locked roles -> mirror). Generous max_tokens (a CAP, not a target).
+            _crag_client = _CragOpenRouterClient(model=_crag_adq._crag_model())
+            _crag_max_tokens = _crag_adq._crag_max_tokens()
+
+            async def _run_crag_classifier() -> dict:
+                # This seam is INSIDE the running `run_one_query` event loop, so
+                # we AWAIT the production client directly (an `asyncio.run()`
+                # here would raise "called from a running event loop"). The
+                # bridge's pure prompt/parse functions wrap the awaited call.
+                _crag_prompt = _crag_adq.build_classifier_prompt(
+                    research_question=q["question"],
+                    classified_sources=retrieval.classified_sources,
+                    evidence_rows=retrieval.evidence_rows,
+                )
+                try:
+                    _crag_resp = await _crag_client.generate(
+                        prompt=_crag_prompt, max_tokens=_crag_max_tokens,
+                        temperature=0.0,
+                    )
+                    _crag_raw = getattr(_crag_resp, "content", "") or ""
+                except Exception as _crag_exc:  # noqa: BLE001 — surface, never silent
+                    _log(f"[crag-adequacy] classifier call failed: {_crag_exc}")
+                    return {
+                        "sufficient": False, "verdict": "error",
+                        "gap_dimensions": [], "raw": str(_crag_exc)[:400],
+                        "invoked": True, "decision_source": "crag_classifier",
+                        "error": str(_crag_exc),
+                    }
+                return _crag_adq.parse_classifier_response(_crag_raw)
+
+            _crag_loop_trace: dict[str, Any] = {
+                "flag_on": True,
+                "decision_source": "crag_classifier",
+                "count_floor_decision": adequacy.decision,
+                "initial_urls": sorted(
+                    {s.url for s in retrieval.classified_sources}
+                ),
+                "max_loops": _crag_adq.max_loops(),
+                "loops_fired": 0,
+                "injected_urls": [],
+                "per_loop": [],
+                "classifications": [],
+            }
+            _initial_url_set = {s.url for s in retrieval.classified_sources}
+            _loops_done = 0
+            # The CRAG CLASSIFIER (not the count-floor) is the STOP signal.
+            _crag_verdict = await _run_crag_classifier()
+            _crag_loop_trace["classifications"].append(_crag_verdict)
+            _crag_loop_trace["initial_crag_verdict"] = _crag_verdict["verdict"]
+            _crag_loop_trace["initial_sufficient"] = bool(_crag_verdict["sufficient"])
+            _crag_sufficient = bool(_crag_verdict["sufficient"])
+            _log(f"[crag-adequacy] classifier verdict={_crag_verdict['verdict']}  "
+                 f"sufficient={_crag_sufficient}  "
+                 f"(count_floor said {adequacy.decision})")
+
+            # Resume runs replay a banked corpus and MUST NOT fire live
+            # retrieval; on resume the loop-back is skipped (loops_fired=0).
+            _crag_loop_enabled = not _resume_active and not _resume_from_fetch
+            while _crag_loop_enabled and _crag_adq.should_loop_back(
+                sufficient=_crag_sufficient, loops_done=_loops_done,
+            ):
+                _gap_queries = _crag_adq.derive_gap_queries(
+                    research_question=q["question"],
+                    findings=adequacy.findings,
+                    gap_dimensions=_crag_verdict.get("gap_dimensions") or [],
+                )
+                if not _gap_queries:
+                    # No specific gap dimension to target — re-issue the question.
+                    _gap_queries = [q["question"]]
+                _log(f"[crag-adequacy] loop {_loops_done + 1}/"
+                     f"{_crag_adq.max_loops()}  verdict={_crag_verdict['verdict']}  "
+                     f"gap_queries={len(_gap_queries)}")
+                _per_loop: dict[str, Any] = {
+                    "loop": _loops_done + 1,
+                    "pre_verdict": _crag_verdict["verdict"],
+                    "gap_queries": _gap_queries,
+                    "new_urls": [],
+                }
+                try:
+                    # PARALLEL fan-out across backends, already bounded inside
+                    # run_live_retrieval — reused, not re-implemented.
+                    crag_retrieval = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=_gap_queries,
+                        protocol=protocol,
+                        max_serper=int(os.getenv("PG_ADEQUACY_CRAG_MAX_SERPER", "8")),
+                        max_s2=int(os.getenv("PG_ADEQUACY_CRAG_MAX_S2", "8")),
+                        fetch_cap=int(os.getenv("PG_ADEQUACY_CRAG_FETCH_CAP", "20")),
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        domain=q["domain"],
+                    )
+                    # Merge: add new sources / evidence not already present
+                    # (same proven pattern as the R-6 expansion below).
+                    existing_urls = {s.url for s in retrieval.classified_sources}
+                    _new_urls: list[str] = []
+                    for src in crag_retrieval.classified_sources:
+                        if src.url not in existing_urls:
+                            retrieval.classified_sources.append(src)
+                            existing_urls.add(src.url)
+                            _new_urls.append(src.url)
+                    base = len(retrieval.evidence_rows)
+                    for i, ev in enumerate(crag_retrieval.evidence_rows):
+                        ev["evidence_id"] = f"ev_{base + i:03d}"
+                        retrieval.evidence_rows.append(ev)
+                    _per_loop["new_urls"] = _new_urls
+                    _log(f"[crag-adequacy] loop {_loops_done + 1} merged "
+                         f"{len(_new_urls)} new sources")
+                    # Re-classify tier distribution + re-assess the count-floor
+                    # report (kept for telemetry / downstream consumers) AND
+                    # re-grade with the CRAG CLASSIFIER (the STOP signal).
+                    dist = compute_tier_distribution(
+                        retrieval.classified_sources, protocol,
+                    )
+                    adequacy = assess_corpus_adequacy(
+                        tier_counts=dist.tier_counts,
+                        evidence_row_count=len(retrieval.evidence_rows),
+                        domain=q["domain"],
+                        protocol=protocol,
+                        evidence_rows=retrieval.evidence_rows,
+                    )
+                    (run_dir / "corpus_adequacy.json").write_text(
+                        json.dumps(
+                            asdict(adequacy), indent=2, sort_keys=True, default=str,
+                        ) + "\n",
+                        encoding="utf-8",
+                    )
+                    _crag_verdict = await _run_crag_classifier()
+                    _crag_loop_trace["classifications"].append(_crag_verdict)
+                    _crag_sufficient = bool(_crag_verdict["sufficient"])
+                    _per_loop["post_verdict"] = _crag_verdict["verdict"]
+                    _per_loop["post_sufficient"] = _crag_sufficient
+                except Exception as exc:  # noqa: BLE001 — fail-open, never crash run
+                    _per_loop["error"] = str(exc)
+                    _log(f"[crag-adequacy] loop {_loops_done + 1} FAILED: {exc}")
+                    _crag_loop_trace["per_loop"].append(_per_loop)
+                    break
+                _crag_loop_trace["per_loop"].append(_per_loop)
+                _loops_done += 1
+            # Injected = sources present after the loop-back that were NOT in the
+            # initial corpus — the discriminating fact for the §-1.4 fire-test.
+            _final_url_set = {s.url for s in retrieval.classified_sources}
+            _crag_loop_trace["loops_fired"] = _loops_done
+            _crag_loop_trace["injected_urls"] = sorted(
+                _final_url_set - _initial_url_set
+            )
+            _crag_loop_trace["final_crag_verdict"] = _crag_verdict["verdict"]
+            _crag_loop_trace["final_sufficient"] = _crag_sufficient
+            _log(f"[crag-adequacy] done: loops={_loops_done}  "
+                 f"injected={len(_crag_loop_trace['injected_urls'])}  "
+                 f"final_verdict={_crag_verdict['verdict']}")
+            # Emit the trace artifact ONLY on the flag-ON path so flag-OFF stays
+            # byte-identical (no new file). The behavioral fire-test reads this
+            # artifact to assert the CLASSIFIER was invoked + drove the decision
+            # + the loop-back injected new sources that reached the page.
+            (run_dir / "crag_adequacy_loop.json").write_text(
+                json.dumps(
+                    _crag_loop_trace, indent=2, sort_keys=True, default=str,
+                ) + "\n",
+                encoding="utf-8",
+            )
+
         # I-cd-706: SSE stage event (v6_mode only; emit_event is non-raising
         # so a Redis outage cannot affect pipeline control flow).
         if q.get("v6_mode") and q.get("external_run_id"):
