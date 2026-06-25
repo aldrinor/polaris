@@ -53,6 +53,7 @@ from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     TierLevel,
+    _classify_source_tier_rules,
     classify_source_tier,
 )
 
@@ -4167,6 +4168,14 @@ def run_live_retrieval(
     ).strip().lower() in ("1", "true", "yes", "on")
     _deferred_tier_signals: list[ClassificationSignals] = []
     _deferred_tier_row_idx: list[int] = []
+    # I-wire-001 W5 (Codex P1#1): the GENERATOR reads the per-citation tier off the
+    # evidence ROW (evidence_rows[].tier, consumed as ev.get("tier") in the outline
+    # digest), NOT off classified_sources. The post-loop LLM-tiering batch only
+    # back-fills classified_sources, so without this the LLM tier would silently
+    # no-op in report.md (rules-floor placeholder only). `_w5_loop_idx` carries the
+    # current candidate's position in _deferred_tier_signals so the evidence row it
+    # produces records that index; the post-loop batch then back-fills BOTH surfaces.
+    _w5_loop_idx: int = -1
     # I-ready-017 #1134: journal_only metadata sidecar (ON-path only). Keyed by
     # canonical URL; carries per-source journal-article signals for the
     # citeability predicate. Stays None when the flag is OFF (byte-identical).
@@ -4690,10 +4699,24 @@ def run_live_retrieval(
             claim_vendor_token=(research_question or "").strip().lower(),
         )
         if _llm_tiering_on:
-            # I-wire-001 W5: DEFER the tier to the bounded-parallel post-loop batch.
+            # I-wire-001 W5: DEFER the LLM tier to the bounded-parallel post-loop batch.
             # Build the row now with a placeholder tier (back-filled below); record the
             # signals + row index so the batch assigns the LLM tier (rules-floor
             # fallback) in order. No source is dropped (§-1.3 weight-not-filter).
+            #
+            # Codex P1#1 fix: the inline `tier_result` MUST be bound on this ON-path so
+            # the evidence-row build below (`_row["tier"] = tier_result.tier.value` at
+            # ~L4890) reads a REAL value instead of raising UnboundLocalError on the
+            # first fetched source. We bind it to the deterministic rules-floor —
+            # `_classify_source_tier_rules`, the SAME instant fallback the W5 batch uses
+            # at credibility_llm_tiering.py:238 — never the LLM dispatcher
+            # `classify_source_tier` (that would fire a blocking per-source LLM call and
+            # defeat the bounded-parallel batch). `_w5_loop_idx` is the position in
+            # _deferred_tier_signals so the evidence row can record it and the post-loop
+            # batch back-fills BOTH classified_sources AND the matching evidence row's
+            # tier (the surface the generator actually reads).
+            _w5_loop_idx = len(_deferred_tier_signals)
+            tier_result = _classify_source_tier_rules(signals)
             _deferred_tier_signals.append(signals)
             _deferred_tier_row_idx.append(len(classified_sources))
             classified_sources.append(CorpusSource(
@@ -4710,6 +4733,9 @@ def run_live_retrieval(
                 content_relevance_label=_w2_label,
             ))
         else:
+            # OFF path: no W5 deferral; clear the W5 evidence-row index so a stale
+            # value from a prior ON-path iteration can never leak onto this row.
+            _w5_loop_idx = -1
             tier_result = classify_source_tier(signals)
 
             classified_sources.append(CorpusSource(
@@ -4895,6 +4921,15 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # I-wire-001 W5 (Codex P1#1): when LLM-tiering is ON, the `_row["tier"]`
+                # written above is the rules-floor PLACEHOLDER. Record this evidence
+                # row's position in the deferred-tier batch so the post-loop
+                # bounded-parallel LLM-tiering step can back-fill it with the real LLM
+                # tier — otherwise the W5 winner reaches classified_sources but NOT the
+                # evidence row the generator actually reads (ev.get("tier")), silently
+                # no-opping in report.md. ABSENT on the OFF path => byte-identical.
+                if _llm_tiering_on and _w5_loop_idx >= 0:
+                    _row["_w5_tier_batch_idx"] = _w5_loop_idx
                 # B4 (b1b10 redesign, I-arch-005 Phase-2/3): carry the source's
                 # topical-relevance score FORWARD as a weight. ON-path only
                 # (`_b4_relevance_weights` is empty when PG_RETRIEVAL_RELEVANCE_GATE
@@ -4982,6 +5017,16 @@ def run_live_retrieval(
                 _tier_result.matched_rules[0] if _tier_result.matched_rules else ""
             )
             _src.tier_reasons = list(_tier_result.reasons)
+        # Codex P1#1: also back-fill the EVIDENCE rows (the surface the generator
+        # reads via ev.get("tier")) with the LLM tier — keyed by the batch index each
+        # row recorded at build time. The rules-floor placeholder is REPLACED by the
+        # real W5 tier here, so the winner fires in report.md (not just on
+        # classified_sources). The temporary `_w5_tier_batch_idx` key is popped so it
+        # never leaks into the persisted/manifest evidence row.
+        for _ev_row in evidence_rows:
+            _ev_batch_idx = _ev_row.pop("_w5_tier_batch_idx", None)
+            if _ev_batch_idx is not None and 0 <= _ev_batch_idx < len(_tier_results):
+                _ev_row["tier"] = _tier_results[_ev_batch_idx].tier.value
 
     # ── W2 surfacing re-rank (I-wire-001 #1311) ────────────────────────
     # So the content-relevance effect APPEARS in the rendered output (not only a
