@@ -508,6 +508,92 @@ def _build_prose_groups(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Consolidation-NLI companion seam (I-wire-001 W1, #1306) — flag-gated default-OFF
+# ─────────────────────────────────────────────────────────────────────────
+def _consolidation_nli_enabled_factdedup() -> bool:
+    """`PG_CONSOLIDATION_NLI` master gate (single source of truth lives in
+    ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the cross-encoder
+    on import). DEFAULT-OFF => the NLI sentence-grouping block is skipped and
+    ``build_groups`` is byte-identical."""
+    from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+        consolidation_nli_enabled,
+    )
+
+    return consolidation_nli_enabled()
+
+
+def _read_nli_max_sentences() -> int:
+    """`PG_CONSOLIDATION_NLI_MAX_SENTENCES` (default 200) — bounds the prose-path O(n^2)
+    pairwise NLI. Malformed/out-of-range => default (logged, never raised)."""
+    raw = os.environ.get("PG_CONSOLIDATION_NLI_MAX_SENTENCES", "").strip() or "200"
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning("[fact_dedup] PG_CONSOLIDATION_NLI_MAX_SENTENCES=%r not an int; using 200", raw)
+        return 200
+    return max(2, min(2000, value))
+
+
+def _build_nli_prose_groups(
+    sections: dict[str, list[str]],
+    section_order: list[str],
+) -> list["RedundancyGroup"]:
+    """Cluster the EMPTY-numeric-signature sentences by BIDIRECTIONAL NLI (same-claim),
+    mirroring ``_build_prose_groups`` but using the cross-encoder winner instead of the
+    Jaccard floor. A cluster with >=2 occurrences becomes a RedundancyGroup (primary =
+    first in section_order). Routes through the UNCHANGED keep-all cross-ref rewrite.
+    Faithfulness-neutral (§-1.3): groups sentences only; relaxes no verify gate."""
+    from src.polaris_graph.synthesis.consolidation_nli import group_clusters  # noqa: PLC0415
+
+    prose_locs: list[SentenceLocation] = []
+    for section_title in section_order:
+        if section_title not in sections:
+            continue
+        for idx, sentence in enumerate(sections[section_title]):
+            sig = extract_signature(sentence)
+            if not sig.is_empty():
+                continue
+            prose_locs.append(SentenceLocation(
+                section=section_title, index=idx, sentence=sentence, signature=sig,
+            ))
+    if len(prose_locs) < 2:
+        return []
+
+    # Bound the O(n^2) pairwise NLI on the prose path (no numeric value to bucket on here):
+    # cap the candidate-sentence count via PG_CONSOLIDATION_NLI_MAX_SENTENCES (default 200 =>
+    # <=19,900 pairs, under the default PG_CONSOLIDATION_NLI_MAX_PAIRS=20,000). Over the cap,
+    # skip the prose NLI block (it is a companion seam; the primary effect is in
+    # finding_dedup) rather than raise on a long report. Logged once, never silent-wrong.
+    max_sentences = _read_nli_max_sentences()
+    if len(prose_locs) > max_sentences:
+        logger.warning(
+            "[fact_dedup] consolidation-NLI prose block skipped: %d candidate sentences "
+            "exceeds PG_CONSOLIDATION_NLI_MAX_SENTENCES=%d (companion seam; primary effect "
+            "is finding_dedup.dedup_by_finding)", len(prose_locs), max_sentences,
+        )
+        return []
+
+    # Strip citation tokens before NLI so the model scores the CLAIM, not the markers.
+    texts = [_CITATION_TOKEN_RE.sub(" ", loc.sentence or "") for loc in prose_locs]
+    root_by_pos = group_clusters(texts)
+
+    members_by_root: dict[int, list[SentenceLocation]] = {}
+    for pos, loc in enumerate(prose_locs):
+        members_by_root.setdefault(root_by_pos[pos], []).append(loc)
+
+    groups: list[RedundancyGroup] = []
+    for _root, members in sorted(members_by_root.items()):
+        if len(members) < 2:
+            continue
+        primary = members[0]
+        redundants = members[1:]
+        groups.append(RedundancyGroup(
+            signature=primary.signature, primary=primary, redundants=redundants,
+        ))
+    return groups
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Grouping + redundancy identification
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -764,6 +850,17 @@ def build_groups(
         groups.extend(_build_prose_groups(
             sections, section_order, _read_prose_jaccard(),
         ))
+
+    # I-wire-001 W1 (#1306): CONSOLIDATION-NLI winner — clusters the SAME empty-numeric
+    # sentences by BIDIRECTIONAL NLI (same-claim paraphrases the literal/Jaccard floor
+    # leaves separate). GATED behind PG_CONSOLIDATION_NLI (default OFF => no-op, byte-
+    # identical). Appends to the SAME `groups` list so it routes through the UNCHANGED
+    # keep-all cross-ref rewrite downstream (§-1.3 consolidate; faithfulness FROZEN).
+    # NOTE: the primary behavioral seam for this winner is `finding_dedup.dedup_by_finding`
+    # (the source-basket corroboration path the §-1.4 canary asserts on); this block is the
+    # plan-listed companion seam in the SENTENCE-redundancy path.
+    if _consolidation_nli_enabled_factdedup():
+        groups.extend(_build_nli_prose_groups(sections, section_order))
 
     return groups
 
