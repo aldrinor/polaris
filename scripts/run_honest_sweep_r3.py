@@ -143,6 +143,8 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     authorization_from_env,
     check_auto_approve_allowed,
     compute_tier_distribution,
+    # I-wire-001 W2 (#1311) P1-1: byte-identical (W2-OFF) CorpusSource serializer.
+    corpus_asdict,
     save_approval_decision,
 )
 from src.polaris_graph.nodes.weighted_corpus_gate import (  # noqa: E402
@@ -6721,7 +6723,9 @@ async def run_one_query(
         # Dump corpus
         (run_dir / "live_corpus_dump.json").write_text(
             json.dumps(
-                [asdict(s) for s in retrieval.classified_sources],
+                # I-wire-001 W2 (#1311) P1-1: corpus_asdict omits the W2 keys at
+                # default => live_corpus_dump.json is byte-identical when W2 OFF.
+                [corpus_asdict(s) for s in retrieval.classified_sources],
                 indent=2, sort_keys=True, default=str,
             ) + "\n",
             encoding="utf-8",

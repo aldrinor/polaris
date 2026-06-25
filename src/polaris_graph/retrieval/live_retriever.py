@@ -453,6 +453,12 @@ class LiveRetrievalResult:
     # forgotten. A plain dict (RelevanceGateResult.to_dict()) so the manifest
     # write is a no-op getattr with a None default for pre-B4 callers.
     relevance_gate: dict[str, Any] | None = None
+    # I-wire-001 W2 (#1311): content-relevance judge telemetry — DISTINCT from the
+    # B4 `relevance_gate` above so the two never conflate. Populated ONLY on the
+    # W2 ON path (PG_CONTENT_RELEVANCE_JUDGE=1); None when OFF => byte-identical.
+    # Carries the per-passage DEMOTE dispositions (kept-at-low-weight, never a
+    # drop list — §-1.3 weight-not-filter).
+    content_relevance: dict[str, Any] | None = None
     #   extraction_finding_rows: the EXTRACTION-stage finding-row count captured
     #     at run_live_retrieval RETURN time (== len(evidence_rows) here), frozen
     #     as an int. Codex diff-gate iter-1 P1: run_one_query MUTATES
@@ -3697,6 +3703,55 @@ def run_live_retrieval(
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
 
+    # I-wire-001 W3 (#1310): search-fusion WRRF. DEFAULT-OFF. When ON, the
+    # per-engine RANKED candidate lists are gathered WITHOUT the inline
+    # `seen_urls` dedup (the inline dedup destroys per-engine rank, which the
+    # fuser needs), then WRRF-fused, then URL-deduped as a deterministic
+    # post-step. When OFF, the legacy inline-dedup append below runs
+    # byte-identically and `per_engine_lists` stays unused.
+    # §-1.3: fusion is an ORDERING/WEIGHT, never a hard drop — the fused output
+    # is the full union of every engine's URLs, only re-ordered.
+    from src.polaris_graph.retrieval.search_fusion_wrrf import (  # noqa: E402
+        wrrf_enabled,
+    )
+    _wrrf_on = wrrf_enabled()
+    # engine-name -> that engine's candidates in returned (rank) order.
+    per_engine_lists: dict[str, list[SearchCandidate]] = {}
+
+    def _emit_candidate(engine: str, cand: SearchCandidate) -> None:
+        """Append a candidate either to the per-engine WRRF list (ON) or the
+        legacy flat `candidates` list with inline `seen_urls` dedup (OFF).
+
+        OFF path is byte-identical to the historical
+        `if url in seen_urls: continue; seen_urls.add(url); candidates.append`
+        idiom. ON path keeps ALL hits per engine in rank order (cross-engine
+        URL-dedup happens once, after fusion).
+        """
+        url = getattr(cand, "url", "") or ""
+        if not url:
+            return
+        if _wrrf_on:
+            per_engine_lists.setdefault(engine, []).append(cand)
+            return
+        if url in seen_urls:
+            return
+        seen_urls.add(url)
+        candidates.append(cand)
+
+    def _emit_engine_list(engine: str, cands: list[SearchCandidate]) -> None:
+        """I-wire-001 W3 (#1310) P1-3: register a backend's WHOLE per-engine RANKED
+        list (keyed by the declared backend name) as ONE engine for WRRF, with its
+        RANK ORDER preserved. This is the real per-engine signal the domain/need
+        backends produce — feeding it (instead of the flat cross-deduped list)
+        keeps a URL that two backends both return at its DISTINCT per-engine rank
+        in BOTH lists, so wrrf_fuse fuses on real ranks. WRRF-ON only (the caller
+        gates on `_wrrf_on`); the intra-list rank order is exactly the backend's
+        returned order (already intra-backend-deduped upstream)."""
+        bucket = per_engine_lists.setdefault(engine, [])
+        for cand in cands:
+            if getattr(cand, "url", "") or "":
+                bucket.append(cand)
+
     # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI seed
     # candidates. Injected at the FRONT so the fetch_cap slice always includes
     # them (a reserved anchored-primary lane), and fetch_cap is bumped by the
@@ -3732,10 +3787,12 @@ def run_live_retrieval(
         serper_hits = _serper_search(q, num=max_serper, api_calls=api_calls)
         for hit in serper_hits:
             url = hit.get("url", "")
-            if not url or url in seen_urls:
+            if not url:
                 continue
-            seen_urls.add(url)
-            candidates.append(SearchCandidate(
+            # I-wire-001 W3: route through _emit_candidate. OFF -> inline
+            # seen_urls dedup (byte-identical). ON -> gather into the per-engine
+            # ranked list (rank = append order) for WRRF.
+            _emit_candidate("serper", SearchCandidate(
                 url=url,
                 title=hit.get("title", ""),
                 snippet=hit.get("snippet", ""),
@@ -3758,10 +3815,10 @@ def run_live_retrieval(
         api_calls["s2"] += 1
         for hit in s2_hits:
             url = hit.get("url", "")
-            if not url or url in seen_urls:
+            if not url:
                 continue
-            seen_urls.add(url)
-            candidates.append(SearchCandidate(
+            # I-wire-001 W3: route through _emit_candidate (OFF = byte-identical).
+            _emit_candidate("s2", SearchCandidate(
                 url=url,
                 title=hit.get("title", ""),
                 snippet=hit.get("snippet", ""),
@@ -3796,12 +3853,12 @@ def run_live_retrieval(
                 _trace_query("openalex_search", q, [getattr(c, "url", "") for c in _oa_hits])
                 for cand in _oa_hits:
                     url = getattr(cand, "url", "")
-                    if not url or url in seen_urls:
+                    if not url:
                         continue
-                    seen_urls.add(url)
                     if not getattr(cand, "query_origin", ""):
                         cand.query_origin = q
-                    candidates.append(cand)
+                    # I-wire-001 W3: route through _emit_candidate (OFF = byte-identical).
+                    _emit_candidate("openalex_search", cand)
             except Exception as exc:
                 _trace_tool(
                     "openalex_search", target=q, status="fail",
@@ -3838,14 +3895,35 @@ def run_live_retrieval(
                 amplified_queries=amplified_queries,
                 anchor_seed=anchor_seed,
             )
-            for cand in need_result.candidates:
-                url = cand.url
-                if not url or url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                if not getattr(cand, "query_origin", ""):
-                    cand.query_origin = "need_type_backend"
-                candidates.append(cand)
+            # I-wire-001 W3 (#1310) P1-3: when WRRF is ON, feed each backend's REAL
+            # per-engine RANKED list (from `per_engine_lists`, keyed by the declared
+            # backend NAME, pre-cross-dedup) into the fuser — so a URL two backends
+            # both return keeps its DISTINCT per-engine rank into wrrf_fuse. Routing
+            # the flat `need_result.candidates` instead would feed the
+            # already-cross-deduped list (the P1-3 bug: ranks collapsed before the
+            # fuser). OFF => fall through to the legacy inline-dedup on the flat list.
+            _need_per_engine = getattr(need_result, "per_engine_lists", None) or {}
+            if _wrrf_on and _need_per_engine:
+                for _bname, _blist in _need_per_engine.items():
+                    for cand in _blist:
+                        if not cand.url:
+                            continue
+                        if not getattr(cand, "query_origin", ""):
+                            cand.query_origin = "need_type_backend"
+                    _emit_engine_list(f"need:{_bname}", _blist)
+            else:
+                for cand in need_result.candidates:
+                    url = cand.url
+                    if not url:
+                        continue
+                    if not getattr(cand, "query_origin", ""):
+                        cand.query_origin = "need_type_backend"
+                    # I-wire-001 W3: key by the candidate's own backend source so each
+                    # need-type backend's ranking is a distinct engine list for WRRF
+                    # (e.g. clinicaltrials / openfda). OFF = byte-identical inline dedup.
+                    _emit_candidate(
+                        getattr(cand, "source", "") or "need_type_backend", cand,
+                    )
             if need_result.backends_used:
                 notes.append(
                     f"need_type_backends({need_result.needs}): "
@@ -3872,16 +3950,32 @@ def run_live_retrieval(
                 research_question=research_question,
                 amplified_queries=amplified_queries,
             )
-            for cand in domain_result.candidates:
-                url = cand.url
-                if not url or url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
-                # bucket so the per-sub-query rerank reservation handles them consistently.
-                if not getattr(cand, "query_origin", ""):
-                    cand.query_origin = "domain_backend"
-                candidates.append(cand)
+            # I-wire-001 W3 (#1310) P1-3: on WRRF-ON, feed each domain backend's REAL
+            # per-engine ranked list (keyed by declared backend NAME) into the fuser
+            # so per-engine duplicate ranks survive to wrrf_fuse. OFF => legacy flat.
+            _dom_per_engine = getattr(domain_result, "per_engine_lists", None) or {}
+            if _wrrf_on and _dom_per_engine:
+                for _bname, _blist in _dom_per_engine.items():
+                    for cand in _blist:
+                        if not cand.url:
+                            continue
+                        if not getattr(cand, "query_origin", ""):
+                            cand.query_origin = "domain_backend"
+                    _emit_engine_list(f"domain:{_bname}", _blist)
+            else:
+                for cand in domain_result.candidates:
+                    url = cand.url
+                    if not url:
+                        continue
+                    # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
+                    # bucket so the per-sub-query rerank reservation handles them consistently.
+                    if not getattr(cand, "query_origin", ""):
+                        cand.query_origin = "domain_backend"
+                    # I-wire-001 W3: key by the candidate's own backend source for WRRF.
+                    # OFF = byte-identical inline dedup.
+                    _emit_candidate(
+                        getattr(cand, "source", "") or "domain_backend", cand,
+                    )
             if domain_result.backends_used:
                 notes.append(
                     f"domain_backends({domain}): "
@@ -3896,6 +3990,48 @@ def run_live_retrieval(
                 "[live_retriever] domain_backends failed for %r: %s",
                 domain, exc,
             )
+
+    # ── Step 2c: WRRF fusion post-step (I-wire-001 W3, #1310) ──────────
+    # DEFAULT-OFF. When ON, fuse the per-engine RANKED lists gathered above on
+    # their original ranks, THEN URL-dedup the fused order. Seeds stay at the
+    # FRONT (already in `candidates` + `seen_urls` from the reserved-lane
+    # injection); the fused search/backend candidates are appended AFTER the
+    # seeds in WRRF order. §-1.3: the fused list is the FULL union of every
+    # engine's URLs — fusion re-orders, it never drops a source. Deterministic
+    # (no LLM); the highest-visibility WRRF event is logged for the console.
+    if _wrrf_on and per_engine_lists:
+        from src.polaris_graph.retrieval.search_fusion_wrrf import (  # noqa: E402
+            wrrf_fuse,
+        )
+        _wrrf = wrrf_fuse(per_engine_lists)
+        _n_fused_added = 0
+        for _cand in _wrrf.fused:
+            _curl = getattr(_cand, "url", "") or ""
+            # Dedup against seeds (and across engines — the fuser already
+            # collapsed cross-engine URL duplicates to one object).
+            if not _curl or _curl in seen_urls:
+                continue
+            seen_urls.add(_curl)
+            candidates.append(_cand)
+            _n_fused_added += 1
+        # Highest-visibility console/log event (standard point 8): the fused
+        # ordering + per-engine contribution + the WRRF k/weights actually used.
+        _top_preview = [
+            getattr(c, "url", "")[:80] for c in candidates[
+                len(candidates) - _n_fused_added:
+            ][:5]
+        ]
+        logger.info(
+            "[live_retriever] WRRF FUSED %d engines (%s) -> %d unique candidates "
+            "(k=%.1f weights=%s); fused top-5=%s",
+            len(per_engine_lists), _wrrf.per_engine_counts, _n_fused_added,
+            _wrrf.k_used, _wrrf.weights_used, _top_preview,
+        )
+        notes.append(
+            f"search_fusion_wrrf: fused {len(per_engine_lists)} engines "
+            f"{_wrrf.per_engine_counts} -> {_n_fused_added} ranked candidates "
+            f"(k={_wrrf.k_used}, weights={_wrrf.weights_used})"
+        )
 
     total_pre_filter = len(candidates)
     logger.info("[live_retriever] %d unique candidates from search", total_pre_filter)
@@ -4280,6 +4416,54 @@ def run_live_retrieval(
     # never make `i % stride` a ZeroDivisionError. Only consulted when progress_cb is wired.
     _progress_stride = max(1, _env_int("PG_RETRIEVAL_PROGRESS_STRIDE", 25))
 
+    # ── W2 content-relevance judge — pre-loop bounded-parallel batch (I-wire-001
+    # #1311) ──────────────────────────────────────────────────────────────────
+    # DEFAULT-OFF. When ON AND the parallel-fetch path ran (production default),
+    # all bodies are already in `fetched_side`, so score them ALL in ONE batched
+    # Qwen3-Reranker-0.6B pass (one GPU load) + bounded-parallel GLM-5.2
+    # escalation on the ambiguous band, BEFORE the per-candidate classify loop.
+    # The per-candidate loop reads the precomputed weight from `_w2_by_idx` and
+    # applies it as a WEIGHT on the CorpusSource (DEMOTE, never a drop — §-1.3).
+    # On the serial fetch fallback (`use_parallel=False`) there is no pre-loop
+    # body, so the score is computed inline per-candidate below with a LOUD
+    # disclosed "serial non-batched" degrade (wiring_standard point 1).
+    _w2_on = False
+    _w2_by_idx: dict[int, Any] = {}
+    _w2_report = None
+    try:
+        from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
+            content_relevance_enabled,
+        )
+        _w2_on = content_relevance_enabled()
+    except Exception as _w2_imp_exc:  # import must never break retrieval
+        logger.warning(
+            "[live_retriever] W2 content_relevance import failed (%s) — W2 OFF",
+            str(_w2_imp_exc)[:160],
+        )
+        _w2_on = False
+    if _w2_on and use_parallel and candidates:
+        from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
+            score_passages,
+        )
+        _w2_passages: list[tuple[int, str, str]] = []
+        for _wi, _wcand in enumerate(candidates):
+            _wcontent = fetched_side.get(_wcand.url, ("", False, "", "", ""))[0]
+            _w2_passages.append((_wi, _wcand.url, _wcontent or ""))
+        _w2_report = score_passages(research_question, _w2_passages)
+        _w2_by_idx = _w2_report.by_idx()
+        # Highest-visibility console event (point 8): the W2 disposition.
+        logger.info(
+            "[live_retriever] W2 content-relevance: scored=%d relevant=%d "
+            "demoted=%d escalated=%d device=%s (DEMOTE keeps low weight, NO drop)",
+            _w2_report.n_scored, _w2_report.n_relevant, _w2_report.n_demoted,
+            _w2_report.n_escalated, _w2_report.reranker_device,
+        )
+        notes.append(
+            f"content_relevance_judge: scored={_w2_report.n_scored} "
+            f"relevant={_w2_report.n_relevant} demoted={_w2_report.n_demoted} "
+            f"escalated={_w2_report.n_escalated} (weight-not-filter, no drop)"
+        )
+
     for i, cand in enumerate(candidates):
         if time.monotonic() > _loop_deadline:
             if _trunc_policy == "repair":
@@ -4359,6 +4543,39 @@ def run_live_retrieval(
                 )
             )
         api_calls["fetch"] += 1
+
+        # ── W2 content-relevance APPLY (I-wire-001 #1311) — post-body, pre-tier ──
+        # Resolve THIS candidate's relevance WEIGHT (§-1.3: a weight, never a
+        # drop). Parallel path: read the precomputed batch verdict. Serial path:
+        # compute inline with a LOUD disclosed "non-batched" degrade. OFF => the
+        # weight stays 1.0 / label "" so the CorpusSource is byte-identical.
+        _w2_weight = 1.0
+        _w2_label = ""
+        if _w2_on:
+            if use_parallel:
+                _w2v = _w2_by_idx.get(i)
+                if _w2v is not None:
+                    _w2_weight = _w2v.weight
+                    _w2_label = _w2v.label
+            else:
+                # Serial fallback: no pre-loop batch — compute this one inline.
+                from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
+                    score_passages,
+                )
+                if i == 0:
+                    logger.warning(
+                        "[live_retriever] W2 content-relevance running INLINE on "
+                        "the serial fetch path (PG_USE_PARALLEL_FETCH=0) — this is "
+                        "the DISCLOSED non-batched degrade; the production parallel "
+                        "path batches the reranker once.",
+                    )
+                _w2_single = score_passages(
+                    research_question, [(i, cand.url, content or "")],
+                ).by_idx().get(i)
+                if _w2_single is not None:
+                    _w2_weight = _w2_single.weight
+                    _w2_label = _w2_single.label
+
         if not ok:
             failed_fetch += 1
             _trace_drop(cand.url, "fetch_failed")
@@ -4487,6 +4704,10 @@ def run_live_retrieval(
                 tier_confidence=0.0,
                 tier_rule="",
                 tier_reasons=[],
+                # I-wire-001 W2 (#1311): surface the content-relevance WEIGHT + label
+                # per citation (§-1.3). Defaults 1.0/"" when W2 OFF => byte-identical.
+                content_relevance_weight=_w2_weight,
+                content_relevance_label=_w2_label,
             ))
         else:
             tier_result = classify_source_tier(signals)
@@ -4499,6 +4720,10 @@ def run_live_retrieval(
                 tier_confidence=tier_result.confidence,
                 tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
                 tier_reasons=list(tier_result.reasons),
+                # I-wire-001 W2 (#1311): surface the content-relevance WEIGHT + label
+                # per citation (§-1.3). Defaults 1.0/"" when W2 OFF => byte-identical.
+                content_relevance_weight=_w2_weight,
+                content_relevance_label=_w2_label,
             ))
 
         # I-ready-017 #1134: record the per-source journal-article signals into
@@ -4758,6 +4983,21 @@ def run_live_retrieval(
             )
             _src.tier_reasons = list(_tier_result.reasons)
 
+    # ── W2 surfacing re-rank (I-wire-001 #1311) ────────────────────────
+    # So the content-relevance effect APPEARS in the rendered output (not only a
+    # manifest dict): when W2 is ON, STABLE-sort classified_sources by relevance
+    # weight DESC so demoted (off-topic/junk) sources rank BELOW full-weight
+    # evidence in the corpus ordering the downstream selection/render reads. This
+    # is a REORDER only (parallel to W3's WRRF) — NO source is added or dropped,
+    # the set is identical, and strict_verify re-checks every row regardless of
+    # order (§-1.3 faithfulness-neutral). OFF => no reorder => byte-identical.
+    # Runs AFTER the W5 tier back-fill so the reorder reflects final tier state.
+    if _w2_on and classified_sources:
+        classified_sources = sorted(
+            classified_sources,
+            key=lambda s: -getattr(s, "content_relevance_weight", 1.0),
+        )
+
     return LiveRetrievalResult(
         classified_sources=classified_sources,
         evidence_rows=evidence_rows,
@@ -4783,6 +5023,11 @@ def run_live_retrieval(
         # including the unfetched-but-relevant tail. None when the B4 gate is OFF
         # (PG_RETRIEVAL_RELEVANCE_GATE unset) => byte-identical.
         relevance_gate=(_b4_gate.to_dict() if _b4_gate is not None else None),
+        # I-wire-001 W2 (#1311): content-relevance judge telemetry (None when W2
+        # OFF => byte-identical). DISTINCT key from relevance_gate above.
+        content_relevance=(
+            _w2_report.to_dict() if _w2_report is not None else None
+        ),
         # Codex diff-gate iter-1 P1: freeze the extraction-stage count HERE (at
         # return), before run_one_query mutates evidence_rows via the expansion/
         # deepener/agentic lanes.

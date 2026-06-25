@@ -57,6 +57,55 @@ class CorpusSource:
     tier_confidence: float = 0.0
     tier_rule: str = ""
     tier_reasons: list[str] = field(default_factory=list)
+    # I-wire-001 W2 (#1311): per-citation CONTENT-RELEVANCE weight surfaced to the
+    # user (§-1.3 weight-not-filter). Default 1.0 = full weight / W2 OFF, so this
+    # is byte-identical for every existing caller (additive optional field). A
+    # demoted (off-topic) source carries a low weight here — it is NEVER dropped.
+    content_relevance_weight: float = 1.0
+    content_relevance_label: str = ""   # "" when W2 OFF; e.g. "relevant"/"demoted"
+
+
+# I-wire-001 W2 (#1311) P1-1: the two W2 fields above are ADDITIVE to CorpusSource,
+# but a plain `asdict(...)`/json dump emits them EVEN AT DEFAULTS — breaking the
+# "byte-identical when W2 OFF" kill-switch contract (wiring_standard pt 13) for
+# every serialized corpus snapshot (live_corpus_dump.json, corpus_snapshot.json,
+# fetch_snapshot.json, corpus_approval.json). FIX: a custom `dict_factory` that
+# OMITS the two W2 keys whenever they hold their defaults (weight == 1.0 AND
+# label == ""), so a W2-OFF source serializes BYTE-IDENTICAL to base, and a
+# W2-ON demoted source still surfaces its weight + label. The omission is keyed on
+# the VALUE being default (not on the flag) so it is correct even across a snapshot
+# round-trip. Recursive nested dataclasses (CorpusApprovalDecision ->
+# CorpusDistributionReport -> ... and the CorpusSource list) all flow through this
+# factory when passed to `asdict(..., dict_factory=_corpus_dict_factory)`.
+_W2_DEFAULT_WEIGHT = 1.0
+_W2_DEFAULT_LABEL = ""
+
+
+def _corpus_dict_factory(items: "list[tuple[str, Any]]") -> "dict[str, Any]":
+    """`asdict` dict_factory that drops the W2 content-relevance keys at default.
+
+    `asdict` calls this with the (key, value) pairs of EACH dataclass it visits
+    (recursively). For a CorpusSource at W2 defaults this omits the two W2 keys so
+    the dict is byte-identical to the pre-W2 schema; any other dataclass is
+    unaffected (it carries no such keys). A non-default (demoted) source keeps both
+    keys so the W2 effect remains visible in the serialized corpus.
+    """
+    d = dict(items)
+    if (
+        d.get("content_relevance_weight", _W2_DEFAULT_WEIGHT) == _W2_DEFAULT_WEIGHT
+        and d.get("content_relevance_label", _W2_DEFAULT_LABEL) == _W2_DEFAULT_LABEL
+    ):
+        d.pop("content_relevance_weight", None)
+        d.pop("content_relevance_label", None)
+    return d
+
+
+def corpus_asdict(obj: Any) -> Any:
+    """`asdict(obj)` that omits the W2 content-relevance keys at their defaults.
+
+    Use this at EVERY CorpusSource / CorpusApprovalDecision serialization site so a
+    W2-OFF run produces byte-identical JSON to base (P1-1)."""
+    return asdict(obj, dict_factory=_corpus_dict_factory)
 
 
 @dataclass
@@ -320,7 +369,10 @@ def save_approval_decision(
     run_dir_path.mkdir(parents=True, exist_ok=True)
     path = run_dir_path / "corpus_approval.json"
     tmp = run_dir_path / "corpus_approval.json.tmp"
-    data = asdict(decision)
+    # I-wire-001 W2 (#1311) P1-1: serialize via `corpus_asdict` so the W2 content-
+    # relevance keys are OMITTED at their defaults — corpus_approval.json is
+    # byte-identical to base when W2 is OFF (the kill-switch contract).
+    data = corpus_asdict(decision)
     # Convert nested dataclasses are already asdict-able; CorpusDistributionReport
     # with TierDeviation — asdict handles it recursively.
     payload = json.dumps(

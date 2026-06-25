@@ -62,6 +62,7 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     CorpusApprovalDecision, CorpusSource,
     authorization_from_env,
     check_auto_approve_allowed, compute_tier_distribution,
+    corpus_asdict,  # I-wire-001 W2 (#1311) P1-1: byte-identical W2-OFF serializer
     save_approval_decision,
 )
 from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
@@ -225,7 +226,8 @@ async def main_async() -> int:
         _log(f"       {k}: {tier_counts[k]}")
 
     (run_dir / "live_corpus_dump.json").write_text(
-        json.dumps([asdict(s) for s in classified], indent=2, sort_keys=True, default=str) + "\n",
+        # I-wire-001 W2 (#1311) P1-1: corpus_asdict => byte-identical when W2 OFF.
+        json.dumps([corpus_asdict(s) for s in classified], indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
 

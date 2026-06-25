@@ -63,8 +63,13 @@ def _retrieval_payload(retrieval: Any) -> dict[str, Any]:
     already ``list[dict]``. Every count is read with a default so a pre-#958 / test
     retrieval object round-trips. NO verdict, NO gate result.
     """
+    # I-wire-001 W2 (#1311) P1-1: serialize CorpusSource via corpus_asdict so the
+    # W2 content-relevance keys are OMITTED at default => the corpus snapshot is
+    # byte-identical when W2 OFF; a W2-ON demoted source keeps its weight+label so
+    # a resume run preserves the demotion.
+    from src.polaris_graph.nodes.corpus_approval_gate import corpus_asdict
     return {
-        "classified_sources": [asdict(s) for s in getattr(retrieval, "classified_sources", []) or []],
+        "classified_sources": [corpus_asdict(s) for s in getattr(retrieval, "classified_sources", []) or []],
         "evidence_rows": list(getattr(retrieval, "evidence_rows", []) or []),
         "notes": list(getattr(retrieval, "notes", []) or []),
         "counts": {

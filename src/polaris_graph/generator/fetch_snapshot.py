@@ -77,8 +77,11 @@ def _retrieval_payload(retrieval: Any) -> dict[str, Any]:
     round-trips. NO verdict, NO gate result. Field-for-field IDENTICAL to
     ``corpus_snapshot._retrieval_payload`` so ``reconstruct_retrieval`` is shared.
     """
+    # I-wire-001 W2 (#1311) P1-1: corpus_asdict omits the W2 keys at default so the
+    # fetch snapshot is byte-identical when W2 OFF (kill-switch contract).
+    from src.polaris_graph.nodes.corpus_approval_gate import corpus_asdict
     return {
-        "classified_sources": [asdict(s) for s in getattr(retrieval, "classified_sources", []) or []],
+        "classified_sources": [corpus_asdict(s) for s in getattr(retrieval, "classified_sources", []) or []],
         "evidence_rows": list(getattr(retrieval, "evidence_rows", []) or []),
         "notes": list(getattr(retrieval, "notes", []) or []),
         "counts": {

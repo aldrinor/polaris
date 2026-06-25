@@ -1949,6 +1949,7 @@ def _relevance_floor_selection(
     semantic_mode: bool = False,
     semantic_requested: bool = False,
     semantic_fell_back: bool = False,
+    url_to_content_relevance_weight: dict[str, float] | None = None,
 ) -> EvidenceSelection:
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
 
@@ -2011,6 +2012,25 @@ def _relevance_floor_selection(
     # only: a down-weighted row only exists when the redesign flag is set.
     def _retrieval_weight(row: dict[str, Any]) -> float:
         w = row.get("retrieval_weight")
+        return 1.0 if w is None else float(w)
+
+    # I-wire-001 W2 (#1311) P1-2 keystone: the per-source CONTENT-RELEVANCE weight,
+    # joined from classified_sources by URL. It multiplies the ranking score
+    # EXACTLY like `retrieval_weight` above — applied ONLY in the SORT key, NEVER in
+    # the floor comparison (which stays on the RAW relevance `item[1]`). That
+    # asymmetry IS the §-1.3 WEIGHT-not-FILTER guarantee: a W2-demoted off-topic
+    # source (weight ~0.25) sorts LAST in the REAL evidence_for_gen while still being
+    # KEPT (retention 1.0 — never tripped over the floor, never dropped). The map
+    # holds ONLY non-default (< 1.0) weights, so when W2 is OFF it is empty, this
+    # returns 1.0 for every row, and the sort key is BYTE-IDENTICAL. The
+    # faithfulness engine (strict_verify / NLI / 4-role) is downstream + untouched.
+    _crw_map = url_to_content_relevance_weight or {}
+
+    def _content_relevance_weight(row: dict[str, Any]) -> float:
+        if not _crw_map:
+            return 1.0
+        url = row.get("source_url") or row.get("url") or ""
+        w = _crw_map.get(str(url))
         return 1.0 if w is None else float(w)
 
     # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
@@ -2124,10 +2144,16 @@ def _relevance_floor_selection(
     # retrieval weight so a DOWN-WEIGHTED (content-starved / landing-page) source
     # sorts LAST while still being kept. OFF path is byte-identical (the prior
     # sort key); a normal row's weight is 1.0 so ranking is unchanged for it.
+    # I-wire-001 W2 (#1311) P1-2: `_content_relevance_weight` is multiplied into the
+    # sort key alongside `_retrieval_weight` (both default 1.0 when their feature is
+    # OFF => byte-identical sort). A W2-demoted row sinks LAST while staying in the
+    # kept set (§-1.3 WEIGHT-not-FILTER — the floor comparison above uses the RAW
+    # relevance, so the demotion never causes a drop).
     if _redesign_on:
         kept.sort(
             key=lambda s: (
-                -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])),
+                -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
+                  * _content_relevance_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2135,7 +2161,7 @@ def _relevance_floor_selection(
     else:
         kept.sort(
             key=lambda s: (
-                -(s[1] * _authority(s[3])),
+                -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2390,6 +2416,18 @@ def select_evidence_for_generation(
 
     # Build URL → tier map from classified_sources (whatever shape).
     url_to_tier: dict[str, str] = {}
+    # I-wire-001 W2 (#1311) P1-2 keystone: also join the per-source CONTENT-
+    # RELEVANCE WEIGHT carried on each classified source (CorpusSource.
+    # content_relevance_weight, default 1.0 = W2 OFF / full weight). This is the
+    # ACTUAL evidence-selection seam — the W2 weight was previously orphaned
+    # (set on CorpusSource + used only to reorder classified_sources, but NEVER
+    # read by row scoring), so demoted junk still entered evidence_for_gen at
+    # full selection weight. We surface the weight here and MULTIPLY it into the
+    # ranking sort (§-1.3 WEIGHT-not-FILTER: a low-relevance passage is DEMOTED
+    # to the bottom of the pool, NEVER hard-dropped; retention stays 1.0). When
+    # W2 is OFF every weight is 1.0 so the map is all-default and the sort key is
+    # byte-identical.
+    url_to_content_relevance_weight: dict[str, float] = {}
     for src in classified_sources or []:
         url = getattr(src, "url", None) or (
             src.get("url") if isinstance(src, dict) else None
@@ -2399,6 +2437,20 @@ def select_evidence_for_generation(
         )
         if url and tier:
             url_to_tier[str(url)] = str(tier)
+        if url is not None:
+            _crw = getattr(src, "content_relevance_weight", None)
+            if _crw is None and isinstance(src, dict):
+                _crw = src.get("content_relevance_weight")
+            if _crw is not None:
+                try:
+                    _crwf = float(_crw)
+                except (TypeError, ValueError):
+                    _crwf = 1.0
+                # Clamp to (0, 1]: a demoted source is KEPT at low weight, never
+                # zero/dropped (§-1.3). Only record a non-default weight so an
+                # all-default (W2-OFF) map stays empty => byte-identical sort.
+                if 0.0 < _crwf < 1.0:
+                    url_to_content_relevance_weight[str(url)] = _crwf
 
     # Compute relevance tokens from research question + protocol anchors.
     question_tokens = _content_tokens(research_question or "")
@@ -2481,6 +2533,19 @@ def select_evidence_for_generation(
             semantic_mode=(_semantic_scores is not None),
             semantic_requested=_semantic_scorer_enabled(),
             semantic_fell_back=_semantic_fell_back,
+            # I-wire-001 W2 (#1311) P1-2: per-source content-relevance weight (empty
+            # when W2 OFF => byte-identical). Multiplied into the floor-path SORT key
+            # so demoted junk sinks LAST in the REAL evidence_for_gen (§-1.3). This
+            # is the production path (Gate-B slate: PG_USE_FINDING_DEDUP=1 =>
+            # relevance_floor non-None => this branch fires).
+            # ORDER DEPENDENCY (verified against the Gate-B slate): the
+            # `_maybe_rerank_selection` post-step below is gated on
+            # PG_RERANKER_MODEL, which is NOT in the slate -> it no-ops (identity)
+            # and the W2-weighted order above is the FINAL order. If a future slate
+            # adds PG_RERANKER_MODEL, the CrossEncoder rerank would re-permute these
+            # rows and WASH OUT the W2 demotion — at that point the W2 weight must
+            # also be applied INSIDE/AFTER the rerank (e.g. a stable weight re-sort).
+            url_to_content_relevance_weight=url_to_content_relevance_weight,
         )
         # I-recency-001 (#1296) wiring fix: the production live call passes
         # `relevance_floor`, so it returns HERE — it never reaches the

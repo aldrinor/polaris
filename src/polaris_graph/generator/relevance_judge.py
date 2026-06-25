@@ -142,6 +142,45 @@ _RELEVANCE_PROMPT = (
     '"reason": "<one short sentence>"}}'
 )
 
+# I-wire-001 W2 (#1311): the CONTENT-RELEVANCE (question<->passage) prompt. This
+# is a DIFFERENT task from the citation-claim prompt above: at the post-fetch /
+# pre-tier seam there are NO generated claims yet, only the research QUESTION, so
+# the judge must decide whether a fetched passage is RELEVANT EVIDENCE for the
+# question — NOT whether a span supports a claim. It MUST mirror the Qwen3-
+# Reranker's question-passage semantics (the reranker asks "does the Document
+# meet the Query") so the two stages judge the SAME thing and escalation is
+# coherent. Reuses the SAME SUPPORTED/INSUFFICIENT/REFUTED label vocabulary so
+# the W2 caller's mapping is unchanged (SUPPORTED=keep, INSUFFICIENT/REFUTED=
+# demote). The {claim} key carries the research QUESTION; {span} carries the
+# fetched passage (the format keys are reused for transport compatibility).
+_CONTENT_RELEVANCE_PROMPT = (
+    "You are a strict content-relevance judge for a research pipeline. You are "
+    "given a research QUESTION and a PASSAGE of fetched source text. Decide "
+    "whether the PASSAGE contains information that is RELEVANT EVIDENCE for "
+    "answering the QUESTION.\n\n"
+    "Return EXACTLY one label:\n"
+    "- SUPPORTED: the PASSAGE contains substantive information that helps answer "
+    "the QUESTION (facts, findings, data, or authoritative statements on the "
+    "question's topic — a partial but on-point answer counts).\n"
+    "- INSUFFICIENT: the PASSAGE is on the general topic but does NOT contain "
+    "information that answers the QUESTION (topical-but-useless: navigation/"
+    "boilerplate/marketing, a generic background sentence, or the right subject "
+    "with no answering content).\n"
+    "- REFUTED: the PASSAGE is off-topic / unrelated to the QUESTION, or is "
+    "non-content chrome (cookie notice, login wall, ads).\n\n"
+    "QUESTION:\n{claim}\n\nPASSAGE:\n{span}\n\n"
+    'Respond with ONLY a JSON object: {{"label": "SUPPORTED|INSUFFICIENT|REFUTED", '
+    '"reason": "<one short sentence>"}}'
+)
+
+
+def make_content_relevance_judge() -> "_RelevanceJudge":
+    """Build a `_RelevanceJudge` wired with the content-relevance (question<->
+    passage) prompt for I-wire-001 W2. Reuses the tested transport / budget
+    ledger / family override / fail-to-KEEP path; only the prompt differs. NOT
+    gated by PG_RELEVANCE_GATE (W2 is gated solely by PG_CONTENT_RELEVANCE_JUDGE)."""
+    return _RelevanceJudge(prompt_template=_CONTENT_RELEVANCE_PROMPT)
+
 
 def _extract_first_json_object(content: object) -> dict:
     """Pull the first ``{...}`` JSON object out of a model response that may prepend
@@ -174,7 +213,13 @@ class _RelevanceJudge:
     by design (this is a per-citation LABEL, not the hard gate); a runtime transport/parse
     fault returns SUPPORTED (keep the strict_verify-passed cite) so always-release holds."""
 
-    def __init__(self) -> None:
+    def __init__(self, prompt_template: str | None = None) -> None:
+        # I-wire-001 W2 (#1311): an OPTIONAL prompt template lets a DIFFERENT
+        # relevance task reuse this judge's tested transport (httpx client, budget
+        # ledger, family-segregation override, fail-to-KEEP-on-error). Default =
+        # the #1280 citation-claim prompt, so the existing path is BYTE-IDENTICAL.
+        # The template must accept {claim} and {span} format keys.
+        self._prompt_template = prompt_template or _RELEVANCE_PROMPT
         api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise RuntimeError(
@@ -222,7 +267,7 @@ class _RelevanceJudge:
         citation already cleared the strict_verify hard gate, so declining to add the
         relevance dimension keeps the pre-existing verified state (always-release; never a
         runtime demotion or hold on a judge error)."""
-        prompt = _RELEVANCE_PROMPT.format(claim=claim, span=span)
+        prompt = self._prompt_template.format(claim=claim, span=span)
         effort = (os.environ.get(_ENV_REASONING_EFFORT, "").strip().lower()
                   or _DEFAULT_REASONING_EFFORT)
         if effort not in ("low", "medium", "high", "xhigh"):

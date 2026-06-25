@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -46,6 +46,121 @@ logger = logging.getLogger("polaris_graph.domain_backends")
 
 PG_DOMAIN_MAX_HITS = int(os.getenv("PG_DOMAIN_MAX_HITS", "10"))
 HTTP_TIMEOUT = float(os.getenv("PG_DOMAIN_HTTP_TIMEOUT", "15"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-001 W3 (#1310): bounded-parallel backend fan-out (gated by
+# PG_SEARCH_FUSION_WRRF — same single kill-switch as the WRRF fusion it feeds).
+# ─────────────────────────────────────────────────────────────────────────────
+# The serial `_run` loop in each dispatcher mutates shared state (candidates /
+# used / per) via `nonlocal`, so it is NOT thread-safe. Rather than make that
+# thread-safe, the ON path uses a SEPARATE bounded fan-out where each backend
+# returns ITS OWN list (no shared write); the dispatcher then reassembles the
+# results in FIXED backend order (deterministic — NOT completion order, so the
+# downstream WRRF tie-break stays reproducible per wiring_standard point 15) and
+# applies the SAME intra-dispatcher URL-dedup. OFF (default) the serial `_run`
+# loop runs byte-identically.
+
+
+def _backend_fanout_enabled() -> bool:
+    """True iff the W3 WRRF flag is ON (the parallel backend fan-out shares the
+    SAME single kill-switch as the fusion it feeds — wiring_standard point 13).
+    Default/unset => OFF => the serial `_run` loop runs byte-identically."""
+    return os.getenv("PG_SEARCH_FUSION_WRRF", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _backend_workers() -> int:
+    """Bounded backend fan-out cap (LAW VI). Default 6 per the execution graph
+    (sized to avoid upstream-API 429s). Clamped >= 1."""
+    try:
+        return max(1, int(os.getenv("PG_RETRIEVAL_BACKEND_WORKERS", "6")))
+    except ValueError:
+        return 6
+
+
+def _run_backends_parallel(
+    specs: list[tuple[str, Any]],
+    queries: list[str],
+    max_hits_per_backend: int,
+    *,
+    early_break: bool,
+    log_prefix: str,
+) -> tuple[
+    list[SearchCandidate], list[str], dict[str, int],
+    dict[str, list[SearchCandidate]],
+]:
+    """Run each (name, fn) backend in a bounded ThreadPoolExecutor.
+
+    Each worker runs ALL queries for ITS backend and returns that backend's own
+    hit list (intra-backend URL-dedup only). NO worker writes shared state, so
+    there is no lock. Results are reassembled in the SAME order as ``specs``
+    (declared backend order) so the output is deterministic regardless of which
+    worker finished first. Cross-backend URL-dedup is applied here in declared
+    order (mirrors the serial loop's first-seen-wins) so the merged candidate
+    set is identical-by-set to the serial path; only the WRRF fuser downstream
+    re-orders on rank. Each backend remains fail-open (an exception => 0 hits).
+
+    Returns a 4-tuple ``(candidates, used, per, per_engine_lists)``:
+      * ``candidates`` — the flat CROSS-DEDUPED list (legacy consumers + notes;
+        a shared URL is credited once to the first declared backend).
+      * ``used`` / ``per`` — backends-used + cross-deduped per-backend counts.
+      * ``per_engine_lists`` (I-wire-001 W3 #1310 P1-3) — each backend's OWN
+        intra-backend-deduped RANKED list, keyed by the declared backend NAME,
+        BEFORE cross-dedup. A URL returned by TWO backends survives in BOTH
+        lists with its DISTINCT per-engine rank, so the downstream ``wrrf_fuse``
+        fuses on real per-engine ranks (the prior code cross-deduped first,
+        collapsing duplicate ranks before they could reach the fuser). §-1.3:
+        this is rank-preservation for the WEIGHT fusion, never a drop.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _one(name_fn: tuple[str, Any]) -> tuple[str, list[SearchCandidate]]:
+        name, fn = name_fn
+        try:
+            got: list[SearchCandidate] = []
+            for q in queries:
+                got.extend(fn(q, limit=max_hits_per_backend))
+                if early_break and len(got) >= max_hits_per_backend * 2:
+                    break
+            # Intra-backend dedup (preserve this backend's returned rank order).
+            seen: set[str] = set()
+            uniq: list[SearchCandidate] = []
+            for c in got:
+                if c.url and c.url not in seen:
+                    seen.add(c.url)
+                    uniq.append(c)
+            return name, uniq
+        except Exception as exc:
+            logger.warning("[%s] %s failed (fail-open): %s", log_prefix, name, exc)
+            return name, []
+
+    workers = min(_backend_workers(), max(1, len(specs)))
+    results_by_name: dict[str, list[SearchCandidate]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for name, uniq in pool.map(_one, specs):
+            results_by_name[name] = uniq
+
+    # Per-engine ranked lists in DECLARED backend order (P1-3): the
+    # intra-backend-deduped list per backend, NOT cross-deduped — so a URL
+    # returned by two backends keeps its rank in BOTH and reaches wrrf_fuse.
+    per_engine_lists: dict[str, list[SearchCandidate]] = {}
+    # Reassemble the flat CROSS-DEDUPED list in DECLARED order — deterministic.
+    candidates: list[SearchCandidate] = []
+    used: list[str] = []
+    per: dict[str, int] = {}
+    cross_seen: set[str] = set()
+    for name, _fn in specs:
+        uniq = results_by_name.get(name, [])
+        per_engine_lists[name] = uniq          # P1-3: pre-cross-dedup ranks
+        new = [c for c in uniq if c.url and c.url not in cross_seen]
+        for c in new:
+            cross_seen.add(c.url)
+        candidates.extend(new)
+        used.append(name)
+        per[name] = len(new)
+    return candidates, used, per, per_engine_lists
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -588,6 +703,11 @@ class DomainBackendResult:
     candidates: list[SearchCandidate]
     backends_used: list[str]
     per_backend_counts: dict[str, int]
+    # I-wire-001 W3 (#1310) P1-3: per-backend RANKED lists (intra-backend dedup,
+    # NOT cross-deduped) keyed by backend name, so the caller can feed real
+    # per-engine ranks to wrrf_fuse. Empty on the serial/legacy (OFF) path =>
+    # byte-identical default; the caller falls back to the flat `candidates`.
+    per_engine_lists: dict[str, list[SearchCandidate]] = field(default_factory=dict)
 
 
 def run_domain_backends(
@@ -610,6 +730,10 @@ def run_domain_backends(
     candidates: list[SearchCandidate] = []
     used: list[str] = []
     per: dict[str, int] = {}
+    # I-wire-001 W3 (#1310) P1-3: per-backend ranked lists for wrrf_fuse. On the
+    # serial path it is populated from each backend's own pre-cross-dedup list so
+    # the WRRF fusion sees real per-engine ranks even without the parallel fanout.
+    per_engine_lists: dict[str, list[SearchCandidate]] = {}
 
     def _run(name: str, fn) -> None:
         nonlocal candidates, used, per
@@ -619,9 +743,19 @@ def run_domain_backends(
                 got.extend(fn(q, limit=max_hits_per_backend))
                 if len(got) >= max_hits_per_backend * 2:
                     break
-            # Dedup by URL
+            # Intra-backend dedup (preserve this backend's returned rank order) —
+            # this is the per-engine RANKED list (P1-3), captured BEFORE the
+            # cross-backend dedup below so duplicate ranks survive to wrrf_fuse.
+            _bseen: set[str] = set()
+            _buniq: list[SearchCandidate] = []
+            for c in got:
+                if c.url and c.url not in _bseen:
+                    _bseen.add(c.url)
+                    _buniq.append(c)
+            per_engine_lists[name] = _buniq
+            # Cross-backend dedup for the flat legacy `candidates` list.
             seen_urls = {c.url for c in candidates}
-            new = [c for c in got if c.url and c.url not in seen_urls]
+            new = [c for c in _buniq if c.url not in seen_urls]
             candidates.extend(new)
             used.append(name)
             per[name] = len(new)
@@ -629,25 +763,39 @@ def run_domain_backends(
             logger.warning("[domain_backends] %s failed: %s", name, exc)
             per[name] = 0
 
+    # Backend selection (same set for serial OFF + parallel ON paths).
+    specs: list[tuple[str, Any]] = []
     if domain == "tech":
-        _run("arxiv", arxiv_search)
-        _run("github", github_search_repos)
+        specs = [("arxiv", arxiv_search), ("github", github_search_repos)]
     elif domain == "policy":
-        _run("serper_policy", policy_targeted_serper)
+        specs = [("serper_policy", policy_targeted_serper)]
     elif domain == "due_diligence":
-        _run("sec_edgar", sec_edgar_search)
+        specs = [("sec_edgar", sec_edgar_search)]
     elif domain == "clinical":
         # I-meta-002-q1d (#942-clinical): add Europe PMC primary-literature breadth on top of generic
         # Serper + S2. Keyless/free + fail-open; kill-switch PG_CLINICAL_EUROPE_PMC=0. (ClinicalTrials.gov
         # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
         if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
-            _run("europe_pmc", europe_pmc_search)
+            specs = [("europe_pmc", europe_pmc_search)]
+
+    # I-wire-001 W3 (#1310): ON => bounded-parallel fan-out (deterministic
+    # declared-order reassembly). OFF (default) => the serial `_run` loop,
+    # byte-identical. early_break=True keeps the legacy result-count cap.
+    if _backend_fanout_enabled() and specs:
+        candidates, used, per, per_engine_lists = _run_backends_parallel(
+            specs, queries, max_hits_per_backend,
+            early_break=True, log_prefix="domain_backends",
+        )
+    else:
+        for _name, _fn in specs:
+            _run(_name, _fn)
 
     return DomainBackendResult(
         domain=domain,
         candidates=candidates,
         backends_used=used,
         per_backend_counts=per,
+        per_engine_lists=per_engine_lists,
     )
 
 
@@ -670,6 +818,10 @@ class NeedTypeBackendResult:
     candidates: list[SearchCandidate]
     backends_used: list[str]
     per_backend_counts: dict[str, int]
+    # I-wire-001 W3 (#1310) P1-3: per-backend RANKED lists (intra-backend dedup,
+    # NOT cross-deduped) keyed by adapter name — real per-engine ranks for
+    # wrrf_fuse. Empty on the serial/legacy (OFF) path => byte-identical.
+    per_engine_lists: dict[str, list[SearchCandidate]] = field(default_factory=dict)
 
 
 def run_need_type_backends(
@@ -728,6 +880,9 @@ def run_need_type_backends(
     candidates: list[SearchCandidate] = []
     used: list[str] = []
     per: dict[str, int] = {}
+    # I-wire-001 W3 (#1310) P1-3: per-adapter ranked lists for wrrf_fuse (real
+    # per-engine ranks, pre-cross-dedup).
+    per_engine_lists: dict[str, list[SearchCandidate]] = {}
 
     def _run(name: str, fn) -> None:
         nonlocal candidates, used, per
@@ -745,8 +900,17 @@ def run_need_type_backends(
                 # pass) keeps the exact legacy break -> byte-identical.
                 if anchor_seed and len(got) >= max_hits_per_backend * 2:
                     break
+            # Intra-adapter dedup = this adapter's per-engine RANKED list (P1-3),
+            # captured BEFORE the cross-adapter dedup so duplicate ranks survive.
+            _aseen: set[str] = set()
+            _auniq: list[SearchCandidate] = []
+            for c in got:
+                if c.url and c.url not in _aseen:
+                    _aseen.add(c.url)
+                    _auniq.append(c)
+            per_engine_lists[name] = _auniq
             seen_urls = {c.url for c in candidates}
-            new = [c for c in got if c.url and c.url not in seen_urls]
+            new = [c for c in _auniq if c.url not in seen_urls]
             candidates.extend(new)
             used.append(name)
             per[name] = len(new)
@@ -754,12 +918,24 @@ def run_need_type_backends(
             logger.warning("[need_type_backends] %s failed (fail-open): %s", name, exc)
             per[name] = 0
 
-    for adapter in adapters:
-        _run(adapter.name, adapter.run)
+    # I-wire-001 W3 (#1310): ON => bounded-parallel fan-out over the adapters
+    # (deterministic declared-order reassembly). OFF (default) => serial `_run`,
+    # byte-identical. early_break=anchor_seed mirrors the serial cap (the gap
+    # round anchor_seed=False fires ALL queries with no early break).
+    if _backend_fanout_enabled() and adapters:
+        specs = [(adapter.name, adapter.run) for adapter in adapters]
+        candidates, used, per, per_engine_lists = _run_backends_parallel(
+            specs, queries, max_hits_per_backend,
+            early_break=anchor_seed, log_prefix="need_type_backends",
+        )
+    else:
+        for adapter in adapters:
+            _run(adapter.name, adapter.run)
 
     return NeedTypeBackendResult(
         needs=declared_needs,
         candidates=candidates,
         backends_used=used,
         per_backend_counts=per,
+        per_engine_lists=per_engine_lists,
     )
