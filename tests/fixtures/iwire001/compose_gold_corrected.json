@@ -1,0 +1,469 @@
+{
+  "baskets": [
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::acemoglu_restrepo_automation_tasks",
+      "subject": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+      "claim_text": "We present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past.",
+      "members": [
+        {
+          "eid": "acemoglu_restrepo_automation_tasks",
+          "span": "We present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past.",
+          "tier": "T1",
+          "weight": 0.95
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::acemoglu_restrepo_robots_jobs",
+      "subject": "Robots and Jobs: Evidence from US Labor Markets",
+      "claim_text": "We study the effects of industrial robots on US labor markets.",
+      "members": [
+        {
+          "eid": "acemoglu_restrepo_robots_jobs",
+          "span": "We study the effects of industrial robots on US labor markets.",
+          "tier": "T1",
+          "weight": 0.95
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::brynjolfsson_genai_at_work",
+      "subject": "Generative AI at Work",
+      "claim_text": "We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents.",
+      "members": [
+        {
+          "eid": "brynjolfsson_genai_at_work",
+          "span": "We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents.",
+          "tier": "T1",
+          "weight": 0.95
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::eloundou_gpts_are_gpts",
+      "subject": "GPTs are GPTs: Labor market impact potential of LLMs",
+      "claim_text": "Research is needed to estimate how jobs may be affected",
+      "members": [
+        {
+          "eid": "eloundou_gpts_are_gpts",
+          "span": "Research is needed to estimate how jobs may be affected",
+          "tier": "T1",
+          "weight": 0.95
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_001",
+      "subject": "Toward understanding the impact of artificial intelligence on labor",
+      "claim_text": "World Economic Forum, AI and automation are predicted to contribute 69 million new jobs worldwide by 2028.1 These new roles often require skills in areas such as creative thinking, data analysis, machine learning, and AI development, highlighting the importance of upskilling and reskilling programs.",
+      "members": [
+        {
+          "eid": "ev_001",
+          "span": "World Economic Forum, AI and automation are predicted to contribute 69 million new jobs worldwide by 2028.1 These new roles often require skills in areas such as creative thinking, data analysis, machine learning, and AI development, highlighting the importance of upskilling and reskilling programs.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_002",
+      "subject": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+      "claim_text": "By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet.",
+      "members": [
+        {
+          "eid": "ev_002",
+          "span": "By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_004",
+      "subject": "How artificial intelligence affects the labour force employment ...",
+      "claim_text": "How artificial intelligence affects the labour force employment structure from the perspective of industrial structure optimisation To investigate how artificial intelligence (AI) affects the structure of labour force employment, we integrate robotics adoption and employment into this study's model.",
+      "members": [
+        {
+          "eid": "ev_004",
+          "span": "How artificial intelligence affects the labour force employment structure from the perspective of industrial structure optimisation To investigate how artificial intelligence (AI) affects the structure of labour force employment, we integrate robotics adoption and employment into this study's model.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_006",
+      "subject": "The China Syndrome: Local Labor Market Effects of Import Competition in the Unit",
+      "claim_text": "Private and public decisions related to labor markets and working conditions are increasingly being influenced by technological considerations.",
+      "members": [
+        {
+          "eid": "ev_006",
+          "span": "Private and public decisions related to labor markets and working conditions are increasingly being influenced by technological considerations.",
+          "tier": "T3",
+          "weight": 0.75
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_007",
+      "subject": "AI in the Workplace: A Systematic Review of Skill Transformation in the Industry",
+      "claim_text": "The study also establishes a connection between the success of AI and the broader concept of the Fourth Industrial Revolution, or Industry 4.0, highlighting AI’s pivotal role in advancing other technologies.",
+      "members": [
+        {
+          "eid": "ev_007",
+          "span": "The study also establishes a connection between the success of AI and the broader concept of the Fourth Industrial Revolution, or Industry 4.0, highlighting AI’s pivotal role in advancing other technologies.",
+          "tier": "T2",
+          "weight": 0.85
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_011",
+      "subject": "Toward understanding the impact of artificial intelligence on labor",
+      "claim_text": "This literature review takes stock of what is known about the impact of artificial intelligence on the labour market, including the impact on employment and wages, how AI will transform jobs and skill needs, and the impact on the work environment.",
+      "members": [
+        {
+          "eid": "ev_011",
+          "span": "This literature review takes stock of what is known about the impact of artificial intelligence on the labour market, including the impact on employment and wages, how AI will transform jobs and skill needs, and the impact on the work environment.",
+          "tier": "T3",
+          "weight": 0.75
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_012",
+      "subject": "The impact of artificial intelligence (AI) on employees’ skills and well-being i",
+      "claim_text": "The impact of artificial intelligence (AI) on employees’ skills and well-being in global labor markets: A systematic review Abstract Research background: This article discusses how artificial intelligence (AI) is affecting workers' personal and professional lives, because of many technological disruptions driven by the recent pandemic that are redefining global labor markets.",
+      "members": [
+        {
+          "eid": "ev_012",
+          "span": "The impact of artificial intelligence (AI) on employees’ skills and well-being in global labor markets: A systematic review Abstract Research background: This article discusses how artificial intelligence (AI) is affecting workers' personal and professional lives, because of many technological disruptions driven by the recent pandemic that are redefining global labor markets.",
+          "tier": "T2",
+          "weight": 0.85
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_014",
+      "subject": "The impact of artificial intelligence (AI) on employees’ skills and well-being i",
+      "claim_text": "Overall, labor demand in relation to capital demand is determined by the rate of automation compared to the creation of new types of jobs (Graetz, 2020).",
+      "members": [
+        {
+          "eid": "ev_014",
+          "span": "Overall, labor demand in relation to capital demand is determined by the rate of automation compared to the creation of new types of jobs (Graetz, 2020).",
+          "tier": "T6",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_016",
+      "subject": "Is AI already shaking up labor market? - Harvard Gazette",
+      "claim_text": "The study measures more than 100 years of “occupational churn” — or each profession’s share in the U.S. labor market — for a historical look at technological disruption.",
+      "members": [
+        {
+          "eid": "ev_016",
+          "span": "The study measures more than 100 years of “occupational churn” — or each profession’s share in the U.S. labor market — for a historical look at technological disruption.",
+          "tier": "UNKNOWN",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_017",
+      "subject": "[PDF] Displacement or Complementarity? The Labor Market Impact of ...",
+      "claim_text": "This study examines whether generative AI displaces workers or augments their jobs by analyzing labor demand and skill requirements across occupations.",
+      "members": [
+        {
+          "eid": "ev_017",
+          "span": "This study examines whether generative AI displaces workers or augments their jobs by analyzing labor demand and skill requirements across occupations.",
+          "tier": "UNKNOWN",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_019",
+      "subject": "[PDF] The Potential Impact of Artificial Intelligence on UK Employment and ...",
+      "claim_text": "Past research suggests that AI and related technologies should be significantly positive for productivity and real income levels, boosting UK GDP by up to 10% by 2030.2 However, other studies3 have pointed, to varying degrees, to potential displacement of human workers as these technologies are rolled out across the economy over the coming decades.",
+      "members": [
+        {
+          "eid": "ev_019",
+          "span": "Past research suggests that AI and related technologies should be significantly positive for productivity and real income levels, boosting UK GDP by up to 10% by 2030.2 However, other studies3 have pointed, to varying degrees, to potential displacement of human workers as these technologies are rolled out across the economy over the coming decades.",
+          "tier": "T3",
+          "weight": 0.75
+        }
+      ]
+    },
+    {
+      "kind": "clinical_negation",
+      "claim_cluster_id": "c::neg",
+      "subject": "safety / negation-polarity",
+      "claim_text": "The path of technological progress has produced many head-on collisions bet\n\n[...]\n\nnternet space, we cannot recall a faster ramp in a consumer internet app [than ChatGPT experienced],” the authors of the UBS report write.",
+      "negation_marker": "cannot",
+      "members": [
+        {
+          "eid": "ev_003",
+          "span": "The path of technological progress has produced many head-on collisions bet\n\n[...]\n\nnternet space, we cannot recall a faster ramp in a consumer internet app [than ChatGPT experienced],” the authors of the UBS report write.",
+          "tier": "T4",
+          "weight": 0.7
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::autor_why_still_jobs",
+      "subject": "Why Are There Still So Many Jobs? (Autor 2015, JEP)",
+      "claim_text": "In many cases, machines both substitute for and complement human labor. Focusing only on what is lost misses a central economic mechanism by which automation affects the demand for labor: raising the value of the tasks that workers uniquely supply.",
+      "members": [
+        {
+          "eid": "autor_why_still_jobs",
+          "span": "In many cases, machines both substitute for and complement human labor. Focusing only on what is lost misses a central economic mechanism by which automation affects the demand for labor: raising the value of the tasks that workers uniquely supply.",
+          "tier": "T1",
+          "weight": 0.95
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_015",
+      "subject": "Transformative Impact of AI on US Labor - prompt-engineering effectiveness statistics (effect sizes + p<0.001)",
+      "claim_text": "Task Completion Time | 45.2 min | 28.7 min | 1.24 | 8.45 | &lt; 0.001 | | Output Quality Score | 3.1/5 | 4.3/5 | 1.18 | 7.92 | &lt; 0.001 | | User Satisfaction | 3.4/5 | 4.2/5 | 0.96 | 6.54 | &lt; 0.001 | | Error Rate | 22% | 9% | 1.32 | 9.01 | &lt; 0.001",
+      "members": [
+        {
+          "eid": "ev_015",
+          "span": "Task Completion Time | 45.2 min | 28.7 min | 1.24 | 8.45 | &lt; 0.001 | | Output Quality Score | 3.1/5 | 4.3/5 | 1.18 | 7.92 | &lt; 0.001 | | User Satisfaction | 3.4/5 | 4.2/5 | 0.96 | 6.54 | &lt; 0.001 | | Error Rate | 22% | 9% | 1.32 | 9.01 | &lt; 0.001",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_005",
+      "subject": "AI, Productivity, and Labor Markets - empirical review (key findings)",
+      "claim_text": "What you’ll learn: - AI adoption leads to increased company growth in revenue, profits, employment, and profitability. - Exposure to AI is greatest in higher-paying roles that involve information processing and analysis. - In the 2014 – 2023 period, AI-exposed roles did not experience job losses relative to other roles, due to offsetting factors.",
+      "members": [
+        {
+          "eid": "ev_005",
+          "span": "What you’ll learn: - AI adoption leads to increased company growth in revenue, profits, employment, and profitability. - Exposure to AI is greatest in higher-paying roles that involve information processing and analysis. - In the 2014 – 2023 period, AI-exposed roles did not experience job losses relative to other roles, due to offsetting factors.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "singleton",
+      "claim_cluster_id": "c::ev_026",
+      "subject": "Comprehensive analysis of AI on the global employment landscape",
+      "claim_text": "This research paper provides a comprehensive analysis of the transformative effects of Artificial Intelligence (AI) on the global employment landscape.",
+      "members": [
+        {
+          "eid": "ev_026",
+          "span": "This research paper provides a comprehensive analysis of the transformative effects of Artificial Intelligence (AI) on the global employment landscape.",
+          "tier": "T6",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "multi_source",
+      "claim_cluster_id": "c::multi_jobexposure",
+      "subject": "corroborated finding: large measured share of jobs highly exposed to AI task automation (>=2 sources)",
+      "claim_text": "Multiple studies estimate that a substantial share of jobs face high exposure to AI-driven task automation.",
+      "members": [
+        {
+          "eid": "ev_347",
+          "span": "The study reveals that 32.8% of occupations could be fully impacted by ChatGPT, while 36.5% might experience a partial impact and 30.7% are likely to remain unaffected.",
+          "tier": "T1",
+          "weight": 0.95
+        },
+        {
+          "eid": "ev_018",
+          "span": "Korea, it is found that, as of 2023, 38.8% of current jobs are at risk of having over 70% of their tasks automated.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "multi_source",
+      "claim_cluster_id": "c::multi_productivity",
+      "subject": "corroborated finding: AI yields measured worker/aggregate productivity gains (>=2 sources)",
+      "claim_text": "Multiple studies find that AI adoption produces measured productivity gains.",
+      "members": [
+        {
+          "eid": "ev_407",
+          "span": "Together, the model and data imply that the self-reported time savings from generative AI translate to a 1.1% increase in aggregate productivity.",
+          "tier": "T3",
+          "weight": 0.75
+        },
+        {
+          "eid": "ev_404",
+          "span": "Because inputs and prices were held constant across experimental arms, these gains map directly into total factor productivity improvements.",
+          "tier": "T4",
+          "weight": 0.6
+        }
+      ]
+    },
+    {
+      "kind": "multi_source",
+      "claim_cluster_id": "c::multi_history",
+      "subject": "corroborated finding: successive technological waves historically reshape labor markets (>=2 sources)",
+      "claim_text": "Successive waves of technological progress have historically reshaped the structure of labor markets.",
+      "members": [
+        {
+          "eid": "ev_010",
+          "span": "From the dawn of the agricultural revolution to the digital age, each wave of innovation has redefined the structure, nature and dynamics of labour markets.",
+          "tier": "T4",
+          "weight": 0.6
+        },
+        {
+          "eid": "ev_022",
+          "span": "E ach new wave of technological progress sparks debates about the effects of automation on the future of employment.",
+          "tier": "T6",
+          "weight": 0.6
+        }
+      ]
+    }
+  ],
+  "evidence_pool": {
+    "acemoglu_restrepo_automation_tasks": {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "direct_quote": "We present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past."
+    },
+    "acemoglu_restrepo_robots_jobs": {
+      "evidence_id": "acemoglu_restrepo_robots_jobs",
+      "direct_quote": "We study the effects of industrial robots on US labor markets."
+    },
+    "brynjolfsson_genai_at_work": {
+      "evidence_id": "brynjolfsson_genai_at_work",
+      "direct_quote": "We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents."
+    },
+    "eloundou_gpts_are_gpts": {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "direct_quote": "Research is needed to estimate how jobs may be affected"
+    },
+    "ev_001": {
+      "evidence_id": "ev_001",
+      "direct_quote": "World Economic Forum, AI and automation are predicted to contribute 69 million new jobs worldwide by 2028.1 These new roles often require skills in areas such as creative thinking, data analysis, machine learning, and AI development, highlighting the importance of upskilling and reskilling programs."
+    },
+    "ev_002": {
+      "evidence_id": "ev_002",
+      "direct_quote": "By late 2024, nearly 40% of U.S. adults ages 18–64 reported using AI tools, a pace that exceeds comparable stages for personal computers and the internet."
+    },
+    "ev_004": {
+      "evidence_id": "ev_004",
+      "direct_quote": "How artificial intelligence affects the labour force employment structure from the perspective of industrial structure optimisation To investigate how artificial intelligence (AI) affects the structure of labour force employment, we integrate robotics adoption and employment into this study's model."
+    },
+    "ev_006": {
+      "evidence_id": "ev_006",
+      "direct_quote": "Private and public decisions related to labor markets and working conditions are increasingly being influenced by technological considerations."
+    },
+    "ev_007": {
+      "evidence_id": "ev_007",
+      "direct_quote": "The study also establishes a connection between the success of AI and the broader concept of the Fourth Industrial Revolution, or Industry 4.0, highlighting AI’s pivotal role in advancing other technologies."
+    },
+    "ev_010": {
+      "evidence_id": "ev_010",
+      "direct_quote": "From the dawn of the agricultural revolution to the digital age, each wave of innovation has redefined the structure, nature and dynamics of labour markets."
+    },
+    "ev_011": {
+      "evidence_id": "ev_011",
+      "direct_quote": "This literature review takes stock of what is known about the impact of artificial intelligence on the labour market, including the impact on employment and wages, how AI will transform jobs and skill needs, and the impact on the work environment."
+    },
+    "ev_012": {
+      "evidence_id": "ev_012",
+      "direct_quote": "The impact of artificial intelligence (AI) on employees’ skills and well-being in global labor markets: A systematic review Abstract Research background: This article discusses how artificial intelligence (AI) is affecting workers' personal and professional lives, because of many technological disruptions driven by the recent pandemic that are redefining global labor markets."
+    },
+    "ev_014": {
+      "evidence_id": "ev_014",
+      "direct_quote": "Overall, labor demand in relation to capital demand is determined by the rate of automation compared to the creation of new types of jobs (Graetz, 2020)."
+    },
+    "ev_016": {
+      "evidence_id": "ev_016",
+      "direct_quote": "The study measures more than 100 years of “occupational churn” — or each profession’s share in the U.S. labor market — for a historical look at technological disruption."
+    },
+    "ev_017": {
+      "evidence_id": "ev_017",
+      "direct_quote": "This study examines whether generative AI displaces workers or augments their jobs by analyzing labor demand and skill requirements across occupations."
+    },
+    "ev_019": {
+      "evidence_id": "ev_019",
+      "direct_quote": "Past research suggests that AI and related technologies should be significantly positive for productivity and real income levels, boosting UK GDP by up to 10% by 2030.2 However, other studies3 have pointed, to varying degrees, to potential displacement of human workers as these technologies are rolled out across the economy over the coming decades."
+    },
+    "ev_022": {
+      "evidence_id": "ev_022",
+      "direct_quote": "E ach new wave of technological progress sparks debates about the effects of automation on the future of employment."
+    },
+    "ev_003": {
+      "evidence_id": "ev_003",
+      "direct_quote": "The path of technological progress has produced many head-on collisions bet\n\n[...]\n\nnternet space, we cannot recall a faster ramp in a consumer internet app [than ChatGPT experienced],” the authors of the UBS report write."
+    },
+    "autor_why_still_jobs": {
+      "evidence_id": "autor_why_still_jobs",
+      "direct_quote": "In many cases, machines both substitute for and complement human labor. Focusing only on what is lost misses a central economic mechanism by which automation affects the demand for labor: raising the value of the tasks that workers uniquely supply."
+    },
+    "ev_015": {
+      "evidence_id": "ev_015",
+      "direct_quote": "Task Completion Time | 45.2 min | 28.7 min | 1.24 | 8.45 | &lt; 0.001 | | Output Quality Score | 3.1/5 | 4.3/5 | 1.18 | 7.92 | &lt; 0.001 | | User Satisfaction | 3.4/5 | 4.2/5 | 0.96 | 6.54 | &lt; 0.001 | | Error Rate | 22% | 9% | 1.32 | 9.01 | &lt; 0.001"
+    },
+    "ev_005": {
+      "evidence_id": "ev_005",
+      "direct_quote": "What you’ll learn: - AI adoption leads to increased company growth in revenue, profits, employment, and profitability. - Exposure to AI is greatest in higher-paying roles that involve information processing and analysis. - In the 2014 – 2023 period, AI-exposed roles did not experience job losses relative to other roles, due to offsetting factors."
+    },
+    "ev_026": {
+      "evidence_id": "ev_026",
+      "direct_quote": "This research paper provides a comprehensive analysis of the transformative effects of Artificial Intelligence (AI) on the global employment landscape."
+    },
+    "ev_347": {
+      "evidence_id": "ev_347",
+      "direct_quote": "The study reveals that 32.8% of occupations could be fully impacted by ChatGPT, while 36.5% might experience a partial impact and 30.7% are likely to remain unaffected."
+    },
+    "ev_018": {
+      "evidence_id": "ev_018",
+      "direct_quote": "Korea, it is found that, as of 2023, 38.8% of current jobs are at risk of having over 70% of their tasks automated."
+    },
+    "ev_407": {
+      "evidence_id": "ev_407",
+      "direct_quote": "Together, the model and data imply that the self-reported time savings from generative AI translate to a 1.1% increase in aggregate productivity."
+    },
+    "ev_404": {
+      "evidence_id": "ev_404",
+      "direct_quote": "Because inputs and prices were held constant across experimental arms, these gains map directly into total factor productivity improvements."
+    }
+  },
+  "manifest": {
+    "corpus_path": "outputs/corpus_backups/extracted/drb_72_ai_labor/corpus_snapshot.json",
+    "corpus_run_id": "SWEEP_workforce_drb_72_ai_labor_1781708483",
+    "corpus_question": "Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles.",
+    "corpus_domain": "workforce",
+    "corpus_stage": "pre_generation",
+    "n_baskets": 23,
+    "n_singletons": 19,
+    "has_multi_source": true,
+    "clinical_negation_basket": "cannot",
+    "clinical_negation_gap": null,
+    "provenance": "baskets assembled ONCE from the banked corpus_snapshot's already-verified evidence_for_gen rows; first-sentence claim-local spans; SUPPORTS span_verdict justified because rows passed the pipeline verify to reach evidence_for_gen; multi-source basket = two REAL banked spans grouped as corroborators; negation basket = a REAL banked sentence carrying a polarity marker. No synthetic evidence, no faked spans. Consolidation FIXED (no re-clustering run).",
+    "faithfulness_engine": "FROZEN verify_sentence_provenance (deterministic span-grounding; PG_STRICT_VERIFY_ENTAILMENT=off — judge axis is separate)",
+    "schema": "compose_gold_corrected/v2",
+    "chrome_clean_provenance": "Re-extracted the first non-chrome real evidence sentence from each banked corpus row (eid+token stable). 3 fully-chrome rows (ev_009 AGENTPANEL, ev_023 Iowa-platform, ev_024 YouTube-title) DROPPED — zero extractable evidence in the entire banked row (not a breadth-number drop; a claim that does not exist cannot be weighted/consolidated). Multi-source RECONSTRUCTED from two distinct REAL eids (ev_026 abstract + promoted-real ev_005; original junk member ev_027 dropped; ev_005 singleton removed to avoid double-count). Negation basket ev_003 kept byte-identical.",
+    "n_multi_source": 3,
+    "correction_provenance": "I-upstream-002 #1301 v2: RESTORED autor_why_still_jobs (T1 Autor-2015 JEP, verbatim thesis sentence past the journal-header chrome) + ev_015 (T4, verbatim prompt-engineering statistics table: effect sizes Cohen-d + t-stats + p<0.001) - both wrongly dropped as 'all chrome' when only the first sentence was chrome. ADDED 3 genuine >=2-source corroborator baskets (job-exposure ev_347+ev_018; productivity ev_407+ev_404; tech-history ev_010+ev_022) - each member a REAL banked verbatim span asserting the SAME proposition; re-homed singletons removed to avoid double-count. Dropped weak ev_026+ev_005 multi (not same-proposition); both restored as clean singletons. Negation ev_003 byte-identical. Pool-integrity guard PASSED."
+  }
+}

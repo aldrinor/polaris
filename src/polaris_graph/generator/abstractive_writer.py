@@ -59,15 +59,118 @@ _DEFAULT_MODEL = "z-ai/glm-5.2"
 _ENV_MAX_RETRIES = "PG_ABSTRACTIVE_WRITER_MAX_RETRIES"
 _DEFAULT_MAX_RETRIES = 1                       # 2 total attempts (design §5.2)
 _ENV_MAX_TOKENS = "PG_ABSTRACTIVE_WRITER_MAX_TOKENS"
-_DEFAULT_MAX_TOKENS = 2048                     # a rephrase, not an essay; a cap is free insurance (§3.5)
+# §9.1.8 "never starve": 2048 STARVED the writer. GLM-5.2 reaches the _ALWAYS_REASON branch
+# (openrouter_client.py:1778), which (a) floors max_tokens at PG_GLM5_MIN_MAX_TOKENS=4096 and (b)
+# burns a real reasoning budget BEFORE content — so a 2048 cap is bumped to 4096 then largely
+# consumed by reasoning, truncating the rephrase on a many-span basket -> empty/degraded synthesis.
+# OpenRouter /api/v1/models reports z-ai/glm-5.2 top_provider.max_completion_tokens=32768
+# (context_length 1,048,576), verified 2026-06-25. Per §9.1.8 ("reasoning effort + max_tokens ALWAYS
+# go MAX", "set max_tokens to the model's REAL OpenRouter limit") the default is the FULL 32768 provider
+# cap: ~8x headroom over the 4096 GLM floor, so GLM's reasoning budget can run high WITHOUT truncating
+# the content rephrase on a many-span basket. max_tokens is a CAP not a target (billed by actual usage),
+# so the generous ceiling is free insurance — never starve the writer.
+_DEFAULT_MAX_TOKENS = 32768
 _ENV_REASONING_MAX_TOKENS = "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS"
-_DEFAULT_REASONING_MAX_TOKENS = 8192           # GLM burns reasoning budget — generous per §9.1.8
+# §9.1.8 "reasoning effort ALWAYS goes MAX": a FIXED reasoning_max_tokens is mutually exclusive with
+# reasoning EFFORT on the GLM _ALWAYS_REASON branch (openrouter_client.py:1784-1788) — passing a fixed
+# cap SUPPRESSES effort=high. Default UNSET (-1 sentinel) so generate() receives reasoning_max_tokens=None
+# and GLM runs at effort=high (its branch-1 default), governed by the overall max_tokens ceiling — the
+# §9.1.8 max-reasoning posture. An operator may still pin a fixed reasoning cap via this env if needed.
+_DEFAULT_REASONING_MAX_TOKENS = -1             # -1 => unset (effort=high governs, §9.1.8)
 _ENV_CONCURRENCY = "PG_ABSTRACTIVE_WRITER_CONCURRENCY"
 _DEFAULT_CONCURRENCY = 8                       # bounded fan-out (§3.5), matches campaign verify fan-out
 _ENV_TEMPERATURE = "PG_ABSTRACTIVE_WRITER_TEMPERATURE"
 _DEFAULT_TEMPERATURE = 0.2                     # low — faithful rephrase, not creative
 _ENV_CALL_DEADLINE_S = "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S"
 _DEFAULT_CALL_DEADLINE_S = 120.0               # per-call total deadline -> force-close to K-span (§3.5)
+# OUTER wall-deadline on the WHOLE pre-pass (I-arch-007 wall+abandon pattern, async-native form).
+# The per-call deadline (above) bounds ONE call; under a provider connection/429 storm the bounded pool
+# of N calls + their retry backoffs can still balloon the pre-pass wall-clock with NO outer bound, and
+# an asyncio.wait_for cancellation that stalls in httpx client teardown (the proven hang class) would
+# wedge asyncio.gather forever. The pre-pass therefore runs the basket tasks under asyncio.wait(timeout)
+# and ABANDONS (never awaits) any still-pending task at the wall -> those baskets are simply absent from
+# the precomputed dict -> the unchanged compose loop K-span-falls-back (always-release, disclosed,
+# fail-OPEN). Sized comfortably above the legit worst case (a healthy basket = (max_retries+1) *
+# call_deadline ~= 240s; observed real waves ran ~180-200s) so HEALTHY baskets are never abandoned.
+_ENV_WALL_DEADLINE_S = "PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S"
+# Sized to NOT abandon HEALTHY baskets under uniform provider slowness. Worst-case makespan =
+# ceil(n_baskets / concurrency) waves * (max_retries+1) attempts * call_deadline. At the default
+# 23 baskets / 8 concurrency / 1 retry / 120s call = ceil(23/8)=3 waves * 2 * 120 = 720s. The wall is
+# set to that worst case so a uniformly-slow-but-eventually-healthy run completes rather than abandons
+# its last wave; observed real waves ran ~180-200s, so the wall only ever bites a genuinely stuck call.
+_DEFAULT_WALL_DEADLINE_S = 720.0               # outer wall -> abandon stuck baskets to K-span (never infinite)
+
+
+# ── teardown-drain mechanism (I-wire-001 W6 #1314) ────────────────────────────────────────────────
+# PROVEN pattern ported VERBATIM-IN-STRUCTURE from src/tools/access_bypass.py:1861-2026 (I-cd-032
+# #632). A bare ``t.cancel()`` on a still-pending basket task is INSUFFICIENT: a task wedged inside
+# httpx client teardown — or any task that swallows ``CancelledError`` and re-blocks — IGNORES the
+# cancel and stays pending. ``asyncio.run``'s built-in shutdown then calls ``_cancel_all_tasks`` which
+# ``gather``-awaits EVERY still-pending task BEFORE ``loop.close()`` — so one uncancellable task hangs
+# the whole process at shutdown. Mitigation (mirrors access_bypass exactly): at the wall we (a) register
+# each abandoned task in a module-level detached set, (b) ``cancel()`` it best-effort, then (c)
+# FORCE-CLOSE its underlying coroutine via ``_coro.close()`` (raises GeneratorExit -> finally/except
+# blocks run synchronously, no new await is possible, the task is finalized as ``done()``). A finalized
+# task is excluded from ``_cancel_all_tasks``'s await-list, so shutdown completes. Belt-and-suspenders:
+# :func:`install_teardown_drain_hook` ALSO patches the loop's ``_cancel_all_tasks`` phase so an
+# UNTRACKED wedged task (not in the detached set) is force-closed before it is awaited. Faithfulness
+# engine UNTOUCHED — this is purely a process-teardown safety net on the abandon (fail-open) path.
+_DETACHED_WRITER_TASKS: "set[asyncio.Task]" = set()
+
+
+def _drain_detached_writer_task(task: "asyncio.Task") -> None:
+    """Done-callback for a detached basket task: drop the strong ref and retrieve any exception so
+    asyncio does not log 'exception never retrieved'. Mirrors access_bypass._drain_detached."""
+    _DETACHED_WRITER_TASKS.discard(task)
+    if not task.cancelled():
+        try:
+            task.exception()
+        except Exception:  # noqa: BLE001 — exception retrieval is best-effort
+            pass
+
+
+def _force_drop_detached_writer_task(task: "asyncio.Task") -> None:
+    """Forcibly finalize a wedged detached basket task so ``asyncio.run``'s ``_cancel_all_tasks``
+    cannot await it. Closes the task's underlying coroutine via ``_coro.close()`` — that raises
+    GeneratorExit into the coroutine's current suspension point, runs any finally/except blocks
+    SYNCHRONOUSLY (GeneratorExit suppresses new yields, so the frame cannot re-block), and finalizes
+    the task as cancelled/done. Best-effort: if ``_coro`` is absent the strong ref is simply dropped.
+    Mirrors access_bypass._force_drop_detached_task (I-cd-032 #632)."""
+    if task.done():
+        _DETACHED_WRITER_TASKS.discard(task)
+        return
+    coro = getattr(task, "_coro", None)
+    if coro is None:
+        _DETACHED_WRITER_TASKS.discard(task)
+        return
+    try:
+        coro.close()
+    except Exception:  # noqa: BLE001 — close() must never raise here
+        pass
+    _DETACHED_WRITER_TASKS.discard(task)
+
+
+def install_teardown_drain_hook(loop: "asyncio.AbstractEventLoop") -> None:
+    """Belt-and-suspenders teardown guard. ``asyncio.run`` calls the loop's ``_cancel_all_tasks``
+    phase (which ``gather``-awaits every pending task) BEFORE ``loop.close()``, so an UNTRACKED wedged
+    task — one not in :data:`_DETACHED_WRITER_TASKS` — would still hang shutdown. This patches
+    ``loop.close`` to first force-close every still-tracked detached task; the primary defense remains
+    the abandon-time force-close in :func:`abstractive_pre_pass`, which finalizes tracked tasks before
+    ``_cancel_all_tasks`` ever runs. Idempotent. Mirrors access_bypass.install_teardown_drain_hook."""
+    if getattr(loop, "_polaris_writer_drain_installed", False):
+        return
+    original_close = loop.close
+
+    def _drain_then_close() -> None:
+        for task in list(_DETACHED_WRITER_TASKS):
+            _force_drop_detached_writer_task(task)
+        original_close()
+
+    loop.close = _drain_then_close  # type: ignore[method-assign]
+    try:
+        loop._polaris_writer_drain_installed = True  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — marker is best-effort
+        pass
 
 
 def _abstractive_writer_enabled() -> bool:
@@ -305,13 +408,16 @@ async def _call_writer(
 
     prompt = _build_writer_prompt(members, evidence_pool, revise_reasons=revise_reasons)
     client = OpenRouterClient(model=model)
+    # §9.1.8: a NEGATIVE/zero reasoning cap is the "unset" sentinel -> pass None so GLM-5.2's
+    # _ALWAYS_REASON branch runs at effort=high (its default) instead of a starving fixed cap.
+    reasoning_arg = reasoning_max_tokens if reasoning_max_tokens and reasoning_max_tokens > 0 else None
     try:
         response = await client.generate(
             prompt=prompt,
             system=_WRITER_SYSTEM,
             max_tokens=max_tokens,
             temperature=temperature,
-            reasoning_max_tokens=reasoning_max_tokens,
+            reasoning_max_tokens=reasoning_arg,
         )
         return str(getattr(response, "content", "") or "")
     finally:
@@ -442,17 +548,28 @@ async def abstractive_pre_pass(
     writer_verify_fn: Callable[..., Any],
 ) -> dict:
     """ASYNC pre-pass (design §3.4a): precompute one verified draft per basket up front, under a
-    ``PG_ABSTRACTIVE_WRITER_CONCURRENCY`` semaphore with a per-call total deadline. Keyed by the
-    basket's canonical ``claim_cluster_id`` so the sync ``writer_fn`` is a deterministic dict lookup.
-    A basket that the writer skipped/failed is simply absent (or maps to a failing draft) -> the sync
-    writer_fn returns "" / the failing draft -> the unchanged loop K-span-falls-back. Never raises on
-    a per-basket failure (always-release)."""
+    ``PG_ABSTRACTIVE_WRITER_CONCURRENCY`` semaphore with a per-call total deadline AND an OUTER
+    wall-deadline. Keyed by the basket's canonical ``claim_cluster_id`` so the sync ``writer_fn`` is a
+    deterministic dict lookup. A basket that the writer skipped/failed/was abandoned at the wall is
+    simply absent (or maps to a failing draft) -> the sync writer_fn returns "" / the failing draft ->
+    the unchanged loop K-span-falls-back. Never raises on a per-basket failure (always-release).
+
+    HANG FIX (I-wire-001 W6 #1314, I-arch-007 wall+abandon pattern in its async-native form): the
+    per-call ``asyncio.wait_for(call_deadline_s)`` bounds ONE writer call, but under a provider
+    connection/429 storm the bounded pool's calls + retry backoffs can balloon the pre-pass wall-clock
+    with NO outer bound, and a ``wait_for`` cancellation that stalls inside httpx client teardown (the
+    proven hang class) would wedge ``asyncio.gather`` forever (gather awaits EVERY task incl. an
+    uncancellable one). So the basket tasks run under ``asyncio.wait(timeout=wall_deadline_s)`` and any
+    still-pending task at the wall is ABANDONED (cancelled best-effort, NEVER awaited) — its basket is
+    absent from ``out`` -> the loop K-span-falls-back (fail-OPEN, disclosed). The wall is finite and
+    env-configurable (``PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S``); it is NEVER infinite."""
     model = _resolve_model()
     max_retries = max(0, _env_int(_ENV_MAX_RETRIES, _DEFAULT_MAX_RETRIES))
     max_tokens = max(1, _env_int(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS))
     reasoning_max_tokens = max(0, _env_int(_ENV_REASONING_MAX_TOKENS, _DEFAULT_REASONING_MAX_TOKENS))
     temperature = _env_float(_ENV_TEMPERATURE, _DEFAULT_TEMPERATURE)
     call_deadline_s = max(1.0, _env_float(_ENV_CALL_DEADLINE_S, _DEFAULT_CALL_DEADLINE_S))
+    wall_deadline_s = max(1.0, _env_float(_ENV_WALL_DEADLINE_S, _DEFAULT_WALL_DEADLINE_S))
     concurrency = max(1, _env_int(_ENV_CONCURRENCY, _DEFAULT_CONCURRENCY))
 
     sem = asyncio.Semaphore(concurrency)
@@ -471,12 +588,54 @@ async def abstractive_pre_pass(
                 temperature=temperature, call_deadline_s=call_deadline_s,
             )
         if draft is not None:
+            # mutate the shared dict as a SIDE EFFECT so an abandoned (never-awaited) task's
+            # already-completed siblings are still captured — out is the source of truth, not gather().
             out[key] = draft
 
-    await asyncio.gather(*[_one(b) for b in (baskets or [])], return_exceptions=False)
+    tasks = [asyncio.ensure_future(_one(b)) for b in (baskets or [])]
+    if not tasks:
+        logger.info("[abstractive_writer] pre-pass complete: 0/0 baskets drafted (model=%s)", model)
+        return out
+
+    # Install the belt-and-suspenders teardown hook on the running loop BEFORE the wall can bite, so an
+    # untracked wedged task is also force-closed at shutdown (the primary defense is the abandon-time
+    # force-close below, which finalizes tracked tasks before _cancel_all_tasks ever runs).
+    try:
+        install_teardown_drain_hook(asyncio.get_running_loop())
+    except Exception:  # noqa: BLE001 — hook install is best-effort, never fatal to the pre-pass
+        logger.debug("[abstractive_writer] teardown-drain hook install skipped", exc_info=True)
+
+    done, pending = await asyncio.wait(tasks, timeout=wall_deadline_s)
+    if pending:
+        # ABANDON the stuck baskets — do NOT await (awaiting a task wedged in httpx teardown, or one
+        # that swallows CancelledError and re-blocks, is the very hang we are bounding). A bare
+        # t.cancel() is INSUFFICIENT for such a task. So we port the access_bypass detach/drain/
+        # force-close pattern: register each abandoned task in the detached set, attach the drain
+        # done-callback, cancel() best-effort, then FORCE-CLOSE its underlying coroutine via _coro.close()
+        # so the task is finalized as done() NOW -> excluded from asyncio.run's _cancel_all_tasks
+        # await-list -> shutdown cannot hang. Those baskets are absent from `out` -> the compose loop
+        # K-span-falls-back. This is the wall's fail-OPEN, always-release behavior.
+        logger.warning(
+            "[abstractive_writer] pre-pass WALL-DEADLINE %.0fs hit: ABANDONING %d/%d still-pending "
+            "basket task(s) -> K-span fallback (fail-open, disclosed). %d drafted before the wall.",
+            wall_deadline_s, len(pending), len(tasks), len(out),
+        )
+        for t in pending:
+            _DETACHED_WRITER_TASKS.add(t)
+            t.add_done_callback(_drain_detached_writer_task)
+            t.cancel()
+            _force_drop_detached_writer_task(t)
+    # Surface any non-cancellation exception from a COMPLETED task (never let one die silently) — a
+    # per-basket writer error already degrades to "" inside _pre_pass_one_basket, so a completed task
+    # raising here is a genuine unexpected fault worth logging (still non-fatal: always-release).
+    for t in done:
+        exc = t.exception()
+        if exc is not None:
+            logger.warning("[abstractive_writer] a pre-pass basket task raised: %r", exc)
     logger.info(
-        "[abstractive_writer] pre-pass complete: %d/%d baskets drafted (model=%s, retries=%d)",
-        len(out), len(baskets or []), model, max_retries,
+        "[abstractive_writer] pre-pass complete: %d/%d baskets drafted (model=%s, retries=%d, "
+        "wall=%.0fs, abandoned=%d)",
+        len(out), len(baskets or []), model, max_retries, wall_deadline_s, len(pending),
     )
     return out
 

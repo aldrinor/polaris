@@ -2915,6 +2915,28 @@ class AccessBypass:
                 if len(pdf_bytes) < 1000:
                     return ""
 
+        # I-wire-001/W4 (#1313): clinical-PDF extractor SELECTOR.
+        #
+        # WINNER = mineru25 (MinerU 2.5 VLM, validated 0.9852 / TEDS #1 /
+        # OmniDocBench-v1.6 SOTA; GPU). Docling (already on the path below) is
+        # the disclosed CPU FALLBACK. This block is DEFAULT-OFF and fully gated
+        # by PG_CLINICAL_PDF_EXTRACTOR: when the flag is unset or "docling" the
+        # branch is skipped entirely and the path below runs byte-identically to
+        # today (Docling-first -> PyMuPDF). Only PG_CLINICAL_PDF_EXTRACTOR=mineru25
+        # activates the new GPU-VLM path. Faithfulness engine UNTOUCHED — this only
+        # changes which extractor produces the verbatim text strict_verify grounds.
+        _clinical_pdf_extractor = (
+            os.getenv("PG_CLINICAL_PDF_EXTRACTOR", "docling").strip().lower()
+        )
+        if _clinical_pdf_extractor == "mineru25":
+            _mineru_text = await self._maybe_mineru25_extract(url, pdf_bytes)
+            if _mineru_text:
+                return _mineru_text
+            # _maybe_mineru25_extract returns "" when it did NOT win (no GPU,
+            # mineru unavailable, or empty output). It already emitted a LOUD
+            # WARN + recorded the disclosed Docling fallback in the tool trace.
+            # Fall through to the unchanged Docling -> PyMuPDF path below.
+
         # FIX-DOCLING-OOM-V2: Guard against docling std::bad_alloc on large PDFs.
         # Docling's C++ preprocess stage has memory complexity proportional to
         # total_pages x image_resolution^2, doesn't release memory between
@@ -3991,6 +4013,210 @@ class AccessBypass:
             return md_text.strip()
         finally:
             _os.unlink(tmp_path)
+
+    # ── I-wire-001/W4 (#1313): clinical-PDF mineru25 (winner) selector ──────
+    @staticmethod
+    def _gpu_available() -> bool:
+        """True iff a CUDA GPU is visible (mineru25 is a GPU VLM extractor).
+
+        Mirrors the repo-standard probe used by the NLI verifier / embedder
+        (``torch.cuda.is_available()``). Returns False — never raises — when
+        torch is absent, so a CPU-only fetch host degrades to Docling LOUDLY.
+        """
+        try:
+            import torch  # type: ignore
+            return bool(torch.cuda.is_available())
+        except Exception:  # noqa: BLE001 — no torch / no driver => no GPU
+            return False
+
+    async def _maybe_mineru25_extract(self, url: str, pdf_bytes: bytes) -> str:
+        """W4 winner: run MinerU 2.5 (GPU VLM) iff a GPU is present.
+
+        Returns the extracted markdown on a genuine mineru25 win, or ``""`` to
+        signal the caller to fall through to the UNCHANGED Docling -> PyMuPDF
+        path. Every non-win is a DISCLOSED, LOUD degradation (point-1 of the
+        wiring standard): it logs a WARN and records the selected extractor in
+        the process-global tool tracer (point-8 highest-visibility stream) so
+        the run manifest / console / fail-loud canary can see which extractor
+        actually fired. NEVER a silent no-op.
+
+        Faithfulness engine is untouched — this only chooses the extractor that
+        produces the verbatim text strict_verify later grounds.
+        """
+        import time as _time
+
+        def _record(backend: str, status: str, latency_ms: float, **meta: object) -> None:
+            # Highest-visibility event (point 8) via the EXISTING tool tracer:
+            # lands in tool_trace.jsonl + manifest['tool_utilization'] + the live
+            # console (_tool_event renders backend_used). Fail-safe: a tracer
+            # error can never break extraction.
+            try:
+                from src.polaris_graph.telemetry.tool_tracer import (
+                    get_tool_tracer,
+                    tool_tracker_enabled,
+                )
+                if not tool_tracker_enabled():
+                    return
+                get_tool_tracer().record(
+                    tool_name="pdf_extract",
+                    target=url,
+                    status=status,
+                    latency_ms=latency_ms,
+                    backend_used=backend,
+                    bytes_received=len(pdf_bytes),
+                    **meta,
+                )
+            except Exception as _exc:  # noqa: BLE001 — observability must not abort
+                logger.debug("[ACCESS] W4: tool-trace record skipped: %s", str(_exc)[:80])
+
+        # GPU-first (point 2): mineru25 is a GPU VLM. No GPU => disclosed CPU fallback.
+        if not self._gpu_available():
+            logger.warning(
+                "[ACCESS] W4: PG_CLINICAL_PDF_EXTRACTOR=mineru25 but NO GPU visible "
+                "-> DISCLOSED fallback to Docling (CPU) for %s", url[:60],
+            )
+            _record("docling", "retry", 0.0, selected_extractor="docling",
+                    requested_extractor="mineru25", fallback_reason="no_gpu")
+            return ""
+
+        _t0 = _time.perf_counter()
+        try:
+            import asyncio as _aio
+            loop = _aio.get_event_loop()
+            # Finite-generous timeout (point 5): never infinite. A hung VLM
+            # must not stall the per-URL fetch fan-out.
+            timeout_s = float(os.getenv("PG_MINERU25_TIMEOUT_S", "300"))
+            md_text = await _aio.wait_for(
+                loop.run_in_executor(None, self._mineru25_extract, pdf_bytes),
+                timeout=timeout_s,
+            )
+            latency_ms = (_time.perf_counter() - _t0) * 1000.0
+            if md_text and len(md_text) > 500:
+                logger.info(
+                    "[ACCESS] W4: mineru25 (GPU VLM) extracted %d chars from PDF %s",
+                    len(md_text), url[:60],
+                )
+                _record("mineru25", "ok", latency_ms,
+                        selected_extractor="mineru25", chars=len(md_text))
+                return md_text
+            # Empty / landing-stub output => disclosed fallback (the §1B mode).
+            logger.warning(
+                "[ACCESS] W4: mineru25 returned thin/empty output (%d chars) "
+                "-> DISCLOSED fallback to Docling for %s",
+                len(md_text or ""), url[:60],
+            )
+            _record("docling", "retry", latency_ms, selected_extractor="docling",
+                    requested_extractor="mineru25", fallback_reason="mineru25_empty")
+            return ""
+        except _aio.TimeoutError:
+            latency_ms = (_time.perf_counter() - _t0) * 1000.0
+            logger.warning(
+                "[ACCESS] W4: mineru25 timed out after %.0fs -> DISCLOSED fallback "
+                "to Docling for %s", latency_ms / 1000.0, url[:60],
+            )
+            _record("docling", "timeout", latency_ms, selected_extractor="docling",
+                    requested_extractor="mineru25", fallback_reason="mineru25_timeout")
+            return ""
+        except Exception as exc:  # noqa: BLE001 — any mineru failure => LOUD fallback
+            latency_ms = (_time.perf_counter() - _t0) * 1000.0
+            logger.warning(
+                "[ACCESS] W4: mineru25 failed (%s) -> DISCLOSED fallback to Docling "
+                "for %s", str(exc)[:120], url[:60],
+            )
+            _record("docling", "fail", latency_ms, selected_extractor="docling",
+                    requested_extractor="mineru25", fallback_reason="mineru25_error",
+                    error=str(exc)[:160])
+            return ""
+
+    @staticmethod
+    def _mineru25_extract(pdf_bytes: bytes) -> str:
+        """W4 winner: MinerU 2.5 VLM PDF -> markdown (GPU, sovereign OSS).
+
+        Uses the offline in-process ``do_parse`` entry point of the MinerU
+        package (opendatalab/MinerU2.5-2509-1.2B, custom-Apache, self-hosted).
+        Runs on the CALLER's GPU-gated thread; this static method assumes a GPU
+        is present (the async wrapper enforces that). Returns the markdown
+        string (tables + sections preserved), or ``""`` on any failure so the
+        async wrapper degrades LOUDLY to Docling.
+
+        Zero hard-code (LAW VI): model lang, backend, source, and server URL are
+        env knobs. The backend defaults to ``vlm-transformers`` — the verified
+        in-process, no-separate-server, GPU-local VLM backend (MinerU 2.5 README
+        + arXiv 2509.22186). ``vlm-vllm-engine`` / ``vlm-vllm-async-engine`` are
+        the higher-throughput vLLM modes (more CUDA-setup-sensitive) and
+        ``vlm-http-client`` targets a remote mineru-api server via
+        PG_MINERU25_SERVER_URL.
+
+        Model pin (point-16, §9.1.8 "model must be RIGHT"): the validated winner
+        is opendatalab/MinerU2.5-2509-1.2B. do_parse has NO model-name parameter
+        — MinerU resolves the VLM model from MINERU_MODEL_SOURCE + its bundled
+        default. We surface MINERU_MODEL_SOURCE + MINERU_DEVICE_MODE as knobs and
+        export them before the call so the run uses the pinned source, never a
+        silently-drifted default.
+        """
+        import tempfile
+        import os as _os
+        from pathlib import Path as _Path
+
+        backend = os.getenv("PG_MINERU25_BACKEND", "vlm-transformers").strip()
+        lang = os.getenv("PG_MINERU25_LANG", "en").strip()
+        server_url = os.getenv("PG_MINERU25_SERVER_URL", "").strip() or None
+
+        # Pin model source + device mode for MinerU (it reads these from the
+        # environment). Defaults: huggingface source, CUDA (GPU-first point-2).
+        # Only SET when not already provided by the operator (no clobber).
+        _os.environ.setdefault(
+            "MINERU_MODEL_SOURCE", os.getenv("PG_MINERU25_MODEL_SOURCE", "huggingface")
+        )
+        _os.environ.setdefault(
+            "MINERU_DEVICE_MODE", os.getenv("PG_MINERU25_DEVICE_MODE", "cuda")
+        )
+
+        # do_parse writes artifacts to disk under output_dir/<name>/vlm/<name>.md.
+        with tempfile.TemporaryDirectory(prefix="mineru25_") as _out_dir:
+            name = "doc"
+            try:
+                from mineru.cli.common import do_parse  # type: ignore
+            except Exception as exc:  # noqa: BLE001 — package absent => caller falls back
+                raise RuntimeError(
+                    f"mineru not installed (pip install 'mineru[core]' / "
+                    f"'mineru-vl-utils[transformers]' from "
+                    f"github.com/opendatalab/MinerU; winner model "
+                    f"opendatalab/MinerU2.5-2509-1.2B): {exc!r}"
+                ) from exc
+
+            do_parse(
+                output_dir=_out_dir,
+                pdf_file_names=[name],
+                pdf_bytes_list=[pdf_bytes],
+                p_lang_list=[lang],
+                backend=backend,
+                server_url=server_url,
+                # Tables + formulas ON (the clinical-PDF table-fidelity lane).
+                formula_enable=True,
+                table_enable=True,
+                # We only need the markdown; skip bbox/pdf/json dumps for speed.
+                f_dump_md=True,
+                f_draw_layout_bbox=False,
+                f_draw_span_bbox=False,
+                f_dump_middle_json=False,
+                f_dump_model_output=False,
+                f_dump_orig_pdf=False,
+                f_dump_content_list=False,
+            )
+
+            # Locate the produced markdown. VLM backend lands it at
+            # <out>/<name>/vlm/<name>.md; be tolerant of layout drift.
+            md_path = _Path(_out_dir) / name / "vlm" / f"{name}.md"
+            if not md_path.exists():
+                hits = sorted(_Path(_out_dir).rglob(f"{name}.md"))
+                if not hits:
+                    hits = sorted(_Path(_out_dir).rglob("*.md"))
+                if hits:
+                    md_path = hits[0]
+            if md_path.exists():
+                return md_path.read_text(encoding="utf-8").strip()
+            return ""
 
     async def _resolve_academic_url(self, url: str) -> tuple[str, str]:
         """PL: Resolve academic metadata URLs to actual paper URLs + DOIs.
