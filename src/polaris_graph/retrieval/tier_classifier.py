@@ -1220,7 +1220,24 @@ def classify_source_tier(
         ClassificationResult with the SAME five legacy fields populated PLUS
         the four additive authority fields. No downstream consumer reads the
         authority fields in 0a — shadow only.
+    ON  (PG_CREDIBILITY_LLM_TIERING in {1,true,yes,on}): I-wire-001 W5 — the
+        bake-off winner. An LLM (GLM-5.2) classifies the source DIRECTLY into the
+        POLARIS T1-T7 scheme from the observable authority payload, ESCALATING over
+        the rule classifier (+0.353 macro-F1; repairs social->T7 0.000->1.000 and
+        T2 synthesis/guideline under-recall). The rules-floor is the instant
+        deterministic FALLBACK on any judge_error/timeout. Tier stays a per-citation
+        WEIGHT, never a drop (CLAUDE.md §-1.3); the faithfulness engine is FROZEN.
+        Takes PRECEDENCE over PG_USE_AUTHORITY_MODEL when both are set. Lazy import
+        keeps the OFF path free of the LLM caller + httpx.
     """
+    if os.getenv("PG_CREDIBILITY_LLM_TIERING", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        from src.polaris_graph.retrieval.credibility_llm_tiering import (
+            classify_source_tier_llm,
+        )
+
+        return classify_source_tier_llm(signals)
     if os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
         return _classify_via_authority_model(signals)
     return _classify_source_tier_rules(signals)

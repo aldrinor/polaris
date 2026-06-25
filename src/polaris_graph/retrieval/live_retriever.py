@@ -52,6 +52,7 @@ from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
+    TierLevel,
     classify_source_tier,
 )
 
@@ -4018,6 +4019,18 @@ def run_live_retrieval(
     evidence_rows: list[dict[str, Any]] = []
     fetched = 0
     failed_fetch = 0
+    # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): the credibility LLM-tiering winner runs
+    # the per-source tier as a BOUNDED-PARALLEL batch (env cap PG_TIER_LLM_WORKERS) rather
+    # than the serial per-candidate rule call. When ON we DEFER the tier: collect each
+    # candidate's ClassificationSignals during the loop (keyed by the classified_sources
+    # row index) and assign tiers in one bounded-parallel post-loop step; the rules-floor
+    # is the instant per-source fallback. OFF -> the inline serial classify_source_tier
+    # runs exactly as today (byte-identical). Tier is a WEIGHT, never a drop (§-1.3).
+    _llm_tiering_on = os.environ.get(
+        "PG_CREDIBILITY_LLM_TIERING", "0"
+    ).strip().lower() in ("1", "true", "yes", "on")
+    _deferred_tier_signals: list[ClassificationSignals] = []
+    _deferred_tier_row_idx: list[int] = []
     # I-ready-017 #1134: journal_only metadata sidecar (ON-path only). Keyed by
     # canonical URL; carries per-source journal-article signals for the
     # citeability predicate. Stays None when the flag is OFF (byte-identical).
@@ -4459,17 +4472,34 @@ def run_live_retrieval(
             structured_jsonld=raw_jsonld or "",
             claim_vendor_token=(research_question or "").strip().lower(),
         )
-        tier_result = classify_source_tier(signals)
+        if _llm_tiering_on:
+            # I-wire-001 W5: DEFER the tier to the bounded-parallel post-loop batch.
+            # Build the row now with a placeholder tier (back-filled below); record the
+            # signals + row index so the batch assigns the LLM tier (rules-floor
+            # fallback) in order. No source is dropped (§-1.3 weight-not-filter).
+            _deferred_tier_signals.append(signals)
+            _deferred_tier_row_idx.append(len(classified_sources))
+            classified_sources.append(CorpusSource(
+                url=cand.url,
+                title=cand.title,
+                domain=domain_,
+                tier=TierLevel.UNKNOWN.value,  # placeholder; back-filled by the batch
+                tier_confidence=0.0,
+                tier_rule="",
+                tier_reasons=[],
+            ))
+        else:
+            tier_result = classify_source_tier(signals)
 
-        classified_sources.append(CorpusSource(
-            url=cand.url,
-            title=cand.title,
-            domain=domain_,
-            tier=tier_result.tier.value,
-            tier_confidence=tier_result.confidence,
-            tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
-            tier_reasons=list(tier_result.reasons),
-        ))
+            classified_sources.append(CorpusSource(
+                url=cand.url,
+                title=cand.title,
+                domain=domain_,
+                tier=tier_result.tier.value,
+                tier_confidence=tier_result.confidence,
+                tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
+                tier_reasons=list(tier_result.reasons),
+            ))
 
         # I-ready-017 #1134: record the per-source journal-article signals into
         # the journal_only sidecar (ON-path only; keyed by canonical URL). The
@@ -4701,6 +4731,32 @@ def run_live_retrieval(
                     _row["authority_confidence"] = _auth.authority_confidence.value
                 evidence_rows.append(_row)
                 _trace_kept(cand.url, cand.source)
+
+    # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): bounded-parallel per-source LLM-tiering
+    # post-step. Runs ONCE over every deferred source via a ThreadPoolExecutor capped by
+    # PG_TIER_LLM_WORKERS; order-independent (gather-then-sort by index) so concurrency
+    # never changes a per-source tier. The rules-floor is the instant fallback on any
+    # judge_error/timeout. Tier is a WEIGHT, never a drop — every row keeps its slot and
+    # only its tier fields are back-filled. OFF path never enters here (list is empty).
+    if _llm_tiering_on and _deferred_tier_signals:
+        from src.polaris_graph.retrieval.credibility_llm_tiering import (
+            classify_sources_llm_tiering,
+        )
+
+        logger.info(
+            "[live_retriever] PG_CREDIBILITY_LLM_TIERING ON — bounded-parallel LLM "
+            "tiering over %d sources",
+            len(_deferred_tier_signals),
+        )
+        _tier_results = classify_sources_llm_tiering(_deferred_tier_signals)
+        for _row_idx, _tier_result in zip(_deferred_tier_row_idx, _tier_results):
+            _src = classified_sources[_row_idx]
+            _src.tier = _tier_result.tier.value
+            _src.tier_confidence = _tier_result.confidence
+            _src.tier_rule = (
+                _tier_result.matched_rules[0] if _tier_result.matched_rules else ""
+            )
+            _src.tier_reasons = list(_tier_result.reasons)
 
     return LiveRetrievalResult(
         classified_sources=classified_sources,

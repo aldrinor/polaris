@@ -1,0 +1,597 @@
+diff --git a/scripts/iwire001_w5_credibility_llm_tiering_fire_test.py b/scripts/iwire001_w5_credibility_llm_tiering_fire_test.py
+new file mode 100644
+index 00000000..9e63e88f
+--- /dev/null
++++ b/scripts/iwire001_w5_credibility_llm_tiering_fire_test.py
+@@ -0,0 +1,180 @@
++#!/usr/bin/env python3
++"""I-wire-001 W5 — §-1.4 BEHAVIORAL fire-test for credibility_llm_tiering.
++
++FAIL-LOUD canary (non-zero exit if the effect did not fire). Acceptance per the
++operator §-1.4 mandate: the winner's effect must APPEAR in the real per-source tier on a
++REAL banked corpus_snapshot, with a REAL GLM-5.2 call (NOT a stub — a stub returning T7
++would make the assertion circular).
++
++What it proves on a real corpus_snapshot that contains social-media sources:
++
++  1. flag-OFF  -> re-classifying the corpus's social rows reproduces the snapshot's
++                 recorded rules-floor tier (T6 via RP1_social_platform_early) AND the
++                 source count is unchanged (byte-identical legacy behaviour).
++
++  2. flag-ON   -> the SAME social URLs are tiered T7 by the LLM tierer (the documented
++                 win: the rules-floor scored social->T7 = 0.000; the LLM repairs it to
++                 T7), AND the source count is unchanged (NO source dropped — §-1.3
++                 weight-not-filter, tier is a WEIGHT).
++
++  Fail-loud: a known social URL NOT reaching T7 with the flag ON => non-zero exit.
++             Any social row DROPPED (count shrinks) => non-zero exit.
++
++Real-data / LAW VI:
++  * The corpus_snapshot path is env-overridable (PG_W5_FIRE_TEST_SNAPSHOT); the default
++    points at a banked real snapshot in the main tree.
++  * OPENROUTER_API_KEY is loaded from .env (PG_W5_FIRE_TEST_ENV, default C:/POLARIS/.env).
++    No key => loud blocker exit (LAW II: report blocked, do not fake).
++  * The number of social rows actually tier-judged via the real LLM is bounded by
++    PG_W5_FIRE_TEST_MAX_SOCIAL (default 4) to keep the canary cheap; the bounded-parallel
++    batch path (PG_TIER_LLM_WORKERS) is exercised on that subset.
++"""
++from __future__ import annotations
++
++import json
++import os
++import sys
++from pathlib import Path
++
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++# The social-platform domains the rules-floor recognises (RP1_social_platform_early ->
++# T6). The win is that the LLM lifts these to T7.
++_SOCIAL_DOMAINS = (
++    "youtube.com", "reddit.com", "facebook.com", "instagram.com", "twitter.com",
++    "x.com", "tiktok.com", "pinterest.com", "quora.com", "tumblr.com",
++)
++
++_DEFAULT_SNAPSHOT = (
++    "C:/POLARIS/outputs/corpus_backups/extracted/drb_72_ai_labor/corpus_snapshot.json"
++)
++_DEFAULT_ENV = "C:/POLARIS/.env"
++
++
++def _fail(msg: str) -> None:
++    print(f"FIRE-TEST FAIL: {msg}", file=sys.stderr)
++    sys.exit(1)
++
++
++def _is_social(rec: dict) -> bool:
++    blob = (rec.get("domain", "") or "") + " " + (rec.get("url", "") or "")
++    return any(dom in blob for dom in _SOCIAL_DOMAINS)
++
++
++def main() -> None:
++    snapshot_path = os.environ.get("PG_W5_FIRE_TEST_SNAPSHOT", _DEFAULT_SNAPSHOT)
++    env_path = os.environ.get("PG_W5_FIRE_TEST_ENV", _DEFAULT_ENV)
++    try:
++        max_social = max(1, int(os.environ.get("PG_W5_FIRE_TEST_MAX_SOCIAL", "4")))
++    except ValueError:
++        max_social = 4
++
++    # Load the API key from .env (LAW VI: env-driven, never hard-coded).
++    try:
++        from dotenv import load_dotenv
++
++        if Path(env_path).exists():
++            load_dotenv(env_path)
++    except ImportError:
++        pass
++    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
++        _fail(
++            f"OPENROUTER_API_KEY not reachable (looked in {env_path}). The REAL "
++            "GLM-5.2 fire-test cannot run without it — BLOCKED, not wired (LAW II)."
++        )
++
++    snap = Path(snapshot_path)
++    if not snap.exists():
++        _fail(f"corpus_snapshot not found at {snapshot_path}")
++    data = json.loads(snap.read_text(encoding="utf-8"))
++    classified = data.get("retrieval", {}).get("classified_sources", [])
++    if not classified:
++        _fail(f"snapshot {snapshot_path} has no retrieval.classified_sources")
++    total_sources = len(classified)
++
++    social_rows = [r for r in classified if _is_social(r)]
++    if not social_rows:
++        _fail(
++            f"snapshot {snapshot_path} contains NO social-media source — cannot prove "
++            "the social->T7 effect. Pick a snapshot with a social source."
++        )
++
++    from src.polaris_graph.retrieval.tier_classifier import (
++        ClassificationSignals,
++        TierLevel,
++        classify_source_tier,
++    )
++    from src.polaris_graph.retrieval.credibility_llm_tiering import (
++        classify_sources_llm_tiering,
++    )
++
++    # Build ClassificationSignals for the bounded subset of social rows. The snapshot's
++    # recorded fields drive the signals (real data). content_length is reconstructed
++    # above the stub threshold so the snapshot's recorded T6 path (RP1 fires BEFORE the
++    # stub rule) is what we compare against.
++    subset = social_rows[:max_social]
++    sigs = [
++        ClassificationSignals(
++            url=r.get("url", ""),
++            title=r.get("title", "") or "",
++            fetched_content_length=2000,
++        )
++        for r in subset
++    ]
++
++    # -- 1. flag-OFF: dispatcher == rules-floor; recorded snapshot tier reproduced. --
++    os.environ.pop("PG_CREDIBILITY_LLM_TIERING", None)
++    off_results = [classify_source_tier(s) for s in sigs]
++    for rec, res in zip(subset, off_results):
++        if res.tier is not TierLevel.T6:
++            _fail(
++                f"flag-OFF social row {rec.get('url','')[:70]} tier={res.tier.value} "
++                f"!= T6 (legacy rules-floor regression — OFF must be byte-identical)"
++            )
++        if res.matched_rules and res.matched_rules[0] != "RP1_social_platform_early":
++            _fail(
++                f"flag-OFF social row {rec.get('url','')[:70]} rule="
++                f"{res.matched_rules[0]} != RP1_social_platform_early (legacy drift)"
++            )
++    # No-drop on the OFF path: re-classifying produces one result per input source.
++    if len(off_results) != len(sigs):
++        _fail("flag-OFF dropped a source (result count != input count)")
++
++    # -- 2. flag-ON: REAL GLM-5.2 bounded-parallel tiering; social -> T7; no drop. --
++    os.environ["PG_CREDIBILITY_LLM_TIERING"] = "1"
++    on_results = classify_sources_llm_tiering(sigs)  # real default GLM-5.2 caller
++    if len(on_results) != len(sigs):
++        _fail(
++            f"flag-ON DROPPED a source: {len(on_results)} results for {len(sigs)} "
++            "inputs (tier must be a WEIGHT, never a drop — §-1.3)"
++        )
++    t7_hits = 0
++    for rec, res in zip(subset, on_results):
++        url = rec.get("url", "")[:70]
++        if res.tier is TierLevel.T7 and res.matched_rules and res.matched_rules[0] == "llm_tiering":
++            t7_hits += 1
++            print(f"  FIRED: social {url} -> T7 (llm_tiering) — was T6 on the floor")
++        else:
++            print(
++                f"  NOT-T7: social {url} -> {res.tier.value} "
++                f"(rule={res.matched_rules[0] if res.matched_rules else '-'})",
++                file=sys.stderr,
++            )
++    if t7_hits == 0:
++        _fail(
++            "flag-ON: NO social URL reached T7 via the LLM tierer. The documented win "
++            "(social->T7 0.000->1.000) did NOT fire in the real output."
++        )
++
++    print(
++        f"FIRE-TEST PASS: corpus={snap.name} total_sources={total_sources} "
++        f"social_rows={len(social_rows)} judged={len(subset)} "
++        f"OFF=byte-identical(T6/RP1) ON=social->T7 fired on {t7_hits}/{len(subset)} "
++        f"(no source dropped; tier is a WEIGHT)"
++    )
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/polaris_graph/retrieval/credibility_llm_tiering.py b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+new file mode 100644
+index 00000000..6a44d87e
+--- /dev/null
++++ b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+@@ -0,0 +1,266 @@
++"""I-wire-001 W5 — credibility LLM-tiering winner (PG_CREDIBILITY_LLM_TIERING).
++
++The bake-off winner (`scripts/dr_benchmark/upstream_bakeoff/credibility_winner.json`):
++an LLM (GLM-5.2 via OpenRouter) classifies a source DIRECTLY into the POLARIS T1-T7
++tier scheme from the observable authority payload, beating the deterministic 22-rule
++floor by +0.353 macro-F1 on the 27-row GATE-0-validated real clinical tier gold. The
++headline repair is the rule-floor's two EXPOSED-weak tiers:
++  * T7 social / predatory-OA / abstract-stub: 0.000 -> 1.000 (there is no social->T7
++    rule; the floor classifies social platforms T6 via RP1_social_platform_early).
++  * T2 evidence-synthesis / guideline under-recall: 0.400 -> 0.889.
++No tier regresses.
++
++ARCHITECTURE (mirrors `authority/credibility_judge_caller.py`):
++  * The LLM call is DEPENDENCY-INJECTED (`call_llm(prompt) -> text`) so the prompt
++    build + JSON parse are pure and offline-testable; the production caller binds
++    GLM-5.2 + family-segregation + provider-pin + budget via the existing
++    `make_openrouter_credibility_caller` factory.
++  * Tiering is a per-citation WEIGHT, NEVER a drop (CLAUDE.md §-1.3). On ANY judge
++    error / timeout / malformed output, the per-source result falls back to the
++    deterministic rules-floor — instant, no source is ever dropped.
++  * The faithfulness engine (strict_verify / NLI / 4-role / provenance) is FROZEN and
++    untouched. This module only changes the per-source tier WEIGHT.
++
++BOUNDED PARALLELISM (operator mandate, §8 of the wiring plan): per-SOURCE LLM tiering
++runs bounded-parallel via a `ThreadPoolExecutor(max_workers=PG_TIER_LLM_WORKERS)`,
++order-independent (gather-then-sort by source index). The rules-floor is computed for
++every source first (the instant deterministic fallback) so a slow/failed LLM call never
++blocks or drops a source.
++
++Default-OFF: `classify_source_tier` only routes here when PG_CREDIBILITY_LLM_TIERING is
++set to a truthy value; otherwise the legacy rule body runs byte-identical.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import os
++import re
++from concurrent.futures import ThreadPoolExecutor
++from typing import Callable
++
++from src.polaris_graph.retrieval.tier_classifier import (
++    ClassificationResult,
++    ClassificationSignals,
++    TierLevel,
++    _classify_source_tier_rules,
++)
++
++logger = logging.getLogger(__name__)
++
++# Bounded-parallel cap for the per-source LLM tiering fan-out (LAW VI). Default 10
++# mirrors the wiring plan §8.2 (`PG_TIER_LLM_WORKERS=10`). Clamped >=1 so a misconfig
++# can never produce a zero/negative worker count.
++_ENV_TIER_LLM_WORKERS = "PG_TIER_LLM_WORKERS"
++_DEFAULT_TIER_LLM_WORKERS = 10
++
++# Valid tier labels the LLM may return (UNKNOWN excluded — the LLM must commit to a
++# tier; an unparseable / out-of-scheme answer falls back to the rules-floor).
++_VALID_TIER_LABELS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
++
++# The POLARIS T1-T7 scheme, transcribed VERBATIM from the rules-floor's own documented
++# scheme (tier_classifier.py class docstring + domain frozensets), per the winning
++# scorecard's `rubric` field. NO answer-row leakage — this is the floor's own scheme.
++_TIER_SCHEME = (
++    "T1 = peer-reviewed primary study (RCT, prospective cohort, case-control, "
++    "cross-sectional, lab/mechanistic study in a peer-reviewed journal).\n"
++    "T2 = peer-reviewed evidence synthesis or clinical guideline (systematic review, "
++    "meta-analysis, Cochrane review, NICE/ADA/specialty-society guideline).\n"
++    "T3 = government / regulatory body (FDA, EMA, NICE-as-regulator, WHO, CDC, "
++    "Health Canada, national regulator).\n"
++    "T4 = peer-reviewed narrative review, commentary, editorial, perspective, preprint, "
++    "or repository deposit (not peer-reviewed primary research).\n"
++    "T5 = industry-funded report (pharmaceutical-company HCP portal, manufacturer drug "
++    "monograph, sponsored brand site, paid market-research / consulting collateral).\n"
++    "T6 = mainstream news, blog, or non-peer-reviewed consumer-health web content.\n"
++    "T7 = social-media / user-generated content (YouTube, Reddit, Facebook, X, "
++    "Instagram, forums), predatory open-access, or abstract-only / conference-abstract / "
++    "stub with no full article."
++)
++
++_PROMPT = (
++    "You are a source-credibility TIER classifier for ONE retrieved source. Assign the "
++    "single best-fitting POLARIS tier (T1..T7) from the observable signals below. Judge "
++    "the SOURCE TYPE / venue authority, not the topic.\n\n"
++    "TIER SCHEME:\n{scheme}\n\n"
++    "SOURCE:\n"
++    "  url: {url}\n"
++    "  title: {title}\n"
++    "  publication_type: {pub_type}\n"
++    "  source_type: {source_type}\n"
++    "  venue: {venue}\n"
++    "  is_retracted: {is_retracted}\n"
++    "  fetched_content_length: {content_length}\n\n"
++    "Return STRICT JSON only, no prose, no code fence:\n"
++    '{{"tier": "<one of T1,T2,T3,T4,T5,T6,T7>", '
++    '"rationale": "<one short sentence citing the signal you relied on>"}}'
++)
++
++
++def build_tier_prompt(signals: ClassificationSignals) -> str:
++    """Pure: render the per-source LLM tiering prompt from observable signals only.
++
++    Carries ONLY observable fields (url/title/pub_type/source_type/venue/is_retracted/
++    content_length) — never any gold tier or rule verdict (LAW II, no answer leakage).
++    """
++    return _PROMPT.format(
++        scheme=_TIER_SCHEME,
++        url=signals.url or "",
++        title=signals.title or "",
++        pub_type=signals.openalex_publication_type or "",
++        source_type=signals.openalex_source_type or "",
++        venue=signals.openalex_venue or "",
++        is_retracted=bool(signals.openalex_is_retracted),
++        content_length=signals.fetched_content_length or 0,
++    )
++
++
++def parse_tier_response(text: str) -> tuple[TierLevel | None, str]:
++    """Pure: parse the LLM JSON response into a TierLevel + rationale.
++
++    Returns ``(None, "")`` on ANY malformed / out-of-scheme output (the caller then
++    falls back to the rules-floor — fail-honest, never fabricate a tier). Tolerates a
++    stray code fence by extracting the first JSON object.
++    """
++    if not text or not text.strip():
++        return None, ""
++    raw = text.strip()
++    # Extract the first {...} object so a stray code fence / preamble cannot break parse.
++    match = re.search(r"\{.*\}", raw, re.DOTALL)
++    if not match:
++        return None, ""
++    try:
++        obj = json.loads(match.group(0))
++    except (ValueError, TypeError):
++        return None, ""
++    if not isinstance(obj, dict):
++        return None, ""
++    tier_str = str(obj.get("tier", "")).strip().upper()
++    if tier_str not in _VALID_TIER_LABELS:
++        return None, ""
++    rationale = str(obj.get("rationale", "")).strip()
++    return TierLevel(tier_str), rationale
++
++
++def llm_tier_one(
++    signals: ClassificationSignals,
++    call_llm: Callable[[str], str],
++) -> ClassificationResult | None:
++    """Single-source LLM tiering escalation. Returns a ClassificationResult carrying the
++    LLM tier as a WEIGHT, or ``None`` on judge_error / timeout / malformed output so the
++    caller keeps the deterministic rules-floor result for that source.
++
++    NEVER raises into the caller (LAW II fail-honest): any exception from the injected
++    ``call_llm`` is captured and degrades to ``None`` (rules-floor fallback).
++    """
++    # Rule 0 parity: a retracted source is never positively tiered by the LLM either;
++    # let the deterministic floor handle the exclusion semantics.
++    if signals.openalex_is_retracted:
++        return None
++    prompt = build_tier_prompt(signals)
++    try:
++        text = call_llm(prompt)
++    except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
++        logger.warning(
++            "[credibility_llm_tiering] judge_error for %s — falling back to rules-floor: %s",
++            (signals.url or "")[:80], exc,
++        )
++        return None
++    tier, rationale = parse_tier_response(text)
++    if tier is None:
++        logger.warning(
++            "[credibility_llm_tiering] malformed/out-of-scheme LLM tier for %s — "
++            "falling back to rules-floor",
++            (signals.url or "")[:80],
++        )
++        return None
++    return ClassificationResult(
++        tier=tier,
++        confidence=0.9,  # LLM-tiering VIEW confidence; not a deterministic 1.0
++        reasons=[
++            f"LLM-tiering (PG_CREDIBILITY_LLM_TIERING): assigned {tier.value} — "
++            f"{rationale or 'no rationale returned'}"
++        ],
++        matched_rules=["llm_tiering"],
++        signals_used={
++            "url": signals.url,
++            "title": signals.title,
++            "publication_type": signals.openalex_publication_type,
++            "source_type": signals.openalex_source_type,
++            "venue": signals.openalex_venue,
++            "content_length": signals.fetched_content_length,
++        },
++    )
++
++
++def _tier_llm_workers() -> int:
++    """Bounded-parallel worker count from PG_TIER_LLM_WORKERS (LAW VI). Clamped >=1."""
++    try:
++        n = int(os.environ.get(_ENV_TIER_LLM_WORKERS, str(_DEFAULT_TIER_LLM_WORKERS)))
++    except (TypeError, ValueError):
++        n = _DEFAULT_TIER_LLM_WORKERS
++    return max(1, n)
++
++
++def _default_caller() -> Callable[[str], str]:
++    """Bind the production GLM-5.2 credibility caller (lazy — keeps the OFF path free of
++    httpx + the authority package). Reuses the SAME control surface as the entailment /
++    credibility judge: family-segregation, provider-pin, budget + wall-deadline."""
++    from src.polaris_graph.authority.credibility_judge_caller import (
++        make_openrouter_credibility_caller,
++    )
++
++    return make_openrouter_credibility_caller()
++
++
++def classify_sources_llm_tiering(
++    signals_list: list[ClassificationSignals],
++    *,
++    call_llm: Callable[[str], str] | None = None,
++    max_workers: int | None = None,
++) -> list[ClassificationResult]:
++    """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
++
++    For EVERY source the deterministic rules-floor is computed first (the instant,
++    no-network fallback). The LLM escalation then runs bounded-parallel; a source keeps
++    its rules-floor result on any judge_error / timeout / malformed output. The result
++    list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
++    the per-source outcome (§8 determinism invariant). No source is ever dropped
++    (§-1.3 weight-not-filter).
++
++    Returns a list aligned 1:1 with ``signals_list``.
++    """
++    n = len(signals_list)
++    if n == 0:
++        return []
++    # Deterministic floor for every source first — the instant fallback (no network).
++    floor_results: list[ClassificationResult] = [
++        _classify_source_tier_rules(s) for s in signals_list
++    ]
++    caller = call_llm if call_llm is not None else _default_caller()
++    workers = max_workers if max_workers is not None else _tier_llm_workers()
++
++    def _one(idx: int) -> tuple[int, ClassificationResult | None]:
++        return idx, llm_tier_one(signals_list[idx], caller)
++
++    llm_by_idx: dict[int, ClassificationResult | None] = {}
++    with ThreadPoolExecutor(max_workers=workers) as pool:
++        for idx, res in pool.map(_one, range(n)):
++            llm_by_idx[idx] = res
++
++    # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
++    out: list[ClassificationResult] = []
++    for idx in range(n):
++        llm_res = llm_by_idx.get(idx)
++        out.append(llm_res if llm_res is not None else floor_results[idx])
++    return out
++
++
++def classify_source_tier_llm(signals: ClassificationSignals) -> ClassificationResult:
++    """Single-source ON-path entry called by ``classify_source_tier`` when the flag is
++    ON. Escalates to the LLM, falling back to the rules-floor on any error. The
++    bounded-parallel batch path (``classify_sources_llm_tiering``) is the preferred
++    high-throughput entry; this keeps the single-source dispatcher contract intact."""
++    floor = _classify_source_tier_rules(signals)
++    llm_res = llm_tier_one(signals, _default_caller())
++    return llm_res if llm_res is not None else floor
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 77475e25..62213aa3 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -52,6 +52,7 @@ from src.polaris_graph.authority.authority_model import score_source_authority
+ from src.polaris_graph.authority.source_class import AuthoritySignals
+ from src.polaris_graph.retrieval.tier_classifier import (
+     ClassificationSignals,
++    TierLevel,
+     classify_source_tier,
+ )
+ 
+@@ -4018,6 +4019,18 @@ def run_live_retrieval(
+     evidence_rows: list[dict[str, Any]] = []
+     fetched = 0
+     failed_fetch = 0
++    # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): the credibility LLM-tiering winner runs
++    # the per-source tier as a BOUNDED-PARALLEL batch (env cap PG_TIER_LLM_WORKERS) rather
++    # than the serial per-candidate rule call. When ON we DEFER the tier: collect each
++    # candidate's ClassificationSignals during the loop (keyed by the classified_sources
++    # row index) and assign tiers in one bounded-parallel post-loop step; the rules-floor
++    # is the instant per-source fallback. OFF -> the inline serial classify_source_tier
++    # runs exactly as today (byte-identical). Tier is a WEIGHT, never a drop (§-1.3).
++    _llm_tiering_on = os.environ.get(
++        "PG_CREDIBILITY_LLM_TIERING", "0"
++    ).strip().lower() in ("1", "true", "yes", "on")
++    _deferred_tier_signals: list[ClassificationSignals] = []
++    _deferred_tier_row_idx: list[int] = []
+     # I-ready-017 #1134: journal_only metadata sidecar (ON-path only). Keyed by
+     # canonical URL; carries per-source journal-article signals for the
+     # citeability predicate. Stays None when the flag is OFF (byte-identical).
+@@ -4459,17 +4472,34 @@ def run_live_retrieval(
+             structured_jsonld=raw_jsonld or "",
+             claim_vendor_token=(research_question or "").strip().lower(),
+         )
+-        tier_result = classify_source_tier(signals)
+-
+-        classified_sources.append(CorpusSource(
+-            url=cand.url,
+-            title=cand.title,
+-            domain=domain_,
+-            tier=tier_result.tier.value,
+-            tier_confidence=tier_result.confidence,
+-            tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
+-            tier_reasons=list(tier_result.reasons),
+-        ))
++        if _llm_tiering_on:
++            # I-wire-001 W5: DEFER the tier to the bounded-parallel post-loop batch.
++            # Build the row now with a placeholder tier (back-filled below); record the
++            # signals + row index so the batch assigns the LLM tier (rules-floor
++            # fallback) in order. No source is dropped (§-1.3 weight-not-filter).
++            _deferred_tier_signals.append(signals)
++            _deferred_tier_row_idx.append(len(classified_sources))
++            classified_sources.append(CorpusSource(
++                url=cand.url,
++                title=cand.title,
++                domain=domain_,
++                tier=TierLevel.UNKNOWN.value,  # placeholder; back-filled by the batch
++                tier_confidence=0.0,
++                tier_rule="",
++                tier_reasons=[],
++            ))
++        else:
++            tier_result = classify_source_tier(signals)
++
++            classified_sources.append(CorpusSource(
++                url=cand.url,
++                title=cand.title,
++                domain=domain_,
++                tier=tier_result.tier.value,
++                tier_confidence=tier_result.confidence,
++                tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
++                tier_reasons=list(tier_result.reasons),
++            ))
+ 
+         # I-ready-017 #1134: record the per-source journal-article signals into
+         # the journal_only sidecar (ON-path only; keyed by canonical URL). The
+@@ -4702,6 +4732,32 @@ def run_live_retrieval(
+                 evidence_rows.append(_row)
+                 _trace_kept(cand.url, cand.source)
+ 
++    # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): bounded-parallel per-source LLM-tiering
++    # post-step. Runs ONCE over every deferred source via a ThreadPoolExecutor capped by
++    # PG_TIER_LLM_WORKERS; order-independent (gather-then-sort by index) so concurrency
++    # never changes a per-source tier. The rules-floor is the instant fallback on any
++    # judge_error/timeout. Tier is a WEIGHT, never a drop — every row keeps its slot and
++    # only its tier fields are back-filled. OFF path never enters here (list is empty).
++    if _llm_tiering_on and _deferred_tier_signals:
++        from src.polaris_graph.retrieval.credibility_llm_tiering import (
++            classify_sources_llm_tiering,
++        )
++
++        logger.info(
++            "[live_retriever] PG_CREDIBILITY_LLM_TIERING ON — bounded-parallel LLM "
++            "tiering over %d sources",
++            len(_deferred_tier_signals),
++        )
++        _tier_results = classify_sources_llm_tiering(_deferred_tier_signals)
++        for _row_idx, _tier_result in zip(_deferred_tier_row_idx, _tier_results):
++            _src = classified_sources[_row_idx]
++            _src.tier = _tier_result.tier.value
++            _src.tier_confidence = _tier_result.confidence
++            _src.tier_rule = (
++                _tier_result.matched_rules[0] if _tier_result.matched_rules else ""
++            )
++            _src.tier_reasons = list(_tier_result.reasons)
++
+     return LiveRetrievalResult(
+         classified_sources=classified_sources,
+         evidence_rows=evidence_rows,
+diff --git a/src/polaris_graph/retrieval/tier_classifier.py b/src/polaris_graph/retrieval/tier_classifier.py
+index 70a48d7b..9413df31 100644
+--- a/src/polaris_graph/retrieval/tier_classifier.py
++++ b/src/polaris_graph/retrieval/tier_classifier.py
+@@ -1220,7 +1220,24 @@ def classify_source_tier(
+         ClassificationResult with the SAME five legacy fields populated PLUS
+         the four additive authority fields. No downstream consumer reads the
+         authority fields in 0a — shadow only.
++    ON  (PG_CREDIBILITY_LLM_TIERING in {1,true,yes,on}): I-wire-001 W5 — the
++        bake-off winner. An LLM (GLM-5.2) classifies the source DIRECTLY into the
++        POLARIS T1-T7 scheme from the observable authority payload, ESCALATING over
++        the rule classifier (+0.353 macro-F1; repairs social->T7 0.000->1.000 and
++        T2 synthesis/guideline under-recall). The rules-floor is the instant
++        deterministic FALLBACK on any judge_error/timeout. Tier stays a per-citation
++        WEIGHT, never a drop (CLAUDE.md §-1.3); the faithfulness engine is FROZEN.
++        Takes PRECEDENCE over PG_USE_AUTHORITY_MODEL when both are set. Lazy import
++        keeps the OFF path free of the LLM caller + httpx.
+     """
++    if os.getenv("PG_CREDIBILITY_LLM_TIERING", "0").strip().lower() in (
++        "1", "true", "yes", "on",
++    ):
++        from src.polaris_graph.retrieval.credibility_llm_tiering import (
++            classify_source_tier_llm,
++        )
++
++        return classify_source_tier_llm(signals)
+     if os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
+         return _classify_via_authority_model(signals)
+     return _classify_source_tier_rules(signals)
