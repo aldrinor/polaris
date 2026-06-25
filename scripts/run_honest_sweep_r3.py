@@ -5537,16 +5537,17 @@ async def run_one_query(
 
             def _assert_snapshot_question(_payload: "dict | None", _kind: str) -> None:
                 _snap_q = (_payload or {}).get("question")
+                _run_q = q["question"]
                 if _snap_q is not None and _gate0_sha_resume(_snap_q) != _gate0_sha_resume(
-                    research_question
+                    _run_q
                 ):
                     raise RuntimeError(
                         f"[GATE0-RESUME] {_kind} snapshot in {run_dir} was built for a DIFFERENT "
                         f"question than this run's canonical question — refusing to resume on a "
                         f"stale wrong-question corpus (split-brain lineage).\n"
                         f"  snapshot(sha)={_gate0_sha_resume(_snap_q)[:16]} : {_snap_q[:90]!r}\n"
-                        f"  run(sha)={_gate0_sha_resume(research_question)[:16]} : "
-                        f"{research_question[:90]!r}"
+                        f"  run(sha)={_gate0_sha_resume(_run_q)[:16]} : "
+                        f"{_run_q[:90]!r}"
                     )
 
             # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
