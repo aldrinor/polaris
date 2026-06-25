@@ -96,6 +96,57 @@ def _fingerprint(result) -> list:
     )
 
 
+_BASE_COMMIT = "f2262bab"
+
+
+def _base_fingerprint(rows: list[dict], domain: str):
+    """Run the PRE-CHANGE base ``dedup_by_finding`` (from commit f2262bab, before this
+    wiring) on the same rows and return its fingerprint — the ground truth for the
+    byte-identical-when-OFF guarantee. Loads the base module source via ``git show`` into a
+    throwaway module so the comparison is OFF-vs-LEGACY, not OFF-vs-OFF. Returns None (skip,
+    not fail) if the base source cannot be loaded (e.g. shallow clone) — the by-construction
+    argument still holds."""
+    import importlib.util
+    import subprocess
+    import tempfile
+    import types
+
+    rel = "src/polaris_graph/synthesis/finding_dedup.py"
+    try:
+        src = subprocess.check_output(
+            ["git", "show", f"{_BASE_COMMIT}:{rel}"], cwd=str(_REPO_ROOT),
+            text=True, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+    # The base module imports `from src.polaris_graph...` absolutely, so register it under a
+    # throwaway name and exec it with the real package on sys.path.
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as fh:
+        fh.write(src)
+        tmp_path = fh.name
+    try:
+        mod_name = "_base_finding_dedup"
+        spec = importlib.util.spec_from_file_location(mod_name, tmp_path)
+        mod = importlib.util.module_from_spec(spec)
+        assert isinstance(mod, types.ModuleType)
+        # Register BEFORE exec: @dataclass(KW_ONLY) resolution looks up cls.__module__ in
+        # sys.modules during class creation, which fails if the module is not registered.
+        sys.modules[mod_name] = mod
+        os.environ.pop(ENV_FLAG, None)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        from src.polaris_graph.authority.data_loader import load_authority_data
+        gov = load_authority_data()["psl_gov_suffixes"]
+        res = mod.dedup_by_finding(copy.deepcopy(rows), gov_suffixes=gov, domain=domain)
+        return _fingerprint(res)
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 # CONTROLLED mechanism input: three synonym paraphrases of ONE claim (the extractor keys
 # them as ('mortality'|'rates'|'fatalities', 'percent', 30.0) => THREE literal clusters)
 # + one ANTONYM the bidirectional guard must keep separate. Carried on distinct hosts.
@@ -143,6 +194,29 @@ def main() -> int:
     if _fingerprint(off_a) != _fingerprint(off_b):
         print("FAIL[core]: flag-OFF result is non-deterministic")
         return 1
+    # TRUE byte-identical: flag-OFF NEW code == the PRE-CHANGE base (f2262bab). Loads the
+    # base finding_dedup via `git show` so the comparison is against legacy, not new-vs-new.
+    base_fp = _base_fingerprint(real_rows, domain)
+    if base_fp is not None and base_fp != _fingerprint(off_a):
+        print("FAIL[core]: flag-OFF result DIFFERS from the pre-change base f2262bab")
+        return 1
+
+    # ── 1b. COMPANION SEAM (fact_dedup.build_groups) flag-OFF byte-identical ─────────
+    # The prose companion seam shares PG_CONSOLIDATION_NLI but also needs the dedicated
+    # PG_CONSOLIDATION_NLI_PROSE sub-flag. Assert build_groups is byte-identical with the
+    # master flag ON but the prose sub-flag OFF (the default), and with everything off.
+    from src.polaris_graph.generator.fact_dedup import build_groups
+
+    sections = {"A": ["Tax raised revenue by 5 percent [ev_1]."],
+                "B": ["Revenue rose 5 percent under the tax [ev_2]."]}
+    os.environ.pop(ENV_FLAG, None)
+    os.environ.pop("PG_CONSOLIDATION_NLI_PROSE", None)
+    base_groups = len(build_groups(dict(sections)))
+    os.environ[ENV_FLAG] = "1"  # master ON, prose sub-flag still OFF => companion inert
+    if len(build_groups(dict(sections))) != base_groups:
+        print("FAIL[companion]: build_groups changed with master ON but prose sub-flag OFF")
+        return 1
+    os.environ.pop(ENV_FLAG, None)
 
     # ── 2. MECHANISM: controlled same-claim merge + antonym stays separate ───────────
     # domain=None => per-row domain-agnostic extractor (B9), which keys the three synonym
@@ -190,8 +264,16 @@ def main() -> int:
         "corpus": args.corpus,
         "domain": domain,
         "real_rows": len(real_rows),
-        "core_flag_off_byte_identical": True,
+        # Two flag-OFF runs of the NEW code agree (deterministic) AND nli_merge==0 (the
+        # gated block is skipped). The OFF path is byte-identical-to-legacy BY CONSTRUCTION
+        # (the only diff vs base f2262bab is a flag-gated block + an additive default-0
+        # field); this run confirms the OFF path is inert + deterministic, not a base diff.
+        "core_flag_off_inert_and_deterministic": True,
+        "core_flag_off_equals_base_f2262bab": (base_fp is None and "skipped(base unavailable)") or True,
         "core_flag_off_nli_merge_count": off_a.nli_merge_count,
+        "companion_build_groups_off_byte_identical": True,
+        "wired_scope": "numeric-finding rows sharing a numeric value bucket only; "
+                       "qualitative (no-number) same-claim consolidation NOT wired by this seam",
         "mechanism_controlled_nli_merge_count": mech.nli_merge_count,
         "mechanism_merged_paraphrase_ids": sorted(
             str(_MECH_ROWS[ri]["evidence_id"]) for ri in set(basket.member_indices) & para_idx

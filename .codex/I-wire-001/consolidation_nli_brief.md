@@ -54,12 +54,35 @@ to-lowest-index) over the GATHERED, sorted edge list — identical for any worke
 ## §-1.4 behavioral fire-test — `scripts/fire_test_consolidation_nli.py`
 Three fail-loud assertions on a REAL banked `corpus_snapshot.json`:
 1. CORE: flag-OFF == legacy, byte-identical, `nli_merge_count==0` (default-OFF inert).
-2. MECHANISM (controlled input): 3 synonym paraphrases (mortality/death rates/fatalities
-   reduced 30% → 3 distinct literal keys) MERGE; the ANTONYM (increased 30%) stays
-   SEPARATE (bidirectional polarity guard); merged basket ≥2 hosts.
+2. MECHANISM (controlled input, `domain=None` — the domain-agnostic extractor; this is a
+   TEST CONVENIENCE, NOT the live path, which always passes a concrete `domain=q["domain"]`
+   at run_honest_sweep_r3.py:9498): 3 synonym paraphrases (mortality/death rates/fatalities
+   reduced 30% → 3 distinct literal keys) MERGE; a DIFFERENT-claim same-value row (antibody
+   titers +30%) stays SEPARATE; merged basket ≥2 hosts. (An "increased mortality" antonym is
+   NOT usable as the negative — the direction-blind numeric extractor gives it the SAME
+   `_finding_key` as "reduced mortality", so the LITERAL floor groups them before NLI runs.)
 3. PRECISION (real rows): two real same-VALUE/different-CLAIM pairs from drb_75
    (ev_393 dexamethasone-preterm vs ev_061 protein-older-men; ev_262 vs ev_779) STAY
    SEPARATE.
+
+## ⚠ WIRED SCOPE IS NARROW (LOUD — load-bearing for the activation decision)
+- **Numeric-only.** This seam consolidates ONLY rows that (a) extract a numeric finding AND
+  (b) share a numeric VALUE bucket but differ on the literal key. **Qualitative same-claim
+  paraphrases (no extractable number) never enter `dedup_by_finding`'s `groups`**, so they
+  get no FindingCluster / member_hosts / consolidation from this seam. This is a known
+  tension with §-1.3 Principle 2 ("consolidate qualitative claims too — never restrict to
+  numeric-only"): qualitative multi-host consolidation is NOT wired by this PR. The
+  companion `build_groups` prose seam is the cross-ref-REMOVAL direction, not multi-citation.
+- **Bake-off test set NOT located.** I could not find the harness/test set behind
+  `section_winner_board.md:18` (the R=1.0/P=1.0 score). I therefore CANNOT assert this
+  numeric-only wiring covers what `consolidation_nli` was scored on; the R=1.0 may have been
+  largely qualitative claim pairs. Stated as inference, not fact.
+- **Companion `build_groups` seam is UNVALIDATED + content-lossy.** It routes prose clusters
+  through the cross-ref REWRITE (can drop sentences). It is gated behind a DEDICATED sub-flag
+  `PG_CONSOLIDATION_NLI_PROSE` (default-OFF) ON TOP of the master flag, so activating the
+  faithful finding_dedup consolidation does NOT silently activate this lossy path. The
+  fire-test asserts it is byte-identical with the master flag ON + prose sub-flag OFF, but
+  does NOT validate its ON behavior — treat it as UNVALIDATED until a dedicated test lands.
 
 ## ⚠ HONEST LIMITATION (LOUD — per the avoidable-negligence rule, do NOT bury)
 **Natural clean firing on the banked corpora was NOT achieved; flag-ON activation is

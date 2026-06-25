@@ -191,6 +191,18 @@ Fire-test `scripts/fire_test_consolidation_nli.py` asserts (all fail-loud):
   boilerplate fetched bodies) is a different distribution. The principled remedy is an UPSTREAM
   clean claim-sentence per row — a follow-up, NOT a margin/threshold knob (banned §-1.3).
 
+## 4b. Wired-scope ceiling (load-bearing — above the boilerplate issue)
+- NUMERIC-ONLY: the seam consolidates only numeric-finding rows sharing a value bucket but
+  differing on key. Qualitative (no-number) same-claim paraphrases never enter
+  `dedup_by_finding`'s `groups`, so they are NOT consolidated by this PR — a known tension
+  with §-1.3 Principle 2 (consolidate qualitative too). The companion `build_groups` prose
+  seam is cross-ref REMOVAL, not multi-citation.
+- BAKE-OFF TEST SET NOT FOUND: I could not locate the harness behind board line 18, so I
+  cannot assert the numeric-only wiring covers what scored R=1.0/P=1.0 (inference, not fact).
+- COMPANION SEAM gated behind a DEDICATED sub-flag `PG_CONSOLIDATION_NLI_PROSE` (default-OFF)
+  so the master flag cannot silently activate the lossy prose-rewrite path; fire-test asserts
+  it byte-identical with master-ON/prose-OFF; its ON behavior is UNVALIDATED.
+
 ## 5. Honest acceptance verdict (LAW II)
 WIRED, flag-gated DEFAULT-OFF, byte-identical legacy proven on a real corpus; bounded-parallel +
 value-bucketed + deterministic; mechanism + bidirectional polarity guard proven on controlled

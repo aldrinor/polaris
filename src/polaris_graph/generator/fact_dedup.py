@@ -511,10 +511,19 @@ def _build_prose_groups(
 # Consolidation-NLI companion seam (I-wire-001 W1, #1306) — flag-gated default-OFF
 # ─────────────────────────────────────────────────────────────────────────
 def _consolidation_nli_enabled_factdedup() -> bool:
-    """`PG_CONSOLIDATION_NLI` master gate (single source of truth lives in
-    ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the cross-encoder
-    on import). DEFAULT-OFF => the NLI sentence-grouping block is skipped and
-    ``build_groups`` is byte-identical."""
+    """Gate for the COMPANION prose seam in ``build_groups``.
+
+    Requires BOTH the master flag ``PG_CONSOLIDATION_NLI`` AND a dedicated opt-in sub-flag
+    ``PG_CONSOLIDATION_NLI_PROSE`` (default-OFF). The companion seam clusters prose
+    sentences and routes them through the cross-ref REWRITE — a CONTENT-LOSSY path
+    (opposite direction to multi-citation) and currently UNVALIDATED by the §-1.4
+    fire-test. The dedicated sub-flag prevents the master flag (which activates the
+    faithful finding_dedup consolidation) from SILENTLY also activating this lossy prose
+    path on a future flag-flip. DEFAULT-OFF on either flag => ``build_groups`` is
+    byte-identical. Single source of truth for the master gate lives in
+    ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the cross-encoder."""
+    if os.getenv("PG_CONSOLIDATION_NLI_PROSE", "0").strip().lower() in ("", "0", "false", "off", "no"):
+        return False
     from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
         consolidation_nli_enabled,
     )
