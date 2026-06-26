@@ -449,12 +449,99 @@ def set_verifier_llm_timeout_seconds(seconds: int) -> None:
 # OFF path is byte-identical) while bounding the trickle hang. FAITHFULNESS-NEUTRAL: on exhaustion the
 # UNCHANGED fail-closed ``RoleTransportError`` fires (the 4-role gate HOLDS / UNGROUNDED — never a fake
 # verdict; ITEM 4's sentinel-degrade consumes it). Mirrors entailment_judge.py:115-137 (HANG-J3).
-def _role_transport_total_s() -> float:
-    """The per-call total wall-deadline (seconds), read at CALL time so the slate env override wins."""
+# I-wire-004 (#1318) — PER-ROLE total-deadline. THE ROOT CAUSE of `four_role.final_verdicts=0`
+# (assertion f): the Sentinel (`minimax/minimax-m2`) is the slow leg, and a single generic 900s
+# wall meant a slow/trickling minimax POST burned the FULL 15-min deadline before the force-close
+# rotation could advance off it — 602 claims x ~900s force-closes = the multi-hour grind that ran
+# the seam past the outer sweep wall-deadline, so the verdict-assembly that populates
+# `final_verdicts` was never reached (zero rows). The Sentinel's 4-provider chain
+# ([google-vertex, novita, atlas-cloud, minimax]) means a TIGHT per-call deadline lets a slow host
+# fail FAST -> the already-ON force-close rotation (force_close_provider_rotation_enabled, default
+# ON) advances to the next healthy provider -> a fast SUCCESSFUL call -> a REAL verdict. This is the
+# exact A2 idiom proven for the entailment judge (entailment_judge.py:_ENTAILMENT_TOTAL_S=150s,
+# PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1): make the slow leg fail-fast-and-rotate, never burn the
+# full wall N times. FAITHFULNESS-NEUTRAL: a tighter deadline only changes HOW FAST a hung host is
+# abandoned; on genuine exhaustion the UNCHANGED fail-closed `RoleTransportError` fires (the
+# Sentinel arm degrades to per-claim UNGROUNDED, _compose_final_verdict downgrades — NEVER a
+# fabricated/upgraded verdict). LAW VI: env-driven, per-role, read at CALL time.
+#
+# Mirror/Judge keep the GENEROUS 900s (a high-effort GLM-5.1 Mirror / qwen Judge legitimately runs
+# to minutes); only the Sentinel — the slow minimax leg whose chain has healthy alternates to
+# rotate to — gets the tight fail-fast default. The generic PG_ROLE_TRANSPORT_TOTAL_S remains the
+# fallback for every role, so an operator who sets ONLY the generic knob still tightens all roles.
+_ROLE_TRANSPORT_TOTAL_S_DEFAULT = "900"
+# The per-role override env names. A role-specific value ALWAYS wins over the generic knob.
+_ROLE_TRANSPORT_TOTAL_S_PER_ROLE_ENV = {
+    "mirror": "PG_ROLE_TRANSPORT_TOTAL_S_MIRROR",
+    "sentinel": "PG_ROLE_TRANSPORT_TOTAL_S_SENTINEL",
+    "judge": "PG_ROLE_TRANSPORT_TOTAL_S_JUDGE",
+}
+# The Sentinel fail-fast default (seconds). DELIBERATELY GENEROUS at 300s — NOT the lighter
+# entailment_judge 150s. The Sentinel runs minimax-m2 DECOMPOSITION mode (reasoning ON,
+# max_tokens>=3000, atomize-the-claim + per-atom check — sentinel_adapter._DECOMPOSITION_PROMPT),
+# a HEAVIER call than the GLM single-token NLI verdict; the repo's own 900s comment notes healthy
+# 4-role calls run "seconds-to-MINUTES". A too-tight wall (e.g. 150s) would force-close HEALTHY
+# decomposition calls -> UNGROUNDED -> UNSUPPORTED, trading the grind for a mass over-drop (the
+# drb_72-class collapse: final_verdicts>0 passes but all-UNSUPPORTED — faithfulness-safe yet
+# mission-useless). 300s comfortably exceeds a healthy multi-minute decomposition while still
+# abandoning a genuinely stuck/trickling host at 5 min (vs the old 15) so the force-close rotation
+# can advance. With the tighter sentinel total-deadline-retry cap the worst case is ~2x300s per
+# claim vs the old ~3x900s. NO real sentinel latency samples were persisted (cost ledger has zero
+# role:sentinel duration_ms; honest_sweep_r3 captures have none) — so this leans GENEROUS by
+# design; the run slate tightens it via PG_ROLE_TRANSPORT_TOTAL_S_SENTINEL once p99 latency is
+# measured. Mirror/Judge fall through to the generic 900s default (no per-role default override).
+_ROLE_TRANSPORT_TOTAL_S_ROLE_DEFAULT = {
+    "sentinel": "300",
+}
+
+
+def _role_transport_total_s(role: str | None = None) -> float:
+    """The per-call total wall-deadline (seconds) for `role`, read at CALL time (slate override wins).
+
+    Precedence (LAW VI):
+      1) An EXPLICIT per-role env (`PG_ROLE_TRANSPORT_TOTAL_S_<ROLE>`) ALWAYS wins — full operator
+         control to tighten OR loosen a single role.
+      2) Otherwise, for a role with a coded fail-fast default (Sentinel=300s), take the
+         **MIN(generic `PG_ROLE_TRANSPORT_TOTAL_S`, coded default)**. This is the wiring fix
+         (I-wire-004 #1318): the run slate ALREADY sets the generic knob (run_gate_b.py:950 =
+         "300"), and the live forensic (loop_state.json D8_COMPLETION_BLOCKER) shows the generic
+         knob = 300s did NOT stop the Sentinel grind — so a generic value can only TIGHTEN the
+         Sentinel, never RAISE it past its fail-fast default. (If the generic knob were 900, the
+         Sentinel still gets min(900,300)=300 -> fix-1 fires REGARDLESS of the slate's generic
+         value; only an explicit PG_ROLE_TRANSPORT_TOTAL_S_SENTINEL can loosen it.)
+      3) A role with NO coded default (Mirror/Judge) just reads the generic knob (-> 900s default),
+         byte-identical to pre-#1318.
+    `role=None` preserves the pre-#1318 behaviour exactly (generic env -> 900s).
+    An unparseable value at any level falls through to the next.
+    """
+    role_key = (role or "").strip().lower()
+    # 1) explicit per-role override (e.g. PG_ROLE_TRANSPORT_TOTAL_S_SENTINEL) — always wins.
+    per_role_env = _ROLE_TRANSPORT_TOTAL_S_PER_ROLE_ENV.get(role_key)
+    if per_role_env is not None:
+        raw = os.getenv(per_role_env)
+        if raw is not None and raw.strip():
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                pass  # fall through (no-silent-wrong, just next level).
+    # 2/3) generic knob, then the per-role coded default.
+    coded_default = _ROLE_TRANSPORT_TOTAL_S_ROLE_DEFAULT.get(role_key)
+    generic_default = coded_default if coded_default is not None else _ROLE_TRANSPORT_TOTAL_S_DEFAULT
     try:
-        return float(os.getenv("PG_ROLE_TRANSPORT_TOTAL_S", "900"))
+        generic = float(os.getenv("PG_ROLE_TRANSPORT_TOTAL_S", generic_default))
     except (TypeError, ValueError):
-        return 900.0
+        try:
+            generic = float(generic_default)
+        except (TypeError, ValueError):
+            generic = 900.0
+    if coded_default is not None:
+        # A role with a coded fail-fast default: the generic knob can only TIGHTEN it (min), never
+        # loosen it past the fail-fast ceiling — so the fix is wired regardless of the slate generic.
+        try:
+            return min(generic, float(coded_default))
+        except (TypeError, ValueError):
+            return generic
+    return generic
 
 
 def _default_role_http_client() -> httpx.Client:
@@ -793,6 +880,55 @@ def _judge_semaphore() -> threading.BoundedSemaphore:
             _JUDGE_SEMAPHORE = threading.BoundedSemaphore(desired)
             _JUDGE_SEMAPHORE_SIZE = desired
         return _JUDGE_SEMAPHORE
+
+
+# I-wire-004 (#1318) — BOUNDED Sentinel concurrency (mirrors the Judge semaphore above). The slow
+# minimax Sentinel leg, fired by up to PG_FOUR_ROLE_CLAIM_WORKERS concurrent claim workers, can flood
+# the minimax host(s) and provoke the slow/trickle 200s that the per-call deadline then force-closes.
+# A small STEADY concurrency UNDER the sustainable rate finishes FASTER (fewer slow-host events to
+# rotate around). DEFAULT 0 = UNBOUNDED (byte-identical to pre-#1318: no semaphore acquired, sentinel
+# parallelism untouched); a positive value caps concurrent Sentinel POSTs. FAITHFULNESS-NEUTRAL: it
+# changes only HOW MANY sentinel calls run at once, never which claim passes/holds. LAW VI: env-tunable,
+# read lazily on first acquire (same import-timing-safe pattern as the judge semaphore).
+_SENTINEL_CONCURRENCY_ENV = "PG_FOUR_ROLE_SENTINEL_CONCURRENCY"
+_SENTINEL_CONCURRENCY_DEFAULT = "0"  # 0 => unbounded (no semaphore), the byte-identical default.
+_SENTINEL_SEMAPHORE_LOCK = threading.Lock()
+_SENTINEL_SEMAPHORE: threading.BoundedSemaphore | None = None
+_SENTINEL_SEMAPHORE_SIZE: int | None = None
+
+
+def sentinel_concurrency_limit() -> int:
+    """The bounded max concurrent Sentinel POSTs (PG_FOUR_ROLE_SENTINEL_CONCURRENCY, default 0).
+
+    0 (or negative) => UNBOUNDED (no semaphore is acquired; byte-identical to pre-#1318). A positive
+    value caps concurrent Sentinel POSTs. Read lazily so a slate/env override set after import wins;
+    an unparseable override falls back to the default (unbounded).
+    """
+    raw = os.getenv(_SENTINEL_CONCURRENCY_ENV, _SENTINEL_CONCURRENCY_DEFAULT)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(_SENTINEL_CONCURRENCY_DEFAULT)
+    return value if value > 0 else 0
+
+
+def _sentinel_semaphore() -> threading.BoundedSemaphore | None:
+    """The process-wide Sentinel-concurrency semaphore, lazily sized from the env on first use.
+
+    Returns None when the limit is 0/unbounded (the default) so the caller acquires nothing —
+    byte-identical to pre-#1318. Otherwise built once at first acquire (NOT at import) so a slate
+    value set after import is honored; rebuilt larger if the env was raised between calls (lowering
+    mid-run is intentionally not honored, same safe rule as the judge semaphore — the run only loosens).
+    """
+    limit = sentinel_concurrency_limit()
+    if limit <= 0:
+        return None
+    global _SENTINEL_SEMAPHORE, _SENTINEL_SEMAPHORE_SIZE
+    with _SENTINEL_SEMAPHORE_LOCK:
+        if _SENTINEL_SEMAPHORE is None or (_SENTINEL_SEMAPHORE_SIZE or 0) < limit:
+            _SENTINEL_SEMAPHORE = threading.BoundedSemaphore(limit)
+            _SENTINEL_SEMAPHORE_SIZE = limit
+        return _SENTINEL_SEMAPHORE
 
 # LAW VI: base URL + key come from the SAME env vars openrouter_client reads (single source of
 # truth). Read lazily (function-level) so import never depends on env presence.
@@ -1210,11 +1346,19 @@ class OpenRouterRoleTransport:
         # task item 3). Released in `finally` (so it is held across backoff sleeps too — that is what
         # makes the cap genuinely bound concurrent load, not merely concurrent slot-holding).
         _judge_sema = _judge_semaphore() if request.role == "judge" else None
+        # I-wire-004 (#1318): bound concurrent SENTINEL POSTs the same way (default unbounded => None,
+        # byte-identical). Acquired BEFORE the per-call work so queue time is not charged against the
+        # per-call deadline (same rationale as the judge throttle); released in `finally`.
+        _sentinel_sema = _sentinel_semaphore() if request.role == "sentinel" else None
         if _judge_sema is not None:
             _judge_sema.acquire()
+        if _sentinel_sema is not None:
+            _sentinel_sema.acquire()
         try:
             return self._complete_inner(request)
         finally:
+            if _sentinel_sema is not None:
+                _sentinel_sema.release()
             if _judge_sema is not None:
                 _judge_sema.release()
 
@@ -1363,6 +1507,30 @@ class OpenRouterRoleTransport:
                     )
                 )
 
+                # I-wire-004 (#1318): a total-deadline (slow/trickle) timeout re-hangs on the same
+                # slow host, so the bounded same-deadline retries are mostly dead wall-time. THIS is
+                # the heavy-lifting fix per the live forensic (loop_state.json D8_COMPLETION_BLOCKER):
+                # the Sentinel POST exceeded the 300s wall and force-closed+retried 3x => up to
+                # 300s x 3 = 900s PER CLAIM, so only 24 of 1519 claims settled before the run died.
+                # Cap a TOTAL-DEADLINE retry TIGHTER than the general transport-fault budget for the
+                # slow Sentinel leg (mirrors entailment_judge A2 PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1).
+                # With force-close rotation ON (default), the 1 extra attempt targets a DIFFERENT
+                # provider, so a single slow host recovers in ~2x deadline, not 3x. DEFAULT = 1 for the
+                # Sentinel (wired ON, NOT slate-dependent — the prior default=transport_retries was
+                # inert); env-overridable, NEVER exceeds transport_retries. Faithfulness-NEUTRAL: the
+                # exhaustion verdict is the SAME fail-closed RoleTransportError -> per-claim UNGROUNDED.
+                total_deadline_retries = transport_retries
+                if request.role == "sentinel":
+                    try:
+                        total_deadline_retries = min(
+                            transport_retries,
+                            max(0, int(os.getenv(
+                                "PG_ROLE_TRANSPORT_TOTAL_DEADLINE_RETRIES_SENTINEL", "1",
+                            ))),
+                        )
+                    except (TypeError, ValueError):
+                        total_deadline_retries = min(transport_retries, 1)
+                _role_total_s = _role_transport_total_s(request.role)
                 http_response = None
                 rate_limit_attempt = 0
                 while True:
@@ -1372,7 +1540,7 @@ class OpenRouterRoleTransport:
                             http_response = _post_with_total_deadline(
                                 self._http_client, url,
                                 json_body=body, headers=headers,
-                                timeout=_TIMEOUT_SECONDS, total_s=_role_transport_total_s(),
+                                timeout=_TIMEOUT_SECONDS, total_s=_role_total_s,
                             )
                             break
                         except concurrent.futures.TimeoutError as exc:
@@ -1393,7 +1561,7 @@ class OpenRouterRoleTransport:
                                     "force-close FAILED at %s: %s — the getter will rebuild on next use.",
                                     request.role, url, rebuild_exc,
                                 )
-                            if transport_attempt < transport_retries:
+                            if transport_attempt < total_deadline_retries:
                                 # #1290 landmine-3 (TRACK termination-ROTATE): rotate OFF the slow host
                                 # before the next POST. The force-close left no response body, so the
                                 # targeted (slow) provider is inferred from the pinned `order` (first
