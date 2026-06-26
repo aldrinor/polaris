@@ -10588,12 +10588,43 @@ async def run_one_query(
                     _q_spec_max_tokens = int(
                         os.environ.get("PG_QUANTIFIED_SPEC_MAX_TOKENS", "32768")
                     )
+                    # I-wire-005 B-B (#1319): ROOT-CAUSE of the RESIDUAL silent no-op after B4.
+                    # B4 (#1317) raised max_tokens 4000 -> 32768, but the I-wire-004 re-run STILL
+                    # showed spec_produced=False. On the VM the generator is z-ai/glm-5.2, which is
+                    # in openrouter_client._ALWAYS_REASON_MODELS. That branch (openrouter_client.py
+                    # ~L1778) sets reasoning={"effort": "high"} when the caller passes NO
+                    # reasoning_max_tokens — and it places NO cap on the reasoning pool (unlike the
+                    # _REASONING_FIRST_MODELS branch ~L1835, which caps reasoning at 40% of
+                    # max_tokens). So GLM-5.2 at effort=high can burn the ENTIRE 32768 budget on its
+                    # reasoning prelude, return EMPTY content, and the reasoning stream itself
+                    # truncates before the JSON object closes -> the `{.*}` recovery finds no complete
+                    # object -> SpecProviderTransportError -> spec_provider_error -> spec_produced=
+                    # False. Raising max_tokens alone CANNOT fix a model that spends 100% of its
+                    # budget reasoning. The fix per §9.1.8 (never STARVE content) is to pass a bounded
+                    # reasoning budget so a fixed slice is reserved for the closing-brace JSON — the
+                    # SAME pattern the abstractive writer uses (PG_ABSTRACTIVE_WRITER_REASONING_MAX_
+                    # TOKENS). A ModelSpec is small structured DATA validated downstream by
+                    # build_quantified_spec (exact datapoint_ref + pure-arithmetic formulas) — NOT
+                    # verified prose — so bounding reasoning here adds ZERO faithfulness risk; it only
+                    # guarantees the model reaches the content phase. LAW VI: env-tunable, with a
+                    # generous default that still leaves ~24K for content. (Deploy-consistency — was
+                    # B4 even ON the VM for that re-run — is the other half of B-B's hypothesis and is
+                    # a VM-side step outside this local-code fix; this knob is the code-level root
+                    # cause that survives even when B4 IS deployed.)
+                    _q_spec_reasoning_max_tokens = int(
+                        os.environ.get(
+                            "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS", "8192"
+                        )
+                    )
                     try:
                         _resp = await _client.generate(
                             # I-perm-017 (#1208 Bug-3): request JSON mode so the model
                             # emits the ModelSpec into `content`, and raise max_tokens
                             # off the starvation floor.
                             _prompt, max_tokens=_q_spec_max_tokens, temperature=0.0,
+                            # I-wire-005 B-B (#1319): cap the reasoning pool so content is
+                            # never starved by a runaway reasoning prelude (GLM-5.2).
+                            reasoning_max_tokens=_q_spec_reasoning_max_tokens,
                             response_format={"type": "json_object"},
                         )
                     finally:
@@ -11681,8 +11712,28 @@ async def run_one_query(
             # judge_parse_failed + the #1055 fail-closed. Byte-identical when _seam_will_run is False.
             judge_skipped=_seam_will_run,
         )
+        # I-wire-005 B-A (#1319): when the 4-role D8 seam will run it is the SINGLE BINDING
+        # release gate; this legacy evaluator_gate is DEMOTED to advisory metadata
+        # (manifest.pop("evaluator_gate") -> "evaluator_gate_advisory") and D8 OVERRIDES
+        # manifest['status'] + release_allowed below (run_four_role_seam block ~L11977+).
+        # The prior bare "class=abort release_allowed=False" log line read as a hard run abort
+        # and triggered a false-alarm investigation (the I-wire-004 re-run's eval_gate logged
+        # abort while the binding D8 seam was the real, separate failure — it had been killed by
+        # the sentinel grind, NOT by this gate). Surface the advisory-vs-binding status IN THE
+        # LOG so the seam path's eval_gate verdict is never mistaken for the binding decision.
+        # PURE LOG CLARITY: zero gate-decision change — eval_gate.gate_class / .reasons /
+        # .release_allowed are unchanged, the legacy (non-seam) path still drives manifest status
+        # off this gate exactly as before, and PT08/PT11/PT12 still abort the legacy path. The
+        # advisory annotation is gated solely on _seam_will_run (the same flag that decides
+        # whether D8 binds), so the legacy log line is byte-identical when the seam is off.
+        _eval_gate_role = (
+            "ADVISORY (D8 seam is the binding gate; this verdict does NOT decide release)"
+            if _seam_will_run
+            else "BINDING (legacy single-evaluator path)"
+        )
         _log(f"[eval_gate]   class={eval_gate.gate_class} "
              f"release_allowed={eval_gate.release_allowed} "
+             f"role={_eval_gate_role} "
              f"reasons={eval_gate.reasons}")
 
         if dist.total_sources == 0:

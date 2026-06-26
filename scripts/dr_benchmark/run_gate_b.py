@@ -643,6 +643,20 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS": "2048",
     "PG_ABSTRACTIVE_WRITER_CONCURRENCY": "4",
     "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S": "180",
+    # I-wire-005 B-B (#1319): the Phase-7 quantified-spec Writer budgets. B4 (#1317) lived ONLY in
+    # the run_honest_sweep_r3 closure default (32768) and was NEVER pinned in this slate — so a
+    # partial deploy (or a stale operator .env) could leave the spec Writer at a starvation budget
+    # while the preflight passed, the exact "built-it-then-left-it-off" / partial-deploy failure the
+    # B-B re-run hypothesis names. Pin BOTH explicitly: the overall content budget (32768) AND the
+    # reasoning cap (8192) that reserves content on the reasoning-first GLM-5.2 generator (the root
+    # cause: effort=high with no reasoning cap burns the whole budget -> empty content -> spec_
+    # produced=False). Both ride _BENCHMARK_FORCE_EXACT_FLAGS + floor-guarded below so neither can
+    # silently drift below capability on the paid run. Faithfulness-neutral: the ModelSpec is
+    # structured DATA validated downstream by build_quantified_spec, never verified prose; a generous
+    # cap is billed by actual usage (free insurance), and bounding reasoning only guarantees the
+    # model reaches the content phase.
+    "PG_QUANTIFIED_SPEC_MAX_TOKENS": "32768",
+    "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS": "8192",
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
@@ -1169,6 +1183,12 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     # query counts, NOT part of the ~1000-URL fetch sum. Floors == the slate values (30/15).
     "PG_STORM_MAX_BENCHMARK_QUERIES": 30,
     "PG_MAX_SUBQUERIES": 15,
+    # I-wire-005 B-B (#1319): floor-guard the Phase-7 quantified-spec Writer budgets so a
+    # conservative .env/operator value cannot silently starve the spec call below capability and
+    # silently no-op the differentiator on the paid run (the B-B failure). Floors == the slate
+    # values; force-EXACT below additionally pins them so a value ABOVE the floor also cannot drift.
+    "PG_QUANTIFIED_SPEC_MAX_TOKENS": 32768,
+    "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS": 8192,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
 # Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
@@ -1409,6 +1429,12 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS",
     "PG_ABSTRACTIVE_WRITER_CONCURRENCY",
     "PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S",
+    # I-wire-005 B-B (#1319): force-EXACT the Phase-7 quantified-spec Writer budgets so a stray
+    # operator/.env value (or a partial deploy) can neither lower them (starving content ->
+    # spec_produced=False) nor raise them off the chosen pair. Both are ALSO floor-guarded above
+    # (defense in depth). Faithfulness-neutral (structured DATA, validated downstream).
+    "PG_QUANTIFIED_SPEC_MAX_TOKENS",
+    "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS",
     # I-beatboth-011 #1290: force-EXACT the 4-role D8 seam bound so a stale operator .env (or unset, which
     # makes _resolve_four_role_seam_timeout return the max(7200,4*6500)=26000s ~7.2h default) cannot
     # restore the grind past the run-wall.

@@ -8,7 +8,7 @@ verdict-assembly that populates `four_role.final_verdicts` was never reached (ze
 FAIL).
 
 THE FIX (mirrors the proven entailment_judge A2 idiom):
-  - PER-ROLE total-deadline: Sentinel default 150s (fail FAST) while Mirror/Judge keep 900s, so the
+  - PER-ROLE total-deadline: Sentinel default 300s (fail FAST) while Mirror/Judge keep 900s, so the
     slow minimax host is abandoned in seconds and the already-ON force-close rotation advances to the
     next of its 4 providers -> a fast SUCCESSFUL call -> a REAL verdict.
   - tighter total-deadline-retry cap for the Sentinel (PG_ROLE_TRANSPORT_TOTAL_DEADLINE_RETRIES_SENTINEL).
@@ -41,7 +41,7 @@ from src.polaris_graph.roles.sentinel_contract import SentinelResult, SentinelVe
 
 
 # ---------------------------------------------------------------------------------------------
-# 1) PER-ROLE total-deadline: Sentinel fails FAST (150s) while Mirror/Judge stay generous (900s).
+# 1) PER-ROLE total-deadline: Sentinel fails FAST (300s) while Mirror/Judge stay generous (900s).
 # ---------------------------------------------------------------------------------------------
 def test_sentinel_default_total_deadline_is_fast_others_generous(monkeypatch):
     monkeypatch.delenv("PG_ROLE_TRANSPORT_TOTAL_S", raising=False)
