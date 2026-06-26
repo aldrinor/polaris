@@ -1,0 +1,619 @@
+{
+  "arm": "baseline",
+  "config": {
+    "arm": "baseline",
+    "sentinel_slug": "minimax/minimax-m2",
+    "reasoning_effort": "xhigh",
+    "sentinel_deadline_s": "300",
+    "provider_sort": "<default>",
+    "transport": "openrouter"
+  },
+  "n_claims": 65,
+  "workers": 6,
+  "wall_s": 216.7,
+  "throughput": {
+    "claims_per_min": 18.0,
+    "median_s_per_claim": 13.08,
+    "p99_s_per_claim": 56.24,
+    "extrapolated_whole_D8_min_for_1220_claims": 44.3
+  },
+  "completeness": {
+    "pct_real_verdict": 100.0,
+    "n_real": 65,
+    "n_degraded": 0
+  },
+  "faithfulness_catch": {
+    "n_fabricated": 15,
+    "n_caught_ungrounded": 15,
+    "catch_rate": 1.0,
+    "false_accepts": [],
+    "n_grounded_overflag": 6
+  },
+  "rows": [
+    {
+      "id": "00-000-aeb55808",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.42,
+      "error": null
+    },
+    {
+      "id": "00-001-c5ad6983",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 8.08,
+      "error": null
+    },
+    {
+      "id": "00-002-4b8c2322",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 13.08,
+      "error": null
+    },
+    {
+      "id": "00-003-9db1c0f6",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 11.21,
+      "error": null
+    },
+    {
+      "id": "00-004-449aafe9",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 16.23,
+      "error": null
+    },
+    {
+      "id": "00-005-0a78c9c8",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 10.98,
+      "error": null
+    },
+    {
+      "id": "00-006-727aee6a",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 10.72,
+      "error": null
+    },
+    {
+      "id": "00-007-9e03d710",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 6.8,
+      "error": null
+    },
+    {
+      "id": "00-008-6cacd741",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 5.02,
+      "error": null
+    },
+    {
+      "id": "00-009-e2b13ede",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 28.3,
+      "error": null
+    },
+    {
+      "id": "00-010-94f17f67",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 18.36,
+      "error": null
+    },
+    {
+      "id": "00-011-be390701",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 17.37,
+      "error": null
+    },
+    {
+      "id": "00-012-e3836142",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 20.03,
+      "error": null
+    },
+    {
+      "id": "00-013-ff014c5d",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 10.45,
+      "error": null
+    },
+    {
+      "id": "00-014-5f258f02",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 9.36,
+      "error": null
+    },
+    {
+      "id": "00-015-e3e96199",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 26.8,
+      "error": null
+    },
+    {
+      "id": "00-016-ae29bdbc",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 34.26,
+      "error": null
+    },
+    {
+      "id": "00-017-31b9a14e",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 18.0,
+      "error": null
+    },
+    {
+      "id": "00-018-440ecb44",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 6.9,
+      "error": null
+    },
+    {
+      "id": "00-019-496e9fd3",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 17.6,
+      "error": null
+    },
+    {
+      "id": "00-020-fd285c14",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 13.57,
+      "error": null
+    },
+    {
+      "id": "00-021-c2453484",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 10.89,
+      "error": null
+    },
+    {
+      "id": "01-000-d690321c",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.86,
+      "error": null
+    },
+    {
+      "id": "01-001-f0c14187",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 8.0,
+      "error": null
+    },
+    {
+      "id": "01-002-5982c59a",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 17.25,
+      "error": null
+    },
+    {
+      "id": "01-003-d7384d16",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.31,
+      "error": null
+    },
+    {
+      "id": "01-004-30076c19",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 15.78,
+      "error": null
+    },
+    {
+      "id": "01-005-505e268c",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 6.15,
+      "error": null
+    },
+    {
+      "id": "01-006-646cb07d",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 18.26,
+      "error": null
+    },
+    {
+      "id": "01-007-fc9e6445",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 12.72,
+      "error": null
+    },
+    {
+      "id": "01-008-264bd49d",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 9.27,
+      "error": null
+    },
+    {
+      "id": "01-009-443fcf3b",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 14.87,
+      "error": null
+    },
+    {
+      "id": "01-010-9523c5ee",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 13.14,
+      "error": null
+    },
+    {
+      "id": "01-011-e548142c",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 12.27,
+      "error": null
+    },
+    {
+      "id": "01-012-9db4e5f6",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 14.78,
+      "error": null
+    },
+    {
+      "id": "01-013-2f0ed2d3",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 20.99,
+      "error": null
+    },
+    {
+      "id": "01-014-fcd43d49",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 23.79,
+      "error": null
+    },
+    {
+      "id": "01-015-5ac682c2",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 11.38,
+      "error": null
+    },
+    {
+      "id": "01-016-f9a909b1",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 32.35,
+      "error": null
+    },
+    {
+      "id": "02-000-e0c45dfc",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 9.73,
+      "error": null
+    },
+    {
+      "id": "02-001-4afa61be",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 3.22,
+      "error": null
+    },
+    {
+      "id": "02-002-a679fe05",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.42,
+      "error": null
+    },
+    {
+      "id": "02-003-02617e78",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 16.16,
+      "error": null
+    },
+    {
+      "id": "02-004-b3f28ea8",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 67.88,
+      "error": null
+    },
+    {
+      "id": "02-005-9fafcd46",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.67,
+      "error": null
+    },
+    {
+      "id": "02-006-c69b2d0a",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.72,
+      "error": null
+    },
+    {
+      "id": "02-007-a5d52a41",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 18.56,
+      "error": null
+    },
+    {
+      "id": "03-000-753d3a4f",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 15.66,
+      "error": null
+    },
+    {
+      "id": "03-001-94ed5e49",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "GROUNDED",
+      "parsed_ok": true,
+      "latency_s": 6.15,
+      "error": null
+    },
+    {
+      "id": "03-002-002c1270",
+      "label": "grounded",
+      "kind": "real",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 21.01,
+      "error": null
+    },
+    {
+      "id": "03-003-7270b6c9_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.03,
+      "error": null
+    },
+    {
+      "id": "03-004-4457f86b_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 12.43,
+      "error": null
+    },
+    {
+      "id": "03-005-69f9a514_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 8.97,
+      "error": null
+    },
+    {
+      "id": "03-006-86fb7b25_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 7.12,
+      "error": null
+    },
+    {
+      "id": "03-007-58a93082_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 45.37,
+      "error": null
+    },
+    {
+      "id": "04-000-1a9c1f3c_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 45.17,
+      "error": null
+    },
+    {
+      "id": "04-001-29fd74d8_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 30.64,
+      "error": null
+    },
+    {
+      "id": "04-002-8f3a46a5_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 29.73,
+      "error": null
+    },
+    {
+      "id": "04-003-1cafab31_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 33.43,
+      "error": null
+    },
+    {
+      "id": "04-004-8d7df01e_FAB",
+      "label": "fabricated",
+      "kind": "NUMBER_SWAP",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 18.18,
+      "error": null
+    },
+    {
+      "id": "04-005-31e5ef6e_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 11.11,
+      "error": null
+    },
+    {
+      "id": "04-006-8f392c42_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 16.84,
+      "error": null
+    },
+    {
+      "id": "04-007-47d24280_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 56.24,
+      "error": null
+    },
+    {
+      "id": "04-008-5354d574_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 9.27,
+      "error": null
+    },
+    {
+      "id": "04-009-e9394afc_FAB",
+      "label": "fabricated",
+      "kind": "FABRICATED_ATTRIBUTION",
+      "verdict": "UNGROUNDED",
+      "parsed_ok": true,
+      "latency_s": 11.84,
+      "error": null
+    }
+  ]
+}
