@@ -3116,20 +3116,31 @@ async def _call_section(
             )
             if model in _REASONING_FIRST_MODELS:
                 _retry_temp = 0.1
+        # I-wire-009 (#1323) P1-1: BIND the reasoning POOL on the LEGACY section writer (the
+        # distillate-None path; the REDUCE keystone path already caps via _reduce_reasoning_tokens)
+        # AND floor CONTENT strictly above it. GLM-5.2 _ALWAYS_REASON at effort=high can otherwise
+        # consume the whole completion ceiling on reasoning and starve content to empty. The earlier
+        # fix forwarded the caller max_tokens VERBATIM, so a real caller that passes a small value
+        # (run_honest_on_prerebuild_corpus.py:309 passes 2400 -> GLM floors to 4096) left the reasoning
+        # cap (16384) ABOVE the content ceiling (4096) -> content NOT reserved. Floor CONTENT to
+        # reasoning_cap + a headroom slab so reasoning < content ALWAYS holds for this leg regardless
+        # of the caller value; a generous caller (the cert slate's PG_SECTION_MAX_TOKENS=64000) is
+        # UNCHANGED (max() keeps the larger value). Faithfulness-neutral: strict_verify is unchanged.
+        # LAW VI env-tunable.
+        _section_reasoning_max_tokens = int(
+            os.getenv("PG_SECTION_REASONING_MAX_TOKENS", "16384")
+        )
+        _section_content_max_tokens = max(
+            max_tokens,
+            _section_reasoning_max_tokens
+            + int(os.getenv("PG_SECTION_CONTENT_HEADROOM_TOKENS", "8192")),
+        )
         response = await client.generate(
             prompt=prompt,
             system=system,
-            max_tokens=max_tokens,
+            max_tokens=_section_content_max_tokens,
             temperature=_retry_temp,
-            # I-wire-009 (#1323): bound the reasoning POOL on the LEGACY section writer (the
-            # distillate-None path; the REDUCE keystone path already caps via
-            # _reduce_reasoning_tokens). GLM-5.2 _ALWAYS_REASON at effort=high can otherwise
-            # consume the whole section_max_tokens (PG_SECTION_MAX_TOKENS=64000) ceiling on
-            # reasoning and starve content. A generous 16384-token reasoning slice mirrors the
-            # REDUCE sibling and still leaves the bulk of the ceiling for content. LAW VI env-tunable.
-            reasoning_max_tokens=int(
-                os.getenv("PG_SECTION_REASONING_MAX_TOKENS", "16384")
-            ),
+            reasoning_max_tokens=_section_reasoning_max_tokens,
         )
     except ReasoningFirstTruncationError as exc:
         # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out

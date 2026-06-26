@@ -212,6 +212,98 @@ def test_every_fixed_leg_reserves_content_below_its_reasoning_cap():
         )
 
 
+# ── I-wire-009 (#1323) P1 gate-iter-1 fixes ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_call_section_floors_content_above_reasoning_when_caller_underfunds(monkeypatch):
+    """P1-1: the LEGACY section writer (``_call_section``, distillate=None) must floor CONTENT
+    STRICTLY above its bounded reasoning pool even when a real caller underfunds it. The earlier fix
+    forwarded the caller ``max_tokens`` VERBATIM, so ``run_honest_on_prerebuild_corpus.py:309``'s
+    ``max_tokens=2400`` (GLM floors to 4096) left the 16384 reasoning cap ABOVE the content ceiling ->
+    content not reserved. Asserts reasoning < content at the actual ``client.generate()`` call."""
+    from src.polaris_graph.generator.multi_section_generator import _call_section, SectionPlan
+
+    calls = _patch_generate_capture(monkeypatch)
+    section = SectionPlan(title="Safety", focus="adverse events", ev_ids=["E1"])
+    evidence = [{
+        "evidence_id": "E1", "statement": "10% had nausea", "direct_quote": "10% had nausea",
+        "source_url": "https://example.org/a", "tier": "T1",
+    }]
+    await _call_section(section, evidence, model=_GLM, temperature=0.2, max_tokens=2400)
+    assert len(calls) >= 1, "_call_section never reached client.generate (silent early-return)"
+    c = calls[0]
+    assert c["model"] == _GLM
+    assert c["reasoning_max_tokens"] is not None and c["reasoning_max_tokens"] > 0
+    # content floored UP above the reasoning cap (16384 + 8192 headroom = 24576)
+    assert c["max_tokens"] >= 16384 + 8192
+    assert c["reasoning_max_tokens"] < c["max_tokens"], \
+        "reasoning cap is NOT below the content ceiling -> content can be starved (the bug)"
+
+
+@pytest.mark.asyncio
+async def test_call_section_leaves_generous_slate_caller_unchanged(monkeypatch):
+    """P1-1 blast-radius: a generous caller (the cert slate's PG_SECTION_MAX_TOKENS=64000) is
+    UNCHANGED — ``max()`` keeps the larger value, so only the under-floored caller is raised and the
+    certification run is unperturbed."""
+    from src.polaris_graph.generator.multi_section_generator import _call_section, SectionPlan
+
+    calls = _patch_generate_capture(monkeypatch)
+    section = SectionPlan(title="Safety", focus="adverse events", ev_ids=["E1"])
+    evidence = [{
+        "evidence_id": "E1", "statement": "10% had nausea", "direct_quote": "10% had nausea",
+        "source_url": "https://example.org/a", "tier": "T1",
+    }]
+    await _call_section(section, evidence, model=_GLM, temperature=0.2, max_tokens=64000)
+    assert len(calls) >= 1
+    assert calls[0]["max_tokens"] == 64000, "generous slate caller value must be preserved"
+    assert calls[0]["reasoning_max_tokens"] < calls[0]["max_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_generate_retry_forwards_reasoning_cap(monkeypatch):
+    """P1-2: the COT-2 retry inside ``_generate_impl`` must forward ``reasoning_max_tokens`` /
+    ``reasoning_exclude``, identical to the primary ``_call``. A reasoning-first writer that is NOT
+    in ``_ALWAYS_REASON_MODELS`` (the locked deepseek-v4-pro / -v4-flash generator) can reach this
+    retry with empty content + sparse (<100-char) reasoning; WITHOUT these params the request-side
+    switch re-enters the uncapped effort=high path and silently DROPS the caller's cap. The patch is
+    at the ``_call`` boundary, so the assertion is on the retry invocation's forwarded kwargs."""
+    client = OpenRouterClient(model="openai/gpt-4o-mini")  # NOT always-reason -> retry path reachable
+    calls: list[dict] = []
+
+    async def _fake_call(self, messages, call_type, **kwargs):  # noqa: ANN001 — test stub
+        calls.append({"call_type": call_type, **kwargs})
+        if call_type == "generate":
+            # empty content + SPARSE non-extractable reasoning -> COT-2 retry fires
+            return types.SimpleNamespace(
+                content="", reasoning="x", trace_call_id=None,
+                input_tokens=1, output_tokens=0, reasoning_tokens=1,
+                model=self.model, duration_ms=1, raw_response={}, finish_reason="stop",
+            )
+        return types.SimpleNamespace(
+            content="recovered answer body", reasoning="x", trace_call_id=None,
+            input_tokens=1, output_tokens=3, reasoning_tokens=1,
+            model=self.model, duration_ms=1, raw_response={}, finish_reason="stop",
+        )
+
+    monkeypatch.setattr(OpenRouterClient, "_call", _fake_call, raising=True)
+
+    out = await client.generate(
+        "x", max_tokens=4096, temperature=0.0,
+        reasoning_max_tokens=2048, reasoning_exclude=False,
+    )
+    assert out.content == "recovered answer body", "retry result was not returned"
+    retry_calls = [c for c in calls if c["call_type"] == "generate_retry"]
+    assert len(retry_calls) == 1, "COT-2 retry did not fire"
+    assert retry_calls[0].get("reasoning_max_tokens") == 2048, \
+        "retry DROPPED the caller's reasoning cap (the bug)"
+    assert retry_calls[0].get("reasoning_exclude") is False, \
+        "retry DROPPED reasoning_exclude"
+    # the primary forwarded it (the precedent the retry must match)
+    primary = [c for c in calls if c["call_type"] == "generate"][0]
+    assert primary.get("reasoning_max_tokens") == 2048
+
+
 def test_abstractive_writer_default_reasoning_is_bounded_below_content():
     """The LOCKED floor_abstractive composer (the active winner) must BOUND reasoning BY DEFAULT.
     Its I-wire-005 default was -1 (=> effort=high, uncapped) — the same generous-ceiling assumption

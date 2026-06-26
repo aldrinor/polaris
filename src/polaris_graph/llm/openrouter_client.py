@@ -3248,6 +3248,16 @@ class OpenRouterClient:
                     # retry leg of a reasoning-first writer also gets the generous
                     # GENERATOR_TIMEOUT_SECONDS instead of being capped at 90s/600s.
                     timeout=timeout,
+                    # I-wire-009 (#1323) P1-2: forward the caller's reasoning budget into the COT-2
+                    # retry, identical to the primary _call above. A reasoning-first writer that is
+                    # NOT in _ALWAYS_REASON_MODELS (the locked deepseek/deepseek-v4-pro / -v4-flash
+                    # generator) can reach this retry with empty content + sparse (<100-char) reasoning;
+                    # the request-side switch then forces a reasoning block, and WITHOUT these params it
+                    # re-enters the uncapped effort=high path -> silently DROPS the cap the caller set.
+                    # Faithfulness-NEUTRAL: it preserves the caller's existing cap; callers who pass
+                    # nothing (None) are byte-unaffected.
+                    reasoning_max_tokens=reasoning_max_tokens,
+                    reasoning_exclude=reasoning_exclude,
                 )
                 _retry_trace_id = result.trace_call_id
                 # I-gen-561 (#561) P2-4: the retry's captured record inherits
