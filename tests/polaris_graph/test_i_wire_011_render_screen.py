@@ -248,6 +248,85 @@ def test_nli_annotation_wall_propagates_budget_and_unavailable():
         asyncio.run(rhs._nli_annotation_with_wall([1], 5, _unavail))
 
 
+# ── I-wire-011 (#1325) iter-4 Codex iter-3 P1: EXIT-SAFETY — daemon offload worker ─
+def test_nli_annotation_wall_worker_thread_is_daemon():
+    """The offload worker MUST be a DAEMON thread so a wedged annotator can never block process exit on
+    ANY entrypoint (the paid Gate-B/run_one_query path does NOT arm the PG_TEARDOWN_WALL watchdog). While
+    the stub is parked mid-call, the live ``nli_wall`` worker is enumerable and ``.daemon`` is True — the
+    mechanism asserted deterministically (no subprocess timing). A ThreadPoolExecutor worker would be
+    NON-daemon, so this pins the fix."""
+    import threading
+
+    rhs = _load_rhs()
+    entered = threading.Event()
+    release = threading.Event()
+
+    async def _blocking(_pairs):
+        entered.set()
+        release.wait(30)  # bounded so a failed assert can never leave an unbounded live worker
+        return {"nli_status": "ok", "sentences_checked": 1}
+
+    try:
+        _result, timed_out = asyncio.run(
+            rhs._nli_annotation_with_wall([{"sentence": "x"}], 0.2, _blocking)
+        )
+        assert entered.is_set()    # the offloaded worker actually STARTED the blocking call
+        assert timed_out is True   # the wall fired
+        # The worker is still parked on release.wait(); find it by name and prove it is a daemon.
+        live = [t for t in threading.enumerate() if t.name == "nli_wall" and t.is_alive()]
+        assert live, "expected a live nli_wall worker thread while the annotator is parked"
+        assert all(t.daemon for t in live), "nli_wall offload worker MUST be a daemon thread"
+    finally:
+        release.set()  # let the abandoned worker return promptly
+
+
+def test_nli_annotation_wall_daemon_worker_lets_process_exit_cleanly(tmp_path):
+    """The EXIT-SAFETY proof the iter-4 task requires. A subprocess runs the wall against a stub that
+    BLOCKS FOREVER (event never set). The wall fires + fail-opens, then the script reaches its end; the
+    DAEMON worker is not joined by ``threading._shutdown`` / ``concurrent.futures._python_exit`` so the
+    interpreter EXITS CLEANLY. A non-daemon ThreadPoolExecutor worker (the pre-fix code) would HANG the
+    interpreter at exit and trip the subprocess timeout — so this is a genuine reproduce-the-bug
+    regression, not a tautology."""
+    import os
+    import subprocess
+    import sys
+
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    rhs_path = repo_root / "scripts" / "run_honest_sweep_r3.py"
+    driver = tmp_path / "nli_wall_clean_exit_driver.py"
+    driver.write_text(
+        "import asyncio, importlib.util, pathlib, sys, threading\n"
+        "rhs_path = pathlib.Path(sys.argv[1])\n"
+        "sys.path.insert(0, str(rhs_path.parents[1]))\n"
+        "spec = importlib.util.spec_from_file_location('_rhs_exit', rhs_path)\n"
+        "rhs = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(rhs)\n"
+        "_never = threading.Event()  # NEVER set -> the annotator blocks its worker thread FOREVER\n"
+        "async def _forever(_pairs):\n"
+        "    _never.wait()           # no timeout: a truly-wedged judge.judge() loop\n"
+        "    return {'nli_status': 'ok'}\n"
+        "result, timed_out = asyncio.run(\n"
+        "    rhs._nli_annotation_with_wall([{'sentence': 'x'}], 0.2, _forever)\n"
+        ")\n"
+        "assert timed_out is True, result\n"
+        "assert result['nli_status'] == 'skipped_wall_timeout', result\n"
+        "print('CLEAN_EXIT_OK')\n",
+        encoding="utf-8",
+    )
+    _env = dict(os.environ)
+    _env["PYTHONPATH"] = str(repo_root) + os.pathsep + _env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, str(driver), str(rhs_path)],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        env=_env,
+        timeout=180,  # a non-daemon worker would hang at interpreter exit and trip this
+    )
+    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    assert "CLEAN_EXIT_OK" in proc.stdout, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+
+
 # ── I-wire-011 (#1325) gate iter-1 P1: opposing-pair selection (not claims[:2]) ─
 def test_contradicts_block_picks_opposing_poles_not_first_two(tmp_path):
     """On a >2-claim basket the renderer must show the GENUINELY OPPOSING endpoints (min vs

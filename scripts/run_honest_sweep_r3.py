@@ -2490,16 +2490,20 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
 # wall actually fires. ``max_workers=1`` — the annotation runs once per query as the run's last step
 # (one-query-per-VM, so cross-query serialization is a non-issue here).
 #
-# Exit-safety (a truly-hung worker can never block process exit) is guaranteed WITHOUT daemon threads
-# (a ThreadPoolExecutor cannot set ``daemon`` on an already-started worker) by TWO existing backstops:
-#   1. the I-wire-008 / HANG-J3 per-call entailment deadline (``PG_ENTAILMENT_TOTAL_S`` default 150s,
-#      ``entailment_judge.py:112``) bounds EACH ``judge.judge()`` call, so an abandoned worker DEGRADES
-#      (drains in bounded time) rather than hangs; and
-#   2. the ``PG_TEARDOWN_WALL`` daemon watchdog (below, default ON) force-``os._exit()``s past any
-#      wedged ``concurrent.futures`` atexit join once the artifacts are on disk.
-_nli_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="nli_wall",
-)
+# Exit-safety (I-wire-011 iter-4, Codex iter-3 P1): a truly-wedged annotator must NEVER block process
+# exit on ANY entrypoint. The prior offload used a module-level ``concurrent.futures.ThreadPoolExecutor``
+# whose workers are NON-DAEMON; the only thing that force-exited past a wedged ``concurrent.futures``
+# atexit join was the ``PG_TEARDOWN_WALL`` watchdog — and that watchdog is armed ONLY by
+# ``run_honest_sweep.main()``. The paid relaunch path reaches this code via the Gate-B / iwire002
+# ``run_one_query`` entrypoint (``scripts/dr_benchmark/run_gate_b.py`` -> ``run_gate_b_query`` ->
+# ``asyncio.run``), which did NOT arm it, so a wedged worker could hang the interpreter at exit. FIX:
+# offload onto a per-call DAEMON ``threading.Thread`` (built inside ``_nli_annotation_with_wall`` below).
+# A daemon thread is killed at interpreter shutdown and is NEVER joined by ``threading._shutdown`` /
+# ``concurrent.futures._python_exit``, so a wedged worker can never block exit regardless of entrypoint.
+# The I-wire-008 per-call entailment deadline still bounds each ``judge.judge()`` call, and the
+# ``PG_TEARDOWN_WALL`` watchdog — now also armed on the Gate-B path (run_gate_b.py __main__) — remains a
+# belt-and-suspenders for OTHER non-daemon lingering pools; this NLI worker no longer depends on either
+# to be exit-safe.
 
 
 async def _nli_annotation_with_wall(
@@ -2519,9 +2523,12 @@ async def _nli_annotation_with_wall(
     :147-151). The old ``await asyncio.wait_for(annotate(pairs), ...)`` ran that blocking loop ON the
     event loop, which never yields control, so ``wait_for`` could NEVER fire its timeout — the wall was a
     no-op and the deadlock was NOT fixed. The wall is only effective when the blocking work runs OFF the
-    loop: we offload ``annotate(pairs)`` onto a dedicated worker thread (``_nli_executor``) via
-    ``loop.run_in_executor`` and wall the resulting THREAD future. The coroutine then ``await``s the
-    executor future (a REAL suspension point), the loop stays free, and ``asyncio.wait_for`` fires.
+    loop: we offload ``annotate(pairs)`` onto a per-call DAEMON worker thread (built below) that publishes
+    its outcome on a ``concurrent.futures.Future``, and wall that THREAD future. The coroutine then
+    ``await``s the future via ``asyncio.wrap_future`` (a REAL suspension point), the loop stays free, and
+    ``asyncio.wait_for`` fires. The worker is a DAEMON thread (NOT a ``ThreadPoolExecutor`` — its workers
+    are non-daemon and can wedge the interpreter at exit on the Gate-B entrypoint; see the module note
+    above), so a truly-wedged annotator can never block process exit.
 
     **Budget / cost.** The worker runs under a SNAPSHOT of the parent task context
     (``contextvars.copy_context()``), so the judge's ``_RUN_COST_CTX`` (per-run budget) and
@@ -2558,17 +2565,34 @@ async def _nli_annotation_with_wall(
         # now blocks THIS thread, not the caller's event loop — which is what frees the wall to fire.
         return _parent_ctx.run(asyncio.run, _annotate_capturing())
 
+    # Drive _worker on a per-call DAEMON thread and publish its outcome on a concurrent.futures.Future,
+    # then await that future via asyncio.wrap_future — exactly what loop.run_in_executor does internally,
+    # minus the non-daemon pool. set_running_or_notify_cancel() is required before set_result/
+    # set_exception (Future contract); we mirror the executor's surface-ALL-outcomes semantics so
+    # BudgetExceededError / NliUnavailableError propagate unchanged and only asyncio.TimeoutError is
+    # caught below. Daemon => a wedged worker can never block process exit (Codex iter-3 P1 fix).
+    _result_future: "concurrent.futures.Future" = concurrent.futures.Future()
+
+    def _runner() -> None:
+        if not _result_future.set_running_or_notify_cancel():
+            return
+        try:
+            _result_future.set_result(_worker())
+        except BaseException as _exc:  # noqa: BLE001 - mirror executor: every outcome reaches the awaiter
+            _result_future.set_exception(_exc)
+
+    threading.Thread(target=_runner, name="nli_wall", daemon=True).start()
     try:
         result = await asyncio.wait_for(
-            loop.run_in_executor(_nli_executor, _worker), timeout=wall_s,
+            asyncio.wrap_future(_result_future, loop=loop), timeout=wall_s,
         )
         return result, False
     except asyncio.TimeoutError:
         # The wall fired BECAUSE the blocking work is on the worker thread (the loop was free to time
-        # out). The abandoned worker keeps draining — bounded by the I-wire-008 per-call entailment
-        # deadline, with the PG_TEARDOWN_WALL watchdog force-exiting past any wedge at process end — so
-        # control returns here and the caller reaches the manifest write. ADVISORY skip: never relaxes a
-        # verdict (4-role D8 already decided release).
+        # out). The abandoned DAEMON worker keeps draining — bounded by the I-wire-008 per-call entailment
+        # deadline — and, being a daemon, is killed at interpreter exit without ever blocking it (no
+        # atexit join), so control returns here and the caller reaches the manifest write. ADVISORY skip:
+        # never relaxes a verdict (4-role D8 already decided release).
         return (
             {
                 "nli_status": "skipped_wall_timeout",

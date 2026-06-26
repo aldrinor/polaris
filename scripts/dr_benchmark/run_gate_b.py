@@ -3069,4 +3069,19 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     import sys
 
-    sys.exit(main())
+    # I-wire-011 iter-4 (Codex iter-3 P1) BELT-AND-SUSPENDERS: arm the PG_TEARDOWN_WALL watchdog on the
+    # PAID Gate-B entrypoint too. The watchdog was previously armed ONLY by run_honest_sweep.main(); this
+    # CLI reaches run_one_query via run_gate_b_query/asyncio.run and so never armed it, leaving the paid
+    # path exposed to a NON-NLI lingering non-daemon pool (e.g. an orphaned 4-role seam claim executor)
+    # wedging the interpreter at exit. Mirror run_honest_sweep.main() EXACTLY: arm in a finally so a
+    # wedged pool can hang the interpreter on either the success or the exception path; default-safe
+    # (PG_TEARDOWN_WALL=0 => true no-op). The NLI worker's own exit-safety is the daemon thread in
+    # run_honest_sweep_r3._nli_annotation_with_wall; this is an independent backstop for other pools.
+    from scripts.run_honest_sweep_r3 import _run_process_teardown
+
+    _rc = 1
+    try:
+        _rc = main()
+    finally:
+        _run_process_teardown(_rc)
+    sys.exit(_rc)
