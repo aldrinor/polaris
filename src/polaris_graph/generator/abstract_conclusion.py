@@ -49,6 +49,7 @@ from src.polaris_graph.generator.key_findings import (
     _SENTENCE_RE,
     _first_verified_sentences,
     _strip_leading_markdown_headers,
+    cap_citation_marker_runs,
 )
 
 _OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
@@ -64,6 +65,23 @@ _ABSTRACT_SENTENCES_PER_SECTION = 1
 _ABSTRACT_MAX_SENTENCES = 6
 # How many trailing/most-significant verified sentences the conclusion re-presents.
 _CONCLUSION_MAX_SENTENCES = 5
+
+# I-wire-011 (#1325) fix 3: per-run citation cap for the Abstract/Conclusion summary (LAW VI). A
+# closing summary line carries the body span VERBATIM (every marker already span-supported); this
+# only bounds how many co-citations one RUN displays. The body + bibliography keep every reference,
+# so the cap can never orphan a citation. Floored at 1; fail-soft on a non-int.
+_MAX_SUMMARY_MARKERS_ENV = "PG_SYNTHESIS_MAX_MARKERS"
+_DEFAULT_SUMMARY_MARKERS = 3
+
+
+def _max_summary_markers() -> int:
+    raw = os.getenv(_MAX_SUMMARY_MARKERS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_SUMMARY_MARKERS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_SUMMARY_MARKERS
 
 # Disclosed "no verified evidence" line (NEVER fabricated filler — §-1.3).
 _INSUFFICIENT_EVIDENCE = (
@@ -186,6 +204,9 @@ def build_abstract(sections: list[Any], release_certified: bool = True) -> str:
     sentences = _harvest_abstract_sentences(sections)
     if not sentences:
         return _ABSTRACT_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
+    # I-wire-011 (#1325) fix 3: constrain each summary line's marker RUNS (render-only).
+    _cap = _max_summary_markers()
+    sentences = [cap_citation_marker_runs(s, _cap) for s in sentences]
     return _ABSTRACT_HEADER + _caveat + " ".join(sentences) + "\n\n"
 
 
@@ -201,6 +222,10 @@ def build_conclusion(sections: list[Any], release_certified: bool = True) -> str
     sentences = _harvest_conclusion_sentences(sections)
     if not sentences:
         return _CONCLUSION_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
+    # I-wire-011 (#1325) fix 3: constrain each closing line's marker RUNS so a conclusion sentence
+    # cites only the few most-relevant spans (the body span is verbatim — markers stay span-grounded).
+    _cap = _max_summary_markers()
+    sentences = [cap_citation_marker_runs(s, _cap) for s in sentences]
     return _CONCLUSION_HEADER + _caveat + " ".join(sentences) + "\n\n"
 
 

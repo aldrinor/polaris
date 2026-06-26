@@ -155,13 +155,23 @@ class AdaptiveConcurrencyController:
         self._limit = min(self._max_limit, max(self._min_limit, start))
         self._in_flight = 0
         self._clean_streak = 0
+        # I-wire-010 (#1324): one-way TEARDOWN latch. While False (the entire normal run) the gate is
+        # byte-identical to pre-#1324; `release_all()` sets it at process teardown so every acquirer
+        # blocked in `acquire()`'s `self._cond.wait()` wakes and stops gating (no worker can hang on
+        # this Condition while the interpreter joins lingering pool threads at exit).
+        self._shutdown = False
         self._cond = threading.Condition()
 
     # --- the gate ---------------------------------------------------------------------------------
     def acquire(self) -> None:
-        """Block until an in-flight slot is free under the CURRENT (possibly shrunk) limit, then take it."""
+        """Block until an in-flight slot is free under the CURRENT (possibly shrunk) limit, then take it.
+
+        I-wire-010 (#1324): the wait also breaks when the `_shutdown` teardown latch is set, so a
+        blocked acquirer can never hang on this Condition during process teardown. The `and not
+        self._shutdown` guard is byte-identical to pre-#1324 for the whole normal run (the latch is
+        only ever set by `release_all()` at exit)."""
         with self._cond:
-            while self._in_flight >= self._limit:
+            while self._in_flight >= self._limit and not self._shutdown:
                 self._cond.wait()
             self._in_flight += 1
 
@@ -171,6 +181,19 @@ class AdaptiveConcurrencyController:
             if self._in_flight > 0:
                 self._in_flight -= 1
             self._cond.notify()
+
+    def release_all(self) -> None:
+        """TEARDOWN ONLY (I-wire-010 #1324): wake EVERY acquirer blocked in ``acquire()``'s
+        ``self._cond.wait()`` so no worker thread can hang on this Condition at process exit.
+
+        Sets the one-way ``_shutdown`` latch (so a re-looping or freshly-arriving acquirer also stops
+        gating) and ``notify_all()``. A woken acquirer falls through the ``acquire`` loop and takes its
+        slot UNGATED — correct because teardown only runs once the run is already ending, so granting
+        concurrency can no longer change any verdict (FAITHFULNESS-NEUTRAL: this is the
+        transport/concurrency layer, never the decision). Idempotent; never raises."""
+        with self._cond:
+            self._shutdown = True
+            self._cond.notify_all()
 
     # --- AIMD signals (pure math under the lock; unit-tested directly) ----------------------------
     def on_success(self) -> None:

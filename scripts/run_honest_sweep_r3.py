@@ -1470,6 +1470,50 @@ def _span_is_render_chrome(text: str) -> bool:
     return bool(_RENDER_CHROME_SPAN_RE.search(text) or _RENDER_CHROME_SPAN_RE.search(cleaned))
 
 
+# I-wire-011 (#1325) fix 1 — additional sentence-form chrome the corroboration-per-claim HEADER
+# leaked in banked v3 (CC-license boilerplate, "Keywords"/numbered-ToC, "Premium access" login
+# walls, masthead "Share Icon"). HIGH-PRECISION multi-word anchors. IGNORECASE for the keyword
+# alternation; the numbered-ToC shape is checked case-SENSITIVELY below so a real decimal claim
+# ("rose 3.2 percentage points") is never confused with a Capitalized ToC title ("2.6 Industry").
+_CLAIM_HEADER_CHROME_RE = re.compile(
+    r"creative commons|licensed under a |\bkeywords\b|premium access|must have premium|"
+    r"share icon|close - share",
+    re.IGNORECASE,
+)
+_CLAIM_HEADER_TOC_RE = re.compile(
+    r"\b\d+\.\d+\s+[A-Z]"  # decimal ToC entry "2.6 Industry", "1.1 Research" (Capitalized title)
+    r"|\b\d+\s+(?:Introduction|Background|Materials?|Methods?|Results?|Discussion|References)\b"
+)
+
+
+def _claim_header_is_unrenderable(raw_claim: str) -> bool:
+    """I-wire-011 (#1325) fix 1: True iff a basket's ``claim_text`` is NOT a renderable complete
+    claim sentence — page-furniture chrome, a mid-word/mid-sentence truncation, a numbered ToC /
+    CC-license / login-wall fragment, or a leaked gap-disclosure stub.
+
+    Used ONLY to decide whether the corroboration-per-claim HEADER falls back to subject+predicate
+    (or the cluster id). It NEVER drops a supporting_member, a source, or a count — only the
+    displayed header TEXT changes — so even an over-match is faithfulness-safe (§-1.3 no source
+    dropped; the advisor's header-only invariant). PURE except the lazy truncation import."""
+    if not raw_claim or not raw_claim.strip():
+        return True
+    if _span_is_render_chrome(raw_claim):
+        return True
+    if _CLAIM_HEADER_CHROME_RE.search(raw_claim) or _CLAIM_HEADER_TOC_RE.search(raw_claim):
+        return True
+    if _RENDER_GAP_MARKER_RE.search(raw_claim):
+        return True
+    from src.polaris_graph.generator.key_findings import is_truncated_fragment  # noqa: PLC0415
+    if is_truncated_fragment(raw_claim):
+        return True
+    # Mid-word / mid-sentence START cut ("usand workers...", "hodology to estimate...", "ieving
+    # predictive performance..."): a renderable claim header opens with a capital letter, a digit,
+    # or an opening quote/bracket — a lowercase opener is a span sliced mid-token. Header-only, so
+    # an over-match merely swaps to subject+predicate (the source/count are retained).
+    first = raw_claim.lstrip()[:1]
+    return bool(first and first.islower())
+
+
 def _placeholder_bib_nums(bibliography: "list[dict]") -> "set[str]":
     """#3: the set of bibliography citation numbers that are CONTRACT-SLOT PLACEHOLDERS, not
     real sources — a row whose ``statement`` is just the ``evidence_id`` slug (e.g.
@@ -1901,7 +1945,17 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             # I-beatboth-011 b2 (#1289): fall back when the cleaned header is empty, is whole-line
             # boilerplate, OR still carries a NAMED crawl-chrome token (a fragment too mangled for the
             # inline regexes to fully strip) — so a source is never TITLED with residual crawl chrome.
-            if not claim or is_boilerplate_or_nonassertional(claim) or _title_has_named_chrome(claim):
+            # I-wire-011 (#1325) fix 1: ALSO fall back when the RAW claim_text is not a renderable
+            # complete sentence — a mid-word/mid-sentence-truncated span ("usand workers..."), a
+            # CC-license / numbered-ToC / login-wall fragment, or a leaked gap stub. The screen is on
+            # the RAW text (the trimmed ``claim`` already carries a cosmetic "…"); HEADER TEXT ONLY —
+            # no supporting_member, source, or count is ever dropped (faithfulness-neutral; §-1.3).
+            if (
+                not claim
+                or is_boilerplate_or_nonassertional(claim)
+                or _title_has_named_chrome(claim)
+                or _claim_header_is_unrenderable(_raw_claim)
+            ):
                 _subj = str(basket.get("subject") or "").strip()
                 _pred = str(basket.get("predicate") or "").strip()
                 claim = (f"{_subj} {_pred}".strip()) or ccid
@@ -2060,7 +2114,14 @@ def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
     cleaned = _BARE_URL_RE.sub(" ", cleaned)
     cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
     if quote_trim > 0 and len(cleaned) > quote_trim:
-        cleaned = cleaned[:quote_trim].rstrip() + "…"
+        # I-wire-011 (#1325) fix 1: back the cosmetic trim up to the last WORD boundary so the "…"
+        # never manufactures a mid-word cut ("...indeed su…" -> "...indeed…"). Only falls back to a
+        # hard cut when there is no space in the back half (a single very long token).
+        cut = cleaned[:quote_trim].rstrip()
+        sp = cut.rfind(" ")
+        if sp > quote_trim // 2:
+            cut = cut[:sp].rstrip()
+        cleaned = cut + "…"
     return cleaned
 
 
@@ -2280,6 +2341,73 @@ def render_semantic_disclosure(
                 f"in `{sidecar_filename}`.\n"
             )
     return out
+
+
+def _contradict_side(claim: dict) -> str:
+    """I-wire-011 (#1325) fix 4: one side of a contradiction — a short value / assertion-status /
+    prose summary plus its source ``[ev=…, tier=…]``. PURE. "" when the claim has no usable text."""
+    ev = str(claim.get("evidence_id") or "").strip()
+    tier = str(claim.get("source_tier") or claim.get("tier") or "").strip()
+    loc = f" [ev={ev}, tier={tier}]" if (ev or tier) else ""
+    if claim.get("value") is not None:
+        unit = str(claim.get("unit") or "").strip()
+        return f"{claim.get('value')}{unit}{loc}"
+    status = str(claim.get("assertion_status") or "").strip()
+    if status:
+        return f"{status}{loc}"
+    text = _normalize_claim_summary(
+        str(claim.get("context_snippet") or claim.get("text") or claim.get("raw_text") or ""),
+        quote_trim=120,
+    )
+    return f"\"{text}\"{loc}" if text else ""
+
+
+def _render_contradicts_block(contradictions_path: "str | None") -> str:
+    """I-wire-011 (#1325) fix 4: a DISTINCT inline ``CONTRADICTS`` both-sides block read from the
+    run's ``contradictions.json``. One ``- CONTRADICTS:`` line per record that carries two opposing
+    sides: the subject/predicate, a short summary of EACH side with its source ``[ev/tier]``, and
+    (numeric records) the relative difference. This is the 'contradiction/both-sides block' the
+    per-claim corroboration line points to, so a contested claim is never presented as settled.
+
+    Reads the ACTUAL detector entries — it NEVER hardcodes and NEVER asserts a conflict the
+    detectors did not find (a record with <2 renderable sides is skipped). PURE except the guarded
+    read; "" when the sidecar is missing / unreadable / holds no 2-sided record (no empty heading)."""
+    if not contradictions_path or not os.path.exists(contradictions_path):
+        return ""
+    try:
+        with open(contradictions_path, encoding="utf-8") as _cf:
+            entries = json.load(_cf)
+    except Exception:  # noqa: BLE001 — unreadable sidecar => nothing to render, never abort
+        return ""
+    lines: list[str] = []
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        claims = [c for c in (e.get("claims") or []) if isinstance(c, dict)]
+        if len(claims) < 2:
+            continue
+        sides = [s for s in (_contradict_side(c) for c in claims[:2]) if s]
+        if len(sides) < 2:
+            continue
+        subject = str(e.get("subject") or "").strip()
+        predicate = str(e.get("predicate") or "").strip()
+        head = " / ".join(p for p in (subject, predicate) if p) or "same-subject claims"
+        rel = e.get("relative_difference")
+        rel_md = (
+            f" (relative difference {_format_percent(rel * 100.0)})"
+            if isinstance(rel, (int, float)) else ""
+        )
+        lines.append(f"- CONTRADICTS: {head} — {sides[0]} VS {sides[1]}{rel_md}")
+    if not lines:
+        return ""
+    return (
+        "\n## Contradictions (both sides)\n\n"
+        "Same-subject claims the contradiction detectors found to disagree are shown here with BOTH "
+        "sides and their sources, so a contested claim is never presented as settled. Full detail "
+        f"is in the `{_QUAL_SIDECAR_FILENAME}` sidecar.\n\n"
+        + "\n".join(lines)
+        + "\n"
+    )
 
 
 def _env_int(name: str, default: int) -> int:
@@ -11113,6 +11241,17 @@ async def run_one_query(
         # + predicate of EVERY record still render inline (those are the substrings PT08 checks).
         methods += render_semantic_disclosure(semantic_records)
 
+        # I-wire-011 (#1325) fix 4: a DISTINCT inline CONTRADICTS both-sides block read from the
+        # run's contradictions.json (the block the per-claim corroboration line points to). Renders
+        # one line per detector record carrying two opposing sides + sources; reads the ACTUAL
+        # entries (never hardcodes, never asserts an undiscovered conflict). Default-ON kill-switch
+        # PG_SWEEP_CONTRADICTS_BLOCK; fail-open (additive disclosure; never abort the report).
+        if _env_flag("PG_SWEEP_CONTRADICTS_BLOCK", default=True):
+            try:
+                methods += _render_contradicts_block(str(run_dir / _QUAL_SIDECAR_FILENAME))
+            except Exception as _ct_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+                _log(f"[contradicts-block] skipped (fail-open): {_ct_exc}")
+
         # I-pipe-014 (#1239): render the Bibliography. Default (PG_BIB_REQUIRE_LOCATOR off) is
         # byte-identical to the prior inline loop. When ON, a CITED entry whose URL AND DOI are
         # both blank is relabeled to a disclosed NON-cited evidence gap instead of a numbered
@@ -11146,11 +11285,21 @@ async def run_one_query(
         # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
         # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
         _key_findings = ""
+        _depth_layer = ""
         try:
             from src.polaris_graph.generator.key_findings import build_key_findings
             _key_findings = build_key_findings(getattr(multi, "sections", []))
         except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[key-findings] skipped (fail-open): {_exc}")
+        # I-wire-011 (#1325) fix 6: per-section analytical-depth layer — GENUINE grounded synthesis
+        # (verbatim cited headline + a REAL verbatim challenge sentence where the evidence raises one;
+        # never injected marker strings). Raises the advisory analytical_depth key_findings/challenge
+        # counts HONESTLY. Default-OFF master flag PG_SWEEP_DEPTH_LAYER => "" => byte-identical.
+        try:
+            from src.polaris_graph.generator.key_findings import build_depth_layer
+            _depth_layer = build_depth_layer(getattr(multi, "sections", []))
+        except Exception as _dl_exc:  # noqa: BLE001 — additive layer; never abort the report
+            _log(f"[depth-layer] skipped (fail-open): {_dl_exc}")
         # #1289 defect #2 (render side): screen the Key-Findings BULLETS for page-furniture
         # chrome (journal masthead "...Volume 33, Number 2...Pages 3-30", ResearchGate metadata,
         # left-rail nav, raw fetch framing). build_key_findings lifts the first CITED sentence per
@@ -11269,7 +11418,7 @@ async def run_one_query(
         final_report = assemble_report_md(
             f"# Research report: {q['question']}\n\n",
             _abstract_md,
-            _key_findings + sections_concat + methods + biblio_section + _drop_disclosure_md,
+            _key_findings + sections_concat + _depth_layer + methods + biblio_section + _drop_disclosure_md,
             _conclusion_md,
             dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
         )
@@ -14285,8 +14434,106 @@ async def main_async() -> int:
     return 0
 
 
+# === I-wire-010 (#1324): hard PROCESS-LEVEL teardown wall ========================================
+# THE FAILURE (final-phase futex deadlock): on a 4-role D8 seam-wall timeout the main thread escapes
+# via `_seam_pool.submit(...).result(timeout=...)` and writes the HELD manifest + terminal a-g events
+# (those writes are ALWAYS on the main thread, never behind an unbounded join). But the orphaned seam
+# worker keeps its inner claim ThreadPoolExecutor whose NON-DAEMON workers can be parked in
+# `AdaptiveConcurrencyController.acquire()` -> `self._cond.wait()`. At interpreter exit the stdlib
+# `concurrent.futures.thread._python_exit` atexit handler JOINS every such worker -> the process hangs
+# on a futex forever even though all artifacts are already on disk.
+#
+# TWO-PART CURE (faithfulness-neutral, lifecycle only):
+#   1. release_all_adaptive_controllers() wakes every parked acquirer (the `_shutdown` latch) so a
+#      lingering `pool.shutdown(wait=True)` join can actually complete and the worker unwinds.
+#   2. an armed DAEMON watchdog: if the interpreter has not exited within PG_TEARDOWN_WALL_SECONDS
+#      after the sweep's real work finished, force `os._exit(return_code)` PAST the wedged atexit
+#      join. Daemon => it never itself blocks exit; a clean/fast interpreter shutdown kills it first
+#      (it only fires when genuinely wedged). The manifest + terminal events are already written by
+#      this point, so the forced exit loses no artifact.
+# Env-gated, DEFAULT-SAFE: PG_TEARDOWN_WALL=0 makes both steps a true no-op (byte-identical to today).
+_TEARDOWN_WALL_ENV = "PG_TEARDOWN_WALL"
+_TEARDOWN_WALL_DEFAULT = "1"  # default ON (lifecycle backstop only).
+_TEARDOWN_WALL_SECONDS_ENV = "PG_TEARDOWN_WALL_SECONDS"
+_TEARDOWN_WALL_SECONDS_DEFAULT = "30"  # grace after work completes; a wedged non-daemon join is infinite.
+
+
+def _teardown_wall_enabled() -> bool:
+    """Whether the process-teardown wall + controller-release fire (LAW VI; default ON). OFF makes the
+    whole teardown path a no-op so behaviour is byte-identical to pre-#1324."""
+    return os.getenv(_TEARDOWN_WALL_ENV, _TEARDOWN_WALL_DEFAULT).strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _teardown_wall_seconds() -> float:
+    """The grace period (seconds) before the wall force-exits a wedged interpreter (LAW VI; min 1)."""
+    raw = os.getenv(_TEARDOWN_WALL_SECONDS_ENV, _TEARDOWN_WALL_SECONDS_DEFAULT)
+    try:
+        return max(1.0, float(raw))
+    except (TypeError, ValueError):
+        return float(_TEARDOWN_WALL_SECONDS_DEFAULT)
+
+
+def _teardown_wall_target(return_code, deadline_s, done_event, exit_fn, notify):
+    """Watchdog body (extracted so it is unit-testable with an injected exit_fn / event). Waits up to
+    `deadline_s` for `done_event`; if it is NOT set (interpreter still wedged), flush + notify, then
+    `exit_fn(return_code)`. If the event IS set (clean exit reached first) it returns without exiting."""
+    if done_event.wait(timeout=deadline_s):
+        return  # clean interpreter exit beat the deadline — nothing wedged, do not force-exit.
+    notify(
+        f"[teardown-wall] interpreter still alive {deadline_s:.0f}s after sweep completion "
+        f"(a lingering pool wedged the atexit join); forcing os._exit({return_code}).\n"
+    )
+    exit_fn(return_code)
+
+
+def _arm_teardown_wall(return_code, deadline_s, *, exit_fn=os._exit):
+    """Arm the daemon watchdog. Returns (thread, done_event); set the event to disarm. Daemon so it can
+    never itself block process exit — it only fires when a non-daemon pool genuinely wedged the join."""
+    done_event = threading.Event()
+
+    def _notify(msg: str) -> None:
+        try:
+            sys.stdout.flush()
+            sys.stderr.write(msg)
+            sys.stderr.flush()
+        except Exception:  # noqa: BLE001 - notification is best-effort; the force-exit is the point.
+            pass
+
+    thread = threading.Thread(
+        target=_teardown_wall_target,
+        args=(return_code, deadline_s, done_event, exit_fn, _notify),
+        name="polaris-teardown-wall",
+        daemon=True,
+    )
+    thread.start()
+    return thread, done_event
+
+
+def _run_process_teardown(return_code: int) -> None:
+    """Process-teardown orchestrator (called from main()'s finally). Releases the AIMD controllers so
+    parked workers unwind, then arms the hard wall. No-op when disabled (default-safe)."""
+    if not _teardown_wall_enabled():
+        return
+    try:
+        from src.polaris_graph.roles.openrouter_role_transport import (
+            release_all_adaptive_controllers,
+        )
+        release_all_adaptive_controllers()
+    except Exception:  # noqa: BLE001 - teardown must never raise (LAW II: never mask the real result).
+        pass
+    _arm_teardown_wall(return_code, _teardown_wall_seconds())
+
+
 def main() -> int:
-    return asyncio.run(main_async())
+    rc = 1
+    try:
+        rc = asyncio.run(main_async())
+        return rc
+    finally:
+        # Arm even if main_async raised: a wedged pool can hang the interpreter on EITHER path.
+        _run_process_teardown(rc)
 
 
 if __name__ == "__main__":

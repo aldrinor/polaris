@@ -2771,6 +2771,89 @@ def _load_boilerplate_helpers() -> tuple[Any, Any]:
     return strip_web_boilerplate, is_boilerplate_or_nonassertional
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-011 (#1325) fix 5 — chrome/truncation CANARY on the VERIFIED (kept) set.
+#
+# A faithfulness-STRENGTHENING tripwire: it can only assert that a chrome/truncated
+# fragment must NOT be counted VERIFIED — it NEVER promotes a unit and (in the
+# default mode) never changes the kept/dropped DECISION. The strict_verify /
+# entailment / span-grounding logic is FROZEN. The pregate (`_is_boilerplate`)
+# already excludes whole-line chrome from the INPUT, so on a healthy run this is a
+# near-no-op; its value is catching what the pregate MISSES (a sentence-form chrome
+# span, a mid-word-truncated fetch fragment) before it is rendered as a "verified"
+# claim. Env modes (LAW VI, default-safe):
+#   off     — disabled (byte-identical).
+#   warn    — DEFAULT: detect + LOUD log + telemetry; kept/dropped UNCHANGED (the
+#             frozen decision is preserved — render-side screens drop the fragment).
+#   enforce — fail-LOUD: raise ChromeReachedVerifiedError so a chrome leak TRIPS the
+#             run (opt-in; the run slate may enable it once the render screens hold).
+_CHROME_CANARY_ENV = "PG_VERIFY_CHROME_CANARY"
+_CHROME_CANARY_TELEMETRY: dict[str, int] = {"chrome_in_kept": 0}
+
+
+class ChromeReachedVerifiedError(RuntimeError):
+    """Raised (enforce mode only) when a chrome/truncated unit reached the VERIFIED set."""
+
+
+def _chrome_canary_mode() -> str:
+    """Canary mode from ``PG_VERIFY_CHROME_CANARY`` (off|warn|enforce); default ``warn``."""
+    mode = os.getenv(_CHROME_CANARY_ENV, "warn").strip().lower()
+    return mode if mode in ("off", "warn", "enforce") else "warn"
+
+
+def get_chrome_canary_telemetry() -> dict[str, int]:
+    """Snapshot of the chrome-canary hit counter (chrome/truncated units that reached kept)."""
+    return dict(_CHROME_CANARY_TELEMETRY)
+
+
+def reset_chrome_canary_telemetry() -> None:
+    """Zero the chrome-canary counter (call between runs / tests)."""
+    _CHROME_CANARY_TELEMETRY["chrome_in_kept"] = 0
+
+
+def _kept_unit_chrome_reason(sentence: str, is_boilerplate: Any) -> str:
+    """The canary reason a VERIFIED unit is chrome/truncated, or "" when clean. PURE-ish
+    (lazy import of the high-precision truncation predicate)."""
+    if is_boilerplate is not None and is_boilerplate(sentence):
+        return "chrome_boilerplate"
+    from src.polaris_graph.generator.key_findings import is_truncated_fragment  # noqa: PLC0415
+    if is_truncated_fragment(sentence):
+        return "truncated_fragment"
+    return ""
+
+
+def _run_chrome_canary(kept: list[SentenceVerification]) -> None:
+    """Assert no chrome/truncated unit reached the VERIFIED (kept) set.
+
+    Default ``warn``: log LOUD + bump telemetry, leave kept UNCHANGED (decision frozen). ``enforce``:
+    raise ``ChromeReachedVerifiedError``. ``off``: no-op. Loads the boilerplate helpers
+    independently of the pregate flag so the canary screens even when the pregate is OFF."""
+    mode = _chrome_canary_mode()
+    if mode == "off" or not kept:
+        return
+    try:
+        _, _is_boilerplate = _load_boilerplate_helpers()
+    except Exception:  # noqa: BLE001 — helper import failure must not abort verification
+        _is_boilerplate = None
+    bad: list[tuple[str, str]] = []
+    for sv in kept:
+        reason = _kept_unit_chrome_reason(sv.sentence, _is_boilerplate)
+        if reason:
+            bad.append((sv.sentence, reason))
+    if not bad:
+        return
+    _CHROME_CANARY_TELEMETRY["chrome_in_kept"] += len(bad)
+    _summary = "; ".join(f"{r}: {s[:80]!r}" for s, r in bad[:5])
+    logger.warning(
+        "strict_verify chrome-canary [%s]: %d chrome/truncated unit(s) reached VERIFIED: %s",
+        mode, len(bad), _summary,
+    )
+    if mode == "enforce":
+        raise ChromeReachedVerifiedError(
+            f"{len(bad)} chrome/truncated unit(s) reached the VERIFIED set: {_summary}"
+        )
+
+
 def strict_verify(
     draft_text: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -2974,6 +3057,10 @@ def strict_verify(
                 failure_reasons=[],
                 soft_warnings=["limitations_paragraph_pass_through"],
             ))
+
+    # I-wire-011 (#1325) fix 5: chrome/truncation canary on the VERIFIED set. Default ``warn`` logs
+    # + counts and leaves the kept/dropped decision FROZEN; ``enforce`` raises. Strengthening only.
+    _run_chrome_canary(kept)
 
     # I-pipe-016 (#1241): total_in excludes content-empty fragments so the
     # verified ratio reflects only real sentences. When PG_PROVENANCE_SKIP_EMPTY

@@ -953,6 +953,25 @@ _ADAPTIVE_CONTROLLER_LOCK = threading.Lock()
 _ADAPTIVE_CONTROLLERS: dict[str, "AdaptiveConcurrencyController"] = {}
 
 
+def release_all_adaptive_controllers() -> int:
+    """TEARDOWN ONLY (I-wire-010 #1324): release every per-role AIMD controller's Condition so any
+    claim-worker thread orphaned by a seam-wall timeout and blocked in ``controller.acquire()`` wakes
+    and unwinds — letting an existing ``pool.shutdown(wait=True)`` join complete instead of hanging the
+    interpreter's atexit thread-join (the final-phase futex deadlock). Best-effort: never raises, so it
+    is safe to call unconditionally from the process-teardown path. Returns the count released (telemetry
+    only). FAITHFULNESS-NEUTRAL — concurrency/transport only, no verdict is touched."""
+    released = 0
+    with _ADAPTIVE_CONTROLLER_LOCK:
+        controllers = list(_ADAPTIVE_CONTROLLERS.values())
+    for controller in controllers:
+        try:
+            controller.release_all()
+            released += 1
+        except Exception:  # noqa: BLE001 - teardown must never raise; a wedged controller is the point
+            continue
+    return released
+
+
 def _adaptive_controller(role: str):
     """The process-wide AIMD controller for `role`, lazily built on first use; None when adaptive is
     OFF (so the caller falls back to the static semaphore — byte-identical to pre-#1321).

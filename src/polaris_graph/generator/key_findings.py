@@ -54,6 +54,72 @@ _SENTENCES_PER_SECTION = 1
 # Hard cap on total bullets so the summary stays a summary.
 _MAX_BULLETS = 6
 
+# I-wire-011 (#1325) fix 2/3 — shared render hygiene used by Key Findings (here) AND the
+# Abstract/Conclusion harvesters (abstract_conclusion.py imports these). PURE string ops; they
+# only change which already-verified sentence RENDERS or trim a marker RUN — never a verdict, never
+# a source/count. Faithfulness-STRENGTHENING (they can only suppress a fragment, never promote one).
+
+# Trailing `[N]` / `[#ev:...]` citation markers (stripped before the truncation test so a clean
+# "…claim.[12]" is judged on the "." not the marker).
+_TRAILING_CITATION_RE = re.compile(r"(?:\s*\[(?:\d+|#ev:[^\]]*)\])+\s*$")
+# HIGH-PRECISION mid-word / cut-span truncation MARKERS only (the §-1.1 over-strip ban — never a
+# heuristic guess at a cut word): a dangling/closed ellipsis (`…`, `...`, `[...]`, `[…]`, a dangling
+# `[...` whose `]` was capped) or a trailing mid-word hyphen. An INTERNAL hyphen
+# ("treatment-specific effects were observed.") is NOT a truncation and still renders.
+_TRUNCATION_MARKER_RE = re.compile(r"\[\s*(?:\.\.\.|…)\s*\]?\s*$|(?:…|\.\.\.)\s*$|-\s*$")
+# A run of 2+ ADJACENT numeric citation markers ("[12][13][14]" / "[12] [13]") — capped to the
+# first N (document order = the body's own priority). Non-adjacent markers belong to DISTINCT
+# in-sentence claims and are never merged/capped.
+_ADJACENT_MARKER_RUN_RE = re.compile(r"\[\d+\](?:\s*\[\d+\])+")
+
+# Default per-run citation cap (LAW VI override PG_KEY_FINDINGS_MAX_MARKERS / the conclusion uses
+# its own override). A summary line citing >3 sources in one run is render-noise; the body + the
+# bibliography retain every reference, so capping the SUMMARY display can never orphan a citation.
+_DEFAULT_MAX_MARKERS = 3
+
+
+def is_truncated_fragment(text: str) -> bool:
+    """True iff ``text`` carries an UNAMBIGUOUS mid-word / cut-span truncation marker.
+
+    HIGH-PRECISION (drop-path safe): trailing/closed ellipsis or a trailing mid-word hyphen, after
+    stripping trailing ``[N]`` citation markers. Never guesses at a cut word from letters alone — a
+    complete sentence with an internal hyphen still passes. PURE."""
+    if not text:
+        return False
+    core = _TRAILING_CITATION_RE.sub("", text.strip()).rstrip()
+    if not core:
+        return False
+    return bool(_TRUNCATION_MARKER_RE.search(core))
+
+
+def _max_key_findings_markers() -> int:
+    """Per-run citation cap for the Key-Findings summary (LAW VI). Floored at 1; fail-soft on a
+    non-int (the summary must never be silently emptied of citations)."""
+    raw = os.getenv("PG_KEY_FINDINGS_MAX_MARKERS", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_MARKERS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_MAX_MARKERS
+
+
+def cap_citation_marker_runs(sentence: str, max_markers: int) -> str:
+    """Trim every RUN of adjacent ``[N]`` markers in ``sentence`` to its first ``max_markers``.
+
+    The markers are carried VERBATIM from a body span that already passed strict_verify, so each is
+    span-supported; this only bounds how many co-citations a SUMMARY line displays per run (document
+    order = the body's own relevance priority). PURE; ``max_markers <= 0`` returns the input
+    unchanged (never strips all citations)."""
+    if max_markers <= 0 or not sentence:
+        return sentence
+
+    def _cap(match: re.Match[str]) -> str:
+        nums = re.findall(r"\[(\d+)\]", match.group(0))
+        return "".join(f"[{n}]" for n in nums[:max_markers])
+
+    return _ADJACENT_MARKER_RUN_RE.sub(_cap, sentence)
+
 
 def key_findings_enabled() -> bool:
     """Default ON. `PG_SWEEP_KEY_FINDINGS=0` ships the report without the exec-summary block (cold-open)."""
@@ -80,12 +146,16 @@ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
     # an evidence span), and must NOT be a markdown header line (I-perm-008 — a leaked "###"
     # header is never a finding). The filters together exclude every gap/header shape in a
     # mixed section (I-gen-006 #1178 C07/P07, Codex iter-5).
+    # I-wire-011 (#1325) fix 2: also exclude a sentence carrying an unambiguous mid-word truncation
+    # marker (a cut fetch span like "…comprehensi [...") so a fragment never leads a finding. Shared
+    # by the Abstract/Conclusion harvesters; strengthening (it can only suppress a fragment).
     return [
         s for s in matches
         if s
         and not _ATX_HEADER_RE.match(s.lstrip())
         and _CITATION_RE.search(s)
         and not _GAP_MARKER_RE.search(s)
+        and not is_truncated_fragment(s)
     ][:n]
 
 
@@ -157,7 +227,11 @@ def build_key_findings(sections: list[Any]) -> str:
         if not verified_text.strip():
             continue
         title = getattr(sr, "title", "") or ""
+        _marker_cap = _max_key_findings_markers()
         for sentence in _first_verified_sentences(verified_text, _SENTENCES_PER_SECTION):
+            # I-wire-011 (#1325) fix 2: cap each adjacent citation-marker RUN to the most-relevant
+            # few (document order). Render-only; the body + bibliography keep every reference.
+            sentence = cap_citation_marker_runs(sentence, _marker_cap)
             label = f"**{title}.** " if title else ""
             bullets.append(f"- {label}{sentence}")
             if len(bullets) >= _MAX_BULLETS:
@@ -178,3 +252,69 @@ def build_key_findings(sections: list[Any]) -> str:
         "the body's._\n\n"
     )
     return header + "\n".join(bullets) + "\n\n"
+
+
+# I-wire-011 (#1325) fix 6 — per-section analytical-depth layer (default-OFF, LAW VI).
+#
+# GENUINE grounded synthesis (NOT pattern-injection — the §-1.1 ban). For each verified section it
+# labels the section's HEADLINE verified finding under a per-section ``**Key Findings**`` subhead and,
+# ONLY when the section's own verified prose actually carries a challenge/limitation, lifts that
+# verbatim challenge sentence under a ``**Challenges**`` subhead. Every emitted line is verbatim,
+# cited, span-verified body text — so it raises the advisory analytical_depth key_findings/challenge
+# counts HONESTLY (real content), never by injecting empty marker strings. No challenge sentence => no
+# Challenges line (never a fabricated limitation). Default-OFF => no block => byte-identical.
+_DEPTH_LAYER_ENV = "PG_SWEEP_DEPTH_LAYER"
+# The SAME challenge cues the analytical_depth metric scores (kept in sync deliberately) — used to
+# pick a REAL limitation sentence from the section's verified prose, never to fabricate one.
+_CHALLENGE_CUE_RE = re.compile(
+    r"\b(limitation|contradict|conflicting|gap in|insufficient evidence|notable absence|"
+    r"remains unclear|further research|caveat|uncertain)\b",
+    re.I,
+)
+
+
+def depth_layer_enabled() -> bool:
+    """Default OFF. ``PG_SWEEP_DEPTH_LAYER=1`` appends the per-section analytical-depth layer."""
+    return os.getenv(_DEPTH_LAYER_ENV, "0").strip().lower() not in _OFF_VALUES
+
+
+def build_depth_layer(sections: list[Any]) -> str:
+    """Return a ``## Analytical synthesis`` block: per verified section, the headline finding under
+    ``**Key Findings**`` and (only when present) a real verbatim challenge sentence under
+    ``**Challenges**``. All lines are verbatim cited span-verified text — grounded synthesis, zero
+    new claims, no spend. "" when disabled or when no section has verified prose."""
+    if not depth_layer_enabled():
+        return ""
+    blocks: list[str] = []
+    _cap = _max_key_findings_markers()
+    for sr in sections or []:
+        if getattr(sr, "dropped_due_to_failure", False):
+            continue
+        if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
+            continue
+        verified_text = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
+        if not verified_text.strip():
+            continue
+        ordered = _first_verified_sentences(verified_text, 10_000)
+        if not ordered:
+            continue
+        title = getattr(sr, "title", "") or "Section"
+        headline = cap_citation_marker_runs(ordered[0], _cap)
+        lines = [f"### {title}", "", f"**Key Findings** {headline}"]
+        # Lift a REAL challenge sentence (a verbatim verified sentence carrying a challenge cue) —
+        # never fabricate one. Prefer one distinct from the headline.
+        challenge = next(
+            (s for s in ordered if _CHALLENGE_CUE_RE.search(s) and s != headline),
+            "",
+        )
+        if challenge:
+            lines.append(f"**Challenges** {cap_citation_marker_runs(challenge, _cap)}")
+        blocks.append("\n".join(lines))
+    if not blocks:
+        return ""
+    header = (
+        "## Analytical synthesis\n\n"
+        "_Per-section headline finding and (where the evidence itself raises one) a verbatim "
+        "limitation/challenge — all carried up from cited, span-verified body prose; no new claim._\n\n"
+    )
+    return header + "\n\n".join(blocks) + "\n\n"
