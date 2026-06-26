@@ -2362,6 +2362,46 @@ def _contradict_side(claim: dict) -> str:
     return f"\"{text}\"{loc}" if text else ""
 
 
+def _select_opposing_pair(claims: list[dict]) -> "tuple[dict, dict] | None":
+    """I-wire-011 (#1325) gate iter-1 P1: pick the two GENUINELY OPPOSING claims from a
+    contradiction record's basket — the maximal-disagreement endpoints — instead of the
+    positional first two (``claims[:2]``), which can surface the WRONG two sides.
+
+    The selection key is each claim's finite ``value`` float, which every detector populates:
+    a NUMERIC claim carries the real measured value; a QUALITATIVE claim carries the stance
+    value (PRESENT 1.0 vs ABSENT 0.0 vs INDETERMINATE 0.5); a SEMANTIC claim carries the 0.0
+    sentinel and always arrives as a detector-decided pair of exactly two. The min-value and
+    max-value claims are therefore the true opposing poles (the numeric poles, or the
+    support-vs-refuter stance poles).
+
+    Returns ``(low_claim, high_claim)`` when a real value spread exists. For an exactly-2-claim
+    record (the detector's OWN pair — e.g. every semantic NLI record, where both values are the
+    0.0 sentinel) the two claims are returned as-is, since they are not an arbitrary choice. When
+    a record carries >2 claims with no value spread the pair is ambiguous, so ``None`` is returned
+    and the caller DISCLOSES the contradiction without fabricating an arbitrary pair.
+
+    PURE + deterministic. Render-only: it reads the detectors' own values and never asserts a
+    conflict the detectors did not find (faithfulness-neutral)."""
+    if not claims or len(claims) < 2:
+        return None
+    valued: list[tuple[float, dict]] = []
+    for claim in claims:
+        try:
+            valued.append((float(claim.get("value")), claim))
+        except (TypeError, ValueError):
+            continue  # non-numeric/missing value -> not a usable pole; skip
+    if len(valued) >= 2:
+        low = min(valued, key=lambda t: t[0])
+        high = max(valued, key=lambda t: t[0])
+        if low[0] != high[0]:  # guard ties: min/max return first-on-equal -> would be A VS A
+            return low[1], high[1]
+    # No usable value spread. Only an exactly-2-claim record is a NON-arbitrary pair (the
+    # detector decided exactly those two conflict — e.g. a semantic NLI pair at 0.0/0.0).
+    if len(claims) == 2:
+        return claims[0], claims[1]
+    return None
+
+
 def _render_contradicts_block(contradictions_path: "str | None") -> str:
     """I-wire-011 (#1325) fix 4: a DISTINCT inline ``CONTRADICTS`` both-sides block read from the
     run's ``contradictions.json``. One ``- CONTRADICTS:`` line per record that carries two opposing
@@ -2386,18 +2426,48 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
         claims = [c for c in (e.get("claims") or []) if isinstance(c, dict)]
         if len(claims) < 2:
             continue
-        sides = [s for s in (_contradict_side(c) for c in claims[:2]) if s]
-        if len(sides) < 2:
-            continue
         subject = str(e.get("subject") or "").strip()
         predicate = str(e.get("predicate") or "").strip()
         head = " / ".join(p for p in (subject, predicate) if p) or "same-subject claims"
+        # I-wire-011 (#1325) gate iter-1 P1 (A17 commensurability guard): a not_comparable record
+        # is the detector DECLARING there is NO genuine contradiction — its claims compare
+        # different quantity kinds (e.g. a 0.5° yaw angle bucketed with a 100 m radar distance),
+        # a category error kept OUT of the headline count. Selecting its maximal-value pair would
+        # render the single MOST misleading "0.5 VS 100" under a CONTRADICTS heading — exactly the
+        # category-error framing the detector rejected (lethal in clinical context, §-1.1). Disclose
+        # it as incommensurable instead; never as a contested-vs-settled pair. (Only a numeric
+        # ContradictionRecord that POSITIVELY fired A17 carries this key — qualitative/semantic
+        # records asdict without the field, so this never false-triggers.)
+        if e.get("not_comparable"):
+            lines.append(
+                f"- INCOMMENSURABLE: {head} — claims compare different quantity kinds, so no "
+                f"contradiction is asserted; see the `{_QUAL_SIDECAR_FILENAME}` sidecar."
+            )
+            continue
         rel = e.get("relative_difference")
         rel_md = (
             f" (relative difference {_format_percent(rel * 100.0)})"
             if isinstance(rel, (int, float)) else ""
         )
-        lines.append(f"- CONTRADICTS: {head} — {sides[0]} VS {sides[1]}{rel_md}")
+        # I-wire-011 (#1325) gate iter-1 P1: render the GENUINELY OPPOSING endpoints (the
+        # maximal-disagreement pair), NOT the positional first two — ``claims[:2]`` can surface
+        # the wrong two sides on a >2-claim basket. ``_select_opposing_pair`` returns the
+        # min-value vs max-value claim (numeric poles / PRESENT-vs-ABSENT stance poles / the
+        # 2-claim semantic judge pair). Deterministic + faithfulness-neutral (render-only).
+        pair = _select_opposing_pair(claims)
+        if pair is not None:
+            side_a = _contradict_side(pair[0])
+            side_b = _contradict_side(pair[1])
+            if side_a and side_b:
+                lines.append(f"- CONTRADICTS: {head} — {side_a} VS {side_b}{rel_md}")
+                continue
+        # No genuine opposing pair (ambiguous >2-claim basket, or a chosen pole had no
+        # renderable text): DISCLOSE the contradiction the detectors found WITHOUT fabricating an
+        # arbitrary [:2] pair, so a contested claim is still never presented as settled.
+        lines.append(
+            f"- CONTRADICTS: {head} — {len(claims)} same-subject claims disagree; see the "
+            f"`{_QUAL_SIDECAR_FILENAME}` sidecar for all sides.{rel_md}"
+        )
     if not lines:
         return ""
     return (
@@ -2408,6 +2478,39 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
         + "\n".join(lines)
         + "\n"
     )
+
+
+async def _nli_annotation_with_wall(
+    pairs: list, wall_s: int, annotate,
+) -> "tuple[dict, bool]":
+    """I-wire-010 (#1324): bound the POST-RELEASE advisory NLI annotation with a wall so a hung
+    entailment judge cannot PARK the ``await`` forever and wedge the run.
+
+    By the time this runs the BINDING faithfulness gate (4-role D8) has already passed
+    (``release_allowed=True``); this NLI pass is ADVISORY benchmark metadata. The entailment
+    judge is a network call — if its provider hangs, a bare ``await`` blocks indefinitely, and an
+    ``except`` CANNOT catch a hang, so the existing fail-open handler never runs and manifest.json
+    (written downstream) never lands: the run wedges (the observed futex deadlock).
+    ``asyncio.wait_for`` converts the hang into ``asyncio.TimeoutError``, which we fail-open to a
+    ``skipped_wall_timeout`` marker so the caller CONTINUES to the manifest write.
+
+    Faithfulness-NEUTRAL: skipping an ADVISORY annotation never relaxes a verdict (the 4-role D8
+    gate already decided release). Returns ``(result_dict, timed_out)``. NON-timeout exceptions
+    (``BudgetExceededError`` on a cap breach, ``NliUnavailableError``) PROPAGATE unchanged so the
+    caller's existing handlers fire — Core Invariant §9.1.6: a cap breach must abort, never be
+    masked as an advisory error."""
+    try:
+        return await asyncio.wait_for(annotate(pairs), timeout=wall_s), False
+    except asyncio.TimeoutError:
+        return (
+            {
+                "nli_status": "skipped_wall_timeout",
+                "sentences_checked": 0,
+                "advisory": True,
+                "wall_timeout_s": wall_s,
+            },
+            True,
+        )
 
 
 def _env_int(name: str, default: int) -> int:
@@ -13362,22 +13465,38 @@ async def run_one_query(
                             })
                     _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
                     # I-cap-003 (#1066): LLM entailment judge backend (verdict counts, no threshold/prob).
-                    _nli_result = await annotate_nli_entailment(_nli_pairs)
-                    # Disambiguate sentences_checked:0 — record eligible vs skipped (no resolvable span),
-                    # so a clean-looking 0 is not mistaken for "verified" when pairs were dropped.
-                    _nli_result["eligible_sentences"] = len(_nli_kept)
-                    _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
-                    (run_dir / "nli_verification.json").write_text(
-                        json.dumps(_nli_result, indent=2, sort_keys=True, default=str) + "\n",
-                        encoding="utf-8",
+                    # I-wire-010 (#1324): the entailment judge is a network call; a provider hang would
+                    # PARK this POST-RELEASE await forever (an except cannot catch a hang), so the
+                    # downstream manifest.json write is never reached and the run wedges. Bound it with
+                    # PG_NLI_ANNOTATION_WALL_S (default 420s); on timeout fail-open to a skip marker and
+                    # CONTINUE. ADVISORY only — the binding 4-role D8 gate already decided release, so a
+                    # skipped annotation never relaxes a verdict (faithfulness-neutral).
+                    _nli_wall_s = int(os.getenv("PG_NLI_ANNOTATION_WALL_S", "420"))
+                    _nli_result, _nli_timed_out = await _nli_annotation_with_wall(
+                        _nli_pairs, _nli_wall_s, annotate_nli_entailment,
                     )
-                    manifest["nli_verification"] = _nli_result
-                    _log(
-                        f"[nli]         checked={_nli_result['sentences_checked']} "
-                        f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
-                        f"entailed={_nli_result.get('entailed_count')} "
-                        f"disputed={_nli_result['disputed_count']} (advisory, non-gating)"
-                    )
+                    if _nli_timed_out:
+                        _log(
+                            f"[nli]         WARN annotation exceeded wall {_nli_wall_s}s — skipped "
+                            f"(fail-open, ADVISORY post-release)"
+                        )
+                        manifest["nli_verification"] = _nli_result
+                    else:
+                        # Disambiguate sentences_checked:0 — record eligible vs skipped (no resolvable
+                        # span), so a clean-looking 0 is not mistaken for "verified" when pairs dropped.
+                        _nli_result["eligible_sentences"] = len(_nli_kept)
+                        _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
+                        (run_dir / "nli_verification.json").write_text(
+                            json.dumps(_nli_result, indent=2, sort_keys=True, default=str) + "\n",
+                            encoding="utf-8",
+                        )
+                        manifest["nli_verification"] = _nli_result
+                        _log(
+                            f"[nli]         checked={_nli_result['sentences_checked']} "
+                            f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
+                            f"entailed={_nli_result.get('entailed_count')} "
+                            f"disputed={_nli_result['disputed_count']} (advisory, non-gating)"
+                        )
                 except BudgetExceededError:
                     # I-cap-003 (#1066): the LLM judge re-raises BudgetExceededError on a cap breach; it
                     # MUST abort the run (-> the sweep's abort_budget_exceeded handler), NOT be masked as

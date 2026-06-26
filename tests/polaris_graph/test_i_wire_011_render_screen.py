@@ -7,11 +7,24 @@ CONTRADICTS line, and the depth layer emits >0 grounded key findings.
 """
 from __future__ import annotations
 
+import asyncio
+import importlib.util
 import json
 import os
+import pathlib
 from types import SimpleNamespace
 
 import pytest
+
+
+def _load_rhs():
+    """Load scripts/run_honest_sweep_r3.py as a module (mirrors the per-test loaders above)."""
+    spec = importlib.util.spec_from_file_location(
+        "_rhs_wall", pathlib.Path(__file__).resolve().parents[2] / "scripts" / "run_honest_sweep_r3.py"
+    )
+    rhs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rhs)
+    return rhs
 
 from src.polaris_graph.generator import key_findings as kf
 from src.polaris_graph.generator import provenance_generator as pg
@@ -156,3 +169,144 @@ def test_depth_layer_emits_grounded_key_findings(monkeypatch):
     # default OFF -> byte-identical empty
     monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "0")
     assert kf.build_depth_layer([sr]) == ""
+
+
+# ── I-wire-010 (#1324): the POST-RELEASE advisory NLI annotation wall ─────────
+def test_nli_annotation_wall_skips_on_hang_and_continues():
+    """A hung entailment judge that never returns is bounded by the wall: wait_for raises
+    TimeoutError, the helper fail-opens to a skip marker, and the caller CONTINUES (the run
+    is no longer wedged before the manifest write). Proxy for 'manifest is reached' — the real
+    end-to-end manifest write is not feasible offline; this proves the deadlock is broken."""
+    rhs = _load_rhs()
+
+    async def _never_returns(_pairs):
+        await asyncio.Event().wait()  # parks forever — the provider-hang the deadlock came from
+
+    result, timed_out = asyncio.run(
+        rhs._nli_annotation_with_wall([{"sentence": "x"}], 0.05, _never_returns)
+    )
+    assert timed_out is True
+    assert result["nli_status"] == "skipped_wall_timeout"
+    assert result["sentences_checked"] == 0
+    assert result["advisory"] is True
+
+
+def test_nli_annotation_wall_passes_through_result_when_fast():
+    """When the annotator returns within the wall, its real result is returned unchanged
+    (timed_out False) so the normal eligible/sidecar enrichment path runs."""
+    rhs = _load_rhs()
+
+    async def _fast(_pairs):
+        return {"nli_status": "ok", "sentences_checked": 3, "disputed_count": 1}
+
+    result, timed_out = asyncio.run(rhs._nli_annotation_with_wall([1, 2, 3], 5, _fast))
+    assert timed_out is False
+    assert result["sentences_checked"] == 3
+
+
+def test_nli_annotation_wall_propagates_budget_and_unavailable():
+    """Core Invariant §9.1.6 + LAW II: a BudgetExceededError (cap breach) and an unavailable
+    judge must PROPAGATE out of the wall helper (NOT be swallowed by the timeout except, NOT
+    become a skip marker) so the caller's existing `raise` / `unavailable` handlers fire."""
+    rhs = _load_rhs()
+
+    async def _budget(_pairs):
+        raise rhs.BudgetExceededError("cap breached")
+
+    with pytest.raises(rhs.BudgetExceededError):
+        asyncio.run(rhs._nli_annotation_with_wall([1], 5, _budget))
+
+    class _Unavailable(RuntimeError):
+        pass
+
+    async def _unavail(_pairs):
+        raise _Unavailable("model down")
+
+    with pytest.raises(_Unavailable):
+        asyncio.run(rhs._nli_annotation_with_wall([1], 5, _unavail))
+
+
+# ── I-wire-011 (#1325) gate iter-1 P1: opposing-pair selection (not claims[:2]) ─
+def test_contradicts_block_picks_opposing_poles_not_first_two(tmp_path):
+    """On a >2-claim basket the renderer must show the GENUINELY OPPOSING endpoints (min vs
+    max value), NOT the positional first two. Crafted so claims[:2] would pick non-extreme
+    sides (0.30, 0.10) while the true poles are 0.10 vs 0.90."""
+    rhs = _load_rhs()
+    sidecar = tmp_path / "contradictions.json"
+    sidecar.write_text(json.dumps([
+        {
+            "subject": "drug X", "predicate": "response rate",
+            "relative_difference": 8.0,
+            "claims": [
+                {"value": 0.30, "unit": "%", "evidence_id": "mid", "source_tier": "T3"},
+                {"value": 0.10, "unit": "%", "evidence_id": "low", "source_tier": "T1"},
+                {"value": 0.90, "unit": "%", "evidence_id": "high", "source_tier": "T5"},
+            ],
+        },
+    ]), encoding="utf-8")
+    block = rhs._render_contradicts_block(str(sidecar))
+    # the true poles (low + high) are rendered as the two sides ...
+    assert "ev=low" in block and "ev=high" in block
+    # ... and the mid claim is NOT presented as one of the two opposing sides.
+    assert "ev=mid" not in block
+    assert "0.1%" in block and "0.9%" in block
+
+    # helper unit-level: exact poles chosen, ties on a >2 same-value basket -> no arbitrary pair
+    pair = rhs._select_opposing_pair([
+        {"value": 0.30, "evidence_id": "mid"},
+        {"value": 0.10, "evidence_id": "low"},
+        {"value": 0.90, "evidence_id": "high"},
+    ])
+    assert {pair[0]["evidence_id"], pair[1]["evidence_id"]} == {"low", "high"}
+    assert rhs._select_opposing_pair([
+        {"value": 0.5, "evidence_id": "a"},
+        {"value": 0.5, "evidence_id": "b"},
+        {"value": 0.5, "evidence_id": "c"},
+    ]) is None
+    # exactly-2-claim semantic pair (both 0.0 sentinel) is a non-arbitrary pair -> returned
+    sem = rhs._select_opposing_pair([
+        {"value": 0.0, "evidence_id": "s1"}, {"value": 0.0, "evidence_id": "s2"},
+    ])
+    assert sem is not None and {sem[0]["evidence_id"], sem[1]["evidence_id"]} == {"s1", "s2"}
+
+
+def test_contradicts_block_a17_incommensurable_not_rendered_as_contradiction(tmp_path):
+    """A17 guard: a not_comparable record (the detector declaring a CATEGORY ERROR, not a real
+    contradiction — degrees bucketed with metres) must NOT render a 'CONTRADICTS … VS …' pair;
+    it is disclosed as INCOMMENSURABLE so a category error is never framed as a contradiction."""
+    rhs = _load_rhs()
+    sidecar = tmp_path / "contradictions.json"
+    sidecar.write_text(json.dumps([
+        {
+            "subject": "sensor", "predicate": "reading", "not_comparable": True,
+            "incommensurable_reason": "degrees vs metres",
+            "claims": [
+                {"value": 0.5, "unit": "deg", "evidence_id": "ang", "source_tier": "T2"},
+                {"value": 100.0, "unit": "m", "evidence_id": "dist", "source_tier": "T2"},
+            ],
+        },
+    ]), encoding="utf-8")
+    block = rhs._render_contradicts_block(str(sidecar))
+    assert "INCOMMENSURABLE: sensor / reading" in block
+    assert "CONTRADICTS" not in block
+    assert "0.5deg VS" not in block  # the misleading maximal-spread pair is never asserted
+
+
+def test_contradicts_block_ambiguous_multiclaim_discloses_without_arbitrary_pair(tmp_path):
+    """A >2-claim record with NO value spread cannot yield a genuine opposing pair: the block
+    DISCLOSES the contradiction (count + sidecar) rather than fabricating an arbitrary [:2] pair."""
+    rhs = _load_rhs()
+    sidecar = tmp_path / "contradictions.json"
+    sidecar.write_text(json.dumps([
+        {
+            "subject": "topic", "predicate": "stance",
+            "claims": [
+                {"value": 0.5, "evidence_id": "a"},
+                {"value": 0.5, "evidence_id": "b"},
+                {"value": 0.5, "evidence_id": "c"},
+            ],
+        },
+    ]), encoding="utf-8")
+    block = rhs._render_contradicts_block(str(sidecar))
+    assert "CONTRADICTS: topic / stance — 3 same-subject claims disagree" in block
+    assert " VS " not in block  # no arbitrary two-sided pair fabricated
