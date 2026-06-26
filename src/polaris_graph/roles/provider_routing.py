@@ -15,14 +15,29 @@ Degrades gracefully: if the config file or the role is absent, or routing is dis
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 import yaml
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_CONFIG_PATH = "config/settings/openrouter_provider_routing.yaml"
 _ENABLE_ENV = "PG_OPENROUTER_PROVIDER_ROUTING"
 _CONFIG_PATH_ENV = "PG_PROVIDER_ROUTING_CONFIG"
+
+# I-wire-008 (#1322): operator-driven JUDGE-chain provider-health deny-list. A comma-separated
+# set of provider SLUGS (e.g. "novita") that the entailment / semantic-conflict / credibility
+# side-judges DROP from their rotation chain so a flaky host that returns no-choices bodies is
+# skipped and calls land on a healthy host first. LAW VI: env-driven; default empty == byte-
+# identical (no-op). Scoped to the JUDGE chains ONLY (it is read by the judges' chain helpers,
+# NOT by role_provider_routing/apply_provider_routing), so the main mirror role + the 4-role
+# transport + the generator routing are untouched. We use a clean filtered ORDER rather than
+# OpenRouter `provider.sort: throughput` because the judges pin ONE host with
+# allow_fallbacks:False, under which `sort` is a no-op — removing the named-flaky host from the
+# already throughput-ranked chain is what actually steers calls to a healthy host.
+_ENV_UNHEALTHY_PROVIDERS = "PG_JUDGE_UNHEALTHY_PROVIDERS"
 
 # Cache keyed by the RESOLVED path string so a test that repoints _CONFIG_PATH_ENV picks up its
 # fixture rather than a stale parse. A small YAML, so a per-distinct-path parse is cheap.
@@ -67,6 +82,35 @@ def slug_for_provider(provider: str | None) -> str | None:
 def reset_cache() -> None:
     """Drop the parsed-config cache (tests that swap the config fixture call this)."""
     _cache.clear()
+
+
+def unhealthy_provider_slugs() -> set[str]:
+    """I-wire-008 (#1322): the lower-cased set of provider slugs an operator has flagged as
+    unhealthy for the JUDGE rotation chains (``PG_JUDGE_UNHEALTHY_PROVIDERS``). LAW VI: env-
+    driven; empty/unset => empty set (no-op). Never raises."""
+    raw = os.getenv(_ENV_UNHEALTHY_PROVIDERS, "").strip()
+    if not raw:
+        return set()
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def filter_unhealthy(order: list[str]) -> list[str]:
+    """I-wire-008 (#1322): drop operator-flagged unhealthy providers from a JUDGE rotation chain,
+    PRESERVING the surviving order. Faithfulness-NEUTRAL (transport only: same model, healthier
+    host). If filtering would EMPTY the chain (operator mis-config — every host denied), log a
+    WARNING and fall back to the original order so a judge is never stranded with no provider.
+    Default (no deny-list) => returns a copy of ``order`` unchanged (byte-identical)."""
+    bad = unhealthy_provider_slugs()
+    if not bad:
+        return list(order or [])
+    filtered = [p for p in (order or []) if str(p).strip().lower() not in bad]
+    if not filtered:
+        logger.warning(
+            "[provider-health] PG_JUDGE_UNHEALTHY_PROVIDERS=%s would empty the judge chain %s; "
+            "keeping the original order (operator mis-config).", sorted(bad), list(order or []),
+        )
+        return list(order or [])
+    return filtered
 
 
 def role_provider_routing(role: str) -> dict | None:

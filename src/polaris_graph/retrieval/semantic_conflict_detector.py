@@ -239,6 +239,58 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+# I-wire-008 (#1322): provider-ROTATION for the NLI conflict side-judge. Unlike the entailment +
+# credibility judges, this side-judge had NO rotation — it pinned ONE mirror host
+# (allow_fallbacks:False) and the B14 guard re-POSTed the SAME host on every empty/no-choices
+# attempt (the real "4x same-provider retry" the issue names: a flaky novita lead -> 3 same-host
+# attempts -> conflict_unscored). Add the SAME rotation idiom the siblings use (advance through the
+# mirror chain on a no-choices/empty 200), gated by the shared PG_JUDGE_PROVIDER_ROTATE flag.
+# Faithfulness-NEUTRAL: same glm-5.2 model, next healthy host; the (label, confidence) logic + the
+# fail-closed conflict_unscored contract are UNCHANGED.
+_ENV_JUDGE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+
+
+def _judge_provider_rotation_enabled() -> bool:
+    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _mirror_provider_chain() -> list:
+    """The mirror role's ranked provider ``order`` (health-filtered) for blank/no-choices rotation.
+
+    Read from the SAME config the single-provider pin uses; the operator deny-list
+    (``PG_JUDGE_UNHEALTHY_PROVIDERS``) drops flaky hosts. Returns ``[]`` when routing is
+    unconfigured/disabled -> the caller keeps its single-host pin (byte-identical)."""
+    try:
+        from src.polaris_graph.roles.provider_routing import (
+            filter_unhealthy,
+            role_provider_routing,
+        )
+        routing = role_provider_routing("mirror")
+    except Exception:  # noqa: BLE001 — config lookup must never break the judge
+        return []
+    if not routing:
+        return []
+    order = [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+    return filter_unhealthy(order)
+
+
+def _no_choices_reason(data: object) -> str | None:
+    """I-wire-008 (#1322): True-reason iff a 200 body cannot yield a verdict (an OpenRouter error
+    envelope returned as a 200, or a missing/empty ``choices`` list). Used to (a) skip the phantom
+    cost impute on a zero-completion transport fault and (b) trigger rotation. Mirrors
+    ``entailment_judge._no_choices_reason``; duplicated to avoid the retrieval<->llm import cycle."""
+    if not isinstance(data, dict):
+        return "non_dict_body"
+    if data.get("error"):
+        return "error_body_200"
+    choices = data.get("choices")
+    if not choices or not isinstance(choices, list):
+        return "no_choices"
+    return None
+
+
 def _row_text(row: dict) -> str:
     return str(row.get("direct_quote") or row.get("statement") or row.get("text") or "")
 
@@ -713,12 +765,44 @@ class _SemanticContradictionJudge:
         _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
             "1", "true", "yes", "on",
         )
-        if _gate_provider and not _free_route:
+        # I-wire-008 (#1322): provider-rotation chain (the side-judge had none). When enabled,
+        # derive the health-filtered mirror `order` straight from the YAML (independent of the
+        # pathB contextvar, like the siblings) and pin the LEAD; the B14 guard's per-attempt
+        # re-POST then advances through the chain via `_rotate_provider` below. The YAML LEAD ==
+        # the prior single-host pin lead, so attempt 1 is identical to the pre-fix pin.
+        _rotate_on = _judge_provider_rotation_enabled() and not _free_route
+        _rotate_chain = _mirror_provider_chain() if _rotate_on else []
+        if len(_rotate_chain) <= 1:
+            _rotate_chain = []  # nothing to rotate through -> single-host pin below
+        _provider_cursor = {"i": 0, "calls": 0}
+        if _rotate_chain:
+            json_body["provider"] = {
+                "order": [_rotate_chain[0]], "allow_fallbacks": False, "require_parameters": True,
+            }
+        elif _gate_provider and not _free_route:
             json_body["provider"] = {
                 "order": [_gate_provider],
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
+
+        def _rotate_provider() -> None:
+            """Advance the pinned provider to the next health-filtered mirror host. Called at the
+            top of each B14 guard re-attempt (calls>0) so a flaky/no-choices lead is SKIPPED rather
+            than re-POSTed. No-op when rotation is off or the chain is exhausted. SINGLE-WRITER safe:
+            this judge runs in the SERIAL P5 claim-graph step (see the TimeoutError note in
+            `_post_once`), so the shared `json_body` mutation never races a sibling worker."""
+            if not _rotate_chain or "provider" not in json_body:
+                return
+            if _provider_cursor["i"] >= len(_rotate_chain) - 1:
+                return  # exhausted the chain — let the bounded guard fail closed (conflict_unscored)
+            _provider_cursor["i"] += 1
+            json_body["provider"]["order"] = [_rotate_chain[_provider_cursor["i"]]]
+            logger.warning(
+                "[semantic-conflict] provider-rotate -> %s (chain pos %d/%d)",
+                _rotate_chain[_provider_cursor["i"]], _provider_cursor["i"] + 1, len(_rotate_chain),
+            )
+
         def _emit_raw_io(status: str, raw_response) -> None:
             # I-obs-001 #1141 AC3 (gate iter-1 P1): ONE raw-IO record per call tagged by its TRUE
             # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
@@ -743,6 +827,12 @@ class _SemanticContradictionJudge:
             Billed per ACTUAL call (each B14 retry that re-invokes this is a real call), so
             the cost ledger stays honest. ``BudgetExceededError`` propagates unchanged (the
             B14 guard re-raises it via ``propagate``) so the caller's keep-partial fires."""
+            # I-wire-008 (#1322): the B14 guard calls this once per attempt; on every re-attempt
+            # (calls>0) ROTATE the pinned provider to the next healthy host BEFORE the POST, so a
+            # no-choices/blank lead is skipped instead of re-hammered. First call keeps the lead.
+            _provider_cursor["calls"] += 1
+            if _provider_cursor["calls"] > 1:
+                _rotate_provider()
             # I-arch-007 BUG-2 (verify-hang): HARD total wall-deadline around the POST so a trickled
             # keep-alive socket (the per-read gap timer never fires) cannot hang the verify phase. On
             # timeout: force-close + rebuild a fresh client, then RAISE — the bare raise propagates up to
@@ -780,7 +870,12 @@ class _SemanticContradictionJudge:
             actual_cost = api_cost or _orc._impute_cost_from_tokens(
                 self._model, input_tokens, output_tokens, 0,
             )
-            if actual_cost == 0 and not usage:
+            # I-wire-008 (#1322): NARROW the phantom impute to the ambiguous "content present, usage
+            # missing" case. A no-choices/error-body-200 is a ZERO-completion transport fault; billing
+            # it the phantom 400/60 on every rotation attempt during a provider-health storm would
+            # inflate the run budget on zero real work (and could trip BudgetExceededError). Bill the
+            # real (zero) usage for that attempt; the guard retries -> rotation skips the flaky host.
+            if actual_cost == 0 and not usage and _no_choices_reason(served) is None:
                 actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
             _orc._add_run_cost(actual_cost)
             # FX-11b (#1117): also write the canonical cost-ledger ROW for this

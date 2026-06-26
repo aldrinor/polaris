@@ -168,13 +168,16 @@ def _mirror_provider_chain() -> list[str]:
     pin uses). Returns ``[]`` when routing is unconfigured/disabled -> the caller keeps its single-provider
     pin (byte-identical). Lazy import avoids a heavy import at module load."""
     try:
-        from src.polaris_graph.roles.provider_routing import role_provider_routing
+        from src.polaris_graph.roles.provider_routing import filter_unhealthy, role_provider_routing
         routing = role_provider_routing("mirror")
     except Exception:  # noqa: BLE001 — config lookup must never break the call
         return []
     if not routing:
         return []
-    return [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+    order = [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+    # I-wire-008 (#1322): drop operator-flagged unhealthy hosts (PG_JUDGE_UNHEALTHY_PROVIDERS) so
+    # rotation lands on a healthy provider first. Default deny-list empty => byte-identical.
+    return filter_unhealthy(order)
 
 
 def credibility_judge_model() -> str:
@@ -380,7 +383,11 @@ def make_openrouter_credibility_caller(
             cost = float(usage.get("cost", 0) or 0) or _orc._impute_cost_from_tokens(
                 chosen_model, input_tokens, output_tokens, 0,
             )
-            if cost == 0 and not usage:  # degraded response, no usage block: conservative estimate
+            # I-wire-008 (#1322): NARROW the phantom impute to the ambiguous "content present, usage
+            # missing" case. A no-choices/error-body-200 is a ZERO-completion transport fault; billing
+            # it the phantom estimate on every rotation attempt during a provider-health storm would
+            # inflate the run budget on zero real work. Bill the real (zero) usage for that attempt.
+            if cost == 0 and not usage and (data.get("choices") or []):  # degraded but real choice
                 cost = _orc._impute_cost_from_tokens(
                     chosen_model,
                     _int_env(_ENV_DEGRADED_PROMPT_TOKENS, _DEFAULT_DEGRADED_PROMPT_TOKENS),

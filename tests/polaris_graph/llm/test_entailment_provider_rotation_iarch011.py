@@ -109,7 +109,7 @@ def test_rotation_on_advances_off_blank_to_real_verdict(_mirror_pinned, monkeypa
     This is the faithfulness-IMPROVING effect: a real ENTAILED replaces a z-ai-blank-induced DROP."""
     monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "1")
     judge = _fresh_judge()
-    client = _RecordingClient([_blank_200(), _entailed_200("Baidu")])
+    client = _RecordingClient([_blank_200(), _entailed_200("Novita")])
     judge._client = client
 
     verdict, reason = judge.judge("a sentence", "a span that entails it")
@@ -117,8 +117,9 @@ def test_rotation_on_advances_off_blank_to_real_verdict(_mirror_pinned, monkeypa
     assert verdict == "ENTAILED", (verdict, reason)
     assert len(client.sent_orders) >= 2, client.sent_orders
     # First attempt hit the chain LEAD; the blank rotated the SECOND attempt to the next mirror host.
-    assert client.sent_orders[0] == ["z-ai"], client.sent_orders
-    assert client.sent_orders[1] == ["baidu"], client.sent_orders
+    # I-wire-008 config-drift sync: the glm-5.2 mirror chain (I-beatboth-008) leads friendli->novita.
+    assert client.sent_orders[0] == ["friendli"], client.sent_orders
+    assert client.sent_orders[1] == ["novita"], client.sent_orders
 
 
 def test_rotation_on_fires_without_pathb_role_map(monkeypatch):
@@ -132,15 +133,15 @@ def test_rotation_on_fires_without_pathb_role_map(monkeypatch):
     # Deliberately do NOT call set_role_providers -> get_role_provider('mirror') is None.
     assert pathB_capture.get_role_provider("mirror") is None
     judge = _fresh_judge()
-    client = _RecordingClient([_blank_200(), _entailed_200("Baidu")])
+    client = _RecordingClient([_blank_200(), _entailed_200("Novita")])
     judge._client = client
 
     verdict, _reason = judge.judge("a sentence", "a span that entails it")
 
     assert verdict == "ENTAILED", verdict
     assert len(client.sent_orders) >= 2, client.sent_orders
-    assert client.sent_orders[0] == ["z-ai"], client.sent_orders   # chain LEAD from YAML, not _gate_provider
-    assert client.sent_orders[1] == ["baidu"], client.sent_orders  # rotated off the blank
+    assert client.sent_orders[0] == ["friendli"], client.sent_orders  # chain LEAD from YAML, not _gate_provider
+    assert client.sent_orders[1] == ["novita"], client.sent_orders   # rotated off the blank
 
 
 def test_rotation_on_real_verdict_first_call_does_not_rotate(_mirror_pinned, monkeypatch):
@@ -154,4 +155,4 @@ def test_rotation_on_real_verdict_first_call_does_not_rotate(_mirror_pinned, mon
     verdict, _reason = judge.judge("a sentence", "a span that entails it")
 
     assert verdict == "ENTAILED"
-    assert client.sent_orders == [["z-ai"]], client.sent_orders
+    assert client.sent_orders == [["friendli"]], client.sent_orders  # I-wire-008 drift sync: glm-5.2 lead

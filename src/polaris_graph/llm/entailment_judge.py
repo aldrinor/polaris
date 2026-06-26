@@ -214,13 +214,36 @@ def _mirror_provider_chain() -> list[str]:
     the roles stack at import time (off-mode zero-cost rule). Returns ``[]`` when routing is
     unconfigured/disabled -> the caller keeps its single-provider pin (byte-identical)."""
     try:
-        from src.polaris_graph.roles.provider_routing import role_provider_routing  # noqa: PLC0415
+        from src.polaris_graph.roles.provider_routing import (  # noqa: PLC0415
+            filter_unhealthy,
+            role_provider_routing,
+        )
         routing = role_provider_routing("mirror")
     except Exception:  # noqa: BLE001 — config lookup must never break the judge
         return []
     if not routing:
         return []
-    return [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+    order = [str(p) for p in (routing.get("order") or []) if str(p).strip()]
+    # I-wire-008 (#1322): drop operator-flagged unhealthy hosts (e.g. novita) so rotation lands
+    # on a healthy provider first. Default deny-list empty => byte-identical.
+    return filter_unhealthy(order)
+
+
+def _no_choices_reason(data: object) -> str | None:
+    """I-wire-008 (#1322): classify a provider-HEALTH transport fault in a 200 body BEFORE the
+    bare ``data["choices"][0]`` index. Returns a short reason string when the body cannot yield a
+    verdict (an OpenRouter error envelope returned as a 200, or a missing/empty ``choices`` list),
+    else ``None``. Treating these as a typed transport fault (vs a bare KeyError) lets the judge
+    ROTATE to the next healthy host immediately instead of re-POSTing the same flaky provider."""
+    if not isinstance(data, dict):
+        return "non_dict_body"
+    if data.get("error"):
+        # OpenRouter sometimes returns its error envelope with HTTP 200 (e.g. a 429 payload).
+        return "error_body_200"
+    choices = data.get("choices")
+    if not choices or not isinstance(choices, list):
+        return "no_choices"
+    return None
 
 
 # I-arch-007 ITEM 2a (entailment-judge self-heal): substrings/types that mark a CLOSED or
@@ -701,6 +724,12 @@ class _EntailmentJudge:
                     )
                 response.raise_for_status()
                 data = response.json()
+                # I-wire-008 (#1322): classify a provider-HEALTH transport fault (an OpenRouter
+                # error envelope returned as a 200, or a missing/empty `choices`) BEFORE the bare
+                # `data["choices"][0]` index below. Computed here so the cost block can bill the
+                # REAL (zero) usage for this attempt instead of the I-bug-100 phantom 500/100, then
+                # the loop ROTATES to the next host immediately (see the raise after the cost block).
+                _nc_reason = _no_choices_reason(data)
 
                 # I-safety-002b (#925): Path-B gate capture. The entailment judge is the
                 # evaluator-family LLM call that bypasses OpenRouterClient (direct httpx),
@@ -735,7 +764,14 @@ class _EntailmentJudge:
                 # conservative estimate based on typical judge-call shape
                 # (~500 prompt + ~100 completion tokens) priced at Opus-tier
                 # so the budget cap is preserved on degraded responses.
-                if actual_cost == 0 and not usage:
+                # I-wire-008 (#1322): NARROW the I-bug-100 phantom impute to the ambiguous
+                # "content present, usage block missing" case (what it was added for). A
+                # no-choices/error-body-200 is a ZERO-completion transport fault — billing it the
+                # phantom 500/100 on EVERY rotation attempt during a provider-health storm
+                # (PG_ENTAILMENT_RETRIES=3 x hundreds of sentences) would inflate the run budget on
+                # zero real work and could trip BudgetExceededError -> abort the run (the very stall
+                # this fix removes). Bill the real (zero) usage for that attempt instead.
+                if actual_cost == 0 and not usage and _nc_reason is None:
                     actual_cost = _orc._impute_cost_from_tokens(
                         self._model, 500, 100, 0,
                     )
@@ -752,7 +788,21 @@ class _EntailmentJudge:
                     logger.warning("entailment ledger write failed: %s", exc)
                 _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
 
-                content = data["choices"][0]["message"]["content"]
+                # I-wire-008 (#1322): a classified no-choices/error-body-200 -> raise the RETRYABLE
+                # error so the `except _RetryableJudgeError` branch ROTATES to the next healthy host
+                # immediately (no bare KeyError, no 4x same-provider re-POST). On exhaustion the
+                # UNCHANGED fail-closed ('ENTAILED','judge_error:...') sentinel fires -> consumers
+                # DROP -> the claim stays unmerged + flagged (faithfulness preserved, run continues).
+                if _nc_reason is not None:
+                    raise _RetryableJudgeError(_nc_reason)
+                try:
+                    content = data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError) as _shape_exc:
+                    # A choices list that is present but mis-shaped (e.g. no `message`) is also a
+                    # transport-shape fault -> classify + rotate, never a bare exception.
+                    raise _RetryableJudgeError(
+                        f"malformed_choice:{type(_shape_exc).__name__}"
+                    ) from _shape_exc
                 if _rotate_chain and not (content or "").strip():
                     # I-arch-011: a blank-200 (empty/None content body) is the z-ai intermittent-window
                     # signature. Raise the RETRYABLE error so the loop ROTATES to the next mirror host
