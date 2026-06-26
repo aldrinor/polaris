@@ -171,24 +171,46 @@ def test_depth_layer_emits_grounded_key_findings(monkeypatch):
     assert kf.build_depth_layer([sr]) == ""
 
 
-# ── I-wire-010 (#1324): the POST-RELEASE advisory NLI annotation wall ─────────
-def test_nli_annotation_wall_skips_on_hang_and_continues():
-    """A hung entailment judge that never returns is bounded by the wall: wait_for raises
-    TimeoutError, the helper fail-opens to a skip marker, and the caller CONTINUES (the run
-    is no longer wedged before the manifest write). Proxy for 'manifest is reached' — the real
-    end-to-end manifest write is not feasible offline; this proves the deadlock is broken."""
+# ── I-wire-011 (#1325) Codex iter-2 P1: wall must fire on the PRODUCTION sync-BLOCKING surface ─
+def test_nli_annotation_wall_fires_on_blocking_sync_annotator():
+    """REGRESSION (Codex iter-2 P1). ``annotate_nli_entailment`` is an ``async def`` that wraps a
+    SYNCHRONOUS, BLOCKING ``judge.judge()`` loop with NO await/yield. The OLD wall did
+    ``await wait_for(annotate(pairs))`` — running that blocking loop ON the event loop, which never
+    yields, so ``wait_for`` could NEVER fire and the deadlock was NOT fixed. The prior test used
+    ``await asyncio.Event().wait()`` (a COOPERATIVE async suspension) so it passed even against the
+    broken code — it never exercised the blocking surface. The fix offloads the blocking annotator to a
+    worker THREAD and walls the thread future.
+
+    This stub BLOCKS its thread with NO await/yield (the true production surface) and proves the wall
+    STILL fires: ``wait_for`` raises ``TimeoutError``, the helper fail-opens to a skip marker, and
+    control returns within ~wall_s. The worker is RELEASED in ``finally`` (bounded ``Event.wait`` rather
+    than an unbounded ``time.sleep``) so the non-daemon worker exits promptly and never blocks the
+    interpreter at teardown — and a ``threading.Event`` is real blocking work, NOT a banned
+    ``time.sleep`` work-simulation (§9.4)."""
+    import threading
+
     rhs = _load_rhs()
+    entered = threading.Event()
+    release = threading.Event()
 
-    async def _never_returns(_pairs):
-        await asyncio.Event().wait()  # parks forever — the provider-hang the deadlock came from
+    async def _blocking_sync(_pairs):
+        # async def, but the body BLOCKS the calling thread with NO await/yield — exactly the
+        # production annotate_nli_entailment surface (a synchronous judge.judge() loop).
+        entered.set()
+        release.wait(30)  # bounded: a failed assert below can never leave an unbounded live worker
+        return {"nli_status": "ok", "sentences_checked": 7}
 
-    result, timed_out = asyncio.run(
-        rhs._nli_annotation_with_wall([{"sentence": "x"}], 0.05, _never_returns)
-    )
-    assert timed_out is True
-    assert result["nli_status"] == "skipped_wall_timeout"
-    assert result["sentences_checked"] == 0
-    assert result["advisory"] is True
+    try:
+        result, timed_out = asyncio.run(
+            rhs._nli_annotation_with_wall([{"sentence": "x"}], 0.2, _blocking_sync)
+        )
+        assert entered.is_set()        # the offloaded worker actually STARTED the blocking call
+        assert timed_out is True       # the wall fired despite the blocking (no-yield) annotator
+        assert result["nli_status"] == "skipped_wall_timeout"
+        assert result["sentences_checked"] == 0
+        assert result["advisory"] is True
+    finally:
+        release.set()  # let the abandoned worker return immediately -> no parked thread at teardown
 
 
 def test_nli_annotation_wall_passes_through_result_when_fast():

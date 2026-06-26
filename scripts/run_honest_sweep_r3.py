@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextvars
 import hashlib
 import json
@@ -2480,28 +2481,94 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
     )
 
 
+# I-wire-011 (#1325) Codex iter-2 P1: a dedicated single-worker pool for the POST-RELEASE NLI
+# annotation wall. ``annotate_nli_entailment`` is an ``async def`` that wraps a SYNCHRONOUS, BLOCKING
+# ``judge.judge()`` loop with NO await/yield (``nli_benchmark_annotator.py:147-151``); awaiting it
+# directly on the event loop runs that blocking loop ON the loop, which never yields, so
+# ``asyncio.wait_for`` can NEVER fire its timeout — the I-wire-010 wall was a no-op. We OFFLOAD the
+# blocking annotator onto this worker thread and wall the THREAD future, so the loop stays free and the
+# wall actually fires. ``max_workers=1`` — the annotation runs once per query as the run's last step
+# (one-query-per-VM, so cross-query serialization is a non-issue here).
+#
+# Exit-safety (a truly-hung worker can never block process exit) is guaranteed WITHOUT daemon threads
+# (a ThreadPoolExecutor cannot set ``daemon`` on an already-started worker) by TWO existing backstops:
+#   1. the I-wire-008 / HANG-J3 per-call entailment deadline (``PG_ENTAILMENT_TOTAL_S`` default 150s,
+#      ``entailment_judge.py:112``) bounds EACH ``judge.judge()`` call, so an abandoned worker DEGRADES
+#      (drains in bounded time) rather than hangs; and
+#   2. the ``PG_TEARDOWN_WALL`` daemon watchdog (below, default ON) force-``os._exit()``s past any
+#      wedged ``concurrent.futures`` atexit join once the artifacts are on disk.
+_nli_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="nli_wall",
+)
+
+
 async def _nli_annotation_with_wall(
     pairs: list, wall_s: int, annotate,
 ) -> "tuple[dict, bool]":
-    """I-wire-010 (#1324): bound the POST-RELEASE advisory NLI annotation with a wall so a hung
-    entailment judge cannot PARK the ``await`` forever and wedge the run.
+    """I-wire-010 (#1324) / I-wire-011 (#1325): bound the POST-RELEASE advisory NLI annotation with a
+    wall so a hung entailment judge cannot wedge the run before manifest.json is written.
 
     By the time this runs the BINDING faithfulness gate (4-role D8) has already passed
-    (``release_allowed=True``); this NLI pass is ADVISORY benchmark metadata. The entailment
-    judge is a network call — if its provider hangs, a bare ``await`` blocks indefinitely, and an
-    ``except`` CANNOT catch a hang, so the existing fail-open handler never runs and manifest.json
-    (written downstream) never lands: the run wedges (the observed futex deadlock).
-    ``asyncio.wait_for`` converts the hang into ``asyncio.TimeoutError``, which we fail-open to a
-    ``skipped_wall_timeout`` marker so the caller CONTINUES to the manifest write.
+    (``release_allowed=True``); this NLI pass is ADVISORY benchmark metadata. The entailment judge is a
+    network call — if its provider hangs, an unbounded wait blocks forever, an ``except`` CANNOT catch a
+    hang, and the downstream manifest.json write never lands: the run wedges (the observed futex
+    deadlock).
 
-    Faithfulness-NEUTRAL: skipping an ADVISORY annotation never relaxes a verdict (the 4-role D8
-    gate already decided release). Returns ``(result_dict, timed_out)``. NON-timeout exceptions
-    (``BudgetExceededError`` on a cap breach, ``NliUnavailableError``) PROPAGATE unchanged so the
-    caller's existing handlers fire — Core Invariant §9.1.6: a cap breach must abort, never be
-    masked as an advisory error."""
+    **I-wire-011 fix (Codex iter-2 P1).** ``annotate_nli_entailment`` is an ``async def`` that wraps a
+    SYNCHRONOUS, BLOCKING ``judge.judge()`` loop with NO await/yield (``nli_benchmark_annotator.py``
+    :147-151). The old ``await asyncio.wait_for(annotate(pairs), ...)`` ran that blocking loop ON the
+    event loop, which never yields control, so ``wait_for`` could NEVER fire its timeout — the wall was a
+    no-op and the deadlock was NOT fixed. The wall is only effective when the blocking work runs OFF the
+    loop: we offload ``annotate(pairs)`` onto a dedicated worker thread (``_nli_executor``) via
+    ``loop.run_in_executor`` and wall the resulting THREAD future. The coroutine then ``await``s the
+    executor future (a REAL suspension point), the loop stays free, and ``asyncio.wait_for`` fires.
+
+    **Budget / cost.** The worker runs under a SNAPSHOT of the parent task context
+    (``contextvars.copy_context()``), so the judge's ``_RUN_COST_CTX`` (per-run budget) and
+    ``_CURRENT_RUN_ID_CTX`` (ledger session id) are visible. Because the copy is independent, the judge's
+    ``_add_run_cost`` increments land in the COPY, so we reconcile the spend DELTA back to the parent in
+    ``finally`` (mirrors the proven ``_topic_llm`` offload, ~L9061) — the run-budget gate stays inclusive
+    on success AND on a propagated ``BudgetExceededError`` (partial bill). Only ``asyncio.TimeoutError``
+    is caught, so ``BudgetExceededError`` (Core Invariant §9.1.6 — a cap breach must abort) and
+    ``NliUnavailableError`` PROPAGATE unchanged to the caller's existing handlers.
+
+    Faithfulness-NEUTRAL: skipping an ADVISORY annotation never relaxes a verdict (the 4-role D8 gate
+    already decided release). Returns ``(result_dict, timed_out)``."""
+    loop = asyncio.get_running_loop()
+    # Lazy import (cheap — openrouter_client is already loaded): the per-run cost accumulator the judge
+    # bills against. copy_context() also snapshots _CURRENT_RUN_ID_CTX so the ledger session id carries.
+    from src.polaris_graph.llm.openrouter_client import _RUN_COST_CTX  # noqa: PLC0415
+
+    _parent_cost_before = _RUN_COST_CTX.get()
+    _worker_cost_after: list[float] = [_parent_cost_before]
+    _parent_ctx = contextvars.copy_context()
+
+    async def _annotate_capturing() -> dict:
+        try:
+            return await annotate(pairs)
+        finally:
+            # Read INSIDE the copied context so the judge's _add_run_cost() increments are captured
+            # (they landed in this copy, not the parent task's context). Runs even when annotate raises
+            # BudgetExceededError, so the partial spend is reconciled by the outer finally below.
+            _worker_cost_after[0] = _RUN_COST_CTX.get()
+
+    def _worker() -> dict:
+        # Drive the async annotator to completion on this worker thread (OFF the event loop) under the
+        # parent's copied context. asyncio.run() spins a fresh loop here; the blocking judge.judge() loop
+        # now blocks THIS thread, not the caller's event loop — which is what frees the wall to fire.
+        return _parent_ctx.run(asyncio.run, _annotate_capturing())
+
     try:
-        return await asyncio.wait_for(annotate(pairs), timeout=wall_s), False
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_nli_executor, _worker), timeout=wall_s,
+        )
+        return result, False
     except asyncio.TimeoutError:
+        # The wall fired BECAUSE the blocking work is on the worker thread (the loop was free to time
+        # out). The abandoned worker keeps draining — bounded by the I-wire-008 per-call entailment
+        # deadline, with the PG_TEARDOWN_WALL watchdog force-exiting past any wedge at process end — so
+        # control returns here and the caller reaches the manifest write. ADVISORY skip: never relaxes a
+        # verdict (4-role D8 already decided release).
         return (
             {
                 "nli_status": "skipped_wall_timeout",
@@ -2511,6 +2578,15 @@ async def _nli_annotation_with_wall(
             },
             True,
         )
+    finally:
+        # Reconcile the worker's _RUN_COST_CTX spend back to the parent so PG_MAX_COST_PER_RUN stays
+        # inclusive (mirrors _topic_llm). On the success / BudgetExceededError paths _annotate_capturing's
+        # finally already captured the worker's final cost; on the wall-timeout path the worker has not
+        # finished so the delta is 0 here (its later spend is still tracked in the process-global ledger
+        # accumulator) — correct, since this is the run's last step before the manifest write.
+        _delta = _worker_cost_after[0] - _parent_cost_before
+        if _delta:
+            _RUN_COST_CTX.set(_RUN_COST_CTX.get() + _delta)
 
 
 def _env_int(name: str, default: int) -> int:
