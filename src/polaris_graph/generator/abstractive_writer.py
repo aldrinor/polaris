@@ -71,12 +71,18 @@ _ENV_MAX_TOKENS = "PG_ABSTRACTIVE_WRITER_MAX_TOKENS"
 # so the generous ceiling is free insurance — never starve the writer.
 _DEFAULT_MAX_TOKENS = 32768
 _ENV_REASONING_MAX_TOKENS = "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS"
-# §9.1.8 "reasoning effort ALWAYS goes MAX": a FIXED reasoning_max_tokens is mutually exclusive with
-# reasoning EFFORT on the GLM _ALWAYS_REASON branch (openrouter_client.py:1784-1788) — passing a fixed
-# cap SUPPRESSES effort=high. Default UNSET (-1 sentinel) so generate() receives reasoning_max_tokens=None
-# and GLM runs at effort=high (its branch-1 default), governed by the overall max_tokens ceiling — the
-# §9.1.8 max-reasoning posture. An operator may still pin a fixed reasoning cap via this env if needed.
-_DEFAULT_REASONING_MAX_TOKENS = -1             # -1 => unset (effort=high governs, §9.1.8)
+# I-wire-009 (#1323) SUPERSEDES the prior I-wire-005 effort=high posture for this leg. The
+# floor_abstractive writer is the LOCKED active composer and reaches the GLM-5.2 _ALWAYS_REASON
+# branch (openrouter_client.py:1778). The I-wire-005 assumption — that a generous 32768 content
+# ceiling makes an UNCAPPED effort=high reasoning pool safe — is exactly what this issue disproves:
+# at the outline leg GLM-5.2 spent the whole budget reasoning and returned content="" regardless of
+# the ceiling. So BOUND the reasoning pool by default (a fixed reasoning_max_tokens is mutually
+# exclusive with effort on the GLM branch, openrouter_client.py:1784-1788 — the cap deliberately
+# suppresses effort=high here). 16384 matches the analyst-synthesis + legacy-section siblings: a
+# generous reasoning slice that still leaves the bulk of the 32768 ceiling for the content rephrase.
+# LAW VI: an operator may restore the uncapped effort=high posture for a NON-reasoning-first model
+# by setting PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS<=0 (the <=0 -> None escape hatch below).
+_DEFAULT_REASONING_MAX_TOKENS = 16384          # I-wire-009: bounded by default; <=0 via env => effort=high
 _ENV_CONCURRENCY = "PG_ABSTRACTIVE_WRITER_CONCURRENCY"
 _DEFAULT_CONCURRENCY = 8                       # bounded fan-out (§3.5), matches campaign verify fan-out
 _ENV_TEMPERATURE = "PG_ABSTRACTIVE_WRITER_TEMPERATURE"

@@ -2111,6 +2111,24 @@ async def _call_outline(
     total_in = 0
     total_out = 0
     retry_attempted = False
+    # I-wire-009 (#1323): GLM-5.2 (the campaign generator/mirror) is reasoning-first and in
+    # openrouter_client._ALWAYS_REASON_MODELS — its branch-1 path runs reasoning at effort=high
+    # with NO cap whenever the caller passes no reasoning_max_tokens. On the OUTLINE leg the
+    # (PG_GLM5_MIN_MAX_TOKENS=4096-floored) budget was then entirely consumed by the reasoning
+    # prelude, content came back "", and the promotion guard raised ReasoningFirstTruncationError
+    # (the crash this issue fixes — 10330 reasoning chars, content=0, finish_reason=length). §9.1.8
+    # token-BUDGET fix (the fail-loud guard is CORRECT and stays): bound the reasoning POOL so a
+    # fixed slice is reserved for the closing JSON, AND raise the CONTENT ceiling so the section
+    # plan has room AFTER reasoning. Faithfulness-neutral — the outline is structurally validated
+    # (allowed_ev_ids / allowed_sections) downstream, not verified prose; bounding reasoning only
+    # guarantees the model reaches the content phase. LAW VI: env-tunable, default-safe (generous);
+    # read at CALL time (per this file's outline-cap convention) so it is unit-testable via monkeypatch.
+    _outline_content_max_tokens = max(
+        max_tokens, int(os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"))
+    )
+    _outline_reasoning_max_tokens = int(
+        os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "6144")
+    )
     try:
         # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
         set_reasoning_call_context(
@@ -2119,8 +2137,9 @@ async def _call_outline(
         response = await client.generate(
             prompt=prompt,
             system=_outline_system_prompt,
-            max_tokens=max_tokens,
+            max_tokens=_outline_content_max_tokens,
             temperature=temperature,
+            reasoning_max_tokens=_outline_reasoning_max_tokens,
         )
         total_in += response.input_tokens
         total_out += response.output_tokens
@@ -2199,8 +2218,11 @@ async def _call_outline(
             retry_response = await client.generate(
                 prompt=prompt,
                 system=tighter_system,
-                max_tokens=max_tokens,
+                max_tokens=_outline_content_max_tokens,
                 temperature=max(0.0, temperature - 0.2),  # cooler retry
+                # I-wire-009 (#1323): same bounded-reasoning + generous-content budget as the
+                # primary outline call so the retry cannot itself starve content to empty.
+                reasoning_max_tokens=_outline_reasoning_max_tokens,
             )
             total_in += retry_response.input_tokens
             total_out += retry_response.output_tokens
@@ -3099,6 +3121,15 @@ async def _call_section(
             system=system,
             max_tokens=max_tokens,
             temperature=_retry_temp,
+            # I-wire-009 (#1323): bound the reasoning POOL on the LEGACY section writer (the
+            # distillate-None path; the REDUCE keystone path already caps via
+            # _reduce_reasoning_tokens). GLM-5.2 _ALWAYS_REASON at effort=high can otherwise
+            # consume the whole section_max_tokens (PG_SECTION_MAX_TOKENS=64000) ceiling on
+            # reasoning and starve content. A generous 16384-token reasoning slice mirrors the
+            # REDUCE sibling and still leaves the bulk of the ceiling for content. LAW VI env-tunable.
+            reasoning_max_tokens=int(
+                os.getenv("PG_SECTION_REASONING_MAX_TOKENS", "16384")
+            ),
         )
     except ReasoningFirstTruncationError as exc:
         # I-gen-003: a reasoning-first model (DeepSeek V4 Pro) ran out
@@ -5018,8 +5049,16 @@ async def _call_trial_summary_table(
         response = await client.generate(
             prompt=prompt,
             system=TRIAL_SUMMARY_TABLE_SYSTEM_PROMPT,
-            max_tokens=max_tokens,
+            # I-wire-009 (#1323): trial_summary_table_max_tokens defaults to 800 -> floored to
+            # PG_GLM5_MIN_MAX_TOKENS=4096; raise CONTENT to a generous floor and BOUND the GLM-5.2
+            # reasoning pool so the table never gets starved to empty by an effort=high prelude.
+            max_tokens=max(
+                max_tokens, int(os.getenv("PG_TRIAL_TABLE_MIN_MAX_TOKENS", "6000"))
+            ),
             temperature=temperature,
+            reasoning_max_tokens=int(
+                os.getenv("PG_TRIAL_TABLE_REASONING_MAX_TOKENS", "2048")
+            ),
         )
         raw = (response.content or "").strip()
         in_tok = response.input_tokens
@@ -5135,8 +5174,16 @@ async def _call_m50_per_trial_subsection(
         response = await client.generate(
             prompt=prompt,
             system=_M50_SUBSECTION_SYSTEM_PROMPT,
-            max_tokens=max_tokens,
+            # I-wire-009 (#1323): m50_subsection_max_tokens defaults to 400 -> floored to 4096;
+            # raise CONTENT and BOUND the GLM-5.2 reasoning pool so the per-trial subsection has
+            # room AFTER reasoning and is never starved to empty.
+            max_tokens=max(
+                max_tokens, int(os.getenv("PG_M50_MIN_MAX_TOKENS", "6000"))
+            ),
             temperature=temperature,
+            reasoning_max_tokens=int(
+                os.getenv("PG_M50_REASONING_MAX_TOKENS", "2048")
+            ),
         )
         text = (response.content or "").strip()
         in_tok = response.input_tokens
@@ -5275,8 +5322,16 @@ async def _call_limitations(
         response = await client.generate(
             prompt=prompt,
             system=LIMITATIONS_SYSTEM_PROMPT,
-            max_tokens=max_tokens,
+            # I-wire-009 (#1323): limitations_max_tokens defaults to 400 -> floored to 4096; raise
+            # CONTENT and BOUND the GLM-5.2 reasoning pool so the Limitations paragraph has room
+            # AFTER reasoning and is never starved to empty by an effort=high prelude.
+            max_tokens=max(
+                max_tokens, int(os.getenv("PG_LIMITATIONS_MIN_MAX_TOKENS", "6000"))
+            ),
             temperature=temperature,
+            reasoning_max_tokens=int(
+                os.getenv("PG_LIMITATIONS_REASONING_MAX_TOKENS", "2048")
+            ),
         )
         text = (response.content or "").strip()
         in_tok = response.input_tokens
@@ -7583,11 +7638,21 @@ async def generate_multi_section_report(
                     # keeps the historical literal 2048 so an unset env is
                     # byte-identical. max_tokens is a CAP not a target (§9.1.8,
                     # usage-billed) — the slate may raise it; never lower the default.
+                    # I-wire-009 (#1323): the 2048 cap floors to PG_GLM5_MIN_MAX_TOKENS=4096 on the
+                    # GLM-5.2 _ALWAYS_REASON path; raise CONTENT to a generous floor and BOUND the
+                    # reasoning pool so the consolidation rewrite is never starved to empty by an
+                    # effort=high prelude. CONSOLIDATE-keep-all is unchanged (faithfulness-neutral).
                     return await client.generate(
                         prompt=prompt,
                         system=system,
-                        max_tokens=int(os.getenv("PG_FACT_DEDUP_MAX_TOKENS", "2048")),
+                        max_tokens=max(
+                            int(os.getenv("PG_FACT_DEDUP_MAX_TOKENS", "2048")),
+                            int(os.getenv("PG_FACT_DEDUP_MIN_MAX_TOKENS", "6000")),
+                        ),
                         temperature=0.2,
+                        reasoning_max_tokens=int(
+                            os.getenv("PG_FACT_DEDUP_REASONING_MAX_TOKENS", "2048")
+                        ),
                     )
                 finally:
                     if hasattr(client, "close"):

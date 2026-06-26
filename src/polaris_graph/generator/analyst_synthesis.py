@@ -508,6 +508,17 @@ async def generate_analyst_synthesis(
             system=ANALYST_SYNTHESIS_SYSTEM_PROMPT,
             max_tokens=max_tokens,
             temperature=temperature,
+            # I-wire-009 (#1323): BOUND the reasoning pool on the analyst-synthesis writer. The
+            # generator (GLM-5.2 in-campaign) is in openrouter_client._ALWAYS_REASON_MODELS, whose
+            # branch-1 path runs reasoning at effort=high with NO cap when no reasoning_max_tokens
+            # is passed — it can consume the whole max_tokens (PG_SECTION_MAX_TOKENS=64000) ceiling
+            # on reasoning and return content="". A generous 16384-token reasoning slice (mirrors
+            # the REDUCE section sibling) leaves the bulk of the ceiling for the 1500-3000-word
+            # synthesis. LAW VI env-tunable; §9.1.8 token-budget fix only, faithfulness-neutral
+            # (this is the UNVERIFIED analyst layer; strict_verify governs the verified core).
+            reasoning_max_tokens=int(
+                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "16384")
+            ),
         )
         text = (response.content or "").strip()
         in_tok = response.input_tokens

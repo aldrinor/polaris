@@ -191,8 +191,19 @@ async def repair_sentence(
         response = await client.generate(
             prompt=prompt,
             system=REPAIR_SYSTEM_PROMPT,
-            max_tokens=max_tokens,
+            # I-wire-009 (#1323): the repair max_tokens defaults to 400 -> floored to
+            # PG_GLM5_MIN_MAX_TOKENS=4096 on the GLM-5.2 _ALWAYS_REASON path. Bound the reasoning
+            # pool and floor CONTENT so a single repaired sentence is never starved to empty by an
+            # effort=high prelude (which would otherwise surface as a silent api_failure below).
+            # LAW VI env-tunable; faithfulness-neutral (every repaired sentence is re-verified by
+            # the UNCHANGED strict_verify downstream).
+            max_tokens=max(
+                max_tokens, int(os.getenv("PG_REPAIR_MIN_MAX_TOKENS", "4096"))
+            ),
             temperature=temperature,
+            reasoning_max_tokens=int(
+                os.getenv("PG_REPAIR_REASONING_MAX_TOKENS", "2048")
+            ),
         )
         text = (response.content or "").strip()
         in_tok = response.input_tokens
