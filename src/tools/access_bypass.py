@@ -1707,6 +1707,45 @@ def clean_fetch_body(content: "Optional[str]") -> CleanedFetch:
     return CleanedFetch(text, shell_reason)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-013 (#1327): PDF/HTML line-wrap de-hyphenation (truncation-at-source).
+#
+# A hard line break inside a fetched body frequently splits a word at a trailing
+# hyphen ("patent-\ning activity"). When that fragment lands in a STORED, cited
+# ``direct_quote`` it later re-anchors / renders as a truncated token ("ning
+# activity"). This joins ONLY a hyphen that sits at a hard line break BETWEEN TWO
+# LETTERS ("word-\nrest" -> "wordrest"). A legitimate intra-word hyphen
+# ("co-author", "GLP-1") is never followed by a newline, so it is preserved
+# byte-for-byte; a hyphen before a DIGIT is never joined (GLP-1 stays GLP-1); a
+# paragraph break (blank line) is not crossed (single ``\r?\n`` only). The Unicode
+# letter class ``[^\W\d_]`` matches accented / CJK letters, so multilingual prose
+# is preserved and its own line-wraps repair identically. INPUT HYGIENE ONLY —
+# never a faithfulness gate; strict_verify / NLI / 4-role / span-grounding FROZEN.
+# ─────────────────────────────────────────────────────────────────────────────
+_LINE_WRAP_HYPHEN_RE = re.compile(
+    r"(?P<pre>[^\W\d_])"            # a letter (Unicode-aware) ...
+    r"[-\u00ad\u2010]"             # ... then a hyphen (ASCII -, soft U+00AD, U+2010) ...
+    r"[^\S\r\n]*\r?\n[^\S\r\n]*"    # ... inline ws, ONE hard line break, inline ws ...
+    r"(?P<post>[^\W\d_])"          # ... then a letter (NOT a digit -> GLP-1 is safe).
+)
+
+
+def dehyphenate_line_wraps(text: "Optional[str]") -> str:
+    """Join PDF/HTML line-wrap hyphens (``"patent-\\ning"`` -> ``"patenting"``).
+
+    ONLY a hyphen at a hard line break BETWEEN TWO LETTERS is removed. A
+    legitimate intra-word hyphen (``"co-author"``, ``"GLP-1"``) has no following
+    newline and is preserved byte-for-byte; a hyphen before a digit is never
+    joined; multilingual content (and its own line-wraps) is handled via the
+    Unicode letter class. Pure / deterministic — no model, no network.
+    """
+    if not text:
+        return text or ""
+    return _LINE_WRAP_HYPHEN_RE.sub(
+        lambda m: m.group("pre") + m.group("post"), text,
+    )
+
+
 # M-23c: Structural markers for content quality scoring.
 # Presence of academic-paper markers indicates full article body
 # (vs paywall stub or landing page).

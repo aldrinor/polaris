@@ -286,6 +286,51 @@ def _group_is_year_noise(group: list["ExtractedNumericClaim"]) -> bool:
     return True
 
 
+# I-wire-013 (#1327) — CONTRADICTION HARDEN.
+#
+# (a) Shared marker for the B9 same-metric-axes downgrade. ``detect_contradictions`` appends this to
+#     a ContradictionRecord.predicate when it could NOT positively confirm a shared metric. A record
+#     carrying the marker is NOT a confirmed contradiction, so the render layer
+#     (``run_honest_sweep_r3._render_contradicts_block``) skips it from the headline
+#     "Contradictions (both sides)" block — every claim is still disclosed in the contradictions.json
+#     sidecar (never dropped — §-1.3). A single source-of-truth constant (no magic string).
+#
+# (b) Bibliographic-identifier screen. A UNIT-LESS number that sits inside a DOI suffix, an arXiv id,
+#     an ISSN, or a page range is a CITATION ARTIFACT, never a measured metric value. The generic
+#     extractor would otherwise lift e.g. the "07123" of a DOI or the "419" of "pp. 412-419" and,
+#     grouped with an unrelated unit-less number under the same generic metric cue, surface a
+#     FABRICATED ``possible_metric_mismatch`` (lethal in clinical context, §-1.1). We reject such a
+#     number BEFORE it becomes a candidate. Only UNIT-LESS numbers are screened — a unit-bearing
+#     value (47%, $13bn) is always a real metric, never a catalogue id. Faithfulness is unchanged:
+#     span-grounding / strict_verify remain the hard gate; this only stops inventing a contradiction
+#     between two catalogue numbers.
+POSSIBLE_METRIC_MISMATCH_MARKER = "[possible_metric_mismatch]"
+
+_BIBLIOGRAPHIC_ID_RE = re.compile(
+    r"""
+    \b10\.\d{4,9}/\S+                                  # DOI: 10.1038/s41586-024-07123
+    | arxiv:\s*\d{4}\.\d{4,5}(?:v\d+)?                 # arXiv id: arXiv:2401.12345v2
+    | \bissn:?\s*\d{4}-\d{3}[\dxX]\b                   # ISSN: ISSN 0028-0836
+    | \bpp?\.\s*\d+\s*[\-‒–—―]\s*\d+   # page range: pp. 412-419 / p. 47-49
+    | \bpages?\s+\d+\s*[\-‒–—―]\s*\d+  # page range: pages 412-419
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _bibliographic_id_regions(text: str) -> list[tuple[int, int]]:
+    """Char spans covering bibliographic identifiers (DOI / arXiv / ISSN / page range).
+
+    A unit-less number inside one of these spans is a citation artifact, not a measured metric
+    value (I-wire-013). Pure, never raises."""
+    return [(m.start(), m.end()) for m in _BIBLIOGRAPHIC_ID_RE.finditer(text or "")]
+
+
+def _in_bibliographic_region(num_pos: int, regions: list[tuple[int, int]]) -> bool:
+    """True iff ``num_pos`` falls inside any bibliographic-identifier span. Pure."""
+    return any(lo <= num_pos < hi for lo, hi in regions)
+
+
 def _find_value_generic(
     text: str, cue_pos: Optional[int] = None,
 ) -> Optional[tuple[float, str, str, int]]:
@@ -302,6 +347,9 @@ def _find_value_generic(
     # B13: the confidence-interval BOUND region(s) ("... CI 2-9", "... CI 5 to 12").
     # Numbers inside are interval bounds, not a measured outcome value.
     ci_regions = _ci_bound_regions(text)
+    # I-wire-013 (#1327): bibliographic-identifier spans (DOI / arXiv / ISSN / page range). A
+    # unit-less number inside one is a citation artifact, not a metric value.
+    biblio_regions = _bibliographic_id_regions(text)
     candidates: list[tuple[float, str, str, int]] = []
     for m in _GENERIC_VALUE_RE.finditer(text):
         raw = (m.group("value") or "").replace(",", "")
@@ -325,6 +373,11 @@ def _find_value_generic(
         # 2-9)" emits neither the 95 level nor the 2/-9 bounds). A real point
         # estimate outside the parenthetical is unaffected.
         if _in_ci_bound_region(m.start(), ci_regions):
+            continue
+        # I-wire-013 (#1327): a UNIT-LESS number inside a bibliographic identifier (DOI suffix /
+        # arXiv id / ISSN / page range) is a citation artifact, not a metric value — reject it so it
+        # never becomes a fabricated possible_metric_mismatch. Unit-bearing values are unaffected.
+        if not unit and _in_bibliographic_region(m.start(), biblio_regions):
             continue
         candidates.append((value, unit, window, m.start()))
     if not candidates:
@@ -1837,7 +1890,7 @@ def detect_contradictions(
                         ),
                     ))
                     continue
-                predicate_display = f"{predicate_display} [possible_metric_mismatch]"
+                predicate_display = f"{predicate_display} {POSSIBLE_METRIC_MISMATCH_MARKER}"
                 severity = "low"
                 action = (
                     "Possible metric mismatch (B9): these numbers may not measure "

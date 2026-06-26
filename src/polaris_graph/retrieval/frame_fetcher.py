@@ -1183,6 +1183,11 @@ def _fetch_frame_entity_inner(
     ):
         url = identifiers["url"]
         fetched_content, fetched_url = _fetch_url_pattern(url)
+        # I-wire-013 (#1327): repair PDF/HTML line-wrap hyphens in the stored,
+        # cited direct_quote at the fetch layer (frame url-pattern path). Input
+        # hygiene only; legit hyphens / multilingual prose preserved byte-for-byte.
+        from src.tools.access_bypass import dehyphenate_line_wraps  # noqa: PLC0415
+        fetched_content = dehyphenate_line_wraps(fetched_content)
         url_attempts: list[RetrievalAttempt] = []
         if fetched_content:
             url_attempts.append(RetrievalAttempt(
@@ -1565,6 +1570,13 @@ def _fetch_frame_entity_inner(
         provenance = ProvenanceClass.FRAME_GAP_UNRECOVERABLE
         failure_reason = _summarize_failure(attempts)
 
+    # I-wire-013 (#1327): repair PDF/HTML line-wrap hyphens in the stored, cited
+    # direct_quote (covers the real-full-text + abstract branches above) at the
+    # fetch layer BEFORE the row is persisted, so every later span offset resolves
+    # against the de-hyphenated text. Input hygiene only; legit hyphens ("co-author",
+    # "GLP-1") and multilingual prose preserved byte-for-byte; faithfulness FROZEN.
+    from src.tools.access_bypass import dehyphenate_line_wraps  # noqa: PLC0415
+    direct_quote = dehyphenate_line_wraps(direct_quote)
     return FrameRow(
         entity_id=binding.entity_id,
         entity_type=binding.entity_type,

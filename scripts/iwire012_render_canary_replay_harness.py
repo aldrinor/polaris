@@ -36,6 +36,7 @@ from src.polaris_graph.generator.weighted_enrichment import (
     build_verified_span_draft,
     evaluate_render_chrome_canary,
     is_render_chrome_or_unrenderable,
+    render_chrome_canary_mode,
 )
 from src.polaris_graph.retrieval.contradiction_detector import (
     ExtractedNumericClaim,
@@ -131,6 +132,42 @@ def test_canary_trips_and_passes() -> None:
     os.environ.pop("PG_RENDER_CHROME_CANARY_FLOOR", None)
 
 
+def test_canary_default_enforce_and_modes() -> None:
+    print("3b) I-wire-013 (#1327): canary DEFAULTS to enforce; off|warn telemetry-only; invalid RAISES")
+    # An above-DEFAULT-floor (0.05) chrome report: 1 chrome of 2 claim bullets => rate 0.5.
+    above_floor_report = (
+        "## Key Findings\n\n"
+        f"- **Efficacy.** {_REAL_CLAIM}[1]\n"
+        "- **Masthead.** Economic Perspectives Volume 33, Number 2 Pages 3-30 ISSN: 1234[2]\n"
+    )
+    # 1) env UNSET => mode == enforce (the I-wire-013 default flip), default floor applies.
+    os.environ.pop("PG_RENDER_CHROME_CANARY", None)
+    os.environ.pop("PG_RENDER_CHROME_CANARY_FLOOR", None)
+    _check("env-unset mode == enforce", render_chrome_canary_mode() == "enforce", render_chrome_canary_mode())
+    res_default = evaluate_render_chrome_canary(above_floor_report)
+    # 2) above-floor chrome report => verdict fail BY DEFAULT (the caller's pre-existing I-wire-012 branch
+    #    at run_honest_sweep_r3.py:13971 keys on verdict=='fail' to flip status -> report_redaction_failed
+    #    + withhold release; verdict=='fail' here IS that downgrade signal, no env set).
+    _check("default (unset) enforce trips above floor", res_default["verdict"] == "fail", str(res_default))
+    _check("default floor is 0.05", res_default["floor"] == 0.05, str(res_default["floor"]))
+    # 3) invalid mode => ValueError (fail-loud, mirrors render_chrome_canary_floor; not a silent fallback).
+    os.environ["PG_RENDER_CHROME_CANARY"] = "telemetry"  # not in {off,warn,enforce}
+    raised = False
+    try:
+        render_chrome_canary_mode()
+    except ValueError:
+        raised = True
+    _check("invalid mode raises ValueError", raised)
+    # 4) all three modes' verdict on the SAME above-floor report (off|warn never trip; only enforce does).
+    os.environ["PG_RENDER_CHROME_CANARY"] = "off"
+    _check("off => verdict pass (no enforce; caller suppresses telemetry)", evaluate_render_chrome_canary(above_floor_report)["verdict"] == "pass")
+    os.environ["PG_RENDER_CHROME_CANARY"] = "warn"
+    _check("warn => verdict pass (telemetry-only)", evaluate_render_chrome_canary(above_floor_report)["verdict"] == "pass")
+    os.environ["PG_RENDER_CHROME_CANARY"] = "enforce"
+    _check("enforce => verdict fail", evaluate_render_chrome_canary(above_floor_report)["verdict"] == "fail")
+    os.environ.pop("PG_RENDER_CHROME_CANARY", None)
+
+
 def _section(title: str, verified_text: str) -> SimpleNamespace:
     return SimpleNamespace(
         title=title,
@@ -214,6 +251,7 @@ def main() -> int:
     test_section_body_composer()
     test_key_findings_composer()
     test_canary_trips_and_passes()
+    test_canary_default_enforce_and_modes()
     test_depth_emits_key_findings()
     test_year_noise_contradiction_suppressed()
     print()

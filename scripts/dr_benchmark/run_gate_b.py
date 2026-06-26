@@ -1003,6 +1003,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_BASKET_CORROBORATION_RENDER": "1",
     "PG_VERIFIED_COMPOSE": "1",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION": "1",
+    # I-wire-013 (#1327): the grounded DEPTH cross-source SYNTHESIS layer. Default-OFF in code so a
+    # non-benchmark run is byte-identical; slate-pinned "1" (+ force-ON below) so the cert run actually
+    # consolidates each high-corroboration basket into ONE cross-source finding (key_findings>0). The
+    # synthesis is RE-GROUNDED through the UNCHANGED strict_verify (a synthesized sentence with no
+    # grounding span is DROPPED — drop-not-fallback), so it is faithfulness-SAFE: zero new fabrication.
+    "PG_SWEEP_DEPTH_LAYER": "1",
     # I-beatboth-011 keystone-F1 (#1284, Codex gate P0): the multi-citation synthesis flag MUST ride the
     # slate (force-ON + preflight-required) or the keystone is WIRED-BUT-DEAD on the paid run — the exact
     # false-done the gate caught. ON => a >=2-DISTINCT-origin basket renders as ONE multi-cited sentence
@@ -1164,6 +1170,13 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # outline-research phase finishes sooner. Discovery throughput only — faithfulness-neutral.
     "PG_STORM_CONCURRENCY": "8",
     # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-wire-013 (#1327): the render chrome-as-claim CANARY runs in ENFORCE on the cert run. The
+    # function now DEFAULTS to enforce, but force-EXACT it here (a STRING value -> rides
+    # _BENCHMARK_FORCE_EXACT_FLAGS below, NOT the numeric FLOOR path which would crash on
+    # float("enforce")) so a stray operator PG_RENDER_CHROME_CANARY=warn|off cannot silently downgrade
+    # the tripwire to telemetry-only on a paid run. FAITHFULNESS-NEUTRAL: the canary asserts NO content —
+    # it only REFUSES to ship a chrome-saturated (untrustworthy) report.md.
+    "PG_RENDER_CHROME_CANARY": "enforce",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1332,6 +1345,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_BASKET_CORROBORATION_RENDER",
     "PG_VERIFIED_COMPOSE",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
+    # I-wire-013 (#1327): force-on the grounded DEPTH cross-source SYNTHESIS layer so a stray operator
+    # =0 cannot leave it wired-but-dead on the paid run (key_findings would stay 0). Additive +
+    # fail-open (a synthesis pre-pass failure omits the digest, never aborts the report); faithfulness-
+    # SAFE because every synthesized sentence re-passes the UNCHANGED strict_verify or is dropped.
+    "PG_SWEEP_DEPTH_LAYER",
     # I-beatboth-011 §3.1 ROUTE C (#1289): force-on the faithful abstractive writer (the per-basket prose
     # PRODUCER inside PG_VERIFIED_COMPOSE). OFF reverts the cert run to the verbatim short-writer render
     # probe. Fail-closed activation also needs PG_STRICT_VERIFY_ENTAILMENT=enforce (force-on above).
@@ -1504,6 +1522,11 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # the fact_dedup no-op default made explicit. Both faithfulness-neutral (a cap only ever DROPPED).
     "PG_CAPPED_FINDING_DEDUP",
     "PG_SPAN_PER_SOURCE_CITE_CAP",
+    # I-wire-013 (#1327): the render chrome-as-claim CANARY mode is a STRING ("enforce") — force-EXACT
+    # (the int FLOOR path would crash on float("enforce")) so a stray operator PG_RENDER_CHROME_CANARY=
+    # warn|off cannot silently downgrade the cert-run tripwire to telemetry-only. Faithfulness-neutral
+    # (the canary REFUSES an untrustworthy chrome-saturated report.md; it asserts no content).
+    "PG_RENDER_CHROME_CANARY",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on

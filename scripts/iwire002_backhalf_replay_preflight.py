@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,12 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# I-wire-013 (#1327): exercise the render chrome-as-claim CANARY in ENFORCE on the replay (the
+# back-half this harness certifies must REFUSE a chrome-saturated report.md, not just log it).
+# ``setdefault`` keeps an explicit operator diagnostic override (e.g. "off") while making enforce the
+# replay default. run_gate_b_query ALSO force-pins this via the full-capability slate (defense-in-depth).
+os.environ.setdefault("PG_RENDER_CHROME_CANARY", "enforce")
 
 
 # ---------------------------------------------------------------------------

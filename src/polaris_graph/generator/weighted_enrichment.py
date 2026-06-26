@@ -827,12 +827,14 @@ def is_render_chrome_or_unrenderable(text: str, *, require_sentence_form: bool =
 # a floor, REFUSES to ship — so a chrome regression can NOT ship as
 # ``released_with_disclosed_gaps``. It NEVER promotes a unit and NEVER touches a
 # faithfulness verdict. Modes (LAW VI, default-safe):
-#   off     — no telemetry, no enforce.
-#   warn    — DEFAULT: emit telemetry to the manifest; never fails the run.
-#   enforce — emit telemetry AND fail the run (status flip) when rate > floor.
+#   off     — explicit opt-out: no telemetry, no enforce.
+#   warn    — emit telemetry to the manifest; never fails the run.
+#   enforce — DEFAULT (I-wire-013 #1327): emit telemetry AND fail the run (status flip) when rate > floor.
 _RENDER_CANARY_MODE_ENV = "PG_RENDER_CHROME_CANARY"
 _RENDER_CANARY_FLOOR_ENV = "PG_RENDER_CHROME_CANARY_FLOOR"
 _DEFAULT_RENDER_CANARY_FLOOR = 0.05
+_RENDER_CANARY_MODES = ("off", "warn", "enforce")
+_DEFAULT_RENDER_CANARY_MODE = "enforce"
 
 # A TOP-LEVEL report bullet (no leading indent) = a claim surface (Key-Findings, the
 # per-claim corroboration header, a finding bullet). Indented ``  - SUPPORT:`` /
@@ -844,9 +846,20 @@ _BOLD_MARKER_RE = re.compile(r"\*\*")
 
 
 def render_chrome_canary_mode() -> str:
-    """Canary mode from ``PG_RENDER_CHROME_CANARY`` (off|warn|enforce); default ``warn``."""
-    mode = os.environ.get(_RENDER_CANARY_MODE_ENV, "warn").strip().lower()
-    return mode if mode in ("off", "warn", "enforce") else "warn"
+    """Canary mode from ``PG_RENDER_CHROME_CANARY`` (off|warn|enforce); default ``enforce``
+    (I-wire-013 #1327 — the tripwire enforces by default, not telemetry-only). Fail-loud on an
+    UNRECOGNIZED value (LAW II — no silent guessed fallback), mirroring ``render_chrome_canary_floor``.
+    ``off`` is the explicit opt-out (telemetry suppressed by the caller; verdict never trips)."""
+    raw = os.environ.get(_RENDER_CANARY_MODE_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_RENDER_CANARY_MODE
+    mode = raw.strip().lower()
+    if mode not in _RENDER_CANARY_MODES:
+        raise ValueError(
+            f"{_RENDER_CANARY_MODE_ENV}={raw!r} is not a valid chrome-canary mode "
+            f"(expected one of {_RENDER_CANARY_MODES})"
+        )
+    return mode
 
 
 def render_chrome_canary_floor() -> float:

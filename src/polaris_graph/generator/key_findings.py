@@ -314,14 +314,47 @@ def depth_layer_enabled() -> bool:
     return os.getenv(_DEPTH_LAYER_ENV, "0").strip().lower() not in _OFF_VALUES
 
 
-def build_depth_layer(sections: list[Any]) -> str:
-    """Return a ``## Analytical synthesis`` block: per verified section, the headline finding under
-    ``**Key Findings**`` and (only when present) a real verbatim challenge sentence under
-    ``**Challenges**``. All lines are verbatim cited span-verified text — grounded synthesis, zero
-    new claims, no spend. "" when disabled or when no section has verified prose."""
+def build_depth_layer(
+    sections: list[Any],
+    *,
+    synthesized_findings: list[str] | None = None,
+) -> str:
+    """Return a ``## Analytical synthesis`` block.
+
+    Two grounded layers, both verbatim/cited/span-verified — zero new unverified claims:
+
+    * ``synthesized_findings`` (I-wire-013 #1327): the OPTIONAL grounded CROSS-SOURCE digest produced
+      by ``depth_synthesis.synthesize_cross_source_findings`` — each item is ONE consolidated
+      cross-source finding that ALREADY passed the UNCHANGED ``strict_verify`` (a synthesized sentence
+      with no grounding span was DROPPED) and carries the report's own ``[N]`` citations. Rendered FIRST
+      under a ``### Cross-source synthesis`` subhead. ``None``/empty (the legacy call) => omitted.
+    * Per verified section: the headline finding under ``**Key Findings**`` and (only when the
+      evidence raises one) a verbatim ``**Challenges**`` / ``**Tension**`` sentence — lifted verbatim
+      from the section's already-verified prose.
+
+    "" when disabled, or when there is neither a synthesized finding nor any section with verified
+    prose (no empty heading)."""
     if not depth_layer_enabled():
         return ""
+    synth_block = ""
+    synth_items = [s for s in (synthesized_findings or []) if str(s).strip()]
+    if synth_items:
+        # HONEST provenance sub-label (§-1.1 — a misstated provenance label is treated as lethal): the
+        # cross-source bullets are GENERATOR-PHRASED then re-grounded, NOT verbatim body lifts, so they
+        # must NOT inherit the per-section block's "verbatim … no new claim" framing. State the REAL
+        # guarantee: each consolidates >=2 corroborating sources and re-passed strict_verify (or was
+        # dropped). LABEL honesty only — the faithfulness engine is UNTOUCHED.
+        synth_label = (
+            "_Each finding below consolidates >=2 corroborating sources; it is generator-phrased "
+            "(not a verbatim quote) and every sentence re-passed strict_verify (span bounds + numeric "
+            "match + content grounding) or was dropped. Citations are the report's._"
+        )
+        synth_block = "### Cross-source synthesis\n\n" + synth_label + "\n\n" + "\n".join(
+            f"- {item.strip()}" for item in synth_items
+        )
     blocks: list[str] = []
+    if synth_block:
+        blocks.append(synth_block)
     _cap = _max_key_findings_markers()
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):

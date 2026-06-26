@@ -81,8 +81,20 @@ def evaluate_analytical_depth(report_sections: list[dict]) -> dict:
     # block and the ``## Analytical synthesis`` synthesis header (which ``split_report_into_sections``
     # turns into a section TITLE, not body content) — not only the per-section ``**Key Findings**``
     # bold form — so a report that ships a Key-Findings block scores key_findings>0 instead of 0.
-    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
     count_atx_kf = _count_atx_key_findings_enabled()
+    # I-wire-013 (#1327): ALSO match an ATX ``## Key Findings`` header that appears INSIDE a section's
+    # CONTENT - not only the bold ``**Key Findings**`` form, and not only when ``split_report_into_
+    # sections`` lifts it to a TITLE. Pipeline B scores whole-report ``content`` blobs whose depth /
+    # analytical-synthesis block carries an ATX ``## Key Findings`` / ``### <title>`` header inline; the
+    # bold-only regex scored those 0. Broadening can ONLY RAISE the advisory count (RC-8 is a heuristic,
+    # never the faithfulness engine), so it makes the depth heuristic EASIER to pass; ``=0`` (the
+    # ``PG_DEPTH_COUNT_ATX_KEY_FINDINGS`` kill-switch) restores the exact bold-only count for RC-8 parity.
+    if count_atx_kf:
+        key_findings_pattern = re.compile(
+            r'\*\*Key Findings?\*\*|^#{1,6}\s+Key Findings?\b', re.I | re.M
+        )
+    else:
+        key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
     atx_kf_title_pattern = re.compile(r'^(?:Key Findings?|Analytical synthesis)$', re.I)
 
     total_comparison = 0

@@ -3059,6 +3059,17 @@ def _build_provenance_quote(
     """
     if not content:
         return ""
+    # I-wire-013 (#1327) TRUNCATION-AT-SOURCE: repair PDF/HTML line-wrap hyphens
+    # ("patent-\ning" -> "patenting") on the FULL body BEFORE any offset is taken,
+    # so the persisted, cited direct_quote — and every [#ev:id:start-end] offset
+    # the generator later resolves against it — is computed on the de-hyphenated
+    # text. Newlines survive clean_fetch_body (it collapses only [ \t]{2,}), so the
+    # line-wrap break is still present here. Input hygiene only; a legitimate
+    # intra-word hyphen ("co-author", "GLP-1") and multilingual prose are preserved
+    # byte-for-byte. The faithfulness engine (strict_verify / NLI / span-grounding)
+    # is untouched.
+    from src.tools.access_bypass import dehyphenate_line_wraps  # noqa: PLC0415
+    content = dehyphenate_line_wraps(content)
     head = content[:head_chars]
     if len(content) <= head_chars:
         return head

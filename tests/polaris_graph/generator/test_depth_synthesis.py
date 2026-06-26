@@ -1,0 +1,177 @@
+"""I-wire-013 (#1327) — behavioral tests for the grounded DEPTH cross-source SYNTHESIS pass.
+
+Proves the two faithfulness contracts of ``depth_synthesis.synthesize_cross_source_findings`` against
+the REAL ``strict_verify`` engine (entailment leg disabled so the test is deterministic + offline —
+the deterministic span + numeric-match + >=2 content-word legs are what the synthesis re-grounding
+relies on):
+
+1. GROUNDED: a synthesized cross-source sentence whose number traces to a cited span is KEPT, cites
+   the report's existing ``[N]``, and surfaces through ``build_depth_layer``.
+2. BACKSTOP: a synthesized sentence whose number is NOT in its cited span is DROPPED by strict_verify
+   (drop-not-fallback) — proving zero new fabrication can ship even though the generator wrote it.
+
+Plus the analytical_depth ATX regex broadening (key_findings counted on an inline ``## Key Findings``).
+"""
+from __future__ import annotations
+
+import pytest
+
+from src.polaris_graph.generator import key_findings as kf
+from src.polaris_graph.generator.analytical_depth import evaluate_analytical_depth
+from src.polaris_graph.generator.depth_synthesis import (
+    bib_num_by_evidence_id,
+    synthesize_cross_source_findings,
+)
+from src.polaris_graph.generator.provenance_generator import strict_verify
+from src.polaris_graph.synthesis.credibility_pass import (
+    MEMBER_TIER_ENTAILMENT_VERIFIED,
+    BasketMember,
+    ClaimBasket,
+)
+
+# Two corroborating sources carrying the SAME finding (mortality fell 25%), known spans.
+_QUOTE_A = "Mortality fell by 25% across the pooled multinational cohorts."
+_QUOTE_B = "A 25% reduction in mortality was observed across the pooled cohorts."
+
+
+def _fixture_basket() -> tuple[ClaimBasket, dict]:
+    """One high-corroboration basket (2 distinct-origin isolated-SUPPORTS members) + its pool."""
+    evidence_pool = {
+        "ev_a": {"source_url": "https://nejm.org/a", "tier": "T1", "direct_quote": _QUOTE_A},
+        "ev_b": {"source_url": "https://lancet.com/b", "tier": "T1", "direct_quote": _QUOTE_B},
+    }
+    members = [
+        BasketMember("ev_a", "https://nejm.org/a", "T1", "o1", 0.95, 0.9,
+                     (0, len(_QUOTE_A)), _QUOTE_A, "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+        BasketMember("ev_b", "https://lancet.com/b", "T1", "o2", 0.90, 0.85,
+                     (0, len(_QUOTE_B)), _QUOTE_B, "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+    ]
+    basket = ClaimBasket(
+        "c1", "Mortality fell by 25%", "mortality", "fell by 25%",
+        members, (), 1.85, 2, 2, "full",
+    )
+    return basket, evidence_pool
+
+
+# Report bibliography numbering the synthesized finding must re-use (NOT a fresh renumber).
+_BIB_MAP = {"ev_a": 3, "ev_b": 4}
+
+# A GROUNDED synthesized sentence: the number 25% is present in ev_a's span; cites the canonical token.
+_GROUNDED = (
+    f"Across two independent cohorts, mortality fell by 25% in the pooled analysis "
+    f"[#ev:ev_a:0-{len(_QUOTE_A)}]."
+)
+# An UNGROUNDED synthesized sentence: 99% is NOT in ev_b's span -> strict_verify must DROP it.
+_UNGROUNDED = (
+    f"The therapy eliminated disease in 99% of pooled participants [#ev:ev_b:0-{len(_QUOTE_B)}]."
+)
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_verify(monkeypatch):
+    # Disable the entailment LLM leg so strict_verify is fully deterministic/offline; the span +
+    # numeric-match + content-overlap legs (which the synthesis re-grounding relies on) still run.
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+
+
+def test_grounded_cross_source_finding_emitted_and_cited():
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _GROUNDED,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
+    assert len(findings) == 1, findings
+    finding = findings[0]
+    # the synthesized [#ev:...] token resolved to the report's EXISTING citation number, not a renumber
+    assert "[3]" in finding
+    assert "[#ev:" not in finding
+    # every number in the finding traces to the cited span (25 is in ev_a's quote)
+    assert "25%" in finding
+    assert "25" in _QUOTE_A
+
+
+def test_ungrounded_synthesized_sentence_is_dropped_by_strict_verify():
+    # The generator wrote BOTH a grounded and an ungrounded sentence; the backstop must keep the
+    # grounded one and DROP the ungrounded one (its 99% is absent from the cited span).
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: f"{_GROUNDED}\n{_UNGROUNDED}",
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
+    blob = "\n".join(findings)
+    assert "99%" not in blob and "99" not in blob, f"fabricated 99% sentence survived: {findings!r}"
+    # the grounded finding still ships (drop is per-sentence, not whole-basket)
+    assert any("25%" in f for f in findings), findings
+
+
+def test_below_corroboration_floor_basket_is_skipped():
+    # A basket with a single SUPPORTS member is NOT a cross-source finding (definitional, not a filter).
+    basket, evidence_pool = _fixture_basket()
+    one_member = ClaimBasket(
+        "c2", "x", "x", "y", [basket.supporting_members[0]], (), 1.0, 1, 1, "partial",
+    )
+    findings = synthesize_cross_source_findings(
+        [one_member], evidence_pool,
+        synthesizer=lambda _b, _p: _GROUNDED,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
+    assert findings == []
+
+
+def test_unmappable_citation_drops_the_sentence():
+    # A kept sentence whose evidence_id is not in the report bibliography cannot ship a consistent [N].
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _GROUNDED,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id={"ev_z": 9},  # ev_a absent -> unmappable -> drop
+    )
+    assert findings == []
+
+
+def test_build_depth_layer_renders_cross_source_block(monkeypatch):
+    monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "1")
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _GROUNDED,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
+    out = kf.build_depth_layer([], synthesized_findings=findings)
+    assert "## Analytical synthesis" in out
+    assert "### Cross-source synthesis" in out
+    assert "[3]" in out
+    # HONEST provenance label: the cross-source bullets are generator-phrased + re-grounded, NOT
+    # verbatim lifts — the sub-label must say so (§-1.1 misstated-provenance is lethal).
+    assert "generator-phrased" in out and "re-passed strict_verify" in out
+    # default-OFF master flag => byte-identical empty even with synthesized findings present
+    monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "0")
+    assert kf.build_depth_layer([], synthesized_findings=findings) == ""
+
+
+def test_bib_num_by_evidence_id_maps_report_numbers():
+    bib = [
+        {"num": 3, "evidence_id": "ev_a", "url": "https://nejm.org/a"},
+        {"num": 4, "evidence_id": "ev_b"},
+        {"evidence_id": "ev_c"},   # missing num -> skipped
+        {"num": 5},                # missing evidence_id -> skipped
+    ]
+    out = bib_num_by_evidence_id(bib)
+    assert out == {"ev_a": 3, "ev_b": 4}
+
+
+def test_analytical_depth_counts_inline_atx_key_findings(monkeypatch):
+    # I-wire-013 regex fix: an ATX "## Key Findings" header INSIDE a section's content is now counted
+    # (default ON); the kill-switch restores the bold-only undercount.
+    monkeypatch.delenv("PG_DEPTH_COUNT_ATX_KEY_FINDINGS", raising=False)
+    section = [{"title": "Synthesis", "content": "## Key Findings\n\nMortality fell by 25%."}]
+    assert evaluate_analytical_depth(section)["key_findings"] == 1
+    monkeypatch.setenv("PG_DEPTH_COUNT_ATX_KEY_FINDINGS", "0")
+    assert evaluate_analytical_depth(section)["key_findings"] == 0

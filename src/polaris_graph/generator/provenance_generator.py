@@ -1246,6 +1246,36 @@ def reset_reanchor_telemetry() -> None:
 _REANCHOR_SENTENCE_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
 
 
+def _is_word_char(ch: str) -> bool:
+    """A word-constituent char for span-start snapping: a letter/digit or underscore."""
+    return ch.isalnum() or ch == "_"
+
+
+def _snap_start_to_word_boundary(text: str, start: int) -> int:
+    """Snap a span START offset back to the head of the word it lands inside, so a
+    recovered re-anchor fragment BEGINS AT A WHOLE WORD (never "...ptember 2025").
+
+    I-wire-013 (#1327): the sliding-window candidate branch below steps by a fixed
+    offset and so can land MID-TOKEN. Moving the start to the nearest PRECEDING word
+    boundary makes the emitted span open at a word. It only moves when ``start`` is
+    strictly INSIDE a word (the char before AND at ``start`` are both word chars); a
+    start already at whitespace / punctuation / index 0 is returned unchanged. PURE.
+    It only WIDENS the span leftward (start can decrease, never increase), so the
+    slice stays a valid ``0 <= start < end`` bound and the FROZEN strict_verify
+    span-bounds / entailment acceptance gate is unaffected (a wider candidate is
+    still judged by the SAME reused verifier; the render-side mid-word-start
+    backstop in weighted_enrichment stays in place as a second line of defence)."""
+    n = len(text)
+    if start <= 0 or start >= n:
+        return max(0, min(start, n))
+    if _is_word_char(text[start - 1]) and _is_word_char(text[start]):
+        i = start
+        while i > 0 and _is_word_char(text[i - 1]):
+            i -= 1
+        return i
+    return start
+
+
 def _reanchor_candidate_spans(direct_quote: str) -> list[tuple[int, int]]:
     """Enumerate a BOUNDED set of candidate (start, end) spans inside a row's
     ``direct_quote``.
@@ -1276,7 +1306,10 @@ def _reanchor_candidate_spans(direct_quote: str) -> list[tuple[int, int]]:
     candidates: list[tuple[int, int]] = []
 
     def _add(start: int, end: int) -> None:
-        start = max(0, start)
+        # I-wire-013 (#1327): snap a mid-token START to the head of its word so the
+        # recovered fragment opens at a word (no-op for branch-(a) segment starts,
+        # which already sit at index 0 / a post-terminator whitespace boundary).
+        start = _snap_start_to_word_boundary(direct_quote, max(0, start))
         end = min(n, end)
         if start >= end:
             return

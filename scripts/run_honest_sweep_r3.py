@@ -194,6 +194,7 @@ from src.polaris_graph.auto_induction.precision_metrics import (  # noqa: E402
     InductorVerdict,
 )
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
+    POSSIBLE_METRIC_MISMATCH_MARKER,
     detect_contradictions,
     extract_numeric_claims,
     serialize_contradiction_record,
@@ -2452,6 +2453,16 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
             continue
         subject = str(e.get("subject") or "").strip()
         predicate = str(e.get("predicate") or "").strip()
+        # I-wire-013 (#1327): a predicate carrying the possible_metric_mismatch marker is the
+        # detector declaring it could NOT confirm a shared metric — these numbers may not measure
+        # the same quantity (different comparator / population / time-window). Rendering it under a
+        # CONTRADICTS both-sides heading would present an UNCONFIRMED mismatch as a settled
+        # contradiction (a fabricated disagreement — lethal in clinical context, §-1.1). Skip it
+        # from the headline block; every claim stays disclosed in the contradictions.json sidecar
+        # (never dropped — §-1.3). Render ONLY confirmed shared-metric disagreements. The existing
+        # not_comparable skip below stays.
+        if POSSIBLE_METRIC_MISMATCH_MARKER in predicate:
+            continue
         head = " / ".join(p for p in (subject, predicate) if p) or "same-subject claims"
         # I-wire-011 (#1325) gate iter-1 P1 (A17 commensurability guard): a not_comparable record
         # is the detector DECLARING there is NO genuine contradiction — its claims compare
@@ -11517,13 +11528,47 @@ async def run_one_query(
             _key_findings = build_key_findings(getattr(multi, "sections", []))
         except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[key-findings] skipped (fail-open): {_exc}")
-        # I-wire-011 (#1325) fix 6: per-section analytical-depth layer — GENUINE grounded synthesis
-        # (verbatim cited headline + a REAL verbatim challenge sentence where the evidence raises one;
-        # never injected marker strings). Raises the advisory analytical_depth key_findings/challenge
-        # counts HONESTLY. Default-OFF master flag PG_SWEEP_DEPTH_LAYER => "" => byte-identical.
+        # I-wire-011 (#1325) fix 6 + I-wire-013 (#1327): the analytical-depth layer. The per-section
+        # layer lifts a verbatim cited headline + a REAL verbatim challenge/tension sentence. I-wire-013
+        # ADDS a grounded CROSS-SOURCE synthesis digest: the LOCKED generator consolidates each
+        # high-corroboration (>=2 distinct-origin SUPPORTS) basket into ONE cross-source finding, which
+        # is RE-GROUNDED through the UNCHANGED strict_verify (a synthesized sentence with no grounding
+        # span is DROPPED — drop-not-fallback) and cites the report's own [N] numbers. Default-OFF master
+        # flag PG_SWEEP_DEPTH_LAYER => "" => byte-identical; the cert slate pins it ON.
         try:
-            from src.polaris_graph.generator.key_findings import build_depth_layer
-            _depth_layer = build_depth_layer(getattr(multi, "sections", []))
+            from src.polaris_graph.generator.key_findings import (
+                build_depth_layer,
+                depth_layer_enabled,
+            )
+            _synth_findings: list = []
+            if depth_layer_enabled():
+                try:
+                    from src.polaris_graph.generator.depth_synthesis import (
+                        bib_num_by_evidence_id,
+                        depth_synthesis_pre_pass,
+                        make_depth_synthesizer,
+                        synthesize_cross_source_findings,
+                    )
+                    from src.polaris_graph.generator.provenance_generator import strict_verify
+                    _cred = getattr(multi, "credibility_analysis", None)
+                    _baskets = getattr(_cred, "baskets", None) or []
+                    if _baskets:
+                        _ds_ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
+                        _ds_precomputed = await depth_synthesis_pre_pass(_baskets, _ds_ev_pool)
+                        _synth_findings = synthesize_cross_source_findings(
+                            _baskets, _ds_ev_pool,
+                            synthesizer=make_depth_synthesizer(_ds_precomputed),
+                            verify_fn=strict_verify,
+                            bib_num_by_evidence_id=bib_num_by_evidence_id(
+                                getattr(multi, "bibliography", []) or []
+                            ),
+                        )
+                        _log(f"[depth-synthesis] grounded cross-source findings: {len(_synth_findings)}")
+                except Exception as _ds_exc:  # noqa: BLE001 — additive synthesis; never abort the report
+                    _log(f"[depth-synthesis] skipped (fail-open): {_ds_exc}")
+            _depth_layer = build_depth_layer(
+                getattr(multi, "sections", []), synthesized_findings=_synth_findings,
+            )
         except Exception as _dl_exc:  # noqa: BLE001 — additive layer; never abort the report
             _log(f"[depth-layer] skipped (fail-open): {_dl_exc}")
         # #1289 defect #2 (render side): screen the Key-Findings BULLETS for page-furniture
@@ -13947,7 +13992,8 @@ async def run_one_query(
         # shared predicate every composer uses), stamps the rate to the manifest ALWAYS (observability),
         # and in ``enforce`` mode above the floor flips status to the registered
         # abort_report_redaction_failed terminal (an untrustworthy report.md artifact) + withholds
-        # release. Default ``warn`` (telemetry only); the run slate sets PG_RENDER_CHROME_CANARY=enforce.
+        # release. Default ``enforce`` (I-wire-013 #1327); ``warn`` is telemetry-only and ``off`` the
+        # explicit opt-out. The run slate ALSO force-pins PG_RENDER_CHROME_CANARY=enforce (defense-in-depth).
         # Faithfulness-neutral: asserts NO content, only REFUSES an untrustworthy artifact. Fail-open.
         try:
             from src.polaris_graph.generator.weighted_enrichment import (
