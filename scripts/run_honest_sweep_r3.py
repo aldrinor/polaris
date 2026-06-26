@@ -1468,7 +1468,18 @@ def _span_is_render_chrome(text: str) -> bool:
         return False
     from src.tools.access_bypass import clean_fetch_body  # noqa: PLC0415
     cleaned = clean_fetch_body(text).cleaned_text
-    return bool(_RENDER_CHROME_SPAN_RE.search(text) or _RENDER_CHROME_SPAN_RE.search(cleaned))
+    if _RENDER_CHROME_SPAN_RE.search(text) or _RENDER_CHROME_SPAN_RE.search(cleaned):
+        return True
+    # I-wire-012 (#1326): delegate the NEW chrome categories (CC-license / ToC / ORCID / doc-label /
+    # DOI-only / truncation) to THE ONE shared predicate so this render screen never diverges from the
+    # composer screens. Default-ON (PG_RENDER_CHROME_SCREEN=0 reverts to the local-regex-only check).
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+        return bool(is_render_chrome_or_unrenderable(text))
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        return False
 
 
 # I-wire-011 (#1325) fix 1 — additional sentence-form chrome the corroboration-per-claim HEADER
@@ -1507,6 +1518,18 @@ def _claim_header_is_unrenderable(raw_claim: str) -> bool:
     from src.polaris_graph.generator.key_findings import is_truncated_fragment  # noqa: PLC0415
     if is_truncated_fragment(raw_claim):
         return True
+    # I-wire-012 (#1326): delegate the NEW shared chrome categories (CC-license / ToC / ORCID /
+    # doc-label / DOI-only / incomplete-sentence) so the per-claim corroboration header never
+    # diverges from the other screens. HEADER-only (over-match swaps to subject+predicate; no
+    # source/count dropped). Default-ON (PG_RENDER_CHROME_SCREEN=0 reverts to the local checks).
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+        if is_render_chrome_or_unrenderable(raw_claim, require_sentence_form=True):
+            return True
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        pass
     # Mid-word / mid-sentence START cut ("usand workers...", "hodology to estimate...", "ieving
     # predictive performance..."): a renderable claim header opens with a capital letter, a digit,
     # or an opening quote/bracket — a lowercase opener is a span sliced mid-token. Header-only, so
@@ -13915,6 +13938,58 @@ async def run_one_query(
                 _log(f"[release-invariant] guard error -> FAIL CLOSED: {_inv_other}")
             else:
                 _log(f"[release-invariant] guard skipped on non-release status: {_inv_other}")
+
+        # I-wire-012 (#1326): FAIL-LOUD chrome-as-claim CANARY — THE LAST STATUS WORD before the
+        # success-path manifest write. Placed AFTER every status reconciliation (4-role seam, FL-05,
+        # strict gates, B18 disclosed-gaps conversion, A18 release-invariant) so a chrome-saturated
+        # report can NOT be re-converted to released_with_disclosed_gaps after the canary trips. It
+        # measures what fraction of the report's CLAIM bullets are page-furniture chrome (via THE ONE
+        # shared predicate every composer uses), stamps the rate to the manifest ALWAYS (observability),
+        # and in ``enforce`` mode above the floor flips status to the registered
+        # abort_report_redaction_failed terminal (an untrustworthy report.md artifact) + withholds
+        # release. Default ``warn`` (telemetry only); the run slate sets PG_RENDER_CHROME_CANARY=enforce.
+        # Faithfulness-neutral: asserts NO content, only REFUSES an untrustworthy artifact. Fail-open.
+        try:
+            from src.polaris_graph.generator.weighted_enrichment import (
+                evaluate_render_chrome_canary,
+                render_chrome_canary_mode,
+            )
+            if render_chrome_canary_mode() != "off":
+                try:
+                    _canary_report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+                except Exception:  # noqa: BLE001 — fall back to the in-memory assembly
+                    _canary_report_text = _reliability_md + final_report
+                _chrome_canary = evaluate_render_chrome_canary(_canary_report_text)
+                manifest["render_chrome_canary"] = _chrome_canary
+                _log(
+                    f"[chrome-canary] mode={_chrome_canary['mode']} "
+                    f"rate={_chrome_canary['chrome_as_claim_rate']} "
+                    f"({_chrome_canary['chrome_claim_bullets']}/"
+                    f"{_chrome_canary['total_claim_bullets']} claim bullets) "
+                    f"floor={_chrome_canary['floor']} verdict={_chrome_canary['verdict']}"
+                )
+                if _chrome_canary["verdict"] == "fail":
+                    # REAL status flip (NOT log-only). Reuse the registered redaction-failed terminal so
+                    # no new literal escapes the status-parity gate (the value flows via to_unified_status,
+                    # never a bare literal manifest["status"] assignment).
+                    summary_status = "report_redaction_failed"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    manifest.setdefault("disclosed_gaps", []).append(
+                        "render_chrome_canary: the shipped report's chrome-as-claim rate "
+                        f"({_chrome_canary['chrome_as_claim_rate']}) exceeded the floor "
+                        f"({_chrome_canary['floor']}); HELD fail-closed (release_allowed=False) — a "
+                        "chrome-saturated report is not a trustworthy artifact."
+                    )
+                    _log(
+                        "[chrome-canary] ENFORCE TRIP — rate "
+                        f"{_chrome_canary['chrome_as_claim_rate']} > floor {_chrome_canary['floor']}; "
+                        f"status -> {unified_status}, release withheld. "
+                        f"examples={_chrome_canary['examples']}"
+                    )
+        except Exception as _cc_exc:  # noqa: BLE001 — canary is additive; never abort the run on its own error
+            _log(f"[chrome-canary]  WARN skipped (fail-open): {_cc_exc}")
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",

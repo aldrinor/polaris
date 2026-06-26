@@ -22,11 +22,28 @@ RC-8 gate verdict**. The benchmark NEVER gates on this signal.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
 # ATX markdown header: 1-6 '#' then whitespace then a title (e.g. "## Key Findings", "### Limitations").
 _ATX_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+
+# I-wire-012 (#1326) depth fix — count the AGGREGATED ``## Key Findings`` ATX block + ``### <title>``
+# synthesis headers, not only the per-section ``**Key Findings**`` bold form. Default-ON kill-switch
+# ``PG_DEPTH_COUNT_ATX_KEY_FINDINGS``. A report that ships a ``## Key Findings`` block (or the
+# ``## Analytical synthesis`` per-section headings) previously scored key_findings=0 here because the
+# regex matched ONLY the bold form — the depth=0 the I-wire-012 acceptance flags. Broadening can ONLY
+# RAISE the count, which makes the Pipeline-B RC-8 depth heuristic EASIER to pass (never a faithfulness
+# relaxation — RC-8 is an advisory depth heuristic, not the faithfulness engine); =0 restores the exact
+# pre-I-wire-012 count for byte-identical RC-8 parity.
+_COUNT_ATX_KEY_FINDINGS_ENV = "PG_DEPTH_COUNT_ATX_KEY_FINDINGS"
+_DEPTH_OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
+
+
+def _count_atx_key_findings_enabled() -> bool:
+    """Default ON. ``PG_DEPTH_COUNT_ATX_KEY_FINDINGS=0`` restores the bold-only count (RC-8 parity)."""
+    return os.getenv(_COUNT_ATX_KEY_FINDINGS_ENV, "1").strip().lower() not in _DEPTH_OFF_VALUES
 
 
 def evaluate_analytical_depth(report_sections: list[dict]) -> dict:
@@ -60,7 +77,13 @@ def evaluate_analytical_depth(report_sections: list[dict]) -> dict:
         r'further research needed|caveat)\b', re.I
     )
     table_pattern = re.compile(r'\|[^|]+\|[^|]+\|')
+    # I-wire-012 (#1326): when enabled (default), ALSO count the aggregated ``## Key Findings`` ATX
+    # block and the ``## Analytical synthesis`` synthesis header (which ``split_report_into_sections``
+    # turns into a section TITLE, not body content) — not only the per-section ``**Key Findings**``
+    # bold form — so a report that ships a Key-Findings block scores key_findings>0 instead of 0.
     key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
+    count_atx_kf = _count_atx_key_findings_enabled()
+    atx_kf_title_pattern = re.compile(r'^(?:Key Findings?|Analytical synthesis)$', re.I)
 
     total_comparison = 0
     total_aggregation = 0
@@ -76,6 +99,10 @@ def evaluate_analytical_depth(report_sections: list[dict]) -> dict:
         chal = len(challenge_markers.findall(content))
         tables = len(table_pattern.findall(content))
         kf = len(key_findings_pattern.findall(content))
+        # I-wire-012 (#1326): count a section whose TITLE is the aggregated "Key Findings" / the
+        # "Analytical synthesis" header (the ATX block split_report_into_sections lifts to the title).
+        if count_atx_kf and atx_kf_title_pattern.match((section.get("title", "") or "").strip()):
+            kf += 1
 
         total_comparison += comp
         total_aggregation += agg

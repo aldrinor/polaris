@@ -117,14 +117,22 @@ def test_split_handles_h2_and_h3():
     assert "Per-Trial Summaries" in titles
 
 
-def test_front_atx_key_findings_is_known_undercount_but_bold_is_counted():
-    # The benchmark front block is emitted as an ATX header `## Key Findings` (generator/key_findings.py),
-    # which the bold-form regex deliberately does NOT count — a known, conservative undercount.
+def test_front_atx_key_findings_counted_by_default_kill_switch_restores_undercount(monkeypatch):
+    # I-wire-012 (#1326): the benchmark front block is emitted as an ATX header `## Key Findings`
+    # (generator/key_findings.py). By DEFAULT it is now COUNTED (so a report that ships a Key-Findings
+    # block scores key_findings>0 instead of the prior 0). The default-ON kill-switch
+    # PG_DEPTH_COUNT_ATX_KEY_FINDINGS=0 restores the prior bold-only undercount for RC-8 parity.
     front_atx = "## Key Findings\n\n- finding one\n- finding two\n"
+    monkeypatch.delenv("PG_DEPTH_COUNT_ATX_KEY_FINDINGS", raising=False)
     atx_depth = evaluate_analytical_depth(split_report_into_sections(front_atx))
-    assert atx_depth["key_findings"] == 0          # ATX header form is not counted
+    assert atx_depth["key_findings"] == 1          # default ON: ATX header form IS counted
 
-    # The per-section bold `**Key Findings**` subsection form IS counted.
+    monkeypatch.setenv("PG_DEPTH_COUNT_ATX_KEY_FINDINGS", "0")
+    atx_off = evaluate_analytical_depth(split_report_into_sections(front_atx))
+    assert atx_off["key_findings"] == 0            # kill-switch: prior bold-only undercount restored
+    monkeypatch.delenv("PG_DEPTH_COUNT_ATX_KEY_FINDINGS", raising=False)
+
+    # The per-section bold `**Key Findings**` subsection form IS counted (both modes).
     body_bold = "### Efficacy\n\nResults here.\n\n**Key Findings**\n\n- x\n"
     bold_depth = evaluate_analytical_depth(split_report_into_sections(body_bold))
     assert bold_depth["key_findings"] == 1

@@ -12,6 +12,8 @@ model-unavailable path RAISES (no silent clean pass — LAW II); (d) the FaithLe
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 
 import pytest
 
@@ -95,18 +97,28 @@ def test_pairs_skip_when_no_resolvable_span_or_empty_claim():
 # --------------------------------------------------------------------------- #
 
 class _FakeJudge:
-    """Mimics entailment_judge._EntailmentJudge: `judge(sentence, span) -> (verdict, reason)`,
-    pulling verdicts from a queue. `_model` mirrors the real attribute the annotator reports."""
+    """Mimics entailment_judge._EntailmentJudge: `judge(sentence, span) -> (verdict, reason)`.
+
+    I-wire-012 (#1326): the annotator now scores pairs in PARALLEL (default PG_NLI_JUDGE_CONCURRENCY=12),
+    so a verdict source MUST be thread-safe AND completion-order-independent. `by_sentence` maps each
+    sentence text to its verdict (deterministic under any interleaving — the assertion contract). The
+    legacy positional `verdicts` queue is kept (lock-guarded) for the single-pair / raise-path tests where
+    order is irrelevant. `_model` mirrors the real attribute the annotator reports."""
     _model = "google/gemma-4-31b-it"
 
-    def __init__(self, verdicts, *, raise_exc=None):
-        self._verdicts = list(verdicts)
+    def __init__(self, verdicts=None, *, raise_exc=None, by_sentence=None):
+        self._verdicts = list(verdicts or [])
         self._raise_exc = raise_exc
+        self._by_sentence = dict(by_sentence or {})
+        self._lock = threading.Lock()
 
     def judge(self, sentence, span):
         if self._raise_exc is not None:
             raise self._raise_exc
-        return self._verdicts.pop(0), "reason-text"
+        if self._by_sentence:
+            return self._by_sentence[sentence], "reason-text"
+        with self._lock:
+            return self._verdicts.pop(0), "reason-text"
 
 
 def _patch_judge(monkeypatch, judge):
@@ -118,7 +130,11 @@ def _patch_judge(monkeypatch, judge):
 
 def test_ok_path_maps_verdicts_to_counts(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    _patch_judge(monkeypatch, _FakeJudge(["ENTAILED", "NEUTRAL", "CONTRADICTED"]))
+    # I-wire-012: 3 pairs hit the PARALLEL path at the default concurrency, so map verdicts BY SENTENCE
+    # (completion-order-independent) — proves the input-order-preserving aggregation maps correctly.
+    _patch_judge(monkeypatch, _FakeJudge(by_sentence={
+        "grounded": "ENTAILED", "adds a fact": "NEUTRAL", "contradicts": "CONTRADICTED",
+    }))
     pairs = [
         {"sentence": "grounded", "span": "s", "section": "A", "evidence_id": "e0"},
         {"sentence": "adds a fact", "span": "s", "section": "B", "evidence_id": "e1"},
@@ -210,3 +226,85 @@ def test_empty_pairs_is_ok_zero(monkeypatch):
     assert out["nli_status"] == "ok"
     assert out["sentences_checked"] == 0
     assert out["judge"] == "llm_entailment"
+
+
+# --------------------------------------------------------------------------- #
+# I-wire-012 (#1326): bounded-parallel scoring — completes within the wall, coverage + budget intact
+# --------------------------------------------------------------------------- #
+
+def test_parallel_scoring_is_concurrent_and_order_preserving(monkeypatch):
+    """The N per-pair judge calls run CONCURRENTLY (proving the wall-overrun fix) AND every pair is still
+    scored with its OWN verdict mapped to its OWN sentence regardless of completion order (no sampling,
+    no scrambling). Concurrency is proven by a max-in-flight counter (no wall-clock flake)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_NLI_JUDGE_CONCURRENCY", "8")
+
+    in_flight = {"now": 0, "max": 0}
+    lock = threading.Lock()
+
+    class _SlowJudge:
+        _model = "google/gemma-4-31b-it"
+
+        def judge(self, sentence, span):
+            with lock:
+                in_flight["now"] += 1
+                in_flight["max"] = max(in_flight["max"], in_flight["now"])
+            try:
+                time.sleep(0.05)  # real blocking work so the pool actually overlaps calls
+                # verdict keyed on sentence content -> deterministic per-pair mapping under any interleave
+                return ("CONTRADICTED" if sentence == "s3" else "ENTAILED"), f"r:{sentence}"
+            finally:
+                with lock:
+                    in_flight["now"] -= 1
+
+    _patch_judge(monkeypatch, _SlowJudge())
+    pairs = [
+        {"sentence": f"s{i}", "span": "x", "section": "S", "evidence_id": f"e{i}"}
+        for i in range(16)
+    ]
+    out = asyncio.run(annotate_nli_entailment(pairs))
+    assert out["nli_status"] == "ok"
+    assert out["sentences_checked"] == 16          # ALL pairs scored — no sampling (§-1.1)
+    assert out["entailed_count"] == 15
+    assert out["contradicted_count"] == 1
+    assert {d["sentence"] for d in out["disputed"]} == {"s3"}  # the one CONTRADICTED, correctly mapped
+    assert in_flight["max"] >= 2                    # genuinely concurrent (>1 judge call in flight at once)
+
+
+def test_parallel_sequential_fast_path_when_concurrency_one(monkeypatch):
+    """PG_NLI_JUDGE_CONCURRENCY=1 forces the byte-identical sequential in-context path (off-mode/tests)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_NLI_JUDGE_CONCURRENCY", "1")
+    _patch_judge(monkeypatch, _FakeJudge(by_sentence={"a": "ENTAILED", "b": "NEUTRAL"}))
+    pairs = [
+        {"sentence": "a", "span": "s", "section": "A", "evidence_id": "e0"},
+        {"sentence": "b", "span": "s", "section": "B", "evidence_id": "e1"},
+    ]
+    out = asyncio.run(annotate_nli_entailment(pairs))
+    assert out["sentences_checked"] == 2
+    assert (out["entailed_count"], out["neutral_count"]) == (1, 1)
+
+
+def test_parallel_budget_error_propagates(monkeypatch):
+    """A BudgetExceededError raised inside a worker on the PARALLEL path (n>1) must PROPAGATE through
+    future.result() so the run aborts (Core Invariant §9.1.6 — fail-closed, never a silent drop)."""
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_NLI_JUDGE_CONCURRENCY", "4")
+
+    class _BudgetJudge:
+        _model = "google/gemma-4-31b-it"
+
+        def judge(self, sentence, span):
+            if sentence == "boom":
+                raise BudgetExceededError("cap breached")
+            return "ENTAILED", "ok"
+
+    _patch_judge(monkeypatch, _BudgetJudge())
+    pairs = [
+        {"sentence": s, "span": "x", "section": "S", "evidence_id": "e"}
+        for s in ("a", "b", "boom", "d", "e")
+    ]
+    with pytest.raises(BudgetExceededError):
+        asyncio.run(annotate_nli_entailment(pairs))

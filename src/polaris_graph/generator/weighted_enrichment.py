@@ -628,36 +628,290 @@ def _is_web_chrome(text: str) -> bool:
     return bool(_WEB_CHROME_RE.search(text))
 
 
-def _make_junk_screen() -> Any:
-    """Combined junk screen: the production boilerplate helper OR the K chrome list.
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-012 (#1326) — THE ONE shared render-side chrome+truncation predicate.
+#
+# The render/compose surfaces (Corroborated Weighted Findings, the verified-compose
+# section body, the per-claim corroboration header, Key-Findings / Abstract /
+# Conclusion / depth) each grew their OWN parallel chrome screen
+# (``_make_junk_screen`` here, ``verified_compose._compose_junk_screen``,
+# ``run_honest_sweep_r3._span_is_render_chrome`` / ``_claim_header_is_unrenderable``,
+# the ``key_findings`` filter). Parallel screens DRIFT — a chrome shape patched in
+# one leaks through the others. This module is the chrome hub (verified_compose
+# already delegates to ``_make_junk_screen``), so the ONE predicate lives here and
+# every screen DELEGATES to it: no composer can emit an unscreened claim.
+#
+# FAITHFULNESS (FROZEN engine): this is render/compose INPUT hygiene only — it
+# SUPPRESSES a page-furniture/truncated unit, it NEVER promotes one and NEVER
+# touches a strict_verify / NLI / 4-role / span-grounding VERDICT. Page furniture is
+# not a corroborating source, so suppressing it STRENGTHENS faithfulness (§-1.3).
+#
+# PRECISION OVER RECALL (the codebase law: "over-strip deletes a real finding, worse
+# than a leak"). Every NEW category is high-precision allowlist/structure-anchored so
+# a real clinical/economics/policy finding (any language) is never dropped; the
+# canary below is the leak backstop. The "non-English-out-of-scope" category was
+# DELIBERATELY NOT built: a language-only drop deletes real non-English sources (a
+# §-1.3 multilingual-preservation regression), and any genuine non-English chrome
+# already fires one of the structural categories below — so a separate language gate
+# would only add over-strip risk for no recall.
+_RENDER_CHROME_SCREEN_ENV = "PG_RENDER_CHROME_SCREEN"
 
-    ``is_boilerplate_or_nonassertional`` catches error-pages / non-assertional
-    units; ``strip_web_boilerplate`` (applied as a whole-unit reduce-to-empty test)
-    catches whole-line crawl chrome; ``_is_web_chrome`` catches sentence-form
-    consent/nav text both miss; ``_is_captcha_stub`` (I-beatboth-011 #7, #1289)
-    catches CAPTCHA / Cloudflare security interstitials that read as a sentence. ALL
-    are allowlist input-hygiene, never a verdict. Import-fails fall back to the chrome
-    + CAPTCHA screens alone (never fail-open to nothing — the screen is load-bearing
-    for self-quotes per the advisor's hard requirement).
-    """
+# Page-furniture / masthead / journal / fetch-framing / nav SPANS that render as a
+# grammatical-looking fragment (so the whole-line boilerplate screen misses them).
+# Consolidated from run_honest_sweep_r3._RENDER_CHROME_SPAN_RE — the SINGLE source of
+# truth now (the runner delegates to this predicate).
+_SHARED_RENDER_CHROME_RE = re.compile(
+    r"\bVolume\s+\d+\s*,?\s*(?:Number|No\.?|Issue)\s+\d+\b"
+    r"|\bPages?\s+\d+\s*[-‐-―]\s*\d+\b"
+    r"|\bISSN\b\s*:?\s*\d"
+    r"|\bCITATIONS\b\s+\d+\s+\bREADS\b\s+\d+"
+    r"|\bMarkdown Content\s*:|\bURL Source\s*:|\bPublished Time\s*:"
+    r"|\bNumber of Pages\s*:|\bCite this paper as\b"
+    r"|#main-content|Twitter-intent|twitter\.com/intent"
+    r"|same series\s*[-‐-―]\s*working paper"
+    r"|\blisted\s+topics?\s+include\b",
+    re.IGNORECASE,
+)
+# Claim-header chrome: CC-license / keywords-list / login-wall / share-button furniture
+# (consolidated from run_honest_sweep_r3._CLAIM_HEADER_CHROME_RE). "Close-Share" and CC-license
+# are explicitly in the I-wire-012 category list. PRECISION: this predicate can DROP composer text,
+# so the bare ``\bkeywords\b`` of the header-only version is TIGHTENED to the ``Keywords:`` list
+# LABEL — a real sentence ("the keywords were extracted from ...") is never matched.
+_SHARED_CLAIM_HEADER_CHROME_RE = re.compile(
+    r"creative commons|licensed under a |\bkeywords\s*:|premium access|must have premium|"
+    r"share icon|close\s*-\s*share|all rights reserved",
+    re.IGNORECASE,
+)
+# Numbered table-of-contents entry, SECTION-NAME-anchored only ("1 Introduction", "3 Methods").
+# PRECISION: the loose decimal "N.N Capitalized" form (kept header-only in run_honest_sweep, where
+# an over-match merely swaps to subject+predicate) is DELIBERATELY EXCLUDED here — it would drop a
+# real magnitude claim ("$3.2 Billion") from a composer. Only the unambiguous section-name ToC shape
+# (which a real finding sentence never IS) screens droppable text.
+_SHARED_TOC_RE = re.compile(
+    r"^\s*\d+\s+(?:Introduction|Background|Materials?|Methods?|Results?|Discussion|"
+    r"References|Conclusion|Abstract)\s*$",
+    re.IGNORECASE,
+)
+# A WHOLE-UNIT scraped document label standing alone as a "claim" ("Abstract",
+# "AI Summary", "Author summary", "Graphical abstract"). Whole-unit anchored
+# (``fullmatch``-style ``^...$``) so it NEVER catches POLARIS's own ``## Abstract``
+# section header (that carries the ``## `` prefix + body) or a real sentence that
+# merely contains the word "abstract".
+_DOC_LABEL_RE = re.compile(
+    r"^(?:abstract|ai\s+summary|ai\s+overview|graphical\s+abstract|author\s+summary|"
+    r"plain\s+language\s+summary|highlights|table\s+of\s+contents)\s*[:.]?\s*$",
+    re.IGNORECASE,
+)
+# An ORCID identifier in a "claim" => an author/affiliation masthead list, never a
+# finding (a real clinical/economics sentence never carries a 0000-0000-0000-0000
+# ORCID id). High precision by construction.
+_ORCID_RE = re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{3}[\dxX]\b")
+# A bare DOI / identifier row standing alone as a "claim" (no assertional prose).
+_DOI_ONLY_RE = re.compile(
+    r"^\s*(?:doi\s*:?\s*|https?://(?:dx\.)?doi\.org/)?10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\s*$",
+    re.IGNORECASE,
+)
+# Trailing ``[N]`` / ``[#ev:...]`` citation markers (stripped before the sentence-form
+# completeness test so "…claim.[12]" is judged on the "." not the marker).
+_SHARED_TRAILING_CITE_RE = re.compile(r"(?:\s*\[(?:\d+|#ev:[^\]]*)\])+\s*$")
+
+
+def render_chrome_screen_enabled() -> bool:
+    """Default ON (LAW VI kill-switch ``PG_RENDER_CHROME_SCREEN=0``). When OFF, the NEW
+    I-wire-012 chrome categories are skipped and the predicate is byte-identical to the
+    legacy base junk screen (boilerplate + sentence-form web-chrome + CAPTCHA)."""
+    return os.environ.get(_RENDER_CHROME_SCREEN_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _base_junk(text: str) -> bool:
+    """The PRE-I-wire-012 junk screen, byte-equivalent to the old ``_make_junk_screen``
+    closure: production boilerplate OR sentence-form web-chrome OR CAPTCHA stub OR a
+    unit that reduces to "" under ``strip_web_boilerplate``. Import-safe (access_bypass
+    import failure falls back to the chrome + CAPTCHA screens, never fail-open to nothing)."""
     try:
         from src.tools.access_bypass import (  # noqa: PLC0415
             is_boilerplate_or_nonassertional as _boiler,
             strip_web_boilerplate as _strip_boiler,
         )
     except Exception:  # pragma: no cover - access_bypass import is stable in-tree
-        def _screen_fallback(text: str) -> bool:
-            return _is_web_chrome(text) or _is_captcha_stub(text)
-        return _screen_fallback
-
-    def _screen(text: str) -> bool:
+        return _is_web_chrome(text) or _is_captcha_stub(text)
+    try:
         if bool(_boiler(text)) or _is_web_chrome(text) or _is_captcha_stub(text):
             return True
-        # A unit that is ENTIRELY whole-line crawl chrome reduces to "" under
-        # strip_web_boilerplate — that is pure boilerplate, never a real claim.
         return not (_strip_boiler(text) or "").strip()
+    except Exception:  # pragma: no cover - boiler helpers are pure in-tree
+        return _is_web_chrome(text) or _is_captcha_stub(text)
 
-    return _screen
+
+def _is_new_chrome_category(text: str) -> bool:
+    """The NEW I-wire-012 chrome categories (default-ON, high-precision)."""
+    if _SHARED_RENDER_CHROME_RE.search(text):
+        return True
+    if _SHARED_CLAIM_HEADER_CHROME_RE.search(text):
+        return True
+    if _SHARED_TOC_RE.search(text):
+        return True
+    if _ORCID_RE.search(text):
+        return True
+    stripped = text.strip()
+    if _DOC_LABEL_RE.match(stripped):
+        return True
+    if _DOI_ONLY_RE.match(stripped):
+        return True
+    return False
+
+
+def _is_unrenderable_sentence_form(text: str) -> bool:
+    """``require_sentence_form`` extras for a unit that MUST be a standalone complete
+    claim (a bullet / a lifted body sentence): a mid-word START cut (a lowercase opener
+    is a span sliced mid-token — a real body sentence opens capital/quote/digit) or an
+    INCOMPLETE sentence (no sentence-terminal punctuation after stripping a trailing
+    ``[N]`` marker). NOT applied to verified-compose / enrichment clauses (which a
+    composer may legitimately lowercase / leave mid-clause) — only to bullet/header
+    surfaces, so a lowercased verbatim clause is never over-dropped."""
+    core = text.strip()
+    if not core:
+        return True
+    first = core[:1]
+    if first.islower():
+        return True
+    no_cite = _SHARED_TRAILING_CITE_RE.sub("", core).rstrip()
+    if no_cite and no_cite[-1] not in ".!?\"')]":
+        return True
+    return False
+
+
+def is_render_chrome_or_unrenderable(text: str, *, require_sentence_form: bool = False) -> bool:
+    """THE ONE shared render-side chrome+truncation predicate (I-wire-012 #1326).
+
+    True iff ``text`` is page-furniture chrome, a CAPTCHA/boilerplate stub, a numbered
+    ToC / CC-license / masthead / login-wall fragment, a standalone scraped doc label
+    ("Abstract"/"AI Summary"), an author-ORCID/affiliation list, a bare DOI row, or a
+    mid-word/cut-span TRUNCATION. With ``require_sentence_form=True`` it ALSO rejects a
+    mid-word-START fragment and an incomplete sentence (bullet/header surfaces only).
+
+    SUPPRESS-ONLY: never promotes a unit, never alters a faithfulness VERDICT. The base
+    screen (boilerplate/web-chrome/CAPTCHA) ALWAYS runs (preserving the pre-I-wire-012
+    behaviour of every existing consumer); the NEW categories + truncation are gated on
+    ``render_chrome_screen_enabled()`` (default ON) so a ``PG_RENDER_CHROME_SCREEN=0``
+    run is byte-identical to the legacy base screen."""
+    if not text or not str(text).strip():
+        return True  # an empty unit is non-assertional by definition
+    s = str(text)
+    if _base_junk(s):
+        return True
+    if not render_chrome_screen_enabled():
+        return False  # NEW categories OFF -> byte-identical to the legacy base screen
+    if _is_new_chrome_category(s):
+        return True
+    try:
+        from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+            is_truncated_fragment,
+        )
+        if is_truncated_fragment(s):
+            return True
+    except Exception:  # pragma: no cover - key_findings is stable in-tree
+        pass
+    if require_sentence_form and _is_unrenderable_sentence_form(s):
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-012 (#1326) — FAIL-LOUD chrome-as-claim CANARY on the SHIPPED report.
+#
+# A render-integrity tripwire: it measures what FRACTION of the report's CLAIM bullets
+# are chrome (page furniture that rendered as a finding) and, in ``enforce`` mode above
+# a floor, REFUSES to ship — so a chrome regression can NOT ship as
+# ``released_with_disclosed_gaps``. It NEVER promotes a unit and NEVER touches a
+# faithfulness verdict. Modes (LAW VI, default-safe):
+#   off     — no telemetry, no enforce.
+#   warn    — DEFAULT: emit telemetry to the manifest; never fails the run.
+#   enforce — emit telemetry AND fail the run (status flip) when rate > floor.
+_RENDER_CANARY_MODE_ENV = "PG_RENDER_CHROME_CANARY"
+_RENDER_CANARY_FLOOR_ENV = "PG_RENDER_CHROME_CANARY_FLOOR"
+_DEFAULT_RENDER_CANARY_FLOOR = 0.05
+
+# A TOP-LEVEL report bullet (no leading indent) = a claim surface (Key-Findings, the
+# per-claim corroboration header, a finding bullet). Indented ``  - SUPPORT:`` /
+# ``  - GROUNDED-BUT-WEAK`` sub-bullets (source URLs, not claims) and numbered
+# bibliography lines ("1. Title") are deliberately EXCLUDED so the rate measures
+# chrome-as-CLAIM, not chrome-as-source-locator.
+_TOP_LEVEL_BULLET_RE = re.compile(r"^-\s+(.*\S)\s*$")
+_BOLD_MARKER_RE = re.compile(r"\*\*")
+
+
+def render_chrome_canary_mode() -> str:
+    """Canary mode from ``PG_RENDER_CHROME_CANARY`` (off|warn|enforce); default ``warn``."""
+    mode = os.environ.get(_RENDER_CANARY_MODE_ENV, "warn").strip().lower()
+    return mode if mode in ("off", "warn", "enforce") else "warn"
+
+
+def render_chrome_canary_floor() -> float:
+    """Chrome-as-claim rate floor from ``PG_RENDER_CHROME_CANARY_FLOOR`` (default 0.05).
+    Fail-loud on a non-float (LAW II — no silent guessed fallback); clamped to [0, 1]."""
+    raw = os.environ.get(_RENDER_CANARY_FLOOR_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_RENDER_CANARY_FLOOR
+    try:
+        val = float(raw.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{_RENDER_CANARY_FLOOR_ENV}={raw!r} is not a float (chrome-as-claim rate floor)"
+        ) from exc
+    return min(1.0, max(0.0, val))
+
+
+def _report_claim_bullets(report_text: str) -> list[str]:
+    """The report's TOP-LEVEL claim bullets, bold markers stripped (PURE)."""
+    out: list[str] = []
+    for line in (report_text or "").split("\n"):
+        m = _TOP_LEVEL_BULLET_RE.match(line)
+        if not m:
+            continue
+        out.append(_BOLD_MARKER_RE.sub("", m.group(1)).strip())
+    return out
+
+
+def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
+    """Compute the chrome-as-claim rate over the SHIPPED report's claim bullets and the
+    canary verdict. PURE (no I/O). ``verdict='fail'`` ONLY in ``enforce`` mode when the
+    rate exceeds the floor and there is at least one claim bullet — so the caller can
+    flip the run status. In ``warn``/``off`` the verdict is always ``pass`` (telemetry
+    only). Each chrome bullet is screened with the SAME shared predicate every composer
+    uses (chrome + truncation), so the canary and the screens can never disagree."""
+    bullets = _report_claim_bullets(report_text)
+    chrome = [b for b in bullets if is_render_chrome_or_unrenderable(b)]
+    total = len(bullets)
+    n_chrome = len(chrome)
+    rate = (n_chrome / total) if total else 0.0
+    floor = render_chrome_canary_floor()
+    mode = render_chrome_canary_mode()
+    tripped = bool(total and mode == "enforce" and rate > floor)
+    return {
+        "mode": mode,
+        "floor": floor,
+        "total_claim_bullets": total,
+        "chrome_claim_bullets": n_chrome,
+        "chrome_as_claim_rate": round(rate, 4),
+        "verdict": "fail" if tripped else "pass",
+        "examples": [b[:120] for b in chrome[:5]],
+    }
+
+
+def _make_junk_screen() -> Any:
+    """Return THE shared render-side chrome+truncation predicate (I-wire-012 #1326).
+
+    Historically this returned a bespoke closure (boilerplate + web-chrome + CAPTCHA).
+    It now returns ``is_render_chrome_or_unrenderable`` so every consumer of this hub
+    (``verified_compose._compose_junk_screen``, this module's own
+    ``_substantive_units`` / ``build_verified_span_draft``) screens through the ONE
+    predicate. The base screen still ALWAYS runs (so flag-OFF is byte-identical for
+    these consumers); the new chrome categories are added when
+    ``PG_RENDER_CHROME_SCREEN`` is ON (default)."""
+    return is_render_chrome_or_unrenderable
 
 
 def _emit_unit(unit: str, eids: Any) -> str:

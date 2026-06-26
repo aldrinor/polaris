@@ -92,6 +92,27 @@ def is_truncated_fragment(text: str) -> bool:
     return bool(_TRUNCATION_MARKER_RE.search(core))
 
 
+def _is_render_chrome_claim(sentence: str) -> bool:
+    """I-wire-012 (#1326): True iff ``sentence`` is render-side chrome / page-furniture /
+    an unrenderable fragment per THE ONE shared predicate
+    (``weighted_enrichment.is_render_chrome_or_unrenderable``). Lifting Key-Findings /
+    Abstract / Conclusion / depth findings through this is faithfulness-STRENGTHENING — a
+    chrome span that survived strict_verify (it is a verbatim span of fetched furniture)
+    must NOT lead a finding. Lazy import (the predicate lazy-imports this module's
+    ``is_truncated_fragment``, so a module-top import would cycle). Fail-CONSERVATIVE: on
+    any import error, keep the sentence (never silently drop a real finding)."""
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        return False
+    try:
+        return bool(is_render_chrome_or_unrenderable(sentence, require_sentence_form=True))
+    except Exception:  # pragma: no cover - the predicate is pure in-tree
+        return False
+
+
 def _max_key_findings_markers() -> int:
     """Per-run citation cap for the Key-Findings summary (LAW VI). Floored at 1; fail-soft on a
     non-int (the summary must never be silently emptied of citations)."""
@@ -149,6 +170,10 @@ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
     # I-wire-011 (#1325) fix 2: also exclude a sentence carrying an unambiguous mid-word truncation
     # marker (a cut fetch span like "…comprehensi [...") so a fragment never leads a finding. Shared
     # by the Abstract/Conclusion harvesters; strengthening (it can only suppress a fragment).
+    # I-wire-012 (#1326): also exclude a sentence that is render-side chrome / page-furniture
+    # per THE ONE shared predicate (masthead/ISSN/ResearchGate/ToC/CC-license/ORCID/doc-label/
+    # mid-word-start/incomplete) — so a chrome span never LEADS a Key-Findings / Abstract /
+    # Conclusion / depth finding. Default-ON (PG_RENDER_CHROME_SCREEN=0 reverts to byte-identical).
     return [
         s for s in matches
         if s
@@ -156,6 +181,7 @@ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
         and _CITATION_RE.search(s)
         and not _GAP_MARKER_RE.search(s)
         and not is_truncated_fragment(s)
+        and not _is_render_chrome_claim(s)
     ][:n]
 
 
@@ -271,6 +297,16 @@ _CHALLENGE_CUE_RE = re.compile(
     r"remains unclear|further research|caveat|uncertain)\b",
     re.I,
 )
+# I-wire-012 (#1326) synthesis pass — a SURFACED TENSION is a verbatim verified sentence that
+# expresses cross-source DISAGREEMENT / opposition (however / in contrast / whereas / conversely /
+# disagree / diverge). Like the challenge lift it is verbatim, cited, span-verified body prose —
+# faithful BY IDENTITY (never a generated cross-claim recombination, which abstract_conclusion.py
+# proved unsound). Distinct cue set from the challenge so a section can surface BOTH.
+_TENSION_CUE_RE = re.compile(
+    r"\b(however|in contrast|by contrast|conversely|whereas|on the other hand|disagree\w*|"
+    r"diverg\w*|inconsistent\w*|at odds|opposite\w*)\b",
+    re.I,
+)
 
 
 def depth_layer_enabled() -> bool:
@@ -309,6 +345,16 @@ def build_depth_layer(sections: list[Any]) -> str:
         )
         if challenge:
             lines.append(f"**Challenges** {cap_citation_marker_runs(challenge, _cap)}")
+        # I-wire-012 (#1326): surface a REAL cross-source tension — a verbatim verified sentence
+        # carrying a disagreement/opposition cue, distinct from the headline AND the challenge. Never
+        # fabricated: if the section's own verified prose raises no opposition, no Tension line.
+        tension = next(
+            (s for s in ordered
+             if _TENSION_CUE_RE.search(s) and s != headline and s != challenge),
+            "",
+        )
+        if tension:
+            lines.append(f"**Tension** {cap_citation_marker_runs(tension, _cap)}")
         blocks.append("\n".join(lines))
     if not blocks:
         return ""

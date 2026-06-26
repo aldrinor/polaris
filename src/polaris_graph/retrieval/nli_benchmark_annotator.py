@@ -34,6 +34,109 @@ _SPAN_TEXT_FIELDS = ("direct_quote", "statement", "full_text", "snippet", "text"
 # final delivered prose elsewhere. Strip those too, or they create advisory false NLI disputes.
 _RESIDUAL_ARTIFACT_RE = re.compile(r"\[#calc:[^\]]*\]|\(?\batom_\d+\b\)?")
 
+# I-wire-012 (#1326): bounded-parallel entailment scoring for the POST-RELEASE advisory NLI annotation.
+# The entailment judge is a SYNCHRONOUS ~6-40s network call; scoring N delivered sentences SEQUENTIALLY
+# blew past the ``PG_NLI_ANNOTATION_WALL_S`` (default 420s) daemon wall in run_honest_sweep_r3, so the
+# whole advisory annotation was dropped (``nli_status:"skipped_wall_timeout"``, sentences_checked=0). Run
+# the per-pair judge calls CONCURRENTLY (bounded) so the annotation COMPLETES within the wall. EVERY pair
+# is still scored — NO sampling (§-1.1 bans sample-based audits) — so faithfulness coverage is intact;
+# only the wall-clock shrinks. Default 12 matches the proven ``PG_CREDIBILITY_JUDGE_CONCURRENCY`` pool
+# (I-arch-002 #1251). 1 forces the byte-identical sequential in-context path (off-mode / single pair / tests).
+_ENV_NLI_JUDGE_CONCURRENCY = "PG_NLI_JUDGE_CONCURRENCY"
+_DEFAULT_NLI_JUDGE_CONCURRENCY = 12
+
+
+def _score_pairs_parallel(judge: Any, pairs: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Score every ``(span ⊨ sentence)`` pair with the entailment judge CONCURRENTLY, order-preserving.
+
+    I-wire-012 (#1326). Mirrors the PROVEN I-arch-002 (#1251) credibility-judge pool
+    (``authority/credibility_skill.py``): the judge is a SYNC ~6-40s LLM call, so over N delivered
+    sentences run SEQUENTIALLY on one thread it overran the post-release NLI wall and the advisory
+    annotation was dropped wholesale. With ``PG_NLI_JUDGE_CONCURRENCY`` > 1 the per-pair calls run on a
+    bounded ``ThreadPoolExecutor``; EVERY pair is still scored (no sampling — §-1.1) so coverage is intact,
+    only wall-clock shrinks. Returns the per-pair ``(verdict, reason)`` list in INPUT order.
+
+    **Budget (preserves the old SYNC loop's two guarantees: spend counts against PG_MAX_COST_PER_RUN AND
+    BudgetExceededError propagates).** Each worker runs in its OWN ``contextvars.copy_context()`` snapshot
+    (inherits the parent run_id + Path-B capture sink), ``reset_run_cost()``s that copy, and returns
+    ``current_run_cost()`` as its per-pair spend DELTA; the collector threads the delta into the single run
+    counter (``_add_run_cost``) and re-checks the cap (``check_run_budget``) as each future completes —
+    DURING-compute enforcement, overspend bounded to ~workers in flight. A worker ``BudgetExceededError`` /
+    exception PROPAGATES through ``future.result()`` (fail-closed — a dropped future never silently reduces
+    the annotation), so Core Invariant §9.1.6 and ``NliUnavailableError`` are unchanged. Because
+    ``_add_run_cost`` bumps THIS task's ``_RUN_COST_CTX`` (the one the daemon-wall wrapper's
+    ``_annotate_capturing`` reads and reconciles to the parent), the caller needs NO change.
+
+    **Exit-safety — does NOT regress the I-wire-011 daemon wall.** The daemon wall in
+    ``run_honest_sweep_r3._nli_annotation_with_wall`` still fires on the main event loop independent of this
+    pool, so the primary deadlock fix is untouched. On a wall TIMEOUT the annotation worker is abandoned
+    mid-``shutdown(wait=True)`` and this non-daemon pool keeps DRAINING the remaining pairs — BOUNDED by the
+    I-wire-008 per-call entailment deadline (``PG_ENTAILMENT_TOTAL_S``); it is one of the "OTHER non-daemon
+    lingering pools" the ``PG_TEARDOWN_WALL`` watchdog (now armed on both entrypoints, run_honest_sweep_r3
+    module note ~L2504) force-reaps at exit, and the annotation *worker thread* itself stays the unchanged
+    daemon. Post-wall drained calls still cost money — bounded and recorded in the process-global cost
+    ledger, but NOT abortable (the run already released) — an accepted tradeoff for an advisory last step.
+    ``shutdown(wait=False, cancel_futures=True)`` on any exception so a failing batch never blocks.
+    """
+    try:
+        workers = max(1, int(
+            os.environ.get(_ENV_NLI_JUDGE_CONCURRENCY, _DEFAULT_NLI_JUDGE_CONCURRENCY)
+            or _DEFAULT_NLI_JUDGE_CONCURRENCY
+        ))
+    except (TypeError, ValueError):
+        workers = _DEFAULT_NLI_JUDGE_CONCURRENCY
+    n = len(pairs)
+    # SEQUENTIAL fast path (1 worker or <=1 pair): byte-identical to the pre-#1326 in-context sync loop,
+    # so off-mode / single-pair / cost-stays-in-context semantics are exactly preserved with no thread hop.
+    if workers == 1 or n <= 1:
+        return [judge.judge(p["sentence"], p["span"]) for p in pairs]
+
+    import concurrent.futures  # noqa: PLC0415 — kept out of the module/off-mode import path
+    import contextvars  # noqa: PLC0415
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        _add_run_cost,
+        check_run_budget,
+        current_run_cost,
+        reset_run_cost,
+    )
+
+    def _score_one(
+        idx: int, pair: dict[str, Any], ctx: "contextvars.Context"
+    ) -> tuple[int, tuple[str, str], float]:
+        def _run() -> tuple[tuple[str, str], float]:
+            reset_run_cost()  # isolate THIS pair's spend in the copied context (parent re-adds the delta)
+            out = judge.judge(pair["sentence"], pair["span"])
+            return out, current_run_cost()
+        out, delta = ctx.run(_run)
+        return idx, out, delta
+
+    results: list[tuple[str, str] | None] = [None] * n
+    pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="nli_judge",
+    )
+    try:
+        futures = [
+            pool.submit(_score_one, i, pair, contextvars.copy_context())
+            for i, pair in enumerate(pairs)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            idx, out, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+            results[idx] = out
+            _add_run_cost(delta)   # thread the per-pair spend into the single run counter
+            check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~workers in flight)
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+    for i, out in enumerate(results):
+        if out is None:
+            raise RuntimeError(
+                f"annotate_nli_entailment: pair index {i} produced no verdict from the judge pool "
+                f"(fail-closed — a dropped future must never silently reduce the advisory annotation)."
+            )
+    return results  # type: ignore[return-value]  # all-None replaced above; fail-closed if any remained
+
 
 class NliUnavailableError(RuntimeError):
     """The NLI model/deps could not be loaded. Raised (never silently swallowed) so the caller can
@@ -116,11 +219,13 @@ async def annotate_nli_entailment(
     neutral_count, contradicted_count, disputed_count, disputed:[…], advisory:True}``.
 
     FAIL-LOUD only on a genuine config error: a missing ``OPENROUTER_API_KEY`` raises
-    ``NliUnavailableError`` (surfaced as ``nli_status:"unavailable"``, never a silent pass). The judge is
-    called SYNCHRONOUSLY (NOT offloaded to a thread) so its per-call cost accumulates in the run's
-    ``_RUN_COST_CTX`` ContextVar and ``BudgetExceededError`` (re-raised inside ``judge.judge``) propagates
-    out to abort the run on a cap breach. A family-segregation error from ``_get_judge()`` PROPAGATES
-    (not masked as "unavailable").
+    ``NliUnavailableError`` (surfaced as ``nli_status:"unavailable"``, never a silent pass). I-wire-012
+    (#1326): the per-pair judge calls run BOUNDED-PARALLEL via ``_score_pairs_parallel`` (``PG_NLI_JUDGE_
+    CONCURRENCY``, default 12) so the post-release annotation finishes inside the daemon wall instead of
+    being skipped — every pair is still scored (no sampling). Per-pair cost is reconciled into the run's
+    ``_RUN_COST_CTX`` ContextVar (so PG_MAX_COST_PER_RUN stays inclusive) and ``BudgetExceededError`` (raised
+    inside ``judge.judge`` / re-checked per completed future) propagates out to abort the run on a cap
+    breach. A family-segregation error from ``_get_judge()`` PROPAGATES (not masked as "unavailable").
     """
     if not pairs:                                   # fast path — needs no API key / no judge
         return {
@@ -141,14 +246,18 @@ async def annotate_nli_entailment(
     from src.polaris_graph.llm.entailment_judge import _get_judge
 
     judge = _get_judge()   # family-segregation RuntimeError propagates (NOT masked as unavailable)
+    # I-wire-012 (#1326): score ALL pairs with BOUNDED-PARALLEL judge calls so this POST-RELEASE annotation
+    # COMPLETES within the daemon wall. The old per-pair SYNC loop (one ~6-40s network call at a time)
+    # overran PG_NLI_ANNOTATION_WALL_S and the whole advisory annotation was skipped. Every pair is still
+    # scored (NO sampling — §-1.1); the run-budget gate + BudgetExceededError propagation are preserved by
+    # the per-worker copy_context reconciliation inside _score_pairs_parallel (mirrors the proven I-arch-002
+    # #1251 credibility pool). Results are INPUT-ORDER so the aggregation below maps each verdict to its own
+    # sentence regardless of completion order.
+    scored_pairs = _score_pairs_parallel(judge, pairs)
     entailed = neutral = contradicted = judge_errors = 0
     disputed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    for pair in pairs:
-        # SYNC call (no asyncio.to_thread): keeps _RUN_COST_CTX in-context so judge spend counts against
-        # PG_MAX_COST_PER_RUN and BudgetExceededError propagates. Runs post-generation (last step), so
-        # blocking the loop for N sequential entailment calls is fine.
-        verdict, reason = judge.judge(pair["sentence"], pair["span"])
+    for pair, (verdict, reason) in zip(pairs, scored_pairs):
         # I-cap-005 (#1068): the judge FAILS OPEN to ("ENTAILED", "judge_error: ...") on an API/parse
         # error to keep the run alive. Counting that as a genuine ENTAILED would silently report a
         # DEGRADED judge as "NLI clean" — a silent downgrade (LAW II / operator no-downgrade directive).

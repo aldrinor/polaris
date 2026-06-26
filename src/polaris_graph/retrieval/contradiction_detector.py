@@ -240,6 +240,52 @@ def _looks_like_year_or_count(value: float, unit: str, window: str, pos: int) ->
     return False
 
 
+# I-wire-012 (#1326) — CONTRADICTION: a real contradiction needs a real OPPOSING VALUE, not
+# year-noise. A ``possible_metric_mismatch`` group whose every disagreeing value is a bare
+# integer YEAR (in [1900, 2100], NO unit) is two publication/observation YEARS being mis-read as
+# a metric disagreement (e.g. "2019" vs "2023") — not an opposing metric value. Default-OFF env
+# flag ``PG_CONTRADICTION_DROP_YEAR_NOISE`` so the OFF path is BYTE-IDENTICAL; when ON, such a
+# group is relabeled ``not_comparable`` (reason ``year_noise``) and kept OUT of the headline
+# contradiction count — every claim/source is still DISCLOSED (never dropped — §-1.3). This is a
+# VALIDITY/WEIGHT check, NOT a faithfulness-gate change.
+_DROP_YEAR_NOISE_FLAG = "PG_CONTRADICTION_DROP_YEAR_NOISE"
+_DROP_YEAR_NOISE_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+# Publication/observation-year validity bounds (mirrors the selector's [1900, 2100] convention).
+_MIN_GENERIC_YEAR = 1900
+_MAX_GENERIC_YEAR = 2100
+
+
+def _drop_year_noise_enabled() -> bool:
+    """True when ``PG_CONTRADICTION_DROP_YEAR_NOISE`` is on. OFF (default) => byte-identical."""
+    return (
+        os.environ.get(_DROP_YEAR_NOISE_FLAG, "").strip().lower()
+        not in _DROP_YEAR_NOISE_OFF_VALUES
+    )
+
+
+def _group_is_year_noise(group: list["ExtractedNumericClaim"]) -> bool:
+    """True iff EVERY claim in ``group`` has a unit-less value that is a bare integer YEAR
+    (in [1900, 2100]). Such a 'disagreement' is two YEARS, not an opposing metric value, so it is
+    not a real contradiction. Conservative: a single unit-bearing or non-year value makes the group
+    a real numeric disagreement (returns False). Pure, never raises."""
+    if not group:
+        return False
+    for c in group:
+        if (getattr(c, "unit", "") or "").strip():
+            return False  # a unit-bearing number is a real metric value, never year-noise
+        v = getattr(c, "value", None)
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return False
+        if fv != int(fv):
+            return False  # a non-integer is not a year
+        iv = int(fv)
+        if not (_MIN_GENERIC_YEAR <= iv <= _MAX_GENERIC_YEAR):
+            return False
+    return True
+
+
 def _find_value_generic(
     text: str, cue_pos: Optional[int] = None,
 ) -> Optional[tuple[float, str, str, int]]:
@@ -1766,6 +1812,31 @@ def detect_contradictions(
                 apply_metric_guard and not _shared_metric_axes(group)
             )
             if metric_mismatch:
+                # I-wire-012 (#1326): a contradiction needs a real OPPOSING VALUE. When the
+                # disagreeing values are all bare integer YEARS (no unit), this is year-noise, not
+                # a metric contradiction — relabel not_comparable (kept OUT of the headline count;
+                # every claim still disclosed). Default-OFF env flag => byte-identical.
+                if _drop_year_noise_enabled() and _group_is_year_noise(group):
+                    records.append(ContradictionRecord(
+                        subject=subject,
+                        predicate=f"{predicate_display} [not_comparable]",
+                        claims=sorted(group, key=lambda c: c.value),
+                        relative_difference=0.0,
+                        absolute_difference=0.0,
+                        severity="low",
+                        recommended_action=(
+                            "Not comparable (year-noise, I-wire-012): every disagreeing value is a "
+                            "bare year, not an opposing metric value — this is a date difference, not "
+                            "a cross-source contradiction. Disclose each value with its context; do "
+                            "NOT assert a numeric contradiction between years."
+                        ),
+                        not_comparable=True,
+                        incommensurable_reason=(
+                            f"year_noise: all {len(group)} values are bare integer years in "
+                            f"[{_MIN_GENERIC_YEAR}, {_MAX_GENERIC_YEAR}], not opposing metric values"
+                        ),
+                    ))
+                    continue
                 predicate_display = f"{predicate_display} [possible_metric_mismatch]"
                 severity = "low"
                 action = (
