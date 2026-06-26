@@ -311,8 +311,13 @@ _BIBLIOGRAPHIC_ID_RE = re.compile(
     \b10\.\d{4,9}/\S+                                  # DOI: 10.1038/s41586-024-07123
     | arxiv:\s*\d{4}\.\d{4,5}(?:v\d+)?                 # arXiv id: arXiv:2401.12345v2
     | \bissn:?\s*\d{4}-\d{3}[\dxX]\b                   # ISSN: ISSN 0028-0836
-    | \bpp?\.\s*\d+\s*[\-‒–—―]\s*\d+   # page range: pp. 412-419 / p. 47-49
-    | \bpages?\s+\d+\s*[\-‒–—―]\s*\d+  # page range: pages 412-419
+    # I-wire-013 (#1327) iter-2 (Codex P2-2): the page-range dash class is written with EXPLICIT
+    # codepoint escapes so it can never render ambiguously (e.g. `[\-?--?]`) under a non-UTF-8 read.
+    # Members: literal hyphen-minus U+002D (\-), figure dash U+2012, en dash U+2013, em dash U+2014,
+    # horizontal bar U+2015. `re` interprets the \uXXXX escapes inside the raw VERBOSE string; the
+    # class is byte-for-byte equivalent to the prior literal class (hyphen + U+2012..U+2015).
+    | \bpp?\.\s*\d+\s*[\-\u2012\u2013\u2014\u2015]\s*\d+   # page range: pp. 412-419 / p. 47-49
+    | \bpages?\s+\d+\s*[\-\u2012\u2013\u2014\u2015]\s*\d+  # page range: pages 412-419
     """,
     re.IGNORECASE | re.VERBOSE,
 )

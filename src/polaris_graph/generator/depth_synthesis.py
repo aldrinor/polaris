@@ -48,13 +48,12 @@ _EV_TOKEN_FULL_RE = re.compile(r"\[#ev:([A-Za-z0-9_]+):\d+-\d+\]")
 _ENV_MIN_SOURCES = "PG_DEPTH_SYNTHESIS_MIN_SOURCES"
 _DEFAULT_MIN_SOURCES = 2
 
-# Live-call env knobs (LAW VI). The model resolves to the GENERATOR-role slug (the lock) at call time.
-_ENV_MODEL = "PG_DEPTH_SYNTHESIS_MODEL"
-_DEFAULT_MODEL = "z-ai/glm-5.2"
-_ENV_MAX_TOKENS = "PG_DEPTH_SYNTHESIS_MAX_TOKENS"
-_DEFAULT_MAX_TOKENS = 32768
-_ENV_REASONING_MAX_TOKENS = "PG_DEPTH_SYNTHESIS_REASONING_MAX_TOKENS"
-_DEFAULT_REASONING_MAX_TOKENS = 16384
+# Live-call env knobs (LAW VI). I-wire-013 (#1327) iter-2 (Codex P2-1): the synthesis call is a
+# GENERATOR-role call (§9.1.8), so its model AND token budget resolve through the SAME central
+# runtime-lock path every other composer uses — NOT a parallel ``PG_DEPTH_SYNTHESIS_MODEL`` /
+# ``PG_DEPTH_SYNTHESIS_*_TOKENS`` knob (a per-leg override could silently drift depth onto a forbidden
+# model or a starved budget). The model is ``PG_GENERATOR_MODEL`` (the lock generator slug); the token
+# budget tracks the section composer's knobs. See ``_resolve_model`` / ``_resolve_token_budget`` below.
 _ENV_TEMPERATURE = "PG_DEPTH_SYNTHESIS_TEMPERATURE"
 _DEFAULT_TEMPERATURE = 0.2
 _ENV_CONCURRENCY = "PG_DEPTH_SYNTHESIS_CONCURRENCY"
@@ -100,13 +99,29 @@ def min_corroboration() -> int:
 
 
 def _resolve_model() -> str:
-    """The synthesis model: ``PG_DEPTH_SYNTHESIS_MODEL`` overrides; else the GENERATOR-role slug
-    (``PG_GENERATOR_MODEL``, pinned by the lock), falling back to the campaign default. The synthesis
-    call is a generator-role call (§9.1.8) so it tracks the lock rather than hardcoding a slug."""
-    override = os.getenv(_ENV_MODEL, "").strip()
-    if override:
-        return override
-    return os.getenv("PG_GENERATOR_MODEL", "").strip() or _DEFAULT_MODEL
+    """The synthesis model is a GENERATOR-role call (§9.1.8) and resolves through the SAME central
+    runtime-lock path every other composer uses: ``PG_GENERATOR_MODEL`` — the lock generator
+    ``model_slug`` (``config/architecture/polaris_runtime_lock.yaml``; ``verify_lock`` asserts the lock
+    slug == this code default). NO parallel per-leg override knob, NO hardcoded model-specific default.
+    Mirrors ``multi_section_generator`` (``gen_model = model or PG_GENERATOR_MODEL``) and
+    ``verified_compose`` ("NO new model, NO new slug, NO new resolver")."""
+    from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL  # noqa: PLC0415
+    return PG_GENERATOR_MODEL
+
+
+def _resolve_token_budget() -> tuple[int, int]:
+    """``(content_max_tokens, reasoning_max_tokens)`` for the depth generator call, resolved through the
+    SAME generator-role knobs the section composer uses (``multi_section_generator`` section-writer leg):
+    ``PG_SECTION_REASONING_MAX_TOKENS`` bounds the reasoning pool and CONTENT is floored strictly above
+    it (+``PG_SECTION_CONTENT_HEADROOM_TOKENS``) so a reasoning-first generator (GLM-5.2) cannot starve
+    content (§9.1.8 "never starve"). No parallel ``PG_DEPTH_SYNTHESIS_*`` token knob, no model-specific
+    hardcoded default — the budget tracks the section composer."""
+    reasoning = max(0, _env_int("PG_SECTION_REASONING_MAX_TOKENS", 16384))
+    content = max(
+        _env_int("PG_SECTION_MAX_TOKENS", 64000),
+        reasoning + _env_int("PG_SECTION_CONTENT_HEADROOM_TOKENS", 8192),
+    )
+    return content, reasoning
 
 
 def bib_num_by_evidence_id(bibliography: Any) -> dict[str, int]:
@@ -221,8 +236,12 @@ def synthesize_cross_source_findings(
          basket's OWN members and DROPS any that fail (numeric mismatch / overlap / no provenance /
          cross-claim) — drop-not-fallback. ``scoped_pool`` is basket-id-bound so a cross-basket
          citation fails CLOSED.
-      3. Each surviving sentence's tokens resolve to the report's EXISTING ``[N]`` (never a renumber);
-         a sentence with an unmappable citation is dropped; a chrome/truncated sentence is dropped.
+      3. Each surviving sentence must carry ``>= min_sources`` DISTINCT provenance tokens that SURVIVED
+         strict_verify (Codex iter-2 P1 — a cross-source label requires >=2 genuinely-surviving sources;
+         a sentence whose co-token span was dropped, leaving one source, is dropped). Each surviving
+         token then resolves to the report's EXISTING ``[N]`` (never a renumber) and must map to a
+         DISTINCT bibliography number; a raw / unmappable / unresolved token drops the whole sentence;
+         a chrome/truncated sentence is dropped.
 
     Returns the ordered, de-duplicated list of grounded ``[N]``-cited cross-source findings (markdown
     sentence strings, no header). FAITHFULNESS is the ``verify_fn`` — this orchestrator never relaxes
@@ -258,11 +277,32 @@ def synthesize_cross_source_findings(
             sentence = str(getattr(sv, "sentence", "") or "").strip()
             if not sentence:
                 continue
+            # I-wire-013 (#1327) iter-2 (Codex P1): a finding LABELLED "cross-source synthesis" must
+            # carry >=2 GENUINELY-SURVIVING distinct sources. The basket-level >=2 gate runs BEFORE
+            # synthesis, but strict_verify can DROP a co-token's span (numeric/overlap/shell) and leave
+            # a SINGLE-source sentence that would still ship under the cross-source label. Count the
+            # DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS sentence
+            # (distinct ids, not raw token count — a source cited twice is still one source). Below the
+            # corroboration floor => not a cross-source finding => DROP (faithfulness-TIGHTENING).
+            surviving_ids = {m.group(1) for m in _EV_TOKEN_FULL_RE.finditer(sentence)}
+            if len(surviving_ids) < floor:
+                continue
             if bib_num_by_evidence_id is not None:
+                # Every surviving token must resolve to the report's EXISTING [N]; a raw / unmatched /
+                # unresolved token returns None here -> DROP the whole sentence (no dangling [N]).
                 resolved = _resolve_tokens_to_citations(sentence, bib_num_by_evidence_id)
                 if resolved is None:
-                    continue  # an unmappable citation must not ship a dangling/fabricated [N]
+                    continue
                 sentence = resolved.strip()
+                # Defence-in-depth: no raw ``[#ev:...]`` token may survive resolution.
+                if _EV_TOKEN_FULL_RE.search(sentence) or "[#ev:" in sentence:
+                    continue
+                # The surviving tokens must resolve to >=floor DISTINCT report [N] citations — a genuine
+                # cross-source finding carries two distinct bibliography numbers, not one repeated.
+                distinct_bib_nums = {bib_num_by_evidence_id.get(eid) for eid in surviving_ids}
+                distinct_bib_nums.discard(None)
+                if len(distinct_bib_nums) < floor:
+                    continue
             if not sentence or screen(sentence):
                 continue
             key = re.sub(r"\s+", " ", sentence).strip().lower()
@@ -392,8 +432,9 @@ async def depth_synthesis_pre_pass(
 
     floor = min_corroboration() if min_sources is None else max(_DEFAULT_MIN_SOURCES, int(min_sources))
     model = _resolve_model()
-    max_tokens = max(1, _env_int(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS))
-    reasoning_max_tokens = max(0, _env_int(_ENV_REASONING_MAX_TOKENS, _DEFAULT_REASONING_MAX_TOKENS))
+    max_tokens, reasoning_max_tokens = _resolve_token_budget()
+    max_tokens = max(1, max_tokens)
+    reasoning_max_tokens = max(0, reasoning_max_tokens)
     temperature = _env_float(_ENV_TEMPERATURE, _DEFAULT_TEMPERATURE)
     call_deadline_s = max(1.0, _env_float(_ENV_CALL_DEADLINE_S, _DEFAULT_CALL_DEADLINE_S))
     wall_deadline_s = max(1.0, _env_float(_ENV_WALL_DEADLINE_S, _DEFAULT_WALL_DEADLINE_S))

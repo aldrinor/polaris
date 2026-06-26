@@ -56,10 +56,17 @@ def _fixture_basket() -> tuple[ClaimBasket, dict]:
 # Report bibliography numbering the synthesized finding must re-use (NOT a fresh renumber).
 _BIB_MAP = {"ev_a": 3, "ev_b": 4}
 
-# A GROUNDED synthesized sentence: the number 25% is present in ev_a's span; cites the canonical token.
+# A GROUNDED CROSS-SOURCE synthesized sentence: 25% is present in BOTH ev_a's and ev_b's spans, and the
+# sentence cites BOTH canonical tokens. iter-2 (Codex P1): a cross-source finding must carry >=2 DISTINCT
+# surviving sources, so the grounded fixture now cites two — each resolves to its own report [N] ([3]/[4]).
 _GROUNDED = (
     f"Across two independent cohorts, mortality fell by 25% in the pooled analysis "
-    f"[#ev:ev_a:0-{len(_QUOTE_A)}]."
+    f"[#ev:ev_a:0-{len(_QUOTE_A)}] [#ev:ev_b:0-{len(_QUOTE_B)}]."
+)
+# A SINGLE-SOURCE synthesized sentence: grounds cleanly (25% is in ev_a's span) but carries only ONE
+# distinct surviving token -> the >=2-distinct-surviving gate DROPS it (not a genuine cross-source finding).
+_SINGLE_SOURCE = (
+    f"Mortality fell by 25% in the pooled analysis [#ev:ev_a:0-{len(_QUOTE_A)}]."
 )
 # An UNGROUNDED synthesized sentence: 99% is NOT in ev_b's span -> strict_verify must DROP it.
 _UNGROUNDED = (
@@ -84,12 +91,14 @@ def test_grounded_cross_source_finding_emitted_and_cited():
     )
     assert len(findings) == 1, findings
     finding = findings[0]
-    # the synthesized [#ev:...] token resolved to the report's EXISTING citation number, not a renumber
+    # the synthesized [#ev:...] tokens resolved to the report's EXISTING citation numbers, not a renumber
     assert "[3]" in finding
+    # iter-2 (Codex P1): a cross-source finding carries >=2 DISTINCT surviving resolved sources -> [4] too
+    assert "[4]" in finding
     assert "[#ev:" not in finding
-    # every number in the finding traces to the cited span (25 is in ev_a's quote)
+    # every number in the finding traces to the cited span (25 is in BOTH quotes)
     assert "25%" in finding
-    assert "25" in _QUOTE_A
+    assert "25" in _QUOTE_A and "25" in _QUOTE_B
 
 
 def test_ungrounded_synthesized_sentence_is_dropped_by_strict_verify():
@@ -106,6 +115,44 @@ def test_ungrounded_synthesized_sentence_is_dropped_by_strict_verify():
     assert "99%" not in blob and "99" not in blob, f"fabricated 99% sentence survived: {findings!r}"
     # the grounded finding still ships (drop is per-sentence, not whole-basket)
     assert any("25%" in f for f in findings), findings
+
+
+def test_single_surviving_token_is_dropped_not_cross_source():
+    # iter-2 (Codex P1) test (a): a synthesized sentence that re-grounds cleanly but carries only ONE
+    # distinct surviving resolved token is NOT a cross-source finding -> DROPPED (not rendered).
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _SINGLE_SOURCE,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
+    assert findings == [], findings
+
+
+def test_partial_unresolved_token_drops_the_sentence():
+    # iter-2 (Codex P1) test (c): two surviving tokens but only ONE resolves to a report [N]; the
+    # unresolved (raw/unmatched) co-token would ship a dangling citation -> the WHOLE sentence DROPS.
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _GROUNDED,        # cites ev_a + ev_b
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id={"ev_a": 3},          # ev_b unmapped -> unresolved -> drop whole sentence
+    )
+    assert findings == [], findings
+
+
+def test_depth_model_resolves_via_central_lock(monkeypatch):
+    # iter-2 (Codex P2-1) test (d): the depth generator model resolves via the SAME central runtime-lock
+    # path the other composers use (PG_GENERATOR_MODEL == the lock generator slug), NOT a per-leg override.
+    import src.polaris_graph.llm.openrouter_client as orc
+    from src.polaris_graph.generator.depth_synthesis import _resolve_model
+
+    assert _resolve_model() == orc.PG_GENERATOR_MODEL
+    # the removed PG_DEPTH_SYNTHESIS_MODEL knob can no longer divert depth off the lock.
+    monkeypatch.setenv("PG_DEPTH_SYNTHESIS_MODEL", "forbidden/off-lock-model")
+    assert _resolve_model() == orc.PG_GENERATOR_MODEL
 
 
 def test_below_corroboration_floor_basket_is_skipped():

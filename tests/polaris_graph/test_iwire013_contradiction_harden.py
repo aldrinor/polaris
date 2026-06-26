@@ -27,8 +27,21 @@ from src.polaris_graph.retrieval.contradiction_detector import (
     POSSIBLE_METRIC_MISMATCH_MARKER,
     detect_contradictions,
     extract_numeric_claims,
+    _BIBLIOGRAPHIC_ID_RE,
     _find_value_generic,
 )
+
+
+def test_page_range_dash_class_matches_ranges_not_doi_suffix():
+    """iter-2 (Codex P2-2): the page-range dash class is normalized to explicit codepoint escapes
+    ``[\\-\\u2012\\u2013\\u2014\\u2015]`` (encoding-agnostic). It still matches a real page range with an
+    ASCII hyphen AND an en-dash, and a bare DOI suffix's internal hyphens (no ``pp.``/``pages`` cue) are
+    not mistaken for a page range — behaviour byte-for-byte equal to the prior literal class."""
+    assert _BIBLIOGRAPHIC_ID_RE.search("pp. 12-19") is not None        # ASCII hyphen U+002D
+    assert _BIBLIOGRAPHIC_ID_RE.search("pp. 12–19") is not None    # en dash U+2013
+    assert _BIBLIOGRAPHIC_ID_RE.search("pages 412-419") is not None     # ASCII hyphen, 'pages' cue
+    # a DOI suffix's internal hyphens are NOT a page range (no pp./pages cue, no '10.xxxx/' DOI prefix)
+    assert _BIBLIOGRAPHIC_ID_RE.search("s41586-024-07123") is None
 
 
 def test_bibliographic_numbers_not_extracted_as_metric_values():
