@@ -55,9 +55,17 @@ roles:
     notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
   sentinel:
     model: minimax/minimax-m2
-    order: [google-vertex, novita, atlas-cloud, minimax]
-    ignore: []
-    notes: "some providers have NULL uptime (ranked last)"
+    # I-wire-007 (#1321): google-vertex DROPPED from the FRONT of the chain. Under allow_fallbacks:false
+    # it was the FORCED leader, so every Sentinel POST first hit google-vertex (slow / NULL-uptime per
+    # the note below) before the force-close rotation could advance — the I-wire-006 #1320 root cause of
+    # the minimax decomposition trickle-hang. Re-led with novita (fp8, in the proven mirror chain),
+    # backed by atlas-cloud + first-party minimax. The 300s Sentinel total-deadline FLOOR is KEPT
+    # (PG_ROLE_TRANSPORT_TOTAL_S_SENTINEL default 300; the 30-45s wall is REJECTED — proven to
+    # mass-over-drop healthy decomposition into UNSUPPORTED = the drb_72 collapse). Model UNCHANGED
+    # (minimax/minimax-m2); only the provider ORDER changes -> faithfulness-NEUTRAL.
+    order: [novita, atlas-cloud, minimax]
+    ignore: [google-vertex]
+    notes: "I-wire-007 2026-06-25: google-vertex dropped from the front (slow/NULL-uptime forced leader, the #1320 trickle-hang root cause); novita-led, atlas-cloud+minimax backing. 300s deadline floor kept. some providers have NULL uptime (ranked last)."
   judge:
     model: qwen/qwen3.6-35b-a3b
     # I-arch-003 (#1253, operator 2026-06-14 "max max"): atlas-cloud DROPPED from the chain. Live

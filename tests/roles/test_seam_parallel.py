@@ -55,6 +55,7 @@ from src.polaris_graph.roles.role_transport import (
 from src.polaris_graph.roles.sweep_integration import (
     FOUR_ROLE_COMPUTE_PROGRESS_FILENAME,
     FOUR_ROLE_ROLE_CALLS_FILENAME,
+    FOUR_ROLE_SETTLED_VERDICTS_FILENAME,
     FourRoleClaim,
     run_four_role_evaluation,
 )
@@ -298,6 +299,30 @@ def test_parallel_run_dir_created_when_missing(monkeypatch, tmp_path):
     assert progress_path.exists(), "parallel compute must write the progress marker"
     progress = json.loads(progress_path.read_text(encoding="utf-8"))
     assert progress == {"done": n, "total": n}
+
+
+# === I-wire-007 (#1321) — the PARALLEL drain persists settled verdicts to the seam-preserve sidecar
+def test_parallel_settle_writes_seam_preserve_sidecar(monkeypatch, tmp_path):
+    """BEHAVIORAL (§-1.4): the parallel `_settle` drain must persist EACH settled claim's verdict to
+    four_role_settled_verdicts.jsonl so a later outer-seam timeout can RECOVER the partials. Without
+    this on-disk trail the orphaned worker's in-memory verdicts are lost on a seam wall."""
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 3)
+    n = 4
+    claims = [_claim(i, covers=[f"elem-{i}"]) for i in range(n)]
+    ledger = CoverageLedger(required_element_ids=[f"elem-{i}" for i in range(n)])
+    transport = _DelayedFakeTransport()
+
+    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+
+    sidecar = tmp_path / FOUR_ROLE_SETTLED_VERDICTS_FILENAME
+    assert sidecar.exists(), "the parallel drain must persist the seam-preserve settled-verdict sidecar"
+    rows = [json.loads(ln) for ln in sidecar.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    # EVERY settled claim is on disk with its verdict + covered ids (recoverable on a seam timeout).
+    by_id = {r["claim_id"]: r for r in rows}
+    assert set(by_id) == {f"claim-{i}" for i in range(n)}, "all settled claims persisted to the sidecar"
+    for i in range(n):
+        assert by_id[f"claim-{i}"]["verdict"] == result.final_verdicts[f"claim-{i}"]
+        assert by_id[f"claim-{i}"]["covered_element_ids"] == [f"elem-{i}"]
 
 
 # === (e) PG_FOUR_ROLE_CLAIM_WORKERS=1 result == multi-worker result =============================

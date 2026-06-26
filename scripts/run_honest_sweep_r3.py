@@ -3426,6 +3426,77 @@ def build_finalizer_artifact_body(
 SEAM_GAP_UNADJUDICATED = "four_role_seam_unadjudicated"
 
 
+def recover_seam_partial_verdicts(
+    run_dir: "Path | None", total_claims: int
+) -> "tuple[dict[str, str], float, int]":
+    """I-wire-007 (#1321): RECOVER the partial 4-role verdicts settled before the outer seam wall fired.
+
+    The outer seam WALL (`run_honest_sweep_r3` ~12186) orphans the evaluation worker on a timeout, so
+    the in-memory `final_verdicts` are unreachable and the old handler discarded everything
+    (`final_verdicts={}`). The compute drain persists each SETTLED claim's final verdict to the
+    `four_role_settled_verdicts.jsonl` sidecar (sweep_integration), so on a seam timeout we read it back
+    here and return the partials already computed.
+
+    Returns `(final_verdicts, coverage_fraction, settled_count)` where:
+      * `final_verdicts` maps claim_id -> the UNCHANGED `_compose_final_verdict` verdict for every
+        SETTLED claim (the unsettled remainder is ABSENT -> stays UNSUPPORTED/held downstream).
+      * `coverage_fraction` is the CONSERVATIVE fail-closed proxy `verified_settled / total_claims`:
+        the denominator is ALL claims (not just the settled ones), so the unsettled remainder DRAGS
+        coverage DOWN — a partial set can therefore only route to released_with_disclosed_gaps / held,
+        never a false full-certify. (Distinct covered-element ids per VERIFIED claim are unioned so a
+        duplicated id is not double-counted; the proxy is still bounded by claim count.)
+      * `settled_count` is how many claims settled before the wall (for the log / disclosed gap).
+
+    FAIL-CLOSED + FAITHFULNESS-NEUTRAL: this RECOVERS already-computed verdicts; it never SYNTHESIZES
+    one, never marks an unsettled claim VERIFIED, and never relaxes a threshold. On ANY read error it
+    returns `({}, 0.0, 0)` — byte-equivalent to the prior discard-everything behaviour (no worse).
+    """
+    empty: "tuple[dict[str, str], float, int]" = ({}, 0.0, 0)
+    if run_dir is None or total_claims <= 0:
+        return empty
+    try:
+        from src.polaris_graph.roles.sweep_integration import (  # noqa: PLC0415
+            FOUR_ROLE_SETTLED_VERDICTS_FILENAME,
+        )
+    except Exception:  # noqa: BLE001 — resolver hiccup -> behave as the discard path.
+        return empty
+    sidecar = run_dir / FOUR_ROLE_SETTLED_VERDICTS_FILENAME
+    if not sidecar.is_file():
+        return empty
+    final_verdicts: "dict[str, str]" = {}
+    verified_covered: set[str] = set()
+    try:
+        for line in sidecar.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue  # a torn final line (crash mid-append) — skip it, fail-closed.
+            claim_id = row.get("claim_id")
+            verdict = row.get("verdict")
+            if not claim_id or not verdict:
+                continue
+            # LAST write wins for a duplicated claim_id (e.g. the dedup fan-out) — harmless: the
+            # verdict is identical for byte-identical claims by construction.
+            final_verdicts[str(claim_id)] = str(verdict)
+            if str(verdict) == "VERIFIED":
+                for eid in (row.get("covered_element_ids") or []):
+                    if eid:
+                        verified_covered.add(str(eid))
+    except OSError:
+        return empty
+    if not final_verdicts:
+        return empty
+    # CONSERVATIVE coverage proxy: VERIFIED-covered distinct ids over ALL claims (so the unsettled
+    # remainder lowers it). Clamp to [0, 1]; if a claim carries multiple covered ids the union can
+    # exceed total_claims, so cap at 1.0 — but the SEAM_GAP_UNADJUDICATED disclosed gap (injected by
+    # build_seam_release_outcome) still forces a non-success disposition regardless of this number.
+    coverage_fraction = min(1.0, len(verified_covered) / float(total_claims))
+    return final_verdicts, coverage_fraction, len(final_verdicts)
+
+
 def _seam_cited_evidence_ids(sections: "list[Any]") -> set[str]:
     """Collect every cited evidence_id from the SHIPPED (strict_verify-kept) sentences.
 
@@ -12236,18 +12307,52 @@ async def run_one_query(
                 # STANDALONE fabrication screen over the shipped citation identities; if a cited
                 # identity is not in the pool (or the screen cannot run) the BODY is WITHHELD; a
                 # clinical/safety-floor Q ships the honest insufficient-safety variant.
+                #
+                # I-wire-007 (#1321): SEAM-PRESERVE PARTIALS (fail-closed). On the seam-WALL timeout
+                # the compute drain had already SETTLED some claims before the wall fired and persisted
+                # them to the four_role_settled_verdicts.jsonl sidecar. RECOVER those partials instead
+                # of discarding everything (`final_verdicts={}`). CRITICAL faithfulness nuance: the
+                # recovered partial is STILL routed through this seam release policy — the non-empty
+                # SEAM_GAP_UNADJUDICATED disclosed gap forces released_with_disclosed_gaps / held, and
+                # the conservative coverage proxy (verified-settled / ALL-claims) keeps the unverified
+                # remainder dragging coverage DOWN — so the run is marked under-verified, NEVER shipped
+                # as fully-certified. Unsettled claims are ABSENT from final_verdicts -> fail-closed.
+                _seam_total_claims = 0
+                try:
+                    from src.polaris_graph.roles.sweep_integration import (  # noqa: PLC0415
+                        FOUR_ROLE_COMPUTE_PROGRESS_FILENAME as _FR_PROGRESS,
+                    )
+                    _progress_file = run_dir / _FR_PROGRESS
+                    if _progress_file.is_file():
+                        _seam_total_claims = int(
+                            json.loads(_progress_file.read_text(encoding="utf-8")).get("total", 0)
+                        )
+                except Exception:  # noqa: BLE001 — no/invalid progress file -> 0 -> empty recovery.
+                    _seam_total_claims = 0
+                _seam_partial_verdicts: "dict[str, str]" = {}
+                _seam_partial_coverage = 0.0
+                _seam_partial_settled = 0
+                if _seam_held_reason == "seam_timeout":
+                    (
+                        _seam_partial_verdicts,
+                        _seam_partial_coverage,
+                        _seam_partial_settled,
+                    ) = recover_seam_partial_verdicts(run_dir, _seam_total_claims)
                 _seam_release_outcome, _seam_body_withheld, _seam_withhold_reason = (
                     build_seam_release_outcome(
                         sections=multi.sections,
                         evidence_for_gen=evidence_for_gen,
                         is_clinical=_clinical_verified_only_surface,
                         seam_held_reason=_seam_held_reason,
+                        coverage_fraction=_seam_partial_coverage,
                     )
                 )
                 _log(
                     f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s -> D8 "
                     "UNADJUDICATED; release_outcome=released_with_disclosed_gaps "
-                    f"(body_withheld={_seam_body_withheld}; status={_seam_release_outcome.status})"
+                    f"(body_withheld={_seam_body_withheld}; status={_seam_release_outcome.status}; "
+                    f"preserved_partials={_seam_partial_settled}/{_seam_total_claims}; "
+                    f"partial_coverage={_seam_partial_coverage:.3f})"
                 )
                 four_role_result = FourRoleEvaluationResult(
                     # release_allowed stays False here: the BINDING decision is taken from
@@ -12257,9 +12362,13 @@ async def run_one_query(
                     release_allowed=False,
                     held_reasons=[_seam_held_reason],
                     gaps=[],
-                    final_verdicts={},
+                    # I-wire-007: surface the RECOVERED partial verdicts (audit fidelity) instead of
+                    # the prior empty map. These are real, already-computed `_compose_final_verdict`
+                    # outputs for SETTLED claims only; the release decision is STILL the held/disclosed
+                    # outcome above (the disclosed gap forces it) — these never auto-certify the run.
+                    final_verdicts=_seam_partial_verdicts,
                     records=[],
-                    coverage_fraction=0.0,
+                    coverage_fraction=_seam_partial_coverage,
                     fabricated_occurrence_latched=False,
                     needs_rewrite=[],
                     kg_path=_seam_kg_path,

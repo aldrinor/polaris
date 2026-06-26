@@ -99,6 +99,11 @@ import time
 import httpx
 
 from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.roles.adaptive_concurrency import (
+    AdaptiveConcurrencyController,
+    adaptive_concurrency_enabled,
+    build_role_controller,
+)
 from src.polaris_graph.roles.openai_compatible_transport import (
     BlankVerdictError,
     RoleTransportError,
@@ -930,6 +935,42 @@ def _sentinel_semaphore() -> threading.BoundedSemaphore | None:
             _SENTINEL_SEMAPHORE_SIZE = limit
         return _SENTINEL_SEMAPHORE
 
+
+# === I-wire-007 (#1321): ADAPTIVE AIMD concurrency controllers (per role) =======================
+# THE UPGRADE over the static BoundedSemaphores above: a fixed cap cannot RIDE the live OpenRouter
+# ceiling — too low is slow, too high storms (judge 429s, sentinel slow-host force-closes). The AIMD
+# controller (adaptive_concurrency.py) probes UP after clean windows and BACKS DOWN (halves) on a
+# congestion signal, auto-finding the ceiling. PER-ROLE so a sentinel force-close never throttles the
+# judge. When enabled (`PG_FOUR_ROLE_ADAPTIVE_CONCURRENCY`, default ON) the controller REPLACES the
+# static semaphore for that role (the `complete()` gate acquires the controller instead); when OFF the
+# static `BoundedSemaphore` path above is taken — byte-identical to pre-#1321. FAITHFULNESS-NEUTRAL:
+# governs only HOW MANY POSTs run at once, never which claim passes/holds.
+#
+# Import-timing-safe (the documented _CLAIM_WORKERS / set_four_role_reasoning_effort hazard): the
+# controller is built LAZILY on first acquire (NOT at import), so a benchmark slate that sets the
+# adaptive knobs AFTER this module imports is honored. One controller per role for the process life.
+_ADAPTIVE_CONTROLLER_LOCK = threading.Lock()
+_ADAPTIVE_CONTROLLERS: dict[str, "AdaptiveConcurrencyController"] = {}
+
+
+def _adaptive_controller(role: str):
+    """The process-wide AIMD controller for `role`, lazily built on first use; None when adaptive is
+    OFF (so the caller falls back to the static semaphore — byte-identical to pre-#1321).
+
+    Built once per role (the AIMD state — current limit + clean streak — must persist across calls so
+    the additive-increase ramp and multiplicative-decrease back-off are CONTINUOUS over the run, not
+    reset every claim). Read-once env at first build mirrors the static-semaphore lazy pattern.
+    """
+    if not adaptive_concurrency_enabled():
+        return None
+    with _ADAPTIVE_CONTROLLER_LOCK:
+        controller = _ADAPTIVE_CONTROLLERS.get(role)
+        if controller is None:
+            controller = build_role_controller(role)
+            _ADAPTIVE_CONTROLLERS[role] = controller
+        return controller
+
+
 # LAW VI: base URL + key come from the SAME env vars openrouter_client reads (single source of
 # truth). Read lazily (function-level) so import never depends on env presence.
 _BASE_URL_ENV = "OPENROUTER_BASE_URL"
@@ -1339,33 +1380,57 @@ class OpenRouterRoleTransport:
         request-derived `model`). Reasoning is separated from the bare verdict (I-meta-002-q1b)
         and sanitized OUT of the Path-B capture channel.
         """
-        # I-wire-003 B1 (#1317): bound concurrent JUDGE POSTs under the sustainable OpenRouter rate.
-        # ONLY the judge role acquires the throttle (mirror/sentinel parallelism untouched). Acquire
-        # BEFORE any per-call timing/watchdog start so QUEUE time waiting for a judge slot is never
-        # charged against the per-call wall-clock watchdog (which would force-close steady progress —
-        # task item 3). Released in `finally` (so it is held across backoff sleeps too — that is what
-        # makes the cap genuinely bound concurrent load, not merely concurrent slot-holding).
-        _judge_sema = _judge_semaphore() if request.role == "judge" else None
-        # I-wire-004 (#1318): bound concurrent SENTINEL POSTs the same way (default unbounded => None,
-        # byte-identical). Acquired BEFORE the per-call work so queue time is not charged against the
-        # per-call deadline (same rationale as the judge throttle); released in `finally`.
-        _sentinel_sema = _sentinel_semaphore() if request.role == "sentinel" else None
+        # I-wire-007 (#1321): ADAPTIVE AIMD concurrency. When `PG_FOUR_ROLE_ADAPTIVE_CONCURRENCY` is
+        # ON (default) the per-role AIMD controller REPLACES the static BoundedSemaphore for the
+        # throttled roles (judge + sentinel): it probes UP after clean windows and HALVES on a 429/503
+        # (judge) or a force-close timeout (sentinel), auto-finding the live ceiling. When OFF, the
+        # I-wire-003/004 static semaphores are used — byte-identical to pre-#1321. PER-ROLE so a
+        # sentinel force-close never throttles the judge. The controller is fed success/throttle/
+        # timeout signals from `_complete_inner` via `self._adaptive_signal`.
+        #
+        # I-wire-003 B1 (#1317) / I-wire-004 (#1318): acquire BEFORE any per-call timing/watchdog start
+        # so QUEUE time waiting for a slot is never charged against the per-call wall-clock watchdog
+        # (which would force-close steady progress). Released in `finally` (held across backoff sleeps
+        # too — that is what makes the gate genuinely bound concurrent load).
+        _adaptive = None
+        _judge_sema = None
+        _sentinel_sema = None
+        if request.role in ("judge", "sentinel"):
+            _adaptive = _adaptive_controller(request.role)
+            if _adaptive is None:
+                # Adaptive OFF -> fall back to the static semaphore for that role (byte-identical).
+                if request.role == "judge":
+                    _judge_sema = _judge_semaphore()
+                else:
+                    _sentinel_sema = _sentinel_semaphore()
+        if _adaptive is not None:
+            _adaptive.acquire()
         if _judge_sema is not None:
             _judge_sema.acquire()
         if _sentinel_sema is not None:
             _sentinel_sema.acquire()
         try:
-            return self._complete_inner(request)
+            return self._complete_inner(request, adaptive=_adaptive)
         finally:
             if _sentinel_sema is not None:
                 _sentinel_sema.release()
             if _judge_sema is not None:
                 _judge_sema.release()
+            if _adaptive is not None:
+                _adaptive.release()
 
-    def _complete_inner(self, request: RoleRequest) -> RoleResponse:
+    def _complete_inner(
+        self, request: RoleRequest, adaptive: "AdaptiveConcurrencyController | None" = None
+    ) -> RoleResponse:
         """The full single-completion body (POST + retry loop + parse). Wrapped by `complete()` so
         the Judge-concurrency semaphore (I-wire-003 B1) is acquired/released around the WHOLE call,
-        outside the per-call wall-clock watchdog."""
+        outside the per-call wall-clock watchdog.
+
+        I-wire-007 (#1321): `adaptive` is this role's AIMD controller (or None when adaptive is OFF /
+        the role is not throttled). It is fed the TCP-congestion signals: `on_timeout()` on a
+        force-close / total-deadline timeout, `on_throttle()` on a retryable 429/503, and
+        `on_success()` on a clean 200. FAITHFULNESS-NEUTRAL: these only adjust concurrency, never a
+        verdict."""
         base_url, api_key, model_slug = openrouter_role_endpoint(request.role)
         normalized_messages = _normalize_messages(request)
         body = _build_openrouter_body(request, model_slug, normalized_messages)
@@ -1549,6 +1614,11 @@ class OpenRouterRoleTransport:
                             # client and retry (bounded by transport_retries); on exhaustion fall through to
                             # the SAME fail-closed RoleTransportError. Faithfulness-neutral: a transport
                             # timeout NEVER yields a fake verdict (the 4-role gate HOLDS / UNGROUNDED).
+                            # I-wire-007 (#1321): a force-close/total-deadline timeout is the AIMD
+                            # CONGESTION signal for the slow-host (sentinel) leg — halve the in-flight
+                            # limit so the next claims back off the flooded host. Concurrency-only.
+                            if adaptive is not None:
+                                adaptive.on_timeout()
                             try:
                                 self._http_client = self._http_client_factory()
                             except Exception as rebuild_exc:  # noqa: BLE001
@@ -1656,6 +1726,12 @@ class OpenRouterRoleTransport:
                     # falls through to the fail-closed raise below. Telemetry only; never gates.
                     if http_response.status_code in retryable_statuses:
                         _record_rate_limit_hit(request.role, http_response.status_code)
+                        # I-wire-007 (#1321): a 429/503 is the AIMD CONGESTION signal for the
+                        # rate-limited (judge) leg — halve the in-flight limit so the storm shrinks.
+                        # Fed once per retryable response (each retry that re-429s halves again toward
+                        # the floor). Concurrency-only; the existing fail-closed path is untouched.
+                        if adaptive is not None:
+                            adaptive.on_throttle()
                     # I-beatboth-429 (#1173): bounded exponential backoff on a RETRYABLE HTTP status
                     # (429 / 503), honoring `Retry-After`. RESILIENCE ONLY — when the budget is
                     # exhausted (or the status is NOT retryable) we fall through to the UNCHANGED
@@ -1704,6 +1780,12 @@ class OpenRouterRoleTransport:
                         f"OpenRouter {request.role!r} returned HTTP {http_response.status_code} "
                         f"at {url}"
                     )
+                # I-wire-007 (#1321): a clean 200 is the AIMD ADDITIVE-INCREASE signal — after a
+                # `probe_window` of consecutive clean responses the in-flight limit ramps up by one
+                # step to ride toward the live ceiling. Fed BEFORE parsing (a JSON-parse failure below
+                # is a SERVER fault, not a congestion signal, and must not count as a clean success).
+                if adaptive is not None:
+                    adaptive.on_success()
                 try:
                     raw = http_response.json()
                 except (json.JSONDecodeError, ValueError) as exc:

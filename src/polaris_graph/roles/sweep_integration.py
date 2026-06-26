@@ -157,12 +157,67 @@ _REQUIRED_ROLE_SLUG_KEYS = ("mirror", "sentinel", "judge")
 # run 10 died on the sequential operational failure mode. LAW VI: worker count from env only.
 # `1` (or a single claim) preserves the EXACT sequential behaviour, including the live per-call
 # budget enforcement inside `RecordingTransport.complete()`.
-_CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS", "6")))
+#
+# I-wire-007 (#1321): when the AIMD adaptive controller is ON (default), the per-role AIMD gates
+# (judge + sentinel, in openrouter_role_transport) are the BINDING concurrency throttle — they probe
+# UP to and ride the live ceiling. The claim-worker pool is then sized to the AIMD per-role MAX as a
+# CEILING (so enough worker threads exist for the controller to ramp into) rather than the fixed-6
+# static cap; the controller — not this number — decides how many POSTs actually run at once. When
+# adaptive is OFF, the static `PG_FOUR_ROLE_CLAIM_WORKERS` (default 6) is used — byte-identical to
+# pre-#1321. The pool is a thread-count ceiling only; the AIMD gate inside each role's `complete()`
+# enforces the real in-flight limit. FAITHFULNESS-NEUTRAL: a larger pool only lets the controller
+# explore concurrency; the per-claim fail-closed verdict logic is untouched.
+def _resolve_claim_workers() -> int:
+    """The 4-role COMPUTE thread-pool size.
+
+    An explicit `PG_FOUR_ROLE_CLAIM_WORKERS` ALWAYS wins (full operator override). Otherwise, with the
+    AIMD controller ON (default), size the pool to the larger of the static default and the AIMD
+    per-role MAX ceiling so the controller has worker threads to ramp into; with adaptive OFF, the
+    static default 6 is used (byte-identical to pre-#1321).
+    """
+    explicit = os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS")
+    if explicit is not None:
+        try:
+            return max(1, int(explicit))
+        except (TypeError, ValueError):
+            return 6
+    static_default = 6
+    try:
+        from src.polaris_graph.roles.adaptive_concurrency import (  # noqa: PLC0415
+            adaptive_concurrency_enabled as _aimd_on,
+            build_role_controller as _build_ctrl,
+        )
+
+        if _aimd_on():
+            # Ceiling = the largest AIMD per-role MAX across the throttled roles, floored at the
+            # static default so the pool never SHRINKS below baseline.
+            _maxes = [
+                _build_ctrl(role).bounds[1] for role in ("judge", "sentinel")
+            ]
+            return max(static_default, *_maxes)
+    except Exception:  # noqa: BLE001 — a resolver hiccup must never block the seam; fall to default.
+        pass
+    return static_default
+
+
+_CLAIM_WORKERS = _resolve_claim_workers()
 
 # I-run11-001 (#1042) Codex iter-2 P2.3: tiny on-disk progress marker the PARALLEL compute writes
 # after EACH claim completes ({"done": k, "total": n}), so a hung mid-compute is visible on disk
 # DURING compute — the role_call_log only grows during the later, parent-only reduction.
 FOUR_ROLE_COMPUTE_PROGRESS_FILENAME = "four_role_compute_progress.json"
+
+# I-wire-007 (#1321): SEAM-PRESERVE partial-verdict sidecar. The outer seam WALL (run_honest_sweep_r3
+# ~12186) runs the whole 4-role evaluation on a worker thread and, on a timeout, ORPHANS it via
+# shutdown(wait=False) — so the in-memory `computed`/`final_verdicts` are unreachable from the parent
+# and the old handler discarded everything (`final_verdicts={}`). This sidecar persists each SETTLED
+# claim's final verdict (and its covered required-element ids) AS IT SETTLES, so on a seam timeout the
+# parent can RECOVER the partial verdicts already computed instead of throwing them away. ONE JSON
+# object per line `{claim_id, verdict, covered_element_ids}`. FAIL-CLOSED: only SETTLED claims appear;
+# every unsettled claim is absent -> stays UNSUPPORTED/held and drags coverage down -> the recovered
+# partial can ONLY route to released_with_disclosed_gaps / held, NEVER a false full-certify. The
+# verdict logic that produced each line is the UNCHANGED `_compose_final_verdict` (frozen).
+FOUR_ROLE_SETTLED_VERDICTS_FILENAME = "four_role_settled_verdicts.jsonl"
 
 # I-wire-003 B1 (#1317): per-query rate-limit telemetry sidecar — the fail-loud (= honest visible)
 # "429s seen / claims certified" counter the manifest reader judges the NEXT run by. Written by
@@ -349,6 +404,36 @@ def build_evaluator_agrees_map(
     return agrees_map
 
 
+def _append_settled_verdict(
+    settled_path: Path, *, claim_id: str, verdict: str, covered_element_ids
+) -> None:
+    """I-wire-007 (#1321): APPEND one settled-verdict line to the seam-preserve sidecar.
+
+    Used by BOTH the parallel `_settle` drain and the sequential per-claim loop so a later outer-seam
+    TIMEOUT can RECOVER the partials already computed. Best-effort: a sidecar I/O failure is logged but
+    NEVER raised (FAITHFULNESS-NEUTRAL — the sidecar is a recovery aid, never a verdict gate).
+    """
+    try:
+        with settled_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "claim_id": claim_id,
+                        "verdict": verdict,
+                        "covered_element_ids": list(covered_element_ids or []),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    except OSError as exc:
+        logger.warning(
+            "[polaris graph] I-wire-007: settled-verdicts sidecar append failed at %s: %s",
+            settled_path, exc,
+        )
+
+
 def _write_role_call_log(path: Path, role_call_log: list[dict]) -> None:
     """Write the per-role-call reasoning log as one sorted-key JSON object per line.
 
@@ -503,6 +588,19 @@ def _compute_claim_results(
     # thread pool for one item is pure overhead).
     if _CLAIM_WORKERS == 1 or n <= 1:
         out: list[tuple[ClaimPipelineResult, float | None]] = []
+        # I-wire-007 (#1321): seam-preserve sidecar on the SEQUENTIAL path too (a long sequential
+        # evaluation can also trip the outer seam wall). Only when run_dir already exists — the
+        # sequential fast path deliberately does NOT mkdir (callers may pass a not-yet-created dir),
+        # so this never re-introduces the FileNotFoundError the parallel-path comment documents; the
+        # append helper is best-effort (logs, never raises). Truncate first so a recovery never reads
+        # stale lines from a prior run sharing the dir.
+        _seq_settled_path = run_dir / FOUR_ROLE_SETTLED_VERDICTS_FILENAME
+        _seq_settled_writable = run_dir.exists()
+        if _seq_settled_writable:
+            try:
+                _seq_settled_path.write_text("", encoding="utf-8")
+            except OSError:
+                _seq_settled_writable = False
         try:
             for claim in claims:
                 result = run_claim_pipeline(
@@ -516,6 +614,13 @@ def _compute_claim_results(
                     timestamp=timestamp,
                 )
                 out.append((result, None))
+                if _seq_settled_writable:
+                    _append_settled_verdict(
+                        _seq_settled_path,
+                        claim_id=result.d8_row.claim_id,
+                        verdict=result.final_verdict,
+                        covered_element_ids=claim.covered_element_ids,
+                    )
         except RoleTransportError as _rte:
             # I-beatboth-006 (#1283) Fix C.3 — SAME disclosed hard-halt on the SEQUENTIAL path (flag
             # OFF / unexpected propagated RTE): write the halt artifact + re-raise the TYPED error,
@@ -569,6 +674,16 @@ def _compute_claim_results(
     # byte-equivalent to the pre-#1042 behaviour.
     run_dir.mkdir(parents=True, exist_ok=True)
     progress_path = run_dir / FOUR_ROLE_COMPUTE_PROGRESS_FILENAME
+    # I-wire-007 (#1321): SEAM-PRESERVE sidecar — truncate at the start of this compute so a recovery
+    # never reads a STALE prior run's lines, then append one settled-verdict line per claim below.
+    settled_path = run_dir / FOUR_ROLE_SETTLED_VERDICTS_FILENAME
+    try:
+        settled_path.write_text("", encoding="utf-8")
+    except OSError as exc:
+        logger.warning(
+            "[polaris graph] I-wire-007: could not initialize the settled-verdicts sidecar at %s: %s",
+            settled_path, exc,
+        )
     done = 0
 
     def _settle(future) -> int:
@@ -589,6 +704,18 @@ def _compute_claim_results(
         progress_path.write_text(
             json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
             encoding="utf-8",
+        )
+        # I-wire-007 (#1321): APPEND this settled claim's final verdict + the required-element ids it
+        # covers to the seam-preserve sidecar, so a later outer-seam TIMEOUT can RECOVER the partials
+        # already computed instead of discarding them. Parent-only append (this drain runs on the
+        # parent thread). The verdict is the UNCHANGED `_compose_final_verdict` output on `result`;
+        # `covered_element_ids` comes from the ORIGINAL claim (the coverage NUMERATOR the recovery
+        # credits ONLY on a VERIFIED verdict).
+        _append_settled_verdict(
+            settled_path,
+            claim_id=result.d8_row.claim_id,
+            verdict=result.final_verdict,
+            covered_element_ids=claims[idx].covered_element_ids,
         )
         # Re-add this claim's verifier spend to the SINGLE parent run counter and re-check the cap.
         # With reservation ON this is the SETTLE step (the reservation for this claim is released by
