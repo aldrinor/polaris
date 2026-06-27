@@ -14,6 +14,19 @@ Usage:
 """
 from __future__ import annotations
 
+# I-wire-014 (#1336): native-thread-safety clamp MUST run before ANY native import (torch/MKL/
+# tokenizers read their thread-pool env vars once, at library-init time). Importing this standalone
+# stdlib-only module IS the clamp (setdefault; LAW VI). Fixes the intermittent A15 re-fetch crash
+# ``malloc(): unsorted double linked list corrupted`` — the MinerU VLM Predict racing on the glibc
+# heap with leaked AccessBypass fetch daemon threads. Output-invariant (thread count != numerics).
+import sys as _sys_clamp_bootstrap
+from pathlib import Path as _Path_clamp_bootstrap
+
+# This entrypoint may be launched from repo-root before ``src`` is added to sys.path (the inserts
+# below run later), so make the standalone clamp module importable here, before any native import.
+_sys_clamp_bootstrap.path.insert(0, str(_Path_clamp_bootstrap(__file__).resolve().parents[1]))
+import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side effect: applies clamp
+
 import asyncio
 import concurrent.futures
 import contextvars

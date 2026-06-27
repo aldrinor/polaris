@@ -32,6 +32,20 @@ transport injected in place of `build_gate_b_transport`'s output.
 
 from __future__ import annotations
 
+# I-wire-014 (#1336): native-thread-safety clamp MUST run before ANY native import (torch/MKL/
+# tokenizers read their thread-pool env vars once, at library-init time). Importing this standalone
+# stdlib-only module IS the clamp (setdefault; LAW VI). Fixes the intermittent A15 re-fetch crash
+# ``malloc(): unsorted double linked list corrupted`` — the MinerU VLM Predict racing on the glibc
+# heap with leaked AccessBypass fetch daemon threads. Output-invariant (thread count != numerics).
+# Codex gate P1: bootstrap the repo root onto sys.path FIRST so ``src.*`` imports whether this module
+# is imported (run_gate_b_query) OR executed by path from repo root (sys.path[0]=scripts/dr_benchmark).
+# This file is scripts/dr_benchmark/run_gate_b.py => repo root is parents[2] (NOT parents[1]).
+import sys as _sys_clamp_bootstrap
+from pathlib import Path as _Path_clamp_bootstrap
+
+_sys_clamp_bootstrap.path.insert(0, str(_Path_clamp_bootstrap(__file__).resolve().parents[2]))
+import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side effect: applies the clamp
+
 import json
 import os
 from pathlib import Path

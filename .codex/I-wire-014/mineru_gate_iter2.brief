@@ -1,0 +1,120 @@
+Review ONE diff (I-wire-014 mineru25 GPU serialization, iter 2 of 5). STATIC only. APPROVE iff zero P0/P1.
+Do NOT call request_user_input/interactive tools, do NOT run pytest/execute/explore repo, read ONLY the inlined diff, output ONLY verdict:+p0:+p1:+p2:.
+ITER-1 P1 NOW FIXED (verify closed): the GPU lock was UNCONDITIONAL, serializing even the remote vlm-http-client do_parse (server-side concurrency) -> throughput cliff. FIX: the lock is now CONDITIONAL — acquired ONLY when backend != 'vlm-http-client' (the in-process PDFium/model-singleton race); the remote backend uses contextlib.nullcontext (no serialization).
+FOCUS: confirm the in-process path is still serialized (race fixed) AND the remote path is no longer serialized (P1 closed); OUTPUT-PRESERVING (timing only, no fabrication, disclosed fallback intact); no crash/None.
+=== DIFF ===
+diff --git a/src/tools/access_bypass.py b/src/tools/access_bypass.py
+index 44870fa6..10c1d164 100644
+--- a/src/tools/access_bypass.py
++++ b/src/tools/access_bypass.py
+@@ -851,6 +851,45 @@ def reset_block_page_canary() -> None:
+         _BLOCK_PAGE_CANARY["re_fetched"] = 0
+ 
+ 
++# ---------------------------------------------------------------------------
++# I-wire-014 ISSUE B (#1313 W4): PROCESS-WIDE mineru25 GPU-VLM serialization lock.
++#
++# THE BUG (reproduced on the VM, GPU 1 isolated, 2026-06-27): MinerU's in-process
++# ``do_parse`` is NOT safe to call concurrently across threads. Two independent
++# causes converge:
++#   (1) PDFium / pypdfium2 (the PDF loader ``do_parse`` calls at
++#       ``load_images_from_pdf`` -> ``pdfium.PdfDocument``) has PROCESS-GLOBAL,
++#       non-thread-safe state. Upstream is explicit: "PDFium is not thread-safe;
++#       it is not allowed to call pdfium functions simultaneously across threads,
++#       not even with different documents" (pypdfium2 #303 / pdfium google-group).
++#   (2) MinerU's model manager is a PROCESS-SINGLETON (``__new__`` instance cache)
++#       sharing ONE VLM model + processor across every ``do_parse`` call, so
++#       concurrent batched inference interleaves tensor state.
++#
++# In production, ``live_retriever._fetch_content`` fans each PDF fetch onto its
++# OWN daemon thread, and ``_maybe_mineru25_extract`` runs ``_mineru25_extract``
++# via ``loop.run_in_executor(None, ...)``. Two clinical PDFs fetched concurrently
++# therefore call ``do_parse`` simultaneously and CORRUPT each other. The symptom
++# is timing-dependent: the iwire014 confirm run saw a torch tensor-shape error
++# ("expanded size (2) must match existing size (0) ... [3, 2,"); the VM repro saw
++# ``PdfiumError: Failed to import pages`` / ``Data format error`` on the SAME two
++# PDFs that BOTH extract cleanly when serialized. Both faces, one race.
++#
++# THE FIX (upstream-prescribed mutex, faithfulness-NEUTRAL): a single module-wide
++# ``threading.Lock`` held around the in-process VLM extraction so at most ONE
++# ``do_parse`` runs at a time per process. This is OUTPUT-PRESERVING — it changes
++# only the timing of already-selected extractions, never which PDFs are
++# extracted, never the verbatim text strict_verify grounds, never any
++# faithfulness gate. A 24 GB GPU VLM at batch_size 8 is single-tenant anyway, so
++# serialization costs nothing the GPU was not already forcing; it only removes
++# the corruption. The disclosed Docling -> PyMuPDF fallback + W4-CANARY remain
++# the honest path for a genuine per-PDF mineru failure. The lock does NOT apply
++# to the ``vlm-http-client`` backend (a remote mineru-api server is the server's
++# concurrency domain) — only the in-process ``vlm-transformers`` GPU path needs
++# it, but holding the lock for either is correct and cheap.
++# ---------------------------------------------------------------------------
++_mineru25_gpu_lock = threading.Lock()
++
+ # ---------------------------------------------------------------------------
+ # Crawl4AI availability flag (set on first import attempt)
+ # ---------------------------------------------------------------------------
+@@ -4661,25 +4700,45 @@ class AccessBypass:
+                     f"opendatalab/MinerU2.5-2509-1.2B): {exc!r}"
+                 ) from exc
+ 
+-            do_parse(
+-                output_dir=_out_dir,
+-                pdf_file_names=[name],
+-                pdf_bytes_list=[pdf_bytes],
+-                p_lang_list=[lang],
+-                backend=backend,
+-                server_url=server_url,
+-                # Tables + formulas ON (the clinical-PDF table-fidelity lane).
+-                formula_enable=True,
+-                table_enable=True,
+-                # We only need the markdown; skip bbox/pdf/json dumps for speed.
+-                f_dump_md=True,
+-                f_draw_layout_bbox=False,
+-                f_draw_span_bbox=False,
+-                f_dump_middle_json=False,
+-                f_dump_model_output=False,
+-                f_dump_orig_pdf=False,
+-                f_dump_content_list=False,
+-            )
++            # I-wire-014 ISSUE B (#1313 W4): SERIALIZE the in-process VLM
++            # extraction under the process-wide ``_mineru25_gpu_lock``. ``do_parse``
++            # drives PDFium (non-thread-safe, process-global state) AND the shared
++            # MinerU model singleton; calling it concurrently from two fetch worker
++            # threads corrupts both (proven on the VM: PdfiumError / tensor-shape
++            # crash when concurrent, both succeed when serialized). The lock is
++            # held ONLY around ``do_parse`` — the temp-dir setup above and the
++            # per-call markdown read below are thread-local and stay parallel. This
++            # is OUTPUT-PRESERVING: it changes only timing, never which PDFs are
++            # extracted, the verbatim text, or any faithfulness gate. A 24 GB GPU
++            # VLM at batch_size 8 is single-tenant regardless, so serialization is
++            # ~free; it only removes the corruption.
++            # Codex gate P1 (#1336): hold the lock ONLY for the IN-PROCESS VLM backend — the
++            # PDFium + shared-model-singleton race is in-process. The remote "vlm-http-client"
++            # backend's concurrency is the API server's domain; locking it here would needlessly
++            # serialize concurrent PDF fetches (throughput cliff) without fixing any race.
++            import contextlib as _contextlib  # noqa: PLC0415
++            _inproc_vlm = backend != "vlm-http-client"
++            _gpu_ctx = _mineru25_gpu_lock if _inproc_vlm else _contextlib.nullcontext()
++            with _gpu_ctx:
++                do_parse(
++                    output_dir=_out_dir,
++                    pdf_file_names=[name],
++                    pdf_bytes_list=[pdf_bytes],
++                    p_lang_list=[lang],
++                    backend=backend,
++                    server_url=server_url,
++                    # Tables + formulas ON (the clinical-PDF table-fidelity lane).
++                    formula_enable=True,
++                    table_enable=True,
++                    # We only need the markdown; skip bbox/pdf/json dumps for speed.
++                    f_dump_md=True,
++                    f_draw_layout_bbox=False,
++                    f_draw_span_bbox=False,
++                    f_dump_middle_json=False,
++                    f_dump_model_output=False,
++                    f_dump_orig_pdf=False,
++                    f_dump_content_list=False,
++                )
+ 
+             # Locate the produced markdown. VLM backend lands it at
+             # <out>/<name>/vlm/<name>.md; be tolerant of layout drift.

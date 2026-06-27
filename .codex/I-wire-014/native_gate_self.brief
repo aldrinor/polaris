@@ -1,0 +1,179 @@
+Review ONE diff (I-wire-014 native fix). STATIC only. HARD CAP 5, iter 1. APPROVE iff zero P0 and zero P1.
+Do NOT call request_user_input or any interactive tool. Do NOT run pytest / execute / explore repo. Read ONLY the inlined diff. Output ONLY: verdict: APPROVE|REQUEST_CHANGES then p0:/p1:/p2:.
+CONTEXT: native-thread-safety clamp (permanent, import-time, before native imports) fixing the intermittent malloc heap-corruption from concurrent native thread pools (MinerU VLM predict + leaked fetch daemon threads).
+FOCUS: (1) OUTPUT-invariant — thread-count/serialization must NOT change numerics, scores, or any faithfulness verdict; (2) clamp applied via setdefault BEFORE native import (no override of an operator-set value); (3) no new hang/deadlock/perf-cliff; (4) crash/None/import-cycle risk.
+=== DIFF ===
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index e90e3973..c7ba1fcf 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -32,6 +32,13 @@ transport injected in place of `build_gate_b_transport`'s output.
+ 
+ from __future__ import annotations
+ 
++# I-wire-014 (#1336): native-thread-safety clamp MUST run before ANY native import (torch/MKL/
++# tokenizers read their thread-pool env vars once, at library-init time). Importing this standalone
++# stdlib-only module IS the clamp (setdefault; LAW VI). Fixes the intermittent A15 re-fetch crash
++# ``malloc(): unsorted double linked list corrupted`` — the MinerU VLM Predict racing on the glibc
++# heap with leaked AccessBypass fetch daemon threads. Output-invariant (thread count != numerics).
++import src._polaris_native_thread_safety  # noqa: F401  # import-time side effect: applies the clamp
++
+ import json
+ import os
+ from pathlib import Path
+diff --git a/scripts/iwire002_backhalf_replay_preflight.py b/scripts/iwire002_backhalf_replay_preflight.py
+index b45ba8f6..5b43abe2 100644
+--- a/scripts/iwire002_backhalf_replay_preflight.py
++++ b/scripts/iwire002_backhalf_replay_preflight.py
+@@ -39,6 +39,17 @@ Usage (on drb_72, on the VM):
+ 
+ from __future__ import annotations
+ 
++# I-wire-014 (#1336): native-thread-safety clamp MUST run before ANY native import (torch/MKL/
++# tokenizers read their thread-pool env vars once, at library-init time). Importing this standalone
++# stdlib-only module IS the clamp (setdefault; LAW VI). Fixes the intermittent A15 re-fetch crash
++# ``malloc(): unsorted double linked list corrupted`` — the MinerU VLM Predict racing on the glibc
++# heap with leaked AccessBypass fetch daemon threads. Output-invariant (thread count != numerics).
++import sys as _sys_clamp_bootstrap
++from pathlib import Path as _Path_clamp_bootstrap
++
++_sys_clamp_bootstrap.path.insert(0, str(_Path_clamp_bootstrap(__file__).resolve().parents[1]))
++import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side effect: applies clamp
++
+ import argparse
+ import asyncio
+ import json
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 4546c089..235dae29 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -14,6 +14,19 @@ Usage:
+ """
+ from __future__ import annotations
+ 
++# I-wire-014 (#1336): native-thread-safety clamp MUST run before ANY native import (torch/MKL/
++# tokenizers read their thread-pool env vars once, at library-init time). Importing this standalone
++# stdlib-only module IS the clamp (setdefault; LAW VI). Fixes the intermittent A15 re-fetch crash
++# ``malloc(): unsorted double linked list corrupted`` — the MinerU VLM Predict racing on the glibc
++# heap with leaked AccessBypass fetch daemon threads. Output-invariant (thread count != numerics).
++import sys as _sys_clamp_bootstrap
++from pathlib import Path as _Path_clamp_bootstrap
++
++# This entrypoint may be launched from repo-root before ``src`` is added to sys.path (the inserts
++# below run later), so make the standalone clamp module importable here, before any native import.
++_sys_clamp_bootstrap.path.insert(0, str(_Path_clamp_bootstrap(__file__).resolve().parents[1]))
++import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side effect: applies clamp
++
+ import asyncio
+ import concurrent.futures
+ import contextvars
+diff --git a/src/_polaris_native_thread_safety.py b/src/_polaris_native_thread_safety.py
+new file mode 100644
+index 00000000..313a41f9
+--- /dev/null
++++ b/src/_polaris_native_thread_safety.py
+@@ -0,0 +1,85 @@
++"""Standalone POLARIS native-thread-safety clamp (I-wire-014 #1336, native heap-corruption fix).
++
++WHY THIS EXISTS. The A15 re-fetch phase runs the MinerU 2.5 GPU VLM PDF extractor
++(``do_parse`` -> a PyTorch/HF-tokenizers forward pass; the ``Predict: N/M`` progress
++bar) inside a ``run_in_executor`` worker thread. That predict runs CONCURRENTLY with
++*leaked* AccessBypass fetch daemon threads — daemon workers the live_retriever timeout
++abandons (``leaked_bypass_workers=N``) because they are stuck in an un-killable native
++C call (libxml2/lxml parse via crawl4ai/trafilatura). Multiple native thread pools
++(OpenMP / MKL / OpenBLAS under torch, the Rust tokenizers pool, libxml2) then mutate
++the process glibc heap concurrently, and on an intermittent race glibc aborts the whole
++process with ``malloc(): unsorted double linked list corrupted`` — a C-level crash with
++NO Python traceback that kills the back-half run mid-flight (iwire014_reconfirm.log,
++exact crash point: ``Predict: 0/15`` right after an M-23a Unpaywall OA-PDF swap).
++
++THE FIX. Clamp the native math/tokenizer thread pools to single-threaded BEFORE any of
++those libraries are imported (they read these env vars once, at library-init time — i.e.
++the first ``import torch`` / ``import transformers`` / ``import numpy``; setting them
++after that import is a SILENT no-op). Empirically validated on the VM: the same back-half
++replay that crashed at ``Predict: 0/15`` clamp-free CLEARED the entire A15 re-fetch phase
++(``A15 RE-FETCH complete: attempted=20 recovered=16``) with these three clamps set as
++pre-Python shell env. This module makes that clamp PERMANENT + COMMITTED + reproducible
++on every production entrypoint instead of an ad-hoc ssh env.
++
++WHY STANDALONE + TOP-LEVEL UNDER ``src/`` (mirrors ``_polaris_import_alias.py``): the
++clamp must run before ANY third-party native import, so it cannot itself live under a
++package whose import pulls torch. It imports only the stdlib ``os`` and is safe to import
++from both an explicit entrypoint (``run_gate_b`` / ``run_honest_sweep_r3`` / the replay
++preflight) AND ``sitecustomize`` (interpreter startup).
++
++FAITHFULNESS / OUTPUT INVARIANCE (the binding constraint). Thread-count clamps change
++ONLY how many OS threads a native library uses internally; they do NOT change the
++numerical result of a deterministic VLM forward pass, an embedder encode, an NLI score,
++or a tokenizer's output. Same model + same weights + same input -> byte-identical
++extracted markdown -> identical ``direct_quote`` -> identical strict_verify grounding ->
++identical scores. NO faithfulness gate is touched, NO source/citation is dropped, NO
++fabrication is introduced. This is a pure process-reliability fix.
++
++LAW VI (zero hard-code): every value is ``setdefault`` — an explicit operator override in
++the environment (e.g. ``OMP_NUM_THREADS=4`` set deliberately) is KEPT. The clamp only
++fills the UNSET default. ``PG_NATIVE_THREAD_CLAMP=0`` disables the whole module for an
++operator who wants the bare (racy) defaults back.
++"""
++from __future__ import annotations
++
++import os
++
++# The native thread-pool env knobs read at library-init time by the concurrent extractors
++# in the A15 re-fetch + back-half (torch/MKL/OpenBLAS math pools, the HF-tokenizers Rust
++# pool, NumPy's numexpr). All default to single-threaded — the proven anti-race clamp.
++# Value "1" / "false" is the LIBRARY-NATIVE convention for "no internal threading".
++_NATIVE_THREAD_CLAMP_DEFAULTS: dict[str, str] = {
++    # HF tokenizers: disable the Rust parallelism pool. The single most important one —
++    # tokenizers' fork-after-parallelism warning is the canonical native-race smell, and
++    # MinerU's VLM tokenizer + every embedder/reranker/NLI tokenize through it.
++    "TOKENIZERS_PARALLELISM": "false",
++    # OpenMP runtime (libgomp/libiomp) under torch CPU ops + many C extensions.
++    "OMP_NUM_THREADS": "1",
++    # Intel MKL BLAS pool (torch/numpy linear algebra on Intel).
++    "MKL_NUM_THREADS": "1",
++    # OpenBLAS pool (torch/numpy linear algebra on the OpenBLAS build).
++    "OPENBLAS_NUM_THREADS": "1",
++    # NumExpr pool (pandas/numpy fast-eval).
++    "NUMEXPR_NUM_THREADS": "1",
++}
++
++
++def apply_native_thread_safety_clamp() -> None:
++    """Set the native-thread-pool clamp env vars (``setdefault``) BEFORE any native import.
++
++    Idempotent. ``setdefault`` keeps an explicit operator override (LAW VI). Disabled
++    entirely by ``PG_NATIVE_THREAD_CLAMP=0``. Never raises — a clamp failure must never
++    block a run (it would only re-expose the race, not corrupt output)."""
++    try:
++        if os.environ.get("PG_NATIVE_THREAD_CLAMP", "1").strip().lower() in {"0", "false", "no"}:
++            return
++        for _name, _value in _NATIVE_THREAD_CLAMP_DEFAULTS.items():
++            os.environ.setdefault(_name, _value)
++    except Exception:  # noqa: BLE001 — a clamp setup error must never abort the run
++        pass
++
++
++# Apply on import: the entrypoints import this module as their FIRST statement (before any
++# torch/transformers/mineru import), so importing it IS the clamp. ``sitecustomize`` also
++# calls ``apply_native_thread_safety_clamp()`` for the interpreter-startup path.
++apply_native_thread_safety_clamp()
+diff --git a/src/sitecustomize.py b/src/sitecustomize.py
+index 68153528..8450453f 100644
+--- a/src/sitecustomize.py
++++ b/src/sitecustomize.py
+@@ -11,6 +11,14 @@ import the very packages it unifies (chicken-and-egg). See that module for the f
+ """
+ from __future__ import annotations
+ 
++try:
++    # I-wire-014 (#1336): apply the native-thread-safety clamp at interpreter startup too (the
++    # earliest possible point, before any user import). Importing the standalone stdlib-only module
++    # IS the clamp. Fixes the intermittent A15 re-fetch ``malloc(): ... corrupted`` native crash.
++    import _polaris_native_thread_safety  # noqa: F401 — import-time side effect: applies the clamp
++except Exception:  # noqa: BLE001 — sitecustomize must NEVER break interpreter startup
++    pass
++
+ try:
+     # ``src`` is on sys.path (this file is src/sitecustomize.py), so the standalone installer module
+     # resolves as a bare top-level import WITHOUT touching polaris_graph / polaris_v6.

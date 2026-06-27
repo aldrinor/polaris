@@ -12,6 +12,14 @@ import the very packages it unifies (chicken-and-egg). See that module for the f
 from __future__ import annotations
 
 try:
+    # I-wire-014 (#1336): apply the native-thread-safety clamp at interpreter startup too (the
+    # earliest possible point, before any user import). Importing the standalone stdlib-only module
+    # IS the clamp. Fixes the intermittent A15 re-fetch ``malloc(): ... corrupted`` native crash.
+    import _polaris_native_thread_safety  # noqa: F401 — import-time side effect: applies the clamp
+except Exception:  # noqa: BLE001 — sitecustomize must NEVER break interpreter startup
+    pass
+
+try:
     # ``src`` is on sys.path (this file is src/sitecustomize.py), so the standalone installer module
     # resolves as a bare top-level import WITHOUT touching polaris_graph / polaris_v6.
     import _polaris_import_alias
