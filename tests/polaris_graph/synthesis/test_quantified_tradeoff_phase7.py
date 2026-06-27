@@ -624,3 +624,111 @@ def test_canonical_display_formats():
     assert _canonical_display(1548, "", "count") == "1,548"
     assert _canonical_display(-200.0, "", "number") == "-200"
     assert _canonical_display(1_000_000.0, "", "number") == "1,000,000"  # not 1e+06
+
+
+# ── I-fix-001: quantified silent no-op (spec_validation_rejected) ─────────────
+def test_ifix001_unused_modeled_coefficient_pruned_section_produced():
+    # The captured cert/forensic failure mode: the Writer declares a scenario
+    # coefficient (coef_medium) it never wires into any output formula. Pre-fix the
+    # all-or-nothing material-dependency gate rejected the WHOLE spec
+    # (firing_status=spec_validation_rejected, a silent no-op). Post-fix the stray
+    # modeled input is PRUNED and the otherwise-valid spec produces a verified
+    # quantified section. Faithfulness: the rendered number is still the validated
+    # formula over a sourced (cited) datapoint, re-checked by Regime C.
+    rows = {
+        "ev_1": {
+            "statement": "The total program cost was $2.0 billion in fiscal 2024.",
+            "direct_quote": "The total program cost was $2.0 billion in fiscal 2024.",
+            "source_url": "https://example.org/x", "tier": "T1",
+        },
+    }
+
+    async def spec_provider(_q, sourced):
+        dp = next(d for d in sourced if abs(float(d["value"]) - 2_000_000_000.0) < 1)
+        return {
+            "model_id": "tco", "title": "TCO",
+            "inputs": [
+                {"name": "cost", "datapoint_ref": {
+                    "ev_id": dp["evidence_id"], "label": dp["label"],
+                    "context": dp["context"], "value": dp["value"],
+                    "unit": dp["unit"]}},
+                {"name": "years", "base": 3.0, "unit": "years",
+                 "sweep": [1.0, 5.0, 1.0], "modeled": True},
+                # the cert-run failure: a scenario coefficient wired into NO formula
+                # (and even a sweep over it, which must be dropped, not fatal).
+                {"name": "coef_medium", "base": 1.0, "unit": "",
+                 "sweep": [0.5, 1.5, 0.5], "modeled": True},
+            ],
+            "outputs": [{"name": "tco", "unit": "USD", "display_kind": "currency",
+                         "formula": "cost * years"}],
+            "sensitivity": [{"input": "years", "output": "tco"},
+                            {"input": "coef_medium", "output": "tco"}],
+        }
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert telem["spec_produced"] and telem["execution_success"]
+    assert telem["firing_status"] == "fired" and telem["verified_sentences"] >= 1
+    assert section is not None and "Quantified Trade-off" in section
+    assert "$6,000,000,000.00" in section                  # 2e9 * 3 (coef pruned)
+    assert "spec_reject_reason" not in telem               # not rejected
+
+
+def test_ifix001_unused_sourced_input_still_fatal_with_named_reason():
+    # Faithfulness preserved: an unused SOURCED input (a CITED number that affects
+    # no output) stays FATAL — never silently citing a number that does nothing —
+    # and the reject names the exact gate via on_reject (durable attribution).
+    reasons: list[str] = []
+
+    def raw(_q, _s):
+        spec = _tco_raw_spec(_q, _s)
+        spec["inputs"].append({"name": "unused", "datapoint_ref": {
+            "ev_id": "ev_021", "label": "annual maintenance",
+            "context": "Annual maintenance is $120 million per year",
+            "value": "120000000.0", "unit": "USD"}})
+        return spec
+
+    built = build_quantified_spec(
+        "q", [_CAPEX, _OPEX], _evidence_rows(),
+        spec_llm=raw, on_reject=reasons.append,
+    )
+    assert built is None                                   # still fail-closed
+    assert reasons and reasons[-1] == "non_affecting_input:unused"
+
+
+def test_ifix001_genuinely_empty_is_documented_absence_not_silent():
+    # The genuine "no defensible quantifiable model" case (Writer declines) must be
+    # a DOCUMENTED absence: the telemetry carries the EXACT contract the read-only
+    # quantified_degradation_disclosure (run_honest_sweep_r3.py) consumes to emit
+    # the reader-facing "## Capability disclosures" block — never a silent failure.
+    rows = {"ev_1": {"statement": "The cost was $2.0 billion in 2024.",
+                     "direct_quote": "The cost was $2.0 billion in 2024."}}
+
+    async def spec_provider(_q, _s):
+        return None  # Writer declines: no defensible quantifiable model
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert section is None
+    assert telem.get("enabled") is True                    # disclosure precondition
+    assert int(telem.get("verified_sentences", 0) or 0) == 0
+    assert telem.get("firing_status") == "no_spec_returned"  # named, non-empty
+    assert "sourced_numbers_extracted" in telem            # count surfaced to reader
+
+
+def test_ifix001_reject_reason_stamped_into_telemetry():
+    # The core silent-failure fix: a build rejection surfaces its exact gate in the
+    # DURABLE telemetry (manifest), not only an uncaptured stderr WARNING.
+    rows = {"ev_1": {"statement": "x", "direct_quote": "x"}}
+
+    async def spec_provider(_q, _s):
+        return {"model_id": "tco", "title": "t", "inputs": [], "outputs": []}
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert section is None
+    assert telem["firing_status"] == "spec_validation_rejected"
+    assert telem.get("spec_reject_reason") == "outputs_empty"

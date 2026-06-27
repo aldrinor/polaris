@@ -1014,6 +1014,33 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # false-done the gate caught. ON => a >=2-DISTINCT-origin basket renders as ONE multi-cited sentence
     # surfacing all its corroborators; each clause re-passes the UNCHANGED strict_verify; flag-OFF byte-id.
     "PG_VERIFIED_COMPOSE_MULTICITED": "1",
+    # I-beatboth-011 KEYSTONE (#1289): the bake-off-winning span-quality gate (F1 0.568, ~2x the best
+    # heuristic) MUST ride the slate (force-ON + preflight-required) or the chrome/junk render fix is
+    # WIRED-BUT-DEAD on the paid run — the exact false-done class this issue exists to kill. ON => the
+    # rendered Key-Findings + Analytical-synthesis rollup finding units are screened by the GLM-5.2 LLM
+    # judge and a unit it flags is_junk=True (scraped_heading/masthead/truncation/orphan_citation) is
+    # WITHHELD from the rollup surface — §-1.3 FLAG-NOT-DROP: never deleted from the body / evidence /
+    # bibliography, only excluded from the summary. Flag-OFF (default) => the gate makes ZERO LLM calls
+    # and returns every unit is_junk=False, so report.md is byte-identical. The gate's GLM-5.2 caller
+    # builds via the credibility control surface, whose check_family_segregation requires
+    # PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 (already set for the all-GLM-5.2 stack); without it the
+    # gate fails SAFE (every unit pass-through) — confirmed below. FAITHFULNESS-NEUTRAL: an
+    # extraction-integrity classifier, not a credibility/relevance filter; strict_verify/NLI/4-role/span
+    # are UNTOUCHED.
+    "PG_SPAN_QUALITY_GATE": "1",
+    # Drift-protection: the module default is already z-ai/glm-5.2 (the §9.1.8 side-judge->mirror mapping +
+    # the measured F1 topper); pin it so a stray operator value cannot silently swap the judge model.
+    "PG_SPAN_QUALITY_GATE_PRIMARY_MODEL": "z-ai/glm-5.2",
+    # I-beatboth-011 KEYSTONE (#1289): the I-extract-001 Layer-A fetch-side companions to the span gate.
+    # PG_HTML_EXTRACTOR=trafilatura_precision favors precision on extraction (fewer page-furniture spans
+    # enter the corpus in the first place — the upstream half of the chrome fix); PG_BLOCK_PAGE_DETECTOR=1
+    # re-routes/re-fetches a block/stub page so a login-wall/CAPTCHA stub never becomes a "fetched" source.
+    # Both are FAITHFULNESS-SAFE (they improve the INPUT corpus; touch no gate). PG_HTML_EXTRACTOR is a
+    # STRING value -> it CANNOT ride the truthy required-flags loop; it is force-EXACT + value-equals-
+    # asserted in preflight_full_capability (the PG_RELEVANCE_SCORER precedent). PG_BLOCK_PAGE_DETECTOR is
+    # a boolean -> force-ON + preflight-required.
+    "PG_HTML_EXTRACTOR": "trafilatura_precision",
+    "PG_BLOCK_PAGE_DETECTOR": "1",
     # I-arch-011 run-5 794->9 collapse — two of the FOUR stacked breadth-restore conditions (the forensic
     # collapse_forensic_plan.json F4 + F5; F1 finding_key + F2 basket-decouple are code fixes). FAITHFULNESS-
     # NEUTRAL consolidation knobs — they MERGE/RENDER already-verified corroborators, never drop/cap.
@@ -1177,6 +1204,72 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # the tripwire to telemetry-only on a paid run. FAITHFULNESS-NEUTRAL: the canary asserts NO content —
     # it only REFUSES to ship a chrome-saturated (untrustworthy) report.md.
     "PG_RENDER_CHROME_CANARY": "enforce",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-wire-001 (#1296 section-winner board): force-set the LOCKED section winners so a Gate-B run
+    # exercises the winning slate REGARDLESS of the operator's .env. Each flag is DEFAULT-OFF (or a
+    # default model) in code so a non-benchmark run stays byte-identical; the slate ACTIVATES the winner
+    # and the frozensets below FORCE it (a stray operator =0 / other-model cannot survive — the recurring
+    # "built-but-left-off" / silent-downgrade trap). FAITHFULNESS-NEUTRAL throughout: every winner is a
+    # retrieval / selection / consolidation / scope ROUTING or MODEL choice — none touches strict_verify /
+    # the 4-role D8 seam / provenance / NLI entailment (the FROZEN faithfulness engine). 11 winner flags
+    # are WIRED on the run path (each verified to have a live consumer that executes during run_one_query);
+    # the 1 build-deferred winner (W9 dedup) is handled by a LOUD preflight WARNING in
+    # preflight_full_capability — NOT preflight-required — so a paid run never FALSE-PASSES on a winner
+    # whose consumer is not yet on the run path. SLATE-SET + PREFLIGHT-GATED IS NOT "FIRED": firing is
+    # proven only by the e2e firing canary / §-1.1 audit, never by this env gate.
+    #
+    # BOOLEAN winners (force-ON below + truthy-preflight-required): each consumer reads the flag truthy.
+    "PG_QGEN_FS_RESEARCHER": "1",        # W2 qgen=FS-Researcher (run_honest_sweep_r3:7118 _run_fs_researcher_retrieval)
+    "PG_SEARCH_FUSION_WRRF": "1",        # W3 fusion=WRRF (domain_backends:69 / search_fusion_wrrf:55)
+    "PG_CONTENT_RELEVANCE_JUDGE": "1",   # W5 relevance=Qwen3-Rerank-0.6B+GLM judge (content_relevance_judge:77 / live_retriever:459)
+    "PG_CREDIBILITY_LLM_TIERING": "1",   # W8 cred=llm_tiering (tier_classifier:1233 / live_retriever:4178)
+    "PG_CONSOLIDATION_NLI": "1",         # W10 consolidate=NLI (finding_dedup:585 / consolidation_nli:67)
+    "PG_ADEQUACY_CRAG": "1",             # W11 adequacy=CRAG (run_honest_sweep_r3:7446 CRAG loop)
+    # W1 scope=intent_frame: the MODULE (src/polaris_graph/nodes/intent_frame.py) is built + flag-aware,
+    # and run_intent_frame() is NOW called on the sweep scope-gate path (run_honest_sweep_r3.py:6426,
+    # gated by intent_frame_enabled()/PG_SCOPE_INTENT_FRAME and FAIL-CLOSED when enabled — it raises
+    # IntentFrameError that is deliberately NOT caught). I-wire-001 P1-1: it therefore GRADUATED out of
+    # the build-deferred WARNING into _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS below (a live run-path consumer
+    # now reads it, so requiring it can no longer FALSE-PASS). The advisory intent decomposition runs IN
+    # FRONT OF the binding run_scope_gate. FAITHFULNESS-NEUTRAL: advisory routing context only;
+    # run_scope_gate stays the single binding gate.
+    "PG_SCOPE_INTENT_FRAME": "1",
+    # STRING (model-selector) winners (force-EXACT below + value-equals-asserted in preflight — they
+    # CANNOT ride the truthy required-flags loop, which only accepts "1"/"true"/"True", the same reason
+    # PG_RELEVANCE_SCORER is asserted separately). A model winner silently OFF = the default model runs.
+    "PG_CLINICAL_PDF_EXTRACTOR": "mineru25",                       # W4 clinical-PDF (access_bypass:2968; else docling/PyMuPDF)
+    "PG_EMBEDDER_MODEL": "qwen3",                                  # W6 embed=Qwen3-Embedding-8B (config/core:195, embedding_service:59; else MiniLM)
+    "PG_RERANKER_MODEL": "qwen3",                                  # W7 rerank=Qwen3-Reranker-4B (config/core:218, evidence_selector:2306; else MiniLM/identity)
+    "PG_CONTENT_RELEVANCE_RERANKER_MODEL": "Qwen/Qwen3-Reranker-0.6B",  # W5 relevance reranker model (content_relevance_judge:182)
+    # WINNERS ALREADY COVERED by EXISTING slate entries (kept intact, NOT re-added):
+    #   W12 compose=floor_abstractive  -> PG_ABSTRACTIVE_WRITER (force-ON + preflight-required above)
+    #   W13 verify=keep-floor          -> PG_STRICT_VERIFY_ENTAILMENT=enforce + the FROZEN faithfulness engine
+    #   W14 render=det                 -> deterministic render (default) + PG_RENDER_CHROME_CANARY=enforce
+    # W9 dedup=ContentDeduplicator: NO Gate-B run-path consumer exists — and NO flag (not even
+    #   PG_ADEQUACY_CRAG) wires it. Verified (I-wire-001 P1-2): the ONLY module that calls
+    #   ContentDeduplicator.deduplicate() on any pipeline is CRAGRetriever._dedup_chunks
+    #   (crag_retriever.py:664), whose ONLY call site is graph_v2.py:341 — the FROZEN pipeline-B
+    #   LangGraph, DEAD on the active sweep path (docs/content_relevance_filtering_2026.md:73-82; 0 CRAG
+    #   refs in run_honest_sweep_r3). The Gate-B W11 "CRAG" (PG_ADEQUACY_CRAG) is a DIFFERENT module — the
+    #   crag_adequacy_loop LLM classifier, which explicitly refuses to instantiate CRAGRetriever
+    #   (crag_adequacy_loop.py:35) and never calls ContentDeduplicator. So PG_ADEQUACY_CRAG does NOT wire
+    #   W9 transitively. The other deduplicate() callers (agents/analyst_agent, polaris_graph/agents/
+    #   analyzer, polaris_graph/graph) are also pipeline-B/C and are NOT imported by run_honest_sweep_r3.
+    #   Therefore the [content_dedup] canary fires for pipeline-B/agents callers only; its ABSENCE on a
+    #   Gate-B run is EXPECTED, not a regression. The content/source near-dup FUNCTION on Gate-B is served
+    #   in the §-1.3 consolidate-keep-all form by finding_dedup same-work consolidation (#7, keys on DOI/
+    #   folded title); a residual gap remains for different-title near-identical-body syndication that
+    #   ContentDeduplicator's body-MinHash would catch — deferred, NOT bolted on as a hard-drop stage
+    #   (deduplicate() returns only unique_items, i.e. a DROP — shedding corroborators would violate §-1.3
+    #   / the FROZEN faithfulness contract). NOT slate-forced / NOT preflight-required; named in the
+    #   build-deferred WARNING. Do NOT add a "W9 flag" until a real consolidate-keep-all content-dedup
+    #   stage is wired onto the sweep evidence path.
+    # SMOKE NOTE: _SMOKE_SCALE_OVERRIDES does NOT override any winner above, so a --smoke-scale run
+    # DELIBERATELY inherits the real winner models (Qwen3 embed/rerank + mineru25) as genuine
+    # model-loading plumbing coverage — a smoke on the default MiniLM would never exercise the
+    # winner-model load path, so a load bug would surface only on the expensive full run. Gate-B
+    # model-loading runs land on the GPU VM per the VM-only run policy; mineru25 degrades gracefully
+    # (logged, fetch-degraded) on a no-GPU host, never a crash.
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1212,6 +1305,13 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # I-beatboth-011 keystone-F1 (#1284): fail-CLOSED if the multi-citation synthesis flag is off before
     # spend — the keystone's central feature must FIRE on the paid run, never be silently wired-but-dead.
     "PG_VERIFIED_COMPOSE_MULTICITED",
+    # I-beatboth-011 KEYSTONE (#1289): fail-CLOSED if the span-quality gate / block-page detector are off
+    # before spend — the chrome/junk rollup fix must FIRE on the paid run, never be silently wired-but-dead
+    # (the exact false-done this issue exists to kill). Booleans -> safe in this truthy-required tuple.
+    # (PG_HTML_EXTRACTOR is a STRING value -> value-equals-asserted separately in preflight_full_capability,
+    # NOT here — it would fail the "1"/"true" check.)
+    "PG_SPAN_QUALITY_GATE",
+    "PG_BLOCK_PAGE_DETECTOR",
     "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
@@ -1294,6 +1394,28 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # credibility baskets, so PG_SWEEP_CREDIBILITY_REDESIGN above is its hard dependency.
     # FAITHFULNESS-NEUTRAL: every surfaced source re-passes the same strict_verify + section floor.
     "PG_BREADTH_ENRICHMENT_ENABLED",
+    # I-wire-001 (#1296): the 7 WIRED BOOLEAN section winners must be ON for a paid Gate-B run — OFF
+    # silently reverts each to its legacy default (FS-Researcher->legacy qgen, WRRF->no fusion,
+    # content-relevance judge OFF, credibility LLM-tiering->heuristic tiers, NLI consolidation->literal
+    # dedup, CRAG adequacy->count-floor, intent_frame->legacy run_scope_gate alone). Each consumer reads
+    # the flag truthy and is force-ON above, so a stray operator =0 fails the run CLOSED here before spend.
+    # The STRING (model-selector) winners cannot ride this truthy loop ("qwen3"/"mineru25" are not "1") —
+    # they are value-equals-asserted in preflight_full_capability. W1 intent_frame is NOW wired
+    # (run_honest_sweep_r3.py:6426, fail-closed) so it is required here; only W9 dedup remains
+    # build-deferred -> WARNING, never required (no run-path consumer would FALSE-PASS).
+    "PG_QGEN_FS_RESEARCHER",
+    "PG_SEARCH_FUSION_WRRF",
+    "PG_CONTENT_RELEVANCE_JUDGE",
+    "PG_CREDIBILITY_LLM_TIERING",
+    "PG_CONSOLIDATION_NLI",
+    "PG_ADEQUACY_CRAG",
+    # I-wire-001 P1-1: W1 scope=intent_frame GRADUATED from build-deferred to preflight-required.
+    # run_intent_frame() is now CALLED on the run path (run_honest_sweep_r3.py:6426, gated by
+    # intent_frame_enabled()/PG_SCOPE_INTENT_FRAME, FAIL-CLOSED when enabled), so OFF silently reverts the
+    # scope path to the legacy run_scope_gate alone (no advisory intent decomposition). Force-ON in the
+    # slate above; fail the run CLOSED here if a stray operator =0 left it off. FAITHFULNESS-NEUTRAL
+    # (advisory routing context only; run_scope_gate stays the single binding gate).
+    "PG_SCOPE_INTENT_FRAME",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -1350,6 +1472,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # fail-open (a synthesis pre-pass failure omits the digest, never aborts the report); faithfulness-
     # SAFE because every synthesized sentence re-passes the UNCHANGED strict_verify or is dropped.
     "PG_SWEEP_DEPTH_LAYER",
+    # I-beatboth-011 KEYSTONE (#1289): force-on the span-quality gate + the block-page detector so a stray
+    # operator =0 cannot survive the setdefault slate and silently leave the chrome/junk rollup screen
+    # wired-but-dead (the exact false-done this issue exists to kill). FAITHFULNESS-NEUTRAL (an
+    # extraction-integrity classifier + an input re-fetch; touch no faithfulness gate). PG_HTML_EXTRACTOR
+    # is a STRING -> force-EXACT below, not here.
+    "PG_SPAN_QUALITY_GATE",
+    "PG_BLOCK_PAGE_DETECTOR",
     # I-beatboth-011 §3.1 ROUTE C (#1289): force-on the faithful abstractive writer (the per-basket prose
     # PRODUCER inside PG_VERIFIED_COMPOSE). OFF reverts the cert run to the verbatim short-writer render
     # probe. Fail-closed activation also needs PG_STRICT_VERIFY_ENTAILMENT=enforce (force-on above).
@@ -1435,6 +1564,19 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # above. Re-add this pin in the same PR that lands the ITEM 5a hook + the corpus-identity guard.
     "PG_SENTINEL_TRANSPORT_DEGRADE",
     "PG_TRAFILATURA_SUBPROCESS",
+    # I-wire-001 (#1296): force-ON the BOOLEAN section winners so a stray operator =0 cannot survive the
+    # setdefault slate and silently revert a winner to its legacy default. FAITHFULNESS-NEUTRAL (routing /
+    # selection / consolidation winners; the FROZEN faithfulness engine is untouched). The 7 wired winners
+    # are ALSO preflight-required (fail-closed before spend). PG_SCOPE_INTENT_FRAME (W1) is NOW wired — its
+    # consumer run_intent_frame() is called on the run path (run_honest_sweep_r3.py:6426, fail-closed when
+    # enabled), so it is force-ON here AND preflight-required (I-wire-001 P1-1), no longer build-deferred.
+    "PG_QGEN_FS_RESEARCHER",
+    "PG_SEARCH_FUSION_WRRF",
+    "PG_CONTENT_RELEVANCE_JUDGE",
+    "PG_CREDIBILITY_LLM_TIERING",
+    "PG_CONSOLIDATION_NLI",
+    "PG_ADEQUACY_CRAG",
+    "PG_SCOPE_INTENT_FRAME",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -1442,6 +1584,14 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
 # around capability-enabling flags keep their original meaning.
 _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_SWEEP_ANALYST_SYNTHESIS",
+    # I-beatboth-011 KEYSTONE (#1289): force-EXACT the STRING-valued span-gate companions so a stray
+    # operator/.env value cannot survive the slate. PG_HTML_EXTRACTOR=trafilatura_precision selects the
+    # precision profile (the int-FLOOR path would crash on float('trafilatura_precision')) — also
+    # value-equals-asserted in preflight_full_capability (the PG_RELEVANCE_SCORER precedent).
+    # PG_SPAN_QUALITY_GATE_PRIMARY_MODEL pins the judge model to z-ai/glm-5.2 (drift-protection; the
+    # module default already equals this).
+    "PG_HTML_EXTRACTOR",
+    "PG_SPAN_QUALITY_GATE_PRIMARY_MODEL",
     # I-beatboth-011 (a) (#1289): force-EXACT the writer tuning so a stray .env cannot restore the slow
     # 8192-reasoning / concurrency-8 / 120s defaults that timed out Route C on the resume run.
     "PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS",
@@ -1527,6 +1677,16 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # warn|off cannot silently downgrade the cert-run tripwire to telemetry-only. Faithfulness-neutral
     # (the canary REFUSES an untrustworthy chrome-saturated report.md; it asserts no content).
     "PG_RENDER_CHROME_CANARY",
+    # I-wire-001 (#1296): the 4 STRING (model-selector) section winners. Force-EXACT (the int-FLOOR path
+    # would crash on float("qwen3")/float("mineru25")) so a stray operator/.env model selection cannot
+    # silently revert a model winner to its default (MiniLM embed/rerank, docling clinical-PDF). Each is
+    # ALSO value-equals-asserted in preflight_full_capability (the PG_RELEVANCE_SCORER precedent) so a
+    # dropped force-exact pin FAILS the paid run CLOSED. FAITHFULNESS-NEUTRAL: a model choice in the
+    # retrieval/extraction lane; the FROZEN faithfulness engine re-checks every claim regardless.
+    "PG_CLINICAL_PDF_EXTRACTOR",
+    "PG_EMBEDDER_MODEL",
+    "PG_RERANKER_MODEL",
+    "PG_CONTENT_RELEVANCE_RERANKER_MODEL",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -1542,6 +1702,44 @@ _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
 # is degraded (entailment not binding / judge_error fails open) at any other value. PG_VERIFICATION_MODE
 # is NOT required here (rescue widening is out of scope; judge_error fail-closed keys on the entailment mode).
 _BENCHMARK_PREFLIGHT_ENFORCE_MODES = ("PG_STRICT_VERIFY_ENTAILMENT",)
+
+# I-wire-001 (#1296): the STRING (model-selector) section winners cannot ride the truthy
+# _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS loop (which only accepts "1"/"true"/"True"), so each is asserted
+# value-equals in preflight_full_capability — the SAME precedent as PG_RELEVANCE_SCORER=='semantic_v2'.
+# A paid run FAILS CLOSED if the slate force-exact pin was dropped and a stray/empty value left a model
+# winner silently OFF (the default model would run). Values are the slate force-exact literals (the
+# force-exact path sets os.environ to exactly these), so an exact compare is self-consistent.
+_BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS: dict[str, str] = {
+    "PG_CLINICAL_PDF_EXTRACTOR": "mineru25",                       # W4 clinical-PDF (else docling/PyMuPDF)
+    "PG_EMBEDDER_MODEL": "qwen3",                                  # W6 embed=Qwen3-Embedding-8B (else MiniLM)
+    "PG_RERANKER_MODEL": "qwen3",                                  # W7 rerank=Qwen3-Reranker-4B (else MiniLM/identity)
+    "PG_CONTENT_RELEVANCE_RERANKER_MODEL": "Qwen/Qwen3-Reranker-0.6B",  # W5 relevance reranker (0.6B)
+}
+
+# I-wire-001 (#1296): section winners whose MODULE is built + flag-aware but whose CONSUMER is NOT yet
+# wired onto the run path (build-deferred). They are NOT in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS — a
+# truthy-required flag with no run-path consumer would FALSE-PASS (env="1" while the feature never
+# fires). preflight_full_capability emits a LOUD WARNING naming each (the operator reads by ear), so the
+# gap is never silent. (name, reason) — surfaced verbatim in the warning.
+# I-wire-001 P1-1: W1 intent_frame GRADUATED out of this list — run_intent_frame() is now called on the
+# run path (run_honest_sweep_r3.py:6426, fail-closed), so it is preflight-required above. Only W9
+# remains: the I-wire-001 P1-2 dedup-agent reconcile traced EVERY ContentDeduplicator.deduplicate()
+# caller and confirmed W9 is NEITHER a standalone wire NOR CRAG-transitive (PG_ADEQUACY_CRAG is the
+# crag_adequacy_loop classifier, which never calls it) — so it is genuinely deferred, warn-only, not a
+# fake required-flag and not falsely claimed "covered by CRAG".
+_BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = (
+    (
+        "W9 dedup=ContentDeduplicator",
+        "NO Gate-B run-path consumer and NO wiring flag (not even PG_ADEQUACY_CRAG): the only caller of "
+        "ContentDeduplicator.deduplicate() is CRAGRetriever (graph_v2 / pipeline-B, dead on the active "
+        "sweep path); the Gate-B PG_ADEQUACY_CRAG is the crag_adequacy_loop classifier, which never calls "
+        "it (I-wire-001 P1-2 dedup-agent reconcile — W9 does NOT fire transitively via CRAG). The content "
+        "near-dup function is served on Gate-B by finding_dedup same-work consolidation (#7, "
+        "consolidate-keep-all); a hard-drop content-dedup stage is deliberately NOT wired (it would shed "
+        "corroborators — §-1.3). Wire a consolidate-keep-all content-dedup stage before adding any W9 "
+        "flag — NOT slate-forced and NOT preflight-required",
+    ),
+)
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
 # frame_fetcher's default `_FULLTEXT_ENTITY_TYPES` is trial/review-only (pivotal_trial,clinical_trial,
@@ -1737,6 +1935,23 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
     feature flags, the semantic_v2 relevance scorer, the cited-span window bound, the enforce-mode
     verifier, the row-cap ban, and the timeout-hierarchy ORDERING (which the smoke still satisfies).
     Default OFF = a full cert run validates every floor exactly as before."""
+    # I-wire-001 (#1296): LOUD WARNING for the build-deferred section winner (W9 dedup — no run-path
+    # consumer and no wiring flag; the I-wire-001 P1-2 dedup-agent reconcile confirmed it is neither a
+    # standalone wire nor CRAG-transitive). W1 intent_frame GRADUATED to preflight-required at I-wire-001
+    # P1-1 (run_intent_frame() is now called at run_honest_sweep_r3.py:6426, fail-closed), so it is no
+    # longer warned here. Emitted FIRST — before any raise below — so it ALWAYS surfaces (the operator
+    # reads by ear; it must not be skippable behind a later abort). NOT a raise: W9 is honestly not on the
+    # run path, so REQUIRING it would FALSE-PASS (env set while the feature never fires). Naming it keeps
+    # the gap explicit, never silent.
+    import logging as _wire_logging
+    _wire_logger = _wire_logging.getLogger("run_gate_b")
+    for _deferred_name, _deferred_why in _BENCHMARK_BUILD_DEFERRED_WINNERS:
+        _deferred_msg = (
+            f"[preflight WARNING] I-wire-001 build-deferred section winner NOT enforced: "
+            f"{_deferred_name} — {_deferred_why}"
+        )
+        _wire_logger.warning(_deferred_msg)
+        print(_deferred_msg)
     # I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate assertion on the cert entry. The
     # Gate-B 4-role run goes through run_one_query (NOT run_honest_sweep_r3.main_async), so its
     # fail-closed preflight lives HERE. The slate above force-sets the binding-faithfulness env
@@ -1847,6 +2062,34 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
             f"embedding-cosine relevance scorer + restored relevance filter are dead-by-config (legacy "
             f"lexical scorer runs instead). Set PG_RELEVANCE_SCORER=semantic_v2 before the run."
         )
+    # I-beatboth-011 KEYSTONE (#1289): PG_HTML_EXTRACTOR selects the trafilatura profile by a STRING value,
+    # not a boolean, so it cannot ride the truthy-required loop above (the PG_RELEVANCE_SCORER precedent).
+    # Fail closed if it is not the precision profile for a paid run — OFF/'default' silently reverts the
+    # fetch lane to the recall profile that lets more page-furniture into the corpus (the upstream half of
+    # the chrome fix). The slate force-EXACTs it to 'trafilatura_precision'.
+    _html_extractor = os.getenv("PG_HTML_EXTRACTOR", "default").strip().lower()
+    if _html_extractor != "trafilatura_precision":
+        raise RuntimeError(
+            f"benchmark preflight FAILED: PG_HTML_EXTRACTOR={_html_extractor!r} is not "
+            f"'trafilatura_precision' — the precision extraction profile is dead-by-config (the recall "
+            f"profile runs instead, admitting more page-furniture spans). Set "
+            f"PG_HTML_EXTRACTOR=trafilatura_precision before the run."
+        )
+    # I-wire-001 (#1296): value-equals assertions for the 4 STRING (model-selector) section winners —
+    # they cannot ride the truthy required-flags loop above ("qwen3"/"mineru25"/"Qwen/Qwen3-Reranker-0.6B"
+    # are not "1"), the SAME reason PG_RELEVANCE_SCORER is asserted separately. Fail CLOSED so a dropped
+    # force-exact pin or a stray/empty value can never silently leave a model winner OFF (the default
+    # model would run). Unconditional (smoke + full): the slate force-exacts these on BOTH paths
+    # (_SMOKE_SCALE_OVERRIDES does not touch them), so the assertion passes on a smoke too and a smoke
+    # genuinely exercises the winner-model load path. FAITHFULNESS-NEUTRAL (model choice; engine frozen).
+    for _winner_flag, _winner_expected in _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS.items():
+        _winner_value = os.getenv(_winner_flag, "").strip()
+        if _winner_value != _winner_expected:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {_winner_flag}={_winner_value!r} != I-wire-001 winner "
+                f"value {_winner_expected!r} — the section winner is silently OFF (the default model "
+                f"runs instead). The slate force-exacts it; restore the pin before the run."
+            )
     # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span window must stay BOUNDED. An oversized
     # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
     # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;

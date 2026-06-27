@@ -463,6 +463,12 @@ async def run_quantified_section(
     spec = build_quantified_spec(
         question, sourced_numbers, evidence_pool,
         spec_llm=lambda _q, _s: raw_spec,
+        # I-fix-001: capture the EXACT fail-closed gate into telemetry so the silent
+        # no-op names itself in the DURABLE manifest. Sweep run.log captures stdout,
+        # not the stderr WARNINGs build_quantified_spec emits — so before this the
+        # cert-run spec_validation_rejected had no attributable gate. Additive: the
+        # key is written only when a reason fires (None spec_llm => byte-identical).
+        on_reject=lambda _r: telem.__setitem__("spec_reject_reason", _r),
     )
     if spec is None:
         # The Writer returned a dict but it FAILED hard validation in
@@ -475,7 +481,8 @@ async def run_quantified_section(
         _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
         logger.warning(
             "[quantified_analysis] NO-OP (spec_validation_rejected): Writer emitted a "
-            "spec dict but it failed build_quantified_spec validation (fail-closed)",
+            "spec dict but it failed build_quantified_spec validation (fail-closed): %s",
+            telem.get("spec_reject_reason", "unattributed"),
         )
         return None, telem
     telem["spec_produced"] = True

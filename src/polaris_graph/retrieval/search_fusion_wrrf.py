@@ -210,6 +210,9 @@ def wrrf_fuse(
     )
     fused = [first_seen[u] for u in fused_urls]
 
+    n_backends = len(per_engine_counts)
+    logger.info("[wrrf] fused %d backends -> %d ranked candidates", n_backends, len(fused))
+
     return WrrfResult(
         fused=fused,
         scores=scores,

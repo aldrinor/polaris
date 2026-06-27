@@ -1735,6 +1735,40 @@ def _readability_extract(html: str) -> str:
     return no_tags.strip()
 
 
+# I-extract-001 Layer-A (data-picked HTML main-content extractor): flag-gated
+# trafilatura profile at the post-fetch HTML->text seam (_strip_html). The
+# I-extract-001 Layer-A leaderboard measured trafilatura's favor_precision profile
+# trimming page furniture while holding body-anchor recall at 1.000 (no body loss).
+# The flag is OPT-IN: the default profile ("default" / unset) preserves the prior
+# trafilatura behavior so no existing run changes silently. Faithfulness-neutral:
+# it only changes WHICH text trafilatura returns; the readability-lxml -> regex
+# fallback chain and the downstream strict_verify span-grounding are untouched.
+PG_HTML_EXTRACTOR_ENV = "PG_HTML_EXTRACTOR"
+_HTML_EXTRACTOR_DEFAULT = "default"
+_HTML_EXTRACTOR_TRAFILATURA_PRECISION = "trafilatura_precision"
+
+
+def _trafilatura_extract_kwargs() -> dict[str, Any]:
+    """Resolve the trafilatura.extract kwargs for the configured PG_HTML_EXTRACTOR
+    profile. Read at CALL time (not import) so deploy-slate / test overrides apply
+    without re-import. Returns {} for the default profile (current behavior) and
+    {"favor_precision": True} for the data-picked precision profile. An UNKNOWN
+    value fails LOUD (warns + uses the default profile) rather than silently
+    no-op'ing a typo'd flag into the wrong extractor."""
+    mode = os.getenv(PG_HTML_EXTRACTOR_ENV, _HTML_EXTRACTOR_DEFAULT).strip().lower()
+    if mode in ("", _HTML_EXTRACTOR_DEFAULT):
+        return {}
+    if mode == _HTML_EXTRACTOR_TRAFILATURA_PRECISION:
+        return {"favor_precision": True}
+    logger.warning(
+        "[live_retriever] unknown %s=%r — expected %r or %r; using trafilatura "
+        "defaults",
+        PG_HTML_EXTRACTOR_ENV, mode, _HTML_EXTRACTOR_DEFAULT,
+        _HTML_EXTRACTOR_TRAFILATURA_PRECISION,
+    )
+    return {}
+
+
 def _strip_html(html: str) -> str:
     """Extract visible text from HTML via trafilatura (BB5-S03 SIGSEGV-guarded),
     then a readability-lxml fallback (BB5-C05), then a regex fallback, then APPEND
@@ -1748,9 +1782,23 @@ def _strip_html(html: str) -> str:
     # C-crash on a pathological doc is NOT a catchable Python exception.
     try:
         from src.tools.access_bypass import safe_trafilatura_extract
-        extracted = safe_trafilatura_extract(html) or ""
+        # I-extract-001 Layer-A: select the trafilatura profile via PG_HTML_EXTRACTOR
+        # (default = current behavior; "trafilatura_precision" = favor_precision=True).
+        extract_kwargs = _trafilatura_extract_kwargs()
+        extracted = safe_trafilatura_extract(html, **extract_kwargs) or ""
         if extracted:
             base = extracted
+            if extract_kwargs:
+                # Behavioral canary: confirm the precision profile actually
+                # produced the extracted base text (the favor_precision kwarg
+                # reached trafilatura and did NOT silently fall through to the
+                # readability/regex tiers). Only fires when the opt-in flag is
+                # set, so default runs stay quiet.
+                logger.info(
+                    "[live_retriever] PG_HTML_EXTRACTOR=%s active — trafilatura "
+                    "favor_precision produced %d chars",
+                    _HTML_EXTRACTOR_TRAFILATURA_PRECISION, len(base),
+                )
     except Exception:  # noqa: BLE001 — import/guard failure must never break strip
         pass
     if not base:

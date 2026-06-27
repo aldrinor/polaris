@@ -470,33 +470,49 @@ def build_quantified_spec(
     evidence_rows: dict[str, dict[str, Any]],
     *,
     spec_llm: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None],
+    on_reject: Callable[[str], None] | None = None,
 ) -> ModelSpec | None:
     """Build + validate a ModelSpec from a Writer-emitted raw JSON spec.
 
     ``spec_llm(question, sourced_numbers) -> raw_spec_dict | None`` is the (faked
     in tests / Writer in prod) spec generator. Returns a validated ``ModelSpec``
     or ``None`` (whole model skipped, fail-closed) on ANY violation.
+
+    I-fix-001: ``on_reject`` (additive; default ``None`` => byte-identical) is
+    invoked with a SHORT machine-readable reason code at EVERY fail-closed return
+    so the caller can stamp ``telem["spec_reject_reason"]`` into the durable
+    manifest. Sweep run.log captures stdout, not stderr WARNINGs, so without this
+    the exact rejecting gate was invisible post-run — the I-fix-001 silent no-op:
+    a cert run recorded ``firing_status=spec_validation_rejected`` with NO
+    attributable gate. The reason channel makes the silent failure name itself.
     """
+    def _reject(reason: str) -> None:
+        # One channel for every fail-closed exit: log (stderr) AND surface the
+        # reason to the caller's telemetry (durable manifest). Returns None so
+        # callers write ``return _reject(...)``.
+        logger.warning("[tradeoff_modeler] reject: %s", reason)
+        if on_reject is not None:
+            on_reject(reason)
+        return None
+
     try:
         raw = spec_llm(question, sourced_numbers)
     except Exception as exc:  # spec-gen failure is a clean skip, not a crash
-        logger.warning("[tradeoff_modeler] spec_llm raised: %s", str(exc)[:160])
-        return None
+        return _reject(f"spec_llm_raised:{str(exc)[:120]}")
     if not isinstance(raw, dict):
-        return None
+        return _reject("raw_not_dict")
 
     model_id = str(raw.get("model_id", "")).strip()
     title = str(raw.get("title", "")).strip()
     if not re.fullmatch(r"[A-Za-z0-9_]+", model_id or ""):
-        logger.warning("[tradeoff_modeler] reject: bad model_id %r", model_id)
-        return None
+        return _reject(f"bad_model_id:{model_id!r}")
 
     raw_inputs = raw.get("inputs")
     raw_outputs = raw.get("outputs")
     if not isinstance(raw_inputs, list) or not isinstance(raw_outputs, list):
-        return None
+        return _reject("inputs_or_outputs_not_list")
     if not raw_outputs:
-        return None  # (iv) outputs non-empty
+        return _reject("outputs_empty")  # (iv) outputs non-empty
 
     sourced: list[SourcedInput] = []
     modeled: list[ModeledInput] = []
@@ -504,19 +520,18 @@ def build_quantified_spec(
 
     for ri in raw_inputs:
         if not isinstance(ri, dict):
-            return None
+            return _reject("input_not_dict")
         name = str(ri.get("name", "")).strip()
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or "") or name in seen_names:
-            logger.warning("[tradeoff_modeler] reject: bad/dup input name %r", name)
-            return None
+            return _reject(f"bad_or_dup_input_name:{name!r}")
         seen_names.add(name)
 
         is_modeled = bool(ri.get("modeled"))
         has_ref = isinstance(ri.get("datapoint_ref"), dict)
         if is_modeled and has_ref:
-            return None  # ambiguous: must be exactly one category
+            return _reject(f"input_both_modeled_and_sourced:{name}")  # one category
         if not is_modeled and not has_ref:
-            return None  # (P7-9) neither sourced nor modeled -> fail-closed
+            return _reject(f"input_neither_sourced_nor_modeled:{name}")  # (P7-9)
 
         if is_modeled:
             try:
@@ -525,44 +540,36 @@ def build_quantified_spec(
                 sweep = ri.get("sweep") or [0.0, 0.0, 0.0]
                 lo, hi, step = float(sweep[0]), float(sweep[1]), float(sweep[2])
             except (KeyError, IndexError, TypeError, ValueError):
-                return None
+                return _reject(f"modeled_input_bad_fields:{name}")
             if not all(math.isfinite(x) for x in (base, lo, hi, step)):
-                return None
+                return _reject(f"modeled_input_non_finite:{name}")
             modeled.append(ModeledInput(name, base, unit, lo, hi, step))
             continue
 
         # ── sourced: exact-one-match identity + literal+span derivation ──────
         ref = ri["datapoint_ref"]
         if not isinstance(ref, dict):
-            return None
+            return _reject(f"datapoint_ref_not_dict:{name}")
         cand = [dp for dp in sourced_numbers if _matches_datapoint(ref, dp)]
         if len(cand) != 1:                                   # (i) exact-one-match
-            logger.warning(
-                "[tradeoff_modeler] reject: input %r matched %d datapoints "
-                "(need exactly 1)", name, len(cand),
-            )
-            return None
+            return _reject(f"datapoint_ref_matched_{len(cand)}:{name}")
         dp = cand[0]
         try:
             value = float(dp["value"])
         except (KeyError, TypeError, ValueError):
-            return None
+            return _reject(f"datapoint_value_unparseable:{name}")
         unit = str(dp.get("unit", ""))
         ev_id = str(dp.get("evidence_id", ""))
         ev_row = evidence_rows.get(ev_id)
         if not isinstance(ev_row, dict):
-            return None
+            return _reject(f"evidence_row_missing:{name}:{ev_id}")
         ev_text = _evidence_text(ev_row)
         located = _locate_unique_literal(ev_text, value)
         if located is None:                                  # (i) literal+span
             # fall back to the datapoint context string (still evidence-derived)
             located = _locate_unique_literal(str(dp.get("context", "")), value)
         if located is None:
-            logger.warning(
-                "[tradeoff_modeler] reject: no unique literal span for input %r "
-                "value=%s in ev %s", name, value, ev_id,
-            )
-            return None
+            return _reject(f"no_unique_literal_span:{name}:{ev_id}")
         literal, lstart, lend = located
         sourced.append(SourcedInput(
             name=name, value=value, unit=unit, ev_id=ev_id,
@@ -571,7 +578,7 @@ def build_quantified_spec(
         ))
 
     if not sourced and not modeled:
-        return None
+        return _reject("no_inputs")
     allowed = set(seen_names)
 
     # ── outputs: pure-arithmetic AST + display_kind ─────────────────────────
@@ -580,22 +587,53 @@ def build_quantified_spec(
     output_refs: dict[str, set[str]] = {}
     for ro in raw_outputs:
         if not isinstance(ro, dict):
-            return None
+            return _reject("output_not_dict")
         oname = str(ro.get("name", "")).strip()
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", oname or "") or oname in out_names:
-            return None
+            return _reject(f"bad_or_dup_output_name:{oname!r}")
         out_names.add(oname)
         display_kind = str(ro.get("display_kind", "number"))
         if display_kind not in _DISPLAY_KINDS:
-            return None
+            return _reject(f"bad_display_kind:{oname}:{display_kind}")
         formula = str(ro.get("formula", "")).strip()
         ok, reason, refs = _formula_names(formula, allowed)   # (ii)
         if not ok:
-            logger.warning("[tradeoff_modeler] reject: output %r formula: %s",
-                           oname, reason)
-            return None
+            return _reject(f"formula_invalid:{oname}:{reason}")
         output_refs[oname] = refs
         outputs.append(OutputField(oname, str(ro.get("unit", "")), display_kind, formula))
+
+    # ── I-fix-001: prune UNREFERENCED modeled assumptions (NOT fatal) ───────
+    # The GLM-5.2 / deepseek-v4-pro Writer routinely declares a scenario
+    # coefficient (e.g. coef_low / coef_medium / coef_high) as a modeled input
+    # but wires only some of them into the output formulas. The all-or-nothing
+    # material-dependency gate below then rejected the ENTIRE otherwise-valid
+    # spec because one stray coefficient "materially affects NO output" (captured
+    # on a run: the single reject 'coef_medium materially affects NO output').
+    # A MODELED input carries NO evidence citation and an UNREFERENCED one is
+    # never rendered or labeled, so dropping it changes NO rendered number —
+    # faithfulness-neutral. Only UNREFERENCED modeled inputs are safe to drop (a
+    # referenced name is needed by a formula and cannot be removed); a non-
+    # affecting SOURCED input stays FATAL in the gate below (a cited number that
+    # does nothing is a misleading citation), as does a referenced-but-canceling
+    # input of either kind. Byte-identical when every modeled input is referenced.
+    referenced_by_formula: set[str] = set()
+    for _refs in output_refs.values():
+        referenced_by_formula |= _refs
+    pruned_modeled_names = {
+        m.name for m in modeled if m.name not in referenced_by_formula
+    }
+    if pruned_modeled_names:
+        for _nm in sorted(pruned_modeled_names):
+            logger.info(
+                "[tradeoff_modeler] prune unused modeled assumption %r "
+                "(referenced by no output formula) — keeping the rest of the spec",
+                _nm,
+            )
+        modeled = [m for m in modeled if m.name not in pruned_modeled_names]
+        seen_names -= pruned_modeled_names
+        allowed = set(seen_names)
+        if not sourced and not modeled:
+            return _reject("no_inputs_after_prune")
 
     # ── (iii) NUMERIC material dependency — the PRIMARY gate ────────────────
     # Every declared input must move >=1 output under perturbation at a
@@ -606,10 +644,9 @@ def build_quantified_spec(
     try:
         base_out = {o.name: _eval_formula(o.formula, base_env) for o in outputs}
     except (ValueError, ZeroDivisionError, OverflowError) as exc:
-        logger.warning("[tradeoff_modeler] reject: base eval failed: %s", str(exc)[:80])
-        return None
+        return _reject(f"base_eval_failed:{str(exc)[:80]}")
     if not all(math.isfinite(v) for v in base_out.values()):
-        return None
+        return _reject("base_output_non_finite")
     for nm in allowed:
         bval = base_env[nm]
         perturbed = bval * (1.0 + _DEPENDENCY_PERTURB_DELTA) if bval != 0 else 1.0
@@ -631,27 +668,35 @@ def build_quantified_spec(
                 moved = True
                 break
         if not moved:
-            logger.warning(
-                "[tradeoff_modeler] reject: input %r materially affects NO output "
-                "(canceling/zero-effect dependency)", nm,
+            # I-fix-001: unreferenced modeled inputs were pruned above, so anything
+            # that reaches here and affects no output is either a SOURCED input
+            # (misleading citation) or a referenced-but-canceling input — both FATAL.
+            return _reject(
+                f"non_affecting_input:{nm}"  # canceling/zero-effect dependency
             )
-            return None
 
     # ── (v) sensitivity well-formedness ─────────────────────────────────────
     modeled_names = {m.name for m in modeled}
     sensitivity: list[Sensitivity] = []
     for rs in (raw.get("sensitivity") or []):
         if not isinstance(rs, dict):
-            return None
+            return _reject("sensitivity_not_dict")
         sin = str(rs.get("input", ""))
         sout = str(rs.get("output", ""))
+        # I-fix-001: a sweep over a PRUNED unused modeled assumption is meaningless
+        # (the variable is in no formula) — drop the sensitivity, do not reject.
+        if sin in pruned_modeled_names:
+            logger.info(
+                "[tradeoff_modeler] drop sensitivity over pruned modeled input %r", sin,
+            )
+            continue
         if sin not in modeled_names or sout not in out_names:
-            return None
+            return _reject(f"sensitivity_bad_input_or_output:{sin}:{sout}")
         m = next(mm for mm in modeled if mm.name == sin)
         if m.sweep_step == 0 or not math.isfinite(m.sweep_step):
-            return None
+            return _reject(f"sensitivity_bad_step:{sin}")
         if (m.sweep_hi - m.sweep_lo) * m.sweep_step <= 0:
-            return None  # step must point lo -> hi
+            return _reject(f"sensitivity_step_wrong_direction:{sin}")  # lo -> hi
         sensitivity.append(Sensitivity(sin, sout))
 
     # ── (vi) solve_for well-formedness ──────────────────────────────────────
@@ -660,9 +705,16 @@ def build_quantified_spec(
     if isinstance(rsolve, dict) and rsolve:
         var = str(rsolve.get("var", ""))
         out = str(rsolve.get("output", ""))
-        if var not in modeled_names or out not in out_names:
-            return None
-        solve_for = SolveFor(var, out)
+        # I-fix-001: a break-even solve over a PRUNED unused modeled assumption is
+        # meaningless — drop the solve_for, do not reject the whole spec.
+        if var in pruned_modeled_names:
+            logger.info(
+                "[tradeoff_modeler] drop solve_for over pruned modeled input %r", var,
+            )
+        elif var not in modeled_names or out not in out_names:
+            return _reject(f"solve_for_bad_var_or_output:{var}:{out}")
+        else:
+            solve_for = SolveFor(var, out)
 
     spec_hash = _spec_hash(model_id, sourced, modeled, outputs, sensitivity, solve_for)
     spec = ModelSpec(

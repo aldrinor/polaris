@@ -54,6 +54,15 @@ logger = logging.getLogger(__name__)
 _ENV_TIER_LLM_WORKERS = "PG_TIER_LLM_WORKERS"
 _DEFAULT_TIER_LLM_WORKERS = 10
 
+# Per-source LLM-tiering outcome states, surfaced as REAL runtime counts by the
+# post-execution canary in ``classify_sources_llm_tiering`` (never a config echo).
+# SUCCESS = GLM returned a valid tier; FALLBACK = llm_tier_one returned None
+# (judge_error / malformed / retracted) so the deterministic rules-floor was kept;
+# ERROR = an unexpected exception escaped llm_tier_one (contracted not to raise).
+_TIER_STATUS_SUCCESS = "success"
+_TIER_STATUS_FALLBACK = "fallback"
+_TIER_STATUS_ERROR = "error"
+
 # Valid tier labels the LLM may return (UNKNOWN excluded — the LLM must commit to a
 # tier; an unparseable / out-of-scheme answer falls back to the rules-floor).
 _VALID_TIER_LABELS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
@@ -240,19 +249,58 @@ def classify_sources_llm_tiering(
     caller = call_llm if call_llm is not None else _default_caller()
     workers = max_workers if max_workers is not None else _tier_llm_workers()
 
-    def _one(idx: int) -> tuple[int, ClassificationResult | None]:
-        return idx, llm_tier_one(signals_list[idx], caller)
+    def _one(idx: int) -> tuple[int, ClassificationResult | None, str]:
+        # llm_tier_one is contracted NOT to raise (it captures judge_error / timeout
+        # internally and degrades to None). The defensive guard counts any truly
+        # unexpected escape as ERROR so the canary never silently swallows it.
+        try:
+            res = llm_tier_one(signals_list[idx], caller)
+        except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
+            logger.warning(
+                "[credibility_llm_tiering] unexpected error tiering idx=%d — "
+                "falling back to rules-floor: %s",
+                idx, exc,
+            )
+            return idx, None, _TIER_STATUS_ERROR
+        status = _TIER_STATUS_SUCCESS if res is not None else _TIER_STATUS_FALLBACK
+        return idx, res, status
 
     llm_by_idx: dict[int, ClassificationResult | None] = {}
+    llm_success = 0
+    fallback_count = 0
+    error_count = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for idx, res in pool.map(_one, range(n)):
+        for idx, res, status in pool.map(_one, range(n)):
             llm_by_idx[idx] = res
+            if status == _TIER_STATUS_SUCCESS:
+                llm_success += 1
+            elif status == _TIER_STATUS_ERROR:
+                error_count += 1
+            else:
+                fallback_count += 1
 
     # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
     out: list[ClassificationResult] = []
     for idx in range(n):
         llm_res = llm_by_idx.get(idx)
         out.append(llm_res if llm_res is not None else floor_results[idx])
+
+    # POST-execution canary — REAL runtime counts, fired only after the fan-out ran.
+    # If GLM tiered nothing (llm_success == 0) the batch is DEGRADED to the rules-floor;
+    # never claim "tiered via GLM" when every source fell back (the prior false-positive).
+    attempted = n
+    if llm_success == 0:
+        logger.info(
+            "[credibility_llm_tiering] DEGRADED (rules-floor only): attempted=%d "
+            "llm_success=0 fallback=%d error=%d — GLM tiering did NOT fire",
+            attempted, fallback_count, error_count,
+        )
+    else:
+        logger.info(
+            "[credibility_llm_tiering] tiered via GLM: attempted=%d llm_success=%d "
+            "fallback=%d error=%d",
+            attempted, llm_success, fallback_count, error_count,
+        )
     return out
 
 

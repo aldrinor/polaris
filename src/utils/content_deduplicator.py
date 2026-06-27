@@ -254,6 +254,25 @@ class ContentDeduplicator:
         # Build clusters
         result.clusters = self._build_clusters(duplicate_of, len(items))
 
+        # Firing canary (W9): emitted ONLY when deduplicate() actually runs on
+        # the real path, reporting real runtime counts (n_in -> n_out). A wired
+        # consumer's run log will show this line; absence == the stage never
+        # executed. Distinct from the per-duplicate-class logs above so the
+        # canary fires even on a no-op (zero duplicates removed) pass.
+        # SCOPE (I-wire-001 P1-2): the only callers of this method are pipeline-B/
+        # agents code (CRAGRetriever via graph_v2; agents/analyst_agent;
+        # polaris_graph/agents/analyzer; polaris_graph/graph) — NONE are on the
+        # Gate-B sweep path (run_honest_sweep_r3 imports none of them). So this
+        # canary fires for those callers only; its ABSENCE on a Gate-B run is
+        # EXPECTED (W9 is build-deferred there — no consolidate-keep-all content-
+        # dedup stage is wired onto the sweep evidence path yet), not a regression.
+        # See run_gate_b.py W9 slate comment + the build-deferred WARNING.
+        logger.info(
+            "[content_dedup] deduped %d -> %d findings",
+            result.original_count,
+            result.unique_count,
+        )
+
         return result
 
     def calculate_similarity(

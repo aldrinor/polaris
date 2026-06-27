@@ -192,16 +192,48 @@ _NOT_CERTIFIED_CAVEAT = (
 )
 
 
-def build_abstract(sections: list[Any], release_certified: bool = True) -> str:
+def _apply_unit_screen(sentences: list[str], unit_screen) -> list[str]:
+    """I-beatboth-011 KEYSTONE (#1289): WITHHOLD flagged chrome sentences from the summary surface
+    BEFORE the join. ``unit_screen`` (injectable, default None) takes the harvested sentence LIST and
+    returns the subset to KEEP — the authoritative benchmarked span gate catches the glued-mid-prose
+    chrome the blind ``_is_render_chrome_claim`` harvest filter is structurally blind to. §-1.3
+    FLAG-NOT-DROP: a withheld sentence is excluded from the Abstract/Conclusion summary only; it is
+    UNTOUCHED in the body / evidence pool. ``None`` (the legacy caller) -> byte-identical (every
+    sentence kept). Fail-CONSERVATIVE: on any screen error the input list is returned UNCHANGED (never
+    silently empty the summary). The screen must return a subset of the input order; defensive: keep
+    only inputs the screen returned, preserving order."""
+    if unit_screen is None or not sentences:
+        return sentences
+    try:
+        kept = unit_screen(sentences)
+    except Exception:  # noqa: BLE001 — fail-conservative: never empty the summary on a screen fault
+        return sentences
+    if not isinstance(kept, list):
+        return sentences
+    kept_set = {s for s in kept if isinstance(s, str)}
+    return [s for s in sentences if s in kept_set]
+
+
+def build_abstract(sections: list[Any], release_certified: bool = True, *, unit_screen=None) -> str:
     """Return a markdown ``## Abstract`` block: verbatim span-grounded headline findings carried
     up from the body, drafted LAST. Returns "" when disabled (flag-OFF byte-identity). When the
     body has NO verified prose, renders the disclosed insufficient-evidence line (NEVER empty
     fabricated filler). ``release_certified=False`` (idx32/42) prepends the NOT-RELEASE-CERTIFIED
-    caveat for a run whose binding D8 gate did not certify release."""
+    caveat for a run whose binding D8 gate did not certify release.
+
+    I-beatboth-011 KEYSTONE (#1289): ``unit_screen`` (injectable, default None) is the authoritative
+    benchmarked span gate — when supplied, a harvested headline sentence the gate flags as chrome is
+    WITHHELD from this Abstract surface BEFORE the join (§-1.3 FLAG-NOT-DROP: withheld from the summary
+    only; untouched in the body). ``None`` = byte-identical legacy behaviour. The Abstract is the front
+    sandwich, so it rides the SAME authoritative screen as Key-Findings, not the blind harvest filter
+    alone."""
     if not synthesis_abstract_conclusion_enabled():
         return ""
     _caveat = "" if release_certified else _NOT_CERTIFIED_CAVEAT
     sentences = _harvest_abstract_sentences(sections)
+    # KEYSTONE span-quality screen BEFORE the join (no rendered-prose splitting). When every sentence
+    # is withheld the disclosed insufficient-evidence line renders (NEVER empty fabricated filler).
+    sentences = _apply_unit_screen(sentences, unit_screen)
     if not sentences:
         return _ABSTRACT_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
     # I-wire-011 (#1325) fix 3: constrain each summary line's marker RUNS (render-only).
@@ -210,16 +242,22 @@ def build_abstract(sections: list[Any], release_certified: bool = True) -> str:
     return _ABSTRACT_HEADER + _caveat + " ".join(sentences) + "\n\n"
 
 
-def build_conclusion(sections: list[Any], release_certified: bool = True) -> str:
+def build_conclusion(sections: list[Any], release_certified: bool = True, *, unit_screen=None) -> str:
     """Return a markdown ``## Conclusion`` block: verbatim span-grounded closing findings carried
     up from the body, drafted LAST. Returns "" when disabled (flag-OFF byte-identity). When the
     body has NO verified prose, renders the disclosed insufficient-evidence line (NEVER empty
     fabricated filler). ``release_certified=False`` (idx32/42) prepends the NOT-RELEASE-CERTIFIED
-    caveat for a run whose binding D8 gate did not certify release."""
+    caveat for a run whose binding D8 gate did not certify release.
+
+    I-beatboth-011 KEYSTONE (#1289): ``unit_screen`` (injectable, default None) — a closing sentence
+    the authoritative benchmarked span gate flags as chrome is WITHHELD from this Conclusion surface
+    BEFORE the join (§-1.3 FLAG-NOT-DROP). ``None`` = byte-identical legacy behaviour."""
     if not synthesis_abstract_conclusion_enabled():
         return ""
     _caveat = "" if release_certified else _NOT_CERTIFIED_CAVEAT
     sentences = _harvest_conclusion_sentences(sections)
+    # KEYSTONE span-quality screen BEFORE the join (no rendered-prose splitting).
+    sentences = _apply_unit_screen(sentences, unit_screen)
     if not sentences:
         return _CONCLUSION_HEADER + _caveat + _INSUFFICIENT_EVIDENCE + "\n\n"
     # I-wire-011 (#1325) fix 3: constrain each closing line's marker RUNS so a conclusion sentence

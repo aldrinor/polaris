@@ -20,6 +20,7 @@ Supports:
 """
 
 import asyncio
+import html
 import logging
 import os
 import re
@@ -630,6 +631,224 @@ def is_junk_source(url: str = "", text: str = "") -> bool:
     junk never enters the basket / bibliography / corroboration / citation.
     """
     return is_junk_source_host(url) or is_error_shell_text(text)
+
+
+# ---------------------------------------------------------------------------
+# D (I-extract-001 #1327): Layer-A block-page / stub DETECTOR.
+#
+# Per the I-extract-001 forensic the DOMINANT Layer-A junk source was NOT the
+# HTML extractor: 10 of 21 raw pages were Cloudflare/Akamai challenge pages,
+# Google reCAPTCHA walls, or publisher redirect/error stubs that returned
+# HTTP 200 with junk in the body — so `success=True` and the junk text reached
+# extraction and became "evidence". This detector flags such a body BEFORE it
+# becomes evidence so the bypass chain RE-ROUTES to the next backend (re-fetch)
+# or, when every backend is blocked, the fetch is marked FAILED → the empty/junk
+# body drops at strict_verify, NEVER fabricated.
+#
+# Faithfulness-NEUTRAL (§-1.3): it never drops a real source. A block page is
+# not a low-credibility source — it is a fetch FAILURE masquerading as content.
+# Re-routing recovers the REAL body when any backend can reach it; marking the
+# fetch failed (when none can) is the honest "we could not fetch this" signal,
+# which strict_verify already handles. Default-OFF (PG_BLOCK_PAGE_DETECTOR); when
+# OFF every fetch call site is byte-identical to the pre-existing behaviour.
+#
+# Two tiers of signal:
+#   (1) DECISIVE raw markers — interstitial-only tokens that NEVER occur in a
+#       real article body (Cloudflare `window._cf_chl_opt`, reCAPTCHA
+#       challengepage, Akamai `errors.edgesuite.net`, the publisher "there was a
+#       problem providing the content you requested" error card). Length-UNGATED:
+#       one hit is sufficient. The BROAD Cloudflare CSP/Turnstile tokens are
+#       excluded — they appear on real protected pages (see the marker table).
+#   (2) VISIBLE-TEXT phrases that CAN appear in real prose ("access denied",
+#       "enable javascript and cookies to continue") — gated to a SHORT visible
+#       body so a real article that merely QUOTES the phrase is never flagged.
+#       The visible body of every real block page is tiny (a CF "Just a moment"
+#       card ≈ 60 chars); a real article body is thousands of chars.
+# ---------------------------------------------------------------------------
+
+# Flag (LAW VI). Default OFF: '1'/'true'/'yes'/'on' (case-insensitive) enable.
+_ENV_BLOCK_PAGE_DETECTOR = "PG_BLOCK_PAGE_DETECTOR"
+
+# Decisive raw-HTML markers. Whole-substring, matched on the HTML-unescaped,
+# lowercased body. Each is specific to a challenge / WAF / stub INTERSTITIAL and
+# NEVER occurs in a legitimate article body, so no length gate is needed.
+#
+# PRECISION NOTE (validated on the I-extract-001 raw substrate): the broad
+# Cloudflare tokens "/cdn-cgi/challenge-platform/" and "challenges.cloudflare.com"
+# are DELIBERATELY EXCLUDED — they appear once on REAL Cloudflare-protected
+# article pages (the background Turnstile / bot-management beacon + CSP allow-
+# lists), so flagging on them dropped real bodies (drb ev_586 / ev_729 = §-1.3
+# false positive). `window._cf_chl_opt` (the challenge orchestration object) and
+# "checking your browser before accessing" appear ONLY on the actual interstitial.
+_BLOCK_PAGE_DECISIVE_MARKERS = (
+    ("cloudflare_challenge", "window._cf_chl_opt"),
+    ("cloudflare_challenge", "checking your browser before accessing"),
+    ("recaptcha_challenge", "recaptcha/challengepage"),
+    ("recaptcha_challenge", "recaptchachallengepageui"),
+    ("akamai_access_denied", "errors.edgesuite.net"),
+    (
+        "publisher_error_stub",
+        "there was a problem providing the content you requested",
+    ),
+)
+
+# Visible-text phrase rules: (failure_class, required-phrase tuple). ALL phrases
+# in the tuple must be present in the visible text AND the visible text must be
+# SHORT (<= _block_page_max_visible_chars). High-precision PAIRS / full phrases
+# (not single common words) so a real article never trips one.
+_BLOCK_PAGE_VISIBLE_RULES = (
+    ("akamai_access_denied", ("access denied", "you don't have permission to access")),
+    ("cloudflare_challenge", ("just a moment", "enable javascript and cookies to continue")),
+    ("javascript_wall", ("enable javascript and cookies to continue",)),
+    ("captcha_wall", ("verify you are human",)),
+    ("captcha_wall", ("performing security verification",)),
+)
+
+# Visible-body ceiling for the gated VISIBLE-TEXT rules. A CF "Just a moment"
+# card / Akamai "Access Denied" body / publisher error card all have a tiny
+# visible body; a real article body is far larger. Generous default so a short
+# real abstract is never mistaken for a stub, yet far below any real article.
+# Env-overridable (LAW VI); a malformed/<=0 value falls back to the default.
+_ENV_BLOCK_PAGE_MAX_VISIBLE_CHARS = "PG_BLOCK_PAGE_MAX_VISIBLE_CHARS"
+_DEFAULT_BLOCK_PAGE_MAX_VISIBLE_CHARS = 1500
+
+# Upper bound (chars) on the RAW body the detector will tag-strip for the
+# visible-text rules. A multi-MB real article never needs the visible-text path
+# (its raw length alone proves it is not a stub) — skipping the tag-strip there
+# keeps the screen cheap on big bodies. The decisive raw-marker scan still runs
+# (cheap substring) regardless of size. Named constant (LAW VI).
+_BLOCK_PAGE_VISIBLE_SCAN_MAX_CHARS = 300000
+
+# Visible-text floor below which a meta-refresh body is a bare redirect stub.
+_BLOCK_PAGE_REDIRECT_STUB_MAX_VISIBLE_CHARS = 300
+
+# Meta-refresh redirect detector (a stub whose only job is to bounce). A body
+# carrying a meta-refresh AND essentially no visible text is a redirect shell.
+_BLOCK_PAGE_META_REFRESH_RE = re.compile(
+    r"<meta[^>]+http-equiv=['\"]?refresh['\"]?", re.IGNORECASE
+)
+# Strip <script>/<style> bodies (their content is never user-visible text); keep
+# <noscript> inner text — the block message lives there on JS-challenge pages.
+_BLOCK_PAGE_SCRIPT_STYLE_RE = re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL
+)
+_BLOCK_PAGE_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def block_page_detector_enabled() -> bool:
+    """True iff the block-page/stub detector is enabled (PG_BLOCK_PAGE_DETECTOR).
+
+    Default OFF. Enabled by '1'/'true'/'yes'/'on' (case-insensitive); anything
+    else (incl. unset/empty/'0') is OFF, so the screen is a no-op and every fetch
+    call site is byte-identical to the pre-existing behaviour."""
+    return os.getenv(_ENV_BLOCK_PAGE_DETECTOR, "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _block_page_max_visible_chars() -> int:
+    """Visible-body ceiling for the gated visible-text rules. Malformed/<=0 ->
+    conservative default (a bad knob must never widen the screen into real
+    article bodies)."""
+    raw = os.getenv(_ENV_BLOCK_PAGE_MAX_VISIBLE_CHARS)
+    if raw is None or not raw.strip():
+        return _DEFAULT_BLOCK_PAGE_MAX_VISIBLE_CHARS
+    try:
+        val = int(raw.strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_BLOCK_PAGE_MAX_VISIBLE_CHARS
+    return val if val > 0 else _DEFAULT_BLOCK_PAGE_MAX_VISIBLE_CHARS
+
+
+def _block_page_visible_text(body: str) -> str:
+    """Cheap visible-text projection: drop <script>/<style> blocks, strip the
+    remaining tags, unescape entities, collapse whitespace, lowercase.
+    Pure string ops — never parses, never raises."""
+    no_blocks = _BLOCK_PAGE_SCRIPT_STYLE_RE.sub(" ", body)
+    no_tags = _BLOCK_PAGE_TAG_RE.sub(" ", no_blocks)
+    text = html.unescape(no_tags)
+    return " ".join(text.split()).lower()
+
+
+def classify_block_page(body: str, url: str = "") -> str:
+    """Return the block-page/stub FAILURE CLASS for a fetched body, or "" when
+    the body is NOT a block page (real content / unknown — KEEP).
+
+    Decisive raw markers fire length-UNGATED; visible-text phrase rules fire only
+    when the visible body is SHORT (so a real article quoting "access denied" is
+    never flagged). A bare meta-refresh body with negligible visible text is a
+    redirect stub. `url` is accepted for logging / future host-aware rules; the
+    verdict is body-driven (host alone is never sufficient — §-1.3). Never
+    raises (the screen must never itself abort a fetch)."""
+    if not body:
+        return ""
+    unescaped_lower = html.unescape(body).lower()
+    # (1) DECISIVE raw markers — one hit is sufficient, no length gate.
+    for klass, marker in _BLOCK_PAGE_DECISIVE_MARKERS:
+        if marker in unescaped_lower:
+            return klass
+    # (2) VISIBLE-TEXT rules — only worth computing for a body small enough to
+    # plausibly be a stub; a multi-MB article is never a visible-text stub.
+    if len(body) > _BLOCK_PAGE_VISIBLE_SCAN_MAX_CHARS:
+        return ""
+    visible = _block_page_visible_text(body)
+    visible_len = len(visible)
+    if visible and visible_len <= _block_page_max_visible_chars():
+        for klass, phrases in _BLOCK_PAGE_VISIBLE_RULES:
+            if all(phrase in visible for phrase in phrases):
+                return klass
+    # Redirect/refresh shell: a meta-refresh body with negligible visible text.
+    if (
+        visible_len <= _BLOCK_PAGE_REDIRECT_STUB_MAX_VISIBLE_CHARS
+        and _BLOCK_PAGE_META_REFRESH_RE.search(body)
+    ):
+        return "redirect_stub"
+    return ""
+
+
+def is_block_page_or_stub(body: str = "", url: str = "") -> bool:
+    """True iff `body` is a challenge / WAF block / redirect or error stub that
+    must NOT become evidence. Thin boolean wrapper over `classify_block_page`."""
+    return bool(classify_block_page(body, url))
+
+
+# Block-page detector canary (behavioral telemetry, REAL counts):
+#   detected   — total fetched bodies flagged as a block-page/stub.
+#   re_fetched — flagged URLs for which a SUBSEQUENT backend then returned clean
+#                content (a successful re-fetch / recovery). re_fetched < detected
+#                means some URLs were blocked on every backend → marked failed →
+#                dropped at strict_verify (never fabricated).
+# Guarded by its own lock (the bypass chain runs on many worker threads).
+_BLOCK_PAGE_CANARY: "dict[str, int]" = {"detected": 0, "re_fetched": 0}
+_block_page_canary_lock = threading.Lock()
+
+
+def _record_block_page_detection() -> int:
+    """Increment + return the block-page DETECTED counter. Thread-safe."""
+    with _block_page_canary_lock:
+        _BLOCK_PAGE_CANARY["detected"] += 1
+        return _BLOCK_PAGE_CANARY["detected"]
+
+
+def _record_block_page_refetch() -> int:
+    """Increment + return the block-page RE_FETCHED (recovered-clean) counter.
+    Thread-safe."""
+    with _block_page_canary_lock:
+        _BLOCK_PAGE_CANARY["re_fetched"] += 1
+        return _BLOCK_PAGE_CANARY["re_fetched"]
+
+
+def get_block_page_canary() -> "dict[str, int]":
+    """Snapshot of the block-page-detector canary (detected / re_fetched)."""
+    with _block_page_canary_lock:
+        return dict(_BLOCK_PAGE_CANARY)
+
+
+def reset_block_page_canary() -> None:
+    """Zero the block-page-detector canary. Test isolation / between runs."""
+    with _block_page_canary_lock:
+        _BLOCK_PAGE_CANARY["detected"] = 0
+        _BLOCK_PAGE_CANARY["re_fetched"] = 0
 
 
 # ---------------------------------------------------------------------------
@@ -2188,6 +2407,13 @@ class AccessBypass:
         4. Institutional proxy
         5. Sci-Hub (last resort for academic papers)
         """
+        # D (I-extract-001 #1327): per-fetch block-page/stub state. `seen` flips
+        # True on the first block-page detection across any backend so a later
+        # clean fetch on this URL is counted as a successful re-fetch (canary
+        # `re_fetched`). Default-OFF detector → this stays {"seen": False} and
+        # every screen below is a no-op.
+        _block_state: Dict[str, bool] = {"seen": False}
+
         # PL: Skip S2 landing pages — they're metadata, not content.
         # S2 bulk search returns paper IDs that are 404 via individual API.
         # S2's value is the search metadata (title, abstract, DOI), not the landing page.
@@ -2402,6 +2628,14 @@ class AccessBypass:
                 continue
             if not r.success:
                 continue
+            # D (I-extract-001 #1327): block-page/stub screen on the RAW backend
+            # body BEFORE strip — a 200 challenge/stub candidate is dropped (and
+            # re-routed) rather than boilerplate-stripped and quality-scored.
+            # Dropping every candidate here falls through to the direct/archive/
+            # proxy chain below (NOT an empty-success return). Flag-gated no-op.
+            if self._is_block_page(url, r.content, _block_state):
+                rejected_log.append((r.access_method, "block_page", len(r.content)))
+                continue
             # M-23b: strip boilerplate BEFORE paywall check
             r.content = _strip_navigation_boilerplate(r.content)
             if self._detect_paywall(r.content):
@@ -2431,10 +2665,10 @@ class AccessBypass:
             )
             if rejected_log:
                 logger.debug(
-                    "[ACCESS] M-23b: rejected %d stub/paywall candidates: %s",
+                    "[ACCESS] M-23b: rejected %d stub/paywall/block candidates: %s",
                     len(rejected_log), rejected_log,
                 )
-            return winner
+            return self._finalize_clean_fetch(winner, _block_state)
 
         # FIX-039/B.3: Trafilatura now runs in concurrent group above (no standalone fallback)
 
@@ -2444,10 +2678,14 @@ class AccessBypass:
         direct_result = await self._direct_fetch(url)
 
         if direct_result.success:
-            # M-23b: strip BEFORE paywall detection
-            direct_result.content = _strip_navigation_boilerplate(direct_result.content)
-            if not self._detect_paywall(direct_result.content):
-                return direct_result
+            # D (I-extract-001 #1327): screen the RAW body (best signal for
+            # CF/edgesuite/recaptcha markers) BEFORE strip; a 200 block/stub
+            # re-routes to the alternatives below instead of becoming evidence.
+            if not self._is_block_page(url, direct_result.content, _block_state):
+                # M-23b: strip BEFORE paywall detection
+                direct_result.content = _strip_navigation_boilerplate(direct_result.content)
+                if not self._detect_paywall(direct_result.content):
+                    return self._finalize_clean_fetch(direct_result, _block_state)
 
         # Track if direct fetch failed due to timeout for retry logic (FIX-D5)
         if not direct_result.success and "timeout" in str(direct_result.metadata.get("error", "")).lower():
@@ -2459,30 +2697,36 @@ class AccessBypass:
         if self.use_archive_org:
             logger.info("[ACCESS] Trying Archive.org for %s", url[:60])
             archive_result = await self._try_archive_org(url)
-            if archive_result.success:
+            if archive_result.success and not self._is_block_page(
+                url, archive_result.content, _block_state
+            ):
                 # FIX-045B: Strip navigation boilerplate
                 archive_result.content = _strip_navigation_boilerplate(archive_result.content)
-                return archive_result
+                return self._finalize_clean_fetch(archive_result, _block_state)
 
         # Try institutional proxy
         if self.proxy:
             logger.info("[ACCESS] Trying proxy for %s", url[:60])
             proxy_result = await self._try_proxy(url)
-            if proxy_result.success:
+            if proxy_result.success and not self._is_block_page(
+                url, proxy_result.content, _block_state
+            ):
                 # FIX-045B: Strip navigation boilerplate
                 proxy_result.content = _strip_navigation_boilerplate(proxy_result.content)
-                return proxy_result
+                return self._finalize_clean_fetch(proxy_result, _block_state)
 
         # FIX-D5: Retry once on timeout errors before giving up
         if timeout_occurred:
             logger.info("[ACCESS] Retrying direct fetch after timeout for %s", url[:60])
             await asyncio.sleep(3)
             retry_result = await self._direct_fetch(url)
-            if retry_result.success:
+            if retry_result.success and not self._is_block_page(
+                url, retry_result.content, _block_state
+            ):
                 # M-23b: strip BEFORE paywall detection
                 retry_result.content = _strip_navigation_boilerplate(retry_result.content)
                 if not self._detect_paywall(retry_result.content):
-                    return retry_result
+                    return self._finalize_clean_fetch(retry_result, _block_state)
 
         # Sci-Hub is DISABLED BY DEFAULT (I-faith-002): the legal OA full-text
         # path is now CORE (src/tools/core_client.py) wired at
@@ -2497,10 +2741,12 @@ class AccessBypass:
             if resolved_doi:
                 scihub_url = f"https://doi.org/{resolved_doi}"
             scihub_result = await self._try_scihub(scihub_url)
-            if scihub_result.success:
+            if scihub_result.success and not self._is_block_page(
+                url, scihub_result.content, _block_state
+            ):
                 logger.info("[ACCESS] Sci-Hub succeeded for %s (%d chars)", url[:60], len(scihub_result.content))
                 scihub_result.content = _strip_navigation_boilerplate(scihub_result.content)
-                return scihub_result
+                return self._finalize_clean_fetch(scihub_result, _block_state)
 
         # I-fetch-004 (#1185): PAID Zyte fallback — the genuine LAST resort,
         # ONLY after the entire FREE chain (PDF/Unpaywall/PMC-BioC -> concurrent
@@ -2518,8 +2764,10 @@ class AccessBypass:
                 "[ACCESS] I-fetch-004: Trying Zyte paid fallback for %s", url[:60]
             )
             zyte_result = await self._try_zyte(url)
-            if zyte_result.success:
-                return zyte_result
+            if zyte_result.success and not self._is_block_page(
+                url, zyte_result.content, _block_state
+            ):
+                return self._finalize_clean_fetch(zyte_result, _block_state)
 
         # SF-40: Log total failure at WARNING (was completely silent)
         logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
@@ -4500,6 +4748,50 @@ class AccessBypass:
             return AccessResult(url=url, content="", access_method="proxy",
                               legal_alternative=None, success=False,
                               metadata={"error": str(e)})
+
+    def _is_block_page(
+        self, url: str, content: str, block_state: Dict[str, bool]
+    ) -> bool:
+        """D (I-extract-001 #1327): flag-gated block-page/stub screen for ONE
+        fetched body.
+
+        When the detector is ON and the body is a challenge / WAF block /
+        redirect-or-error stub, this records the detection (canary `detected`),
+        marks `block_state` so a later clean fetch on this URL counts as a
+        re-fetch, logs the behavioral canary line, and returns True — the caller
+        MUST NOT return this body (re-route to the next backend; or, when no
+        backend remains, the fetch falls through to the failed path → drops at
+        strict_verify, never fabricated). Returns False (pure no-op) when the
+        detector is OFF or the body is real content. Faithfulness-neutral."""
+        if not block_page_detector_enabled():
+            return False
+        klass = classify_block_page(content, url)
+        if not klass:
+            return False
+        total = _record_block_page_detection()
+        block_state["seen"] = True
+        logger.warning(
+            "[ACCESS] block_page_detector: %s flagged for %s — re-route/re-fetch "
+            "(detected=%d)",
+            klass, url[:80], total,
+        )
+        return True
+
+    def _finalize_clean_fetch(
+        self, result: "AccessResult", block_state: Dict[str, bool]
+    ) -> "AccessResult":
+        """D (I-extract-001 #1327): record a successful RE-FETCH when a clean
+        result is about to be returned for a URL that had >=1 prior block-page
+        detection on this fetch. No-op when the detector is OFF or no block was
+        seen. Returns `result` unchanged (pure telemetry, faithfulness-neutral)."""
+        if block_page_detector_enabled() and block_state.get("seen"):
+            total = _record_block_page_refetch()
+            logger.info(
+                "[ACCESS] block_page_detector: re-fetch recovered clean content "
+                "via %s for %s (re_fetched=%d)",
+                getattr(result, "access_method", "?"), result.url[:80], total,
+            )
+        return result
 
     def _detect_paywall(self, content: str) -> bool:
         """Detect if content is behind paywall OR an HTTP-error stub.

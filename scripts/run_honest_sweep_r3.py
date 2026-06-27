@@ -1137,6 +1137,30 @@ def _critical_completeness_hold_on() -> bool:
 _LOCKED_ENTAILMENT_MIRROR_MODEL = "z-ai/glm-5.1"  # the 4-role MIRROR (CLAUDE.md §9.1.8)
 _TRUE_ENV_TOKENS = frozenset({"1", "true", "yes", "on"})
 
+# ── W1 intent_frame (I-wire-001) integrator knobs (LAW VI — no magic numbers) ──
+# The advisory intent-decomposition step uses the GLM-5.2 mirror policy. The model
+# is the SAME PG_MIRROR_MODEL seam _iter_llm reads; this default mirrors that one.
+_INTENT_FRAME_DEFAULT_MIRROR_MODEL = "z-ai/glm-5.2"
+_INTENT_FRAME_MAX_TOKENS_ENV = "PG_SCOPE_INTENT_FRAME_MAX_TOKENS"
+# §9.1.8 (reasoning + max_tokens ALWAYS go MAX, never starve): request a generous
+# completion budget, exactly like the governed quantified-spec call-site
+# (PG_QUANTIFIED_SPEC_MAX_TOKENS=32768). This is NOT a target — the shared
+# token_limit_resolver.finalize_body chokepoint inside OpenRouterClient._call_impl
+# reconciles this DOWN to min(provider_completion_cap, context_length - prompt -
+# safety_margin) against the model's REAL OpenRouter cap as the final body mutation,
+# so a generous default is free insurance, never an HTTP-400 risk. The prior flat
+# 8192 STARVED the GLM-5.2 mirror: it is an _ALWAYS_REASON model that emits a long
+# reasoning prelude before content, so 8192 could be consumed entirely by reasoning,
+# returning EMPTY content -> IntentFrameError -> fail-closed abort of the query.
+_INTENT_FRAME_DEFAULT_MAX_TOKENS = 32768  # generous; resolver clamps to real cap (§9.1.8)
+# §9.1.8: reasoning EFFORT stays MAX (do NOT force reasoning off), but the reasoning
+# POOL is bounded so a runaway prelude on the GLM-5.2 _ALWAYS_REASON mirror cannot
+# burn the whole budget and starve content (the documented quantified-spec failure;
+# same fix as PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS). A bounded reasoning budget
+# reserves a fixed completion slice for the closing-brace JSON the parser needs.
+_INTENT_FRAME_REASONING_MAX_TOKENS_ENV = "PG_SCOPE_INTENT_FRAME_REASONING_MAX_TOKENS"
+_INTENT_FRAME_DEFAULT_REASONING_MAX_TOKENS = 8192  # leaves ~24K for content (§9.1.8)
+
 
 class FaithfulnessSlatePreflightError(RuntimeError):
     """Raised when PG_BENCHMARK_STRICT_GATES is on but a binding faithfulness gate is
@@ -1592,6 +1616,96 @@ def _screen_key_findings_chrome(key_findings_md: str) -> str:
     # If the block had bullets and ALL were chrome, drop the now-bulletless block entirely
     # (heading + intro with zero findings is worse than no block).
     if bullet_total > 0 and bullet_kept == 0:
+        return ""
+    return "\n".join(kept)
+
+
+# I-beatboth-011 KEYSTONE (#1289): the AUTHORITATIVE rollup span-quality screen. The OLD
+# _screen_key_findings_chrome above is a BLIND deterministic-regex pre-filter (the iwire013
+# blind-predicate saga); the NEW benchmarked LLM span gate (span_quality_gate.screen_finding_units,
+# bake-off F1 0.568, ~2x the best heuristic) is the AUTHORITATIVE second screen that catches the
+# glued-mid-prose chrome + cut-word-before-[N] the regex is structurally blind to. It runs on the
+# rendered ROLLUP surfaces ONLY (Key-Findings bullets + the Analytical-synthesis depth layer's
+# finding lines) — the page-furniture that survived strict_verify (a verbatim chrome span) and
+# rendered as a "finding" headline. §-1.3 FLAG-NOT-DROP: a unit the gate flags is_junk=True is
+# WITHHELD from the rendered rollup (chrome is not a real finding) but NEVER deleted from the body /
+# evidence pool / bibliography — it stays in the full report; only excluded from the summary surface.
+# The span gate fails SAFE (every unit is_junk=False) when its flag is OFF, the GLM-5.2 caller cannot
+# construct (family-permit inactive), or a unit errors — so this is a no-op suppress-only pass, never
+# an over-strip. The injected ``screen_fn`` is how the offline test stubs the LLM judge.
+_ROLLUP_FINDING_LINE_RE = re.compile(
+    r"^\s*-\s+\S"                       # a "- ..." Key-Findings / synthesis bullet
+    r"|^\s*\*\*(?:Key Findings|Challenges|Tension)\*\*\s+\S"  # depth-layer per-section finding lines
+)
+
+
+def _is_rollup_finding_line(line: str) -> bool:
+    """True iff ``line`` is a candidate FINDING UNIT in a rendered rollup block — a "- ..." bullet
+    or a depth-layer ``**Key Findings|Challenges|Tension** <sentence>`` line. The ``##``/``###``
+    header and the italic ``_..._`` preamble are NOT finding units and are never screened/withheld.
+    PURE."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith("#") or stripped.startswith("_"):
+        return False
+    return bool(_ROLLUP_FINDING_LINE_RE.match(line))
+
+
+def _screen_rollup_finding_units(block_md: str, *, screen_fn=None) -> str:
+    """KEYSTONE authoritative screen over a rendered rollup block (Key-Findings or Analytical
+    synthesis). Extracts the candidate FINDING-UNIT lines, runs them through the benchmarked span
+    gate (``screen_finding_units``), and WITHHOLDS (drops the line in place) any unit flagged
+    is_junk=True — §-1.3 FLAG-NOT-DROP: withheld from the RENDERED rollup only, never from the body
+    / evidence. Header + preamble lines pass through untouched. If a block had finding units and ALL
+    were withheld, the whole block is dropped (no empty heading — mirrors _screen_key_findings_chrome).
+
+    The span gate is internally flag-gated (PG_SPAN_QUALITY_GATE) — when OFF it returns every unit
+    is_junk=False (zero LLM calls), so this pass is a byte-identical no-op. ``screen_fn`` is injectable
+    (defaults to the production span gate) so the offline test stubs the LLM judge. Emits the run-log
+    canary with REAL counts (judged / withheld / errors / disabled) so a silent fail-safe (all
+    pass-through) is LOUD on the run log — the prove-it-fired surface this keystone exists to guarantee.
+    PURE except the lazy span-gate import + the run-log emit."""
+    if not block_md or not block_md.strip():
+        return block_md
+    if screen_fn is None:
+        from src.polaris_graph.generator.span_quality_gate import (  # noqa: PLC0415
+            screen_finding_units as screen_fn,
+        )
+    lines = block_md.split("\n")
+    unit_line_indices = [i for i, ln in enumerate(lines) if _is_rollup_finding_line(ln)]
+    if not unit_line_indices:
+        return block_md  # nothing screenable (e.g. an insufficient-evidence stub) — untouched
+    units = [lines[i] for i in unit_line_indices]
+    verdicts = screen_fn(units)
+    withheld_positions: set[int] = set()
+    withheld = 0
+    errors = 0
+    disabled = 0
+    for unit_pos, verdict in zip(unit_line_indices, verdicts):
+        src = getattr(verdict, "source", "")
+        if src == "error":
+            errors += 1
+        elif src == "disabled":
+            disabled += 1
+        if getattr(verdict, "is_junk", False):
+            withheld_positions.add(unit_pos)
+            withheld += 1
+    # Prove-it-fired canary on the RUN log (the span-gate module logs its OWN counts via logging.info;
+    # this is the SWEEP-side surface). If the gate is ON but every unit errored / was disabled (the
+    # wired-but-dead fail-safe), this line says so LOUDLY. Uses the module logger, NOT the nested run
+    # ``_log`` (this is a module-level helper — the caller separately echoes via ``_log`` is unnecessary
+    # because logging.basicConfig streams to stdout, the same surface the run log reads).
+    logging.getLogger(__name__).info(
+        "[span-quality-gate] rollup-screen: units=%d withheld=%d errors=%d disabled=%d",
+        len(units), withheld, errors, disabled,
+    )
+    if not withheld_positions:
+        return block_md  # byte-identical when the gate flagged nothing
+    kept = [ln for i, ln in enumerate(lines) if i not in withheld_positions]
+    # If EVERY finding unit was withheld, drop the now-finding-less block (heading + preamble with
+    # zero findings is worse than no block — mirrors _screen_key_findings_chrome).
+    if withheld >= len(unit_line_indices):
         return ""
     return "\n".join(kept)
 
@@ -6331,6 +6445,124 @@ async def run_one_query(
                 set_reasoning_sink(None)
                 log_f.close()
                 return summary
+
+        # W1 intent_frame (I-wire-001): ADVISORY intent decomposition that runs IN
+        # FRONT OF the binding deterministic run_scope_gate below. Default OFF
+        # (PG_SCOPE_INTENT_FRAME) => byte-identical legacy: the GLM-5.2 llm is never
+        # built or called, zero spend. When ENABLED it is FAIL-CLOSED — run_intent_frame
+        # raises IntentFrameError on an empty/unparseable/zero-question decomposition,
+        # and we DELIBERATELY do NOT catch it (a silent fall-back to legacy would ship
+        # the legacy path under a "wired" claim — the no-op the fully-wired gate forbids).
+        # The raise lands in run_one_query's outer `except Exception` handler, which
+        # writes a terminal error manifest for THIS query and lets the sweep continue.
+        # The frame is advisory ROUTING CONTEXT only: run_scope_gate stays the single
+        # binding gate and protocol.json is untouched.
+        from src.polaris_graph.nodes.intent_frame import (
+            intent_frame_enabled as _intent_frame_enabled,
+            run_intent_frame as _run_intent_frame,
+        )
+        intent_frame_advisory = None
+        if _intent_frame_enabled():
+            import asyncio as _intent_frame_asyncio
+            import concurrent.futures as _intent_frame_futures
+            import contextvars as _intent_frame_contextvars
+
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient as _IntentFrameORC,
+            )
+            from src.polaris_graph.llm.openrouter_client import (
+                _RUN_COST_CTX as _IntentFrameCostCtx,
+            )
+
+            _intent_frame_model = os.getenv(
+                "PG_MIRROR_MODEL", _INTENT_FRAME_DEFAULT_MIRROR_MODEL
+            )
+            _intent_frame_max_tokens = int(
+                os.getenv(
+                    _INTENT_FRAME_MAX_TOKENS_ENV,
+                    str(_INTENT_FRAME_DEFAULT_MAX_TOKENS),
+                )
+            )
+            # §9.1.8: bounded reasoning pool (effort stays MAX) so the GLM-5.2
+            # _ALWAYS_REASON mirror never starves content with a runaway prelude.
+            _intent_frame_reasoning_max_tokens = int(
+                os.getenv(
+                    _INTENT_FRAME_REASONING_MAX_TOKENS_ENV,
+                    str(_INTENT_FRAME_DEFAULT_REASONING_MAX_TOKENS),
+                )
+            )
+
+            def _intent_frame_llm(_prompt: str) -> str:
+                # Mirrors _iter_llm (this file): run_one_query is async, so the GLM
+                # coroutine is driven on a WORKER THREAD with its own loop; a FRESH
+                # loop-bound OpenRouterClient is built inside the worker per call and
+                # closed; the worker's _RUN_COST_CTX spend DELTA is written back to the
+                # parent so PG_MAX_COST_PER_RUN stays intact (fires even on raise —
+                # the client bills partial cost before raising on empty/retry).
+                _parent_cost_before = _IntentFrameCostCtx.get()
+                _worker_cost_after = [_parent_cost_before]
+
+                async def _run() -> str:
+                    _client = _IntentFrameORC(model=_intent_frame_model)
+                    try:
+                        _resp = await _client.generate(
+                            prompt=_prompt,
+                            # §9.1.8: generous budget; token_limit_resolver.finalize_body
+                            # inside _call_impl clamps it DOWN to the model's REAL cap.
+                            max_tokens=_intent_frame_max_tokens,
+                            # §9.1.8: reasoning EFFORT stays MAX (no reasoning_exclude);
+                            # only the reasoning POOL is bounded so content is never
+                            # starved on the GLM-5.2 _ALWAYS_REASON mirror.
+                            reasoning_max_tokens=_intent_frame_reasoning_max_tokens,
+                        )
+                        return getattr(_resp, "content", "") or ""
+                    finally:
+                        _worker_cost_after[0] = _IntentFrameCostCtx.get()
+                        if hasattr(_client, "close"):
+                            try:
+                                await _client.close()
+                            except Exception:  # noqa: BLE001 — close is best-effort cleanup
+                                pass
+
+                _parent_ctx = _intent_frame_contextvars.copy_context()
+
+                def _worker() -> str:
+                    return _parent_ctx.run(
+                        lambda: _intent_frame_asyncio.run(_run())
+                    )
+
+                try:
+                    with _intent_frame_futures.ThreadPoolExecutor(
+                        max_workers=1
+                    ) as _ex:
+                        return _ex.submit(_worker).result()
+                finally:
+                    _cost_delta = _worker_cost_after[0] - _parent_cost_before
+                    if _cost_delta > 0:
+                        _IntentFrameCostCtx.set(_parent_cost_before + _cost_delta)
+
+            # FAIL-CLOSED: IntentFrameError propagates (NOT caught here). Flag is on,
+            # so run_intent_frame never returns None — the frame is always non-None.
+            intent_frame_advisory = _run_intent_frame(q["question"], _intent_frame_llm)
+            # FIRING CANARY into the run-dir log file. The module emits an identical
+            # logger.info line, but that only reaches stdout; _log tees to log_f, which
+            # the §-1.1 audit reads. Tokens match the pinned grep byte-for-byte.
+            _log(
+                "[intent_frame] #scope IntentFrame fired: "
+                f"questions={len(intent_frame_advisory.questions)} "
+                f"domain={intent_frame_advisory.domain} "
+                f"clarify={len(intent_frame_advisory.clarification_needed)}"
+            )
+            # Forward the decomposition as advisory context. summary is serialized to
+            # sweep_summary.json (and round-trips via summary['manifest']); the success
+            # manifest also stamps manifest['intent_frame'] below.
+            summary["intent_frame"] = {
+                "questions": list(intent_frame_advisory.questions),
+                "domain": intent_frame_advisory.domain,
+                "clarification_needed": list(
+                    intent_frame_advisory.clarification_needed
+                ),
+            }
 
         # Phase 2b scope gate
         # I-beatboth-fix-000 (#1171): thread per-question PICO/PCC scope
@@ -11776,10 +12008,78 @@ async def run_one_query(
                 build_conclusion,
             )
             _sections_for_synthesis = getattr(multi, "sections", []) or []
-            _abstract_md = build_abstract(_sections_for_synthesis)
-            _conclusion_md = build_conclusion(_sections_for_synthesis)
+            # I-beatboth-011 KEYSTONE (#1289): the Abstract is the FRONT sandwich — the most prominent
+            # surface — and build_abstract/build_conclusion harvest via the BLIND _is_render_chrome_claim
+            # filter only. Inject the AUTHORITATIVE benchmarked span gate so a glued-mid-prose chrome
+            # headline the blind filter misses is WITHHELD from the Abstract/Conclusion BEFORE the prose
+            # join (no rendered-prose splitting). §-1.3 FLAG-NOT-DROP: withheld from the summary surface
+            # only; untouched in the body / evidence. The screen is gated by PG_SPAN_QUALITY_ROLLUP_SCREEN
+            # (so the front/back sandwich rides the SAME kill-switch as Key-Findings) and the span gate
+            # itself is internally flag-gated (no-op when PG_SPAN_QUALITY_GATE off) + fails SAFE.
+            _abstract_unit_screen = None
+            if _env_flag("PG_SPAN_QUALITY_ROLLUP_SCREEN", default=True):
+                def _abstract_unit_screen(_sentences: "list[str]") -> "list[str]":
+                    """Return the subset of harvested summary sentences the span gate did NOT flag as
+                    chrome (is_junk=False) — order-preserving. Defaults to keep-all on any fault (the
+                    span gate's own fail-safe already returns is_junk=False on error/disabled/flag-off)."""
+                    from src.polaris_graph.generator.span_quality_gate import (  # noqa: PLC0415
+                        screen_finding_units as _sfu,
+                    )
+                    _verdicts = _sfu(_sentences)
+                    return [
+                        s for s, v in zip(_sentences, _verdicts)
+                        if not getattr(v, "is_junk", False)
+                    ]
+            _abstract_md = build_abstract(
+                _sections_for_synthesis, unit_screen=_abstract_unit_screen
+            )
+            _conclusion_md = build_conclusion(
+                _sections_for_synthesis, unit_screen=_abstract_unit_screen
+            )
         except Exception as _ac_exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[abstract-conclusion] skipped (fail-open): {_ac_exc}")
+        # I-beatboth-011 KEYSTONE (#1289): the AUTHORITATIVE rollup span-quality screen. The two
+        # APPROVED but UNCALLED modules are wired HERE at the render seam so the chrome/junk fix
+        # actually FIRES: (1) span_quality_gate.screen_finding_units (bake-off F1 0.568) is the
+        # authoritative LLM screen over the rendered Key-Findings + Analytical-synthesis rollup
+        # surfaces — it catches the glued-mid-prose chrome + cut-word-before-[N] the BLIND regex
+        # pre-filter (_screen_key_findings_chrome, run at L11827) is structurally blind to. §-1.3
+        # FLAG-NOT-DROP: a unit flagged is_junk=True is WITHHELD from the rendered rollup (chrome is
+        # not a real finding) but NEVER deleted from the body / evidence pool / bibliography — it stays
+        # in sections_concat (the full report); only excluded from the summary surface. The span gate
+        # is internally flag-gated (PG_SPAN_QUALITY_GATE, default OFF) + fails SAFE (every unit
+        # is_junk=False on flag-off / family-permit-unavailable / judge_error), so this is a
+        # suppress-only no-op until the cert slate pins it ON. Default-ON kill-switch
+        # PG_SPAN_QUALITY_ROLLUP_SCREEN; fail-open (additive; never abort the report). The
+        # _screen_rollup_finding_units canary logs REAL counts (units/withheld/errors/disabled) to the
+        # RUN log so a silent wired-but-dead fail-safe is LOUD. (2) citation_truncation_normalizer
+        # .normalize_citations_and_truncation then collapses the orphan-citation glue ("...world.[8].[9]"
+        # -> "...world.[8][9]", attribution preserved) + FLAGS mid-word "...statis.; bstitution"
+        # truncation on the screened rollup text. SCOPE: the rollup surfaces only (the body's own 176
+        # drb_72 glues are out of scope for this keystone; the I-wire-013 sanitize_rendered_report pass
+        # at L12041 covers the assembled-body chrome — these are complementary, both suppress-only).
+        if _env_flag("PG_SPAN_QUALITY_ROLLUP_SCREEN", default=True):
+            try:
+                _key_findings = _screen_rollup_finding_units(_key_findings)
+                _depth_layer = _screen_rollup_finding_units(_depth_layer)
+            except Exception as _sq_exc:  # noqa: BLE001 — additive screen; never abort the report
+                _log(f"[span-quality-gate] rollup-screen skipped (fail-open): {_sq_exc}")
+            try:
+                from src.polaris_graph.generator.citation_truncation_normalizer import (
+                    normalize_citations_and_truncation,
+                )
+                # Normalize EACH surface INDEPENDENTLY — the orphan-glue collapse + truncation flag are
+                # purely intra-line (it never adds/removes a line), so per-surface normalize is identical
+                # to normalizing the concatenation but avoids any fragile join/split re-boundary. Each
+                # canary logs its own real counts (inline_collapsed / truncation_flagged) to the run log.
+                _kf_norm = normalize_citations_and_truncation(_key_findings)
+                _log(f"[citation-normalizer] key-findings: {_kf_norm.canary}")
+                _key_findings = _kf_norm.text
+                _dl_norm = normalize_citations_and_truncation(_depth_layer)
+                _log(f"[citation-normalizer] depth-layer: {_dl_norm.canary}")
+                _depth_layer = _dl_norm.text
+            except Exception as _cn_exc:  # noqa: BLE001 — additive normalize; never abort the report
+                _log(f"[citation-normalizer] rollup-normalize skipped (fail-open): {_cn_exc}")
         # BB5-P03 (#1179): de-dup content-identical paragraphs (after citation-marker stripping) and
         # drop any header orphaned by that drop, before render. Keeps the FIRST occurrence, so every
         # subject/predicate a PT08-checked record disclosed survives — the evaluator below reads this
@@ -13697,6 +13997,20 @@ async def run_one_query(
         # generator-only (a LAW-II under-reporting smell otherwise). No-op on non-4-role runs.
         run_cost = current_run_cost()
         manifest["cost_usd"] = run_cost
+
+        # W1 intent_frame (I-wire-001): stamp the advisory decomposition onto the
+        # SUCCESS manifest so it lands in the canonical per-run manifest.json (the
+        # artifact the §-1.1 audit + downstream read). Additive + advisory-only;
+        # absent when the step is OFF (intent_frame_advisory is None) => byte-identical
+        # legacy manifest. It NEVER gates status / release / a faithfulness check.
+        if intent_frame_advisory is not None:
+            manifest["intent_frame"] = {
+                "questions": list(intent_frame_advisory.questions),
+                "domain": intent_frame_advisory.domain,
+                "clarification_needed": list(
+                    intent_frame_advisory.clarification_needed
+                ),
+            }
 
         # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.
         # Placed here — AFTER the 4-role seam status/release overwrite (L~4740-4751), the V30
