@@ -36,6 +36,15 @@ def test_complete_sentence_prefix_midword_start_yields_nothing():
     assert _complete_sentence_prefix("hodology to estimate the probability of computerisation for jobs") == ""
 
 
+def test_complete_sentence_prefix_does_not_treat_ellipsis_as_sentence_end():
+    # #1334 Codex P1: a clause terminated by a truncation marker must NOT yield a header.
+    assert _complete_sentence_prefix("This representative span is incomplete and cut ...") == ""
+    assert _complete_sentence_prefix("A clause cut mid thought …") == ""
+    # an internal ellipsis glued before a real sentence must not produce a marker-bearing header
+    out = _complete_sentence_prefix("fragment ... Then a full clean sentence appears here clearly.")
+    assert "..." not in out
+
+
 def test_complete_sentence_prefix_does_not_split_on_abbreviation():
     raw = "Adoption reached 35.9% of U.S. workers by 2025 and rose further the next year. Tail tail tail"
     out = _complete_sentence_prefix(raw)

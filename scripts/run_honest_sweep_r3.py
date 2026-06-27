@@ -1606,11 +1606,16 @@ def _complete_sentence_prefix(text: str, *, min_chars: int = 40, max_chars: int 
     initial periods (U.S., e.g., p., single-capital initials) do NOT end a sentence; a sentence
     boundary requires the next non-space char to open a new sentence (uppercase/digit/quote) or EOS.
     PURE."""
+    # Strip a trailing truncation marker first so 'a clause that is cut ...' yields no false
+    # sentence end from the ellipsis' final dot (#1334 Codex P1).
     s = _DOC_LABEL_PREFIX_RE.sub("", str(text or "")).strip()
+    s = re.sub(r"\s*(?:\.\.\.+|…)\s*$", "", s).strip()
     if not s:
         return ""
     best = ""
     for m in _SENTENCE_END_ITER_RE.finditer(s):
+        if m.start() > 0 and s[m.start() - 1] in ".…":
+            continue  # a dot preceded by '.'/'…' is part of an ellipsis, not a sentence end
         tail = s[m.end():]
         if tail and not (tail[:1].isupper() or tail[:1].isdigit() or tail[:1] in "\"'("):
             continue  # lower-case continuation -> not a real sentence boundary
@@ -1619,6 +1624,8 @@ def _complete_sentence_prefix(text: str, *, min_chars: int = 40, max_chars: int 
         if last_word in _HEADER_ABBREV or len(last_word) == 1:
             continue  # abbreviation / single-letter initial -> not a sentence end
         cand = s[: m.start() + 1].strip()
+        if "..." in cand or "…" in cand:
+            continue  # candidate still carries an internal truncation marker -> not complete
         if len(cand) > max_chars:
             break
         if len(cand) >= min_chars:
@@ -1677,7 +1684,10 @@ def _title_candidate_is_renderable(stmt: str) -> bool:
         if is_render_chrome_or_unrenderable(stmt, require_sentence_form=False):
             return False
     except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
-        pass
+        # CONSERVATIVE (#1334 Codex P2): if the shared chrome screen is unavailable, REJECT the
+        # title (caller falls to the safe subject+predicate last resort) rather than admit an
+        # unscreened title that could be chrome/truncated.
+        return False
     first = stmt.lstrip()[:1]
     if first and first.islower():
         return False  # a title sliced mid-token (placeholder slug / truncated span)
