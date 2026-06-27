@@ -70,6 +70,18 @@ _DEFAULT_WALL_DEADLINE_S = 720.0
 _ENV_MAX_FINDINGS = "PG_DEPTH_SYNTHESIS_MAX_FINDINGS"
 _DEFAULT_MAX_FINDINGS = 0  # 0 => unbounded (let breadth emerge); >0 => operator verbosity bound
 
+# I-wire-013 (#1327) iter-3c — TWO-TIER per-basket labels (§-1.3 "don't drop, label weak weak"). The
+# cross-source LABEL decision moved from per-SENTENCE (the iter-2 P1, structurally near-unsatisfiable
+# because strict_verify grounds each sentence to ONE span) to per-BASKET distinct surviving origins:
+#   * a basket whose surviving sources clear the corroboration floor  -> CROSS_SOURCE finding;
+#   * the post-verify COLLAPSE case (a >=floor-member basket that re-grounded to ONE origin) ->
+#     SINGLE_SOURCE-attributed finding, SURFACED with an explicit ``(single source)`` label, never
+#     dropped. Faithfulness is UNCHANGED: each sentence still re-passed strict_verify (>=1 grounding
+#     span) or was dropped — only the corroboration LABEL is decided per-basket.
+_TIER_CROSS_SOURCE = "cross_source"
+_TIER_SINGLE_SOURCE = "single_source"
+_SINGLE_SOURCE_LABEL = "(single source)"
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -225,7 +237,7 @@ def synthesize_cross_source_findings(
     min_sources: Optional[int] = None,
     max_findings: Optional[int] = None,
     chrome_screen: Optional[Callable[[str], bool]] = None,
-) -> list[str]:
+) -> list[dict]:
     """The grounded cross-source synthesis CORE (deterministic given ``synthesizer`` + ``verify_fn``).
 
     For each basket carrying ``>= min_sources`` distinct-origin isolated-``SUPPORTS`` members:
@@ -235,30 +247,39 @@ def synthesize_cross_source_findings(
       2. ``verify_fn(draft, scoped_pool)`` (= ``strict_verify``) RE-GROUNDS each sentence against the
          basket's OWN members and DROPS any that fail (numeric mismatch / overlap / no provenance /
          cross-claim) — drop-not-fallback. ``scoped_pool`` is basket-id-bound so a cross-basket
-         citation fails CLOSED.
-      3. Each surviving sentence must carry ``>= min_sources`` DISTINCT provenance tokens that SURVIVED
-         strict_verify (Codex iter-2 P1 — a cross-source label requires >=2 genuinely-surviving sources;
-         a sentence whose co-token span was dropped, leaving one source, is dropped). Each surviving
-         token then resolves to the report's EXISTING ``[N]`` (never a renumber) and must map to a
-         DISTINCT bibliography number; a raw / unmappable / unresolved token drops the whole sentence;
+         citation fails CLOSED. Each surviving sentence still carries ``>= 1`` grounding span (the
+         UNCHANGED faithfulness floor); its ``[#ev:...]`` tokens resolve to the report's EXISTING
+         ``[N]`` (never a renumber) — a raw / unmappable / unresolved token drops the WHOLE sentence;
          a chrome/truncated sentence is dropped.
+      3. I-wire-013 (#1327) iter-3c — TWO-TIER, decided PER BASKET, not per sentence (the iter-2 P1 was
+         structurally near-unsatisfiable: strict_verify grounds each sentence to ONE span, so a single
+         sentence almost never carries ``>=2`` distinct surviving sources -> every finding dropped ->
+         depth=0). The cross-source LABEL is now decided on the basket's DISTINCT SURVIVING ORIGINS
+         accumulated across its kept+resolved sentences (distinct report ``[N]`` numbers when a
+         ``bib_num_by_evidence_id`` map is supplied — two evidence rows for the SAME source share one
+         ``[N]`` and read as ONE origin; distinct evidence_ids otherwise):
+           * ``>= min_sources`` distinct surviving origins -> ``cross_source`` finding;
+           * exactly the COLLAPSE case (a ``>=floor``-member basket whose synthesis re-grounded to ONE
+             surviving origin) -> ``single_source`` finding, SURFACED with a ``(single source)`` label,
+             never dropped (§-1.3 "don't drop, label weak weak").
 
-    Returns the ordered, de-duplicated list of grounded ``[N]``-cited cross-source findings (markdown
-    sentence strings, no header). FAITHFULNESS is the ``verify_fn`` — this orchestrator never relaxes
-    it and never resurrects a dropped sentence.
+    Returns the ordered, de-duplicated list of grounded findings as dicts
+    ``{"sentence": <[N]-cited markdown sentence>, "tier": cross_source|single_source, "label": str}``
+    (no header — ``build_depth_layer`` renders the two tiers under distinct subheads). FAITHFULNESS is
+    the ``verify_fn`` — this orchestrator never relaxes it and never resurrects a dropped sentence.
     """
     floor = min_corroboration() if min_sources is None else max(_DEFAULT_MIN_SOURCES, int(min_sources))
     cap = _env_int(_ENV_MAX_FINDINGS, _DEFAULT_MAX_FINDINGS) if max_findings is None else int(max_findings)
     screen = _default_chrome_screen if chrome_screen is None else chrome_screen
 
-    findings: list[str] = []
+    findings: list[dict] = []
     seen: set[str] = set()
     for basket in baskets or []:
         if cap > 0 and len(findings) >= cap:
             break
         members = _distinct_origin_supports(basket)
         if len(members) < floor:
-            continue  # not a CROSS-source basket (definitional, not a filter of corpus sources)
+            continue  # not a CROSS-source CANDIDATE basket (definitional, not a filter of corpus sources)
         draft = ""
         try:
             draft = str(synthesizer(basket, evidence_pool) or "")
@@ -273,19 +294,19 @@ def synthesize_cross_source_findings(
         except Exception:  # noqa: BLE001 — a verify failure drops the basket, never ships unverified
             logger.warning("[depth_synthesis] verify_fn raised for a basket -> skipped", exc_info=True)
             continue
+        # Collect THIS basket's kept+resolved sentences AND its distinct surviving origins (the union
+        # across all kept sentences). The two-tier label is decided ONCE per basket after this loop.
+        basket_sentences: list[str] = []
+        basket_origins: set[str] = set()
         for sv in (getattr(report, "kept_sentences", None) or []):
             sentence = str(getattr(sv, "sentence", "") or "").strip()
             if not sentence:
                 continue
-            # I-wire-013 (#1327) iter-2 (Codex P1): a finding LABELLED "cross-source synthesis" must
-            # carry >=2 GENUINELY-SURVIVING distinct sources. The basket-level >=2 gate runs BEFORE
-            # synthesis, but strict_verify can DROP a co-token's span (numeric/overlap/shell) and leave
-            # a SINGLE-source sentence that would still ship under the cross-source label. Count the
-            # DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS sentence
-            # (distinct ids, not raw token count — a source cited twice is still one source). Below the
-            # corroboration floor => not a cross-source finding => DROP (faithfulness-TIGHTENING).
+            # The DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS
+            # sentence (a kept sentence carries >=1 grounding span — the UNCHANGED faithfulness floor;
+            # a sentence with zero surviving provenance tokens is not grounded and is skipped).
             surviving_ids = {m.group(1) for m in _EV_TOKEN_FULL_RE.finditer(sentence)}
-            if len(surviving_ids) < floor:
+            if not surviving_ids:
                 continue
             if bib_num_by_evidence_id is not None:
                 # Every surviving token must resolve to the report's EXISTING [N]; a raw / unmatched /
@@ -297,19 +318,32 @@ def synthesize_cross_source_findings(
                 # Defence-in-depth: no raw ``[#ev:...]`` token may survive resolution.
                 if _EV_TOKEN_FULL_RE.search(sentence) or "[#ev:" in sentence:
                     continue
-                # The surviving tokens must resolve to >=floor DISTINCT report [N] citations — a genuine
-                # cross-source finding carries two distinct bibliography numbers, not one repeated.
-                distinct_bib_nums = {bib_num_by_evidence_id.get(eid) for eid in surviving_ids}
-                distinct_bib_nums.discard(None)
-                if len(distinct_bib_nums) < floor:
+                # Origin identity = the report bibliography NUMBER (distinct SOURCES, not raw evidence
+                # rows — two rows for the same source share one [N] and count as ONE origin). This is
+                # what keeps the cross-source label honest (§-1.1 misstated corroboration is lethal).
+                sentence_origins = {bib_num_by_evidence_id.get(eid) for eid in surviving_ids}
+                sentence_origins.discard(None)
+                if not sentence_origins:
                     continue
+                origin_keys = {str(n) for n in sentence_origins}
+            else:
+                origin_keys = set(surviving_ids)
             if not sentence or screen(sentence):
                 continue
+            basket_sentences.append(sentence)
+            basket_origins |= origin_keys
+        if not basket_sentences:
+            continue  # nothing re-grounded -> faithfulness drop (drop-not-fallback)
+        # PER-BASKET two-tier decision: >=floor distinct surviving origins -> cross_source; the
+        # collapse case (1 surviving origin) -> single_source-attributed (surfaced + labeled, §-1.3).
+        tier = _TIER_CROSS_SOURCE if len(basket_origins) >= floor else _TIER_SINGLE_SOURCE
+        label = "" if tier == _TIER_CROSS_SOURCE else _SINGLE_SOURCE_LABEL
+        for sentence in basket_sentences:
             key = re.sub(r"\s+", " ", sentence).strip().lower()
             if key in seen:
                 continue
             seen.add(key)
-            findings.append(sentence)
+            findings.append({"sentence": sentence, "tier": tier, "label": label})
             if cap > 0 and len(findings) >= cap:
                 break
     return findings

@@ -17,7 +17,10 @@ from __future__ import annotations
 import pytest
 
 from src.polaris_graph.generator import key_findings as kf
-from src.polaris_graph.generator.analytical_depth import evaluate_analytical_depth
+from src.polaris_graph.generator.analytical_depth import (
+    evaluate_analytical_depth,
+    split_report_into_sections,
+)
 from src.polaris_graph.generator.depth_synthesis import (
     bib_num_by_evidence_id,
     synthesize_cross_source_findings,
@@ -81,7 +84,9 @@ def _deterministic_verify(monkeypatch):
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
 
 
-def test_grounded_cross_source_finding_emitted_and_cited():
+def test_grounded_cross_source_finding_emitted_and_cited(monkeypatch):
+    # iter-3c FIXTURE #1: a basket with 2 DISTINCT surviving origins -> a CROSS_SOURCE finding emitted,
+    # and the rendered depth layer scores key_findings > 0 on the REAL analytical_depth metric path.
     basket, evidence_pool = _fixture_basket()
     findings = synthesize_cross_source_findings(
         [basket], evidence_pool,
@@ -91,14 +96,23 @@ def test_grounded_cross_source_finding_emitted_and_cited():
     )
     assert len(findings) == 1, findings
     finding = findings[0]
+    assert finding["tier"] == "cross_source", finding
+    assert finding["label"] == "", finding  # cross-source carries NO single-source label
+    sentence = finding["sentence"]
     # the synthesized [#ev:...] tokens resolved to the report's EXISTING citation numbers, not a renumber
-    assert "[3]" in finding
-    # iter-2 (Codex P1): a cross-source finding carries >=2 DISTINCT surviving resolved sources -> [4] too
-    assert "[4]" in finding
-    assert "[#ev:" not in finding
+    assert "[3]" in sentence
+    # a cross-source finding carries >=2 DISTINCT surviving resolved sources -> [4] too
+    assert "[4]" in sentence
+    assert "[#ev:" not in sentence
     # every number in the finding traces to the cited span (25 is in BOTH quotes)
-    assert "25%" in finding
+    assert "25%" in sentence
     assert "25" in _QUOTE_A and "25" in _QUOTE_B
+    # key_findings > 0 via the REAL metric path (the "## Analytical synthesis" title trips the count)
+    monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "1")
+    rendered = kf.build_depth_layer([], synthesized_findings=findings)
+    assert "### Cross-source synthesis" in rendered
+    depth = evaluate_analytical_depth(split_report_into_sections(rendered))
+    assert depth["key_findings"] > 0, rendered
 
 
 def test_ungrounded_synthesized_sentence_is_dropped_by_strict_verify():
@@ -111,15 +125,16 @@ def test_ungrounded_synthesized_sentence_is_dropped_by_strict_verify():
         verify_fn=strict_verify,
         bib_num_by_evidence_id=_BIB_MAP,
     )
-    blob = "\n".join(findings)
+    blob = "\n".join(f["sentence"] for f in findings)
     assert "99%" not in blob and "99" not in blob, f"fabricated 99% sentence survived: {findings!r}"
     # the grounded finding still ships (drop is per-sentence, not whole-basket)
-    assert any("25%" in f for f in findings), findings
+    assert any("25%" in f["sentence"] for f in findings), findings
 
 
-def test_single_surviving_token_is_dropped_not_cross_source():
-    # iter-2 (Codex P1) test (a): a synthesized sentence that re-grounds cleanly but carries only ONE
-    # distinct surviving resolved token is NOT a cross-source finding -> DROPPED (not rendered).
+def test_single_origin_basket_emits_single_source_labeled_finding(monkeypatch):
+    # iter-3c FIXTURE #2 (the FLIP of the iter-2 per-sentence drop): a >=2-member basket whose synthesis
+    # re-grounds to ONE surviving origin is NO LONGER dropped — it is SURFACED as a single_source finding
+    # with an explicit "(single source)" label (§-1.3 "don't drop, label weak weak").
     basket, evidence_pool = _fixture_basket()
     findings = synthesize_cross_source_findings(
         [basket], evidence_pool,
@@ -127,7 +142,35 @@ def test_single_surviving_token_is_dropped_not_cross_source():
         verify_fn=strict_verify,
         bib_num_by_evidence_id=_BIB_MAP,
     )
+    assert len(findings) == 1, findings
+    finding = findings[0]
+    assert finding["tier"] == "single_source", finding
+    assert finding["label"] == "(single source)", finding
+    assert "25%" in finding["sentence"] and "[3]" in finding["sentence"]
+    assert "[#ev:" not in finding["sentence"]
+    # it renders under the dedicated Single-source subhead with the (single source) label on the bullet
+    monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "1")
+    rendered = kf.build_depth_layer([], synthesized_findings=findings)
+    assert "### Single-source findings" in rendered
+    assert "(single source)" in rendered
+
+
+def test_ungrounded_only_basket_emits_nothing(monkeypatch):
+    # iter-3c FIXTURE #3: a synthesized sentence with NO grounding span (99% absent from the cited span)
+    # is DROPPED by the UNCHANGED strict_verify -> the basket emits NOTHING (drop-not-fallback). No
+    # fabrication can ship even though the generator wrote it, and no empty subhead renders.
+    basket, evidence_pool = _fixture_basket()
+    findings = synthesize_cross_source_findings(
+        [basket], evidence_pool,
+        synthesizer=lambda _b, _p: _UNGROUNDED,
+        verify_fn=strict_verify,
+        bib_num_by_evidence_id=_BIB_MAP,
+    )
     assert findings == [], findings
+    monkeypatch.setenv(kf._DEPTH_LAYER_ENV, "1")
+    rendered = kf.build_depth_layer([], synthesized_findings=findings)
+    assert "Cross-source synthesis" not in rendered
+    assert "Single-source findings" not in rendered
 
 
 def test_partial_unresolved_token_drops_the_sentence():

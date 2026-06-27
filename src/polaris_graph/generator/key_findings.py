@@ -449,11 +449,15 @@ def build_depth_layer(
 
     Two grounded layers, both verbatim/cited/span-verified — zero new unverified claims:
 
-    * ``synthesized_findings`` (I-wire-013 #1327): the OPTIONAL grounded CROSS-SOURCE digest produced
-      by ``depth_synthesis.synthesize_cross_source_findings`` — each item is ONE consolidated
-      cross-source finding that ALREADY passed the UNCHANGED ``strict_verify`` (a synthesized sentence
-      with no grounding span was DROPPED) and carries the report's own ``[N]`` citations. Rendered FIRST
-      under a ``### Cross-source synthesis`` subhead. ``None``/empty (the legacy call) => omitted.
+    * ``synthesized_findings`` (I-wire-013 #1327 iter-3c): the OPTIONAL grounded digest produced by
+      ``depth_synthesis.synthesize_cross_source_findings`` — a list of
+      ``{"sentence", "tier", "label"}`` dicts (a bare string from a legacy caller is treated as
+      ``cross_source``). Each sentence ALREADY passed the UNCHANGED ``strict_verify`` (a synthesized
+      sentence with no grounding span was DROPPED) and carries the report's own ``[N]`` citations. The
+      per-basket TWO-TIER split renders the ``>=2``-distinct-surviving-origin findings under a
+      ``### Cross-source synthesis`` subhead and the post-verify COLLAPSE case (1 surviving origin)
+      under ``### Single-source findings`` with each bullet ``(single source)``-labeled (surfaced, not
+      dropped — §-1.3). ``None``/empty (the legacy call) => both subheads omitted.
     * Per verified section: the headline finding under ``**Key Findings**`` and (only when the
       evidence raises one) a verbatim ``**Challenges**`` / ``**Tension**`` sentence — lifted verbatim
       from the section's already-verified prose.
@@ -462,25 +466,59 @@ def build_depth_layer(
     prose (no empty heading)."""
     if not depth_layer_enabled():
         return ""
-    synth_block = ""
-    synth_items = [s for s in (synthesized_findings or []) if str(s).strip()]
-    if synth_items:
+    # I-wire-013 (#1327) iter-3c — TWO-TIER render. ``synthesize_cross_source_findings`` returns dicts
+    # ``{"sentence", "tier", "label"}``; a bare string (a legacy caller) is treated as cross_source with
+    # no label. The ``>=2``-distinct-surviving-origin baskets render under ``### Cross-source synthesis``;
+    # the post-verify COLLAPSE case (1 surviving origin) renders under ``### Single-source findings`` with
+    # each bullet carrying its ``(single source)`` label — SURFACED, never dropped (§-1.3).
+    cross_items: list[str] = []
+    single_items: list[str] = []
+    for item in (synthesized_findings or []):
+        if isinstance(item, dict):
+            sentence = str(item.get("sentence", "") or "").strip()
+            tier = str(item.get("tier", "") or "cross_source").strip().lower()
+            label = str(item.get("label", "") or "").strip()
+        else:
+            sentence = str(item or "").strip()
+            tier = "cross_source"
+            label = ""
+        if not sentence:
+            continue
+        rendered = f"{sentence} {label}".strip() if label else sentence
+        if tier == "single_source":
+            single_items.append(rendered)
+        else:
+            cross_items.append(rendered)
+    blocks: list[str] = []
+    if cross_items:
         # HONEST provenance sub-label (§-1.1 — a misstated provenance label is treated as lethal): the
         # cross-source bullets are GENERATOR-PHRASED then re-grounded, NOT verbatim body lifts, so they
         # must NOT inherit the per-section block's "verbatim … no new claim" framing. State the REAL
         # guarantee: each consolidates >=2 corroborating sources and re-passed strict_verify (or was
         # dropped). LABEL honesty only — the faithfulness engine is UNTOUCHED.
-        synth_label = (
+        cross_label = (
             "_Each finding below consolidates >=2 corroborating sources; it is generator-phrased "
             "(not a verbatim quote) and every sentence re-passed strict_verify (span bounds + numeric "
             "match + content grounding) or was dropped. Citations are the report's._"
         )
-        synth_block = "### Cross-source synthesis\n\n" + synth_label + "\n\n" + "\n".join(
-            f"- {item.strip()}" for item in synth_items
+        blocks.append(
+            "### Cross-source synthesis\n\n" + cross_label + "\n\n"
+            + "\n".join(f"- {item}" for item in cross_items)
         )
-    blocks: list[str] = []
-    if synth_block:
-        blocks.append(synth_block)
+    if single_items:
+        # HONEST sub-label for the COLLAPSE tier: drawn from a multi-source basket where only ONE source
+        # re-grounded after strict_verify — so it must NOT claim >=2 corroboration. Surfaced + labeled
+        # (§-1.3 "don't drop, label weak weak"); each sentence re-passed strict_verify or was dropped.
+        single_label = (
+            "_Each finding below is drawn from a multi-source basket where only one source re-grounded "
+            "after strict_verify; it is generator-phrased, marked (single source), and every sentence "
+            "re-passed strict_verify (span bounds + numeric match + content grounding) or was dropped. "
+            "Citations are the report's._"
+        )
+        blocks.append(
+            "### Single-source findings\n\n" + single_label + "\n\n"
+            + "\n".join(f"- {item}" for item in single_items)
+        )
     _cap = _max_key_findings_markers()
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):
