@@ -141,6 +141,43 @@ def test_section_straddle_still_raises_last_resort(monkeypatch):
         reconcile_report_against_verdicts(report, verdicts, audit)
 
 
+def test_wrapped_citation_body_line_is_redactable(monkeypatch):
+    """ROOT CAUSE of the #1337 reconfirm3 whole-report collapse: a body line that BEGINS with the
+    WRAPPED trailing citations of the prior sentence ("[71][5][7][6] ...") was mis-classified as a
+    non-redactable bibliography row, so an unsupported claim rendered on it could not be bounded by
+    ANY tier -> whole-report abort. 2+ consecutive leading markers mark a redactable body line; the
+    unsupported claim must be redacted precisely (CLAIM scope), the verified neighbour survives, and
+    the report does NOT collapse."""
+    monkeypatch.setenv(_FLAG, "1")
+    claim = "Further unsupported research describes a fabricated metric of automation certainty."
+    report = (
+        "## Findings\n"
+        "A verified statement that should survive intact.[1]\n"
+        "## Evidence\n"
+        f"[71][5][7][6] {claim} The verified neighbour stays put here.[2]\n"
+    )
+    verdicts = {"05-041": "UNSUPPORTED"}
+    audit = {"05-041": {"sentence": claim, "severity": "S3"}}
+    result = reconcile_report_against_verdicts(report, verdicts, audit)  # must NOT raise
+    assert "A verified statement that should survive intact." in result.report_text
+    assert "The verified neighbour stays put here." in result.report_text
+    assert "fabricated metric of automation certainty" not in result.report_text
+    assert result.redacted_count == 1
+    assert result.redacted[0].redaction_scope == "claim"  # precise, NOT a collapse / section withhold
+
+
+def test_single_marker_bibliography_line_protected(monkeypatch):
+    """A genuine bibliography reference row ("[12] Autor, D. (2015). Title. Journal.") starts with a
+    SINGLE citation marker and stays NON-redactable, so a coincidental stem match never rewrites a
+    reference. (Paired with the wrapped-body test: single marker = protected, 2+ markers = body.)"""
+    from src.polaris_graph.roles.report_redactor import _is_redactable_body_line
+    assert _is_redactable_body_line("[12] Autor, D. (2015). The polarization of work. Journal of Econ.") is False
+    assert _is_redactable_body_line("[71][5][7][6] Further research is needed on automation.") is True
+    assert _is_redactable_body_line("A normal body sentence with a trailing citation.[3]") is True
+    assert _is_redactable_body_line("## Heading") is False
+    assert _is_redactable_body_line("") is False
+
+
 def test_verified_claim_never_redacted(monkeypatch):
     """A VERIFIED claim is never touched, at any severity (regression guard)."""
     monkeypatch.setenv(_FLAG, "1")

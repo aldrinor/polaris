@@ -1,0 +1,19 @@
+Findings first: no P0/P1 blockers.
+
+P2 residuals:
+- [report_redactor.py](/C:/POLARIS/src/polaris_graph/roles/report_redactor.py:489) only recognizes adjacent leading marker runs like `[71][5]`. A wrapped body line starting `[71] [5] ...` or single-marker `[71] ...` remains protected and can still fail closed. That is acceptable here because unsupported prose still does not ship.
+- TIER-1 still has its own bracket-leading skip, so these lines are handled by TIER-2/TIER-4 rather than the most precise sentence path. This may over-redact leading wrapped citation markers, but it does not create an unsupported-claim leak.
+
+Confirmed: `re` is imported at [report_redactor.py](/C:/POLARIS/src/polaris_graph/roles/report_redactor.py:68). Static only; no tests run.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Single-marker and spaced multi-marker wrapped body lines remain safe-fail residuals, not unsupported-shipping paths."
+  - "Bracket-leading wrapped lines rely on TIER-2/TIER-4, so citation-marker preservation is less precise than TIER-1."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```

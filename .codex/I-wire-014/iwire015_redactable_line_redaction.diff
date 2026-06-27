@@ -1,0 +1,25 @@
+diff --git a/src/polaris_graph/roles/report_redactor.py b/src/polaris_graph/roles/report_redactor.py
+index 024766b1..36577a2a 100644
+--- a/src/polaris_graph/roles/report_redactor.py
++++ b/src/polaris_graph/roles/report_redactor.py
+@@ -476,7 +476,19 @@ def _is_redactable_body_line(line: str) -> bool:
+     inconsistency, not a TIER-2 redaction — preserving the present-but-unlocatable contract).
+     """
+     stripped = line.lstrip()
+-    return bool(stripped) and not stripped.startswith("#") and not stripped.startswith("[")
++    if not stripped or stripped.startswith("#"):
++        return False
++    # I-wire-015 #1337: a genuine bibliography reference row starts with a SINGLE citation marker
++    # then the reference ("[12] Autor, D. (2015). ...") and must NOT be redacted. But a BODY line can
++    # begin with the WRAPPED trailing citations of the previous sentence ("[71][5][7][6] Further
++    # research is needed..." — 2+ consecutive leading markers) — that is CONTENT, not a reference, and
++    # MUST stay redactable, else an unsupported claim rendered on it cannot be bounded by ANY tier and
++    # collapses the whole report (the #1337 reconfirm3 failure: the un-VERIFIED claim 05-041 rendered
++    # on a "[71][5][7][6] ..." line). So only a SINGLE leading marker (a real reference row) is
++    # protected; 2+ consecutive leading markers mark a redactable wrapped-body line.
++    if stripped.startswith("["):
++        return bool(re.match(r"(?:\[\d+\]){2,}", stripped))
++    return True
+ 
+ 
+ def _prose_present(report_text: str, stem_norm: str) -> bool:
