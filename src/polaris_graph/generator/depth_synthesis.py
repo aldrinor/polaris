@@ -80,6 +80,11 @@ _DEFAULT_MAX_FINDINGS = 0  # 0 => unbounded (let breadth emerge); >0 => operator
 #     span) or was dropped — only the corroboration LABEL is decided per-basket.
 _TIER_CROSS_SOURCE = "cross_source"
 _TIER_SINGLE_SOURCE = "single_source"
+# I-wire-013 (#1327) iter-3c gate P1: the two-tier cross-source boundary is DEFINITIONAL — exactly
+# 2 distinct surviving origins — and must NOT ride the tunable corroboration floor. If the
+# `min_corroboration()` knob were ever set >2, a genuine two-origin basket would be filtered before
+# synthesis (eligibility) or mislabeled below the cross-source tier. Hard-clamped here.
+_CROSS_SOURCE_MIN_ORIGINS = 2
 _SINGLE_SOURCE_LABEL = "(single source)"
 
 
@@ -268,7 +273,11 @@ def synthesize_cross_source_findings(
     (no header — ``build_depth_layer`` renders the two tiers under distinct subheads). FAITHFULNESS is
     the ``verify_fn`` — this orchestrator never relaxes it and never resurrects a dropped sentence.
     """
-    floor = min_corroboration() if min_sources is None else max(_DEFAULT_MIN_SOURCES, int(min_sources))
+    # I-wire-013 (#1327) iter-3c gate P1: the cross-source boundary (eligibility AND tier label) is the
+    # DEFINITIONAL 2 distinct origins — decoupled from the tunable `min_corroboration()` floor /
+    # `min_sources` so the two-tier guarantee holds even if that knob is raised. `min_sources` is
+    # accepted for back-compat but never widens the boundary above 2.
+    floor = _CROSS_SOURCE_MIN_ORIGINS
     cap = _env_int(_ENV_MAX_FINDINGS, _DEFAULT_MAX_FINDINGS) if max_findings is None else int(max_findings)
     screen = _default_chrome_screen if chrome_screen is None else chrome_screen
 
@@ -464,7 +473,11 @@ async def depth_synthesis_pre_pass(
         install_teardown_drain_hook,
     )
 
-    floor = min_corroboration() if min_sources is None else max(_DEFAULT_MIN_SOURCES, int(min_sources))
+    # I-wire-013 (#1327) iter-3c gate P1: the cross-source boundary (eligibility AND tier label) is the
+    # DEFINITIONAL 2 distinct origins — decoupled from the tunable `min_corroboration()` floor /
+    # `min_sources` so the two-tier guarantee holds even if that knob is raised. `min_sources` is
+    # accepted for back-compat but never widens the boundary above 2.
+    floor = _CROSS_SOURCE_MIN_ORIGINS
     model = _resolve_model()
     max_tokens, reasoning_max_tokens = _resolve_token_budget()
     max_tokens = max(1, max_tokens)
