@@ -33,6 +33,22 @@ Run reached render cleanly (no death, token-resolver clamps working — the qwen
 ## Why a fresh PAID run would NOT fix this
 Defects 1,2,3,5 are render/compose-path — independent of fetch. The source-fixes only help truncation classes, and only on re-fetched shells. A paid run would reproduce the CWF junk dump, the journal/paywall/cookie chrome, and the repetition. That is exactly the "half-ass run" the operator banned. **Paid run is HELD until these are fixed and a replay proves clean.**
 
+## PROGRESS (2026-06-27) — FIX-A DONE + a decisive reframe
+
+**FIX-A (CWF header) — COMPLETE, gated, behaviorally proven.** GH #1334, commits f0fde5b0 + iter-2.
+- Diagnostic `scripts/iwire014_cwf_header_diagnostic.py`: 1/155 → 147/155 real headers, 0 hashes.
+- Render-proof `iwire014_render_proof.py` (renders the real `_basket_corroboration_block`): 155 bullets, **0 clm_ hashes, 0 chrome headers**, 147 real titles/sentences, 8 clean terse labels.
+- Codex diff gate: **APPROVE iter 2** (`.codex/I-wire-014/codex_diff_audit.txt`); closed an ellipsis-leak P1 + a screen-failure P2.
+- Unit test `tests/polaris_graph/test_cwf_header_prose_selection.py` (14 assertions).
+
+**DECISIVE REFRAME (quantified):** the diagnostic proved **154/155 basket representative spans
+are END/START-truncated in the BANKED corpus** (pre span-snap/front-matter). 154/155 reuse
+banked, non-re-fetched spans. ⇒ **the banked replay STRUCTURALLY CANNOT validate the
+truncation/chrome source-fixes** — they only fire on FRESH fetch. So the chrome/truncation
+still visible in replay3's body is EXPECTED on a banked replay; it is NOT evidence the
+source-fixes fail. The ONLY true validation of span-snap (8da7994a) + front-matter (efb9aeaa)
+is a FRESH front-half run. FIX-A is the exception: fetch-independent, hence fully validated now.
+
 ## Recommended fix path (surgical, render/compose only — faithfulness engine untouched)
 - **FIX-A (CWF surfacing):** render corroborated-finding PROSE, not cluster-key+count index rows. Suppress `clm_…` hash rows and bare 2-word `X- Y` fragments from the claim surface.
 - **FIX-B (predicate classes):** extend `is_render_chrome_or_unrenderable` with the journal-HTML / affiliation / paywall / cookie-consent / de-hyphenation classes (FLAG-not-drop per §-1.3 — withhold from rollup, keep in evidence).

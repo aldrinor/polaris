@@ -1,0 +1,251 @@
+You are reviewing ONE diff (I-wire-014 #1334 FIX-A, iter 2 of 5). STATIC review only.
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings now. No drip-feeding.
+- Reserve P0/P1 for real execution risks; classify minor issues P3/P2/cosmetic.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+OPERATING CONSTRAINTS:
+- Do NOT call request_user_input or any interactive tool. Non-interactive.
+- Do NOT run pytest / execute code / explore the repo. Review ONLY the inlined diff.
+- Output ONLY the verdict schema at the end.
+
+ITER-1 FINDINGS NOW ADDRESSED (verify they are truly closed):
+- P1 (ellipsis): _complete_sentence_prefix now (a) strips a trailing '...'/'…' up front,
+  (b) skips a '.' whose preceding char is '.'/'…' (ellipsis-internal), (c) rejects any
+  candidate still containing '...'/'…'. Confirm an ellipsis/truncation marker can no longer
+  produce a "complete-sentence" header.
+- P2 (screen failure): _title_candidate_is_renderable now RETURNS FALSE in the except branch
+  (conservative reject) instead of pass, so a shared-screen failure cannot admit an unscreened title.
+
+FULL FIX-A CONTEXT:
+CWF "Source corroboration (per claim)" headers rendered 154/155 as clm_<hash> / 2-word stub.
+FIX-A header chain: complete-sentence prefix of claim_text (doc-label stripped, abbrev-safe,
+ellipsis-guarded) -> same over each member direct_quote -> clean source TITLE (statement,
+trailing '...' stripped, TITLE-lenient screen) -> last-resort hyphen-repaired subject+predicate.
+HEADER TEXT ONLY (never drops/alters member/source/count/verdict; §-1.3). Default-ON,
+PG_CWF_HEADER_PROSE=0 reverts. Offline diagnostic on banked drb_72: 1/155 -> 147/155 real, 0 hashes.
+
+REVIEW FOCUS: (1) faithfulness header-text-only invariant; (2) the two iter-1 fixes truly closed;
+(3) any NEW crash/None/edge/regex-backtracking risk; (4) legacy behavior preserved when flag OFF / FIX-A empty.
+
+OUTPUT SCHEMA (YAML, last lines):
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+=== DIFF (scripts/run_honest_sweep_r3.py, full FIX-A range) ===
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 479e6b60..4546c089 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1563,6 +1563,173 @@ def _claim_header_is_unrenderable(raw_claim: str) -> bool:
+     return bool(first and first.islower())
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-wire-014 (#1334) FIX-A — the per-claim corroboration HEADER must render a real claim
++# SENTENCE (or, failing that, the clean source TITLE) — NEVER a ``clm_<hash>`` cluster id
++# or a 2-word ``subject predicate`` stub. The banked-corpus diagnosis
++# (scripts/iwire014_cwf_header_diagnostic.py) showed 154/155 baskets fell back to the hash
++# because every representative span is END- or START-truncated; the clean source statement
++# title (``bibliography entry .statement``) and the per-member ``direct_quote`` alternatives
++# were never tried. HEADER TEXT ONLY — never drops/alters a supporting_member, source, count,
++# or verdict (faithfulness-neutral; §-1.3 no source dropped). Default-ON; PG_CWF_HEADER_PROSE=0
++# reverts to the legacy subject+predicate/ccid fallback.
++_CWF_HEADER_PROSE_ENV = "PG_CWF_HEADER_PROSE"
++_DOC_LABEL_PREFIX_RE = re.compile(
++    r"^\s*(?:abstract|summary|introduction|highlights?|background|key\s+findings?|conclusions?)"
++    r"\s*[:.\-—]?\s+",
++    re.IGNORECASE,
++)
++# Sentence-final punctuation that is NOT an abbreviation/initial period and is followed by a
++# new-sentence opener (uppercase / digit / opening quote) or end-of-string.
++_SENTENCE_END_ITER_RE = re.compile(r"[.!?][\"')\]]?(\s+|$)")
++_HEADER_ABBREV = frozenset(
++    {
++        "u.s", "e.g", "i.e", "et al", "al", "p", "pp", "fig", "figs", "no", "vs",
++        "dr", "mr", "ms", "mrs", "prof", "eds", "ed", "inc", "corp", "co", "ca",
++        "approx", "cf", "vol", "ch", "sec", "eq", "st", "ave", "jr", "sr", "phd",
++    }
++)
++
++
++def cwf_header_prose_enabled() -> bool:
++    """FIX-A default-ON gate (#1334). ``PG_CWF_HEADER_PROSE=0`` reverts to the legacy header."""
++    raw = os.environ.get(_CWF_HEADER_PROSE_ENV)
++    if raw is None or not raw.strip():
++        return True
++    return raw.strip() not in ("0", "false", "no", "off")
++
++
++def _complete_sentence_prefix(text: str, *, min_chars: int = 40, max_chars: int = 260) -> str:
++    """Longest leading run of COMPLETE sentence(s) in ``text`` (a leading doc-label like
++    'Abstract'/'Summary.' is stripped first), capped at ~``max_chars``. ``''`` when no complete
++    sentence is present (a mid-word/mid-sentence-truncated span yields nothing). Abbreviation and
++    initial periods (U.S., e.g., p., single-capital initials) do NOT end a sentence; a sentence
++    boundary requires the next non-space char to open a new sentence (uppercase/digit/quote) or EOS.
++    PURE."""
++    # Strip a trailing truncation marker first so 'a clause that is cut ...' yields no false
++    # sentence end from the ellipsis' final dot (#1334 Codex P1).
++    s = _DOC_LABEL_PREFIX_RE.sub("", str(text or "")).strip()
++    s = re.sub(r"\s*(?:\.\.\.+|…)\s*$", "", s).strip()
++    if not s:
++        return ""
++    best = ""
++    for m in _SENTENCE_END_ITER_RE.finditer(s):
++        if m.start() > 0 and s[m.start() - 1] in ".…":
++            continue  # a dot preceded by '.'/'…' is part of an ellipsis, not a sentence end
++        tail = s[m.end():]
++        if tail and not (tail[:1].isupper() or tail[:1].isdigit() or tail[:1] in "\"'("):
++            continue  # lower-case continuation -> not a real sentence boundary
++        prefix = s[: m.start()]
++        last_word = re.split(r"[\s(]", prefix)[-1].lower().rstrip(".") if prefix else ""
++        if last_word in _HEADER_ABBREV or len(last_word) == 1:
++            continue  # abbreviation / single-letter initial -> not a sentence end
++        cand = s[: m.start() + 1].strip()
++        if "..." in cand or "…" in cand:
++            continue  # candidate still carries an internal truncation marker -> not complete
++        if len(cand) > max_chars:
++            break
++        if len(cand) >= min_chars:
++            best = cand
++    return best
++
++
++def _header_candidate_is_renderable(raw: str) -> bool:
++    """True iff ``raw`` passes the SAME header screen the render uses (chrome / boilerplate /
++    named-chrome / unrenderable-truncation, INCLUDING require_sentence_form via
++    ``_claim_header_is_unrenderable``). Used for SENTENCE candidates (a complete-sentence prefix).
++    PURE except the lazy access_bypass import."""
++    from src.tools.access_bypass import is_boilerplate_or_nonassertional  # noqa: PLC0415
++
++    cleaned = _normalize_claim_summary(raw, quote_trim=200)
++    if not cleaned:
++        return False
++    if is_boilerplate_or_nonassertional(cleaned):
++        return False
++    if _title_has_named_chrome(cleaned):
++        return False
++    if _claim_header_is_unrenderable(raw):
++        return False
++    return True
++
++
++def _title_candidate_is_renderable(stmt: str) -> bool:
++    """TITLE-lenient renderability (#1334): a source TITLE is a noun phrase, NOT a complete
++    sentence, so it must pass the chrome / boilerplate / named-chrome / truncation / lowercase-start
++    screens WITHOUT ``require_sentence_form`` (which would wrongly reject 'Robots and Jobs: Evidence
++    from US Labor Markets'). PURE except lazy imports."""
++    from src.tools.access_bypass import is_boilerplate_or_nonassertional  # noqa: PLC0415
++
++    cleaned = _normalize_claim_summary(stmt, quote_trim=240)
++    if not cleaned:
++        return False
++    if is_boilerplate_or_nonassertional(cleaned):
++        return False
++    if _title_has_named_chrome(cleaned):
++        return False
++    if _span_is_render_chrome(stmt):
++        return False
++    if _CLAIM_HEADER_CHROME_RE.search(stmt) or _CLAIM_HEADER_TOC_RE.search(stmt):
++        return False
++    if _RENDER_GAP_MARKER_RE.search(stmt):
++        return False
++    from src.polaris_graph.generator.key_findings import is_truncated_fragment  # noqa: PLC0415
++
++    if is_truncated_fragment(stmt):
++        return False
++    try:
++        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
++            is_render_chrome_or_unrenderable,
++        )
++
++        if is_render_chrome_or_unrenderable(stmt, require_sentence_form=False):
++            return False
++    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
++        # CONSERVATIVE (#1334 Codex P2): if the shared chrome screen is unavailable, REJECT the
++        # title (caller falls to the safe subject+predicate last resort) rather than admit an
++        # unscreened title that could be chrome/truncated.
++        return False
++    first = stmt.lstrip()[:1]
++    if first and first.islower():
++        return False  # a title sliced mid-token (placeholder slug / truncated span)
++    return True
++
++
++def _best_corroboration_header(basket: dict, statement: "str | None") -> str:
++    """FIX-A (#1334): the best renderable header for a corroboration basket — a real claim
++    SENTENCE, else the clean source TITLE — or ``''`` if nothing renders (caller keeps its
++    subject+predicate/ccid last resort). HEADER TEXT ONLY (faithfulness-neutral). PURE except
++    the lazy access_bypass import."""
++    from src.tools.access_bypass import clean_fetch_body  # noqa: PLC0415
++
++    # 1. complete-sentence prefix of the basket's representative claim_text
++    raw = str(basket.get("claim_text") or "")
++    if raw:
++        pref = _complete_sentence_prefix(clean_fetch_body(raw).cleaned_text)
++        if pref and _header_candidate_is_renderable(pref):
++            return _normalize_claim_summary(pref, quote_trim=240)
++    # 2. complete-sentence prefix over each member's direct_quote (verified members first)
++    members = basket.get("supporting_members") or []
++    members = sorted(
++        members,
++        key=lambda m: 0 if str(m.get("member_tier") or "") == "ENTAILMENT_VERIFIED" else 1,
++    )
++    for m in members:
++        mq = str(m.get("direct_quote") or "")
++        if not mq:
++            continue
++        mp = _complete_sentence_prefix(clean_fetch_body(mq).cleaned_text)
++        if mp and _header_candidate_is_renderable(mp):
++            return _normalize_claim_summary(mp, quote_trim=240)
++    # 3. the clean source TITLE (bibliography statement) — TITLE-lenient screen (a title is a noun
++    #    phrase, not a sentence). A trailing trim-marker ("..."/"…") on an already-trimmed title is
++    #    stripped first so a real title is not mistaken for a mid-span TRUNCATION. A placeholder slug
++    #    (lowercase_with_underscores) / genuinely truncated span still fails the screen and is skipped.
++    stmt = re.sub(r"\s*(?:\.\.\.|…)\s*$", "", str(statement or "").strip()).strip()
++    if stmt and _title_candidate_is_renderable(stmt):
++        return _normalize_claim_summary(stmt, quote_trim=240)
++    return ""
++
++
+ def _placeholder_bib_nums(bibliography: "list[dict]") -> "set[str]":
+     """#3: the set of bibliography citation numbers that are CONTRACT-SLOT PLACEHOLDERS, not
+     real sources — a row whose ``statement`` is just the ``evidence_id`` slug (e.g.
+@@ -2095,9 +2262,28 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+                 or _title_has_named_chrome(claim)
+                 or _claim_header_is_unrenderable(_raw_claim)
+             ):
+-                _subj = str(basket.get("subject") or "").strip()
+-                _pred = str(basket.get("predicate") or "").strip()
+-                claim = (f"{_subj} {_pred}".strip()) or ccid
++                # I-wire-014 (#1334) FIX-A: before the legacy subject+predicate / ccid-hash stub,
++                # try a REAL claim SENTENCE — the longest complete-sentence prefix of claim_text or
++                # of a member's direct_quote — then the clean source TITLE (the bibliography
++                # statement). Recovers ~154/155 baskets that otherwise render as a ``clm_<hash>``.
++                # HEADER TEXT ONLY (faithfulness-neutral; §-1.3 no source/count/verdict dropped).
++                _prose = (
++                    _best_corroboration_header(basket, b.get("statement"))
++                    if cwf_header_prose_enabled()
++                    else ""
++                )
++                if _prose:
++                    claim = _prose
++                else:
++                    # Last resort (no sentence, no member quote, no source title — a genuinely
++                    # title-less cluster): a terse subject+predicate topic label. Repair the
++                    # de-hyphenation artifact ("high- risk" -> "high-risk") so it is not visibly
++                    # broken; the count + SUPPORT source URLs below still carry the corroboration.
++                    _subj = str(basket.get("subject") or "").strip()
++                    _pred = str(basket.get("predicate") or "").strip()
++                    claim = f"{_subj} {_pred}".strip()
++                    claim = re.sub(r"(\w)-\s+(\w)", r"\1-\2", claim)
++                    claim = re.sub(r"\s{2,}", " ", claim) or ccid
+             contested = (
+                 str(basket.get("basket_verdict") or "") == "contested"
+                 or bool(basket.get("refuter_cluster_ids"))

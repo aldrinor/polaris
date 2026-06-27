@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "_complete_sentence_prefix can accept a sentence-ending match inside an ellipsis. For text ending with a truncation marker like `This claim is incomplete ...`, `_SENTENCE_END_ITER_RE` can match the final dot, `_complete_sentence_prefix` returns a candidate ending in a single `.`, and `_header_candidate_is_renderable` no longer sees `_RENDER_GAP_MARKER_RE` because the candidate was sliced before the full `...`. That can reintroduce truncated representative spans as real prose headers, directly against FIX-A's stated complete-sentence/truncation guard."
+p2:
+  - "_title_candidate_is_renderable swallows every exception from `is_render_chrome_or_unrenderable`. If that import/call regresses, source-title screening silently becomes weaker rather than failing loudly or preserving the legacy fallback. This is not faithfulness mutation, but it can let chrome/truncated titles through unnoticed."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Harden complete-sentence extraction so ellipses/truncation markers cannot be converted into apparently complete sentence endings."
