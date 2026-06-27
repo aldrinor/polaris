@@ -64,6 +64,7 @@ Pure function (string ops only; no network, no I/O). The CALLER reads/writes rep
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -125,6 +126,10 @@ class RedactedClaim:
     severity: str
     verdict: str
     claim_text: str  # the verbatim sentence (with its original provenance token)
+    # I-wire-015 #1337 R5: "claim" = removed at span/line granularity (TIER 1/2). "section" = the
+    # claim was un-boundable to a span/line, so its whole markdown section was withheld (TIER 4)
+    # rather than aborting the entire report. Either way the unsupported claim NEVER ships.
+    redaction_scope: str = "claim"
 
 
 @dataclass
@@ -148,9 +153,18 @@ class RedactionResult:
                 "ref": rc.claim_id,
                 "kind": GAP_KIND_REDACTED_UNSUPPORTED,
                 "severity": rc.severity,
+                # I-wire-015 #1337 R5: machine-readable scope ("claim" = span/line redaction;
+                # "section" = the whole section was withheld because the claim was un-boundable to a
+                # smaller unit). Lets a consumer count/triage section-level withholds programmatically.
+                "redaction_scope": rc.redaction_scope,
                 "note": (
                     f"claim re-judged {rc.verdict} by the 4-role seam and removed from "
                     "report.md (refuse-in-place); curator-actionable gap"
+                    + (
+                        "; SECTION withheld (claim was un-boundable to a span/line — "
+                        "the whole section was conservatively withheld, not the whole report)"
+                        if rc.redaction_scope == "section" else ""
+                    )
                 ),
             }
             for rc in self.redacted
@@ -254,6 +268,7 @@ def reconcile_report_against_verdicts(
         # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
         # re-match the stem), so occurrences are consumed monotonically.
         redacted_any_for_claim = False
+        section_withheld_for_claim = False  # I-wire-015 #1337 R5: a TIER-4 section withhold fired
         while _prose_present(working, stem_norm):
             # TIER 1 — precise single-span redaction (coverage floor protects VERIFIED neighbors).
             # One pass clears EVERY clean (pin-at-floor) occurrence across all lines at once.
@@ -273,15 +288,32 @@ def reconcile_report_against_verdicts(
                 redacted_any_for_claim = True
                 continue
 
-            # FAIL-CLOSED: the prose registers as present in the line-join projection (e.g. it
-            # spans a heading/bibliography line the redactor must not touch, or its alignment is
-            # unbounded across non-adjacent units) but NEITHER tier could bound it to a redactable
-            # unit without nuking a forbidden line. A real inconsistency — refuse to ship a partial
-            # report (#1174). Raising here (not after the loop) means we never spin: no progress +
-            # still present == abort.
+            # TIER 4 (I-wire-015 #1337 R5) — SECTION-level bounded withhold. The stem is present
+            # (line-join projection) but neither a span (TIER 1) nor a body-line / line-run (TIER 2)
+            # could bound it without touching a forbidden heading/bib line. Rather than abort the
+            # WHOLE report (the legacy fail-closed below — one un-boundable chrome fragment then
+            # collapses an otherwise-good report, the #1337 reconfirm3 failure), withhold ONLY the
+            # markdown SECTION whose body contains the stem. The unsupported claim is FULLY removed
+            # (faithfulness preserved — it NEVER ships); only that one section's coverage is lost
+            # (disclosed in gaps.json as redaction_scope="section"); every other section survives.
+            # This is the next-coarser bounded unit ABOVE TIER-2's line-run, so it only fires when
+            # TIER-2 already could not bound the stem. Default-ON; env-reversible to the legacy abort.
+            if _section_level_fallback_enabled():
+                removed, working = _redact_containing_section(working, stem_norm)
+                if removed:
+                    redacted_any_for_claim = True
+                    section_withheld_for_claim = True
+                    continue
+
+            # FAIL-CLOSED (true last resort): the prose registers as present in the line-join
+            # projection but could not be bounded to a span, a body line/line-run, OR a section
+            # (e.g. it exists ONLY inside a heading/bibliography line, or straddles a section
+            # boundary). A real inconsistency — refuse to ship a partial report (#1174); never
+            # present an unsupported claim as fact. Raising here (not after the loop) means we never
+            # spin: no progress + still present == abort.
             raise ReportRedactionError(
                 f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
-                "but could not be bounded to any redactable unit (span set or body line); "
+                "but could not be bounded to any redactable unit (span set, body line, or section); "
                 "refusing to ship a partially-reconciled report (fail-closed). "
                 f"prose_stem={stem_norm[:120]!r}"
             )
@@ -296,6 +328,7 @@ def reconcile_report_against_verdicts(
                     severity=severity,
                     verdict=verdict,
                     claim_text=sentence,
+                    redaction_scope=("section" if section_withheld_for_claim else "claim"),
                 )
             )
         else:
@@ -535,6 +568,54 @@ def _minimal_consecutive_span_set(
             if stem_norm in _normalize(seg):
                 return (lo, hi)
     return None
+
+
+def _section_level_fallback_enabled() -> bool:
+    """I-wire-015 #1337 R5: gate for the TIER-4 SECTION-level withhold (DEFAULT-ON). ON => an
+    unsupported claim that neither TIER-1 (span) nor TIER-2 (line/line-run) can bound withholds only
+    its markdown section instead of aborting the whole report. OFF => reverts to the legacy
+    whole-report fail-closed abort. Faithfulness is IDENTICAL either way — the unsupported claim
+    NEVER ships; the flag only chooses the blast radius (one section vs the entire report)."""
+    return os.getenv("PG_REDACT_SECTION_LEVEL_FALLBACK", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _redact_containing_section(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """TIER-4 (#1337 R5): the smallest BOUNDED unit above a body-line run — the markdown SECTION.
+    Used ONLY after TIER-1 (span) and TIER-2 (line / line-run) both fail to bound a PRESENT
+    unsupported claim (e.g. it straddles a heading the redactor must not touch, or non-adjacent
+    units). Find the section — the run of lines from one ``#``-heading up to the next heading or
+    EOF — whose redactable BODY lines' join contains the stem, and blank that section's body (its
+    first redactable body line -> the gap sentence, the rest -> "" to preserve the line count),
+    keeping the heading. The unsupported claim is FULLY removed (faithfulness preserved — it NEVER
+    ships); only that one section's coverage is lost (disclosed). Returns (False, unchanged) iff no
+    section BODY contains the stem (it lives only in a heading/bib line, or straddles a section
+    boundary) — the caller then fails closed (the true last resort). NEVER touches a heading/bib
+    line's text; NEVER ships the claim.
+    """
+    lines = report_text.split("\n")
+    heading_positions = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("#")]
+    if not heading_positions:
+        return False, report_text
+    for k, h in enumerate(heading_positions):
+        body_start = h + 1
+        body_end = heading_positions[k + 1] if k + 1 < len(heading_positions) else len(lines)
+        redactable_positions = [
+            p for p in range(body_start, body_end) if _is_redactable_body_line(lines[p])
+        ]
+        if not redactable_positions:
+            continue
+        joined = " ".join(lines[p] for p in redactable_positions)
+        if stem_norm in _normalize(joined):
+            # Blank the whole section body: first redactable line -> the visible gap sentence; the
+            # remaining redactable lines -> "" (preserve line count, no structural churn). Headings,
+            # bibliography rows, and blank lines in the section are untouched.
+            lines[redactable_positions[0]] = _GAP_REPLACEMENT
+            for p in redactable_positions[1:]:
+                lines[p] = ""
+            return True, "\n".join(lines)
+    return False, report_text
 
 
 # ─────────────────────────────────────────────────────────────────────────────

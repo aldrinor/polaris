@@ -1,0 +1,18 @@
+No P0/P1 findings.
+
+Static review of `.codex/I-wire-014/iwire015_r5_redaction.diff` plus the touched redaction path shows the invariant holds: TIER-4 only runs after TIER-1/TIER-2 fail, blanks all redactable body lines in the matched markdown section, then re-enters the existing `_prose_present` loop. If the prose still exists anywhere non-redactable or unbounded, execution reaches the existing fail-closed `ReportRedactionError`.
+
+One P2: the section fallback is disclosed in the human-readable `gaps_json()` note, but not as a machine-readable `redaction_scope` field in the JSON entry. The dataclass carries `redaction_scope="section"` correctly, so this is not a faithfulness risk.
+
+Static only; I did not run tests or the pipeline.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "gaps_json() discloses section withholding only in note text, not as a machine-readable redaction_scope field; non-blocking because the unsupported prose is still removed/fail-closed."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
