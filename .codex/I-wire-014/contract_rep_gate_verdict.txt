@@ -1,0 +1,14 @@
+No P0/P1 findings.
+
+P2: [contract_section_runner.py](C:\POLARIS\src\polaris_graph\generator\contract_section_runner.py:528) still has a stale `_contract_dedup_enabled()` docstring saying the path creates “cross-references.” The implementation is now keep-first-verbatim index drops with no rewrite/cross-reference. This is documentation drift only; the actual caller comment and telemetry are consistent.
+
+Static-only review performed: no pytest, no pipeline run.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Stale `_contract_dedup_enabled()` docstring still describes cross-references; implementation is now keep-first-verbatim drops."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

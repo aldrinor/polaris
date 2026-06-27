@@ -530,14 +530,16 @@ def _contract_dedup_enabled() -> bool:
     dedup. Mirrors the SAME flags the multi_section path's anti-restatement pass
     routes through inside ``fact_dedup.build_groups`` — the literal/Jaccard prose
     seam (``PG_FACT_DEDUP_PROSE``) and the NLI mutual-entailment prose seam
-    (``PG_CONSOLIDATION_NLI_PROSE``). DEFAULT-OFF on BOTH => no LLM callable is ever
-    constructed and the contract path is byte-identical to today. ON => the
-    restatement cluster (e.g. the drb_72 "probability of computerisation ... Gaussian
-    process classifier" x8 in Empirical_Displacement) is consolidated into ONE primary
-    + cross-references that KEEP every citation of the merged members (§-1.3
-    CONSOLIDATE-keep-all). Read here so the outer block self-skips with zero side
-    effects when the operator hasn't turned the seam on; ``build_groups`` re-reads the
-    same flags internally to decide which prose clusterer fires."""
+    (``PG_CONSOLIDATION_NLI_PROSE``). DEFAULT-OFF on BOTH => the contract path is
+    byte-identical to today. ON => the restatement cluster (e.g. the drb_72 "probability
+    of computerisation ... Gaussian process classifier" x8 in Empirical_Displacement) is
+    consolidated by KEEP-FIRST-VERBATIM index drops — the primary restatement is kept
+    verbatim and redundant occurrences whose citation set is a SUBSET of the survivor's
+    are dropped, so every citation of the merged members survives on the kept primary
+    (§-1.3 CONSOLIDATE-keep-all); no LLM rewrite/cross-reference is produced. Read here so
+    the outer block self-skips with zero side effects when the operator hasn't turned the
+    seam on; ``build_groups`` re-reads the same flags internally to decide which prose
+    clusterer fires."""
 
     def _on(name: str) -> bool:
         return os.getenv(name, "0").strip().lower() not in ("", "0", "false", "off", "no")
@@ -553,86 +555,138 @@ async def _consolidate_contract_section_sentences(
     strict_verify_fn: Any,
     dedup_llm_callable: Any,
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Run the SAME consolidate-keep-all dedup the certified multi_section path runs
-    (``fact_dedup.dedup_pass``) on ONE contract section's verified SVs, then re-verify
-    + rebuild the SV list EXACTLY as multi_section_generator.py:7680-7758 does.
+    """Consolidate degenerate intra-section restatements on ONE contract section by
+    KEEP-FIRST-VERBATIM index drops — no LLM rewrite, no re-verify, faithfulness FROZEN.
 
-    I-wire-014 (#1336): the keystone fix for the contract path. ``dedup_pass`` operates
-    on ``dict[section_title -> list[sentence_str]]``; contract ``kept_sentences`` are
-    SentenceVerification objects whose ``.sentence`` carries the PRE-resolve
-    ``[#ev:id:start-end]`` provenance tokens. We mirror the multi_section impedance
-    bridge: feed the sentence strings keyed by the single section title, run dedup, then
-    re-verify the (few) rewrite candidates through the INJECTED strict_verify and rebuild
-    the SV list in the post-dedup string order — keeping the ORIGINAL SV verbatim on any
-    absent/failed-rewrite key. CONSOLIDATE-KEEP-ALL (§-1.3): a redundant becomes a terse
-    cross-reference that retains every citation; a failed merge keeps the original cited
-    sentence; nothing distinct is ever dropped. The faithfulness engine (strict_verify) is
-    UNCHANGED — it is the gate the rewrites must clear, never relaxed.
+    I-wire-014 (#1336 / #4b): the contract path's keystone consolidation. ``kept_sentences``
+    are SentenceVerification objects whose ``.sentence`` carries the PRE-resolve
+    ``[#ev:id:start-end]`` provenance tokens; they are POSITIONALLY aligned with the section
+    sentence list fed to ``fact_dedup.build_groups`` (index i <-> kept_sentences[i]). We run
+    the SAME gated prose clusterers the certified multi_section path uses (literal/Jaccard +
+    bidirectional-NLI, behind PG_FACT_DEDUP_PROSE / PG_CONSOLIDATION_NLI[_PROSE]) and keep the
+    PRIMARY restatement of each cluster VERBATIM (already upstream-verified, so it can never
+    fail a re-verify), dropping a redundant by its OCCURRENCE INDEX only when its citation SET
+    and numbers are a SUBSET of the primary's. CONSOLIDATE-KEEP-ALL (§-1.3): the kept primary
+    already carries every citation + number of every dropped redundant, byte-identical
+    duplicates collapse (distinct indexes), and nothing distinct, cited, or numeric is lost.
+
+    ``strict_verify_fn`` and ``dedup_llm_callable`` are accepted for call-site stability but
+    are UNUSED on this keep-first-verbatim path (no rewrite is produced, so nothing needs
+    re-verification and no LLM is called). The outer ``_contract_dedup_enabled()`` gate
+    (default-OFF) governs whether this runs at all.
 
     Returns (new_kept_sentences, telemetry).
     """
-    from .fact_dedup import dedup_pass as _fact_dedup_pass
 
     # Single-section feed. fact_dedup keys by section title; the prose paths
     # cluster WITHIN a section (the NLI path requires m.section == primary.section),
     # so a one-section dict is exactly what consolidates the intra-section restatements.
-    sv_by_sentence: dict[str, Any] = {sv.sentence: sv for sv in kept_sentences}
-    sections_for_dedup: dict[str, list[str]] = {
-        section_title: [sv.sentence for sv in kept_sentences]
-    }
+    # The list is POSITIONALLY aligned with ``kept_sentences`` (index i <-> kept_sentences[i]),
+    # which is what makes the index-based drop below correct even for byte-identical duplicates.
+    sentence_strs: list[str] = [sv.sentence for sv in kept_sentences]
+    sections_for_dedup: dict[str, list[str]] = {section_title: sentence_strs}
 
-    deduped_sections, telemetry = await _fact_dedup_pass(
-        sections_for_dedup,
-        dedup_llm_callable,
-        section_order=[section_title],
+    # I-wire-014 #4b (Codex diff-gate iter-2 P1 fix): keep-first-VERBATIM, NO LLM rewrite, drops keyed by
+    # OCCURRENCE INDEX — never by sentence STRING. The prior approach (fact_dedup.dedup_pass) ran an LLM
+    # cross-ref REWRITE that drifts on the terse contract slot sentences and FAILS strict_verify, so the
+    # revert-on-fail fallback reverted EVERY cluster and the degenerate restatements never collapsed
+    # ("probability of computerisation" x17 survived). A string-keyed drop ALSO cannot collapse a
+    # byte-identical duplicate (dropping the shared string would delete the primary too) — the exact case
+    # the operator flagged. ROBUST FIX: use the redundancy GROUPS directly (build_groups = the gated
+    # Jaccard + bidirectional-NLI prose clusterers, the SAME clusterers the certified multi_section path
+    # uses) and KEEP the PRIMARY restatement VERBATIM (already upstream strict_verify-passed, so no
+    # re-verify can ever drop it). DROP a redundant by its list INDEX only when (a) it is in this section,
+    # (b) it is NOT the primary's index and is no group's primary slot, and (c) its citation SET is a
+    # SUBSET of the primary's AND its numbers are a SUBSET. Because the kept primary already carries every
+    # citation + number the dropped redundant had, §-1.3 CONSOLIDATE-KEEP-ALL holds: nothing distinct,
+    # cited, or numeric is ever lost, byte-identical duplicates DO collapse (distinct indexes), and there
+    # is no rewrite that can fail the faithfulness gate (strict_verify / NLI / 4-role / span UNCHANGED).
+    from .fact_dedup import (  # noqa: PLC0415
+        build_groups as _build_groups,
+        _nli_cite_set as _cite_set,
+        _nli_num_set as _num_set,
+        _CITATION_TOKEN_RE as _cite_strip_re,
     )
 
-    new_sentence_strs = deduped_sections.get(section_title)
-    original_strs = list(sv_by_sentence.keys())
-    if new_sentence_strs is None or list(new_sentence_strs) == original_strs:
-        # No change (no groups, or every rewrite kept the original) => byte-identical.
+    n_kept = len(kept_sentences)
+    groups = _build_groups(sections_for_dedup, section_order=[section_title])
+    # Every slot that is SOME group's primary is protected from being dropped, even if a different
+    # (cross-path) group lists the same index as a redundant — the verbatim primary must always survive.
+    primary_idxs: set[int] = {
+        g.primary.index
+        for g in groups
+        if g.primary.section == section_title and 0 <= g.primary.index < n_kept
+    }
+    drop_idx: set[int] = set()
+    n_groups_used = 0
+    for g in groups:
+        primary = g.primary
+        if primary.section != section_title or not (0 <= primary.index < n_kept):
+            continue
+        p_cites = _cite_set(primary.sentence)
+        p_nums = _num_set(primary.sentence)
+        grp_dropped = 0
+        for r in g.redundants:
+            if (
+                r.section == section_title
+                and 0 <= r.index < n_kept
+                and r.index != primary.index      # never drop the primary's own slot
+                and r.index not in primary_idxs   # never drop ANY group's primary slot
+                and r.index not in drop_idx       # idempotent
+                and _cite_set(r.sentence) <= p_cites   # no citation lost (primary carries them)
+                and _num_set(r.sentence) <= p_nums      # no distinct number lost
+            ):
+                drop_idx.add(r.index)
+                grp_dropped += 1
+        if grp_dropped:
+            n_groups_used += 1
+
+    # I-wire-014 #4b (Codex diff-gate iter-3 P1): build_groups' numeric path emits ONLY CROSS-section
+    # groups (fact_dedup.py:891 distinct_sections<2 skip) and the prose/Jaccard + NLI paths skip
+    # non-empty numeric signatures, so a sentence carrying a %/$/year restated VERBATIM within ONE
+    # contract section forms no group and never collapses (common in clinical/regulatory contract prose).
+    # A byte-identical restatement (modulo citation tokens + whitespace/case) is UNAMBIGUOUSLY the same
+    # claim — collapse it here under the SAME §-1.3 guard. Survivor = the occurrence carrying the SUPERSET
+    # citation set (ties -> earliest); a duplicate occurrence is dropped only when its cite-set is a SUBSET
+    # of the survivor's (numbers identical by construction). Identical text => zero false-merge risk, so
+    # the architecture's deliberate intra-section numeric DISTINCT-claim protection (which guards DIFFERENT
+    # text sharing a number) is untouched. A slot that is any build_groups primary is never dropped here.
+    def _exact_norm(_s: str) -> str:
+        return " ".join(_cite_strip_re.sub(" ", _s).split()).lower()
+
+    by_norm: dict[str, list[int]] = {}
+    for i, sv in enumerate(kept_sentences):
+        by_norm.setdefault(_exact_norm(sv.sentence), []).append(i)
+    for norm_text, idxs in by_norm.items():
+        if not norm_text or len(idxs) < 2:
+            continue
+        cites_by_idx = {i: _cite_set(kept_sentences[i].sentence) for i in idxs}
+        # survivor = largest cite-set, ties broken to the earliest occurrence; never dropped.
+        survivor = max(idxs, key=lambda i: (len(cites_by_idx[i]), -i))
+        s_cites = cites_by_idx[survivor]
+        grp_dropped = 0
+        for i in idxs:
+            if (
+                i != survivor
+                and i not in drop_idx
+                and i not in primary_idxs       # never drop a verbatim build_groups primary
+                and cites_by_idx[i] <= s_cites  # no citation lost (survivor carries them)
+            ):
+                drop_idx.add(i)
+                grp_dropped += 1
+        if grp_dropped:
+            n_groups_used += 1
+
+    telemetry = {
+        "n_groups": n_groups_used,
+        "n_redundants": len(drop_idx),
+        "n_rewrites_applied": 0,           # keep-first-verbatim => NO LLM rewrite
+        "n_rewrites_verified_drop": 0,     # primary kept verbatim => no re-verify can drop it
+        "contract_dedup_mode": "keep_first_verbatim",
+    }
+    if not drop_idx:
         return list(kept_sentences), telemetry
-
-    # Re-verify the NEW (rewrite) sentence strings through strict_verify; the original
-    # sentences already passed upstream strict_verify and need no re-check. EXACTLY the
-    # multi_section re-verify (7680-7758): accept only rewrites that clear the gate,
-    # rebuild the SV list in post-dedup order, drop a rewrite that fails verification,
-    # keep the original SV on any string still present.
-    original_set = set(original_strs)
-    rewrite_candidates = [s for s in new_sentence_strs if s not in original_set]
-    accepted_rewrite_svs: list[Any] = []
-    n_rewrites_verified_drop = 0
-    if rewrite_candidates:
-        rewrite_report = strict_verify_fn(
-            "\n".join(rewrite_candidates), evidence_pool,
-        )
-        accepted_rewrite_svs = list(rewrite_report.kept_sentences)
-        n_rewrites_verified_drop = (
-            len(rewrite_candidates) - len(accepted_rewrite_svs)
-        )
-    accepted_rewrite_by_str = {sv.sentence: sv for sv in accepted_rewrite_svs}
-
-    # I-wire-014 (#1336) Codex gate P1: a consolidation rewrite that FAILS strict_verify must NOT
-    # drop the cluster. dedup_pass already REMOVED the redundant originals from new_sentence_strs
-    # and replaced the primary with the (now-failed) rewrite, so silently skipping the failed
-    # rewrite would lose the primary CLAIM and EVERY citation the cluster consolidated — a §-1.3
-    # faithfulness violation. FAITHFULNESS-SAFE FALLBACK: if ANY rewrite failed re-verification,
-    # revert this section to its ORIGINAL upstream-verified sentences (forgo the merge this round);
-    # nothing distinct or cited is ever lost. Only when EVERY rewrite verifies do we ship the
-    # consolidated (keep-all) result.
-    if n_rewrites_verified_drop > 0:
-        telemetry["n_rewrites_verified_drop"] = n_rewrites_verified_drop
-        telemetry["contract_dedup_reverted_on_rewrite_fail"] = True
-        return list(kept_sentences), telemetry
-
-    new_kept: list[Any] = []
-    for s in new_sentence_strs:
-        if s in sv_by_sentence:
-            new_kept.append(sv_by_sentence[s])
-        elif s in accepted_rewrite_by_str:
-            new_kept.append(accepted_rewrite_by_str[s])
-        # else: unreachable now (all rewrites verified above) — defensive no-op.
-    telemetry["n_rewrites_verified_drop"] = n_rewrites_verified_drop
+    new_kept = [sv for i, sv in enumerate(kept_sentences) if i not in drop_idx]
     return new_kept, telemetry
 
 
@@ -1443,29 +1497,15 @@ async def run_contract_section(
     # restatement cluster (the drb_72 "probability of computerisation ... Gaussian
     # process classifier" x8 in Empirical_Displacement) survived verbatim into the
     # rendered report. Run the SAME consolidate-keep-all dedup HERE — on the section's
-    # verified SVs, BEFORE the slot-regroup + resolve below assemble the body — reusing
-    # fact_dedup.dedup_pass (no new dedup) and re-verifying rewrites through the injected
-    # strict_verify. GATED behind the SAME flags as the multi_section pass
-    # (PG_FACT_DEDUP_PROSE / PG_CONSOLIDATION_NLI_PROSE) so it is DEFAULT-OFF-safe and
-    # byte-identical when the operator hasn't enabled the seam. CONSOLIDATE-KEEP-ALL
-    # (§-1.3): every citation of every merged member is preserved; the faithfulness
-    # engine is untouched. Updates `kept`/`dropped` so post-resolve accounting stays
-    # honest.
+    # verified SVs, BEFORE the slot-regroup + resolve below assemble the body — via the
+    # keep-first-VERBATIM index-drop in `_consolidate_contract_section_sentences` (no LLM
+    # rewrite, no re-verify; the primary restatement is kept verbatim). GATED behind the SAME
+    # flags as the multi_section pass (PG_FACT_DEDUP_PROSE / PG_CONSOLIDATION_NLI_PROSE) so it
+    # is DEFAULT-OFF-safe and byte-identical when the operator hasn't enabled the seam.
+    # CONSOLIDATE-KEEP-ALL (§-1.3): every citation of every merged member is preserved (the
+    # kept primary carries the superset); the faithfulness engine is untouched. Updates
+    # `kept`/`dropped` so post-resolve accounting stays honest.
     if _contract_dedup_enabled() and len(kept_sentences) >= 2:
-        async def _contract_dedup_llm_callable(system: str, prompt: str) -> Any:
-            # fact_dedup.dedup_pass expects llm_callable(system, prompt) -> obj-with-.content.
-            # The contract narrative adapter (`_narrative_call`) is the prose system-message
-            # call and takes a single prompt returning (content, in_tok, out_tok). Bridge the
-            # shapes by prepending the rewrite system prompt and wrapping the content. Reuse the
-            # injected adapter (no new OpenRouterClient) so the component test can drive a fake.
-            _resp = await _narrative_call(f"{system}\n\n{prompt}")
-            _content = _resp[0] if isinstance(_resp, tuple) else getattr(_resp, "content", _resp)
-
-            class _Wrapped:
-                content = _content
-
-            return _Wrapped()
-
         try:
             _kept_before_dedup = kept
             kept_sentences, _contract_dedup_telemetry = (
@@ -1474,15 +1514,15 @@ async def run_contract_section(
                     kept_sentences,
                     evidence_pool,
                     strict_verify_fn=strict_verify_fn,
-                    dedup_llm_callable=_contract_dedup_llm_callable,
+                    dedup_llm_callable=None,  # keep-first-verbatim path: no LLM rewrite is produced
                 )
             )
             _new_kept = len(kept_sentences)
             if _new_kept != _kept_before_dedup:
-                # dropped accounting: total_in is fixed; a consolidated redundant left
-                # the kept body (merged into the primary, or a rewrite that failed
-                # re-verify), so dropped rises by exactly the kept-count delta. No
-                # source is lost (keep-all); this is the redundant-sentence-count shift.
+                # dropped accounting: total_in is fixed; a consolidated redundant left the
+                # kept body (its verbatim primary survives, carrying every citation), so
+                # dropped rises by exactly the kept-count delta. No source is lost (keep-all);
+                # this is the redundant-sentence-count shift.
                 dropped += _kept_before_dedup - _new_kept
                 kept = _new_kept
             logger.info(
