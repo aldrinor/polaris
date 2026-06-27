@@ -102,6 +102,18 @@ def test_truncation_uppercase_start_is_not_a_cut():
     assert truncation_flag(u, _KNOWN) is None
 
 
+def test_kf_bullet_trailing_marker_stripped_so_end_cut_is_flagged():
+    # Codex P1-2: a KF bullet keeps its trailing [N]; the detector must strip it before the
+    # boundary-word check so a cut word right before the citation ("...restricted to s.[25]") is
+    # caught. Exercises the REAL enumerate -> _make_kf_unit -> truncation_flag path (the function
+    # that used to land on "]" and silently miss the cut).
+    report = "## Key Findings\n\n- **Truncated finding.** Overall the scope was restricted to s.[25]\n"
+    units = enumerate_units(report)
+    kf = [u for u in units if u.category == "key_finding"]
+    assert kf, "no key_finding unit enumerated"
+    assert any(truncation_flag(u, _KNOWN) == "end-cut:'s'" for u in kf)
+
+
 # ---------------------------------------------------------------------------
 # contradiction-noise — possible_metric_mismatch rows counted + classified
 # ---------------------------------------------------------------------------
@@ -123,15 +135,16 @@ def test_contradiction_noise_absent_input_is_not_validated():
 # end-to-end on the fixture: dirty report FAILS all three; absent input FAILS for coverage
 # ---------------------------------------------------------------------------
 def test_known_words_built_from_fixture_evidence_pool():
-    known, chars = build_known_words(_FIXTURE, floor=5)
+    known, chars, evidence_pool_ok = build_known_words(_FIXTURE, floor=5)
     assert chars > 0
+    assert evidence_pool_ok is True  # the required evidence_pool.json sidecar is present + readable
     for w in ("research", "local", "methodology", "labor", "demand", "occupations"):
         assert w in known
 
 
 def test_run_audit_on_dirty_fixture_detects_all_three():
     report_text = _REPORT.read_text(encoding="utf-8")
-    known, chars = build_known_words(_FIXTURE, floor=5)
+    known, chars, _evidence_pool_ok = build_known_words(_FIXTURE, floor=5)
     audit = run_audit(report_text, _FIXTURE, known, chars, _FIXTURE / "contradictions.json")
     assert audit["chrome"]["count"] >= 4          # author, license, glued-ToC, browser, foreign
     assert audit["truncation"]["count"] >= 3      # Resea, s, loc, hodology
@@ -154,6 +167,22 @@ def test_main_absent_report_fails_for_coverage(tmp_path, capsys):
     assert rc == 2  # absent input -> non-zero exit (SKIPPED == FAIL-for-coverage)
     out = capsys.readouterr().out
     assert "SKIPPED" in out
+
+
+def test_main_absent_required_evidence_pool_fails_for_coverage(tmp_path, capsys):
+    # Codex P1-1: a report whose REQUIRED evidence_pool.json sidecar is absent must FAIL for
+    # coverage, never silently fall back to corpus_snapshot.json and false-green. A corpus_snapshot
+    # IS present here -> the old code would have built a non-empty known set and could PASS.
+    report = tmp_path / "report.md"
+    report.write_text("## Abstract\n\nAutomation raises the labor share and labor demand.[1]\n",
+                      encoding="utf-8")
+    (tmp_path / "corpus_snapshot.json").write_text(
+        "labor demand automation productivity occupations " * 50, encoding="utf-8")
+    rc = main(["--report", str(report)])
+    assert rc != 0  # absent required basis -> non-zero exit (SKIPPED == FAIL-for-coverage)
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out
+    assert "evidence_pool.json" in out
 
 
 def test_enumerate_units_audits_glued_chrome_header_as_a_unit():

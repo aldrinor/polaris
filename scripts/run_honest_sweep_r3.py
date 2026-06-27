@@ -11705,6 +11705,34 @@ async def run_one_query(
                 final_report = _screen_garbled_headers(final_report)
             except Exception as _hs_exc:  # noqa: BLE001 — additive screen; never abort the report
                 _log(f"[header-sanity-screen] skipped (fail-open): {_hs_exc}")
+        # I-wire-013 (#1327) iter-3a: RENDER-SEAM CHOKEPOINT — the SINGLE sanitization pass over
+        # EVERY claim-bearing unit of the FULLY-ASSEMBLED report (Abstract, Key-Findings bullets,
+        # every ### section body INCLUDING the unscreened multi_section_generator output, the
+        # Corroborated Weighted Findings citation-split blob, the Conclusion). It runs AFTER every
+        # composer + the header-sanity screen and BEFORE the report.md write / chrome canary, so the
+        # canary reads the cleaned artifact. With the unblinded chrome+truncation predicate it drops
+        # glued page-furniture (ToC/masthead/author/license/bibliographic/nav) and corpus-grounded
+        # span cuts welded INTO real prose, while marker-paired per-unit dropping + scaffolding
+        # exclusion + glued-header repair keep every real finding (over-strip is worse than a leak).
+        # The truncation leg's false-positive guard is the run's OWN corpus vocabulary, built from the
+        # in-memory evidence_for_gen rows. Default-ON kill-switch PG_RENDER_SEAM_SANITIZE; faithfulness-neutral
+        # (suppress-only; touches no strict_verify/NLI/4-role/span verdict). Fail-open.
+        try:
+            from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+                build_known_words_from_evidence,
+                sanitize_rendered_report,
+            )
+            _seam_known_words = build_known_words_from_evidence(evidence_for_gen)
+            final_report, _seam_removed = sanitize_rendered_report(
+                final_report, _seam_known_words
+            )
+            if _seam_removed:
+                _log(
+                    f"[render-seam] removed {_seam_removed} chrome/truncated unit(s) from the "
+                    f"assembled report (known-word basis: {len(_seam_known_words)} corpus words)"
+                )
+        except Exception as _seam_exc:  # noqa: BLE001 — additive screen; never abort the report
+            _log(f"[render-seam] skipped (fail-open): {_seam_exc}")
         # SECTION-lane cross-wire (I-arch-005 #1257): PREPEND the SECTION lane's reliability
         # header (corroboration-strength counts) to the report.md ARTIFACT only. The field does
         # NOT exist on MultiSectionResult at this base -> getattr None -> render "" -> byte-

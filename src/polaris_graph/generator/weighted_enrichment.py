@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import Counter
 from typing import Any, NamedTuple
 
 # LAW VI: env-overridable, default OFF (unset => byte-identical legacy render).
@@ -715,6 +716,152 @@ _DOI_ONLY_RE = re.compile(
 # completeness test so "…claim.[12]" is judged on the "." not the marker).
 _SHARED_TRAILING_CITE_RE = re.compile(r"(?:\s*\[(?:\d+|#ev:[^\]]*)\])+\s*$")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-013 (#1327) iter-3a — CONTAINMENT forensic chrome rules (the UNBLINDING).
+#
+# The legacy chrome categories above are WHOLE-UNIT junk classifiers (anchored ^…$ / standalone-
+# label / bare-DOI shapes): they return False the moment a unit ALSO carries real prose, so glued
+# page-furniture survived ("…over the recent past.[1] 1 Introduction 1.1 Research background 1.2
+# Resea.[14]", a masthead glued mid-Abstract, a "## Dennis Zami …" author header glued onto a
+# section title). These rules — ported from the independent detector
+# scripts/iwire013_sec11_forensic_audit.py (which catches 55 chrome / 20 truncation on the banked
+# render where the production predicate reported ~0) — flag a unit that CONTAINS chrome, not only a
+# unit that IS chrome.
+#
+# PRECISION OVER RECALL (drop-path law — "over-strip deletes a real finding, worse than a leak"):
+# the detector's loose bare ``\d+ TitleCase`` ToC token and any-run non-Latin rule were tightened
+# for this DROP path (they over-flagged real economics prose with year/figure number pairs and an
+# English finding quoting a short CJK term). The kept rules are structure-anchored and validated to
+# flag ZERO of a clean-finding probe set while catching the real glued chrome (≈47/55 of the banked
+# render; the residual are detector false-positives we deliberately KEEP, or niche chrome the canary
+# backstops). Every numeric threshold is a named constant (LAW VI / §9.4).
+
+# A glued/inline markdown header INSIDE a unit body (a SECOND "## …" header welded onto the title /
+# into prose) — NOT a clean leading header (the caller passes a header's TITLE, post-``#`` strip).
+_INLINE_HEADER_RE = re.compile(r"(?:^|[^\n#])#{1,6}\s+[A-Za-z]")
+# Author-with-superscript-affiliation list: "Kanbach1,2 · Louisa Heiduk1 · …" (middot separators).
+_AFFIL_MIDDOT_RE = re.compile(r"[A-Za-z]{2,}\d{1,2}(?:,\d)?\s*[·•]")
+# A run of non-Latin script (Arabic / CJK) — the report is English-only, so a PREDOMINANTLY
+# non-Latin unit is a foreign-page scrape. A SHORT inline foreign term inside English prose is NOT
+# flagged (§-1.3 multilingual preservation): the run must be long AND outweigh the Latin letters.
+_NONLATIN_CHAR_RE = re.compile(r"[؀-ۿݐ-ݿ一-鿿぀-ヿ가-힯]")
+_NONLATIN_RUN_RE = re.compile(r"[؀-ۿݐ-ݿ一-鿿぀-ヿ가-힯]{4,}")
+_MIN_NONLATIN_RUN_CHARS = 4  # a shorter run is an inline foreign term, kept
+# A DOTTED section-number token glued into a unit ("1.1 Research", "5.2 AI"); the TitleCase word is
+# excluded when it is a magnitude/measure unit so a real "3.2 Million / 4.5 Billion" pair never
+# reads as a two-token ToC. A unit needs ``_MIN_DOTTED_TOC_HITS`` dotted tokens to flag as glued ToC.
+_DOTTED_SECTION_TOKEN_RE = re.compile(r"(?:^|\s)\d+\.\d+(?:\.\d+){0,2}\s+([A-Z][a-z]+)")
+_MIN_DOTTED_TOC_HITS = 2
+_MAGNITUDE_UNIT_WORDS = frozenset({
+    "million", "billion", "trillion", "thousand", "hundred", "percent", "percentage",
+    "times", "average", "points", "point",
+})
+# A STANDALONE numbered-heading LINE/unit: a unit that OPENS with a dotted section number + a
+# TitleCase word ("3.3 Recommender Systems", "1.1 Research background to the study"). Anchored at the
+# unit start so a mid-sentence "see section 3.3 for details" never matches; the opener word is
+# magnitude-excluded so "3.2 Billion outcomes …" never matches.
+_STANDALONE_DOTTED_HEADING_RE = re.compile(r"^\s*\d+\.\d+(?:\.\d+){0,2}\s+([A-Z][a-z][\w]*)")
+# A STANDALONE numbered SECTION-NAME heading ("1 Introduction", "3 Methods") — anchored at the unit
+# start with a closed section-name vocabulary so a prose "Figure 1 Results" / "Table 2 Methods"
+# (which does NOT open with a bare number) is never matched.
+_STANDALONE_SECTION_NAME_RE = re.compile(
+    r"^\s*\d+(?:\.\d+){0,3}\s+(?:Introduction|Background|Materials?|Methods?|Methodology|"
+    r"Results?|Discussion|References?|Conclusion|Abstract|Literature|Overview)\b",
+    re.IGNORECASE,
+)
+# Journal / submission MASTHEAD furniture welded into a unit ("44 Pages Posted: 9 Jan 2018",
+# "Vol: 30 Issue: 1", "Date Issued April 2020", "Policy Research Working Paper 11057").
+_MASTHEAD_CHROME_RE = re.compile(
+    r"\bpages?\s+posted\s*:|\bposted\s*:\s*\d|\blast revised\s*:|\bdate issued\b|"
+    r"\bworking paper\s+\d{2,}|\bvol\.?\s*:?\s*\d+\s*(?:,|issue|no\.?)|"
+    r"there are \d+ versions of this paper|\bpolicy research working paper\b|"
+    r"cite this paper as|number of pages",
+    re.IGNORECASE,
+)
+# Author / submission-metadata block ("Received: 31 May 2023 / Accepted: …", "Published online").
+_SUBMISSION_META_RE = re.compile(
+    r"received:\s*\d|accepted:\s*\d|published online|\brevised:\s*\d", re.IGNORECASE,
+)
+# Browser / UI / nav / social-share junk welded into a unit.
+_NAV_CHROME_RE = re.compile(
+    r"share\s+facebook|facebook\s+twitter|twitter\s+linkedin|download associated records|"
+    r"clear your browser cache|refresh the page or clear|accessing this content requir|"
+    r"this content is only available as a pdf|i need some assistance|most recent answer|"
+    r"requires a membership|please log into",
+    re.IGNORECASE,
+)
+# Open-access / license / copyright furniture.
+_LICENSE_CHROME_RE = re.compile(
+    r"creative commons|creativecommons\.org/licenses|open access article distributed under|"
+    r"this is an open access article|©\s*\d{4}\s+the\b|©\s*the author|copyright\s+©",
+    re.IGNORECASE,
+)
+# HARD bibliographic / portal markers (a LONE URL is NOT chrome; these are unambiguous).
+_BIBLIO_CHROME_RE = re.compile(
+    r"\bdoi:\s*10\.\d|\bissn\b\s*:?\s*\d|crossref reports the following articles citing|"
+    r"volume title publisher|name:\s*\S+\.txt\b|file type:\s*text/",
+    re.IGNORECASE,
+)
+_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+_DOI_URL_RE = re.compile(r"https?://(?:dx\.)?doi\.org/", re.IGNORECASE)
+_MIN_URLS_FOR_CHROME = 3       # >=3 bare URLs in one unit => a link list / portal blob
+_MIN_DOI_URLS_FOR_CHROME = 2   # >=2 doi.org URLs => a reference blob
+# A statistics / regression TABLE welded into a unit: a dense run of parenthesised std-errors
+# "(0.018) (0.016) (0.011)" or starred coefficients "0.034* 0.030* 0.027**". A real finding cites
+# one coefficient, never a 3+/2+ run.
+_STATS_TABLE_RE = re.compile(
+    r"(?:\(\s*[-−]?\d+\.\d+\s*\)\s*){3,}|(?:\d+\.\d+\s*\*{1,3}\s*){3,}"
+)
+
+
+def _dotted_toc_hits(text: str) -> int:
+    """Count dotted section-number tokens whose TitleCase word is NOT a magnitude unit (so a
+    "3.2 Million / 4.5 Billion" magnitude pair contributes ZERO ToC hits)."""
+    return sum(
+        1 for word in _DOTTED_SECTION_TOKEN_RE.findall(text)
+        if word.lower() not in _MAGNITUDE_UNIT_WORDS
+    )
+
+
+def _is_predominantly_nonlatin(text: str) -> bool:
+    """True iff ``text`` carries a long non-Latin run AND its non-Latin characters outnumber its
+    Latin letters — a foreign-page scrape, not an English finding quoting a short foreign term."""
+    if not _NONLATIN_RUN_RE.search(text):
+        return False
+    nonlatin = len(_NONLATIN_CHAR_RE.findall(text))
+    latin = len(re.findall(r"[A-Za-z]", text))
+    return nonlatin >= _MIN_NONLATIN_RUN_CHARS and nonlatin >= latin
+
+
+def _contains_forensic_chrome(text: str) -> bool:
+    """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
+    unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
+    (see the module comment above). High-precision / structure-anchored; never flags a clean
+    finding. Gated by the caller under ``render_chrome_screen_enabled()``."""
+    s = text
+    low = s.lower()
+    # browser/UI · license · author/submission metadata · bibliographic/portal · masthead
+    if _NAV_CHROME_RE.search(s) or _LICENSE_CHROME_RE.search(s) or _BIBLIO_CHROME_RE.search(s):
+        return True
+    if _SUBMISSION_META_RE.search(s) or _MASTHEAD_CHROME_RE.search(s) or _STATS_TABLE_RE.search(s):
+        return True
+    if _ORCID_RE.search(s) or "orcid" in low or _AFFIL_MIDDOT_RE.search(s):
+        return True
+    if len(_URL_RE.findall(s)) >= _MIN_URLS_FOR_CHROME:
+        return True
+    if len(_DOI_URL_RE.findall(s)) >= _MIN_DOI_URLS_FOR_CHROME:
+        return True
+    # glued markdown header / ToC fragment
+    if _INLINE_HEADER_RE.search(s) or _dotted_toc_hits(s) >= _MIN_DOTTED_TOC_HITS:
+        return True
+    if _STANDALONE_SECTION_NAME_RE.search(s):
+        return True
+    standalone_dotted = _STANDALONE_DOTTED_HEADING_RE.match(s)
+    if standalone_dotted and standalone_dotted.group(1).lower() not in _MAGNITUDE_UNIT_WORDS:
+        return True
+    # foreign-page scrape (predominantly non-Latin)
+    return _is_predominantly_nonlatin(s)
+
 
 def render_chrome_screen_enabled() -> bool:
     """Default ON (LAW VI kill-switch ``PG_RENDER_CHROME_SCREEN=0``). When OFF, the NEW
@@ -746,7 +893,8 @@ def _base_junk(text: str) -> bool:
 
 
 def _is_new_chrome_category(text: str) -> bool:
-    """The NEW I-wire-012 chrome categories (default-ON, high-precision)."""
+    """The NEW I-wire-012 chrome categories (default-ON, high-precision) PLUS the I-wire-013 (#1327)
+    CONTAINMENT forensic rules (a unit that CONTAINS glued page-furniture, not only IS junk)."""
     if _SHARED_RENDER_CHROME_RE.search(text):
         return True
     if _SHARED_CLAIM_HEADER_CHROME_RE.search(text):
@@ -760,7 +908,9 @@ def _is_new_chrome_category(text: str) -> bool:
         return True
     if _DOI_ONLY_RE.match(stripped):
         return True
-    return False
+    # I-wire-013 (#1327): CONTAINMENT unblinding — glued ToC / masthead / author / license /
+    # bibliographic / nav / stats-table / foreign-scrape welded into otherwise-real prose.
+    return _contains_forensic_chrome(text)
 
 
 def _is_unrenderable_sentence_form(text: str) -> bool:
@@ -783,14 +933,26 @@ def _is_unrenderable_sentence_form(text: str) -> bool:
     return False
 
 
-def is_render_chrome_or_unrenderable(text: str, *, require_sentence_form: bool = False) -> bool:
-    """THE ONE shared render-side chrome+truncation predicate (I-wire-012 #1326).
+def is_render_chrome_or_unrenderable(
+    text: str,
+    *,
+    require_sentence_form: bool = False,
+    known_words: "set[str] | frozenset[str] | None" = None,
+) -> bool:
+    """THE ONE shared render-side chrome+truncation predicate (I-wire-012 #1326; I-wire-013 #1327).
 
     True iff ``text`` is page-furniture chrome, a CAPTCHA/boilerplate stub, a numbered
     ToC / CC-license / masthead / login-wall fragment, a standalone scraped doc label
-    ("Abstract"/"AI Summary"), an author-ORCID/affiliation list, a bare DOI row, or a
-    mid-word/cut-span TRUNCATION. With ``require_sentence_form=True`` it ALSO rejects a
-    mid-word-START fragment and an incomplete sentence (bullet/header surfaces only).
+    ("Abstract"/"AI Summary"), an author-ORCID/affiliation list, a bare DOI row, glued
+    page-furniture welded INTO real prose (I-wire-013 CONTAINMENT), or a mid-word/cut-span
+    TRUNCATION. With ``require_sentence_form=True`` it ALSO rejects a mid-word-START fragment
+    and an incomplete sentence (bullet/header surfaces only).
+
+    ``known_words`` (I-wire-013 #1327): when a caller supplies the run's corpus-vocabulary
+    allowlist, the truncation leg ALSO catches a CORPUS-GROUNDED span cut at a ``[N]`` boundary
+    (a non-inflectional prefix/suffix of a longer corpus word — "… 1.2 Resea.[14]"). It defaults
+    to ``None`` so every existing caller (including the canary) is unchanged: no corpus → the
+    boundary-cut leg is skipped → no new false positive.
 
     SUPPRESS-ONLY: never promotes a unit, never alters a faithfulness VERDICT. The base
     screen (boilerplate/web-chrome/CAPTCHA) ALWAYS runs (preserving the pre-I-wire-012
@@ -810,7 +972,17 @@ def is_render_chrome_or_unrenderable(text: str, *, require_sentence_form: bool =
         from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
             is_truncated_fragment,
         )
-        if is_truncated_fragment(s):
+        # When a corpus allowlist is supplied, treat the unit as eligible at BOTH boundaries so the
+        # corpus-grounded span-cut leg fires on a cut at the unit's leading/trailing ``[N]`` edge
+        # (the chokepoint splits the report into per-citation units before calling this). With no
+        # corpus (known_words=None) the boundary flags are inert and only the marker leg runs.
+        _eligible = known_words is not None
+        if is_truncated_fragment(
+            s,
+            known_words,
+            ends_before_marker=_eligible,
+            starts_after_marker=_eligible,
+        ):
             return True
     except Exception:  # pragma: no cover - key_findings is stable in-tree
         pass
@@ -912,6 +1084,212 @@ def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
         "verdict": "fail" if tripped else "pass",
         "examples": [b[:120] for b in chrome[:5]],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-013 (#1327) iter-3a — RENDER-SEAM CHOKEPOINT.
+#
+# ONE sanitization pass over EVERY claim-bearing unit of the FINAL assembled report (Abstract,
+# Key-Findings bullets, every ``###`` section body INCLUDING multi_section_generator output, the
+# Corroborated Weighted Findings citation-split blob, the Conclusion), dropping/repairing chrome +
+# truncated units with the now-unblinded predicate. This is the single seam that screens the
+# currently-unscreened multi_section_generator output (0 screen calls today). It runs AFTER every
+# composer + the header-sanity screen and BEFORE the chrome canary, so the canary reads the cleaned
+# artifact and a residual leak still trips it fail-closed.
+#
+# FAITHFULNESS (FROZEN engine): RENDER hygiene only — it SUPPRESSES a page-furniture / truncated
+# unit, NEVER promotes one and NEVER touches a strict_verify / NLI / 4-role / span-grounding verdict.
+# Page furniture is not a corroborating source, so suppressing it STRENGTHENS faithfulness.
+#
+# OVER-STRIP SAFE (the drop-path law "over-strip deletes a real finding, worse than a leak"):
+#   * Per-``[N]``-unit granularity — a flagged citation unit is dropped WITH its own trailing marker
+#     (marker-paired, so a kept finding never loses its citation and a dropped chrome unit never
+#     orphans a marker). The 4005-char Corroborated-Weighted-Findings blob keeps every real finding;
+#     only its chrome sub-units drop.
+#   * Scaffolding sections (Bibliography / Methods / disclosures / Reliability / Source corroboration
+#     / the H1 question echo) are EXCLUDED — their legitimate DOIs/URLs are not chrome.
+#   * A unit carrying SUBSTANTIAL real prose plus a glued inline ``#`` header is REPAIRED (cut at the
+#     header, prefix kept) — the remainder is dropped only when it independently re-tests as chrome,
+#     so a real "Limitations: … most extreme.## Analytical synthesis …" paragraph is never lost.
+
+# LAW VI: env-overridable, default ON (kill-switch ``PG_RENDER_SEAM_SANITIZE=0`` => no-op pass-through).
+_RENDER_SEAM_SANITIZE_ENV = "PG_RENDER_SEAM_SANITIZE"
+# LAW VI: the corpus known-word floor (a word must occur >= this many times across the run's fetched
+# source text to count as "known" for the truncation allowlist). Mirrors the detector default.
+_RENDER_SEAM_KNOWN_WORD_FLOOR_ENV = "PG_RENDER_SEAM_KNOWN_WORD_FLOOR"
+_DEFAULT_KNOWN_WORD_FLOOR = 5
+# A unit needs at least this many real-prose characters before a glued inline header in it is
+# REPAIRED (prefix kept) rather than the whole unit dropped — below it the unit is treated as junk.
+_MIN_REPAIR_PREFIX_CHARS = 40
+# Section headers that are pipeline SCAFFOLDING, not carried-up source prose (no body units are
+# screened under them; their legitimate DOIs/URLs must not be chrome-flagged). Matched against the
+# header TITLE's leading text. Mirrors the detector's _SCAFFOLDING_TITLES.
+_SCAFFOLDING_SECTION_TITLES = (
+    "reliability header", "methods", "capability disclosures", "contradiction disclosures",
+    "bibliography", "source corroboration", "evidence-support disclosure", "research report:",
+)
+_KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
+_SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
+_CITATION_SPLIT_RE = re.compile(r"(\[\d+\])")
+_INLINE_HEADER_SPLIT_RE = re.compile(r"#{1,6}\s+[A-Za-z]")
+
+
+def render_seam_sanitize_enabled() -> bool:
+    """True iff the default-ON render-seam chokepoint is active (LAW VI kill-switch
+    ``PG_RENDER_SEAM_SANITIZE=0`` => byte-identical pass-through)."""
+    return os.environ.get(_RENDER_SEAM_SANITIZE_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _known_word_floor() -> int:
+    """The corpus known-word frequency floor (LAW VI). Fail-soft on a non-int / non-positive value
+    to the detector default (the allowlist must never be silently emptied)."""
+    raw = os.environ.get(_RENDER_SEAM_KNOWN_WORD_FLOOR_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_KNOWN_WORD_FLOOR
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_KNOWN_WORD_FLOOR
+
+
+def build_known_words_from_evidence(evidence_rows: Any, floor: int | None = None) -> set[str]:
+    """The corpus-vocabulary allowlist (the truncation false-positive guard) built from the run's OWN
+    fetched source text — every lowercase token occurring >= ``floor`` times across the evidence
+    rows' ``direct_quote`` / ``statement`` / ``title`` fields. So a word the corpus genuinely uses
+    ("labor", "Acemoglu", "computerisation") never false-flags as a span cut, while an absent
+    fragment ("Resea", "hodology") does. Accepts a list of row dicts OR a ``{evidence_id: row}`` map
+    (the in-memory ``ev_pool`` shape). PURE; returns an empty set when no source text is available
+    (=> the caller's truncation leg is simply skipped, never a wrong drop)."""
+    if floor is None:
+        floor = _known_word_floor()
+    if isinstance(evidence_rows, dict):
+        rows: Any = evidence_rows.values()
+    else:
+        rows = evidence_rows or ()
+    freq: Counter[str] = Counter()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field in _KNOWN_WORD_FIELDS:
+            value = row.get(field)
+            if isinstance(value, str) and value:
+                for word in _BOUNDARY_VOCAB_RE.findall(value):
+                    freq[word.lower()] += 1
+    return {word for word, count in freq.items() if count >= floor}
+
+
+# An alphabetic vocabulary token (mirrors the detector's _WORD_RE / key_findings._BOUNDARY_WORD_RE).
+_BOUNDARY_VOCAB_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
+
+
+def _unit_core_for_screen(text: str) -> str:
+    """The screen-test text of a unit: leading ``- `` bullet marker and ``**bold**`` markers
+    removed so the predicate judges the prose, not the markdown wrapper. PURE."""
+    core = _LEADING_BULLET_RE.sub("", text.strip())
+    return _BOLD_MARKER_RE.sub("", core).strip()
+
+
+def _repair_glued_inline_header(text: str, known_words: "set[str] | frozenset[str] | None") -> "str | None":
+    """If ``text`` is substantial real prose with a glued inline ``#`` header welded mid-unit, return
+    the kept prefix (the header + remainder dropped) — but ONLY when the remainder independently
+    re-tests as chrome, so a real paragraph is never over-stripped. Returns ``None`` when no
+    repair applies (the caller then drops the whole unit)."""
+    m = _INLINE_HEADER_SPLIT_RE.search(text)
+    if not m or m.start() < _MIN_REPAIR_PREFIX_CHARS:
+        return None
+    prefix = text[:m.start()].rstrip()
+    remainder = text[m.start():]
+    prefix_core = _unit_core_for_screen(prefix)
+    # Keep the prefix only if it is itself clean prose AND the excised remainder is independently
+    # chrome (over-strip guard: never drop a remainder that re-tests clean).
+    if not prefix_core or is_render_chrome_or_unrenderable(prefix_core, known_words=known_words):
+        return None
+    if not is_render_chrome_or_unrenderable(_unit_core_for_screen(remainder), known_words=known_words):
+        return None
+    return prefix
+
+
+def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | None") -> "tuple[str, int]":
+    """Sanitize ONE claim-section body line: split it into per-``[N]`` citation units, drop each unit
+    (with its own trailing marker) that is chrome or a corpus-grounded truncation cut, and repair a
+    unit that is real prose with a glued inline header. Returns ``(clean_line, dropped_count)``. A
+    marker-less unit that is the whole short line is dropped iff it is chrome (a standalone ToC /
+    masthead line). PURE."""
+    parts = _CITATION_SPLIT_RE.split(line)
+    segments: list[tuple[str, str]] = []
+    i = 0
+    while i < len(parts):
+        seg_text = parts[i]
+        seg_marker = parts[i + 1] if i + 1 < len(parts) else ""
+        segments.append((seg_text, seg_marker))
+        i += 2
+    kept: list[str] = []
+    dropped = 0
+    for seg_text, seg_marker in segments:
+        if not seg_text.strip() and not seg_marker:
+            continue
+        core = _unit_core_for_screen(seg_text)
+        if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
+            repaired = _repair_glued_inline_header(seg_text, known_words)
+            if repaired is not None:
+                # Real-prose prefix kept WITH its citation marker (the kept finding stays cited);
+                # only the glued-header remainder is excised.
+                kept.append(repaired + seg_marker)
+                dropped += 1
+                continue
+            dropped += 1
+            continue  # whole chrome unit + its marker dropped
+        kept.append(seg_text + seg_marker)
+    return "".join(kept), dropped
+
+
+def _is_scaffolding_section_title(title: str) -> bool:
+    """True iff a header title names a pipeline SCAFFOLDING section (excluded from sanitization)."""
+    low = title.strip().lower().lstrip("# ").strip()
+    return any(low.startswith(s) for s in _SCAFFOLDING_SECTION_TITLES)
+
+
+def sanitize_rendered_report(
+    report_md: str, known_words: "set[str] | frozenset[str] | None" = None
+) -> "tuple[str, int]":
+    """THE render-seam chokepoint (I-wire-013 #1327). Run ONE sanitization pass over every
+    claim-bearing unit of the assembled ``report_md``, dropping/repairing chrome + truncated units
+    with the unblinded ``is_render_chrome_or_unrenderable`` predicate. Returns
+    ``(clean_report_md, units_removed)``.
+
+    Scaffolding sections (Bibliography / Methods / disclosures / Reliability / Source corroboration /
+    the H1 question echo) are byte-preserved. A glued-chrome HEADER line ("## Dennis Zami …" welded
+    onto a title) is dropped; a clean section header is preserved. Default-ON kill-switch
+    ``PG_RENDER_SEAM_SANITIZE``; faithfulness-neutral (suppress-only). PURE."""
+    if not report_md or not render_seam_sanitize_enabled():
+        return report_md, 0
+    out_lines: list[str] = []
+    removed = 0
+    in_scaffolding = False
+    for line in report_md.split("\n"):
+        header = _SECTION_HEADER_RE.match(line)
+        if header:
+            title = header.group(2)
+            in_scaffolding = _is_scaffolding_section_title(title)
+            # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
+            # scaffolding header — dropping a real header would orphan its body.
+            if not in_scaffolding and _contains_forensic_chrome(title):
+                removed += 1
+                continue
+            out_lines.append(line)
+            continue
+        if in_scaffolding or not line.strip():
+            out_lines.append(line)
+            continue
+        clean_line, dropped = _sanitize_report_line(line, known_words)
+        removed += dropped
+        if clean_line.strip() or not dropped:
+            out_lines.append(clean_line)
+        # else: the line reduced entirely to chrome -> drop the now-empty line.
+    return "\n".join(out_lines), removed
 
 
 def _make_junk_screen() -> Any:

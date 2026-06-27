@@ -84,6 +84,10 @@ _SCAFFOLDING_TITLES = (
 )
 
 _MARKER_RE = re.compile(r"\[\d+\]")
+# One or more trailing ``[N]`` citation markers (optionally whitespace-separated) at the very end of
+# a unit. Stripped from a Key-Findings bullet so the boundary-word check inspects the word BEFORE
+# the citation, not the marker itself (Codex P1-2).
+_TRAILING_MARKERS_RE = re.compile(r"(?:\s*\[\d+\])+\s*$")
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
 # A run of non-Latin script (Arabic / CJK) — the report is supposed to be English-only, so a block
 # of these characters is a foreign-page scrape carried up as a "claim".
@@ -119,18 +123,25 @@ class _Unit:
 # ---------------------------------------------------------------------------
 # Known-word basis (the run's OWN corpus) — fully offline, no embedded dictionary.
 # ---------------------------------------------------------------------------
-def build_known_words(snapshot_dir: Path, floor: int) -> tuple[set[str], int]:
+def build_known_words(snapshot_dir: Path, floor: int) -> tuple[set[str], int, bool]:
     """Every lowercase token occurring >= ``floor`` times across this run's fetched source text
     (``evidence_pool.json`` direct_quote/statement/title; ``corpus_snapshot.json`` text fields as a
-    fallback). Returns (known_set, source_chars). An EMPTY set is returned when no source text is
-    available — the caller treats that as "truncation check unvalidatable" (SKIPPED -> FAIL for
-    coverage), never a silent pass."""
+    SUPPLEMENT). Returns (known_set, source_chars, evidence_pool_ok).
+
+    ``evidence_pool.json`` is the REQUIRED known-word basis: ``evidence_pool_ok`` is True iff it is
+    present AND parseable. A missing / unreadable evidence_pool.json is FAIL-LOUD — the caller exits
+    non-zero (SKIPPED -> FAIL for coverage) and the corpus_snapshot.json supplement is NOT consulted,
+    so an absent required basis can never be silently masked into a false green (Codex P1-1). The
+    supplement only fills in when the required basis is confirmed present+readable but yielded no
+    usable text."""
     freq: Counter[str] = Counter()
     chars = 0
     ev = snapshot_dir / "evidence_pool.json"
+    evidence_pool_ok = False
     if ev.is_file():
         try:
             rows = json.loads(ev.read_text(encoding="utf-8")) or []
+            evidence_pool_ok = True  # present AND parseable -> the required known-word basis exists
             for r in rows:
                 if not isinstance(r, dict):
                     continue
@@ -140,9 +151,12 @@ def build_known_words(snapshot_dir: Path, floor: int) -> tuple[set[str], int]:
                         chars += len(t)
                         for w in _WORD_RE.findall(t):
                             freq[w.lower()] += 1
-        except Exception:  # noqa: BLE001 - malformed -> treat as absent (SKIPPED downstream)
-            pass
-    if chars == 0:
+        except Exception:  # noqa: BLE001 - present but malformed -> required basis UNREADABLE -> FAIL
+            evidence_pool_ok = False
+    # corpus_snapshot.json only SUPPLEMENTS once the required evidence_pool basis is confirmed
+    # present+readable. A missing/unreadable evidence_pool MUST NOT be masked by this fallback —
+    # that silent fall-through was the §-1.1 false-green hole (Codex P1-1).
+    if chars == 0 and evidence_pool_ok:
         cs = snapshot_dir / "corpus_snapshot.json"
         if cs.is_file():
             try:
@@ -153,7 +167,7 @@ def build_known_words(snapshot_dir: Path, floor: int) -> tuple[set[str], int]:
             except Exception:  # noqa: BLE001
                 pass
     known = {w for w, c in freq.items() if c >= floor}
-    return known, chars
+    return known, chars, evidence_pool_ok
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +268,11 @@ def _enumerate_key_findings_bullets(body: str) -> list[_Unit]:
 
 def _make_kf_unit(text: str) -> _Unit:
     # A KF bullet ends right before its trailing [N] and starts a fresh claim -> both boundaries
-    # are eligible for a span-cut check.
+    # are eligible for a span-cut check. Strip the trailing [N] citation marker(s) FIRST so the
+    # end-cut check inspects the word right before the citation ("...restricted to s.[25]" -> "s"),
+    # not the marker itself: keeping the [N] made _last_word land on "]" and silently miss every
+    # cut-word-before-citation in a KF bullet (Codex P1-2).
+    text = _TRAILING_MARKERS_RE.sub("", text)
     return _Unit("key_finding", text, ends_before_marker=True, starts_after_marker=True)
 
 
@@ -472,9 +490,10 @@ def contradiction_noise(contradictions_path: Path | None, report_text: str) -> d
         lo = min(vals) if vals else None
         hi = max(vals) if vals else None
         examples.append(f"{subj} / {pred}: range {lo} to {hi}" + (f"  [{','.join(why)}]" if why else ""))
-    # noise = rows that actually render (use the rendered count as the ship-affecting tally; fall
-    # back to the pmm-row count if the rendered scan finds none but rows exist).
-    count = rendered if rendered else len(pmm)
+    # noise = rows that actually RENDER in the report (the ship-affecting tally). Do NOT fall back
+    # to len(pmm): pmm rows the render gate correctly suppressed are NOT shipped noise, so counting
+    # them would false-FAIL a report whose headline block is already clean (Codex P2).
+    count = rendered
     return {"validated": True, "count": count, "rendered_lines": rendered,
             "pmm_rows": len(pmm), "examples": examples}
 
@@ -579,7 +598,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     report_text = report_path.read_text(encoding="utf-8")
-    known, known_chars = build_known_words(snapshot_dir, args.known_word_floor)
+    known, known_chars, evidence_pool_ok = build_known_words(snapshot_dir, args.known_word_floor)
+    if not evidence_pool_ok:
+        # NEVER pass when the REQUIRED known-word basis is absent: a missing / unreadable
+        # evidence_pool.json is SKIPPED == FAIL-for-coverage, never a silent corpus_snapshot.json
+        # fallback to a false green (the §-1.1 false-green guard — Codex P1-1).
+        print(f"[forensic] SKIPPED: required evidence_pool.json missing or unreadable in {snapshot_dir}")
+        print("[forensic] OVERALL: FAIL (required known-word basis absent -> zero truncation coverage)")
+        return 2
     contradictions_path = snapshot_dir / "contradictions.json"
     contradictions_path = contradictions_path if contradictions_path.is_file() else None
 

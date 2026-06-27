@@ -77,19 +77,139 @@ _ADJACENT_MARKER_RUN_RE = re.compile(r"\[\d+\](?:\s*\[\d+\])+")
 # bibliography retain every reference, so capping the SUMMARY display can never orphan a citation.
 _DEFAULT_MAX_MARKERS = 3
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-wire-013 (#1327) iter-3a — CORPUS-GROUNDED boundary span-cut (the UNBLINDING).
+#
+# The legacy ``is_truncated_fragment`` only matched an explicit trailing ellipsis / hyphen MARKER,
+# so it returned False on the dominant truncation shape in a real render: a span CUT mid-word right
+# before its ``[N]`` citation ("… 1.2 Resea.[14]", "… incorporates the ap.[5]"). This adds the
+# proven detector rule (scripts/iwire013_sec11_forensic_audit.py): a boundary token is a span cut
+# iff it is NOT a word the run's OWN corpus uses AND it is a strict NON-inflectional prefix (end cut)
+# / suffix (start cut) of a LONGER corpus word. The corpus-vocabulary allowlist (``known_words``,
+# built by the caller from evidence_pool direct_quote/statement/title) is the FALSE-POSITIVE GUARD:
+# a real-but-rare sentence-ender ("classifier", "computerisation") is either known or has no longer
+# known completion, so it does NOT flag, while a real cut ("Resea"→"research") always does. The
+# completion gate keeps precision high (the detector holds ~2% FP on the banked render).
+#
+# DROP-PATH SAFE / BACKWARD-COMPATIBLE: ``known_words`` is keyword-only and defaults to ``None`` —
+# every existing caller (no corpus) gets BYTE-IDENTICAL legacy behaviour (the marker check only).
+# The boundary check fires ONLY when a corpus allowlist is supplied AND the caller marks which
+# boundary (``ends_before_marker`` / ``starts_after_marker``) is eligible — so a complete sentence's
+# trailing complete word is never end-checked unless the caller says a marker follows it.
 
-def is_truncated_fragment(text: str) -> bool:
-    """True iff ``text`` carries an UNAMBIGUOUS mid-word / cut-span truncation marker.
+# An alphabetic word token (the boundary word; mirrors the detector's _WORD_RE).
+_BOUNDARY_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
+# Leading `[N]` / `[#ev:...]` citation markers (stripped before reading the first word after a cut).
+_LEADING_CITATION_RE = re.compile(r"^(?:\s*\[(?:\d+|#ev:[^\]]*)\])+")
+# Suffixes that make a longer known word a mere INFLECTION of the token (so the token is the real
+# base word, not a cut): 'disadvantage' -> {'disadvantaged','disadvantages'} only => NOT a cut. A
+# real END cut has a NON-inflectional completion ('resea' -> 'research' = 'resea'+'rch').
+_INFLECTION_SUFFIXES = ("s", "d", "es", "ed", "ing", "ly", "ic")
+# Two-letter boundary tokens that are legitimate short words / abbreviations (never a cut).
+_SHORT_OK_BOUNDARY_TOKENS = frozenset({
+    "ai", "it", "is", "of", "to", "in", "on", "or", "an", "as", "be", "by", "we", "us", "no",
+    "so", "do", "etc", "al", "eg", "ie", "vs", "id", "ml", "ui", "ux", "hr", "ev", "uk",
+    "eu", "gn", "io", "pp", "ed", "co", "re", "at", "if", "up", "my", "go", "he", "me", "ok",
+})
 
-    HIGH-PRECISION (drop-path safe): trailing/closed ellipsis or a trailing mid-word hyphen, after
-    stripping trailing ``[N]`` citation markers. Never guesses at a cut word from letters alone — a
-    complete sentence with an internal hyphen still passes. PURE."""
+
+def _boundary_last_word(text: str) -> str:
+    """The trailing alphabetic word of ``text`` (a single artificial '.' a span-truncator appends,
+    plus a trailing hyphen/quote, are stripped first). '' when there is no trailing word."""
+    s = text.rstrip().rstrip('"”\')')
+    if s.endswith("."):
+        s = s[:-1].rstrip()
+    m = re.search(r"([A-Za-z][A-Za-z'\-]*)$", s)
+    return m.group(1).strip("-'") if m else ""
+
+
+def _boundary_first_word(text: str) -> str:
+    """The leading alphabetic word of ``text`` (after any leading citation marker is stripped by the
+    caller). '' when there is no leading word."""
+    m = re.match(r"\s*([A-Za-z][A-Za-z'\-]*)", text)
+    return m.group(1).strip("-'") if m else ""
+
+
+def _known_word_has_longer_prefix(word: str, known_words: "set[str] | frozenset[str]") -> bool:
+    """True iff some KNOWN corpus word is ``word`` + a NON-inflectional tail (``word`` is a chopped-
+    END prefix: 'resea' -> 'research'). A token whose only longer completions are inflections
+    ('disadvantage' -> 'disadvantaged') is the real base word and returns False."""
+    return any(
+        len(k) > len(word) and k.startswith(word) and k[len(word):] not in _INFLECTION_SUFFIXES
+        for k in known_words
+    )
+
+
+def _known_word_has_longer_suffix(word: str, known_words: "set[str] | frozenset[str]") -> bool:
+    """True iff some KNOWN corpus word ENDS with ``word`` and is longer (``word`` is a chopped-START
+    suffix: 'hodology' -> 'methodology', 'nization' -> 'mechanization')."""
+    return any(len(k) > len(word) and k.endswith(word) for k in known_words)
+
+
+def _boundary_token_is_span_cut(
+    token: str, known_words: "set[str] | frozenset[str]", *, mode: str
+) -> bool:
+    """A boundary token is a span cut iff it is NOT a known corpus word AND it is a strict prefix
+    (end cut) / suffix (start cut) of a LONGER known corpus word. The completion gate keeps
+    precision high: a legit-but-rare sentence-ender is either known or has no longer known
+    completion, so it does NOT flag; a real span cut ('Resea'->'research') always does. A len-1
+    token before a marker is a cut by construction; a len-2 token keeps an abbreviation allowlist."""
+    if not token or not known_words:
+        return False
+    t = token.lower()
+    if t in known_words:
+        return False
+    completes = (
+        _known_word_has_longer_prefix(t, known_words) if mode == "end"
+        else _known_word_has_longer_suffix(t, known_words)
+    )
+    if len(t) == 1:
+        return t not in {"a", "i"}
+    if len(t) == 2:
+        return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
+    return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut
+
+
+def is_truncated_fragment(
+    text: str,
+    known_words: "set[str] | frozenset[str] | None" = None,
+    *,
+    ends_before_marker: bool = False,
+    starts_after_marker: bool = False,
+) -> bool:
+    """True iff ``text`` carries a mid-word / cut-span truncation.
+
+    Two independent, drop-path-safe signals:
+      1. UNAMBIGUOUS MARKER (always, no corpus needed): a trailing/closed ellipsis or a trailing
+         mid-word hyphen, after stripping trailing ``[N]`` citation markers. Never guesses at a cut
+         word from letters alone — a complete sentence with an internal hyphen still passes.
+      2. CORPUS-GROUNDED BOUNDARY SPAN-CUT (I-wire-013 #1327, only when ``known_words`` is supplied):
+         the boundary token before a ``[N]`` (``ends_before_marker``) or the lowercase token after
+         one (``starts_after_marker``) is a non-inflectional prefix/suffix of a LONGER corpus word
+         and is itself absent from the corpus — e.g. "… 1.2 Resea.[14]". The corpus allowlist is the
+         false-positive guard (a real, complete word is known or has no longer completion).
+
+    BACKWARD-COMPATIBLE: ``known_words=None`` (the default for every legacy caller) → byte-identical
+    legacy behaviour (signal 1 only). PURE."""
     if not text:
         return False
     core = _TRAILING_CITATION_RE.sub("", text.strip()).rstrip()
-    if not core:
+    if core and _TRUNCATION_MARKER_RE.search(core):
+        return True
+    if not known_words:
         return False
-    return bool(_TRUNCATION_MARKER_RE.search(core))
+    if ends_before_marker and _boundary_token_is_span_cut(
+        _boundary_last_word(core), known_words, mode="end"
+    ):
+        return True
+    if starts_after_marker:
+        lead = _LEADING_CITATION_RE.sub("", text).lstrip()
+        first = _boundary_first_word(lead)
+        if first and first[:1].islower() and _boundary_token_is_span_cut(
+            first, known_words, mode="start"
+        ):
+            return True
+    return False
 
 
 def _is_render_chrome_claim(sentence: str) -> bool:

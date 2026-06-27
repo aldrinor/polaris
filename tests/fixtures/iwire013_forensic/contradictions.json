@@ -1,0 +1,24 @@
+[
+{
+"subject": "technological",
+"predicate": "change [possible_metric_mismatch]",
+"severity": "low",
+"absolute_difference": 3221139.0,
+"relative_difference": 1602.5,
+"recommended_action": "Possible metric mismatch (B9): these numbers may not measure the same quantity.",
+"claims": [
+{
+"evidence_id": "ev_1",
+"subject": "technological",
+"predicate": "change",
+"value": -2010.0
+},
+{
+"evidence_id": "ev_2",
+"subject": "technological",
+"predicate": "change",
+"value": 3219129.0
+}
+]
+}
+]
