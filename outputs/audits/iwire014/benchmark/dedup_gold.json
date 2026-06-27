@@ -1,0 +1,683 @@
+[
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Acemoglu and Restrepo present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_framework",
+    "label": "keep",
+    "reason": "First statement: framework for automation effects on labor demand."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "At the center of their framework is the allocation of tasks to capital and labor—the task content of production.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_taskalloc",
+    "label": "keep",
+    "reason": "Distinct claim: task allocation to capital and labor (task content of production)."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Within this framework, automation enables capital to replace labor in tasks it was previously engaged in.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_displace_def",
+    "label": "keep",
+    "reason": "Distinct claim: automation lets capital replace labor in tasks."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "This process shifts the task content of production against labor because of a displacement effect.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_displace_effect",
+    "label": "keep",
+    "reason": "Distinct claim: this shifts task content against labor = displacement effect."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "However, the effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_newtasks",
+    "label": "keep",
+    "reason": "Distinct claim: counterbalanced by creation of new tasks (comparative advantage)."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_reinstate_def",
+    "label": "keep",
+    "reason": "Distinct claim: new tasks shift content toward labor = reinstatement effect."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "This reinstatement effect always raises the labor share and labor demand.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_reinstate_raises",
+    "label": "keep",
+    "reason": "Distinct claim: reinstatement always raises labor share and labor demand."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "In contrast to the displacement effect, which shifts the task content of production against labor, the reinstatement effect changes the task content of production in favor of labor.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_contrast",
+    "label": "keep",
+    "reason": "Distinct claim: contrast of displacement vs reinstatement direction."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Whereas the displacement effect reflects capital replacing labor in existing tasks, the reinstatement effect arises from the creation of new tasks in which labor has a comparative advantage.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_contrast2",
+    "label": "keep",
+    "reason": "Distinct claim: displacement = replace in existing tasks vs reinstatement = new tasks."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "The authors provide an empirical decomposition to assess these dynamics in practice.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_decomp",
+    "label": "keep",
+    "reason": "Distinct claim: authors provide an empirical decomposition."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Their empirical decomposition suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_decomp_slow",
+    "label": "keep",
+    "reason": "Distinct claim: slower employment growth = acceleration in displacement effect."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "This acceleration in the displacement effect has been especially pronounced in manufacturing.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_manuf",
+    "label": "keep",
+    "reason": "Distinct new entity: acceleration pronounced in manufacturing."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "By comparison, a weaker reinstatement effect has also contributed to the observed employment trends.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_weak_reinstate",
+    "label": "keep",
+    "reason": "Distinct claim: weaker reinstatement effect contributed to trends."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Although the reinstatement effect always raises the labor share and labor demand, the empirical evidence indicates that a weaker reinstatement effect has contributed to the slower growth of employment over this period.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_weak_reinstate2",
+    "label": "keep",
+    "reason": "Distinct framing tying empirical evidence to weaker reinstatement; new qualifier."
+  },
+  {
+    "section": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)",
+    "sentence": "Their decomposition further identifies slower growth of productivity than in previous decades as an additional factor accounting for the slower growth of employment.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "task_based_automation_framework_::ar_productivity",
+    "label": "keep",
+    "reason": "Distinct new factor: slower productivity growth accounts for slower employment growth."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "In his analysis of labor-market dynamics, Autor advances the thesis that automation does indeed substitute for labor, as it is typically intended to do.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_substitute",
+    "label": "keep",
+    "reason": "First statement: Autor thesis that automation substitutes for labor."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "However, he emphasizes that automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_complement",
+    "label": "keep",
+    "reason": "Distinct claim: automation also complements labor, raises output and demand."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "By comparison, the complementary channel operates through productivity gains that expand output and, in turn, raise the demand for labor.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_complement_channel",
+    "label": "keep",
+    "reason": "Distinct claim: complementary channel via productivity gains expanding output."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "Despite the substitutive intent behind automation, the interdependence among inputs ensures that gains in one domain propagate value to others.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_interdependence",
+    "label": "keep",
+    "reason": "Distinct claim: input interdependence propagates value across domains."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "Automation's interaction with adjustments in labor supply further underscores that the net employment consequence is not determined by substitution alone.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_laborsupply",
+    "label": "keep",
+    "reason": "Distinct claim: interaction with labor-supply adjustments; net effect not substitution alone."
+  },
+  {
+    "section": "Labor-market polarization and complementarity (Autor, JEP 2015)",
+    "sentence": "Taken together, the thesis and complementarity argument depict automation as simultaneously displacing and augmenting labor within the same work process.",
+    "citations": [
+      2
+    ],
+    "cluster_id": "labor_market_polarization_and_co::au_synthesis",
+    "label": "keep",
+    "reason": "Distinct claim: synthesis - automation simultaneously displaces and augments labor."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Identification strategy: variation in exposure to robots—defined from industry-level advances in robotics and local industry employment.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_idstrategy",
+    "label": "keep",
+    "reason": "First statement: identification strategy (exposure to robots) cites [4]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Population: US labor markets.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_population",
+    "label": "keep",
+    "reason": "Distinct claim: population = US labor markets."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Effect estimate with uncertainty: One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%.",
+    "citations": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "cluster_id": "empirical_displacement::ed_robotdensity",
+    "label": "keep",
+    "reason": "First statement of robot-density effect: 0.2 pp + 0.42% wages, cites [4,5,6,7]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Outcome: employment and wages.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_outcome",
+    "label": "keep",
+    "reason": "Distinct claim: outcome = employment and wages."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Method: a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_method",
+    "label": "keep",
+    "reason": "First statement of method: 702 occupations, Gaussian process classifier, cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Exposure measure: probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "keep",
+    "reason": "First statement of exposure measure = probability of computerisation, cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "By leveraging this geographic and industrial variation in robot exposure, the analysis links broad technological advances in robotics to measurable changes in local labor-market conditions.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_geo",
+    "label": "keep",
+    "reason": "Distinct claim: geographic/industrial variation links robotics advances to local conditions."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Within these US labor markets, the study quantifies the relationship between increasing robot density and the outcomes of employment and wages.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_quantify",
+    "label": "keep",
+    "reason": "Distinct claim: study quantifies robot-density vs employment/wage relationship."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "At this defined dose level, one more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points.",
+    "citations": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "cluster_id": "empirical_displacement::ed_robotdensity",
+    "label": "paraphrase_repeat",
+    "reason": "Restates robot-density employment effect (0.2 pp), SAME cites [4,5,6,7], no new number (drops wage)."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Whereas the employment outcome is expressed in percentage points, the wage outcome is expressed as a percentage change, reflecting the distinct metrics applied to each labor-market endpoint.",
+    "citations": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "cluster_id": "empirical_displacement::ed_metriccontrast",
+    "label": "keep",
+    "reason": "Distinct claim: pp-vs-percentage metric contrast between employment and wage outcomes."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Despite the reliance on a single dose parameter—one more robot per thousand workers—the estimated effects on both employment and wages are consistently negative in direction.",
+    "citations": [
+      4,
+      6,
+      7
+    ],
+    "cluster_id": "empirical_displacement::ed_negative",
+    "label": "keep",
+    "reason": "Distinct claim AND different cite set [4,6,7]: effects consistently negative in direction."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "In sum, the study documents that variation in exposure to robots—defined from industry-level advances in robotics and local industry employment—produces quantifiable negative effects on both employment and wages within US labor markets.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_insum",
+    "label": "keep",
+    "reason": "Summative distinct claim cites [4]: negative effects on employment AND wages."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The study introduced a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_method",
+    "label": "paraphrase_repeat",
+    "reason": "Restates method (702/Gaussian), SAME cites [8,9,10], no new number/entity."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "At its core, the exposure measure was defined as the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure = probability of computerisation, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The authors developed a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_method",
+    "label": "paraphrase_repeat",
+    "reason": "Restates method (702/Gaussian) verbatim variant, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The exposure measure chosen for the analysis was the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Although the methodological apparatus centered on a Gaussian process classifier, the construct being estimated remained the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure (Gaussian classifier vs probability of computerisation), SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The investigation employed a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_method",
+    "label": "paraphrase_repeat",
+    "reason": "Restates method (702/Gaussian), SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The probability of computerisation was the exposure measure adopted.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The analytical design rested on a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_method",
+    "label": "paraphrase_repeat",
+    "reason": "Restates method (702/Gaussian), SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The exposure measure operationalized in this framework was the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "Although the classifier was Gaussian process-based, the estimated quantity was the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure, SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "The exposure measure was the probability of computerisation.",
+    "citations": [
+      8,
+      9,
+      10
+    ],
+    "cluster_id": "empirical_displacement::ed_exposure",
+    "label": "paraphrase_repeat",
+    "reason": "Restates exposure measure (the bare canonical form), SAME cites [8,9,10]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "**Key Findings** Identification strategy: variation in exposure to robots—defined from industry-level advances in robotics and local industry employment.",
+    "citations": [
+      4
+    ],
+    "cluster_id": "empirical_displacement::ed_idstrategy",
+    "label": "paraphrase_repeat",
+    "reason": "Key Findings recap line restates unit 0 (identification strategy) verbatim, SAME cite [4]."
+  },
+  {
+    "section": "Empirical_Displacement",
+    "sentence": "**Tension** Whereas the employment outcome is expressed in percentage points, the wage outcome is expressed as a percentage change, reflecting the distinct metrics applied to each labor-market endpoint.",
+    "citations": [
+      4,
+      5,
+      6
+    ],
+    "cluster_id": "empirical_displacement::ed_metriccontrast_recap",
+    "label": "keep",
+    "reason": "Tension recap restates metric-contrast claim but with DIFFERENT cite set [4,5,6] vs [4,5,6,7] -> keep."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "Intervention: a generative AI–based conversational assistant.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_intervention",
+    "label": "keep",
+    "reason": "First statement of intervention = generative AI conversational assistant, cites [11]."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The study investigates the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_design",
+    "label": "keep",
+    "reason": "First statement of design: staggered introduction, data from 5,172 customer-support agents, cites [11]."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The intervention under study was a generative AI–based conversational assistant.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_intervention",
+    "label": "paraphrase_repeat",
+    "reason": "Restates intervention, SAME cite [11], no new number/entity."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "By employing a staggered introduction design, the researchers studied the effects of a generative AI–based conversational assistant on 5,172 customer-support agents.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_design",
+    "label": "paraphrase_repeat",
+    "reason": "Restates staggered-introduction design with 5,172 agents, SAME cite [11], no new number."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The generative AI–based conversational assistant was examined through its staggered introduction among the 5,172 customer-support agents.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_design",
+    "label": "paraphrase_repeat",
+    "reason": "Restates staggered introduction among 5,172 agents, SAME cite [11]."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The intervention—a generative AI–based conversational assistant—was rolled out using a staggered introduction approach.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_intervention",
+    "label": "paraphrase_repeat",
+    "reason": "Restates intervention rolled out via staggered introduction, SAME cite [11]."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The generative AI–based conversational assistant served as the intervention whose staggered introduction was observed among customer-support agents.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_intervention",
+    "label": "paraphrase_repeat",
+    "reason": "Restates intervention/staggered-introduction among customer-support agents, SAME cite [11]."
+  },
+  {
+    "section": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+    "sentence": "The staggered introduction of a generative AI–based conversational assistant constituted the design of the study.",
+    "citations": [
+      11
+    ],
+    "cluster_id": "generative_ai_productivity_field::ga_design",
+    "label": "paraphrase_repeat",
+    "reason": "Restates staggered introduction = study design, SAME cite [11]."
+  },
+  {
+    "section": "Foundational_Theory",
+    "sentence": "**Key Findings** Acemoglu and Restrepo present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "foundational_theory::ft_framework",
+    "label": "keep",
+    "reason": "First (and only) emission of this claim within this section; cross-section dedup out of scope."
+  },
+  {
+    "section": "Foundational_Theory",
+    "sentence": "**Tension** However, the effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage.",
+    "citations": [
+      1
+    ],
+    "cluster_id": "foundational_theory::ft_newtasks",
+    "label": "keep",
+    "reason": "Distinct claim within section (counterbalanced by new tasks); first emission here."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "New tools like ControlNet ( 6), image-to-image ( 7), and depth-to-image ( 8) offer users increasingly granular control over the text-to-image pipeline, transforming what was once a labor-intensive process involving human ingenuity and manual skill into a mechanical process guided by human ideas and sense-making ( 9, 10).",
+    "citations": [
+      156
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_controlnet_solo",
+    "label": "keep",
+    "reason": "First ControlNet sentence, citation set {156} (distinct set from the glued variant)."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "The release of Midjourney in February 2022 shows no immediate effect, but following Stable Diffusion 1.5’s release in October 2022, the AI-assisted creators’ idea frontier undergoes accelerated expansion (i.e., the raw number of divergent artifacts increases) relative to that of the nonadopters.",
+    "citations": [
+      156,
+      157,
+      158
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_midjourney",
+    "label": "keep",
+    "reason": "First statement: Midjourney/Stable-Diffusion-1.5 idea-frontier expansion, set {156,157,158}."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "In particular, text-to-image generative algorithms based on the latent diffusion model ( 5), such as Stable Diffusion, Midjourney, DALL-E, Imagen, and Flux, have gained traction in creative fields for creating high-fidelity digital artworks based on artists’ ideation.",
+    "citations": [
+      156,
+      157,
+      158
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_latentdiffusion",
+    "label": "keep",
+    "reason": "First statement: latent-diffusion text-to-image algorithms (SD/Midjourney/DALL-E/Imagen/Flux), set {156,157,158}."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "New tools like ControlNet ( 6), image-to-image ( 7), and depth-to-image ( 8) offer users increasingly granular control over the text-to-image pipeline, transforming what was once a labor-intensive process involving human ingenuity and manual skill into a mechanical process guided by human ideas and sense-making ( The release of Midjourney in February 2022 shows no immediate effect, but following Stable Diffusion 1.5’s release in October 2022, the AI-assisted creators’ idea frontier undergoes accelerated expansion (i.e., the raw number of divergent artifacts increases) relative to that of the nonadopters.",
+    "citations": [
+      157,
+      156,
+      158
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_controlnet_glued",
+    "label": "keep",
+    "reason": "First emission of the ControlNet+Midjourney glued-text claim with set {156,157,158} (differs from unit 310's set {156})."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "In particular, text-to-image generative algorithms based on the latent diffusion model ( 5), such as Stable Diffusion, Midjourney, DALL-E, Imagen, and Flux, have gained traction in creative fields for creating high-fidelity digital artworks based on artists’ ideation.",
+    "citations": [
+      157,
+      156,
+      158
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_latentdiffusion",
+    "label": "paraphrase_repeat",
+    "reason": "Byte-identical restatement of unit 312; citation SET {157,156,158}=={156,157,158} (order shuffled); no new entity."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "New tools like ControlNet ( 6), image-to-image ( 7), and depth-to-image ( 8) offer users increasingly granular control over the text-to-image pipeline, transforming what was once a labor-intensive process involving human ingenuity and manual skill into a mechanical process guided by human ideas and sense-making ( The release of Midjourney in February 2022 shows no immediate effect, but following Stable Diffusion 1.5’s release in October 2022, the AI-assisted creators’ idea frontier undergoes accelerated expansion (i.e., the raw number of divergent artifacts increases) relative to that of the nonadopters.",
+    "citations": [
+      158,
+      156,
+      157
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_controlnet_glued",
+    "label": "paraphrase_repeat",
+    "reason": "Byte-identical restatement of unit 313; citation SET {158,156,157}=={156,157,158} (order shuffled); no new entity."
+  },
+  {
+    "section": "Corroborated Weighted Findings",
+    "sentence": "In particular, text-to-image generative algorithms based on the latent diffusion model ( 5), such as Stable Diffusion, Midjourney, DALL-E, Imagen, and Flux, have gained traction in creative fields for creating high-fidelity digital artworks based on artists’ ideation.",
+    "citations": [
+      158,
+      156,
+      157
+    ],
+    "cluster_id": "corroborated_weighted_findings::cwf_latentdiffusion",
+    "label": "paraphrase_repeat",
+    "reason": "Byte-identical restatement of unit 312; citation SET {158,156,157}=={156,157,158} (order shuffled); no new entity."
+  }
+]
