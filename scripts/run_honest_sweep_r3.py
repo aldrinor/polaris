@@ -2427,6 +2427,25 @@ def _select_opposing_pair(claims: list[dict]) -> "tuple[dict, dict] | None":
     return None
 
 
+def _is_unconfirmed_metric_mismatch(record: "Any") -> bool:
+    """I-wire-013 (#1327) iter-3b: True iff a numeric ContradictionRecord carries the
+    ``[possible_metric_mismatch]`` marker — the B9 same-metric-axes downgrade the detector applies
+    when it could NOT positively confirm the two numbers measure the SAME quantity (different
+    comparator / population / time-window). Such a record is NOT a settled contradiction.
+
+    A record returning True is SUPPRESSED from BOTH the report's ``## Contradiction disclosures``
+    prose AND the PT08 disclosure gate (``run_external_evaluation``) — kept in lock-step so the run
+    never aborts ``abort_evaluator_critical`` over an undisclosed row it deliberately withheld. Every
+    claim still lives in the ``contradictions.json`` sidecar (never dropped — §-1.3); only the
+    misleading "settled disagreement" framing is withheld. Mirrors the already-merged
+    ``_render_contradicts_block`` skip (iter-3a) and the ``qualitative_records_disclosed_for_pt08``
+    disclosed-subset pattern. Accepts a record object OR a serialized dict. Pure, never raises."""
+    predicate = getattr(record, "predicate", None)
+    if predicate is None and isinstance(record, dict):
+        predicate = record.get("predicate")
+    return POSSIBLE_METRIC_MISMATCH_MARKER in str(predicate or "")
+
+
 def _render_contradicts_block(contradictions_path: "str | None") -> str:
     """I-wire-011 (#1325) fix 4: a DISTINCT inline ``CONTRADICTS`` both-sides block read from the
     run's ``contradictions.json``. One ``- CONTRADICTS:`` line per record that carries two opposing
@@ -5603,6 +5622,38 @@ def _normalize_quantified_telemetry(telemetry: dict) -> dict:
     """
     telemetry.setdefault("fired", int(telemetry.get("verified_sentences", 0) or 0) > 0)
     return telemetry
+
+
+def quantified_silent_no_op_canary(telemetry: "dict | None") -> "dict | None":
+    """I-wire-013 (#1327) iter-3b LANE C: a machine-assertable CANARY for the Phase-7 quantified
+    SILENT no-op.
+
+    The quantified block intentionally NEVER aborts the run (broad ``except`` in run_one_query), so
+    a block that RAN but produced no verified quantified sentence used to surface ONLY as a buried
+    log line + a nested ``manifest.quantified_analysis.fired=False`` field — easy for a behavioral
+    preflight / audit to miss. This returns a structured signal dict the caller stamps as the
+    top-level ``manifest.quantified_silent_no_op`` key, so the no-op is a single explicit signal a
+    test can assert on (the fail-LOUD the no-downgrade directive requires).
+
+    Returns None when the block did NOT run (``telemetry`` absent) OR DID fire (``fired`` truthy) —
+    i.e. no canary needed. PURE; NON-gating (it never changes run status; the force-on strict-gate
+    abort that DOES hold a force-enabled empty differentiator lives separately, keyed on the same
+    ``fired`` boolean)."""
+    if not isinstance(telemetry, dict):
+        return None
+    if telemetry.get("fired"):
+        return None
+    return {
+        "feature": "quantified_analysis",
+        "fired": False,
+        "silent_no_op": True,
+        "firing_status": (
+            telemetry.get("firing_status")
+            or telemetry.get("quantified_status")
+            or "unknown"
+        ),
+        "verified_sentences": int(telemetry.get("verified_sentences", 0) or 0),
+    }
 
 
 def _judge_calls_and_errors_from_telemetry(
@@ -11394,10 +11445,21 @@ async def run_one_query(
         # predicate + claim-value range + source tiers) so PT08 passes
         # while the framing paragraph preserves Codex's "not adjudicated,
         # mostly extraction artifacts" context.
-        if contradictions:
+        # I-wire-013 (#1327) iter-3b: SKIP every record carrying the [possible_metric_mismatch]
+        # marker from this per-flag enumeration. Such a record is the detector DECLINING to assert a
+        # confirmed shared-metric contradiction (its numbers may not measure the same quantity), so
+        # rendering it as a "numeric disagreement" prints fabricated §-1.1 noise (the "-2010.0 to
+        # 3219129.0" / DOI-suffix / page-number render class). It stays in contradictions.json (never
+        # dropped — §-1.3) and is excluded from the PT08 payload below in lock-step, so withholding
+        # it here never trips abort_evaluator_critical. Mirrors the iter-3a _render_contradicts_block
+        # skip. The count + heading use the RENDERED subset, not len(contradictions).
+        renderable_contradictions = [
+            c for c in contradictions if not _is_unconfirmed_metric_mismatch(c)
+        ]
+        if renderable_contradictions:
             methods += (
                 f"\n## Contradiction disclosures\n"
-                f"The contradiction detector flagged {len(contradictions)} "
+                f"The contradiction detector flagged {len(renderable_contradictions)} "
                 f"numeric disagreements across the evidence pool. Most are "
                 f"extraction artifacts produced by grouping different "
                 f"measured endpoints, units, sub-populations, time windows, "
@@ -11407,7 +11469,7 @@ async def run_one_query(
                 f"in `contradictions.json`. Per-flag enumeration (PT08 "
                 f"disclosure):\n\n"
             )
-            for c in contradictions:
+            for c in renderable_contradictions:
                 subj = getattr(c, "subject", None) or (
                     c.get("subject", "") if isinstance(c, dict) else ""
                 )
@@ -12135,7 +12197,18 @@ async def run_one_query(
                 # PT08 holds release on a real undisclosed qualitative conflict yet never false-fails on
                 # a record the report legitimately collapsed. Empty/non-clinical -> [] -> no-op (byte-
                 # identical PT08 payload). STRENGTHENS the gate; relaxes nothing.
-                contradictions=[serialize_contradiction_record(c) for c in contradictions]
+                # I-wire-013 (#1327) iter-3b: EXCLUDE possible_metric_mismatch records — in lock-step
+                # with the report's ## Contradiction disclosures skip above — so PT08 gates only what
+                # is actually disclosed. A withheld possible_metric_mismatch is NOT a confirmed
+                # contradiction (it stays in contradictions.json, never dropped — §-1.3); requiring
+                # its undisclosed subject+predicate would falsely abort_evaluator_critical. Confirmed
+                # numeric disagreements are unchanged and still gate release. STRENGTHENS nothing,
+                # relaxes nothing — it mirrors disclosure to gating (cf. qualitative subset below).
+                contradictions=[
+                    serialize_contradiction_record(c)
+                    for c in contradictions
+                    if not _is_unconfirmed_metric_mismatch(c)
+                ]
                 + [asdict(sr) for sr in semantic_records]
                 + [
                     asdict(qr)
@@ -12531,10 +12604,16 @@ async def run_one_query(
             # Phase-7 differentiator and the manifest gives no single clear signal.
             _quantified_telemetry = _normalize_quantified_telemetry(_quantified_telemetry)
             manifest["quantified_analysis"] = _quantified_telemetry
-            if not _quantified_telemetry["fired"]:
+            # I-wire-013 (#1327) iter-3b LANE C: stamp a top-level machine-assertable CANARY so the
+            # silent no-op is a single explicit manifest signal (not only a buried log + nested
+            # fired=False). Non-gating — the quantified block never aborts the run here.
+            _quant_no_op = quantified_silent_no_op_canary(_quantified_telemetry)
+            if _quant_no_op is not None:
+                manifest["quantified_silent_no_op"] = _quant_no_op
                 _log(
                     "[phase7]      WARNING: quantified analysis ran but produced NO verified "
-                    "quantified output (silent no-op) — manifest.quantified_analysis.fired=False"
+                    "quantified output (silent no-op) — manifest.quantified_analysis.fired=False "
+                    f"(canary: manifest.quantified_silent_no_op, firing_status={_quant_no_op['firing_status']})"
                 )
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).

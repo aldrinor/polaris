@@ -865,6 +865,11 @@ GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "6
 # the outer ``asyncio.wait_for`` still bounds the TOTAL call. Transport-only; no faithfulness gate touched.
 PG_SSE_READ_STALL_TIMEOUT_SECONDS = float(os.getenv("PG_SSE_READ_STALL_TIMEOUT_SECONDS", "120"))
 
+# I-wire-013 (#1327): outer watchdog grace added on top of the per-attempt httpx budget so the
+# asyncio-level ceiling always fires AFTER the transport-level one (never races it). Named here to
+# keep the value defined once instead of an inline magic number at each call/log site.
+LLM_CALL_WATCHDOG_GRACE_SECONDS = float(os.getenv("PG_LLM_CALL_WATCHDOG_GRACE_SECONDS", "30"))
+
 
 def get_generator_timeout_seconds() -> int:
     """Return the CURRENT effective generator LLM timeout (the live module global)."""
@@ -1993,11 +1998,22 @@ class OpenRouterClient:
                 # stash; non-stream path: top-level `provider` of the parsed body.
                 _served_provider: Optional[str] = None
                 if body.get("stream", True):
-                    # Streaming path — accumulate SSE chunks
-                    content_text, reasoning_text, stream_usage, stream_served = await asyncio.wait_for(
-                        self._read_stream(body, actual_timeout),
-                        timeout=actual_timeout + 30,
-                    )
+                    # Streaming path — accumulate SSE chunks.
+                    # I-wire-013 (#1327): use the asyncio.timeout() context manager instead of
+                    # asyncio.wait_for(). wait_for wraps _read_stream in a SEPARATE child task; on a
+                    # ConnectTimeout (or the watchdog firing) the cancellation can race that child's
+                    # own exception, leaving it unretrieved -> asyncio logs "Task exception was never
+                    # retrieved" (benign — the retry below recovers — but noisy). asyncio.timeout()
+                    # runs _read_stream in THIS task, so there is no orphan child to leak. Behaviour is
+                    # identical: it still raises TimeoutError on the budget (caught at `except
+                    # asyncio.TimeoutError` below) and returns the same tuple. Faithfulness-neutral.
+                    async with asyncio.timeout(actual_timeout + LLM_CALL_WATCHDOG_GRACE_SECONDS):
+                        (
+                            content_text,
+                            reasoning_text,
+                            stream_usage,
+                            stream_served,
+                        ) = await self._read_stream(body, actual_timeout)
                     _served_provider = (stream_served or {}).get("provider")
                     data = {
                         "choices": [{
@@ -2029,7 +2045,7 @@ class OpenRouterClient:
                             json=body,
                             timeout=httpx.Timeout(actual_timeout, connect=30.0),
                         ),
-                        timeout=actual_timeout + 30,
+                        timeout=actual_timeout + LLM_CALL_WATCHDOG_GRACE_SECONDS,
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -2183,10 +2199,11 @@ class OpenRouterClient:
                 logger.warning(
                     "[polaris graph] FIX-SCHEMA-5: asyncio timeout after %ds "
                     "for %s (attempt %d/%d)",
-                    actual_timeout + 30, call_type, attempt + 1, MAX_RETRIES + 1,
+                    actual_timeout + LLM_CALL_WATCHDOG_GRACE_SECONDS, call_type,
+                    attempt + 1, MAX_RETRIES + 1,
                 )
                 last_error = TimeoutError(
-                    f"asyncio timeout after {actual_timeout + 30}s"
+                    f"asyncio timeout after {actual_timeout + LLM_CALL_WATCHDOG_GRACE_SECONDS}s"
                 )
                 if attempt < MAX_RETRIES:
                     await asyncio.sleep(RETRY_BACKOFF_BASE ** attempt)

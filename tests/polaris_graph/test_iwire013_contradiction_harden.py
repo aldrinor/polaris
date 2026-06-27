@@ -22,7 +22,11 @@ from __future__ import annotations
 
 import json
 
-from scripts.run_honest_sweep_r3 import _render_contradicts_block
+from scripts.run_honest_sweep_r3 import (
+    _is_unconfirmed_metric_mismatch,
+    _render_contradicts_block,
+)
+from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
 from src.polaris_graph.retrieval.contradiction_detector import (
     POSSIBLE_METRIC_MISMATCH_MARKER,
     detect_contradictions,
@@ -122,3 +126,92 @@ def test_render_skips_mismatch_keeps_confirmed_disagreement(tmp_path):
     assert "CONTRADICTS" in out
     assert "47" in out
     assert "32" in out
+
+
+def test_leading_dash_year_not_extracted_as_metric_value():
+    """iter-3b: a YEAR captured with a leading dash (e.g. "-2010" lifted from a "2009-2010" range)
+    is recognised as a year, never a measured metric value — so a row whose only numbers are two
+    years yields NO generic metric value (no fabricated possible_metric_mismatch)."""
+    # "2009" is followed by "-", so only "-2010" is captured by the value regex; the abs-magnitude
+    # year screen must still reject it. No real metric remains -> None.
+    assert _find_value_generic("the coverage rate spanned 2009-2010 in scope") is None
+    # A genuine unit-bearing percentage in the SAME row is still extracted (faithfulness unchanged).
+    found = _find_value_generic("the rate over 2009-2010 reached 47% overall")
+    assert found is not None
+    assert found[0] == 47.0
+    assert found[1] == "percent"
+
+
+def test_doi_suffix_and_year_pair_not_emitted_as_metric_mismatch():
+    """iter-3b: two non-clinical rows sharing a metric cue ("rate") whose only numbers are a DOI
+    suffix and a (dash-captured) YEAR carry NO real metric value, so NO possible_metric_mismatch is
+    emitted — the DOI-suffix/year render-noise class is killed at the detector."""
+    evidence = [
+        {
+            "evidence_id": "a",
+            "direct_quote": "The coverage rate dataset, DOI 10.1038/s41586-024-07123, is open.",
+            "source_url": "http://example.org/a",
+            "tier": "T7",
+        },
+        {
+            "evidence_id": "b",
+            "direct_quote": "The coverage rate figures spanned 2009-2010 in that review.",
+            "source_url": "http://example.org/b",
+            "tier": "T7",
+        },
+    ]
+    claims = extract_numeric_claims(evidence, domain="economics")
+    records = detect_contradictions(
+        claims, rel_threshold=0.0001, abs_threshold=1.0, is_clinical=False
+    )
+    assert claims == []
+    assert records == []
+
+
+def test_is_unconfirmed_metric_mismatch_helper_record_and_dict():
+    """iter-3b: the shared disclosure/PT08 filter flags a [possible_metric_mismatch] predicate on
+    BOTH a record-like object and a serialized dict, and clears a confirmed disagreement."""
+    class _Rec:
+        def __init__(self, predicate):
+            self.predicate = predicate
+
+    assert _is_unconfirmed_metric_mismatch(_Rec("rate " + POSSIBLE_METRIC_MISMATCH_MARKER)) is True
+    assert _is_unconfirmed_metric_mismatch({"predicate": "rate " + POSSIBLE_METRIC_MISMATCH_MARKER})
+    assert _is_unconfirmed_metric_mismatch(_Rec("unemployment rate")) is False
+    assert _is_unconfirmed_metric_mismatch({"predicate": "unemployment rate"}) is False
+    assert _is_unconfirmed_metric_mismatch({}) is False
+
+
+def test_pt08_passes_when_mismatch_withheld_but_disclosed_subset_intact():
+    """iter-3b lock-step proof: PT08 (contradiction disclosure) MUST NOT abort when a
+    possible_metric_mismatch record is deliberately withheld from the report, AS LONG AS the same
+    record is excluded from the PT08 payload (the co-change). The UNFILTERED payload would falsely
+    fail PT08; the FILTERED payload — exactly what run_one_query now passes — passes, while the
+    confirmed disagreement still gates."""
+    confirmed = {"subject": "unemployment", "predicate": "unemployment rate"}
+    mismatch = {"subject": "technological", "predicate": "change " + POSSIBLE_METRIC_MISMATCH_MARKER}
+    # The report discloses ONLY the confirmed disagreement (mirrors the printer skip).
+    report_text = (
+        "## Contradiction disclosures\n"
+        "- unemployment / unemployment rate: cited values range 47 to 32 % (source tiers: T1).\n"
+    )
+    common = dict(
+        report_text=report_text,
+        protocol={},
+        tier_distribution_report=None,
+        evidence_pool={},
+        generator_model="gen-model",
+        evaluator_model="eval-model",
+    )
+
+    def _pt08(results):
+        return next(r for r in results if r.item_id == "PT08")
+
+    # UNFILTERED: the undisclosed mismatch trips PT08 (proves the filter is load-bearing).
+    results_unfiltered, _, _ = run_rule_checks(contradictions=[confirmed, mismatch], **common)
+    assert _pt08(results_unfiltered).passed is False
+
+    # FILTERED (the run_one_query co-change): only the disclosed confirmed record gates -> PT08 OK.
+    filtered = [c for c in [confirmed, mismatch] if not _is_unconfirmed_metric_mismatch(c)]
+    results_filtered, _, _ = run_rule_checks(contradictions=filtered, **common)
+    assert _pt08(results_filtered).passed is True

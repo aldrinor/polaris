@@ -153,7 +153,8 @@ def _boundary_token_is_span_cut(
     (end cut) / suffix (start cut) of a LONGER known corpus word. The completion gate keeps
     precision high: a legit-but-rare sentence-ender is either known or has no longer known
     completion, so it does NOT flag; a real span cut ('Resea'->'research') always does. A len-1
-    token before a marker is a cut by construction; a len-2 token keeps an abbreviation allowlist."""
+    token also requires a longer-corpus-word completion (so a legit one-letter finding survives);
+    a len-2 token keeps an abbreviation allowlist."""
     if not token or not known_words:
         return False
     t = token.lower()
@@ -164,7 +165,12 @@ def _boundary_token_is_span_cut(
         else _known_word_has_longer_suffix(t, known_words)
     )
     if len(t) == 1:
-        return t not in {"a", "i"}
+        # I-wire-013 (#1327) iter-3b D-P1-2: a one-letter boundary token is a cut ONLY when it is
+        # also a strict prefix/suffix of a LONGER known corpus word (``completes``) — same
+        # completion gate the len-2 / len>=3 paths use. Without it, EVERY non-{a,i} single letter
+        # before/after a marker false-flagged (e.g. a legit "type 2 diabetes ... grade B" finding),
+        # dropping real one-letter findings. A true cut ("research"->"r") still flags via completion.
+        return t not in {"a", "i"} and completes
     if len(t) == 2:
         return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
     return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut

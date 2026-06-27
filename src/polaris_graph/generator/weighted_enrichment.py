@@ -1131,7 +1131,13 @@ _SCAFFOLDING_SECTION_TITLES = (
 _KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
 _SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
 _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
-_CITATION_SPLIT_RE = re.compile(r"(\[\d+\])")
+# I-wire-013 (#1327) iter-3b D-P1-1: split on BOTH the numeric ``[N]`` marker AND the provenance
+# ``[#ev:<id>:<start>-<end>]`` token (single capture group, inner alternation — keeps the
+# text/marker pairing in ``_sanitize_report_line`` intact) so the render seam covers per-citation
+# units on provenance-cited reports too, not just numeric-cited ones. ``[^\]]*`` captures the whole
+# ``[#ev:...]`` body up to its closing bracket. Reports with only ``[N]`` are byte-identical (the
+# numeric alternative is unchanged).
+_CITATION_SPLIT_RE = re.compile(r"(\[\d+\]|\[#ev:[^\]]*\])")
 _INLINE_HEADER_SPLIT_RE = re.compile(r"#{1,6}\s+[A-Za-z]")
 
 

@@ -232,7 +232,13 @@ def _looks_like_year_or_count(value: float, unit: str, window: str, pos: int) ->
     if unit:
         return False  # a unit-bearing number is a real metric value
     s = str(int(value)) if value == int(value) else str(value)
-    if _GENERIC_YEAR_RE.match(s):
+    # I-wire-013 (#1327) iter-3b: match the YEAR pattern on the ABSOLUTE magnitude so a year lifted
+    # with a leading dash — e.g. "-2010" captured from a "2009-2010" date range or a citation dash —
+    # is still recognised as a publication/observation YEAR, never a measured metric value. Without
+    # this, "-2010" (which `^(19|20)\d{2}$` rejects because of the leading "-") leaked as a generic
+    # value and fabricated the "-2010.0 to ..." possible_metric_mismatch render-noise (DOI-suffix /
+    # year pair, §-1.1). Only UNIT-LESS numbers reach here, so no real metric is affected.
+    if _GENERIC_YEAR_RE.match(s.lstrip("-")):
         return True
     near = window[max(0, pos - 12):pos].lower()
     if "n=" in near or "n =" in near or "sample of" in near or "in 20" in near:
