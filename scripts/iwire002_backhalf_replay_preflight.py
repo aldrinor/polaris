@@ -324,6 +324,47 @@ def assert_faithfulness_ran(manifest: dict[str, Any], run_dir: Path) -> tuple[bo
     )
 
 
+def assert_quantified_not_silent_no_op(manifest: dict[str, Any]) -> tuple[bool, str]:
+    """(h) I-wire-013 (#1327) iter-3b-2 gate P1-C: the quantified differentiator did NOT silently
+    BREAK. run_one_query stamps ``manifest['quantified_silent_no_op']`` (the canary dict) whenever
+    the block RAN but produced no verified output; it stays advisory in production (never aborts the
+    run). Here in the PREFLIGHT we turn it into a GO/NO-GO so a real silent break is caught BEFORE a
+    real run — the gating context the production path deliberately does not enforce.
+
+    Policy mirrors the production readiness gate ``_quantified_readiness_failed`` (B4 #1317): a
+    BROKE/SKIPPED no-op (transport/parse/validation/execution fault — or an unclassifiable status)
+    is a real defect => NO-GO; a RAN-HONEST-EMPTY no-op (an explicit Writer decline or every
+    sentence dropped by the faithfulness gate doing its job) is a legitimate non-fire that
+    production discloses but never holds => PASS. This keeps the preflight from blocking a run the
+    production gate would itself allow (§-1.3: disclose honest-empty, never hard-hold). Field absent
+    => the block fired or never ran => PASS.
+
+    The actual FAIL is produced by the shared gating assertion (assert_no_quantified_silent_no_op
+    with gating=True) so the NO-GO message is the single shared QUANTIFIED_SILENT_NO_OP_MESSAGE."""
+    from scripts.run_honest_sweep_r3 import (
+        _QUANTIFIED_HONEST_EMPTY_STATUSES,
+        QuantifiedSilentNoOpError,
+        assert_no_quantified_silent_no_op,
+    )
+
+    canary = manifest.get("quantified_silent_no_op")
+    if canary is None:
+        return True, "quantified differentiator fired (or block absent) — no silent no-op"
+    firing_status = (
+        canary.get("firing_status", "unknown") if isinstance(canary, dict) else "unknown"
+    )
+    if firing_status in _QUANTIFIED_HONEST_EMPTY_STATUSES:
+        return True, (
+            f"quantified ran-honest-empty (firing_status={firing_status}) — disclosed, "
+            "not a silent break"
+        )
+    try:
+        assert_no_quantified_silent_no_op(canary, gating=True)
+    except QuantifiedSilentNoOpError as exc:
+        return False, str(exc)
+    return True, "quantified differentiator fired (or block absent) — no silent no-op"
+
+
 def assert_report_nonempty_cited(run_dir: Path) -> tuple[bool, str]:
     """(g) report.md is non-empty AND carries citations (provenance tokens or numbered refs)."""
     report = run_dir / "report.md"
@@ -407,9 +448,10 @@ def main(argv: list[str] | None = None) -> int:
     results["e"] = assert_abstractive(run_dir, payload)
     results["f"] = assert_faithfulness_ran(manifest, run_dir)
     results["g"] = assert_report_nonempty_cited(run_dir)
+    results["h"] = assert_quantified_not_silent_no_op(manifest)
 
     print("\n=== I-wire-002 back-half replay assertions ===")
-    order = ["a", "b", "c", "d", "e", "f", "g"]
+    order = ["a", "b", "c", "d", "e", "f", "g", "h"]
     labels = {
         "a": "completed (no UnboundLocalError/hang)",
         "b": "NLI/finding baskets collapsed>0",
@@ -418,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         "e": "composition abstractive (not extractive copy)",
         "f": "faithfulness engine ran + not relaxed",
         "g": "report.md non-empty + has citations",
+        "h": "quantified differentiator not silent-no-op",
     }
     all_pass = True
     for key in order:

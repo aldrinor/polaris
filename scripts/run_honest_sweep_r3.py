@@ -5656,6 +5656,47 @@ def quantified_silent_no_op_canary(telemetry: "dict | None") -> "dict | None":
     }
 
 
+# I-wire-013 (#1327) iter-3b-2 gate P1-C: make the quantified silent no-op FAIL-LOUD without
+# hard-aborting a real release run (operator: "never hold the report"). One source of truth for
+# the ERROR-level message string so the production log line and the gating assertion's raised
+# message share the EXACT same substring (a test asserts on it).
+QUANTIFIED_SILENT_NO_OP_MESSAGE = (
+    "[quantified] SILENT NO-OP — fired=False, quantified section produced no verified output"
+)
+
+
+class QuantifiedSilentNoOpError(RuntimeError):
+    """Raised by ``assert_no_quantified_silent_no_op`` ONLY in a gating (preflight / test)
+    context when the quantified differentiator RAN but produced no verified output. It is NEVER
+    raised on a real release run: production stamps the manifest canary + logs at ERROR and keeps
+    going (the existing ``_quantified_readiness_failed`` strict+force gate is the separate, intended
+    production HOLD). This exception exists so the no-op is caught BEFORE a real run by the
+    behavioral preflight / unit test."""
+
+
+def assert_no_quantified_silent_no_op(
+    canary: "dict | None", *, gating: bool,
+) -> None:
+    """Gating assertion over the quantified silent-no-op canary (the dict from
+    ``quantified_silent_no_op_canary`` — or None when the block fired / never ran).
+
+    ``gating=True`` (preflight / test context): RAISE ``QuantifiedSilentNoOpError`` when ``canary``
+    signals a no-op, so a silent no-op is caught LOUDLY before a real run.
+    ``gating=False`` (the production default): ADVISORY — return None, never raise, so a real
+    release run is NOT aborted on a P2-class differentiator gap (operator: never hold the report).
+
+    PURE; no I/O. Idempotent. ``canary is None`` is always a clean pass (no no-op)."""
+    if canary is not None and gating:
+        firing_status = (
+            canary.get("firing_status", "unknown")
+            if isinstance(canary, dict) else "unknown"
+        )
+        raise QuantifiedSilentNoOpError(
+            f"{QUANTIFIED_SILENT_NO_OP_MESSAGE} (firing_status={firing_status})"
+        )
+    return None
+
+
 def _judge_calls_and_errors_from_telemetry(
     base_tel: dict, now_tel: dict,
 ) -> tuple[int, int]:
@@ -12610,9 +12651,14 @@ async def run_one_query(
             _quant_no_op = quantified_silent_no_op_canary(_quantified_telemetry)
             if _quant_no_op is not None:
                 manifest["quantified_silent_no_op"] = _quant_no_op
+                # I-wire-013 (#1327) iter-3b-2 gate P1-C: log at ERROR level (the prior WARNING was
+                # too quiet for a fail-LOUD signal) using the shared QUANTIFIED_SILENT_NO_OP_MESSAGE
+                # constant. This is ADVISORY here — the run is NOT aborted (operator: never hold the
+                # report). The matching GATING assertion (assert_no_quantified_silent_no_op, raised
+                # only with gating=True) lives in the behavioral preflight / unit test so the no-op
+                # is caught BEFORE a real run.
                 _log(
-                    "[phase7]      WARNING: quantified analysis ran but produced NO verified "
-                    "quantified output (silent no-op) — manifest.quantified_analysis.fired=False "
+                    f"[phase7]      ERROR: {QUANTIFIED_SILENT_NO_OP_MESSAGE} "
                     f"(canary: manifest.quantified_silent_no_op, firing_status={_quant_no_op['firing_status']})"
                 )
 
