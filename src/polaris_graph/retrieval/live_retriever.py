@@ -2154,8 +2154,8 @@ def refetch_for_extraction_with_diagnostics(
             diagnostics["failure_mode"] = "fetch_shell"
             return "", diagnostics  # failure (settled in finally)
         quote = _build_provenance_quote(
-            content, head_chars=min(1500, max_chars), window_chars=500,
-            max_total_chars=max_chars,
+            content, head_chars=min(_PROVENANCE_HEAD_CHARS_CAP, max_chars),
+            window_chars=500, max_total_chars=max_chars,
         )
         if not quote or len(quote) < 100:
             if not diagnostics["failure_mode"]:
@@ -3004,6 +3004,91 @@ def _domain_of(url: str) -> str:
 
 _DECIMAL_PATTERN = re.compile(r"-?\d+\.\d+")
 
+# I-wire-014 (#1327): the provenance-quote HEAD cap. The A15 resume re-fetch
+# (resume_refetch.py) repopulates a row's cited ``direct_quote`` with the head of
+# the freshly-fetched body via ``_build_provenance_quote``; with a hard
+# ``content[:CAP]`` slice that head ended MID-WORD (proven: 80/96 spans in
+# iwire014_replay2 landed at 1495-1505 chars ending alphanumeric → rendered
+# fragments like "usand workers"). The cap value is UNCHANGED — only the slice is
+# now snapped to the last word boundary at or before the cap (see
+# ``_snap_end_to_word_boundary``). One source of truth for the default + both call
+# sites (LAW VI: a named constant, not a magic number).
+_PROVENANCE_HEAD_CHARS_CAP = 1500
+
+
+def _is_quote_word_char(ch: str) -> bool:
+    """A word-constituent char for span-boundary snapping: a letter/digit/underscore.
+
+    Mirrors ``provenance_generator._is_word_char`` (kept local to avoid a
+    retrieval→generator import). ``str.isalnum()`` is Unicode-aware, so
+    multilingual prose snaps on its own real word boundaries.
+    """
+    return ch.isalnum() or ch == "_"
+
+
+def _snap_end_to_word_boundary(text: str, end: int) -> int:
+    """Snap a span END offset back to the tail of the last WHOLE word at or before
+    ``end``, so a truncated span NEVER ends mid-word (never "...thou" of "thousand").
+
+    Pure + deterministic. Only moves ``end`` when the slice would cut strictly
+    INSIDE a word (the char at ``end-1`` AND the char at ``end`` are both word
+    chars); an ``end`` already at whitespace/punctuation, at/past ``len(text)``, or
+    at the document tail is returned unchanged. It only NARROWS the span rightward
+    (end can decrease, never increase), so ``text[:end]`` stays a verbatim PREFIX of
+    ``text`` and the FROZEN strict_verify (numeric / content-word grounding) is
+    untouched — a span shorter by a few chars but word-complete still grounds.
+
+    To bound worst-case (a single token longer than the snap window — e.g. a long
+    URL or DNA string), if walking back to a word boundary would discard more than
+    ``_QUOTE_SNAP_MAX_BACKTRACK`` chars the original ``end`` is kept (a mid-token
+    cut is preferable to dropping a whole giant token from the cited span).
+    """
+    n = len(text)
+    if end >= n or end <= 0:
+        return max(0, min(end, n))
+    # Not cutting inside a word (boundary already at end) → unchanged.
+    if not (_is_quote_word_char(text[end - 1]) and _is_quote_word_char(text[end])):
+        return end
+    i = end
+    floor = end - _QUOTE_SNAP_MAX_BACKTRACK
+    while i > 0 and i > floor and _is_quote_word_char(text[i - 1]):
+        i -= 1
+    # If we hit the backtrack floor without finding a boundary, the token is huge:
+    # keep the original cut rather than ejecting the whole token.
+    if i <= floor and i > 0 and _is_quote_word_char(text[i - 1]):
+        return end
+    return i
+
+
+# Max chars ``_snap_end_to_word_boundary`` will walk back to find a word boundary.
+# A window is the decimal ± 250 chars (window_chars//2 each side), so snapping the
+# end back by ≤ this many chars never ejects the centered decimal; faithfulness
+# (``_find_span_for_decimal``) is unaffected. A token longer than this is treated as
+# pathological and the hard cut is kept (see helper docstring).
+_QUOTE_SNAP_MAX_BACKTRACK = 64
+
+
+def _snap_start_to_quote_word_boundary(text: str, start: int) -> int:
+    """Snap a window START offset back to the head of the word it lands inside, so a
+    window chunk BEGINS at a whole word (never "...usand workers..." after a "[...]").
+
+    Same contract as ``_snap_end_to_word_boundary`` but moves leftward: it only
+    WIDENS the window start (start can decrease, never increase), keeping
+    ``0 <= start`` and preserving the centered decimal. Bounded by the same
+    backtrack window so a giant token never blows the chunk up.
+    """
+    if start <= 0 or start >= len(text):
+        return max(0, min(start, len(text)))
+    if not (_is_quote_word_char(text[start - 1]) and _is_quote_word_char(text[start])):
+        return start
+    i = start
+    floor = start - _QUOTE_SNAP_MAX_BACKTRACK
+    while i > 0 and i > floor and _is_quote_word_char(text[i - 1]):
+        i -= 1
+    if i <= floor and i > 0 and _is_quote_word_char(text[i - 1]):
+        return start
+    return i
+
 
 _PDF_METADATA_PATTERNS = (
     re.compile(r"^\s*%PDF", re.MULTILINE),
@@ -3087,7 +3172,7 @@ def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
 
 def _build_provenance_quote(
     content: str,
-    head_chars: int = 1500,
+    head_chars: int = _PROVENANCE_HEAD_CHARS_CAP,
     window_chars: int = 500,
     max_total_chars: int = 12000,
     max_windows: int = 20,
@@ -3118,9 +3203,14 @@ def _build_provenance_quote(
     # is untouched.
     from src.tools.access_bypass import dehyphenate_line_wraps  # noqa: PLC0415
     content = dehyphenate_line_wraps(content)
-    head = content[:head_chars]
     if len(content) <= head_chars:
-        return head
+        return content
+    # I-wire-014 (#1327): snap the head cut back to the last word boundary at/before
+    # ``head_chars`` so the stored span NEVER ends mid-word ("usand workers"). The
+    # integer ``head_chars`` cap below (the ``e > head_chars`` window filter) is
+    # unchanged; only the emitted head STRING is trimmed to a whole word. ``head``
+    # stays a verbatim prefix of the de-hyphenated content (faithfulness-neutral).
+    head = content[:_snap_end_to_word_boundary(content, head_chars)]
 
     # Find all decimal positions in the full content
     positions: list[tuple[int, int]] = []
@@ -3147,7 +3237,16 @@ def _build_provenance_quote(
     chunks = [head]
     total = len(head)
     for s, e in merged:
-        chunk = content[s:e]
+        # I-wire-014 (#1327): snap each decimal-window's START forward and END back
+        # to whole-word boundaries, so a chunk neither BEGINS mid-word right after a
+        # "[...]" nor ENDS mid-word — and the LAST chunk's end IS the whole quote's
+        # end, so this is what guarantees the joined direct_quote never ends mid-word.
+        # The decimal is centered ~250 chars inside the window (>> the ≤64-char snap
+        # backtrack), so the centered decimal is never ejected (faithfulness-neutral);
+        # each chunk stays a verbatim substring of the de-hyphenated content.
+        s_snapped = _snap_start_to_quote_word_boundary(content, s)
+        e_snapped = _snap_end_to_word_boundary(content, e)
+        chunk = content[s_snapped:e_snapped]
         # Stop if we'd exceed the total cap
         if total + len(chunk) + 6 > max_total_chars:
             break
@@ -4949,7 +5048,8 @@ def run_live_retrieval(
                     drop_reasons["fetch_shell"] += 1
                     continue
                 direct_quote = _build_provenance_quote(
-                    _cleaned_for_quote, head_chars=1500, window_chars=500,
+                    _cleaned_for_quote, head_chars=_PROVENANCE_HEAD_CHARS_CAP,
+                    window_chars=500,
                 )
                 _row = {
                     "evidence_id": f"ev_{i:03d}",
