@@ -1965,6 +1965,174 @@ def dehyphenate_line_wraps(text: "Optional[str]") -> str:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-beatboth (ev_461): deterministic PDF front-matter (masthead) stripper.
+#
+# A PDF text-extractor (mineru25 / docling / PyMuPDF) pulls the journal MASTHEAD
+# as the FIRST run of "content": a running-head token ("PERSPECTIVE"), the title,
+# the author + superscript-affiliation list, an "Edited by ..." byline, and the
+# editorial submission-date clause ("approved February 28, 2019 (received for
+# review January 18, 2019)"). That leading block then becomes a provenance span and
+# renders as a "finding" — but a title / author list / submission date is NEVER a
+# verifiable claim. This strips ONLY a contiguous LEADING masthead block, on
+# PDF-origin content, BEFORE the body is windowed into a span. It is NOT GROBID — a
+# lightweight, deterministic, precision-first prefix trimmer.
+#
+# GROUND TRUTH (the real ev_461 extracted text): the PyMuPDF/MinerU output is
+# space-COLLAPSED — the entire masthead AND the first body sentence sit on ONE
+# physical line, with no newline between them:
+#   "PERSPECTIVE Toward understanding the impact of artificial intelligence on
+#    labor Morgan R. Franka, David Autorb, ... Edited by Jose A. Scheinkman, ...,
+#    and approved February 28, 2019 (received for review January 18, 2019) Rapid
+#    advances in artificial intelligence (AI) ..."
+# A LINE-based stripper would no-op (no newline to split on). So this operates on
+# the leading CHARACTER region and anchors on the editorial submission-date clause
+# — canonically the LAST masthead element — and cuts at its END. That is robust to
+# BOTH the single-line collapsed form AND a line-wrapped form.
+#
+# FAITHFULNESS (the part that can hurt a patient): front-matter is not assertional,
+# so removing it cannot drop a finding; the first real body sentence onward is left
+# byte-identical. We cut at the END of the editorial submission-date clause and
+# never inside prose, so a real sentence that merely CONTAINS a date
+# ("...approved February 28, 2019, and enrolled 200 patients.") is body and is
+# kept — it has no editorial "(received for review ...)" / "approved <date> (" form.
+# When unsure, DO NOT strip — a recoverable bit of masthead is far safer than
+# deleting a real claim. INPUT HYGIENE ONLY; strict_verify / NLI / 4-role /
+# span-grounding are untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Flag-gate: default ON for PDF origin, env-reversible per LAW VI.
+_PDF_FRONTMATTER_STRIP_FLAG_DEFAULT = "1"
+
+# The masthead lives at the very HEAD of the document. The editorial submission-
+# date clause that terminates it must START within this many leading chars, else we
+# treat a later "(received for review ...)" as a coincidence in body prose and do
+# NOT strip. A masthead (running-head + title + ~15-author list + edited-by) is
+# comfortably under this; real body almost never opens with this clause.
+_FRONTMATTER_HEAD_REGION_CHARS = 2000
+
+_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December|"
+    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
+)
+# A date in EITHER US "Month D, YYYY" ("February 28, 2019") OR international
+# "D Month YYYY" ("18 January 2019") order, full or 3-letter abbreviated months.
+# Recall-broadening is safe: the date only ever matches INSIDE the editorial
+# "(received for review ...)" parenthetical below — the paren disambiguates from
+# prose, so precision is untouched (Codex/advisor catch: non-US journals).
+_DATE = (
+    rf"(?:{_MONTH}\.?\s+\d{{1,2}},?\s+\d{{4}}"   # February 28, 2019 / Feb 28 2019
+    rf"|\d{{1,2}}\s+{_MONTH}\.?,?\s+\d{{4}})"     # 18 January 2019 / 18 Jan 2019
+)
+
+# (a) Running-head banner at the VERY START (case-sensitive ALL-CAPS masthead
+# token). Anchored to start so a lowercase "perspective" in prose, or the word
+# mid-sentence, is never matched. One of the strong masthead anchors.
+_FRONTMATTER_RUNNING_HEAD_RE = re.compile(
+    r"^(?:PERSPECTIVE|RESEARCH ARTICLE|REVIEW ARTICLE|BRIEF REPORT|CASE REPORT|"
+    r"ARTICLE|LETTERS|LETTER|REVIEW|EDITORIAL|COMMENTARY)\b"
+)
+
+# (b) Author/affiliation signature: a capitalized Name immediately followed by a
+# superscript-style affiliation marker glued to the surname ("Franka,", "Autorb,",
+# "Rahwana,m,n,1") — the distinctive PDF-extraction artifact where the superscript
+# letters/digits collapse onto the name. Also the "and <First Last>" author-join.
+# This is a strong masthead anchor when it appears in the head region.
+_FRONTMATTER_AUTHOR_AFFIL_RE = re.compile(
+    r"[A-Z][a-z]+[a-z][a-z](?:,[a-z0-9])+,"        # "Franka," / "Rahwana,m,n,1,"  (name + glued superscripts)
+    r"|[A-Z][a-z]+[a-z][a-z],\s+(?:and\s+)?[A-Z][a-z]+"  # "Autorb, and Manuel"
+    r"|\band\s+[A-Z][a-z]+\s+[A-Z]\.?\s*[A-Z][a-z]+\b"   # "and Iyad R. Rahwan"
+)
+
+# "Edited by ..." byline (PNAS/PNAS-style mastheads). Supporting masthead signal.
+_FRONTMATTER_EDITED_BY_RE = re.compile(r"\bEdited by\b", re.IGNORECASE)
+
+# (c) The editorial submission-date clause — the masthead TERMINATOR. VERB-anchored
+# to the editorial process ("received for review <date>") inside a parenthetical, so
+# an ordinary prose sentence that merely mentions a date is never matched. The
+# terminator is the "(received for review <date> ... )" parenthetical:
+#   1. "... (received for review <date>)"                       — PNAS canonical.
+#   2. "approved/accepted <date> (received for review <date>)"  — leading approve verb.
+#   3. "(received for review <date>; accepted <date>)"          — multi-clause paren.
+# After the first received-for-review date, an optional BOUNDED run of further
+# editorial clauses (``; revised ...; accepted ...``) up to the closing paren is
+# tolerated — bounded by ``[^)]{0,80}`` so it can never swallow body prose (a real
+# body sentence sits OUTSIDE the paren). Each form captures THROUGH the closing
+# paren so the cut lands exactly at the body boundary. ``re.search`` over the head
+# region (single-line or wrapped; DOTALL so a wrapped clause still matches).
+_FRONTMATTER_DATE_TERMINATOR_RE = re.compile(
+    rf"(?:(?:approved|accepted|received|revised)\s+{_DATE}\s*)?"  # optional leading "approved <date>"
+    rf"\(\s*received for review\s+{_DATE}[^)]{{0,80}}\)"          # (received for review <date>[; ...])
+    rf"|received for review\s+{_DATE}[^)]{{0,80}}\)",             # ... received for review <date>[; ...])
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_pdf_frontmatter(text: "Optional[str]") -> str:
+    """Strip a contiguous LEADING journal-masthead block from PDF-extracted text.
+
+    Anchors on the editorial submission-date clause ("(received for review <Month
+    day, year>)"), which is canonically the LAST masthead element, and cuts the
+    document at the END of that clause — so the running-head banner, title, author/
+    affiliation list, "Edited by" byline and submission dates are removed and the
+    body begins at the next character. Works on the real (space-collapsed,
+    single-line) PDF-extraction output AND on line-wrapped output, because it is
+    character-offset based, not line based.
+
+    Conservative guards (when unsure, DO NOT strip — faithfulness overrides):
+      * The editorial date clause must START within the leading ``_FRONTMATTER_
+        HEAD_REGION_CHARS`` of the document (a masthead is at the head; a stray
+        "(received for review ...)" deep in prose is left alone).
+      * A STRONG masthead anchor must also appear BEFORE that clause in the head
+        region: a start-of-document running-head banner, OR an author/affiliation
+        signature, OR an "Edited by" byline. A lone date clause does not trigger a
+        strip.
+      * Only ever removes a leading PREFIX up to the clause end; never scans nor
+        cuts mid-body. The body from the first post-clause character is byte-
+        identical.
+      * If no editorial date clause / no anchor is found, returns the input
+        UNCHANGED. If the cut would leave no body (masthead-only fetch), returns
+        the input UNCHANGED (nothing to protect; downstream thin/shell gates
+        handle an all-masthead body).
+
+    Pure / deterministic — no model, no network. Flag-gated (default ON) by
+    PG_PDF_FRONTMATTER_STRIP per LAW VI.
+    """
+    if not text:
+        return text or ""
+    if os.getenv(
+        "PG_PDF_FRONTMATTER_STRIP", _PDF_FRONTMATTER_STRIP_FLAG_DEFAULT
+    ).strip().lower() in ("0", "false", "no", "off"):
+        return text
+
+    head = text[:_FRONTMATTER_HEAD_REGION_CHARS]
+
+    term = _FRONTMATTER_DATE_TERMINATOR_RE.search(head)
+    if term is None:
+        return text  # no editorial submission-date clause in the head -> no strip
+
+    cut = term.end()
+
+    # STRONG-anchor requirement (precision-first): the region BEFORE the date clause
+    # must carry a masthead signature, else this date clause is not a masthead
+    # terminator and we do not strip.
+    before = head[: term.start()]
+    has_running_head = bool(_FRONTMATTER_RUNNING_HEAD_RE.search(text.lstrip()[:60]))
+    has_author_affil = bool(_FRONTMATTER_AUTHOR_AFFIL_RE.search(before))
+    has_edited_by = bool(_FRONTMATTER_EDITED_BY_RE.search(before))
+    if not (has_running_head or has_author_affil or has_edited_by):
+        return text
+
+    body = text[cut:].lstrip(" \t\r\n.")
+    # Never return empty / whitespace-only when the input had content: if the cut
+    # leaves no body (masthead-only fetch), leave the input untouched — there is no
+    # claim to protect and the thin/shell gates downstream handle it.
+    if not body.strip():
+        return text
+    return body
+
+
 # M-23c: Structural markers for content quality scoring.
 # Presence of academic-paper markers indicates full article body
 # (vs paywall stub or landing page).
@@ -2486,6 +2654,12 @@ class AccessBypass:
             try:
                 pdf_text = await self._extract_pdf_text(url)
                 if pdf_text and len(pdf_text) > 500:
+                    # ev_461: strip a leading journal-masthead block (running-head /
+                    # author-affiliation list / submission-date line) from the
+                    # PDF-extracted text BEFORE it is capped + windowed into a span.
+                    # PDF-origin by construction (this is the .pdf / /pdf/ branch);
+                    # flag-gated, conservative (body sentence onward is byte-identical).
+                    pdf_text = strip_pdf_frontmatter(pdf_text)
                     logger.info(
                         "[ACCESS] FIX-GAP4: PDF text extracted for %s (%d chars)",
                         url[:60], len(pdf_text),
@@ -4691,6 +4865,9 @@ class AccessBypass:
                             full_text = "\n\n".join(text_parts)
 
                             if len(full_text) > 500:
+                                # ev_461: same masthead strip as the .pdf branch —
+                                # this is a separate PDF->text seam (Sci-Hub PyMuPDF).
+                                full_text = strip_pdf_frontmatter(full_text)
                                 logger.info(
                                     "[ACCESS] Sci-Hub PDF extracted for %s: %d chars from %d pages",
                                     doi, len(full_text), len(text_parts),
