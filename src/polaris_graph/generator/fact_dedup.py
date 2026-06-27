@@ -337,6 +337,24 @@ _PROSE_MIN_CONTENT_WORDS = 4
 _CITATION_TOKEN_RE = re.compile(r"\[(?:#ev:[^\]]*|ev_[^\]]*|\d+)\]")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
+# I-wire-014 (#1335) FIX-D faithfulness guard for the NLI prose-dedup path. The benchmarked
+# SAFE winner (mutual-entailment + these two guards) held distinct_claims_preserved_rate = 1.0;
+# the bare mutual-entailment in-tree path lacked them and could merge two claims that happen to
+# entail but cite DIFFERENT sources or carry a DISTINCT number. So a redundant joins a primary
+# only when it shares the SAME citation SET and introduces NO new number (its numbers ⊆ primary's).
+_BARE_NUM_RE = re.compile(r"\d[\d,.]*")
+
+
+def _nli_cite_set(sentence: str) -> frozenset:
+    """Order-independent set of citation markers in a sentence ([#ev:..]/[ev_..]/[N])."""
+    return frozenset(_CITATION_TOKEN_RE.findall(sentence or ""))
+
+
+def _nli_num_set(sentence: str) -> frozenset:
+    """Bare numbers in a sentence AFTER stripping citation markers (so [8] is not a number)."""
+    stripped = _CITATION_TOKEN_RE.sub(" ", sentence or "")
+    return frozenset(_BARE_NUM_RE.findall(stripped))
+
 # A small, conservative English stopword set (deterministic; no external dep). Dropping stopwords keeps
 # the shingle set focused on CONTENT words so "the/and/of" padding does not inflate Jaccard.
 _STOPWORDS = frozenset({
@@ -584,21 +602,50 @@ def _build_nli_prose_groups(
 
     # Strip citation tokens before NLI so the model scores the CLAIM, not the markers.
     texts = [_CITATION_TOKEN_RE.sub(" ", loc.sentence or "") for loc in prose_locs]
-    root_by_pos = group_clusters(texts)
 
-    members_by_root: dict[int, list[SentenceLocation]] = {}
-    for pos, loc in enumerate(prose_locs):
-        members_by_root.setdefault(root_by_pos[pos], []).append(loc)
+    # I-wire-014 (#1335) FIX-D: use DIRECT pairwise bidirectional-entailment edges (score_pairs),
+    # NOT group_clusters' TRANSITIVE union-find. The dedup bake-off proved the transitive root
+    # over-merges: A↔B and B↔C union A,B,C even when A and C do NOT directly entail, so a
+    # distinct claim that entails only a sibling gets dropped (preserved fell to 0.976). The
+    # validated-SAFE winner is keep-first over DIRECT edges + two guards: a redundant joins a
+    # primary ONLY when it (a) DIRECTLY bidirectionally-entails the primary, (b) is in the SAME
+    # section, (c) shares the SAME citation SET, and (d) introduces NO new number (its numbers ⊆
+    # the primary's). Held distinct_claims_preserved_rate = 1.0. Faithfulness-neutral (§-1.3 — the
+    # keep-all cross-ref rewrite preserves every citation of the merged members).
+    from src.polaris_graph.synthesis.consolidation_nli import score_pairs  # noqa: PLC0415
+
+    edges = score_pairs(texts)  # sorted (i, j), i < j, that bidirectionally entail
+    entails: dict[int, set[int]] = {}
+    for i, j in edges:
+        entails.setdefault(i, set()).add(j)
+        entails.setdefault(j, set()).add(i)
 
     groups: list[RedundancyGroup] = []
-    for _root, members in sorted(members_by_root.items()):
-        if len(members) < 2:
+    consumed = [False] * len(prose_locs)
+    for i in range(len(prose_locs)):
+        if consumed[i]:
             continue
-        primary = members[0]
-        redundants = members[1:]
-        groups.append(RedundancyGroup(
-            signature=primary.signature, primary=primary, redundants=redundants,
-        ))
+        primary = prose_locs[i]
+        p_cites = _nli_cite_set(primary.sentence)
+        p_nums = _nli_num_set(primary.sentence)
+        direct = entails.get(i, set())
+        redundants: list[SentenceLocation] = []
+        for j in range(i + 1, len(prose_locs)):
+            if consumed[j] or j not in direct:
+                continue  # require a DIRECT mutual-entailment edge with the primary
+            m = prose_locs[j]
+            if (
+                m.section == primary.section
+                and _nli_cite_set(m.sentence) == p_cites
+                and _nli_num_set(m.sentence) <= p_nums
+            ):
+                redundants.append(m)
+                consumed[j] = True
+        if redundants:
+            consumed[i] = True
+            groups.append(RedundancyGroup(
+                signature=primary.signature, primary=primary, redundants=redundants,
+            ))
     return groups
 
 
