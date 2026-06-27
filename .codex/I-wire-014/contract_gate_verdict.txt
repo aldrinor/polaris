@@ -1,0 +1,7 @@
+verdict: REQUEST_CHANGES
+p0:
+- none
+p1:
+- Failed rewrite verification can drop the whole consolidated cluster instead of restoring the original cited sentences. In `_consolidate_contract_section_sentences`, when a rewrite string is in `new_sentence_strs` but fails `strict_verify`, the loop skips it and the redundant original strings removed by `dedup_pass` are not reinserted. This violates the stated contract that a failed rewrite keeps the original cited sentence and risks claim/citation loss.
+p2:
+- none

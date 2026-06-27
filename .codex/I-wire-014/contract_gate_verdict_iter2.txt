@@ -1,0 +1,4 @@
+verdict: APPROVE
+p0: none
+p1: none
+p2: possible exact-duplicate `sv.sentence` keys collapse in `sv_by_sentence`, but no P1 shown in this diff; iter-1 rewrite-fail path now reverts to original `kept_sentences`, preserving the cluster.

@@ -1,0 +1,6 @@
+verdict: APPROVE
+p0: []
+p1: []
+p2:
+- `_resolve` leaves names in `visiting` on cycle-return, and cycle error attribution depends on `out_names` set iteration order. It still rejects cycles without infinite loop, but the rejection reason is not deterministic.
+- `_inline_output_references` rejects syntax-invalid output formulas before the existing output loop can emit its prior reason/order. This is behaviorally safe, but not byte-identical in invalid no-chaining cases.

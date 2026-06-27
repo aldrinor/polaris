@@ -229,6 +229,123 @@ def _formula_names(formula: str, allowed_names: set[str]) -> tuple[bool, str, se
     return ok, reason, referenced
 
 
+def _formula_referenced_names(formula: str) -> set[str] | None:
+    """Return the set of bare ``Name`` ids in ``formula`` that are NOT allowlisted
+    funcs (i.e. candidate input/output references), or None if it does not parse.
+    Used only to build the output-dependency graph for inlining — the FULL
+    pure-arithmetic safety check still runs via ``_formula_names`` after inlining."""
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        return None
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id not in _ALLOWED_FORMULA_FUNCS:
+            names.add(node.id)
+    return names
+
+
+def _inline_output_references(
+    raw_outputs: list[dict[str, Any]], input_names: set[str],
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """I-wire-014 (#1336): deterministically INLINE output->output formula references
+    so every output formula is expressed purely over INPUT names before validation.
+
+    ROOT CAUSE this fixes (drb_72 ai-labor, captured offline): the Writer naturally
+    chains outputs, e.g.
+        net_shift_per_decade = ag_decline_rate - prof_growth_rate
+        cumulative_net_shift = net_shift_per_decade * projection_decades
+    The validator's ``_formula_names`` only permits references to declared INPUT names,
+    so the second formula rejected with ``unknown_name:net_shift_per_decade`` even though
+    the model is perfectly defensible. Inlining substitutes the referenced output's
+    (parenthesized) formula:
+        cumulative_net_shift = (ag_decline_rate - prof_growth_rate) * projection_decades
+
+    This is VALUE-PRESERVING and DETERMINISTIC: the inlined formula computes the IDENTICAL
+    number the chained form would, and the deterministic Regime-C re-execution +
+    material-dependency + numeric-verbatim gates all run UNCHANGED on the inlined formula.
+    It does NOT touch the execution engine (no output-in-env, no dep-ordered exec) — the
+    engine never sees an output reference. It also FIXES citation binding: after inlining,
+    ``output_referenced_inputs`` correctly attributes a chained output to its TRANSITIVE
+    sourced inputs (naive output-ref support would attribute it to a non-sourced output
+    name and cite nothing).
+
+    Returns ``(normalized_outputs, "")`` on success or ``(None, reason)`` on a cyclic /
+    self-referential / unparseable dependency (left for the caller to ``_reject``). When
+    no output references another output, the outputs pass through unchanged (byte-identical).
+    """
+    # map output name -> raw formula string (skip malformed entries; the caller's
+    # output loop rejects those explicitly with output_not_dict / bad_or_dup_output_name)
+    formula_by_name: dict[str, str] = {}
+    order: list[dict[str, Any]] = []
+    for ro in raw_outputs:
+        if not isinstance(ro, dict):
+            return None, "output_not_dict"
+        oname = str(ro.get("name", "")).strip()
+        if oname:
+            formula_by_name[oname] = str(ro.get("formula", "")).strip()
+        order.append(ro)
+
+    out_names = set(formula_by_name)
+    if not out_names:
+        return raw_outputs, ""
+
+    # build output->output dependency edges (a name that is BOTH an output and not an
+    # input is an output reference). A name that is an input takes input precedence.
+    deps: dict[str, set[str]] = {}
+    for oname, formula in formula_by_name.items():
+        refs = _formula_referenced_names(formula)
+        if refs is None:
+            return None, f"formula_invalid:{oname}:formula_syntax_error"
+        out_deps = {r for r in refs if r in out_names and r not in input_names}
+        if oname in out_deps:
+            return None, f"formula_invalid:{oname}:self_reference"
+        deps[oname] = out_deps
+
+    if not any(deps.values()):
+        return raw_outputs, ""  # no chaining — unchanged
+
+    # resolve each output to a pure-input formula via memoized DFS with cycle detection
+    resolved: dict[str, str] = {}
+    visiting: set[str] = set()
+
+    def _resolve(name: str) -> str | None:
+        if name in resolved:
+            return resolved[name]
+        if name in visiting:
+            return None  # cycle
+        visiting.add(name)
+        formula = formula_by_name[name]
+        for dep in deps[name]:
+            sub = _resolve(dep)
+            if sub is None:
+                return None
+            # substitute the dep output NAME with its parenthesized resolved formula
+            # (whole-word only, so a longer name containing this one is not corrupted)
+            formula = re.sub(
+                rf"\b{re.escape(dep)}\b", f"({sub})", formula,
+            )
+        visiting.discard(name)
+        resolved[name] = formula
+        return formula
+
+    for oname in out_names:
+        if _resolve(oname) is None:
+            return None, f"formula_invalid:{oname}:cyclic_output_reference"
+
+    # emit outputs in the ORIGINAL order with the inlined formulas
+    normalized: list[dict[str, Any]] = []
+    for ro in order:
+        oname = str(ro.get("name", "")).strip()
+        if oname and oname in resolved:
+            entry = dict(ro)
+            entry["formula"] = resolved[oname]
+            normalized.append(entry)
+        else:
+            normalized.append(ro)
+    return normalized, ""
+
+
 def _eval_formula(formula: str, env: dict[str, float]) -> float:
     """Deterministic arithmetic interpreter over a validated formula. NO eval."""
     tree = ast.parse(formula, mode="eval")
@@ -464,6 +581,129 @@ def _matches_datapoint(ref: dict[str, Any], dp: dict[str, Any]) -> bool:
         return False
 
 
+def _normalize_raw_spec(raw: dict[str, Any]) -> dict[str, Any]:
+    """I-wire-014 (#1336): PURELY STRUCTURAL normalization of the Writer's raw spec
+    JSON into the canonical list-of-dicts shape ``build_quantified_spec`` validates.
+
+    ROOT CAUSE this fixes (drb_72 ai-labor, captured via the banked Writer call):
+    the GLM-5.2 / deepseek Writer routinely emits the natural, common LLM JSON shape
+
+        "inputs":  {"<name>": {datapoint_ref|modeled...}, ...}   (OBJECT keyed by name)
+        "outputs": {"<name>": "<formula>", ...}                  (OBJECT, value=formula str)
+        "sensitivity": "<output_name>"                           (bare STRING)
+        "solve_for":   "<output_name>"                           (bare STRING)
+        "sweep": [lo, hi]                                        (2-elem, no step)
+
+    while the validator hard-requires ``inputs``/``outputs`` to be LISTS of dicts each
+    carrying a ``name`` key, ``sensitivity`` a list of ``{input,output}`` dicts, etc.
+    The very first gate (``inputs_or_outputs_not_list``) then rejected EVERY otherwise-
+    valid model — which is why ``quantified_model.json`` had never once been produced and
+    the Phase-7 differentiator silently no-op'd on real runs (firing_status=
+    spec_validation_rejected).
+
+    FAITHFULNESS (LAW §-1.3): this is shape-only. It NEVER invents, alters, or drops a
+    sourced value, datapoint_ref, ev_id, label, context, unit, or numeric. Every
+    downstream gate (exact-one-match datapoint identity, numeric-verbatim literal+span
+    location, pure-arithmetic formula AST, material-dependency perturbation) runs
+    UNCHANGED on the normalized spec — so a fabricated or mis-cited number still fails
+    exactly as before. Canonical list-form input passes through BYTE-IDENTICAL: the
+    branches below only fire on the non-canonical (dict/str) shapes. (The sole exception
+    is a 2-elem MODELED sweep, which is padded to [lo,hi,step] even in list-form — a
+    uncited, never-rendered value, so faithfulness-neutral.) The caller's dict is never
+    mutated (a fresh copy is taken before any in-place write).
+
+    Underspecified OPTIONAL clauses (``sensitivity`` / ``solve_for`` that are not
+    well-formed) are DROPPED, never guessed — guessing the missing input/var would be
+    the faithfulness violation. A 2-elem ``sweep`` on a MODELED (uncited, never-rendered)
+    input is padded with a derived step so the modeled-input parse does not IndexError;
+    the modeled input feeds only the (possibly-dropped) sensitivity/solve_for and carries
+    no citation, so the pad is faithfulness-neutral.
+    """
+    out: dict[str, Any] = dict(raw)  # shallow copy; never mutate the caller's dict
+
+    # ── inputs: OBJECT keyed by name -> LIST of {name, ...} ──────────────────
+    raw_inputs = out.get("inputs")
+    if isinstance(raw_inputs, dict):
+        norm_inputs: list[Any] = []
+        for name, body in raw_inputs.items():
+            if isinstance(body, dict):
+                entry = dict(body)
+                entry.setdefault("name", name)
+                norm_inputs.append(entry)
+            else:
+                # a non-dict input body is malformed; pass it through unchanged so the
+                # validator rejects it explicitly (input_not_dict) rather than here.
+                norm_inputs.append(body)
+        out["inputs"] = norm_inputs
+        raw_inputs = norm_inputs
+
+    # pad a 2-elem (or shorter) modeled sweep with a derived step (modeled inputs only;
+    # uncited + never-rendered). A 3+-elem sweep is left untouched.
+    if isinstance(raw_inputs, list):
+        padded_inputs: list[Any] = []
+        for entry in raw_inputs:
+            if not isinstance(entry, dict):
+                padded_inputs.append(entry)
+                continue
+            sweep = entry.get("sweep")
+            if (
+                bool(entry.get("modeled"))
+                and isinstance(sweep, (list, tuple))
+                and len(sweep) == 2
+            ):
+                try:
+                    lo, hi = float(sweep[0]), float(sweep[1])
+                    step = (hi - lo) / 10.0 if hi != lo else 1.0
+                    if step == 0:
+                        step = 1.0
+                    # copy the entry before mutating so a LIST-form caller's original
+                    # dict is never mutated (out=dict(raw) is only a shallow copy).
+                    entry = dict(entry)
+                    entry["sweep"] = [sweep[0], sweep[1], step]
+                except (TypeError, ValueError):
+                    pass  # leave malformed sweep for the validator to reject
+            padded_inputs.append(entry)
+        out["inputs"] = padded_inputs
+
+    # ── outputs: OBJECT keyed by name -> LIST of {name, formula, ...} ────────
+    raw_outputs = out.get("outputs")
+    if isinstance(raw_outputs, dict):
+        norm_outputs: list[Any] = []
+        for name, body in raw_outputs.items():
+            if isinstance(body, dict):
+                entry = dict(body)
+                entry.setdefault("name", name)
+                norm_outputs.append(entry)
+            elif isinstance(body, str):
+                # value-is-formula shorthand: {"<name>": "<formula>"}
+                norm_outputs.append({"name": name, "formula": body})
+            else:
+                norm_outputs.append(body)
+        out["outputs"] = norm_outputs
+
+    # ── sensitivity: bare string / dict -> LIST of {input,output} dicts; drop
+    #    anything not well-formed (optional clause — never guess the missing key) ─
+    raw_sens = out.get("sensitivity")
+    if isinstance(raw_sens, str):
+        # a bare output name carries no swept INPUT -> cannot form a valid sweep -> drop.
+        out["sensitivity"] = []
+    elif isinstance(raw_sens, dict):
+        # single {input, output} dict -> wrap; drop if it lacks the required pair.
+        if raw_sens.get("input") and raw_sens.get("output"):
+            out["sensitivity"] = [raw_sens]
+        else:
+            out["sensitivity"] = []
+    elif isinstance(raw_sens, list):
+        out["sensitivity"] = [s for s in raw_sens if isinstance(s, dict)]
+
+    # ── solve_for: bare string -> drop (no var); dict passes to the validator ─
+    raw_solve = out.get("solve_for")
+    if isinstance(raw_solve, str):
+        out["solve_for"] = None
+
+    return out
+
+
 def build_quantified_spec(
     question: str,
     sourced_numbers: list[dict[str, Any]],
@@ -501,6 +741,13 @@ def build_quantified_spec(
         return _reject(f"spec_llm_raised:{str(exc)[:120]}")
     if not isinstance(raw, dict):
         return _reject("raw_not_dict")
+
+    # I-wire-014 (#1336): normalize the Writer's natural object-keyed / string-valued
+    # JSON shape into the canonical list-of-dicts form the gates below validate. PURELY
+    # STRUCTURAL — list-form input passes through byte-identical; no value/citation is
+    # ever invented or altered (see _normalize_raw_spec). This is the root-cause fix for
+    # the silent quantified no-op (spec_validation_rejected at inputs_or_outputs_not_list).
+    raw = _normalize_raw_spec(raw)
 
     model_id = str(raw.get("model_id", "")).strip()
     title = str(raw.get("title", "")).strip()
@@ -580,6 +827,16 @@ def build_quantified_spec(
     if not sourced and not modeled:
         return _reject("no_inputs")
     allowed = set(seen_names)
+
+    # ── I-wire-014 (#1336): inline output->output formula references ─────────
+    # The Writer chains outputs (cumulative = net_shift * decades, net_shift =
+    # ag - prof). Substitute each referenced output's parenthesized formula so every
+    # output formula is pure over INPUT names before the per-output AST gate below.
+    # Value-preserving + deterministic; rejects cyclic/self references as formula_invalid.
+    inlined_outputs, _inline_reason = _inline_output_references(raw_outputs, allowed)
+    if inlined_outputs is None:
+        return _reject(_inline_reason)
+    raw_outputs = inlined_outputs
 
     # ── outputs: pure-arithmetic AST + display_kind ─────────────────────────
     outputs: list[OutputField] = []
