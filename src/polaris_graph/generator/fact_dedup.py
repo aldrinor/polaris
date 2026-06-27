@@ -646,6 +646,15 @@ def _build_nli_prose_groups(
             groups.append(RedundancyGroup(
                 signature=primary.signature, primary=primary, redundants=redundants,
             ))
+    # I-wire-014 (#1335): FIRING SIGNAL so the prose-NLI dedup is verifiable in the run log
+    # (per "verify the feature fired in OUTPUT, not config"). Logs even on a zero result.
+    _n_redundant = sum(len(g.redundants) for g in groups)
+    logger.info(
+        "[fact_dedup] consolidation-NLI prose dedup FIRED: %d candidate sentence(s) -> %d group(s), "
+        "%d redundant paraphrase(s) consolidated (direct-pairwise + same-section + cite-set + "
+        "number guards; keep-all preserves every citation)",
+        len(prose_locs), len(groups), _n_redundant,
+    )
     return groups
 
 
