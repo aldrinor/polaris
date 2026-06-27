@@ -908,6 +908,19 @@ def _is_new_chrome_category(text: str) -> bool:
         return True
     if _DOI_ONLY_RE.match(stripped):
         return True
+    # I-wire-014 (#1334): the benchmarked whole-unit-collapse furniture screen — a unit DOMINATED
+    # by page furniture (journal metrics/cite/permissions/JEL/Associated-Records/member-only/
+    # feature-story/cookie-geo/back-matter label runs) with no real clause surviving. Whole-unit
+    # decision only (never an inline partial strip), so a real claim with a welded fragment is
+    # preserved (validated content_preserved_rate = 1.0 on chrome_gold_augmented).
+    try:
+        from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+            is_furniture_dominant,
+        )
+        if is_furniture_dominant(text):
+            return True
+    except Exception:  # pragma: no cover - chrome_furniture_screen is stable in-tree
+        pass
     # I-wire-013 (#1327): CONTAINMENT unblinding — glued ToC / masthead / author / license /
     # bibliographic / nav / stats-table / foreign-scrape welded into otherwise-real prose.
     return _contains_forensic_chrome(text)
