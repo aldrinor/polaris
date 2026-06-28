@@ -1,0 +1,16 @@
+No P0/P1 found. The change is display-only in the actual source: the helper is only used in the twelve `# Research report:` header constructions, and `q['question']` continues to flow unchanged into logs, manifests, retrieval/generation inputs, disclosure builders, and lineage-bearing paths.
+
+One P2 edge: [_strip_injected_instruction_appendix](/abs/path/C:/POLARIS/scripts/run_honest_sweep_r3.py:3023) uses the first `\n\n**important**` boundary, then checks the entire remaining tail for a signature. If a legitimate clean question itself contains an earlier benign `**important**` block and the benchmark appendix appears later, the title would be truncated at the earlier block. That is display-only and not an execution/lineage blocker, but using the specific `**important**The following is...` delimiter or the last matching injected boundary would be more precise.
+
+Static only; I did not run tests or the pipeline.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Helper searches the first important-boundary and checks the whole tail, so a clean prompt with an earlier benign important block plus a later injected appendix would over-truncate the display title only."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
