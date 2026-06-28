@@ -243,37 +243,36 @@ def test_b4_pt03_same_family_override_without_disclosure_fails(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# B11 C1 — provider SLO preferences merged into the routing block
+# B11 C1 REMOVED (#1344): apply_provider_routing must NEVER emit the invalid
+# OpenRouter provider keys `min_throughput` / `max_latency`. They are NOT real
+# OpenRouter fields; with `require_parameters: true` the call 400s with
+# "Unrecognized keys" — super_heavy_preflight caught it on the sentinel
+# (minimax/minimax-m2) and aborted the cert run before spend. These are the
+# regression guards that would have caught that dead run.
 # ---------------------------------------------------------------------------
 
 
-def test_b11_c1_slo_injected_when_enabled(monkeypatch):
+def test_b11_c1_no_invalid_slo_keys_emitted(monkeypatch):
     from src.polaris_graph.roles import provider_routing as pr
 
+    # Even with the old SLO env explicitly ON, the deleted C1 path emits nothing.
     monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
     pr.reset_cache()
     block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
-    assert block.get("min_throughput") == 5.0
-    assert block.get("max_latency") == 30.0
-
-
-def test_b11_c1_slo_off_is_noop(monkeypatch):
-    from src.polaris_graph.roles import provider_routing as pr
-
-    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "0")
-    pr.reset_cache()
-    block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
+    # The valid pinned chain is still applied (real OpenRouter fields only)...
+    assert block["order"]  # non-empty provider order
+    assert block["allow_fallbacks"] is False
+    # ...but NO invalid OpenRouter throughput/latency keys are ever present.
     assert "min_throughput" not in block
     assert "max_latency" not in block
 
 
-def test_b11_c1_role_without_slo_keys_noop(monkeypatch):
+def test_b11_c1_slo_helpers_deleted():
     from src.polaris_graph.roles import provider_routing as pr
 
-    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
-    pr.reset_cache()
-    # judge config carries NO preferred_* keys -> no SLO injected.
-    assert pr.role_provider_slo("judge") is None
+    # The C1 SLO-injection helpers are DELETED (not merely disabled) per §-1.3.
+    assert not hasattr(pr, "role_provider_slo")
+    assert not hasattr(pr, "_provider_slo_enabled")
 
 
 # ---------------------------------------------------------------------------

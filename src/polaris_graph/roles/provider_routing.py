@@ -27,16 +27,19 @@ _DEFAULT_CONFIG_PATH = "config/settings/openrouter_provider_routing.yaml"
 _ENABLE_ENV = "PG_OPENROUTER_PROVIDER_ROUTING"
 _CONFIG_PATH_ENV = "PG_PROVIDER_ROUTING_CONFIG"
 
-# I-deepfix-001 B11 C1 (#1344): per-role provider SLO preference injection. When
-# PG_OPENROUTER_PROVIDER_SLO is ON (default), apply_provider_routing reads each role's optional
-# `preferred_min_throughput` (tokens/s) + `preferred_max_latency` (seconds) from the routing config
-# and merges them into the OpenRouter `provider` block. OpenRouter honours
-# `provider.min_throughput` / `provider.max_latency` to steer the pinned chain toward HEALTHY hosts
-# meeting the SLO (and away from a trickling host) WITHOUT dropping the model. This is a transport-
-# only SLO hint -> faithfulness-NEUTRAL (same model + verdicts; only WHICH provider serves changes).
-# LAW VI: env-gated; ABSENT per-role keys => no-op (byte-identical to pre-#1344). Read lazily so a
-# runtime override is honored.
-_PROVIDER_SLO_ENV = "PG_OPENROUTER_PROVIDER_SLO"
+# I-deepfix-001 B11 C1 (#1344) — REMOVED. The original C1 injected `provider.min_throughput` /
+# `provider.max_latency` into the OpenRouter request body from the role config's
+# `preferred_min_throughput` / `preferred_max_latency` keys. That was built on a FALSE premise:
+# OpenRouter has NO such provider fields. With `require_parameters: true` (which every pinned role
+# carries) OpenRouter strict-validates the provider block and returns
+# `400 provider: Unrecognized keys: "min_throughput", "max_latency"` — which super_heavy_preflight
+# caught on the sentinel (minimax/minimax-m2) BEFORE any spend on the I-deepfix-001 cert run.
+# The SLO intent is ALREADY served, validly, two ways: (1) the pinned `order` + `ignore` +
+# `allow_fallbacks: false` chain steers to healthy hosts (these are real OpenRouter fields, 200);
+# (2) B11 C2's measured tokens/s rotation in openrouter_role_transport (PG_ROLE_MIN_TPS /
+# PG_JUDGE_PROVIDER_ROTATE) drops a trickling host post-response. C1 was thus both INVALID and
+# REDUNDANT, so it is deleted per §-1.3 (delete the number-forcing bolt-on), NOT re-expressed.
+# DO NOT re-introduce min_throughput / max_latency — they 400 the call. (§9.1.8: read the API.)
 
 # I-wire-008 (#1322): operator-driven JUDGE-chain provider-health deny-list. A comma-separated
 # set of provider SLUGS (e.g. "novita") that the entailment / semantic-conflict / credibility
@@ -143,71 +146,23 @@ def role_provider_routing(role: str) -> dict | None:
     return {"order": order, "ignore": ignore}
 
 
-def _provider_slo_enabled() -> bool:
-    """I-deepfix-001 B11 C1: whether per-role provider SLO preferences are injected (default ON).
-
-    ``PG_OPENROUTER_PROVIDER_SLO`` "0"/"false"/"no"/"off" -> OFF (no SLO keys merged, byte-identical
-    to pre-#1344); absent or anything else -> ON. LAW VI: env-driven, read lazily.
-    """
-    return os.getenv(_PROVIDER_SLO_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
-
-
-def role_provider_slo(role: str) -> dict | None:
-    """I-deepfix-001 B11 C1 (#1344): the role's optional provider-SLO preference block, else None.
-
-    Reads the role's ``preferred_min_throughput`` (tokens/s) and ``preferred_max_latency`` (seconds)
-    from the routing config and maps them to the OpenRouter ``provider`` block fields
-    ``min_throughput`` / ``max_latency``. Returns ``None`` when SLO injection is disabled, the role
-    is unconfigured, or NEITHER preference key is present (so the default config — which carries no
-    SLO keys — is a pure no-op). Only numeric (int/float, non-bool) values are honoured; a malformed
-    value is ignored rather than passed through (no-silent-wrong). Never raises.
-    """
-    if not _provider_slo_enabled():
-        return None
-    cfg = _roles_config().get(role)
-    if not isinstance(cfg, dict):
-        return None
-    out: dict = {}
-    _mapping = (
-        ("preferred_min_throughput", "min_throughput"),
-        ("preferred_max_latency", "max_latency"),
-    )
-    for cfg_key, or_key in _mapping:
-        val = cfg.get(cfg_key)
-        if isinstance(val, (int, float)) and not isinstance(val, bool):
-            out[or_key] = val
-    return out or None
-
-
 def apply_provider_routing(provider_block: dict, role: str) -> dict:
     """Merge the role's ranked order + ignore + ``allow_fallbacks: False`` into ``provider_block``.
 
     ``allow_fallbacks: False`` (per the OpenRouter routing docs) restricts attempts to EXACTLY the
     listed healthy providers in rank order — OpenRouter never falls through to an unlisted flaky
     provider. ``ignore`` is the belt-and-suspenders deny-list. A pre-existing ``require_parameters``
-    is preserved. No-op (returns the block unchanged) when the role is unconfigured.
-
-    I-deepfix-001 B11 C1 (#1344): when PG_OPENROUTER_PROVIDER_SLO is ON and the role declares
-    ``preferred_min_throughput`` / ``preferred_max_latency`` in config, those are merged as the
-    OpenRouter ``provider.min_throughput`` / ``provider.max_latency`` SLO hints so the pinned chain
-    is steered toward HEALTHY hosts meeting the SLO (faithfulness-neutral; absent keys => no-op).
-    SLO keys are applied even on an otherwise-unconfigured-routing role, because a role MAY carry SLO
-    prefs without a custom ``order`` (then only the SLO hint is added; the caller's prior chain
-    stands).
+    is preserved. No-op (returns the block unchanged) when the role is unconfigured. Only REAL
+    OpenRouter provider fields are emitted — see the B11 C1 removal note above for why no SLO
+    throughput/latency keys are ever merged here (they 400 the call).
     """
     routing = role_provider_routing(role)
-    slo = role_provider_slo(role)
-    if routing is None and slo is None:
+    if routing is None:
         return provider_block
-    if routing is not None:
-        provider_block["order"] = routing["order"]
-        if routing["ignore"]:
-            # merge, do not clobber, any pre-set ignore
-            existing = provider_block.get("ignore") or []
-            provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
-        provider_block["allow_fallbacks"] = False
-    if slo is not None:
-        # Do not clobber an SLO key already explicitly set on the incoming block.
-        for k, v in slo.items():
-            provider_block.setdefault(k, v)
+    provider_block["order"] = routing["order"]
+    if routing["ignore"]:
+        # merge, do not clobber, any pre-set ignore
+        existing = provider_block.get("ignore") or []
+        provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
+    provider_block["allow_fallbacks"] = False
     return provider_block

@@ -55,15 +55,12 @@ roles:
     notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
   sentinel:
     model: minimax/minimax-m2
-    # I-deepfix-001 B11 C1 (#1344): provider SLO preferences (consumed by apply_provider_routing when
-    # PG_OPENROUTER_PROVIDER_SLO is ON). OpenRouter steers toward hosts meeting these hints WITHOUT
-    # dropping the model (faithfulness-neutral transport hint). The Sentinel (minimax-m2 decomposition)
-    # is the SLOW leg that trickle-hung the D8 seam (I-wire-004/006/007): a min-throughput floor pushes
-    # OpenRouter off a trickling host BEFORE the per-call total-deadline force-close has to fire.
-    # DELIBERATELY GENEROUS so a healthy decomposition call (reasoning ON, multi-minute) is never
-    # rejected — 5 tok/s is far below any healthy minimax throughput, it only excludes a near-dead host.
-    preferred_min_throughput: 5.0   # tokens/s floor (healthy minimax >> this; excludes a trickling host)
-    preferred_max_latency: 30.0     # seconds time-to-first-token ceiling (healthy << this)
+    # I-deepfix-001 B11 C1 (#1344) preferred_min_throughput / preferred_max_latency keys REMOVED:
+    # they mapped to OpenRouter provider.min_throughput / provider.max_latency, which are NOT real
+    # OpenRouter fields — with require_parameters:true the call returns 400 "Unrecognized keys"
+    # (caught by super_heavy_preflight on the sentinel BEFORE spend). The slow-host concern is served
+    # validly by the pinned order/ignore chain below + B11 C2's measured-tok/s rotation
+    # (PG_ROLE_MIN_TPS) + the 300s Sentinel total-deadline floor. DO NOT re-add SLO keys here.
     # I-wire-007 (#1321): google-vertex DROPPED from the FRONT of the chain. Under allow_fallbacks:false
     # it was the FORCED leader, so every Sentinel POST first hit google-vertex (slow / NULL-uptime per
     # the note below) before the force-close rotation could advance — the I-wire-006 #1320 root cause of

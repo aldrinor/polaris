@@ -1,0 +1,216 @@
+diff --git a/config/settings/openrouter_provider_routing.yaml b/config/settings/openrouter_provider_routing.yaml
+index 55c4ef7a..2f1f0784 100644
+--- a/config/settings/openrouter_provider_routing.yaml
++++ b/config/settings/openrouter_provider_routing.yaml
+@@ -55,15 +55,12 @@ roles:
+     notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
+   sentinel:
+     model: minimax/minimax-m2
+-    # I-deepfix-001 B11 C1 (#1344): provider SLO preferences (consumed by apply_provider_routing when
+-    # PG_OPENROUTER_PROVIDER_SLO is ON). OpenRouter steers toward hosts meeting these hints WITHOUT
+-    # dropping the model (faithfulness-neutral transport hint). The Sentinel (minimax-m2 decomposition)
+-    # is the SLOW leg that trickle-hung the D8 seam (I-wire-004/006/007): a min-throughput floor pushes
+-    # OpenRouter off a trickling host BEFORE the per-call total-deadline force-close has to fire.
+-    # DELIBERATELY GENEROUS so a healthy decomposition call (reasoning ON, multi-minute) is never
+-    # rejected — 5 tok/s is far below any healthy minimax throughput, it only excludes a near-dead host.
+-    preferred_min_throughput: 5.0   # tokens/s floor (healthy minimax >> this; excludes a trickling host)
+-    preferred_max_latency: 30.0     # seconds time-to-first-token ceiling (healthy << this)
++    # I-deepfix-001 B11 C1 (#1344) preferred_min_throughput / preferred_max_latency keys REMOVED:
++    # they mapped to OpenRouter provider.min_throughput / provider.max_latency, which are NOT real
++    # OpenRouter fields — with require_parameters:true the call returns 400 "Unrecognized keys"
++    # (caught by super_heavy_preflight on the sentinel BEFORE spend). The slow-host concern is served
++    # validly by the pinned order/ignore chain below + B11 C2's measured-tok/s rotation
++    # (PG_ROLE_MIN_TPS) + the 300s Sentinel total-deadline floor. DO NOT re-add SLO keys here.
+     # I-wire-007 (#1321): google-vertex DROPPED from the FRONT of the chain. Under allow_fallbacks:false
+     # it was the FORCED leader, so every Sentinel POST first hit google-vertex (slow / NULL-uptime per
+     # the note below) before the force-close rotation could advance — the I-wire-006 #1320 root cause of
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 2b5f9cce..79de30c4 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -2623,7 +2623,10 @@ async def run_gate_b_query(
+     os.environ["PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH"] = "1"  # B18b: route metric-mismatch out of headline count (all sources disclosed)
+     os.environ["PG_REPORT_D8_BANNER"] = "1"                     # B8: top-of-report unadjudicated banner when 4-role D8 did not bind
+     os.environ["PG_REPORT_FULL_DROP_DISCLOSURE"] = "1"          # B8: count ALL drop categories in the evidence-support disclosure
+-    os.environ["PG_OPENROUTER_PROVIDER_SLO"] = "1"              # B11C1: per-role provider SLO routing prefs (transport-only)
++    # B11C1 PG_OPENROUTER_PROVIDER_SLO force-on REMOVED (#1344): it injected invalid OpenRouter
++    # provider.min_throughput / .max_latency keys → 400 on the sentinel (super_heavy_preflight caught it
++    # before spend). The whole C1 SLO-body injection is deleted in provider_routing.py; healthy-host
++    # steering is served by the pinned order/ignore chain + B11 C2 measured-tok/s rotation.
+     os.environ["PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY"] = "1"  # I-deepfix-001 Phase4: REQUIRED for the all-GLM-5.2 same-family run (else the two-family invariant aborts); B4 makes PT03/badge HONESTLY disclose non-segregation
+     # I-arch-005 PREFLIGHT FIX (#1257): the B1/B4/B6-8/B12 activations + the B16 hardening pin are set by
+     # the FULL-CAPABILITY SLATE (apply_full_capability_benchmark_slate, via _FULL_CAPABILITY_BENCHMARK_SLATE
+diff --git a/src/polaris_graph/roles/provider_routing.py b/src/polaris_graph/roles/provider_routing.py
+index eeb960db..7104c473 100644
+--- a/src/polaris_graph/roles/provider_routing.py
++++ b/src/polaris_graph/roles/provider_routing.py
+@@ -27,16 +27,19 @@ _DEFAULT_CONFIG_PATH = "config/settings/openrouter_provider_routing.yaml"
+ _ENABLE_ENV = "PG_OPENROUTER_PROVIDER_ROUTING"
+ _CONFIG_PATH_ENV = "PG_PROVIDER_ROUTING_CONFIG"
+ 
+-# I-deepfix-001 B11 C1 (#1344): per-role provider SLO preference injection. When
+-# PG_OPENROUTER_PROVIDER_SLO is ON (default), apply_provider_routing reads each role's optional
+-# `preferred_min_throughput` (tokens/s) + `preferred_max_latency` (seconds) from the routing config
+-# and merges them into the OpenRouter `provider` block. OpenRouter honours
+-# `provider.min_throughput` / `provider.max_latency` to steer the pinned chain toward HEALTHY hosts
+-# meeting the SLO (and away from a trickling host) WITHOUT dropping the model. This is a transport-
+-# only SLO hint -> faithfulness-NEUTRAL (same model + verdicts; only WHICH provider serves changes).
+-# LAW VI: env-gated; ABSENT per-role keys => no-op (byte-identical to pre-#1344). Read lazily so a
+-# runtime override is honored.
+-_PROVIDER_SLO_ENV = "PG_OPENROUTER_PROVIDER_SLO"
++# I-deepfix-001 B11 C1 (#1344) — REMOVED. The original C1 injected `provider.min_throughput` /
++# `provider.max_latency` into the OpenRouter request body from the role config's
++# `preferred_min_throughput` / `preferred_max_latency` keys. That was built on a FALSE premise:
++# OpenRouter has NO such provider fields. With `require_parameters: true` (which every pinned role
++# carries) OpenRouter strict-validates the provider block and returns
++# `400 provider: Unrecognized keys: "min_throughput", "max_latency"` — which super_heavy_preflight
++# caught on the sentinel (minimax/minimax-m2) BEFORE any spend on the I-deepfix-001 cert run.
++# The SLO intent is ALREADY served, validly, two ways: (1) the pinned `order` + `ignore` +
++# `allow_fallbacks: false` chain steers to healthy hosts (these are real OpenRouter fields, 200);
++# (2) B11 C2's measured tokens/s rotation in openrouter_role_transport (PG_ROLE_MIN_TPS /
++# PG_JUDGE_PROVIDER_ROTATE) drops a trickling host post-response. C1 was thus both INVALID and
++# REDUNDANT, so it is deleted per §-1.3 (delete the number-forcing bolt-on), NOT re-expressed.
++# DO NOT re-introduce min_throughput / max_latency — they 400 the call. (§9.1.8: read the API.)
+ 
+ # I-wire-008 (#1322): operator-driven JUDGE-chain provider-health deny-list. A comma-separated
+ # set of provider SLUGS (e.g. "novita") that the entailment / semantic-conflict / credibility
+@@ -143,71 +146,23 @@ def role_provider_routing(role: str) -> dict | None:
+     return {"order": order, "ignore": ignore}
+ 
+ 
+-def _provider_slo_enabled() -> bool:
+-    """I-deepfix-001 B11 C1: whether per-role provider SLO preferences are injected (default ON).
+-
+-    ``PG_OPENROUTER_PROVIDER_SLO`` "0"/"false"/"no"/"off" -> OFF (no SLO keys merged, byte-identical
+-    to pre-#1344); absent or anything else -> ON. LAW VI: env-driven, read lazily.
+-    """
+-    return os.getenv(_PROVIDER_SLO_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+-
+-
+-def role_provider_slo(role: str) -> dict | None:
+-    """I-deepfix-001 B11 C1 (#1344): the role's optional provider-SLO preference block, else None.
+-
+-    Reads the role's ``preferred_min_throughput`` (tokens/s) and ``preferred_max_latency`` (seconds)
+-    from the routing config and maps them to the OpenRouter ``provider`` block fields
+-    ``min_throughput`` / ``max_latency``. Returns ``None`` when SLO injection is disabled, the role
+-    is unconfigured, or NEITHER preference key is present (so the default config — which carries no
+-    SLO keys — is a pure no-op). Only numeric (int/float, non-bool) values are honoured; a malformed
+-    value is ignored rather than passed through (no-silent-wrong). Never raises.
+-    """
+-    if not _provider_slo_enabled():
+-        return None
+-    cfg = _roles_config().get(role)
+-    if not isinstance(cfg, dict):
+-        return None
+-    out: dict = {}
+-    _mapping = (
+-        ("preferred_min_throughput", "min_throughput"),
+-        ("preferred_max_latency", "max_latency"),
+-    )
+-    for cfg_key, or_key in _mapping:
+-        val = cfg.get(cfg_key)
+-        if isinstance(val, (int, float)) and not isinstance(val, bool):
+-            out[or_key] = val
+-    return out or None
+-
+-
+ def apply_provider_routing(provider_block: dict, role: str) -> dict:
+     """Merge the role's ranked order + ignore + ``allow_fallbacks: False`` into ``provider_block``.
+ 
+     ``allow_fallbacks: False`` (per the OpenRouter routing docs) restricts attempts to EXACTLY the
+     listed healthy providers in rank order — OpenRouter never falls through to an unlisted flaky
+     provider. ``ignore`` is the belt-and-suspenders deny-list. A pre-existing ``require_parameters``
+-    is preserved. No-op (returns the block unchanged) when the role is unconfigured.
+-
+-    I-deepfix-001 B11 C1 (#1344): when PG_OPENROUTER_PROVIDER_SLO is ON and the role declares
+-    ``preferred_min_throughput`` / ``preferred_max_latency`` in config, those are merged as the
+-    OpenRouter ``provider.min_throughput`` / ``provider.max_latency`` SLO hints so the pinned chain
+-    is steered toward HEALTHY hosts meeting the SLO (faithfulness-neutral; absent keys => no-op).
+-    SLO keys are applied even on an otherwise-unconfigured-routing role, because a role MAY carry SLO
+-    prefs without a custom ``order`` (then only the SLO hint is added; the caller's prior chain
+-    stands).
++    is preserved. No-op (returns the block unchanged) when the role is unconfigured. Only REAL
++    OpenRouter provider fields are emitted — see the B11 C1 removal note above for why no SLO
++    throughput/latency keys are ever merged here (they 400 the call).
+     """
+     routing = role_provider_routing(role)
+-    slo = role_provider_slo(role)
+-    if routing is None and slo is None:
++    if routing is None:
+         return provider_block
+-    if routing is not None:
+-        provider_block["order"] = routing["order"]
+-        if routing["ignore"]:
+-            # merge, do not clobber, any pre-set ignore
+-            existing = provider_block.get("ignore") or []
+-            provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
+-        provider_block["allow_fallbacks"] = False
+-    if slo is not None:
+-        # Do not clobber an SLO key already explicitly set on the incoming block.
+-        for k, v in slo.items():
+-            provider_block.setdefault(k, v)
++    provider_block["order"] = routing["order"]
++    if routing["ignore"]:
++        # merge, do not clobber, any pre-set ignore
++        existing = provider_block.get("ignore") or []
++        provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
++    provider_block["allow_fallbacks"] = False
+     return provider_block
+diff --git a/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py b/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py
+index e7c23f61..3a913681 100644
+--- a/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py
++++ b/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py
+@@ -243,37 +243,36 @@ def test_b4_pt03_same_family_override_without_disclosure_fails(monkeypatch):
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# B11 C1 — provider SLO preferences merged into the routing block
++# B11 C1 REMOVED (#1344): apply_provider_routing must NEVER emit the invalid
++# OpenRouter provider keys `min_throughput` / `max_latency`. They are NOT real
++# OpenRouter fields; with `require_parameters: true` the call 400s with
++# "Unrecognized keys" — super_heavy_preflight caught it on the sentinel
++# (minimax/minimax-m2) and aborted the cert run before spend. These are the
++# regression guards that would have caught that dead run.
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_b11_c1_slo_injected_when_enabled(monkeypatch):
++def test_b11_c1_no_invalid_slo_keys_emitted(monkeypatch):
+     from src.polaris_graph.roles import provider_routing as pr
+ 
++    # Even with the old SLO env explicitly ON, the deleted C1 path emits nothing.
+     monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
+     pr.reset_cache()
+     block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
+-    assert block.get("min_throughput") == 5.0
+-    assert block.get("max_latency") == 30.0
+-
+-
+-def test_b11_c1_slo_off_is_noop(monkeypatch):
+-    from src.polaris_graph.roles import provider_routing as pr
+-
+-    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "0")
+-    pr.reset_cache()
+-    block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
++    # The valid pinned chain is still applied (real OpenRouter fields only)...
++    assert block["order"]  # non-empty provider order
++    assert block["allow_fallbacks"] is False
++    # ...but NO invalid OpenRouter throughput/latency keys are ever present.
+     assert "min_throughput" not in block
+     assert "max_latency" not in block
+ 
+ 
+-def test_b11_c1_role_without_slo_keys_noop(monkeypatch):
++def test_b11_c1_slo_helpers_deleted():
+     from src.polaris_graph.roles import provider_routing as pr
+ 
+-    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
+-    pr.reset_cache()
+-    # judge config carries NO preferred_* keys -> no SLO injected.
+-    assert pr.role_provider_slo("judge") is None
++    # The C1 SLO-injection helpers are DELETED (not merely disabled) per §-1.3.
++    assert not hasattr(pr, "role_provider_slo")
++    assert not hasattr(pr, "_provider_slo_enabled")
+ 
+ 
+ # ---------------------------------------------------------------------------

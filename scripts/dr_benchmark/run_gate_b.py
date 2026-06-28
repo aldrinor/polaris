@@ -2623,7 +2623,10 @@ async def run_gate_b_query(
     os.environ["PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH"] = "1"  # B18b: route metric-mismatch out of headline count (all sources disclosed)
     os.environ["PG_REPORT_D8_BANNER"] = "1"                     # B8: top-of-report unadjudicated banner when 4-role D8 did not bind
     os.environ["PG_REPORT_FULL_DROP_DISCLOSURE"] = "1"          # B8: count ALL drop categories in the evidence-support disclosure
-    os.environ["PG_OPENROUTER_PROVIDER_SLO"] = "1"              # B11C1: per-role provider SLO routing prefs (transport-only)
+    # B11C1 PG_OPENROUTER_PROVIDER_SLO force-on REMOVED (#1344): it injected invalid OpenRouter
+    # provider.min_throughput / .max_latency keys → 400 on the sentinel (super_heavy_preflight caught it
+    # before spend). The whole C1 SLO-body injection is deleted in provider_routing.py; healthy-host
+    # steering is served by the pinned order/ignore chain + B11 C2 measured-tok/s rotation.
     os.environ["PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY"] = "1"  # I-deepfix-001 Phase4: REQUIRED for the all-GLM-5.2 same-family run (else the two-family invariant aborts); B4 makes PT03/badge HONESTLY disclose non-segregation
     # I-arch-005 PREFLIGHT FIX (#1257): the B1/B4/B6-8/B12 activations + the B16 hardening pin are set by
     # the FULL-CAPABILITY SLATE (apply_full_capability_benchmark_slate, via _FULL_CAPABILITY_BENCHMARK_SLATE
