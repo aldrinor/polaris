@@ -14658,23 +14658,222 @@ async def run_one_query(
             # the status is not release-asserting and the invariant is a no-op.
             assert_release_invariant(_final_outcome)
         except ReleaseInvariantError as _inv_exc:
-            # FAIL CLOSED: refuse to write the released manifest. Convert to the seam HOLD so the
-            # un-judged/un-proven body is not released under a released status.
-            summary_status = "four_role_held"
-            unified_status = to_unified_status(summary_status)
-            manifest["status"] = unified_status
-            manifest["release_allowed"] = False
-            if isinstance(manifest.get("release_disclosure"), dict):
-                manifest["release_disclosure"]["normal_release_blocked"] = True
-            manifest.setdefault("disclosed_gaps", []).append(
-                "release_invariant_violation: the A18 hard release-invariant refused this release "
-                f"({str(_inv_exc)[:200]}). The run is HELD fail-closed (release_allowed=False); no "
-                "un-judged/un-proven findings body ships under a released status."
+            # I-rel-001 (#1341): A18 tripped. There are TWO distinct shapes the trip can carry, and
+            # the operator lock (feedback_always_release_verifier_labels_never_holds_2026_06_14 — the
+            # verifier NEVER holds; always release, label weak/unadjudicated) requires they resolve
+            # DIFFERENTLY:
+            #
+            #   (1) UNADJUDICATED (judge transport failure): D8 never bound because the entailment /
+            #       D8 judge was unreachable / errored (malformed JSON, 404, error_body_200) — NOT a
+            #       fabrication latch and NOT a zero-grounding hard block. The on-disk report.md is
+            #       the strict_verify'd, span-grounded body. Per the lock this MUST RELEASE with an
+            #       explicit 'D8-unadjudicated / weak' label — but ONLY after the SAME standalone
+            #       fabrication screen the seam path runs (build_seam_release_outcome), because
+            #       strict_verify checks span CONTENT, not citation IDENTITY: an invented citation
+            #       identity that only the judge would catch must still be caught here. SCREEN CLEAN
+            #       (body_withheld == False) -> ship as-is with the weak label; a re-run of
+            #       assert_release_invariant then PASSES via seam_rescue_proven (the specific
+            #       four_role_seam_unadjudicated gap + compensating_screen_passed).
+            #
+            #   (2) FABRICATED IDENTITY (or the screen could not run): build_seam_release_outcome
+            #       returns body_withheld == True (a cited identity is not in the evidence pool, or
+            #       the screen raised). This is the no-fabrication hard line — it stays fail-closed
+            #       EXACTLY as today: four_role_held, release_allowed=False, AND the on-disk report.md
+            #       (which was NOT identity-screened) is OVERWRITTEN with the degraded
+            #       build_finalizer_artifact_body body (raw preserved as report_unredacted.md),
+            #       mirroring the seam withhold path — because the §-1.1 audit reads report.md, so a
+            #       hold that leaves the un-screened raw body on disk would ship a fabricated citation
+            #       as fact. A write failure also fails closed.
+            #
+            # This changes ONLY which terminal status an already-screened outcome carries. Every
+            # faithfulness gate (strict_verify / NLI / span / provenance / per-claim 4-role verdict)
+            # is untouched. The legacy fail-closed hold is preserved BYTE-IDENTICAL for the unsafe
+            # case (fabrication) and for always-release OFF.
+            from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                always_release_enabled as _a18_always_release_enabled,
             )
-            _log(
-                "[release-invariant] FAIL CLOSED (A18): "
-                f"{str(_inv_exc)[:200]} -> status={unified_status}, release_allowed=False"
+            _a18_rerouted = False
+            _a18_status_was_release_asserting = str(manifest.get("status") or "") in (
+                "success", "released_with_disclosed_gaps", "released_insufficient_safety_evidence",
             )
+            # Gate the reroute STRICTLY: always-release ON, the status was release-asserting (so this
+            # is the unadjudicated release case, not a non-release status), and the failing outcome is
+            # NOT a hard block and NOT already a withheld body (those are the genuine fail-closed
+            # shapes that must keep the existing hold). reconstruct returns adjudicated=False here
+            # (that is WHY A18 tripped); the screen — not adjudicated state — decides ship vs hold.
+            if (
+                _a18_always_release_enabled()
+                and _a18_status_was_release_asserting
+                and run_dir is not None
+                and not getattr(_final_outcome, "hard_block", False)
+                and not getattr(_final_outcome, "body_withheld", False)
+            ):
+                try:
+                    (
+                        _a18_seam_outcome,
+                        _a18_body_withheld,
+                        _a18_withhold_reason,
+                    ) = build_seam_release_outcome(
+                        sections=multi.sections,
+                        evidence_for_gen=evidence_for_gen,
+                        is_clinical=_clinical_verified_only_surface,
+                        seam_held_reason="d8_unadjudicated_release_invariant",
+                        coverage_fraction=float(
+                            getattr(four_role_result, "coverage_fraction", 0.0) or 0.0
+                        ),
+                    )
+                except Exception as _a18_screen_exc:  # noqa: BLE001 — screen could not run -> hold
+                    # The standalone fabrication screen itself could not run. Do NOT ship un-screened
+                    # content: fall through to the unconditional fail-closed hold below (the original
+                    # A18 behaviour). Overwriting report.md is governed by the seam-error hold path /
+                    # B11 finalizer downstream; here we simply refuse to release.
+                    _log(
+                        "[release-invariant] A18 unadjudicated reroute: fabrication screen could not "
+                        f"run ({type(_a18_screen_exc).__name__}: {str(_a18_screen_exc)[:120]}); "
+                        "FAIL CLOSED (no un-screened release)."
+                    )
+                else:
+                    if not _a18_body_withheld:
+                        # SCREEN CLEAN: ship with the 'D8-unadjudicated / weak' label. report.md is
+                        # already the strict_verify'd span-grounded body -> do NOT overwrite it.
+                        summary_status = _a18_seam_outcome.status
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = True
+                        # Serialize the seam outcome's proof fields so a RE-RUN of
+                        # assert_release_invariant PASSES via seam_rescue_proven (the specific
+                        # four_role_seam_unadjudicated gap + compensating_screen_passed), exactly like
+                        # the seam path. adjudicated stays False (honest: the judge never bound).
+                        _a18_disclosure = manifest.get("release_disclosure")
+                        if not isinstance(_a18_disclosure, dict):
+                            _a18_disclosure = {}
+                        _a18_disclosure.update({
+                            "hard_block": _a18_seam_outcome.hard_block,
+                            "hard_block_reasons": list(_a18_seam_outcome.hard_block_reasons),
+                            "normal_release_blocked": _a18_seam_outcome.normal_release_blocked,
+                            "disclosed_gaps": list(_a18_seam_outcome.disclosed_gaps),
+                            "release_quality_score": _a18_seam_outcome.release_quality_score,
+                            "safety_floor": _a18_seam_outcome.safety_floor,
+                            "adjudicated": False,
+                            "body_withheld": False,
+                            "compensating_screen_passed": (
+                                _a18_seam_outcome.compensating_screen_passed
+                            ),
+                        })
+                        manifest["release_disclosure"] = _a18_disclosure
+                        # Surface the seam outcome's disclosed gaps (carries the
+                        # four_role_seam_unadjudicated label) on the run-level disclosed_gaps too.
+                        manifest.setdefault("disclosed_gaps", []).extend(
+                            list(_a18_seam_outcome.disclosed_gaps)
+                        )
+                        manifest.setdefault("disclosed_gaps", []).append(
+                            "four_role_seam_unadjudicated: the four-role D8 judge did not bind for "
+                            "this run (transport failure), so the strongest verifier did not run; the "
+                            "span-grounded body PASSED the standalone fabrication screen and ships "
+                            "with this 'D8-unadjudicated / weak' label (label-not-drop per the "
+                            "always-release lock)."
+                        )
+                        _a18_rerouted = True
+                        _log(
+                            "[release-invariant] A18 unadjudicated + screen CLEAN -> RELEASE with "
+                            f"weak label (status={unified_status}, release_allowed=True); report.md "
+                            "ships as the strict_verify'd body."
+                        )
+                    else:
+                        # FABRICATED IDENTITY / screen demanded withhold: keep the fail-closed hold
+                        # AND overwrite the un-screened report.md with the degraded disclosure body
+                        # (mirror the seam withhold path) so the §-1.1 audit cannot read a fabricated
+                        # citation off disk.
+                        summary_status = "four_role_held"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        if isinstance(manifest.get("release_disclosure"), dict):
+                            manifest["release_disclosure"]["normal_release_blocked"] = True
+                        try:
+                            _a18_report_path = run_dir / "report.md"
+                            _a18_unredacted_preserved = False
+                            if _a18_report_path.is_file():
+                                try:
+                                    (run_dir / "report_unredacted.md").write_text(
+                                        _a18_report_path.read_text(encoding="utf-8"),
+                                        encoding="utf-8",
+                                    )
+                                    _a18_unredacted_preserved = True
+                                except OSError:
+                                    pass  # disclosure below states the truth either way (Codex iter-1 P3)
+                            _a18_degraded_body = build_finalizer_artifact_body(
+                                research_question=q.get("question", ""),
+                                status=summary_status,
+                                error=(
+                                    "the four-role D8 judge did not bind (transport failure) and the "
+                                    "standalone fabrication screen required withholding the body: "
+                                    f"{_a18_withhold_reason}"
+                                ),
+                            )
+                            _a18_report_path.write_text(_a18_degraded_body, encoding="utf-8")
+                            manifest.setdefault("disclosed_gaps", []).append(
+                                "four_role_seam_unadjudicated_fabrication_withheld: the un-adjudicated "
+                                "findings body was WITHHELD after the standalone fabrication screen "
+                                f"({_a18_withhold_reason}); "
+                                + (
+                                    "the un-screened body was preserved as report_unredacted.md. "
+                                    if _a18_unredacted_preserved
+                                    else "the un-screened body could NOT be preserved "
+                                    "(report_unredacted.md write failed). "
+                                )
+                                + "The run is HELD fail-closed "
+                                "(release_allowed=False); no fabricated citation ships."
+                            )
+                            _a18_rerouted = True
+                            _log(
+                                "[release-invariant] A18 unadjudicated + screen WITHHOLD "
+                                "(fabrication) -> FAIL CLOSED; report.md replaced with degraded "
+                                "disclosure (un-screened body -> report_unredacted.md)."
+                            )
+                        except Exception as _a18_wh_exc:  # noqa: BLE001 — write failed -> fail closed
+                            # The screen demanded a withhold but the overwrite FAILED, so the raw
+                            # un-screened body is STILL on disk. Keep the fail-closed hold (set above)
+                            # and disclose the leak risk; the B11 finalizer governs the artifact
+                            # downstream. Do NOT mark _a18_rerouted (fall through is already a hold).
+                            summary_status = "four_role_held"
+                            unified_status = to_unified_status(summary_status)
+                            manifest["status"] = unified_status
+                            manifest["release_allowed"] = False
+                            manifest.setdefault("disclosed_gaps", []).append(
+                                "four_role_seam_unadjudicated_withhold_write_failed: the fabrication "
+                                "screen required withholding the body, but the report.md overwrite "
+                                f"FAILED ({type(_a18_wh_exc).__name__}: {str(_a18_wh_exc)[:120]}). "
+                                "HELD fail-closed (release_allowed=False)."
+                            )
+                            _a18_rerouted = True
+                            _log(
+                                "[release-invariant] A18 unadjudicated withhold write FAILED -> FAIL "
+                                f"CLOSED (status={unified_status}, release_allowed=False): "
+                                f"{_a18_wh_exc}"
+                            )
+
+            if not _a18_rerouted:
+                # FAIL CLOSED (legacy A18 path, byte-identical): refuse to write the released
+                # manifest. Convert to the seam HOLD so the un-judged/un-proven body is not released
+                # under a released status. Reached when always-release is OFF, the status was not
+                # release-asserting, the outcome is a hard block / already-withheld body, or the
+                # standalone fabrication screen could not run.
+                summary_status = "four_role_held"
+                unified_status = to_unified_status(summary_status)
+                manifest["status"] = unified_status
+                manifest["release_allowed"] = False
+                if isinstance(manifest.get("release_disclosure"), dict):
+                    manifest["release_disclosure"]["normal_release_blocked"] = True
+                manifest.setdefault("disclosed_gaps", []).append(
+                    "release_invariant_violation: the A18 hard release-invariant refused this release "
+                    f"({str(_inv_exc)[:200]}). The run is HELD fail-closed (release_allowed=False); no "
+                    "un-judged/un-proven findings body ships under a released status."
+                )
+                _log(
+                    "[release-invariant] FAIL CLOSED (A18): "
+                    f"{str(_inv_exc)[:200]} -> status={unified_status}, release_allowed=False"
+                )
         except Exception as _inv_other:  # noqa: BLE001 — a guard fault must not silently pass a release
             # The invariant guard itself errored. Do NOT silently ship: if the status is
             # release-asserting, fail closed; otherwise (already a non-release status) leave as-is.
