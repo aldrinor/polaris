@@ -1,0 +1,13 @@
+No findings. Static re-verify passes.
+
+The iter-1 P1 is resolved: `_transient` now catches empty-message `TimeoutError` by both `isinstance(exc, TimeoutError)` and exception type-name matching. Non-transient exceptions still break the retry loop and raise `GateError`. Empty content cannot pass as alive, and `PG_ROLE_ALLOW_FALLBACKS` is restored through `finally`, including the unset-to-pop path. The changed region stays scoped to the liveness probe; faithfulness gates are untouched.
+
+Static only, per instruction. No pytest or pipeline run.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []

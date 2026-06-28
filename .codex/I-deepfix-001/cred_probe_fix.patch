@@ -1,0 +1,124 @@
+diff --git a/scripts/dr_benchmark/super_heavy_preflight.py b/scripts/dr_benchmark/super_heavy_preflight.py
+index 23a8763a..0057a633 100644
+--- a/scripts/dr_benchmark/super_heavy_preflight.py
++++ b/scripts/dr_benchmark/super_heavy_preflight.py
+@@ -341,40 +341,90 @@ def _default_credibility_judge_probe() -> str | None:
+     )
+ 
+     slug = credibility_judge_model()
+-    # max_tokens=1 keeps the probe ~free; the caller is the EXACT sync path _apply_judge uses.
+-    caller = make_openrouter_credibility_caller(max_tokens=1)
+-    # I-beatboth-011: under the concurrent benchmark fleet the credibility-judge endpoint is
+-    # intermittently 429-saturated. A 429 means BUSY, not DEAD — the production _apply_judge path
+-    # already tolerates it (retry / mirror-rotate / degrade), so fail-closing the whole PAID run on
+-    # a momentary rate-limit burst is a false alarm that kills good runs. Tolerate a TRANSIENT
+-    # (429 / rate-limit / timeout / connection / overloaded) error here with bounded backoff; a
+-    # NON-transient error (404 / auth / model-not-found) still fails closed immediately. This is a
+-    # reachability probe ONLY — strict_verify / NLI / 4-role / span-grounding are untouched and
+-    # faithfulness is NOT relaxed. Bound is env-tunable (default 6 attempts: ~5+10+20+30+30s).
++    # I-deepfix-001 (#1344) cert-run #2 crash fix. The credibility judge (z-ai/glm-5.2) is a REASONING
++    # model; the old probe forced max_tokens=1, which STARVES it — the reasoning tokens consume the cap,
++    # so the call returns EMPTY (a false "alive", since the old code ignored the return value) on a fast
++    # provider, or STALLS and trips the per-call wall-deadline on a LOADED provider, HARD-ABORTING the
++    # whole paid run before spend. That is exactly the I-arch-002 / §9.1.8 "never starve a reasoning
++    # model" lesson the PRODUCTION caller already encodes (max_tokens defaults to the 131072 chain-min) —
++    # the probe re-introduced the starvation it guards against. Fix: a small NON-STARVING completion
++    # budget so the high-effort reasoning completes and emits a real token (usage-billed; a trivial
++    # answer is a fraction of a cent), and REQUIRE non-empty content (a route that returns nothing is
++    # degraded, not alive). Env-tunable.
++    probe_max_tokens = max(8, int(os.getenv("PG_PREFLIGHT_CREDIBILITY_PROBE_MAX_TOKENS", "2048") or "2048"))
++    # A liveness probe FREE-ROUTES (OpenRouter picks the fastest HEALTHY provider) instead of pinning to
++    # one mirror host. The credibility judge is ADVISORY — a dead/saturated route degrades the score to
++    # neutral-weight in production (it NEVER drops a sentence), and the production caller itself rotates +
++    # degrades — so a single transiently-saturated PINNED provider must NOT fail-close a $40 run before
++    # spend (cert-run #2 hit precisely that: the pinned mirror lead was saturated ~5 min and the probe
++    # re-hit it without rotating, because the caller's TimeoutError path does not rotate). We still hard-
++    # abort when the MODEL is unreachable ACROSS providers (a non-transient 404/auth, or a sustained all-
++    # provider transient). PG_ROLE_ALLOW_FALLBACKS is read lazily per-call by the caller; preflight is
++    # sequential (no concurrent production calls), and the prior value is restored in `finally`.
++    # Reachability probe ONLY — strict_verify / NLI / 4-role / span-grounding untouched; faithfulness NOT
++    # relaxed. Bound env-tunable (default 6 attempts: ~5+10+20+30+30s).
+     _probe_retries = max(1, int(os.getenv("PG_PREFLIGHT_JUDGE_PROBE_RETRIES", "6") or "6"))
+     _last_exc: Exception | None = None
+-    for _attempt in range(_probe_retries):
+-        try:
+-            caller("ok")
+-            return slug
+-        except GateError:
+-            raise
+-        except Exception as exc:  # noqa: BLE001 — classified below
+-            _last_exc = exc
+-            _m = str(exc).lower()
+-            _transient = (
+-                "429" in _m or "too many requests" in _m or "rate limit" in _m
+-                or "rate-limit" in _m or "timeout" in _m or "timed out" in _m
+-                or "connection" in _m or "temporarily" in _m or "overloaded" in _m
+-            )
+-            if not _transient or _attempt == _probe_retries - 1:
++    _saw_empty = False
++    _prev_free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS")
++    os.environ["PG_ROLE_ALLOW_FALLBACKS"] = "1"
++    try:
++        caller = make_openrouter_credibility_caller(max_tokens=probe_max_tokens)
++        for _attempt in range(_probe_retries):
++            try:
++                out = caller("Reply with the single word OK.")
++            except GateError:
++                raise
++            except Exception as exc:  # noqa: BLE001 — classified below
++                _last_exc = exc
++                _m = str(exc).lower()
++                _name = type(exc).__name__.lower()
++                # Codex cred-probe gate P1 (#1344): the cert-run #2 failure is the caller's
++                # concurrent.futures.TimeoutError (wall-deadline force-close), which stringifies EMPTY —
++                # a message-ONLY classifier misses it (_m == "") and false-aborts after the FIRST attempt
++                # instead of doing the promised bounded backoff/retry. Classify timeouts by TYPE/NAME too
++                # (in Python 3.11+ concurrent.futures.TimeoutError IS builtin TimeoutError; the VM is
++                # 3.11), so a transient timeout actually retries across the bound.
++                _transient = (
++                    isinstance(exc, TimeoutError)
++                    or "timeout" in _name
++                    or "429" in _m or "too many requests" in _m or "rate limit" in _m
++                    or "rate-limit" in _m or "timeout" in _m or "timed out" in _m
++                    or "connection" in _m or "temporarily" in _m or "overloaded" in _m
++                )
++                if not _transient or _attempt == _probe_retries - 1:
++                    break
++                time.sleep(min(5 * (2 ** _attempt), 30))
++                continue
++            if (out or "").strip():
++                return slug  # route reachable AND produces usable output -> alive
++            # Reachable but EMPTY (a degraded route / momentary blank-200 window): back off and retry
++            # within the bound, like a transient.
++            _saw_empty = True
++            _last_exc = None
++            if _attempt == _probe_retries - 1:
+                 break
+             time.sleep(min(5 * (2 ** _attempt), 30))
++    finally:
++        if _prev_free_route is None:
++            os.environ.pop("PG_ROLE_ALLOW_FALLBACKS", None)
++        else:
++            os.environ["PG_ROLE_ALLOW_FALLBACKS"] = _prev_free_route
++    if _last_exc is not None:
++        raise GateError(
++            f"super-heavy preflight: credibility judge slug {slug!r} is NOT alive in its production "
++            f"call shape ({type(_last_exc).__name__}: {_last_exc}) after {_probe_retries} attempt(s) "
++            f"(free-routed across providers) — the credibility pass is active "
++            f"({_CREDIBILITY_REDESIGN_FLAG}) but its judge route is dead or sustainedly saturated. "
++            f"Aborting BEFORE spend."
++        )
+     raise GateError(
+-        f"super-heavy preflight: credibility judge slug {slug!r} is NOT alive in its production "
+-        f"call shape ({type(_last_exc).__name__}: {_last_exc}) after {_probe_retries} attempt(s) — "
+-        f"the credibility pass is active ({_CREDIBILITY_REDESIGN_FLAG}) but its judge route is dead "
+-        f"or sustainedly saturated. Aborting BEFORE spend."
++        f"super-heavy preflight: credibility judge slug {slug!r} returned EMPTY content after "
++        f"{_probe_retries} attempt(s) (free-routed across providers) — the credibility pass is active "
++        f"({_CREDIBILITY_REDESIGN_FLAG}) but the route produces no usable output. Aborting BEFORE spend."
++        if _saw_empty else
++        f"super-heavy preflight: credibility judge slug {slug!r} probe did not complete "
++        f"({_probe_retries} attempt(s), free-routed). Aborting BEFORE spend."
+     )
+ 
+ 
