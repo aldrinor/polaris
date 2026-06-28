@@ -1,0 +1,13 @@
+Static review: APPROVE. I found no P0/P1 blockers in `.codex/I-deepfix-001/phase4_slate.patch`.
+
+The patch is localized to one `run_gate_b.py` hunk in `run_gate_b_query`, after full-slate application/import and before `preflight_full_capability()` / `run_one_query`. B10 and B14 are force-on, banned cap knobs are not added, B13/`PG_ROLE_MIN_TPS`/`PG_REQUIRE_NONZERO_AUTHORITY` remain unpinned, and the relevant consumers I checked read env at call time. CRLF shape is not a whole-file rewrite; the patch is a small insertion and `run_gate_b.py` remains CRLF.
+
+Static only: no tests or gates run.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

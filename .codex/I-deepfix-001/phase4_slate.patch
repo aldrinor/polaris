@@ -1,0 +1,38 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 41e74d4f..2b5f9cce 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -2598,6 +2598,33 @@ async def run_gate_b_query(
+     # TIGHTENS faithfulness. Force-on (Codex iter-2 P1-1: an operator .env=0 must
+     # not win); preflight_full_capability below fails closed if it is off.
+     os.environ["PG_SECTION_DISTILL"] = "1"                 # force-on (Codex iter-2 P1-1: .env=0 must not win)
++    # I-deepfix-001 winners — force-on so every fix FIRES on the paid run (the recurring
++    # "committed-but-switched-off" failure). Entry-scoped (per-query, before run_one_query), read at
++    # CALL time by each module's *_enabled() helper, so this lands without an import-time freeze.
++    # FAITHFULNESS-NEUTRAL: WEIGHT / CONSOLIDATE / DISCLOSE / one-legit-hard-DROP seams only; the
++    # faithfulness engine (strict_verify / NLI / 4-role D8 / provenance) is untouched. §-1.3 honored:
++    # the ONLY hard-drop here is B2 (explicit operator-prohibited references). The two default-OFF
++    # winners (B10 EXTRACT_USER_CONSTRAINTS, B14 TITLE_BODY_CONSISTENCY) MUST be set or they never
++    # fire; the rest are default-ON, pinned so a stray operator/.env =0 cannot silently disable them.
++    os.environ["PG_EXTRACT_USER_CONSTRAINTS"] = "1"               # B10: NL date/lang/journal constraint extract (default-OFF — MUST set)
++    os.environ["PG_TITLE_BODY_CONSISTENCY"] = "1"                 # B14: title<->body identity gate, never drops (default-OFF — MUST set)
++    os.environ["PG_BLOCKED_REFERENCE_DENYLIST"] = "1"            # B2: the ONE legit hard-drop (operator-prohibited refs); .env=0 must not win
++    os.environ["PG_QUERY_DIRECTIVE_SCREEN"] = "1"                # B3: strip injected directive clauses from sub-queries
++    os.environ["PG_CORROBORATION_SANITIZE"] = "1"               # B6a: chrome-header screen (keep-all sources/count)
++    os.environ["PG_CLAIM_SHAPE_GATE"] = "1"                      # B6b/B8: skip malformed basket HEADER line only (never a source)
++    os.environ["PG_CREDIBILITY_TIER_AUTHORITY_JOIN"] = "1"       # B9a: tier->authority prior so weight_mass != 0 (redesign master on)
++    os.environ["PG_MIRROR_CITE_COLLAPSE"] = "1"                  # B9c: fold same-origin mirror citations (keeps all sources)
++    os.environ["PG_CONSOLIDATION_NLI_PROSE"] = "1"              # B15: NLI prose consolidation (keep-all corroboration)
++    os.environ["PG_FACT_DEDUP_PROSE"] = "1"                     # B15: Jaccard prose dedup (consolidate, never drop a claim)
++    os.environ["PG_EPISTEMIC_MARKER_GUARD"] = "1"               # B16: drop a sentence rendering an assumption as a finding (additive)
++    os.environ["PG_TEMPORAL_SCOPE_GUARD"] = "1"                 # B16: drop a sentence widening the cited horizon (additive)
++    os.environ["PG_REPAIR_MARKER_PRUNE_ENABLED"] = "1"          # B17: fail-CLOSED unsupported-marker prune in sentence repair
++    os.environ["PG_RENDER_GFM_TABLE_NORMALIZE"] = "1"           # B18: structural GFM table fixer (never drops/reorders cells)
++    os.environ["PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH"] = "1"  # B18b: route metric-mismatch out of headline count (all sources disclosed)
++    os.environ["PG_REPORT_D8_BANNER"] = "1"                     # B8: top-of-report unadjudicated banner when 4-role D8 did not bind
++    os.environ["PG_REPORT_FULL_DROP_DISCLOSURE"] = "1"          # B8: count ALL drop categories in the evidence-support disclosure
++    os.environ["PG_OPENROUTER_PROVIDER_SLO"] = "1"              # B11C1: per-role provider SLO routing prefs (transport-only)
++    os.environ["PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY"] = "1"  # I-deepfix-001 Phase4: REQUIRED for the all-GLM-5.2 same-family run (else the two-family invariant aborts); B4 makes PT03/badge HONESTLY disclose non-segregation
+     # I-arch-005 PREFLIGHT FIX (#1257): the B1/B4/B6-8/B12 activations + the B16 hardening pin are set by
+     # the FULL-CAPABILITY SLATE (apply_full_capability_benchmark_slate, via _FULL_CAPABILITY_BENCHMARK_SLATE
+     # + _BENCHMARK_FORCE_ON_FLAGS / _BENCHMARK_FORCE_EXACT_FLAGS), NOT hand-set here — so apply()-only
