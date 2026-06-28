@@ -1,0 +1,22 @@
+Static review only. I did not run tests or pipeline.
+
+Findings first:
+
+P2: `src/polaris_graph/generator/weighted_enrichment.py:1428` drops an empty `###` section by scanning only until the next header of any level. A real grouping section like `### Analysis` followed by `#### Effect Sizes` with claim prose would lose the parent header even though the section subtree has real content. Not P1 because prose survives, but it can degrade report structure.
+
+P2: `src/polaris_graph/generator/verified_compose.py:376` activates `require_sentence_form=True`; paired with `weighted_enrichment.py:1010`, this suppresses verified K-span units that start lowercase or lack terminal punctuation. That is intentional for subjectless fragments, but it can also withhold legitimate source spans such as lowercase gene/product terms or verified spans stored without punctuation. Coverage risk, not faithfulness risk.
+
+P2: `src/polaris_graph/generator/key_findings.py:180` fixes the `t`/`s` recall bug, but any lowercase one-letter variable token before a citation, e.g. `p [N]` or `n [N]`, will be withheld if the corpus has longer words starting with that letter. The uppercase label cases are protected as claimed.
+
+No P0/P1 blockers found. Fix B’s contiguous trailing-marker suppression is consistent with the repo’s trailing-citation convention, and R1’s TypeError fallback is fail-conservative. I also saw no changes to strict_verify, NLI, 4-role judging, span grounding, or provenance verification.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "C1 can drop a real parent/grouping header when claim prose exists only under nested child headers."
+  - "R1 sentence-form gating can withhold verified K-span fragments that are legitimate but lowercase-starting or punctuationless."
+  - "Fix A still has a lowercase one-letter variable-token false-positive edge."
+convergence_call: continue
+remaining_blockers_for_execution: []

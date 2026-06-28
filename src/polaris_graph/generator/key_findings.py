@@ -105,6 +105,8 @@ _LEADING_CITATION_RE = re.compile(r"^(?:\s*\[(?:\d+|#ev:[^\]]*)\])+")
 # base word, not a cut): 'disadvantage' -> {'disadvantaged','disadvantages'} only => NOT a cut. A
 # real END cut has a NON-inflectional completion ('resea' -> 'research' = 'resea'+'rch').
 _INFLECTION_SUFFIXES = ("s", "d", "es", "ed", "ing", "ly", "ic")
+# Single-letter boundary tokens that are legitimate one-letter English words (never a cut).
+_SINGLE_LETTER_KEEP_TOKENS = frozenset({"a", "i"})
 # Two-letter boundary tokens that are legitimate short words / abbreviations (never a cut).
 _SHORT_OK_BOUNDARY_TOKENS = frozenset({
     "ai", "it", "is", "of", "to", "in", "on", "or", "an", "as", "be", "by", "we", "us", "no",
@@ -158,19 +160,33 @@ def _boundary_token_is_span_cut(
     if not token or not known_words:
         return False
     t = token.lower()
-    if t in known_words:
-        return False
     completes = (
         _known_word_has_longer_prefix(t, known_words) if mode == "end"
         else _known_word_has_longer_suffix(t, known_words)
     )
     if len(t) == 1:
-        # I-wire-013 (#1327) iter-3b D-P1-2: a one-letter boundary token is a cut ONLY when it is
-        # also a strict prefix/suffix of a LONGER known corpus word (``completes``) — same
-        # completion gate the len-2 / len>=3 paths use. Without it, EVERY non-{a,i} single letter
-        # before/after a marker false-flagged (e.g. a legit "type 2 diabetes ... grade B" finding),
-        # dropping real one-letter findings. A true cut ("research"->"r") still flags via completion.
-        return t not in {"a", "i"} and completes
+        # I-wire-017 (#1339) FIX A: a LOWERCASE single-letter END boundary token ("At t.[2]",
+        # "restricted to s.[89]") is a mid-word span cut even when the bare letter is itself a known
+        # corpus token (footnote/stat markers make "t"/"s" "known") — so this len-1 branch runs
+        # BEFORE the ``t in known_words`` early-out below. Precision guard (this is §-1.1-lethal):
+        # the cut is gated on the ORIGINAL token being lowercase, so a legitimate single-CAPITAL
+        # label finding — "vitamin C [5]", "hepatitis B [8]", "grade B [12]" — never flags (its
+        # boundary token is uppercase). mode=="end" only (a START-of-unit single letter is too weak
+        # a signal to drop on). Still gated on the completion test and the {"a","i"} keep-list, per
+        # the I-wire-013 (#1327) iter-3b D-P1-2 rationale (a true cut "research"->"r" flags via
+        # completion; a legit "type 2 diabetes ... a" survives via {"a","i"}).
+        if (
+            mode == "end"
+            and token[:1].islower()
+            and t not in _SINGLE_LETTER_KEEP_TOKENS
+            and completes
+        ):
+            return True
+        if t in known_words:
+            return False
+        return t not in _SINGLE_LETTER_KEEP_TOKENS and completes
+    if t in known_words:
+        return False
     if len(t) == 2:
         return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
     return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut

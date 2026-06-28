@@ -1,0 +1,2512 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019f0c75-1cad-7683-8f92-404225081954
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd on remaining-non-P0/P1; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+REVIEW MODE: STATIC only. Do NOT run pytest / pipeline / broad exploration. Read the diff `.codex/I-wire-017/iwire017_diff.patch` and the changed sources (key_findings.py, weighted_enrichment.py, verified_compose.py) + the test. Emit the verdict schema at the end.
+
+# I-wire-017 (#1339) — render-seam/composer truncation + orphan-citation fix (4 withhold-only fixes)
+
+## Problem (confirmed on the #1338 paid back-half run, 23k-word report)
+The render-seam screen fired but the body still leaked: mid-word truncation fragments ("...over the recent past.[1] At t.", "er concept...advancing other technolo."), orphaned-citation-only sections ("### Comparative Assessment" body = just [6][7][5]), and the phase7 [quantified] silent-no-op. Full root cause: .codex/I-wire-017/iwire017_investigation.md.
+
+## The 4 changes (the ONLY diff — all WITHHOLD-ONLY; faithfulness engine UNCHANGED)
+- **FIX A (key_findings.py `_boundary_token_is_span_cut`)**: the truncation leg missed SINGLE-LETTER mid-word cuts ("At t.[2]", "restricted to s.[89]") because the bare letter "t"/"s" is itself a known corpus token, so `if t in known_words: return False` fired before the len==1 completion gate. Fix adds a len==1 branch BEFORE that early-out that flags a cut ONLY when: mode=='end' AND `token[:1].islower()` (ORIGINAL case) AND token not in {"a","i"} AND `completes` (a longer known corpus word starts with it). **PRECISION (this is §-1.1-lethal — verify hard):** the lowercase gate means a single-CAPITAL-letter label finding — "vitamin C [5]", "hepatitis B [8]", "grade B [12]" — is NOT flagged (uppercase boundary token skips the new branch and falls through to the unchanged logic). Confirm there is NO legitimate finding that ends in a *lowercase* single letter (other than a/i) immediately before a [N] that would be wrongly withheld.
+- **FIX B (weighted_enrichment.py `_sanitize_report_line`)**: when a prose segment is dropped as chrome, its trailing continuation markers ([7][5] after the dropped [6]) were left orphaned. Fix drops the contiguous marker-only segments that follow a dropped prose segment; a marker run after a KEPT segment stays.
+- **FIX C1 (weighted_enrichment.py `sanitize_rendered_report`)**: after sanitizing, a non-scaffolding section header (level>=3, `_MIN_DROPPABLE_EMPTY_HEADER_LEVEL`) whose body reduced to no claim-bearing prose (blank/bare-markers) is dropped. Scaffolding is protected by own-title OR immediate-parent-scaffolding (NOT any-ancestor — because the H1 "# Research report:" echo is itself scaffolding, an any-ancestor rule would protect the whole report). Confirm a real section is never dropped and a scaffolding subsection (e.g. a refs list under ## Bibliography) survives.
+- **FIX R1 (verified_compose.py `_compose_junk_screen` / `build_verified_span_draft`)**: the K-span fallback screened spans via the predicate WITHOUT known_words and WITHOUT require_sentence_form, so the truncation + subjectless legs were inert on this PRODUCER path (the actual source of the leaks). Fix builds known_words once from the run evidence_pool and passes it + require_sentence_form=True. A TypeError fallback to the positional single-arg call preserves the other callers (access_bypass/no-op screens). `_known_words_for_compose` is lazy + fail-conservative (returns None on any failure -> truncation leg simply skipped, never a wrong drop).
+
+NOT in scope: C2 (the Phase-7 quantified spec rejection in tradeoff_modeler.py / quantified_analysis.py) — a separate composer-producer issue; the section legitimately produced nothing (correct fail-closed), and C1 handles the empty-render.
+
+## Validation (offline; I ran it — you do NOT need to)
+- New tests (tests/polaris_graph/test_iwire017_truncation_orphan.py): 10 pass — fix-A recall ("At t.[2]"/"restricted to s.[89]" flagged), fix-A precision ("vitamin C [5]"/"hepatitis B [8]"/"grade B [12]" KEPT), fix-A fires through is_render_chrome_or_unrenderable, fix-B orphan removal, fix-C1 empty-section drop + scaffolding-keep, fix-R1 K-span screen.
+- Regression: render-seam suites 19 pass; iarch007 + release-invariant 53 pass. All 3 modules py_compile.
+
+## Things to verify (be adversarial — precision is the §-1.1 line)
+1. FIX A: can ANY legitimate finding be wrongly withheld? Walk the lowercase+completes+{a,i}+mode==end gate. Especially: lowercase single-letter ending before a [N] that is a real word fragment vs a real one-letter token.
+2. FIX C1: can a REAL content section ever be dropped (e.g. a section whose only prose is short but real)? Confirm the "no claim-bearing prose after sanitize" test is correct and the scaffolding protection (own + immediate-parent) is sound.
+3. FIX B: does dropping the trailing marker run ever remove markers belonging to a KEPT following segment? Confirm "contiguous marker-only AFTER a dropped prose segment" only.
+4. FIX R1: the TypeError fallback + fail-conservative None — confirm it never produces a WRONG drop, only a skip.
+5. Confirm every change is withhold-only (suppress from rendered rollup; source stays in evidence) — NO strict_verify/NLI/4-role/span/provenance change. LAW VI named constants.
+
+## Output schema (REQUIRED, last lines)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll keep this static and scoped to the requested artifacts: the patch, the three changed modules, and the new test. I’m reading the diff first so the review is anchored to the actual touched lines.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-wire-017/iwire017_diff.patch' in C:\POLARIS
+ succeeded in 1716ms:
+diff --git a/src/polaris_graph/generator/key_findings.py b/src/polaris_graph/generator/key_findings.py
+index 8922fe12..f990d7f8 100644
+--- a/src/polaris_graph/generator/key_findings.py
++++ b/src/polaris_graph/generator/key_findings.py
+@@ -105,6 +105,8 @@ _LEADING_CITATION_RE = re.compile(r"^(?:\s*\[(?:\d+|#ev:[^\]]*)\])+")
+ # base word, not a cut): 'disadvantage' -> {'disadvantaged','disadvantages'} only => NOT a cut. A
+ # real END cut has a NON-inflectional completion ('resea' -> 'research' = 'resea'+'rch').
+ _INFLECTION_SUFFIXES = ("s", "d", "es", "ed", "ing", "ly", "ic")
++# Single-letter boundary tokens that are legitimate one-letter English words (never a cut).
++_SINGLE_LETTER_KEEP_TOKENS = frozenset({"a", "i"})
+ # Two-letter boundary tokens that are legitimate short words / abbreviations (never a cut).
+ _SHORT_OK_BOUNDARY_TOKENS = frozenset({
+     "ai", "it", "is", "of", "to", "in", "on", "or", "an", "as", "be", "by", "we", "us", "no",
+@@ -158,19 +160,33 @@ def _boundary_token_is_span_cut(
+     if not token or not known_words:
+         return False
+     t = token.lower()
+-    if t in known_words:
+-        return False
+     completes = (
+         _known_word_has_longer_prefix(t, known_words) if mode == "end"
+         else _known_word_has_longer_suffix(t, known_words)
+     )
+     if len(t) == 1:
+-        # I-wire-013 (#1327) iter-3b D-P1-2: a one-letter boundary token is a cut ONLY when it is
+-        # also a strict prefix/suffix of a LONGER known corpus word (``completes``) - same
+-        # completion gate the len-2 / len>=3 paths use. Without it, EVERY non-{a,i} single letter
+-        # before/after a marker false-flagged (e.g. a legit "type 2 diabetes ... grade B" finding),
+-        # dropping real one-letter findings. A true cut ("research"->"r") still flags via completion.
+-        return t not in {"a", "i"} and completes
++        # I-wire-017 (#1339) FIX A: a LOWERCASE single-letter END boundary token ("At t.[2]",
++        # "restricted to s.[89]") is a mid-word span cut even when the bare letter is itself a known
++        # corpus token (footnote/stat markers make "t"/"s" "known") - so this len-1 branch runs
++        # BEFORE the ``t in known_words`` early-out below. Precision guard (this is -1.1-lethal):
++        # the cut is gated on the ORIGINAL token being lowercase, so a legitimate single-CAPITAL
++        # label finding - "vitamin C [5]", "hepatitis B [8]", "grade B [12]" - never flags (its
++        # boundary token is uppercase). mode=="end" only (a START-of-unit single letter is too weak
++        # a signal to drop on). Still gated on the completion test and the {"a","i"} keep-list, per
++        # the I-wire-013 (#1327) iter-3b D-P1-2 rationale (a true cut "research"->"r" flags via
++        # completion; a legit "type 2 diabetes ... a" survives via {"a","i"}).
++        if (
++            mode == "end"
++            and token[:1].islower()
++            and t not in _SINGLE_LETTER_KEEP_TOKENS
++            and completes
++        ):
++            return True
++        if t in known_words:
++            return False
++        return t not in _SINGLE_LETTER_KEEP_TOKENS and completes
++    if t in known_words:
++        return False
+     if len(t) == 2:
+         return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
+     return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut
+diff --git a/src/polaris_graph/generator/verified_compose.py b/src/polaris_graph/generator/verified_compose.py
+index f172603d..f394c6c1 100644
+--- a/src/polaris_graph/generator/verified_compose.py
++++ b/src/polaris_graph/generator/verified_compose.py
+@@ -274,7 +274,12 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
+ _JUNK_SCREEN = None
+ 
+ 
+-def _compose_junk_screen(unit: str) -> bool:
++def _compose_junk_screen(
++    unit: str,
++    known_words: "set[str] | frozenset[str] | None" = None,
++    *,
++    require_sentence_form: bool = False,
++) -> bool:
+     """I-beatboth-011 3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome -
+     INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
+     consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
+@@ -282,7 +287,14 @@ def _compose_junk_screen(unit: str) -> bool:
+     multi-word chrome list). P1-4: allowlist-anchored only - a real short sentence is KEPT (no length
+     drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a -1.3
+     DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
+-    if THAT is unavailable keep the unit (never silently drop real prose)."""
++    if THAT is unavailable keep the unit (never silently drop real prose).
++
++    I-wire-017 (#1339) FIX R1: optional ``known_words`` (the run's corpus-vocabulary allowlist) +
++    ``require_sentence_form`` are threaded into the shared predicate so the K-span PRODUCER path
++    (``build_verified_span_draft``) actually exercises the truncation + subjectless-fragment legs -
++    previously inert here because they were called without these arguments. Safe on this path: K-span
++    units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
++    Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
+     global _JUNK_SCREEN
+     if _JUNK_SCREEN is None:
+         try:
+@@ -295,17 +307,53 @@ def _compose_junk_screen(unit: str) -> bool:
+             except Exception:
+                 _JUNK_SCREEN = lambda _t: False  # noqa: E731 - keep content; never drop real prose
+     try:
+-        return bool(_JUNK_SCREEN(unit))
++        return bool(
++            _JUNK_SCREEN(
++                unit, require_sentence_form=require_sentence_form, known_words=known_words
++            )
++        )
++    except TypeError:
++        # The boilerplate / no-op fallback screens take only the unit (no kwargs).
++        try:
++            return bool(_JUNK_SCREEN(unit))
++        except Exception:
++            return False
+     except Exception:
+         return False
+ 
+ 
++def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
++    """I-wire-017 (#1339) FIX R1 helper: the run's corpus-vocabulary allowlist for the K-span chrome
++    screen, built from the evidence pool's own fetched source text via the shared
++    ``weighted_enrichment.build_known_words_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
++    any import/build failure (and on an empty pool), so the truncation leg is simply skipped - never a
++    wrong drop, never a crash. PURE."""
++    try:
++        from src.polaris_graph.generator.weighted_enrichment import (
++            build_known_words_from_evidence,
++        )
++    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
++        return None
++    try:
++        words = build_known_words_from_evidence(evidence_pool)
++    except Exception:  # pragma: no cover - defensive; build is pure
++        return None
++    return words or None
++
++
+ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
+     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
+     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
+     against), tagged with that member's own ``[#ev:<id>:0-<len>]`` provenance token so it re-passes
+     strict_verify trivially (it IS the verified span). Returns None when the basket has no verified
+-    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead)."""
++    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead).
++
++    I-wire-017 (#1339) FIX R1: build the run's corpus-vocabulary allowlist ONCE from the evidence
++    pool and pass it (+ ``require_sentence_form=True``) into the per-unit chrome/truncation screen so
++    this PRODUCER path screens out mid-word span cuts and subjectless fragments before they ship -
++    previously the screen ran without these, so those legs were inert and the render seam was the
++    only net. Suppress-only: faithfulness verdicts are untouched."""
++    known_words = _known_words_for_compose(evidence_pool)
+     for m in _basket_supports_members(basket):
+         eid = str(getattr(m, "evidence_id", "") or "")
+         quote = str(getattr(m, "direct_quote", "") or "").strip()
+@@ -323,7 +371,10 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
+         # I-beatboth-011 3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
+         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
+         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+-        units = [u for u in units if not _compose_junk_screen(u)]
++        units = [
++            u for u in units
++            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
++        ]
+         out = []
+         for u in units:
+             # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index 96d15fca..a076ab70 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -1212,6 +1212,11 @@ _SCAFFOLDING_SECTION_TITLES = (
+ )
+ _KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
+ _SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
++# I-wire-017 (#1339) FIX C1: the shallowest header LEVEL (``###`` = 3) that may be dropped when its
++# sanitized body collapses to no claim-bearing prose. Top-level (``#``/``##``) report-structure
++# headers are never dropped (a top-level empty section is left for the operator to see), only the
++# per-claim ``###``-and-deeper content sections that the render seam emptied out.
++_MIN_DROPPABLE_EMPTY_HEADER_LEVEL = 3
+ _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
+ # I-wire-013 (#1327) iter-3b D-P1-1: split on BOTH the numeric ``[N]`` marker AND the provenance
+ # ``[#ev:<id>:<start>-<end>]`` token (single capture group, inner alternation - keeps the
+@@ -1316,21 +1321,39 @@ def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | N
+         i += 2
+     kept: list[str] = []
+     dropped = 0
++    # I-wire-017 (#1339) FIX B: when a prose segment is dropped as chrome, the SAME claim's trailing
++    # continuation citation markers ("prose[6][7][5]" splits into a prose seg + two marker-only segs)
++    # would otherwise survive orphaned. Track the drop and suppress the contiguous marker-only run
++    # that immediately follows it. A marker-only run after a KEPT segment stays (it belongs to that
++    # kept claim). Withhold-only - the dropped markers' evidence is untouched.
++    suppress_trailing_markers = False
+     for seg_text, seg_marker in segments:
+         if not seg_text.strip() and not seg_marker:
+             continue
++        # A marker-only continuation segment (no prose, just "[N]") inherits the fate of the prose
++        # segment it continues: dropped if that prose segment was dropped, kept otherwise.
++        if not seg_text.strip():
++            if suppress_trailing_markers:
++                dropped += 1
++                continue
++            kept.append(seg_text + seg_marker)
++            continue
+         core = _unit_core_for_screen(seg_text)
+         if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
+             repaired = _repair_glued_inline_header(seg_text, known_words)
+             if repaired is not None:
+                 # Real-prose prefix kept WITH its citation marker (the kept finding stays cited);
+-                # only the glued-header remainder is excised.
++                # only the glued-header remainder is excised. The prose survives, so its trailing
++                # continuation markers are NOT orphaned - keep them.
+                 kept.append(repaired + seg_marker)
+                 dropped += 1
++                suppress_trailing_markers = False
+                 continue
+             dropped += 1
++            suppress_trailing_markers = True  # orphan this dropped claim's continuation markers
+             continue  # whole chrome unit + its marker dropped
+         kept.append(seg_text + seg_marker)
++        suppress_trailing_markers = False
+     return "".join(kept), dropped
+ 
+ 
+@@ -1340,6 +1363,79 @@ def _is_scaffolding_section_title(title: str) -> bool:
+     return any(low.startswith(s) for s in _SCAFFOLDING_SECTION_TITLES)
+ 
+ 
++def _line_has_claim_prose(line: str) -> bool:
++    """True iff ``line`` carries claim-bearing prose (not just blanks or bare ``[N]`` /
++    ``[#ev:...]`` citation markers). Strips leading bullet / ``**bold**`` markers and ALL citation
++    markers, then checks any real alphabetic content remains. I-wire-017 (#1339) FIX C1 helper: used
++    to decide whether a sanitized section body has collapsed to orphaned markers only. PURE."""
++    text_only = "".join(_CITATION_SPLIT_RE.split(line)[::2])  # even indices = non-marker text
++    return bool(_unit_core_for_screen(text_only).strip())
++
++
++def _immediate_parent_is_scaffolding(level: int, header_stack: "list[tuple[int, bool]]") -> bool:
++    """True iff the NEAREST strictly-shallower open header (the immediate markdown parent) is a
++    scaffolding header - e.g. ``### references`` whose parent is ``## Bibliography``. A non-scaffolding
++    header at an intermediate depth BREAKS the chain (it becomes the new parent), so a content section
++    under a non-scaffolding parent is NOT protected even if a far ancestor is the report's scaffolding
++    ``# Research Report:`` title. ``header_stack`` holds ``(level, is_scaffolding)`` for the open
++    ancestor headers, shallowest-first. PURE."""
++    for anc_level, anc_scaffolding in reversed(header_stack):
++        if anc_level < level:
++            return anc_scaffolding
++    return False
++
++
++def _drop_empty_claim_sections(lines: "list[str]") -> "tuple[list[str], int]":
++    """I-wire-017 (#1339) FIX C1 post-pass: drop a non-scaffolding ``###``-or-deeper section header
++    whose body - after the line-level sanitization already ran - has NO claim-bearing prose left
++    (only blank lines / bare orphaned citation markers). Such a section renders as a dangling header
++    over "[6][7][5]"; withholding the empty header is suppress-only (the evidence is untouched).
++
++    A SCAFFOLDING header - by its own title OR by having a scaffolding IMMEDIATE parent
++    (``### references`` under ``## Bibliography``) - is always preserved. Any top-level (``#``/``##``)
++    header is also preserved (a top-level empty section is left for the operator). Returns
++    ``(kept_lines, headers_dropped)``. PURE."""
++    kept: list[str] = []
++    headers_dropped = 0
++    # Open ancestor headers as (level, is_scaffolding), shallowest-first; a header at depth d closes
++    # every open ancestor at depth >= d before it is pushed.
++    header_stack: list[tuple[int, bool]] = []
++    i = 0
++    n = len(lines)
++    while i < n:
++        header = _SECTION_HEADER_RE.match(lines[i])
++        if not header:
++            kept.append(lines[i])
++            i += 1
++            continue
++        level = len(header.group(1))
++        title = header.group(2)
++        parent_scaffolding = _immediate_parent_is_scaffolding(level, header_stack)
++        header_stack = [hs for hs in header_stack if hs[0] < level]
++        own_scaffolding = _is_scaffolding_section_title(title)
++        header_stack.append((level, own_scaffolding))
++        if (
++            level < _MIN_DROPPABLE_EMPTY_HEADER_LEVEL
++            or own_scaffolding
++            or parent_scaffolding
++        ):
++            kept.append(lines[i])
++            i += 1
++            continue
++        # Collect this section's body up to (not including) the next header of ANY level.
++        body_start = i + 1
++        j = body_start
++        while j < n and not _SECTION_HEADER_RE.match(lines[j]):
++            j += 1
++        body = lines[body_start:j]
++        if any(_line_has_claim_prose(b) for b in body):
++            kept.extend(lines[i:j])  # real content survives -> keep header + body verbatim
++        else:
++            headers_dropped += 1  # empty content section -> drop header + its marker-only body
++        i = j
++    return kept, headers_dropped
++
++
+ def sanitize_rendered_report(
+     report_md: str, known_words: "set[str] | frozenset[str] | None" = None
+ ) -> "tuple[str, int]":
+@@ -1377,6 +1473,10 @@ def sanitize_rendered_report(
+         if clean_line.strip() or not dropped:
+             out_lines.append(clean_line)
+         # else: the line reduced entirely to chrome -> drop the now-empty line.
++    # I-wire-017 (#1339) FIX C1: after the line-level pass, drop any non-scaffolding ###-or-deeper
++    # section whose body collapsed to no claim-bearing prose (blank / bare-marker only).
++    out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)
++    removed += empty_headers_dropped
+     return "\n".join(out_lines), removed
+ 
+ 
+diff --git a/tests/polaris_graph/test_iwire017_truncation_orphan.py b/tests/polaris_graph/test_iwire017_truncation_orphan.py
+new file mode 100644
+index 00000000..2a992578
+--- /dev/null
++++ b/tests/polaris_graph/test_iwire017_truncation_orphan.py
+@@ -0,0 +1,161 @@
++"""I-wire-017 (#1339) - behavioral self-tests for the 4 withhold-only render-seam / composer fixes.
++
++All assertions run THE PRODUCTION predicates against the REAL drb_72 corpus
++(``tests/fixtures/drb72/evidence_pool.json``); ``known_words`` is built via the production
++``build_known_words_from_evidence``. No live calls; every helper is pure and withhold-only - the
++faithfulness engine (strict_verify / NLI / 4-role / provenance / span) is untouched.
++
++FIX A  - the truncation leg flags a LOWERCASE single-letter mid-word cut ("At t.[2]",
++         "restricted to s.[89]") even though the bare letter is itself a known corpus token, while
++         keeping legitimate single-CAPITAL label findings ("vitamin C [5]", "hepatitis B [8]",
++         "grade B [12]") - the -1.1-lethal precision cases.
++FIX B  - ``_sanitize_report_line`` drops the orphaned continuation markers ([7][5]) left behind when
++         the prose segment they continue is dropped as chrome; a marker run after a KEPT segment stays.
++FIX C1 - ``sanitize_rendered_report`` drops a non-scaffolding ###-or-deeper section whose body
++         collapsed to bare-citations-only, while preserving a scaffolding ### header.
++FIX R1 - ``_compose_junk_screen`` (the K-span PRODUCER path) now flags a truncated span it previously
++         passed, once known_words + require_sentence_form are threaded in.
++"""
++from __future__ import annotations
++
++import json
++import pathlib
++
++from src.polaris_graph.generator import key_findings as kf
++from src.polaris_graph.generator import weighted_enrichment as we
++from src.polaris_graph.generator import verified_compose as vc
++
++_FIXTURE = (
++    pathlib.Path(__file__).resolve().parents[2]
++    / "tests" / "fixtures" / "drb72" / "evidence_pool.json"
++)
++
++
++def _evidence_pool() -> list:
++    return json.loads(_FIXTURE.read_text(encoding="utf-8"))
++
++
++def _known_words() -> "set[str]":
++    return we.build_known_words_from_evidence(_evidence_pool())
++
++
++# ÄÄ FIX A: single-letter truncation recall + capital-label precision ÄÄÄÄÄÄÄÄÄ
++def test_fix_a_lowercase_single_letter_cut_is_flagged():
++    """A LOWERCASE single-letter END boundary token before a [N] marker is a span cut - even though
++    the bare letter is itself a known corpus token (the early-out that hid this is now bypassed)."""
++    kw = _known_words()
++    # Sanity: the bare letters ARE in the corpus, which is exactly what hid the cut pre-fix.
++    assert "s" in kw and "t" in kw
++    for line in ("the scope was restricted to s.[89]", "At t.[2]"):
++        assert kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A recall: {line!r} should be flagged as a truncation cut"
++
++
++def test_fix_a_capital_letter_labels_are_kept():
++    """-1.1-LETHAL precision: legitimate single-CAPITAL-letter label findings MUST be kept - the
++    boundary token is uppercase, so the lowercase-gated single-letter cut never fires on them."""
++    kw = _known_words()
++    for line in ("vitamin C [5]", "hepatitis B [8]", "grade B [12]"):
++        assert not kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A precision: {line!r} is a real capital-label finding and MUST be kept"
++
++
++def test_fix_a_one_letter_english_words_are_kept():
++    """The {"a","i"} keep-list still survives the new lowercase-single-letter cut branch."""
++    kw = _known_words()
++    for line in ("type 2 diabetes affects glucose a.[3]", "the model i.[7]"):
++        assert not kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A precision: {line!r} ends in a legit one-letter word and MUST be kept"
++
++
++def test_fix_a_fires_through_the_render_predicate():
++    """The same recall fires through the SHIPPED render-seam predicate (known_words supplied)."""
++    kw = _known_words()
++    assert we.is_render_chrome_or_unrenderable("the scope was restricted to s", known_words=kw)
++    assert we.is_render_chrome_or_unrenderable("At t", known_words=kw)
++
++
++# ÄÄ FIX B: orphaned continuation markers dropped with their dropped claim ÄÄÄÄÄ
++def test_fix_b_orphaned_continuation_markers_dropped():
++    """When a chrome prose segment is dropped, its trailing continuation markers ([7][5] after the
++    dropped [6]) are dropped too - not left orphaned."""
++    line = "Accept all cookies[6][7][5]"
++    assert we.is_render_chrome_or_unrenderable("Accept all cookies")  # precondition: prose is chrome
++    clean, dropped = we._sanitize_report_line(line, None)
++    assert "[6]" not in clean and "[7]" not in clean and "[5]" not in clean
++    assert clean.strip() == ""
++    assert dropped == 3
++
++
++def test_fix_b_markers_after_kept_prose_survive():
++    """A marker-only run after a KEPT prose segment stays (it belongs to that kept claim)."""
++    line = "Glucagon-like peptide-1 reduces appetite[6][7][5]"
++    assert not we.is_render_chrome_or_unrenderable("Glucagon-like peptide-1 reduces appetite")
++    clean, dropped = we._sanitize_report_line(line, None)
++    assert "[6]" in clean and "[7]" in clean and "[5]" in clean
++    assert dropped == 0
++
++
++# ÄÄ FIX C1: empty content section dropped, scaffolding section kept ÄÄÄÄÄÄÄÄÄÄÄ
++def test_fix_c1_empty_content_section_dropped_scaffolding_kept():
++    report = (
++        "# Research Report: test\n"
++        "\n"
++        "## Findings\n"
++        "\n"
++        "### Comparative Assessment\n"
++        "\n"
++        "Accept all cookies[6][7][5]\n"
++        "\n"
++        "### Real Section\n"
++        "\n"
++        "Glucagon-like peptide-1 reduces appetite[3].\n"
++        "\n"
++        "## Bibliography\n"
++        "\n"
++        "### Cookie Policy reference list\n"
++        "[1] https://doi.org/10.1000/x\n"
++    )
++    clean, removed = we.sanitize_rendered_report(report, None)
++    # The content-empty ### section header is gone.
++    assert "Comparative Assessment" not in clean
++    # A real ### section with claim prose survives.
++    assert "### Real Section" in clean
++    assert "Glucagon-like peptide-1 reduces appetite" in clean
++    # A scaffolding ### header (under Bibliography) is NEVER dropped, even though its body has no
++    # claim-bearing prose (it is a reference list).
++    assert "Cookie Policy reference list" in clean
++    assert "## Bibliography" in clean
++    assert removed > 0
++
++
++def test_fix_c1_top_level_headers_never_dropped():
++    """A top-level (##) section with no claim prose is left for the operator - only ###-or-deeper
++    content sections are dropped when emptied."""
++    report = "# Research Report: t\n\n## Lonely Top Header\n\n[6][7]\n"
++    clean, _removed = we.sanitize_rendered_report(report, None)
++    assert "Lonely Top Header" in clean
++
++
++# ÄÄ FIX R1: K-span producer now screens truncation it previously passed ÄÄÄÄÄÄ
++def test_fix_r1_kspan_screen_flags_previously_passed_truncation():
++    """The K-span ``_compose_junk_screen`` passed a mid-word-cut span before (no known_words / no
++    require_sentence_form); with FIX R1's threaded args it now flags it."""
++    kw = vc._known_words_for_compose(_evidence_pool())
++    assert kw  # the producer builds a real allowlist from the pool
++    frag = "developed by researchers and deployed in produc"  # 'produc' -> 'production' (cut)
++    assert vc._compose_junk_screen(frag) is False  # OLD inert behaviour (no args)
++    assert vc._compose_junk_screen(frag, kw, require_sentence_form=True) is True  # NEW: flagged
++
++
++def test_fix_r1_real_whole_sentence_is_kept():
++    """A real lifted source sentence is NOT screened out by the newly-active legs (precision)."""
++    kw = vc._known_words_for_compose(_evidence_pool())
++    real = (
++        "Artificial intelligence systems can automate routine cognitive tasks "
++        "across many industries."
++    )
++    assert vc._compose_junk_screen(real, kw, require_sentence_form=True) is False
+
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The patch touches only the intended modules and test. I’m now checking the surrounding implementations, especially the marker splitter, section-drop pass, and K-span screening call path where static regressions are most likely.
+2026-06-28T04:21:01.655213Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/key_findings.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 80 -First 160'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/key_findings.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 80 -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/weighted_enrichment.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 1180 -First 330' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/key_findings.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 80 -First 160'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/weighted_enrichment.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 1180 -First 330'` rejected: blocked by policy
+2026-06-28T04:21:01.655684Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/weighted_enrichment.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 1180 -First 330'` rejected: blocked by policy
+2026-06-28T04:21:01.678622Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/verified_compose.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 250 -First 150'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/verified_compose.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 250 -First 150' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/test_iwire017_truncation_orphan.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/generator/verified_compose.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ } | Select-Object -Skip 250 -First 150'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/test_iwire017_truncation_orphan.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ }'` rejected: blocked by policy
+2026-06-28T04:21:01.679242Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/test_iwire017_truncation_orphan.py | ForEach-Object { $i++; '"'{0,5}: {1}' -f "'$i, $_ }'` rejected: blocked by policy
+codex
+The line-numbering PowerShell form is blocked by the local command policy, so I’m switching to simpler read-only commands. I’ll keep the scope the same and avoid running any tests or pipeline code.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/key_findings.py | Select-Object -Skip 80 -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/weighted_enrichment.py | Select-Object -Skip 1180 -First 330' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/verified_compose.py | Select-Object -Skip 250 -First 150' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content tests/polaris_graph/test_iwire017_truncation_orphan.py' in C:\POLARIS
+ succeeded in 2038ms:
+# I-wire-013 (#1327) iter-3a - CORPUS-GROUNDED boundary span-cut (the UNBLINDING).
+#
+# The legacy ``is_truncated_fragment`` only matched an explicit trailing ellipsis / hyphen MARKER,
+# so it returned False on the dominant truncation shape in a real render: a span CUT mid-word right
+# before its ``[N]`` citation (". 1.2 Resea.[14]", ". incorporates the ap.[5]"). This adds the
+# proven detector rule (scripts/iwire013_sec11_forensic_audit.py): a boundary token is a span cut
+# iff it is NOT a word the run's OWN corpus uses AND it is a strict NON-inflectional prefix (end cut)
+# / suffix (start cut) of a LONGER corpus word. The corpus-vocabulary allowlist (``known_words``,
+# built by the caller from evidence_pool direct_quote/statement/title) is the FALSE-POSITIVE GUARD:
+# a real-but-rare sentence-ender ("classifier", "computerisation") is either known or has no longer
+# known completion, so it does NOT flag, while a real cut ("Resea""research") always does. The
+# completion gate keeps precision high (the detector holds ~2% FP on the banked render).
+#
+# DROP-PATH SAFE / BACKWARD-COMPATIBLE: ``known_words`` is keyword-only and defaults to ``None`` -
+# every existing caller (no corpus) gets BYTE-IDENTICAL legacy behaviour (the marker check only).
+# The boundary check fires ONLY when a corpus allowlist is supplied AND the caller marks which
+# boundary (``ends_before_marker`` / ``starts_after_marker``) is eligible - so a complete sentence's
+# trailing complete word is never end-checked unless the caller says a marker follows it.
+
+# An alphabetic word token (the boundary word; mirrors the detector's _WORD_RE).
+_BOUNDARY_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
+# Leading `[N]` / `[#ev:...]` citation markers (stripped before reading the first word after a cut).
+_LEADING_CITATION_RE = re.compile(r"^(?:\s*\[(?:\d+|#ev:[^\]]*)\])+")
+# Suffixes that make a longer known word a mere INFLECTION of the token (so the token is the real
+# base word, not a cut): 'disadvantage' -> {'disadvantaged','disadvantages'} only => NOT a cut. A
+# real END cut has a NON-inflectional completion ('resea' -> 'research' = 'resea'+'rch').
+_INFLECTION_SUFFIXES = ("s", "d", "es", "ed", "ing", "ly", "ic")
+# Single-letter boundary tokens that are legitimate one-letter English words (never a cut).
+_SINGLE_LETTER_KEEP_TOKENS = frozenset({"a", "i"})
+# Two-letter boundary tokens that are legitimate short words / abbreviations (never a cut).
+_SHORT_OK_BOUNDARY_TOKENS = frozenset({
+    "ai", "it", "is", "of", "to", "in", "on", "or", "an", "as", "be", "by", "we", "us", "no",
+    "so", "do", "etc", "al", "eg", "ie", "vs", "id", "ml", "ui", "ux", "hr", "ev", "uk",
+    "eu", "gn", "io", "pp", "ed", "co", "re", "at", "if", "up", "my", "go", "he", "me", "ok",
+})
+
+
+def _boundary_last_word(text: str) -> str:
+    """The trailing alphabetic word of ``text`` (a single artificial '.' a span-truncator appends,
+    plus a trailing hyphen/quote, are stripped first). '' when there is no trailing word."""
+    s = text.rstrip().rstrip('""\')')
+    if s.endswith("."):
+        s = s[:-1].rstrip()
+    m = re.search(r"([A-Za-z][A-Za-z'\-]*)$", s)
+    return m.group(1).strip("-'") if m else ""
+
+
+def _boundary_first_word(text: str) -> str:
+    """The leading alphabetic word of ``text`` (after any leading citation marker is stripped by the
+    caller). '' when there is no leading word."""
+    m = re.match(r"\s*([A-Za-z][A-Za-z'\-]*)", text)
+    return m.group(1).strip("-'") if m else ""
+
+
+def _known_word_has_longer_prefix(word: str, known_words: "set[str] | frozenset[str]") -> bool:
+    """True iff some KNOWN corpus word is ``word`` + a NON-inflectional tail (``word`` is a chopped-
+    END prefix: 'resea' -> 'research'). A token whose only longer completions are inflections
+    ('disadvantage' -> 'disadvantaged') is the real base word and returns False."""
+    return any(
+        len(k) > len(word) and k.startswith(word) and k[len(word):] not in _INFLECTION_SUFFIXES
+        for k in known_words
+    )
+
+
+def _known_word_has_longer_suffix(word: str, known_words: "set[str] | frozenset[str]") -> bool:
+    """True iff some KNOWN corpus word ENDS with ``word`` and is longer (``word`` is a chopped-START
+    suffix: 'hodology' -> 'methodology', 'nization' -> 'mechanization')."""
+    return any(len(k) > len(word) and k.endswith(word) for k in known_words)
+
+
+def _boundary_token_is_span_cut(
+    token: str, known_words: "set[str] | frozenset[str]", *, mode: str
+) -> bool:
+    """A boundary token is a span cut iff it is NOT a known corpus word AND it is a strict prefix
+    (end cut) / suffix (start cut) of a LONGER known corpus word. The completion gate keeps
+    precision high: a legit-but-rare sentence-ender is either known or has no longer known
+    completion, so it does NOT flag; a real span cut ('Resea'->'research') always does. A len-1
+    token also requires a longer-corpus-word completion (so a legit one-letter finding survives);
+    a len-2 token keeps an abbreviation allowlist."""
+    if not token or not known_words:
+        return False
+    t = token.lower()
+    completes = (
+        _known_word_has_longer_prefix(t, known_words) if mode == "end"
+        else _known_word_has_longer_suffix(t, known_words)
+    )
+    if len(t) == 1:
+        # I-wire-017 (#1339) FIX A: a LOWERCASE single-letter END boundary token ("At t.[2]",
+        # "restricted to s.[89]") is a mid-word span cut even when the bare letter is itself a known
+        # corpus token (footnote/stat markers make "t"/"s" "known") - so this len-1 branch runs
+        # BEFORE the ``t in known_words`` early-out below. Precision guard (this is -1.1-lethal):
+        # the cut is gated on the ORIGINAL token being lowercase, so a legitimate single-CAPITAL
+        # label finding - "vitamin C [5]", "hepatitis B [8]", "grade B [12]" - never flags (its
+        # boundary token is uppercase). mode=="end" only (a START-of-unit single letter is too weak
+        # a signal to drop on). Still gated on the completion test and the {"a","i"} keep-list, per
+        # the I-wire-013 (#1327) iter-3b D-P1-2 rationale (a true cut "research"->"r" flags via
+        # completion; a legit "type 2 diabetes ... a" survives via {"a","i"}).
+        if (
+            mode == "end"
+            and token[:1].islower()
+            and t not in _SINGLE_LETTER_KEEP_TOKENS
+            and completes
+        ):
+            return True
+        if t in known_words:
+            return False
+        return t not in _SINGLE_LETTER_KEEP_TOKENS and completes
+    if t in known_words:
+        return False
+    if len(t) == 2:
+        return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
+    return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut
+
+
+def is_truncated_fragment(
+    text: str,
+    known_words: "set[str] | frozenset[str] | None" = None,
+    *,
+    ends_before_marker: bool = False,
+    starts_after_marker: bool = False,
+) -> bool:
+    """True iff ``text`` carries a mid-word / cut-span truncation.
+
+    Two independent, drop-path-safe signals:
+      1. UNAMBIGUOUS MARKER (always, no corpus needed): a trailing/closed ellipsis or a trailing
+         mid-word hyphen, after stripping trailing ``[N]`` citation markers. Never guesses at a cut
+         word from letters alone - a complete sentence with an internal hyphen still passes.
+      2. CORPUS-GROUNDED BOUNDARY SPAN-CUT (I-wire-013 #1327, only when ``known_words`` is supplied):
+         the boundary token before a ``[N]`` (``ends_before_marker``) or the lowercase token after
+         one (``starts_after_marker``) is a non-inflectional prefix/suffix of a LONGER corpus word
+         and is itself absent from the corpus - e.g. ". 1.2 Resea.[14]". The corpus allowlist is the
+         false-positive guard (a real, complete word is known or has no longer completion).
+
+    BACKWARD-COMPATIBLE: ``known_words=None`` (the default for every legacy caller)  byte-identical
+    legacy behaviour (signal 1 only). PURE."""
+    if not text:
+        return False
+    core = _TRAILING_CITATION_RE.sub("", text.strip()).rstrip()
+    if core and _TRUNCATION_MARKER_RE.search(core):
+        return True
+    if not known_words:
+        return False
+    if ends_before_marker and _boundary_token_is_span_cut(
+        _boundary_last_word(core), known_words, mode="end"
+    ):
+        return True
+    if starts_after_marker:
+        lead = _LEADING_CITATION_RE.sub("", text).lstrip()
+        first = _boundary_first_word(lead)
+        if first and first[:1].islower() and _boundary_token_is_span_cut(
+            first, known_words, mode="start"
+        ):
+            return True
+    return False
+
+
+def _is_render_chrome_claim(sentence: str) -> bool:
+    """I-wire-012 (#1326): True iff ``sentence`` is render-side chrome / page-furniture /
+    an unrenderable fragment per THE ONE shared predicate
+    (``weighted_enrichment.is_render_chrome_or_unrenderable``). Lifting Key-Findings /
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2769ms:
+#
+# FAITHFULNESS (FROZEN engine): RENDER hygiene only - it SUPPRESSES a page-furniture / truncated
+# unit, NEVER promotes one and NEVER touches a strict_verify / NLI / 4-role / span-grounding verdict.
+# Page furniture is not a corroborating source, so suppressing it STRENGTHENS faithfulness.
+#
+# OVER-STRIP SAFE (the drop-path law "over-strip deletes a real finding, worse than a leak"):
+#   * Per-``[N]``-unit granularity - a flagged citation unit is dropped WITH its own trailing marker
+#     (marker-paired, so a kept finding never loses its citation and a dropped chrome unit never
+#     orphans a marker). The 4005-char Corroborated-Weighted-Findings blob keeps every real finding;
+#     only its chrome sub-units drop.
+#   * Scaffolding sections (Bibliography / Methods / disclosures / Reliability / Source corroboration
+#     / the H1 question echo) are EXCLUDED - their legitimate DOIs/URLs are not chrome.
+#   * A unit carrying SUBSTANTIAL real prose plus a glued inline ``#`` header is REPAIRED (cut at the
+#     header, prefix kept) - the remainder is dropped only when it independently re-tests as chrome,
+#     so a real "Limitations: . most extreme.## Analytical synthesis ." paragraph is never lost.
+
+# LAW VI: env-overridable, default ON (kill-switch ``PG_RENDER_SEAM_SANITIZE=0`` => no-op pass-through).
+_RENDER_SEAM_SANITIZE_ENV = "PG_RENDER_SEAM_SANITIZE"
+# LAW VI: the corpus known-word floor (a word must occur >= this many times across the run's fetched
+# source text to count as "known" for the truncation allowlist). Mirrors the detector default.
+_RENDER_SEAM_KNOWN_WORD_FLOOR_ENV = "PG_RENDER_SEAM_KNOWN_WORD_FLOOR"
+_DEFAULT_KNOWN_WORD_FLOOR = 5
+# A unit needs at least this many real-prose characters before a glued inline header in it is
+# REPAIRED (prefix kept) rather than the whole unit dropped - below it the unit is treated as junk.
+_MIN_REPAIR_PREFIX_CHARS = 40
+# Section headers that are pipeline SCAFFOLDING, not carried-up source prose (no body units are
+# screened under them; their legitimate DOIs/URLs must not be chrome-flagged). Matched against the
+# header TITLE's leading text. Mirrors the detector's _SCAFFOLDING_TITLES.
+_SCAFFOLDING_SECTION_TITLES = (
+    "reliability header", "methods", "capability disclosures", "contradiction disclosures",
+    "bibliography", "source corroboration", "evidence-support disclosure", "research report:",
+)
+_KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
+_SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+# I-wire-017 (#1339) FIX C1: the shallowest header LEVEL (``###`` = 3) that may be dropped when its
+# sanitized body collapses to no claim-bearing prose. Top-level (``#``/``##``) report-structure
+# headers are never dropped (a top-level empty section is left for the operator to see), only the
+# per-claim ``###``-and-deeper content sections that the render seam emptied out.
+_MIN_DROPPABLE_EMPTY_HEADER_LEVEL = 3
+_LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
+# I-wire-013 (#1327) iter-3b D-P1-1: split on BOTH the numeric ``[N]`` marker AND the provenance
+# ``[#ev:<id>:<start>-<end>]`` token (single capture group, inner alternation - keeps the
+# text/marker pairing in ``_sanitize_report_line`` intact) so the render seam covers per-citation
+# units on provenance-cited reports too, not just numeric-cited ones. ``[^\]]*`` captures the whole
+# ``[#ev:...]`` body up to its closing bracket. Reports with only ``[N]`` are byte-identical (the
+# numeric alternative is unchanged).
+_CITATION_SPLIT_RE = re.compile(r"(\[\d+\]|\[#ev:[^\]]*\])")
+_INLINE_HEADER_SPLIT_RE = re.compile(r"#{1,6}\s+[A-Za-z]")
+
+
+def render_seam_sanitize_enabled() -> bool:
+    """True iff the default-ON render-seam chokepoint is active (LAW VI kill-switch
+    ``PG_RENDER_SEAM_SANITIZE=0`` => byte-identical pass-through)."""
+    return os.environ.get(_RENDER_SEAM_SANITIZE_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _known_word_floor() -> int:
+    """The corpus known-word frequency floor (LAW VI). Fail-soft on a non-int / non-positive value
+    to the detector default (the allowlist must never be silently emptied)."""
+    raw = os.environ.get(_RENDER_SEAM_KNOWN_WORD_FLOOR_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_KNOWN_WORD_FLOOR
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_KNOWN_WORD_FLOOR
+
+
+def build_known_words_from_evidence(evidence_rows: Any, floor: int | None = None) -> set[str]:
+    """The corpus-vocabulary allowlist (the truncation false-positive guard) built from the run's OWN
+    fetched source text - every lowercase token occurring >= ``floor`` times across the evidence
+    rows' ``direct_quote`` / ``statement`` / ``title`` fields. So a word the corpus genuinely uses
+    ("labor", "Acemoglu", "computerisation") never false-flags as a span cut, while an absent
+    fragment ("Resea", "hodology") does. Accepts a list of row dicts OR a ``{evidence_id: row}`` map
+    (the in-memory ``ev_pool`` shape). PURE; returns an empty set when no source text is available
+    (=> the caller's truncation leg is simply skipped, never a wrong drop)."""
+    if floor is None:
+        floor = _known_word_floor()
+    if isinstance(evidence_rows, dict):
+        rows: Any = evidence_rows.values()
+    else:
+        rows = evidence_rows or ()
+    freq: Counter[str] = Counter()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field in _KNOWN_WORD_FIELDS:
+            value = row.get(field)
+            if isinstance(value, str) and value:
+                for word in _BOUNDARY_VOCAB_RE.findall(value):
+                    freq[word.lower()] += 1
+    return {word for word, count in freq.items() if count >= floor}
+
+
+# An alphabetic vocabulary token (mirrors the detector's _WORD_RE / key_findings._BOUNDARY_WORD_RE).
+_BOUNDARY_VOCAB_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
+
+
+def _unit_core_for_screen(text: str) -> str:
+    """The screen-test text of a unit: leading ``- `` bullet marker and ``**bold**`` markers
+    removed so the predicate judges the prose, not the markdown wrapper. PURE."""
+    core = _LEADING_BULLET_RE.sub("", text.strip())
+    return _BOLD_MARKER_RE.sub("", core).strip()
+
+
+def _repair_glued_inline_header(text: str, known_words: "set[str] | frozenset[str] | None") -> "str | None":
+    """If ``text`` is substantial real prose with a glued inline ``#`` header welded mid-unit, return
+    the kept prefix (the header + remainder dropped) - but ONLY when the remainder independently
+    re-tests as chrome, so a real paragraph is never over-stripped. Returns ``None`` when no
+    repair applies (the caller then drops the whole unit)."""
+    m = _INLINE_HEADER_SPLIT_RE.search(text)
+    if not m or m.start() < _MIN_REPAIR_PREFIX_CHARS:
+        return None
+    prefix = text[:m.start()].rstrip()
+    remainder = text[m.start():]
+    prefix_core = _unit_core_for_screen(prefix)
+    # Keep the prefix only if it is itself clean prose AND the excised remainder is independently
+    # chrome (over-strip guard: never drop a remainder that re-tests clean).
+    if not prefix_core or is_render_chrome_or_unrenderable(prefix_core, known_words=known_words):
+        return None
+    if not is_render_chrome_or_unrenderable(_unit_core_for_screen(remainder), known_words=known_words):
+        return None
+    return prefix
+
+
+def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | None") -> "tuple[str, int]":
+    """Sanitize ONE claim-section body line: split it into per-``[N]`` citation units, drop each unit
+    (with its own trailing marker) that is chrome or a corpus-grounded truncation cut, and repair a
+    unit that is real prose with a glued inline header. Returns ``(clean_line, dropped_count)``. A
+    marker-less unit that is the whole short line is dropped iff it is chrome (a standalone ToC /
+    masthead line). PURE."""
+    parts = _CITATION_SPLIT_RE.split(line)
+    segments: list[tuple[str, str]] = []
+    i = 0
+    while i < len(parts):
+        seg_text = parts[i]
+        seg_marker = parts[i + 1] if i + 1 < len(parts) else ""
+        segments.append((seg_text, seg_marker))
+        i += 2
+    kept: list[str] = []
+    dropped = 0
+    # I-wire-017 (#1339) FIX B: when a prose segment is dropped as chrome, the SAME claim's trailing
+    # continuation citation markers ("prose[6][7][5]" splits into a prose seg + two marker-only segs)
+    # would otherwise survive orphaned. Track the drop and suppress the contiguous marker-only run
+    # that immediately follows it. A marker-only run after a KEPT segment stays (it belongs to that
+    # kept claim). Withhold-only - the dropped markers' evidence is untouched.
+    suppress_trailing_markers = False
+    for seg_text, seg_marker in segments:
+        if not seg_text.strip() and not seg_marker:
+            continue
+        # A marker-only continuation segment (no prose, just "[N]") inherits the fate of the prose
+        # segment it continues: dropped if that prose segment was dropped, kept otherwise.
+        if not seg_text.strip():
+            if suppress_trailing_markers:
+                dropped += 1
+                continue
+            kept.append(seg_text + seg_marker)
+            continue
+        core = _unit_core_for_screen(seg_text)
+        if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
+            repaired = _repair_glued_inline_header(seg_text, known_words)
+            if repaired is not None:
+                # Real-prose prefix kept WITH its citation marker (the kept finding stays cited);
+                # only the glued-header remainder is excised. The prose survives, so its trailing
+                # continuation markers are NOT orphaned - keep them.
+                kept.append(repaired + seg_marker)
+                dropped += 1
+                suppress_trailing_markers = False
+                continue
+            dropped += 1
+            suppress_trailing_markers = True  # orphan this dropped claim's continuation markers
+            continue  # whole chrome unit + its marker dropped
+        kept.append(seg_text + seg_marker)
+        suppress_trailing_markers = False
+    return "".join(kept), dropped
+
+
+def _is_scaffolding_section_title(title: str) -> bool:
+    """True iff a header title names a pipeline SCAFFOLDING section (excluded from sanitization)."""
+    low = title.strip().lower().lstrip("# ").strip()
+    return any(low.startswith(s) for s in _SCAFFOLDING_SECTION_TITLES)
+
+
+def _line_has_claim_prose(line: str) -> bool:
+    """True iff ``line`` carries claim-bearing prose (not just blanks or bare ``[N]`` /
+    ``[#ev:...]`` citation markers). Strips leading bullet / ``**bold**`` markers and ALL citation
+    markers, then checks any real alphabetic content remains. I-wire-017 (#1339) FIX C1 helper: used
+    to decide whether a sanitized section body has collapsed to orphaned markers only. PURE."""
+    text_only = "".join(_CITATION_SPLIT_RE.split(line)[::2])  # even indices = non-marker text
+    return bool(_unit_core_for_screen(text_only).strip())
+
+
+def _immediate_parent_is_scaffolding(level: int, header_stack: "list[tuple[int, bool]]") -> bool:
+    """True iff the NEAREST strictly-shallower open header (the immediate markdown parent) is a
+    scaffolding header - e.g. ``### references`` whose parent is ``## Bibliography``. A non-scaffolding
+    header at an intermediate depth BREAKS the chain (it becomes the new parent), so a content section
+    under a non-scaffolding parent is NOT protected even if a far ancestor is the report's scaffolding
+    ``# Research Report:`` title. ``header_stack`` holds ``(level, is_scaffolding)`` for the open
+    ancestor headers, shallowest-first. PURE."""
+    for anc_level, anc_scaffolding in reversed(header_stack):
+        if anc_level < level:
+            return anc_scaffolding
+    return False
+
+
+def _drop_empty_claim_sections(lines: "list[str]") -> "tuple[list[str], int]":
+    """I-wire-017 (#1339) FIX C1 post-pass: drop a non-scaffolding ``###``-or-deeper section header
+    whose body - after the line-level sanitization already ran - has NO claim-bearing prose left
+    (only blank lines / bare orphaned citation markers). Such a section renders as a dangling header
+    over "[6][7][5]"; withholding the empty header is suppress-only (the evidence is untouched).
+
+    A SCAFFOLDING header - by its own title OR by having a scaffolding IMMEDIATE parent
+    (``### references`` under ``## Bibliography``) - is always preserved. Any top-level (``#``/``##``)
+    header is also preserved (a top-level empty section is left for the operator). Returns
+    ``(kept_lines, headers_dropped)``. PURE."""
+    kept: list[str] = []
+    headers_dropped = 0
+    # Open ancestor headers as (level, is_scaffolding), shallowest-first; a header at depth d closes
+    # every open ancestor at depth >= d before it is pushed.
+    header_stack: list[tuple[int, bool]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        header = _SECTION_HEADER_RE.match(lines[i])
+        if not header:
+            kept.append(lines[i])
+            i += 1
+            continue
+        level = len(header.group(1))
+        title = header.group(2)
+        parent_scaffolding = _immediate_parent_is_scaffolding(level, header_stack)
+        header_stack = [hs for hs in header_stack if hs[0] < level]
+        own_scaffolding = _is_scaffolding_section_title(title)
+        header_stack.append((level, own_scaffolding))
+        if (
+            level < _MIN_DROPPABLE_EMPTY_HEADER_LEVEL
+            or own_scaffolding
+            or parent_scaffolding
+        ):
+            kept.append(lines[i])
+            i += 1
+            continue
+        # Collect this section's body up to (not including) the next header of ANY level.
+        body_start = i + 1
+        j = body_start
+        while j < n and not _SECTION_HEADER_RE.match(lines[j]):
+            j += 1
+        body = lines[body_start:j]
+        if any(_line_has_claim_prose(b) for b in body):
+            kept.extend(lines[i:j])  # real content survives -> keep header + body verbatim
+        else:
+            headers_dropped += 1  # empty content section -> drop header + its marker-only body
+        i = j
+    return kept, headers_dropped
+
+
+def sanitize_rendered_report(
+    report_md: str, known_words: "set[str] | frozenset[str] | None" = None
+) -> "tuple[str, int]":
+    """THE render-seam chokepoint (I-wire-013 #1327). Run ONE sanitization pass over every
+    claim-bearing unit of the assembled ``report_md``, dropping/repairing chrome + truncated units
+    with the unblinded ``is_render_chrome_or_unrenderable`` predicate. Returns
+    ``(clean_report_md, units_removed)``.
+
+    Scaffolding sections (Bibliography / Methods / disclosures / Reliability / Source corroboration /
+    the H1 question echo) are byte-preserved. A glued-chrome HEADER line ("## Dennis Zami ." welded
+    onto a title) is dropped; a clean section header is preserved. Default-ON kill-switch
+    ``PG_RENDER_SEAM_SANITIZE``; faithfulness-neutral (suppress-only). PURE."""
+    if not report_md or not render_seam_sanitize_enabled():
+        return report_md, 0
+    out_lines: list[str] = []
+    removed = 0
+    in_scaffolding = False
+    for line in report_md.split("\n"):
+        header = _SECTION_HEADER_RE.match(line)
+        if header:
+            title = header.group(2)
+            in_scaffolding = _is_scaffolding_section_title(title)
+            # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
+            # scaffolding header - dropping a real header would orphan its body.
+            if not in_scaffolding and _contains_forensic_chrome(title):
+                removed += 1
+                continue
+            out_lines.append(line)
+            continue
+        if in_scaffolding or not line.strip():
+            out_lines.append(line)
+            continue
+        clean_line, dropped = _sanitize_report_line(line, known_words)
+        removed += dropped
+        if clean_line.strip() or not dropped:
+            out_lines.append(clean_line)
+        # else: the line reduced entirely to chrome -> drop the now-empty line.
+    # I-wire-017 (#1339) FIX C1: after the line-level pass, drop any non-scaffolding ###-or-deeper
+    # section whose body collapsed to no claim-bearing prose (blank / bare-marker only).
+    out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)
+    removed += empty_headers_dropped
+    return "\n".join(out_lines), removed
+
+
+def _make_junk_screen() -> Any:
+    """Return THE shared render-side chrome+truncation predicate (I-wire-012 #1326).
+
+    Historically this returned a bespoke closure (boilerplate + web-chrome + CAPTCHA).
+    It now returns ``is_render_chrome_or_unrenderable`` so every consumer of this hub
+    (``verified_compose._compose_junk_screen``, this module's own
+    ``_substantive_units`` / ``build_verified_span_draft``) screens through the ONE
+    predicate. The base screen still ALWAYS runs (so flag-OFF is byte-identical for
+    these consumers); the new chrome categories are added when
+    ``PG_RENDER_CHROME_SCREEN`` is ON (default)."""
+    return is_render_chrome_or_unrenderable
+
+
+def _emit_unit(unit: str, eids: Any) -> str:
+    """Render one verbatim unit with its ``[ev_id]`` marker(s) INSIDE the sentence.
+
+    Strips trailing terminal punctuation then appends ``[eid]`` for each evidence_id
+    (I-beatboth-011 #7 multi-citation: a same-work group emits ALL its grounding
+    co-citation markers on the one unit) followed by ``.`` so every marker sits INSIDE
+    the sentence unit and survives strict_verify's re-split (see ``_TERMINAL_PUNCT``).
+    Accepts a single id (str) or an ordered list of ids; the order is preserved
+    (representative first) and is deterministic.
+    """
+    if isinstance(eids, str):
+        ids = [eids]
+    else:
+        ids = [str(e) for e in (eids or []) if str(e)]
+    core = unit.rstrip()
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3488ms:
+        regions.setdefault(str(getattr(m, "evidence_id", "") or ""), []).append(gspan)
+    return regions
+
+
+def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
+    """True iff EVERY provenance token in ``sentence`` cites an evidence_id in this basket AND its
+    [start, end] falls within one of that member's verified-span regions. A token outside the
+    member's region (a shared source's OTHER-claim span) -> False -> the sentence is rejected and
+    the basket falls back to its OWN K-span. A sentence with no token -> False (fail closed)."""
+    from src.polaris_graph.generator.provenance_generator import parse_provenance_tokens  # noqa: PLC0415
+    toks = parse_provenance_tokens(sentence)
+    if not toks:
+        return False
+    for tok in toks:
+        eid = str(getattr(tok, "evidence_id", "") or "")
+        t_start = int(getattr(tok, "start", -1))
+        t_end = int(getattr(tok, "end", -1))
+        spans = regions.get(eid)
+        if not spans or not any(s <= t_start and t_end <= e for (s, e) in spans):
+            return False
+    return True
+
+
+_JUNK_SCREEN = None
+
+
+def _compose_junk_screen(
+    unit: str,
+    known_words: "set[str] | frozenset[str] | None" = None,
+    *,
+    require_sentence_form: bool = False,
+) -> bool:
+    """I-beatboth-011 3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome -
+    INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
+    consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
+    ``weighted_enrichment._make_junk_screen`` (``is_boilerplate_or_nonassertional`` + the high-precision
+    multi-word chrome list). P1-4: allowlist-anchored only - a real short sentence is KEPT (no length
+    drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a -1.3
+    DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
+    if THAT is unavailable keep the unit (never silently drop real prose).
+
+    I-wire-017 (#1339) FIX R1: optional ``known_words`` (the run's corpus-vocabulary allowlist) +
+    ``require_sentence_form`` are threaded into the shared predicate so the K-span PRODUCER path
+    (``build_verified_span_draft``) actually exercises the truncation + subjectless-fragment legs -
+    previously inert here because they were called without these arguments. Safe on this path: K-span
+    units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
+    Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
+    global _JUNK_SCREEN
+    if _JUNK_SCREEN is None:
+        try:
+            from src.polaris_graph.generator.weighted_enrichment import _make_junk_screen
+            _JUNK_SCREEN = _make_junk_screen()
+        except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+            try:
+                from src.tools.access_bypass import is_boilerplate_or_nonassertional as _b
+                _JUNK_SCREEN = lambda t: bool(_b(t))  # noqa: E731
+            except Exception:
+                _JUNK_SCREEN = lambda _t: False  # noqa: E731 - keep content; never drop real prose
+    try:
+        return bool(
+            _JUNK_SCREEN(
+                unit, require_sentence_form=require_sentence_form, known_words=known_words
+            )
+        )
+    except TypeError:
+        # The boilerplate / no-op fallback screens take only the unit (no kwargs).
+        try:
+            return bool(_JUNK_SCREEN(unit))
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
+    """I-wire-017 (#1339) FIX R1 helper: the run's corpus-vocabulary allowlist for the K-span chrome
+    screen, built from the evidence pool's own fetched source text via the shared
+    ``weighted_enrichment.build_known_words_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
+    any import/build failure (and on an empty pool), so the truncation leg is simply skipped - never a
+    wrong drop, never a crash. PURE."""
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (
+            build_known_words_from_evidence,
+        )
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        return None
+    try:
+        words = build_known_words_from_evidence(evidence_pool)
+    except Exception:  # pragma: no cover - defensive; build is pure
+        return None
+    return words or None
+
+
+def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
+    """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
+    strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
+    against), tagged with that member's own ``[#ev:<id>:0-<len>]`` provenance token so it re-passes
+    strict_verify trivially (it IS the verified span). Returns None when the basket has no verified
+    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead).
+
+    I-wire-017 (#1339) FIX R1: build the run's corpus-vocabulary allowlist ONCE from the evidence
+    pool and pass it (+ ``require_sentence_form=True``) into the per-unit chrome/truncation screen so
+    this PRODUCER path screens out mid-word span cuts and subjectless fragments before they ship -
+    previously the screen ran without these, so those legs were inert and the render seam was the
+    only net. Suppress-only: faithfulness verdicts are untouched."""
+    known_words = _known_words_for_compose(evidence_pool)
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        quote = str(getattr(m, "direct_quote", "") or "").strip()
+        gspan = _member_global_span(m, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        start, end = gspan
+        # PER-SENTENCE units (Codex P1-4): a multi-sentence verified span must NOT ship as one blob
+        # with a single trailing token (strict_verify would split it and drop the un-tokened earlier
+        # units). Each sentence carries the member's OWN span token - the whole verified span grounds
+        # each sub-sentence (it literally contains it). Offsets are the member's REAL GLOBAL offsets
+        # (Codex P1-3) so downstream resolution anchors to the verified span, never 0-len of a span
+        # that may differ from the global row for a shared source.
+        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        # I-beatboth-011 3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
+        # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
+        # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+        units = [
+            u for u in units
+            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+        ]
+        out = []
+        for u in units:
+            # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
+            # downstream strict_verify splitter (split_into_sentences: terminal-punct + whitespace +
+            # [A-Z0-9]) keeps it ATTACHED. The prior "U. [#ev:...]" form orphaned the token into a
+            # contentless fragment -> no_provenance_token -> verified=0 (the P6 v2 STORM-section zero).
+            u_core = _strip_terminal_punct(u)
+            out.append(f"{u_core} [#ev:{eid}:{start}-{end}].")
+        if out:
+            return " ".join(out)
+    return None
+
+
+def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
+    """I-arch-011 PR-c RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC, NO-LLM short writer - the
+    FIRST sentence of the basket's strongest isolated-``SUPPORTS`` member's verified span, tagged with
+    that member's REAL global offsets for exactly that first-sentence prefix. It is a verbatim PREFIX of
+    the verified span, so it re-passes strict_verify trivially AND lands within the member's own region
+    (the P1-1 region gate). Used to PROBE the render path (does verified-compose fire through
+    _run_section->render? does short prose fit the 150K answer_body budget?) WITHOUT the per-basket LLM
+    writer (the real PR-c writer) and WITHOUT the verbatim-full-span overflow. Returns '' when no member
+    resolves (caller falls back to the basket's K-span / insufficient-evidence disclosure)."""
+    for m in _basket_supports_members(basket):
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4155ms:
+"""I-wire-017 (#1339) - behavioral self-tests for the 4 withhold-only render-seam / composer fixes.
+
+All assertions run THE PRODUCTION predicates against the REAL drb_72 corpus
+(``tests/fixtures/drb72/evidence_pool.json``); ``known_words`` is built via the production
+``build_known_words_from_evidence``. No live calls; every helper is pure and withhold-only - the
+faithfulness engine (strict_verify / NLI / 4-role / provenance / span) is untouched.
+
+FIX A  - the truncation leg flags a LOWERCASE single-letter mid-word cut ("At t.[2]",
+         "restricted to s.[89]") even though the bare letter is itself a known corpus token, while
+         keeping legitimate single-CAPITAL label findings ("vitamin C [5]", "hepatitis B [8]",
+         "grade B [12]") - the -1.1-lethal precision cases.
+FIX B  - ``_sanitize_report_line`` drops the orphaned continuation markers ([7][5]) left behind when
+         the prose segment they continue is dropped as chrome; a marker run after a KEPT segment stays.
+FIX C1 - ``sanitize_rendered_report`` drops a non-scaffolding ###-or-deeper section whose body
+         collapsed to bare-citations-only, while preserving a scaffolding ### header.
+FIX R1 - ``_compose_junk_screen`` (the K-span PRODUCER path) now flags a truncated span it previously
+         passed, once known_words + require_sentence_form are threaded in.
+"""
+from __future__ import annotations
+
+import json
+import pathlib
+
+from src.polaris_graph.generator import key_findings as kf
+from src.polaris_graph.generator import weighted_enrichment as we
+from src.polaris_graph.generator import verified_compose as vc
+
+_FIXTURE = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "tests" / "fixtures" / "drb72" / "evidence_pool.json"
+)
+
+
+def _evidence_pool() -> list:
+    return json.loads(_FIXTURE.read_text(encoding="utf-8"))
+
+
+def _known_words() -> "set[str]":
+    return we.build_known_words_from_evidence(_evidence_pool())
+
+
+# ÄÄ FIX A: single-letter truncation recall + capital-label precision ÄÄÄÄÄÄÄÄÄ
+def test_fix_a_lowercase_single_letter_cut_is_flagged():
+    """A LOWERCASE single-letter END boundary token before a [N] marker is a span cut - even though
+    the bare letter is itself a known corpus token (the early-out that hid this is now bypassed)."""
+    kw = _known_words()
+    # Sanity: the bare letters ARE in the corpus, which is exactly what hid the cut pre-fix.
+    assert "s" in kw and "t" in kw
+    for line in ("the scope was restricted to s.[89]", "At t.[2]"):
+        assert kf.is_truncated_fragment(
+            line, kw, ends_before_marker=True, starts_after_marker=True
+        ), f"FIX A recall: {line!r} should be flagged as a truncation cut"
+
+
+def test_fix_a_capital_letter_labels_are_kept():
+    """-1.1-LETHAL precision: legitimate single-CAPITAL-letter label findings MUST be kept - the
+    boundary token is uppercase, so the lowercase-gated single-letter cut never fires on them."""
+    kw = _known_words()
+    for line in ("vitamin C [5]", "hepatitis B [8]", "grade B [12]"):
+        assert not kf.is_truncated_fragment(
+            line, kw, ends_before_marker=True, starts_after_marker=True
+        ), f"FIX A precision: {line!r} is a real capital-label finding and MUST be kept"
+
+
+def test_fix_a_one_letter_english_words_are_kept():
+    """The {"a","i"} keep-list still survives the new lowercase-single-letter cut branch."""
+    kw = _known_words()
+    for line in ("type 2 diabetes affects glucose a.[3]", "the model i.[7]"):
+        assert not kf.is_truncated_fragment(
+            line, kw, ends_before_marker=True, starts_after_marker=True
+        ), f"FIX A precision: {line!r} ends in a legit one-letter word and MUST be kept"
+
+
+def test_fix_a_fires_through_the_render_predicate():
+    """The same recall fires through the SHIPPED render-seam predicate (known_words supplied)."""
+    kw = _known_words()
+    assert we.is_render_chrome_or_unrenderable("the scope was restricted to s", known_words=kw)
+    assert we.is_render_chrome_or_unrenderable("At t", known_words=kw)
+
+
+# ÄÄ FIX B: orphaned continuation markers dropped with their dropped claim ÄÄÄÄÄ
+def test_fix_b_orphaned_continuation_markers_dropped():
+    """When a chrome prose segment is dropped, its trailing continuation markers ([7][5] after the
+    dropped [6]) are dropped too - not left orphaned."""
+    line = "Accept all cookies[6][7][5]"
+    assert we.is_render_chrome_or_unrenderable("Accept all cookies")  # precondition: prose is chrome
+    clean, dropped = we._sanitize_report_line(line, None)
+    assert "[6]" not in clean and "[7]" not in clean and "[5]" not in clean
+    assert clean.strip() == ""
+    assert dropped == 3
+
+
+def test_fix_b_markers_after_kept_prose_survive():
+    """A marker-only run after a KEPT prose segment stays (it belongs to that kept claim)."""
+    line = "Glucagon-like peptide-1 reduces appetite[6][7][5]"
+    assert not we.is_render_chrome_or_unrenderable("Glucagon-like peptide-1 reduces appetite")
+    clean, dropped = we._sanitize_report_line(line, None)
+    assert "[6]" in clean and "[7]" in clean and "[5]" in clean
+    assert dropped == 0
+
+
+# ÄÄ FIX C1: empty content section dropped, scaffolding section kept ÄÄÄÄÄÄÄÄÄÄÄ
+def test_fix_c1_empty_content_section_dropped_scaffolding_kept():
+    report = (
+        "# Research Report: test\n"
+        "\n"
+        "## Findings\n"
+        "\n"
+        "### Comparative Assessment\n"
+        "\n"
+        "Accept all cookies[6][7][5]\n"
+        "\n"
+        "### Real Section\n"
+        "\n"
+        "Glucagon-like peptide-1 reduces appetite[3].\n"
+        "\n"
+        "## Bibliography\n"
+        "\n"
+        "### Cookie Policy reference list\n"
+        "[1] https://doi.org/10.1000/x\n"
+    )
+    clean, removed = we.sanitize_rendered_report(report, None)
+    # The content-empty ### section header is gone.
+    assert "Comparative Assessment" not in clean
+    # A real ### section with claim prose survives.
+    assert "### Real Section" in clean
+    assert "Glucagon-like peptide-1 reduces appetite" in clean
+    # A scaffolding ### header (under Bibliography) is NEVER dropped, even though its body has no
+    # claim-bearing prose (it is a reference list).
+    assert "Cookie Policy reference list" in clean
+    assert "## Bibliography" in clean
+    assert removed > 0
+
+
+def test_fix_c1_top_level_headers_never_dropped():
+    """A top-level (##) section with no claim prose is left for the operator - only ###-or-deeper
+    content sections are dropped when emptied."""
+    report = "# Research Report: t\n\n## Lonely Top Header\n\n[6][7]\n"
+    clean, _removed = we.sanitize_rendered_report(report, None)
+    assert "Lonely Top Header" in clean
+
+
+# ÄÄ FIX R1: K-span producer now screens truncation it previously passed ÄÄÄÄÄÄ
+def test_fix_r1_kspan_screen_flags_previously_passed_truncation():
+    """The K-span ``_compose_junk_screen`` passed a mid-word-cut span before (no known_words / no
+    require_sentence_form); with FIX R1's threaded args it now flags it."""
+    kw = vc._known_words_for_compose(_evidence_pool())
+    assert kw  # the producer builds a real allowlist from the pool
+    frag = "developed by researchers and deployed in produc"  # 'produc' -> 'production' (cut)
+    assert vc._compose_junk_screen(frag) is False  # OLD inert behaviour (no args)
+    assert vc._compose_junk_screen(frag, kw, require_sentence_form=True) is True  # NEW: flagged
+
+
+def test_fix_r1_real_whole_sentence_is_kept():
+    """A real lifted source sentence is NOT screened out by the newly-active legs (precision)."""
+    kw = vc._known_words_for_compose(_evidence_pool())
+    real = (
+        "Artificial intelligence systems can automate routine cognitive tasks "
+        "across many industries."
+    )
+    assert vc._compose_junk_screen(real, kw, require_sentence_form=True) is False
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The main change shape is clear: the diff stays in suppression paths, but there are two edge areas to verify statically before verdict: how `require_sentence_form` is interpreted by the shared predicate, and whether the empty-section pass handles nested markdown sections correctly.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/weighted_enrichment.py | Select-Object -Skip 1020 -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/weighted_enrichment.py -Pattern "def is_render_chrome_or_unrenderable|def _is_render_chrome|require_sentence_form|def _contains_forensic_chrome" -Context 3,20' in C:\POLARIS
+2026-06-28T04:21:22.940936Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/weighted_enrichment.py -Pattern "def is_render_chrome_or_unrenderable|def _is_render_chrome|require_sentence_form|def _contains_forensic_chrome" -Context 3,20'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/weighted_enrichment.py -Pattern "def is_render_chrome_or_unrenderable|def _is_render_chrome|require_sentence_form|def _contains_forensic_chrome" -Context 3,20'` rejected: blocked by policy
+2026-06-28T04:21:22.976829Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src/polaris_graph/generator/verified_compose.py -Pattern \"_compose_junk_screen\\(|build_verified_span_draft\\(|_known_words_for_compose\" -Context 2,4"` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src/polaris_graph/generator/verified_compose.py -Pattern \"_compose_junk_screen\\(|build_verified_span_draft\\(|_known_words_for_compose\" -Context 2,4" in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src/polaris_graph/generator/verified_compose.py -Pattern \"_compose_junk_screen\\(|build_verified_span_draft\\(|_known_words_for_compose\" -Context 2,4"` rejected: blocked by policy
+2026-06-28T04:21:23.015660Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/key_findings.py -Pattern "_boundary_token_is_span_cut|def is_truncated_fragment|_SINGLE_LETTER_KEEP_TOKENS" -Context 2,6'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/key_findings.py -Pattern "_boundary_token_is_span_cut|def is_truncated_fragment|_SINGLE_LETTER_KEEP_TOKENS" -Context 2,6' in C:\POLARIS
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path src/polaris_graph/generator/key_findings.py -Pattern "_boundary_token_is_span_cut|def is_truncated_fragment|_SINGLE_LETTER_KEEP_TOKENS" -Context 2,6'` rejected: blocked by policy
+ succeeded in 1801ms:
+    require_sentence_form: bool = False,
+    known_words: "set[str] | frozenset[str] | None" = None,
+) -> bool:
+    """THE ONE shared render-side chrome+truncation predicate (I-wire-012 #1326; I-wire-013 #1327).
+
+    True iff ``text`` is page-furniture chrome, a CAPTCHA/boilerplate stub, a numbered
+    ToC / CC-license / masthead / login-wall fragment, a standalone scraped doc label
+    ("Abstract"/"AI Summary"), an author-ORCID/affiliation list, a bare DOI row, glued
+    page-furniture welded INTO real prose (I-wire-013 CONTAINMENT), or a mid-word/cut-span
+    TRUNCATION. With ``require_sentence_form=True`` it ALSO rejects a mid-word-START fragment
+    and an incomplete sentence (bullet/header surfaces only).
+
+    ``known_words`` (I-wire-013 #1327): when a caller supplies the run's corpus-vocabulary
+    allowlist, the truncation leg ALSO catches a CORPUS-GROUNDED span cut at a ``[N]`` boundary
+    (a non-inflectional prefix/suffix of a longer corpus word - ". 1.2 Resea.[14]"). It defaults
+    to ``None`` so every existing caller (including the canary) is unchanged: no corpus  the
+    boundary-cut leg is skipped  no new false positive.
+
+    SUPPRESS-ONLY: never promotes a unit, never alters a faithfulness VERDICT. The base
+    screen (boilerplate/web-chrome/CAPTCHA) ALWAYS runs (preserving the pre-I-wire-012
+    behaviour of every existing consumer); the NEW categories + truncation are gated on
+    ``render_chrome_screen_enabled()`` (default ON) so a ``PG_RENDER_CHROME_SCREEN=0``
+    run is byte-identical to the legacy base screen."""
+    if not text or not str(text).strip():
+        return True  # an empty unit is non-assertional by definition
+    s = str(text)
+    if _base_junk(s):
+        return True
+    if not render_chrome_screen_enabled():
+        return False  # NEW categories OFF -> byte-identical to the legacy base screen
+    if _is_new_chrome_category(s):
+        return True
+    try:
+        from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+            is_truncated_fragment,
+        )
+        # When a corpus allowlist is supplied, treat the unit as eligible at BOTH boundaries so the
+        # corpus-grounded span-cut leg fires on a cut at the unit's leading/trailing ``[N]`` edge
+        # (the chokepoint splits the report into per-citation units before calling this). With no
+        # corpus (known_words=None) the boundary flags are inert and only the marker leg runs.
+        _eligible = known_words is not None
+        if is_truncated_fragment(
+            s,
+            known_words,
+            ends_before_marker=_eligible,
+            starts_after_marker=_eligible,
+        ):
+            return True
+    except Exception:  # pragma: no cover - key_findings is stable in-tree
+        pass
+    if require_sentence_form and _is_unrenderable_sentence_form(s):
+        return True
+    return False
+
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# I-wire-012 (#1326) - FAIL-LOUD chrome-as-claim CANARY on the SHIPPED report.
+#
+# A render-integrity tripwire: it measures what FRACTION of the report's CLAIM bullets
+# are chrome (page furniture that rendered as a finding) and, in ``enforce`` mode above
+# a floor, REFUSES to ship - so a chrome regression can NOT ship as
+# ``released_with_disclosed_gaps``. It NEVER promotes a unit and NEVER touches a
+# faithfulness verdict. Modes (LAW VI, default-safe):
+#   off     - explicit opt-out: no telemetry, no enforce.
+#   warn    - emit telemetry to the manifest; never fails the run.
+#   enforce - DEFAULT (I-wire-013 #1327): emit telemetry AND fail the run (status flip) when rate > floor.
+_RENDER_CANARY_MODE_ENV = "PG_RENDER_CHROME_CANARY"
+_RENDER_CANARY_FLOOR_ENV = "PG_RENDER_CHROME_CANARY_FLOOR"
+_DEFAULT_RENDER_CANARY_FLOOR = 0.05
+_RENDER_CANARY_MODES = ("off", "warn", "enforce")
+_DEFAULT_RENDER_CANARY_MODE = "enforce"
+
+# A TOP-LEVEL report bullet (no leading indent) = a claim surface (Key-Findings, the
+# per-claim corroboration header, a finding bullet). Indented ``  - SUPPORT:`` /
+# ``  - GROUNDED-BUT-WEAK`` sub-bullets (source URLs, not claims) and numbered
+# bibliography lines ("1. Title") are deliberately EXCLUDED so the rate measures
+# chrome-as-CLAIM, not chrome-as-source-locator.
+_TOP_LEVEL_BULLET_RE = re.compile(r"^-\s+(.*\S)\s*$")
+_BOLD_MARKER_RE = re.compile(r"\*\*")
+
+
+def render_chrome_canary_mode() -> str:
+    """Canary mode from ``PG_RENDER_CHROME_CANARY`` (off|warn|enforce); default ``enforce``
+    (I-wire-013 #1327 - the tripwire enforces by default, not telemetry-only). Fail-loud on an
+    UNRECOGNIZED value (LAW II - no silent guessed fallback), mirroring ``render_chrome_canary_floor``.
+    ``off`` is the explicit opt-out (telemetry suppressed by the caller; verdict never trips)."""
+    raw = os.environ.get(_RENDER_CANARY_MODE_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_RENDER_CANARY_MODE
+    mode = raw.strip().lower()
+    if mode not in _RENDER_CANARY_MODES:
+        raise ValueError(
+            f"{_RENDER_CANARY_MODE_ENV}={raw!r} is not a valid chrome-canary mode "
+            f"(expected one of {_RENDER_CANARY_MODES})"
+        )
+    return mode
+
+
+def render_chrome_canary_floor() -> float:
+    """Chrome-as-claim rate floor from ``PG_RENDER_CHROME_CANARY_FLOOR`` (default 0.05).
+    Fail-loud on a non-float (LAW II - no silent guessed fallback); clamped to [0, 1]."""
+    raw = os.environ.get(_RENDER_CANARY_FLOOR_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_RENDER_CANARY_FLOOR
+    try:
+        val = float(raw.strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{_RENDER_CANARY_FLOOR_ENV}={raw!r} is not a float (chrome-as-claim rate floor)"
+        ) from exc
+    return min(1.0, max(0.0, val))
+
+
+def _report_claim_bullets(report_text: str) -> list[str]:
+    """The report's TOP-LEVEL claim bullets, bold markers stripped (PURE)."""
+    out: list[str] = []
+    for line in (report_text or "").split("\n"):
+        m = _TOP_LEVEL_BULLET_RE.match(line)
+        if not m:
+            continue
+        out.append(_BOLD_MARKER_RE.sub("", m.group(1)).strip())
+    return out
+
+
+def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
+    """Compute the chrome-as-claim rate over the SHIPPED report's claim bullets and the
+    canary verdict. PURE (no I/O). ``verdict='fail'`` ONLY in ``enforce`` mode when the
+    rate exceeds the floor and there is at least one claim bullet - so the caller can
+    flip the run status. In ``warn``/``off`` the verdict is always ``pass`` (telemetry
+    only). Each chrome bullet is screened with the SAME shared predicate every composer
+    uses (chrome + truncation), so the canary and the screens can never disagree."""
+    bullets = _report_claim_bullets(report_text)
+    chrome = [b for b in bullets if is_render_chrome_or_unrenderable(b)]
+    total = len(bullets)
+    n_chrome = len(chrome)
+    rate = (n_chrome / total) if total else 0.0
+    floor = render_chrome_canary_floor()
+    mode = render_chrome_canary_mode()
+    tripped = bool(total and mode == "enforce" and rate > floor)
+    return {
+        "mode": mode,
+        "floor": floor,
+        "total_claim_bullets": total,
+        "chrome_claim_bullets": n_chrome,
+        "chrome_as_claim_rate": round(rate, 4),
+        "verdict": "fail" if tripped else "pass",
+        "examples": [b[:120] for b in chrome[:5]],
+    }
+
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+# I-wire-013 (#1327) iter-3a - RENDER-SEAM CHOKEPOINT.
+#
+# ONE sanitization pass over EVERY claim-bearing unit of the FINAL assembled report (Abstract,
+# Key-Findings bullets, every ``###`` section body INCLUDING multi_section_generator output, the
+# Corroborated Weighted Findings citation-split blob, the Conclusion), dropping/repairing chrome +
+# truncated units with the now-unblinded predicate. This is the single seam that screens the
+# currently-unscreened multi_section_generator output (0 screen calls today). It runs AFTER every
+# composer + the header-sanity screen and BEFORE the chrome canary, so the canary reads the cleaned
+# artifact and a residual leak still trips it fail-closed.
+#
+# FAITHFULNESS (FROZEN engine): RENDER hygiene only - it SUPPRESSES a page-furniture / truncated
+# unit, NEVER promotes one and NEVER touches a strict_verify / NLI / 4-role / span-grounding verdict.
+# Page furniture is not a corroborating source, so suppressing it STRENGTHENS faithfulness.
+#
+# OVER-STRIP SAFE (the drop-path law "over-strip deletes a real finding, worse than a leak"):
+#   * Per-``[N]``-unit granularity - a flagged citation unit is dropped WITH its own trailing marker
+#     (marker-paired, so a kept finding never loses its citation and a dropped chrome unit never
+#     orphans a marker). The 4005-char Corroborated-Weighted-Findings blob keeps every real finding;
+#     only its chrome sub-units drop.
+#   * Scaffolding sections (Bibliography / Methods / disclosures / Reliability / Source corroboration
+#     / the H1 question echo) are EXCLUDED - their legitimate DOIs/URLs are not chrome.
+#   * A unit carrying SUBSTANTIAL real prose plus a glued inline ``#`` header is REPAIRED (cut at the
+#     header, prefix kept) - the remainder is dropped only when it independently re-tests as chrome,
+#     so a real "Limitations: . most extreme.## Analytical synthesis ." paragraph is never lost.
+
+# LAW VI: env-overridable, default ON (kill-switch ``PG_RENDER_SEAM_SANITIZE=0`` => no-op pass-through).
+_RENDER_SEAM_SANITIZE_ENV = "PG_RENDER_SEAM_SANITIZE"
+# LAW VI: the corpus known-word floor (a word must occur >= this many times across the run's fetched
+# source text to count as "known" for the truncation allowlist). Mirrors the detector default.
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+The shared predicate confirms `known_words=None` is a true skip for the corpus-grounded truncation leg, and `require_sentence_form` is additive after the base chrome/truncation checks. I’m checking the sentence-form helper now because R1 makes that branch active on K-span units.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/weighted_enrichment.py | Select-Object -Skip 820 -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/weighted_enrichment.py | Select-Object -Skip 700 -First 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/verified_compose.py | Select-Object -Skip 390 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/key_findings.py | Select-Object -Skip 0 -First 80' in C:\POLARIS
+ succeeded in 1857ms:
+# affiliation-glued / title+affiliation / author-attribution-phrase rules. VALIDATED precision-first:
+# ZERO of the 398 curated-clean real-content units are flagged; every Codex adversarial real-finding
+# case is KEPT. Under-removal is the safe direction (recall secondary per -1.3); the chrome-as-claim
+# canary backstops the rarer residual classes. FLAG-not-drop: a flagged unit is withheld from the
+# rendered rollup, KEPT in evidence; the faithfulness engine (strict_verify / NLI / 4-role / span) is UNCHANGED.
+#
+# gap 1 - a digit GLUED to an institution keyword ANCHORED to its affiliation preposition (Department
+# OF, Laboratory OF/FOR/AT, Institute OF/FOR, .) so an adjective ("2Laboratory-confirmed cases",
+# "1Institutional review boards") never matches (Codex iter-1 P1). Real prose spells "a/one/the department";
+# only an author-block superscript glues a digit directly to "Department of"/"Institute of"/etc.
+_AFFIL_GLUED_RE = re.compile(
+    r"\b\d{1,2}(?:Department\s+(?:of|for)\b|Departamento\s+de\b|Faculty\s+of\b|School\s+of\b|"
+    r"Institute\s+(?:of|for)\b|University\s+of\b|Universidad\s+de\b|Facultad\s+de\b|Escuela\s+de\b|"
+    r"Laborator(?:y|ies)\s+(?:of|for|at)\b|Centre\s+for\b|Center\s+for\b)",
+)
+# gap 4 - title+affiliation composite: a dash + digit + institution ("A Survey of . - 1 Department of .").
+_TITLE_AFFIL_RE = re.compile(
+    r"[---]\s*\d{1,2}\s+(?:Department\s+of|Institute\s+(?:of|for)|Faculty\s+of|School\s+of|"
+    r"University\s+of|Laborator(?:y|ies)\s+(?:of|for|at)|Centre\s+for|Center\s+for)\b",
+)
+# gap 1 - author-attribution MASTHEAD block: the authorship phrase ("X is listed as an author",
+# ". are among the listed authors") AND a co-occurring article-portal MASTHEAD signal (the
+# "article has received N accesses/citations/altmetric" engagement-stats furniture). Codex iter-4 P1:
+# the phrase ALONE flags a real research-integrity finding ("X is listed as an author on the retracted
+# paper"); requiring BOTH the phrase AND the portal-stats co-signal anchors it to the masthead block
+# ("Gazdag is listed as an author. The article has received 3258 accesses, 16 citations.") - a real
+# integrity/COI finding never co-reports portal engagement stats. Both signals required (precision-first).
+_AUTHOR_ATTRIB_PHRASE_RE = re.compile(
+    r"\bis listed as an?\s+(?:author|co-author)\b|\bare among the listed authors\b|"
+    r"\blisted as (?:the\s+)?(?:author|co-author)s?\b",
+    re.IGNORECASE,
+)
+_MASTHEAD_PORTAL_STATS_RE = re.compile(
+    # Codex iter-5 P1: the co-signal must be a TRUE portal-only metric (a number directly followed by
+    # "accesses" or "altmetric") - masthead engagement counts a research finding never reports. Bare
+    # "N citations" and unconstrained "article has received" are REMOVED: a real integrity/bibliometrics
+    # finding legitimately says "received 18 citations before correction", so they are not portal-unique.
+    r"\b\d[\d,]*\s+(?:accesses|altmetric)\b",
+    re.IGNORECASE,
+)
+# DROPPED (Codex iter-1/2/3, not precision-safe - surface form overlaps real findings):
+#  - gap 2 biblio date+page ("., July 12, p. 36" vs "The July 12, p. 36 article reported.").
+#  - gap 3 bibliometric stats ("3,258 accesses, 16 citations, 7 altmetric" vs real bibliometrics findings;
+#    "vascular accesses"). The author-attribution phrase above catches the masthead blocks these appeared in.
+#  - gap 1 "Name<digit>, <digit>" author-superscript (titlecase mouse-gene notation "Smad1, 5 and Smad2, 3").
+# These rare residual classes are left to the chrome-as-claim canary (enforce, floor 0.05) per -1.3
+# (precision over recall - never risk dropping a real finding).
+
+
+def _contains_iwire016_gap_furniture(s: str) -> bool:
+    """I-wire-016 #1338: precision-safe gap-class furniture rules (validated 0 content false-positives;
+    Codex iter-1/2/3 removed every rule whose surface form overlaps a real finding). Catches the
+    affiliation/author-attribution masthead blocks; rarer stats/biblio/superscript classes are left to
+    the chrome-as-claim canary. FLAG-not-drop: withheld from rollup, kept in evidence; faithfulness UNCHANGED."""
+    if _AFFIL_GLUED_RE.search(s) or _TITLE_AFFIL_RE.search(s):
+        return True
+    # author-attribution masthead: the authorship phrase AND a portal-stats co-signal (both required -
+    # Codex iter-4 P1: the phrase alone flags a real integrity/COI finding).
+    return bool(_AUTHOR_ATTRIB_PHRASE_RE.search(s) and _MASTHEAD_PORTAL_STATS_RE.search(s))
+
+
+def _dotted_toc_hits(text: str) -> int:
+    """Count dotted section-number tokens whose TitleCase word is NOT a magnitude unit (so a
+    "3.2 Million / 4.5 Billion" magnitude pair contributes ZERO ToC hits)."""
+    return sum(
+        1 for word in _DOTTED_SECTION_TOKEN_RE.findall(text)
+        if word.lower() not in _MAGNITUDE_UNIT_WORDS
+    )
+
+
+def _is_predominantly_nonlatin(text: str) -> bool:
+    """True iff ``text`` carries a long non-Latin run AND its non-Latin characters outnumber its
+    Latin letters - a foreign-page scrape, not an English finding quoting a short foreign term."""
+    if not _NONLATIN_RUN_RE.search(text):
+        return False
+    nonlatin = len(_NONLATIN_CHAR_RE.findall(text))
+    latin = len(re.findall(r"[A-Za-z]", text))
+    return nonlatin >= _MIN_NONLATIN_RUN_CHARS and nonlatin >= latin
+
+
+def _contains_forensic_chrome(text: str) -> bool:
+    """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
+    unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
+    (see the module comment above). High-precision / structure-anchored; never flags a clean
+    finding. Gated by the caller under ``render_chrome_screen_enabled()``."""
+    s = text
+    low = s.lower()
+    # browser/UI ú license ú author/submission metadata ú bibliographic/portal ú masthead
+    if _NAV_CHROME_RE.search(s) or _LICENSE_CHROME_RE.search(s) or _BIBLIO_CHROME_RE.search(s):
+        return True
+    if _SUBMISSION_META_RE.search(s) or _MASTHEAD_CHROME_RE.search(s) or _STATS_TABLE_RE.search(s):
+        return True
+    if _ORCID_RE.search(s) or "orcid" in low or _AFFIL_MIDDOT_RE.search(s):
+        return True
+    if len(_URL_RE.findall(s)) >= _MIN_URLS_FOR_CHROME:
+        return True
+    if len(_DOI_URL_RE.findall(s)) >= _MIN_DOI_URLS_FOR_CHROME:
+        return True
+    # glued markdown header / ToC fragment
+    if _INLINE_HEADER_RE.search(s) or _dotted_toc_hits(s) >= _MIN_DOTTED_TOC_HITS:
+        return True
+    if _STANDALONE_SECTION_NAME_RE.search(s):
+        return True
+    standalone_dotted = _STANDALONE_DOTTED_HEADING_RE.match(s)
+    if standalone_dotted and standalone_dotted.group(1).lower() not in _MAGNITUDE_UNIT_WORDS:
+        return True
+    # I-wire-016 #1338 gap-fill (affiliation-glued / title+affiliation / author-attribution-phrase) -
+    # the precision-safe masthead classes that leaked past the legacy categories.
+    if _contains_iwire016_gap_furniture(s):
+        return True
+    # foreign-page scrape (predominantly non-Latin)
+    return _is_predominantly_nonlatin(s)
+
+
+def render_chrome_screen_enabled() -> bool:
+    """Default ON (LAW VI kill-switch ``PG_RENDER_CHROME_SCREEN=0``). When OFF, the NEW
+    I-wire-012 chrome categories are skipped and the predicate is byte-identical to the
+    legacy base junk screen (boilerplate + sentence-form web-chrome + CAPTCHA)."""
+    return os.environ.get(_RENDER_CHROME_SCREEN_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _base_junk(text: str) -> bool:
+    """The PRE-I-wire-012 junk screen, byte-equivalent to the old ``_make_junk_screen``
+    closure: production boilerplate OR sentence-form web-chrome OR CAPTCHA stub OR a
+    unit that reduces to "" under ``strip_web_boilerplate``. Import-safe (access_bypass
+    import failure falls back to the chrome + CAPTCHA screens, never fail-open to nothing)."""
+    try:
+        from src.tools.access_bypass import (  # noqa: PLC0415
+            is_boilerplate_or_nonassertional as _boiler,
+            strip_web_boilerplate as _strip_boiler,
+        )
+    except Exception:  # pragma: no cover - access_bypass import is stable in-tree
+        return _is_web_chrome(text) or _is_captcha_stub(text)
+    try:
+        if bool(_boiler(text)) or _is_web_chrome(text) or _is_captcha_stub(text):
+            return True
+        return not (_strip_boiler(text) or "").strip()
+    except Exception:  # pragma: no cover - boiler helpers are pure in-tree
+        return _is_web_chrome(text) or _is_captcha_stub(text)
+
+
+def _is_new_chrome_category(text: str) -> bool:
+    """The NEW I-wire-012 chrome categories (default-ON, high-precision) PLUS the I-wire-013 (#1327)
+    CONTAINMENT forensic rules (a unit that CONTAINS glued page-furniture, not only IS junk)."""
+    if _SHARED_RENDER_CHROME_RE.search(text):
+        return True
+    if _SHARED_CLAIM_HEADER_CHROME_RE.search(text):
+        return True
+    if _SHARED_TOC_RE.search(text):
+        return True
+    if _ORCID_RE.search(text):
+        return True
+    stripped = text.strip()
+    if _DOC_LABEL_RE.match(stripped):
+        return True
+    if _DOI_ONLY_RE.match(stripped):
+        return True
+    # I-wire-014 (#1334): the benchmarked whole-unit-collapse furniture screen - a unit DOMINATED
+    # by page furniture (journal metrics/cite/permissions/JEL/Associated-Records/member-only/
+    # feature-story/cookie-geo/back-matter label runs) with no real clause surviving. Whole-unit
+    # decision only (never an inline partial strip), so a real claim with a welded fragment is
+    # preserved (validated content_preserved_rate = 1.0 on chrome_gold_augmented).
+    try:
+        from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+            is_furniture_dominant,
+        )
+        if is_furniture_dominant(text):
+            return True
+    except Exception:  # pragma: no cover - chrome_furniture_screen is stable in-tree
+        pass
+    # I-wire-013 (#1327): CONTAINMENT unblinding - glued ToC / masthead / author / license /
+    # bibliographic / nav / stats-table / foreign-scrape welded into otherwise-real prose.
+    return _contains_forensic_chrome(text)
+
+
+def _is_unrenderable_sentence_form(text: str) -> bool:
+    """``require_sentence_form`` extras for a unit that MUST be a standalone complete
+    claim (a bullet / a lifted body sentence): a mid-word START cut (a lowercase opener
+    is a span sliced mid-token - a real body sentence opens capital/quote/digit) or an
+    INCOMPLETE sentence (no sentence-terminal punctuation after stripping a trailing
+    ``[N]`` marker). NOT applied to verified-compose / enrichment clauses (which a
+    composer may legitimately lowercase / leave mid-clause) - only to bullet/header
+    surfaces, so a lowercased verbatim clause is never over-dropped."""
+    core = text.strip()
+    if not core:
+        return True
+    first = core[:1]
+    if first.islower():
+        return True
+    no_cite = _SHARED_TRAILING_CITE_RE.sub("", core).rstrip()
+    if no_cite and no_cite[-1] not in ".!?\"')]":
+        return True
+    return False
+
+
+def is_render_chrome_or_unrenderable(
+    text: str,
+    *,
+    require_sentence_form: bool = False,
+    known_words: "set[str] | frozenset[str] | None" = None,
+) -> bool:
+    """THE ONE shared render-side chrome+truncation predicate (I-wire-012 #1326; I-wire-013 #1327).
+
+    True iff ``text`` is page-furniture chrome, a CAPTCHA/boilerplate stub, a numbered
+    ToC / CC-license / masthead / login-wall fragment, a standalone scraped doc label
+    ("Abstract"/"AI Summary"), an author-ORCID/affiliation list, a bare DOI row, glued
+    page-furniture welded INTO real prose (I-wire-013 CONTAINMENT), or a mid-word/cut-span
+    TRUNCATION. With ``require_sentence_form=True`` it ALSO rejects a mid-word-START fragment
+    and an incomplete sentence (bullet/header surfaces only).
+
+    ``known_words`` (I-wire-013 #1327): when a caller supplies the run's corpus-vocabulary
+    allowlist, the truncation leg ALSO catches a CORPUS-GROUNDED span cut at a ``[N]`` boundary
+    (a non-inflectional prefix/suffix of a longer corpus word - ". 1.2 Resea.[14]"). It defaults
+    to ``None`` so every existing caller (including the canary) is unchanged: no corpus  the
+    boundary-cut leg is skipped  no new false positive.
+
+    SUPPRESS-ONLY: never promotes a unit, never alters a faithfulness VERDICT. The base
+    screen (boilerplate/web-chrome/CAPTCHA) ALWAYS runs (preserving the pre-I-wire-012
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2609ms:
+_DOC_LABEL_RE = re.compile(
+    r"^(?:abstract|ai\s+summary|ai\s+overview|graphical\s+abstract|author\s+summary|"
+    r"plain\s+language\s+summary|highlights|table\s+of\s+contents)\s*[:.]?\s*$",
+    re.IGNORECASE,
+)
+# An ORCID identifier in a "claim" => an author/affiliation masthead list, never a
+# finding (a real clinical/economics sentence never carries a 0000-0000-0000-0000
+# ORCID id). High precision by construction.
+_ORCID_RE = re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{3}[\dxX]\b")
+# A bare DOI / identifier row standing alone as a "claim" (no assertional prose).
+_DOI_ONLY_RE = re.compile(
+    r"^\s*(?:doi\s*:?\s*|https?://(?:dx\.)?doi\.org/)?10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\s*$",
+    re.IGNORECASE,
+)
+# Trailing ``[N]`` / ``[#ev:...]`` citation markers (stripped before the sentence-form
+# completeness test so ".claim.[12]" is judged on the "." not the marker).
+_SHARED_TRAILING_CITE_RE = re.compile(r"(?:\s*\[(?:\d+|#ev:[^\]]*)\])+\s*$")
+
+# ִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִ
+# I-wire-013 (#1327) iter-3a - CONTAINMENT forensic chrome rules (the UNBLINDING).
+#
+# The legacy chrome categories above are WHOLE-UNIT junk classifiers (anchored ^.$ / standalone-
+# label / bare-DOI shapes): they return False the moment a unit ALSO carries real prose, so glued
+# page-furniture survived (".over the recent past.[1] 1 Introduction 1.1 Research background 1.2
+# Resea.[14]", a masthead glued mid-Abstract, a "## Dennis Zami ." author header glued onto a
+# section title). These rules - ported from the independent detector
+# scripts/iwire013_sec11_forensic_audit.py (which catches 55 chrome / 20 truncation on the banked
+# render where the production predicate reported ~0) - flag a unit that CONTAINS chrome, not only a
+# unit that IS chrome.
+#
+# PRECISION OVER RECALL (drop-path law - "over-strip deletes a real finding, worse than a leak"):
+# the detector's loose bare ``\d+ TitleCase`` ToC token and any-run non-Latin rule were tightened
+# for this DROP path (they over-flagged real economics prose with year/figure number pairs and an
+# English finding quoting a short CJK term). The kept rules are structure-anchored and validated to
+# flag ZERO of a clean-finding probe set while catching the real glued chrome (ק47/55 of the banked
+# render; the residual are detector false-positives we deliberately KEEP, or niche chrome the canary
+# backstops). Every numeric threshold is a named constant (LAW VI / 9.4).
+
+# A glued/inline markdown header INSIDE a unit body (a SECOND "## ." header welded onto the title /
+# into prose) - NOT a clean leading header (the caller passes a header's TITLE, post-``#`` strip).
+_INLINE_HEADER_RE = re.compile(r"(?:^|[^\n#])#{1,6}\s+[A-Za-z]")
+# Author-with-superscript-affiliation list: "Kanbach1,2 ת Louisa Heiduk1 ת ." (middot separators).
+_AFFIL_MIDDOT_RE = re.compile(r"[A-Za-z]{2,}\d{1,2}(?:,\d)?\s*[ת]")
+# A run of non-Latin script (Arabic / CJK) - the report is English-only, so a PREDOMINANTLY
+# non-Latin unit is a foreign-page scrape. A SHORT inline foreign term inside English prose is NOT
+# flagged (-1.3 multilingual preservation): the run must be long AND outweigh the Latin letters.
+_NONLATIN_CHAR_RE = re.compile(r"[?-??-??-??-??-?]")
+_NONLATIN_RUN_RE = re.compile(r"[?-??-??-??-??-?]{4,}")
+_MIN_NONLATIN_RUN_CHARS = 4  # a shorter run is an inline foreign term, kept
+# A DOTTED section-number token glued into a unit ("1.1 Research", "5.2 AI"); the TitleCase word is
+# excluded when it is a magnitude/measure unit so a real "3.2 Million / 4.5 Billion" pair never
+# reads as a two-token ToC. A unit needs ``_MIN_DOTTED_TOC_HITS`` dotted tokens to flag as glued ToC.
+_DOTTED_SECTION_TOKEN_RE = re.compile(r"(?:^|\s)\d+\.\d+(?:\.\d+){0,2}\s+([A-Z][a-z]+)")
+_MIN_DOTTED_TOC_HITS = 2
+_MAGNITUDE_UNIT_WORDS = frozenset({
+    "million", "billion", "trillion", "thousand", "hundred", "percent", "percentage",
+    "times", "average", "points", "point",
+})
+# A STANDALONE numbered-heading LINE/unit: a unit that OPENS with a dotted section number + a
+# TitleCase word ("3.3 Recommender Systems", "1.1 Research background to the study"). Anchored at the
+# unit start so a mid-sentence "see section 3.3 for details" never matches; the opener word is
+# magnitude-excluded so "3.2 Billion outcomes ." never matches.
+_STANDALONE_DOTTED_HEADING_RE = re.compile(r"^\s*\d+\.\d+(?:\.\d+){0,2}\s+([A-Z][a-z][\w]*)")
+# A STANDALONE numbered SECTION-NAME heading ("1 Introduction", "3 Methods") - anchored at the unit
+# start with a closed section-name vocabulary so a prose "Figure 1 Results" / "Table 2 Methods"
+# (which does NOT open with a bare number) is never matched.
+_STANDALONE_SECTION_NAME_RE = re.compile(
+    r"^\s*\d+(?:\.\d+){0,3}\s+(?:Introduction|Background|Materials?|Methods?|Methodology|"
+    r"Results?|Discussion|References?|Conclusion|Abstract|Literature|Overview)\b",
+    re.IGNORECASE,
+)
+# Journal / submission MASTHEAD furniture welded into a unit ("44 Pages Posted: 9 Jan 2018",
+# "Vol: 30 Issue: 1", "Date Issued April 2020", "Policy Research Working Paper 11057").
+_MASTHEAD_CHROME_RE = re.compile(
+    r"\bpages?\s+posted\s*:|\bposted\s*:\s*\d|\blast revised\s*:|\bdate issued\b|"
+    r"\bworking paper\s+\d{2,}|\bvol\.?\s*:?\s*\d+\s*(?:,|issue|no\.?)|"
+    r"there are \d+ versions of this paper|\bpolicy research working paper\b|"
+    r"cite this paper as|number of pages",
+    re.IGNORECASE,
+)
+# Author / submission-metadata block ("Received: 31 May 2023 / Accepted: .", "Published online").
+_SUBMISSION_META_RE = re.compile(
+    r"received:\s*\d|accepted:\s*\d|published online|\brevised:\s*\d", re.IGNORECASE,
+)
+# Browser / UI / nav / social-share junk welded into a unit.
+_NAV_CHROME_RE = re.compile(
+    r"share\s+facebook|facebook\s+twitter|twitter\s+linkedin|download associated records|"
+    r"clear your browser cache|refresh the page or clear|accessing this content requir|"
+    r"this content is only available as a pdf|i need some assistance|most recent answer|"
+    r"requires a membership|please log into",
+    re.IGNORECASE,
+)
+# Open-access / license / copyright furniture.
+_LICENSE_CHROME_RE = re.compile(
+    r"creative commons|creativecommons\.org/licenses|open access article distributed under|"
+    r"this is an open access article|c\s*\d{4}\s+the\b|c\s*the author|copyright\s+c",
+    re.IGNORECASE,
+)
+# HARD bibliographic / portal markers (a LONE URL is NOT chrome; these are unambiguous).
+_BIBLIO_CHROME_RE = re.compile(
+    r"\bdoi:\s*10\.\d|\bissn\b\s*:?\s*\d|crossref reports the following articles citing|"
+    r"volume title publisher|name:\s*\S+\.txt\b|file type:\s*text/",
+    re.IGNORECASE,
+)
+_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+_DOI_URL_RE = re.compile(r"https?://(?:dx\.)?doi\.org/", re.IGNORECASE)
+_MIN_URLS_FOR_CHROME = 3       # >=3 bare URLs in one unit => a link list / portal blob
+_MIN_DOI_URLS_FOR_CHROME = 2   # >=2 doi.org URLs => a reference blob
+# A statistics / regression TABLE welded into a unit: a dense run of parenthesised std-errors
+# "(0.018) (0.016) (0.011)" or starred coefficients "0.034* 0.030* 0.027**". A real finding cites
+# one coefficient, never a 3+/2+ run.
+_STATS_TABLE_RE = re.compile(
+    r"(?:\(\s*[--]?\d+\.\d+\s*\)\s*){3,}|(?:\d+\.\d+\s*\*{1,3}\s*){3,}"
+)
+
+# ִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִִ
+# I-wire-016 (#1338) gap-fill - precision-safe furniture rules the legacy categories miss (the OSS
+# survey confirmed no fetch-time HTML extractor fits the render seam; extend the deterministic
+# predicate). Codex iter-1/2/3 removed every rule whose surface form overlaps a real finding (biblio
+# date+page, bibliometric stats, "Name<digit>, <digit>" superscript), leaving the unambiguous
+# affiliation-glued / title+affiliation / author-attribution-phrase rules. VALIDATED precision-first:
+# ZERO of the 398 curated-clean real-content units are flagged; every Codex adversarial real-finding
+# case is KEPT. Under-removal is the safe direction (recall secondary per -1.3); the chrome-as-claim
+# canary backstops the rarer residual classes. FLAG-not-drop: a flagged unit is withheld from the
+# rendered rollup, KEPT in evidence; the faithfulness engine (strict_verify / NLI / 4-role / span) is UNCHANGED.
+#
+# gap 1 - a digit GLUED to an institution keyword ANCHORED to its affiliation preposition (Department
+# OF, Laboratory OF/FOR/AT, Institute OF/FOR, .) so an adjective ("2Laboratory-confirmed cases",
+# "1Institutional review boards") never matches (Codex iter-1 P1). Real prose spells "a/one/the department";
+# only an author-block superscript glues a digit directly to "Department of"/"Institute of"/etc.
+_AFFIL_GLUED_RE = re.compile(
+    r"\b\d{1,2}(?:Department\s+(?:of|for)\b|Departamento\s+de\b|Faculty\s+of\b|School\s+of\b|"
+    r"Institute\s+(?:of|for)\b|University\s+of\b|Universidad\s+de\b|Facultad\s+de\b|Escuela\s+de\b|"
+    r"Laborator(?:y|ies)\s+(?:of|for|at)\b|Centre\s+for\b|Center\s+for\b)",
+)
+# gap 4 - title+affiliation composite: a dash + digit + institution ("A Survey of . - 1 Department of .").
+_TITLE_AFFIL_RE = re.compile(
+    r"[---]\s*\d{1,2}\s+(?:Department\s+of|Institute\s+(?:of|for)|Faculty\s+of|School\s+of|"
+    r"University\s+of|Laborator(?:y|ies)\s+(?:of|for|at)|Centre\s+for|Center\s+for)\b",
+)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3431ms:
+"""Verified-only extractive executive summary (I-meta-002-q1d #949 part b).
+
+Frontier DR reports lead with a key-findings-up-front summary; POLARIS opened cold into Efficacy. This
+builds a "Key Findings" block by EXTRACTING the first verified sentence (verbatim, with its `[N]` citation)
+from each verified section. It is PURELY EXTRACTIVE - it copies sentences that already survived strict_verify
+and introduces ZERO new claims, no LLM call, no spend. Empty input  "" (no empty heading).
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from typing import Any
+
+# One sentence = minimal run up to end punctuation, PLUS any trailing `[N]` citation marker(s), where the
+# end punctuation must be a real sentence boundary: followed by whitespace+capital/bracket/digit OR end of
+# text. The boundary lookahead prevents stopping inside a decimal ("2.1" - the period is followed by a digit,
+# no whitespace, so it is not a boundary). Matching (not splitting) keeps trailing-citation forms (`claim.
+# [1]` AND `claim [1].`) attached to the sentence - re.split would consume the trailing `[N]` (Codex
+# diff-gate iter-1 P2).
+_SENTENCE_RE = re.compile(r".+?[.!?](?:\s*\[\d+\])*(?=\s+[A-Z(\[\d]|\s*$)", re.DOTALL)
+
+# A Key Finding is a SPAN-VERIFIED statement - by definition it carries its `[N]` / `[#ev:`
+# citation (module docstring). This is the robust per-SENTENCE gap filter (I-gen-006 #1178
+# C07/P07): a gap-disclosure sentence ("... did not survive strict verification; curator-
+# actionable gap.") carries NO citation, so in a MIXED V30 section (a leading gap slot +
+# later verified prose, where the SECTION still has sentences_verified>0) the uncited gap
+# sentence is skipped and the first CITED sentence is lifted instead. Keys on the citation
+# invariant, never on matching gap-disclosure text.
+_CITATION_RE = re.compile(r"\[\d+\]|\[#ev:")
+
+# Gap-disclosure boilerplate (I-gen-006 #1178 C07/P07, Codex iter-5): the V30 contract-runner
+# gap disclosure is a FIXED two-sentence template - "Contract-bound content ... curator-actionable
+# gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[N]" - and
+# its SECOND sentence DOES carry a `[N]` (a pointer to the gap-task sidecar, NOT an evidence span),
+# so the citation filter alone cannot exclude it. A Key Finding must be a span-verified CLAIM, never
+# a gap pointer; exclude any sentence carrying a canonical gap-disclosure marker. Robust because the
+# disclosure text is generated from fixed constants (contract_section_runner / _GAP_STUB_SENTENCE),
+# never free-form prose - this is a rendering filter, not a -1.1 quality-by-pattern judgement.
+_GAP_MARKER_RE = re.compile(
+    r"curator-actionable gap|did not survive strict verification|"
+    r"did not survive (?:4-role )?verification|frame_coverage_report|human_gap_tasks",
+    re.IGNORECASE,
+)
+
+# An ATX markdown header: 1-6 '#' followed by whitespace ("### Section"). Used to detect a
+# leaked section header WITHOUT mis-classifying hash-leading prose like "#1 ranked" (Codex P2).
+_ATX_HEADER_RE = re.compile(r"#{1,6}\s")
+
+_OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
+
+# How many leading verified sentences to lift from each section (default 1 - the headline finding).
+_SENTENCES_PER_SECTION = 1
+# Hard cap on total bullets so the summary stays a summary.
+_MAX_BULLETS = 6
+
+# I-wire-011 (#1325) fix 2/3 - shared render hygiene used by Key Findings (here) AND the
+# Abstract/Conclusion harvesters (abstract_conclusion.py imports these). PURE string ops; they
+# only change which already-verified sentence RENDERS or trim a marker RUN - never a verdict, never
+# a source/count. Faithfulness-STRENGTHENING (they can only suppress a fragment, never promote one).
+
+# Trailing `[N]` / `[#ev:...]` citation markers (stripped before the truncation test so a clean
+# ".claim.[12]" is judged on the "." not the marker).
+_TRAILING_CITATION_RE = re.compile(r"(?:\s*\[(?:\d+|#ev:[^\]]*)\])+\s*$")
+# HIGH-PRECISION mid-word / cut-span truncation MARKERS only (the -1.1 over-strip ban - never a
+# heuristic guess at a cut word): a dangling/closed ellipsis (`.`, `...`, `[...]`, `[.]`, a dangling
+# `[...` whose `]` was capped) or a trailing mid-word hyphen. An INTERNAL hyphen
+# ("treatment-specific effects were observed.") is NOT a truncation and still renders.
+_TRUNCATION_MARKER_RE = re.compile(r"\[\s*(?:\.\.\.|.)\s*\]?\s*$|(?:.|\.\.\.)\s*$|-\s*$")
+# A run of 2+ ADJACENT numeric citation markers ("[12][13][14]" / "[12] [13]") - capped to the
+# first N (document order = the body's own priority). Non-adjacent markers belong to DISTINCT
+# in-sentence claims and are never merged/capped.
+_ADJACENT_MARKER_RUN_RE = re.compile(r"\[\d+\](?:\s*\[\d+\])+")
+
+# Default per-run citation cap (LAW VI override PG_KEY_FINDINGS_MAX_MARKERS / the conclusion uses
+# its own override). A summary line citing >3 sources in one run is render-noise; the body + the
+# bibliography retain every reference, so capping the SUMMARY display can never orphan a citation.
+_DEFAULT_MAX_MARKERS = 3
+
+# ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4335ms:
+def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
+    """I-arch-011 PR-c RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC, NO-LLM short writer - the
+    FIRST sentence of the basket's strongest isolated-``SUPPORTS`` member's verified span, tagged with
+    that member's REAL global offsets for exactly that first-sentence prefix. It is a verbatim PREFIX of
+    the verified span, so it re-passes strict_verify trivially AND lands within the member's own region
+    (the P1-1 region gate). Used to PROBE the render path (does verified-compose fire through
+    _run_section->render? does short prose fit the 150K answer_body budget?) WITHOUT the per-basket LLM
+    writer (the real PR-c writer) and WITHOUT the verbatim-full-span overflow. Returns '' when no member
+    resolves (caller falls back to the basket's K-span / insufficient-evidence disclosure)."""
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        quote = str(getattr(m, "direct_quote", "") or "").strip()
+        gspan = _member_global_span(m, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        start, _end = gspan
+        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        # I-beatboth-011 3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); if EVERY
+        # unit is chrome, fall through to the next SUPPORTS member. Real short sentences are KEPT (P1-4).
+        units = [u for u in units if not _compose_junk_screen(u)]
+        if not units:
+            continue
+        first = units[0]
+        # Offset the token to the first sentence's position WITHIN the verified span (prefix => the
+        # quote starts at `start`; locate `first` in `quote` to stay exact if there is leading text).
+        off = quote.find(first)
+        tok_start = start + (off if off >= 0 else 0)
+        tok_end = tok_start + len(first)
+        # I-beatboth-009 (#1287): emit the token BEFORE the terminal period so split_into_sentences
+        # keeps it attached (the prior "first. [#ev:...]" orphaned the token -> no_provenance_token ->
+        # verified=0). tok_start/tok_end are UNCHANGED (they still index the member's real global span),
+        # so faithfulness is identical - only the display punctuation moves.
+        first_display = _strip_terminal_punct(first)
+        return f"{first_display} [#ev:{eid}:{tok_start}-{tok_end}]."
+    return ""
+
+
+def _insufficient_evidence_disclosure(basket: Any) -> str:
+    """Honest NEVER-empty fallback when a basket has prose-fail AND no verified span: disclose the
+    gap, never fabricate filler (-1.3). Names the claim subject so the disclosure is specific."""
+    subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim").strip()
+    return f"[insufficient verified evidence to compose a sentence for: {subject[:160]}]"
+
+
+def _compose_one_basket(
+    basket: Any,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+) -> str:
+    """Compose ONE basket: writer drafts prose -> strict_verify each sentence against the
+    BASKET-SCOPED pool -> keep passing sentences; on the FIRST failing sentence (or a foreign-cited
+    one, which fails closed under the scoped pool) FALL BACK to this basket's own verified K-span;
+    if the basket has no verified span, emit the insufficient-evidence disclosure. NEVER empty."""
+    scoped_pool = _basket_scoped_pool(basket, evidence_pool)
+    regions = _basket_member_regions(basket, evidence_pool)
+    draft = writer_fn(basket, scoped_pool) or ""
+    kept: list[str] = []
+    fell_back = False
+    for sentence in split_into_sentences(draft):
+        res = verify_fn(sentence, scoped_pool)
+        # Append the VERIFIER'S sentence, not the raw input (Codex core-gate P1-2): with
+        # PG_SPAN_RESOLVER on, verify_sentence_provenance RE-ANCHORS the token to the span it actually
+        # entailed (``SentenceVerification.sentence`` = the re-pointed ``final_sentence``).
+        verified_text = str(getattr(res, "sentence", "") or "").strip() or sentence.strip()
+        # PASS requires BOTH (a) strict_verify, AND (b) every cited token lands WITHIN this basket's
+        # OWN member span regions (Codex core-gate P1-1): a shared source's OTHER-claim span span-
+        # grounds against the global row, but it is NOT this basket's claim -> reject -> own K-span.
+        if bool(getattr(res, "is_verified", False)) and _tokens_within_basket_regions(verified_text, regions):
+            kept.append(verified_text)
+        else:
+            fell_back = True
+            break
+    if kept and not fell_back:
+        return " ".join(kept)
+    # prose failed (or produced nothing): basket-id-bound verbatim fallback, else honest disclosure.
+    fallback = build_verified_span_draft(basket, evidence_pool)
+    if fallback is not None:
+        # If some sentences were kept before the failure, keep them + the verbatim span (never lose
+        # already-verified prose); else the span alone.
+        return " ".join(kept + [fallback]) if kept else fallback
+    return " ".join(kept + [_insufficient_evidence_disclosure(basket)]) if kept \
+        else _insufficient_evidence_disclosure(basket)
+
+
+# 哪 I-beatboth-002 Fix 1 (F1-1) - multi-cited verified synthesis 哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪
+#
+# The DRB-II analysis dimension needs cross-source SYNTHESIS: ONE rendered sentence that carries
+# corroborating citations from MORE THAN ONE basket. The faithfulness-by-construction design (advisor
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+I have enough to separate execution blockers from lower-priority precision gaps. I’m grabbing exact line anchors for the two static risks I found so the final verdict can stay concrete.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def _boundary_token_is_span_cut\" src\\polaris_graph\\generator\\key_findings.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def _drop_empty_claim_sections\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"while j < n and not _SECTION_HEADER_RE.match\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"if first.islower\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"require_sentence_form=True\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+ succeeded in 1756ms:
+151:def _boundary_token_is_span_cut(
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2507ms:
+1388:def _drop_empty_claim_sections(lines: "list[str]") -> "tuple[list[str], int]":
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3243ms:
+1010:    if first.islower():
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4147ms:
+1428:        while j < n and not _SECTION_HEADER_RE.match(lines[j]):
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4703ms:
+352:    pool and pass it (+ ``require_sentence_form=True``) into the per-unit chrome/truncation screen so
+376:            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"token[:1].islower\" src\\polaris_graph\\generator\\key_findings.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"and completes\" src\\polaris_graph\\generator\\key_findings.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def _line_has_claim_prose\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"_CITATION_SPLIT_RE.split(line)[::2]\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+ succeeded in 1671ms:
+182:            and completes
+187:        return t not in _SINGLE_LETTER_KEEP_TOKENS and completes
+191:        return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2421ms:
+180:            and token[:1].islower()
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3233ms:
+1371:    text_only = "".join(_CITATION_SPLIT_RE.split(line)[::2])  # even indices = non-marker text
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3894ms:
+1366:def _line_has_claim_prose(line: str) -> bool:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"suppress_trailing_markers\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def sanitize_rendered_report\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"out_lines, empty_headers_dropped\" src\\polaris_graph\\generator\\weighted_enrichment.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def _compose_junk_screen\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+ succeeded in 1882ms:
+1329:    suppress_trailing_markers = False
+1336:            if suppress_trailing_markers:
+1350:                suppress_trailing_markers = False
+1353:            suppress_trailing_markers = True  # orphan this dropped claim's continuation markers
+1356:        suppress_trailing_markers = False
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 2636ms:
+1439:def sanitize_rendered_report(
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3371ms:
+277:def _compose_junk_screen(
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4213ms:
+1478:    out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+One important nuance on R1: this is still withhold-only, but activating `require_sentence_form` changes K-span fallback behavior from “emit any verified span” to “emit only complete-looking sentence spans.” I’m checking whether that creates a blocker or just a precision/coverage caveat.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/verified_compose.py | Select-Object -Skip 0 -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"split_into_sentences\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"def split_into_sentences\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"direct_quote\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+ succeeded in 2536ms:
+"""I-arch-011 #1268 PR-c - per-basket VERIFIED-COMPOSE with basket-id-bound verbatim fallback.
+
+The composition FLOW step 3 ("great writing, verified"): turn each claim BASKET into readable
+prose WITHOUT fabricating. For every basket the abstractive WRITER (the existing generator-role
+LLM - NO new model) drafts prose carrying ``[#ev:<id>:<a>-<b>]`` provenance tokens; each sentence
+is then re-checked by the UNCHANGED deterministic ``strict_verify`` (``verify_sentence_provenance``)
+against a BASKET-SCOPED evidence pool. A passing sentence is kept; a FAILING sentence - including
+one that cites a DIFFERENT basket's evidence_id (absent from the basket-scoped pool, so it fails
+closed - the Codex P1-2 anti-cross-claim contract) - FALLS BACK to THAT BASKET'S OWN verified
+K-span (a verbatim quote from one of its isolated-``SUPPORTS`` members). If the basket has no
+verified span at all, an honest insufficient-evidence disclosure is emitted. The result is NEVER
+empty (the original FIX-K empty-section bug).
+
+FAITHFULNESS (by construction, the crown-jewel rules are untouched):
+  * The WRITER only ORGANIZES + PHRASES already-verified spans; it can never license an unsupported
+    claim - a fabrication fails ``strict_verify`` and degrades to the verbatim K-span (QUOTATION is
+    the only faithful-BY-CONSTRUCTION form - survey arXiv:2508.15396).
+  * ``strict_verify`` / NLI / 4-role / provenance are UNCHANGED; this module calls the production
+    single-sentence verifier as-is and consumes its binary verdict - it adds NO gate, relaxes none.
+  * The verbatim fallback is BASKET-ID-BOUND: a failed sentence can fall back ONLY to its own
+    basket's verified span, never another basket's (P1-2). Enforced by scoping the verify pool AND
+    the fallback span to the basket's own members.
+  * Deterministic: the fallback K-span + sentence split are pure; only the writer is an LLM call,
+    and it is the EXISTING generator-role invocation (governed by polaris_runtime_lock.yaml exactly
+    like every other generation). NO new model, NO new slug, NO new resolver.
+"""
+from __future__ import annotations
+
+import os
+import re
+from typing import Any, Callable, Optional
+
+# The section heading the verified-compose body renders under when it is the PRIMARY producer.
+# (Re-exported from multi_section_generator so the harness + callers share one constant.)
+_ENRICHMENT_TITLE = "Corroborated Findings"
+
+_VERIFIED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE"
+
+# I-beatboth-002 Fix 1 (F1-1) - multi-cited verified synthesis. Default-OFF (LAW VI): when this
+# flag is unset/off the module is byte-identical to the single-basket per-basket producer above;
+# ON, the caller MAY co-locate per-member-verified clauses from N corroborating baskets into ONE
+# multi-cited synthesized sentence. The faithfulness contract is UNCHANGED - see
+# ``compose_multicited_sentence`` for the per-clause (NOT whole-sentence) verify invariant.
+_MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
+
+# A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
+_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
+# of every provenance token so a byte-identical re-emission of the same span can be detected and dropped
+# (faithfulness-neutral - same resolved span, no new claim).
+_EV_SPAN_RE = re.compile(r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]")
+
+
+def _resolved_spans(text: str) -> set[tuple[str, int, int]]:
+    """The distinct resolved (evidence_id, start, end) provenance tuples a composed unit carries.
+
+    Empty set for a unit with no ``[#ev:...]`` token (such a unit is NEVER a seen-span drop candidate -
+    zero tokens must not be a vacuous "all duplicate"). Identity is the RESOLVED span (ev_id+offsets),
+    so it is stable under both the stub and the real writer (both emit the same token grammar)."""
+    spans: set[tuple[str, int, int]] = set()
+    for m in _EV_SPAN_RE.finditer(text or ""):
+        try:
+            spans.add((m.group("ev_id"), int(m.group("start")), int(m.group("end"))))
+        except (ValueError, TypeError):
+            continue
+    return spans
+
+
+# I-arch-011 #1269 B11 (compose-repetition) - a number-token signature for the carve-out below.
+# Standalone integers / decimals (incl. a %/$ neighbour), used ONLY to decide whether a same-span
+# restatement adds a NEW statistic (it survives) or is a pure reword (it collapses). Conservative:
+# a single shared 800-char span can carry >1 distinct statistic, so a sentence that introduces a
+# number absent from its kept same-footprint siblings is KEPT - never dropped as "duplicate".
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def _number_tokens(text: str) -> frozenset[str]:
+    """The distinct number tokens in ``text`` AFTER stripping every ``[#ev:...]`` provenance token
+    (so the span offsets in the token never count as content numbers). Empty for non-numeric prose."""
+    stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    return frozenset(m.group(0) for m in _NUMBER_TOKEN_RE.finditer(stripped))
+
+
+def dedup_same_span_sentences(sentences: list) -> tuple[list, list]:
+    """I-arch-011 #1269 B11 - collapse degenerate same-span restatements to ONE rendering per
+    distinct resolved-span FOOTPRINT (the (ev_id,start,end) SET a sentence cites), keep-FIRST.
+
+    THE DEFECT this fixes: the legacy section producer emitted ONE verified span (e.g.
+    ``brynjolfsson_genai_at_work:0-800``) as 18 near-identical sentences - 18x the SAME footprint,
+    zero added breadth (canary autopsy B11 / -1.1 DO_NOT_SHIP). The -1.3 reading: repetition of the
+    SAME span is NOT corroboration; corroboration is DISTINCT works (distinct ev_ids). This pass keeps
+    one sentence per distinct footprint so breadth comes from distinct works, not from re-citing one
+    span N times.
+
+    FAITHFULNESS (by construction): every dropped sentence cites a footprint already emitted by a
+    KEPT sibling - it is an already-strict_verify-PASSED restatement of an already-rendered span, so
+    removing it can never drop a claim that is not still present, and it NEVER touches strict_verify /
+    NLI / 4-role / span-grounding (it runs AFTER them, on the kept list). It is CONSOLIDATE-keep-one,
+    NOT a cap/thinner/target - there is no fixed N; the bound is content identity (one per footprint).
+
+    DISTINCT-WORK SAFETY: a different ev_id => a different footprint => never collapsed. Multi-source
+    corroborators (NBER ev_228 + MIT ev_224, etc.) carry DIFFERENT ev_ids and can never be merged or
+    dropped by this pass - it only ever collapses re-citations of the IDENTICAL span set.
+
+    NUMBER CARVE-OUT (conservative, advisor 2026-06-21): a same-footprint sentence that introduces a
+    number token absent from ALL its kept same-footprint siblings is KEPT (a single 800-char span can
+    state >1 statistic; do not lose a genuine second number). A pure reword (no new number) collapses.
+
+    Order-preserving, pure. A sentence with NO provenance token is NEVER a duplicate candidate (zero
+    footprint must not be vacuously "all duplicate") - it is always kept. ``sentences`` may be any
+    objects exposing a ``.sentence`` str (the production SentenceVerification) OR plain strings.
+
+    Returns ``(kept, dropped)`` - ``kept`` is the deduped list in input order; ``dropped`` is the
+    collapsed redundant objects (the caller routes them into the existing dedup-redundant telemetry)."""
+    kept: list = []
+    dropped: list = []
+    # footprint (frozenset of (ev_id,start,end)) -> union of number tokens already KEPT for it.
+    seen_numbers_by_footprint: dict[frozenset, frozenset[str]] = {}
+    for sv in (sentences or []):
+        text = sv if isinstance(sv, str) else str(getattr(sv, "sentence", "") or "")
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 3106ms:
+161:def split_into_sentences(text: str) -> list[str]:
+370:        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+381:            # downstream strict_verify splitter (split_into_sentences: terminal-punct + whitespace +
+407:        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+419:        # I-beatboth-009 (#1287): emit the token BEFORE the terminal period so split_into_sentences
+451:    for sentence in split_into_sentences(draft):
+707:    for sentence in split_into_sentences(draft):
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4040ms:
+218:    LOCATING the member's ``direct_quote`` inside the global row's text, NOT from
+220:    a LOCAL ``(0, len(direct_quote))``, so the offset must be recovered against the real downstream
+224:    quote = str(getattr(member, "direct_quote", "") or "")
+228:    haystack = str(row.get("direct_quote") or row.get("statement") or "")
+346:    strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
+359:        quote = str(getattr(m, "direct_quote", "") or "").strip()
+402:        quote = str(getattr(m, "direct_quote", "") or "").strip()
+678:    """ONE member's VERBATIM K-span clause: the member's own verified ``direct_quote`` tagged with its
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+ succeeded in 4960ms:
+161:def split_into_sentences(text: str) -> list[str]:
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+I’m going to read the local sentence splitter too; it determines whether R1’s new sentence-form gate mostly sees full sentences or raw spans.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/verified_compose.py | Select-Object -Skip 145 -First 90' in C:\POLARIS
+ succeeded in 1970ms:
+def _verified_compose_enabled() -> bool:
+    """PG_VERIFIED_COMPOSE gate. DEFAULT-OFF => the caller keeps the legacy section prose path
+    byte-identical; ON => verified-compose is the PRIMARY per-section prose producer."""
+    return os.getenv(_VERIFIED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _multicited_compose_enabled() -> bool:
+    """PG_VERIFIED_COMPOSE_MULTICITED gate (I-beatboth-002 F1-1). DEFAULT-OFF => the multi-cited
+    synthesis producer is never invoked and the module behaves byte-identically to the single-basket
+    path; ON => the caller MAY compose a multi-cited synthesized sentence via
+    ``compose_multicited_sentence``. Independent of ``PG_VERIFIED_COMPOSE`` so the multi-cited path
+    is a SEPARATE, explicitly-opted increment (no implicit activation)."""
+    return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def split_into_sentences(text: str) -> list[str]:
+    """Split composed prose into sentence units for per-sentence strict_verify. Keeps each
+    sentence's trailing provenance token(s) attached (the ``]`` lookbehind). Empty-safe."""
+    if not text or not text.strip():
+        return []
+    return [s for s in _SENT_SPLIT_RE.split(text.strip()) if s.strip()]
+
+
+def _basket_supports_members(basket: Any) -> list[Any]:
+    """The basket's isolated-``SUPPORTS`` members, highest credibility weight first (the verbatim
+    fallback prefers the strongest verified source). ``span_verdict == "SUPPORTS"`` is the binding
+    isolated-verification result (NEVER the advisory clustered count)."""
+    members = list(getattr(basket, "supporting_members", None) or [])
+    supports = [m for m in members if str(getattr(m, "span_verdict", "") or "").upper() == "SUPPORTS"]
+    supports.sort(key=lambda m: float(getattr(m, "credibility_weight", 0.0) or 0.0), reverse=True)
+    return supports
+
+
+def _distinct_origin_supports(basket: Any) -> list[Any]:
+    """The basket's SUPPORTS members deduped to ONE per distinct ORIGIN (highest credibility weight
+    kept), so a multi-cited sentence corroborates across DISTINCT sources and never re-cites the SAME
+    origin twice (Codex gate P1: same-origin duplicate members must NOT render as a 'corroborated'
+    multi-cite). Origin identity = ``origin_cluster_id`` (fallback ``evidence_id``). Order-stable
+    (weight desc, inherited from ``_basket_supports_members``)."""
+    seen: set[str] = set()
+    out: list[Any] = []
+    for m in _basket_supports_members(basket):
+        origin = str(
+            getattr(m, "origin_cluster_id", "") or getattr(m, "evidence_id", "") or id(m)
+        )
+        if origin in seen:
+            continue
+        seen.add(origin)
+        out.append(m)
+    return out
+
+
+def _basket_scoped_pool(basket: Any, evidence_pool: dict) -> dict:
+    """The verify pool scoped to THIS basket's member evidence_ids - using the GLOBAL rows (so the
+    cited token OFFSETS stay anchored to the global ``evidence_pool[eid]`` exactly as downstream
+    resolution/audit will read them; Codex core-gate P1-3). A citation to a source NOT in this
+    basket is absent entirely (fails closed). The remaining P1-1 anti-cross-claim guarantee (a
+    shared source backing DISTINCT baskets with DIFFERENT spans) is enforced SEPARATELY, AFTER
+    verify, by ``_tokens_within_basket_regions`` - a sentence may pass strict_verify against the
+    global row yet cite a span belonging to a DIFFERENT basket's claim; the region check rejects it."""
+    # ISSUE #1279 P1#1 (tightening): scope to the basket's isolated-``SUPPORTS`` members ONLY, NEVER the
+    # full ``supporting_members`` (which intentionally KEEPS unsupported members per Principle 2). An
+    # UNSUPPORTED member's evidence_id MUST NOT enter the verify pool - else a writer citing it would
+    # strict_verify-PASS against the unsupported span and render unverified text as verified. Strictly
+    # MORE restrictive (fails closed); the K-span fallback already uses SUPPORTS-only members.
+    own_ids = {str(getattr(m, "evidence_id", "") or "") for m in _basket_supports_members(basket)}
+    own_ids.discard("")
+    return {eid: row for eid, row in (evidence_pool or {}).items() if eid in own_ids}
+
+
+def _member_global_span(member: Any, evidence_pool: dict) -> Optional[tuple]:
+    """The member's verified span as GLOBAL offsets into ``evidence_pool[eid]`` - computed by
+    LOCATING the member's ``direct_quote`` inside the global row's text, NOT from
+    ``BasketMember.span`` (Codex core-gate iter-3 P1: ``_assemble_baskets`` populates ``span`` as
+    a LOCAL ``(0, len(direct_quote))``, so the offset must be recovered against the real downstream
+    row). Returns None when the member has no quote or the quote is not a substring of the global
+    row (fail-closed: that member cannot define an acceptance region or a fallback span)."""
+    eid = str(getattr(member, "evidence_id", "") or "")
+    quote = str(getattr(member, "direct_quote", "") or "")
+    if not eid or not quote:
+        return None
+    row = (evidence_pool or {}).get(eid) or {}
+    haystack = str(row.get("direct_quote") or row.get("statement") or "")
+    if not haystack:
+        return None
+    idx = haystack.find(quote)
+    if idx < 0:
+        return None
+    return (idx, idx + len(quote))
+
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "findstr /n /c:\"_SENT_SPLIT_RE\" src\\polaris_graph\\generator\\verified_compose.py" in C:\POLARIS
+ succeeded in 1674ms:
+143:_SENT_SPLIT_RE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z0-9])")
+166:    return [s for s in _SENT_SPLIT_RE.split(text.strip()) if s.strip()]
+496:#     sentence under the production ``_SENT_SPLIT_RE`` (terminal ``.!?]`` + whitespace + ``[A-Z0-9]``);
+547:    ``[A-Z0-9]`` lookahead of ``_SENT_SPLIT_RE``. Proper-noun casing further into the clause is left
+568:    production ``_SENT_SPLIT_RE`` (terminal ``.!?]`` + whitespace + ``[A-Z0-9]``) and asserts NO
+[31;1mInvalidOperation: [31;1mCannot set property. Property setting is supported only on core types in this language mode.[0m
+
+codex
+Static review only. I did not run tests or pipeline.
+
+Findings first:
+
+P2: `src/polaris_graph/generator/weighted_enrichment.py:1428` drops an empty `###` section by scanning only until the next header of any level. A real grouping section like `### Analysis` followed by `#### Effect Sizes` with claim prose would lose the parent header even though the section subtree has real content. Not P1 because prose survives, but it can degrade report structure.
+
+P2: `src/polaris_graph/generator/verified_compose.py:376` activates `require_sentence_form=True`; paired with `weighted_enrichment.py:1010`, this suppresses verified K-span units that start lowercase or lack terminal punctuation. That is intentional for subjectless fragments, but it can also withhold legitimate source spans such as lowercase gene/product terms or verified spans stored without punctuation. Coverage risk, not faithfulness risk.
+
+P2: `src/polaris_graph/generator/key_findings.py:180` fixes the `t`/`s` recall bug, but any lowercase one-letter variable token before a citation, e.g. `p [N]` or `n [N]`, will be withheld if the corpus has longer words starting with that letter. The uppercase label cases are protected as claimed.
+
+No P0/P1 blockers found. Fix B’s contiguous trailing-marker suppression is consistent with the repo’s trailing-citation convention, and R1’s TypeError fallback is fail-conservative. I also saw no changes to strict_verify, NLI, 4-role judging, span grounding, or provenance verification.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "C1 can drop a real parent/grouping header when claim prose exists only under nested child headers."
+  - "R1 sentence-form gating can withhold verified K-span fragments that are legitimate but lowercase-starting or punctuationless."
+  - "Fix A still has a lowercase one-letter variable-token false-positive edge."
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+73,158

@@ -274,7 +274,12 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
 _JUNK_SCREEN = None
 
 
-def _compose_junk_screen(unit: str) -> bool:
+def _compose_junk_screen(
+    unit: str,
+    known_words: "set[str] | frozenset[str] | None" = None,
+    *,
+    require_sentence_form: bool = False,
+) -> bool:
     """I-beatboth-011 §3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome —
     INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
     consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
@@ -282,7 +287,14 @@ def _compose_junk_screen(unit: str) -> bool:
     multi-word chrome list). P1-4: allowlist-anchored only — a real short sentence is KEPT (no length
     drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a §-1.3
     DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
-    if THAT is unavailable keep the unit (never silently drop real prose)."""
+    if THAT is unavailable keep the unit (never silently drop real prose).
+
+    I-wire-017 (#1339) FIX R1: optional ``known_words`` (the run's corpus-vocabulary allowlist) +
+    ``require_sentence_form`` are threaded into the shared predicate so the K-span PRODUCER path
+    (``build_verified_span_draft``) actually exercises the truncation + subjectless-fragment legs —
+    previously inert here because they were called without these arguments. Safe on this path: K-span
+    units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
+    Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
     global _JUNK_SCREEN
     if _JUNK_SCREEN is None:
         try:
@@ -295,9 +307,38 @@ def _compose_junk_screen(unit: str) -> bool:
             except Exception:
                 _JUNK_SCREEN = lambda _t: False  # noqa: E731 — keep content; never drop real prose
     try:
-        return bool(_JUNK_SCREEN(unit))
+        return bool(
+            _JUNK_SCREEN(
+                unit, require_sentence_form=require_sentence_form, known_words=known_words
+            )
+        )
+    except TypeError:
+        # The boilerplate / no-op fallback screens take only the unit (no kwargs).
+        try:
+            return bool(_JUNK_SCREEN(unit))
+        except Exception:
+            return False
     except Exception:
         return False
+
+
+def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
+    """I-wire-017 (#1339) FIX R1 helper: the run's corpus-vocabulary allowlist for the K-span chrome
+    screen, built from the evidence pool's own fetched source text via the shared
+    ``weighted_enrichment.build_known_words_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
+    any import/build failure (and on an empty pool), so the truncation leg is simply skipped — never a
+    wrong drop, never a crash. PURE."""
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (
+            build_known_words_from_evidence,
+        )
+    except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
+        return None
+    try:
+        words = build_known_words_from_evidence(evidence_pool)
+    except Exception:  # pragma: no cover — defensive; build is pure
+        return None
+    return words or None
 
 
 def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
@@ -305,7 +346,14 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
     against), tagged with that member's own ``[#ev:<id>:0-<len>]`` provenance token so it re-passes
     strict_verify trivially (it IS the verified span). Returns None when the basket has no verified
-    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead)."""
+    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead).
+
+    I-wire-017 (#1339) FIX R1: build the run's corpus-vocabulary allowlist ONCE from the evidence
+    pool and pass it (+ ``require_sentence_form=True``) into the per-unit chrome/truncation screen so
+    this PRODUCER path screens out mid-word span cuts and subjectless fragments before they ship —
+    previously the screen ran without these, so those legs were inert and the render seam was the
+    only net. Suppress-only: faithfulness verdicts are untouched."""
+    known_words = _known_words_for_compose(evidence_pool)
     for m in _basket_supports_members(basket):
         eid = str(getattr(m, "evidence_id", "") or "")
         quote = str(getattr(m, "direct_quote", "") or "").strip()
@@ -323,7 +371,10 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
-        units = [u for u in units if not _compose_junk_screen(u)]
+        units = [
+            u for u in units
+            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+        ]
         out = []
         for u in units:
             # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the

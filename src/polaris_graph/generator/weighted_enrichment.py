@@ -1212,6 +1212,11 @@ _SCAFFOLDING_SECTION_TITLES = (
 )
 _KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
 _SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+# I-wire-017 (#1339) FIX C1: the shallowest header LEVEL (``###`` = 3) that may be dropped when its
+# sanitized body collapses to no claim-bearing prose. Top-level (``#``/``##``) report-structure
+# headers are never dropped (a top-level empty section is left for the operator to see), only the
+# per-claim ``###``-and-deeper content sections that the render seam emptied out.
+_MIN_DROPPABLE_EMPTY_HEADER_LEVEL = 3
 _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
 # I-wire-013 (#1327) iter-3b D-P1-1: split on BOTH the numeric ``[N]`` marker AND the provenance
 # ``[#ev:<id>:<start>-<end>]`` token (single capture group, inner alternation — keeps the
@@ -1316,21 +1321,39 @@ def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | N
         i += 2
     kept: list[str] = []
     dropped = 0
+    # I-wire-017 (#1339) FIX B: when a prose segment is dropped as chrome, the SAME claim's trailing
+    # continuation citation markers ("prose[6][7][5]" splits into a prose seg + two marker-only segs)
+    # would otherwise survive orphaned. Track the drop and suppress the contiguous marker-only run
+    # that immediately follows it. A marker-only run after a KEPT segment stays (it belongs to that
+    # kept claim). Withhold-only — the dropped markers' evidence is untouched.
+    suppress_trailing_markers = False
     for seg_text, seg_marker in segments:
         if not seg_text.strip() and not seg_marker:
+            continue
+        # A marker-only continuation segment (no prose, just "[N]") inherits the fate of the prose
+        # segment it continues: dropped if that prose segment was dropped, kept otherwise.
+        if not seg_text.strip():
+            if suppress_trailing_markers:
+                dropped += 1
+                continue
+            kept.append(seg_text + seg_marker)
             continue
         core = _unit_core_for_screen(seg_text)
         if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
             repaired = _repair_glued_inline_header(seg_text, known_words)
             if repaired is not None:
                 # Real-prose prefix kept WITH its citation marker (the kept finding stays cited);
-                # only the glued-header remainder is excised.
+                # only the glued-header remainder is excised. The prose survives, so its trailing
+                # continuation markers are NOT orphaned — keep them.
                 kept.append(repaired + seg_marker)
                 dropped += 1
+                suppress_trailing_markers = False
                 continue
             dropped += 1
+            suppress_trailing_markers = True  # orphan this dropped claim's continuation markers
             continue  # whole chrome unit + its marker dropped
         kept.append(seg_text + seg_marker)
+        suppress_trailing_markers = False
     return "".join(kept), dropped
 
 
@@ -1338,6 +1361,79 @@ def _is_scaffolding_section_title(title: str) -> bool:
     """True iff a header title names a pipeline SCAFFOLDING section (excluded from sanitization)."""
     low = title.strip().lower().lstrip("# ").strip()
     return any(low.startswith(s) for s in _SCAFFOLDING_SECTION_TITLES)
+
+
+def _line_has_claim_prose(line: str) -> bool:
+    """True iff ``line`` carries claim-bearing prose (not just blanks or bare ``[N]`` /
+    ``[#ev:...]`` citation markers). Strips leading bullet / ``**bold**`` markers and ALL citation
+    markers, then checks any real alphabetic content remains. I-wire-017 (#1339) FIX C1 helper: used
+    to decide whether a sanitized section body has collapsed to orphaned markers only. PURE."""
+    text_only = "".join(_CITATION_SPLIT_RE.split(line)[::2])  # even indices = non-marker text
+    return bool(_unit_core_for_screen(text_only).strip())
+
+
+def _immediate_parent_is_scaffolding(level: int, header_stack: "list[tuple[int, bool]]") -> bool:
+    """True iff the NEAREST strictly-shallower open header (the immediate markdown parent) is a
+    scaffolding header — e.g. ``### references`` whose parent is ``## Bibliography``. A non-scaffolding
+    header at an intermediate depth BREAKS the chain (it becomes the new parent), so a content section
+    under a non-scaffolding parent is NOT protected even if a far ancestor is the report's scaffolding
+    ``# Research Report:`` title. ``header_stack`` holds ``(level, is_scaffolding)`` for the open
+    ancestor headers, shallowest-first. PURE."""
+    for anc_level, anc_scaffolding in reversed(header_stack):
+        if anc_level < level:
+            return anc_scaffolding
+    return False
+
+
+def _drop_empty_claim_sections(lines: "list[str]") -> "tuple[list[str], int]":
+    """I-wire-017 (#1339) FIX C1 post-pass: drop a non-scaffolding ``###``-or-deeper section header
+    whose body — after the line-level sanitization already ran — has NO claim-bearing prose left
+    (only blank lines / bare orphaned citation markers). Such a section renders as a dangling header
+    over "[6][7][5]"; withholding the empty header is suppress-only (the evidence is untouched).
+
+    A SCAFFOLDING header — by its own title OR by having a scaffolding IMMEDIATE parent
+    (``### references`` under ``## Bibliography``) — is always preserved. Any top-level (``#``/``##``)
+    header is also preserved (a top-level empty section is left for the operator). Returns
+    ``(kept_lines, headers_dropped)``. PURE."""
+    kept: list[str] = []
+    headers_dropped = 0
+    # Open ancestor headers as (level, is_scaffolding), shallowest-first; a header at depth d closes
+    # every open ancestor at depth >= d before it is pushed.
+    header_stack: list[tuple[int, bool]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        header = _SECTION_HEADER_RE.match(lines[i])
+        if not header:
+            kept.append(lines[i])
+            i += 1
+            continue
+        level = len(header.group(1))
+        title = header.group(2)
+        parent_scaffolding = _immediate_parent_is_scaffolding(level, header_stack)
+        header_stack = [hs for hs in header_stack if hs[0] < level]
+        own_scaffolding = _is_scaffolding_section_title(title)
+        header_stack.append((level, own_scaffolding))
+        if (
+            level < _MIN_DROPPABLE_EMPTY_HEADER_LEVEL
+            or own_scaffolding
+            or parent_scaffolding
+        ):
+            kept.append(lines[i])
+            i += 1
+            continue
+        # Collect this section's body up to (not including) the next header of ANY level.
+        body_start = i + 1
+        j = body_start
+        while j < n and not _SECTION_HEADER_RE.match(lines[j]):
+            j += 1
+        body = lines[body_start:j]
+        if any(_line_has_claim_prose(b) for b in body):
+            kept.extend(lines[i:j])  # real content survives -> keep header + body verbatim
+        else:
+            headers_dropped += 1  # empty content section -> drop header + its marker-only body
+        i = j
+    return kept, headers_dropped
 
 
 def sanitize_rendered_report(
@@ -1377,6 +1473,10 @@ def sanitize_rendered_report(
         if clean_line.strip() or not dropped:
             out_lines.append(clean_line)
         # else: the line reduced entirely to chrome -> drop the now-empty line.
+    # I-wire-017 (#1339) FIX C1: after the line-level pass, drop any non-scaffolding ###-or-deeper
+    # section whose body collapsed to no claim-bearing prose (blank / bare-marker only).
+    out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)
+    removed += empty_headers_dropped
     return "\n".join(out_lines), removed
 
 

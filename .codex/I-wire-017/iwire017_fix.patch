@@ -1,0 +1,472 @@
+diff --git a/src/polaris_graph/generator/key_findings.py b/src/polaris_graph/generator/key_findings.py
+index 8922fe12..f990d7f8 100644
+--- a/src/polaris_graph/generator/key_findings.py
++++ b/src/polaris_graph/generator/key_findings.py
+@@ -105,6 +105,8 @@ _LEADING_CITATION_RE = re.compile(r"^(?:\s*\[(?:\d+|#ev:[^\]]*)\])+")
+ # base word, not a cut): 'disadvantage' -> {'disadvantaged','disadvantages'} only => NOT a cut. A
+ # real END cut has a NON-inflectional completion ('resea' -> 'research' = 'resea'+'rch').
+ _INFLECTION_SUFFIXES = ("s", "d", "es", "ed", "ing", "ly", "ic")
++# Single-letter boundary tokens that are legitimate one-letter English words (never a cut).
++_SINGLE_LETTER_KEEP_TOKENS = frozenset({"a", "i"})
+ # Two-letter boundary tokens that are legitimate short words / abbreviations (never a cut).
+ _SHORT_OK_BOUNDARY_TOKENS = frozenset({
+     "ai", "it", "is", "of", "to", "in", "on", "or", "an", "as", "be", "by", "we", "us", "no",
+@@ -158,19 +160,33 @@ def _boundary_token_is_span_cut(
+     if not token or not known_words:
+         return False
+     t = token.lower()
+-    if t in known_words:
+-        return False
+     completes = (
+         _known_word_has_longer_prefix(t, known_words) if mode == "end"
+         else _known_word_has_longer_suffix(t, known_words)
+     )
+     if len(t) == 1:
+-        # I-wire-013 (#1327) iter-3b D-P1-2: a one-letter boundary token is a cut ONLY when it is
+-        # also a strict prefix/suffix of a LONGER known corpus word (``completes``) — same
+-        # completion gate the len-2 / len>=3 paths use. Without it, EVERY non-{a,i} single letter
+-        # before/after a marker false-flagged (e.g. a legit "type 2 diabetes ... grade B" finding),
+-        # dropping real one-letter findings. A true cut ("research"->"r") still flags via completion.
+-        return t not in {"a", "i"} and completes
++        # I-wire-017 (#1339) FIX A: a LOWERCASE single-letter END boundary token ("At t.[2]",
++        # "restricted to s.[89]") is a mid-word span cut even when the bare letter is itself a known
++        # corpus token (footnote/stat markers make "t"/"s" "known") — so this len-1 branch runs
++        # BEFORE the ``t in known_words`` early-out below. Precision guard (this is §-1.1-lethal):
++        # the cut is gated on the ORIGINAL token being lowercase, so a legitimate single-CAPITAL
++        # label finding — "vitamin C [5]", "hepatitis B [8]", "grade B [12]" — never flags (its
++        # boundary token is uppercase). mode=="end" only (a START-of-unit single letter is too weak
++        # a signal to drop on). Still gated on the completion test and the {"a","i"} keep-list, per
++        # the I-wire-013 (#1327) iter-3b D-P1-2 rationale (a true cut "research"->"r" flags via
++        # completion; a legit "type 2 diabetes ... a" survives via {"a","i"}).
++        if (
++            mode == "end"
++            and token[:1].islower()
++            and t not in _SINGLE_LETTER_KEEP_TOKENS
++            and completes
++        ):
++            return True
++        if t in known_words:
++            return False
++        return t not in _SINGLE_LETTER_KEEP_TOKENS and completes
++    if t in known_words:
++        return False
+     if len(t) == 2:
+         return t not in _SHORT_OK_BOUNDARY_TOKENS and completes
+     return completes  # len>=3 and a chopped fragment of a known corpus word -> a span cut
+diff --git a/src/polaris_graph/generator/verified_compose.py b/src/polaris_graph/generator/verified_compose.py
+index f172603d..f394c6c1 100644
+--- a/src/polaris_graph/generator/verified_compose.py
++++ b/src/polaris_graph/generator/verified_compose.py
+@@ -274,7 +274,12 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
+ _JUNK_SCREEN = None
+ 
+ 
+-def _compose_junk_screen(unit: str) -> bool:
++def _compose_junk_screen(
++    unit: str,
++    known_words: "set[str] | frozenset[str] | None" = None,
++    *,
++    require_sentence_form: bool = False,
++) -> bool:
+     """I-beatboth-011 §3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome —
+     INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
+     consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
+@@ -282,7 +287,14 @@ def _compose_junk_screen(unit: str) -> bool:
+     multi-word chrome list). P1-4: allowlist-anchored only — a real short sentence is KEPT (no length
+     drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a §-1.3
+     DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
+-    if THAT is unavailable keep the unit (never silently drop real prose)."""
++    if THAT is unavailable keep the unit (never silently drop real prose).
++
++    I-wire-017 (#1339) FIX R1: optional ``known_words`` (the run's corpus-vocabulary allowlist) +
++    ``require_sentence_form`` are threaded into the shared predicate so the K-span PRODUCER path
++    (``build_verified_span_draft``) actually exercises the truncation + subjectless-fragment legs —
++    previously inert here because they were called without these arguments. Safe on this path: K-span
++    units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
++    Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
+     global _JUNK_SCREEN
+     if _JUNK_SCREEN is None:
+         try:
+@@ -295,17 +307,53 @@ def _compose_junk_screen(unit: str) -> bool:
+             except Exception:
+                 _JUNK_SCREEN = lambda _t: False  # noqa: E731 — keep content; never drop real prose
+     try:
+-        return bool(_JUNK_SCREEN(unit))
++        return bool(
++            _JUNK_SCREEN(
++                unit, require_sentence_form=require_sentence_form, known_words=known_words
++            )
++        )
++    except TypeError:
++        # The boilerplate / no-op fallback screens take only the unit (no kwargs).
++        try:
++            return bool(_JUNK_SCREEN(unit))
++        except Exception:
++            return False
+     except Exception:
+         return False
+ 
+ 
++def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
++    """I-wire-017 (#1339) FIX R1 helper: the run's corpus-vocabulary allowlist for the K-span chrome
++    screen, built from the evidence pool's own fetched source text via the shared
++    ``weighted_enrichment.build_known_words_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
++    any import/build failure (and on an empty pool), so the truncation leg is simply skipped — never a
++    wrong drop, never a crash. PURE."""
++    try:
++        from src.polaris_graph.generator.weighted_enrichment import (
++            build_known_words_from_evidence,
++        )
++    except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
++        return None
++    try:
++        words = build_known_words_from_evidence(evidence_pool)
++    except Exception:  # pragma: no cover — defensive; build is pure
++        return None
++    return words or None
++
++
+ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
+     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
+     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
+     against), tagged with that member's own ``[#ev:<id>:0-<len>]`` provenance token so it re-passes
+     strict_verify trivially (it IS the verified span). Returns None when the basket has no verified
+-    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead)."""
++    span resolvable in the pool (caller emits an insufficient-evidence disclosure instead).
++
++    I-wire-017 (#1339) FIX R1: build the run's corpus-vocabulary allowlist ONCE from the evidence
++    pool and pass it (+ ``require_sentence_form=True``) into the per-unit chrome/truncation screen so
++    this PRODUCER path screens out mid-word span cuts and subjectless fragments before they ship —
++    previously the screen ran without these, so those legs were inert and the render seam was the
++    only net. Suppress-only: faithfulness verdicts are untouched."""
++    known_words = _known_words_for_compose(evidence_pool)
+     for m in _basket_supports_members(basket):
+         eid = str(getattr(m, "evidence_id", "") or "")
+         quote = str(getattr(m, "direct_quote", "") or "").strip()
+@@ -323,7 +371,10 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
+         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
+         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
+         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+-        units = [u for u in units if not _compose_junk_screen(u)]
++        units = [
++            u for u in units
++            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
++        ]
+         out = []
+         for u in units:
+             # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index 96d15fca..a076ab70 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -1212,6 +1212,11 @@ _SCAFFOLDING_SECTION_TITLES = (
+ )
+ _KNOWN_WORD_FIELDS = ("direct_quote", "statement", "title")
+ _SECTION_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
++# I-wire-017 (#1339) FIX C1: the shallowest header LEVEL (``###`` = 3) that may be dropped when its
++# sanitized body collapses to no claim-bearing prose. Top-level (``#``/``##``) report-structure
++# headers are never dropped (a top-level empty section is left for the operator to see), only the
++# per-claim ``###``-and-deeper content sections that the render seam emptied out.
++_MIN_DROPPABLE_EMPTY_HEADER_LEVEL = 3
+ _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
+ # I-wire-013 (#1327) iter-3b D-P1-1: split on BOTH the numeric ``[N]`` marker AND the provenance
+ # ``[#ev:<id>:<start>-<end>]`` token (single capture group, inner alternation — keeps the
+@@ -1316,21 +1321,39 @@ def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | N
+         i += 2
+     kept: list[str] = []
+     dropped = 0
++    # I-wire-017 (#1339) FIX B: when a prose segment is dropped as chrome, the SAME claim's trailing
++    # continuation citation markers ("prose[6][7][5]" splits into a prose seg + two marker-only segs)
++    # would otherwise survive orphaned. Track the drop and suppress the contiguous marker-only run
++    # that immediately follows it. A marker-only run after a KEPT segment stays (it belongs to that
++    # kept claim). Withhold-only — the dropped markers' evidence is untouched.
++    suppress_trailing_markers = False
+     for seg_text, seg_marker in segments:
+         if not seg_text.strip() and not seg_marker:
+             continue
++        # A marker-only continuation segment (no prose, just "[N]") inherits the fate of the prose
++        # segment it continues: dropped if that prose segment was dropped, kept otherwise.
++        if not seg_text.strip():
++            if suppress_trailing_markers:
++                dropped += 1
++                continue
++            kept.append(seg_text + seg_marker)
++            continue
+         core = _unit_core_for_screen(seg_text)
+         if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
+             repaired = _repair_glued_inline_header(seg_text, known_words)
+             if repaired is not None:
+                 # Real-prose prefix kept WITH its citation marker (the kept finding stays cited);
+-                # only the glued-header remainder is excised.
++                # only the glued-header remainder is excised. The prose survives, so its trailing
++                # continuation markers are NOT orphaned — keep them.
+                 kept.append(repaired + seg_marker)
+                 dropped += 1
++                suppress_trailing_markers = False
+                 continue
+             dropped += 1
++            suppress_trailing_markers = True  # orphan this dropped claim's continuation markers
+             continue  # whole chrome unit + its marker dropped
+         kept.append(seg_text + seg_marker)
++        suppress_trailing_markers = False
+     return "".join(kept), dropped
+ 
+ 
+@@ -1340,6 +1363,79 @@ def _is_scaffolding_section_title(title: str) -> bool:
+     return any(low.startswith(s) for s in _SCAFFOLDING_SECTION_TITLES)
+ 
+ 
++def _line_has_claim_prose(line: str) -> bool:
++    """True iff ``line`` carries claim-bearing prose (not just blanks or bare ``[N]`` /
++    ``[#ev:...]`` citation markers). Strips leading bullet / ``**bold**`` markers and ALL citation
++    markers, then checks any real alphabetic content remains. I-wire-017 (#1339) FIX C1 helper: used
++    to decide whether a sanitized section body has collapsed to orphaned markers only. PURE."""
++    text_only = "".join(_CITATION_SPLIT_RE.split(line)[::2])  # even indices = non-marker text
++    return bool(_unit_core_for_screen(text_only).strip())
++
++
++def _immediate_parent_is_scaffolding(level: int, header_stack: "list[tuple[int, bool]]") -> bool:
++    """True iff the NEAREST strictly-shallower open header (the immediate markdown parent) is a
++    scaffolding header — e.g. ``### references`` whose parent is ``## Bibliography``. A non-scaffolding
++    header at an intermediate depth BREAKS the chain (it becomes the new parent), so a content section
++    under a non-scaffolding parent is NOT protected even if a far ancestor is the report's scaffolding
++    ``# Research Report:`` title. ``header_stack`` holds ``(level, is_scaffolding)`` for the open
++    ancestor headers, shallowest-first. PURE."""
++    for anc_level, anc_scaffolding in reversed(header_stack):
++        if anc_level < level:
++            return anc_scaffolding
++    return False
++
++
++def _drop_empty_claim_sections(lines: "list[str]") -> "tuple[list[str], int]":
++    """I-wire-017 (#1339) FIX C1 post-pass: drop a non-scaffolding ``###``-or-deeper section header
++    whose body — after the line-level sanitization already ran — has NO claim-bearing prose left
++    (only blank lines / bare orphaned citation markers). Such a section renders as a dangling header
++    over "[6][7][5]"; withholding the empty header is suppress-only (the evidence is untouched).
++
++    A SCAFFOLDING header — by its own title OR by having a scaffolding IMMEDIATE parent
++    (``### references`` under ``## Bibliography``) — is always preserved. Any top-level (``#``/``##``)
++    header is also preserved (a top-level empty section is left for the operator). Returns
++    ``(kept_lines, headers_dropped)``. PURE."""
++    kept: list[str] = []
++    headers_dropped = 0
++    # Open ancestor headers as (level, is_scaffolding), shallowest-first; a header at depth d closes
++    # every open ancestor at depth >= d before it is pushed.
++    header_stack: list[tuple[int, bool]] = []
++    i = 0
++    n = len(lines)
++    while i < n:
++        header = _SECTION_HEADER_RE.match(lines[i])
++        if not header:
++            kept.append(lines[i])
++            i += 1
++            continue
++        level = len(header.group(1))
++        title = header.group(2)
++        parent_scaffolding = _immediate_parent_is_scaffolding(level, header_stack)
++        header_stack = [hs for hs in header_stack if hs[0] < level]
++        own_scaffolding = _is_scaffolding_section_title(title)
++        header_stack.append((level, own_scaffolding))
++        if (
++            level < _MIN_DROPPABLE_EMPTY_HEADER_LEVEL
++            or own_scaffolding
++            or parent_scaffolding
++        ):
++            kept.append(lines[i])
++            i += 1
++            continue
++        # Collect this section's body up to (not including) the next header of ANY level.
++        body_start = i + 1
++        j = body_start
++        while j < n and not _SECTION_HEADER_RE.match(lines[j]):
++            j += 1
++        body = lines[body_start:j]
++        if any(_line_has_claim_prose(b) for b in body):
++            kept.extend(lines[i:j])  # real content survives -> keep header + body verbatim
++        else:
++            headers_dropped += 1  # empty content section -> drop header + its marker-only body
++        i = j
++    return kept, headers_dropped
++
++
+ def sanitize_rendered_report(
+     report_md: str, known_words: "set[str] | frozenset[str] | None" = None
+ ) -> "tuple[str, int]":
+@@ -1377,6 +1473,10 @@ def sanitize_rendered_report(
+         if clean_line.strip() or not dropped:
+             out_lines.append(clean_line)
+         # else: the line reduced entirely to chrome -> drop the now-empty line.
++    # I-wire-017 (#1339) FIX C1: after the line-level pass, drop any non-scaffolding ###-or-deeper
++    # section whose body collapsed to no claim-bearing prose (blank / bare-marker only).
++    out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)
++    removed += empty_headers_dropped
+     return "\n".join(out_lines), removed
+ 
+ 
+diff --git a/tests/polaris_graph/test_iwire017_truncation_orphan.py b/tests/polaris_graph/test_iwire017_truncation_orphan.py
+new file mode 100644
+index 00000000..2a992578
+--- /dev/null
++++ b/tests/polaris_graph/test_iwire017_truncation_orphan.py
+@@ -0,0 +1,161 @@
++"""I-wire-017 (#1339) — behavioral self-tests for the 4 withhold-only render-seam / composer fixes.
++
++All assertions run THE PRODUCTION predicates against the REAL drb_72 corpus
++(``tests/fixtures/drb72/evidence_pool.json``); ``known_words`` is built via the production
++``build_known_words_from_evidence``. No live calls; every helper is pure and withhold-only — the
++faithfulness engine (strict_verify / NLI / 4-role / provenance / span) is untouched.
++
++FIX A  — the truncation leg flags a LOWERCASE single-letter mid-word cut ("At t.[2]",
++         "restricted to s.[89]") even though the bare letter is itself a known corpus token, while
++         keeping legitimate single-CAPITAL label findings ("vitamin C [5]", "hepatitis B [8]",
++         "grade B [12]") — the §-1.1-lethal precision cases.
++FIX B  — ``_sanitize_report_line`` drops the orphaned continuation markers ([7][5]) left behind when
++         the prose segment they continue is dropped as chrome; a marker run after a KEPT segment stays.
++FIX C1 — ``sanitize_rendered_report`` drops a non-scaffolding ###-or-deeper section whose body
++         collapsed to bare-citations-only, while preserving a scaffolding ### header.
++FIX R1 — ``_compose_junk_screen`` (the K-span PRODUCER path) now flags a truncated span it previously
++         passed, once known_words + require_sentence_form are threaded in.
++"""
++from __future__ import annotations
++
++import json
++import pathlib
++
++from src.polaris_graph.generator import key_findings as kf
++from src.polaris_graph.generator import weighted_enrichment as we
++from src.polaris_graph.generator import verified_compose as vc
++
++_FIXTURE = (
++    pathlib.Path(__file__).resolve().parents[2]
++    / "tests" / "fixtures" / "drb72" / "evidence_pool.json"
++)
++
++
++def _evidence_pool() -> list:
++    return json.loads(_FIXTURE.read_text(encoding="utf-8"))
++
++
++def _known_words() -> "set[str]":
++    return we.build_known_words_from_evidence(_evidence_pool())
++
++
++# ── FIX A: single-letter truncation recall + capital-label precision ─────────
++def test_fix_a_lowercase_single_letter_cut_is_flagged():
++    """A LOWERCASE single-letter END boundary token before a [N] marker is a span cut — even though
++    the bare letter is itself a known corpus token (the early-out that hid this is now bypassed)."""
++    kw = _known_words()
++    # Sanity: the bare letters ARE in the corpus, which is exactly what hid the cut pre-fix.
++    assert "s" in kw and "t" in kw
++    for line in ("the scope was restricted to s.[89]", "At t.[2]"):
++        assert kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A recall: {line!r} should be flagged as a truncation cut"
++
++
++def test_fix_a_capital_letter_labels_are_kept():
++    """§-1.1-LETHAL precision: legitimate single-CAPITAL-letter label findings MUST be kept — the
++    boundary token is uppercase, so the lowercase-gated single-letter cut never fires on them."""
++    kw = _known_words()
++    for line in ("vitamin C [5]", "hepatitis B [8]", "grade B [12]"):
++        assert not kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A precision: {line!r} is a real capital-label finding and MUST be kept"
++
++
++def test_fix_a_one_letter_english_words_are_kept():
++    """The {"a","i"} keep-list still survives the new lowercase-single-letter cut branch."""
++    kw = _known_words()
++    for line in ("type 2 diabetes affects glucose a.[3]", "the model i.[7]"):
++        assert not kf.is_truncated_fragment(
++            line, kw, ends_before_marker=True, starts_after_marker=True
++        ), f"FIX A precision: {line!r} ends in a legit one-letter word and MUST be kept"
++
++
++def test_fix_a_fires_through_the_render_predicate():
++    """The same recall fires through the SHIPPED render-seam predicate (known_words supplied)."""
++    kw = _known_words()
++    assert we.is_render_chrome_or_unrenderable("the scope was restricted to s", known_words=kw)
++    assert we.is_render_chrome_or_unrenderable("At t", known_words=kw)
++
++
++# ── FIX B: orphaned continuation markers dropped with their dropped claim ─────
++def test_fix_b_orphaned_continuation_markers_dropped():
++    """When a chrome prose segment is dropped, its trailing continuation markers ([7][5] after the
++    dropped [6]) are dropped too — not left orphaned."""
++    line = "Accept all cookies[6][7][5]"
++    assert we.is_render_chrome_or_unrenderable("Accept all cookies")  # precondition: prose is chrome
++    clean, dropped = we._sanitize_report_line(line, None)
++    assert "[6]" not in clean and "[7]" not in clean and "[5]" not in clean
++    assert clean.strip() == ""
++    assert dropped == 3
++
++
++def test_fix_b_markers_after_kept_prose_survive():
++    """A marker-only run after a KEPT prose segment stays (it belongs to that kept claim)."""
++    line = "Glucagon-like peptide-1 reduces appetite[6][7][5]"
++    assert not we.is_render_chrome_or_unrenderable("Glucagon-like peptide-1 reduces appetite")
++    clean, dropped = we._sanitize_report_line(line, None)
++    assert "[6]" in clean and "[7]" in clean and "[5]" in clean
++    assert dropped == 0
++
++
++# ── FIX C1: empty content section dropped, scaffolding section kept ───────────
++def test_fix_c1_empty_content_section_dropped_scaffolding_kept():
++    report = (
++        "# Research Report: test\n"
++        "\n"
++        "## Findings\n"
++        "\n"
++        "### Comparative Assessment\n"
++        "\n"
++        "Accept all cookies[6][7][5]\n"
++        "\n"
++        "### Real Section\n"
++        "\n"
++        "Glucagon-like peptide-1 reduces appetite[3].\n"
++        "\n"
++        "## Bibliography\n"
++        "\n"
++        "### Cookie Policy reference list\n"
++        "[1] https://doi.org/10.1000/x\n"
++    )
++    clean, removed = we.sanitize_rendered_report(report, None)
++    # The content-empty ### section header is gone.
++    assert "Comparative Assessment" not in clean
++    # A real ### section with claim prose survives.
++    assert "### Real Section" in clean
++    assert "Glucagon-like peptide-1 reduces appetite" in clean
++    # A scaffolding ### header (under Bibliography) is NEVER dropped, even though its body has no
++    # claim-bearing prose (it is a reference list).
++    assert "Cookie Policy reference list" in clean
++    assert "## Bibliography" in clean
++    assert removed > 0
++
++
++def test_fix_c1_top_level_headers_never_dropped():
++    """A top-level (##) section with no claim prose is left for the operator — only ###-or-deeper
++    content sections are dropped when emptied."""
++    report = "# Research Report: t\n\n## Lonely Top Header\n\n[6][7]\n"
++    clean, _removed = we.sanitize_rendered_report(report, None)
++    assert "Lonely Top Header" in clean
++
++
++# ── FIX R1: K-span producer now screens truncation it previously passed ──────
++def test_fix_r1_kspan_screen_flags_previously_passed_truncation():
++    """The K-span ``_compose_junk_screen`` passed a mid-word-cut span before (no known_words / no
++    require_sentence_form); with FIX R1's threaded args it now flags it."""
++    kw = vc._known_words_for_compose(_evidence_pool())
++    assert kw  # the producer builds a real allowlist from the pool
++    frag = "developed by researchers and deployed in produc"  # 'produc' -> 'production' (cut)
++    assert vc._compose_junk_screen(frag) is False  # OLD inert behaviour (no args)
++    assert vc._compose_junk_screen(frag, kw, require_sentence_form=True) is True  # NEW: flagged
++
++
++def test_fix_r1_real_whole_sentence_is_kept():
++    """A real lifted source sentence is NOT screened out by the newly-active legs (precision)."""
++    kw = vc._known_words_for_compose(_evidence_pool())
++    real = (
++        "Artificial intelligence systems can automate routine cognitive tasks "
++        "across many industries."
++    )
++    assert vc._compose_junk_screen(real, kw, require_sentence_form=True) is False
