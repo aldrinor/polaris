@@ -44,6 +44,38 @@ _YEAR_RE = re.compile(r"\b(19|20|21)\d{2}\b")
 # "since/after/from YYYY" => start floor; "before/until/by/up to YYYY" => end ceiling.
 _SINCE_RE = re.compile(r"\b(?:since|after|from|starting(?:\s+in)?|>=|>)\s+((?:19|20|21)\d{2})\b", re.I)
 _BEFORE_RE = re.compile(r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than|<=|<)\s+((?:19|20|21)\d{2})\b", re.I)
+
+# I-deepfix-001 Codex wave-2 P1: MONTH-precision bounds. "before June 2023" /
+# "since March 2020" / "2023-06" must be captured at MONTH granularity so the
+# selector can enforce a sub-year ceiling (a year-only bound let post-June-2023
+# rows survive a "before June 2023" window). The bare-year regexes above do NOT
+# match "before June 2023" (the month sits between the keyword and the year), so
+# these month matchers are additive and never conflict with the year ones.
+_MON_NAMES = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
+    "december": 12, "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_MON_RE = (
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+_SINCE_MONTH_RE = re.compile(
+    r"\b(?:since|after|from|starting(?:\s+in)?)\s+" + _MON_RE
+    + r"\s+((?:19|20|21)\d{2})\b", re.I)
+_BEFORE_MONTH_RE = re.compile(
+    r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than)\s+" + _MON_RE
+    + r"\s+((?:19|20|21)\d{2})\b", re.I)
+# ISO "YYYY-MM" is bound to its DIRECTION (Codex wave-2 P1: a blind ISO matcher
+# inverted "since 2020-03" into an END ceiling). A bare floating "YYYY-MM" with no
+# before/since keyword is intentionally NOT treated as a bound.
+_SINCE_ISO_RE = re.compile(
+    r"\b(?:since|after|from|starting(?:\s+in)?)\s+"
+    r"((?:19|20|21)\d{2})-(0[1-9]|1[0-2])\b", re.I)
+_BEFORE_ISO_RE = re.compile(
+    r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than|through)\s+"
+    r"((?:19|20|21)\d{2})-(0[1-9]|1[0-2])\b", re.I)
 # "in the last N years" relative window.
 _LAST_N_RE = re.compile(r"\b(?:in\s+the\s+)?(?:last|past|recent)\s+(\d{1,2})\s+years?\b", re.I)
 # language directive.
@@ -78,6 +110,8 @@ class UserConstraints:
 
     date_start_year: Optional[int] = None     # inclusive lower bound (publication year)
     date_end_year: Optional[int] = None       # inclusive upper bound
+    date_start_month: Optional[int] = None    # 1..12, MONTH precision for the floor (Codex wave-2 P1)
+    date_end_month: Optional[int] = None      # 1..12, MONTH precision for the ceiling
     language: Optional[str] = None            # ISO code, e.g. 'en'
     journal_only: bool = False               # EXTRACTED but DORMANT (operator veto)
     raw_directives: list[str] = field(default_factory=list)
@@ -91,10 +125,32 @@ class UserConstraints:
             and not self.journal_only
         )
 
+    def date_start_iso(self) -> Optional[str]:
+        """ISO floor bound for protocol.date_range: 'YYYY-MM-01' when a month is
+        known, else 'YYYY-01-01', else None."""
+        if self.date_start_year is None:
+            return None
+        mo = self.date_start_month or 1
+        return f"{self.date_start_year:04d}-{mo:02d}-01"
+
+    def date_end_iso(self) -> Optional[str]:
+        """ISO ceiling bound for protocol.date_range. When a month is known the
+        bound carries it ('YYYY-MM' — the selector compares at month precision);
+        else 'YYYY-12-31' (whole-year ceiling)."""
+        if self.date_end_year is None:
+            return None
+        if self.date_end_month:
+            return f"{self.date_end_year:04d}-{self.date_end_month:02d}"
+        return f"{self.date_end_year:04d}-12-31"
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "date_start_year": self.date_start_year,
             "date_end_year": self.date_end_year,
+            "date_start_month": self.date_start_month,
+            "date_end_month": self.date_end_month,
+            "date_start_iso": self.date_start_iso(),
+            "date_end_iso": self.date_end_iso(),
             "language": self.language,
             "journal_only_dormant": self.journal_only,
             "raw_directives": list(self.raw_directives),
@@ -140,6 +196,33 @@ def extract_constraints_regex(prompt: str) -> UserConstraints:
     if m:
         uc.date_end_year = _valid_year(m.group(1))
         uc.raw_directives.append(m.group(0).strip())
+    # MONTH-precision matchers (Codex wave-2 P1): "since March 2020" / "before
+    # June 2023" — set BOTH year and month. These never collide with the bare-year
+    # regexes above (those require the keyword directly before the year).
+    mm = _SINCE_MONTH_RE.search(text)
+    if mm:
+        uc.date_start_year = _valid_year(mm.group(2))
+        uc.date_start_month = _MON_NAMES.get(mm.group(1).lower())
+        uc.raw_directives.append(mm.group(0).strip())
+    mm = _BEFORE_MONTH_RE.search(text)
+    if mm:
+        uc.date_end_year = _valid_year(mm.group(2))
+        uc.date_end_month = _MON_NAMES.get(mm.group(1).lower())
+        uc.raw_directives.append(mm.group(0).strip())
+    # DIRECTION-BOUND ISO "YYYY-MM" (Codex wave-2 P1): "since 2020-03" refines the
+    # START floor; "before 2023-06" refines the END ceiling. Each refines (adds the
+    # month to) the same-direction year the bare matcher already set; neither can
+    # set the OPPOSITE bound (the inversion bug the blind matcher caused).
+    si = _SINCE_ISO_RE.search(text)
+    if si:
+        uc.date_start_year = _valid_year(si.group(1))
+        uc.date_start_month = int(si.group(2))
+        uc.raw_directives.append(si.group(0).strip())
+    bi = _BEFORE_ISO_RE.search(text)
+    if bi:
+        uc.date_end_year = _valid_year(bi.group(1))
+        uc.date_end_month = int(bi.group(2))
+        uc.raw_directives.append(bi.group(0).strip())
     m = _LAST_N_RE.search(text)
     if m:
         n = _valid_year(_current_year())  # noqa: F841  (validate path)
@@ -171,6 +254,8 @@ def _merge(primary: UserConstraints, fallback: UserConstraints) -> UserConstrain
     return UserConstraints(
         date_start_year=primary.date_start_year if primary.date_start_year is not None else fallback.date_start_year,
         date_end_year=primary.date_end_year if primary.date_end_year is not None else fallback.date_end_year,
+        date_start_month=primary.date_start_month if primary.date_start_month is not None else fallback.date_start_month,
+        date_end_month=primary.date_end_month if primary.date_end_month is not None else fallback.date_end_month,
         language=primary.language or fallback.language,
         journal_only=primary.journal_only or fallback.journal_only,
         raw_directives=primary.raw_directives + fallback.raw_directives,

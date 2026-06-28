@@ -1,0 +1,1124 @@
+diff --git a/src/polaris_graph/nodes/corpus_adequacy_gate.py b/src/polaris_graph/nodes/corpus_adequacy_gate.py
+index 49d0ec16..3509727a 100644
+--- a/src/polaris_graph/nodes/corpus_adequacy_gate.py
++++ b/src/polaris_graph/nodes/corpus_adequacy_gate.py
+@@ -79,6 +79,105 @@ def count_grounded_rows(evidence_rows: list[Any]) -> int:
+     return sum(1 for r in evidence_rows if not _row_is_content_less_stub(r))
+ 
+ 
++# ── I-deepfix-001 B7 (#1351): on-topic adequacy predicate ──────────────────────
++# THE BUG (§-1.1 BANNED pattern-presence signal): assess_corpus_adequacy was a
++# PURE tier-count gate with ZERO relevance dimension — fresh2 reported
++# decision=proceed over a pool the 9-lens forensic flagged ~12/27 off-topic
++# (incl. an Anubis bot-wall tiered T1). A contaminated pool false-PASSED.
++#
++# THE FIX (gate-honesty only; faithfulness engine UNTOUCHED — strict_verify /
++# NLI / 4-role / D8 / provenance never read this): when the caller passes the
++# ACTUAL evidence_rows, a row counts toward the grounded / tier denominators ONLY
++# if it is on-topic — its topical-relevance WEIGHT (the per-row `relevance_weight`
++# the B4 retrieval-relevance scorer writes at live_retriever.py ~L5108) is at or
++# above a DISCLOSED floor (PG_ADEQUACY_RELEVANCE_FLOOR, default 0.30, §-1.3
++# disclosed weight-floor — never a silent source DROP; the row still flows to
++# composition and the faithfulness engine).
++#
++# FAIL-OPEN (the wave-1 P0 class): a row with NO explicit `relevance_weight` key
++# (every OFF-path / legacy / seed row, and any pre-B4 row) is treated as ON-TOPIC.
++# Only a row carrying an EXPLICIT weight BELOW the floor is demoted from the
++# denominator. This preserves "byte-identical when the B4 weight is absent" and
++# can never collapse a legacy run's grounded count to a false ABORT.
++_ENV_RELEVANCE_FLOOR = "PG_ADEQUACY_RELEVANCE_FLOOR"
++_DEFAULT_RELEVANCE_FLOOR = 0.30
++
++
++def _adequacy_relevance_floor() -> float:
++    """Disclosed on-topic weight floor (LAW VI). Clamp to [0, 1]; a misconfigured
++    value outside that range falls back to the default."""
++    raw = os.getenv(_ENV_RELEVANCE_FLOOR, "").strip()
++    if not raw:
++        return _DEFAULT_RELEVANCE_FLOOR
++    try:
++        val = float(raw)
++    except (TypeError, ValueError):
++        return _DEFAULT_RELEVANCE_FLOOR
++    return min(max(val, 0.0), 1.0)
++
++
++def _row_is_on_topic(row: Any, floor: float) -> bool:
++    """True iff ``row`` is on-topic for the adequacy denominators (B7).
++
++    FAIL-OPEN: a non-dict row, or a row with NO explicit ``relevance_weight``
++    key, counts as ON-TOPIC (missing weight is never treated as off-topic — that
++    would nuke every legacy/OFF-path run). Only an explicit numeric weight BELOW
++    ``floor`` makes a row off-topic. A non-numeric weight also fails open.
++    """
++    if not isinstance(row, dict):
++        return True
++    if "relevance_weight" not in row:
++        return True
++    try:
++        w = float(row.get("relevance_weight"))
++    except (TypeError, ValueError):
++        return True
++    return w >= floor
++
++
++def count_on_topic_grounded_rows(evidence_rows: list[Any], floor: float) -> int:
++    """Grounded rows (BUG-20 stub filter) that are ALSO on-topic (B7).
++
++    A row counts iff it is NOT a content-less stub AND it is on-topic at ``floor``.
++    """
++    return sum(
++        1 for r in evidence_rows
++        if not _row_is_content_less_stub(r) and _row_is_on_topic(r, floor)
++    )
++
++
++def _on_topic_tier_counts(
++    evidence_rows: list[Any], floor: float, raw_tier_counts: dict[str, int],
++) -> dict[str, int]:
++    """Re-tally tier_counts over ON-TOPIC rows only (B7).
++
++    Each evidence row's tier is read from ``row['tier']`` (the surface the
++    classifier back-fills). A row with no usable tier is bucketed UNKNOWN so the
++    total still reflects every on-topic row. FAIL-OPEN: if NO row carries a tier
++    key at all, the on-topic re-tally is empty and the caller falls back to the
++    raw classifier ``tier_counts`` (so an evidence_rows pool that simply lacks the
++    tier key never zeroes the gate).
++    """
++    counts: dict[str, int] = {}
++    saw_tier = False
++    for r in evidence_rows:
++        if not isinstance(r, dict):
++            continue
++        if _row_is_content_less_stub(r) or not _row_is_on_topic(r, floor):
++            continue
++        tier = r.get("tier")
++        if tier:
++            saw_tier = True
++            key = str(tier)
++        else:
++            key = "UNKNOWN"
++        counts[key] = counts.get(key, 0) + 1
++    # FAIL-OPEN: no per-row tier signal at all → keep the classifier tier_counts.
++    if not saw_tier:
++        return dict(raw_tier_counts)
++    return counts
++
++
+ @dataclass
+ class AdequacyThresholds:
+     """Per-domain thresholds for corpus adequacy.
+@@ -116,6 +215,14 @@ class CorpusAdequacyReport:
+     evidence_rows: int = 0
+     notes: list[str] = field(default_factory=list)
+     thresholds: dict[str, Any] = field(default_factory=dict)
++    # I-deepfix-001 B7 (#1351): disclose BOTH the raw-pool and the on-topic
++    # denominators so Methods cannot read "8/8 grounded" over a contaminated
++    # pool. Populated ONLY when real evidence_rows are supplied; defaults keep
++    # the legacy report shape byte-identical when they are not.
++    on_topic_evidence_rows: int = 0          # grounded AND on-topic at the floor
++    raw_grounded_evidence_rows: int = 0      # grounded (stub-filtered) regardless of topic
++    on_topic_relevance_floor: float = 0.0    # the disclosed floor used (0.0 = gate inert)
++    on_topic_tier_counts: dict[str, int] = field(default_factory=dict)
+ 
+ 
+ _DEFAULT_DOMAIN_THRESHOLDS: dict[str, AdequacyThresholds] = {
+@@ -246,19 +353,41 @@ def assess_corpus_adequacy(
+ 
+     # BUG-20: when the real rows are available, the grounded evidence count
+     # EXCLUDES content-less stubs. Falls back to evidence_row_count otherwise.
++    # I-deepfix-001 B7 (#1351): when real rows are available, the grounded count
++    # ALSO excludes OFF-topic rows (explicit relevance_weight below the disclosed
++    # floor) — gate denominators must reflect on-topic grounded content, not raw
++    # tier presence (the §-1.1 BANNED pattern-presence signal). Fail-open: a row
++    # without an explicit weight counts as on-topic (see ``_row_is_on_topic``).
++    _floor = _adequacy_relevance_floor()
++    raw_grounded = 0
++    on_topic_grounded = 0
++    # `tier_counts` is the CLASSIFIER tier histogram (the legacy gate input). When
++    # real rows are supplied we re-tally tier_counts over ON-TOPIC rows so the
++    # tier thresholds are computed over on-topic content too; otherwise the gate
++    # is byte-identical to the prior callers.
++    on_topic_tier_counts: dict[str, int] = {}
+     if evidence_rows is not None:
+-        grounded_evidence_rows = count_grounded_rows(evidence_rows)
++        raw_grounded = count_grounded_rows(evidence_rows)
++        on_topic_grounded = count_on_topic_grounded_rows(evidence_rows, _floor)
++        grounded_evidence_rows = on_topic_grounded
++        on_topic_tier_counts = _on_topic_tier_counts(
++            evidence_rows, _floor, tier_counts,
++        )
++        gate_tier_counts = on_topic_tier_counts
+     else:
+         grounded_evidence_rows = evidence_row_count
+-
+-    total = sum(tier_counts.values())
+-    t1 = tier_counts.get("T1", 0)
+-    t2 = tier_counts.get("T2", 0)
+-    t3 = tier_counts.get("T3", 0)
+-    t4 = tier_counts.get("T4", 0)
+-    t5 = tier_counts.get("T5", 0)
+-    t6 = tier_counts.get("T6", 0)
+-    t7 = tier_counts.get("T7", 0)
++        raw_grounded = evidence_row_count
++        on_topic_grounded = evidence_row_count
++        gate_tier_counts = dict(tier_counts)
++
++    total = sum(gate_tier_counts.values())
++    t1 = gate_tier_counts.get("T1", 0)
++    t2 = gate_tier_counts.get("T2", 0)
++    t3 = gate_tier_counts.get("T3", 0)
++    t4 = gate_tier_counts.get("T4", 0)
++    t5 = gate_tier_counts.get("T5", 0)
++    t6 = gate_tier_counts.get("T6", 0)
++    t7 = gate_tier_counts.get("T7", 0)
+ 
+     findings: list[AdequacyFinding] = []
+ 
+@@ -330,12 +459,32 @@ def assess_corpus_adequacy(
+             f"second retrieval round before proceeding."
+         )
+ 
++    # I-deepfix-001 B7 (#1351): disclose the on-topic vs raw denominators so the
++    # gate honesty is auditable (and the §-1.1 contaminated-pool false-PASS is
++    # visible). Only when real rows were supplied AND off-topic rows were demoted.
++    if evidence_rows is not None and on_topic_grounded < raw_grounded:
++        notes.append(
++            f"Adequacy computed over ON-TOPIC grounded rows "
++            f"({on_topic_grounded}) — {raw_grounded - on_topic_grounded} "
++            f"grounded row(s) demoted from the denominator as off-topic "
++            f"(relevance_weight < {_floor:.2f}); raw grounded pool="
++            f"{raw_grounded}. Demoted rows are KEPT in the corpus (§-1.3), "
++            f"only excluded from the sufficiency count."
++        )
++
+     return CorpusAdequacyReport(
+         decision=decision,
+         findings=findings,
+         total_sources=total,
+-        tier_counts=dict(tier_counts),
++        # When real rows were supplied the gate ran over on-topic tier counts;
++        # surface those as the gate's tier_counts (raw classifier histogram is
++        # still available to the caller). When not, byte-identical legacy shape.
++        tier_counts=dict(gate_tier_counts),
+         evidence_rows=grounded_evidence_rows,
+         notes=notes,
+         thresholds=asdict(thr),
++        on_topic_evidence_rows=on_topic_grounded,
++        raw_grounded_evidence_rows=raw_grounded,
++        on_topic_relevance_floor=(_floor if evidence_rows is not None else 0.0),
++        on_topic_tier_counts=dict(on_topic_tier_counts),
+     )
+diff --git a/src/polaris_graph/nodes/scope_gate.py b/src/polaris_graph/nodes/scope_gate.py
+index 3a3478f2..71ee76d0 100644
+--- a/src/polaris_graph/nodes/scope_gate.py
++++ b/src/polaris_graph/nodes/scope_gate.py
+@@ -163,6 +163,14 @@ class ProtocolDocument:
+     geography: list[str] = field(default_factory=list)
+     languages: list[str] = field(default_factory=lambda: ["en"])
+ 
++    # I-deepfix-001 B10(a) (#1352): structured HARD user constraints extracted
++    # from the NL research question at intake (date window / language / journal-
++    # only-dormant). to_json_dict serializes this so the wave-2 enforcement layers
++    # (selection demote, rule_blockers) and the audit trail can read it. Empty
++    # dict when the extractor is OFF or found nothing => byte-identical legacy
++    # protocol shape for the populated fields.
++    user_constraints: dict[str, Any] = field(default_factory=dict)
++
+     # Conflict-of-interest / funding-source filters
+     excluded_sponsors: list[str] = field(default_factory=list)
+ 
+@@ -981,6 +989,44 @@ def run_scope_gate(
+         date_range_raw.get("end") if isinstance(date_range_raw, dict) else None,
+     )
+ 
++    # I-deepfix-001 B10(a) (#1352): extract HARD user constraints from the NL
++    # research question (date window / language / journal-only-dormant). Today
++    # "academic research published before June 2023" in the question is NEVER
++    # parsed — fresh2 protocol.json shows date_range={start:null,end:null}. The
++    # extractor runs the deterministic regex/dateparser primary (no network here:
++    # llm_fn=None) and fills date_range ONLY where the template/override left it
++    # None (override/template ALWAYS win — this only RECOVERS a constraint that
++    # was being dropped). Gated PG_EXTRACT_USER_CONSTRAINTS (default OFF, operator
++    # activates on the slate); OFF => user_constraints={} and date_range/languages
++    # are byte-identical to the prior behavior.
++    user_constraints: dict[str, Any] = {}
++    if not scope_rejected:
++        from src.polaris_graph.retrieval.intake_constraint_extractor import (  # noqa: PLC0415
++            extract_user_constraints,
++            extract_user_constraints_enabled,
++        )
++        if extract_user_constraints_enabled():
++            _uc = extract_user_constraints(research_question)
++            if not _uc.is_empty():
++                user_constraints = _uc.to_dict()
++                _start_s, _end_s = date_range
++                # Only fill a date bound the template/override left None — never
++                # override an explicit operator/template constraint. MONTH-precision
++                # (Codex wave-2 P1): date_*_iso() carries the month when known
++                # ("before June 2023" -> end "2023-06") so the selector enforces a
++                # sub-year ceiling; year-only bounds stay "YYYY-01-01"/"YYYY-12-31".
++                if _start_s is None and _uc.date_start_iso() is not None:
++                    _start_s = _uc.date_start_iso()
++                if _end_s is None and _uc.date_end_iso() is not None:
++                    _end_s = _uc.date_end_iso()
++                date_range = (_start_s, _end_s)
++                logger.info(
++                    "[scope_gate] B10 user-constraints extracted: date=[%s..%s] "
++                    "language=%s journal_only(dormant)=%s — date_range now %r",
++                    _uc.date_start_year, _uc.date_end_year, _uc.language,
++                    _uc.journal_only, date_range,
++                )
++
+     geography = list(template.get("geography") or [])
+     if "geography" in overrides:
+         geography = list(overrides["geography"] or [])
+@@ -988,6 +1034,15 @@ def run_scope_gate(
+     languages = list(template.get("languages") or ["en"])
+     if "languages" in overrides:
+         languages = list(overrides["languages"] or ["en"])
++    # B10(a): a NL language constraint becomes a DISCLOSED demotion weight
++    # downstream (never a hard drop per §-1.3); record it only when the template/
++    # override did not already pin the language list and the extractor found one.
++    elif user_constraints.get("language") and "languages" not in overrides:
++        # Surface the extracted language as the protocol's primary language so the
++        # selection-side demotion (B10 d) and the disclosure banner can read it.
++        _lang = user_constraints["language"]
++        if _lang and _lang not in languages:
++            languages = [_lang] + [l for l in languages if l != _lang]
+ 
+     excluded_sponsors = list(template.get("excluded_sponsors") or [])
+     if "excluded_sponsors" in overrides:
+@@ -1059,6 +1114,7 @@ def run_scope_gate(
+         date_range=date_range,
+         geography=geography,
+         languages=languages,
++        user_constraints=user_constraints,
+         excluded_sponsors=excluded_sponsors,
+         template_used=template_path_rel,
+         user_overrides=overrides,
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 9594f409..e0256360 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -783,6 +783,188 @@ _RECENCY_MAX_YEAR = 2100
+ _RECENCY_EPSILON_DEFAULT = 0.05
+ 
+ 
++# ── I-deepfix-001 B10(d) (#1352): user date-window enforcement at selection ────
++# A user date constraint ("academic research published before June 2023") must
++# (1) DEMOTE out-of-window sources as a DISCLOSED soft floor — never hard-drop
++# per §-1.3 (the source stays in the corpus + an exclusion record is written),
++# and (2) INVERT/DISABLE the recency tiebreak when a max-date is present, because
++# "newer first" directly FIGHTS a max-date ceiling (the B10 smoking gun). All
++# fail-OPEN: an undated row (no resolvable publication year) is NEVER demoted.
++_ENV_DATE_DEMOTE_WEIGHT = "PG_SELECT_DATE_WINDOW_WEIGHT"
++_DEFAULT_DATE_DEMOTE_WEIGHT = 0.25
++
++
++def _date_demote_weight() -> float:
++    """The ranking multiplier applied to an out-of-window source (LAW VI). Clamp
++    to (0, 1) — a demoted source is KEPT at low weight, never zero/dropped."""
++    raw = os.environ.get(_ENV_DATE_DEMOTE_WEIGHT, "").strip()
++    if not raw:
++        return _DEFAULT_DATE_DEMOTE_WEIGHT
++    try:
++        val = float(raw)
++    except (ValueError, TypeError):
++        return _DEFAULT_DATE_DEMOTE_WEIGHT
++    # (0, 1): never 0 (that is a drop) and never >=1 (that is no demotion).
++    return min(max(val, 0.01), 0.99)
++
++
++def _protocol_date_window(
++    protocol: dict[str, Any] | None,
++) -> tuple[int | None, int | None]:
++    """Resolve the (start_year, end_year) window from ``protocol['date_range']``.
++
++    Accepts the serialized ``{"start": ISO|null, "end": ISO|null}`` shape OR a
++    (start, end) tuple. Parses the leading 4-digit year from each bound. Returns
++    (None, None) when no window is set — the caller then leaves recency + weights
++    byte-identical (fail-open)."""
++    if not protocol:
++        return (None, None)
++    dr = protocol.get("date_range")
++    start_raw = end_raw = None
++    if isinstance(dr, dict):
++        start_raw, end_raw = dr.get("start"), dr.get("end")
++    elif isinstance(dr, (list, tuple)) and len(dr) == 2:
++        start_raw, end_raw = dr[0], dr[1]
++
++    def _year(v: Any) -> int | None:
++        if v is None:
++            return None
++        m = re.match(r"\s*(\d{4})", str(v))
++        if not m:
++            return None
++        y = int(m.group(1))
++        return y if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR else None
++
++    return (_year(start_raw), _year(end_raw))
++
++
++def _row_out_of_window(
++    row: dict[str, Any], start_year: int | None, end_year: int | None,
++) -> bool:
++    """True iff the row's EXPLICIT publication year falls OUTSIDE [start, end].
++
++    FAIL-OPEN: a row with no resolvable year (``_row_year`` is None) is NEVER
++    out-of-window — an undated source is kept at full weight, never demoted."""
++    y = _row_year(row)
++    if y is None:
++        return False
++    if start_year is not None and y < start_year:
++        return True
++    if end_year is not None and y > end_year:
++        return True
++    return False
++
++
++# ── I-deepfix-001 Codex wave-2 P1: MONTH-precision date window + guaranteed tail ──
++# A year-only window let post-June-2023 rows survive a "before June 2023" ceiling,
++# and the multiplicative demote weight did not guarantee out-of-window rows sort
++# last (a high-score row could outrank an in-window one, and rerank washed it out).
++# These helpers add MONTH-precision detection (year-floor guaranteed, month
++# best-effort) + a stable post-rerank tail partition. Month index is 0-based
++# (year*12 + month-1) so ``idx // 12 == year`` for year-only comparison.
++def _ym_window_bounds(
++    protocol: dict[str, Any] | None,
++) -> tuple[int | None, int | None]:
++    """(start_idx, end_idx) month indices for the date window, or (None, None).
++
++    Reads protocol['date_range'] ISO bounds 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD'.
++    A year-only START defaults to month 1, a year-only END ceiling to month 12, so
++    a whole-year bound behaves exactly as the prior year comparison."""
++    if not protocol:
++        return (None, None)
++    dr = protocol.get("date_range")
++    start_raw = end_raw = None
++    if isinstance(dr, dict):
++        start_raw, end_raw = dr.get("start"), dr.get("end")
++    elif isinstance(dr, (list, tuple)) and len(dr) == 2:
++        start_raw, end_raw = dr[0], dr[1]
++
++    def _idx(v: Any, default_month: int) -> int | None:
++        if v is None:
++            return None
++        m = re.match(r"\s*(\d{4})(?:-(\d{1,2}))?", str(v))
++        if not m:
++            return None
++        y = int(m.group(1))
++        if not (_RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR):
++            return None
++        mo = int(m.group(2)) if m.group(2) else default_month
++        mo = min(12, max(1, mo))
++        return y * 12 + (mo - 1)
++
++    return (_idx(start_raw, 1), _idx(end_raw, 12))
++
++
++def _row_pub_ym(row: dict[str, Any]) -> tuple[int, int | None] | None:
++    """(year, month|None) from the row's pub_date/publication_date ISO, else
++    (year, None) from the row's year, else None. No network."""
++    for key in ("pub_date", "publication_date"):
++        val = row.get(key)
++        if val is None:
++            meta = row.get("metadata")
++            if isinstance(meta, dict):
++                val = meta.get(key)
++        if val:
++            m = re.match(r"\s*(\d{4})-(\d{1,2})", str(val))
++            if m:
++                y, mo = int(m.group(1)), int(m.group(2))
++                if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR and 1 <= mo <= 12:
++                    return (y, mo)
++            m2 = re.match(r"\s*(\d{4})", str(val))
++            if m2:
++                y = int(m2.group(1))
++                if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR:
++                    return (y, None)
++    y = _row_year(row)
++    return (y, None) if y is not None else None
++
++
++def _row_out_of_window_ym(
++    row: dict[str, Any], start_idx: int | None, end_idx: int | None,
++) -> bool:
++    """Month-precision out-of-window test. FAIL-OPEN: an undated row is NEVER
++    out-of-window; a row known only to the YEAR is out only when its year is
++    strictly past the boundary year (a boundary-year row whose month is unknown
++    is KEPT — never demote what we cannot prove out-of-window)."""
++    pub = _row_pub_ym(row)
++    if pub is None:
++        return False
++    y, mo = pub
++    if mo is not None:
++        idx = y * 12 + (mo - 1)
++        if start_idx is not None and idx < start_idx:
++            return True
++        if end_idx is not None and idx > end_idx:
++            return True
++        return False
++    if start_idx is not None and y < (start_idx // 12):
++        return True
++    if end_idx is not None and y > (end_idx // 12):
++        return True
++    return False
++
++
++def _partition_out_of_window_last(
++    rows: list[dict[str, Any]], oow_urls: set[str],
++) -> list[dict[str, Any]]:
++    """Stable partition: in-window rows first (order preserved), out-of-window rows
++    moved to the TAIL (order preserved). KEEPS every row (§-1.3 — demote, never
++    drop). Returns the SAME object when there is nothing out-of-window (byte-
++    identical no-window path). This is the GUARANTEE that out-of-window sorts last
++    regardless of score or a downstream rerank (Codex wave-2 P1)."""
++    if not oow_urls:
++        return rows
++
++    def _u(r: dict[str, Any]) -> str:
++        return str(r.get("source_url") or r.get("url") or "")
++
++    out_w = [r for r in rows if _u(r) in oow_urls]
++    if not out_w:
++        return rows
++    in_w = [r for r in rows if _u(r) not in oow_urls]
++    return in_w + out_w
++
++
+ def _recency_enabled() -> bool:
+     """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
+     byte-identical prior ordering AND no recency telemetry."""
+@@ -1962,6 +2144,7 @@ def _relevance_floor_selection(
+     semantic_requested: bool = False,
+     semantic_fell_back: bool = False,
+     url_to_content_relevance_weight: dict[str, float] | None = None,
++    url_to_date_weight: dict[str, float] | None = None,
+ ) -> EvidenceSelection:
+     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
+ 
+@@ -2045,6 +2228,22 @@ def _relevance_floor_selection(
+         w = _crw_map.get(str(url))
+         return 1.0 if w is None else float(w)
+ 
++    # I-deepfix-001 B10(d) (#1352): per-row DATE-WINDOW weight, joined by URL. It
++    # multiplies the ranking score EXACTLY like `_content_relevance_weight` — an
++    # out-of-window source sinks LAST in the SELECTED set while staying KEPT (the
++    # floor comparison uses the RAW relevance, never this weight — §-1.3 WEIGHT-
++    # not-FILTER, never a drop). The map holds ONLY non-default (< 1.0) weights, so
++    # when no date window is set it is empty, this returns 1.0 for every row, and
++    # the sort is BYTE-IDENTICAL. Undated rows are never in the map (fail-open).
++    _date_map = url_to_date_weight or {}
++
++    def _date_window_weight(row: dict[str, Any]) -> float:
++        if not _date_map:
++            return 1.0
++        url = row.get("source_url") or row.get("url") or ""
++        w = _date_map.get(str(url))
++        return 1.0 if w is None else float(w)
++
+     # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
+     # below-floor marquee / required-entity row is also floor-EXEMPT. OFF =>
+     # `_preserve_marquee` is False => predicate is byte-identical to the prior
+@@ -2165,7 +2364,7 @@ def _relevance_floor_selection(
+         kept.sort(
+             key=lambda s: (
+                 -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
+-                  * _content_relevance_weight(s[3])),
++                  * _content_relevance_weight(s[3]) * _date_window_weight(s[3])),
+                 _TIER_PRIORITY.get(s[2], 9),
+                 s[0],
+             )
+@@ -2173,7 +2372,8 @@ def _relevance_floor_selection(
+     else:
+         kept.sort(
+             key=lambda s: (
+-                -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])),
++                -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])
++                  * _date_window_weight(s[3])),
+                 _TIER_PRIORITY.get(s[2], 9),
+                 s[0],
+             )
+@@ -2404,6 +2604,63 @@ def select_evidence_for_generation(
+     primary_trial_anchors: list[str] | None = None,
+     relevance_floor: float | None = None,
+     sub_queries: list[str] | None = None,
++) -> EvidenceSelection:
++    """Public entry: run the selection, then GUARANTEE the date-window ordering on
++    the FINAL result regardless of which internal branch produced it (Codex wave-2
++    P1c: the demotion/tail partition was previously wired ONLY into the
++    relevance-floor branch, so the tier-capped / short-pool paths — used when
++    relevance_floor=None, incl. the finding-dedup helper — could rank an
++    out-of-window source ahead of an in-window one). The finalizer is month-aware,
++    KEEPS every row (§-1.3 demote-not-drop), idempotent (re-running on an already-
++    partitioned floor-path result is a no-op), and FAIL-OPEN (never breaks
++    selection on a finalizer error; no window => same result object)."""
++    result = _select_evidence_for_generation_impl(
++        research_question=research_question,
++        protocol=protocol,
++        classified_sources=classified_sources,
++        evidence_rows=evidence_rows,
++        max_rows=max_rows,
++        primary_trial_anchors=primary_trial_anchors,
++        relevance_floor=relevance_floor,
++        sub_queries=sub_queries,
++    )
++    try:
++        _s_idx, _e_idx = _ym_window_bounds(protocol)
++        if (_s_idx is None and _e_idx is None) or not getattr(result, "selected_rows", None):
++            return result
++        _oow = {
++            str(r.get("source_url") or r.get("url") or "")
++            for r in result.selected_rows
++            if isinstance(r, dict) and _row_out_of_window_ym(r, _s_idx, _e_idx)
++        }
++        _oow.discard("")
++        if not _oow:
++            return result
++        _parted = _partition_out_of_window_last(result.selected_rows, _oow)
++        _already_noted = any("date-window" in str(n).lower() for n in result.notes)
++        if _parted == result.selected_rows and _already_noted:
++            return result  # floor-path already enforced + disclosed → no-op
++        _notes = list(result.notes)
++        if not _already_noted:
++            _notes.append(
++                f"B10 date-window: {len(_oow)} out-of-window source(s) sorted "
++                "LAST (kept — §-1.3 demote-not-drop; hard user date ceiling)."
++            )
++        return replace(result, selected_rows=_parted, notes=_notes)
++    except Exception:  # noqa: BLE001 — date-window finalizer is fail-open
++        return result
++
++
++def _select_evidence_for_generation_impl(
++    *,
++    research_question: str,
++    protocol: dict[str, Any] | None,
++    classified_sources: list[Any],
++    evidence_rows: list[dict[str, Any]],
++    max_rows: int,
++    primary_trial_anchors: list[str] | None = None,
++    relevance_floor: float | None = None,
++    sub_queries: list[str] | None = None,
+ ) -> EvidenceSelection:
+     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+ 
+@@ -2480,6 +2737,53 @@ def select_evidence_for_generation(
+                 if 0.0 < _crwf < 1.0:
+                     url_to_content_relevance_weight[str(url)] = _crwf
+ 
++    # I-deepfix-001 B10(d) (#1352): build the per-URL DATE-WINDOW demotion map from
++    # the user date constraint in protocol['date_range'] (populated by B10(a) intake
++    # extraction). An out-of-window source (explicit publication year outside the
++    # window) is DEMOTED (weight < 1.0) so it sorts LAST in the selected set, and an
++    # exclusion record is written to telemetry — it is KEPT in the corpus, NEVER
++    # hard-dropped (§-1.3). Undated rows are never in the map (fail-open). When no
++    # window is set the map is empty => sort byte-identical. `_date_window_disable_
++    # recency` flips recency OFF when a MAX-date is present (newer-first fights the
++    # ceiling — the direct B10 bug).
++    _date_start_year, _date_end_year = _protocol_date_window(protocol)
++    # MONTH-precision bounds (Codex wave-2 P1): enforce a sub-year ceiling when the
++    # window carries a month; year-only bounds reduce to the prior year comparison.
++    _date_start_idx, _date_end_idx = _ym_window_bounds(protocol)
++    url_to_date_weight: dict[str, float] = {}
++    _oow_urls: set[str] = set()
++    _date_excluded_records: list[dict[str, Any]] = []
++    _date_window_disable_recency = _date_end_idx is not None
++    if _date_start_idx is not None or _date_end_idx is not None:
++        _dw = _date_demote_weight()
++        for _r in evidence_rows:
++            if not isinstance(_r, dict):
++                continue
++            if _row_out_of_window_ym(_r, _date_start_idx, _date_end_idx):
++                _u = str(_r.get("source_url") or _r.get("url") or "")
++                if _u:
++                    url_to_date_weight[_u] = _dw
++                    _oow_urls.add(_u)
++                _pub = _row_pub_ym(_r)
++                _date_excluded_records.append({
++                    "source_url": _u,
++                    "year": _row_year(_r),
++                    "pub_ym": (f"{_pub[0]:04d}-{_pub[1]:02d}"
++                               if _pub and _pub[1] else
++                               (str(_pub[0]) if _pub else None)),
++                    "window": [_date_start_year, _date_end_year],
++                    "action": "demoted_out_of_window_kept",
++                    "weight": _dw,
++                })
++        if _date_excluded_records:
++            _LOGGER.info(
++                "[select] B10 date-window [%s..%s]: DEMOTED %d out-of-window "
++                "source(s) (kept at weight=%.2f, sorted last — §-1.3 disclose, "
++                "NOT dropped); recency_tiebreak disabled=%s",
++                _date_start_year, _date_end_year, len(_date_excluded_records),
++                _date_demote_weight(), _date_window_disable_recency,
++            )
++
+     # Compute relevance tokens from research question + protocol anchors.
+     question_tokens = _content_tokens(research_question or "")
+     protocol_tokens: set[str] = set()
+@@ -2542,6 +2846,30 @@ def select_evidence_for_generation(
+             )
+         scored.append((idx, score, tier, row))
+ 
++    # Codex wave-2 P1 (capped-path date demotion): for the TIER-CAPPED path
++    # (relevance_floor is None) demote an out-of-window row's SELECTION score so the
++    # quota allocator prefers IN-WINDOW rows for a capped slot — the final tail
++    # partition alone only reorders the already-chosen subset and cannot reclaim a
++    # slot an out-of-window high-score row already took. This is applied ONLY on the
++    # capped path: on the relevance-floor path the score is compared to the floor, so
++    # demoting it there could push an out-of-window row BELOW the floor and DROP it
++    # (violating §-1.3 demote-not-drop) — that path instead carries
++    # `_date_window_weight` in its sort. Rows are KEPT in `scored` (still selectable
++    # when capacity allows); only their quota rank drops.
++    if relevance_floor is None and _oow_urls:
++        _dwt = _date_demote_weight()
++        scored = [
++            (
++                idx,
++                (score * _dwt
++                 if str(row.get("source_url") or row.get("url") or "") in _oow_urls
++                 else score),
++                tier,
++                row,
++            )
++            for (idx, score, tier, row) in scored
++        ]
++
+     # Full tier counts (FROM evidence_rows, the selectable universe).
+     full_counts: dict[str, int] = {}
+     for _, _, tier, _ in scored:
+@@ -2574,6 +2902,12 @@ def select_evidence_for_generation(
+             # rows and WASH OUT the W2 demotion — at that point the W2 weight must
+             # also be applied INSIDE/AFTER the rerank (e.g. a stable weight re-sort).
+             url_to_content_relevance_weight=url_to_content_relevance_weight,
++            # I-deepfix-001 B10(d) (#1352): per-URL date-window demotion map (empty
++            # when no user date window => byte-identical sort). Multiplied into the
++            # SAME floor-path SORT key so an out-of-window source sinks LAST while
++            # staying KEPT (§-1.3). This is the production path (Gate-B slate sets
++            # PG_USE_FINDING_DEDUP=1 => relevance_floor non-None => this branch).
++            url_to_date_weight=url_to_date_weight,
+         )
+         # I-recency-001 (#1296) wiring fix: the production live call passes
+         # `relevance_floor`, so it returns HERE — it never reaches the
+@@ -2592,13 +2926,32 @@ def select_evidence_for_generation(
+         # strategy/the floor's honest-drop notes), so the keep-all CONTRACT is
+         # untouched. The faithfulness engine (strict_verify / NLI / 4-role) is
+         # downstream and re-checks every sentence regardless of order.
++        # I-deepfix-001 B10(d) (#1352): disclose the date-window demotion in the
++        # selection notes (exclusion-record surface). Only widens the notes when a
++        # window actually demoted ≥1 row, so a no-window run is byte-identical.
++        if _date_excluded_records:
++            _floor_selection = replace(
++                _floor_selection,
++                notes=list(_floor_selection.notes) + [
++                    f"B10 date-window [{_date_start_year}..{_date_end_year}]: "
++                    f"{len(_date_excluded_records)} out-of-window source(s) "
++                    f"DEMOTED (kept, sorted last); recency_tiebreak "
++                    f"disabled={_date_window_disable_recency}"
++                ],
++            )
+         _floor_reranked = _maybe_rerank_selection(
+             _floor_selection.selected_rows, research_question
+         )
+-        if _floor_reranked is _floor_selection.selected_rows:
+-            # OFF / single-row / loud-fallback → same object → byte-identical.
++        # GUARANTEED date-window ordering (Codex wave-2 P1): partition out-of-window
++        # rows to the TAIL as the LAST step — AFTER rerank — so a hard user date
++        # ceiling cannot be out-ranked by a high relevance score or washed out by
++        # the reranker. KEEPS every row (§-1.3 demote-not-drop). No-window run =>
++        # `_oow_urls` empty => same object => byte-identical.
++        _final_rows = _partition_out_of_window_last(_floor_reranked, _oow_urls)
++        if _final_rows is _floor_selection.selected_rows:
++            # OFF / single-row / loud-fallback + no date window → byte-identical.
+             return _floor_selection
+-        return replace(_floor_selection, selected_rows=_floor_reranked)
++        return replace(_floor_selection, selected_rows=_final_rows)
+ 
+     # I-perm-003 (#1197): corpus-size-scaled budget (default OFF). Fixed-cap
+     # (tier-balanced max_rows) path only — the relevance-floor mode above already
+@@ -2710,7 +3063,11 @@ def select_evidence_for_generation(
+     # still reserve their matched rows — recency only reorders same-band
+     # candidates (Codex P2: floor reservation priority is evaluated before
+     # recency). Kill-switch OFF → identical (-score, idx) ordering.
+-    _rec_enabled = _recency_enabled()
++    # I-deepfix-001 B10(d) (#1352): INVERT/DISABLE the recency tiebreak when a user
++    # MAX-date is present — "newer first" directly FIGHTS a max-date ceiling. Force
++    # recency OFF on the tier-balanced path too so a 2025 paper does not out-rank a
++    # 2022 paper when the user asked for "before June 2023".
++    _rec_enabled = _recency_enabled() and not _date_window_disable_recency
+     _rec_eps = _recency_epsilon()
+     for tier in by_tier:
+         by_tier[tier].sort(
+diff --git a/src/polaris_graph/retrieval/intake_constraint_extractor.py b/src/polaris_graph/retrieval/intake_constraint_extractor.py
+index 60c0700a..e9e0dd66 100644
+--- a/src/polaris_graph/retrieval/intake_constraint_extractor.py
++++ b/src/polaris_graph/retrieval/intake_constraint_extractor.py
+@@ -44,6 +44,38 @@ _YEAR_RE = re.compile(r"\b(19|20|21)\d{2}\b")
+ # "since/after/from YYYY" => start floor; "before/until/by/up to YYYY" => end ceiling.
+ _SINCE_RE = re.compile(r"\b(?:since|after|from|starting(?:\s+in)?|>=|>)\s+((?:19|20|21)\d{2})\b", re.I)
+ _BEFORE_RE = re.compile(r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than|<=|<)\s+((?:19|20|21)\d{2})\b", re.I)
++
++# I-deepfix-001 Codex wave-2 P1: MONTH-precision bounds. "before June 2023" /
++# "since March 2020" / "2023-06" must be captured at MONTH granularity so the
++# selector can enforce a sub-year ceiling (a year-only bound let post-June-2023
++# rows survive a "before June 2023" window). The bare-year regexes above do NOT
++# match "before June 2023" (the month sits between the keyword and the year), so
++# these month matchers are additive and never conflict with the year ones.
++_MON_NAMES = {
++    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
++    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
++    "december": 12, "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
++    "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
++}
++_MON_RE = (
++    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
++    r"aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
++)
++_SINCE_MONTH_RE = re.compile(
++    r"\b(?:since|after|from|starting(?:\s+in)?)\s+" + _MON_RE
++    + r"\s+((?:19|20|21)\d{2})\b", re.I)
++_BEFORE_MONTH_RE = re.compile(
++    r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than)\s+" + _MON_RE
++    + r"\s+((?:19|20|21)\d{2})\b", re.I)
++# ISO "YYYY-MM" is bound to its DIRECTION (Codex wave-2 P1: a blind ISO matcher
++# inverted "since 2020-03" into an END ceiling). A bare floating "YYYY-MM" with no
++# before/since keyword is intentionally NOT treated as a bound.
++_SINCE_ISO_RE = re.compile(
++    r"\b(?:since|after|from|starting(?:\s+in)?)\s+"
++    r"((?:19|20|21)\d{2})-(0[1-9]|1[0-2])\b", re.I)
++_BEFORE_ISO_RE = re.compile(
++    r"\b(?:before|until|by|up\s+to|prior\s+to|earlier\s+than|through)\s+"
++    r"((?:19|20|21)\d{2})-(0[1-9]|1[0-2])\b", re.I)
+ # "in the last N years" relative window.
+ _LAST_N_RE = re.compile(r"\b(?:in\s+the\s+)?(?:last|past|recent)\s+(\d{1,2})\s+years?\b", re.I)
+ # language directive.
+@@ -78,6 +110,8 @@ class UserConstraints:
+ 
+     date_start_year: Optional[int] = None     # inclusive lower bound (publication year)
+     date_end_year: Optional[int] = None       # inclusive upper bound
++    date_start_month: Optional[int] = None    # 1..12, MONTH precision for the floor (Codex wave-2 P1)
++    date_end_month: Optional[int] = None      # 1..12, MONTH precision for the ceiling
+     language: Optional[str] = None            # ISO code, e.g. 'en'
+     journal_only: bool = False               # EXTRACTED but DORMANT (operator veto)
+     raw_directives: list[str] = field(default_factory=list)
+@@ -91,10 +125,32 @@ class UserConstraints:
+             and not self.journal_only
+         )
+ 
++    def date_start_iso(self) -> Optional[str]:
++        """ISO floor bound for protocol.date_range: 'YYYY-MM-01' when a month is
++        known, else 'YYYY-01-01', else None."""
++        if self.date_start_year is None:
++            return None
++        mo = self.date_start_month or 1
++        return f"{self.date_start_year:04d}-{mo:02d}-01"
++
++    def date_end_iso(self) -> Optional[str]:
++        """ISO ceiling bound for protocol.date_range. When a month is known the
++        bound carries it ('YYYY-MM' — the selector compares at month precision);
++        else 'YYYY-12-31' (whole-year ceiling)."""
++        if self.date_end_year is None:
++            return None
++        if self.date_end_month:
++            return f"{self.date_end_year:04d}-{self.date_end_month:02d}"
++        return f"{self.date_end_year:04d}-12-31"
++
+     def to_dict(self) -> dict[str, Any]:
+         return {
+             "date_start_year": self.date_start_year,
+             "date_end_year": self.date_end_year,
++            "date_start_month": self.date_start_month,
++            "date_end_month": self.date_end_month,
++            "date_start_iso": self.date_start_iso(),
++            "date_end_iso": self.date_end_iso(),
+             "language": self.language,
+             "journal_only_dormant": self.journal_only,
+             "raw_directives": list(self.raw_directives),
+@@ -140,6 +196,33 @@ def extract_constraints_regex(prompt: str) -> UserConstraints:
+     if m:
+         uc.date_end_year = _valid_year(m.group(1))
+         uc.raw_directives.append(m.group(0).strip())
++    # MONTH-precision matchers (Codex wave-2 P1): "since March 2020" / "before
++    # June 2023" — set BOTH year and month. These never collide with the bare-year
++    # regexes above (those require the keyword directly before the year).
++    mm = _SINCE_MONTH_RE.search(text)
++    if mm:
++        uc.date_start_year = _valid_year(mm.group(2))
++        uc.date_start_month = _MON_NAMES.get(mm.group(1).lower())
++        uc.raw_directives.append(mm.group(0).strip())
++    mm = _BEFORE_MONTH_RE.search(text)
++    if mm:
++        uc.date_end_year = _valid_year(mm.group(2))
++        uc.date_end_month = _MON_NAMES.get(mm.group(1).lower())
++        uc.raw_directives.append(mm.group(0).strip())
++    # DIRECTION-BOUND ISO "YYYY-MM" (Codex wave-2 P1): "since 2020-03" refines the
++    # START floor; "before 2023-06" refines the END ceiling. Each refines (adds the
++    # month to) the same-direction year the bare matcher already set; neither can
++    # set the OPPOSITE bound (the inversion bug the blind matcher caused).
++    si = _SINCE_ISO_RE.search(text)
++    if si:
++        uc.date_start_year = _valid_year(si.group(1))
++        uc.date_start_month = int(si.group(2))
++        uc.raw_directives.append(si.group(0).strip())
++    bi = _BEFORE_ISO_RE.search(text)
++    if bi:
++        uc.date_end_year = _valid_year(bi.group(1))
++        uc.date_end_month = int(bi.group(2))
++        uc.raw_directives.append(bi.group(0).strip())
+     m = _LAST_N_RE.search(text)
+     if m:
+         n = _valid_year(_current_year())  # noqa: F841  (validate path)
+@@ -171,6 +254,8 @@ def _merge(primary: UserConstraints, fallback: UserConstraints) -> UserConstrain
+     return UserConstraints(
+         date_start_year=primary.date_start_year if primary.date_start_year is not None else fallback.date_start_year,
+         date_end_year=primary.date_end_year if primary.date_end_year is not None else fallback.date_end_year,
++        date_start_month=primary.date_start_month if primary.date_start_month is not None else fallback.date_start_month,
++        date_end_month=primary.date_end_month if primary.date_end_month is not None else fallback.date_end_month,
+         language=primary.language or fallback.language,
+         journal_only=primary.journal_only or fallback.journal_only,
+         raw_directives=primary.raw_directives + fallback.raw_directives,
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 7d449bab..3de8b351 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -48,6 +48,7 @@ from src.polaris_graph.retrieval.scope_query_validator import (
+ )
+ from src.polaris_graph.retrieval.query_decomposer import distill_keywords  # FX-18 (#1122)
+ from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276): single-sourced shell vocab
++from src.polaris_graph.retrieval import title_body_consistency  # I-deepfix-001 B14 (#1358)
+ from src.polaris_graph.authority.authority_model import score_source_authority
+ from src.polaris_graph.authority.source_class import AuthoritySignals
+ from src.polaris_graph.retrieval.tier_classifier import (
+@@ -70,8 +71,8 @@ OPENALEX_SOURCES_ENDPOINT = "https://api.openalex.org/sources"
+ # so summary_stats / apc_prices / is_core / is_in_doaj come from a SEPARATE
+ # /sources/{id} fetch keyed by primary_location.source.id.
+ OPENALEX_WORKS_SELECT = (
+-    "id,doi,title,display_name,type,publication_year,cited_by_count,"
+-    "is_retracted,primary_location,authorships"
++    "id,doi,title,display_name,type,publication_year,publication_date,"
++    "cited_by_count,is_retracted,primary_location,authorships"
+ )
+ OPENALEX_SOURCES_SELECT = (
+     "id,is_core,is_in_doaj,apc_prices,summary_stats"
+@@ -87,7 +88,10 @@ AUTHORITY_CACHE_DB = Path(
+ # written before the journal_only `is_retracted` + `openalex_venue` fields are
+ # REBUILT (not served stale) — a cached retracted article must not pass the
+ # journal_only predicate via a payload that predates the retraction field.
+-AUTHORITY_CACHE_SCHEMA_VERSION = 2
++# I-deepfix-001 Codex wave-2 P1: bumped 2 -> 3 so cached payloads predating the
++# `publication_date` field are REBUILT (not served stale) — a cached boundary-year
++# row that lacks pub_date would otherwise defeat the MONTH-precision date window.
++AUTHORITY_CACHE_SCHEMA_VERSION = 3
+ 
+ # Hard caps
+ DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
+@@ -1326,6 +1330,9 @@ def _build_authority_signals_dict(
+         "is_in_doaj": source_fields.get("is_in_doaj"),
+         "apc_prices": source_fields.get("apc_prices"),
+         "publication_year": work.get("publication_year"),
++        # I-deepfix-001 Codex wave-2 P1: full publication_date (YYYY-MM-DD) so the
++        # selector can enforce a MONTH-precision date ceiling ("before June 2023").
++        "publication_date": work.get("publication_date"),
+         "ror_id": ror_id,
+         "institution_type": inst_type,
+         "country_code": country_code,
+@@ -4800,6 +4807,37 @@ def run_live_retrieval(
+             classifier_title = max(title_candidates, key=len)
+         else:
+             classifier_title = cand.title or ""
++        # I-deepfix-001 B14 (#1358): title<->body consistency gate. A mis-stitched
++        # source (the serper/openalex METADATA title belongs to a DIFFERENT page
++        # than the fetched body — verified on fresh2: ev_037 arxiv "K-12
++        # COMPETITIVENESS" title glued to a CMU "Bellwether" body) makes the
++        # pipeline reason about ONE source under TWO identities. Cross-check the
++        # METADATA title (cand.title from serper/openalex) against the BODY-derived
++        # title (content_title) + body head. On a confirmed mismatch the gate
++        # RE-DERIVES classifier_title from the body and records the flag — it NEVER
++        # drops a source (§-1.3 weight-not-filter; faithfulness engine untouched).
++        # similarity_fn is None here: the leaf module's cheap token-overlap
++        # prescreen + overlap fallback catches the gross "two different papers"
++        # mismatches (overlap << floor) with NO per-source model load (§8.4); the
++        # locked-slate reranker escalation is a future enhancement (see honest_gap).
++        # OFF path (PG_TITLE_BODY_CONSISTENCY=0): no keys merged => byte-identical.
++        _tb_verdict = None
++        if title_body_consistency.title_body_consistency_enabled():
++            _tb_verdict = title_body_consistency.check_title_body_consistency(
++                metadata_title=cand.title or "",
++                body_title=content_title or "",
++                body_text=content or "",
++                similarity_fn=None,
++            )
++            if not _tb_verdict.identity_consistent and _tb_verdict.resolved_title:
++                logger.info(
++                    "[live_retriever] B14 title<->body mismatch for %r — title "
++                    "re-derived from body (meta=%r body=%r overlap=%.2f); flagged "
++                    "identity_consistent=False, source KEPT (§-1.3)",
++                    cand.url, (cand.title or "")[:60],
++                    (content_title or "")[:60], _tb_verdict.prescreen_overlap,
++                )
++                classifier_title = _tb_verdict.resolved_title
+         # Phase 0a (C1/C5): reconstruct the additive AuthoritySignals payload
+         # from the live-path enrich dict. Absent/partial -> None / partial ->
+         # the authority model returns LOW confidence (fail-honest). Inert on the
+@@ -4819,6 +4857,30 @@ def run_live_retrieval(
+                 institution_type=_auth_dict.get("institution_type", "") or "",
+                 country_code=_auth_dict.get("country_code", "") or "",
+             )
++        # I-deepfix-001 B10(b) (#1352, PREREQUISITE): resolve the publication YEAR
++        # from the OpenAlex enrich already fetched, so downstream layers can ENFORCE
++        # a user date window (B10 d/c/e) — nothing can demote an out-of-window
++        # source without this. The year lives only inside the authority_signals
++        # sub-dict today; surface it (no extra network). None when OpenAlex
++        # returned nothing (an undated row is NEVER demoted later — fail-open).
++        _pub_year = None
++        _pub_date = None
++        if isinstance(_auth_dict, dict):
++            _py = _auth_dict.get("publication_year")
++            try:
++                if _py is not None:
++                    _py_i = int(_py)
++                    if 1900 <= _py_i <= 2100:
++                        _pub_year = _py_i
++            except (TypeError, ValueError):
++                _pub_year = None
++            # I-deepfix-001 Codex wave-2 P1: carry the full publication_date
++            # (YYYY-MM-DD) so the selector can enforce a MONTH-precision ceiling.
++            # Only accept a well-formed ISO YYYY-MM[-DD]; else leave None (the row
++            # falls back to year-precision, never demoted on a malformed date).
++            _pd = _auth_dict.get("publication_date")
++            if isinstance(_pd, str) and re.match(r"^\s*\d{4}-\d{2}", _pd):
++                _pub_date = _pd.strip()
+         # I-ready-017 #1134: resolve the article DOI for the journal_only
+         # citeability predicate (ADDITIVE — sourced from the candidate's OA
+         # hints; "" when unknown). Cheap, no network.
+@@ -5086,6 +5148,28 @@ def run_live_retrieval(
+                     # Additive only; absent/empty for seed-lane or legacy rows.
+                     "query_origin": getattr(cand, "query_origin", "") or "",
+                 }
++                # I-deepfix-001 B10(b) (#1352): carry the publication year FORWARD.
++                # `year` is the key the evidence_selector recency path already reads
++                # (_row_year at evidence_selector.py:805) AND the B10(d) date-window
++                # demotion reads; `publication_year` is the explicit audit field.
++                # ABSENT when OpenAlex returned no year => an undated row, never
++                # demoted downstream (fail-open). Never enters a verified claim.
++                if _pub_year is not None:
++                    _row["year"] = _pub_year
++                    _row["publication_year"] = _pub_year
++                # Codex wave-2 P1: carry the full publication_date for MONTH-precision
++                # date-window enforcement at selection. ABSENT => year-precision
++                # fallback (never demoted on a missing/malformed date — fail-open).
++                if _pub_date is not None:
++                    _row["pub_date"] = _pub_date
++                # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
++                # the generator/dedup can avoid reasoning about a mis-stitched source
++                # under two identities. Keys ABSENT when the gate is OFF => the OFF
++                # evidence row is byte-identical. Never a drop; faithfulness-neutral.
++                if _tb_verdict is not None:
++                    _row.update(
++                        title_body_consistency.consistency_keys(_tb_verdict)
++                    )
+                 # I-wire-001 W5 (Codex P1#1): when LLM-tiering is ON, the `_row["tier"]`
+                 # written above is the rules-floor PLACEHOLDER. Record this evidence
+                 # row's position in the deferred-tier batch so the post-loop
+diff --git a/src/polaris_graph/retrieval/query_decomposer.py b/src/polaris_graph/retrieval/query_decomposer.py
+index 3d15a2d3..46b46b04 100644
+--- a/src/polaris_graph/retrieval/query_decomposer.py
++++ b/src/polaris_graph/retrieval/query_decomposer.py
+@@ -131,6 +131,30 @@ def decompose_question(question: str, *, max_subqueries: int = DEFAULT_MAX_SUBQU
+     clauses: list[str] = []
+     for clause in primary:
+         clauses.extend(_split_on_connectives(clause))
++    # Stage 2b (I-deepfix-001 B3 decomposer leg, #1347): drop DIRECTIVE / meta-
++    # instruction clauses BEFORE they can become live search sub-queries. This is
++    # the EARLIEST defense-in-depth point — an injected do-not-view / output-shape
++    # / prohibition-block sentence in the raw question splits cleanly here and
++    # otherwise passes the >=3-content-word floor straight into the amplified set
++    # (verified on fresh2: decompose_question(raw_q) emitted 7 directive leaks
++    # incl. the Salari do-not-view URL block). Pure, no network — reuses the SAME
++    # `strip_directive_clauses` predicate the retrieval-side scope validator runs,
++    # so the two legs share one classifier. Gated by PG_QUERY_DIRECTIVE_SCREEN
++    # (default ON, faithfulness-neutral); OFF reverts to byte-identical behavior.
++    from src.polaris_graph.retrieval.scope_query_validator import (  # noqa: PLC0415
++        directive_screen_enabled,
++        strip_directive_clauses,
++    )
++    if directive_screen_enabled():
++        clauses, _directive_dropped = strip_directive_clauses(clauses)
++        if _directive_dropped:
++            import logging  # noqa: PLC0415
++            logging.getLogger("polaris_graph.query_decomposer").info(
++                "[query_decomposer] B3 directive-screen dropped %d directive "
++                "sub-clause(s) before search: %r",
++                len(_directive_dropped), _directive_dropped[:5],
++            )
++
+     # Stage 3: unmask abbreviation periods, normalize, fragment-filter, dedup (case-insensitive), cap.
+     out: list[str] = []
+     seen: set[str] = set()
+diff --git a/src/polaris_graph/retrieval/scope_query_validator.py b/src/polaris_graph/retrieval/scope_query_validator.py
+index a8b35b27..05ee1957 100644
+--- a/src/polaris_graph/retrieval/scope_query_validator.py
++++ b/src/polaris_graph/retrieval/scope_query_validator.py
+@@ -183,11 +183,33 @@ _DIRECTIVE_MARKERS: tuple[str, ...] = (
+     "do-not-view",
+ )
+ 
+-# A clause that is a bare URL/DOI dict literal or a list of URLs is a deny-list payload,
+-# never a research question.
+-_URL_DOI_LITERAL_RE = re.compile(
+-    r"(https?://|www\.|doi\.org/|10\.\d{4,9}/|\{\s*['\"]?url)", re.IGNORECASE
++# A clause that is a bare URL/DOI dict/list literal is a deny-list payload, never a
++# research question. I-deepfix-001 Codex wave-2 P1: the prior regex marked ANY
++# `doi.org/` or `10.xxxx/` occurrence as a directive, so a legitimate research
++# sub-query that merely CITES a DOI ("What does DOI 10.1016/j.x report about
++# wages?") was wrongly stripped. The URL/DOI leg now fires ONLY on a BARE payload
++# (a dict/list literal, or a clause that is essentially just URLs/DOIs with no
++# prose). A real deny-list INSTRUCTION ("do not view <url>") is still caught by the
++# high-precision `_DIRECTIVE_MARKERS` regardless.
++_URL_DOI_DICT_LITERAL_RE = re.compile(r"^\s*[\[{]|\{\s*['\"]?url", re.IGNORECASE)
++_URL_DOI_TOKEN_RE = re.compile(
++    r"\S*(?:https?://|www\.|doi\.org/|10\.\d{4,9}/)\S*", re.IGNORECASE
+ )
++
++
++def _is_bare_url_doi_payload(low: str) -> bool:
++    """True iff the clause is a BARE URL/DOI deny-list payload (a dict/list literal,
++    or essentially just URLs/DOIs with no prose), NOT a research query that happens
++    to cite a DOI. Used by `is_directive_clause` (Codex wave-2 P1 narrowing)."""
++    if _URL_DOI_DICT_LITERAL_RE.search(low):
++        return True
++    if not _URL_DOI_TOKEN_RE.search(low):
++        return False
++    # Strip the URL/DOI tokens; a genuine research query around a DOI keeps several
++    # content words, a bare payload keeps almost none (<=2 glue words like "see at").
++    stripped = _URL_DOI_TOKEN_RE.sub(" ", low)
++    content_words = re.findall(r"[a-z]{2,}", stripped)
++    return len(content_words) <= 2
+ # Imperative opener: a clause that BEGINS with an unambiguous injection-command
+ # verb. I-deepfix-001 Codex wave-1 P2: the prior list included polysemous
+ # research-domain verbs (return/output/ensure/keep/put) that match legitimate
+@@ -198,8 +220,12 @@ _URL_DOI_LITERAL_RE = re.compile(
+ # command openers that do not occur in a research sub-question, each requiring a
+ # trailing SPACE so hyphenated compounds (e.g. a leading "do-not-resuscitate"
+ # term) cannot trip it.
++# Codex wave-2 P2: dropped bare "please " — a polite research sub-query ("please
++# compare wage outcomes…") is legitimate, and the real injection forms ("please
++# ignore", "please respond only", "please output format") are already caught by the
++# remaining openers + the high-precision `_DIRECTIVE_MARKERS`.
+ _IMPERATIVE_OPENER_RE = re.compile(
+-    r"^\s*(please\s|ignore\s|disregard\s|do not\s|don't\s)",
++    r"^\s*(ignore\s|disregard\s|do not\s|don't\s)",
+     re.IGNORECASE,
+ )
+ 
+@@ -220,7 +246,7 @@ def is_directive_clause(text: str) -> bool:
+         return False
+     if any(marker in low for marker in _DIRECTIVE_MARKERS):
+         return True
+-    if _URL_DOI_LITERAL_RE.search(low):
++    if _is_bare_url_doi_payload(low):
+         return True
+     if _IMPERATIVE_OPENER_RE.match(low):
+         return True

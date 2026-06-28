@@ -79,6 +79,105 @@ def count_grounded_rows(evidence_rows: list[Any]) -> int:
     return sum(1 for r in evidence_rows if not _row_is_content_less_stub(r))
 
 
+# ── I-deepfix-001 B7 (#1351): on-topic adequacy predicate ──────────────────────
+# THE BUG (§-1.1 BANNED pattern-presence signal): assess_corpus_adequacy was a
+# PURE tier-count gate with ZERO relevance dimension — fresh2 reported
+# decision=proceed over a pool the 9-lens forensic flagged ~12/27 off-topic
+# (incl. an Anubis bot-wall tiered T1). A contaminated pool false-PASSED.
+#
+# THE FIX (gate-honesty only; faithfulness engine UNTOUCHED — strict_verify /
+# NLI / 4-role / D8 / provenance never read this): when the caller passes the
+# ACTUAL evidence_rows, a row counts toward the grounded / tier denominators ONLY
+# if it is on-topic — its topical-relevance WEIGHT (the per-row `relevance_weight`
+# the B4 retrieval-relevance scorer writes at live_retriever.py ~L5108) is at or
+# above a DISCLOSED floor (PG_ADEQUACY_RELEVANCE_FLOOR, default 0.30, §-1.3
+# disclosed weight-floor — never a silent source DROP; the row still flows to
+# composition and the faithfulness engine).
+#
+# FAIL-OPEN (the wave-1 P0 class): a row with NO explicit `relevance_weight` key
+# (every OFF-path / legacy / seed row, and any pre-B4 row) is treated as ON-TOPIC.
+# Only a row carrying an EXPLICIT weight BELOW the floor is demoted from the
+# denominator. This preserves "byte-identical when the B4 weight is absent" and
+# can never collapse a legacy run's grounded count to a false ABORT.
+_ENV_RELEVANCE_FLOOR = "PG_ADEQUACY_RELEVANCE_FLOOR"
+_DEFAULT_RELEVANCE_FLOOR = 0.30
+
+
+def _adequacy_relevance_floor() -> float:
+    """Disclosed on-topic weight floor (LAW VI). Clamp to [0, 1]; a misconfigured
+    value outside that range falls back to the default."""
+    raw = os.getenv(_ENV_RELEVANCE_FLOOR, "").strip()
+    if not raw:
+        return _DEFAULT_RELEVANCE_FLOOR
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_RELEVANCE_FLOOR
+    return min(max(val, 0.0), 1.0)
+
+
+def _row_is_on_topic(row: Any, floor: float) -> bool:
+    """True iff ``row`` is on-topic for the adequacy denominators (B7).
+
+    FAIL-OPEN: a non-dict row, or a row with NO explicit ``relevance_weight``
+    key, counts as ON-TOPIC (missing weight is never treated as off-topic — that
+    would nuke every legacy/OFF-path run). Only an explicit numeric weight BELOW
+    ``floor`` makes a row off-topic. A non-numeric weight also fails open.
+    """
+    if not isinstance(row, dict):
+        return True
+    if "relevance_weight" not in row:
+        return True
+    try:
+        w = float(row.get("relevance_weight"))
+    except (TypeError, ValueError):
+        return True
+    return w >= floor
+
+
+def count_on_topic_grounded_rows(evidence_rows: list[Any], floor: float) -> int:
+    """Grounded rows (BUG-20 stub filter) that are ALSO on-topic (B7).
+
+    A row counts iff it is NOT a content-less stub AND it is on-topic at ``floor``.
+    """
+    return sum(
+        1 for r in evidence_rows
+        if not _row_is_content_less_stub(r) and _row_is_on_topic(r, floor)
+    )
+
+
+def _on_topic_tier_counts(
+    evidence_rows: list[Any], floor: float, raw_tier_counts: dict[str, int],
+) -> dict[str, int]:
+    """Re-tally tier_counts over ON-TOPIC rows only (B7).
+
+    Each evidence row's tier is read from ``row['tier']`` (the surface the
+    classifier back-fills). A row with no usable tier is bucketed UNKNOWN so the
+    total still reflects every on-topic row. FAIL-OPEN: if NO row carries a tier
+    key at all, the on-topic re-tally is empty and the caller falls back to the
+    raw classifier ``tier_counts`` (so an evidence_rows pool that simply lacks the
+    tier key never zeroes the gate).
+    """
+    counts: dict[str, int] = {}
+    saw_tier = False
+    for r in evidence_rows:
+        if not isinstance(r, dict):
+            continue
+        if _row_is_content_less_stub(r) or not _row_is_on_topic(r, floor):
+            continue
+        tier = r.get("tier")
+        if tier:
+            saw_tier = True
+            key = str(tier)
+        else:
+            key = "UNKNOWN"
+        counts[key] = counts.get(key, 0) + 1
+    # FAIL-OPEN: no per-row tier signal at all → keep the classifier tier_counts.
+    if not saw_tier:
+        return dict(raw_tier_counts)
+    return counts
+
+
 @dataclass
 class AdequacyThresholds:
     """Per-domain thresholds for corpus adequacy.
@@ -116,6 +215,14 @@ class CorpusAdequacyReport:
     evidence_rows: int = 0
     notes: list[str] = field(default_factory=list)
     thresholds: dict[str, Any] = field(default_factory=dict)
+    # I-deepfix-001 B7 (#1351): disclose BOTH the raw-pool and the on-topic
+    # denominators so Methods cannot read "8/8 grounded" over a contaminated
+    # pool. Populated ONLY when real evidence_rows are supplied; defaults keep
+    # the legacy report shape byte-identical when they are not.
+    on_topic_evidence_rows: int = 0          # grounded AND on-topic at the floor
+    raw_grounded_evidence_rows: int = 0      # grounded (stub-filtered) regardless of topic
+    on_topic_relevance_floor: float = 0.0    # the disclosed floor used (0.0 = gate inert)
+    on_topic_tier_counts: dict[str, int] = field(default_factory=dict)
 
 
 _DEFAULT_DOMAIN_THRESHOLDS: dict[str, AdequacyThresholds] = {
@@ -246,19 +353,41 @@ def assess_corpus_adequacy(
 
     # BUG-20: when the real rows are available, the grounded evidence count
     # EXCLUDES content-less stubs. Falls back to evidence_row_count otherwise.
+    # I-deepfix-001 B7 (#1351): when real rows are available, the grounded count
+    # ALSO excludes OFF-topic rows (explicit relevance_weight below the disclosed
+    # floor) — gate denominators must reflect on-topic grounded content, not raw
+    # tier presence (the §-1.1 BANNED pattern-presence signal). Fail-open: a row
+    # without an explicit weight counts as on-topic (see ``_row_is_on_topic``).
+    _floor = _adequacy_relevance_floor()
+    raw_grounded = 0
+    on_topic_grounded = 0
+    # `tier_counts` is the CLASSIFIER tier histogram (the legacy gate input). When
+    # real rows are supplied we re-tally tier_counts over ON-TOPIC rows so the
+    # tier thresholds are computed over on-topic content too; otherwise the gate
+    # is byte-identical to the prior callers.
+    on_topic_tier_counts: dict[str, int] = {}
     if evidence_rows is not None:
-        grounded_evidence_rows = count_grounded_rows(evidence_rows)
+        raw_grounded = count_grounded_rows(evidence_rows)
+        on_topic_grounded = count_on_topic_grounded_rows(evidence_rows, _floor)
+        grounded_evidence_rows = on_topic_grounded
+        on_topic_tier_counts = _on_topic_tier_counts(
+            evidence_rows, _floor, tier_counts,
+        )
+        gate_tier_counts = on_topic_tier_counts
     else:
         grounded_evidence_rows = evidence_row_count
+        raw_grounded = evidence_row_count
+        on_topic_grounded = evidence_row_count
+        gate_tier_counts = dict(tier_counts)
 
-    total = sum(tier_counts.values())
-    t1 = tier_counts.get("T1", 0)
-    t2 = tier_counts.get("T2", 0)
-    t3 = tier_counts.get("T3", 0)
-    t4 = tier_counts.get("T4", 0)
-    t5 = tier_counts.get("T5", 0)
-    t6 = tier_counts.get("T6", 0)
-    t7 = tier_counts.get("T7", 0)
+    total = sum(gate_tier_counts.values())
+    t1 = gate_tier_counts.get("T1", 0)
+    t2 = gate_tier_counts.get("T2", 0)
+    t3 = gate_tier_counts.get("T3", 0)
+    t4 = gate_tier_counts.get("T4", 0)
+    t5 = gate_tier_counts.get("T5", 0)
+    t6 = gate_tier_counts.get("T6", 0)
+    t7 = gate_tier_counts.get("T7", 0)
 
     findings: list[AdequacyFinding] = []
 
@@ -330,12 +459,32 @@ def assess_corpus_adequacy(
             f"second retrieval round before proceeding."
         )
 
+    # I-deepfix-001 B7 (#1351): disclose the on-topic vs raw denominators so the
+    # gate honesty is auditable (and the §-1.1 contaminated-pool false-PASS is
+    # visible). Only when real rows were supplied AND off-topic rows were demoted.
+    if evidence_rows is not None and on_topic_grounded < raw_grounded:
+        notes.append(
+            f"Adequacy computed over ON-TOPIC grounded rows "
+            f"({on_topic_grounded}) — {raw_grounded - on_topic_grounded} "
+            f"grounded row(s) demoted from the denominator as off-topic "
+            f"(relevance_weight < {_floor:.2f}); raw grounded pool="
+            f"{raw_grounded}. Demoted rows are KEPT in the corpus (§-1.3), "
+            f"only excluded from the sufficiency count."
+        )
+
     return CorpusAdequacyReport(
         decision=decision,
         findings=findings,
         total_sources=total,
-        tier_counts=dict(tier_counts),
+        # When real rows were supplied the gate ran over on-topic tier counts;
+        # surface those as the gate's tier_counts (raw classifier histogram is
+        # still available to the caller). When not, byte-identical legacy shape.
+        tier_counts=dict(gate_tier_counts),
         evidence_rows=grounded_evidence_rows,
         notes=notes,
         thresholds=asdict(thr),
+        on_topic_evidence_rows=on_topic_grounded,
+        raw_grounded_evidence_rows=raw_grounded,
+        on_topic_relevance_floor=(_floor if evidence_rows is not None else 0.0),
+        on_topic_tier_counts=dict(on_topic_tier_counts),
     )

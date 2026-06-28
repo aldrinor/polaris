@@ -48,6 +48,7 @@ from src.polaris_graph.retrieval.scope_query_validator import (
 )
 from src.polaris_graph.retrieval.query_decomposer import distill_keywords  # FX-18 (#1122)
 from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276): single-sourced shell vocab
+from src.polaris_graph.retrieval import title_body_consistency  # I-deepfix-001 B14 (#1358)
 from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
@@ -70,8 +71,8 @@ OPENALEX_SOURCES_ENDPOINT = "https://api.openalex.org/sources"
 # so summary_stats / apc_prices / is_core / is_in_doaj come from a SEPARATE
 # /sources/{id} fetch keyed by primary_location.source.id.
 OPENALEX_WORKS_SELECT = (
-    "id,doi,title,display_name,type,publication_year,cited_by_count,"
-    "is_retracted,primary_location,authorships"
+    "id,doi,title,display_name,type,publication_year,publication_date,"
+    "cited_by_count,is_retracted,primary_location,authorships"
 )
 OPENALEX_SOURCES_SELECT = (
     "id,is_core,is_in_doaj,apc_prices,summary_stats"
@@ -87,7 +88,10 @@ AUTHORITY_CACHE_DB = Path(
 # written before the journal_only `is_retracted` + `openalex_venue` fields are
 # REBUILT (not served stale) — a cached retracted article must not pass the
 # journal_only predicate via a payload that predates the retraction field.
-AUTHORITY_CACHE_SCHEMA_VERSION = 2
+# I-deepfix-001 Codex wave-2 P1: bumped 2 -> 3 so cached payloads predating the
+# `publication_date` field are REBUILT (not served stale) — a cached boundary-year
+# row that lacks pub_date would otherwise defeat the MONTH-precision date window.
+AUTHORITY_CACHE_SCHEMA_VERSION = 3
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -1326,6 +1330,9 @@ def _build_authority_signals_dict(
         "is_in_doaj": source_fields.get("is_in_doaj"),
         "apc_prices": source_fields.get("apc_prices"),
         "publication_year": work.get("publication_year"),
+        # I-deepfix-001 Codex wave-2 P1: full publication_date (YYYY-MM-DD) so the
+        # selector can enforce a MONTH-precision date ceiling ("before June 2023").
+        "publication_date": work.get("publication_date"),
         "ror_id": ror_id,
         "institution_type": inst_type,
         "country_code": country_code,
@@ -4800,6 +4807,37 @@ def run_live_retrieval(
             classifier_title = max(title_candidates, key=len)
         else:
             classifier_title = cand.title or ""
+        # I-deepfix-001 B14 (#1358): title<->body consistency gate. A mis-stitched
+        # source (the serper/openalex METADATA title belongs to a DIFFERENT page
+        # than the fetched body — verified on fresh2: ev_037 arxiv "K-12
+        # COMPETITIVENESS" title glued to a CMU "Bellwether" body) makes the
+        # pipeline reason about ONE source under TWO identities. Cross-check the
+        # METADATA title (cand.title from serper/openalex) against the BODY-derived
+        # title (content_title) + body head. On a confirmed mismatch the gate
+        # RE-DERIVES classifier_title from the body and records the flag — it NEVER
+        # drops a source (§-1.3 weight-not-filter; faithfulness engine untouched).
+        # similarity_fn is None here: the leaf module's cheap token-overlap
+        # prescreen + overlap fallback catches the gross "two different papers"
+        # mismatches (overlap << floor) with NO per-source model load (§8.4); the
+        # locked-slate reranker escalation is a future enhancement (see honest_gap).
+        # OFF path (PG_TITLE_BODY_CONSISTENCY=0): no keys merged => byte-identical.
+        _tb_verdict = None
+        if title_body_consistency.title_body_consistency_enabled():
+            _tb_verdict = title_body_consistency.check_title_body_consistency(
+                metadata_title=cand.title or "",
+                body_title=content_title or "",
+                body_text=content or "",
+                similarity_fn=None,
+            )
+            if not _tb_verdict.identity_consistent and _tb_verdict.resolved_title:
+                logger.info(
+                    "[live_retriever] B14 title<->body mismatch for %r — title "
+                    "re-derived from body (meta=%r body=%r overlap=%.2f); flagged "
+                    "identity_consistent=False, source KEPT (§-1.3)",
+                    cand.url, (cand.title or "")[:60],
+                    (content_title or "")[:60], _tb_verdict.prescreen_overlap,
+                )
+                classifier_title = _tb_verdict.resolved_title
         # Phase 0a (C1/C5): reconstruct the additive AuthoritySignals payload
         # from the live-path enrich dict. Absent/partial -> None / partial ->
         # the authority model returns LOW confidence (fail-honest). Inert on the
@@ -4819,6 +4857,30 @@ def run_live_retrieval(
                 institution_type=_auth_dict.get("institution_type", "") or "",
                 country_code=_auth_dict.get("country_code", "") or "",
             )
+        # I-deepfix-001 B10(b) (#1352, PREREQUISITE): resolve the publication YEAR
+        # from the OpenAlex enrich already fetched, so downstream layers can ENFORCE
+        # a user date window (B10 d/c/e) — nothing can demote an out-of-window
+        # source without this. The year lives only inside the authority_signals
+        # sub-dict today; surface it (no extra network). None when OpenAlex
+        # returned nothing (an undated row is NEVER demoted later — fail-open).
+        _pub_year = None
+        _pub_date = None
+        if isinstance(_auth_dict, dict):
+            _py = _auth_dict.get("publication_year")
+            try:
+                if _py is not None:
+                    _py_i = int(_py)
+                    if 1900 <= _py_i <= 2100:
+                        _pub_year = _py_i
+            except (TypeError, ValueError):
+                _pub_year = None
+            # I-deepfix-001 Codex wave-2 P1: carry the full publication_date
+            # (YYYY-MM-DD) so the selector can enforce a MONTH-precision ceiling.
+            # Only accept a well-formed ISO YYYY-MM[-DD]; else leave None (the row
+            # falls back to year-precision, never demoted on a malformed date).
+            _pd = _auth_dict.get("publication_date")
+            if isinstance(_pd, str) and re.match(r"^\s*\d{4}-\d{2}", _pd):
+                _pub_date = _pd.strip()
         # I-ready-017 #1134: resolve the article DOI for the journal_only
         # citeability predicate (ADDITIVE — sourced from the candidate's OA
         # hints; "" when unknown). Cheap, no network.
@@ -5086,6 +5148,28 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # I-deepfix-001 B10(b) (#1352): carry the publication year FORWARD.
+                # `year` is the key the evidence_selector recency path already reads
+                # (_row_year at evidence_selector.py:805) AND the B10(d) date-window
+                # demotion reads; `publication_year` is the explicit audit field.
+                # ABSENT when OpenAlex returned no year => an undated row, never
+                # demoted downstream (fail-open). Never enters a verified claim.
+                if _pub_year is not None:
+                    _row["year"] = _pub_year
+                    _row["publication_year"] = _pub_year
+                # Codex wave-2 P1: carry the full publication_date for MONTH-precision
+                # date-window enforcement at selection. ABSENT => year-precision
+                # fallback (never demoted on a missing/malformed date — fail-open).
+                if _pub_date is not None:
+                    _row["pub_date"] = _pub_date
+                # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
+                # the generator/dedup can avoid reasoning about a mis-stitched source
+                # under two identities. Keys ABSENT when the gate is OFF => the OFF
+                # evidence row is byte-identical. Never a drop; faithfulness-neutral.
+                if _tb_verdict is not None:
+                    _row.update(
+                        title_body_consistency.consistency_keys(_tb_verdict)
+                    )
                 # I-wire-001 W5 (Codex P1#1): when LLM-tiering is ON, the `_row["tier"]`
                 # written above is the rules-floor PLACEHOLDER. Record this evidence
                 # row's position in the deferred-tier batch so the post-loop

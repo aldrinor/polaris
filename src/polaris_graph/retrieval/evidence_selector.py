@@ -783,6 +783,188 @@ _RECENCY_MAX_YEAR = 2100
 _RECENCY_EPSILON_DEFAULT = 0.05
 
 
+# ── I-deepfix-001 B10(d) (#1352): user date-window enforcement at selection ────
+# A user date constraint ("academic research published before June 2023") must
+# (1) DEMOTE out-of-window sources as a DISCLOSED soft floor — never hard-drop
+# per §-1.3 (the source stays in the corpus + an exclusion record is written),
+# and (2) INVERT/DISABLE the recency tiebreak when a max-date is present, because
+# "newer first" directly FIGHTS a max-date ceiling (the B10 smoking gun). All
+# fail-OPEN: an undated row (no resolvable publication year) is NEVER demoted.
+_ENV_DATE_DEMOTE_WEIGHT = "PG_SELECT_DATE_WINDOW_WEIGHT"
+_DEFAULT_DATE_DEMOTE_WEIGHT = 0.25
+
+
+def _date_demote_weight() -> float:
+    """The ranking multiplier applied to an out-of-window source (LAW VI). Clamp
+    to (0, 1) — a demoted source is KEPT at low weight, never zero/dropped."""
+    raw = os.environ.get(_ENV_DATE_DEMOTE_WEIGHT, "").strip()
+    if not raw:
+        return _DEFAULT_DATE_DEMOTE_WEIGHT
+    try:
+        val = float(raw)
+    except (ValueError, TypeError):
+        return _DEFAULT_DATE_DEMOTE_WEIGHT
+    # (0, 1): never 0 (that is a drop) and never >=1 (that is no demotion).
+    return min(max(val, 0.01), 0.99)
+
+
+def _protocol_date_window(
+    protocol: dict[str, Any] | None,
+) -> tuple[int | None, int | None]:
+    """Resolve the (start_year, end_year) window from ``protocol['date_range']``.
+
+    Accepts the serialized ``{"start": ISO|null, "end": ISO|null}`` shape OR a
+    (start, end) tuple. Parses the leading 4-digit year from each bound. Returns
+    (None, None) when no window is set — the caller then leaves recency + weights
+    byte-identical (fail-open)."""
+    if not protocol:
+        return (None, None)
+    dr = protocol.get("date_range")
+    start_raw = end_raw = None
+    if isinstance(dr, dict):
+        start_raw, end_raw = dr.get("start"), dr.get("end")
+    elif isinstance(dr, (list, tuple)) and len(dr) == 2:
+        start_raw, end_raw = dr[0], dr[1]
+
+    def _year(v: Any) -> int | None:
+        if v is None:
+            return None
+        m = re.match(r"\s*(\d{4})", str(v))
+        if not m:
+            return None
+        y = int(m.group(1))
+        return y if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR else None
+
+    return (_year(start_raw), _year(end_raw))
+
+
+def _row_out_of_window(
+    row: dict[str, Any], start_year: int | None, end_year: int | None,
+) -> bool:
+    """True iff the row's EXPLICIT publication year falls OUTSIDE [start, end].
+
+    FAIL-OPEN: a row with no resolvable year (``_row_year`` is None) is NEVER
+    out-of-window — an undated source is kept at full weight, never demoted."""
+    y = _row_year(row)
+    if y is None:
+        return False
+    if start_year is not None and y < start_year:
+        return True
+    if end_year is not None and y > end_year:
+        return True
+    return False
+
+
+# ── I-deepfix-001 Codex wave-2 P1: MONTH-precision date window + guaranteed tail ──
+# A year-only window let post-June-2023 rows survive a "before June 2023" ceiling,
+# and the multiplicative demote weight did not guarantee out-of-window rows sort
+# last (a high-score row could outrank an in-window one, and rerank washed it out).
+# These helpers add MONTH-precision detection (year-floor guaranteed, month
+# best-effort) + a stable post-rerank tail partition. Month index is 0-based
+# (year*12 + month-1) so ``idx // 12 == year`` for year-only comparison.
+def _ym_window_bounds(
+    protocol: dict[str, Any] | None,
+) -> tuple[int | None, int | None]:
+    """(start_idx, end_idx) month indices for the date window, or (None, None).
+
+    Reads protocol['date_range'] ISO bounds 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD'.
+    A year-only START defaults to month 1, a year-only END ceiling to month 12, so
+    a whole-year bound behaves exactly as the prior year comparison."""
+    if not protocol:
+        return (None, None)
+    dr = protocol.get("date_range")
+    start_raw = end_raw = None
+    if isinstance(dr, dict):
+        start_raw, end_raw = dr.get("start"), dr.get("end")
+    elif isinstance(dr, (list, tuple)) and len(dr) == 2:
+        start_raw, end_raw = dr[0], dr[1]
+
+    def _idx(v: Any, default_month: int) -> int | None:
+        if v is None:
+            return None
+        m = re.match(r"\s*(\d{4})(?:-(\d{1,2}))?", str(v))
+        if not m:
+            return None
+        y = int(m.group(1))
+        if not (_RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR):
+            return None
+        mo = int(m.group(2)) if m.group(2) else default_month
+        mo = min(12, max(1, mo))
+        return y * 12 + (mo - 1)
+
+    return (_idx(start_raw, 1), _idx(end_raw, 12))
+
+
+def _row_pub_ym(row: dict[str, Any]) -> tuple[int, int | None] | None:
+    """(year, month|None) from the row's pub_date/publication_date ISO, else
+    (year, None) from the row's year, else None. No network."""
+    for key in ("pub_date", "publication_date"):
+        val = row.get(key)
+        if val is None:
+            meta = row.get("metadata")
+            if isinstance(meta, dict):
+                val = meta.get(key)
+        if val:
+            m = re.match(r"\s*(\d{4})-(\d{1,2})", str(val))
+            if m:
+                y, mo = int(m.group(1)), int(m.group(2))
+                if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR and 1 <= mo <= 12:
+                    return (y, mo)
+            m2 = re.match(r"\s*(\d{4})", str(val))
+            if m2:
+                y = int(m2.group(1))
+                if _RECENCY_MIN_YEAR <= y <= _RECENCY_MAX_YEAR:
+                    return (y, None)
+    y = _row_year(row)
+    return (y, None) if y is not None else None
+
+
+def _row_out_of_window_ym(
+    row: dict[str, Any], start_idx: int | None, end_idx: int | None,
+) -> bool:
+    """Month-precision out-of-window test. FAIL-OPEN: an undated row is NEVER
+    out-of-window; a row known only to the YEAR is out only when its year is
+    strictly past the boundary year (a boundary-year row whose month is unknown
+    is KEPT — never demote what we cannot prove out-of-window)."""
+    pub = _row_pub_ym(row)
+    if pub is None:
+        return False
+    y, mo = pub
+    if mo is not None:
+        idx = y * 12 + (mo - 1)
+        if start_idx is not None and idx < start_idx:
+            return True
+        if end_idx is not None and idx > end_idx:
+            return True
+        return False
+    if start_idx is not None and y < (start_idx // 12):
+        return True
+    if end_idx is not None and y > (end_idx // 12):
+        return True
+    return False
+
+
+def _partition_out_of_window_last(
+    rows: list[dict[str, Any]], oow_urls: set[str],
+) -> list[dict[str, Any]]:
+    """Stable partition: in-window rows first (order preserved), out-of-window rows
+    moved to the TAIL (order preserved). KEEPS every row (§-1.3 — demote, never
+    drop). Returns the SAME object when there is nothing out-of-window (byte-
+    identical no-window path). This is the GUARANTEE that out-of-window sorts last
+    regardless of score or a downstream rerank (Codex wave-2 P1)."""
+    if not oow_urls:
+        return rows
+
+    def _u(r: dict[str, Any]) -> str:
+        return str(r.get("source_url") or r.get("url") or "")
+
+    out_w = [r for r in rows if _u(r) in oow_urls]
+    if not out_w:
+        return rows
+    in_w = [r for r in rows if _u(r) not in oow_urls]
+    return in_w + out_w
+
+
 def _recency_enabled() -> bool:
     """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
     byte-identical prior ordering AND no recency telemetry."""
@@ -1962,6 +2144,7 @@ def _relevance_floor_selection(
     semantic_requested: bool = False,
     semantic_fell_back: bool = False,
     url_to_content_relevance_weight: dict[str, float] | None = None,
+    url_to_date_weight: dict[str, float] | None = None,
 ) -> EvidenceSelection:
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
 
@@ -2043,6 +2226,22 @@ def _relevance_floor_selection(
             return 1.0
         url = row.get("source_url") or row.get("url") or ""
         w = _crw_map.get(str(url))
+        return 1.0 if w is None else float(w)
+
+    # I-deepfix-001 B10(d) (#1352): per-row DATE-WINDOW weight, joined by URL. It
+    # multiplies the ranking score EXACTLY like `_content_relevance_weight` — an
+    # out-of-window source sinks LAST in the SELECTED set while staying KEPT (the
+    # floor comparison uses the RAW relevance, never this weight — §-1.3 WEIGHT-
+    # not-FILTER, never a drop). The map holds ONLY non-default (< 1.0) weights, so
+    # when no date window is set it is empty, this returns 1.0 for every row, and
+    # the sort is BYTE-IDENTICAL. Undated rows are never in the map (fail-open).
+    _date_map = url_to_date_weight or {}
+
+    def _date_window_weight(row: dict[str, Any]) -> float:
+        if not _date_map:
+            return 1.0
+        url = row.get("source_url") or row.get("url") or ""
+        w = _date_map.get(str(url))
         return 1.0 if w is None else float(w)
 
     # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
@@ -2165,7 +2364,7 @@ def _relevance_floor_selection(
         kept.sort(
             key=lambda s: (
                 -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
-                  * _content_relevance_weight(s[3])),
+                  * _content_relevance_weight(s[3]) * _date_window_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2173,7 +2372,8 @@ def _relevance_floor_selection(
     else:
         kept.sort(
             key=lambda s: (
-                -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])),
+                -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])
+                  * _date_window_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2405,6 +2605,63 @@ def select_evidence_for_generation(
     relevance_floor: float | None = None,
     sub_queries: list[str] | None = None,
 ) -> EvidenceSelection:
+    """Public entry: run the selection, then GUARANTEE the date-window ordering on
+    the FINAL result regardless of which internal branch produced it (Codex wave-2
+    P1c: the demotion/tail partition was previously wired ONLY into the
+    relevance-floor branch, so the tier-capped / short-pool paths — used when
+    relevance_floor=None, incl. the finding-dedup helper — could rank an
+    out-of-window source ahead of an in-window one). The finalizer is month-aware,
+    KEEPS every row (§-1.3 demote-not-drop), idempotent (re-running on an already-
+    partitioned floor-path result is a no-op), and FAIL-OPEN (never breaks
+    selection on a finalizer error; no window => same result object)."""
+    result = _select_evidence_for_generation_impl(
+        research_question=research_question,
+        protocol=protocol,
+        classified_sources=classified_sources,
+        evidence_rows=evidence_rows,
+        max_rows=max_rows,
+        primary_trial_anchors=primary_trial_anchors,
+        relevance_floor=relevance_floor,
+        sub_queries=sub_queries,
+    )
+    try:
+        _s_idx, _e_idx = _ym_window_bounds(protocol)
+        if (_s_idx is None and _e_idx is None) or not getattr(result, "selected_rows", None):
+            return result
+        _oow = {
+            str(r.get("source_url") or r.get("url") or "")
+            for r in result.selected_rows
+            if isinstance(r, dict) and _row_out_of_window_ym(r, _s_idx, _e_idx)
+        }
+        _oow.discard("")
+        if not _oow:
+            return result
+        _parted = _partition_out_of_window_last(result.selected_rows, _oow)
+        _already_noted = any("date-window" in str(n).lower() for n in result.notes)
+        if _parted == result.selected_rows and _already_noted:
+            return result  # floor-path already enforced + disclosed → no-op
+        _notes = list(result.notes)
+        if not _already_noted:
+            _notes.append(
+                f"B10 date-window: {len(_oow)} out-of-window source(s) sorted "
+                "LAST (kept — §-1.3 demote-not-drop; hard user date ceiling)."
+            )
+        return replace(result, selected_rows=_parted, notes=_notes)
+    except Exception:  # noqa: BLE001 — date-window finalizer is fail-open
+        return result
+
+
+def _select_evidence_for_generation_impl(
+    *,
+    research_question: str,
+    protocol: dict[str, Any] | None,
+    classified_sources: list[Any],
+    evidence_rows: list[dict[str, Any]],
+    max_rows: int,
+    primary_trial_anchors: list[str] | None = None,
+    relevance_floor: float | None = None,
+    sub_queries: list[str] | None = None,
+) -> EvidenceSelection:
     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
 
     Strategy (deterministic, stable):
@@ -2480,6 +2737,53 @@ def select_evidence_for_generation(
                 if 0.0 < _crwf < 1.0:
                     url_to_content_relevance_weight[str(url)] = _crwf
 
+    # I-deepfix-001 B10(d) (#1352): build the per-URL DATE-WINDOW demotion map from
+    # the user date constraint in protocol['date_range'] (populated by B10(a) intake
+    # extraction). An out-of-window source (explicit publication year outside the
+    # window) is DEMOTED (weight < 1.0) so it sorts LAST in the selected set, and an
+    # exclusion record is written to telemetry — it is KEPT in the corpus, NEVER
+    # hard-dropped (§-1.3). Undated rows are never in the map (fail-open). When no
+    # window is set the map is empty => sort byte-identical. `_date_window_disable_
+    # recency` flips recency OFF when a MAX-date is present (newer-first fights the
+    # ceiling — the direct B10 bug).
+    _date_start_year, _date_end_year = _protocol_date_window(protocol)
+    # MONTH-precision bounds (Codex wave-2 P1): enforce a sub-year ceiling when the
+    # window carries a month; year-only bounds reduce to the prior year comparison.
+    _date_start_idx, _date_end_idx = _ym_window_bounds(protocol)
+    url_to_date_weight: dict[str, float] = {}
+    _oow_urls: set[str] = set()
+    _date_excluded_records: list[dict[str, Any]] = []
+    _date_window_disable_recency = _date_end_idx is not None
+    if _date_start_idx is not None or _date_end_idx is not None:
+        _dw = _date_demote_weight()
+        for _r in evidence_rows:
+            if not isinstance(_r, dict):
+                continue
+            if _row_out_of_window_ym(_r, _date_start_idx, _date_end_idx):
+                _u = str(_r.get("source_url") or _r.get("url") or "")
+                if _u:
+                    url_to_date_weight[_u] = _dw
+                    _oow_urls.add(_u)
+                _pub = _row_pub_ym(_r)
+                _date_excluded_records.append({
+                    "source_url": _u,
+                    "year": _row_year(_r),
+                    "pub_ym": (f"{_pub[0]:04d}-{_pub[1]:02d}"
+                               if _pub and _pub[1] else
+                               (str(_pub[0]) if _pub else None)),
+                    "window": [_date_start_year, _date_end_year],
+                    "action": "demoted_out_of_window_kept",
+                    "weight": _dw,
+                })
+        if _date_excluded_records:
+            _LOGGER.info(
+                "[select] B10 date-window [%s..%s]: DEMOTED %d out-of-window "
+                "source(s) (kept at weight=%.2f, sorted last — §-1.3 disclose, "
+                "NOT dropped); recency_tiebreak disabled=%s",
+                _date_start_year, _date_end_year, len(_date_excluded_records),
+                _date_demote_weight(), _date_window_disable_recency,
+            )
+
     # Compute relevance tokens from research question + protocol anchors.
     question_tokens = _content_tokens(research_question or "")
     protocol_tokens: set[str] = set()
@@ -2542,6 +2846,30 @@ def select_evidence_for_generation(
             )
         scored.append((idx, score, tier, row))
 
+    # Codex wave-2 P1 (capped-path date demotion): for the TIER-CAPPED path
+    # (relevance_floor is None) demote an out-of-window row's SELECTION score so the
+    # quota allocator prefers IN-WINDOW rows for a capped slot — the final tail
+    # partition alone only reorders the already-chosen subset and cannot reclaim a
+    # slot an out-of-window high-score row already took. This is applied ONLY on the
+    # capped path: on the relevance-floor path the score is compared to the floor, so
+    # demoting it there could push an out-of-window row BELOW the floor and DROP it
+    # (violating §-1.3 demote-not-drop) — that path instead carries
+    # `_date_window_weight` in its sort. Rows are KEPT in `scored` (still selectable
+    # when capacity allows); only their quota rank drops.
+    if relevance_floor is None and _oow_urls:
+        _dwt = _date_demote_weight()
+        scored = [
+            (
+                idx,
+                (score * _dwt
+                 if str(row.get("source_url") or row.get("url") or "") in _oow_urls
+                 else score),
+                tier,
+                row,
+            )
+            for (idx, score, tier, row) in scored
+        ]
+
     # Full tier counts (FROM evidence_rows, the selectable universe).
     full_counts: dict[str, int] = {}
     for _, _, tier, _ in scored:
@@ -2574,6 +2902,12 @@ def select_evidence_for_generation(
             # rows and WASH OUT the W2 demotion — at that point the W2 weight must
             # also be applied INSIDE/AFTER the rerank (e.g. a stable weight re-sort).
             url_to_content_relevance_weight=url_to_content_relevance_weight,
+            # I-deepfix-001 B10(d) (#1352): per-URL date-window demotion map (empty
+            # when no user date window => byte-identical sort). Multiplied into the
+            # SAME floor-path SORT key so an out-of-window source sinks LAST while
+            # staying KEPT (§-1.3). This is the production path (Gate-B slate sets
+            # PG_USE_FINDING_DEDUP=1 => relevance_floor non-None => this branch).
+            url_to_date_weight=url_to_date_weight,
         )
         # I-recency-001 (#1296) wiring fix: the production live call passes
         # `relevance_floor`, so it returns HERE — it never reaches the
@@ -2592,13 +2926,32 @@ def select_evidence_for_generation(
         # strategy/the floor's honest-drop notes), so the keep-all CONTRACT is
         # untouched. The faithfulness engine (strict_verify / NLI / 4-role) is
         # downstream and re-checks every sentence regardless of order.
+        # I-deepfix-001 B10(d) (#1352): disclose the date-window demotion in the
+        # selection notes (exclusion-record surface). Only widens the notes when a
+        # window actually demoted ≥1 row, so a no-window run is byte-identical.
+        if _date_excluded_records:
+            _floor_selection = replace(
+                _floor_selection,
+                notes=list(_floor_selection.notes) + [
+                    f"B10 date-window [{_date_start_year}..{_date_end_year}]: "
+                    f"{len(_date_excluded_records)} out-of-window source(s) "
+                    f"DEMOTED (kept, sorted last); recency_tiebreak "
+                    f"disabled={_date_window_disable_recency}"
+                ],
+            )
         _floor_reranked = _maybe_rerank_selection(
             _floor_selection.selected_rows, research_question
         )
-        if _floor_reranked is _floor_selection.selected_rows:
-            # OFF / single-row / loud-fallback → same object → byte-identical.
+        # GUARANTEED date-window ordering (Codex wave-2 P1): partition out-of-window
+        # rows to the TAIL as the LAST step — AFTER rerank — so a hard user date
+        # ceiling cannot be out-ranked by a high relevance score or washed out by
+        # the reranker. KEEPS every row (§-1.3 demote-not-drop). No-window run =>
+        # `_oow_urls` empty => same object => byte-identical.
+        _final_rows = _partition_out_of_window_last(_floor_reranked, _oow_urls)
+        if _final_rows is _floor_selection.selected_rows:
+            # OFF / single-row / loud-fallback + no date window → byte-identical.
             return _floor_selection
-        return replace(_floor_selection, selected_rows=_floor_reranked)
+        return replace(_floor_selection, selected_rows=_final_rows)
 
     # I-perm-003 (#1197): corpus-size-scaled budget (default OFF). Fixed-cap
     # (tier-balanced max_rows) path only — the relevance-floor mode above already
@@ -2710,7 +3063,11 @@ def select_evidence_for_generation(
     # still reserve their matched rows — recency only reorders same-band
     # candidates (Codex P2: floor reservation priority is evaluated before
     # recency). Kill-switch OFF → identical (-score, idx) ordering.
-    _rec_enabled = _recency_enabled()
+    # I-deepfix-001 B10(d) (#1352): INVERT/DISABLE the recency tiebreak when a user
+    # MAX-date is present — "newer first" directly FIGHTS a max-date ceiling. Force
+    # recency OFF on the tier-balanced path too so a 2025 paper does not out-rank a
+    # 2022 paper when the user asked for "before June 2023".
+    _rec_enabled = _recency_enabled() and not _date_window_disable_recency
     _rec_eps = _recency_epsilon()
     for tier in by_tier:
         by_tier[tier].sort(

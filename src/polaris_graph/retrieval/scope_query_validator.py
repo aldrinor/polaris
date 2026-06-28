@@ -183,11 +183,33 @@ _DIRECTIVE_MARKERS: tuple[str, ...] = (
     "do-not-view",
 )
 
-# A clause that is a bare URL/DOI dict literal or a list of URLs is a deny-list payload,
-# never a research question.
-_URL_DOI_LITERAL_RE = re.compile(
-    r"(https?://|www\.|doi\.org/|10\.\d{4,9}/|\{\s*['\"]?url)", re.IGNORECASE
+# A clause that is a bare URL/DOI dict/list literal is a deny-list payload, never a
+# research question. I-deepfix-001 Codex wave-2 P1: the prior regex marked ANY
+# `doi.org/` or `10.xxxx/` occurrence as a directive, so a legitimate research
+# sub-query that merely CITES a DOI ("What does DOI 10.1016/j.x report about
+# wages?") was wrongly stripped. The URL/DOI leg now fires ONLY on a BARE payload
+# (a dict/list literal, or a clause that is essentially just URLs/DOIs with no
+# prose). A real deny-list INSTRUCTION ("do not view <url>") is still caught by the
+# high-precision `_DIRECTIVE_MARKERS` regardless.
+_URL_DOI_DICT_LITERAL_RE = re.compile(r"^\s*[\[{]|\{\s*['\"]?url", re.IGNORECASE)
+_URL_DOI_TOKEN_RE = re.compile(
+    r"\S*(?:https?://|www\.|doi\.org/|10\.\d{4,9}/)\S*", re.IGNORECASE
 )
+
+
+def _is_bare_url_doi_payload(low: str) -> bool:
+    """True iff the clause is a BARE URL/DOI deny-list payload (a dict/list literal,
+    or essentially just URLs/DOIs with no prose), NOT a research query that happens
+    to cite a DOI. Used by `is_directive_clause` (Codex wave-2 P1 narrowing)."""
+    if _URL_DOI_DICT_LITERAL_RE.search(low):
+        return True
+    if not _URL_DOI_TOKEN_RE.search(low):
+        return False
+    # Strip the URL/DOI tokens; a genuine research query around a DOI keeps several
+    # content words, a bare payload keeps almost none (<=2 glue words like "see at").
+    stripped = _URL_DOI_TOKEN_RE.sub(" ", low)
+    content_words = re.findall(r"[a-z]{2,}", stripped)
+    return len(content_words) <= 2
 # Imperative opener: a clause that BEGINS with an unambiguous injection-command
 # verb. I-deepfix-001 Codex wave-1 P2: the prior list included polysemous
 # research-domain verbs (return/output/ensure/keep/put) that match legitimate
@@ -198,8 +220,12 @@ _URL_DOI_LITERAL_RE = re.compile(
 # command openers that do not occur in a research sub-question, each requiring a
 # trailing SPACE so hyphenated compounds (e.g. a leading "do-not-resuscitate"
 # term) cannot trip it.
+# Codex wave-2 P2: dropped bare "please " — a polite research sub-query ("please
+# compare wage outcomes…") is legitimate, and the real injection forms ("please
+# ignore", "please respond only", "please output format") are already caught by the
+# remaining openers + the high-precision `_DIRECTIVE_MARKERS`.
 _IMPERATIVE_OPENER_RE = re.compile(
-    r"^\s*(please\s|ignore\s|disregard\s|do not\s|don't\s)",
+    r"^\s*(ignore\s|disregard\s|do not\s|don't\s)",
     re.IGNORECASE,
 )
 
@@ -220,7 +246,7 @@ def is_directive_clause(text: str) -> bool:
         return False
     if any(marker in low for marker in _DIRECTIVE_MARKERS):
         return True
-    if _URL_DOI_LITERAL_RE.search(low):
+    if _is_bare_url_doi_payload(low):
         return True
     if _IMPERATIVE_OPENER_RE.match(low):
         return True

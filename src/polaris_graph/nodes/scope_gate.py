@@ -163,6 +163,14 @@ class ProtocolDocument:
     geography: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=lambda: ["en"])
 
+    # I-deepfix-001 B10(a) (#1352): structured HARD user constraints extracted
+    # from the NL research question at intake (date window / language / journal-
+    # only-dormant). to_json_dict serializes this so the wave-2 enforcement layers
+    # (selection demote, rule_blockers) and the audit trail can read it. Empty
+    # dict when the extractor is OFF or found nothing => byte-identical legacy
+    # protocol shape for the populated fields.
+    user_constraints: dict[str, Any] = field(default_factory=dict)
+
     # Conflict-of-interest / funding-source filters
     excluded_sponsors: list[str] = field(default_factory=list)
 
@@ -981,6 +989,44 @@ def run_scope_gate(
         date_range_raw.get("end") if isinstance(date_range_raw, dict) else None,
     )
 
+    # I-deepfix-001 B10(a) (#1352): extract HARD user constraints from the NL
+    # research question (date window / language / journal-only-dormant). Today
+    # "academic research published before June 2023" in the question is NEVER
+    # parsed — fresh2 protocol.json shows date_range={start:null,end:null}. The
+    # extractor runs the deterministic regex/dateparser primary (no network here:
+    # llm_fn=None) and fills date_range ONLY where the template/override left it
+    # None (override/template ALWAYS win — this only RECOVERS a constraint that
+    # was being dropped). Gated PG_EXTRACT_USER_CONSTRAINTS (default OFF, operator
+    # activates on the slate); OFF => user_constraints={} and date_range/languages
+    # are byte-identical to the prior behavior.
+    user_constraints: dict[str, Any] = {}
+    if not scope_rejected:
+        from src.polaris_graph.retrieval.intake_constraint_extractor import (  # noqa: PLC0415
+            extract_user_constraints,
+            extract_user_constraints_enabled,
+        )
+        if extract_user_constraints_enabled():
+            _uc = extract_user_constraints(research_question)
+            if not _uc.is_empty():
+                user_constraints = _uc.to_dict()
+                _start_s, _end_s = date_range
+                # Only fill a date bound the template/override left None — never
+                # override an explicit operator/template constraint. MONTH-precision
+                # (Codex wave-2 P1): date_*_iso() carries the month when known
+                # ("before June 2023" -> end "2023-06") so the selector enforces a
+                # sub-year ceiling; year-only bounds stay "YYYY-01-01"/"YYYY-12-31".
+                if _start_s is None and _uc.date_start_iso() is not None:
+                    _start_s = _uc.date_start_iso()
+                if _end_s is None and _uc.date_end_iso() is not None:
+                    _end_s = _uc.date_end_iso()
+                date_range = (_start_s, _end_s)
+                logger.info(
+                    "[scope_gate] B10 user-constraints extracted: date=[%s..%s] "
+                    "language=%s journal_only(dormant)=%s — date_range now %r",
+                    _uc.date_start_year, _uc.date_end_year, _uc.language,
+                    _uc.journal_only, date_range,
+                )
+
     geography = list(template.get("geography") or [])
     if "geography" in overrides:
         geography = list(overrides["geography"] or [])
@@ -988,6 +1034,15 @@ def run_scope_gate(
     languages = list(template.get("languages") or ["en"])
     if "languages" in overrides:
         languages = list(overrides["languages"] or ["en"])
+    # B10(a): a NL language constraint becomes a DISCLOSED demotion weight
+    # downstream (never a hard drop per §-1.3); record it only when the template/
+    # override did not already pin the language list and the extractor found one.
+    elif user_constraints.get("language") and "languages" not in overrides:
+        # Surface the extracted language as the protocol's primary language so the
+        # selection-side demotion (B10 d) and the disclosure banner can read it.
+        _lang = user_constraints["language"]
+        if _lang and _lang not in languages:
+            languages = [_lang] + [l for l in languages if l != _lang]
 
     excluded_sponsors = list(template.get("excluded_sponsors") or [])
     if "excluded_sponsors" in overrides:
@@ -1059,6 +1114,7 @@ def run_scope_gate(
         date_range=date_range,
         geography=geography,
         languages=languages,
+        user_constraints=user_constraints,
         excluded_sponsors=excluded_sponsors,
         template_used=template_path_rel,
         user_overrides=overrides,

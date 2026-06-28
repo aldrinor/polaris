@@ -131,6 +131,30 @@ def decompose_question(question: str, *, max_subqueries: int = DEFAULT_MAX_SUBQU
     clauses: list[str] = []
     for clause in primary:
         clauses.extend(_split_on_connectives(clause))
+    # Stage 2b (I-deepfix-001 B3 decomposer leg, #1347): drop DIRECTIVE / meta-
+    # instruction clauses BEFORE they can become live search sub-queries. This is
+    # the EARLIEST defense-in-depth point — an injected do-not-view / output-shape
+    # / prohibition-block sentence in the raw question splits cleanly here and
+    # otherwise passes the >=3-content-word floor straight into the amplified set
+    # (verified on fresh2: decompose_question(raw_q) emitted 7 directive leaks
+    # incl. the Salari do-not-view URL block). Pure, no network — reuses the SAME
+    # `strip_directive_clauses` predicate the retrieval-side scope validator runs,
+    # so the two legs share one classifier. Gated by PG_QUERY_DIRECTIVE_SCREEN
+    # (default ON, faithfulness-neutral); OFF reverts to byte-identical behavior.
+    from src.polaris_graph.retrieval.scope_query_validator import (  # noqa: PLC0415
+        directive_screen_enabled,
+        strip_directive_clauses,
+    )
+    if directive_screen_enabled():
+        clauses, _directive_dropped = strip_directive_clauses(clauses)
+        if _directive_dropped:
+            import logging  # noqa: PLC0415
+            logging.getLogger("polaris_graph.query_decomposer").info(
+                "[query_decomposer] B3 directive-screen dropped %d directive "
+                "sub-clause(s) before search: %r",
+                len(_directive_dropped), _directive_dropped[:5],
+            )
+
     # Stage 3: unmask abbreviation periods, normalize, fragment-filter, dedup (case-insensitive), cap.
     out: list[str] = []
     seen: set[str] = set()

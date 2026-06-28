@@ -1,0 +1,17 @@
+No P0/P1 findings. The iter-4 capped-quota fix is wired in the right place: out-of-window rows are demoted in `scored` before quota allocation on the `relevance_floor is None` path only, while the relevance-floor path keeps date weight in sorting and not in the floor comparison. The public wrapper still tail-partitions final selections across branches.
+
+P2 residuals:
+- `src/polaris_graph/retrieval/live_retriever.py:4802`: B14 compares `cand.title` to the body, but the actual selected `classifier_title` may be the longer `openalex_title`. A wrong OpenAlex title can still win title selection if `cand.title` matches the body.
+- `src/polaris_graph/retrieval/scope_query_validator.py:194`: `_URL_DOI_DICT_LITERAL_RE` treats any clause starting with `[` or `{` as a bare URL/DOI payload before checking for a URL/DOI, so bracket-prefixed legitimate queries remain an edge over-strip case.
+
+Static only per instruction; I did not run tests or the pipeline.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "B14 checks cand.title, not the actual classifier_title/openalex_title winner; wrong OpenAlex-title metadata can evade the consistency check."
+  - "Bare URL/DOI payload detector still over-strips any clause starting with '[' or '{' even without URL/DOI content."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
