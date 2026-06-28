@@ -2548,6 +2548,28 @@ def _pubmed_fetch_abstract(pmid: str) -> str:
         return ""
 
 
+# I-deepfix-001 B2 (#1346): per-run ACTIVE blocked-reference deny-list. `run_live_retrieval`
+# sets this once at the start of each run from its `research_question`; `_fetch_content`
+# reads it to SKIP (and record) an operator-PROHIBITED URL BEFORE the HTTP call — saving
+# spend and preventing tier laundering of a blocked mirror. A module global (vs threading
+# the registry through every fetch call-site) matches this module's per-run reset pattern
+# (`reset_refetch_cache`); it is overwritten fresh at the top of every run so a sequential
+# per-question sweep never leaks a prior question's deny-list. The kill-switch / empty-
+# registry path makes the read a no-op (byte-identical to pre-B2). Faithfulness-neutral.
+_ACTIVE_BLOCKED_REGISTRY: "Any" = None
+
+
+def set_active_blocked_registry(registry: "Any") -> None:
+    """Install the per-run blocked-reference deny-list read by ``_fetch_content`` (B2)."""
+    global _ACTIVE_BLOCKED_REGISTRY
+    _ACTIVE_BLOCKED_REGISTRY = registry
+
+
+def get_active_blocked_registry() -> "Any":
+    """The per-run blocked-reference deny-list, or ``None`` when none is installed (B2)."""
+    return _ACTIVE_BLOCKED_REGISTRY
+
+
 def _fetch_content(
     url: str,
     max_chars: int,
@@ -2593,6 +2615,30 @@ def _fetch_content(
     # naive-httpx fallbacks below are recorded as the content-fetch outcome so
     # the per-run summary reflects every fetch attempt's path + latency.
     _t0 = time.time()
+    # I-deepfix-001 B2 (#1346): operator do-not-view enforcement at the FETCH seam. If this
+    # URL (or a DOI/PII embedded in it, or the carried doi_hint) is on the per-run blocked-
+    # reference deny-list, SKIP the HTTP call entirely — saving spend and preventing the
+    # blocked mirror from being fetched, tiered, and laundered into the corpus. This is the
+    # ONE legitimate hard drop (§-1.3, an explicit operator prohibition); it is fail-LOUD
+    # (recorded to the fetch telemetry + logged, never a silent drop) and fail-OPEN (any
+    # registry error is swallowed so it can NEVER break retrieval).
+    _blocked_registry = _ACTIVE_BLOCKED_REGISTRY
+    if _blocked_registry is not None:
+        try:
+            _is_blocked, _block_reason = _blocked_registry.is_blocked(
+                url=url, doi=doi_hint
+            )
+        except Exception:  # noqa: BLE001 — fail-OPEN: deny-list error never breaks fetch
+            _is_blocked, _block_reason = False, ""
+        if _is_blocked:
+            logger.info(
+                "[live_retriever] B2 blocked-reference SKIP (no fetch) %s reason=%s",
+                url[:120], _block_reason,
+            )
+            _m45_record_fetch_telemetry(
+                url, "blocked_reference", f"blocked_reference_denylist:{_block_reason}"
+            )
+            return ("", False, "", "blocked_reference", "")
     if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
         # M-45 pass-2: record env-opt-out so diagnostics can see it.
         _m45_record_fetch_telemetry(
@@ -3807,6 +3853,23 @@ def run_live_retrieval(
     # poisoned, and so the per-URL cap is per-run (not per-process). Cheap, no
     # network.
     reset_refetch_cache()
+    # I-deepfix-001 B2 (#1346): install this run's operator do-not-view deny-list so the
+    # FETCH seam (`_fetch_content`) skips any prohibited URL BEFORE its HTTP call. Built from
+    # THIS run's `research_question` and overwritten fresh each run (per-run reset, like
+    # `reset_refetch_cache` above) so a sequential per-question sweep never leaks a prior
+    # deny-list. Empty registry (no appendix / PG_BLOCKED_REFERENCE_DENYLIST=0) => no-op.
+    # FAIL-OPEN: a build error yields an empty registry and never aborts retrieval.
+    try:
+        from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+            build_blocked_registry as _build_blocked_registry,
+        )
+        set_active_blocked_registry(_build_blocked_registry(research_question or ""))
+    except Exception as _blk_exc:  # noqa: BLE001 — deny-list never breaks retrieval
+        logger.warning(
+            "[live_retriever] B2 blocked-reference registry install failed "
+            "(fail-open, no deny-list active): %s", _blk_exc,
+        )
+        set_active_blocked_registry(None)
     # I-ready-017 Task 2a (#1204): ADDITIVE source-funnel telemetry. Local
     # aggregate of every _trace_drop call by reason, mirrored onto the result so
     # the per-stage source loss is persisted (not just the pathB trace, which is

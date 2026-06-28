@@ -1108,6 +1108,139 @@ def _screen_junk_evidence(
     )
 
 
+def _blocked_ref_row_doi(_row: "Any") -> str:
+    """DOI of an evidence row (dict OR object); '' when absent. (I-deepfix-001 B2 #1346)"""
+    if isinstance(_row, dict):
+        return str(_row.get("doi") or _row.get("doi_hint") or _row.get("doi_url") or "")
+    return str(
+        getattr(_row, "doi", "")
+        or getattr(_row, "doi_hint", "")
+        or getattr(_row, "doi_url", "")
+        or ""
+    )
+
+
+def _blocked_ref_row_title(_row: "Any") -> str:
+    """Title of an evidence row / classified source (dict OR object); '' when absent."""
+    if isinstance(_row, dict):
+        return str(_row.get("title") or _row.get("source_title") or _row.get("statement") or "")
+    return str(
+        getattr(_row, "title", "")
+        or getattr(_row, "source_title", "")
+        or getattr(_row, "statement", "")
+        or ""
+    )
+
+
+def _screen_blocked_references(
+    rows: "list[Any] | None",
+    srcs: "list[Any] | None",
+    registry: "Any",
+    *,
+    log: "Any" = None,
+    run_dir: "Any" = None,
+    label: str = "",
+) -> "tuple[list[Any], list[Any], dict[str, list[dict[str, str]]]]":
+    """I-deepfix-001 B2 (#1346): drop operator-PROHIBITED rows/sources (the per-work
+    blocked-reference deny-list) before they reach the generator / bibliography.
+
+    THE one legitimate HARD DROP in the pipeline (CLAUDE.md §-1.3) — an EXPLICIT operator
+    do-not-view prohibition named in the question appendix, NOT a relevance/credibility/tier
+    call. Each leg of ``registry.is_blocked`` (canonical url / doi / publisher pii / fuzzy
+    title) is checked so a blocked MIRROR that is not literally listed is still caught.
+
+    Fail-LOUD: every exclusion is logged AND written to a disclosed-exclusion telemetry file
+    (``blocked_reference_excluded[_<label>].json``) — never a silent drop. Empty registry
+    (no appendix / ``PG_BLOCKED_REFERENCE_DENYLIST=0``) => the ORIGINAL objects are returned
+    unchanged (byte-identical no-op). Mirrors ``_screen_junk_evidence``'s shape exactly.
+    """
+    _rows_in = list(rows) if rows is not None else []
+    _srcs_in = list(srcs) if srcs is not None else []
+    if registry is None or getattr(registry, "is_empty", True):
+        return (
+            rows if rows is not None else [],
+            srcs if srcs is not None else [],
+            {"evidence_rows_excluded": [], "classified_sources_excluded": []},
+        )
+
+    _rows_kept: list[Any] = []
+    _rows_excluded: list[dict[str, str]] = []
+    if rows is not None:
+        for _row in _rows_in:
+            _hit, _reason = registry.is_blocked(
+                url=_junk_ev_row_url(_row),
+                doi=_blocked_ref_row_doi(_row),
+                title=_blocked_ref_row_title(_row),
+            )
+            if _hit:
+                _rows_excluded.append(
+                    {
+                        "url": _junk_ev_row_url(_row)[:300],
+                        "reason": f"blocked_reference:{_reason}"[:300],
+                    }
+                )
+            else:
+                _rows_kept.append(_row)
+
+    _srcs_kept: list[Any] = []
+    _srcs_excluded: list[dict[str, str]] = []
+    if srcs is not None:
+        for _src in _srcs_in:
+            _hit, _reason = registry.is_blocked(
+                url=_junk_src_url(_src),
+                title=_blocked_ref_row_title(_src),
+            )
+            if _hit:
+                _srcs_excluded.append(
+                    {
+                        "url": _junk_src_url(_src)[:300],
+                        "reason": f"blocked_reference:{_reason}"[:300],
+                    }
+                )
+            else:
+                _srcs_kept.append(_src)
+
+    if (_rows_excluded or _srcs_excluded):
+        _seam = f" [{label}]" if label else ""
+        if log is not None:
+            log(
+                f"[blocked_ref_screen]{_seam} dropped {len(_rows_excluded)} PROHIBITED "
+                f"evidence_rows ({len(_rows_in)} -> {len(_rows_kept)}) and "
+                f"{len(_srcs_excluded)} PROHIBITED classified_sources "
+                f"({len(_srcs_in)} -> {len(_srcs_kept)}) [operator do-not-view deny-list]"
+            )
+        if run_dir is not None:
+            _fname = (
+                "blocked_reference_excluded.json"
+                if not label
+                else f"blocked_reference_excluded_{label}.json"
+            )
+            try:
+                (run_dir / _fname).write_text(
+                    json.dumps(
+                        {
+                            "evidence_rows_excluded": _rows_excluded,
+                            "classified_sources_excluded": _srcs_excluded,
+                        },
+                        indent=2, sort_keys=True, default=str,
+                    ) + "\n",
+                    encoding="utf-8",
+                )
+            except Exception as _bx_write_exc:  # noqa: BLE001 — telemetry best-effort
+                if log is not None:
+                    log(f"[blocked_ref_screen]{_seam} excluded-telemetry write skipped: "
+                        f"{_bx_write_exc}")
+
+    return (
+        _rows_kept if rows is not None else [],
+        _srcs_kept if srcs is not None else [],
+        {
+            "evidence_rows_excluded": _rows_excluded,
+            "classified_sources_excluded": _srcs_excluded,
+        },
+    )
+
+
 # BB5-P03 — env knob: when the outline already produced a Limitations section,
 # suppress the appended synthesized one (default ON — the duplicate header + the
 # verbatim-duplicated paragraph are the drb_90 defect). Citation markers are
@@ -3147,38 +3280,18 @@ def _env_int(name: str, default: int) -> int:
 # the canonical q["question"] is left byte-exact (split-brain / lineage / scope /
 # retrieval all depend on the canonical string). Faithfulness-neutral: the report title
 # carries no provenance token and never enters strict_verify / NLI / span-grounding.
-_INJECTION_APPENDIX_SIGNATURES = (
-    "rule of highest priority that you must not violate",
-    "not allowed to view",
-    "do not quote",
-    "please ignore the content",
+# I-deepfix-001 B2 (#1346): the locator regexes + the strip function are LIFTED into the
+# shared `injection_appendix` util so the report-echo strip (here) and the blocked-reference
+# deny-list (`blocked_reference_registry.build_blocked_registry`) locate the SAME appendix
+# from ONE source of truth and can never drift. The module-level alias names are kept so the
+# 13 in-file `_strip_injected_instruction_appendix(...)` call-sites and the existing
+# `from scripts.run_honest_sweep_r3 import _strip_injected_instruction_appendix` test import
+# continue to resolve unchanged.
+from src.polaris_graph.retrieval.injection_appendix import (  # noqa: E402
+    INJECTION_APPENDIX_BOUNDARY_RE as _INJECTION_APPENDIX_BOUNDARY_RE,
+    INJECTION_APPENDIX_SIGNATURES as _INJECTION_APPENDIX_SIGNATURES,
+    strip_injected_instruction_appendix as _strip_injected_instruction_appendix,
 )
-# Boundary: a blank line then the SPECIFIC `**important**The following is` lead-in — the
-# literal delimiter all 132 DRB-II tasks use (markdown-bold + whitespace tolerant). Anchored
-# to "the following is" (not bare "**important**") so a legitimate question containing an
-# earlier benign "**important**" block is NOT truncated (Codex iter-1 P2). Conservative: if
-# the delimiter is absent we do NOT strip (precision-first — leaking the echo beats truncating
-# a legitimate question).
-_INJECTION_APPENDIX_BOUNDARY_RE = re.compile(
-    r"\n\s*\n\s*\*{0,2}important\*{0,2}\s*the following is\b", re.IGNORECASE
-)
-
-
-def _strip_injected_instruction_appendix(question: str) -> str:
-    """Return the research question with a trailing injected-instruction appendix removed
-    (I-render-003 #1342). DISPLAY-ONLY: callers pass this into the `# Research report:`
-    echo; q["question"] itself is never mutated. Byte-preserves a legitimate question:
-    strips ONLY when both the `**important**` boundary AND an injection signature are
-    present in the tail."""
-    if not question:
-        return question
-    m = _INJECTION_APPENDIX_BOUNDARY_RE.search(question)
-    if not m:
-        return question
-    tail = question[m.start():].lower()
-    if not any(sig in tail for sig in _INJECTION_APPENDIX_SIGNATURES):
-        return question  # a real question that merely contains "**important**" — keep it
-    return question[: m.start()].rstrip()
 
 
 def _strip_citation_markers(text: str) -> str:
@@ -9218,6 +9331,29 @@ async def run_one_query(
             log_f.close()
             return summary
 
+        # I-deepfix-001 B2 (#1346): SELECTION / CORPUS-APPROVAL deny-list seam. EXCLUDE any
+        # operator-PROHIBITED source/row from the approved corpus BEFORE `approved_source_urls`
+        # is built and BEFORE selection feeds the generator. THE one legitimate hard drop
+        # (§-1.3) — an explicit do-not-view prohibition, not a relevance/credibility call. The
+        # title leg catches a blocked MIRROR (herts / uhra / doaj / scilit / semanticscholar)
+        # whose URL carries neither the listed URL, the DOI, nor the PII. Disclosed-LOUD
+        # (blocked_reference_excluded.json + log); empty registry => byte-identical no-op.
+        from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+            build_blocked_registry as _build_blocked_registry,
+        )
+        _blocked_registry = _build_blocked_registry(q["question"])
+        if not _blocked_registry.is_empty:
+            _blk_rows_kept, _blk_srcs_kept, _ = _screen_blocked_references(
+                retrieval.evidence_rows,
+                retrieval.classified_sources,
+                _blocked_registry,
+                log=_log,
+                run_dir=run_dir,
+                label="corpus_approval",
+            )
+            retrieval.evidence_rows = _blk_rows_kept
+            retrieval.classified_sources = _blk_srcs_kept
+
         # FX-05 (I-ready-017): the auto-approve credential is a STRUCTURED
         # authorization (PG_AUTHORIZED_SWEEP_APPROVAL), never a free-text note.
         # The old canned note defeated the rubber-stamp guard and billed a
@@ -10485,6 +10621,27 @@ async def run_one_query(
         _gate_injected_prepend_rows = list(
             evidence_for_gen[: len(evidence_for_gen) - len(_selection_base_rows)]
         )
+
+        # I-deepfix-001 B2 (#1346): SELECTION keystone. `evidence_for_gen` is the exact set
+        # the generator will bill — so the LAST thing before the money gate is to EXCLUDE any
+        # operator-PROHIBITED row that survived into selection (a do-not-view mirror caught by
+        # url / doi / pii / fuzzy-title). THE one legitimate hard drop (§-1.3). Disclosed-LOUD
+        # (blocked_reference_excluded_selection.json + log); empty registry => no-op. This is
+        # the seam that guarantees the blocked work never reaches generation OR the bibliography.
+        from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+            build_blocked_registry as _build_blocked_registry_sel,
+        )
+        _blocked_registry_sel = _build_blocked_registry_sel(q["question"])
+        if not _blocked_registry_sel.is_empty:
+            _efg_blk_kept, _, _ = _screen_blocked_references(
+                evidence_for_gen,
+                None,
+                _blocked_registry_sel,
+                log=_log,
+                run_dir=run_dir,
+                label="selection",
+            )
+            evidence_for_gen = _efg_blk_kept
 
         # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
         # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
@@ -12291,6 +12448,45 @@ async def run_one_query(
         # reader's awareness of the entry. The upstream resolution (resolve the locator, or stop
         # assigning a citation number to a locator-less row) lives in multi_section_generator.py
         # and is recorded in cross_file_deferred.
+        # I-deepfix-001 B2 (#1346) Codex P1: screen the bibliography for operator-
+        # PROHIBITED references BEFORE it is rendered, so report.md's Bibliography can
+        # NEVER ship a blocked entry. (The post-assembly render backstop cleaned
+        # multi.bibliography only AFTER final_report was already assembled with the
+        # rendered section, so a cleaned list never reached the shipped Markdown.)
+        # §-1.3 hard-drop = explicit operator prohibition ONLY; disclosed, never
+        # silent; fail-open (a build error leaves the bibliography untouched).
+        try:
+            from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+                build_blocked_registry as _build_blocked_registry_prerender,
+            )
+            _prerender_reg = _build_blocked_registry_prerender(q.get("question", ""))
+            if not _prerender_reg.is_empty:
+                _bib_kept: list[Any] = []
+                _bib_pre_dropped: list[dict[str, str]] = []
+                for _b in (multi.bibliography or []):
+                    _burl = str(_b.get("url") or _b.get("source_url") or "") if isinstance(_b, dict) else ""
+                    _bdoi = str(_b.get("doi") or "") if isinstance(_b, dict) else ""
+                    _btitle = str(_b.get("title") or _b.get("statement") or "") if isinstance(_b, dict) else ""
+                    _hit, _reason = _prerender_reg.is_blocked(url=_burl, doi=_bdoi, title=_btitle)
+                    if _hit:
+                        _bib_pre_dropped.append({"url": _burl[:300], "reason": f"blocked_reference:{_reason}"[:300]})
+                    else:
+                        _bib_kept.append(_b)
+                if _bib_pre_dropped:
+                    multi.bibliography = _bib_kept
+                    _log(
+                        f"[blocked_ref_render] PRE-RENDER: dropped {len(_bib_pre_dropped)} "
+                        "PROHIBITED bibliography entry(ies) BEFORE render (kept out of report.md)"
+                    )
+                    try:
+                        (run_dir / "blocked_reference_excluded_bibliography.json").write_text(
+                            json.dumps(_bib_pre_dropped, indent=2, sort_keys=True, default=str) + "\n",
+                            encoding="utf-8",
+                        )
+                    except Exception:  # noqa: BLE001 — telemetry best-effort
+                        pass
+        except Exception as _bpre_exc:  # noqa: BLE001 — additive screen; never abort the report
+            _log(f"[blocked_ref_render] pre-render bibliography screen skipped (fail-open): {_bpre_exc}")
         biblio_section = _render_bibliography_lines(
             multi.bibliography,
             # #1289 defect #9: default ON so a CITED bibliography entry whose URL AND DOI are
@@ -12642,6 +12838,69 @@ async def run_one_query(
         # uncited-numeric gate. `final_report` was already consumed by the evaluator above is
         # FALSE here (the evaluator runs LATER, ~L8260, off `final_report`), so keeping the header
         # out of `final_report` is what preserves the faithfulness-gate input byte-for-byte.
+        # I-deepfix-001 B2 (#1346): RENDER/CITATION backstop (defense-in-depth, last line).
+        # Seam (c) already excludes blocked rows from evidence_for_gen + the bibliography, so
+        # this should find NOTHING — it is the final fail-LOUD assertion. It (1) DROPS any
+        # operator-PROHIBITED bibliography entry, (2) scans the rendered body for any blocked
+        # locator (url/doi/pii) and records it, and (3) writes a disclosed
+        # blocked_reference_render_leak.json when anything slipped through. The report TEXT is
+        # NOT rewritten (citation indices + the faithfulness-gated body must stay byte-stable);
+        # a body leak is recorded LOUD for the §-1.1 audit. Empty registry => no-op. Fail-open.
+        try:
+            from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+                build_blocked_registry as _build_blocked_registry_render,
+            )
+            _blocked_registry_render = _build_blocked_registry_render(q["question"])
+            # Body-text-leak backstop (defense-in-depth after the pre-render
+            # bibliography screen above). is_empty is a @property (returns True when
+            # the registry has no keys), so `not <property>` is the correct guard.
+            if not _blocked_registry_render.is_empty:
+                _bib_clean: list[Any] = []
+                _bib_leaks: list[dict[str, str]] = []
+                for _b in (multi.bibliography or []):
+                    _burl = str(_b.get("url") or _b.get("source_url") or "") if isinstance(_b, dict) else ""
+                    _bdoi = str(_b.get("doi") or "") if isinstance(_b, dict) else ""
+                    _btitle = str(_b.get("title") or _b.get("statement") or "") if isinstance(_b, dict) else ""
+                    _hit, _reason = _blocked_registry_render.is_blocked(
+                        url=_burl, doi=_bdoi, title=_btitle
+                    )
+                    if _hit:
+                        _bib_leaks.append(
+                            {"url": _burl[:300], "reason": f"blocked_reference:{_reason}"[:300]}
+                        )
+                    else:
+                        _bib_clean.append(_b)
+                _text_leaks: list[str] = []
+                _lower_report = (final_report or "").lower()
+                for _locator in (
+                    list(_blocked_registry_render.canonical_urls)
+                    + list(_blocked_registry_render.dois)
+                    + [p.lower() for p in _blocked_registry_render.publisher_piis]
+                ):
+                    if _locator and _locator in _lower_report:
+                        _text_leaks.append(_locator)
+                if _bib_leaks or _text_leaks:
+                    multi.bibliography = _bib_clean
+                    _log(
+                        f"[blocked_ref_render] LEAK BACKSTOP: dropped {len(_bib_leaks)} PROHIBITED "
+                        f"bibliography entry(ies); {len(_text_leaks)} prohibited locator(s) remain in "
+                        f"the rendered body (recorded, not text-redacted): {_text_leaks[:5]}"
+                    )
+                    try:
+                        (run_dir / "blocked_reference_render_leak.json").write_text(
+                            json.dumps(
+                                {
+                                    "bibliography_dropped": _bib_leaks,
+                                    "body_text_leaks": _text_leaks,
+                                },
+                                indent=2, sort_keys=True, default=str,
+                            ) + "\n",
+                            encoding="utf-8",
+                        )
+                    except Exception:  # noqa: BLE001 — telemetry best-effort
+                        pass
+        except Exception as _brr_exc:  # noqa: BLE001 — additive backstop; never abort the report
+            _log(f"[blocked_ref_render] skipped (fail-open): {_brr_exc}")
         _reliability_md = render_reliability_header_md(
             getattr(multi, "reliability_header", None)
         )

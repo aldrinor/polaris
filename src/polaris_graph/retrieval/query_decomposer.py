@@ -155,6 +155,36 @@ def decompose_question(question: str, *, max_subqueries: int = DEFAULT_MAX_SUBQU
                 len(_directive_dropped), _directive_dropped[:5],
             )
 
+    # Stage 2c (I-deepfix-001 B2 deny-list leg, #1346): drop any generated sub-query that
+    # carries an operator-PROHIBITED reference fragment (a blocked title / DOI / PII named in
+    # the question's do-not-view appendix) so the blocked work is never QUERIED. This is the
+    # ONE legitimate hard drop (§-1.3) — an explicit prohibition, not a relevance/credibility
+    # call. Complements B3 (which strips directive-shaped clauses): B2 catches a blocked
+    # DOI/PII/title fragment even when it rides inside an otherwise-normal-looking sub-query.
+    # Pure / no network; reuses the SAME registry the fetch + selection seams use. Empty
+    # registry (no appendix, or PG_BLOCKED_REFERENCE_DENYLIST=0) => byte-identical no-op.
+    from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+        build_blocked_registry,
+    )
+    _blocked_registry = build_blocked_registry(question)
+    if not _blocked_registry.is_empty:
+        _kept_clauses: list[str] = []
+        _blocked_dropped: list[str] = []
+        for _clause in clauses:
+            _hit, _reason = _blocked_registry.is_blocked(url=_clause, title=_clause)
+            if _hit:
+                _blocked_dropped.append(_clause)
+            else:
+                _kept_clauses.append(_clause)
+        if _blocked_dropped:
+            clauses = _kept_clauses
+            import logging  # noqa: PLC0415
+            logging.getLogger("polaris_graph.query_decomposer").info(
+                "[query_decomposer] B2 blocked-reference deny-list dropped %d "
+                "prohibited sub-query(ies) before search: %r",
+                len(_blocked_dropped), _blocked_dropped[:5],
+            )
+
     # Stage 3: unmask abbreviation periods, normalize, fragment-filter, dedup (case-insensitive), cap.
     out: list[str] = []
     seen: set[str] = set()

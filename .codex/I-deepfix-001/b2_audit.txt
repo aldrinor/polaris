@@ -1,0 +1,17 @@
+Findings: no P0/P1.
+
+The iter-1 P1 is fixed. The pre-render bibliography screen mutates `multi.bibliography` before `_render_bibliography_lines(...)`, so a blocked bibliography entry cannot reach the rendered `report.md`: [scripts/run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:12458). The post-assembly backstop now remains defense-in-depth for body locator leaks and `bibliography.json`: [scripts/run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:12849).
+
+Static checks also pass the requested adversarial points: registry build is appendix-only and fail-open, empty appendix no-ops, matching is limited to canonical URL / exact DOI / exact PII / high-threshold title fuzzy, and the faithfulness engines are not touched. Fetch returns `ok=False` and empty content for blocked URLs, so it cannot become an evidence row; selection/corpus screens persist the hard exclusion before approval/generation.
+
+I did not run tests or pipeline commands, per static-only instruction.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Continuing documented residual: query-gen/fetch exclusions are log/telemetry-only until the selection seam persists blocked_reference_excluded_*.json; non-blocking."
+  - "Minor test gap: no direct unit asserting the new pre-render bibliography screen, though placement is statically correct."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
