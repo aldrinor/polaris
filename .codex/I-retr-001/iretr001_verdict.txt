@@ -1,0 +1,19 @@
+**Findings**
+
+P2: [scope_query_validator.py](C:/POLARIS/src/polaris_graph/retrieval/scope_query_validator.py:22) still has stale module-level docs saying `PG_AMPLIFIER_SCOPE_FLOOR` defaults to `0.15` and `PG_SCOPE_SIM_MEASURE` defaults to `jaccard`. The executable defaults were correctly flipped to named constants at lines 117-118, so this is not an execution blocker, but it leaves contradictory governance text in the file.
+
+P2: [test_scope_query_validator.py](C:/POLARIS/tests/polaris_graph/test_scope_query_validator.py:126) checks `_select_sim_measure()` without clearing `PG_SCOPE_SIM_MEASURE`. The regression test below it does clear env, so default behavior is still covered; this one test is just environment-sensitive.
+
+No P0/P1 found. The default flip is implemented through named constants, remains env-overridable, leaves explicit `jaccard` available, and only touches the pre-fetch scope gate. I did not see strict_verify / NLI / 4-role / span/provenance changes. Static review only; I did not run tests.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/retrieval/scope_query_validator.py:22 still documents stale jaccard/0.15 defaults, contradicting the new executable containment/0.08 defaults."
+  - "tests/polaris_graph/test_scope_query_validator.py:126 is env-sensitive because it does not clear PG_SCOPE_SIM_MEASURE before asserting the default measure."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```

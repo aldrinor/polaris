@@ -19,19 +19,23 @@ DESIGN:
 - No new LLM call. Uses token overlap with protocol.research_question +
   PICO fields (intervention / population / outcome) as the anchor.
 - Drops any amplified query whose similarity with the anchor is below
-  PG_AMPLIFIER_SCOPE_FLOOR (default 0.15).
+  PG_AMPLIFIER_SCOPE_FLOOR (default 0.08, the containment-scale floor — see
+  I-retr-001 #1340).
 - ALWAYS keeps the verbatim research_question and direct PICO-term
   queries ("{intervention} {population}") as a safety net.
 - Logs drops so the user can see which amplifier variants were killed.
 
-SIMILARITY MEASURE (BB-001, I-beatboth-fix-000 #1171):
-- PG_SCOPE_SIM_MEASURE selects the measure: `jaccard` (default = byte-identical
-  OFF) or `containment`. Symmetric Jaccard (|q∩a|/|q∪a|) punishes a SHORT
-  on-topic query against a large anchor bag (tiny intersection over a huge
-  union) — the #1 retrieval-breadth chokepoint (40->5 kept on drb_72).
-  Containment/overlap-coefficient (|q∩a|/min(|q|,|a|)) normalises by the
-  smaller set so a short on-topic query clears while genuine drift still fails.
-  The GATE is KEPT either way (rerank against intent); only the measure changes.
+SIMILARITY MEASURE (default `containment` per I-retr-001 #1340; was `jaccard`
+per BB-001 #1171):
+- PG_SCOPE_SIM_MEASURE selects the measure: `containment` (DEFAULT) or `jaccard`.
+  Symmetric Jaccard (|q∩a|/|q∪a|) punishes a SHORT on-topic query against a large
+  anchor bag (tiny intersection over a huge union) — the #1 retrieval-breadth
+  chokepoint (kept=2 of 35 on drb_72, anchor_tokens=136). Containment / overlap-
+  coefficient (|q∩a|/min(|q|,|a|)) normalises by the smaller set so a short on-topic
+  query clears while genuine drift still fails. The GATE is KEPT either way (genuine
+  off-anchor drift still drops); only the measure changes. `jaccard` stays selectable
+  for back-compat. Default flipped to `containment` so EVERY run path is correct, not
+  only the Gate-B slate (which already set containment explicitly).
 """
 
 from __future__ import annotations
@@ -101,19 +105,31 @@ def _containment(a: set[str], b: set[str]) -> float:
     return len(inter) / smaller if smaller else 0.0
 
 
-# BB-001 (I-beatboth-fix-000 #1171): the default is `jaccard` so the OFF path is
-# BYTE-IDENTICAL to the pre-fix behaviour; the Gate-B slate sets `containment`.
 _SIM_MEASURES = {"jaccard": _jaccard, "containment": _containment}
+
+# I-retr-001 (#1340): the DEFAULT measure is `containment` (overlap-coefficient
+# |q∩a| / min(|q|,|a|)) with floor 0.08. Under SYMMETRIC jaccard a short on-topic
+# query against a long research-question anchor (drb_72: anchor_tokens=136) caps at
+# ~8/136 ≈ 0.06 and was wrongly dropped (kept=2 of 35) — the §-1.3 filter-strangles-
+# breadth defect. Containment normalises by the SMALLER set, so a short on-topic query
+# scores ~1.0 while genuine off-anchor drift still scores low and is still dropped: the
+# de-drift GATE is KEPT, only the measure is corrected. `jaccard` remains selectable via
+# PG_SCOPE_SIM_MEASURE for back-compat. Faithfulness-NEUTRAL — this is a pre-fetch
+# query/scope gate; it touches no strict_verify / NLI / 4-role / span faithfulness gate.
+# (Supersedes BB-001 #1171, whose `jaccard`-default "byte-identical OFF" choice was the
+# source of the breadth collapse on every run path that does not apply the Gate-B slate.)
+_DEFAULT_SIM_MEASURE = "containment"
+_DEFAULT_SCOPE_FLOOR = 0.08
 
 
 def _select_sim_measure():
     """Return the (name, fn) for the configured similarity measure.
 
-    Reads ``PG_SCOPE_SIM_MEASURE`` (default ``jaccard`` = byte-identical OFF).
+    Reads ``PG_SCOPE_SIM_MEASURE`` (default ``containment`` per I-retr-001 #1340).
     An unrecognised value FAILS LOUD (LAW II) — a typo'd measure must not
     silently fall back to a different gate behaviour on a paid benchmark run.
     """
-    raw = os.getenv("PG_SCOPE_SIM_MEASURE", "jaccard").strip().lower()
+    raw = os.getenv("PG_SCOPE_SIM_MEASURE", _DEFAULT_SIM_MEASURE).strip().lower()
     if raw not in _SIM_MEASURES:
         raise ValueError(
             f"PG_SCOPE_SIM_MEASURE={raw!r} is not a recognised similarity measure "
@@ -183,11 +199,11 @@ def validate_amplified_queries(
         amplified: Raw output from query amplifier — plain string queries.
         protocol: Dict form of protocol.json, OR any dict with the
             fields research_question / intervention / population / outcome.
-        floor: Minimum Jaccard similarity (tokens-vs-anchor-tokens) to
+        floor: Minimum scope similarity (query-tokens-vs-anchor-tokens) to
             keep a query. Default: PG_AMPLIFIER_SCOPE_FLOOR env var,
-            fallback 0.15.
+            fallback 0.08 (the containment-scale floor; see I-retr-001 #1340).
         always_keep_anchor: When True, the verbatim research_question is
-            always kept even if its own Jaccard is below floor (which
+            always kept even if its own similarity is below floor (which
             can happen for very short questions). Default True.
 
     Returns:
@@ -195,10 +211,10 @@ def validate_amplified_queries(
         (tuples with reason), and `anchor_tokens_used` for debugging.
     """
     if floor is None:
-        floor = float(os.getenv("PG_AMPLIFIER_SCOPE_FLOOR", "0.15"))
+        floor = float(os.getenv("PG_AMPLIFIER_SCOPE_FLOOR", str(_DEFAULT_SCOPE_FLOOR)))
 
-    # BB-001 (#1171): default `jaccard` = byte-identical OFF; the Gate-B slate
-    # sets `containment` so short on-topic queries clear the floor. The gate is
+    # I-retr-001 (#1340): default `containment` (overlap-coefficient) so a short
+    # on-topic query clears the floor against a long anchor. The de-drift gate is
     # KEPT either way (off-anchor queries still fail) — only the MEASURE changes.
     sim_name, sim_fn = _select_sim_measure()
 
@@ -228,9 +244,9 @@ def validate_amplified_queries(
         if sim >= floor:
             kept.append(q)
         else:
-            # BB-001 (#1171): on the default jaccard path the reason string is
-            # BYTE-IDENTICAL to the pre-fix value; the measure suffix is added
-            # only when a non-default measure (containment) is active.
+            # I-retr-001 (#1340): the drop reason carries the active measure name
+            # (default now `containment`) for debuggability; bare `jaccard` keeps the
+            # legacy suffix-less form for back-compat with the explicit-jaccard path.
             _reason = f"below_scope_floor_{floor:.2f}"
             if sim_name != "jaccard":
                 _reason = f"{_reason}_{sim_name}"
