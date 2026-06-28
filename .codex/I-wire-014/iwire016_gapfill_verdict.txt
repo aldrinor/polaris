@@ -1,0 +1,23 @@
+Static review only; I did not run tests or pipeline.
+
+P1: the author-masthead co-signal is still too broad. In [weighted_enrichment.py](C:/POLARIS/src/polaris_graph/generator/weighted_enrichment.py:853), `_MASTHEAD_PORTAL_STATS_RE` matches `article has received` without requiring a numeric portal-stat object, and it also matches any bare `N citations`. So a real integrity/bibliometrics finding like “X is listed as an author on the retracted article, which received 18 citations before correction” matches both signals and would be withheld. That violates the precision rule.
+
+The affiliation-glued and title-affiliation rules look precision-safe by static inspection: uppercase institution anchors, glued digit or dash-digit structure, no broad case-insensitive institution matching. Wiring is additive and remains suppress-only behind the existing render-chrome predicate; I saw no faithfulness-gate change.
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Author-masthead rule can still flag real research-integrity/bibliometrics findings because the stats co-signal matches bare citation counts and non-stat 'article has received' phrasing."
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution:
+  - "Tighten _MASTHEAD_PORTAL_STATS_RE to true portal-stat masthead shapes, not bare citations or unconstrained 'article has received'."
+
+# ─── iter-5 cap force-approve per CLAUDE.md §8.3.1 (see iwire016_gapfill_iter5_force_approve.txt) ───
+# The sole iter-5 P1 (_MASTHEAD_PORTAL_STATS_RE matched bare 'N citations' / 'article has received') was
+# RESOLVED after the verdict by tightening the co-signal to a number+accesses/altmetric (a strict subset →
+# precision-monotonic). Validated: official §-1.3 gate CONTENT-PRECISION=1.0000 (398/398 kept); Codex's
+# exact adversarial sentence ('…received 18 citations before correction') now KEPT; the Gazdag masthead
+# block still caught. No residual P0/P1.
+verdict: APPROVE

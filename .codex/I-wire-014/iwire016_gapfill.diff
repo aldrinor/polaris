@@ -1,0 +1,87 @@
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index 6c7f0124..96d15fca 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -813,6 +813,71 @@ _STATS_TABLE_RE = re.compile(
+     r"(?:\(\s*[-−]?\d+\.\d+\s*\)\s*){3,}|(?:\d+\.\d+\s*\*{1,3}\s*){3,}"
+ )
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-wire-016 (#1338) gap-fill — precision-safe furniture rules the legacy categories miss (the OSS
++# survey confirmed no fetch-time HTML extractor fits the render seam; extend the deterministic
++# predicate). Codex iter-1/2/3 removed every rule whose surface form overlaps a real finding (biblio
++# date+page, bibliometric stats, "Name<digit>, <digit>" superscript), leaving the unambiguous
++# affiliation-glued / title+affiliation / author-attribution-phrase rules. VALIDATED precision-first:
++# ZERO of the 398 curated-clean real-content units are flagged; every Codex adversarial real-finding
++# case is KEPT. Under-removal is the safe direction (recall secondary per §-1.3); the chrome-as-claim
++# canary backstops the rarer residual classes. FLAG-not-drop: a flagged unit is withheld from the
++# rendered rollup, KEPT in evidence; the faithfulness engine (strict_verify / NLI / 4-role / span) is UNCHANGED.
++#
++# gap 1 — a digit GLUED to an institution keyword ANCHORED to its affiliation preposition (Department
++# OF, Laboratory OF/FOR/AT, Institute OF/FOR, …) so an adjective ("2Laboratory-confirmed cases",
++# "1Institutional review boards") never matches (Codex iter-1 P1). Real prose spells "a/one/the department";
++# only an author-block superscript glues a digit directly to "Department of"/"Institute of"/etc.
++_AFFIL_GLUED_RE = re.compile(
++    r"\b\d{1,2}(?:Department\s+(?:of|for)\b|Departamento\s+de\b|Faculty\s+of\b|School\s+of\b|"
++    r"Institute\s+(?:of|for)\b|University\s+of\b|Universidad\s+de\b|Facultad\s+de\b|Escuela\s+de\b|"
++    r"Laborator(?:y|ies)\s+(?:of|for|at)\b|Centre\s+for\b|Center\s+for\b)",
++)
++# gap 4 — title+affiliation composite: a dash + digit + institution ("A Survey of … - 1 Department of …").
++_TITLE_AFFIL_RE = re.compile(
++    r"[-–—]\s*\d{1,2}\s+(?:Department\s+of|Institute\s+(?:of|for)|Faculty\s+of|School\s+of|"
++    r"University\s+of|Laborator(?:y|ies)\s+(?:of|for|at)|Centre\s+for|Center\s+for)\b",
++)
++# gap 1 — author-attribution MASTHEAD block: the authorship phrase ("X is listed as an author",
++# "… are among the listed authors") AND a co-occurring article-portal MASTHEAD signal (the
++# "article has received N accesses/citations/altmetric" engagement-stats furniture). Codex iter-4 P1:
++# the phrase ALONE flags a real research-integrity finding ("X is listed as an author on the retracted
++# paper"); requiring BOTH the phrase AND the portal-stats co-signal anchors it to the masthead block
++# ("Gazdag is listed as an author. The article has received 3258 accesses, 16 citations…") — a real
++# integrity/COI finding never co-reports portal engagement stats. Both signals required (precision-first).
++_AUTHOR_ATTRIB_PHRASE_RE = re.compile(
++    r"\bis listed as an?\s+(?:author|co-author)\b|\bare among the listed authors\b|"
++    r"\blisted as (?:the\s+)?(?:author|co-author)s?\b",
++    re.IGNORECASE,
++)
++_MASTHEAD_PORTAL_STATS_RE = re.compile(
++    # Codex iter-5 P1: the co-signal must be a TRUE portal-only metric (a number directly followed by
++    # "accesses" or "altmetric") — masthead engagement counts a research finding never reports. Bare
++    # "N citations" and unconstrained "article has received" are REMOVED: a real integrity/bibliometrics
++    # finding legitimately says "received 18 citations before correction", so they are not portal-unique.
++    r"\b\d[\d,]*\s+(?:accesses|altmetric)\b",
++    re.IGNORECASE,
++)
++# DROPPED (Codex iter-1/2/3, not precision-safe — surface form overlaps real findings):
++#  - gap 2 biblio date+page ("…, July 12, p. 36" vs "The July 12, p. 36 article reported…").
++#  - gap 3 bibliometric stats ("3,258 accesses, 16 citations, 7 altmetric" vs real bibliometrics findings;
++#    "vascular accesses"). The author-attribution phrase above catches the masthead blocks these appeared in.
++#  - gap 1 "Name<digit>, <digit>" author-superscript (titlecase mouse-gene notation "Smad1, 5 and Smad2, 3").
++# These rare residual classes are left to the chrome-as-claim canary (enforce, floor 0.05) per §-1.3
++# (precision over recall — never risk dropping a real finding).
++
++
++def _contains_iwire016_gap_furniture(s: str) -> bool:
++    """I-wire-016 #1338: precision-safe gap-class furniture rules (validated 0 content false-positives;
++    Codex iter-1/2/3 removed every rule whose surface form overlaps a real finding). Catches the
++    affiliation/author-attribution masthead blocks; rarer stats/biblio/superscript classes are left to
++    the chrome-as-claim canary. FLAG-not-drop: withheld from rollup, kept in evidence; faithfulness UNCHANGED."""
++    if _AFFIL_GLUED_RE.search(s) or _TITLE_AFFIL_RE.search(s):
++        return True
++    # author-attribution masthead: the authorship phrase AND a portal-stats co-signal (both required —
++    # Codex iter-4 P1: the phrase alone flags a real integrity/COI finding).
++    return bool(_AUTHOR_ATTRIB_PHRASE_RE.search(s) and _MASTHEAD_PORTAL_STATS_RE.search(s))
++
+ 
+ def _dotted_toc_hits(text: str) -> int:
+     """Count dotted section-number tokens whose TitleCase word is NOT a magnitude unit (so a
+@@ -859,6 +924,10 @@ def _contains_forensic_chrome(text: str) -> bool:
+     standalone_dotted = _STANDALONE_DOTTED_HEADING_RE.match(s)
+     if standalone_dotted and standalone_dotted.group(1).lower() not in _MAGNITUDE_UNIT_WORDS:
+         return True
++    # I-wire-016 #1338 gap-fill (affiliation-glued / title+affiliation / author-attribution-phrase) —
++    # the precision-safe masthead classes that leaked past the legacy categories.
++    if _contains_iwire016_gap_furniture(s):
++        return True
+     # foreign-page scrape (predominantly non-Latin)
+     return _is_predominantly_nonlatin(s)
+ 

@@ -1,0 +1,42 @@
+# I-wire-016 (#1338) render-seam gap-fill — iter-5 cap force-approve (P1 RESOLVED, not banked)
+
+cap_hit_utc: 2026-06-27 (Codex diff-gate iter 5 of 5 returned REQUEST_CHANGES)
+gate_file: .codex/I-wire-014/iwire016_gapfill_verdict.txt
+diff: .codex/I-wire-014/iwire016_gapfill.diff
+directive: CLAUDE.md §8.3.1 (5-iter cap) — iter 6 does not exist. §-1.3 precision is the overriding
+           clinical-safety constraint, so the iter-5 P1 was RESOLVED before proceeding, not banked.
+
+## Iter-5 Codex P1 (the single residual finding)
+"_MASTHEAD_PORTAL_STATS_RE matches bare 'N citations' and unconstrained 'article has received', so a
+real integrity/bibliometrics finding ('X is listed as an author on the retracted article, which
+received 18 citations before correction') matches both author + co-signal and would be withheld."
+This was a REAL §-1.3 precision violation (would drop a real research finding). convergence_call: accept_remaining.
+
+## Resolution (applied AFTER the iter-5 verdict; provably precision-monotonic)
+_MASTHEAD_PORTAL_STATS_RE tightened from
+    r"\barticle has received\b|\b\d[\d,]*\s+(?:accesses|altmetric|citations?)\b|\breceived\s+\d[\d,]*\s+accesses\b"
+to
+    r"\b\d[\d,]*\s+(?:accesses|altmetric)\b"
+i.e. the co-signal must now be a number directly followed by a TRUE portal-only metric (accesses /
+altmetric — masthead engagement counts a research finding never reports). Bare "N citations" and the
+unconstrained "article has received" are REMOVED. This is a strict subset of the prior pattern → it can
+only flag FEWER strings → it cannot introduce a new false-positive (precision-monotonic).
+
+## Empirical validation of the resolution (the operator-binding TEST-RESULTS GATE)
+- Official §-1.3 acceptance gate (scripts/iwire016_acceptance_test.py): CONTENT-PRECISION = 1.0000
+  (398/398 curated-clean real findings KEPT). PASS. recalls_reported=True.
+- Codex's EXACT iter-5 adversarial sentence ("X is listed as an author on the retracted article, which
+  received 18 citations before correction") → KEPT (not flagged). Confirmed.
+- Additional bare-citation+author variants ("…the paper has received 40 citations to date", "…co-author;
+  the study reported 12 citations…") → KEPT.
+- The masthead block it must still catch ("Gazdag is listed as an author. The article has received 3258
+  accesses, 16 citations, and 7 altmetric mentions") → still caught (via "3258 accesses" / "7 altmetric").
+- Affiliation-glued + title-affiliation rules: Codex confirmed precision-safe at iter-4 AND iter-5
+  ("look precision-safe by static inspection"); unchanged since.
+
+## Residual P0/P1 at force-approve: NONE
+The single iter-5 P1 is resolved and empirically validated above. No follow-up Issue required.
+The dropped rare classes (biblio date+page, bibliometric stats, "Name<digit>, <digit>" superscript) are
+intentionally left to the chrome-as-claim canary (enforce, floor 0.05) per §-1.3 (precision over recall).
+
+verdict: APPROVE  # force-approved at iter-5 cap per CLAUDE.md §8.3.1; sole iter-5 P1 RESOLVED + validated
