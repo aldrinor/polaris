@@ -121,6 +121,13 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
         "evaluator_model", "google/gemma-4-31b-it"
     )
 
+    # I-deepfix-001 B4 P2-B (#1344): thread the generator/evaluator training families (derived from
+    # the resolved model names) so PT03 verifies the two-family invariant HONESTLY on replay. Without
+    # them, run_rule_checks now treats segregation as NOT-proven (conservative) for an LLM evaluator.
+    from src.polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
+    generator_family = family_from_model(generator_model)
+    evaluator_family = family_from_model(evaluator_model)
+
     # Reconstruct tier_distribution_report from manifest.corpus.tier_fractions.
     # The original sweep passes asdict(compute_tier_distribution(...)); we
     # only need the tier_fractions key for PT07's static check.
@@ -137,6 +144,8 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
         evidence_pool=evidence_pool,
         generator_model=generator_model,
         evaluator_model=evaluator_model,
+        generator_family=generator_family,
+        evaluator_family=evaluator_family,
     )
 
     new_rule_checks_payload = dict(rule_checks_prev)

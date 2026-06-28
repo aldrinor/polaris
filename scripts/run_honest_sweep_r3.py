@@ -1621,6 +1621,88 @@ def _claim_header_is_unrenderable(raw_claim: str) -> bool:
     return bool(first and first.islower())
 
 
+# I-deepfix-001 B6(b) (#1344): deterministic CLAIM-SHAPE gate for the per-claim corroboration
+# HEADER. LAW VI: env-driven knob (default ON), no magic numbers inlined into the call site.
+_CLAIM_SHAPE_GATE_ENV = "PG_CLAIM_SHAPE_GATE"
+_CLAIM_SHAPE_MIN_CONTENT_WORDS_ENV = "PG_CLAIM_SHAPE_MIN_CONTENT_WORDS"
+_CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT = 3
+# A predicate/verb-ish token signals an assertional claim (vs a bare noun phrase / title fragment).
+# Lightweight closed-class list (copulas, auxiliaries, common reporting verbs) PLUS a morphological
+# fallback (a token ending in a verb-suffix) so it generalizes beyond the list. Deterministic; no
+# model call. Faithfulness-NEUTRAL: this gates only the displayed HEADER, never a source/count.
+_CLAIM_SHAPE_VERB_TOKENS = frozenset({
+    "is", "are", "was", "were", "be", "been", "being", "has", "have", "had",
+    "show", "shows", "showed", "shown", "report", "reports", "reported",
+    "found", "find", "finds", "increase", "increased", "increases", "decrease",
+    "decreased", "decreases", "reduce", "reduced", "reduces", "associated",
+    "demonstrate", "demonstrated", "demonstrates", "suggest", "suggests",
+    "suggested", "indicate", "indicates", "indicated", "cause", "causes",
+    "caused", "improve", "improved", "improves", "remain", "remains",
+    "remained", "occur", "occurs", "occurred", "include", "includes",
+    "included", "require", "requires", "required", "can", "may", "will",
+    "should", "must", "does", "do", "did",
+})
+# Morphological verb signal. "ed"/"ing" are strong verb markers; "es"/"s" are dropped — they match
+# common PLURAL NOUNS ("guidelines", "outcomes") and would mislabel a noun-phrase title as a claim.
+_CLAIM_SHAPE_VERB_SUFFIXES = ("ed", "ing")
+
+
+def claim_shape_gate_enabled() -> bool:
+    """I-deepfix-001 B6(b): is the deterministic claim-shape header gate ON? (default ON). LAW VI."""
+    return os.getenv(_CLAIM_SHAPE_GATE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _claim_has_predicate_token(text: str) -> bool:
+    """True iff ``text`` carries at least one predicate/verb-ish token — a deterministic signal that
+    the string is an ASSERTIONAL claim, not a bare noun phrase / title / nav fragment. Closed-class
+    list first, then a morphological suffix fallback so it generalizes. Pure."""
+    for tok in re.findall(r"[A-Za-z][A-Za-z'-]*", text.lower()):
+        if tok in _CLAIM_SHAPE_VERB_TOKENS:
+            return True
+        if len(tok) > 3 and tok.endswith(_CLAIM_SHAPE_VERB_SUFFIXES):
+            return True
+    return False
+
+
+def claim_is_renderable_claim_shape(text: str) -> bool:
+    """I-deepfix-001 B6(b) (#1344): the FINAL deterministic CLAIM-SHAPE gate for a corroboration
+    HEADER. Returns True iff ``text`` is a renderable assertional claim:
+      (a) NOT render chrome / an unrenderable fragment (reuses the proven shared screen with
+          require_sentence_form=True), AND
+      (b) has >= PG_CLAIM_SHAPE_MIN_CONTENT_WORDS content words, AND
+      (c) carries >= 1 predicate/verb token (it is a CLAIM, not a noun-phrase label).
+    HEADER-TEXT-ONLY: a False here suppresses only the corroboration BLOCK for that basket; the
+    sources/counts still live in the bibliography (faithfulness-neutral; §-1.3 no source dropped).
+    Pure except the lazy chrome-screen import."""
+    s = (text or "").strip()
+    if not s:
+        return False
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+        # require_sentence_form=False: catch CHROME / a mid-word truncation fragment, but do NOT
+        # demand a terminal period — corroboration claim headers are trimmed summaries (often no
+        # closing '.'), so requiring a full-sentence terminator here would over-suppress legitimate
+        # claim headers (regressing the I-wire-014 154/155 recovery). Assertional SHAPE is enforced
+        # below by the content-word + predicate-token checks instead.
+        if is_render_chrome_or_unrenderable(s, require_sentence_form=False):
+            return False
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        # Fail-OPEN on an infra import error: do not suppress a header on a tooling failure.
+        pass
+    content_words = re.findall(r"[A-Za-z][A-Za-z'-]+", s)
+    try:
+        min_words = int(os.getenv(
+            _CLAIM_SHAPE_MIN_CONTENT_WORDS_ENV, str(_CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT),
+        ))
+    except (TypeError, ValueError):
+        min_words = _CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT
+    if len(content_words) < max(0, min_words):
+        return False
+    return _claim_has_predicate_token(s)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # I-wire-014 (#1334) FIX-A — the per-claim corroboration HEADER must render a real claim
 # SENTENCE (or, failing that, the clean source TITLE) — NEVER a ``clm_<hash>`` cluster id
@@ -2342,11 +2424,31 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                     claim = f"{_subj} {_pred}".strip()
                     claim = re.sub(r"(\w)-\s+(\w)", r"\1-\2", claim)
                     claim = re.sub(r"\s{2,}", " ", claim) or ccid
+            # I-deepfix-001 B6(b) (#1344): FINAL deterministic CLAIM-SHAPE gate. After the whole
+            # fallback chain above (sentence-prefix -> member quote -> source title -> subj+predicate
+            # -> ccid), the resolved `claim` can STILL be a non-assertional fragment (a bare noun
+            # phrase, a title-shaped label, or a ccid hash stub) — which then renders as a fake
+            # "verified claim" header. When the gate is ON and the final `claim` is NOT a renderable
+            # assertional claim shape, SUPPRESS this basket's corroboration block entirely (continue).
+            # HEADER-TEXT-ONLY (faithfulness-neutral; §-1.3): the basket's sources + counts still live
+            # in the numbered Bibliography below — only the cosmetic per-claim header is withheld, so a
+            # garbled header is never shown AS a verified claim. Default-ON; OFF = byte-identical.
+            # I-deepfix-001 B6(b) P1-A (#1344): §-1.3 no-source-dropped — do NOT suppress the
+            # whole basket when the resolved claim is not a renderable assertional shape. Emit a
+            # NEUTRAL header carrying the COUNT but not the garbled/non-assertional claim text, and
+            # STILL emit every SUPPORT / GROUNDED-BUT-WEAK / CONTRADICTED sub-bullet below — the
+            # corroborating sources + count are NEVER dropped, only the cosmetic header text is withheld.
+            suppress_claim_header = (
+                claim_shape_gate_enabled() and not claim_is_renderable_claim_shape(claim)
+            )
             contested = (
                 str(basket.get("basket_verdict") or "") == "contested"
                 or bool(basket.get("refuter_cluster_ids"))
             )
-            lines = [f"- **{claim or ccid}** — {count} verified independent source(s)"]
+            if suppress_claim_header:
+                lines = [f"- {count} verified independent source(s):"]
+            else:
+                lines = [f"- **{claim or ccid}** — {count} verified independent source(s)"]
             for m in verified:
                 _w = m.get("credibility_weight")
                 _ws = f"{float(_w):.2f}" if isinstance(_w, (int, float)) else "n/a"
@@ -6748,7 +6850,17 @@ async def run_one_query(
             intent_frame_enabled as _intent_frame_enabled,
             run_intent_frame as _run_intent_frame,
         )
+        # I-deepfix-001 B3 (#1344): the CLEAN research question fed to the decompose/retrieval/
+        # planner backends. Initialized to the RAW question so OFF-mode / frame-None is BYTE-
+        # IDENTICAL; overridden ONLY when the intent frame fired with a non-empty `questions` list
+        # (then = the space-joined isolated research sub-questions, with the injected meta-directive
+        # / prohibition appendix stripped INTO frame.constraints rather than echoed as a query). The
+        # RAW q["question"] is NEVER mutated — protocol.json, the report title, the scope gate, and
+        # every manifest/audit serialization keep the original verbatim. This is the prompt-
+        # injection-inversion seam: the backends search the real question, not the attacker's
+        # appended instructions. Faithfulness-neutral (only WHICH query text is searched changes).
         intent_frame_advisory = None
+        _clean_question = q["question"]
         if _intent_frame_enabled():
             import asyncio as _intent_frame_asyncio
             import concurrent.futures as _intent_frame_futures
@@ -6849,7 +6961,27 @@ async def run_one_query(
                 "clarification_needed": list(
                     intent_frame_advisory.clarification_needed
                 ),
+                # I-deepfix-001 P2b (#1344): serialize the parsed meta-directives / prohibitions /
+                # output-constraints so an auditor (and the wave-2 date/journal/language enforcement
+                # handoff) can see WHAT the frame isolated out of the research questions. Empty list
+                # when the frame parsed no constraints (byte-additive; never echoed as a question).
+                "constraints": list(intent_frame_advisory.constraints),
             }
+            # I-deepfix-001 B3 (#1344): substitute the CLEAN, injection-stripped research question
+            # for the downstream decompose/retrieval/planner backends. Only when the frame returned
+            # >=1 non-empty question (it always does when enabled — run_intent_frame is fail-closed —
+            # but guard defensively so an empty join can never null the query). The RAW q["question"]
+            # is untouched. Faithfulness-neutral: the backends now search the genuine question.
+            _frame_questions = [
+                _qq.strip() for _qq in intent_frame_advisory.questions if _qq and _qq.strip()
+            ]
+            if _frame_questions:
+                _clean_question = " ".join(_frame_questions)
+                _log(
+                    "[intent_frame] #scope clean-question substitution active for "
+                    f"decompose/retrieval (len {len(_clean_question)} chars; raw question kept "
+                    "verbatim in protocol/report/scope)"
+                )
 
         # Phase 2b scope gate
         # I-beatboth-fix-000 (#1171): thread per-question PICO/PCC scope
@@ -7244,7 +7376,7 @@ async def run_one_query(
                         _RUN_COST_CTX.set(_parent_cost_before + _cost_delta)
 
             _research_plan = plan_research(
-                q["question"], planner_llm=_planner_llm,
+                _clean_question, planner_llm=_planner_llm,  # I-deepfix-001 B3: clean query
             )
             # Pre-register + SHA-pin the plan BEFORE retrieval (gap #19).
             _plan_canonical = serialize_plan_canonical(_research_plan)
@@ -7257,7 +7389,7 @@ async def run_one_query(
             # Frame-derived anchor protocol so planner sub-queries validate
             # against the frame's OWN tokens (brief §2.4 validator adapter).
             _planner_protocol = _research_plan.frame.to_anchor_protocol(
-                q["question"]
+                _clean_question  # I-deepfix-001 B3: anchor on the clean query the planner searched
             )
 
         # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
@@ -7301,7 +7433,7 @@ async def run_one_query(
             _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
             if _v30_patch and isinstance(_template, dict):
                 _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
-            _reg_queries = expand_regulatory_queries(q["question"], _template)
+            _reg_queries = expand_regulatory_queries(_clean_question, _template)  # B3: clean query
             if _reg_queries:
                 _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
                      f"queries (domain={q['domain']})")
@@ -7309,7 +7441,7 @@ async def run_one_query(
             # sweep slug (trial names are query-specific). Missing slug or
             # missing `per_query_primary_trial_anchors` key = no-op.
             _trial_queries = expand_primary_trial_queries(
-                q["question"], _template, q["slug"]
+                _clean_question, _template, q["slug"]  # I-deepfix-001 B3: clean query
             )
             if _trial_queries:
                 _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
@@ -7330,7 +7462,7 @@ async def run_one_query(
             from src.polaris_graph.retrieval.query_decomposer import (
                 decompose_question,
             )
-            _decomposed = decompose_question(q["question"])
+            _decomposed = decompose_question(_clean_question)  # I-deepfix-001 B3: clean query
             if _decomposed:
                 _log(f"[q1d]         query_decompose: +{len(_decomposed)} sub-queries "
                      f"(slug={q['slug']})")
@@ -7721,7 +7853,7 @@ async def run_one_query(
                         _seed = _retrieval_seed_urls  # preserve the layer-4 DOI seed (1st query only)
                         _iter_seed_used["done"] = True
                     return run_live_retrieval(
-                        research_question=q["question"],          # original question = scope context only
+                        research_question=_clean_question,        # I-deepfix-001 B3 P1-B: clean (injection-stripped) question as scope context
                         amplified_queries=[research_question],     # the IterResearch query is the ONE fired
                         anchor_seed=False,                          # do NOT re-fire the broad anchor
                         protocol=_retrieval_protocol,
@@ -7738,7 +7870,7 @@ async def run_one_query(
 
                 if _fs_researcher_enabled():
                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
-                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
+                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR  # I-deepfix-001 B3 P1-B: clean query seed
                     )
                     _log(
                         f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "
@@ -7747,7 +7879,7 @@ async def run_one_query(
                     )
                 else:
                     retrieval, _iter_queries = _run_iterresearch_retrieval(
-                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
+                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR  # I-deepfix-001 B3 P1-B: clean query seed
                     )
                     _log(
                         f"[iterresearch] #1292 adaptive query-gen (SUPERSEDED by FS-Researcher #1296) "
@@ -7756,7 +7888,11 @@ async def run_one_query(
                     )
             else:
                 retrieval = run_live_retrieval(
-                    research_question=q["question"],
+                    # I-deepfix-001 B3 (#1344): the PRIMARY retrieval fires the CLEAN, injection-
+                    # stripped research question as its base query (OFF-mode/frame-None == raw, byte-
+                    # identical). The raw q["question"] stays verbatim everywhere it is persisted /
+                    # displayed / scope-gated.
+                    research_question=_clean_question,
                     amplified_queries=_amplified_effective,
                     protocol=_retrieval_protocol,
                     max_serper=_max_serper,
@@ -7921,6 +8057,10 @@ async def run_one_query(
             evidence_row_count=len(retrieval.evidence_rows),
             domain=q["domain"],
             protocol=protocol,
+            # I-deepfix-001 B7 (#1344): pass the evidence rows so the gate can apply its on-topic
+            # W2-relevance predicate (count toward grounded/tier denominators only above the
+            # disclosed relevance floor). Keyword, optional (WIRER-RETRIEVE adds the param).
+            evidence_rows=retrieval.evidence_rows,
         )
         (run_dir / "corpus_adequacy.json").write_text(
             json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
@@ -8033,13 +8173,13 @@ async def run_one_query(
                 sufficient=_crag_sufficient, loops_done=_loops_done,
             ):
                 _gap_queries = _crag_adq.derive_gap_queries(
-                    research_question=q["question"],
+                    research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                     findings=adequacy.findings,
                     gap_dimensions=_crag_verdict.get("gap_dimensions") or [],
                 )
                 if not _gap_queries:
                     # No specific gap dimension to target — re-issue the question.
-                    _gap_queries = [q["question"]]
+                    _gap_queries = [_clean_question]  # I-deepfix-001 B3 P1-B: clean query
                 _log(f"[crag-adequacy] loop {_loops_done + 1}/"
                      f"{_crag_adq.max_loops()}  verdict={_crag_verdict['verdict']}  "
                      f"gap_queries={len(_gap_queries)}")
@@ -8053,7 +8193,7 @@ async def run_one_query(
                     # PARALLEL fan-out across backends, already bounded inside
                     # run_live_retrieval — reused, not re-implemented.
                     crag_retrieval = run_live_retrieval(
-                        research_question=q["question"],
+                        research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                         amplified_queries=_gap_queries,
                         protocol=protocol,
                         max_serper=int(os.getenv("PG_ADEQUACY_CRAG_MAX_SERPER", "8")),
@@ -8231,7 +8371,7 @@ async def run_one_query(
                 # env-driven (Gate-B raises them via the full-capability slate); defaults preserve the
                 # prior behavior for any non-benchmark caller.
                 exp_retrieval = run_live_retrieval(
-                    research_question=q["question"],
+                    research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                     amplified_queries=exp_queries,
                     protocol=protocol,
                     max_serper=int(os.getenv("PG_R6_EXPAND_MAX_SERPER", "5")),
@@ -8288,6 +8428,8 @@ async def run_one_query(
                     evidence_row_count=len(retrieval.evidence_rows),
                     domain=q["domain"],
                     protocol=protocol,
+                    # I-deepfix-001 B7 (#1344): on-topic relevance denominator (see above).
+                    evidence_rows=retrieval.evidence_rows,
                 )
                 (run_dir / "corpus_adequacy.json").write_text(
                     json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
@@ -8392,6 +8534,8 @@ async def run_one_query(
                         evidence_row_count=len(_staged_rows),
                         domain=q["domain"],
                         protocol=protocol,
+                        # I-deepfix-001 B7 (#1344): pass the STAGED rows being assessed (on-topic).
+                        evidence_rows=_staged_rows,
                     )
                     # Commit atomically (all recomputes succeeded).
                     retrieval.classified_sources = _staged_sources
@@ -8591,6 +8735,8 @@ async def run_one_query(
                         evidence_row_count=len(_ag_rows),
                         domain=q["domain"],
                         protocol=protocol,
+                        # I-deepfix-001 B7 (#1344): pass the AGENTIC-merged rows being assessed.
+                        evidence_rows=_ag_rows,
                     )
                     retrieval.classified_sources = _ag_sources
                     retrieval.evidence_rows = _ag_rows
@@ -8654,6 +8800,8 @@ async def run_one_query(
                         evidence_row_count=len(_st_rows),
                         domain=q["domain"],
                         protocol=protocol,
+                        # I-deepfix-001 B7 (#1344): pass the STORM-merged rows being assessed.
+                        evidence_rows=_st_rows,
                     )
                     retrieval.classified_sources = _st_sources
                     retrieval.evidence_rows = _st_rows
@@ -8807,6 +8955,8 @@ async def run_one_query(
                 evidence_row_count=len(retrieval.evidence_rows),
                 domain=q["domain"],
                 protocol=_jo_protocol,
+                # I-deepfix-001 B7 (#1344): on-topic relevance denominator (journal-only floor path).
+                evidence_rows=retrieval.evidence_rows,
             )
             # The journal_only adequacy FLOOR (>=N distinct journals + every S1
             # canonical anchor present) — the binding guard against a thin-corpus
@@ -14337,6 +14487,37 @@ async def run_one_query(
             if _feat_warn:
                 _log(f"[feature]     WARNING {_feat_warn}")
 
+        # I-deepfix-001 B4 P1-C (#1344): persist a `models` block carrying the REAL generator/
+        # evaluator model + training family for THIS run so a downstream UI / clinical badge derives
+        # family-segregation HONESTLY (a same-family all-GLM run must NOT show a green "segregated"
+        # badge). Uses the SAME family_from_model helper + override env the wave-1 Methods clause uses;
+        # `family_segregated` is True ONLY when the families genuinely differ (the operator-approved
+        # same-family override is recorded separately, never flipped to a green badge). Additive +
+        # telemetry-only — it NEVER gates status / release / a faithfulness check. Fail-open.
+        try:
+            from src.polaris_graph.llm.openrouter_client import (
+                PG_EVALUATOR_FAMILY_OVERRIDE as _B4_EVAL_FAM_OV,
+                PG_EVALUATOR_MODEL as _B4_EVAL_MODEL,
+                PG_GENERATOR_FAMILY_OVERRIDE as _B4_GEN_FAM_OV,
+                PG_GENERATOR_MODEL as _B4_GEN_MODEL,
+                family_from_model as _b4_family_from_model,
+            )
+            _b4_gen_family = _b4_family_from_model(_B4_GEN_MODEL, _B4_GEN_FAM_OV)
+            _b4_eval_family = _b4_family_from_model(_B4_EVAL_MODEL, _B4_EVAL_FAM_OV)
+            _b4_permit_same = os.getenv(
+                "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "0"
+            ).strip() in ("1", "true", "True")
+            manifest["models"] = {
+                "generator": _B4_GEN_MODEL,
+                "evaluator": _B4_EVAL_MODEL,
+                "generator_family": _b4_gen_family,
+                "evaluator_family": _b4_eval_family,
+                "permit_same_family": _b4_permit_same,
+                "family_segregated": bool(_b4_gen_family != _b4_eval_family),
+            }
+        except Exception as _b4_exc:  # noqa: BLE001 — telemetry must never abort the manifest write
+            _log(f"[models]      WARN could not stamp manifest models block: {_b4_exc}")
+
         manifest = augment_v6_manifest(
             manifest,
             external_run_id=q.get("external_run_id"),
@@ -14362,6 +14543,10 @@ async def run_one_query(
                 "clarification_needed": list(
                     intent_frame_advisory.clarification_needed
                 ),
+                # I-deepfix-001 P2b (#1344): serialize parsed constraints into the manifest too (it
+                # only carried questions/domain/clarifications before), for auditability + the wave-2
+                # date/journal/language enforcement handoff. Additive; empty when none parsed.
+                "constraints": list(intent_frame_advisory.constraints),
             }
 
         # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.

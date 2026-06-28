@@ -634,6 +634,75 @@ _ROLE_CALL_TIMEOUT_S_DEFAULT = "3600.0"
 # default on the paid 4-role path. LAW VI: env-gated, read lazily so a runtime override is honored.
 _ENV_FORCE_CLOSE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
 
+# I-deepfix-001 B11 C2 (#1344): min-tok/s SLO slow-trickle EARLY rotate. A provider that returns a
+# valid 200 but at a CRAWL (e.g. a trickling minimax Sentinel leg) does NOT trip the blank/timeout
+# paths, so the run silently eats minutes/claim and the D8 seam grinds — the same trickle the
+# total-deadline force-close was built for, but BELOW the deadline. When this is ON and a SUCCESSFUL
+# call's observed throughput (completion_tokens / wall-seconds) is below PG_ROLE_MIN_TPS, AND a
+# retry budget remains AND a rotation target exists, we add the slow provider to the ignore list and
+# RE-ENTER the EXISTING force-close rotation (retry to the next healthy host) — exactly the path that
+# flips a stuck `adjudicated False -> True`. FAIL-OPEN (the keystone safety rule): if no retry budget
+# OR no other provider remains, we KEEP the slow-but-VALID verdict — a successful adjudication is
+# NEVER discarded to chase speed (that would LOWER adjudication, the opposite of the goal).
+# Faithfulness-NEUTRAL: same model, same verdict parsing; only WHICH provider serves the retry
+# changes. LAW VI: env-driven (default 0.0 == OFF/no-op == byte-identical to pre-#1344), read lazily.
+_ENV_ROLE_MIN_TPS = "PG_ROLE_MIN_TPS"
+# Bound the SLO-triggered rotations per call so a chain where EVERY host trickles cannot loop the
+# rotation indefinitely; once exhausted we keep the (slow) valid verdict (fail-open). Env-overridable.
+_ENV_ROLE_MIN_TPS_MAX_ROTATIONS = "PG_ROLE_MIN_TPS_MAX_ROTATIONS"
+_ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT = "2"
+
+
+def role_min_tps() -> float:
+    """I-deepfix-001 B11 C2: the min-tok/s SLO floor for a SUCCESSFUL role call (default 0.0 = OFF).
+
+    A POSITIVE value arms the slow-trickle early-rotate; <=0 / unparseable disables it (no-op). LAW
+    VI: env-driven, read lazily so a runtime/slate override is honored."""
+    raw = os.getenv(_ENV_ROLE_MIN_TPS, "0").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if value > 0 else 0.0
+
+
+def role_min_tps_max_rotations() -> int:
+    """I-deepfix-001 B11 C2: cap on SLO-triggered rotations per call (default 2). Clamped >= 0."""
+    try:
+        return max(0, int(os.getenv(_ENV_ROLE_MIN_TPS_MAX_ROTATIONS, _ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT)))
+    except (TypeError, ValueError):
+        return int(_ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT)
+
+
+def _observed_tokens_per_second(usage: dict | None, elapsed_s: float) -> float | None:
+    """Pure: completion tokens-per-second from a usage block + wall-seconds, else None.
+
+    Returns None (NOT a number) when throughput cannot be honestly computed — no usage, no
+    completion_tokens, or a non-positive elapsed — so the caller treats it as "unknown" and does NOT
+    rotate (fail-open: never penalize a call whose speed we cannot measure). Testable in isolation.
+    """
+    if not isinstance(usage, dict) or elapsed_s is None or elapsed_s <= 0:
+        return None
+    tokens = usage.get("completion_tokens")
+    if tokens is None:
+        details = usage.get("completion_tokens_details")
+        if isinstance(details, dict):
+            tokens = details.get("text_tokens")
+    try:
+        tok = int(tokens)
+    except (TypeError, ValueError):
+        return None
+    if tok <= 0:
+        return None
+    return tok / elapsed_s
+
+
+def role_min_tps_rotation_enabled() -> bool:
+    """I-deepfix-001 B11 C2: armed iff a positive SLO floor AND the (shared) force-close rotation
+    machinery are both enabled. The rotation REUSES the force-close ignore-list path, so it can only
+    fire when force_close_provider_rotation_enabled() is also ON (its default). LAW VI."""
+    return role_min_tps() > 0 and force_close_provider_rotation_enabled()
+
 
 def force_close_provider_rotation_enabled() -> bool:
     """Whether a total-deadline force-close ADVANCES off the slow provider (default ON).
@@ -673,6 +742,25 @@ def _targeted_provider_for_force_close(body: dict) -> str | None:
         if slug_s and slug_s not in ignored:
             return slug_s
     return None
+
+
+def _nonignored_provider_remains(body: dict, *, also_ignore: str | None = None) -> bool:
+    """True iff ``provider.order`` lists at least one slug NOT already in ``ignore`` (optionally also
+    excluding ``also_ignore``). Used to FAIL-OPEN the SLO slow-rotate: if ignoring the slow host would
+    leave NO provider to retry against, the valid (if slow) verdict MUST be KEPT — never discarded into
+    a guaranteed no-provider failure. Mirrors ``_targeted_provider_for_force_close``'s order/ignore view.
+    """
+    provider = body.get("provider")
+    if not isinstance(provider, dict):
+        return False
+    order = provider.get("order")
+    if not isinstance(order, list) or not order:
+        return False
+    ignore = provider.get("ignore")
+    ignored = {str(s) for s in ignore} if isinstance(ignore, list) else set()
+    if also_ignore:
+        ignored.add(str(also_ignore))
+    return any(str(slug) and str(slug) not in ignored for slug in order)
 
 
 def role_blank_watchdog_enabled() -> bool:
@@ -1617,10 +1705,16 @@ class OpenRouterRoleTransport:
                 _role_total_s = _role_transport_total_s(request.role)
                 http_response = None
                 rate_limit_attempt = 0
+                # I-deepfix-001 B11 C2 (#1344): wall-clock around the successful POST so the min-tok/s
+                # SLO can be computed AFTER parse. `_slo_rotations_used` bounds how many times a
+                # slow-trickle host triggers the early rotation per call (fail-open beyond the cap).
+                _slo_post_started: float | None = None
+                _slo_rotations_used = 0
                 while True:
                     http_response = None
                     for transport_attempt in range(transport_retries + 1):
                         try:
+                            _slo_post_started = time.monotonic()
                             http_response = _post_with_total_deadline(
                                 self._http_client, url,
                                 json_body=body, headers=headers,
@@ -1889,6 +1983,53 @@ class OpenRouterRoleTransport:
                         )
                         continue
                     raise  # ladder exhausted: even reasoning-off blanked -> genuine fail-loud.
+
+                # I-deepfix-001 B11 C2 (#1344): min-tok/s SLO slow-trickle EARLY rotate. The call
+                # SUCCEEDED (valid verdict parsed) but if it was served at a crawl below PG_ROLE_MIN_TPS
+                # — and a rotation budget + a different healthy provider both remain — abandon this slow
+                # host and RE-ENTER the rotation (retry to the next provider), which is what flips a
+                # stuck `adjudicated False -> True`. FAIL-OPEN (the safety keystone): when armed but the
+                # rotation budget is spent OR no other provider remains, we KEEP this slow-but-VALID
+                # response (a successful adjudication is NEVER discarded to chase speed). Throughput we
+                # cannot measure (no usage / no completion_tokens) is treated as "unknown" -> never
+                # rotated. Faithfulness-NEUTRAL: same model + verdict; only the retry's provider changes.
+                if role_min_tps_rotation_enabled() and _slo_rotations_used < role_min_tps_max_rotations():
+                    _elapsed_s = (
+                        (time.monotonic() - _slo_post_started)
+                        if _slo_post_started is not None else None
+                    )
+                    _tps = _observed_tokens_per_second(raw.get("usage"), _elapsed_s)
+                    if _tps is not None and _tps < role_min_tps():
+                        _slow_provider = _targeted_provider_for_force_close(body)
+                        if _slow_provider and isinstance(body.get("provider"), dict):
+                            _ignore_list = body["provider"].setdefault("ignore", [])
+                            # I-deepfix-001 B11 C2 P2-A (#1344): FAIL-OPEN keystone — only rotate when
+                            # ANOTHER non-ignored provider actually remains AFTER ignoring this slow host.
+                            # If this was the LAST provider, discarding the valid (if slow) verdict to
+                            # retry would rotate into a guaranteed no-provider failure; KEEP it instead.
+                            if (
+                                _slow_provider not in _ignore_list
+                                and _nonignored_provider_remains(body, also_ignore=_slow_provider)
+                            ):
+                                _ignore_list.append(_slow_provider)
+                                _slo_rotations_used += 1
+                                logger.warning(
+                                    "[polaris graph] #1344 SLO-ROTATE: %s role served at %.2f tok/s "
+                                    "(< PG_ROLE_MIN_TPS=%.2f) at %s — added slow provider %r to the "
+                                    "retry ignore-list (now %r); rotating to the next healthy host "
+                                    "(rotation %d/%d).",
+                                    request.role, _tps, role_min_tps(), url, _slow_provider,
+                                    _ignore_list, _slo_rotations_used, role_min_tps_max_rotations(),
+                                )
+                                # Re-enter the outer rate-limit/POST loop against the rotated provider.
+                                # The slow-but-valid `raw` is intentionally DISCARDED here ONLY because a
+                                # faster healthy host is provably available (target exists + budget left);
+                                # if the retry exhausts, the fail-open branch above keeps the next valid
+                                # verdict. (If the next host is even slower, the rotation cap stops the loop
+                                # and that valid verdict is kept.)
+                                continue
+                        # No rotation target / no provider block / this was the LAST provider:
+                        # fail-open — keep the valid (if slow) verdict.
 
                 # Stash the genuinely-OpenRouter-served identity for M4 BEFORE capture, then
                 # sanitize reasoning OUT of the captured response (no-leak): reasoning lives ONLY

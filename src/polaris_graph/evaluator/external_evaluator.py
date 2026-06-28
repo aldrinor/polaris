@@ -489,6 +489,35 @@ def _check_methods_mentions(report_text: str, keywords: list[str]) -> bool:
     return any(k.lower() in search_space for k in keywords)
 
 
+def _permit_same_family() -> bool:
+    """I-deepfix-001 B4 (#1344): is the operator override that PERMITS a same-family generator/
+    evaluator pair active? (`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY` truthy). This is the SAME
+    knob the run-script's family-disclosure clause keys on — when it is set, the run honestly
+    discloses the voided two-family safeguard in the Methods clause, and PT03 passes ONLY against
+    that honest disclosure (never silently). LAW VI: env-driven."""
+    return os.getenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+# I-deepfix-001 B4 (#1344): SHARED-LITERAL CONTRACT — the case-insensitive substrings wave-1's
+# Methods family-disclosure clause (run_honest_sweep_r3.eval_family_disclosure_clause) emits on a
+# same-family override run. PT03 matches the report text against ALL of these to confirm the run
+# HONESTLY disclosed the voided two-family safeguard before it credits a same-family pair. If the
+# clause wording changes, these MUST change in lockstep (mirrored in
+# tests/polaris_graph/test_deepfix_b4_b11_disclosure.py::_PT03_SHARED_LITERAL_TOKENS).
+_PT03_NONSEGREGATION_DISCLOSURE_TOKENS = (
+    "not family-segregated",
+    "same family",
+    "self-bias safeguard disabled",
+)
+
+# I-deepfix-001 B4 P2-B (#1344): deterministic verifier labels. When the evaluator IS the
+# deterministic strict_verify verifier there is no LLM self-bias, so PT03 may pass on name disclosure
+# even when training families are unknown. Any other evaluator with unknown families is NOT-proven.
+_PT03_DETERMINISTIC_VERIFIER_LABELS = ("strict_verify_v1", "strict_verify")
+
+
 def run_rule_checks(
     *,
     report_text: str,
@@ -498,10 +527,17 @@ def run_rule_checks(
     evidence_pool: dict[str, dict[str, Any]],
     generator_model: str,
     evaluator_model: str,
+    generator_family: str = "",
+    evaluator_family: str = "",
 ) -> tuple[list[RuleCheckResult], int, list[str]]:
     """Run the 12 machine-verifiable PRISMA-trAIce items.
 
     Returns (results, num_contradictions_disclosed, missing_contradiction_ids).
+
+    I-deepfix-001 B4 (#1344): ``generator_family`` / ``evaluator_family`` (passed from the caller's
+    already-computed ``check_family_segregation()`` result) let PT03 verify the TWO-FAMILY invariant
+    HONESTLY, not just that the evaluator model name appears. Defaulted to "" so an OLD caller that
+    omits them degrades to the name-disclosure-only behaviour (no crash) rather than a hard failure.
     """
     results: list[RuleCheckResult] = []
 
@@ -525,12 +561,79 @@ def run_rule_checks(
         if not pt02 else "",
     ))
 
-    # PT03 — evaluator model disclosed
-    pt03 = evaluator_model and evaluator_model.lower() in report_text.lower()
+    # PT03 — evaluator model disclosed AND the two-family invariant honoured (I-deepfix-001 B4).
+    # Old behaviour: passed iff the evaluator model NAME appeared in the report — it never checked
+    # that the evaluator was actually a SEPARATE training family, so a same-family (self-verifying)
+    # pair could pass PT03's "(separate family)" claim. New behaviour:
+    #   1. The evaluator model name must be disclosed (unchanged).
+    #   2. AND EITHER the families genuinely DIFFER, OR — on an operator-permitted same-family run
+    #      (PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) — the report HONESTLY discloses the voided
+    #      safeguard via the SHARED-LITERAL tokens wave-1's Methods clause emits. A same-family pair
+    #      that does NOT disclose the non-segregation FAILS (no silent self-verify pass).
+    # When families are unknown (an old caller that omitted them, both ""), fall back to name-
+    # disclosure only — degrade, never crash (the families default to "").
+    _eval_name_disclosed = bool(evaluator_model and evaluator_model.lower() in report_text.lower())
+    _gf = (generator_family or "").strip().lower()
+    _ef = (evaluator_family or "").strip().lower()
+    _families_known = bool(_gf) and bool(_ef)
+    if not _families_known:
+        # I-deepfix-001 B4 P2-B (#1344): families were NOT threaded in (a legacy caller). Do NOT pass
+        # PT03 on NAME DISCLOSURE ALONE — that is the old blind check that let a same-family self-
+        # verifying pair claim "(separate family)". Treat unknown families as NOT-proven-segregated:
+        # PT03 passes only when the evaluator is the DETERMINISTIC strict_verify verifier (no LLM
+        # self-bias) AND its name is disclosed. Otherwise FAIL with a precise not-proven detail.
+        _eval_is_deterministic = (
+            str(evaluator_model or "").strip().lower() in _PT03_DETERMINISTIC_VERIFIER_LABELS
+        )
+        if _eval_is_deterministic:
+            pt03 = _eval_name_disclosed
+            _pt03_detail = (
+                f"Expected evaluator_model={evaluator_model!r} in report text."
+                if not pt03 else ""
+            )
+        else:
+            pt03 = False
+            _pt03_detail = (
+                "Generator/evaluator training families were not provided to the rule check, so the "
+                f"two-family self-bias invariant cannot be PROVEN for evaluator_model={evaluator_model!r}. "
+                "Thread generator_family/evaluator_family (or use the deterministic strict_verify "
+                "verifier) to satisfy PT03."
+            )
+    elif _gf != _ef:
+        # Genuinely distinct families — the invariant holds; require only name disclosure.
+        pt03 = _eval_name_disclosed
+        _pt03_detail = (
+            f"Expected evaluator_model={evaluator_model!r} in report text."
+            if not pt03 else ""
+        )
+    else:
+        # SAME family. Pass ONLY iff the override is active AND the report honestly discloses the
+        # voided safeguard (all shared-literal tokens present) AND the name is disclosed.
+        _report_lower = report_text.lower()
+        _disclosed_nonsegregation = all(
+            tok in _report_lower for tok in _PT03_NONSEGREGATION_DISCLOSURE_TOKENS
+        )
+        pt03 = bool(
+            _eval_name_disclosed and _permit_same_family() and _disclosed_nonsegregation
+        )
+        if pt03:
+            _pt03_detail = ""
+        elif not _eval_name_disclosed:
+            _pt03_detail = f"Expected evaluator_model={evaluator_model!r} in report text."
+        elif not _permit_same_family():
+            _pt03_detail = (
+                f"Generator and evaluator are the SAME family ({_gf!r}) and the same-family "
+                "override (PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) is NOT set — the two-family "
+                "self-bias safeguard is breached."
+            )
+        else:
+            _pt03_detail = (
+                f"Same-family pair ({_gf!r}) under operator override, but the report does NOT "
+                "honestly disclose the voided two-family safeguard (missing shared-literal "
+                f"tokens {list(_PT03_NONSEGREGATION_DISCLOSURE_TOKENS)})."
+            )
     results.append(RuleCheckResult(
-        "PT03", "Evaluator model disclosed (separate family)", bool(pt03),
-        f"Expected evaluator_model={evaluator_model!r} in report text."
-        if not pt03 else "",
+        "PT03", "Evaluator model disclosed (separate family)", bool(pt03), _pt03_detail,
     ))
 
     # PT04 — retrieval date
@@ -858,6 +961,10 @@ def run_external_evaluation(
         evidence_pool=evidence_pool,
         generator_model=PG_GENERATOR_MODEL,
         evaluator_model=PG_EVALUATOR_MODEL,
+        # I-deepfix-001 B4 (#1344): thread the already-computed families so PT03 verifies the
+        # two-family invariant HONESTLY (not just that the eval model NAME appears).
+        generator_family=gen_family,
+        evaluator_family=eval_family,
     )
 
     llm_judgments: list[LLMJudgmentAxis] = []

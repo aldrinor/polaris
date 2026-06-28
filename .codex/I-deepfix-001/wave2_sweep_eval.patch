@@ -1,0 +1,1481 @@
+diff --git a/config/settings/openrouter_provider_routing.yaml b/config/settings/openrouter_provider_routing.yaml
+index 1617fcd1..55c4ef7a 100644
+--- a/config/settings/openrouter_provider_routing.yaml
++++ b/config/settings/openrouter_provider_routing.yaml
+@@ -55,6 +55,15 @@ roles:
+     notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
+   sentinel:
+     model: minimax/minimax-m2
++    # I-deepfix-001 B11 C1 (#1344): provider SLO preferences (consumed by apply_provider_routing when
++    # PG_OPENROUTER_PROVIDER_SLO is ON). OpenRouter steers toward hosts meeting these hints WITHOUT
++    # dropping the model (faithfulness-neutral transport hint). The Sentinel (minimax-m2 decomposition)
++    # is the SLOW leg that trickle-hung the D8 seam (I-wire-004/006/007): a min-throughput floor pushes
++    # OpenRouter off a trickling host BEFORE the per-call total-deadline force-close has to fire.
++    # DELIBERATELY GENEROUS so a healthy decomposition call (reasoning ON, multi-minute) is never
++    # rejected — 5 tok/s is far below any healthy minimax throughput, it only excludes a near-dead host.
++    preferred_min_throughput: 5.0   # tokens/s floor (healthy minimax >> this; excludes a trickling host)
++    preferred_max_latency: 30.0     # seconds time-to-first-token ceiling (healthy << this)
+     # I-wire-007 (#1321): google-vertex DROPPED from the FRONT of the chain. Under allow_fallbacks:false
+     # it was the FORCED leader, so every Sentinel POST first hit google-vertex (slow / NULL-uptime per
+     # the note below) before the force-close rotation could advance — the I-wire-006 #1320 root cause of
+diff --git a/scripts/regate_v23.py b/scripts/regate_v23.py
+index 6419b254..af515018 100644
+--- a/scripts/regate_v23.py
++++ b/scripts/regate_v23.py
+@@ -121,6 +121,13 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+         "evaluator_model", "google/gemma-4-31b-it"
+     )
+ 
++    # I-deepfix-001 B4 P2-B (#1344): thread the generator/evaluator training families (derived from
++    # the resolved model names) so PT03 verifies the two-family invariant HONESTLY on replay. Without
++    # them, run_rule_checks now treats segregation as NOT-proven (conservative) for an LLM evaluator.
++    from src.polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
++    generator_family = family_from_model(generator_model)
++    evaluator_family = family_from_model(evaluator_model)
++
+     # Reconstruct tier_distribution_report from manifest.corpus.tier_fractions.
+     # The original sweep passes asdict(compute_tier_distribution(...)); we
+     # only need the tier_fractions key for PT07's static check.
+@@ -137,6 +144,8 @@ def regate_run(run_dir: Path) -> dict[str, Any]:
+         evidence_pool=evidence_pool,
+         generator_model=generator_model,
+         evaluator_model=evaluator_model,
++        generator_family=generator_family,
++        evaluator_family=evaluator_family,
+     )
+ 
+     new_rule_checks_payload = dict(rule_checks_prev)
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 8aee5138..8345e838 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1621,6 +1621,88 @@ def _claim_header_is_unrenderable(raw_claim: str) -> bool:
+     return bool(first and first.islower())
+ 
+ 
++# I-deepfix-001 B6(b) (#1344): deterministic CLAIM-SHAPE gate for the per-claim corroboration
++# HEADER. LAW VI: env-driven knob (default ON), no magic numbers inlined into the call site.
++_CLAIM_SHAPE_GATE_ENV = "PG_CLAIM_SHAPE_GATE"
++_CLAIM_SHAPE_MIN_CONTENT_WORDS_ENV = "PG_CLAIM_SHAPE_MIN_CONTENT_WORDS"
++_CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT = 3
++# A predicate/verb-ish token signals an assertional claim (vs a bare noun phrase / title fragment).
++# Lightweight closed-class list (copulas, auxiliaries, common reporting verbs) PLUS a morphological
++# fallback (a token ending in a verb-suffix) so it generalizes beyond the list. Deterministic; no
++# model call. Faithfulness-NEUTRAL: this gates only the displayed HEADER, never a source/count.
++_CLAIM_SHAPE_VERB_TOKENS = frozenset({
++    "is", "are", "was", "were", "be", "been", "being", "has", "have", "had",
++    "show", "shows", "showed", "shown", "report", "reports", "reported",
++    "found", "find", "finds", "increase", "increased", "increases", "decrease",
++    "decreased", "decreases", "reduce", "reduced", "reduces", "associated",
++    "demonstrate", "demonstrated", "demonstrates", "suggest", "suggests",
++    "suggested", "indicate", "indicates", "indicated", "cause", "causes",
++    "caused", "improve", "improved", "improves", "remain", "remains",
++    "remained", "occur", "occurs", "occurred", "include", "includes",
++    "included", "require", "requires", "required", "can", "may", "will",
++    "should", "must", "does", "do", "did",
++})
++# Morphological verb signal. "ed"/"ing" are strong verb markers; "es"/"s" are dropped — they match
++# common PLURAL NOUNS ("guidelines", "outcomes") and would mislabel a noun-phrase title as a claim.
++_CLAIM_SHAPE_VERB_SUFFIXES = ("ed", "ing")
++
++
++def claim_shape_gate_enabled() -> bool:
++    """I-deepfix-001 B6(b): is the deterministic claim-shape header gate ON? (default ON). LAW VI."""
++    return os.getenv(_CLAIM_SHAPE_GATE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
++
++
++def _claim_has_predicate_token(text: str) -> bool:
++    """True iff ``text`` carries at least one predicate/verb-ish token — a deterministic signal that
++    the string is an ASSERTIONAL claim, not a bare noun phrase / title / nav fragment. Closed-class
++    list first, then a morphological suffix fallback so it generalizes. Pure."""
++    for tok in re.findall(r"[A-Za-z][A-Za-z'-]*", text.lower()):
++        if tok in _CLAIM_SHAPE_VERB_TOKENS:
++            return True
++        if len(tok) > 3 and tok.endswith(_CLAIM_SHAPE_VERB_SUFFIXES):
++            return True
++    return False
++
++
++def claim_is_renderable_claim_shape(text: str) -> bool:
++    """I-deepfix-001 B6(b) (#1344): the FINAL deterministic CLAIM-SHAPE gate for a corroboration
++    HEADER. Returns True iff ``text`` is a renderable assertional claim:
++      (a) NOT render chrome / an unrenderable fragment (reuses the proven shared screen with
++          require_sentence_form=True), AND
++      (b) has >= PG_CLAIM_SHAPE_MIN_CONTENT_WORDS content words, AND
++      (c) carries >= 1 predicate/verb token (it is a CLAIM, not a noun-phrase label).
++    HEADER-TEXT-ONLY: a False here suppresses only the corroboration BLOCK for that basket; the
++    sources/counts still live in the bibliography (faithfulness-neutral; §-1.3 no source dropped).
++    Pure except the lazy chrome-screen import."""
++    s = (text or "").strip()
++    if not s:
++        return False
++    try:
++        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
++            is_render_chrome_or_unrenderable,
++        )
++        # require_sentence_form=False: catch CHROME / a mid-word truncation fragment, but do NOT
++        # demand a terminal period — corroboration claim headers are trimmed summaries (often no
++        # closing '.'), so requiring a full-sentence terminator here would over-suppress legitimate
++        # claim headers (regressing the I-wire-014 154/155 recovery). Assertional SHAPE is enforced
++        # below by the content-word + predicate-token checks instead.
++        if is_render_chrome_or_unrenderable(s, require_sentence_form=False):
++            return False
++    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
++        # Fail-OPEN on an infra import error: do not suppress a header on a tooling failure.
++        pass
++    content_words = re.findall(r"[A-Za-z][A-Za-z'-]+", s)
++    try:
++        min_words = int(os.getenv(
++            _CLAIM_SHAPE_MIN_CONTENT_WORDS_ENV, str(_CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT),
++        ))
++    except (TypeError, ValueError):
++        min_words = _CLAIM_SHAPE_MIN_CONTENT_WORDS_DEFAULT
++    if len(content_words) < max(0, min_words):
++        return False
++    return _claim_has_predicate_token(s)
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # I-wire-014 (#1334) FIX-A — the per-claim corroboration HEADER must render a real claim
+ # SENTENCE (or, failing that, the clean source TITLE) — NEVER a ``clm_<hash>`` cluster id
+@@ -2342,11 +2424,31 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+                     claim = f"{_subj} {_pred}".strip()
+                     claim = re.sub(r"(\w)-\s+(\w)", r"\1-\2", claim)
+                     claim = re.sub(r"\s{2,}", " ", claim) or ccid
++            # I-deepfix-001 B6(b) (#1344): FINAL deterministic CLAIM-SHAPE gate. After the whole
++            # fallback chain above (sentence-prefix -> member quote -> source title -> subj+predicate
++            # -> ccid), the resolved `claim` can STILL be a non-assertional fragment (a bare noun
++            # phrase, a title-shaped label, or a ccid hash stub) — which then renders as a fake
++            # "verified claim" header. When the gate is ON and the final `claim` is NOT a renderable
++            # assertional claim shape, SUPPRESS this basket's corroboration block entirely (continue).
++            # HEADER-TEXT-ONLY (faithfulness-neutral; §-1.3): the basket's sources + counts still live
++            # in the numbered Bibliography below — only the cosmetic per-claim header is withheld, so a
++            # garbled header is never shown AS a verified claim. Default-ON; OFF = byte-identical.
++            # I-deepfix-001 B6(b) P1-A (#1344): §-1.3 no-source-dropped — do NOT suppress the
++            # whole basket when the resolved claim is not a renderable assertional shape. Emit a
++            # NEUTRAL header carrying the COUNT but not the garbled/non-assertional claim text, and
++            # STILL emit every SUPPORT / GROUNDED-BUT-WEAK / CONTRADICTED sub-bullet below — the
++            # corroborating sources + count are NEVER dropped, only the cosmetic header text is withheld.
++            suppress_claim_header = (
++                claim_shape_gate_enabled() and not claim_is_renderable_claim_shape(claim)
++            )
+             contested = (
+                 str(basket.get("basket_verdict") or "") == "contested"
+                 or bool(basket.get("refuter_cluster_ids"))
+             )
+-            lines = [f"- **{claim or ccid}** — {count} verified independent source(s)"]
++            if suppress_claim_header:
++                lines = [f"- {count} verified independent source(s):"]
++            else:
++                lines = [f"- **{claim or ccid}** — {count} verified independent source(s)"]
+             for m in verified:
+                 _w = m.get("credibility_weight")
+                 _ws = f"{float(_w):.2f}" if isinstance(_w, (int, float)) else "n/a"
+@@ -6748,7 +6850,17 @@ async def run_one_query(
+             intent_frame_enabled as _intent_frame_enabled,
+             run_intent_frame as _run_intent_frame,
+         )
++        # I-deepfix-001 B3 (#1344): the CLEAN research question fed to the decompose/retrieval/
++        # planner backends. Initialized to the RAW question so OFF-mode / frame-None is BYTE-
++        # IDENTICAL; overridden ONLY when the intent frame fired with a non-empty `questions` list
++        # (then = the space-joined isolated research sub-questions, with the injected meta-directive
++        # / prohibition appendix stripped INTO frame.constraints rather than echoed as a query). The
++        # RAW q["question"] is NEVER mutated — protocol.json, the report title, the scope gate, and
++        # every manifest/audit serialization keep the original verbatim. This is the prompt-
++        # injection-inversion seam: the backends search the real question, not the attacker's
++        # appended instructions. Faithfulness-neutral (only WHICH query text is searched changes).
+         intent_frame_advisory = None
++        _clean_question = q["question"]
+         if _intent_frame_enabled():
+             import asyncio as _intent_frame_asyncio
+             import concurrent.futures as _intent_frame_futures
+@@ -6849,7 +6961,27 @@ async def run_one_query(
+                 "clarification_needed": list(
+                     intent_frame_advisory.clarification_needed
+                 ),
++                # I-deepfix-001 P2b (#1344): serialize the parsed meta-directives / prohibitions /
++                # output-constraints so an auditor (and the wave-2 date/journal/language enforcement
++                # handoff) can see WHAT the frame isolated out of the research questions. Empty list
++                # when the frame parsed no constraints (byte-additive; never echoed as a question).
++                "constraints": list(intent_frame_advisory.constraints),
+             }
++            # I-deepfix-001 B3 (#1344): substitute the CLEAN, injection-stripped research question
++            # for the downstream decompose/retrieval/planner backends. Only when the frame returned
++            # >=1 non-empty question (it always does when enabled — run_intent_frame is fail-closed —
++            # but guard defensively so an empty join can never null the query). The RAW q["question"]
++            # is untouched. Faithfulness-neutral: the backends now search the genuine question.
++            _frame_questions = [
++                _qq.strip() for _qq in intent_frame_advisory.questions if _qq and _qq.strip()
++            ]
++            if _frame_questions:
++                _clean_question = " ".join(_frame_questions)
++                _log(
++                    "[intent_frame] #scope clean-question substitution active for "
++                    f"decompose/retrieval (len {len(_clean_question)} chars; raw question kept "
++                    "verbatim in protocol/report/scope)"
++                )
+ 
+         # Phase 2b scope gate
+         # I-beatboth-fix-000 (#1171): thread per-question PICO/PCC scope
+@@ -7244,7 +7376,7 @@ async def run_one_query(
+                         _RUN_COST_CTX.set(_parent_cost_before + _cost_delta)
+ 
+             _research_plan = plan_research(
+-                q["question"], planner_llm=_planner_llm,
++                _clean_question, planner_llm=_planner_llm,  # I-deepfix-001 B3: clean query
+             )
+             # Pre-register + SHA-pin the plan BEFORE retrieval (gap #19).
+             _plan_canonical = serialize_plan_canonical(_research_plan)
+@@ -7257,7 +7389,7 @@ async def run_one_query(
+             # Frame-derived anchor protocol so planner sub-queries validate
+             # against the frame's OWN tokens (brief §2.4 validator adapter).
+             _planner_protocol = _research_plan.frame.to_anchor_protocol(
+-                q["question"]
++                _clean_question  # I-deepfix-001 B3: anchor on the clean query the planner searched
+             )
+ 
+         # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+@@ -7301,7 +7433,7 @@ async def run_one_query(
+             _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+             if _v30_patch and isinstance(_template, dict):
+                 _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+-            _reg_queries = expand_regulatory_queries(q["question"], _template)
++            _reg_queries = expand_regulatory_queries(_clean_question, _template)  # B3: clean query
+             if _reg_queries:
+                 _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+                      f"queries (domain={q['domain']})")
+@@ -7309,7 +7441,7 @@ async def run_one_query(
+             # sweep slug (trial names are query-specific). Missing slug or
+             # missing `per_query_primary_trial_anchors` key = no-op.
+             _trial_queries = expand_primary_trial_queries(
+-                q["question"], _template, q["slug"]
++                _clean_question, _template, q["slug"]  # I-deepfix-001 B3: clean query
+             )
+             if _trial_queries:
+                 _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+@@ -7330,7 +7462,7 @@ async def run_one_query(
+             from src.polaris_graph.retrieval.query_decomposer import (
+                 decompose_question,
+             )
+-            _decomposed = decompose_question(q["question"])
++            _decomposed = decompose_question(_clean_question)  # I-deepfix-001 B3: clean query
+             if _decomposed:
+                 _log(f"[q1d]         query_decompose: +{len(_decomposed)} sub-queries "
+                      f"(slug={q['slug']})")
+@@ -7721,7 +7853,7 @@ async def run_one_query(
+                         _seed = _retrieval_seed_urls  # preserve the layer-4 DOI seed (1st query only)
+                         _iter_seed_used["done"] = True
+                     return run_live_retrieval(
+-                        research_question=q["question"],          # original question = scope context only
++                        research_question=_clean_question,        # I-deepfix-001 B3 P1-B: clean (injection-stripped) question as scope context
+                         amplified_queries=[research_question],     # the IterResearch query is the ONE fired
+                         anchor_seed=False,                          # do NOT re-fire the broad anchor
+                         protocol=_retrieval_protocol,
+@@ -7738,7 +7870,7 @@ async def run_one_query(
+ 
+                 if _fs_researcher_enabled():
+                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
+-                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
++                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR  # I-deepfix-001 B3 P1-B: clean query seed
+                     )
+                     _log(
+                         f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "
+@@ -7747,7 +7879,7 @@ async def run_one_query(
+                     )
+                 else:
+                     retrieval, _iter_queries = _run_iterresearch_retrieval(
+-                        q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR
++                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR  # I-deepfix-001 B3 P1-B: clean query seed
+                     )
+                     _log(
+                         f"[iterresearch] #1292 adaptive query-gen (SUPERSEDED by FS-Researcher #1296) "
+@@ -7756,7 +7888,11 @@ async def run_one_query(
+                     )
+             else:
+                 retrieval = run_live_retrieval(
+-                    research_question=q["question"],
++                    # I-deepfix-001 B3 (#1344): the PRIMARY retrieval fires the CLEAN, injection-
++                    # stripped research question as its base query (OFF-mode/frame-None == raw, byte-
++                    # identical). The raw q["question"] stays verbatim everywhere it is persisted /
++                    # displayed / scope-gated.
++                    research_question=_clean_question,
+                     amplified_queries=_amplified_effective,
+                     protocol=_retrieval_protocol,
+                     max_serper=_max_serper,
+@@ -7921,6 +8057,10 @@ async def run_one_query(
+             evidence_row_count=len(retrieval.evidence_rows),
+             domain=q["domain"],
+             protocol=protocol,
++            # I-deepfix-001 B7 (#1344): pass the evidence rows so the gate can apply its on-topic
++            # W2-relevance predicate (count toward grounded/tier denominators only above the
++            # disclosed relevance floor). Keyword, optional (WIRER-RETRIEVE adds the param).
++            evidence_rows=retrieval.evidence_rows,
+         )
+         (run_dir / "corpus_adequacy.json").write_text(
+             json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
+@@ -8033,13 +8173,13 @@ async def run_one_query(
+                 sufficient=_crag_sufficient, loops_done=_loops_done,
+             ):
+                 _gap_queries = _crag_adq.derive_gap_queries(
+-                    research_question=q["question"],
++                    research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
+                     findings=adequacy.findings,
+                     gap_dimensions=_crag_verdict.get("gap_dimensions") or [],
+                 )
+                 if not _gap_queries:
+                     # No specific gap dimension to target — re-issue the question.
+-                    _gap_queries = [q["question"]]
++                    _gap_queries = [_clean_question]  # I-deepfix-001 B3 P1-B: clean query
+                 _log(f"[crag-adequacy] loop {_loops_done + 1}/"
+                      f"{_crag_adq.max_loops()}  verdict={_crag_verdict['verdict']}  "
+                      f"gap_queries={len(_gap_queries)}")
+@@ -8053,7 +8193,7 @@ async def run_one_query(
+                     # PARALLEL fan-out across backends, already bounded inside
+                     # run_live_retrieval — reused, not re-implemented.
+                     crag_retrieval = run_live_retrieval(
+-                        research_question=q["question"],
++                        research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
+                         amplified_queries=_gap_queries,
+                         protocol=protocol,
+                         max_serper=int(os.getenv("PG_ADEQUACY_CRAG_MAX_SERPER", "8")),
+@@ -8231,7 +8371,7 @@ async def run_one_query(
+                 # env-driven (Gate-B raises them via the full-capability slate); defaults preserve the
+                 # prior behavior for any non-benchmark caller.
+                 exp_retrieval = run_live_retrieval(
+-                    research_question=q["question"],
++                    research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
+                     amplified_queries=exp_queries,
+                     protocol=protocol,
+                     max_serper=int(os.getenv("PG_R6_EXPAND_MAX_SERPER", "5")),
+@@ -8288,6 +8428,8 @@ async def run_one_query(
+                     evidence_row_count=len(retrieval.evidence_rows),
+                     domain=q["domain"],
+                     protocol=protocol,
++                    # I-deepfix-001 B7 (#1344): on-topic relevance denominator (see above).
++                    evidence_rows=retrieval.evidence_rows,
+                 )
+                 (run_dir / "corpus_adequacy.json").write_text(
+                     json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
+@@ -8392,6 +8534,8 @@ async def run_one_query(
+                         evidence_row_count=len(_staged_rows),
+                         domain=q["domain"],
+                         protocol=protocol,
++                        # I-deepfix-001 B7 (#1344): pass the STAGED rows being assessed (on-topic).
++                        evidence_rows=_staged_rows,
+                     )
+                     # Commit atomically (all recomputes succeeded).
+                     retrieval.classified_sources = _staged_sources
+@@ -8591,6 +8735,8 @@ async def run_one_query(
+                         evidence_row_count=len(_ag_rows),
+                         domain=q["domain"],
+                         protocol=protocol,
++                        # I-deepfix-001 B7 (#1344): pass the AGENTIC-merged rows being assessed.
++                        evidence_rows=_ag_rows,
+                     )
+                     retrieval.classified_sources = _ag_sources
+                     retrieval.evidence_rows = _ag_rows
+@@ -8654,6 +8800,8 @@ async def run_one_query(
+                         evidence_row_count=len(_st_rows),
+                         domain=q["domain"],
+                         protocol=protocol,
++                        # I-deepfix-001 B7 (#1344): pass the STORM-merged rows being assessed.
++                        evidence_rows=_st_rows,
+                     )
+                     retrieval.classified_sources = _st_sources
+                     retrieval.evidence_rows = _st_rows
+@@ -8807,6 +8955,8 @@ async def run_one_query(
+                 evidence_row_count=len(retrieval.evidence_rows),
+                 domain=q["domain"],
+                 protocol=_jo_protocol,
++                # I-deepfix-001 B7 (#1344): on-topic relevance denominator (journal-only floor path).
++                evidence_rows=retrieval.evidence_rows,
+             )
+             # The journal_only adequacy FLOOR (>=N distinct journals + every S1
+             # canonical anchor present) — the binding guard against a thin-corpus
+@@ -14337,6 +14487,37 @@ async def run_one_query(
+             if _feat_warn:
+                 _log(f"[feature]     WARNING {_feat_warn}")
+ 
++        # I-deepfix-001 B4 P1-C (#1344): persist a `models` block carrying the REAL generator/
++        # evaluator model + training family for THIS run so a downstream UI / clinical badge derives
++        # family-segregation HONESTLY (a same-family all-GLM run must NOT show a green "segregated"
++        # badge). Uses the SAME family_from_model helper + override env the wave-1 Methods clause uses;
++        # `family_segregated` is True ONLY when the families genuinely differ (the operator-approved
++        # same-family override is recorded separately, never flipped to a green badge). Additive +
++        # telemetry-only — it NEVER gates status / release / a faithfulness check. Fail-open.
++        try:
++            from src.polaris_graph.llm.openrouter_client import (
++                PG_EVALUATOR_FAMILY_OVERRIDE as _B4_EVAL_FAM_OV,
++                PG_EVALUATOR_MODEL as _B4_EVAL_MODEL,
++                PG_GENERATOR_FAMILY_OVERRIDE as _B4_GEN_FAM_OV,
++                PG_GENERATOR_MODEL as _B4_GEN_MODEL,
++                family_from_model as _b4_family_from_model,
++            )
++            _b4_gen_family = _b4_family_from_model(_B4_GEN_MODEL, _B4_GEN_FAM_OV)
++            _b4_eval_family = _b4_family_from_model(_B4_EVAL_MODEL, _B4_EVAL_FAM_OV)
++            _b4_permit_same = os.getenv(
++                "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "0"
++            ).strip() in ("1", "true", "True")
++            manifest["models"] = {
++                "generator": _B4_GEN_MODEL,
++                "evaluator": _B4_EVAL_MODEL,
++                "generator_family": _b4_gen_family,
++                "evaluator_family": _b4_eval_family,
++                "permit_same_family": _b4_permit_same,
++                "family_segregated": bool(_b4_gen_family != _b4_eval_family),
++            }
++        except Exception as _b4_exc:  # noqa: BLE001 — telemetry must never abort the manifest write
++            _log(f"[models]      WARN could not stamp manifest models block: {_b4_exc}")
++
+         manifest = augment_v6_manifest(
+             manifest,
+             external_run_id=q.get("external_run_id"),
+@@ -14362,6 +14543,10 @@ async def run_one_query(
+                 "clarification_needed": list(
+                     intent_frame_advisory.clarification_needed
+                 ),
++                # I-deepfix-001 P2b (#1344): serialize parsed constraints into the manifest too (it
++                # only carried questions/domain/clarifications before), for auditability + the wave-2
++                # date/journal/language enforcement handoff. Additive; empty when none parsed.
++                "constraints": list(intent_frame_advisory.constraints),
+             }
+ 
+         # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.
+diff --git a/src/polaris_graph/clinical_generator/generator.py b/src/polaris_graph/clinical_generator/generator.py
+index 715ddb3b..185b9e58 100644
+--- a/src/polaris_graph/clinical_generator/generator.py
++++ b/src/polaris_graph/clinical_generator/generator.py
+@@ -57,6 +57,16 @@ DEFAULT_VERIFIER_PASS_THRESHOLD = 0.40
+ DEFAULT_GENERATOR_MODEL_LABEL = "stub-generator"
+ 
+ 
++def _clinical_family_from_model(model_name: str) -> str:
++    """I-deepfix-001 B4 (#1344): training-lineage family of a model string for the HONEST
++    family-segregation badge. Thin lazy wrapper over openrouter_client.family_from_model so this
++    module carries no import-time dependency on the LLM layer. Never raises: an unrecognised string
++    (e.g. the deterministic 'strict_verify_v1' verifier, or a stub label) returns 'unknown'."""
++    from polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
++
++    return family_from_model(model_name or "")
++
++
+ # ---------------------------------------------------------------------------
+ # completion_fn protocol
+ # ---------------------------------------------------------------------------
+@@ -302,7 +312,15 @@ def process_generation(
+         pipeline_verdict=pipeline_verdict,  # type: ignore[arg-type]
+         generator_model=effective_model,
+         evaluator_model="strict_verify_v1",
+-        family_segregation_passed=True,
++        # I-deepfix-001 B4 (#1344): HONEST family-segregation badge — do NOT hardcode True. The
++        # evaluator here is the DETERMINISTIC strict_verify_v1 (family "unknown"), which differs from
++        # any real generator family -> honestly True; were the generator ever mis-set to a verifier-
++        # family string, the badge would correctly read False rather than a benign green lie.
++        # family_from_model never raises on an arbitrary string (returns "unknown" on no match).
++        family_segregation_passed=(
++            _clinical_family_from_model(effective_model)
++            != _clinical_family_from_model("strict_verify_v1")
++        ),
+         verifier_pass_threshold=verifier_pass_threshold,
+         started_at_utc=started,
+         finished_at_utc=finished,
+diff --git a/src/polaris_graph/evaluator/external_evaluator.py b/src/polaris_graph/evaluator/external_evaluator.py
+index f17e6d0c..2ddc9a06 100644
+--- a/src/polaris_graph/evaluator/external_evaluator.py
++++ b/src/polaris_graph/evaluator/external_evaluator.py
+@@ -489,6 +489,35 @@ def _check_methods_mentions(report_text: str, keywords: list[str]) -> bool:
+     return any(k.lower() in search_space for k in keywords)
+ 
+ 
++def _permit_same_family() -> bool:
++    """I-deepfix-001 B4 (#1344): is the operator override that PERMITS a same-family generator/
++    evaluator pair active? (`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY` truthy). This is the SAME
++    knob the run-script's family-disclosure clause keys on — when it is set, the run honestly
++    discloses the voided two-family safeguard in the Methods clause, and PT03 passes ONLY against
++    that honest disclosure (never silently). LAW VI: env-driven."""
++    return os.getenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "").strip().lower() in (
++        "1", "true", "yes", "on",
++    )
++
++
++# I-deepfix-001 B4 (#1344): SHARED-LITERAL CONTRACT — the case-insensitive substrings wave-1's
++# Methods family-disclosure clause (run_honest_sweep_r3.eval_family_disclosure_clause) emits on a
++# same-family override run. PT03 matches the report text against ALL of these to confirm the run
++# HONESTLY disclosed the voided two-family safeguard before it credits a same-family pair. If the
++# clause wording changes, these MUST change in lockstep (mirrored in
++# tests/polaris_graph/test_deepfix_b4_b11_disclosure.py::_PT03_SHARED_LITERAL_TOKENS).
++_PT03_NONSEGREGATION_DISCLOSURE_TOKENS = (
++    "not family-segregated",
++    "same family",
++    "self-bias safeguard disabled",
++)
++
++# I-deepfix-001 B4 P2-B (#1344): deterministic verifier labels. When the evaluator IS the
++# deterministic strict_verify verifier there is no LLM self-bias, so PT03 may pass on name disclosure
++# even when training families are unknown. Any other evaluator with unknown families is NOT-proven.
++_PT03_DETERMINISTIC_VERIFIER_LABELS = ("strict_verify_v1", "strict_verify")
++
++
+ def run_rule_checks(
+     *,
+     report_text: str,
+@@ -498,10 +527,17 @@ def run_rule_checks(
+     evidence_pool: dict[str, dict[str, Any]],
+     generator_model: str,
+     evaluator_model: str,
++    generator_family: str = "",
++    evaluator_family: str = "",
+ ) -> tuple[list[RuleCheckResult], int, list[str]]:
+     """Run the 12 machine-verifiable PRISMA-trAIce items.
+ 
+     Returns (results, num_contradictions_disclosed, missing_contradiction_ids).
++
++    I-deepfix-001 B4 (#1344): ``generator_family`` / ``evaluator_family`` (passed from the caller's
++    already-computed ``check_family_segregation()`` result) let PT03 verify the TWO-FAMILY invariant
++    HONESTLY, not just that the evaluator model name appears. Defaulted to "" so an OLD caller that
++    omits them degrades to the name-disclosure-only behaviour (no crash) rather than a hard failure.
+     """
+     results: list[RuleCheckResult] = []
+ 
+@@ -525,12 +561,79 @@ def run_rule_checks(
+         if not pt02 else "",
+     ))
+ 
+-    # PT03 — evaluator model disclosed
+-    pt03 = evaluator_model and evaluator_model.lower() in report_text.lower()
++    # PT03 — evaluator model disclosed AND the two-family invariant honoured (I-deepfix-001 B4).
++    # Old behaviour: passed iff the evaluator model NAME appeared in the report — it never checked
++    # that the evaluator was actually a SEPARATE training family, so a same-family (self-verifying)
++    # pair could pass PT03's "(separate family)" claim. New behaviour:
++    #   1. The evaluator model name must be disclosed (unchanged).
++    #   2. AND EITHER the families genuinely DIFFER, OR — on an operator-permitted same-family run
++    #      (PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) — the report HONESTLY discloses the voided
++    #      safeguard via the SHARED-LITERAL tokens wave-1's Methods clause emits. A same-family pair
++    #      that does NOT disclose the non-segregation FAILS (no silent self-verify pass).
++    # When families are unknown (an old caller that omitted them, both ""), fall back to name-
++    # disclosure only — degrade, never crash (the families default to "").
++    _eval_name_disclosed = bool(evaluator_model and evaluator_model.lower() in report_text.lower())
++    _gf = (generator_family or "").strip().lower()
++    _ef = (evaluator_family or "").strip().lower()
++    _families_known = bool(_gf) and bool(_ef)
++    if not _families_known:
++        # I-deepfix-001 B4 P2-B (#1344): families were NOT threaded in (a legacy caller). Do NOT pass
++        # PT03 on NAME DISCLOSURE ALONE — that is the old blind check that let a same-family self-
++        # verifying pair claim "(separate family)". Treat unknown families as NOT-proven-segregated:
++        # PT03 passes only when the evaluator is the DETERMINISTIC strict_verify verifier (no LLM
++        # self-bias) AND its name is disclosed. Otherwise FAIL with a precise not-proven detail.
++        _eval_is_deterministic = (
++            str(evaluator_model or "").strip().lower() in _PT03_DETERMINISTIC_VERIFIER_LABELS
++        )
++        if _eval_is_deterministic:
++            pt03 = _eval_name_disclosed
++            _pt03_detail = (
++                f"Expected evaluator_model={evaluator_model!r} in report text."
++                if not pt03 else ""
++            )
++        else:
++            pt03 = False
++            _pt03_detail = (
++                "Generator/evaluator training families were not provided to the rule check, so the "
++                f"two-family self-bias invariant cannot be PROVEN for evaluator_model={evaluator_model!r}. "
++                "Thread generator_family/evaluator_family (or use the deterministic strict_verify "
++                "verifier) to satisfy PT03."
++            )
++    elif _gf != _ef:
++        # Genuinely distinct families — the invariant holds; require only name disclosure.
++        pt03 = _eval_name_disclosed
++        _pt03_detail = (
++            f"Expected evaluator_model={evaluator_model!r} in report text."
++            if not pt03 else ""
++        )
++    else:
++        # SAME family. Pass ONLY iff the override is active AND the report honestly discloses the
++        # voided safeguard (all shared-literal tokens present) AND the name is disclosed.
++        _report_lower = report_text.lower()
++        _disclosed_nonsegregation = all(
++            tok in _report_lower for tok in _PT03_NONSEGREGATION_DISCLOSURE_TOKENS
++        )
++        pt03 = bool(
++            _eval_name_disclosed and _permit_same_family() and _disclosed_nonsegregation
++        )
++        if pt03:
++            _pt03_detail = ""
++        elif not _eval_name_disclosed:
++            _pt03_detail = f"Expected evaluator_model={evaluator_model!r} in report text."
++        elif not _permit_same_family():
++            _pt03_detail = (
++                f"Generator and evaluator are the SAME family ({_gf!r}) and the same-family "
++                "override (PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) is NOT set — the two-family "
++                "self-bias safeguard is breached."
++            )
++        else:
++            _pt03_detail = (
++                f"Same-family pair ({_gf!r}) under operator override, but the report does NOT "
++                "honestly disclose the voided two-family safeguard (missing shared-literal "
++                f"tokens {list(_PT03_NONSEGREGATION_DISCLOSURE_TOKENS)})."
++            )
+     results.append(RuleCheckResult(
+-        "PT03", "Evaluator model disclosed (separate family)", bool(pt03),
+-        f"Expected evaluator_model={evaluator_model!r} in report text."
+-        if not pt03 else "",
++        "PT03", "Evaluator model disclosed (separate family)", bool(pt03), _pt03_detail,
+     ))
+ 
+     # PT04 — retrieval date
+@@ -858,6 +961,10 @@ def run_external_evaluation(
+         evidence_pool=evidence_pool,
+         generator_model=PG_GENERATOR_MODEL,
+         evaluator_model=PG_EVALUATOR_MODEL,
++        # I-deepfix-001 B4 (#1344): thread the already-computed families so PT03 verifies the
++        # two-family invariant HONESTLY (not just that the eval model NAME appears).
++        generator_family=gen_family,
++        evaluator_family=eval_family,
+     )
+ 
+     llm_judgments: list[LLMJudgmentAxis] = []
+diff --git a/src/polaris_graph/roles/openrouter_role_transport.py b/src/polaris_graph/roles/openrouter_role_transport.py
+index 3b708283..e18c7c08 100644
+--- a/src/polaris_graph/roles/openrouter_role_transport.py
++++ b/src/polaris_graph/roles/openrouter_role_transport.py
+@@ -634,6 +634,75 @@ _ROLE_CALL_TIMEOUT_S_DEFAULT = "3600.0"
+ # default on the paid 4-role path. LAW VI: env-gated, read lazily so a runtime override is honored.
+ _ENV_FORCE_CLOSE_PROVIDER_ROTATE = "PG_JUDGE_PROVIDER_ROTATE"
+ 
++# I-deepfix-001 B11 C2 (#1344): min-tok/s SLO slow-trickle EARLY rotate. A provider that returns a
++# valid 200 but at a CRAWL (e.g. a trickling minimax Sentinel leg) does NOT trip the blank/timeout
++# paths, so the run silently eats minutes/claim and the D8 seam grinds — the same trickle the
++# total-deadline force-close was built for, but BELOW the deadline. When this is ON and a SUCCESSFUL
++# call's observed throughput (completion_tokens / wall-seconds) is below PG_ROLE_MIN_TPS, AND a
++# retry budget remains AND a rotation target exists, we add the slow provider to the ignore list and
++# RE-ENTER the EXISTING force-close rotation (retry to the next healthy host) — exactly the path that
++# flips a stuck `adjudicated False -> True`. FAIL-OPEN (the keystone safety rule): if no retry budget
++# OR no other provider remains, we KEEP the slow-but-VALID verdict — a successful adjudication is
++# NEVER discarded to chase speed (that would LOWER adjudication, the opposite of the goal).
++# Faithfulness-NEUTRAL: same model, same verdict parsing; only WHICH provider serves the retry
++# changes. LAW VI: env-driven (default 0.0 == OFF/no-op == byte-identical to pre-#1344), read lazily.
++_ENV_ROLE_MIN_TPS = "PG_ROLE_MIN_TPS"
++# Bound the SLO-triggered rotations per call so a chain where EVERY host trickles cannot loop the
++# rotation indefinitely; once exhausted we keep the (slow) valid verdict (fail-open). Env-overridable.
++_ENV_ROLE_MIN_TPS_MAX_ROTATIONS = "PG_ROLE_MIN_TPS_MAX_ROTATIONS"
++_ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT = "2"
++
++
++def role_min_tps() -> float:
++    """I-deepfix-001 B11 C2: the min-tok/s SLO floor for a SUCCESSFUL role call (default 0.0 = OFF).
++
++    A POSITIVE value arms the slow-trickle early-rotate; <=0 / unparseable disables it (no-op). LAW
++    VI: env-driven, read lazily so a runtime/slate override is honored."""
++    raw = os.getenv(_ENV_ROLE_MIN_TPS, "0").strip()
++    try:
++        value = float(raw)
++    except (TypeError, ValueError):
++        return 0.0
++    return value if value > 0 else 0.0
++
++
++def role_min_tps_max_rotations() -> int:
++    """I-deepfix-001 B11 C2: cap on SLO-triggered rotations per call (default 2). Clamped >= 0."""
++    try:
++        return max(0, int(os.getenv(_ENV_ROLE_MIN_TPS_MAX_ROTATIONS, _ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT)))
++    except (TypeError, ValueError):
++        return int(_ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT)
++
++
++def _observed_tokens_per_second(usage: dict | None, elapsed_s: float) -> float | None:
++    """Pure: completion tokens-per-second from a usage block + wall-seconds, else None.
++
++    Returns None (NOT a number) when throughput cannot be honestly computed — no usage, no
++    completion_tokens, or a non-positive elapsed — so the caller treats it as "unknown" and does NOT
++    rotate (fail-open: never penalize a call whose speed we cannot measure). Testable in isolation.
++    """
++    if not isinstance(usage, dict) or elapsed_s is None or elapsed_s <= 0:
++        return None
++    tokens = usage.get("completion_tokens")
++    if tokens is None:
++        details = usage.get("completion_tokens_details")
++        if isinstance(details, dict):
++            tokens = details.get("text_tokens")
++    try:
++        tok = int(tokens)
++    except (TypeError, ValueError):
++        return None
++    if tok <= 0:
++        return None
++    return tok / elapsed_s
++
++
++def role_min_tps_rotation_enabled() -> bool:
++    """I-deepfix-001 B11 C2: armed iff a positive SLO floor AND the (shared) force-close rotation
++    machinery are both enabled. The rotation REUSES the force-close ignore-list path, so it can only
++    fire when force_close_provider_rotation_enabled() is also ON (its default). LAW VI."""
++    return role_min_tps() > 0 and force_close_provider_rotation_enabled()
++
+ 
+ def force_close_provider_rotation_enabled() -> bool:
+     """Whether a total-deadline force-close ADVANCES off the slow provider (default ON).
+@@ -675,6 +744,25 @@ def _targeted_provider_for_force_close(body: dict) -> str | None:
+     return None
+ 
+ 
++def _nonignored_provider_remains(body: dict, *, also_ignore: str | None = None) -> bool:
++    """True iff ``provider.order`` lists at least one slug NOT already in ``ignore`` (optionally also
++    excluding ``also_ignore``). Used to FAIL-OPEN the SLO slow-rotate: if ignoring the slow host would
++    leave NO provider to retry against, the valid (if slow) verdict MUST be KEPT — never discarded into
++    a guaranteed no-provider failure. Mirrors ``_targeted_provider_for_force_close``'s order/ignore view.
++    """
++    provider = body.get("provider")
++    if not isinstance(provider, dict):
++        return False
++    order = provider.get("order")
++    if not isinstance(order, list) or not order:
++        return False
++    ignore = provider.get("ignore")
++    ignored = {str(s) for s in ignore} if isinstance(ignore, list) else set()
++    if also_ignore:
++        ignored.add(str(also_ignore))
++    return any(str(slug) and str(slug) not in ignored for slug in order)
++
++
+ def role_blank_watchdog_enabled() -> bool:
+     """Whether the #1226 blank-bound + wall-clock watchdog is ON (kill-switch, default ON).
+ 
+@@ -1617,10 +1705,16 @@ class OpenRouterRoleTransport:
+                 _role_total_s = _role_transport_total_s(request.role)
+                 http_response = None
+                 rate_limit_attempt = 0
++                # I-deepfix-001 B11 C2 (#1344): wall-clock around the successful POST so the min-tok/s
++                # SLO can be computed AFTER parse. `_slo_rotations_used` bounds how many times a
++                # slow-trickle host triggers the early rotation per call (fail-open beyond the cap).
++                _slo_post_started: float | None = None
++                _slo_rotations_used = 0
+                 while True:
+                     http_response = None
+                     for transport_attempt in range(transport_retries + 1):
+                         try:
++                            _slo_post_started = time.monotonic()
+                             http_response = _post_with_total_deadline(
+                                 self._http_client, url,
+                                 json_body=body, headers=headers,
+@@ -1890,6 +1984,53 @@ class OpenRouterRoleTransport:
+                         continue
+                     raise  # ladder exhausted: even reasoning-off blanked -> genuine fail-loud.
+ 
++                # I-deepfix-001 B11 C2 (#1344): min-tok/s SLO slow-trickle EARLY rotate. The call
++                # SUCCEEDED (valid verdict parsed) but if it was served at a crawl below PG_ROLE_MIN_TPS
++                # — and a rotation budget + a different healthy provider both remain — abandon this slow
++                # host and RE-ENTER the rotation (retry to the next provider), which is what flips a
++                # stuck `adjudicated False -> True`. FAIL-OPEN (the safety keystone): when armed but the
++                # rotation budget is spent OR no other provider remains, we KEEP this slow-but-VALID
++                # response (a successful adjudication is NEVER discarded to chase speed). Throughput we
++                # cannot measure (no usage / no completion_tokens) is treated as "unknown" -> never
++                # rotated. Faithfulness-NEUTRAL: same model + verdict; only the retry's provider changes.
++                if role_min_tps_rotation_enabled() and _slo_rotations_used < role_min_tps_max_rotations():
++                    _elapsed_s = (
++                        (time.monotonic() - _slo_post_started)
++                        if _slo_post_started is not None else None
++                    )
++                    _tps = _observed_tokens_per_second(raw.get("usage"), _elapsed_s)
++                    if _tps is not None and _tps < role_min_tps():
++                        _slow_provider = _targeted_provider_for_force_close(body)
++                        if _slow_provider and isinstance(body.get("provider"), dict):
++                            _ignore_list = body["provider"].setdefault("ignore", [])
++                            # I-deepfix-001 B11 C2 P2-A (#1344): FAIL-OPEN keystone — only rotate when
++                            # ANOTHER non-ignored provider actually remains AFTER ignoring this slow host.
++                            # If this was the LAST provider, discarding the valid (if slow) verdict to
++                            # retry would rotate into a guaranteed no-provider failure; KEEP it instead.
++                            if (
++                                _slow_provider not in _ignore_list
++                                and _nonignored_provider_remains(body, also_ignore=_slow_provider)
++                            ):
++                                _ignore_list.append(_slow_provider)
++                                _slo_rotations_used += 1
++                                logger.warning(
++                                    "[polaris graph] #1344 SLO-ROTATE: %s role served at %.2f tok/s "
++                                    "(< PG_ROLE_MIN_TPS=%.2f) at %s — added slow provider %r to the "
++                                    "retry ignore-list (now %r); rotating to the next healthy host "
++                                    "(rotation %d/%d).",
++                                    request.role, _tps, role_min_tps(), url, _slow_provider,
++                                    _ignore_list, _slo_rotations_used, role_min_tps_max_rotations(),
++                                )
++                                # Re-enter the outer rate-limit/POST loop against the rotated provider.
++                                # The slow-but-valid `raw` is intentionally DISCARDED here ONLY because a
++                                # faster healthy host is provably available (target exists + budget left);
++                                # if the retry exhausts, the fail-open branch above keeps the next valid
++                                # verdict. (If the next host is even slower, the rotation cap stops the loop
++                                # and that valid verdict is kept.)
++                                continue
++                        # No rotation target / no provider block / this was the LAST provider:
++                        # fail-open — keep the valid (if slow) verdict.
++
+                 # Stash the genuinely-OpenRouter-served identity for M4 BEFORE capture, then
+                 # sanitize reasoning OUT of the captured response (no-leak): reasoning lives ONLY
+                 # on the returned RoleResponse + four_role_role_calls.jsonl, never in the capture
+diff --git a/src/polaris_graph/roles/provider_routing.py b/src/polaris_graph/roles/provider_routing.py
+index 48627d62..eeb960db 100644
+--- a/src/polaris_graph/roles/provider_routing.py
++++ b/src/polaris_graph/roles/provider_routing.py
+@@ -15,30 +15,41 @@ Degrades gracefully: if the config file or the role is absent, or routing is dis
+ 
+ from __future__ import annotations
+ 
+-import logging
++import logging
+ import os
+ from pathlib import Path
+ 
+ import yaml
+ 
+-logger = logging.getLogger(__name__)
+-
++logger = logging.getLogger(__name__)
++
+ _DEFAULT_CONFIG_PATH = "config/settings/openrouter_provider_routing.yaml"
+ _ENABLE_ENV = "PG_OPENROUTER_PROVIDER_ROUTING"
+ _CONFIG_PATH_ENV = "PG_PROVIDER_ROUTING_CONFIG"
+ 
+-# I-wire-008 (#1322): operator-driven JUDGE-chain provider-health deny-list. A comma-separated
+-# set of provider SLUGS (e.g. "novita") that the entailment / semantic-conflict / credibility
+-# side-judges DROP from their rotation chain so a flaky host that returns no-choices bodies is
+-# skipped and calls land on a healthy host first. LAW VI: env-driven; default empty == byte-
+-# identical (no-op). Scoped to the JUDGE chains ONLY (it is read by the judges' chain helpers,
+-# NOT by role_provider_routing/apply_provider_routing), so the main mirror role + the 4-role
+-# transport + the generator routing are untouched. We use a clean filtered ORDER rather than
+-# OpenRouter `provider.sort: throughput` because the judges pin ONE host with
+-# allow_fallbacks:False, under which `sort` is a no-op — removing the named-flaky host from the
+-# already throughput-ranked chain is what actually steers calls to a healthy host.
+-_ENV_UNHEALTHY_PROVIDERS = "PG_JUDGE_UNHEALTHY_PROVIDERS"
+-
++# I-deepfix-001 B11 C1 (#1344): per-role provider SLO preference injection. When
++# PG_OPENROUTER_PROVIDER_SLO is ON (default), apply_provider_routing reads each role's optional
++# `preferred_min_throughput` (tokens/s) + `preferred_max_latency` (seconds) from the routing config
++# and merges them into the OpenRouter `provider` block. OpenRouter honours
++# `provider.min_throughput` / `provider.max_latency` to steer the pinned chain toward HEALTHY hosts
++# meeting the SLO (and away from a trickling host) WITHOUT dropping the model. This is a transport-
++# only SLO hint -> faithfulness-NEUTRAL (same model + verdicts; only WHICH provider serves changes).
++# LAW VI: env-gated; ABSENT per-role keys => no-op (byte-identical to pre-#1344). Read lazily so a
++# runtime override is honored.
++_PROVIDER_SLO_ENV = "PG_OPENROUTER_PROVIDER_SLO"
++
++# I-wire-008 (#1322): operator-driven JUDGE-chain provider-health deny-list. A comma-separated
++# set of provider SLUGS (e.g. "novita") that the entailment / semantic-conflict / credibility
++# side-judges DROP from their rotation chain so a flaky host that returns no-choices bodies is
++# skipped and calls land on a healthy host first. LAW VI: env-driven; default empty == byte-
++# identical (no-op). Scoped to the JUDGE chains ONLY (it is read by the judges' chain helpers,
++# NOT by role_provider_routing/apply_provider_routing), so the main mirror role + the 4-role
++# transport + the generator routing are untouched. We use a clean filtered ORDER rather than
++# OpenRouter `provider.sort: throughput` because the judges pin ONE host with
++# allow_fallbacks:False, under which `sort` is a no-op — removing the named-flaky host from the
++# already throughput-ranked chain is what actually steers calls to a healthy host.
++_ENV_UNHEALTHY_PROVIDERS = "PG_JUDGE_UNHEALTHY_PROVIDERS"
++
+ # Cache keyed by the RESOLVED path string so a test that repoints _CONFIG_PATH_ENV picks up its
+ # fixture rather than a stale parse. A small YAML, so a per-distinct-path parse is cheap.
+ _cache: dict[str, dict] = {}
+@@ -84,35 +95,35 @@ def reset_cache() -> None:
+     _cache.clear()
+ 
+ 
+-def unhealthy_provider_slugs() -> set[str]:
+-    """I-wire-008 (#1322): the lower-cased set of provider slugs an operator has flagged as
+-    unhealthy for the JUDGE rotation chains (``PG_JUDGE_UNHEALTHY_PROVIDERS``). LAW VI: env-
+-    driven; empty/unset => empty set (no-op). Never raises."""
+-    raw = os.getenv(_ENV_UNHEALTHY_PROVIDERS, "").strip()
+-    if not raw:
+-        return set()
+-    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+-
+-
+-def filter_unhealthy(order: list[str]) -> list[str]:
+-    """I-wire-008 (#1322): drop operator-flagged unhealthy providers from a JUDGE rotation chain,
+-    PRESERVING the surviving order. Faithfulness-NEUTRAL (transport only: same model, healthier
+-    host). If filtering would EMPTY the chain (operator mis-config — every host denied), log a
+-    WARNING and fall back to the original order so a judge is never stranded with no provider.
+-    Default (no deny-list) => returns a copy of ``order`` unchanged (byte-identical)."""
+-    bad = unhealthy_provider_slugs()
+-    if not bad:
+-        return list(order or [])
+-    filtered = [p for p in (order or []) if str(p).strip().lower() not in bad]
+-    if not filtered:
+-        logger.warning(
+-            "[provider-health] PG_JUDGE_UNHEALTHY_PROVIDERS=%s would empty the judge chain %s; "
+-            "keeping the original order (operator mis-config).", sorted(bad), list(order or []),
+-        )
+-        return list(order or [])
+-    return filtered
+-
+-
++def unhealthy_provider_slugs() -> set[str]:
++    """I-wire-008 (#1322): the lower-cased set of provider slugs an operator has flagged as
++    unhealthy for the JUDGE rotation chains (``PG_JUDGE_UNHEALTHY_PROVIDERS``). LAW VI: env-
++    driven; empty/unset => empty set (no-op). Never raises."""
++    raw = os.getenv(_ENV_UNHEALTHY_PROVIDERS, "").strip()
++    if not raw:
++        return set()
++    return {s.strip().lower() for s in raw.split(",") if s.strip()}
++
++
++def filter_unhealthy(order: list[str]) -> list[str]:
++    """I-wire-008 (#1322): drop operator-flagged unhealthy providers from a JUDGE rotation chain,
++    PRESERVING the surviving order. Faithfulness-NEUTRAL (transport only: same model, healthier
++    host). If filtering would EMPTY the chain (operator mis-config — every host denied), log a
++    WARNING and fall back to the original order so a judge is never stranded with no provider.
++    Default (no deny-list) => returns a copy of ``order`` unchanged (byte-identical)."""
++    bad = unhealthy_provider_slugs()
++    if not bad:
++        return list(order or [])
++    filtered = [p for p in (order or []) if str(p).strip().lower() not in bad]
++    if not filtered:
++        logger.warning(
++            "[provider-health] PG_JUDGE_UNHEALTHY_PROVIDERS=%s would empty the judge chain %s; "
++            "keeping the original order (operator mis-config).", sorted(bad), list(order or []),
++        )
++        return list(order or [])
++    return filtered
++
++
+ def role_provider_routing(role: str) -> dict | None:
+     """Return ``{"order": [slug...], "ignore": [slug...]}`` for ``role``, else ``None``.
+ 
+@@ -132,6 +143,42 @@ def role_provider_routing(role: str) -> dict | None:
+     return {"order": order, "ignore": ignore}
+ 
+ 
++def _provider_slo_enabled() -> bool:
++    """I-deepfix-001 B11 C1: whether per-role provider SLO preferences are injected (default ON).
++
++    ``PG_OPENROUTER_PROVIDER_SLO`` "0"/"false"/"no"/"off" -> OFF (no SLO keys merged, byte-identical
++    to pre-#1344); absent or anything else -> ON. LAW VI: env-driven, read lazily.
++    """
++    return os.getenv(_PROVIDER_SLO_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
++
++
++def role_provider_slo(role: str) -> dict | None:
++    """I-deepfix-001 B11 C1 (#1344): the role's optional provider-SLO preference block, else None.
++
++    Reads the role's ``preferred_min_throughput`` (tokens/s) and ``preferred_max_latency`` (seconds)
++    from the routing config and maps them to the OpenRouter ``provider`` block fields
++    ``min_throughput`` / ``max_latency``. Returns ``None`` when SLO injection is disabled, the role
++    is unconfigured, or NEITHER preference key is present (so the default config — which carries no
++    SLO keys — is a pure no-op). Only numeric (int/float, non-bool) values are honoured; a malformed
++    value is ignored rather than passed through (no-silent-wrong). Never raises.
++    """
++    if not _provider_slo_enabled():
++        return None
++    cfg = _roles_config().get(role)
++    if not isinstance(cfg, dict):
++        return None
++    out: dict = {}
++    _mapping = (
++        ("preferred_min_throughput", "min_throughput"),
++        ("preferred_max_latency", "max_latency"),
++    )
++    for cfg_key, or_key in _mapping:
++        val = cfg.get(cfg_key)
++        if isinstance(val, (int, float)) and not isinstance(val, bool):
++            out[or_key] = val
++    return out or None
++
++
+ def apply_provider_routing(provider_block: dict, role: str) -> dict:
+     """Merge the role's ranked order + ignore + ``allow_fallbacks: False`` into ``provider_block``.
+ 
+@@ -139,14 +186,28 @@ def apply_provider_routing(provider_block: dict, role: str) -> dict:
+     listed healthy providers in rank order — OpenRouter never falls through to an unlisted flaky
+     provider. ``ignore`` is the belt-and-suspenders deny-list. A pre-existing ``require_parameters``
+     is preserved. No-op (returns the block unchanged) when the role is unconfigured.
++
++    I-deepfix-001 B11 C1 (#1344): when PG_OPENROUTER_PROVIDER_SLO is ON and the role declares
++    ``preferred_min_throughput`` / ``preferred_max_latency`` in config, those are merged as the
++    OpenRouter ``provider.min_throughput`` / ``provider.max_latency`` SLO hints so the pinned chain
++    is steered toward HEALTHY hosts meeting the SLO (faithfulness-neutral; absent keys => no-op).
++    SLO keys are applied even on an otherwise-unconfigured-routing role, because a role MAY carry SLO
++    prefs without a custom ``order`` (then only the SLO hint is added; the caller's prior chain
++    stands).
+     """
+     routing = role_provider_routing(role)
+-    if routing is None:
++    slo = role_provider_slo(role)
++    if routing is None and slo is None:
+         return provider_block
+-    provider_block["order"] = routing["order"]
+-    if routing["ignore"]:
+-        # merge, do not clobber, any pre-set ignore
+-        existing = provider_block.get("ignore") or []
+-        provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
+-    provider_block["allow_fallbacks"] = False
++    if routing is not None:
++        provider_block["order"] = routing["order"]
++        if routing["ignore"]:
++            # merge, do not clobber, any pre-set ignore
++            existing = provider_block.get("ignore") or []
++            provider_block["ignore"] = list(dict.fromkeys([*existing, *routing["ignore"]]))
++        provider_block["allow_fallbacks"] = False
++    if slo is not None:
++        # Do not clobber an SLO key already explicitly set on the incoming block.
++        for k, v in slo.items():
++            provider_block.setdefault(k, v)
+     return provider_block
+diff --git a/src/polaris_v6/api/artifact_to_slice_chain.py b/src/polaris_v6/api/artifact_to_slice_chain.py
+index d1db365a..4e985142 100644
+--- a/src/polaris_v6/api/artifact_to_slice_chain.py
++++ b/src/polaris_v6/api/artifact_to_slice_chain.py
+@@ -322,6 +322,31 @@ def build_slice_chain(
+     else:
+         pipeline_verdict = "abort_no_verified_sections"
+     models_block = manifest_raw.get("models") or {}
++    # I-deepfix-001 B4 (#1344) P1-C: HONEST family-segregation badge — do NOT hardcode True, and do NOT
++    # fake segregation by falling back to the deterministic verifier name for an LLM evaluator run (that
++    # made a same-family all-GLM run look "segregated"). Derive from the families the RUN recorded in the
++    # manifest `models` block when present; otherwise derive from the model names. A genuinely distinct
++    # pair -> True; a same-family LLM pair (the two-family invariant breach) -> False (the badge flags the
++    # breach, never a benign green lie); the deterministic strict_verify verifier genuinely IS the
++    # evaluator -> True (no LLM self-bias); an UNKNOWN evaluator (no manifest record) -> NOT-proven-
++    # segregated (conservative False). family_from_model never raises on an arbitrary string.
++    from polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
++    _DETERMINISTIC_VERIFIER_LABELS = {"strict_verify_v1", "strict_verify"}
++    _ui_gen_model = models_block.get("generator") or "unknown"
++    _ui_eval_model = models_block.get("evaluator") or "unknown"
++    _ui_gen_family = (models_block.get("generator_family") or family_from_model(_ui_gen_model)).strip().lower()
++    _ui_eval_family = (models_block.get("evaluator_family") or family_from_model(_ui_eval_model)).strip().lower()
++    if "family_segregated" in models_block:
++        # The run recorded the honest verdict (gen_family != eval_family) — trust it.
++        _ui_family_segregated = bool(models_block.get("family_segregated"))
++    elif str(_ui_eval_model).strip().lower() in _DETERMINISTIC_VERIFIER_LABELS:
++        # Deterministic strict_verify verifier genuinely IS the evaluator -> no LLM self-bias.
++        _ui_family_segregated = True
++    else:
++        # Honest derivation: distinct, non-unknown families => segregated; unknown eval => not proven.
++        _ui_family_segregated = bool(
++            _ui_gen_family != _ui_eval_family and _ui_eval_family != "unknown"
++        )
+     report = SliceChainVerifiedReport(
+         report_id=air.manifest.run_id,
+         pool_id=pool.pool_id,
+@@ -329,9 +354,9 @@ def build_slice_chain(
+         sections=sections,
+         overall_verify_pass_rate=overall,
+         pipeline_verdict=pipeline_verdict,
+-        generator_model=models_block.get("generator") or "unknown",
+-        evaluator_model=models_block.get("evaluator") or "strict_verify_v1",
+-        family_segregation_passed=True,
++        generator_model=_ui_gen_model,
++        evaluator_model=_ui_eval_model,
++        family_segregation_passed=_ui_family_segregated,
+         verifier_pass_threshold=0.4,
+         started_at_utc=started_utc,
+         finished_at_utc=finished_utc,
+diff --git a/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py b/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py
+new file mode 100644
+index 00000000..e7c23f61
+--- /dev/null
++++ b/tests/polaris_graph/test_deepfix_wave2_sweep_eval.py
+@@ -0,0 +1,409 @@
++"""I-deepfix-001 WAVE-2 behavioral fail-loud tests for WIRER-SWEEP-EVAL (#1344).
++
++These assert each seam's effect APPEARS in real output / behavior (§-1.4), flipping the seam's flag
++ON and checking the change actually fires. They cover the OFFLINE-provable seams:
++
++  B6(b)  — claim-shape gate suppresses a non-assertional corroboration HEADER (no source dropped).
++  B4     — PT03 honest two-family check + the run-script disclosure clause shared-literal contract +
++           the UI family-segregation badges (no longer hardcoded True).
++  B11 C1 — apply_provider_routing injects per-role provider SLO prefs from config.
++  B11 C2 — the min-tok/s SLO arming + pure tok/s predicate (the live adjudicated-flip needs a paid run).
++  P2b    — (covered by an existence assert on the constraints serialization in the source).
++
++The run-script functions are loaded via importlib (the script has an ``if __name__ == '__main__'``
++guard and no heavy import-time work) so this test does NOT depend on the heavy registry conftest.
++"""
++from __future__ import annotations
++
++import importlib.util
++import os
++from pathlib import Path
++
++import pytest
++
++_REPO_ROOT = Path(__file__).resolve().parents[2]
++
++
++def _load_run_script():
++    path = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
++    spec = importlib.util.spec_from_file_location("_rhs_wave2_test", path)
++    assert spec and spec.loader, f"cannot load spec for {path}"
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++# ---------------------------------------------------------------------------
++# B6(b) — claim-shape gate (run_honest_sweep_r3)
++# ---------------------------------------------------------------------------
++
++
++def test_b6b_gate_enabled_by_default(monkeypatch):
++    monkeypatch.delenv("PG_CLAIM_SHAPE_GATE", raising=False)
++    rhs = _load_run_script()
++    assert rhs.claim_shape_gate_enabled() is True
++
++
++def test_b6b_assertional_claim_is_renderable(monkeypatch):
++    monkeypatch.setenv("PG_CLAIM_SHAPE_GATE", "1")
++    rhs = _load_run_script()
++    # A real assertional claim — with OR without a terminal period — must PASS (no regression of the
++    # 154/155 trimmed-summary header recovery).
++    assert rhs.claim_is_renderable_claim_shape(
++        "Tirzepatide reduced HbA1c by 2.1 percent in adults with type 2 diabetes"
++    )
++    assert rhs.claim_is_renderable_claim_shape(
++        "Semaglutide is associated with weight loss in obese patients."
++    )
++
++
++def test_b6b_nonassertional_fragments_suppressed(monkeypatch):
++    monkeypatch.setenv("PG_CLAIM_SHAPE_GATE", "1")
++    rhs = _load_run_script()
++    # ccid hash stub, web chrome, and an empty string are NOT renderable assertional claims.
++    assert not rhs.claim_is_renderable_claim_shape("clm_a1b2c3d4")
++    assert not rhs.claim_is_renderable_claim_shape(
++        "URL Source: https://x.com Published Time: 2020 Markdown Content:"
++    )
++    assert not rhs.claim_is_renderable_claim_shape("")
++    # A bare noun phrase with too few content words is suppressed.
++    assert not rhs.claim_is_renderable_claim_shape("Diabetes care")
++
++
++def test_b6b_corroboration_block_drops_chrome_header_keeps_real_claim(monkeypatch):
++    """END-TO-END behavioral (§-1.3 no-source-dropped): a bibliography carrying TWO baskets — one a
++    real claim, one a chrome stub — renders BOTH baskets, but the chrome basket's garbled claim HEADER
++    is replaced by a NEUTRAL count-only header while its SUPPORT source line is STILL emitted (the
++    corroborating source + count are never dropped — only the cosmetic claim text is withheld).
++    FAIL-LOUD on the garbled chrome header text leaking in AS a verified claim."""
++    monkeypatch.setenv("PG_CLAIM_SHAPE_GATE", "1")
++    rhs = _load_run_script()
++    real_member = {
++        "member_tier": "ENTAILMENT_VERIFIED",
++        "source_url": "https://example.org/rct",
++        "source_tier": "T1",
++        "credibility_weight": 0.9,
++    }
++    chrome_member = {
++        "member_tier": "ENTAILMENT_VERIFIED",
++        "source_url": "https://chrome.example/x",
++        "source_tier": "T5",
++        "credibility_weight": 0.2,
++    }
++    bibliography = [
++        {
++            "statement": "A real source",
++            "baskets": [
++                {
++                    "claim_cluster_id": "c_real",
++                    # terminal period so the EXISTING fallback chain keeps it as a sentence (an
++                    # un-terminated trimmed summary is mangled to its ccid by the pre-existing
++                    # _claim_header_is_unrenderable path, independent of this gate).
++                    "claim_text": "Tirzepatide reduced HbA1c by 2.1 percent versus placebo.",
++                    "verified_support_origin_count": 1,
++                    "supporting_members": [real_member],
++                },
++                {
++                    "claim_cluster_id": "c_chrome",
++                    # pure chrome / non-assertional — no fallback can rescue a real claim
++                    "claim_text": "URL Source: https://x.com Published Time: 2020 Markdown Content:",
++                    "subject": "",
++                    "predicate": "",
++                    "verified_support_origin_count": 1,
++                    "supporting_members": [chrome_member],
++                },
++            ],
++        }
++    ]
++    block = rhs._basket_corroboration_block(bibliography)
++    # The real claim's header + its SUPPORT line appear (the block is non-empty -> a real claim
++    # survived, proving the gate did not over-suppress everything).
++    assert block.strip(), "the whole corroboration block was suppressed (over-suppression bug)"
++    assert "Tirzepatide reduced HbA1c by 2.1 percent" in block
++    assert "https://example.org/rct" in block
++    # The chrome basket's garbled claim HEADER is suppressed — neither the chrome text nor its hash id
++    # appears as a "verified claim" header.
++    assert "Markdown Content" not in block
++    assert "c_chrome" not in block
++    # §-1.3 no-source-dropped: the chrome basket's SUPPORT source line IS STILL emitted (under a
++    # neutral count-only header) — only the cosmetic claim header text was withheld, never the source.
++    assert "https://chrome.example/x" in block
++    assert "verified independent source(s)" in block
++
++
++def test_b6b_off_renders_chrome_header(monkeypatch):
++    """Kill-switch proof: with the gate OFF, the chrome basket is NOT suppressed (legacy behavior)."""
++    monkeypatch.setenv("PG_CLAIM_SHAPE_GATE", "0")
++    rhs = _load_run_script()
++    bibliography = [
++        {
++            "statement": "src",
++            "baskets": [
++                {
++                    "claim_cluster_id": "c_chrome",
++                    "claim_text": "URL Source: https://x.com Published Time: 2020 Markdown Content:",
++                    "subject": "topic",
++                    "predicate": "label",
++                    "verified_support_origin_count": 1,
++                    "supporting_members": [
++                        {
++                            "member_tier": "ENTAILMENT_VERIFIED",
++                            "source_url": "https://chrome.example/x",
++                            "source_tier": "T5",
++                            "credibility_weight": 0.2,
++                        }
++                    ],
++                }
++            ],
++        }
++    ]
++    block = rhs._basket_corroboration_block(bibliography)
++    # Gate OFF -> the basket renders (the source line is present), proving the gate is what suppresses.
++    assert "https://chrome.example/x" in block
++
++
++# ---------------------------------------------------------------------------
++# B4 — run-script disclosure clause shared-literal contract (sweep leg) + PT03
++# ---------------------------------------------------------------------------
++
++_PT03_SHARED_LITERAL_TOKENS = (
++    "not family-segregated",
++    "same family",
++    "self-bias safeguard disabled",
++)
++
++
++def test_b4_disclosure_clause_shared_literals_present():
++    rhs = _load_run_script()
++    clause = rhs.eval_family_disclosure_clause("glm", "glm", permit_same_family=True)
++    lowered = clause.lower()
++    for tok in _PT03_SHARED_LITERAL_TOKENS:
++        assert tok in lowered, f"missing shared-literal token {tok!r}"
++
++
++def test_b4_pt03_distinct_families_pass():
++    from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
++
++    report = "Methods: evaluator model qwen/qwen3.6-35b-a3b; distinct training families."
++    res, _, _ = run_rule_checks(
++        report_text=report, protocol={}, tier_distribution_report=None, contradictions=[],
++        evidence_pool={}, generator_model="deepseek/deepseek-v4-pro",
++        evaluator_model="qwen/qwen3.6-35b-a3b", generator_family="deepseek", evaluator_family="qwen",
++    )
++    pt03 = next(r for r in res if r.item_id == "PT03")
++    assert pt03.passed is True
++
++
++def test_b4_pt03_same_family_no_override_fails(monkeypatch):
++    monkeypatch.delenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", raising=False)
++    from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
++
++    # Even with the disclosure tokens in the report, NO override -> FAIL (no silent self-verify pass).
++    report = (
++        "evaluator glm/glm-5.2; NOT family-segregated; same family; self-bias safeguard disabled."
++    )
++    res, _, _ = run_rule_checks(
++        report_text=report, protocol={}, tier_distribution_report=None, contradictions=[],
++        evidence_pool={}, generator_model="z-ai/glm-5.2", evaluator_model="glm/glm-5.2",
++        generator_family="glm", evaluator_family="glm",
++    )
++    pt03 = next(r for r in res if r.item_id == "PT03")
++    assert pt03.passed is False
++
++
++def test_b4_pt03_same_family_override_with_disclosure_passes(monkeypatch):
++    monkeypatch.setenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "1")
++    from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
++
++    report = (
++        "evaluator glm/glm-5.2; NOT family-segregated; same family; self-bias safeguard disabled."
++    )
++    res, _, _ = run_rule_checks(
++        report_text=report, protocol={}, tier_distribution_report=None, contradictions=[],
++        evidence_pool={}, generator_model="z-ai/glm-5.2", evaluator_model="glm/glm-5.2",
++        generator_family="glm", evaluator_family="glm",
++    )
++    pt03 = next(r for r in res if r.item_id == "PT03")
++    assert pt03.passed is True
++
++
++def test_b4_pt03_same_family_override_without_disclosure_fails(monkeypatch):
++    monkeypatch.setenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "1")
++    from src.polaris_graph.evaluator.external_evaluator import run_rule_checks
++
++    # Override set but the report does NOT honestly disclose -> still FAIL.
++    report = "evaluator glm/glm-5.2 mentioned in passing."
++    res, _, _ = run_rule_checks(
++        report_text=report, protocol={}, tier_distribution_report=None, contradictions=[],
++        evidence_pool={}, generator_model="z-ai/glm-5.2", evaluator_model="glm/glm-5.2",
++        generator_family="glm", evaluator_family="glm",
++    )
++    pt03 = next(r for r in res if r.item_id == "PT03")
++    assert pt03.passed is False
++
++
++# ---------------------------------------------------------------------------
++# B11 C1 — provider SLO preferences merged into the routing block
++# ---------------------------------------------------------------------------
++
++
++def test_b11_c1_slo_injected_when_enabled(monkeypatch):
++    from src.polaris_graph.roles import provider_routing as pr
++
++    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
++    pr.reset_cache()
++    block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
++    assert block.get("min_throughput") == 5.0
++    assert block.get("max_latency") == 30.0
++
++
++def test_b11_c1_slo_off_is_noop(monkeypatch):
++    from src.polaris_graph.roles import provider_routing as pr
++
++    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "0")
++    pr.reset_cache()
++    block = pr.apply_provider_routing({"require_parameters": True}, "sentinel")
++    assert "min_throughput" not in block
++    assert "max_latency" not in block
++
++
++def test_b11_c1_role_without_slo_keys_noop(monkeypatch):
++    from src.polaris_graph.roles import provider_routing as pr
++
++    monkeypatch.setenv("PG_OPENROUTER_PROVIDER_SLO", "1")
++    pr.reset_cache()
++    # judge config carries NO preferred_* keys -> no SLO injected.
++    assert pr.role_provider_slo("judge") is None
++
++
++# ---------------------------------------------------------------------------
++# B11 C2 — min-tok/s SLO arming + pure throughput predicate
++# ---------------------------------------------------------------------------
++
++
++def test_b11_c2_off_by_default(monkeypatch):
++    from src.polaris_graph.roles import openrouter_role_transport as T
++
++    monkeypatch.delenv("PG_ROLE_MIN_TPS", raising=False)
++    assert T.role_min_tps() == 0.0
++    assert T.role_min_tps_rotation_enabled() is False
++
++
++def test_b11_c2_armed_requires_floor_and_rotation(monkeypatch):
++    from src.polaris_graph.roles import openrouter_role_transport as T
++
++    monkeypatch.setenv("PG_ROLE_MIN_TPS", "8")
++    monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "1")
++    assert T.role_min_tps() == 8.0
++    assert T.role_min_tps_rotation_enabled() is True
++    # rotation OFF -> not armed even with a floor set
++    monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "0")
++    assert T.role_min_tps_rotation_enabled() is False
++
++
++def test_b11_c2_tps_predicate_pure():
++    from src.polaris_graph.roles import openrouter_role_transport as T
++
++    assert T._observed_tokens_per_second({"completion_tokens": 100}, 10.0) == 10.0
++    # unknown throughput -> None (fail-open: never rotated)
++    assert T._observed_tokens_per_second(None, 10.0) is None
++    assert T._observed_tokens_per_second({"completion_tokens": 100}, 0.0) is None
++    assert T._observed_tokens_per_second({"completion_tokens": 0}, 5.0) is None
++
++
++# ---------------------------------------------------------------------------
++# P2b — constraints serialized into summary + manifest (source-level assert)
++# ---------------------------------------------------------------------------
++
++
++def test_p2b_constraints_serialized_in_source():
++    path = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
++    src = path.read_text(encoding="utf-8")
++    # Both the summary AND the manifest intent_frame block now serialize constraints.
++    assert src.count('"constraints": list(intent_frame_advisory.constraints)') == 2
++
++
++# ---------------------------------------------------------------------------
++# B4 — UI family-segregation badges are DERIVED, not hardcoded True
++# ---------------------------------------------------------------------------
++
++
++def test_b4_ui_badges_not_hardcoded_true():
++    for rel in (
++        "src/polaris_v6/api/artifact_to_slice_chain.py",
++        "src/polaris_graph/clinical_generator/generator.py",
++    ):
++        src = (_REPO_ROOT / rel).read_text(encoding="utf-8")
++        assert "family_segregation_passed=True" not in src, (
++            f"{rel} still hardcodes the family-segregation badge True"
++        )
++
++
++def test_b4_ui_badge_derivation_is_honest():
++    from src.polaris_graph.llm.openrouter_client import family_from_model
++
++    # The deterministic verifier maps to a DIFFERENT family than any real generator -> honestly True.
++    assert family_from_model("deepseek/deepseek-v4-pro") != family_from_model("strict_verify_v1")
++    assert family_from_model("z-ai/glm-5.2") != family_from_model("strict_verify_v1")
++    # A genuine same-family LLM pair (both z-ai/glm lineage) correctly reads False (badge flags the
++    # breach instead of a benign green lie).
++    assert not (family_from_model("z-ai/glm-5.2") != family_from_model("z-ai/glm-5.1"))
++
++
++# ---------------------------------------------------------------------------
++# B3 — clean-question substitution wired at the decompose/retrieval/planner sites
++# ---------------------------------------------------------------------------
++
++
++def test_b3_clean_question_substituted_at_backend_sites():
++    src = (_REPO_ROOT / "scripts" / "run_honest_sweep_r3.py").read_text(encoding="utf-8")
++    # init to raw (byte-identical OFF-mode) then overridden inside the frame block.
++    assert "_clean_question = q[\"question\"]" in src
++    assert "_clean_question = \" \".join(_frame_questions)" in src
++    # the backend query sites now fire the clean question.
++    assert "plan_research(\n                _clean_question" in src
++    assert "decompose_question(_clean_question)" in src
++    assert "expand_regulatory_queries(_clean_question" in src
++    assert "research_question=_clean_question," in src
++
++
++def test_b3_clean_question_threaded_to_backend_retrieval_seeds():
++    """P1-B: the clean question reaches the FS-Researcher/IterResearch seeds, the CRAG gap-retrieval
++    loop-back, and the R6 expansion — not only the planner/decompose/primary-retrieval sites. The raw
++    q["question"] (which may carry an injected directive appendix) must no longer seed those paths."""
++    src = (_REPO_ROOT / "scripts" / "run_honest_sweep_r3.py").read_text(encoding="utf-8")
++    # FS-Researcher AND IterResearch generators now derive queries from the CLEAN question (both seeds).
++    assert "_clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR" in src
++    assert 'q["question"], _iter_llm, _iter_per_query_retrieve, _IterLRR' not in src
++    # CRAG gap-derivation + CRAG loop-back retrieval + R6 expansion + primary retrieval all fire clean.
++    # (primary 1 + FS/Iter scope-context 1 + CRAG derive 1 + CRAG loop-back 1 + R6 expansion 1 = 5)
++    assert src.count("research_question=_clean_question,") >= 5
++    # the CRAG no-gap fallback re-issues the CLEAN question, never the raw one.
++    assert "_gap_queries = [_clean_question]" in src
++    assert '_gap_queries = [q["question"]]' not in src
++
++
++# ---------------------------------------------------------------------------
++# B11 C2 P2-A — fail-open: a slow-but-valid response is KEPT when no other provider remains
++# ---------------------------------------------------------------------------
++
++
++def test_b11_c2_p2a_nonignored_provider_remains():
++    from src.polaris_graph.roles import openrouter_role_transport as T
++
++    # Two providers, none ignored -> ignoring the slow head still leaves one -> rotate is allowed.
++    body_two = {"provider": {"order": ["alpha", "beta"], "ignore": []}}
++    assert T._nonignored_provider_remains(body_two, also_ignore="alpha") is True
++    # Single provider -> ignoring it leaves NONE -> fail-open (keep the valid slow verdict).
++    body_one = {"provider": {"order": ["alpha"], "ignore": []}}
++    assert T._nonignored_provider_remains(body_one, also_ignore="alpha") is False
++    # Last remaining provider when the other is already ignored -> also fail-open.
++    body_one_ignored = {"provider": {"order": ["alpha", "beta"], "ignore": ["beta"]}}
++    assert T._nonignored_provider_remains(body_one_ignored, also_ignore="alpha") is False
++    # No routing block / no order -> never rotate (fail-open).
++    assert T._nonignored_provider_remains({}, also_ignore="alpha") is False
++    assert T._nonignored_provider_remains({"provider": {}}, also_ignore="alpha") is False
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(pytest.main([__file__, "-v"]))

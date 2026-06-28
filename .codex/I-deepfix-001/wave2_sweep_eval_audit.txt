@@ -1,0 +1,15 @@
+No P0/P1 findings.
+
+The five fixes verify statically: B6b now suppresses only the malformed header text and still emits count/support/weak/contradicted lines; B3 clean question is threaded through the listed decompose/retrieval seed paths, while remaining raw-question retrieval calls are URL-only `seed_only=True` or `anchor_seed=False` gap context; B4 PT03/badge now derive from disclosed families/manifest and same-family all-GLM cannot render green; B11 C2 keeps the valid slow verdict when no alternate provider remains; legacy PT03 no longer passes on name-only except deterministic `strict_verify`.
+
+B7 call-site parity is present. Provider SLO is transport-only. Patch scope does not touch strict_verify/NLI/span/provenance faithfulness engines. CRLF-sensitive files show partial diffs only (`run_honest_sweep_r3.py` 199/14, `provider_routing.py` 112/51, yaml 9/0), not whole-file EOL churn. No pytest/pipeline run per instruction.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

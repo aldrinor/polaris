@@ -57,6 +57,16 @@ DEFAULT_VERIFIER_PASS_THRESHOLD = 0.40
 DEFAULT_GENERATOR_MODEL_LABEL = "stub-generator"
 
 
+def _clinical_family_from_model(model_name: str) -> str:
+    """I-deepfix-001 B4 (#1344): training-lineage family of a model string for the HONEST
+    family-segregation badge. Thin lazy wrapper over openrouter_client.family_from_model so this
+    module carries no import-time dependency on the LLM layer. Never raises: an unrecognised string
+    (e.g. the deterministic 'strict_verify_v1' verifier, or a stub label) returns 'unknown'."""
+    from polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
+
+    return family_from_model(model_name or "")
+
+
 # ---------------------------------------------------------------------------
 # completion_fn protocol
 # ---------------------------------------------------------------------------
@@ -302,7 +312,15 @@ def process_generation(
         pipeline_verdict=pipeline_verdict,  # type: ignore[arg-type]
         generator_model=effective_model,
         evaluator_model="strict_verify_v1",
-        family_segregation_passed=True,
+        # I-deepfix-001 B4 (#1344): HONEST family-segregation badge — do NOT hardcode True. The
+        # evaluator here is the DETERMINISTIC strict_verify_v1 (family "unknown"), which differs from
+        # any real generator family -> honestly True; were the generator ever mis-set to a verifier-
+        # family string, the badge would correctly read False rather than a benign green lie.
+        # family_from_model never raises on an arbitrary string (returns "unknown" on no match).
+        family_segregation_passed=(
+            _clinical_family_from_model(effective_model)
+            != _clinical_family_from_model("strict_verify_v1")
+        ),
         verifier_pass_threshold=verifier_pass_threshold,
         started_at_utc=started,
         finished_at_utc=finished,

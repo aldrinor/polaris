@@ -322,6 +322,31 @@ def build_slice_chain(
     else:
         pipeline_verdict = "abort_no_verified_sections"
     models_block = manifest_raw.get("models") or {}
+    # I-deepfix-001 B4 (#1344) P1-C: HONEST family-segregation badge — do NOT hardcode True, and do NOT
+    # fake segregation by falling back to the deterministic verifier name for an LLM evaluator run (that
+    # made a same-family all-GLM run look "segregated"). Derive from the families the RUN recorded in the
+    # manifest `models` block when present; otherwise derive from the model names. A genuinely distinct
+    # pair -> True; a same-family LLM pair (the two-family invariant breach) -> False (the badge flags the
+    # breach, never a benign green lie); the deterministic strict_verify verifier genuinely IS the
+    # evaluator -> True (no LLM self-bias); an UNKNOWN evaluator (no manifest record) -> NOT-proven-
+    # segregated (conservative False). family_from_model never raises on an arbitrary string.
+    from polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
+    _DETERMINISTIC_VERIFIER_LABELS = {"strict_verify_v1", "strict_verify"}
+    _ui_gen_model = models_block.get("generator") or "unknown"
+    _ui_eval_model = models_block.get("evaluator") or "unknown"
+    _ui_gen_family = (models_block.get("generator_family") or family_from_model(_ui_gen_model)).strip().lower()
+    _ui_eval_family = (models_block.get("evaluator_family") or family_from_model(_ui_eval_model)).strip().lower()
+    if "family_segregated" in models_block:
+        # The run recorded the honest verdict (gen_family != eval_family) — trust it.
+        _ui_family_segregated = bool(models_block.get("family_segregated"))
+    elif str(_ui_eval_model).strip().lower() in _DETERMINISTIC_VERIFIER_LABELS:
+        # Deterministic strict_verify verifier genuinely IS the evaluator -> no LLM self-bias.
+        _ui_family_segregated = True
+    else:
+        # Honest derivation: distinct, non-unknown families => segregated; unknown eval => not proven.
+        _ui_family_segregated = bool(
+            _ui_gen_family != _ui_eval_family and _ui_eval_family != "unknown"
+        )
     report = SliceChainVerifiedReport(
         report_id=air.manifest.run_id,
         pool_id=pool.pool_id,
@@ -329,9 +354,9 @@ def build_slice_chain(
         sections=sections,
         overall_verify_pass_rate=overall,
         pipeline_verdict=pipeline_verdict,
-        generator_model=models_block.get("generator") or "unknown",
-        evaluator_model=models_block.get("evaluator") or "strict_verify_v1",
-        family_segregation_passed=True,
+        generator_model=_ui_gen_model,
+        evaluator_model=_ui_eval_model,
+        family_segregation_passed=_ui_family_segregated,
         verifier_pass_threshold=0.4,
         started_at_utc=started_utc,
         finished_at_utc=finished_utc,
