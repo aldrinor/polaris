@@ -724,7 +724,7 @@ def _semantic_relevance_scores(
         # `_similarity_scores`); take the per-row MAX across anchors. Rows are
         # embedded once per anchor (anchors are few: 1 question + a handful of
         # sub-queries), NEVER once per row.
-        per_anchor: list[list[float]] = [
+        per_anchor_raw = [
             _similarity_scores(embedder, anchor, row_texts) for anchor in anchors
         ]
     except Exception as exc:
@@ -732,6 +732,18 @@ def _semantic_relevance_scores(
             "[select] semantic relevance scoring failed (%s) — falling back to "
             "the lexical scorer.",
             str(exc)[:200],
+        )
+        return None
+    # I-deepfix-001 B1 (Codex wave-1 P0): `_similarity_scores` now returns None on a
+    # scorer/infra failure (no embedder interface / zero-norm query / encode raise),
+    # NOT all-zeros. Drop the failed anchors; if EVERY anchor failed the scorer is
+    # unavailable -> return None so B1/B4 FALL BACK LOUDLY to the lexical scorer
+    # (keep candidates) instead of mass-dropping the corpus on an embedder error.
+    per_anchor = [s for s in per_anchor_raw if s is not None]
+    if not per_anchor:
+        _LOGGER.warning(
+            "[select] semantic relevance: scorer returned no usable scores for any "
+            "anchor (infra failure) — falling back to the lexical scorer."
         )
         return None
     scores: dict[int, float] = {}

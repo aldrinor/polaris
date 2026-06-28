@@ -71,11 +71,15 @@ LABEL_ESCALATED_DEMOTE = "escalated_demoted"  # GLM said INSUFFICIENT/REFUTED
 def content_relevance_enabled() -> bool:
     """True iff the W2 content-relevance-judge flag is ON.
 
-    Default OFF: the judge is NEVER instantiated, NO reranker/GLM model loads,
-    NO weight is applied, and the per-candidate loop is byte-identical to today.
+    DEFAULT ON (I-deepfix-001 B1 keystone, 2026-06-28): the off-topic ~50% junk
+    finding made this the single highest-leverage fix, so the proven in-tree W2
+    winner now fires by default. Set ``PG_CONTENT_RELEVANCE_JUDGE=0`` (or
+    off/false/no) to revert to the byte-identical pre-keystone path (the judge is
+    NEVER instantiated, NO reranker/GLM model loads, NO weight applied). This is a
+    §-1.3 WEIGHT (demote-not-drop), never a hard filter — faithfulness untouched.
     """
-    return os.getenv("PG_CONTENT_RELEVANCE_JUDGE", "").strip().lower() in {
-        "1", "true", "yes", "on",
+    return os.getenv("PG_CONTENT_RELEVANCE_JUDGE", "1").strip().lower() not in {
+        "0", "false", "no", "off", "disabled", "",
     }
 
 

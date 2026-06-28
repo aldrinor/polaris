@@ -138,6 +138,110 @@ def _select_sim_measure():
     return raw, _SIM_MEASURES[raw]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 B3 (2026-06-28) — prompt-injection-inversion backstop.
+# A pure, no-network, deterministic screen that drops DIRECTIVE-SHAPED clauses
+# (do-not-view / prohibition blocks, "highest priority rule" framing, output-shape
+# demands, embedded URL/DOI deny-list literals, imperative meta-instructions) so an
+# injected instruction in the raw prompt NEVER becomes a search query — even when
+# the LLM intent-frame (B3 primary) is OFF or misses one. This is defense-in-depth,
+# fires deterministically, and is faithfulness-NEUTRAL (a query/scope screen only).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DIRECTIVE_FLAG = "PG_QUERY_DIRECTIVE_SCREEN"
+_DIRECTIVE_OFF = frozenset({"0", "false", "no", "off", "disabled", ""})
+
+# Substrings whose presence marks a clause as a META-DIRECTIVE rather than a research
+# query. High-precision: each is instruction/prohibition chrome that does not occur in
+# a genuine research sub-question. Lowercased compare.
+_DIRECTIVE_MARKERS: tuple[str, ...] = (
+    "do not view",
+    "do not visit",
+    "do not access",
+    "do not use",
+    "do not cite",
+    "do not read",
+    "not allowed to view",
+    "you are not allowed",
+    "must not",
+    "highest priority",
+    "highest-priority",
+    "this is the most important rule",
+    "ignore previous",
+    "ignore all previous",
+    "disregard previous",
+    "system prompt",
+    "column headers",
+    "output format",
+    "respond only",
+    "format your answer",
+    "use the following format",
+    "blocked sources",
+    "blocked reference",
+    "denylist",
+    "deny-list",
+    "do-not-view",
+)
+
+# A clause that is a bare URL/DOI dict literal or a list of URLs is a deny-list payload,
+# never a research question.
+_URL_DOI_LITERAL_RE = re.compile(
+    r"(https?://|www\.|doi\.org/|10\.\d{4,9}/|\{\s*['\"]?url)", re.IGNORECASE
+)
+# Imperative opener: a clause that BEGINS with an unambiguous injection-command
+# verb. I-deepfix-001 Codex wave-1 P2: the prior list included polysemous
+# research-domain verbs (return/output/ensure/keep/put) that match legitimate
+# queries — "return-to-work outcomes", "output of the assay", "ensure adequate
+# dosing" — and over-dropped them. Those verbs' genuine INJECTION forms ("output
+# format", "respond only", "must not", "do not view") are already high-precision
+# entries in `_DIRECTIVE_MARKERS`; this opener is now restricted to the five
+# command openers that do not occur in a research sub-question, each requiring a
+# trailing SPACE so hyphenated compounds (e.g. a leading "do-not-resuscitate"
+# term) cannot trip it.
+_IMPERATIVE_OPENER_RE = re.compile(
+    r"^\s*(please\s|ignore\s|disregard\s|do not\s|don't\s)",
+    re.IGNORECASE,
+)
+
+
+def directive_screen_enabled() -> bool:
+    """B3 directive-screen kill-switch. DEFAULT ON (faithfulness-neutral injection
+    defense). ``PG_QUERY_DIRECTIVE_SCREEN=0`` reverts to byte-identical behaviour."""
+    return os.getenv(_DIRECTIVE_FLAG, "1").strip().lower() not in _DIRECTIVE_OFF
+
+
+def is_directive_clause(text: str) -> bool:
+    """True iff ``text`` is a directive/meta-instruction clause rather than an
+    answerable research query (I-deepfix-001 B3). Pure, deterministic, no network."""
+    if not text:
+        return False
+    low = text.strip().lower()
+    if not low:
+        return False
+    if any(marker in low for marker in _DIRECTIVE_MARKERS):
+        return True
+    if _URL_DOI_LITERAL_RE.search(low):
+        return True
+    if _IMPERATIVE_OPENER_RE.match(low):
+        return True
+    return False
+
+
+def strip_directive_clauses(queries: list[str]) -> tuple[list[str], list[str]]:
+    """Partition ``queries`` into (kept, dropped_directives). The B3 backstop the
+    foreign query-decomposer SHOULD also call before issuing searches; applied here
+    inside ``validate_amplified_queries`` so it fires on the retrieval path regardless.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    for q in queries:
+        if is_directive_clause(q):
+            dropped.append(q)
+        else:
+            kept.append(q)
+    return kept, dropped
+
+
 @dataclass
 class ValidationResult:
     """Return value of validate_amplified_queries()."""
@@ -227,6 +331,20 @@ def validate_amplified_queries(
     dropped: list[tuple[str, float, str]] = []
     seen: set[str] = set()
 
+    # I-deepfix-001 B3 backstop: drop directive/meta-instruction clauses BEFORE
+    # the scope-similarity gate so an injected do-not-view / output-shape / deny-list
+    # directive in the amplified set never issues a search (fires even when the LLM
+    # intent-frame is OFF). Deterministic, no network; faithfulness-neutral.
+    directive_dropped: list[str] = []
+    if directive_screen_enabled():
+        amplified, directive_dropped = strip_directive_clauses(list(amplified))
+        if directive_dropped:
+            logger.info(
+                "[scope_validator] B3 directive-screen dropped %d injected/meta "
+                "clause(s) before search.",
+                len(directive_dropped),
+            )
+
     # Dedupe while preserving order
     unique_amplified: list[str] = []
     for q in amplified:
@@ -251,6 +369,11 @@ def validate_amplified_queries(
             if sim_name != "jaccard":
                 _reason = f"{_reason}_{sim_name}"
             dropped.append((q, sim, _reason))
+
+    # Record the B3 directive drops in the telemetry so they are auditable
+    # (sim=0.0, an explicit injected-directive reason — never silently swallowed).
+    for q in directive_dropped:
+        dropped.append((q, 0.0, "injected_directive_clause"))
 
     # Safety net: always keep the verbatim research_question, even if
     # its own similarity was below floor (happens for very short PICO

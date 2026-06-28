@@ -93,10 +93,12 @@ def _patch_semantic(monkeypatch, score_by_text: dict[str, float]):
 
 
 # ── env knobs ────────────────────────────────────────────────────────────────
-def test_gate_default_off(monkeypatch):
+def test_gate_default_on(monkeypatch):
+    """I-deepfix-001 B1 keystone (2026-06-28): the B4 pre-fetch relevance gate now
+    defaults ON. Explicit off-values revert to the byte-identical legacy count-cut."""
     monkeypatch.delenv("PG_RETRIEVAL_RELEVANCE_GATE", raising=False)
-    assert _relevance_gate_enabled() is False
-    for v in ("0", "false", "no", "off", "", "garbage"):
+    assert _relevance_gate_enabled() is True  # default ON now
+    for v in ("0", "false", "no", "off", "", "disabled"):
         monkeypatch.setenv("PG_RETRIEVAL_RELEVANCE_GATE", v)
         assert _relevance_gate_enabled() is False
     for v in ("1", "true", "yes", "on", "ON", "True"):
@@ -308,6 +310,28 @@ def test_embedder_unavailable_signals_lexical_fallback(monkeypatch):
         [_cand("https://n/0", title="x", origin="q1")],
         research_question=_LONG_QUESTION, sub_queries=[], fetch_cap=5, n_seed_injected=0,
     )
+    assert out is None and weights == {} and gate is None
+
+
+def test_scorer_infra_failure_fails_open_to_lexical(monkeypatch):
+    """I-deepfix-001 Codex wave-1 P0: a LOADED embedder whose `_similarity_scores`
+    returns None (infra failure: no embed interface / zero-norm query / encode raise)
+    must make B1's `_semantic_relevance_scores` return None so B4 falls back LOUDLY
+    to the lexical cut — it must NOT mass-drop the corpus by treating the failure as
+    all-zero below-threshold scores."""
+    import src.polaris_graph.retrieval.evidence_selector as es
+    import src.polaris_graph.retrieval.prefetch_offtopic_filter as pf
+    monkeypatch.setattr(es, "_get_semantic_embedder", lambda: _FakeEmbedder())
+    # Loaded embedder, but the shared scorer signals an infra failure (None).
+    monkeypatch.setattr(pf, "_similarity_scores", lambda embedder, anchor, texts: None)
+    out, weights, gate = _relevance_threshold_select(
+        [_cand("https://n/0", title="x", origin="q1"),
+         _cand("https://n/1", title="y", origin="q1")],
+        research_question=_LONG_QUESTION, sub_queries=["facet"], fetch_cap=5,
+        n_seed_injected=0,
+    )
+    # None signals the caller to run the legacy lexical cut (keep candidates),
+    # never a (selected=[], all-dropped) hard cut on a scoring error.
     assert out is None and weights == {} and gate is None
 
 
@@ -565,10 +589,12 @@ def test_integrated_run_live_retrieval_emits_weight_and_gate_telemetry(monkeypat
 
 
 def test_integrated_off_path_emits_no_relevance_gate(monkeypatch):
-    """Flag-OFF parity: with the gate OFF (default), `relevance_gate` is None and no
+    """Flag-OFF parity: with the gate explicitly OFF, `relevance_gate` is None and no
     evidence row carries a `relevance_weight` key (byte-identical legacy behaviour);
-    the legacy `rerank_not_selected` reason is used, not the B4 reasons."""
-    monkeypatch.delenv("PG_RETRIEVAL_RELEVANCE_GATE", raising=False)
+    the legacy `rerank_not_selected` reason is used, not the B4 reasons.
+    I-deepfix-001 B1 flipped the DEFAULT to ON, so the OFF path is now reached via an
+    explicit ``PG_RETRIEVAL_RELEVANCE_GATE=0``."""
+    monkeypatch.setenv("PG_RETRIEVAL_RELEVANCE_GATE", "0")
 
     def _stub_serper(q, num=10, api_calls=None):
         return [{"url": "https://journal/on", "title": "microbiome colorectal mechanism", "snippet": "x"}]

@@ -7295,11 +7295,20 @@ async def generate_multi_section_report(
         build_weighted_enrichment_plan as _build_weighted_enrichment_plan,
         diagnose_unbound_supports_selection as _diagnose_unbound_supports_selection,
     )
-    if not (v30_contract_plans and not partial_mode):
+    # B12 (#1356) DECOUPLE: the enrichment was gated behind ``v30_contract_plans`` being
+    # present, so it NEVER fired on the generic DRB (non-contract) render path — the very path
+    # the breadth deficit was measured on. The Codex-approved, faithfulness-neutral enrichment
+    # must surface breadth on EVERY full (non-partial) render, gated ONLY by ``partial_mode``
+    # (partial-saturation contracts promise pruned-sufficient sections — preserve that hard skip,
+    # mirroring the STORM-scaffold partial_mode suppression at ~:1886) AND the already-force-ON
+    # master flag ``PG_BREADTH_ENRICHMENT_ENABLED``. ``contract_bound_evidence_ids`` returns the
+    # bound set when contract plans exist (UNCHANGED behavior on the contract path) and an empty
+    # set on the generic path (so NOTHING is wrongly excluded). Faithfulness-neutral: the appended
+    # section still routes through the UNCHANGED strict_verify + section floor.
+    if partial_mode:
         logger.info(
             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
-            "(v30_contract_plans=%s partial_mode=%s) — non-contract / partial render path",
-            bool(v30_contract_plans), bool(partial_mode),
+            "(partial_mode=True) — partial-saturation render path (pruned-sufficient sections)",
         )
     elif not _breadth_enrichment_enabled():
         logger.info(
@@ -7310,7 +7319,9 @@ async def generate_multi_section_report(
         _wfe = _diagnose_unbound_supports_selection(
             evidence_pool=evidence_pool,
             credibility_analysis=credibility_analysis,
-            contract_plans=list(v30_contract_plans),
+            # B12 (#1356): empty list on the non-contract path => nothing wrongly excluded;
+            # the bound set on the contract path is byte-identical to the prior behavior.
+            contract_plans=list(v30_contract_plans or []),
         )
         _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
         if _wfe_plan is not None:

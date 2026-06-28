@@ -448,6 +448,22 @@ class ReleaseOutcome:
     body_withheld: bool = False
     compensating_screen_passed: bool = False
 
+    def display_quality_score(self) -> str:
+        """B11 C3 (#1362 deepfix): the HONEST display string for the release quality score.
+
+        ``release_quality_score`` is the coverage fraction. On a four-role D8 SEAM error (judge
+        transport / HTTP-400) the judge NEVER adjudicated, so ``adjudicated`` is False and the raw
+        float is 0.0 (or a coverage fraction that was never judged). Rendering that bare ``0.0`` as
+        a quality score is a LIE — it reads as "this report scored zero quality" when the truth is
+        "D8 could not score it at all". This helper renders ``N/A (D8 unadjudicated)`` whenever the
+        judge did not adjudicate, and the numeric score otherwise. The raw float field is left
+        unchanged for backward-compatible numeric consumers; the render/UI seam should consult THIS
+        display string. Faithfulness-neutral: pure presentation of the already-computed state.
+        """
+        if not self.adjudicated:
+            return "N/A (D8 unadjudicated)"
+        return f"{self.release_quality_score:.3f}"
+
 
 def always_release_enabled() -> bool:
     """PG_ALWAYS_RELEASE — production DEFAULT ON (B5/B7: "nothing shall hold the report").

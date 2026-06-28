@@ -703,6 +703,51 @@ def retrieval_failure_warning(fetched: int, failed: int, total: int, warn_rate: 
     )
 
 
+def eval_family_disclosure_clause(
+    gen_family: str, eval_family: str, *, permit_same_family: bool = False
+) -> str:
+    """B04 / B4 (#1360 deepfix): the Methods clause that HONESTLY states the generator vs
+    evaluator training-lineage relationship for THIS run — never the old hardcoded
+    "(different family)" lie.
+
+    Two-family DNA (CLAUDE.md §9.1.1): generator and evaluator MUST be from distinct training
+    lineages so the evaluator does not share the generator's RLHF blind spots
+    (Play Favorites arXiv:2508.06709). ``check_family_segregation`` enforces this at construction
+    UNLESS the operator sets ``PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1`` (the operator-approved
+    all-GLM-5.2 campaign, #1285). When the override is active the invariant is DELIBERATELY voided
+    for the run; the Methods section must DISCLOSE that LOUD — it must NOT keep claiming a benign
+    "(glm lineage)" that hides the voided safeguard.
+
+    The same-family clause deliberately contains the literal tokens ``not family-segregated``,
+    ``same family`` and ``self-bias safeguard disabled`` — these are the SHARED-LITERAL CONTRACT the
+    (foreign) PT03 disclosure check in src/polaris_graph/evaluator/external_evaluator.py matches
+    against to decide PT03 passes on an override run iff the report HONESTLY discloses the override.
+    If you change these tokens, update the PT03 matcher in lockstep.
+
+    Pure; no I/O, no env read inside (caller passes the resolved ``permit_same_family``) so it is
+    unit-testable without the pipeline.
+    """
+    if gen_family != eval_family:
+        return (
+            f"({eval_family} lineage; generator is {gen_family} — distinct training families)"
+        )
+    # gen_family == eval_family: the two-family invariant is VOIDED for this run.
+    if permit_same_family:
+        return (
+            f"(NOT family-segregated — operator override "
+            f"PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1; generator and evaluator are the "
+            f"same family '{eval_family}'; evaluator self-bias safeguard disabled for this "
+            f"run, disclosed)"
+        )
+    # Same family WITHOUT the override should never reach here (check_family_segregation raises
+    # RuntimeError at construction), but disclose honestly as defense-in-depth if it does.
+    return (
+        f"(NOT family-segregated — generator and evaluator are the same family '{eval_family}' "
+        f"and no PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY override is set; self-bias safeguard "
+        f"state is INCONSISTENT)"
+    )
+
+
 def quantified_degradation_disclosure(telemetry: dict[str, Any] | None) -> str:
     """FIX-A9 (#1100): reader-facing '## Capability disclosures' block IFF quantified-analysis was
     ENABLED but produced no verified output (fired-equivalent = verified_sentences>0, the same signal
@@ -11888,10 +11933,16 @@ async def run_one_query(
         )
         _gen_family = family_from_model(PG_GENERATOR_MODEL, PG_GENERATOR_FAMILY_OVERRIDE)
         _eval_family = family_from_model(PG_EVALUATOR_MODEL, PG_EVALUATOR_FAMILY_OVERRIDE)
-        _eval_family_clause = (
-            f"({_eval_family} lineage; generator is {_gen_family} — distinct training families)"
-            if _gen_family != _eval_family
-            else f"({_eval_family} lineage)"
+        # B04 / B4 (#1360 deepfix): when gen==eval==glm (the operator-approved all-GLM-5.2 campaign,
+        # PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1), the two-family self-bias invariant is VOIDED
+        # for this run. The old else-branch said a benign "(glm lineage)" that HID the voided
+        # safeguard. The honest clause LOUDLY discloses the override AND supplies the shared-literal
+        # tokens the (foreign) PT03 disclosure check matches against (single source of truth).
+        _permit_same_family = os.getenv(
+            "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "0"
+        ).strip() in ("1", "true", "True")
+        _eval_family_clause = eval_family_disclosure_clause(
+            _gen_family, _eval_family, permit_same_family=_permit_same_family
         )
         # Build expected-distribution string from the scope template so
         # PT07 passes regardless of domain.
@@ -13572,6 +13623,11 @@ async def run_one_query(
                     "normal_release_blocked": _release_outcome.normal_release_blocked,
                     "disclosed_gaps": list(_release_outcome.disclosed_gaps),
                     "release_quality_score": _release_outcome.release_quality_score,
+                    # B11 C3 (#1362 deepfix): the HONEST display string. On a D8 seam (judge never
+                    # adjudicated) the raw float reads as "scored 0.0 quality" — a lie. This field is
+                    # what the render/UI seam must show: "N/A (D8 unadjudicated)" when adjudicated is
+                    # False, the numeric score otherwise. Raw float kept above for numeric consumers.
+                    "release_quality_score_display": _release_outcome.display_quality_score(),
                     "safety_floor": _release_outcome.safety_floor,
                     # A18 STRUCTURAL PROOF (iarch007 SWEEP-P0 / shared A18 CONTRACT): serialize the
                     # three release-proof fields so the artifact-level invariant
@@ -14818,6 +14874,12 @@ async def run_one_query(
                             "normal_release_blocked": _a18_seam_outcome.normal_release_blocked,
                             "disclosed_gaps": list(_a18_seam_outcome.disclosed_gaps),
                             "release_quality_score": _a18_seam_outcome.release_quality_score,
+                            # B11 C3 (#1362 deepfix): honest display. This is the SEAM path where the
+                            # judge never adjudicated, so display_quality_score() returns
+                            # "N/A (D8 unadjudicated)" — never a misleading bare 0.0.
+                            "release_quality_score_display": (
+                                _a18_seam_outcome.display_quality_score()
+                            ),
                             "safety_floor": _a18_seam_outcome.safety_floor,
                             "adjudicated": False,
                             "body_withheld": False,

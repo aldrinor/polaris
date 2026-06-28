@@ -63,6 +63,19 @@ ACCESS_DENIAL_MARKERS: tuple[str, ...] = (
     "this process is automatic",
     "请完成",  # CN: "please complete (the verification)"
     "人机验证",  # CN: "human-machine verification"
+    # I-deepfix-001 B5 (2026-06-28) — modern anti-bot interstitial vendors. Each is
+    # a challenge-PAGE-specific phrase that never constitutes article prose; gated to
+    # a SHORT body so a security/IT paper merely naming a vendor is not false-dropped.
+    "enable javascript and cookies to continue",  # Cloudflare managed-challenge body
+    "just a moment...",                            # Cloudflare interstitial title
+    "ddos protection by cloudflare",
+    "datadome",                                    # DataDome block page
+    "px-captcha",                                  # PerimeterX / HUMAN challenge
+    "captcha-delivery.com",                        # DataDome CAPTCHA delivery host
+    "powered by perimeterx",
+    "please enable cookies",                       # generic bot-wall
+    "additional security check is required",
+    "blocked by network security",
 )
 
 # UNAMBIGUOUS challenge-page signatures that NEVER co-occur in real article prose, safe to
@@ -78,6 +91,18 @@ CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
     # article discussing bot detection cannot trip it.
     ("just a moment", "this page is displayed while the website verifies you are not a bot"),
     ("performing security verification", "protect against malicious bots"),
+    # I-deepfix-001 B5 (2026-06-28) — Anubis proof-of-work anti-scraper wall (the
+    # increasingly common open-source AI-scraper deterrent). Its interstitial copy
+    # is unambiguous chrome that NEVER appears in real article prose; ALL-of so a
+    # paper merely discussing scraping/PoW cannot trip it.
+    ("anubis", "proof-of-work"),
+    ("making sure you're not a bot", "scraping"),
+    ("set up anubis", "protect the server"),
+    ("scourge of ai companies", "aggressively scraping"),
+    # Modern vendor block pages — vendor name + the block/verification CTA co-occur.
+    ("datadome", "you have been blocked"),
+    ("perimeterx", "press & hold"),
+    ("verifying you are human", "needs to review the security of your connection"),
 )
 
 # I-beatboth-001 iter-2 (replay-found on the real drb_78 corpus) — ADDITIONAL any-length signatures

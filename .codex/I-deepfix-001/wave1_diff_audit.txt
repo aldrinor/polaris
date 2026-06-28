@@ -1,0 +1,15 @@
+No findings in the scoped re-verify.
+
+The P0 fail-open fix is correct: `_similarity_scores` now signals scorer infrastructure failure with `None`, while true empty/degenerate snippet vectors still produce real `0.0` scores. Both `filter_search_results` and `_semantic_relevance_scores` handle `None` as fallback/keep behavior rather than below-threshold drops, and surviving anchors preserve genuine `0.0` row scores.
+
+The P2a directive regex is narrowed as requested. The removed research verbs no longer make phrases like “return-to-work outcomes”, “output of the assay”, or “ensure adequate dosing” directive clauses, while `ignore previous`, `please respond only`, `do not view`, `output format`, and `respond only` remain caught through the opener or marker checks.
+
+Static review only; I did not run tests.
+
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

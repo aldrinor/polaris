@@ -30,24 +30,27 @@ def _counting_llm(reply: str):
     return llm, state
 
 
-def test_flag_default_off_and_on():
-    """Default (unset) => OFF; recognised truthy values => ON."""
+def test_flag_default_on_and_off():
+    """I-deepfix-001 B3 (2026-06-28): default (unset) => ON (the prompt-injection-
+    inversion fix made front-running the intent frame a P0); explicit off-values
+    => OFF."""
     import os
 
     os.environ.pop(ifr._ENV_FLAG, None)
-    assert ifr.intent_frame_enabled() is False
+    assert ifr.intent_frame_enabled() is True  # default ON now
     for truthy in ("1", "true", "TRUE", "yes", "on"):
         os.environ[ifr._ENV_FLAG] = truthy
         try:
             assert ifr.intent_frame_enabled() is True, truthy
         finally:
             os.environ.pop(ifr._ENV_FLAG, None)
-    # an unrecognised value stays OFF (fail-safe legacy)
-    os.environ[ifr._ENV_FLAG] = "maybe"
-    try:
-        assert ifr.intent_frame_enabled() is False
-    finally:
-        os.environ.pop(ifr._ENV_FLAG, None)
+    # explicit off-values turn it OFF (revert to byte-identical legacy path)
+    for falsy in ("0", "false", "FALSE", "no", "off", "disabled"):
+        os.environ[ifr._ENV_FLAG] = falsy
+        try:
+            assert ifr.intent_frame_enabled() is False, falsy
+        finally:
+            os.environ.pop(ifr._ENV_FLAG, None)
 
 
 def test_enabled_valid_emits_frame_and_canary(monkeypatch, caplog):
@@ -133,8 +136,10 @@ def test_enabled_unparseable_json_raises(monkeypatch):
 
 
 def test_disabled_is_noop_and_never_calls_llm(monkeypatch, caplog):
-    """disabled (default) -> None, llm NEVER called, no canary (byte-identical, $0)."""
-    monkeypatch.delenv(ifr._ENV_FLAG, raising=False)
+    """disabled (explicit OFF) -> None, llm NEVER called, no canary (byte-identical,
+    $0). I-deepfix-001 B3 flipped the DEFAULT to ON, so the OFF path is now reached
+    via an explicit ``PG_SCOPE_INTENT_FRAME=0``."""
+    monkeypatch.setenv(ifr._ENV_FLAG, "0")
     llm, state = _counting_llm(json.dumps({"questions": ["x"], "domain": "general"}))
     with caplog.at_level(logging.INFO, logger="src.polaris_graph.nodes.intent_frame"):
         result = ifr.run_intent_frame("some prompt", llm)

@@ -75,8 +75,31 @@ class FilterResult:
     total_rejected: int
 
 
+# I-deepfix-001 B1 (2026-06-28): the relevance embedder is the LOCKED slate
+# Qwen3-Embedding-8B, NOT MiniLM. `evidence_selector._get_semantic_embedder`
+# reuses THIS loader, so repointing it here repoints the entire B1/B4 relevance
+# story (one embedder = one relevance scale). Env-overridable (LAW VI); MiniLM
+# was the silent off-topic-survival root (a 384-dim MiniLM cosine cannot resolve
+# clinical topicality the way the slate 8B model does).
+_DEFAULT_EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
+
+
+def _embed_model_name() -> str:
+    """The relevance embedder id — LOCKED slate Qwen3-Embedding-8B by default,
+    env-overridable via ``PG_EMBED_MODEL`` (LAW VI)."""
+    return (os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL).strip()
+            or _DEFAULT_EMBED_MODEL)
+
+
 def _load_embedder() -> Any:
-    """Lazy-load the embedding service. Returns None on import failure."""
+    """Lazy-load the relevance embedding model. Returns None on load failure
+    (the caller fails OPEN — keeps all candidates — never a silent off-topic
+    keep at a wrong scale).
+
+    The model id is ``PG_EMBED_MODEL`` (default: the locked slate
+    ``Qwen/Qwen3-Embedding-8B``). The ``EmbeddingService`` indirection is kept
+    as an optional primary for callers that wire it, but the SentenceTransformer
+    path on the env-pinned model is the production loader."""
     try:
         from src.polaris_graph.agents.nli_verifier import (  # type: ignore
             EmbeddingService,
@@ -84,11 +107,13 @@ def _load_embedder() -> Any:
         return EmbeddingService()
     except Exception as exc:
         try:
-            # Fallback: sentence-transformers direct
+            # Production path: sentence-transformers on the env-pinned slate model.
             from sentence_transformers import SentenceTransformer
-            model_name = os.getenv(
-                "PG_EMBED_MODEL",
-                "sentence-transformers/all-MiniLM-L6-v2",
+            model_name = _embed_model_name()
+            logger.info(
+                "[prefetch_offtopic] loading relevance embedder model=%s "
+                "(B1 locked-slate default; PG_EMBED_MODEL overrides)",
+                model_name,
             )
             return SentenceTransformer(model_name)
         except Exception:
@@ -104,11 +129,22 @@ def _similarity_scores(
     embedder: Any,
     query: str,
     snippets: list[str],
-) -> list[float]:
+) -> Optional[list[float]]:
     """Compute cosine similarity between query and each snippet.
 
-    Uses whichever interface the embedder exposes (`embed_batch`,
-    `encode`, or direct call). Returns zeros on failure.
+    Uses whichever interface the embedder exposes (`embed_batch` or `encode`).
+
+    I-deepfix-001 B1 (Codex wave-1 P0): a SCORER/INFRA FAILURE must be SIGNALLED,
+    never laundered into below-threshold 0.0 scores that the caller hard-drops.
+    Returns ``None`` on a whole-batch scoring failure — (a) the embedder exposes no
+    ``embed_batch``/``encode`` interface, (b) the QUERY vector is degenerate
+    (zero-norm), or (c) the encode call raises — so EVERY consumer fails OPEN
+    (keeps candidates / falls back to the lexical scorer), never drops a source on a
+    scoring error (§-1.3: an embedder error must not drop a source).
+
+    A genuinely empty/degenerate SNIPPET vector still scores 0.0 (the documented
+    "no embeddable text -> not relevant" path), distinct from an infra failure.
+    Returns ``[]`` for an empty snippet list.
     """
     if not snippets:
         return []
@@ -124,12 +160,20 @@ def _similarity_scores(
                 snippets, normalize_embeddings=True,
             )
         else:
-            return [0.0] * len(snippets)
+            logger.warning(
+                "[prefetch_offtopic] embedder exposes no embed_batch/encode "
+                "interface — FAIL-OPEN (None), caller keeps candidates."
+            )
+            return None
 
         q = np.asarray(query_vec, dtype="float32").reshape(-1)
         q_norm = np.linalg.norm(q)
         if q_norm < 1e-9:
-            return [0.0] * len(snippets)
+            logger.warning(
+                "[prefetch_offtopic] degenerate (zero-norm) query vector — "
+                "FAIL-OPEN (None), caller keeps candidates."
+            )
+            return None
         q = q / q_norm
 
         sims: list[float] = []
@@ -137,16 +181,19 @@ def _similarity_scores(
             s = np.asarray(vec, dtype="float32").reshape(-1)
             s_norm = np.linalg.norm(s)
             if s_norm < 1e-9:
+                # Genuinely empty/degenerate SNIPPET text -> "no relevance" (a real
+                # 0.0), NOT an infra failure. Documented no-embeddable-text path.
                 sims.append(0.0)
             else:
                 sims.append(float(q @ (s / s_norm)))
         return sims
     except Exception as exc:
         logger.warning(
-            "[prefetch_offtopic] similarity failed: %s — returning zeros",
+            "[prefetch_offtopic] similarity scoring FAILED: %s — FAIL-OPEN "
+            "(None), caller keeps candidates / falls back to lexical.",
             str(exc)[:200],
         )
-        return [0.0] * len(snippets)
+        return None
 
 
 def filter_search_results(
@@ -205,6 +252,20 @@ def filter_search_results(
 
     snippets = [c.snippet_text or "" for c in candidates]
     sims = _similarity_scores(embedder, anchor, snippets)
+    if sims is None:
+        # I-deepfix-001 B1 (Codex wave-1 P0): a scorer/infra failure must FAIL OPEN
+        # — keep every candidate, never hard-drop on a scoring error. The looser
+        # post-fetch filter remains the second line of defense.
+        logger.warning(
+            "[prefetch_offtopic] scorer unavailable (infra failure) — FAIL-OPEN, "
+            "passing all %d candidates",
+            len(candidates),
+        )
+        return FilterResult(
+            kept=list(candidates), rejected=[], threshold_used=threshold,
+            total_in=len(candidates), total_kept=len(candidates),
+            total_rejected=0,
+        )
 
     kept: list[SearchCandidate] = []
     rejected: list[tuple[SearchCandidate, float, str]] = []

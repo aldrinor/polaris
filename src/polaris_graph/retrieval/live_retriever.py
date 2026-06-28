@@ -3450,14 +3450,14 @@ def _rerank_and_reserve(
 # keep-all). That ``None`` IS the shared infra-failure signal: B4 no longer
 # hand-rolls a self-similarity canary (deleted in iter-3) — the canary would have
 # been a B4-private divergence from B1's contract, the exact drift Codex flagged.
-# RECONCILIATION NOTE (conscious, iter-3): `prefetch_offtopic_filter._similarity_scores`
-# SWALLOWS its three internal infra failures (no embedder interface / zero-norm
-# query / encode exception) and returns all-zeros WITHOUT raising, so neither B1 NOR
-# B4 returns ``None`` on that rare loaded-embedder-but-zeroed case — both return an
-# all-0.0 score set and drop every non-seed. That degrades LOUDLY to a downstream
-# corpus-adequacy abort (a visible empty-corpus failure, never a confidently-wrong
-# report), and it matches B1's own behavior exactly. A canary belongs in B1's SHARED
-# scorer (one place, one story) if it is wanted at all — it is NOT re-added here.
+# FAIL-OPEN (I-deepfix-001, Codex wave-1 P0): `prefetch_offtopic_filter._similarity_scores`
+# now SIGNALS its three internal infra failures (no embedder interface / zero-norm
+# query / encode exception) by returning ``None`` instead of all-zeros. B1's
+# `_semantic_relevance_scores` propagates that as ``None`` when EVERY anchor fails,
+# so B4 here falls back LOUDLY to the legacy lexical `_rerank_and_reserve` (keeps the
+# candidates) on a scorer/embedder failure — it NEVER mass-drops the corpus on an
+# embedder hiccup. A genuinely empty/text-less SNIPPET still scores a real 0.0 and
+# drops (the documented no-embeddable-text path), distinct from an infra failure.
 #
 # CREDIBILITY/TIER IS NEVER A DROP HERE — only TOPICAL relevance gates (off-topic
 # is useless at any weight). The faithfulness engine (strict_verify / 4-role D8 /
@@ -3484,12 +3484,18 @@ def _rerank_and_reserve(
 # inside `_relevance_gate_threshold` so the OFF path never imports evidence_selector.
 
 def _relevance_gate_enabled() -> bool:
-    """Kill-switch `PG_RETRIEVAL_RELEVANCE_GATE` (default OFF). ON only on an
-    explicit truthy ('1'/'true'/'yes'/'on'). OFF (incl. unset / any other value)
-    => the legacy `_rerank_and_reserve` count-cut runs byte-identically AND the
-    semantic embedder is never imported."""
-    raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "0").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    """Kill-switch `PG_RETRIEVAL_RELEVANCE_GATE`.
+
+    DEFAULT ON (I-deepfix-001 B1 keystone, 2026-06-28): the pre-fetch topical
+    threshold replaces the blind `_rerank_and_reserve` COUNT-cut that silently
+    cut on-topic candidates beyond the fetch budget. Off-topic is the one axis
+    §-1.3 permits to gate (useless at any weight); the above-threshold-beyond-
+    budget tail is RECORDED (RelevanceGateResult.unfetched_relevant_tail), never
+    lost. Set `PG_RETRIEVAL_RELEVANCE_GATE=0` (or off/false/no) to revert to the
+    byte-identical legacy count-cut (the semantic embedder is then never imported,
+    preserving `test_no_embedder_model_loaded` on the OFF path)."""
+    raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "disabled", "")
 
 
 def _relevance_gate_threshold() -> float:

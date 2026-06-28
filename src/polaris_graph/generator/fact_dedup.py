@@ -370,9 +370,14 @@ _PROSE_NO_MATCH: frozenset = frozenset()
 
 
 def _prose_dedup_enabled() -> bool:
-    """PG_FACT_DEDUP_PROSE gate. DEFAULT-OFF => build_groups is byte-identical (the prose pass is
-    entirely skipped). ON => the empty-numeric-signature sentences are clustered by prose Jaccard."""
-    return os.getenv(PROSE_DEDUP_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+    """PG_FACT_DEDUP_PROSE gate. B15 (#1359) FLIP-ON: DEFAULT-ON now — the in-tree Jaccard prose
+    path is the deterministic, dep-free fallback consolidation winner (clusters the empty-numeric-
+    signature sentences that the numeric path skips, killing the degenerate one-fact-~10x repetition).
+    It routes through the UNCHANGED keep-all cross-ref rewrite (every citation of every clustered
+    sentence is preserved — §-1.3 consolidate-keep-all) and is re-verified by strict_verify at the
+    rewrite seam, so faithfulness is untouched. LAW VI kill-switch: set PG_FACT_DEDUP_PROSE=0 to
+    restore the byte-identical legacy (prose pass skipped)."""
+    return os.getenv(PROSE_DEDUP_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _read_prose_jaccard() -> float:
@@ -536,11 +541,22 @@ def _consolidation_nli_enabled_factdedup() -> bool:
     sentences and routes them through the cross-ref REWRITE — a CONTENT-LOSSY path
     (opposite direction to multi-citation) and currently UNVALIDATED by the §-1.4
     fire-test. The dedicated sub-flag prevents the master flag (which activates the
-    faithful finding_dedup consolidation) from SILENTLY also activating this lossy prose
-    path on a future flag-flip. DEFAULT-OFF on either flag => ``build_groups`` is
-    byte-identical. Single source of truth for the master gate lives in
-    ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the cross-encoder."""
-    if os.getenv("PG_CONSOLIDATION_NLI_PROSE", "0").strip().lower() in ("", "0", "false", "off", "no"):
+    faithful finding_dedup consolidation) from SILENTLY also activating this prose
+    path on a future flag-flip.
+
+    B15 (#1359) FLIP-ON: the sub-flag ``PG_CONSOLIDATION_NLI_PROSE`` now DEFAULTS-ON, so when the
+    master ``PG_CONSOLIDATION_NLI`` cross-encoder winner is active the bidirectional-NLI prose path
+    fires too (it is the primary same-claim consolidation that the Jaccard floor leaves separate —
+    killing the degenerate one-fact-~10x repetition). The I-wire-014 (#1335) FIX-D guards
+    (DIRECT mutual-entailment edge + same section + same citation SET + numbers ⊆ primary) held
+    distinct_claims_preserved_rate = 1.0, so this path is no longer "unvalidated/lossy": it routes
+    through the UNCHANGED keep-all cross-ref rewrite (every citation preserved, §-1.3 consolidate)
+    and is re-verified by strict_verify. The MASTER flag still gates it: if ``PG_CONSOLIDATION_NLI``
+    is OFF this stays OFF (no cross-encoder ever loaded). LAW VI kill-switch:
+    PG_CONSOLIDATION_NLI_PROSE=0 restores the byte-identical legacy. Single source of truth for the
+    master gate lives in ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the
+    cross-encoder when the sub-flag/master is off."""
+    if os.getenv("PG_CONSOLIDATION_NLI_PROSE", "1").strip().lower() in ("", "0", "false", "off", "no"):
         return False
     from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
         consolidation_nli_enabled,
