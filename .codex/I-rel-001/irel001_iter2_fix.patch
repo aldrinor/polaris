@@ -1,0 +1,35 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 354a1f56..e6d8f57e 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -14709,6 +14709,19 @@ async def run_one_query(
+                 and not getattr(_final_outcome, "body_withheld", False)
+             ):
+                 try:
++                    # I-rel-001 iter-2 fix: `four_role_result` is bound ONLY when the D8/seam
++                    # block ran; on a D8-never-fired path (the exact case A18 fires on) it is
++                    # UNBOUND. The original direct reference raised UnboundLocalError -> the reroute
++                    # crashed into the except below -> fell through to the legacy hold (failed safe
++                    # but never released-with-label). Default coverage to 0.0 when unbound: the
++                    # fabrication SCREEN (body_withheld), not coverage_fraction, gates ship; coverage
++                    # only feeds the disclosed release_quality_score, so 0.0 is honest-conservative.
++                    try:
++                        _a18_coverage = float(
++                            getattr(four_role_result, "coverage_fraction", 0.0) or 0.0
++                        )
++                    except NameError:
++                        _a18_coverage = 0.0
+                     (
+                         _a18_seam_outcome,
+                         _a18_body_withheld,
+@@ -14718,9 +14731,7 @@ async def run_one_query(
+                         evidence_for_gen=evidence_for_gen,
+                         is_clinical=_clinical_verified_only_surface,
+                         seam_held_reason="d8_unadjudicated_release_invariant",
+-                        coverage_fraction=float(
+-                            getattr(four_role_result, "coverage_fraction", 0.0) or 0.0
+-                        ),
++                        coverage_fraction=_a18_coverage,
+                     )
+                 except Exception as _a18_screen_exc:  # noqa: BLE001 — screen could not run -> hold
+                     # The standalone fabrication screen itself could not run. Do NOT ship un-screened
