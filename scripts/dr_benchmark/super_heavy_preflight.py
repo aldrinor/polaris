@@ -21,10 +21,7 @@ and fails CLOSED (raises ``GateError``) before any token is spent:
          (make_openrouter_credibility_caller) on PG_CREDIBILITY_JUDGE_MODEL, but ONLY when the
          credibility redesign is active in this run (PG_SWEEP_CREDIBILITY_REDESIGN) — probe-alive
          must match production activation.
-  3. STORM/discovery is non-empty — a real, minimal STORM persona-discovery call returns
-     >= PG_PREFLIGHT_MIN_STORM_PERSONAS personas (default 2 for the cheap probe). The discovery
-     generate_structured path the drb_72 collapse silently killed.
-  3b. RETRIEVAL BREADTH goes WIDE (I-preflight-002 #1169) — ONE real query through the PRODUCTION
+  3. RETRIEVAL BREADTH goes WIDE (I-preflight-002 #1169) — ONE real query through the PRODUCTION
      discovery functions (`_serper_search` + `_s2_bulk_search`, the EXACT functions run_one_query drives
      via run_live_retrieval) with the run's ACTUAL breadth budget (PG_SWEEP_MAX_SERPER /
      PG_SWEEP_MAX_S2 + the PG_SERPER_TOTAL_PER_QUERY pagination budget — the LIVE PG_SWEEP_* knobs, NOT
@@ -44,7 +41,7 @@ and fails CLOSED (raises ``GateError``) before any token is spent:
      provider failover, journal-only gated by source_restriction.
 
 OFFLINE-TESTABLE: every live probe is DEPENDENCY-INJECTED (a callable kwarg with a real default), so
-the OFFLINE smoke exercises the fail-closed logic (a dead slug / empty STORM / absent chromium ->
+the OFFLINE smoke exercises the fail-closed logic (a dead slug / throttled breadth / absent chromium ->
 GateError) WITHOUT real network or spend. The LIVE invocation (real defaults) runs pre-spend on the
 real Gate-B run.
 
@@ -95,11 +92,9 @@ _BREADTH_PROBE_RETRIES = int(os.getenv("PG_BREADTH_PROBE_RETRIES", "2"))
 # Short fixed backoff (seconds) between breadth-probe attempts. Env-overridable per LAW VI.
 _BREADTH_PROBE_RETRY_BACKOFF_S = float(os.getenv("PG_BREADTH_PROBE_RETRY_BACKOFF_S", "1.0"))
 
-# I-preflight-002 (#1169) STORM-FIRED floor (LAW VI, env-overridable). The cheap STORM probe requests
-# target_count=2 personas; require at least this many to fire. Default 2 — the probe is intentionally
-# cheap (the breadth probe is the real wide-run signal), so the STORM floor only proves the
-# persona-discovery generate_structured path produces its requested minimum, not a large count.
-_PREFLIGHT_MIN_STORM_PERSONAS = int(os.getenv("PG_PREFLIGHT_MIN_STORM_PERSONAS", "2"))
+# (The I-preflight-002 STORM-fired floor _PREFLIGHT_MIN_STORM_PERSONAS was removed under I-deepfix-001
+# K5: STORM is killed in the winners-only purity build, so the persona-discovery probe + its floor were
+# deleted. The retrieval-breadth probe below remains the real wide-run signal and is NOT STORM.)
 
 
 def credibility_redesign_active() -> bool:
@@ -428,27 +423,6 @@ def _default_credibility_judge_probe() -> str | None:
     )
 
 
-async def _default_storm_probe() -> int:
-    """REAL, minimal STORM persona-discovery call — returns the persona count. >0 proves STORM's
-    discovery generate_structured path is alive and produces non-empty output (the path the drb_72
-    collapse silently killed). Uses the EXACT production constructor (PG_GENERATOR_MODEL client +
-    _discover_perspectives), capped to 2 personas to stay cheap."""
-    from src.polaris_graph.agents.storm_interviews import _discover_perspectives
-    from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL, OpenRouterClient
-
-    client = OpenRouterClient(model=PG_GENERATOR_MODEL)
-    try:
-        personas = await _discover_perspectives(
-            client,
-            query="metformin efficacy in type 2 diabetes",
-            existing_context="(preflight probe)",
-            target_count=2,
-        )
-        return len(personas or [])
-    finally:
-        await client.close()
-
-
 def _default_breadth_probe() -> int:
     """I-preflight-002 (#1169): run ONE real query through the PRODUCTION discovery functions and return
     the count of UNIQUE candidate URLs. This is the THROTTLE-REGRESSION signal — a wide run returns
@@ -587,7 +561,6 @@ async def super_heavy_preflight(
     generator_slug_probe: Callable[[], Awaitable[bool]] = _default_generator_slug_probe,
     verifier_slug_probe: Callable[[], Mapping[str, str]] = _default_verifier_slug_probe,
     credibility_judge_probe: Callable[[], str | None] = _default_credibility_judge_probe,
-    storm_probe: Callable[[], Awaitable[int]] = _default_storm_probe,
     breadth_probe: Callable[[], int] = _default_breadth_probe,
     chromium_probe: Callable[[], Awaitable[None]] = _default_chromium_probe,
     false_alarm_asserts: Callable[[], list[str]] = _default_false_alarm_asserts,
@@ -607,11 +580,11 @@ async def super_heavy_preflight(
       4. generator slug alive (generate_structured on PG_GENERATOR_MODEL).
       5. every verifier slug alive in its production call shape (mode-aware resolution).
       6. credibility judge slug alive (only when the redesign is active this run).
-      7. STORM/discovery fired (a real minimal persona-discovery call returns
-         >= PG_PREFLIGHT_MIN_STORM_PERSONAS).
-      8. retrieval breadth goes WIDE (I-preflight-002 #1169) — ONE real query through the production
+      7. retrieval breadth goes WIDE (I-preflight-002 #1169) — ONE real query through the production
          discovery functions returns >= PG_PREFLIGHT_MIN_BREADTH unique candidate URLs (the
          single most important new check: it proves the wide path is active, not silently throttled).
+         (The former STORM persona-discovery probe was removed under I-deepfix-001 K5 — STORM is killed
+         in the winners-only purity build; this breadth probe is NOT STORM.)
     """
     summary: dict = {}
 
@@ -688,25 +661,11 @@ async def super_heavy_preflight(
         )
     summary["credibility_judge"] = cred_slug if cred_slug is not None else "inactive_this_run"
 
-    # 7. STORM / discovery non-empty --------------------------------------------------------------
-    try:
-        n_personas = await storm_probe()
-    except GateError:
-        raise
-    except Exception as exc:
-        raise GateError(
-            f"super-heavy preflight: STORM discovery probe failed ({type(exc).__name__}: {exc}) — fail "
-            f"closed BEFORE spend."
-        )
-    if n_personas < _PREFLIGHT_MIN_STORM_PERSONAS:
-        raise GateError(
-            f"super-heavy preflight: STORM persona-discovery returned {n_personas} personas "
-            f"(< {_PREFLIGHT_MIN_STORM_PERSONAS} required) — discovery is degraded (the drb_72 "
-            f"silent-collapse class). Aborting BEFORE spend."
-        )
-    summary["storm_personas"] = n_personas
-
-    # 8. retrieval breadth goes WIDE (I-preflight-002 #1169) — the throttle-regression signal --------
+    # 7. retrieval breadth goes WIDE (I-preflight-002 #1169) — the throttle-regression signal --------
+    # (The former STORM persona-discovery probe was removed under I-deepfix-001 K5: STORM is killed in
+    # the winners-only purity build, so an "n_personas < floor" raise would FAIL every run for the
+    # mandated reason rather than against it. Breadth is now proved by the independent discovery-URL
+    # probe below, which is NOT STORM — it drives the production _serper_search / _s2_bulk_search path.)
     try:
         n_candidates = breadth_probe()
     except GateError:

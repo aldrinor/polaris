@@ -48,6 +48,7 @@ import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side 
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -515,9 +516,45 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # pages = up to 3 Serper pages/query.
     "PG_SERPER_TOTAL_PER_QUERY": "60",
     "PG_SERPER_MAX_PAGES": "3",
-    # Feature activation that Gate-B previously MISSED (STORM was dead-by-config; deepener off).
-    "PG_STORM_ENABLED_IN_BENCHMARK": "1",
-    "PG_SWEEP_EVIDENCE_DEEPENER": "1",
+    # I-deepfix-001 (#1344) PURITY BUILD: STORM + the evidence deepener are LOSERS — killed. STORM is the
+    # core loser the operator saw fire (interview/query-expansion engine); the deepener is a non-winner
+    # bolt-on (operator decision: breadth EMERGES from FS-Researcher + WRRF, not a snowball deepener).
+    # Slate "0" + removed from FORCE_ON + REQUIRED + added to FORCE_EXACT "0" + REQUIRED_OFF below so the
+    # preflight FAILS CLOSED if either is ever re-armed.
+    "PG_STORM_ENABLED_IN_BENCHMARK": "0",
+    "PG_SWEEP_EVIDENCE_DEEPENER": "0",
+    # I-deepfix-001 (#1344) PURITY — the remaining LOSER kill-switches that the slate previously did NOT
+    # carry. force-EXACT "0" here (each is in _BENCHMARK_FORCE_EXACT_FLAGS) so a stray operator/.env value
+    # cannot re-arm them past the slate; each is also asserted in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
+    # (the NO-LOSER gate fails CLOSED if any resolves truthy). PG_SWEEP_QUERY_DECOMPOSE defaults ON in the
+    # run path (query_decomposer) so it MUST be slate-pinned 0 to die; the other two are dark-but-unguarded.
+    "PG_SWEEP_QUERY_DECOMPOSE": "0",        # K9 legacy q1d query_decompose (default-ON consumer; kill at source)
+    "PG_QGEN_ITERRESEARCH": "0",            # K10 IterResearch driver (superseded by FS-Researcher W2)
+    "PG_USE_RESEARCH_PLANNER": "0",         # K11 legacy facet query-gen (dark, unguarded → pin off)
+    # I-deepfix-001 (#1344) PURITY (Codex P2-agentic-force-exact-dead-metadata): K7 agentic URL-discovery
+    # (STORM's twin loser) was force-EXACT-listed but was NOT a slate-dict member — so apply_slate's dict
+    # loop never visited it and could NOT force-zero it (only the paid run_gate_b_query path force-set it
+    # "0" at the os.environ line below). Add it to the slate dict as "0" so apply_full_capability_benchmark_
+    # slate GENUINELY force-zeroes it (it is in _BENCHMARK_FORCE_EXACT_FLAGS → the dict loop hard-overrides),
+    # making STANDALONE apply-slate callers (tests / the offline path) safe too — not just the paid path.
+    # Also in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS (NO-LOSER fails CLOSED if re-armed).
+    "PG_AGENTIC_SEARCH_IN_BENCHMARK": "0",  # K7 agentic URL-discovery (STORM's twin; slate force-zero)
+    # I-deepfix-001 (#1344) PURITY — ALSO pin the storm_interviews MODULE flag off. The benchmark gate
+    # PG_STORM_ENABLED_IN_BENCHMARK (above) is what the run-path guard keys on, but the module's own
+    # PG_STORM_ENABLED (storm_interviews.py:42, read at import) is a SECOND arm — the operator .env carries
+    # PG_STORM_ENABLED=1, which is HARMLESS on Gate-B (the run path keys on the benchmark gate, not this) but
+    # leaves the module looking pre-armed. Pin it "0" so the engine is provably disarmed at BOTH arms; the
+    # NO-LOSER gate asserts the EFFECTIVE env (the import-time module attr is a test-order artifact).
+    "PG_STORM_ENABLED": "0",                # storm_interviews module flag (defense-in-depth dual-arm kill)
+    # I-deepfix-001 (#1344) PURITY — the WINNER / mirror-model selectors the live consumer reads but the
+    # slate left unpinned. PG_EMBED_MODEL (NOT PG_EMBEDDER_MODEL) is the var the live relevance/off-topic +
+    # selection embedder loader reads; PG_ENTAILMENT_MODEL / PG_EVALUATOR_MODEL pin the live faithfulness
+    # judge + external evaluator to the §9.1.8 locked mirror so a gemma slug can never drift in. force-EXACT
+    # (in _BENCHMARK_FORCE_EXACT_FLAGS) + value-equals asserted in _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS.
+    # FAITHFULNESS-NEUTRAL: a model SELECTION; the FROZEN faithfulness engine re-checks every claim.
+    "PG_EMBED_MODEL": "Qwen/Qwen3-Embedding-8B",   # K12 live relevance embedder (else silent MiniLM)
+    "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",         # gemma-pin: live NLI / semantic-conflict judge mirror
+    "PG_EVALUATOR_MODEL": "z-ai/glm-5.2",          # gemma-pin: external evaluator mirror
     # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
     "PG_ENABLE_TOOL_TRACKER": "1",
     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
@@ -615,7 +652,7 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # drift (NOT part of the ~1000-URL sum — these count search queries, not URLs). STORM benchmark-query
     # cap (read at run_honest_sweep_r3.py:2626) + sub-query decomposition cap (query_decomposer.py:39).
     # Both floor-guarded in _BENCHMARK_PREFLIGHT_FLOORS below.
-    "PG_STORM_MAX_BENCHMARK_QUERIES": "30",
+    "PG_STORM_MAX_BENCHMARK_QUERIES": "0",  # I-deepfix-001 (#1344) PURITY: STORM is dead — 0 the query cap (dies with the engine)
     "PG_MAX_SUBQUERIES": "15",
     # Agentic per-round web breadth (was stuck at 6 via the PG_WEB_PER_ROUND typo).
     "PG_AGENTIC_WEB_PER_ROUND": "10",
@@ -797,7 +834,9 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # SAME gate to the UNDER-fire case: STORM force-on FIRED but produced FEWER than this many effective
     # (post-validator) queries — a thin-corpus collapse that would otherwise ship green. Discovery-health
     # only (faithfulness-neutral). Read at the run_honest_sweep_r3.py compute_run_health_gate call site.
-    "PG_STORM_MIN_EFFECTIVE_QUERIES": "12",
+    # I-deepfix-001 (#1344) PURITY: STORM is dead — 0 the under-fire floor so the INVERTED run-health
+    # abort_discovery_degraded can never trip on a (correctly) absent STORM. PG_RUN_HEALTH_GATE stays ON.
+    "PG_STORM_MIN_EFFECTIVE_QUERIES": "0",
     # ─────────────────────────────────────────────────────────────────────────────────────────────
     # I-beatboth-fix-000 (#1171) RETRIEVAL-BREADTH cluster — widen DISCOVERY (candidates), and keep total
     # FETCH at the hard 1000 envelope by ABSORBING the new STORM seed lane into the budget: the FETCH
@@ -828,7 +867,9 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # PG_STORM_URL_CAP bounds the harvest; PG_STORM_URL_FETCH_CAP (60) bounds the SEPARATE ADDITIVE
     # STORM fetch lane — disclosed for the operator's ~1000-fetch accounting (this is the one fix that
     # adds fetch beyond the four lanes; bounded small and surfaced, not silently overshooting).
-    "PG_STORM_INGEST_WEB_RESULTS": "1",
+    # I-deepfix-001 (#1344) PURITY: STORM is dead — 0 the seed-URL ingest lane (removed from FORCE_ON +
+    # added to REQUIRED_OFF below). Dies with the engine; this also fails closed if it is ever re-armed.
+    "PG_STORM_INGEST_WEB_RESULTS": "0",
     "PG_STORM_URL_CAP": "200",
     "PG_STORM_URL_FETCH_CAP": "60",
     # BB-007: a REAL Unpaywall contact email so the (default-ON) OA resolver actually fires — the
@@ -1013,7 +1054,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # verbatim abstract+conclusion synthesis. Faithfulness-SAFE: strict_verify + the I-arch-010 tail engine
     # are UNTOUCHED; flag-OFF byte-identical in code. Also in _BENCHMARK_FORCE_ON_FLAGS (force) +
     # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed if any is off before spend).
-    "PG_STORM_OUTLINE_SECTIONS": "1",
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_OUTLINE_SECTIONS is a STORM consumer (the outline scaffold) —
+    # killed to "0" (removed from FORCE_ON + REQUIRED below; NOT in the W14 winner allowlist). Section
+    # structure reverts to research_plan/legacy, which KEEPS the compose=floor_abstractive winner #12
+    # (PG_VERIFIED_COMPOSE) intact — composition is downstream of the scaffold and unchanged. The other 3
+    # composition flags below ARE winners and STAY "1".
+    "PG_STORM_OUTLINE_SECTIONS": "0",
     "PG_BASKET_CORROBORATION_RENDER": "1",
     "PG_VERIFIED_COMPOSE": "1",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION": "1",
@@ -1300,8 +1346,10 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     "PG_SERPER_MAX_PAGES": 2,
     # I-fetch-002 (#1168): floor-guard the two un-guarded QUERY-BREADTH knobs so a conservative .env/
     # operator value cannot silently shrink the search-query fan-out below full capability. These are
-    # query counts, NOT part of the ~1000-URL fetch sum. Floors == the slate values (30/15).
-    "PG_STORM_MAX_BENCHMARK_QUERIES": 30,
+    # query counts, NOT part of the ~1000-URL fetch sum. Floor == the slate value (15).
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_MAX_BENCHMARK_QUERIES floor removed — STORM is dead, no
+    # query-count floor should linger (it is slate "0" + force-EXACT not applicable; the cap dies with
+    # the engine). PG_MAX_SUBQUERIES (the legacy decompose count) keeps its floor.
     "PG_MAX_SUBQUERIES": 15,
     # I-wire-005 B-B (#1319): floor-guard the Phase-7 quantified-spec Writer budgets so a
     # conservative .env/operator value cannot silently starve the spec call below capability and
@@ -1315,7 +1363,9 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
 # explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
 # preflight still passes, letting the paid run go with the evidence deepener silently off.
 _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
-    "PG_STORM_ENABLED_IN_BENCHMARK",
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_ENABLED_IN_BENCHMARK removed — STORM is a LOSER, no longer
+    # required-truthy (a required-truthy flag set to "0" in the slate would itself fail the preflight).
+    # It is instead force-EXACT "0" + REQUIRED_OFF below so the run fails closed if STORM is re-armed.
     # I-beatboth-011 keystone-F1 (#1284): fail-CLOSED if the multi-citation synthesis flag is off before
     # spend — the keystone's central feature must FIRE on the paid run, never be silently wired-but-dead.
     "PG_VERIFIED_COMPOSE_MULTICITED",
@@ -1326,9 +1376,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # NOT here — it would fail the "1"/"true" check.)
     "PG_SPAN_QUALITY_GATE",
     "PG_BLOCK_PAGE_DETECTOR",
-    "PG_SWEEP_EVIDENCE_DEEPENER",
+    # I-deepfix-001 (#1344) PURITY: PG_SWEEP_EVIDENCE_DEEPENER (non-winner bolt-on) and
+    # PG_AGENTIC_SEARCH_IN_BENCHMARK (STORM's twin live-discovery loser) removed from required-truthy —
+    # both are LOSERS, force-EXACT "0" + REQUIRED_OFF below (fail closed if either is re-armed).
     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
-    "PG_AGENTIC_SEARCH_IN_BENCHMARK",
     "PG_NLI_IN_BENCHMARK",
     "PG_ENABLE_TOOL_TRACKER",
     # I-ready-004 (#1078): finding-dedup must be ON for Gate-B — OFF wastes the budget on near-dups.
@@ -1368,7 +1419,8 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # OFF silently renders the OLD composition (no STORM outline scaffold / no keep-all basket render /
     # no per-basket verified-compose / no abstract+conclusion), wasting the run on the pre-rebuild
     # behaviour. Force-ON above; fail the run closed here if a stray operator =0 left any off.
-    "PG_STORM_OUTLINE_SECTIONS",
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_OUTLINE_SECTIONS removed (STORM consumer, killed) — it is
+    # force-EXACT "0" + REQUIRED_OFF below. The other 3 stay required (they are the W12 compose winners).
     "PG_BASKET_CORROBORATION_RENDER",
     "PG_VERIFIED_COMPOSE",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
@@ -1441,11 +1493,11 @@ _BENCHMARK_MIN_COST_CAP_USD = 20.0
 # Codex diff-gate iter-2: feature flags FORCED ON by the slate (a benchmark feature silently off via a
 # conservative .env value is a capability downgrade). Everything else in the slate is a numeric FLOOR.
 _BENCHMARK_FORCE_ON_FLAGS = frozenset({
-    "PG_STORM_ENABLED_IN_BENCHMARK",
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_ENABLED_IN_BENCHMARK + PG_SWEEP_EVIDENCE_DEEPENER removed —
+    # both are LOSERS. They are force-EXACT "0" (in _BENCHMARK_FORCE_EXACT_FLAGS) + REQUIRED_OFF below.
     # I-beatboth-011 keystone-F1 (#1284): force-ON the multi-citation synthesis so a stray operator =0
     # cannot leave the keystone wired-but-dead on the paid run (the Codex-gate false-done).
     "PG_VERIFIED_COMPOSE_MULTICITED",
-    "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_ENABLE_TOOL_TRACKER",
     # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly
     # (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark from running
@@ -1477,7 +1529,8 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # render / PR-c per-basket verified-compose (+ verbatim K-span fallback) / PR-d verbatim abstract+conclusion.
     # Faithfulness-SAFE: strict_verify + the I-arch-010 tail engine UNTOUCHED. Each is also required-truthy in
     # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS so a stray operator =0 fails the run closed before spend.
-    "PG_STORM_OUTLINE_SECTIONS",
+    # I-deepfix-001 (#1344) PURITY: PG_STORM_OUTLINE_SECTIONS removed (STORM consumer, killed) — it is
+    # force-EXACT "0" + REQUIRED_OFF below. The other 3 stay force-ON (W12 compose winners).
     "PG_BASKET_CORROBORATION_RENDER",
     "PG_VERIFIED_COMPOSE",
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",
@@ -1535,8 +1588,8 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # cannot survive the setdefault slate and silently restore the breadth-collapse behaviour.
     # BB-002: keep Serper offset-paging past short pages (else the de-facto 10/query ceiling returns).
     "PG_SERPER_STOP_ON_ZERO_NEW",
-    # BB-006: ingest the STORM interview-search-result URLs as URL-only seed candidates.
-    "PG_STORM_INGEST_WEB_RESULTS",
+    # I-deepfix-001 (#1344) PURITY: BB-006 PG_STORM_INGEST_WEB_RESULTS removed (STORM seed-URL ingest
+    # lane, a LOSER) — slate "0" above + REQUIRED_OFF below (fail closed if re-armed).
     # I-perm-000 (#1194): force-on the ready permanent-fix flags so an explicit operator =0 cannot
     # survive the setdefault slate and silently revert to the pre-fix withhold / DOI-cruft /
     # literal-contraindicated behaviour. (PG_SWEEP_SELECTION_SCALE stays OFF until I-perm-007 grows
@@ -1701,6 +1754,41 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_EMBEDDER_MODEL",
     "PG_RERANKER_MODEL",
     "PG_CONTENT_RELEVANCE_RERANKER_MODEL",
+    # I-deepfix-001 (#1344) PURITY — force-EXACT the LOSER kill-switches to "0" so a stray operator/.env
+    # value can NEVER re-arm a killed loser past the slate. Each is also in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
+    # (the NO-LOSER gate fails CLOSED if any resolves truthy). STORM core + its ingest seed-lane are STORM's
+    # twin live-discovery losers; the evidence deepener is a non-winner snowball bolt-on (operator decision:
+    # breadth EMERGES from FS-Researcher + WRRF); agentic URL-discovery is STORM's code-confirmed analogue;
+    # legacy q1d decompose / IterResearch / research-planner are superseded query-gen modules (FS-Researcher
+    # is the sole adaptive qgen winner). Force-EXACT "0" is the de-arm; REQUIRED_OFF is the fail-closed assert.
+    "PG_STORM_ENABLED_IN_BENCHMARK",      # K1 STORM core (the loser the operator saw fire)
+    "PG_STORM_ENABLED",                   # K1 storm_interviews module flag (dual-arm kill)
+    "PG_STORM_INGEST_WEB_RESULTS",        # K3 STORM seed-URL ingest lane
+    "PG_SWEEP_EVIDENCE_DEEPENER",         # K8 citation-snowball deepener (non-winner)
+    "PG_AGENTIC_SEARCH_IN_BENCHMARK",     # K7 agentic URL-discovery (STORM's twin)
+    "PG_SWEEP_QUERY_DECOMPOSE",           # K9 legacy q1d query_decompose (default-ON; kill at source)
+    "PG_QGEN_ITERRESEARCH",               # K10 IterResearch driver (superseded by FS-Researcher)
+    "PG_USE_RESEARCH_PLANNER",            # K11 legacy facet query-gen (dark but unguarded)
+    # I-deepfix-001 (#1344) PURITY (Codex P2-storm-query-cap): the STORM benchmark-query CAP is slate "0"
+    # (STORM is dead — the cap dies with the engine) but was NOT force-EXACT, so its FLOOR-absence left it
+    # vulnerable to a stale higher operator/.env PG_STORM_MAX_BENCHMARK_QUERIES surviving (it is correctly
+    # NOT in _BENCHMARK_PREFLIGHT_FLOORS — NO-LOSER gate A.2 asserts that — and the slate dict only
+    # setdefaults non-force-exact keys, so a stray .env value would WIN). Force-EXACT "0" pins it to the
+    # killed value. SLATE-PURITY skips it (falsy value, not winner-checked); its purity is the "0" pin
+    # here + the run path keying on the dead PG_STORM_ENABLED_IN_BENCHMARK. Faithfulness-neutral (a dead
+    # STORM query knob; STORM never fires).
+    "PG_STORM_MAX_BENCHMARK_QUERIES",     # K1-adjacent: STORM query cap (dead engine; pin the "0")
+    # I-deepfix-001 (#1344) PURITY — force-EXACT the WINNER / mirror-model selectors that the live consumer
+    # reads but the slate previously left unpinned. PG_EMBED_MODEL (NOT PG_EMBEDDER_MODEL) is the var the
+    # live relevance/off-topic + selection embedder loader reads (prefetch_offtopic_filter._embed_model_name);
+    # an operator .env PG_EMBED_MODEL=all-MiniLM-L6-v2 would silently route the live embedder to MiniLM while
+    # the slate-pinned PG_EMBEDDER_MODEL preflight passes GREEN. PG_ENTAILMENT_MODEL / PG_EVALUATOR_MODEL pin
+    # the live faithfulness judge + external evaluator to the §9.1.8 locked mirror (glm-5.2) so a stray gemma
+    # slug can never drift in (the #1249/#1251/#1252 failure class). FAITHFULNESS-NEUTRAL: a model SELECTION
+    # in the retrieval/extraction/judge lane; the FROZEN faithfulness engine re-checks every claim regardless.
+    "PG_EMBED_MODEL",                     # K12 live relevance embedder id (= Qwen3-Embedding-8B)
+    "PG_ENTAILMENT_MODEL",                # gemma-pin: live NLI / semantic-conflict judge (= glm-5.2)
+    "PG_EVALUATOR_MODEL",                 # gemma-pin: external evaluator (= glm-5.2)
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -1708,8 +1796,23 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
 # whole-record-sized window can never reach a paid Gate-B run even if the slate value is ever changed.
 _BENCHMARK_SPAN_WINDOW_MAX_BYTES = 2000
 
+# I-deepfix-001 (#1344) PURITY — the WINNERS-ONLY NO-LOSER set: every boolean loser/legacy that the
+# kill-list de-armed MUST resolve OFF before spend. The REQUIRED_OFF loop in preflight_full_capability
+# fails CLOSED if ANY of these is truthy (a stray operator/.env value re-arming a killed loser). STORM
+# core + ingest + agentic + deepener are the live-discovery / breadth-snowball losers; the three query-gen
+# entries (legacy decompose / IterResearch / research-planner) are the superseded query-gen modules
+# (FS-Researcher W2 is the sole adaptive qgen winner). PG_SWEEP_ANALYST_SYNTHESIS stays (the un-span-verified
+# synthesis layer). Each is ALSO force-EXACT "0" (slate de-arm) — REQUIRED_OFF is the fail-closed assert.
 _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
     "PG_SWEEP_ANALYST_SYNTHESIS",
+    "PG_STORM_ENABLED_IN_BENCHMARK",   # K1 STORM core (the loser the operator saw fire)
+    "PG_STORM_ENABLED",                # K1 storm_interviews module flag (dual-arm kill)
+    "PG_STORM_INGEST_WEB_RESULTS",     # K3 STORM seed-URL ingest lane
+    "PG_AGENTIC_SEARCH_IN_BENCHMARK",  # K7 agentic URL-discovery (STORM's twin)
+    "PG_SWEEP_EVIDENCE_DEEPENER",      # K8 citation-snowball deepener (non-winner)
+    "PG_SWEEP_QUERY_DECOMPOSE",        # K9 legacy q1d query_decompose (default-ON consumer)
+    "PG_QGEN_ITERRESEARCH",            # K10 IterResearch driver (superseded by FS-Researcher)
+    "PG_USE_RESEARCH_PLANNER",         # K11 legacy facet query-gen
 )
 
 # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
@@ -1728,6 +1831,14 @@ _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS: dict[str, str] = {
     "PG_EMBEDDER_MODEL": "qwen3",                                  # W6 embed=Qwen3-Embedding-8B (else MiniLM)
     "PG_RERANKER_MODEL": "qwen3",                                  # W7 rerank=Qwen3-Reranker-4B (else MiniLM/identity)
     "PG_CONTENT_RELEVANCE_RERANKER_MODEL": "Qwen/Qwen3-Reranker-0.6B",  # W5 relevance reranker (0.6B)
+    # I-deepfix-001 (#1344) PURITY — the live-loader / mirror-model selectors the slate left unpinned. The
+    # value-equals assertion (run after the slate) fails CLOSED if a dropped force-EXACT pin or a stray
+    # .env left the live embedder on MiniLM (PG_EMBED_MODEL is the var the live loader actually reads — NOT
+    # the slate-pinned PG_EMBEDDER_MODEL) or the judge/evaluator on a non-mirror (gemma) slug. The gemma
+    # ABSENCE is additionally asserted via the live EntailmentJudge ._model in the NO-LOSER gate below.
+    "PG_EMBED_MODEL": "Qwen/Qwen3-Embedding-8B",                   # K12 live relevance embedder id
+    "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",                         # gemma-pin: live NLI / semantic-conflict judge
+    "PG_EVALUATOR_MODEL": "z-ai/glm-5.2",                          # gemma-pin: external evaluator
 }
 
 # I-wire-001 (#1296): section winners whose MODULE is built + flag-aware but whose CONSUMER is NOT yet
@@ -1754,6 +1865,245 @@ _BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = (
         "flag — NOT slate-forced and NOT preflight-required",
     ),
 )
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) PURITY — the WINNER FIRE-CONTRACT + slate-purity data the 3 serious-preflight gates
+# consume. Built from the purity-registry workflow (file:line-verified vs HEAD); see
+# state/deepfix_purity_buildspec.md "SERIOUS PREFLIGHT — 3 gates".
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+# WINNER-FIRES post-run firing-marker contract: {winner -> a SUCCESS-SPECIFIC predicate that MUST match the
+# run-dir log when that winner GENUINELY fired}. The post-run §-1.1 audit applies each predicate against the
+# run log via ``firing_marker_matched`` and FAILS the run if a WIRED non-conditional winner's GENUINE-fire
+# predicate did not match (flag-on but dark).
+#
+# I-deepfix-001 (#1344) PURITY, Codex diff-gate iter-1 P1 (purity_6b_verdict.txt:P1-winner-firing-contract-
+# false-positive): the prior contract values were BARE substrings that FALSE-PASSED on degraded/premature
+# lines — W12 "[abstractive_writer] pre-pass complete" substring-matched the DEGRADED "pre-pass complete:
+# 0/0 baskets drafted" (drafts=0 = winner did NOT fire); W13 "[multi_section]" matched ~8 unrelated lines
+# (off-list-title-dropped / outline-JSON-decode-failed); W5 matched even when device=unavailable (silent
+# full-weight fallback, no genuine reranker fire); W6/W7 matched a load-START line logged BEFORE the model
+# load succeeded. A bare-substring contract is therefore NOT a reliable deferred WINNER-FIRES proof.
+#
+# FIX: each marker is now a ``_FiringMarker`` predicate — ``must_contain`` (the success-specific substring)
+# PLUS ``forbid`` (degraded / failure / premature substrings that, if present in the SAME log line, prove the
+# winner did NOT genuinely fire). A line counts as a GENUINE fire iff it contains ``must_contain`` AND NONE of
+# ``forbid``. ``conditional=True`` marks data-dependent winners (W4 mineru25 fires only if a clinical PDF was
+# fetched; W10 NLI merge only with >=2 cross-cluster keys) whose ABSENCE is allowed — the audit treats them as
+# conditional-present, never a fail-on-absent. Each ``must_contain`` is file:line-verified against a REAL
+# producer SUCCESS line (see the per-row producer ref) so the contract can never silently point at a phantom
+# string. The matcher ``firing_marker_matched`` is the single source of truth the post-run audit AND the
+# durable section-test both consume, so "tightened to success-specific" is enforced, not merely documented.
+#
+# W9 is DARK (no run-path consumer) and is intentionally ABSENT from this contract — it is handled by the
+# LOUD W9 operator-ack gate, never grep-asserted on the run.
+@dataclass(frozen=True)
+class _FiringMarker:
+    """A SUCCESS-SPECIFIC firing predicate for one winner. A run-log line is a GENUINE fire of the winner iff
+    it contains ``must_contain`` AND contains NONE of ``forbid`` (the degraded / failure / premature twins).
+    ``conditional`` winners fire only data-dependently — their ABSENCE from the log is allowed."""
+    must_contain: str
+    forbid: tuple[str, ...] = ()
+    conditional: bool = False
+
+
+_WINNER_FIRING_MARKER_CONTRACT: dict[str, _FiringMarker] = {
+    # W1 — intent_frame.py:337 "[intent_frame] #scope IntentFrame fired: questions=%d ..." (questions>=1 fire)
+    "W1_scope_intent_frame": _FiringMarker("[intent_frame] #scope IntentFrame fired"),
+    # W2 — run_honest_sweep_r3.py:7989 "[fs_researcher] #1296 FS-Researcher ... issued N queries" (in the
+    # _fs_researcher_enabled() branch; the loser "[iterresearch] #1292" is the else-branch and must be ABSENT).
+    "W2_qgen_fs_researcher": _FiringMarker("[fs_researcher] #1296 FS-Researcher", forbid=("issued 0 queries",)),
+    # W3 — live_retriever.py:4260 "[live_retriever] WRRF FUSED %d engines (...) -> %d unique candidates"
+    "W3_fusion_wrrf": _FiringMarker("[live_retriever] WRRF FUSED"),
+    # W4 — access_bypass.py:4611 "[ACCESS] W4: mineru25 (GPU VLM) extracted %d chars ..." (CONDITIONAL: only
+    # when a clinical PDF was fetched; absence is allowed, never a fail-on-absent).
+    "W4_clinical_pdf_mineru25": _FiringMarker("[ACCESS] W4: mineru25 (GPU VLM) extracted", conditional=True),
+    # W5 — live_retriever.py:4699 "[live_retriever] W2 content-relevance: scored=%d ... device=%s". FORBID
+    # device=unavailable: a load FAILURE stamps device='unavailable' = silent full-weight fallback (NO genuine
+    # reranker fire), and that line still carries "scored=" — so the bare substring false-passed. (Codex P1)
+    "W5_relevance_content_judge": _FiringMarker(
+        "[live_retriever] W2 content-relevance: scored=", forbid=("device=unavailable",)
+    ),
+    # W6 — prefetch_offtopic_filter.py:114 "[prefetch_offtopic] loading relevance embedder model=Qwen/Qwen3-
+    # Embedding-8B ...". The model id appears ONLY on this load line (the 8B-not-MiniLM proof). FORBID the
+    # load-failure twin prefetch_offtopic_filter.py:121 "[prefetch_offtopic] Embedder not available" — if the
+    # SentenceTransformer construct on the next line raised, that warning fires and the embedder is None
+    # (silent lexical degrade). must_contain + absent-failure-twin = the success-specific 8B-loaded proof. (P1)
+    "W6_embed_qwen3_8b": _FiringMarker(
+        "[prefetch_offtopic] loading relevance embedder model=Qwen/Qwen3-Embedding-8B",
+        forbid=("[prefetch_offtopic] Embedder not available",),
+    ),
+    # W7 — qwen_reranker_scorer.py:94 "[qwen-reranker] loading Qwen/Qwen3-Reranker-4B on %s (causal-LM ...)".
+    # The 4B id appears only on this load line (the 4B-not-MiniLM proof); the load is wrapped so a raise
+    # propagates (no silent-degrade twin on this tag). Gated by reranker-ON, so absence on a reranker-off
+    # sub-path is benign; when the reranker IS invoked this is the genuine 4B-load fire. (Codex P1)
+    "W7_rerank_qwen3_4b": _FiringMarker("[qwen-reranker] loading Qwen/Qwen3-Reranker-4B"),
+    # W8 — credibility_llm_tiering.py:300 "[credibility_llm_tiering] tiered via GLM: ... llm_success=%d".
+    # Already success-gated by the producer (llm_success>0); the DEGRADED twin logs "DEGRADED (rules-floor
+    # only)" / "GLM tiering did NOT fire" under the SAME tag, so FORBID it belt-and-suspenders. (Codex did NOT
+    # flag W8 — already correct; the forbid is defense-in-depth, never weakens it.)
+    "W8_cred_llm_tiering": _FiringMarker(
+        "[credibility_llm_tiering] tiered via GLM", forbid=("DEGRADED (rules-floor only)",)
+    ),
+    # W10 — consolidation_nli.py:125 "[consolidation_nli] loading cross-encoder %s" (CONDITIONAL: only when
+    # >=2 cross-cluster keys exist; absence is allowed).
+    "W10_consolidate_nli": _FiringMarker("[consolidation_nli] loading cross-encoder", conditional=True),
+    # W11 — run_honest_sweep_r3.py:8278 "[crag-adequacy] classifier verdict=%s sufficient=%s". FORBID
+    # verdict=error (crag_adequacy_loop.py:360 returns verdict="error" on a raised classifier call — the
+    # classifier did NOT genuinely grade) and verdict=unparseable (crag_adequacy_loop.py:310 conservative
+    # not-sufficient on an unparseable grade). A genuine fire is verdict in {correct,ambiguous,incorrect}. (P1)
+    "W11_adequacy_crag": _FiringMarker(
+        "[crag-adequacy] classifier verdict=", forbid=("verdict=error", "verdict=unparseable")
+    ),
+    # W12 — abstractive_writer.py:642 "[abstractive_writer] pre-pass complete: %d/%d baskets drafted ...".
+    # FORBID "pre-pass complete: 0/0" (abstractive_writer.py:603 — no baskets, the legacy degraded skip) AND
+    # ": 0 baskets drafted" prefix-shapes: drafts=0 means the abstractive winner did NOT fire on any basket
+    # and the legacy K-span fallback ran. (Codex P1: the bare substring matched the 0/0 degraded line.)
+    "W12_compose_floor_abstractive": _FiringMarker(
+        "[abstractive_writer] pre-pass complete:", forbid=("pre-pass complete: 0/",)
+    ),
+    # W13 — multi_section_generator.py:4029 "[multi_section] <section> verified-compose PRIMARY: %d baskets ->
+    # draft_chars=%d" — the GENUINE per-section verified-compose keep-floor fire (the strict_verify-gated
+    # compose path; faithfulness engine FROZEN). must_contain is the "verified-compose PRIMARY:" PHRASE (NOT
+    # "[multi_section] verified-compose ..." — the producer interpolates the section TITLE between the tag and
+    # the phrase, so the tag and phrase are NON-adjacent in the runtime line). The phrase is unique to line
+    # 4029 (it appears in no drop/fail log), so it is the success-specific marker. Replaces the prior bare
+    # "[multi_section]" which matched ~8 unrelated lines (off-list-title-dropped / outline-JSON-decode-failed
+    # / advisory-prompt-load-failed). The sibling FIX-K verbatim-span render (multi_section_generator.py:3960)
+    # is the K-span fallback, NOT the abstractive-compose keep-floor winner, so it is deliberately NOT
+    # accepted here. (Codex P1)
+    "W13_verify_keep_floor": _FiringMarker("verified-compose PRIMARY:"),
+    # W14 — run_honest_sweep_r3.py:12753 "[citation-normalizer] key-findings: <canary>" — the deterministic
+    # render-seam canary emitted at the assemble_report_md seam.
+    "W14_render_det": _FiringMarker("[citation-normalizer] key-findings:"),
+}
+
+
+def firing_marker_matched(marker: _FiringMarker, log_text: str) -> bool:
+    """True iff ``log_text`` contains at least one line that is a GENUINE fire of ``marker``: a line that
+    contains ``marker.must_contain`` AND contains NONE of ``marker.forbid``. The per-line check (not a global
+    ``and not any(forbid in log_text)``) is deliberate: a degraded line and a genuine line can BOTH appear in
+    the same run (e.g. one section degrades, another genuinely composes) — the winner fired iff ANY line is a
+    clean genuine fire. This is the single source of truth the post-run §-1.1 audit and the durable section-
+    test both consume. Pure string logic — no spend, no network."""
+    must = marker.must_contain
+    forbid = marker.forbid
+    for line in log_text.splitlines():
+        if must in line and not any(bad in line for bad in forbid):
+            return True
+    return False
+
+
+def firing_marker_contract_substrings() -> dict[str, str]:
+    """The {winner -> must_contain} view of the contract — the success-specific substring the post-run audit
+    greps for each winner. Back-compat surface for any consumer that only needs the positive substring; the
+    forbid/conditional discrimination lives in ``firing_marker_matched``."""
+    return {k: m.must_contain for k, m in _WINNER_FIRING_MARKER_CONTRACT.items()}
+
+# W9 DARK-WINNER policy (spec OPERATOR DECISION #2). W9 (ContentDeduplicator) ships a DROP variant — wiring
+# it as-is would shed corroborators and VIOLATE §-1.3 consolidate-keep-all + the FROZEN faithfulness
+# contract. The FIRST-BUILD-STEP reconcile VERIFIED (not assumed) that the content near-dup function is
+# SUBSUMED on Gate-B by the keep-all consolidation stack: finding_dedup #7 same-work consolidation
+# (SameWorkGroup — keeps ALL member URLs as corroborating locators, never drops; finding_dedup.py:66-128)
+# + consolidate=NLI W10 (literal-cluster union, corroboration_count UP, no row dropped). So W9's DARK state
+# is CORRECT-BY-DESIGN, not a gap. The W9 gate therefore LOGS this loudly and PROCEEDS (SUBSUMED branch);
+# it does NOT block runs. It does NOT silent-pass: if a future operator wires the DROP variant onto the run
+# path (PG_W9_CONTENT_DEDUP truthy) it FAILS CLOSED (that would violate §-1.3) unless the operator signs the
+# §-1.3 waiver PG_W9_DARK_ACK=1. The build-deferred WARNING is REPLACED by this gate.
+_W9_SUBSUMED_BY = (
+    "finding_dedup #7 same-work consolidation (SameWorkGroup keep-all, never drops a corroborator) + "
+    "consolidate=NLI W10 (literal-cluster union, corroboration_count UP, no row dropped) — §-1.3 keep-all"
+)
+
+# SLATE-PURITY allowlist: every flag that is LEGITIMATELY force-on / force-EXACT-truthy maps to either one
+# of the 14 winners OR the FROZEN faithfulness engine / transport / observability infra. The SLATE-PURITY
+# gate asserts every force-on flag + every truthy force-EXACT key is in this set, and FAILS CLOSED on any
+# unrecognized force-on ("slate impurity: <flag> maps to no winner") — the structural backstop that catches
+# the NEXT STORM-like loser being force-on'd back into the slate. Enumerated from the SURVIVING force-on set
+# (NOT losers): the killed losers (STORM/agentic/deepener/decompose/iterresearch/research-planner) are
+# force-EXACT to "0" (FALSY) so they never enter the truthy-purity check. Reviewed/extended deliberately —
+# a NEW force-on flag forces a conscious "winner or infra?" decision, which is exactly the gate the mandate
+# wants. NOTE: force-EXACT flags pinned to a FALSY value ("0") or a non-on STRING are NOT purity-checked
+# (only winner MODEL-selector strings + the on-valued ones are), so the killed-loser "0" pins do not need
+# an allowlist entry; the model-selector winners (mineru25 / qwen3 / glm-5.2 / Qwen3-* ids) DO.
+_WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
+    # ── the 14 section winners (W1–W14) ──────────────────────────────────────────────────────────────
+    "PG_SCOPE_INTENT_FRAME",                 # W1 scope=intent_frame
+    "PG_QGEN_FS_RESEARCHER",                 # W2 qgen=FS-Researcher
+    "PG_SEARCH_FUSION_WRRF",                 # W3 fusion=WRRF
+    "PG_CLINICAL_PDF_EXTRACTOR",             # W4 clinical-PDF=mineru25 (string winner)
+    "PG_CONTENT_RELEVANCE_JUDGE",            # W5 relevance judge (GLM leg)
+    "PG_CONTENT_RELEVANCE_RERANKER_MODEL",   # W5 relevance reranker (0.6B string winner)
+    "PG_EMBEDDER_MODEL",                     # W6 embed=Qwen3-Embedding-8B (string winner, selection path)
+    "PG_EMBED_MODEL",                        # W6 embed (live-loader var, string winner)
+    "PG_RELEVANCE_SCORER",                   # W6 main-path activation (semantic_v2 string)
+    "PG_RERANKER_MODEL",                     # W7 rerank=Qwen3-Reranker-4B (string winner)
+    "PG_CREDIBILITY_LLM_TIERING",            # W8 cred=llm_tiering
+    "PG_CONSOLIDATION_NLI",                  # W10 consolidate=NLI
+    "PG_ADEQUACY_CRAG",                      # W11 adequacy=CRAG
+    "PG_VERIFIED_COMPOSE",                   # W12 compose=floor_abstractive
+    "PG_ABSTRACTIVE_WRITER",                 # W12 abstractive writer (per-basket prose producer)
+    "PG_BASKET_CORROBORATION_RENDER",        # W12/W14 keep-all basket render
+    "PG_SYNTHESIS_ABSTRACT_CONCLUSION",      # W14 render=det (abstract/conclusion sandwich)
+    # ── FROZEN faithfulness engine + the verified-compose / breadth surfaces (NOT losers) ───────────
+    "PG_STRICT_VERIFY_ENTAILMENT",           # W13 binding entailment leg (frozen engine, enforce mode)
+    "PG_MAX_JUDGE_ERROR_RATE",               # judge error-rate wall (faithfulness transport)
+    "PG_NLI_IN_BENCHMARK",                   # additive NLI validator annotation
+    "PG_SWEEP_NLI_CONFLICT",                 # NLI semantic-conflict detection layer
+    "PG_SWEEP_TABLE_CELL_VERIFY",            # table-cell numeric verify layer
+    "PG_USE_SAFETY_REFUSAL",                 # safety-refusal classifier layer
+    "PG_SWEEP_SEMANTIC_CONTRAINDICATION",    # semantic contraindication credit + negation guard
+    "PG_SWEEP_NUMERIC_SANITIZER",            # numeric-token sanitizer
+    "PG_SPAN_RESOLVER",                      # span-grounding resolver
+    "PG_SPAN_QUALITY_GATE",                  # chrome/junk span-quality gate
+    "PG_BLOCK_PAGE_DETECTOR",                # block-page detector (re-fetch input)
+    "PG_GATE_B_CITED_SPAN",                  # cited-span windowing on the 4-role seam
+    "PG_GATE_B_SPAN_NORMALIZE",              # ligature-only cited-span normalization
+    "PG_USE_FINDING_DEDUP",                  # #7 same-work consolidation (keep-all)
+    "PG_RELEVANCE_FLOOR",                    # relevance floor (float in (0,1])
+    "PG_RETRIEVAL_RELEVANCE_GATE",           # B4 relevance gate
+    "PG_SWEEP_CREDIBILITY_REDESIGN",         # B6/B8/B12 credibility redesign (W8/W10 dependency)
+    "PG_BREADTH_ENRICHMENT_ENABLED",         # I-arch-007 weighted unbound-SUPPORTS breadth surface
+    "PG_REDACT_HELD_UNSUPPORTED",            # B16 redaction kill-switch
+    "PG_ALWAYS_RELEASE",                     # always-release (labeler-not-blocker)
+    "PG_SECTION_DISTILL",                    # map-reduce evidence distiller
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE",         # weighted-corpus gate (no tier-count refusal)
+    "PG_VERIFIED_COMPOSE_MULTICITED",        # keystone multi-citation synthesis
+    "PG_SWEEP_DEPTH_LAYER",                  # grounded DEPTH cross-source synthesis
+    "PG_RESUME_REFETCH_DEGRADED",            # A15 resume fetch-shell re-fetch
+    # ── transport / observability / honesty markers (NOT winners, NOT losers) ───────────────────────
+    "PG_ENABLE_TOOL_TRACKER",                # tool-utilization tracker (firing observability)
+    "PG_DEPTH_ANNOTATION_IN_BENCHMARK",      # depth annotation (non-gating)
+    "PG_CUSTODY_LANE_MARKER",                # custody-lane honesty marker
+    "PG_BEHAVIORAL_CANARY",                  # behavioral pre-spend canary
+    "PG_SUPER_HEAVY_PREFLIGHT",              # super-heavy behavioral preflight
+    "PG_RUN_HEALTH_GATE",                    # run-health backstop (still guards quantified)
+    "PG_BENCH_EXTENDED_METRICS",             # extended beat-both scorer metrics (measurement-only)
+    "PG_REQUIRED_ENTITY_LEDGER",             # RequiredEntityLedger coverage-gap disclosure
+    "PG_SERPER_STOP_ON_ZERO_NEW",            # Serper offset-paging (fetch breadth, not a loser lane)
+    "PG_JUDGE_PROVIDER_ROTATE",              # judge provider-rotation (faithfulness-neutral transport)
+    "PG_PARALLEL_VERIFY",                    # parallel-verify worker count (concurrency knob)
+    "PG_SELECT_SUBQUERY_FLOOR",              # selection sub-query coverage floor (selection infra)
+    "PG_SELECT_CONSTRAINED_GREEDY",          # constrained-greedy selection (selection infra)
+    "PG_SENTINEL_TRANSPORT_DEGRADE",         # sentinel transport degrade (faithfulness-neutral transport)
+    "PG_TRAFILATURA_SUBPROCESS",             # trafilatura in-subprocess fetch (extraction transport)
+    # ── string-valued mirror/judge pins (force-EXACT, truthy-but-not-"on" — allowlisted for purity) ──
+    "PG_ENTAILMENT_MODEL",                   # gemma-pin: live judge mirror (glm-5.2)
+    "PG_EVALUATOR_MODEL",                    # gemma-pin: external evaluator mirror (glm-5.2)
+    "PG_HTML_EXTRACTOR",                     # trafilatura precision profile (fetch extraction winner-adjacent)
+    "PG_SPAN_QUALITY_GATE_PRIMARY_MODEL",    # span-quality judge model pin (glm-5.2)
+    "PG_RENDER_CHROME_CANARY",               # render chrome-as-claim canary (enforce)
+    "PG_ENTAILMENT_PROMPT_VARIANT",          # widening-aware entailment prompt (widen_c)
+    "PG_SCOPE_SIM_MEASURE",                  # scope similarity measure (containment)
+    "PG_UNPAYWALL_EMAIL",                    # real OA resolver contact email
+    # I-deepfix-001 (#1344) PURITY (Codex P2-slate-purity-skips-string-force-exact): the ONE non-model
+    # STRING force-exact infra pin. PG_FOUR_ROLE_REASONING_EFFORT='medium' (the D8 GLM-5.2 xhigh-blanks
+    # fix) is non-falsy, non-numeric, and not an ON-token, so the SLATE-PURITY string-pin check below
+    # demands it be a RECOGNIZED force-exact value. It is transport/latency config (the reasoning-effort
+    # pin reaching set_four_role_reasoning_effort), NOT a winner-value selection — allowlisted explicitly
+    # so the clean slate PASSES while a future BOGUS string force-exact (not here) still fails CLOSED.
+    "PG_FOUR_ROLE_REASONING_EFFORT",         # D8 4-role reasoning-effort pin (medium; latency config)
+})
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
 # frame_fetcher's default `_FULLTEXT_ENTITY_TYPES` is trial/review-only (pivotal_trial,clinical_trial,
@@ -1832,8 +2182,11 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
     "PG_SERPER_TOTAL_PER_QUERY": "20",
     "PG_SERPER_MAX_PAGES": "1",
     # query-breadth COUNTS (how many search queries / STORM angles — not URLs)
-    "PG_STORM_MAX_BENCHMARK_QUERIES": "4",   # was 30
-    "PG_STORM_MIN_EFFECTIVE_QUERIES": "2",   # was 12 — lower the FLOOR too, else max(4)<min(12) -> abort_discovery_degraded
+    # I-deepfix-001 (#1344) PURITY: STORM is a dead loser — neutralize its two smoke knobs to "0" so a
+    # --smoke-scale run cannot re-introduce a non-zero STORM query cap / under-fire floor (the SLATE-PURITY
+    # gate would otherwise see a truthy STORM knob). The full-slate values are also "0".
+    "PG_STORM_MAX_BENCHMARK_QUERIES": "0",   # was 4 (STORM dead — query cap 0)
+    "PG_STORM_MIN_EFFECTIVE_QUERIES": "0",   # was 2 (STORM dead — under-fire floor 0; never trips)
     "PG_MAX_SUBQUERIES": "4",                # was 15
     "PG_STORM_PERSPECTIVES_COUNT": "3",      # was 8
     "PG_STORM_ROUNDS_PER_PERSPECTIVE": "2",  # was 4
@@ -1938,7 +2291,7 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     )
 
 
-def preflight_full_capability(smoke_scale: bool = False) -> None:
+def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) -> None:
     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
     silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError.
 
@@ -1948,15 +2301,27 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
     unconditional: the faithfulness slate, the section-fraction coverage floor, the required/required-off
     feature flags, the semantic_v2 relevance scorer, the cited-span window bound, the enforce-mode
     verifier, the row-cap ban, and the timeout-hierarchy ORDERING (which the smoke still satisfies).
-    Default OFF = a full cert run validates every floor exactly as before."""
+    Default OFF = a full cert run validates every floor exactly as before.
+
+    I-deepfix-001 (#1344) ``offline=True`` (an injected fake transport — the offline/unit-test path,
+    ``run_gate_b_query(transport=<fake>)``) skips ONLY the WINNER-FIRES GPU-HOST probes (W4 GPU-present,
+    W5 GPU warning) — an offline/CI host legitimately has no GPU and never spends a token, so a GPU
+    assertion there is a false-fail, not a winner-dark catch. The 3 PURITY gates' STRUCTURAL checks
+    (NO-LOSER, the W6/W7/W5 model-identity probes, SLATE-PURITY, W9) ALL stay unconditional — they are
+    config-only and meaningful offline. The GPU-host probe is the LIVE-run host-capability check (the
+    no-GPU host silently runs the docling LOSER), so it binds only on the real paid run (offline=False)."""
     # I-wire-001 (#1296): LOUD WARNING for the build-deferred section winner (W9 dedup — no run-path
     # consumer and no wiring flag; the I-wire-001 P1-2 dedup-agent reconcile confirmed it is neither a
     # standalone wire nor CRAG-transitive). W1 intent_frame GRADUATED to preflight-required at I-wire-001
     # P1-1 (run_intent_frame() is now called at run_honest_sweep_r3.py:6426, fail-closed), so it is no
     # longer warned here. Emitted FIRST — before any raise below — so it ALWAYS surfaces (the operator
-    # reads by ear; it must not be skippable behind a later abort). NOT a raise: W9 is honestly not on the
-    # run path, so REQUIRING it would FALSE-PASS (env set while the feature never fires). Naming it keeps
-    # the gap explicit, never silent.
+    # reads by ear; it must not be skippable behind a later abort).
+    # I-deepfix-001 (#1344) PURITY: this early heads-up is RETAINED but the W9 dark-winner POLICY is now
+    # ENFORCED by the dedicated W9 GATE at the END of this function (the loud SUBSUMED-by-#10 status + the
+    # fail-closed PG_W9_CONTENT_DEDUP / PG_W9_DARK_ACK §-1.3 protection). This loop is the FIRST-line
+    # naming so the gap is never silent; the W9 gate is the operator-ack enforcement. NOT a raise here: W9
+    # is honestly not on the run path, so REQUIRING it would FALSE-PASS (env set while the feature never
+    # fires). Naming it keeps the gap explicit, never silent.
     import logging as _wire_logging
     _wire_logger = _wire_logging.getLogger("run_gate_b")
     for _deferred_name, _deferred_why in _BENCHMARK_BUILD_DEFERRED_WINNERS:
@@ -2125,8 +2490,9 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
     for flag in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
         if os.getenv(flag, "1").strip() in ("1", "true", "True"):
             raise RuntimeError(
-                f"benchmark preflight FAILED: {flag} is enabled — Gate-B report.md would include the "
-                f"un-span-verified Analyst Synthesis layer. Set {flag}=0 for the verified-only benchmark."
+                f"benchmark preflight FAILED: {flag} is enabled — it is a killed LOSER / un-span-verified "
+                f"layer that must be OFF for the WINNERS-ONLY purity build (I-deepfix-001 #1344). A stray "
+                f"operator/.env value re-armed it past the slate force-EXACT. Set {flag}=0 before the run."
             )
     # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
     # entailment judge does not bind as a drop gate and/or a judge_error fails OPEN (unverified clinical
@@ -2247,6 +2613,320 @@ def preflight_full_capability(smoke_scale: bool = False) -> None:
             f"benchmark preflight FAILED: PG_SCOPE_SIM_MEASURE={_measure!r} is not a recognised "
             f"similarity measure (expected 'jaccard' or 'containment')."
         )
+
+    # ═════════════════════════════════════════════════════════════════════════════════════════════════
+    # I-deepfix-001 (#1344) PURITY BUILD — the THREE SERIOUS-PREFLIGHT GATES. Authored INTO
+    # preflight_full_capability (runs AFTER apply_full_capability_benchmark_slate, fail-CLOSED before any
+    # spend) per state/deepfix_purity_buildspec.md "SERIOUS PREFLIGHT — 3 gates". The FROZEN faithfulness
+    # engine (strict_verify / NLI / 4-role / provenance / span-grounding) is NEVER touched — this is
+    # retrieval-orchestration purity only. These gates run on smoke + full alike (the smoke slate also kills
+    # the losers); they are NOT capacity floors, so no smoke_scale skip.
+    # ═════════════════════════════════════════════════════════════════════════════════════════════════
+    _ON_TOKENS = ("1", "true", "yes", "on")
+
+    def _is_off(_v: str) -> bool:
+        """A loser env value is provably OFF (the NO-LOSER fail-closed contract)."""
+        return _v.strip().lower() in ("", "0", "false", "no", "off")
+
+    # ── GATE (A): NO-LOSER — assert every killed loser is provably dead ──────────────────────────────
+    # The boolean losers are already wired through the _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS loop above
+    # (STORM core/ingest/agentic/deepener/decompose/iterresearch/research-planner — each raises if truthy).
+    # This gate adds the STRUCTURAL + STRING-valued + module-level loser assertions the truthy-off loop
+    # cannot express, each fail-CLOSED with a clear message.
+    #
+    # A.1 — slate membership: a killed loser must NOT have crept back into FORCE_ON / REQUIRED-truthy (a
+    # dropped-pin regression). The REQUIRED_OFF loop catches the env VALUE; this catches the slate STRUCTURE
+    # (a loser force-on'd back into the slate dict would set the env truthy AND fail the REQUIRED_OFF loop,
+    # but naming the structural cause here makes the regression unambiguous).
+    for _loser in (
+        "PG_STORM_ENABLED_IN_BENCHMARK", "PG_STORM_INGEST_WEB_RESULTS",
+        "PG_STORM_OUTLINE_SECTIONS", "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+        "PG_SWEEP_EVIDENCE_DEEPENER",
+    ):
+        if _loser in _BENCHMARK_FORCE_ON_FLAGS or _loser in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+            raise RuntimeError(
+                f"benchmark preflight FAILED [NO-LOSER]: {_loser} is a KILLED loser but is force-ON / "
+                f"preflight-required in the slate (I-deepfix-001 #1344 purity) — it must be removed from "
+                f"_BENCHMARK_FORCE_ON_FLAGS / _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (it is force-EXACT '0' + "
+                f"REQUIRED_OFF). A dropped-pin regression re-armed the loser."
+            )
+    # A.2 — STORM query-count floor must be gone (a 30-query floor would force a STORM knob back into the
+    # slate via the floor loop). The STORM outline scaffold flag must resolve OFF (its producer is dead).
+    if "PG_STORM_MAX_BENCHMARK_QUERIES" in _BENCHMARK_PREFLIGHT_FLOORS:
+        raise RuntimeError(
+            "benchmark preflight FAILED [NO-LOSER]: PG_STORM_MAX_BENCHMARK_QUERIES is still in "
+            "_BENCHMARK_PREFLIGHT_FLOORS — STORM is dead; no query-count floor should linger (it would "
+            "re-introduce a STORM query knob)."
+        )
+    if not _is_off(os.getenv("PG_STORM_OUTLINE_SECTIONS", "0")):
+        raise RuntimeError(
+            "benchmark preflight FAILED [NO-LOSER]: PG_STORM_OUTLINE_SECTIONS is enabled — it is a STORM "
+            "consumer (the outline scaffold); STORM is a killed loser. Set it 0 (section structure reverts "
+            "to research_plan/legacy, which keeps compose=floor_abstractive W12 intact)."
+        )
+    # A.3 — the STORM under-fire floor must be 0 so the INVERTED run-health abort_discovery_degraded can
+    # never trip on a (correctly) absent STORM.
+    try:
+        _storm_min_eff = int(os.getenv("PG_STORM_MIN_EFFECTIVE_QUERIES", "0"))
+    except ValueError:
+        raise RuntimeError(
+            "benchmark preflight FAILED [NO-LOSER]: PG_STORM_MIN_EFFECTIVE_QUERIES="
+            f"{os.getenv('PG_STORM_MIN_EFFECTIVE_QUERIES')!r} is not an int."
+        )
+    if _storm_min_eff != 0:
+        raise RuntimeError(
+            f"benchmark preflight FAILED [NO-LOSER]: PG_STORM_MIN_EFFECTIVE_QUERIES={_storm_min_eff} != 0 — "
+            f"a non-zero under-fire floor would let the run-health gate emit abort_discovery_degraded when "
+            f"the (correctly dead) STORM does not fire (the INVERTED-mandate self-abort)."
+        )
+    # A.4 — the storm_interviews MODULE flag (PG_STORM_ENABLED, storm_interviews.py:42) must resolve OFF.
+    # The slate force-EXACTs it "0" (dual-arm kill). Assert the EFFECTIVE ENV value — NOT the import-time
+    # cached module attribute, which is a test-order artifact (the module may have imported under the
+    # operator .env PG_STORM_ENABLED=1 BEFORE the slate ran; that is HARMLESS on Gate-B because the run path
+    # keys on PG_STORM_ENABLED_IN_BENCHMARK, but the slate pins this second arm 0 too for purity). If the
+    # module is importable, REFRESH its cached attribute from the slate-applied env so the module agrees.
+    if not _is_off(os.getenv("PG_STORM_ENABLED", "0")):
+        raise RuntimeError(
+            "benchmark preflight FAILED [NO-LOSER]: PG_STORM_ENABLED is enabled — the storm_interviews "
+            "engine module flag (the second STORM arm) is armed. STORM is a killed loser; the slate "
+            "force-EXACTs PG_STORM_ENABLED=0. A stray operator/.env value re-armed it past the slate."
+        )
+    try:
+        import src.polaris_graph.agents.storm_interviews as _storm_mod  # noqa: PLC0415
+        # Re-sync the import-time-cached module flag to the slate-applied env (the run path re-reads the env
+        # gate at call time; this keeps the module attribute honest for any direct module-flag reader).
+        _storm_mod.PG_STORM_ENABLED = (os.getenv("PG_STORM_ENABLED", "0") == "1")
+    except ImportError:
+        pass  # module genuinely absent on this checkout → the engine cannot fire (also dead)
+    # A.5 — the live relevance embedder hole: prefetch_offtopic_filter._embed_model_name() reads
+    # PG_EMBED_MODEL (NOT the slate-pinned PG_EMBEDDER_MODEL). A stray .env PG_EMBED_MODEL=all-MiniLM would
+    # route the live embedder to MiniLM while the env-string preflight passes GREEN. Assert the EFFECTIVE id.
+    _embed_id = os.getenv("PG_EMBED_MODEL", "Qwen/Qwen3-Embedding-8B").strip()
+    if "minilm" in _embed_id.lower() or "qwen3-embedding-8b" not in _embed_id.lower():
+        raise RuntimeError(
+            f"benchmark preflight FAILED [NO-LOSER]: PG_EMBED_MODEL={_embed_id!r} is not the Qwen3-Embedding-8B "
+            f"winner — the LIVE relevance/off-topic + selection embedder (prefetch_offtopic_filter._load_embedder) "
+            f"reads THIS var (not the slate-pinned PG_EMBEDDER_MODEL), so a stray value silently routes it to "
+            f"MiniLM (a killed loser). Pin PG_EMBED_MODEL=Qwen/Qwen3-Embedding-8B."
+        )
+    # A.6 — gemma must be ABSENT from the live judge + evaluator, both pinned to the §9.1.8 mirror (glm-5.2),
+    # and the two must be EQUAL (the pathB two-family invariant the slate comment relies on). Read the
+    # EFFECTIVE model the way the live code resolves it (env override else mirror default), not just the env.
+    from src.polaris_graph.llm.openrouter_client import PG_MIRROR_MODEL as _mirror_model  # noqa: PLC0415
+    _entail_model = (os.getenv("PG_ENTAILMENT_MODEL") or _mirror_model).strip()
+    _eval_model = (os.getenv("PG_EVALUATOR_MODEL") or _mirror_model).strip()
+    for _judge_label, _judge_model in (("PG_ENTAILMENT_MODEL", _entail_model), ("PG_EVALUATOR_MODEL", _eval_model)):
+        if "gemma" in _judge_model.lower():
+            raise RuntimeError(
+                f"benchmark preflight FAILED [NO-LOSER]: {_judge_label} resolves to {_judge_model!r} — "
+                f"gemma is operator-locked OUT (§9.1.8; the #1249/#1251/#1252 drift). Pin it to the locked "
+                f"mirror z-ai/glm-5.2."
+            )
+        if _judge_model != "z-ai/glm-5.2":
+            raise RuntimeError(
+                f"benchmark preflight FAILED [NO-LOSER]: {_judge_label} resolves to {_judge_model!r} != the "
+                f"§9.1.8 locked mirror 'z-ai/glm-5.2'. force-EXACT it in the slate."
+            )
+    if _entail_model != _eval_model:
+        raise RuntimeError(
+            f"benchmark preflight FAILED [NO-LOSER]: PG_ENTAILMENT_MODEL={_entail_model!r} != "
+            f"PG_EVALUATOR_MODEL={_eval_model!r} — the pathB two-family invariant (entailment==evaluator) "
+            f"is violated."
+        )
+    # A.7 — WRRF (W3) must resolve ON: the SAME kill-switch proves the winner fires AND the legacy
+    # serial/RRF-free fusion path is dead (documentary — the correct winner-displaces-legacy pattern).
+    from src.polaris_graph.retrieval.search_fusion_wrrf import wrrf_enabled as _wrrf_enabled  # noqa: PLC0415
+    if not _wrrf_enabled():
+        raise RuntimeError(
+            "benchmark preflight FAILED [NO-LOSER]: wrrf_enabled() is False — PG_SEARCH_FUSION_WRRF (W3) is "
+            "off, so the legacy RRF-free fusion (a non-winner) would run. Force-on PG_SEARCH_FUSION_WRRF."
+        )
+
+    # ── GATE (B): WINNER-FIRES — behavioral PRE-SPEND probes for the tractable winners ───────────────
+    # Behavioral, NOT flag-set. The TRACTABLE pre-spend probes that do NOT require a heavy model LOAD or a
+    # live LLM call run HERE (load-identity / config-resolve / GPU-present). The deeper behavioral probes
+    # (actually LOAD the 8B embedder + a 4096-dim cosine; drive score_passages to read reranker_device;
+    # drive classify_sources_llm_tiering to assert llm_success>0; the W12/W13 fixture composes) are
+    # DEFERRED to the VM behavioral run + the POST-RUN firing-marker grep — see _WINNER_FIRING_MARKER_CONTRACT
+    # and the deferred-probe note below (NOT faked: a heavy GPU model load at preflight is forbidden off-VM,
+    # and a real-corpus LLM probe is a spend; the run-log firing-marker post-check is the honest behavioral
+    # proof). Probes are import-guarded so a missing optional dep degrades to the env/identity assertion
+    # rather than a false preflight crash.
+    #
+    # W4 — clinical-PDF=mineru25 GPU-present gate. mineru25 fires ONLY when a GPU is visible; on a no-GPU host
+    # access_bypass silently returns '' and falls through to the docling/PyMuPDF LOSER (the dark-winner
+    # failure). Env value-equals is already asserted above; here assert a GPU is actually present so the
+    # docling fall-through is provably unreachable on the cert host.
+    if (not offline) and os.getenv("PG_CLINICAL_PDF_EXTRACTOR", "").strip().lower() == "mineru25":
+        try:
+            import torch as _torch  # noqa: PLC0415
+            if not _torch.cuda.is_available():
+                raise RuntimeError(
+                    "benchmark preflight FAILED [WINNER-FIRES W4]: PG_CLINICAL_PDF_EXTRACTOR=mineru25 but "
+                    "torch.cuda.is_available() is False — on a no-GPU host mineru25 silently returns '' and "
+                    "falls through to the docling/PyMuPDF LOSER for every clinical PDF. Run on the GPU VM "
+                    "(offline/unit-test runs pass transport=<fake> and skip this host-capability probe)."
+                )
+        except ImportError:
+            raise RuntimeError(
+                "benchmark preflight FAILED [WINNER-FIRES W4]: PG_CLINICAL_PDF_EXTRACTOR=mineru25 but torch "
+                "is not importable — the GPU VLM extractor cannot load; it would fall through to the docling "
+                "LOSER. Install torch / run on the GPU VM."
+            )
+    # W6 — embed=Qwen3-Embedding-8B LOAD-IDENTITY (tractable: env-resolve, no model load). The live loader
+    # prefetch_offtopic_filter._embed_model_name() must resolve to the 8B id (non-None, the winner). The
+    # DEEPER probe (actually LOAD the 8B + assert a 4096-dim non-None cosine) is DEFERRED to the VM run (a
+    # heavy GPU load is forbidden at preflight off-VM); the run-log "loading relevance embedder
+    # model=Qwen/Qwen3-Embedding-8B" firing marker is the behavioral proof it loaded.
+    try:
+        from src.polaris_graph.retrieval.prefetch_offtopic_filter import (  # noqa: PLC0415
+            _embed_model_name as _resolve_embed_id,
+        )
+        _resolved_embed = (_resolve_embed_id() or "").strip()
+        if not _resolved_embed or "qwen3-embedding-8b" not in _resolved_embed.lower():
+            raise RuntimeError(
+                f"benchmark preflight FAILED [WINNER-FIRES W6]: prefetch_offtopic_filter._embed_model_name() "
+                f"resolves to {_resolved_embed!r}, not the Qwen3-Embedding-8B winner — the live relevance "
+                f"embedder would load a non-winner (MiniLM) or None (silent lexical degrade)."
+            )
+    except ImportError:
+        pass  # retrieval module unavailable on this checkout → covered by the A.5 env-id assertion
+    # W7 — rerank=Qwen3-Reranker-4B IDENTITY (tractable: config-resolve, no model load). CrossEncoderConfig
+    # .from_env() must select the 4B causal-LM reranker. The DEEPER probe (load + a permutation reorder) is
+    # DEFERRED to the VM run; the run-log "[qwen-reranker] loading Qwen/Qwen3-Reranker-4B" marker is the
+    # behavioral proof. (#1312: loading this CausalLM via sentence_transformers.CrossEncoder mints a random
+    # head — the live path uses the dedicated causal-LM scorer; this identity check reads the config only.)
+    try:
+        from src.config.core import CrossEncoderConfig as _CrossEncoderConfig  # noqa: PLC0415
+        _rerank_cfg_model = (_CrossEncoderConfig.from_env().model or "").strip()
+        if _rerank_cfg_model != "Qwen/Qwen3-Reranker-4B":
+            raise RuntimeError(
+                f"benchmark preflight FAILED [WINNER-FIRES W7]: CrossEncoderConfig.from_env().model="
+                f"{_rerank_cfg_model!r} != 'Qwen/Qwen3-Reranker-4B' — PG_RERANKER_MODEL did not select the "
+                f"4B reranker winner (the ms-marco-MiniLM default or a stray value would run)."
+            )
+    except ImportError:
+        pass  # config module unavailable → covered by the PG_RERANKER_MODEL value-equals assertion above
+    # W5 — relevance reranker IDENTITY + GPU-present (tractable). The 0.6B reranker id must resolve to the
+    # winner, and a GPU must be present so the reranker runs on cuda (a CPU run is a DISCLOSED degrade, not
+    # the production path; a load FAILURE sets reranker_device='unavailable' = silent full-weight fallback).
+    # The DEEPER probe (drive score_passages on an on/off-topic pair, assert device in {cuda,cpu} !=
+    # 'unavailable' + the off-topic passage demoted) is DEFERRED to the VM run; the run-log "W2
+    # content-relevance: scored" marker (device-stamped) is the behavioral proof.
+    try:
+        from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: PLC0415
+            _reranker_model_name as _resolve_cr_rerank_id,
+        )
+        _cr_rerank_id = (_resolve_cr_rerank_id() or "").strip()
+        if _cr_rerank_id != "Qwen/Qwen3-Reranker-0.6B":
+            raise RuntimeError(
+                f"benchmark preflight FAILED [WINNER-FIRES W5]: content_relevance_judge._reranker_model_name() "
+                f"resolves to {_cr_rerank_id!r} != 'Qwen/Qwen3-Reranker-0.6B' — the relevance reranker winner "
+                f"is not selected."
+            )
+    except ImportError:
+        pass  # covered by the PG_CONTENT_RELEVANCE_RERANKER_MODEL value-equals assertion above
+    if (not offline) and os.getenv("PG_CONTENT_RELEVANCE_JUDGE", "0").strip().lower() in _ON_TOKENS:
+        try:
+            import torch as _torch_cr  # noqa: PLC0415
+            if not _torch_cr.cuda.is_available():
+                _wire_logger.warning(
+                    "[preflight WARNING W5] PG_CONTENT_RELEVANCE_JUDGE on but no GPU visible — the "
+                    "Qwen3-Reranker-0.6B leg will run on CPU (a DISCLOSED degrade, not the production GPU "
+                    "path). Run on the GPU VM for the cert run."
+                )
+        except ImportError:
+            pass
+    # POST-RUN FIRING-MARKER CONTRACT — exposed for the §-1.1 post-run audit. The audit applies each
+    # _WINNER_FIRING_MARKER_CONTRACT predicate against the run-dir log via firing_marker_matched() (success-
+    # specific: must_contain present AND no forbid twin on the same line) and FAILS if a WIRED non-conditional
+    # winner's GENUINE-fire predicate did not match (flag-on but dark) — the behavioral proof the pre-spend
+    # identity probes cannot give. Codex diff-gate iter-1 P1: the predicate replaces the prior bare-substring
+    # value that false-passed on degraded/premature lines (W12 0/0 drafts, W13 unrelated [multi_section] logs,
+    # W5 device=unavailable, W6/W7 pre-load-success). conditional=True winners (W4/W10) are data-dependent —
+    # their absence is allowed, never a fail-on-absent.
+    # DEFERRED-PROBE NOTE (honest, NOT faked): W4 (load + extract), W5 (score_passages device), W6 (load +
+    # 4096-dim cosine), W7 (load + reorder), W8 (classify_sources_llm_tiering llm_success>0), W10 (NLI
+    # cross-encoder merge), W11 (CRAG live grade), W12 (abstractive_pre_pass drafts>0), W13 (strict_verify
+    # keep/drop fixture) each need a heavy GPU model LOAD or a live LLM spend — both forbidden at off-VM
+    # preflight — so their behavioral verification is the run-log firing-marker post-check, not a fake
+    # pre-spend stub. The contract dict IS that verification's machine-readable source of truth.
+
+    # ── GATE (C): SLATE-PURITY — every force-on flag must map to a winner / frozen-engine infra ──────
+    # The structural backstop that catches the NEXT STORM-like loser being force-on'd back into the slate.
+    # Every flag in _BENCHMARK_FORCE_ON_FLAGS (all feature-enables) + every force-EXACT flag whose value is
+    # an ON-token (a feature toggled on by exact value) OR a non-empty NON-NUMERIC STRING (a model/profile
+    # PIN, e.g. PG_EMBED_MODEL / PG_RELEVANCE_SCORER / PG_FOUR_ROLE_REASONING_EFFORT) must be in
+    # _WINNER_FLAG_ALLOWLIST. force-EXACT flags pinned to a FALSY ("0"/"") value (the killed losers) or a
+    # NUMERIC string (timeouts / floats / counts — infra config, not feature-enables) are NOT winner-checked:
+    # their purity is enforced by the NO-LOSER gate (the "0" pins) and their dedicated value validators
+    # (the numeric knobs).
+    #
+    # I-deepfix-001 (#1344) PURITY (Codex P2-slate-purity-skips-string-force-exact): the prior loop ONLY
+    # added force-exact flags whose value is an _ON_TOKEN — so STRING model PINS (PG_EMBED_MODEL=
+    # 'Qwen/Qwen3-Embedding-8B', PG_RELEVANCE_SCORER='semantic_v2', PG_ENTAILMENT_MODEL='z-ai/glm-5.2', ...)
+    # SKIPPED the allowlist entirely. A future BOGUS string force-exact (a re-introduced loser pinned to a
+    # string value, e.g. PG_SOME_LOSER='legacy') would then sail through SLATE-PURITY. Extend the check to
+    # ALSO require any non-empty, non-falsy, NON-NUMERIC string force-exact value's flag to be allowlisted
+    # (every legitimate string pin already is — verified offline against the clean slate; the ONE non-model
+    # string infra pin PG_FOUR_ROLE_REASONING_EFFORT was added to the allowlist alongside this change).
+    # _is_off (defined above) handles the falsy/"0" skip; float-parseable handles the numeric-infra skip.
+    _force_on_to_check = set(_BENCHMARK_FORCE_ON_FLAGS)
+    for _fe_flag in _BENCHMARK_FORCE_EXACT_FLAGS:
+        _fe_val = str(_FULL_CAPABILITY_BENCHMARK_SLATE.get(_fe_flag, "")).strip()
+        if _is_off(_fe_val):
+            continue                                   # killed-loser "0"/"" pin — NO-LOSER gate governs it
+        if _fe_val.lower() in _ON_TOKENS:
+            _force_on_to_check.add(_fe_flag)           # feature toggled on by exact value
+            continue
+        try:
+            float(_fe_val)
+            continue                                   # numeric infra (timeout / float / count) — value-validated
+        except ValueError:
+            _force_on_to_check.add(_fe_flag)           # genuine NON-NUMERIC string PIN — must be allowlisted
+    for _on_flag in sorted(_force_on_to_check):
+        if _on_flag not in _WINNER_FLAG_ALLOWLIST:
+            raise RuntimeError(
+                f"benchmark preflight FAILED [SLATE-PURITY]: {_on_flag} is force-on / force-EXACT to a "
+                f"recognized-feature value in the slate but maps to no winner / frozen-engine infra flag in "
+                f"_WINNER_FLAG_ALLOWLIST (I-deepfix-001 #1344 winners-only purity). Either it is a "
+                f"re-introduced LOSER (the next STORM) — remove the force-on/force-exact — OR it is a "
+                f"legitimately-new winner/infra flag — add it to the allowlist deliberately (the conscious "
+                f"'winner or infra?' decision the gate exists to force)."
+            )
+
+    # ── W9 GATE — DARK winner, LOUD operator-ack (never a silent pass, never a block) ────────────────
+    # W9 (dedup=ContentDeduplicator) ships a DROP variant; wiring it as-is sheds corroborators and VIOLATES
+    # §-1.3 consolidate-keep-all + the FROZEN faithfulness contract. The FIRST-BUILD-STEP reconcile VERIFIED
+    # (not assumed) that the content near-dup function is SUBSUMED on Gate-B by the keep-all consolidation
+    # stack (_W9_SUBSUMED_BY). So W9's DARK state is CORRECT-BY-DESIGN — the gate LOGS this LOUDLY (the
+    # operator reads by ear) and PROCEEDS. It does NOT silent-pass: if a future operator wires the DROP
+    # variant onto the run path (PG_W9_CONTENT_DEDUP truthy) it FAILS CLOSED — that would violate §-1.3 —
+    # unless the operator signs the §-1.3 waiver PG_W9_DARK_ACK=1 (logged loudly). This REPLACES the prior
+    # build-deferred WARNING (now emitted at the top of preflight_full_capability for W9).
+    _w9_drop_wired = os.getenv("PG_W9_CONTENT_DEDUP", "0").strip().lower() in _ON_TOKENS
+    _w9_ack = os.getenv("PG_W9_DARK_ACK", "0").strip().lower() in _ON_TOKENS
+    if _w9_drop_wired and not _w9_ack:
+        raise RuntimeError(
+            "benchmark preflight FAILED [W9]: PG_W9_CONTENT_DEDUP is wired (the ContentDeduplicator DROP "
+            "variant) but the §-1.3 waiver PG_W9_DARK_ACK is not set — a hard-drop content-dedup stage sheds "
+            f"corroborators and violates consolidate-keep-all. The content near-dup function is already "
+            f"SUBSUMED by {_W9_SUBSUMED_BY}. Remove PG_W9_CONTENT_DEDUP, or build a consolidate-keep-all "
+            "content-dedup stage, or sign PG_W9_DARK_ACK=1 to override."
+        )
+    _w9_status_msg = (
+        "[preflight W9-GATE] W9 dedup=ContentDeduplicator is DARK BY DESIGN on the Gate-B run path — its "
+        f"content near-dup function is SUBSUMED by {_W9_SUBSUMED_BY}. Proceeding (the DROP variant stays "
+        "UNWIRED; wiring it would violate §-1.3)."
+    )
+    if _w9_drop_wired and _w9_ack:
+        _w9_status_msg = (
+            "[preflight W9-GATE] PG_W9_CONTENT_DEDUP wired AND PG_W9_DARK_ACK=1 — the operator has signed the "
+            "§-1.3 waiver to run the ContentDeduplicator DROP variant. Proceeding under explicit override "
+            f"(the keep-all subsumption {_W9_SUBSUMED_BY} is bypassed)."
+        )
+    _wire_logger.warning(_w9_status_msg)
+    print(_w9_status_msg)
 
 
 def preflight_import_time_constants() -> None:
@@ -2562,12 +3242,11 @@ async def run_gate_b_query(
     # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
     # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
     os.environ["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = "1"   # force-on (Codex iter-2 P1-1: .env=0 must not win)
-    # I-cap-002 feature 3/4 (#1060): turn on agentic URL-DISCOVERY for the benchmark/paid run ONLY here.
-    # The agentic loop discovers additional URLs that are fetched VERBATIM via the same seed_only
-    # chokepoint + strict_verify + 4-role (notebook/summaries never become evidence). Budget-bounded
-    # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
-    # override (LAW VI).
-    os.environ["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = "1"     # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    # I-deepfix-001 (#1344) PURITY: agentic URL-DISCOVERY is STORM's twin LOSER (code-confirmed) — KILLED.
+    # Programmatically force it OFF here (was "1") so a stray operator/.env =1 cannot re-arm the live
+    # agentic-search consumer (which also seeds from the legacy decompose output, run_honest_sweep_r3.py
+    # @8743). Removed from REQUIRED_FLAGS + added to REQUIRED_OFF so the preflight fails closed if re-armed.
+    os.environ["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = "0"     # force-OFF (I-deepfix-001 purity: loser killed)
     # I-cap-002 feature 4/4 (#1060) + I-cap-003 (#1066): turn on the ADDITIVE NLI entailment annotation
     # for the benchmark. NLI is the second validator path (catches qualitative-negation hallucinations
     # strict_verify's regex misses); ADVISORY only (4-role D8 stays the single gate). The scoring
@@ -2643,7 +3322,10 @@ async def run_gate_b_query(
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
     # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
     # (the ~40-URL bug) can therefore NEVER reach a paid run undetected (operator no-downgrade directive).
-    preflight_full_capability(smoke_scale=smoke_scale)
+    # I-deepfix-001 (#1344): offline=(transport injected) skips ONLY the WINNER-FIRES GPU-host probes
+    # (W4/W5) — an offline/unit-test run has no GPU and spends no token, so a GPU assertion there is a
+    # false-fail. The NO-LOSER / model-identity / SLATE-PURITY / W9 purity gates all stay unconditional.
+    preflight_full_capability(smoke_scale=smoke_scale, offline=(transport is not None))
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:

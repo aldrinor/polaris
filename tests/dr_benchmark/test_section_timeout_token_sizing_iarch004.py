@@ -18,7 +18,13 @@ from scripts.dr_benchmark import run_gate_b as g
 from src.polaris_graph.llm import openrouter_client as _oc
 
 _KEYS = ("PG_SECTION_MAX_TOKENS", "PG_GENERATOR_LLM_TIMEOUT_SECONDS", "PG_SECTION_WALLCLOCK_SECONDS")
-_REQ_FLAGS = ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+# I-deepfix-001 (#1344) PURITY: PG_AGENTIC_SEARCH_IN_BENCHMARK is a KILLED loser — it moved out of
+# _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS into _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS (run_gate_b.py:1811).
+# Setting it "1" here re-armed the loser and tripped the NO-LOSER / REQUIRED_OFF gate BEFORE each test's
+# intended timeout/section-budget perturbation could fire (the STALE-BASELINE class). Establish the
+# winners-only baseline by force-ON'ing ONLY the genuinely still-required flags; the killed loser stays at
+# its slate-forced "0", so each test below still proves its protection fires for the RIGHT reason.
+_REQ_FLAGS = ("PG_DEPTH_ANNOTATION_IN_BENCHMARK",
               "PG_NLI_IN_BENCHMARK", "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT",
               "PG_SWEEP_TABLE_CELL_VERIFY")
 
@@ -72,10 +78,15 @@ def test_preflight_fails_closed_on_smoke_wallclock(monkeypatch):
     g.apply_full_capability_benchmark_slate()
     for f in _REQ_FLAGS:
         monkeypatch.setenv(f, "1")
-    g.preflight_full_capability()  # full slate passes
+    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe (mineru25 needs
+    # torch.cuda — false-fails on this offline CI host); every config check (incl. the timeout hierarchy
+    # the perturbation below trips) stays unconditional, so the protection still fires for the RIGHT reason.
+    g.preflight_full_capability(offline=True)  # full slate passes
     monkeypatch.setenv("PG_SECTION_WALLCLOCK_SECONDS", "600")  # the drb_72 killer
-    with pytest.raises(RuntimeError):
-        g.preflight_full_capability()
+    # I-deepfix-001 (#1344) Codex P2: bind to the timeout-hierarchy/section-wall check (the flag name is in
+    # the message) so the raise is the intended cause, not an incidental one.
+    with pytest.raises(RuntimeError, match="PG_SECTION_WALLCLOCK_SECONDS"):
+        g.preflight_full_capability(offline=True)
     _clear()
 
 
@@ -84,10 +95,13 @@ def test_preflight_fails_closed_on_stale_section_budget(monkeypatch):
     g.apply_full_capability_benchmark_slate()
     for f in _REQ_FLAGS:
         monkeypatch.setenv(f, "1")
-    g.preflight_full_capability()
+    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe; the section-token
+    # extra-env floor the perturbation below trips stays unconditional (the protection fires correctly).
+    g.preflight_full_capability(offline=True)
     monkeypatch.setenv("PG_SECTION_MAX_TOKENS", "16384")  # the stale shadow default
-    with pytest.raises(RuntimeError):
-        g.preflight_full_capability()
+    # I-deepfix-001 (#1344) Codex P2: bind to the section-token capacity floor (the flag name is in the message).
+    with pytest.raises(RuntimeError, match="PG_SECTION_MAX_TOKENS"):
+        g.preflight_full_capability(offline=True)
     _clear()
 
 
@@ -121,9 +135,13 @@ def test_preflight_catches_stale_live_generator_timeout(monkeypatch):
     g.apply_full_capability_benchmark_slate()
     for f in _REQ_FLAGS:
         monkeypatch.setenv(f, "1")
-    g.preflight_full_capability()  # passes with the synced constant
+    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe; the LIVE
+    # generator-timeout constant check the frozen-600 perturbation below trips stays unconditional.
+    g.preflight_full_capability(offline=True)  # passes with the synced constant
     oc.set_generator_timeout_seconds(600)  # frozen-stale constant despite env=6500
-    with pytest.raises(RuntimeError):
-        g.preflight_full_capability()
+    # I-deepfix-001 (#1344) Codex P2: bind to the LIVE generator-timeout constant check (the message names
+    # GENERATOR_TIMEOUT_SECONDS) so the raise is the intended frozen-constant cause.
+    with pytest.raises(RuntimeError, match="GENERATOR_TIMEOUT_SECONDS"):
+        g.preflight_full_capability(offline=True)
     # (the autouse _restore_live_generator_timeout fixture restores the original live value)
     _clear()

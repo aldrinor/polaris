@@ -1,0 +1,596 @@
+diff --git a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+index 8d28c7a4..fa25bfe6 100644
+--- a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
++++ b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+@@ -68,7 +68,7 @@ def test_preflight_fails_loud_when_endpoint_unset(monkeypatch):
+         g.preflight_self_host_roles()
+ 
+ 
+-def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(monkeypatch):
++def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(monkeypatch, tmp_path):
+     # With an injected (fake) transport, run_gate_b_query must set BOTH flags and
+     # SKIP the live preflight (offline-safe). Capture the env at run_one_query time.
+     # I-cap-005: the slate calls set_max_cost_per_run() which mutates the openrouter_client global;
+@@ -105,20 +105,30 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+     monkeypatch.setattr(sweep, "run_one_query", fake_run_one_query)
+ 
+     sentinel_transport = object()  # stand-in fake transport (preflight must be skipped)
++    # I-deepfix-001 (#1344): now that the winners-only preflight PASSES (the killed losers are correctly
++    # off), run_gate_b_query advances into the B20 run-wall-clock wrapper, which does out_root/domain/slug
++    # + mkdir BEFORE calling run_one_query — so out_root must be a real Path (the prior str "." pre-dated
++    # that wrapper and only worked because the run aborted at the gate). Use tmp_path so the mkdir is a
++    # throwaway, never the repo.
+     out = asyncio.run(
+         g.run_gate_b_query({"question": "q", "slug": "s", "domain": "d"},
+-                           out_root=".", transport=sentinel_transport)
++                           out_root=tmp_path, transport=sentinel_transport)
+     )
+     assert out == {"status": "ok"}
+     assert captured["PG_FOUR_ROLE_MODE"] == "1"
+     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
+     assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
+-    assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "1"    # agentic URL-discovery ON for benchmark
++    # I-deepfix-001 (#1344) WINNERS-ONLY PURITY: agentic URL-discovery is STORM's twin LOSER — KILLED.
++    # run_gate_b_query force-sets it OFF (was "1"); the slate force-EXACTs it "0"; the NO-LOSER gate fails
++    # closed if re-armed (STALE-ASSERTION updated to the winners-only reality).
++    assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "0"    # agentic URL-discovery KILLED loser (force-off)
+     assert captured["PG_NLI_IN_BENCHMARK"] == "1"              # NLI entailment annotation ON for benchmark
+     # I-cap-005 (#1068) KEYSTONE assertions: full-capability slate applied + preflight passed.
+-    assert captured["PG_STORM_ENABLED_IN_BENCHMARK"] == "1"    # STORM was wired-but-dead; now ON
++    # I-deepfix-001 (#1344) PURITY: STORM core + the citation-snowball deepener are KILLED losers — the
++    # slate force-EXACTs both to "0" (was "1") and the NO-LOSER preflight gate fails closed if re-armed.
++    assert captured["PG_STORM_ENABLED_IN_BENCHMARK"] == "0"    # STORM KILLED loser (slate force-exact "0")
+     assert captured["PG_ENABLE_TOOL_TRACKER"] == "1"           # tracker ON so feature firing is provable
+-    assert captured["PG_SWEEP_EVIDENCE_DEEPENER"] == "1"       # deepener alias fixed (sweep flag)
++    assert captured["PG_SWEEP_EVIDENCE_DEEPENER"] == "0"       # citation-snowball deepener KILLED loser (force-exact "0")
+     assert int(captured["PG_SWEEP_FETCH_CAP"]) >= 500          # the REAL fetch knob, above the floor
+     assert int(captured["PG_SWEEP_MAX_SERPER"]) >= 50          # not the dead PG_LIVE_* name
+     assert int(captured["PG_SWEEP_MAX_S2"]) >= 50
+@@ -163,16 +173,36 @@ def test_preflight_full_capability_fails_closed_on_silent_throttle(monkeypatch):
+     # I-cap-005: register the cost-cap global for restoration (the slate's set_max_cost_per_run mutates
+     # it) so this test does not leak the cap into later budget tests in the same process.
+     monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
+-    g.apply_full_capability_benchmark_slate()
+-    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+-              # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+-              "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
+-        os.environ[f] = "1"
+-    g.preflight_full_capability()                              # full slate -> passes
+-    monkeypatch.setenv("PG_SWEEP_FETCH_CAP", "40")             # the exact prior-bug value
+-    with pytest.raises(RuntimeError):
+-        g.preflight_full_capability()
+-    _clear_flags()
++    # I-deepfix-001 (#1344): apply_full_capability_benchmark_slate + the entry-scoped flag-forces mutate
++    # os.environ DIRECTLY (and rebind _sweep_integration._CLAIM_WORKERS). Snapshot + restore the whole env
++    # so the winners-only baseline (mineru25, the claim-workers value, etc.) cannot leak into sibling
++    # dr_benchmark tests in the same process.
++    env_snapshot = dict(os.environ)
++    try:
++        g.apply_full_capability_benchmark_slate()
++        # Mirror the entry-scoped flag-forces run_gate_b_query applies before preflight. I-deepfix-001
++        # PURITY: PG_AGENTIC_SEARCH_IN_BENCHMARK is NO LONGER set ON — it is a KILLED loser; re-arming it
++        # would trip the NO-LOSER gate FIRST and the test would no longer isolate the throttle floor
++        # (STALE-BASELINE). The slate already force-EXACTs it "0".
++        for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
++                  # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
++                  "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
++            monkeypatch.setenv(f, "1")
++        # offline=True: no-GPU / no-spend unit test — skip ONLY the WINNER-FIRES GPU host-capability probes
++        # (W4/W5). The capacity-FLOOR checks (what this test protects) are gated by smoke_scale, NOT offline,
++        # so they stay active and the throttle below still fires for the right reason.
++        g.preflight_full_capability(offline=True)             # clean winners-only slate -> passes
++        monkeypatch.setenv("PG_SWEEP_FETCH_CAP", "40")        # the exact prior-bug throttle value
++        with pytest.raises(RuntimeError, match="(?i)throttl|floor"):
++            g.preflight_full_capability(offline=True)
++    finally:
++        # I-deepfix-001 (#1344) Codex P1: undo monkeypatch FIRST — it recorded POST-slate env values, and
++        # pytest's monkeypatch teardown runs AFTER this finally; without undo() it would re-inject those
++        # slate values into the process, defeating the snapshot restore. The snapshot restore then handles
++        # the slate's DIRECT os.environ mutations (which monkeypatch never tracked). Both are required.
++        monkeypatch.undo()
++        os.environ.clear()
++        os.environ.update(env_snapshot)
+ 
+ 
+ def test_double_judge_guard_condition():
+diff --git a/tests/dr_benchmark/test_capped_finding_dedup_iready004.py b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+index fab3e4de..8e14a249 100644
+--- a/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
++++ b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+@@ -64,14 +64,38 @@ def test_slate_does_not_int_coerce_relevance_floor(_env_snapshot):
+ 
+ 
+ def _set_min_passing_env() -> None:
+-    """The minimum env for preflight_full_capability to reach the PG_RELEVANCE_FLOOR check."""
++    """The minimum env for preflight_full_capability to reach the PG_RELEVANCE_FLOOR check.
++
++    I-wire-001 (#1296): apply the full slate FIRST so the section-winner flags it now force-sets
++    (the 6 wired BOOLEAN winners are preflight-required; the 4 STRING model-selector winners are
++    value-equals-asserted) are present — otherwise preflight raises on a winner long before reaching
++    the PG_RELEVANCE_FLOOR check this test targets. The explicit overrides below still win (applied
++    after) for the flags this test pins.
++
++    I-deepfix-001 (#1344) WINNERS-ONLY PURITY (STALE-BASELINE fix): the slate is now the winners-only
++    baseline — it force-EXACTs every killed loser to "0" (STORM core/ingest/outline, agentic, evidence
++    -deepener, query-decompose, IterResearch, research-planner). This helper used to RE-ARM three of them
++    (PG_STORM_ENABLED_IN_BENCHMARK / PG_SWEEP_EVIDENCE_DEEPENER / PG_AGENTIC_SEARCH_IN_BENCHMARK) to "1"
++    AFTER the slate, which now trips the NEW NO-LOSER preflight gate (the _BENCHMARK_PREFLIGHT_REQUIRED_OFF
++    _FLAGS loop) LONG BEFORE the PG_RELEVANCE_FLOOR validator this test targets. Those re-arms are DELETED:
++    apply_full_capability_benchmark_slate() already zeroes them and that winners-only baseline is exactly
++    what the cert run uses. The remaining overrides are NON-losers: capacity floors + the preflight-required
++    readiness/faithfulness flags + PG_CAPPED_FINDING_DEDUP. PG_CAPPED_FINDING_DEDUP is force-EXACT "0" in
++    the slate (a dormant cap per I-arch-007 #1264, NOT a NO-LOSER-gated flag — it is in neither
++    _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS nor the NO-LOSER structural loser list), but the
++    PG_RELEVANCE_FLOOR validator (run_gate_b.py:2581) only fires when it is truthy. So this helper sets it
++    "1" purely to ARM that validator — the single perturbation this test family protects — without
++    violating winners-only purity (it trips no purity gate; verified offline).
++    """
++    apply_full_capability_benchmark_slate()
+     for k, v in {
+         "PG_SWEEP_FETCH_CAP": "1000", "PG_SWEEP_MAX_SERPER": "100", "PG_SWEEP_MAX_S2": "100",
+-        "PG_STORM_ENABLED_IN_BENCHMARK": "1", "PG_SWEEP_EVIDENCE_DEEPENER": "1",
+-        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1", "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
++        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1",
+         "PG_NLI_IN_BENCHMARK": "1", "PG_ENABLE_TOOL_TRACKER": "1",
+         # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+         "PG_USE_SAFETY_REFUSAL": "1", "PG_SWEEP_NLI_CONFLICT": "1", "PG_SWEEP_TABLE_CELL_VERIFY": "1",
++        # PG_USE_FINDING_DEDUP is the surviving WINNER (consolidates near-dups); PG_CAPPED_FINDING_DEDUP="1"
++        # is the dormant-cap flag, set here ONLY to arm the PG_RELEVANCE_FLOOR validator (see docstring).
+         "PG_USE_FINDING_DEDUP": "1", "PG_CAPPED_FINDING_DEDUP": "1",
+         "PG_STRICT_VERIFY_ENTAILMENT": "enforce", "PG_MOST_MAX_EVIDENCE": "800",
+         "PG_LIVE_MAX_EV_TO_GEN": "1500", "PG_SWEEP_ANALYST_SYNTHESIS": "0",
+@@ -86,14 +110,18 @@ def test_preflight_rejects_bad_relevance_floor(_env_snapshot, bad):
+     # Codex brief P1-2: a malformed/out-of-range floor fails CLOSED before any spend.
+     _set_min_passing_env()
+     os.environ["PG_RELEVANCE_FLOOR"] = bad
++    # I-deepfix-001 (#1344): offline=True skips ONLY the WINNER-FIRES W4/W5 GPU-host probes (a no-GPU CI box
++    # legitimately has no CUDA) — every STRUCTURAL purity gate + the PG_RELEVANCE_FLOOR validator (which runs
++    # BEFORE the W4 probe) stay unconditional, so this still proves the floor fails CLOSED before any spend.
+     with pytest.raises(RuntimeError, match="PG_RELEVANCE_FLOOR"):
+-        preflight_full_capability()
++        preflight_full_capability(offline=True)
+ 
+ 
+ def test_preflight_accepts_valid_relevance_floor(_env_snapshot):
+     _set_min_passing_env()
+     os.environ["PG_RELEVANCE_FLOOR"] = "0.30"
+-    preflight_full_capability()   # must not raise
++    # I-deepfix-001 (#1344): offline=True (no-GPU CI box) — see the rejects test for the rationale.
++    preflight_full_capability(offline=True)   # must not raise
+ 
+ 
+ def test_capped_finding_dedup_selection_respects_cap():
+diff --git a/tests/dr_benchmark/test_evidence_to_generation_cap_iready001.py b/tests/dr_benchmark/test_evidence_to_generation_cap_iready001.py
+index e2c234a3..5fc9f6c7 100644
+--- a/tests/dr_benchmark/test_evidence_to_generation_cap_iready001.py
++++ b/tests/dr_benchmark/test_evidence_to_generation_cap_iready001.py
+@@ -51,14 +51,24 @@ def test_preflight_fails_closed_on_reintroduced_generation_throttle(monkeypatch)
+     # A deliberate PG_LIVE_MAX_EV_TO_GEN=20 (the prior bug value) must be CAUGHT by the preflight.
+     _clear()
+     g.apply_full_capability_benchmark_slate()
+-    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
++    # I-deepfix-001 (#1344) PURITY: PG_AGENTIC_SEARCH_IN_BENCHMARK is a KILLED loser (moved into
++    # _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS, run_gate_b.py:1811) — force-ON'ing it here re-armed the
++    # loser and tripped the NO-LOSER / REQUIRED_OFF gate BEFORE the re-introduced-throttle perturbation
++    # could fire (STALE-BASELINE). Force-ON only the genuinely still-required flags; the killed loser stays
++    # at its slate-forced "0" so this test still proves the PG_LIVE_MAX_EV_TO_GEN=20 throttle is caught.
++    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+               # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+               "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
+         os.environ[f] = "1"
+-    g.preflight_full_capability()                                # full slate passes
++    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe (mineru25 needs
++    # torch.cuda — false-fails on this offline CI host); the PG_LIVE_MAX_EV_TO_GEN extra-env floor the
++    # =20 perturbation below trips stays unconditional, so the throttle is still caught for the RIGHT reason.
++    g.preflight_full_capability(offline=True)                    # full slate passes
+     monkeypatch.setenv("PG_LIVE_MAX_EV_TO_GEN", "20")            # the exact prior-bug value
+-    with pytest.raises(RuntimeError):
+-        g.preflight_full_capability()
++    # I-deepfix-001 (#1344) Codex P2: bind the raise to the generation-throttle floor (the env-var name is
++    # in the message) so a NO-LOSER/other raise cannot let this test false-pass.
++    with pytest.raises(RuntimeError, match="PG_LIVE_MAX_EV_TO_GEN"):
++        g.preflight_full_capability(offline=True)
+     _clear()
+ 
+ 
+diff --git a/tests/dr_benchmark/test_section_timeout_token_sizing_iarch004.py b/tests/dr_benchmark/test_section_timeout_token_sizing_iarch004.py
+index 510727c1..acac5c48 100644
+--- a/tests/dr_benchmark/test_section_timeout_token_sizing_iarch004.py
++++ b/tests/dr_benchmark/test_section_timeout_token_sizing_iarch004.py
+@@ -18,7 +18,13 @@ from scripts.dr_benchmark import run_gate_b as g
+ from src.polaris_graph.llm import openrouter_client as _oc
+ 
+ _KEYS = ("PG_SECTION_MAX_TOKENS", "PG_GENERATOR_LLM_TIMEOUT_SECONDS", "PG_SECTION_WALLCLOCK_SECONDS")
+-_REQ_FLAGS = ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK",
++# I-deepfix-001 (#1344) PURITY: PG_AGENTIC_SEARCH_IN_BENCHMARK is a KILLED loser — it moved out of
++# _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS into _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS (run_gate_b.py:1811).
++# Setting it "1" here re-armed the loser and tripped the NO-LOSER / REQUIRED_OFF gate BEFORE each test's
++# intended timeout/section-budget perturbation could fire (the STALE-BASELINE class). Establish the
++# winners-only baseline by force-ON'ing ONLY the genuinely still-required flags; the killed loser stays at
++# its slate-forced "0", so each test below still proves its protection fires for the RIGHT reason.
++_REQ_FLAGS = ("PG_DEPTH_ANNOTATION_IN_BENCHMARK",
+               "PG_NLI_IN_BENCHMARK", "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT",
+               "PG_SWEEP_TABLE_CELL_VERIFY")
+ 
+@@ -72,10 +78,15 @@ def test_preflight_fails_closed_on_smoke_wallclock(monkeypatch):
+     g.apply_full_capability_benchmark_slate()
+     for f in _REQ_FLAGS:
+         monkeypatch.setenv(f, "1")
+-    g.preflight_full_capability()  # full slate passes
++    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe (mineru25 needs
++    # torch.cuda — false-fails on this offline CI host); every config check (incl. the timeout hierarchy
++    # the perturbation below trips) stays unconditional, so the protection still fires for the RIGHT reason.
++    g.preflight_full_capability(offline=True)  # full slate passes
+     monkeypatch.setenv("PG_SECTION_WALLCLOCK_SECONDS", "600")  # the drb_72 killer
+-    with pytest.raises(RuntimeError):
+-        g.preflight_full_capability()
++    # I-deepfix-001 (#1344) Codex P2: bind to the timeout-hierarchy/section-wall check (the flag name is in
++    # the message) so the raise is the intended cause, not an incidental one.
++    with pytest.raises(RuntimeError, match="PG_SECTION_WALLCLOCK_SECONDS"):
++        g.preflight_full_capability(offline=True)
+     _clear()
+ 
+ 
+@@ -84,10 +95,13 @@ def test_preflight_fails_closed_on_stale_section_budget(monkeypatch):
+     g.apply_full_capability_benchmark_slate()
+     for f in _REQ_FLAGS:
+         monkeypatch.setenv(f, "1")
+-    g.preflight_full_capability()
++    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe; the section-token
++    # extra-env floor the perturbation below trips stays unconditional (the protection fires correctly).
++    g.preflight_full_capability(offline=True)
+     monkeypatch.setenv("PG_SECTION_MAX_TOKENS", "16384")  # the stale shadow default
+-    with pytest.raises(RuntimeError):
+-        g.preflight_full_capability()
++    # I-deepfix-001 (#1344) Codex P2: bind to the section-token capacity floor (the flag name is in the message).
++    with pytest.raises(RuntimeError, match="PG_SECTION_MAX_TOKENS"):
++        g.preflight_full_capability(offline=True)
+     _clear()
+ 
+ 
+@@ -121,9 +135,13 @@ def test_preflight_catches_stale_live_generator_timeout(monkeypatch):
+     g.apply_full_capability_benchmark_slate()
+     for f in _REQ_FLAGS:
+         monkeypatch.setenv(f, "1")
+-    g.preflight_full_capability()  # passes with the synced constant
++    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe; the LIVE
++    # generator-timeout constant check the frozen-600 perturbation below trips stays unconditional.
++    g.preflight_full_capability(offline=True)  # passes with the synced constant
+     oc.set_generator_timeout_seconds(600)  # frozen-stale constant despite env=6500
+-    with pytest.raises(RuntimeError):
+-        g.preflight_full_capability()
++    # I-deepfix-001 (#1344) Codex P2: bind to the LIVE generator-timeout constant check (the message names
++    # GENERATOR_TIMEOUT_SECONDS) so the raise is the intended frozen-constant cause.
++    with pytest.raises(RuntimeError, match="GENERATOR_TIMEOUT_SECONDS"):
++        g.preflight_full_capability(offline=True)
+     # (the autouse _restore_live_generator_timeout fixture restores the original live value)
+     _clear()
+diff --git a/tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py b/tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py
+index fe28e2e5..3baf8ff1 100644
+--- a/tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py
++++ b/tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py
+@@ -184,11 +184,18 @@ def test_four_fetch_lanes_sum_to_about_1000():
+ 
+ 
+ def test_query_breadth_knobs_present_and_floor_guarded():
+-    """The two previously un-guarded QUERY-BREADTH knobs are pinned in the slate AND floor-guarded so
+-    they cannot silently drift. They are query counts — NOT part of the ~1000-URL fetch sum."""
+-    for knob, expected in (("PG_STORM_MAX_BENCHMARK_QUERIES", "30"), ("PG_MAX_SUBQUERIES", "15")):
+-        assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(knob) == expected
+-        assert _BENCHMARK_PREFLIGHT_FLOORS.get(knob) == int(expected)
++    """The surviving QUERY-BREADTH knob (PG_MAX_SUBQUERIES, the legacy-decompose count) is pinned in the
++    slate AND floor-guarded so it cannot silently drift. It is a query count — NOT part of the ~1000-URL
++    fetch sum.
++
++    I-deepfix-001 (#1344) PURITY: PG_STORM_MAX_BENCHMARK_QUERIES is a KILLED-loser knob — STORM is dead.
++    It is force-EXACT "0" in the slate and its floor is REMOVED (a 30-query floor would re-introduce a
++    STORM knob; the NO-LOSER preflight gate A.2 asserts the floor is gone)."""
++    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_MAX_SUBQUERIES") == "15"
++    assert _BENCHMARK_PREFLIGHT_FLOORS.get("PG_MAX_SUBQUERIES") == 15
++    # STORM query cap: killed loser → slate "0", and NOT floor-guarded (the floor was removed with STORM).
++    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_STORM_MAX_BENCHMARK_QUERIES") == "0"
++    assert "PG_STORM_MAX_BENCHMARK_QUERIES" not in _BENCHMARK_PREFLIGHT_FLOORS
+ 
+ 
+ def test_query_breadth_knobs_excluded_from_url_sum():
+@@ -217,20 +224,29 @@ _STORM_MIN_FLAG = "PG_STORM_MIN_EFFECTIVE_QUERIES"
+ 
+ 
+ def test_storm_min_effective_queries_in_slate():
+-    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "12"
+-
+-
+-def test_storm_min_effective_queries_floor_applied():
+-    """Floor semantics: a HIGHER operator value is kept, a missing/lower one is raised to 12."""
++    """I-deepfix-001 (#1344) PURITY: STORM is a killed loser — its under-fire floor is neutralized to "0"
++    in the slate (was "12"). A non-zero floor would let the run-health gate emit abort_discovery_degraded
++    when the (correctly dead) STORM does not fire — the INVERTED-mandate self-abort the purity build kills.
++    The NO-LOSER preflight gate A.3 asserts this value resolves to 0."""
++    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "0"
++
++
++def test_storm_min_effective_queries_neutralized_no_floor():
++    """I-deepfix-001 (#1344) PURITY: STORM is dead, so its under-fire floor is REMOVED from
++    _BENCHMARK_PREFLIGHT_FLOORS and the slate resolves the flag to "0" with no operator preset (no
++    floor raises it up — a non-zero floor would re-introduce a STORM knob)."""
++    assert _STORM_MIN_FLAG not in _BENCHMARK_PREFLIGHT_FLOORS
+     os.environ.pop(_STORM_MIN_FLAG, None)
+     apply_full_capability_benchmark_slate()
+-    assert int(os.environ[_STORM_MIN_FLAG]) >= 12
++    assert int(os.environ[_STORM_MIN_FLAG]) == 0
+ 
+ 
+-def test_slate_storm_min_drives_under_fire_abort():
+-    """§-1.1 behavioral: with the slate floor (12), a force-on STORM that FIRED but produced only 4
+-    effective queries (post-validator collapse) overrides a would-be success to abort_discovery_degraded
+-    — proving the knob is wired to real gate behavior, not just a string in the slate."""
++def test_slate_storm_min_under_fire_abort_neutralized():
++    """§-1.1 behavioral: I-deepfix-001 (#1344) PURITY neutralizes the STORM under-fire floor to "0", so
++    feeding the slate value to compute_run_health_gate can NEVER emit abort_discovery_degraded on a STORM
++    telemetry — proving the INVERTED-mandate self-abort is wired OFF, not just a "0" string in the slate.
++    (With floor 0, `effective_query_count < 0` is never true, so the under-fire branch cannot fire even
++    on the old collapse shape of 4 effective queries.)"""
+     storm = make_feature_telemetry(
+         "storm", enabled=True, fired=True, firing_status="fired", effective_query_count=4
+     )
+@@ -240,5 +256,5 @@ def test_slate_storm_min_drives_under_fire_abort():
+         gate_on=True,
+         storm_min_effective_queries=int(_FULL_CAPABILITY_BENCHMARK_SLATE[_STORM_MIN_FLAG]),
+     )
+-    assert out["override_status"] == "abort_discovery_degraded"
+-    assert out["discovery_llm_degraded"] is True
++    assert out["override_status"] is None
++    assert out["discovery_llm_degraded"] is False
+diff --git a/tests/dr_benchmark/test_smoke_scale_iarch007.py b/tests/dr_benchmark/test_smoke_scale_iarch007.py
+index 96e8da4b..c3aa9a0a 100644
+--- a/tests/dr_benchmark/test_smoke_scale_iarch007.py
++++ b/tests/dr_benchmark/test_smoke_scale_iarch007.py
+@@ -40,8 +40,10 @@ def test_smoke_scale_on_forces_small_breadth_and_coherent_timeouts(gate_b, monke
+     assert os.environ["PG_SWEEP_FETCH_CAP"] == "20"
+     assert os.environ["PG_SWEEP_DEEPENER_URL_CAP"] == "5"
+     assert os.environ["PG_MAX_SUBQUERIES"] == "4"
+-    # the STORM min floor must drop too, else max(4) < min(12) -> abort_discovery_degraded
+-    assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "2"
++    # I-deepfix-001 (#1344) PURITY: STORM is a killed loser — its smoke under-fire floor is neutralized
++    # to "0" (full-slate is also "0"), so the smoke can never re-introduce a non-zero STORM knob that the
++    # SLATE-PURITY gate would reject (and the run-health under-fire abort can never trip on the absent STORM).
++    assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "0"
+     # the super-heavy preflight breadth floor must drop (default 100) or it aborts before the sweep
+     assert os.environ["PG_PREFLIGHT_MIN_BREADTH"] == "10"
+     assert os.environ["PG_STORM_PERSPECTIVES_COUNT"] == "3"
+@@ -84,6 +86,16 @@ def test_preflight_smoke_skips_capacity_floors_only(gate_b, monkeypatch):
+     box .env still trips one of those AFTER the capacity floors — which itself proves the floors were
+     skipped, since the smoke run reached past them)."""
+     monkeypatch.setenv("PG_MAX_COST_PER_RUN", "40")
++    # The F07 binding-faithfulness gate (assert_faithfulness_slate_or_fail) runs BEFORE the capacity
++    # floors and is a no-op UNLESS PG_BENCHMARK_STRICT_GATES is truthy — but it then requires the matched
++    # set (PG_SWEEP_NLI_CONFLICT truthy + PG_STRICT_VERIFY_ENTAILMENT=enforce). A sibling test can leak
++    # PG_BENCHMARK_STRICT_GATES=1 with PG_SWEEP_NLI_CONFLICT='' into the process env, which would make F07
++    # raise FIRST and mask the CAPACITY-floor error this test is isolating. run_gate_b_query always sets
++    # these three together for a real run, so mirror that here: set the consistent F07 slate so the gate
++    # PASSES and the throttle below reaches the capacity floor for the right reason (leak-robust baseline).
++    monkeypatch.setenv("PG_BENCHMARK_STRICT_GATES", "1")
++    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+     gate_b.apply_full_capability_benchmark_slate(smoke_scale=True)
+     # full mode: the smoke breadth/cost/timeout values trip a CAPACITY floor
+     with pytest.raises(RuntimeError) as full_exc:
+diff --git a/tests/dr_benchmark/test_super_heavy_preflight_icred013.py b/tests/dr_benchmark/test_super_heavy_preflight_icred013.py
+index 1ed88ab6..022520a4 100644
+--- a/tests/dr_benchmark/test_super_heavy_preflight_icred013.py
++++ b/tests/dr_benchmark/test_super_heavy_preflight_icred013.py
+@@ -1,9 +1,11 @@
+ """Offline smoke for I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight.
+ 
+ NO network, NO spend: every live probe (canary, generator-slug, verifier-slug, credibility-judge,
+-STORM, chromium) and the false-alarm runtime asserts are DEPENDENCY-INJECTED, so the fail-closed
++breadth, chromium) and the false-alarm runtime asserts are DEPENDENCY-INJECTED, so the fail-closed
+ logic is exercised with faked alive/dead results. Each new probe's dead path is asserted to raise
+-GateError INDIVIDUALLY, and a fully-green path returns the machine-readable summary.
++GateError INDIVIDUALLY, and a fully-green path returns the machine-readable summary. (The STORM
++persona-discovery probe was DELETED under I-deepfix-001 K5 — STORM is killed in the winners-only purity
++build; test_storm_persona_probe_is_gone regression-guards the deletion.)
+ 
+ Hermetic env (mirrors tests/dr_benchmark/test_behavioral_canary_canary01_iready017.py conventions).
+ """
+@@ -18,7 +20,6 @@ from scripts.dr_benchmark.pathB_run_gate import GateError
+ from scripts.dr_benchmark.super_heavy_preflight import (
+     _CREDIBILITY_REDESIGN_FLAG,
+     _PREFLIGHT_MIN_BREADTH,
+-    _PREFLIGHT_MIN_STORM_PERSONAS,
+     credibility_redesign_active,
+     super_heavy_preflight,
+ )
+@@ -55,10 +56,6 @@ def _cred_alive() -> str:
+     return "z-ai/glm-5.1"
+ 
+ 
+-async def _storm_ok() -> int:
+-    return 2
+-
+-
+ def _breadth_ok() -> int:
+     return 140  # the wide-run union (serper ~60 + S2 ~100, de-duped) clears the default floor of 100
+ 
+@@ -77,7 +74,6 @@ def _all_green_kwargs(**overrides):
+         generator_slug_probe=_gen_ok,
+         verifier_slug_probe=_verifiers_ok,
+         credibility_judge_probe=_cred_inactive,
+-        storm_probe=_storm_ok,
+         breadth_probe=_breadth_ok,
+         chromium_probe=_chromium_ok,
+         false_alarm_asserts=_false_alarms_ok,
+@@ -96,7 +92,7 @@ def test_super_heavy_preflight_all_green_returns_summary(capsys):
+     assert summary["generator_slug"] == "alive"
+     assert summary["verifier_slugs_alive"]["sentinel"] == "minimax/minimax-m2"
+     assert summary["credibility_judge"] == "inactive_this_run"
+-    assert summary["storm_personas"] == 2
++    assert "storm_personas" not in summary  # K5: STORM persona probe deleted (winners-only purity)
+     assert summary["retrieval_breadth"] == 140
+ 
+ 
+@@ -178,32 +174,28 @@ def test_fails_closed_when_credibility_judge_dead():
+         asyncio.run(super_heavy_preflight(**_all_green_kwargs(credibility_judge_probe=_cred_dead)))
+ 
+ 
+-def test_fails_closed_when_storm_empty():
+-    async def _storm_empty() -> int:
+-        return 0
+-
+-    with pytest.raises(GateError, match="0 personas"):
+-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_empty)))
+-
+-
+-def test_normalizes_arbitrary_storm_failure_to_gateerror():
+-    async def _storm_boom() -> int:
+-        raise RuntimeError("storm exploded")
+-
+-    with pytest.raises(GateError, match="fail closed"):
+-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_boom)))
++# --------------------------------------------------------------- K5: STORM persona probe is DELETED
++def test_storm_persona_probe_is_gone():
++    """I-deepfix-001 K5 (winners-only purity build): the STORM persona-discovery probe was DELETED —
++    STORM is killed in the purity build, so its floor (_PREFLIGHT_MIN_STORM_PERSONAS), its default probe
++    (_default_storm_probe), and the super_heavy_preflight ``storm_probe`` param must NOT exist. A
++    "< N personas" raise would FAIL every winners-only run for the mandated reason rather than against
++    it. The retrieval-breadth probe (NOT STORM) is the surviving wide-run signal. Regression-guards the
++    deletion so the deleted symbols cannot silently resurface."""
++    import inspect
+ 
++    import scripts.dr_benchmark.super_heavy_preflight as m
+ 
+-def test_fails_closed_when_storm_under_threshold():
+-    """I-preflight-002 (#1169): STORM returning FEWER than PG_PREFLIGHT_MIN_STORM_PERSONAS (default 2)
+-    fails closed — not only the empty (0) case. A 1-persona return is under the cheap-probe floor."""
+-    assert _PREFLIGHT_MIN_STORM_PERSONAS == 2  # the cheap-probe default
++    # the floor constant and the default probe are gone from the module
++    assert not hasattr(m, "_PREFLIGHT_MIN_STORM_PERSONAS"), "STORM persona floor must be deleted"
++    assert not hasattr(m, "_default_storm_probe"), "STORM default persona probe must be deleted"
+ 
+-    async def _storm_under() -> int:
+-        return 1
++    # the storm_probe keyword param is gone from super_heavy_preflight's signature
++    params = inspect.signature(super_heavy_preflight).parameters
++    assert "storm_probe" not in params, "super_heavy_preflight must NOT accept a storm_probe param"
+ 
+-    with pytest.raises(GateError, match=r"1 personas \(< 2 required\)"):
+-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_under)))
++    # the surviving breadth probe (NOT STORM) is still wired in
++    assert "breadth_probe" in params, "the breadth probe (the real wide-run signal) must survive"
+ 
+ 
+ # --------------------------------------------------------------------------- I-preflight-002 BREADTH
+diff --git a/tests/dr_benchmark/test_verified_only_surface_iready013.py b/tests/dr_benchmark/test_verified_only_surface_iready013.py
+index c6ba8fe9..9df4fb35 100644
+--- a/tests/dr_benchmark/test_verified_only_surface_iready013.py
++++ b/tests/dr_benchmark/test_verified_only_surface_iready013.py
+@@ -19,27 +19,51 @@ from scripts.dr_benchmark import run_gate_b as gate_b
+ 
+ 
+ def _set_min_passing_gate_b_env(monkeypatch: pytest.MonkeyPatch) -> None:
+-    for key, value in {
+-        "PG_SWEEP_FETCH_CAP": "1000",
+-        "PG_SWEEP_MAX_SERPER": "100",
+-        "PG_SWEEP_MAX_S2": "100",
+-        "PG_STORM_ENABLED_IN_BENCHMARK": "1",
+-        "PG_SWEEP_EVIDENCE_DEEPENER": "1",
++    # I-deepfix-001 (#1344) WINNERS-ONLY PURITY (STALE-BASELINE fix): preflight_full_capability now
++    # enforces the FULL winners-only contract — the NO-LOSER gate (every killed loser force-OFF; an UNSET
++    # loser like PG_SWEEP_QUERY_DECOMPOSE defaults ON and trips it), the WINNER_EXACT_VALUE assertions
++    # (mineru25 / qwen3 embedder+reranker / glm-5.2 evaluator+entailment), the complete REQUIRED-flag
++    # contract, and the faithfulness slate. A hand-rolled "min env" can no longer satisfy all of that, so
++    # reproduce the EXACT production state the run sees just before preflight: the full-capability slate
++    # PLUS the programmatic env-forces run_gate_b_query applies before it calls preflight (the entry-scoped
++    # flags that are NOT in the slate dict), PLUS the complete REQUIRED / REQUIRED-OFF flag sets so the
++    # caller's single perturbation (PG_SWEEP_ANALYST_SYNTHESIS=1) is what trips the gate — not some other
++    # unset required flag. This mirrors the proven test_purity_preflight_gates._apply_clean_winners_only_slate.
++    # Clear any loser env an operator .env might carry, so the slate's force-EXACT "0" is the only value.
++    for _k in (
++        "PG_STORM_ENABLED_IN_BENCHMARK", "PG_STORM_INGEST_WEB_RESULTS", "PG_STORM_ENABLED",
++        "PG_STORM_OUTLINE_SECTIONS", "PG_STORM_MIN_EFFECTIVE_QUERIES",
++        "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_SWEEP_EVIDENCE_DEEPENER", "PG_SWEEP_QUERY_DECOMPOSE",
++        "PG_QGEN_ITERRESEARCH", "PG_USE_RESEARCH_PLANNER",
++        "PG_EMBED_MODEL", "PG_ENTAILMENT_MODEL", "PG_EVALUATOR_MODEL",
++    ):
++        monkeypatch.delenv(_k, raising=False)
++
++    gate_b.apply_full_capability_benchmark_slate()
++
++    # Mirror the programmatic env-forces run_gate_b_query sets BEFORE preflight that are NOT in the slate
++    # dict but ARE pre-required by the pre-existing preflight checks (the entry-scoped flags).
++    for _name, _value in {
++        "PG_AGENTIC_SEARCH_IN_BENCHMARK": "0",      # loser, force-off (run_gate_b_query)
+         "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1",
+-        "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
+         "PG_NLI_IN_BENCHMARK": "1",
+-        # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+-        "PG_USE_SAFETY_REFUSAL": "1", "PG_SWEEP_NLI_CONFLICT": "1", "PG_SWEEP_TABLE_CELL_VERIFY": "1",
+-        "PG_ENABLE_TOOL_TRACKER": "1",
+-        "PG_USE_FINDING_DEDUP": "1",
+-        "PG_CAPPED_FINDING_DEDUP": "1",
+-        "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+-        "PG_MOST_MAX_EVIDENCE": "800",
+-        "PG_LIVE_MAX_EV_TO_GEN": "1500",
+-        "PG_RELEVANCE_FLOOR": "0.30",
+-        "PG_SWEEP_ANALYST_SYNTHESIS": "0",
++        "PG_USE_SAFETY_REFUSAL": "1",
++        "PG_SWEEP_NLI_CONFLICT": "1",
++        "PG_BENCHMARK_STRICT_GATES": "1",
++        "PG_SWEEP_TABLE_CELL_VERIFY": "1",
++        "PG_SECTION_DISTILL": "1",
++        "PG_RELEVANCE_SCORER": "semantic_v2",
++        "PG_TRAFILATURA_SUBPROCESS": "1",
++        "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY": "1",
+     }.items():
+-        monkeypatch.setenv(key, value)
++        monkeypatch.setenv(_name, _value)
++    # Satisfy the COMPLETE required-flag contract so the analyst-synthesis perturbation isolates the gate
++    # under test (every required flag ON, every killed loser provably OFF, the binding verifier enforcing).
++    for _flag in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
++        monkeypatch.setenv(_flag, "1")
++    for _flag in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
++        monkeypatch.setenv(_flag, "0")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+ 
+     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
+ 
+@@ -71,15 +95,35 @@ def test_gate_b_preflight_fails_if_analyst_synthesis_enabled(monkeypatch):
+     )
+ 
+     old_cap = get_max_cost_per_run()
++    # _set_min_passing_gate_b_env applies the production slate, which mutates os.environ DIRECTLY (not via
++    # monkeypatch). Snapshot + restore the whole environment so the winners-only baseline (e.g. the W4
++    # PG_CLINICAL_PDF_EXTRACTOR=mineru25 pin) does not leak into sibling dr_benchmark tests in the same
++    # process — the env-leak class this suite is otherwise prone to.
++    env_snapshot = dict(os.environ)
+     try:
+         _set_min_passing_gate_b_env(monkeypatch)
+-        gate_b.preflight_full_capability()
+-
++        # offline=True: this is a no-GPU / no-spend unit test, so skip ONLY the WINNER-FIRES GPU
++        # host-capability probes (W4 mineru25 torch.cuda, W5 reranker device) that would false-fail on a
++        # CPU host. The NO-LOSER gate + the killed-loser REQUIRED_OFF check (which is what protects the
++        # analyst-synthesis suppression) stay UNCONDITIONAL, so the perturbation below still binds.
++        gate_b.preflight_full_capability(offline=True)
++
++        # I-deepfix-001 (#1344): the legacy Analyst Synthesis layer is a killed un-span-verified loser —
++        # PG_SWEEP_ANALYST_SYNTHESIS is in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS, so re-arming it trips
++        # the generic NO-LOSER/REQUIRED_OFF gate. The message names the flag (the dedicated "Analyst
++        # Synthesis" phrasing was consolidated into the generic killed-loser gate), so match the flag id.
+         monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
+-        with pytest.raises(RuntimeError, match="Analyst Synthesis"):
+-            gate_b.preflight_full_capability()
++        with pytest.raises(RuntimeError, match="PG_SWEEP_ANALYST_SYNTHESIS"):
++            gate_b.preflight_full_capability(offline=True)
+     finally:
+         set_max_cost_per_run(old_cap)
++        # I-deepfix-001 (#1344) Codex P1: undo monkeypatch FIRST — _set_min_passing_gate_b_env recorded
++        # POST-slate env values via monkeypatch, and pytest's monkeypatch teardown runs AFTER this finally;
++        # without undo() it would re-inject them, defeating the snapshot restore. The snapshot restore then
++        # handles the slate's DIRECT os.environ mutations (untracked by monkeypatch). Both are required.
++        monkeypatch.undo()
++        os.environ.clear()
++        os.environ.update(env_snapshot)
+ 
+ 
+ def test_generator_boundary_checks_kill_switch_and_suppressor_before_writer_import():

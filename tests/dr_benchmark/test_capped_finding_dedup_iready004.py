@@ -64,14 +64,38 @@ def test_slate_does_not_int_coerce_relevance_floor(_env_snapshot):
 
 
 def _set_min_passing_env() -> None:
-    """The minimum env for preflight_full_capability to reach the PG_RELEVANCE_FLOOR check."""
+    """The minimum env for preflight_full_capability to reach the PG_RELEVANCE_FLOOR check.
+
+    I-wire-001 (#1296): apply the full slate FIRST so the section-winner flags it now force-sets
+    (the 6 wired BOOLEAN winners are preflight-required; the 4 STRING model-selector winners are
+    value-equals-asserted) are present — otherwise preflight raises on a winner long before reaching
+    the PG_RELEVANCE_FLOOR check this test targets. The explicit overrides below still win (applied
+    after) for the flags this test pins.
+
+    I-deepfix-001 (#1344) WINNERS-ONLY PURITY (STALE-BASELINE fix): the slate is now the winners-only
+    baseline — it force-EXACTs every killed loser to "0" (STORM core/ingest/outline, agentic, evidence
+    -deepener, query-decompose, IterResearch, research-planner). This helper used to RE-ARM three of them
+    (PG_STORM_ENABLED_IN_BENCHMARK / PG_SWEEP_EVIDENCE_DEEPENER / PG_AGENTIC_SEARCH_IN_BENCHMARK) to "1"
+    AFTER the slate, which now trips the NEW NO-LOSER preflight gate (the _BENCHMARK_PREFLIGHT_REQUIRED_OFF
+    _FLAGS loop) LONG BEFORE the PG_RELEVANCE_FLOOR validator this test targets. Those re-arms are DELETED:
+    apply_full_capability_benchmark_slate() already zeroes them and that winners-only baseline is exactly
+    what the cert run uses. The remaining overrides are NON-losers: capacity floors + the preflight-required
+    readiness/faithfulness flags + PG_CAPPED_FINDING_DEDUP. PG_CAPPED_FINDING_DEDUP is force-EXACT "0" in
+    the slate (a dormant cap per I-arch-007 #1264, NOT a NO-LOSER-gated flag — it is in neither
+    _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS nor the NO-LOSER structural loser list), but the
+    PG_RELEVANCE_FLOOR validator (run_gate_b.py:2581) only fires when it is truthy. So this helper sets it
+    "1" purely to ARM that validator — the single perturbation this test family protects — without
+    violating winners-only purity (it trips no purity gate; verified offline).
+    """
+    apply_full_capability_benchmark_slate()
     for k, v in {
         "PG_SWEEP_FETCH_CAP": "1000", "PG_SWEEP_MAX_SERPER": "100", "PG_SWEEP_MAX_S2": "100",
-        "PG_STORM_ENABLED_IN_BENCHMARK": "1", "PG_SWEEP_EVIDENCE_DEEPENER": "1",
-        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1", "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
+        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1",
         "PG_NLI_IN_BENCHMARK": "1", "PG_ENABLE_TOOL_TRACKER": "1",
         # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
         "PG_USE_SAFETY_REFUSAL": "1", "PG_SWEEP_NLI_CONFLICT": "1", "PG_SWEEP_TABLE_CELL_VERIFY": "1",
+        # PG_USE_FINDING_DEDUP is the surviving WINNER (consolidates near-dups); PG_CAPPED_FINDING_DEDUP="1"
+        # is the dormant-cap flag, set here ONLY to arm the PG_RELEVANCE_FLOOR validator (see docstring).
         "PG_USE_FINDING_DEDUP": "1", "PG_CAPPED_FINDING_DEDUP": "1",
         "PG_STRICT_VERIFY_ENTAILMENT": "enforce", "PG_MOST_MAX_EVIDENCE": "800",
         "PG_LIVE_MAX_EV_TO_GEN": "1500", "PG_SWEEP_ANALYST_SYNTHESIS": "0",
@@ -86,14 +110,18 @@ def test_preflight_rejects_bad_relevance_floor(_env_snapshot, bad):
     # Codex brief P1-2: a malformed/out-of-range floor fails CLOSED before any spend.
     _set_min_passing_env()
     os.environ["PG_RELEVANCE_FLOOR"] = bad
+    # I-deepfix-001 (#1344): offline=True skips ONLY the WINNER-FIRES W4/W5 GPU-host probes (a no-GPU CI box
+    # legitimately has no CUDA) — every STRUCTURAL purity gate + the PG_RELEVANCE_FLOOR validator (which runs
+    # BEFORE the W4 probe) stay unconditional, so this still proves the floor fails CLOSED before any spend.
     with pytest.raises(RuntimeError, match="PG_RELEVANCE_FLOOR"):
-        preflight_full_capability()
+        preflight_full_capability(offline=True)
 
 
 def test_preflight_accepts_valid_relevance_floor(_env_snapshot):
     _set_min_passing_env()
     os.environ["PG_RELEVANCE_FLOOR"] = "0.30"
-    preflight_full_capability()   # must not raise
+    # I-deepfix-001 (#1344): offline=True (no-GPU CI box) — see the rejects test for the rationale.
+    preflight_full_capability(offline=True)   # must not raise
 
 
 def test_capped_finding_dedup_selection_respects_cap():

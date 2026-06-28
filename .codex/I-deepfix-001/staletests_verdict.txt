@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Env snapshot/restore is not actually leak-safe in the two rewritten tests. In `tests/dr_benchmark/test_benchmark_stack_activation_meta007.py:180`/`:200`, the test restores `os.environ` in `finally`, but `monkeypatch.setenv(\"PG_SWEEP_FETCH_CAP\", \"40\")` at `:195` captured the post-slate value (`740`). Pytest's monkeypatch teardown runs after the `finally`, so it can restore `PG_SWEEP_FETCH_CAP=740` back into the process, defeating the snapshot. Same class in `tests/dr_benchmark/test_verified_only_surface_iready013.py:102`/`:121`: after the slate, helper calls like `PG_SECTION_DISTILL` at `:54`, the required-flag loops at `:62`/`:64`, and `PG_SWEEP_ANALYST_SYNTHESIS` at `:115` can re-leak slate/off values after the manual restore. Fix by avoiding `monkeypatch.setenv` inside the manual snapshot region, or call `monkeypatch.undo()` before restoring the snapshot."
+p2:
+  - "Non-blocking hardening: `test_evidence_to_generation_cap_iready001.py:68` and `test_section_timeout_token_sizing_iarch004.py:86/:100/:139` still use broad `pytest.raises(RuntimeError)` without `match`. Current production ordering means they hit the intended floor/timeout checks after a clean preflight pass, not NO-LOSER, but adding `match` would better lock the intended cause."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix the env restore/monkeypatch teardown ordering in the two snapshot/restore edits."

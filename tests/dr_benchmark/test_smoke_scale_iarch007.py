@@ -40,8 +40,10 @@ def test_smoke_scale_on_forces_small_breadth_and_coherent_timeouts(gate_b, monke
     assert os.environ["PG_SWEEP_FETCH_CAP"] == "20"
     assert os.environ["PG_SWEEP_DEEPENER_URL_CAP"] == "5"
     assert os.environ["PG_MAX_SUBQUERIES"] == "4"
-    # the STORM min floor must drop too, else max(4) < min(12) -> abort_discovery_degraded
-    assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "2"
+    # I-deepfix-001 (#1344) PURITY: STORM is a killed loser — its smoke under-fire floor is neutralized
+    # to "0" (full-slate is also "0"), so the smoke can never re-introduce a non-zero STORM knob that the
+    # SLATE-PURITY gate would reject (and the run-health under-fire abort can never trip on the absent STORM).
+    assert os.environ["PG_STORM_MIN_EFFECTIVE_QUERIES"] == "0"
     # the super-heavy preflight breadth floor must drop (default 100) or it aborts before the sweep
     assert os.environ["PG_PREFLIGHT_MIN_BREADTH"] == "10"
     assert os.environ["PG_STORM_PERSPECTIVES_COUNT"] == "3"
@@ -84,6 +86,16 @@ def test_preflight_smoke_skips_capacity_floors_only(gate_b, monkeypatch):
     box .env still trips one of those AFTER the capacity floors — which itself proves the floors were
     skipped, since the smoke run reached past them)."""
     monkeypatch.setenv("PG_MAX_COST_PER_RUN", "40")
+    # The F07 binding-faithfulness gate (assert_faithfulness_slate_or_fail) runs BEFORE the capacity
+    # floors and is a no-op UNLESS PG_BENCHMARK_STRICT_GATES is truthy — but it then requires the matched
+    # set (PG_SWEEP_NLI_CONFLICT truthy + PG_STRICT_VERIFY_ENTAILMENT=enforce). A sibling test can leak
+    # PG_BENCHMARK_STRICT_GATES=1 with PG_SWEEP_NLI_CONFLICT='' into the process env, which would make F07
+    # raise FIRST and mask the CAPACITY-floor error this test is isolating. run_gate_b_query always sets
+    # these three together for a real run, so mirror that here: set the consistent F07 slate so the gate
+    # PASSES and the throttle below reaches the capacity floor for the right reason (leak-robust baseline).
+    monkeypatch.setenv("PG_BENCHMARK_STRICT_GATES", "1")
+    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", "1")
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     gate_b.apply_full_capability_benchmark_slate(smoke_scale=True)
     # full mode: the smoke breadth/cost/timeout values trip a CAPACITY floor
     with pytest.raises(RuntimeError) as full_exc:

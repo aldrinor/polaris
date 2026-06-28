@@ -184,11 +184,18 @@ def test_four_fetch_lanes_sum_to_about_1000():
 
 
 def test_query_breadth_knobs_present_and_floor_guarded():
-    """The two previously un-guarded QUERY-BREADTH knobs are pinned in the slate AND floor-guarded so
-    they cannot silently drift. They are query counts — NOT part of the ~1000-URL fetch sum."""
-    for knob, expected in (("PG_STORM_MAX_BENCHMARK_QUERIES", "30"), ("PG_MAX_SUBQUERIES", "15")):
-        assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(knob) == expected
-        assert _BENCHMARK_PREFLIGHT_FLOORS.get(knob) == int(expected)
+    """The surviving QUERY-BREADTH knob (PG_MAX_SUBQUERIES, the legacy-decompose count) is pinned in the
+    slate AND floor-guarded so it cannot silently drift. It is a query count — NOT part of the ~1000-URL
+    fetch sum.
+
+    I-deepfix-001 (#1344) PURITY: PG_STORM_MAX_BENCHMARK_QUERIES is a KILLED-loser knob — STORM is dead.
+    It is force-EXACT "0" in the slate and its floor is REMOVED (a 30-query floor would re-introduce a
+    STORM knob; the NO-LOSER preflight gate A.2 asserts the floor is gone)."""
+    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_MAX_SUBQUERIES") == "15"
+    assert _BENCHMARK_PREFLIGHT_FLOORS.get("PG_MAX_SUBQUERIES") == 15
+    # STORM query cap: killed loser → slate "0", and NOT floor-guarded (the floor was removed with STORM).
+    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_STORM_MAX_BENCHMARK_QUERIES") == "0"
+    assert "PG_STORM_MAX_BENCHMARK_QUERIES" not in _BENCHMARK_PREFLIGHT_FLOORS
 
 
 def test_query_breadth_knobs_excluded_from_url_sum():
@@ -217,20 +224,29 @@ _STORM_MIN_FLAG = "PG_STORM_MIN_EFFECTIVE_QUERIES"
 
 
 def test_storm_min_effective_queries_in_slate():
-    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "12"
+    """I-deepfix-001 (#1344) PURITY: STORM is a killed loser — its under-fire floor is neutralized to "0"
+    in the slate (was "12"). A non-zero floor would let the run-health gate emit abort_discovery_degraded
+    when the (correctly dead) STORM does not fire — the INVERTED-mandate self-abort the purity build kills.
+    The NO-LOSER preflight gate A.3 asserts this value resolves to 0."""
+    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "0"
 
 
-def test_storm_min_effective_queries_floor_applied():
-    """Floor semantics: a HIGHER operator value is kept, a missing/lower one is raised to 12."""
+def test_storm_min_effective_queries_neutralized_no_floor():
+    """I-deepfix-001 (#1344) PURITY: STORM is dead, so its under-fire floor is REMOVED from
+    _BENCHMARK_PREFLIGHT_FLOORS and the slate resolves the flag to "0" with no operator preset (no
+    floor raises it up — a non-zero floor would re-introduce a STORM knob)."""
+    assert _STORM_MIN_FLAG not in _BENCHMARK_PREFLIGHT_FLOORS
     os.environ.pop(_STORM_MIN_FLAG, None)
     apply_full_capability_benchmark_slate()
-    assert int(os.environ[_STORM_MIN_FLAG]) >= 12
+    assert int(os.environ[_STORM_MIN_FLAG]) == 0
 
 
-def test_slate_storm_min_drives_under_fire_abort():
-    """§-1.1 behavioral: with the slate floor (12), a force-on STORM that FIRED but produced only 4
-    effective queries (post-validator collapse) overrides a would-be success to abort_discovery_degraded
-    — proving the knob is wired to real gate behavior, not just a string in the slate."""
+def test_slate_storm_min_under_fire_abort_neutralized():
+    """§-1.1 behavioral: I-deepfix-001 (#1344) PURITY neutralizes the STORM under-fire floor to "0", so
+    feeding the slate value to compute_run_health_gate can NEVER emit abort_discovery_degraded on a STORM
+    telemetry — proving the INVERTED-mandate self-abort is wired OFF, not just a "0" string in the slate.
+    (With floor 0, `effective_query_count < 0` is never true, so the under-fire branch cannot fire even
+    on the old collapse shape of 4 effective queries.)"""
     storm = make_feature_telemetry(
         "storm", enabled=True, fired=True, firing_status="fired", effective_query_count=4
     )
@@ -240,5 +256,5 @@ def test_slate_storm_min_drives_under_fire_abort():
         gate_on=True,
         storm_min_effective_queries=int(_FULL_CAPABILITY_BENCHMARK_SLATE[_STORM_MIN_FLAG]),
     )
-    assert out["override_status"] == "abort_discovery_degraded"
-    assert out["discovery_llm_degraded"] is True
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is False

@@ -1,9 +1,11 @@
 """Offline smoke for I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight.
 
 NO network, NO spend: every live probe (canary, generator-slug, verifier-slug, credibility-judge,
-STORM, chromium) and the false-alarm runtime asserts are DEPENDENCY-INJECTED, so the fail-closed
+breadth, chromium) and the false-alarm runtime asserts are DEPENDENCY-INJECTED, so the fail-closed
 logic is exercised with faked alive/dead results. Each new probe's dead path is asserted to raise
-GateError INDIVIDUALLY, and a fully-green path returns the machine-readable summary.
+GateError INDIVIDUALLY, and a fully-green path returns the machine-readable summary. (The STORM
+persona-discovery probe was DELETED under I-deepfix-001 K5 — STORM is killed in the winners-only purity
+build; test_storm_persona_probe_is_gone regression-guards the deletion.)
 
 Hermetic env (mirrors tests/dr_benchmark/test_behavioral_canary_canary01_iready017.py conventions).
 """
@@ -18,7 +20,6 @@ from scripts.dr_benchmark.pathB_run_gate import GateError
 from scripts.dr_benchmark.super_heavy_preflight import (
     _CREDIBILITY_REDESIGN_FLAG,
     _PREFLIGHT_MIN_BREADTH,
-    _PREFLIGHT_MIN_STORM_PERSONAS,
     credibility_redesign_active,
     super_heavy_preflight,
 )
@@ -55,10 +56,6 @@ def _cred_alive() -> str:
     return "z-ai/glm-5.1"
 
 
-async def _storm_ok() -> int:
-    return 2
-
-
 def _breadth_ok() -> int:
     return 140  # the wide-run union (serper ~60 + S2 ~100, de-duped) clears the default floor of 100
 
@@ -77,7 +74,6 @@ def _all_green_kwargs(**overrides):
         generator_slug_probe=_gen_ok,
         verifier_slug_probe=_verifiers_ok,
         credibility_judge_probe=_cred_inactive,
-        storm_probe=_storm_ok,
         breadth_probe=_breadth_ok,
         chromium_probe=_chromium_ok,
         false_alarm_asserts=_false_alarms_ok,
@@ -96,7 +92,7 @@ def test_super_heavy_preflight_all_green_returns_summary(capsys):
     assert summary["generator_slug"] == "alive"
     assert summary["verifier_slugs_alive"]["sentinel"] == "minimax/minimax-m2"
     assert summary["credibility_judge"] == "inactive_this_run"
-    assert summary["storm_personas"] == 2
+    assert "storm_personas" not in summary  # K5: STORM persona probe deleted (winners-only purity)
     assert summary["retrieval_breadth"] == 140
 
 
@@ -178,32 +174,28 @@ def test_fails_closed_when_credibility_judge_dead():
         asyncio.run(super_heavy_preflight(**_all_green_kwargs(credibility_judge_probe=_cred_dead)))
 
 
-def test_fails_closed_when_storm_empty():
-    async def _storm_empty() -> int:
-        return 0
+# --------------------------------------------------------------- K5: STORM persona probe is DELETED
+def test_storm_persona_probe_is_gone():
+    """I-deepfix-001 K5 (winners-only purity build): the STORM persona-discovery probe was DELETED —
+    STORM is killed in the purity build, so its floor (_PREFLIGHT_MIN_STORM_PERSONAS), its default probe
+    (_default_storm_probe), and the super_heavy_preflight ``storm_probe`` param must NOT exist. A
+    "< N personas" raise would FAIL every winners-only run for the mandated reason rather than against
+    it. The retrieval-breadth probe (NOT STORM) is the surviving wide-run signal. Regression-guards the
+    deletion so the deleted symbols cannot silently resurface."""
+    import inspect
 
-    with pytest.raises(GateError, match="0 personas"):
-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_empty)))
+    import scripts.dr_benchmark.super_heavy_preflight as m
 
+    # the floor constant and the default probe are gone from the module
+    assert not hasattr(m, "_PREFLIGHT_MIN_STORM_PERSONAS"), "STORM persona floor must be deleted"
+    assert not hasattr(m, "_default_storm_probe"), "STORM default persona probe must be deleted"
 
-def test_normalizes_arbitrary_storm_failure_to_gateerror():
-    async def _storm_boom() -> int:
-        raise RuntimeError("storm exploded")
+    # the storm_probe keyword param is gone from super_heavy_preflight's signature
+    params = inspect.signature(super_heavy_preflight).parameters
+    assert "storm_probe" not in params, "super_heavy_preflight must NOT accept a storm_probe param"
 
-    with pytest.raises(GateError, match="fail closed"):
-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_boom)))
-
-
-def test_fails_closed_when_storm_under_threshold():
-    """I-preflight-002 (#1169): STORM returning FEWER than PG_PREFLIGHT_MIN_STORM_PERSONAS (default 2)
-    fails closed — not only the empty (0) case. A 1-persona return is under the cheap-probe floor."""
-    assert _PREFLIGHT_MIN_STORM_PERSONAS == 2  # the cheap-probe default
-
-    async def _storm_under() -> int:
-        return 1
-
-    with pytest.raises(GateError, match=r"1 personas \(< 2 required\)"):
-        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_under)))
+    # the surviving breadth probe (NOT STORM) is still wired in
+    assert "breadth_probe" in params, "the breadth probe (the real wide-run signal) must survive"
 
 
 # --------------------------------------------------------------------------- I-preflight-002 BREADTH

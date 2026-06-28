@@ -51,14 +51,24 @@ def test_preflight_fails_closed_on_reintroduced_generation_throttle(monkeypatch)
     # A deliberate PG_LIVE_MAX_EV_TO_GEN=20 (the prior bug value) must be CAUGHT by the preflight.
     _clear()
     g.apply_full_capability_benchmark_slate()
-    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+    # I-deepfix-001 (#1344) PURITY: PG_AGENTIC_SEARCH_IN_BENCHMARK is a KILLED loser (moved into
+    # _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS, run_gate_b.py:1811) — force-ON'ing it here re-armed the
+    # loser and tripped the NO-LOSER / REQUIRED_OFF gate BEFORE the re-introduced-throttle perturbation
+    # could fire (STALE-BASELINE). Force-ON only the genuinely still-required flags; the killed loser stays
+    # at its slate-forced "0" so this test still proves the PG_LIVE_MAX_EV_TO_GEN=20 throttle is caught.
+    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
               # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
               "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
         os.environ[f] = "1"
-    g.preflight_full_capability()                                # full slate passes
+    # I-deepfix-001 (#1344): offline=True skips ONLY the no-GPU WINNER-FIRES host probe (mineru25 needs
+    # torch.cuda — false-fails on this offline CI host); the PG_LIVE_MAX_EV_TO_GEN extra-env floor the
+    # =20 perturbation below trips stays unconditional, so the throttle is still caught for the RIGHT reason.
+    g.preflight_full_capability(offline=True)                    # full slate passes
     monkeypatch.setenv("PG_LIVE_MAX_EV_TO_GEN", "20")            # the exact prior-bug value
-    with pytest.raises(RuntimeError):
-        g.preflight_full_capability()
+    # I-deepfix-001 (#1344) Codex P2: bind the raise to the generation-throttle floor (the env-var name is
+    # in the message) so a NO-LOSER/other raise cannot let this test false-pass.
+    with pytest.raises(RuntimeError, match="PG_LIVE_MAX_EV_TO_GEN"):
+        g.preflight_full_capability(offline=True)
     _clear()
 
 
