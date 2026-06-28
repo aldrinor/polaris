@@ -1,3 +1,6 @@
+## TOP PRIORITY — I-deepfix-001 (#1344) forensic audit + consolidated fix campaign (ultracode, 2026-06-28)
+Break the fix-loop: forensic ALL issues -> basket -> parallel obvious-fix + research/benchmark tracks -> legacy-purge preflight -> one perfect e2e run beating DeepTRACE + DeepResearch-Bench-II. Plan/state: state/deepfix_campaign.md. Codex-only gate (serial); faithfulness never relaxed.
+
 # POLARIS — todo / active scope (RE-PRIORITIZED 2026-05-20)
 
 ## ⭐⭐⭐⭐ ACTIVE (2026-06-16): I-arch-007 #1264 — 5 runs LIVE on VMs; §-1.1 beat-both audit pending on first completion
