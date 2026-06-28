@@ -102,8 +102,17 @@ DEFAULT_ACCEPTABLE_MIRROR_DOMAINS: tuple[str, ...] = (
     "nih.gov",     # PMC (ncbi.nlm.nih.gov) eTLD+1 -> nih.gov
 )
 # Row keys consulted for the row's text, in priority order. First non-empty
-# wins. Mirrors finding_dedup's row-shape expectations.
+# wins. Mirrors finding_dedup's row-shape expectations. ``direct_quote`` (the
+# CLAIM-LOCAL span when the caller has set it) is FIRST, so the cosine compares
+# claim-local span text over chrome-laden full-row text where available
+# (I-deepfix-001 B9(b)).
 _TEXT_KEYS: tuple[str, ...] = ("direct_quote", "statement", "text", "snippet")
+# I-deepfix-001 B9(b): row keys consulted for a DOI identity, in priority order.
+# Two rows with DISTINCT non-empty DOIs are DIFFERENT works and must NEVER be
+# collapsed into one origin cluster on body-cosine alone (the origin_cluster_id
+# collision: a near-dup body of mostly chrome — masthead/affiliation/DOI lines —
+# crossing the 0.85 cosine and folding 4 distinct DOIs under one canonical).
+_DOI_KEYS: tuple[str, ...] = ("doi", "DOI")
 # Row keys consulted for an explicit publication-order signal, in priority
 # order. First parseable value wins; absence falls back to corpus order.
 _ORDER_KEYS: tuple[str, ...] = (
@@ -179,6 +188,23 @@ def _row_text(row: dict[str, Any]) -> str:
 def _row_domain(row: dict[str, Any], gov_suffixes: tuple[str, ...]) -> str:
     """Registrable domain (eTLD+1) for a row's ``source_url``; ``""`` if none."""
     return registrable_domain(_host_of(str(row.get("source_url", ""))), gov_suffixes)
+
+
+def _row_doi(row: dict[str, Any]) -> str:
+    """I-deepfix-001 B9(b): normalized DOI identity of a row (lower-cased, ``doi:`` / URL prefixes
+    stripped), or ``""`` when the row carries no DOI. Two rows with DISTINCT non-empty DOIs are
+    different works and must never join one origin cluster on body-cosine alone."""
+    for key in _DOI_KEYS:
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            doi = value.strip().lower()
+            # Strip common prefixes so "10.1/x", "doi:10.1/x", and "https://doi.org/10.1/x" compare equal.
+            for prefix in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"):
+                if doi.startswith(prefix):
+                    doi = doi[len(prefix):]
+                    break
+            return doi.strip("/").strip()
+    return ""
 
 
 def _parse_order_date(value: Any) -> tuple[int, int, int] | None:
@@ -373,11 +399,34 @@ def collapse_independent_origins(
 
     domains = [_row_domain(rows[i], gov_suffixes) for i in range(n)]
     texts = [_row_text(rows[i]) for i in range(n)]
+    dois = [_row_doi(rows[i]) for i in range(n)]  # I-deepfix-001 B9(b): per-row DOI identity
     sim = _tfidf_cosine_matrix(texts)
 
     uf = _UnionFind(n)
     for i in range(n):
         for j in range(i + 1, n):
+            # I-deepfix-001 B9(b): HARD GUARD against the origin_cluster_id collision — two rows with
+            # DISTINCT non-empty DOIs are DIFFERENT works and can NEVER share one origin cluster, on
+            # ANY signal (host-collapse OR body-cosine). This prevents a near-dup body of mostly chrome
+            # (masthead / affiliation / DOI lines crossing the 0.85 cosine) from folding 4 distinct DOIs
+            # under one canonical (the observed origin::ev_009-reused-across-4-works defect). A blank DOI
+            # on either side is NOT a distinct-DOI signal, so the existing host / cosine behaviour is
+            # byte-identical for rows that carry no DOI (the common case).
+            distinct_dois = bool(dois[i]) and bool(dois[j]) and dois[i] != dois[j]
+            if distinct_dois:
+                continue
+            # I-deepfix-001 B9(b)/(c): SAME non-empty DOI is a POSITIVE union trigger that OVERRIDES the
+            # scholarly-mirror allowlist skip below — two rows carrying the identical DOI are literally
+            # the SAME artifact (an arXiv preprint + its syndication / PMC mirror of one paper), so they
+            # MUST share one origin cluster even across distinct registrable domains. This is what makes
+            # the B9(c) mirror-cite collapse actually FIRE on the canonical cross-mirror same-DOI pair
+            # (the "[11][12]" illusion). STRENGTHENS the no-inflation invariant — collapsing a true copy
+            # never inflates mass (copies contribute zero). A blank DOI on either side is inert (the
+            # cosine / host behaviour below is byte-identical for the no-DOI common case).
+            same_doi = bool(dois[i]) and dois[i] == dois[j]
+            if same_doi:
+                uf.union(i, j)
+                continue
             same_domain = bool(domains[i]) and domains[i] == domains[j]
             if same_domain:
                 # Same registrable origin (host-collapse primitive): one origin.

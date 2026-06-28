@@ -104,6 +104,118 @@ def _pass_max_inflight() -> int:
     return value if value >= 1 else _DEFAULT_PASS_MAX_INFLIGHT
 
 
+# ── I-deepfix-001 B9(a) (#1353): deterministic tier-authority prior join ─────────────────────────
+# FORENSIC ROOT (verified against the banked drb_72 corpus_snapshot): the generator-visible evidence
+# rows arrive with NO ``authority_score`` (and no ``source_class`` / ``signal_scores`` to recompute the
+# full authority model from), so ``weight_mass.aggregate_weight_mass`` reads ``authority_score`` = None
+# -> ``cluster_mass`` = 0.0 across EVERY claim and ``weight_mass`` renders 0.0 — the opposite of the
+# CONSOLIDATE-and-WEIGHT goal. The rows DO carry a ``tier`` (T1..T7 / UNKNOWN) on every row. The fix:
+# when a row lacks ``authority_score``, JOIN a deterministic tier-derived prior onto the row copy so a
+# real, honest weight flows to BOTH the canonical-selection in independence_collapse (lowest-authority
+# canonical for an undated cluster) AND to weight_mass.cluster_mass. This is a WEIGHT, never a DROP /
+# CAP / FILTER (§-1.3); it never touches strict_verify / NLI / 4-role / provenance. It is joined at the
+# TOP of _run_chain (before collapse) so collapse and weight_mass agree on the canonical.
+#
+# The per-tier prior MIRRORS ``nodes.weighted_corpus_gate._DEFAULT_TIER_CREDIBILITY_PRIOR`` (one
+# semantic source of truth; kept local to avoid coupling a synthesis module to a nodes module). LAW VI:
+# the whole map is env-overridable via PG_CREDIBILITY_TIER_AUTHORITY_PRIOR (JSON), and the join itself
+# is gated default-ON by PG_CREDIBILITY_TIER_AUTHORITY_JOIN.
+_ENV_TIER_AUTHORITY_JOIN = "PG_CREDIBILITY_TIER_AUTHORITY_JOIN"
+_ENV_TIER_AUTHORITY_PRIOR = "PG_CREDIBILITY_TIER_AUTHORITY_PRIOR"
+_DEFAULT_TIER_AUTHORITY_PRIOR: dict[str, float] = {
+    "T1": 0.95, "T2": 0.85, "T3": 0.75, "T4": 0.60,
+    "T5": 0.40, "T6": 0.30, "T7": 0.15, "UNKNOWN": 0.20,
+}
+# B9(a) fail-loud canary: with the master redesign ON, an all-zero authority_score across rows is a
+# WIRING BREAK (the join no-oped), not a legitimate zero. Default ON => the LOUD warning always fires;
+# the hard raise is opt-in (PG_REQUIRE_NONZERO_AUTHORITY) to honor the FAIL-OPEN rule (a scorer-side
+# wiring detection must never itself drop a source).
+_ENV_REQUIRE_NONZERO_AUTHORITY = "PG_REQUIRE_NONZERO_AUTHORITY"
+
+
+def tier_authority_join_enabled() -> bool:
+    """True iff the default-ON B9(a) tier-authority prior join is active (LAW VI kill-switch
+    ``PG_CREDIBILITY_TIER_AUTHORITY_JOIN=0`` => rows keep whatever authority_score they arrived with)."""
+    return os.environ.get(_ENV_TIER_AUTHORITY_JOIN, "on").strip().lower() not in _OFF_VALUES
+
+
+def _tier_authority_prior_map() -> dict[str, float]:
+    """The per-tier authority prior (LAW VI). Env JSON override merges over the default; a malformed
+    override falls back to the default (fail-safe: never an empty/zeroed map). PURE-ish (reads env)."""
+    raw = os.environ.get(_ENV_TIER_AUTHORITY_PRIOR, "").strip()
+    if not raw:
+        return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
+    try:
+        import json as _json  # noqa: PLC0415
+        override = _json.loads(raw)
+        if not isinstance(override, dict):
+            return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
+        merged = dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
+        for k, v in override.items():
+            merged[str(k).strip().upper()] = _clamp01(v) or 0.0
+        return merged
+    except Exception:
+        return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
+
+
+def _tier_of_row(row: dict) -> str:
+    """The row's tier label, normalized to the prior-map key shape (``T4`` / ``UNKNOWN``). A blank /
+    unrecognized tier maps to ``UNKNOWN`` (the conservative low prior, never a wrong-high default)."""
+    tier = str(row.get("source_tier") or row.get("tier") or "").strip().upper()
+    return tier if tier in _DEFAULT_TIER_AUTHORITY_PRIOR else "UNKNOWN"
+
+
+def _join_tier_authority_prior(rows: list[dict]) -> list[dict]:
+    """B9(a): return COPIES of ``rows`` with a deterministic tier-derived ``authority_score`` joined
+    onto any row that lacks one (None / missing / non-numeric). A row that ALREADY carries a numeric
+    authority_score is preserved verbatim (the real computed weight wins; the tier prior is only a
+    fallback). Never mutates the caller's rows; never drops a row. Returns the rows unchanged when the
+    join is disabled. PURE-ish (reads env via the prior map)."""
+    if not tier_authority_join_enabled():
+        return rows
+    prior = _tier_authority_prior_map()
+    out: list[dict] = []
+    for row in rows:
+        existing = row.get("authority_score")
+        if isinstance(existing, (int, float)) and not isinstance(existing, bool):
+            out.append(row)  # real computed weight already present — keep verbatim
+            continue
+        new_row = dict(row)  # COPY — never mutate the caller's row
+        new_row["authority_score"] = float(prior.get(_tier_of_row(row), prior["UNKNOWN"]))
+        new_row["authority_score_source"] = "tier_prior"  # disclosed: this is a deterministic fallback
+        out.append(new_row)
+    return out
+
+
+def _emit_zero_authority_canary(rows: list[dict]) -> None:
+    """B9(a) fail-loud canary: with the redesign ON, an all-zero / all-missing authority_score across
+    rows means the prior join no-oped — a WIRING BREAK, not a legitimate zero. Always emits the LOUD
+    warning (LAW II); the HARD raise is opt-in via ``PG_REQUIRE_NONZERO_AUTHORITY`` so this detection
+    can never itself drop a source (the FAIL-OPEN rule)."""
+    if not rows:
+        return
+    any_nonzero = any(
+        isinstance(r.get("authority_score"), (int, float))
+        and not isinstance(r.get("authority_score"), bool)
+        and float(r.get("authority_score") or 0.0) > 0.0
+        for r in rows
+    )
+    if any_nonzero:
+        return
+    import logging as _logging  # noqa: PLC0415
+    msg = (
+        "[credibility-pass] B9(a) WIRING-BREAK CANARY: authority_score is zero/missing across ALL "
+        f"{len(rows)} rows with the credibility redesign ON — weight_mass will render 0.0 everywhere. "
+        "The tier-authority prior join did not fire (check PG_CREDIBILITY_TIER_AUTHORITY_JOIN and that "
+        "rows carry a 'tier'). This is a wiring break, not a legitimate zero."
+    )
+    _logging.getLogger(__name__).warning(msg)
+    if os.environ.get(_ENV_REQUIRE_NONZERO_AUTHORITY, "").strip().lower() in ("1", "true", "yes", "on"):
+        raise CredibilityPassError(
+            "abort_zero_authority_wiring_break: " + msg + " (PG_REQUIRE_NONZERO_AUTHORITY opt-in raise)"
+        )
+
+
 def credibility_redesign_enabled() -> bool:
     """The master activation slate. OFF ⇒ the runner never calls the pass ⇒ byte-identical.
 
@@ -837,6 +949,14 @@ def _run_chain(
     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
 ) -> CredibilityAnalysis:
     """The P4→P3→P2→P5→P6 chain body; wrapped by run_credibility_analysis for the fail-loud posture."""
+    # ── I-deepfix-001 B9(a): join a deterministic tier-authority prior onto any row missing an
+    # authority_score, on COPIED rows, BEFORE collapse so independence_collapse's undated-canonical
+    # selection AND weight_mass.cluster_mass read the SAME non-zero authority. A row that already
+    # carries a real computed authority_score is preserved verbatim. WEIGHT, never a DROP (§-1.3); the
+    # faithfulness engine is untouched. Then the fail-loud canary: an all-zero authority_score across
+    # rows (with the redesign ON) is a wiring break, surfaced LOUD (raise only on opt-in). ──
+    rows = _join_tier_authority_prior(rows)
+    _emit_zero_authority_canary(rows)
     # ── P4: independent-origin collapse → per-row assignment, on COPIED rows (never mutate the caller) ──
     collapse = collapse_independent_origins(rows, gov_suffixes=gov_suffixes)
     if len(collapse.assignments) != len(rows):

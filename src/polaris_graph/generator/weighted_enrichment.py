@@ -1227,6 +1227,34 @@ _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
 _CITATION_SPLIT_RE = re.compile(r"(\[\d+\]|\[#ev:[^\]]*\])")
 _INLINE_HEADER_SPLIT_RE = re.compile(r"#{1,6}\s+[A-Za-z]")
 
+# I-deepfix-001 B6(a) (#1350): the per-claim "Source corroboration" section is a SCAFFOLDING title
+# (byte-preserved above), so its worst chrome — a page-furniture scrape promoted to a basket HEADER
+# bullet ("- **<masthead/ToC/affiliation>** — N verified independent source(s)") — never reaches the
+# full containment predicate. This default-ON branch screens the corroboration section's HEADER
+# bullets (only) through ``is_render_chrome_or_unrenderable``; a chrome header has its CLAIM TEXT
+# replaced by a neutral placeholder while the verified-source COUNT is preserved verbatim. LAW VI
+# kill-switch ``PG_CORROBORATION_SANITIZE=0`` => the section stays byte-preserved (pre-B6 behaviour).
+#
+# §-1.3 CONSOLIDATE-don't-DROP (the dominant HARD RULE, outranks the spec's literal "screen each
+# sub-bullet"): the ``- SUPPORT:`` / ``- GROUNDED-BUT-WEAK:`` / ``- CONTRADICTED:`` sub-bullets carry
+# a SOURCE locator (url / evidence_id / tier / weight) — NOT a claim — so they are KEEP-ONLY here;
+# screening them risks the chrome predicate's "bare DOI/URL row" leg dropping a corroborating source,
+# which is a faithfulness violation. A divergence from the seam spec's literal wording, documented in
+# the deepfix honest-gaps. Faithfulness-NEUTRAL: this only suppresses a chrome CLAIM string; it never
+# drops a source, count, or verdict.
+_CORROBORATION_SANITIZE_ENV = "PG_CORROBORATION_SANITIZE"
+# The corroboration section's title prefix (lower-cased), matched to scope the branch to ONLY that
+# section (Bibliography / Methods / Reliability stay truly byte-preserved).
+_CORROBORATION_SECTION_PREFIX = "source corroboration"
+# A corroboration HEADER bullet: a TOP-LEVEL ``- **<claim>** — <count> verified ...`` line. The claim
+# text is the ``**bold**`` span; the ``— N verified independent source(s)`` suffix is the count. We
+# screen only the claim span and preserve the suffix verbatim. A sub-bullet (``  - SUPPORT: ...``) is
+# INDENTED, so the no-leading-whitespace anchor here never matches it (sub-bullets are KEEP-ONLY).
+_CORROBORATION_HEADER_RE = re.compile(r"^-\s+\*\*(?P<claim>.+?)\*\*(?P<suffix>\s*[—-].*)?$")
+# The neutral placeholder a chrome basket header collapses to — the COUNT suffix still carries the
+# corroboration; only the unrenderable page-furniture claim string is withheld.
+_CORROBORATION_CHROME_PLACEHOLDER = "(claim text withheld — source page-furniture, not a finding)"
+
 
 def render_seam_sanitize_enabled() -> bool:
     """True iff the default-ON render-seam chokepoint is active (LAW VI kill-switch
@@ -1234,6 +1262,38 @@ def render_seam_sanitize_enabled() -> bool:
     return os.environ.get(_RENDER_SEAM_SANITIZE_ENV, "1").strip().lower() in (
         "1", "true", "on", "yes", "enabled",
     )
+
+
+def corroboration_sanitize_enabled() -> bool:
+    """True iff the default-ON B6(a) corroboration-header chrome screen is active (LAW VI kill-switch
+    ``PG_CORROBORATION_SANITIZE=0`` => the corroboration section stays byte-preserved)."""
+    return os.environ.get(_CORROBORATION_SANITIZE_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _is_corroboration_section_title(title: str) -> bool:
+    """True iff a header title names the per-claim Source-corroboration rollup (B6(a) scope)."""
+    return title.strip().lower().lstrip("# ").strip().startswith(_CORROBORATION_SECTION_PREFIX)
+
+
+def _sanitize_corroboration_header(
+    line: str, known_words: "set[str] | frozenset[str] | None"
+) -> "tuple[str, int]":
+    """B6(a): screen ONE corroboration HEADER bullet. A top-level ``- **<claim>** — N verified ...``
+    whose CLAIM span is chrome (page furniture promoted to a basket header) has the claim string
+    replaced by a neutral placeholder, preserving the verified-source COUNT suffix verbatim. Returns
+    ``(clean_line, suppressed)`` where ``suppressed`` is 1 iff a chrome claim was withheld. A
+    sub-bullet (indented) or a non-matching line is returned unchanged with 0. PURE; faithfulness-
+    neutral (no source / count / verdict ever dropped)."""
+    m = _CORROBORATION_HEADER_RE.match(line)
+    if not m:
+        return line, 0  # sub-bullet / blank / prose — KEEP-ONLY, untouched
+    claim = m.group("claim").strip()
+    suffix = m.group("suffix") or ""
+    if claim and is_render_chrome_or_unrenderable(claim, known_words=known_words):
+        return f"- **{_CORROBORATION_CHROME_PLACEHOLDER}**{suffix}", 1
+    return line, 0
 
 
 def _known_word_floor() -> int:
@@ -1453,17 +1513,31 @@ def sanitize_rendered_report(
     out_lines: list[str] = []
     removed = 0
     in_scaffolding = False
+    # I-deepfix-001 B6(a): tracked SEPARATELY from in_scaffolding. The corroboration section is
+    # scaffolding (byte-preserved DOIs/URLs) EXCEPT its per-claim HEADER bullets, which carry a
+    # claim string that can be page-furniture chrome. When in_corroboration is set and the B6(a)
+    # screen is enabled, header bullets are screened; sub-bullets stay byte-preserved (KEEP-ONLY).
+    in_corroboration = False
+    corroboration_screen = corroboration_sanitize_enabled()
     for line in report_md.split("\n"):
         header = _SECTION_HEADER_RE.match(line)
         if header:
             title = header.group(2)
             in_scaffolding = _is_scaffolding_section_title(title)
+            in_corroboration = _is_corroboration_section_title(title)
             # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
             # scaffolding header — dropping a real header would orphan its body.
             if not in_scaffolding and _contains_forensic_chrome(title):
                 removed += 1
                 continue
             out_lines.append(line)
+            continue
+        if in_corroboration and corroboration_screen and line.strip():
+            # B6(a): inside the corroboration rollup, screen ONLY the per-claim HEADER bullet's
+            # claim string (sub-bullets / blanks pass through untouched via the (line, 0) branch).
+            clean_line, suppressed = _sanitize_corroboration_header(line, known_words)
+            removed += suppressed
+            out_lines.append(clean_line)
             continue
         if in_scaffolding or not line.strip():
             out_lines.append(line)

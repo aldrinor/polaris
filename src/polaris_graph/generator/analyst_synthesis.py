@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,12 @@ _SYNTHESIS_TELEMETRY: dict[str, int] = {
     # sentences DROPPED from the unverified synthesis output (the lethal fabrication class).
     "synthesis_evidence_redaction_count": 0,
     "synthesis_negation_dropped_count": 0,
+    # I-deepfix-001 B13 (#1357): the deviation-check LABEL counts — synthesis sentences whose cited
+    # span does NOT support them (labeled low confidence) and sentences whose [N] resolved NO span
+    # (labeled no-source). KEEP-and-LABEL, never deleted — the analyst layer brought under the
+    # faithfulness engine via the "verify AFTER compose = label, never hold" pattern.
+    "synthesis_deviation_labeled_count": 0,
+    "synthesis_deviation_unresolved_count": 0,
 }
 
 
@@ -450,6 +456,10 @@ async def generate_analyst_synthesis(
     # =16384 on the default provider — see the module-level PG_SECTION_MAX_TOKENS note).
     max_tokens: int = PG_SECTION_MAX_TOKENS,
     temperature: float = 0.3,
+    # I-deepfix-001 B13 (#1357): optional injectable groundedness judge ((claim, span) -> bool, True
+    # == supported) for the post-compose deviation check. None (default) => the check lazily builds the
+    # certified-Sentinel judge; the run path may inject its already-built sentinel transport judge.
+    deviation_judge_fn: "Callable[[str, str], bool] | None" = None,
 ) -> tuple[str, int, int]:
     """Generate the Analyst Synthesis section.
 
@@ -552,5 +562,48 @@ async def generate_analyst_synthesis(
         logger.warning(
             "[analyst_synthesis] synthesis_negation_dropped: %d unverified qualitative-negation "
             "safety sentence(s) removed from the analyst layer (fail-closed)", n_neg_dropped
+        )
+    # I-deepfix-001 B13 (#1357): bring the analyst layer UNDER the faithfulness engine via the
+    # deviation check (KEEP-and-LABEL, never delete). Runs AFTER the regex scrubs and the negation
+    # screen, BEFORE return, so it fires regardless of caller mode. A synthesis sentence whose cited
+    # [N] span does NOT support it gets an inline low-confidence marker; an uncited / unresolvable
+    # sentence gets a no-source marker. strict_verify is NOT touched (the span-verified core above is
+    # untouched). Default-ON (PG_ANALYST_SYNTHESIS_DEVIATION_CHECK) + shares the coarse
+    # PG_SWEEP_ANALYST_SYNTHESIS kill-switch; fail-closed to a low marker on any judge fault.
+    try:
+        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
+            screen_synthesis_against_baskets,
+        )
+        cleaned, _dev_tel = screen_synthesis_against_baskets(
+            cleaned, bibliography, evidence_rows, judge_fn=deviation_judge_fn,
+        )
+        for _k, _v in _dev_tel.items():
+            if _v:
+                _SYNTHESIS_TELEMETRY[_k] = _SYNTHESIS_TELEMETRY.get(_k, 0) + _v
+        if _dev_tel.get("synthesis_deviation_labeled_count") or _dev_tel.get(
+            "synthesis_deviation_unresolved_count"
+        ):
+            logger.info(
+                "[analyst_synthesis] B13 deviation check labeled %d unsupported + %d unresolved "
+                "synthesis sentence(s) (KEEP-and-LABEL, never dropped)",
+                _dev_tel.get("synthesis_deviation_labeled_count", 0),
+                _dev_tel.get("synthesis_deviation_unresolved_count", 0),
+            )
+    except Exception as _dev_exc:  # the deviation check is ADDITIVE — never abort the report on it
+        # Codex wave-2 P2: a checker/wiring exception (distinct from an in-checker
+        # judge fault, which is already handled LOW per-sentence) means the analyst
+        # layer ships UNLABELED. That is a real loss of faithfulness labels, so
+        # fail-LOUD with a DISTINCT telemetry counter (not the silent "skipped"
+        # path) so a wiring break is visible in the manifest, not mistaken for a
+        # clean no-deviation run.
+        _SYNTHESIS_TELEMETRY["synthesis_deviation_check_error_count"] = (
+            _SYNTHESIS_TELEMETRY.get("synthesis_deviation_check_error_count", 0) + 1
+        )
+        logger.error(
+            "[analyst_synthesis] B13 deviation check FAILED (wiring/checker error — "
+            "analyst layer ships UNLABELED, faithfulness labels lost for this "
+            "section; fail-loud telemetry emitted): %s",
+            _dev_exc,
+            exc_info=True,
         )
     return cleaned, in_tok, out_tok

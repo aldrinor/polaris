@@ -432,6 +432,51 @@ def _entailment_judge_error_advisory_enabled() -> bool:
     return v not in ("0", "off", "false", "no", "disabled")
 
 
+# ── I-deepfix-001 B9(c) (#1353): mirror-cite collapse + independent-origin render honesty ─────────
+# A sentence that cites two bibliography numbers backed by the SAME independent origin cluster
+# (a scholarly mirror of one work — arXiv ev_037 and a syndication ev_035 of the same paper) renders
+# "[11][12]", which a reader reads as TWO independent corroborating sources — a lethal metadata
+# illusion the post-collapse origin telemetry DENIES. This default-ON render collapses inline
+# citation numbers that share one origin_cluster_id to ONE number + an "(also mirrored)" note, and
+# surfaces the sentence's independent_origin_count. FAITHFULNESS-NEUTRAL: it never drops a
+# bibliography entry (every cited source still lists in the bibliography), never changes is_verified,
+# never widens a span — it only corrects the inline DOUBLE-COUNT so a mirror is not read as
+# independent corroboration. Distinct origins are NEVER collapsed (real multi-source §-1.3 stands).
+# LAW VI kill-switch PG_MIRROR_CITE_COLLAPSE=0 => byte-identical legacy "[11][12]" render.
+def mirror_cite_collapse_enabled() -> bool:
+    """True iff the default-ON B9(c) mirror-cite collapse is active (LAW VI kill-switch
+    ``PG_MIRROR_CITE_COLLAPSE=0`` => byte-identical legacy render)."""
+    return os.getenv("PG_MIRROR_CITE_COLLAPSE", "1").strip().lower() not in (
+        "0", "off", "false", "no", "disabled",
+    )
+
+
+def collapse_mirror_citation_numbers(
+    used_nums: list[int],
+    origin_by_num: dict[int, str],
+) -> "tuple[list[int], int]":
+    """B9(c): collapse inline citation NUMBERS that map to the SAME non-empty origin_cluster_id down
+    to the FIRST occurrence (deterministic, input order preserved). Returns ``(collapsed_nums,
+    mirror_pairs_collapsed)``. A number whose origin is blank/unknown is NEVER collapsed (it stays a
+    distinct citation — under-collapse is the safe direction). Distinct origins are kept distinct, so
+    genuine multi-source corroboration is preserved (§-1.3). PURE; faithfulness-neutral (no source
+    dropped from the bibliography — only the inline double-count of one origin is removed)."""
+    if not mirror_cite_collapse_enabled():
+        return list(used_nums), 0
+    out: list[int] = []
+    seen_origins: set[str] = set()
+    collapsed = 0
+    for n in used_nums:
+        origin = str(origin_by_num.get(n, "") or "").strip()
+        if origin and origin in seen_origins:
+            collapsed += 1  # a same-origin mirror of an already-cited source — fold it
+            continue
+        if origin:
+            seen_origins.add(origin)
+        out.append(n)
+    return out, collapsed
+
+
 # I-pipe-015 (#1240) — token-honesty telemetry. Module-level counters, read +
 # reset by the sweep (mirrors _REANCHOR_TELEMETRY). ONLY mutated on the
 # flag-ON path, so OFF-mode never touches them (byte-identity).
@@ -443,6 +488,10 @@ _TOKEN_HONESTY_TELEMETRY: dict[str, int] = {
     # A malformed-but-recognizable token that could NOT be canonicalized into a
     # canonical token (so it would otherwise vanish) — counted, never silent.
     "malformed_dropped": 0,
+    # I-deepfix-001 B9(c): inline citation numbers folded because they map to the
+    # SAME independent origin cluster (a scholarly mirror double-cite collapsed to
+    # one citation). Render-honesty only — no source dropped from the bibliography.
+    "mirror_cites_collapsed": 0,
 }
 
 
@@ -3909,6 +3958,24 @@ def resolve_provenance_to_citations_with_count(
         build_basket_supports_by_cluster(_basket_by_cluster) if _carry_baskets else {}
     )
 
+    # I-deepfix-001 B9(c): evidence_id -> independent ORIGIN cluster id, harvested from the basket
+    # members (each carries origin_cluster_id) with the annotated evidence_pool row as a fallback. Used
+    # ONLY by the mirror-cite collapse below — two inline numbers backed by ONE origin are a mirror
+    # double-cite, not independent corroboration. Empty when no basket/origin data is present (=> the
+    # collapse is inert => byte-identical legacy render). Read-only; never mutates a basket or a row.
+    _origin_by_eid: dict[str, str] = {}
+    for _bdict in _basket_by_cluster.values():
+        for _m in (_bdict.get("supporting_members") or []):
+            _meid = str(_m.get("evidence_id", "") or "")
+            _mocid = str(_m.get("origin_cluster_id", "") or "")
+            if _meid and _mocid and _meid not in _origin_by_eid:
+                _origin_by_eid[_meid] = _mocid
+    for _eid_row, _row in (evidence_pool or {}).items():
+        if _eid_row not in _origin_by_eid:
+            _rocid = str((_row or {}).get("origin_cluster_id", "") or "")
+            if _rocid:
+                _origin_by_eid[str(_eid_row)] = _rocid
+
     def _verified_corroborators_with_clusters_for_tokens(
         token_ev_ids: list[str],
     ) -> list[tuple[str, str]]:
@@ -4216,8 +4283,26 @@ def resolve_provenance_to_citations_with_count(
             n = _num_for(_corro_eid)
             if n not in used_nums:
                 used_nums.append(n)
-        # Append citation markers
+        # I-deepfix-001 B9(c): collapse inline citation numbers that map to the SAME independent
+        # origin cluster (a scholarly mirror of one work) to ONE number + an "(also mirrored)" note,
+        # so "[11][12]" from one origin never reads as two independent corroborating sources. Distinct
+        # origins (real multi-source corroboration) are kept distinct (§-1.3). Faithfulness-neutral:
+        # every cited source still lists in the bibliography; only the inline double-count is removed.
+        # OFF / no-origin-data path returns used_nums unchanged => byte-identical legacy render.
+        _num_to_eid = {num: eid for eid, num in ev_to_num.items()}
+        _origin_by_num = {
+            num: _origin_by_eid.get(_num_to_eid.get(num, ""), "") for num in used_nums
+        }
+        used_nums, _mirrors_collapsed = collapse_mirror_citation_numbers(used_nums, _origin_by_num)
+        if _mirrors_collapsed:
+            _TOKEN_HONESTY_TELEMETRY["mirror_cites_collapsed"] = (
+                _TOKEN_HONESTY_TELEMETRY.get("mirror_cites_collapsed", 0) + _mirrors_collapsed
+            )
+        # Append citation markers (+ a render-honest "also mirrored" note when a same-origin mirror
+        # was folded, so the reader sees the corroboration was a mirror, not an independent source).
         markers = "".join(f"[{n}]" for n in used_nums)
+        if _mirrors_collapsed:
+            markers += " (also mirrored)"
         sentence_out = stripped + markers
 
         # Gap-3: put Limitations sentences in a separate paragraph so

@@ -1,0 +1,1469 @@
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 7f2c2bab..23b5423f 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -32,7 +32,7 @@ from __future__ import annotations
+ import logging
+ import os
+ import re
+-from typing import Any
++from typing import Any, Callable
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -158,6 +158,12 @@ _SYNTHESIS_TELEMETRY: dict[str, int] = {
+     # sentences DROPPED from the unverified synthesis output (the lethal fabrication class).
+     "synthesis_evidence_redaction_count": 0,
+     "synthesis_negation_dropped_count": 0,
++    # I-deepfix-001 B13 (#1357): the deviation-check LABEL counts — synthesis sentences whose cited
++    # span does NOT support them (labeled low confidence) and sentences whose [N] resolved NO span
++    # (labeled no-source). KEEP-and-LABEL, never deleted — the analyst layer brought under the
++    # faithfulness engine via the "verify AFTER compose = label, never hold" pattern.
++    "synthesis_deviation_labeled_count": 0,
++    "synthesis_deviation_unresolved_count": 0,
+ }
+ 
+ 
+@@ -450,6 +456,10 @@ async def generate_analyst_synthesis(
+     # =16384 on the default provider — see the module-level PG_SECTION_MAX_TOKENS note).
+     max_tokens: int = PG_SECTION_MAX_TOKENS,
+     temperature: float = 0.3,
++    # I-deepfix-001 B13 (#1357): optional injectable groundedness judge ((claim, span) -> bool, True
++    # == supported) for the post-compose deviation check. None (default) => the check lazily builds the
++    # certified-Sentinel judge; the run path may inject its already-built sentinel transport judge.
++    deviation_judge_fn: "Callable[[str, str], bool] | None" = None,
+ ) -> tuple[str, int, int]:
+     """Generate the Analyst Synthesis section.
+ 
+@@ -553,4 +563,47 @@ async def generate_analyst_synthesis(
+             "[analyst_synthesis] synthesis_negation_dropped: %d unverified qualitative-negation "
+             "safety sentence(s) removed from the analyst layer (fail-closed)", n_neg_dropped
+         )
++    # I-deepfix-001 B13 (#1357): bring the analyst layer UNDER the faithfulness engine via the
++    # deviation check (KEEP-and-LABEL, never delete). Runs AFTER the regex scrubs and the negation
++    # screen, BEFORE return, so it fires regardless of caller mode. A synthesis sentence whose cited
++    # [N] span does NOT support it gets an inline low-confidence marker; an uncited / unresolvable
++    # sentence gets a no-source marker. strict_verify is NOT touched (the span-verified core above is
++    # untouched). Default-ON (PG_ANALYST_SYNTHESIS_DEVIATION_CHECK) + shares the coarse
++    # PG_SWEEP_ANALYST_SYNTHESIS kill-switch; fail-closed to a low marker on any judge fault.
++    try:
++        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
++            screen_synthesis_against_baskets,
++        )
++        cleaned, _dev_tel = screen_synthesis_against_baskets(
++            cleaned, bibliography, evidence_rows, judge_fn=deviation_judge_fn,
++        )
++        for _k, _v in _dev_tel.items():
++            if _v:
++                _SYNTHESIS_TELEMETRY[_k] = _SYNTHESIS_TELEMETRY.get(_k, 0) + _v
++        if _dev_tel.get("synthesis_deviation_labeled_count") or _dev_tel.get(
++            "synthesis_deviation_unresolved_count"
++        ):
++            logger.info(
++                "[analyst_synthesis] B13 deviation check labeled %d unsupported + %d unresolved "
++                "synthesis sentence(s) (KEEP-and-LABEL, never dropped)",
++                _dev_tel.get("synthesis_deviation_labeled_count", 0),
++                _dev_tel.get("synthesis_deviation_unresolved_count", 0),
++            )
++    except Exception as _dev_exc:  # the deviation check is ADDITIVE — never abort the report on it
++        # Codex wave-2 P2: a checker/wiring exception (distinct from an in-checker
++        # judge fault, which is already handled LOW per-sentence) means the analyst
++        # layer ships UNLABELED. That is a real loss of faithfulness labels, so
++        # fail-LOUD with a DISTINCT telemetry counter (not the silent "skipped"
++        # path) so a wiring break is visible in the manifest, not mistaken for a
++        # clean no-deviation run.
++        _SYNTHESIS_TELEMETRY["synthesis_deviation_check_error_count"] = (
++            _SYNTHESIS_TELEMETRY.get("synthesis_deviation_check_error_count", 0) + 1
++        )
++        logger.error(
++            "[analyst_synthesis] B13 deviation check FAILED (wiring/checker error — "
++            "analyst layer ships UNLABELED, faithfulness labels lost for this "
++            "section; fail-loud telemetry emitted): %s",
++            _dev_exc,
++            exc_info=True,
++        )
+     return cleaned, in_tok, out_tok
+diff --git a/src/polaris_graph/generator/analyst_synthesis_deviation_check.py b/src/polaris_graph/generator/analyst_synthesis_deviation_check.py
+new file mode 100644
+index 00000000..e694bec8
+--- /dev/null
++++ b/src/polaris_graph/generator/analyst_synthesis_deviation_check.py
+@@ -0,0 +1,277 @@
++"""I-deepfix-001 B13 (#1357) — bring the Analyst-Synthesis layer UNDER the faithfulness engine.
++
++THE PROBLEM (forensic): ``analyst_synthesis.generate_analyst_synthesis`` is architecturally OUTSIDE
++the faithfulness engine — its system prompt FORBIDS ``[#ev:]`` span tokens and cites by ``[N]``
++bibliography markers only, so the per-sentence ``strict_verify`` entailment gate NEVER sees it. It is
++the longest, most confident block in the report, and its grounded over-assertions (hedges upgraded to
++assertions, interpolated specifics, model-asserted author names absent from the pool) ship UNGATED.
++
++THE FIX (the operator-locked "verify AFTER compose = LABEL, never DELETE" pattern, §-1.3 BASKET
++FAITHFULNESS / `feedback_always_release_verifier_labels_never_holds_2026_06_14`): this module is a
++thin, additive DEVIATION CHECK over the already-composed synthesis prose. It:
++
++  1. splits the synthesis into sentences (reusing ``provenance_generator.split_into_sentences``),
++  2. for each sentence, parses its ``[N]`` markers (``report_claim_extractor._NUMBERED_RE``) and
++     resolves ``N -> bibliography[N-1].evidence_id -> the cited evidence row's span``,
++  3. asks a groundedness judge (the certified MiniMax-M2 Sentinel decomposition by default — a SECOND
++     family vs the GLM/DeepSeek writer, so two-family holds) whether the cited span SUPPORTS the
++     sentence,
++  4. for an UNSUPPORTED sentence appends an inline confidence marker
++     (``claim_labeler.render_confidence_marker(BUCKET_LOW)``), and for a sentence whose ``[N]`` resolve
++     NO span (``BUCKET_NO_SOURCE``) — KEEP the sentence, NEVER delete it.
++
++FAIL-CLOSED to ``BUCKET_LOW``: a judge error / transport flap / timeout LABELS the sentence low (over-
++labeling is the SAFE direction for a previously-ungated layer), never a silent high, never a hold.
++
++FAITHFULNESS ENGINE UNTOUCHED: ``strict_verify`` / NLI / 4-role D8 / provenance / span-grounding are
++NOT modified. This is an additive, LABEL-only deviation leg over the previously-ungated synthesis
++prose. The judge here is ADVISORY — it never drops a sentence, never changes ``is_verified``.
++
++LAW VI: the leg is gated default-ON by ``PG_ANALYST_SYNTHESIS_DEVIATION_CHECK`` and shares the coarse
++``PG_SWEEP_ANALYST_SYNTHESIS`` kill-switch (when the whole analyst layer is off, this never runs).
++
++TESTABILITY / NO HANG (I-arch-006/007 lesson): the per-sentence groundedness call is INJECTABLE
++(``judge_fn``) so a test passes a deterministic fake; the real path resolves a bounded, deadline-wrapped
++Sentinel judge lazily. The calls run BOUNDED-PARALLEL (never a serial unbounded loop on a trickle
++socket — the documented hang class).
++"""
++from __future__ import annotations
++
++import logging
++import os
++import time
++from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
++from typing import Any, Callable
++
++from src.polaris_graph.generator import claim_labeler
++from src.polaris_graph.generator.provenance_generator import split_into_sentences
++from src.polaris_graph.benchmark.report_claim_extractor import _NUMBERED_RE
++
++logger = logging.getLogger(__name__)
++
++# LAW VI flags. The leg is default-ON; the coarse analyst-layer kill-switch ALSO gates it (when the
++# whole analyst layer is off, this module never runs because the caller returns before invoking it).
++_ENV_ENABLED = "PG_ANALYST_SYNTHESIS_DEVIATION_CHECK"
++_ENV_ANALYST_KILL = "PG_SWEEP_ANALYST_SYNTHESIS"
++# Bounded-parallel fan-out for the per-sentence groundedness calls (NEVER a serial unbounded loop on a
++# trickle socket — the I-arch-006/007 hang class). LAW VI; default 8.
++_ENV_MAX_INFLIGHT = "PG_ANALYST_SYNTHESIS_DEVIATION_MAX_INFLIGHT"
++_DEFAULT_MAX_INFLIGHT = 8
++# Per-call deadline (seconds). A judge socket flap fail-CLOSES to BUCKET_LOW (over-label = safe) rather
++# than hanging the report. LAW VI; default 60s.
++_ENV_DEADLINE_S = "PG_ANALYST_SYNTHESIS_DEVIATION_DEADLINE_S"
++_DEFAULT_DEADLINE_S = 60.0
++
++_OFF_VALUES = frozenset({"", "0", "false", "off", "no", "disabled"})
++
++# A confidence marker is appended ONCE per sentence; this guards against a double-append when the
++# function is (defensively) called twice on already-labeled prose.
++_ALREADY_LABELED_MARKER = "[confidence:"
++
++
++def deviation_check_enabled() -> bool:
++    """True iff the default-ON B13 deviation check is active. Requires BOTH the fine flag
++    (``PG_ANALYST_SYNTHESIS_DEVIATION_CHECK``, default ON) AND the coarse analyst-layer flag
++    (``PG_SWEEP_ANALYST_SYNTHESIS``, default ON) to be on."""
++    fine_on = os.environ.get(_ENV_ENABLED, "1").strip().lower() not in _OFF_VALUES
++    coarse_on = os.environ.get(_ENV_ANALYST_KILL, "1").strip() in ("1", "true", "True")
++    return fine_on and coarse_on
++
++
++def _max_inflight() -> int:
++    try:
++        value = int(os.environ.get(_ENV_MAX_INFLIGHT, _DEFAULT_MAX_INFLIGHT) or _DEFAULT_MAX_INFLIGHT)
++    except (TypeError, ValueError):
++        return _DEFAULT_MAX_INFLIGHT
++    return value if value >= 1 else _DEFAULT_MAX_INFLIGHT
++
++
++def _deadline_s() -> float:
++    try:
++        value = float(os.environ.get(_ENV_DEADLINE_S, _DEFAULT_DEADLINE_S) or _DEFAULT_DEADLINE_S)
++    except (TypeError, ValueError):
++        return _DEFAULT_DEADLINE_S
++    return value if value > 0 else _DEFAULT_DEADLINE_S
++
++
++def _resolve_span_for_evidence_id(
++    evidence_id: str, evidence_rows: list[dict[str, Any]]
++) -> str:
++    """Resolve an evidence_id to its cited span text (``direct_quote`` first, then ``statement``).
++    Returns ``""`` when the id is not in the pool or carries no span text."""
++    for row in evidence_rows or []:
++        rid = str(row.get("evidence_id") or row.get("id") or "")
++        if rid and rid == evidence_id:
++            return str(row.get("direct_quote") or row.get("statement") or "")
++    return ""
++
++
++def _resolve_sentence_span(
++    sentence: str,
++    bibliography: list[dict[str, Any]],
++    evidence_rows: list[dict[str, Any]],
++) -> str:
++    """Concatenate the cited spans for ALL ``[N]`` markers in ``sentence``. ``N`` indexes the
++    bibliography 1-based -> ``bibliography[N-1].evidence_id`` -> the evidence row's span. Returns
++    ``""`` when the sentence carries NO resolvable ``[N]`` span (=> the caller labels BUCKET_NO_SOURCE).
++    PURE (no I/O)."""
++    spans: list[str] = []
++    for m in _NUMBERED_RE.finditer(sentence):
++        try:
++            n = int(m.group(1))
++        except (TypeError, ValueError):
++            continue
++        if n < 1 or n > len(bibliography or []):
++            continue
++        entry = bibliography[n - 1]
++        eid = str(entry.get("evidence_id") or "")
++        if not eid:
++            continue
++        span = _resolve_span_for_evidence_id(eid, evidence_rows)
++        if span:
++            spans.append(span)
++    return "\n".join(spans)
++
++
++def _default_sentinel_judge() -> "Callable[[str, str], bool]":
++    """Build the real groundedness judge: the certified MiniMax-M2 Sentinel decomposition (a SECOND
++    family vs the GLM/DeepSeek writer, so two-family holds). Returns a ``judge_fn(claim, span) -> bool``
++    where True == the span SUPPORTS the claim. Resolved LAZILY so importing this module never
++    constructs a transport. FAIL-CLOSED: any construction / call failure surfaces as ``False`` (=>
++    BUCKET_LOW), never a silent True."""
++    def _judge(claim: str, span: str) -> bool:
++        if not span.strip():
++            return False
++        try:
++            from src.polaris_graph.roles.sentinel_adapter import (
++                _configured_sentinel_slug,
++                run_sentinel,
++            )
++            from src.polaris_graph.roles.role_transport import EvidenceDocument
++            from src.polaris_graph.roles.openrouter_role_transport import (
++                OpenRouterRoleTransport,
++                _default_role_http_client,
++            )
++            from src.polaris_graph.roles.sentinel_contract import SentinelVerdict
++        except Exception as exc:  # pragma: no cover — wiring resolved at runtime on the paid path
++            logger.warning("[analyst_deviation] sentinel imports unavailable (fail-closed LOW): %s", exc)
++            return False
++        try:
++            slug = _configured_sentinel_slug()
++            if not slug:
++                logger.warning("[analyst_deviation] no Sentinel slug configured (fail-closed LOW)")
++                return False
++            transport = OpenRouterRoleTransport(_default_role_http_client())
++            result, _records = run_sentinel(
++                transport,
++                claim,
++                [EvidenceDocument(doc_id="span", text=span)],
++                model_slug=slug,
++            )
++            # GROUNDED + a clean parse == supported. UNGROUNDED OR a fail-closed parse == NOT supported
++            # (BUCKET_LOW). NEVER trust a non-clean parse as supported (lethal-inversion guard).
++            return bool(result.verdict == SentinelVerdict.GROUNDED and result.parsed_ok)
++        except Exception as exc:  # transport flap / cap-adjacent / parse error -> fail-closed LOW
++            logger.warning("[analyst_deviation] sentinel call failed (fail-closed LOW): %s", exc)
++            return False
++    return _judge
++
++
++def screen_synthesis_against_baskets(
++    text: str,
++    bibliography: list[dict[str, Any]],
++    evidence_rows: list[dict[str, Any]],
++    *,
++    judge_fn: "Callable[[str, str], bool] | None" = None,
++) -> "tuple[str, dict[str, int]]":
++    """B13 deviation check: LABEL (never delete) analyst-synthesis sentences whose cited span does
++    NOT support them. Returns ``(labeled_text, telemetry)``.
++
++    For each synthesis sentence:
++      * resolve its ``[N]`` markers -> cited evidence spans;
++      * a sentence with NO resolvable cited span -> append ``BUCKET_NO_SOURCE`` marker (uncited /
++        unresolvable claim, shown unverified);
++      * a sentence whose judge says the span does NOT support it -> append ``BUCKET_LOW`` marker;
++      * a supported sentence -> UNCHANGED.
++
++    ``judge_fn`` (``(claim, span) -> bool``, True == supported) is INJECTABLE for offline tests; the
++    default lazily builds the certified-Sentinel judge. FAIL-CLOSED: a judge that raises / times out
++    LABELS the sentence BUCKET_LOW (over-label = safe). NEVER deletes a sentence; NEVER touches
++    ``strict_verify``. Returns the input unchanged (telemetry zeroed) when the leg is disabled."""
++    telemetry = {
++        "synthesis_deviation_labeled_count": 0,
++        "synthesis_deviation_unresolved_count": 0,
++    }
++    if not text or not text.strip() or not deviation_check_enabled():
++        return text, telemetry
++
++    if judge_fn is None:
++        judge_fn = _default_sentinel_judge()
++
++    sentences = split_into_sentences(text)
++    if not sentences:
++        return text, telemetry
++
++    # Resolve each sentence's cited span ONCE (pure). A sentence with no resolvable span never calls
++    # the judge (it is a BUCKET_NO_SOURCE label, not an UNSUPPORTED verdict).
++    spans = [_resolve_sentence_span(s, bibliography, evidence_rows) for s in sentences]
++
++    # BOUNDED-PARALLEL groundedness for the sentences that DO resolve a span (never a serial unbounded
++    # loop). A per-future deadline fail-CLOSES to "not supported" (=> BUCKET_LOW).
++    supported: dict[int, bool] = {}
++    judge_indices = [i for i, sp in enumerate(spans) if sp.strip()]
++    if judge_indices:
++        deadline = _deadline_s()
++        # Codex wave-2 P1 (hang class): the judge futures run CONCURRENTLY in the
++        # pool, so the batch is bounded by ONE TOTAL wall deadline, never the sum of
++        # per-future deadlines. AND the pool is shut down with wait=False +
++        # cancel_futures=True so a Sentinel worker still stuck in a slow role-
++        # transport call is ABANDONED — the `with`-block shutdown(wait=True) would
++        # otherwise re-block on the timed-out worker and stall the synthesis return.
++        # Every unresolved sentence fail-CLOSES to LOW (not supported).
++        pool = ThreadPoolExecutor(max_workers=_max_inflight())
++        try:
++            futures = {
++                pool.submit(judge_fn, sentences[i], spans[i]): i for i in judge_indices
++            }
++            _end = time.monotonic() + deadline
++            for fut, i in futures.items():
++                _remaining = max(0.0, _end - time.monotonic())
++                try:
++                    supported[i] = bool(fut.result(timeout=_remaining))
++                except (_FutureTimeout, Exception) as exc:  # fail-closed LOW on any judge fault
++                    logger.warning(
++                        "[analyst_deviation] groundedness judge fault on sentence %d "
++                        "(fail-closed LOW): %s", i, exc,
++                    )
++                    supported[i] = False
++        finally:
++            # Never block the synthesis return on a stuck judge worker.
++            pool.shutdown(wait=False, cancel_futures=True)
++        # Any sentence whose future never resolved within the TOTAL deadline is
++        # fail-closed to LOW (covers the case where the loop exhausted the wall
++        # budget before reaching a later future).
++        for i in judge_indices:
++            supported.setdefault(i, False)
++
++    out_sentences: list[str] = []
++    for i, sentence in enumerate(sentences):
++        # Idempotent: never double-label an already-labeled sentence.
++        if _ALREADY_LABELED_MARKER in sentence:
++            out_sentences.append(sentence)
++            continue
++        if not spans[i].strip():
++            # No resolvable cited [N] span at all -> a genuinely uncited / unresolvable claim.
++            marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_NO_SOURCE)
++            out_sentences.append(f"{sentence} {marker}")
++            telemetry["synthesis_deviation_unresolved_count"] += 1
++            continue
++        if supported.get(i, False):
++            out_sentences.append(sentence)  # cited span SUPPORTS the sentence — KEEP unchanged
++            continue
++        # Cited span does NOT support the sentence (or the judge fail-closed) -> LABEL low, KEEP.
++        marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_LOW)
++        out_sentences.append(f"{sentence} {marker}")
++        telemetry["synthesis_deviation_labeled_count"] += 1
++
++    return " ".join(out_sentences), telemetry
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 7db5be7b..8b7fbe10 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -432,6 +432,51 @@ def _entailment_judge_error_advisory_enabled() -> bool:
+     return v not in ("0", "off", "false", "no", "disabled")
+ 
+ 
++# ── I-deepfix-001 B9(c) (#1353): mirror-cite collapse + independent-origin render honesty ─────────
++# A sentence that cites two bibliography numbers backed by the SAME independent origin cluster
++# (a scholarly mirror of one work — arXiv ev_037 and a syndication ev_035 of the same paper) renders
++# "[11][12]", which a reader reads as TWO independent corroborating sources — a lethal metadata
++# illusion the post-collapse origin telemetry DENIES. This default-ON render collapses inline
++# citation numbers that share one origin_cluster_id to ONE number + an "(also mirrored)" note, and
++# surfaces the sentence's independent_origin_count. FAITHFULNESS-NEUTRAL: it never drops a
++# bibliography entry (every cited source still lists in the bibliography), never changes is_verified,
++# never widens a span — it only corrects the inline DOUBLE-COUNT so a mirror is not read as
++# independent corroboration. Distinct origins are NEVER collapsed (real multi-source §-1.3 stands).
++# LAW VI kill-switch PG_MIRROR_CITE_COLLAPSE=0 => byte-identical legacy "[11][12]" render.
++def mirror_cite_collapse_enabled() -> bool:
++    """True iff the default-ON B9(c) mirror-cite collapse is active (LAW VI kill-switch
++    ``PG_MIRROR_CITE_COLLAPSE=0`` => byte-identical legacy render)."""
++    return os.getenv("PG_MIRROR_CITE_COLLAPSE", "1").strip().lower() not in (
++        "0", "off", "false", "no", "disabled",
++    )
++
++
++def collapse_mirror_citation_numbers(
++    used_nums: list[int],
++    origin_by_num: dict[int, str],
++) -> "tuple[list[int], int]":
++    """B9(c): collapse inline citation NUMBERS that map to the SAME non-empty origin_cluster_id down
++    to the FIRST occurrence (deterministic, input order preserved). Returns ``(collapsed_nums,
++    mirror_pairs_collapsed)``. A number whose origin is blank/unknown is NEVER collapsed (it stays a
++    distinct citation — under-collapse is the safe direction). Distinct origins are kept distinct, so
++    genuine multi-source corroboration is preserved (§-1.3). PURE; faithfulness-neutral (no source
++    dropped from the bibliography — only the inline double-count of one origin is removed)."""
++    if not mirror_cite_collapse_enabled():
++        return list(used_nums), 0
++    out: list[int] = []
++    seen_origins: set[str] = set()
++    collapsed = 0
++    for n in used_nums:
++        origin = str(origin_by_num.get(n, "") or "").strip()
++        if origin and origin in seen_origins:
++            collapsed += 1  # a same-origin mirror of an already-cited source — fold it
++            continue
++        if origin:
++            seen_origins.add(origin)
++        out.append(n)
++    return out, collapsed
++
++
+ # I-pipe-015 (#1240) — token-honesty telemetry. Module-level counters, read +
+ # reset by the sweep (mirrors _REANCHOR_TELEMETRY). ONLY mutated on the
+ # flag-ON path, so OFF-mode never touches them (byte-identity).
+@@ -443,6 +488,10 @@ _TOKEN_HONESTY_TELEMETRY: dict[str, int] = {
+     # A malformed-but-recognizable token that could NOT be canonicalized into a
+     # canonical token (so it would otherwise vanish) — counted, never silent.
+     "malformed_dropped": 0,
++    # I-deepfix-001 B9(c): inline citation numbers folded because they map to the
++    # SAME independent origin cluster (a scholarly mirror double-cite collapsed to
++    # one citation). Render-honesty only — no source dropped from the bibliography.
++    "mirror_cites_collapsed": 0,
+ }
+ 
+ 
+@@ -3909,6 +3958,24 @@ def resolve_provenance_to_citations_with_count(
+         build_basket_supports_by_cluster(_basket_by_cluster) if _carry_baskets else {}
+     )
+ 
++    # I-deepfix-001 B9(c): evidence_id -> independent ORIGIN cluster id, harvested from the basket
++    # members (each carries origin_cluster_id) with the annotated evidence_pool row as a fallback. Used
++    # ONLY by the mirror-cite collapse below — two inline numbers backed by ONE origin are a mirror
++    # double-cite, not independent corroboration. Empty when no basket/origin data is present (=> the
++    # collapse is inert => byte-identical legacy render). Read-only; never mutates a basket or a row.
++    _origin_by_eid: dict[str, str] = {}
++    for _bdict in _basket_by_cluster.values():
++        for _m in (_bdict.get("supporting_members") or []):
++            _meid = str(_m.get("evidence_id", "") or "")
++            _mocid = str(_m.get("origin_cluster_id", "") or "")
++            if _meid and _mocid and _meid not in _origin_by_eid:
++                _origin_by_eid[_meid] = _mocid
++    for _eid_row, _row in (evidence_pool or {}).items():
++        if _eid_row not in _origin_by_eid:
++            _rocid = str((_row or {}).get("origin_cluster_id", "") or "")
++            if _rocid:
++                _origin_by_eid[str(_eid_row)] = _rocid
++
+     def _verified_corroborators_with_clusters_for_tokens(
+         token_ev_ids: list[str],
+     ) -> list[tuple[str, str]]:
+@@ -4216,8 +4283,26 @@ def resolve_provenance_to_citations_with_count(
+             n = _num_for(_corro_eid)
+             if n not in used_nums:
+                 used_nums.append(n)
+-        # Append citation markers
++        # I-deepfix-001 B9(c): collapse inline citation numbers that map to the SAME independent
++        # origin cluster (a scholarly mirror of one work) to ONE number + an "(also mirrored)" note,
++        # so "[11][12]" from one origin never reads as two independent corroborating sources. Distinct
++        # origins (real multi-source corroboration) are kept distinct (§-1.3). Faithfulness-neutral:
++        # every cited source still lists in the bibliography; only the inline double-count is removed.
++        # OFF / no-origin-data path returns used_nums unchanged => byte-identical legacy render.
++        _num_to_eid = {num: eid for eid, num in ev_to_num.items()}
++        _origin_by_num = {
++            num: _origin_by_eid.get(_num_to_eid.get(num, ""), "") for num in used_nums
++        }
++        used_nums, _mirrors_collapsed = collapse_mirror_citation_numbers(used_nums, _origin_by_num)
++        if _mirrors_collapsed:
++            _TOKEN_HONESTY_TELEMETRY["mirror_cites_collapsed"] = (
++                _TOKEN_HONESTY_TELEMETRY.get("mirror_cites_collapsed", 0) + _mirrors_collapsed
++            )
++        # Append citation markers (+ a render-honest "also mirrored" note when a same-origin mirror
++        # was folded, so the reader sees the corroboration was a mirror, not an independent source).
+         markers = "".join(f"[{n}]" for n in used_nums)
++        if _mirrors_collapsed:
++            markers += " (also mirrored)"
+         sentence_out = stripped + markers
+ 
+         # Gap-3: put Limitations sentences in a separate paragraph so
+diff --git a/src/polaris_graph/generator/sentence_repair.py b/src/polaris_graph/generator/sentence_repair.py
+index d8f07196..af360d88 100644
+--- a/src/polaris_graph/generator/sentence_repair.py
++++ b/src/polaris_graph/generator/sentence_repair.py
+@@ -60,6 +60,26 @@ MAX_RETRIES_PER_SENTENCE = 1  # Codex iter-1 brief: bounded; cost discipline
+ MAX_PER_SECTION_DEFAULT = 10  # Codex iter-1 brief
+ NULL_DROP_SENTINEL = "NULL_DROP"
+ 
++# I-deepfix-001 B17 (#1361): marker-PRUNE — a repair may DROP a co-cited [#ev:...] marker IFF its span
++# does not support the claim (a SUBSET of the original markers), never ADD a marker, never empty the
++# set. The legacy contract forced marker-set EQUALITY, so when the repair reasoning itself concluded a
++# co-cited span does NOT support the claim it could not drop that marker — it degraded the sentence into
++# a vague multi-citation umbrella that "fits" every span, implying corroboration the reasoning denied
++# (forensic Repair #23/#35). A marker must mean "this span supports this sentence"; allowing the
++# unsupported one to be pruned (then CONFIRMED dropped via the entailment judge, fail-closed to KEEP)
++# STRENGTHENS basket faithfulness (§-1.3). LAW VI kill-switch PG_REPAIR_MARKER_PRUNE_ENABLED (default
++# ON) => the legacy equality contract is restored byte-for-byte.
++_ENV_MARKER_PRUNE_ENABLED = "PG_REPAIR_MARKER_PRUNE_ENABLED"
++
++
++def _marker_prune_enabled() -> bool:
++    """True iff the default-ON B17 marker-prune (subset-accept + per-dropped-marker entailment confirm)
++    is active. ``PG_REPAIR_MARKER_PRUNE_ENABLED=0/off/false/no`` => the legacy marker-set EQUALITY
++    contract is restored byte-for-byte."""
++    return os.environ.get(_ENV_MARKER_PRUNE_ENABLED, "1").strip().lower() in (
++        "1", "true", "yes", "on", "enabled",
++    )
++
+ # Failures that benefit from rewriting. See module docstring point 2.
+ REPAIRABLE_REASON_PREFIXES: frozenset[str] = frozenset({
+     "entailment_failed",
+@@ -86,6 +106,27 @@ CONSTRAINTS (STRICT — non-compliance = repair failure):
+ 5. **Output format**: just the rewritten sentence on a single line, ending with the [#ev:...] markers preserved. No quotes, no preamble, no explanation."""
+ 
+ 
++# I-deepfix-001 B17 (#1361): the marker-PRUNE variant of the repair prompt. Constraint #1 is relaxed
++# from "keep every marker EXACTLY" to "keep every SUPPORTING marker, DROP a marker IFF its span does
++# not support the claim, never ADD a marker" (a subset, never a superset, never empty). Used when
++# PG_REPAIR_MARKER_PRUNE_ENABLED is ON; the dropped marker is independently CONFIRMED unsupported via
++# the entailment judge before the prune is accepted (orchestrator), so the model cannot prune a
++# genuinely-supporting span to dodge repair. STRENGTHENS faithfulness.
++REPAIR_SYSTEM_PROMPT_MARKER_PRUNE = """You are repairing a single sentence that a strict verifier dropped because the cited span does NOT support the sentence's specific claims. Your job is to rewrite the sentence so every cited span actually entails it — drop unsupported specifics, output exactly one rewritten sentence (no preamble, no sign-off).
++
++CONSTRAINTS (STRICT — non-compliance = repair failure):
++
++1. **Markers must be a SUBSET of the original**: keep every [#ev:...] marker whose span SUPPORTS the rewritten claim, EXACTLY (same evidence_id, same start-end byte range). You MAY REMOVE a marker IF AND ONLY IF that span does NOT support the claim — do not keep a non-supporting marker by diluting the sentence into a vague umbrella that "fits" every span. NEVER ADD a new marker, NEVER change a byte range, and keep AT LEAST ONE marker. A marker means "this span supports this sentence."
++
++2. **No new specifics not in a kept cited span**: do NOT introduce numbers, study names, jurisdictions, mechanism details, or comparators that aren't literally in a KEPT cited span text. The verifier will reject again if you do.
++
++3. **Hedge generic where the original was specific**: if the original said "tirzepatide reduced HbA1c by 1.7%" and the span only says "tirzepatide reduced HbA1c", rewrite as "tirzepatide reduced HbA1c [#ev:...]" — the qualitative claim is in the span, the magnitude is not.
++
++4. **If you cannot make the claim entailed by any remaining span**: output exactly NULL_DROP (capital, no quotes, nothing else). The original drop will be preserved.
++
++5. **Output format**: just the rewritten sentence on a single line, ending with the kept [#ev:...] markers preserved. No quotes, no preamble, no explanation."""
++
++
+ # ---------------------------------------------------------------------------
+ # Repair invocation
+ # ---------------------------------------------------------------------------
+@@ -120,6 +161,48 @@ def _extract_token_signature(sentence: str) -> tuple[str, ...]:
+     return tuple(sorted(t.raw for t in tokens))
+ 
+ 
++def _span_text_for_token(tok: Any, evidence_pool: dict[str, dict[str, Any]]) -> str:
++    """The cited span text for ONE provenance token (``direct_quote`` first, then ``statement``).
++    Returns ``""`` when the evidence row / span is unavailable. PURE."""
++    ev = evidence_pool.get(tok.evidence_id)
++    if ev is None:
++        return ""
++    direct = ev.get("direct_quote") or ev.get("statement") or ""
++    return direct[tok.start:tok.end] if tok.end <= len(direct) else direct[tok.start:]
++
++
++def _confirm_marker_droppable(
++    claim_text: str, span_text: str, judge: "Any | None" = None,
++) -> bool:
++    """I-deepfix-001 B17: confirm a PRUNED marker's span genuinely does NOT support the claim, via the
++    entailment judge — so the model cannot prune a genuinely-supporting span to dodge repair. Returns
++    True (prune confirmed) ONLY on a clean NEUTRAL / CONTRADICTED verdict. FAIL-CLOSED: a judge_error
++    (the ``(ENTAILED, "judge_error: ...")`` sentinel), an ENTAILED verdict, an empty span, OR any
++    exception => False (KEEP the marker — the drop is rejected, never a faithfulness relaxation).
++
++    ``judge`` is injectable for offline tests; None lazily builds the production ``_EntailmentJudge``.
++    A missing/uninstantiable judge fail-CLOSES to False (keep the marker)."""
++    if not span_text.strip():
++        return False  # no span to test -> cannot confirm the drop -> KEEP (fail-closed)
++    if judge is None:
++        try:
++            from src.polaris_graph.llm.entailment_judge import _EntailmentJudge
++            judge = _EntailmentJudge()
++        except Exception as exc:  # pragma: no cover — judge resolved at runtime on the paid path
++            logger.warning("[sentence_repair] entailment judge unavailable (keep marker): %s", exc)
++            return False
++    try:
++        verdict, reason = judge.judge(claim_text, span_text)
++    except Exception as exc:
++        logger.warning("[sentence_repair] entailment judge raised (keep marker, fail-closed): %s", exc)
++        return False
++    # The fail-closed transport sentinel is ('ENTAILED', 'judge_error: ...'); treat ANY judge_error as
++    # KEEP. Prune ONLY on a genuine NEUTRAL / CONTRADICTED (the span does not support the claim).
++    if str(reason or "").startswith("judge_error:"):
++        return False
++    return str(verdict).upper() in ("NEUTRAL", "CONTRADICTED")
++
++
+ def _build_cited_spans_block(
+     tokens: list[Any],
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -190,7 +273,13 @@ async def repair_sentence(
+         set_reasoning_call_context(section="_repair", call_type="repair")
+         response = await client.generate(
+             prompt=prompt,
+-            system=REPAIR_SYSTEM_PROMPT,
++            # I-deepfix-001 B17: the marker-PRUNE prompt (subset-accept) when the flag is ON; the
++            # legacy EQUALITY prompt otherwise (byte-identical legacy behaviour).
++            system=(
++                REPAIR_SYSTEM_PROMPT_MARKER_PRUNE
++                if _marker_prune_enabled()
++                else REPAIR_SYSTEM_PROMPT
++            ),
+             # I-wire-009 (#1323): the repair max_tokens defaults to 400 -> floored to
+             # PG_GLM5_MIN_MAX_TOKENS=4096 on the GLM-5.2 _ALWAYS_REASON path. Bound the reasoning
+             # pool and floor CONTENT so a single repaired sentence is never starved to empty by an
+@@ -236,11 +325,15 @@ class RepairTelemetry:
+     attempts: int = 0
+     successes: int = 0
+     null_drops: int = 0           # model said NULL_DROP
+-    token_set_violations: int = 0  # repaired output changed token set
++    token_set_violations: int = 0  # repaired output changed token set (ADDED a marker / emptied the set)
+     re_verify_failures: int = 0    # repaired output still failed verifier
+     api_failures: int = 0
+     input_tokens: int = 0
+     output_tokens: int = 0
++    # I-deepfix-001 B17 (#1361): co-cited markers PRUNED because the repaired claim no longer cites
++    # them AND the entailment judge confirmed (NEUTRAL/CONTRADICTED) the dropped span does not support
++    # the claim. A legitimate subset-prune, never a token_set_violation. STRENGTHENS faithfulness.
++    markers_pruned: int = 0
+ 
+     @property
+     def recovery_rate(self) -> float:
+@@ -270,6 +363,10 @@ async def repair_dropped_section_sentences(
+     model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 400,
+     temperature: float = 0.2,
++    # I-deepfix-001 B17 (#1361): injectable entailment judge for the per-dropped-marker prune confirm
++    # (``(claim, span) -> (verdict, reason)``). None (default) => the production ``_EntailmentJudge`` is
++    # lazily built per prune; a test injects a deterministic fake.
++    marker_prune_judge: "Any | None" = None,
+ ) -> tuple[list[SentenceVerification], list[SentenceVerification], RepairTelemetry]:
+     """Repair-loop orchestrator: walk the dropped list in order, attempt
+     repair on the first MAX_PER_SECTION repairable items, return
+@@ -356,7 +453,58 @@ async def repair_dropped_section_sentences(
+ 
+         # Token-set preservation check (Codex iter-1 P0 #1)
+         repaired_tokens = _extract_token_signature(repaired_text)
+-        if repaired_tokens != original_tokens:
++        if _marker_prune_enabled():
++            # I-deepfix-001 B17 (#1361): accept a non-empty SUBSET (a confirmed marker PRUNE), reject
++            # an ADDITION (a marker not in the original) or an EMPTY set. A marker may only be dropped
++            # when the entailment judge CONFIRMS its span does not support the claim (NEUTRAL /
++            # CONTRADICTED); a judge_error / ENTAILED / judge-unavailable fail-CLOSES to KEEP the
++            # marker (=> the prune is rejected as a token_set_violation), so the model can never prune a
++            # genuinely-supporting span to dodge repair. STRENGTHENS faithfulness; never relaxes it.
++            orig_set = set(original_tokens)
++            repaired_set = set(repaired_tokens)
++            added = repaired_set - orig_set
++            dropped_markers = orig_set - repaired_set
++            if added or not repaired_set:
++                # ADDED a marker OR emptied the set — a real violation (never an honest prune).
++                tel.token_set_violations += 1
++                logger.warning(
++                    "[sentence_repair] repaired output ADDED markers or emptied the set "
++                    "(orig=%s, repaired=%s) — keeping original drop", original_tokens, repaired_tokens,
++                )
++                final_dropped.append(sv)
++                continue
++            if dropped_markers:
++                # Confirm EACH dropped marker's span genuinely does not support the repaired claim.
++                _orig_tok_by_raw = {t.raw: t for t in parse_provenance_tokens(sv.sentence)}
++                # The claim text with provenance tokens stripped (the entailment judge tests the bare
++                # claim against the dropped span). Reuses the SAME cleaner the verifier uses.
++                from src.polaris_graph.generator.provenance_generator import _verifier_cleaned_text
++                _claim_for_confirm = _verifier_cleaned_text(repaired_text)
++                _all_confirmed = True
++                for _raw in dropped_markers:
++                    _tok = _orig_tok_by_raw.get(_raw)
++                    _span = _span_text_for_token(_tok, evidence_pool) if _tok is not None else ""
++                    if not _confirm_marker_droppable(
++                        _claim_for_confirm, _span, judge=marker_prune_judge
++                    ):
++                        _all_confirmed = False
++                        break
++                if not _all_confirmed:
++                    # A dropped marker could NOT be confirmed unsupported (or the judge fail-closed) —
++                    # reject the prune (treat as a token-set violation), keep the original drop.
++                    tel.token_set_violations += 1
++                    logger.warning(
++                        "[sentence_repair] marker prune NOT confirmed unsupported (orig=%s, "
++                        "repaired=%s) — keeping original drop", original_tokens, repaired_tokens,
++                    )
++                    final_dropped.append(sv)
++                    continue
++                tel.markers_pruned += len(dropped_markers)
++                logger.info(
++                    "[sentence_repair] B17 confirmed-pruned %d non-supporting marker(s) "
++                    "(orig=%s, repaired=%s)", len(dropped_markers), original_tokens, repaired_tokens,
++                )
++        elif repaired_tokens != original_tokens:
+             tel.token_set_violations += 1
+             logger.warning(
+                 "[sentence_repair] repaired output changed token set "
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index a076ab70..f312441c 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -1227,6 +1227,34 @@ _LEADING_BULLET_RE = re.compile(r"^\s*-\s+")
+ _CITATION_SPLIT_RE = re.compile(r"(\[\d+\]|\[#ev:[^\]]*\])")
+ _INLINE_HEADER_SPLIT_RE = re.compile(r"#{1,6}\s+[A-Za-z]")
+ 
++# I-deepfix-001 B6(a) (#1350): the per-claim "Source corroboration" section is a SCAFFOLDING title
++# (byte-preserved above), so its worst chrome — a page-furniture scrape promoted to a basket HEADER
++# bullet ("- **<masthead/ToC/affiliation>** — N verified independent source(s)") — never reaches the
++# full containment predicate. This default-ON branch screens the corroboration section's HEADER
++# bullets (only) through ``is_render_chrome_or_unrenderable``; a chrome header has its CLAIM TEXT
++# replaced by a neutral placeholder while the verified-source COUNT is preserved verbatim. LAW VI
++# kill-switch ``PG_CORROBORATION_SANITIZE=0`` => the section stays byte-preserved (pre-B6 behaviour).
++#
++# §-1.3 CONSOLIDATE-don't-DROP (the dominant HARD RULE, outranks the spec's literal "screen each
++# sub-bullet"): the ``- SUPPORT:`` / ``- GROUNDED-BUT-WEAK:`` / ``- CONTRADICTED:`` sub-bullets carry
++# a SOURCE locator (url / evidence_id / tier / weight) — NOT a claim — so they are KEEP-ONLY here;
++# screening them risks the chrome predicate's "bare DOI/URL row" leg dropping a corroborating source,
++# which is a faithfulness violation. A divergence from the seam spec's literal wording, documented in
++# the deepfix honest-gaps. Faithfulness-NEUTRAL: this only suppresses a chrome CLAIM string; it never
++# drops a source, count, or verdict.
++_CORROBORATION_SANITIZE_ENV = "PG_CORROBORATION_SANITIZE"
++# The corroboration section's title prefix (lower-cased), matched to scope the branch to ONLY that
++# section (Bibliography / Methods / Reliability stay truly byte-preserved).
++_CORROBORATION_SECTION_PREFIX = "source corroboration"
++# A corroboration HEADER bullet: a TOP-LEVEL ``- **<claim>** — <count> verified ...`` line. The claim
++# text is the ``**bold**`` span; the ``— N verified independent source(s)`` suffix is the count. We
++# screen only the claim span and preserve the suffix verbatim. A sub-bullet (``  - SUPPORT: ...``) is
++# INDENTED, so the no-leading-whitespace anchor here never matches it (sub-bullets are KEEP-ONLY).
++_CORROBORATION_HEADER_RE = re.compile(r"^-\s+\*\*(?P<claim>.+?)\*\*(?P<suffix>\s*[—-].*)?$")
++# The neutral placeholder a chrome basket header collapses to — the COUNT suffix still carries the
++# corroboration; only the unrenderable page-furniture claim string is withheld.
++_CORROBORATION_CHROME_PLACEHOLDER = "(claim text withheld — source page-furniture, not a finding)"
++
+ 
+ def render_seam_sanitize_enabled() -> bool:
+     """True iff the default-ON render-seam chokepoint is active (LAW VI kill-switch
+@@ -1236,6 +1264,38 @@ def render_seam_sanitize_enabled() -> bool:
+     )
+ 
+ 
++def corroboration_sanitize_enabled() -> bool:
++    """True iff the default-ON B6(a) corroboration-header chrome screen is active (LAW VI kill-switch
++    ``PG_CORROBORATION_SANITIZE=0`` => the corroboration section stays byte-preserved)."""
++    return os.environ.get(_CORROBORATION_SANITIZE_ENV, "1").strip().lower() in (
++        "1", "true", "on", "yes", "enabled",
++    )
++
++
++def _is_corroboration_section_title(title: str) -> bool:
++    """True iff a header title names the per-claim Source-corroboration rollup (B6(a) scope)."""
++    return title.strip().lower().lstrip("# ").strip().startswith(_CORROBORATION_SECTION_PREFIX)
++
++
++def _sanitize_corroboration_header(
++    line: str, known_words: "set[str] | frozenset[str] | None"
++) -> "tuple[str, int]":
++    """B6(a): screen ONE corroboration HEADER bullet. A top-level ``- **<claim>** — N verified ...``
++    whose CLAIM span is chrome (page furniture promoted to a basket header) has the claim string
++    replaced by a neutral placeholder, preserving the verified-source COUNT suffix verbatim. Returns
++    ``(clean_line, suppressed)`` where ``suppressed`` is 1 iff a chrome claim was withheld. A
++    sub-bullet (indented) or a non-matching line is returned unchanged with 0. PURE; faithfulness-
++    neutral (no source / count / verdict ever dropped)."""
++    m = _CORROBORATION_HEADER_RE.match(line)
++    if not m:
++        return line, 0  # sub-bullet / blank / prose — KEEP-ONLY, untouched
++    claim = m.group("claim").strip()
++    suffix = m.group("suffix") or ""
++    if claim and is_render_chrome_or_unrenderable(claim, known_words=known_words):
++        return f"- **{_CORROBORATION_CHROME_PLACEHOLDER}**{suffix}", 1
++    return line, 0
++
++
+ def _known_word_floor() -> int:
+     """The corpus known-word frequency floor (LAW VI). Fail-soft on a non-int / non-positive value
+     to the detector default (the allowlist must never be silently emptied)."""
+@@ -1453,11 +1513,18 @@ def sanitize_rendered_report(
+     out_lines: list[str] = []
+     removed = 0
+     in_scaffolding = False
++    # I-deepfix-001 B6(a): tracked SEPARATELY from in_scaffolding. The corroboration section is
++    # scaffolding (byte-preserved DOIs/URLs) EXCEPT its per-claim HEADER bullets, which carry a
++    # claim string that can be page-furniture chrome. When in_corroboration is set and the B6(a)
++    # screen is enabled, header bullets are screened; sub-bullets stay byte-preserved (KEEP-ONLY).
++    in_corroboration = False
++    corroboration_screen = corroboration_sanitize_enabled()
+     for line in report_md.split("\n"):
+         header = _SECTION_HEADER_RE.match(line)
+         if header:
+             title = header.group(2)
+             in_scaffolding = _is_scaffolding_section_title(title)
++            in_corroboration = _is_corroboration_section_title(title)
+             # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
+             # scaffolding header — dropping a real header would orphan its body.
+             if not in_scaffolding and _contains_forensic_chrome(title):
+@@ -1465,6 +1532,13 @@ def sanitize_rendered_report(
+                 continue
+             out_lines.append(line)
+             continue
++        if in_corroboration and corroboration_screen and line.strip():
++            # B6(a): inside the corroboration rollup, screen ONLY the per-claim HEADER bullet's
++            # claim string (sub-bullets / blanks pass through untouched via the (line, 0) branch).
++            clean_line, suppressed = _sanitize_corroboration_header(line, known_words)
++            removed += suppressed
++            out_lines.append(clean_line)
++            continue
+         if in_scaffolding or not line.strip():
+             out_lines.append(line)
+             continue
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index e944afca..b05b6333 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -104,6 +104,118 @@ def _pass_max_inflight() -> int:
+     return value if value >= 1 else _DEFAULT_PASS_MAX_INFLIGHT
+ 
+ 
++# ── I-deepfix-001 B9(a) (#1353): deterministic tier-authority prior join ─────────────────────────
++# FORENSIC ROOT (verified against the banked drb_72 corpus_snapshot): the generator-visible evidence
++# rows arrive with NO ``authority_score`` (and no ``source_class`` / ``signal_scores`` to recompute the
++# full authority model from), so ``weight_mass.aggregate_weight_mass`` reads ``authority_score`` = None
++# -> ``cluster_mass`` = 0.0 across EVERY claim and ``weight_mass`` renders 0.0 — the opposite of the
++# CONSOLIDATE-and-WEIGHT goal. The rows DO carry a ``tier`` (T1..T7 / UNKNOWN) on every row. The fix:
++# when a row lacks ``authority_score``, JOIN a deterministic tier-derived prior onto the row copy so a
++# real, honest weight flows to BOTH the canonical-selection in independence_collapse (lowest-authority
++# canonical for an undated cluster) AND to weight_mass.cluster_mass. This is a WEIGHT, never a DROP /
++# CAP / FILTER (§-1.3); it never touches strict_verify / NLI / 4-role / provenance. It is joined at the
++# TOP of _run_chain (before collapse) so collapse and weight_mass agree on the canonical.
++#
++# The per-tier prior MIRRORS ``nodes.weighted_corpus_gate._DEFAULT_TIER_CREDIBILITY_PRIOR`` (one
++# semantic source of truth; kept local to avoid coupling a synthesis module to a nodes module). LAW VI:
++# the whole map is env-overridable via PG_CREDIBILITY_TIER_AUTHORITY_PRIOR (JSON), and the join itself
++# is gated default-ON by PG_CREDIBILITY_TIER_AUTHORITY_JOIN.
++_ENV_TIER_AUTHORITY_JOIN = "PG_CREDIBILITY_TIER_AUTHORITY_JOIN"
++_ENV_TIER_AUTHORITY_PRIOR = "PG_CREDIBILITY_TIER_AUTHORITY_PRIOR"
++_DEFAULT_TIER_AUTHORITY_PRIOR: dict[str, float] = {
++    "T1": 0.95, "T2": 0.85, "T3": 0.75, "T4": 0.60,
++    "T5": 0.40, "T6": 0.30, "T7": 0.15, "UNKNOWN": 0.20,
++}
++# B9(a) fail-loud canary: with the master redesign ON, an all-zero authority_score across rows is a
++# WIRING BREAK (the join no-oped), not a legitimate zero. Default ON => the LOUD warning always fires;
++# the hard raise is opt-in (PG_REQUIRE_NONZERO_AUTHORITY) to honor the FAIL-OPEN rule (a scorer-side
++# wiring detection must never itself drop a source).
++_ENV_REQUIRE_NONZERO_AUTHORITY = "PG_REQUIRE_NONZERO_AUTHORITY"
++
++
++def tier_authority_join_enabled() -> bool:
++    """True iff the default-ON B9(a) tier-authority prior join is active (LAW VI kill-switch
++    ``PG_CREDIBILITY_TIER_AUTHORITY_JOIN=0`` => rows keep whatever authority_score they arrived with)."""
++    return os.environ.get(_ENV_TIER_AUTHORITY_JOIN, "on").strip().lower() not in _OFF_VALUES
++
++
++def _tier_authority_prior_map() -> dict[str, float]:
++    """The per-tier authority prior (LAW VI). Env JSON override merges over the default; a malformed
++    override falls back to the default (fail-safe: never an empty/zeroed map). PURE-ish (reads env)."""
++    raw = os.environ.get(_ENV_TIER_AUTHORITY_PRIOR, "").strip()
++    if not raw:
++        return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
++    try:
++        import json as _json  # noqa: PLC0415
++        override = _json.loads(raw)
++        if not isinstance(override, dict):
++            return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
++        merged = dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
++        for k, v in override.items():
++            merged[str(k).strip().upper()] = _clamp01(v) or 0.0
++        return merged
++    except Exception:
++        return dict(_DEFAULT_TIER_AUTHORITY_PRIOR)
++
++
++def _tier_of_row(row: dict) -> str:
++    """The row's tier label, normalized to the prior-map key shape (``T4`` / ``UNKNOWN``). A blank /
++    unrecognized tier maps to ``UNKNOWN`` (the conservative low prior, never a wrong-high default)."""
++    tier = str(row.get("source_tier") or row.get("tier") or "").strip().upper()
++    return tier if tier in _DEFAULT_TIER_AUTHORITY_PRIOR else "UNKNOWN"
++
++
++def _join_tier_authority_prior(rows: list[dict]) -> list[dict]:
++    """B9(a): return COPIES of ``rows`` with a deterministic tier-derived ``authority_score`` joined
++    onto any row that lacks one (None / missing / non-numeric). A row that ALREADY carries a numeric
++    authority_score is preserved verbatim (the real computed weight wins; the tier prior is only a
++    fallback). Never mutates the caller's rows; never drops a row. Returns the rows unchanged when the
++    join is disabled. PURE-ish (reads env via the prior map)."""
++    if not tier_authority_join_enabled():
++        return rows
++    prior = _tier_authority_prior_map()
++    out: list[dict] = []
++    for row in rows:
++        existing = row.get("authority_score")
++        if isinstance(existing, (int, float)) and not isinstance(existing, bool):
++            out.append(row)  # real computed weight already present — keep verbatim
++            continue
++        new_row = dict(row)  # COPY — never mutate the caller's row
++        new_row["authority_score"] = float(prior.get(_tier_of_row(row), prior["UNKNOWN"]))
++        new_row["authority_score_source"] = "tier_prior"  # disclosed: this is a deterministic fallback
++        out.append(new_row)
++    return out
++
++
++def _emit_zero_authority_canary(rows: list[dict]) -> None:
++    """B9(a) fail-loud canary: with the redesign ON, an all-zero / all-missing authority_score across
++    rows means the prior join no-oped — a WIRING BREAK, not a legitimate zero. Always emits the LOUD
++    warning (LAW II); the HARD raise is opt-in via ``PG_REQUIRE_NONZERO_AUTHORITY`` so this detection
++    can never itself drop a source (the FAIL-OPEN rule)."""
++    if not rows:
++        return
++    any_nonzero = any(
++        isinstance(r.get("authority_score"), (int, float))
++        and not isinstance(r.get("authority_score"), bool)
++        and float(r.get("authority_score") or 0.0) > 0.0
++        for r in rows
++    )
++    if any_nonzero:
++        return
++    import logging as _logging  # noqa: PLC0415
++    msg = (
++        "[credibility-pass] B9(a) WIRING-BREAK CANARY: authority_score is zero/missing across ALL "
++        f"{len(rows)} rows with the credibility redesign ON — weight_mass will render 0.0 everywhere. "
++        "The tier-authority prior join did not fire (check PG_CREDIBILITY_TIER_AUTHORITY_JOIN and that "
++        "rows carry a 'tier'). This is a wiring break, not a legitimate zero."
++    )
++    _logging.getLogger(__name__).warning(msg)
++    if os.environ.get(_ENV_REQUIRE_NONZERO_AUTHORITY, "").strip().lower() in ("1", "true", "yes", "on"):
++        raise CredibilityPassError(
++            "abort_zero_authority_wiring_break: " + msg + " (PG_REQUIRE_NONZERO_AUTHORITY opt-in raise)"
++        )
++
++
+ def credibility_redesign_enabled() -> bool:
+     """The master activation slate. OFF ⇒ the runner never calls the pass ⇒ byte-identical.
+ 
+@@ -837,6 +949,14 @@ def _run_chain(
+     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
+ ) -> CredibilityAnalysis:
+     """The P4→P3→P2→P5→P6 chain body; wrapped by run_credibility_analysis for the fail-loud posture."""
++    # ── I-deepfix-001 B9(a): join a deterministic tier-authority prior onto any row missing an
++    # authority_score, on COPIED rows, BEFORE collapse so independence_collapse's undated-canonical
++    # selection AND weight_mass.cluster_mass read the SAME non-zero authority. A row that already
++    # carries a real computed authority_score is preserved verbatim. WEIGHT, never a DROP (§-1.3); the
++    # faithfulness engine is untouched. Then the fail-loud canary: an all-zero authority_score across
++    # rows (with the redesign ON) is a wiring break, surfaced LOUD (raise only on opt-in). ──
++    rows = _join_tier_authority_prior(rows)
++    _emit_zero_authority_canary(rows)
+     # ── P4: independent-origin collapse → per-row assignment, on COPIED rows (never mutate the caller) ──
+     collapse = collapse_independent_origins(rows, gov_suffixes=gov_suffixes)
+     if len(collapse.assignments) != len(rows):
+diff --git a/src/polaris_graph/synthesis/independence_collapse.py b/src/polaris_graph/synthesis/independence_collapse.py
+index fbcd5d21..c348975c 100644
+--- a/src/polaris_graph/synthesis/independence_collapse.py
++++ b/src/polaris_graph/synthesis/independence_collapse.py
+@@ -102,8 +102,17 @@ DEFAULT_ACCEPTABLE_MIRROR_DOMAINS: tuple[str, ...] = (
+     "nih.gov",     # PMC (ncbi.nlm.nih.gov) eTLD+1 -> nih.gov
+ )
+ # Row keys consulted for the row's text, in priority order. First non-empty
+-# wins. Mirrors finding_dedup's row-shape expectations.
++# wins. Mirrors finding_dedup's row-shape expectations. ``direct_quote`` (the
++# CLAIM-LOCAL span when the caller has set it) is FIRST, so the cosine compares
++# claim-local span text over chrome-laden full-row text where available
++# (I-deepfix-001 B9(b)).
+ _TEXT_KEYS: tuple[str, ...] = ("direct_quote", "statement", "text", "snippet")
++# I-deepfix-001 B9(b): row keys consulted for a DOI identity, in priority order.
++# Two rows with DISTINCT non-empty DOIs are DIFFERENT works and must NEVER be
++# collapsed into one origin cluster on body-cosine alone (the origin_cluster_id
++# collision: a near-dup body of mostly chrome — masthead/affiliation/DOI lines —
++# crossing the 0.85 cosine and folding 4 distinct DOIs under one canonical).
++_DOI_KEYS: tuple[str, ...] = ("doi", "DOI")
+ # Row keys consulted for an explicit publication-order signal, in priority
+ # order. First parseable value wins; absence falls back to corpus order.
+ _ORDER_KEYS: tuple[str, ...] = (
+@@ -181,6 +190,23 @@ def _row_domain(row: dict[str, Any], gov_suffixes: tuple[str, ...]) -> str:
+     return registrable_domain(_host_of(str(row.get("source_url", ""))), gov_suffixes)
+ 
+ 
++def _row_doi(row: dict[str, Any]) -> str:
++    """I-deepfix-001 B9(b): normalized DOI identity of a row (lower-cased, ``doi:`` / URL prefixes
++    stripped), or ``""`` when the row carries no DOI. Two rows with DISTINCT non-empty DOIs are
++    different works and must never join one origin cluster on body-cosine alone."""
++    for key in _DOI_KEYS:
++        value = row.get(key)
++        if isinstance(value, str) and value.strip():
++            doi = value.strip().lower()
++            # Strip common prefixes so "10.1/x", "doi:10.1/x", and "https://doi.org/10.1/x" compare equal.
++            for prefix in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"):
++                if doi.startswith(prefix):
++                    doi = doi[len(prefix):]
++                    break
++            return doi.strip("/").strip()
++    return ""
++
++
+ def _parse_order_date(value: Any) -> tuple[int, int, int] | None:
+     """Parse a publication-order value to a sortable ``(year, month, day)``, or ``None``
+     when it is not CONFIDENTLY parseable (then the row is treated as undated and sorts
+@@ -373,11 +399,34 @@ def collapse_independent_origins(
+ 
+     domains = [_row_domain(rows[i], gov_suffixes) for i in range(n)]
+     texts = [_row_text(rows[i]) for i in range(n)]
++    dois = [_row_doi(rows[i]) for i in range(n)]  # I-deepfix-001 B9(b): per-row DOI identity
+     sim = _tfidf_cosine_matrix(texts)
+ 
+     uf = _UnionFind(n)
+     for i in range(n):
+         for j in range(i + 1, n):
++            # I-deepfix-001 B9(b): HARD GUARD against the origin_cluster_id collision — two rows with
++            # DISTINCT non-empty DOIs are DIFFERENT works and can NEVER share one origin cluster, on
++            # ANY signal (host-collapse OR body-cosine). This prevents a near-dup body of mostly chrome
++            # (masthead / affiliation / DOI lines crossing the 0.85 cosine) from folding 4 distinct DOIs
++            # under one canonical (the observed origin::ev_009-reused-across-4-works defect). A blank DOI
++            # on either side is NOT a distinct-DOI signal, so the existing host / cosine behaviour is
++            # byte-identical for rows that carry no DOI (the common case).
++            distinct_dois = bool(dois[i]) and bool(dois[j]) and dois[i] != dois[j]
++            if distinct_dois:
++                continue
++            # I-deepfix-001 B9(b)/(c): SAME non-empty DOI is a POSITIVE union trigger that OVERRIDES the
++            # scholarly-mirror allowlist skip below — two rows carrying the identical DOI are literally
++            # the SAME artifact (an arXiv preprint + its syndication / PMC mirror of one paper), so they
++            # MUST share one origin cluster even across distinct registrable domains. This is what makes
++            # the B9(c) mirror-cite collapse actually FIRE on the canonical cross-mirror same-DOI pair
++            # (the "[11][12]" illusion). STRENGTHENS the no-inflation invariant — collapsing a true copy
++            # never inflates mass (copies contribute zero). A blank DOI on either side is inert (the
++            # cosine / host behaviour below is byte-identical for the no-DOI common case).
++            same_doi = bool(dois[i]) and dois[i] == dois[j]
++            if same_doi:
++                uf.union(i, j)
++                continue
+             same_domain = bool(domains[i]) and domains[i] == domains[j]
+             if same_domain:
+                 # Same registrable origin (host-collapse primitive): one origin.
+diff --git a/tests/polaris_graph/test_deepfix_compose_wiring.py b/tests/polaris_graph/test_deepfix_compose_wiring.py
+new file mode 100644
+index 00000000..69b40cb3
+--- /dev/null
++++ b/tests/polaris_graph/test_deepfix_compose_wiring.py
+@@ -0,0 +1,433 @@
++"""I-deepfix-001 WIRER-COMPOSE — fail-loud behavioral tests for the five wired seams.
++
++Each test flips the seam's flag ON and asserts the EFFECT APPEARS in real output (per §-1.4 FULLY-
++WIRED gate): a chrome corroboration header is screened to a placeholder while the count survives
++(B6a); a tier-authority prior joins so weight_mass goes non-zero (B9a); distinct DOIs never share one
++origin cluster (B9b); same-origin mirror cites collapse to one citation + note (B9c); an unsupported
++analyst-synthesis sentence gets a low-confidence marker while a supported one does not (B13); a
++non-supporting repair marker is pruned only when the entailment judge confirms it (B17).
++
++OFFLINE: no network / no model / no paid LLM. All judges are injected deterministic fakes.
++"""
++from __future__ import annotations
++
++import importlib
++
++import pytest
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B6(a) — corroboration-aware chrome screen in sanitize_rendered_report
++# ─────────────────────────────────────────────────────────────────────────────
++def test_b6a_corroboration_header_chrome_screened_count_preserved(monkeypatch):
++    monkeypatch.setenv("PG_CORROBORATION_SANITIZE", "1")
++    monkeypatch.setenv("PG_RENDER_SEAM_SANITIZE", "1")
++    monkeypatch.setenv("PG_RENDER_CHROME_SCREEN", "1")
++    from src.polaris_graph.generator import weighted_enrichment as we
++    importlib.reload(we)
++
++    # A corroboration rollup whose FIRST basket header is page-furniture chrome (an ISSN/license
++    # masthead scrape) and whose SECOND header is a real finding. Sub-bullets carry source locators.
++    report = (
++        "## Source corroboration (per claim)\n\n"
++        "- **ISSN 2049-3630 Creative Commons Attribution 4.0 International License "
++        "All rights reserved** — 3 verified independent source(s)\n"
++        "  - SUPPORT: https://example.org/a (tier T1, weight 0.95)\n"
++        "  - SUPPORT: https://example.com/b (tier T2, weight 0.85)\n"
++        "- **GenAI adoption raised measured task throughput in the trial** — "
++        "2 verified independent source(s)\n"
++        "  - SUPPORT: https://example.net/c (tier T1, weight 0.95)\n"
++    )
++    clean, removed = we.sanitize_rendered_report(report)
++
++    # The chrome claim string is withheld (placeholder), but its verified-source COUNT survives.
++    assert "ISSN 2049-3630" not in clean
++    assert "claim text withheld" in clean
++    assert "3 verified independent source(s)" in clean  # count preserved (never dropped)
++    # The two SUPPORT sub-bullets of the chrome basket are KEEP-ONLY (no source dropped).
++    assert "https://example.org/a" in clean
++    assert "https://example.com/b" in clean
++    # The real finding header is untouched.
++    assert "GenAI adoption raised measured task throughput in the trial" in clean
++    assert removed >= 1
++
++
++def test_b6a_kill_switch_off_is_byte_identical(monkeypatch):
++    monkeypatch.setenv("PG_CORROBORATION_SANITIZE", "0")
++    monkeypatch.setenv("PG_RENDER_SEAM_SANITIZE", "1")
++    from src.polaris_graph.generator import weighted_enrichment as we
++    importlib.reload(we)
++    report = (
++        "## Source corroboration (per claim)\n\n"
++        "- **ISSN 2049-3630 All rights reserved** — 3 verified independent source(s)\n"
++        "  - SUPPORT: https://example.org/a (tier T1, weight 0.95)\n"
++    )
++    clean, _removed = we.sanitize_rendered_report(report)
++    assert "ISSN 2049-3630 All rights reserved" in clean  # byte-preserved when the screen is OFF
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B9(a) — tier-authority prior join => non-zero weight_mass; canary detects a wiring break
++# ─────────────────────────────────────────────────────────────────────────────
++def test_b9a_tier_prior_join_populates_authority_score(monkeypatch):
++    monkeypatch.setenv("PG_CREDIBILITY_TIER_AUTHORITY_JOIN", "1")
++    from src.polaris_graph.synthesis import credibility_pass as cp
++    importlib.reload(cp)
++    rows = [
++        {"evidence_id": "ev_1", "tier": "T1", "direct_quote": "x"},   # no authority_score
++        {"evidence_id": "ev_2", "tier": "T7", "direct_quote": "y"},
++        {"evidence_id": "ev_3", "tier": "T2", "direct_quote": "z", "authority_score": 0.42},  # kept
++    ]
++    out = cp._join_tier_authority_prior(rows)
++    by_eid = {r["evidence_id"]: r for r in out}
++    assert by_eid["ev_1"]["authority_score"] == pytest.approx(0.95)  # T1 prior
++    assert by_eid["ev_2"]["authority_score"] == pytest.approx(0.15)  # T7 prior
++    assert by_eid["ev_3"]["authority_score"] == pytest.approx(0.42)  # real weight preserved
++    assert by_eid["ev_1"]["authority_score_source"] == "tier_prior"
++    # caller's rows never mutated
++    assert "authority_score" not in rows[0]
++
++
++def test_b9a_join_feeds_nonzero_weight_mass(monkeypatch):
++    """The joined authority_score flows to weight_mass.aggregate_weight_mass => non-zero cluster_mass
++    (the forensic weight_mass=0.0 defect is fixed)."""
++    monkeypatch.setenv("PG_CREDIBILITY_TIER_AUTHORITY_JOIN", "1")
++    from src.polaris_graph.synthesis import credibility_pass as cp
++    from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
++    importlib.reload(cp)
++
++    class _Claim:
++        def __init__(self, ccid, eid):
++            self.claim_cluster_id = ccid
++            self.evidence_id = eid
++
++    rows = [{"evidence_id": "ev_1", "tier": "T1", "direct_quote": "x"}]
++    joined = cp._join_tier_authority_prior(rows)
++    # singleton row is its own canonical origin (no origin_cluster_id => uncollapsed singleton)
++    masses = aggregate_weight_mass([_Claim("c1", "ev_1")], joined, [])
++    assert masses, "weight_mass produced no claims"
++    assert masses[0].weight_mass > 0.0  # was 0.0 before the join; now the T1 prior (0.95)
++
++
++def test_b9a_canary_raises_only_on_opt_in(monkeypatch):
++    from src.polaris_graph.synthesis import credibility_pass as cp
++    importlib.reload(cp)
++    zero_rows = [{"evidence_id": "ev_1", "tier": "T1", "authority_score": 0.0}]
++    # default: warns, never raises (fail-open rule)
++    cp._emit_zero_authority_canary(zero_rows)  # no exception
++    # opt-in: raises a fail-loud wiring-break
++    monkeypatch.setenv("PG_REQUIRE_NONZERO_AUTHORITY", "1")
++    with pytest.raises(cp.CredibilityPassError):
++        cp._emit_zero_authority_canary(zero_rows)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B9(b) — distinct DOIs never join one origin cluster on body-cosine alone
++# ─────────────────────────────────────────────────────────────────────────────
++def test_b9b_distinct_dois_stay_independent_despite_near_dup_body():
++    from src.polaris_graph.synthesis.independence_collapse import collapse_independent_origins
++    gov = ("gov.uk",)
++    # Two DIFFERENT works (distinct DOIs) on DIFFERENT hosts whose bodies are near-identical chrome
++    # (would cross the 0.85 cosine and falsely collapse pre-B9b).
++    chrome_body = (
++        "Affiliation Department of Economics University of Somewhere ISSN 1234-5678 "
++        "Creative Commons Attribution License Received 2024 Accepted 2024 Published 2024"
++    )
++    rows = [
++        {"evidence_id": "ev_a", "source_url": "https://a.example/x", "direct_quote": chrome_body,
++         "doi": "10.1000/aaa"},
++        {"evidence_id": "ev_b", "source_url": "https://b.example/y", "direct_quote": chrome_body,
++         "doi": "10.1000/bbb"},
++    ]
++    res = collapse_independent_origins(rows, gov_suffixes=gov)
++    assert res.independent_origin_count == 2  # distinct DOIs => two distinct origins
++    assert res.assignments[0].origin_cluster_id != res.assignments[1].origin_cluster_id
++
++
++def test_b9b_same_doi_still_collapses():
++    from src.polaris_graph.synthesis.independence_collapse import collapse_independent_origins
++    gov = ("gov.uk",)
++    body = "The agency announced quarterly emissions fell twelve percent after the new regulation."
++    rows = [
++        {"evidence_id": "ev_a", "source_url": "https://a.example/x", "direct_quote": body,
++         "doi": "10.1000/same"},
++        {"evidence_id": "ev_b", "source_url": "https://b.example/y", "direct_quote": body,
++         "doi": "10.1000/same"},
++    ]
++    res = collapse_independent_origins(rows, gov_suffixes=gov)
++    assert res.independent_origin_count == 1  # SAME doi + near-dup body => one origin
++
++
++def test_b9b_same_doi_cross_mirror_collapses_to_one_origin():
++    """B9(b)/(c) connector: arXiv + a PMC mirror of ONE paper (same DOI, DIFFERENT scholarly-mirror
++    hosts, DIFFERENT bodies) MUST share one origin — overriding the mirror-allowlist skip — so the
++    B9(c) mirror-cite collapse can actually fire on the canonical cross-mirror pair."""
++    from src.polaris_graph.synthesis.independence_collapse import collapse_independent_origins
++    gov = ("gov.uk",)
++    rows = [
++        {"evidence_id": "ev_037", "source_url": "https://arxiv.org/abs/2401.00001",
++         "direct_quote": "preprint abstract text about GenAI employment effects",
++         "doi": "10.1000/onepaper"},
++        {"evidence_id": "ev_035", "source_url": "https://ncbi.nlm.nih.gov/pmc/articles/x",
++         "direct_quote": "published version with a differently worded abstract",
++         "doi": "10.1000/onepaper"},
++    ]
++    res = collapse_independent_origins(rows, gov_suffixes=gov)
++    assert res.independent_origin_count == 1  # same DOI => one origin even across mirror hosts
++    assert res.assignments[0].origin_cluster_id == res.assignments[1].origin_cluster_id
++
++
++def test_b9b_distinct_doi_mirrors_stay_independent():
++    """Guard the other side: two DIFFERENT papers each on a mirror host (distinct DOIs) stay two
++    origins — the same-DOI union must not over-collapse distinct works."""
++    from src.polaris_graph.synthesis.independence_collapse import collapse_independent_origins
++    gov = ("gov.uk",)
++    rows = [
++        {"evidence_id": "ev_1", "source_url": "https://arxiv.org/abs/2401.00001",
++         "direct_quote": "paper one", "doi": "10.1000/aaa"},
++        {"evidence_id": "ev_2", "source_url": "https://ssrn.com/abstract=2",
++         "direct_quote": "paper two", "doi": "10.1000/bbb"},
++    ]
++    res = collapse_independent_origins(rows, gov_suffixes=gov)
++    assert res.independent_origin_count == 2
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B9(c) — same-origin mirror cites collapse to one citation + note
++# ─────────────────────────────────────────────────────────────────────────────
++def test_b9c_mirror_cites_collapse(monkeypatch):
++    monkeypatch.setenv("PG_MIRROR_CITE_COLLAPSE", "1")
++    from src.polaris_graph.generator import provenance_generator as pg
++    importlib.reload(pg)
++    # nums 11 and 12 are two mirrors of ONE origin; 13 is a distinct origin.
++    origin_by_num = {11: "origin::ev_037", 12: "origin::ev_037", 13: "origin::ev_099"}
++    collapsed, n = pg.collapse_mirror_citation_numbers([11, 12, 13], origin_by_num)
++    assert collapsed == [11, 13]   # the mirror (12) folded into 11; the distinct origin (13) kept
++    assert n == 1
++
++
++def test_b9c_distinct_origins_never_collapse(monkeypatch):
++    monkeypatch.setenv("PG_MIRROR_CITE_COLLAPSE", "1")
++    from src.polaris_graph.generator import provenance_generator as pg
++    importlib.reload(pg)
++    origin_by_num = {1: "origin::a", 2: "origin::b", 3: "origin::c"}
++    collapsed, n = pg.collapse_mirror_citation_numbers([1, 2, 3], origin_by_num)
++    assert collapsed == [1, 2, 3]  # all distinct origins => real §-1.3 multi-source preserved
++    assert n == 0
++
++
++def test_b9c_blank_origin_never_collapses(monkeypatch):
++    monkeypatch.setenv("PG_MIRROR_CITE_COLLAPSE", "1")
++    from src.polaris_graph.generator import provenance_generator as pg
++    importlib.reload(pg)
++    # blank/unknown origins must NEVER fold (under-collapse is the safe direction)
++    collapsed, n = pg.collapse_mirror_citation_numbers([5, 6], {5: "", 6: ""})
++    assert collapsed == [5, 6]
++    assert n == 0
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B13 — analyst-synthesis deviation check: KEEP-and-LABEL, never delete
++# ─────────────────────────────────────────────────────────────────────────────
++def test_b13_unsupported_sentence_labeled_supported_unchanged(monkeypatch):
++    monkeypatch.setenv("PG_ANALYST_SYNTHESIS_DEVIATION_CHECK", "1")
++    monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
++    from src.polaris_graph.generator import analyst_synthesis_deviation_check as dc
++    importlib.reload(dc)
++
++    bibliography = [
++        {"evidence_id": "ev_1", "title": "A", "url": "u1", "tier": "T1"},  # [1]
++        {"evidence_id": "ev_2", "title": "B", "url": "u2", "tier": "T2"},  # [2]
++    ]
++    evidence_rows = [
++        {"evidence_id": "ev_1", "direct_quote": "employment can grow with automation"},
++        {"evidence_id": "ev_2", "direct_quote": "the study measured task completion times"},
++    ]
++    text = (
++        "Employment can actually grow as GenAI adoption widens [1]. "
++        "Hatte and Somers asserted genuine predictive validity for the metric [2]. "
++        "This interpretation is offered without any cited source."
++    )
++
++    # Deterministic fake judge: the [1] sentence IS supported; the [2] sentence is NOT.
++    def _fake_judge(claim: str, span: str) -> bool:
++        return "employment" in span.lower() and "grow" in span.lower()
++
++    labeled, tel = dc.screen_synthesis_against_baskets(
++        text, bibliography, evidence_rows, judge_fn=_fake_judge,
++    )
++    # the supported [1] sentence is UNCHANGED (no marker)
++    assert "Employment can actually grow as GenAI adoption widens [1]." in labeled
++    # the unsupported [2] sentence is KEPT and LABELED low (never deleted)
++    assert "predictive validity for the metric [2]" in labeled
++    assert "[confidence: low" in labeled
++    assert tel["synthesis_deviation_labeled_count"] == 1
++    # the uncited sentence is KEPT and labeled no-source
++    assert "[confidence: no-source-found" in labeled
++    assert tel["synthesis_deviation_unresolved_count"] == 1
++    # NEVER deletes: every original sentence's core text survives
++    assert "without any cited source" in labeled
++
++
++def test_b13_disabled_is_passthrough(monkeypatch):
++    monkeypatch.setenv("PG_ANALYST_SYNTHESIS_DEVIATION_CHECK", "0")
++    from src.polaris_graph.generator import analyst_synthesis_deviation_check as dc
++    importlib.reload(dc)
++    text = "Unsupported claim [1]."
++    out, tel = dc.screen_synthesis_against_baskets(
++        text, [{"evidence_id": "ev_1"}], [{"evidence_id": "ev_1", "direct_quote": "z"}],
++        judge_fn=lambda c, s: False,
++    )
++    assert out == text  # byte-identical when off
++    assert tel["synthesis_deviation_labeled_count"] == 0
++
++
++def test_b13_judge_fault_fails_closed_low(monkeypatch):
++    monkeypatch.setenv("PG_ANALYST_SYNTHESIS_DEVIATION_CHECK", "1")
++    monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
++    from src.polaris_graph.generator import analyst_synthesis_deviation_check as dc
++    importlib.reload(dc)
++
++    def _boom(claim: str, span: str) -> bool:
++        raise RuntimeError("judge socket flap")
++
++    bibliography = [{"evidence_id": "ev_1", "title": "A", "url": "u", "tier": "T1"}]
++    rows = [{"evidence_id": "ev_1", "direct_quote": "some span text"}]
++    labeled, tel = dc.screen_synthesis_against_baskets(
++        "A grounded-looking claim [1].", bibliography, rows, judge_fn=_boom,
++    )
++    assert "[confidence: low" in labeled  # fail-closed to LOW (over-label = safe)
++    assert tel["synthesis_deviation_labeled_count"] == 1
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# B17 — sentence_repair marker prune: drop a non-supporting marker only when CONFIRMED
++# ─────────────────────────────────────────────────────────────────────────────
++def _fake_entailment_judge(supported_spans):
++    """A fake _EntailmentJudge: judge(claim, span) -> (verdict, reason). A span in ``supported_spans``
++    returns ENTAILED; anything else returns NEUTRAL (=> droppable)."""
++    class _J:
++        def judge(self, claim, span):
++            for s in supported_spans:
++                if s and s in span:
++                    return ("ENTAILED", "")
++            return ("NEUTRAL", "")
++    return _J()
++
++
++@pytest.mark.asyncio
++async def test_b17_confirmed_subset_prune_accepted(monkeypatch):
++    monkeypatch.setenv("PG_REPAIR_MARKER_PRUNE_ENABLED", "1")
++    monkeypatch.setenv("PG_REPAIR_LOOP_ENABLED", "true")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    from src.polaris_graph.generator import sentence_repair as sr
++    importlib.reload(sr)
++    from src.polaris_graph.generator.provenance_generator import SentenceVerification, ProvenanceToken
++
++    # Evidence pool: ev_a supports the claim; ev_b does NOT.
++    pool = {
++        "ev_a": {"direct_quote": "GenAI raised task throughput in the employment trial"},
++        "ev_b": {"direct_quote": "unrelated text about rainfall in the alpine watershed"},
++    }
++    # A dropped multi-citation sentence citing BOTH ev_a (supporting) and ev_b (non-supporting).
++    sentence = (
++        "GenAI raised task throughput [#ev:ev_a:0-48][#ev:ev_b:0-50]"
++    )
++    toks = [
++        ProvenanceToken(raw="[#ev:ev_a:0-48]", evidence_id="ev_a", start=0, end=48),
++        ProvenanceToken(raw="[#ev:ev_b:0-50]", evidence_id="ev_b", start=0, end=50),
++    ]
++    sv = SentenceVerification(
++        sentence=sentence, tokens=toks, is_verified=False,
++        failure_reasons=["entailment_failed:ev_b"],
++    )
++    kept = [SentenceVerification(sentence="seed [#ev:ev_a:0-48][#ev:ev_b:0-50]",
++                                 tokens=toks, is_verified=True)]
++
++    # The repair model prunes ev_b (the non-supporting marker), keeping ev_a only.
++    async def _fake_repair(*, dropped, evidence_pool, model, max_tokens, temperature):
++        return "text", "GenAI raised task throughput [#ev:ev_a:0-48]", 1, 1
++
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    new_kept, final_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=[sv], evidence_pool=pool,
++        marker_prune_judge=_fake_entailment_judge(
++            supported_spans=["GenAI raised task throughput in the employment trial"]
++        ),
++    )
++    # The confirmed prune was ACCEPTED (not a token_set_violation); ev_b was pruned.
++    assert tel.markers_pruned == 1
++    assert tel.token_set_violations == 0
++
++
++@pytest.mark.asyncio
++async def test_b17_unconfirmed_prune_rejected_fail_closed(monkeypatch):
++    """If the judge says the dropped span IS supported (or errors), the prune is REJECTED — the model
++    cannot prune a genuinely-supporting span to dodge repair (faithfulness STRENGTHENED, never relaxed)."""
++    monkeypatch.setenv("PG_REPAIR_MARKER_PRUNE_ENABLED", "1")
++    monkeypatch.setenv("PG_REPAIR_LOOP_ENABLED", "true")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    from src.polaris_graph.generator import sentence_repair as sr
++    importlib.reload(sr)
++    from src.polaris_graph.generator.provenance_generator import SentenceVerification, ProvenanceToken
++
++    pool = {
++        "ev_a": {"direct_quote": "GenAI raised task throughput in the employment trial"},
++        "ev_b": {"direct_quote": "GenAI also improved retention across the cohort study"},
++    }
++    toks = [
++        ProvenanceToken(raw="[#ev:ev_a:0-48]", evidence_id="ev_a", start=0, end=48),
++        ProvenanceToken(raw="[#ev:ev_b:0-50]", evidence_id="ev_b", start=0, end=50),
++    ]
++    sv = SentenceVerification(
++        sentence="GenAI raised task throughput [#ev:ev_a:0-48][#ev:ev_b:0-50]",
++        tokens=toks, is_verified=False, failure_reasons=["entailment_failed:ev_b"],
++    )
++    kept = [SentenceVerification(sentence="seed [#ev:ev_a:0-48][#ev:ev_b:0-50]",
++                                 tokens=toks, is_verified=True)]
++
++    async def _fake_repair(*, dropped, evidence_pool, model, max_tokens, temperature):
++        return "text", "GenAI raised task throughput [#ev:ev_a:0-48]", 1, 1
++
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++
++    # The judge says BOTH spans are supported -> the prune of ev_b is NOT confirmed -> REJECTED.
++    new_kept, final_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=[sv], evidence_pool=pool,
++        marker_prune_judge=_fake_entailment_judge(supported_spans=["GenAI"]),
++    )
++    assert tel.markers_pruned == 0
++    assert tel.token_set_violations == 1  # rejected as a violation, original drop kept
++    assert sv in final_dropped
++
++
++@pytest.mark.asyncio
++async def test_b17_addition_always_rejected(monkeypatch):
++    """Adding a NEW marker (not in the original) is always a violation, prune flag on or off."""
++    monkeypatch.setenv("PG_REPAIR_MARKER_PRUNE_ENABLED", "1")
++    monkeypatch.setenv("PG_REPAIR_LOOP_ENABLED", "true")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    from src.polaris_graph.generator import sentence_repair as sr
++    importlib.reload(sr)
++    from src.polaris_graph.generator.provenance_generator import SentenceVerification, ProvenanceToken
++
++    pool = {"ev_a": {"direct_quote": "GenAI raised task throughput in the employment trial"}}
++    toks = [ProvenanceToken(raw="[#ev:ev_a:0-48]", evidence_id="ev_a", start=0, end=48)]
++    sv = SentenceVerification(
++        sentence="GenAI raised task throughput [#ev:ev_a:0-48]",
++        tokens=toks, is_verified=False, failure_reasons=["entailment_failed:ev_a"],
++    )
++    kept = [SentenceVerification(sentence="seed [#ev:ev_a:0-48]", tokens=toks, is_verified=True)]
++
++    async def _fake_repair(*, dropped, evidence_pool, model, max_tokens, temperature):
++        # ADD a never-cited marker ev_z — must be rejected.
++        return "text", "GenAI raised task throughput [#ev:ev_a:0-48][#ev:ev_z:0-10]", 1, 1
++
++    monkeypatch.setattr(sr, "repair_sentence", _fake_repair)
++    new_kept, final_dropped, tel = await sr.repair_dropped_section_sentences(
++        kept=kept, dropped=[sv], evidence_pool=pool,
++        marker_prune_judge=_fake_entailment_judge(supported_spans=[]),
++    )
++    assert tel.token_set_violations == 1
++    assert tel.markers_pruned == 0

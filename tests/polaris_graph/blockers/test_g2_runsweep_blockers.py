@@ -423,14 +423,23 @@ def test_1240_token_honesty_reset_zeroes_counters():
 
     pg.reset_token_honesty_telemetry()
     snap = pg.get_token_honesty_telemetry()
-    assert snap == {"malformed_canonicalized": 0, "malformed_dropped": 0}
+    # I-deepfix-001 B9(c) (#1353): the token-honesty telemetry grew a third counter
+    # `mirror_cites_collapsed` (paired-mirror citations folded to one origin). The
+    # reset must still zero ALL counters.
+    assert snap == {
+        "malformed_canonicalized": 0,
+        "malformed_dropped": 0,
+        "mirror_cites_collapsed": 0,
+    }
     # Simulate accumulation, then reset again -> back to zero (no leak across runs).
     pg._TOKEN_HONESTY_TELEMETRY["malformed_canonicalized"] = 4
     pg._TOKEN_HONESTY_TELEMETRY["malformed_dropped"] = 2
     assert pg.get_token_honesty_telemetry()["malformed_canonicalized"] == 4
     pg.reset_token_honesty_telemetry()
     assert pg.get_token_honesty_telemetry() == {
-        "malformed_canonicalized": 0, "malformed_dropped": 0,
+        "malformed_canonicalized": 0,
+        "malformed_dropped": 0,
+        "mirror_cites_collapsed": 0,
     }
 
 
