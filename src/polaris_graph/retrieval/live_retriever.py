@@ -420,6 +420,27 @@ class LiveRetrievalResult:
     corpus_truncated: bool = False
     candidates_total: int = 0
     candidates_processed: int = 0
+    # I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall telemetry (render-PASS
+    # partial, DISTINCT from corpus_truncated). True iff the per-question retrieval
+    # deadline (PG_RETRIEVAL_WALL_SECONDS) tripped in EITHER the search fan-out or
+    # the post-fetch classify loop, so the run handed off a PARTIAL corpus and
+    # rendered (it did NOT die on a bare timeout, and it is NOT gated out the way
+    # corpus_truncated is). `retrieval_queries_skipped` = planned sub-queries never
+    # fired; `retrieval_candidates_unclassified` = fetched bodies not reached before
+    # the wall. Defaults keep existing constructors valid + byte-identical OFF path
+    # (the wall never trips within budget => all False/0).
+    retrieval_wall_hit: bool = False
+    retrieval_queries_skipped: int = 0
+    retrieval_candidates_unclassified: int = 0
+    # I-deepfix-001 P1-2 (#1344): True iff the B4 semantic relevance scorer was
+    # REQUESTED (PG_RETRIEVAL_RELEVANCE_GATE=1) but the semantic embedder was
+    # unavailable so it fell back LOUDLY to the legacy lexical cut (live_retriever
+    # ~4423). The winner-firing gate reads this as a SECOND W6/B4 dark signal
+    # (independent of evidence_selector._SEMANTIC_EMBEDDER_CACHE): a requested
+    # semantic winner that silently degraded to lexical is NOT firing. Default
+    # False keeps existing constructors valid + the byte-identical OFF path (the
+    # gate is never requested when the B4 gate is OFF).
+    semantic_relevance_fell_back: bool = False
     # I-ready-017 #1134: journal_only metadata sidecar, keyed by canonical URL.
     # Populated ONLY on the journal_only ON path (None = OFF = byte-identical).
     # Carries the per-source journal-article signals (openalex pub_type /
@@ -1492,6 +1513,26 @@ def _post_fetch_loop_budget(fetch_cap: int) -> float:
         _env_float("PG_POST_FETCH_LOOP_BUDGET", 900.0),
         max(0, int(fetch_cap)) * _env_float("PG_POST_FETCH_PER_URL_BUDGET", 4.0),
     )
+
+
+def _retrieval_wall_seconds() -> float:
+    """I-deepfix-001 item 4 (#1344): per-question RETRIEVAL-PHASE wall budget.
+
+    The proven hang-fixes (#1264/#1338) bound generate+verify, NOT retrieval. A
+    slow-fetch tail (the 90s-per-URL fetch-timeout storm + AccessBypass daemon
+    leak) can grind the retrieval phase for tens of minutes so the run never
+    reaches CLOSE. This is the relaunch-BLOCKING retrieval-phase deadline: on
+    expiry the snowball/fan-out STOPS firing further queries and the
+    already-fetched partial corpus is HANDED OFF to tiering/consolidation/
+    generation/render WITH disclosure (§-1.3 — the unfetched tail is disclosed,
+    NEVER silently dropped, and the run COMPLETES+RENDERS rather than dying on a
+    bare timeout).
+
+    Read at CALL time (LAW VI — env-overridable per run). Default 1800s (30 min):
+    generous enough that a healthy retrieval never trips it, tight enough that a
+    fetch-timeout storm cannot grind for an hour. Pure (env-only); unit-testable.
+    """
+    return _env_float("PG_RETRIEVAL_WALL_SECONDS", 1800.0)
 
 
 class CorpusTruncationError(RuntimeError):
@@ -3781,6 +3822,7 @@ def run_live_retrieval(
     research_frame: Any = None,
     anchor_seed: bool = True,
     progress_cb: Any = None,
+    retrieval_deadline_monotonic: Optional[float] = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -3821,6 +3863,22 @@ def run_live_retrieval(
             heartbeat keeps ticking (stage / elapsed / cost) instead of freezing at
             ``scope_gate_passed``. Default ``None`` => byte-identical (no calls). A
             raising callback is swallowed; it can never perturb retrieval.
+        retrieval_deadline_monotonic: Optional ABSOLUTE ``time.monotonic()`` instant
+            that bounds the RETRIEVAL phase (I-deepfix-001 item 4, #1344). When
+            ``None`` (DEFAULT — what runs on the relaunch) the deadline is anchored
+            at function entry to ``time.monotonic() + PG_RETRIEVAL_WALL_SECONDS``
+            (per-INVOCATION). When the caller passes an instant, it is honored
+            verbatim so a multi-round ``run_one_query`` (baseline + expansion +
+            deepener + agentic + gap) can SHARE ONE per-QUESTION deadline across
+            rounds (honest gap: the per-question sharing is not yet wired by the
+            ``run_one_query`` owner; per-invocation bounding already removes the
+            tens-of-minutes grind on the relaunch). On expiry the snowball/fan-out
+            STOPS firing further queries and the already-fetched partial corpus is
+            HANDED OFF downstream WITH disclosure (§-1.3 — the unfetched tail is
+            disclosed via ``notes`` + ``retrieval_wall_hit``, NEVER silently
+            dropped; the run COMPLETES+RENDERS, it does NOT die on a bare timeout).
+            Distinct from ``corpus_truncated`` (which the Path-B gate REJECTS) — the
+            wall handoff is a render-PASS partial, not a gate-out.
 
     Returns LiveRetrievalResult.
 
@@ -3934,6 +3992,32 @@ def run_live_retrieval(
     else:
         effective_queries = list(all_queries)
 
+    # ── I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall-deadline ──────
+    # Anchor the per-question retrieval deadline. When the caller passes an
+    # absolute monotonic instant (multi-round run_one_query sharing ONE
+    # per-question deadline) honor it; else anchor per-invocation at
+    # now + PG_RETRIEVAL_WALL_SECONDS. On expiry the search fan-out STOPS firing
+    # further queries (the snowball logic is UNCHANGED — only its loop is bounded)
+    # and whatever was already fetched+classified is HANDED OFF downstream WITH
+    # disclosure. This is NOT corpus_truncated (which the Path-B gate REJECTS): the
+    # wall handoff is a render-PASS partial — the run COMPLETES+RENDERS on the
+    # partial fetch, never dies on a bare timeout (§-1.3: the unfetched tail is
+    # disclosed via `notes` + the `retrieval_wall_hit` telemetry below, NEVER
+    # silently dropped).
+    if retrieval_deadline_monotonic is not None:
+        _retrieval_deadline = float(retrieval_deadline_monotonic)
+    else:
+        _retrieval_deadline = time.monotonic() + _retrieval_wall_seconds()
+    # Disclosure counters (surfaced at return). `_retrieval_wall_hit` flips True the
+    # moment the wall trips in EITHER phase (search fan-out OR the post-fetch loop);
+    # `_queries_skipped_wall` records how many planned sub-queries were never fired.
+    _retrieval_wall_hit = False
+    _queries_skipped_wall = 0
+    # I-deepfix-001 P1-2 (#1344): B4 semantic->lexical fallback disclosure. Flips
+    # True at the B4 fallback site below when the relevance gate was requested but the
+    # semantic embedder was unavailable (fell back LOUDLY to the lexical cut).
+    _semantic_relevance_fell_back = False
+
     # ── Step 2: run Serper + S2 across queries ──────────────────────
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
@@ -4015,7 +4099,24 @@ def run_live_retrieval(
     # I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only processes ONLY the injected
     # seed_urls — no Serper/S2 fan-out and no domain backends. Used by the deepener pass so it fetches
     # exactly the citation-snowball-discovered URLs (and nothing else) through the same chokepoint.
-    for q in ([] if seed_only else effective_queries):
+    _search_queries = [] if seed_only else list(effective_queries)
+    for _qi, q in enumerate(_search_queries):
+        # I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall. On expiry STOP firing
+        # further sub-queries (the search fan-out is the tens-of-minutes grind: each
+        # remaining query pays serial Serper + S2 + OpenAlex round-trips). Record how
+        # many planned queries were skipped so the partial cutoff is DISCLOSED (§-1.3
+        # — never a silent drop), then break so the already-gathered candidates flow
+        # on to fetch -> tiering -> ... -> render. Whatever was fetched still renders.
+        if time.monotonic() > _retrieval_deadline:
+            _retrieval_wall_hit = True
+            _queries_skipped_wall = len(_search_queries) - _qi
+            logger.warning(
+                "[live_retriever] retrieval wall hit during search fan-out at "
+                "query %d/%d — stopping further queries (%d skipped); handing off "
+                "the %d candidates gathered so far (PG_RETRIEVAL_WALL_SECONDS)",
+                _qi, len(_search_queries), _queries_skipped_wall, len(candidates),
+            )
+            break
         logger.info("[live_retriever] SERPER q=%r", q[:80])
         # FX-17 (#1126) iter-2: pass api_calls so each HTTP page (not each query) is counted inside
         # _serper_search. The old `+= 1` here undercounted paginated breadth.
@@ -4333,6 +4434,10 @@ def run_live_retrieval(
             n_seed_injected=_n_seed_injected,
         )
         if _b4_selected is None:
+            # I-deepfix-001 P1-2 (#1344): record the semantic->lexical fallback so the
+            # winner-firing gate can catch a requested-but-degraded W6/B4 semantic
+            # winner (it fired the legacy lexical cut, not the semantic scorer).
+            _semantic_relevance_fell_back = True
             logger.warning(
                 "[live_retriever] B4 relevance gate ON but semantic scorer "
                 "unavailable — falling back LOUDLY to the legacy lexical cut."
@@ -4542,6 +4647,13 @@ def run_live_retrieval(
             max_workers=max_workers,
             per_backend_max_concurrent=_per_host_concurrent,
             per_task_timeout=per_task_timeout,
+            # I-deepfix-001 P1-3 (#1344): bound the fetch batch budget by the REMAINING
+            # retrieval-phase wall. `_retrieval_deadline` is an absolute monotonic instant
+            # (same domain as parallel_fetch's batch_start), so the effective batch
+            # deadline = min(its derived budget, the wall). Without this the derived
+            # budget (per_task_timeout * waves ≈ 3960s at FETCH_CAP=740) dwarfs the
+            # 1800s wall and the wall could not cap the fetch grind.
+            overall_deadline_monotonic=_retrieval_deadline,
         )
         # Run-log evidence: persist the substrate's report into
         # api_calls so the manifest sees a non-zero invocation count.
@@ -4708,6 +4820,26 @@ def run_live_retrieval(
         )
 
     for i, cand in enumerate(candidates):
+        # I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall (checked BEFORE the
+        # legacy post-fetch loop budget). On expiry, STOP classifying the remaining
+        # already-fetched bodies and HAND OFF whatever was classified so far. This is
+        # the render-PASS partial handoff — DISTINCT from the `corpus_truncated`
+        # truncation policies below (which the Path-B gate REJECTS): the wall does
+        # NOT set `corpus_truncated`, so the run COMPLETES+RENDERS on the partial
+        # corpus. The skipped tail is DISCLOSED via `notes` + `retrieval_wall_hit`
+        # (§-1.3 — never a silent drop). The per-candidate Layer-1 bound still guards
+        # any single wedged candidate; this wall guards the whole-phase grind.
+        if time.monotonic() > _retrieval_deadline:
+            _retrieval_wall_hit = True
+            _candidates_processed = i
+            logger.warning(
+                "[live_retriever] retrieval wall hit during the post-fetch "
+                "classify loop at candidate %d/%d (%d already classified) — "
+                "handing off the partial corpus (render-PASS, NOT corpus_truncated; "
+                "PG_RETRIEVAL_WALL_SECONDS)",
+                i, len(candidates), len(classified_sources),
+            )
+            break
         if time.monotonic() > _loop_deadline:
             if _trunc_policy == "repair":
                 # §-1.3: do NOT ship a thinned corpus. Keep processing the
@@ -5355,6 +5487,26 @@ def run_live_retrieval(
             key=lambda s: -getattr(s, "content_relevance_weight", 1.0),
         )
 
+    # I-deepfix-001 item 4 (#1344): if the retrieval wall tripped in EITHER phase,
+    # DISCLOSE the partial cutoff on the manifest channel (`notes`) so the §-1.3
+    # "never silently drop, always disclose" requirement is satisfied within this
+    # file's boundary (notes reaches telemetry; the structured `retrieval_wall_hit`
+    # field below is a sibling). `_candidates_unclassified` = the fetched bodies the
+    # post-fetch loop did not reach before the wall (0 when the wall tripped only in
+    # the search phase, where all gathered candidates were still classified).
+    _candidates_unclassified = max(0, len(candidates) - _candidates_processed)
+    if _retrieval_wall_hit:
+        _wall_note = (
+            f"retrieval_wall_hit: PARTIAL retrieval — wall "
+            f"({_retrieval_wall_seconds():.0f}s, PG_RETRIEVAL_WALL_SECONDS) tripped; "
+            f"{_queries_skipped_wall} planned sub-queries unfired and "
+            f"{_candidates_unclassified} fetched bodies unclassified — DISCLOSED, "
+            f"NOT dropped; handed off {len(classified_sources)} classified sources "
+            f"to render (render-PASS partial, NOT corpus_truncated)"
+        )
+        logger.warning("[live_retriever] %s", _wall_note)
+        notes.append(_wall_note)
+
     return LiveRetrievalResult(
         classified_sources=classified_sources,
         evidence_rows=evidence_rows,
@@ -5368,6 +5520,12 @@ def run_live_retrieval(
         corpus_truncated=_corpus_truncated,
         candidates_total=_candidates_total,
         candidates_processed=_candidates_processed,
+        # I-deepfix-001 item 4 (#1344): retrieval-wall partial-handoff telemetry.
+        retrieval_wall_hit=_retrieval_wall_hit,
+        retrieval_queries_skipped=_queries_skipped_wall,
+        retrieval_candidates_unclassified=_candidates_unclassified,
+        # I-deepfix-001 P1-2 (#1344): B4 semantic->lexical fallback disclosure.
+        semantic_relevance_fell_back=_semantic_relevance_fell_back,
         journal_metadata_sidecar=(_journal_sidecar if _journal_only_on else None),
         fetch_success_rate=_fetch_success_rate,
         parallel_completion_rate=_parallel_completion_rate,

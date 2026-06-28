@@ -641,3 +641,86 @@ def test_roundrobin_other_host_starts_before_same_host_prefix_drains() -> None:
     runner.join(timeout=10.0)
     report = holder["r"]  # type: ignore[assignment]
     assert report.success_count == n_same + 1
+
+
+# ---------------------------------------------------------------------------
+# I-deepfix-001 P1-3 (#1344): overall_deadline_monotonic caps the batch budget
+# ---------------------------------------------------------------------------
+
+
+def test_overall_deadline_caps_the_batch_and_forces_bounded_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retrieval-phase wall (an absolute monotonic instant) must CAP the derived
+    batch budget: with a wall SHORTER than the derived budget, a wedged worker +
+    queued sibling terminate at the WALL (not the much-larger derived budget), so the
+    call returns in bounded time. This is the fix — the wall can actually stop the
+    fetch grind. (Without the cap the derived budget = per_task_timeout * waves would
+    dominate and the wall would be inert.)"""
+    clock = _VirtualClock()
+    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+
+    wedge = "https://wedge/x"
+    queued = "https://queued/x"
+    release = {wedge: threading.Event(), queued: threading.Event()}
+    started = {wedge: threading.Event(), queued: threading.Event()}
+    fetcher = _GatedFetcher(
+        release_events=release, clock=clock, started_events=started,
+    )
+    tasks = [FetchTask(wedge, "host_w"), FetchTask(queued, "host_q")]
+
+    # Derived budget = per_task_timeout(1000) * (ceil(2/1)+2) = 4000s. The WALL is
+    # 30s — far shorter — so the batch must fire at the wall, proving the cap binds.
+    wall = clock.monotonic() + 30.0
+    holder: dict[str, object] = {}
+
+    def _run() -> None:
+        holder["r"] = parallel_fetch(
+            tasks, fetcher,
+            max_workers=1,  # queued sits behind wedge in the single worker
+            per_task_timeout=1000.0,
+            overall_deadline_monotonic=wall,
+        )
+
+    runner = threading.Thread(target=_run)
+    runner.start()
+    assert started[wedge].wait(timeout=5.0)
+    time.sleep(0.1)
+    assert not started[queued].is_set()  # worker pool starved by the wedge
+
+    # Advance PAST the 30s wall but FAR short of the 4000s derived budget. Only the
+    # wall cap can make the batch terminate here.
+    clock.advance(40.0)
+    runner.join(timeout=10.0)
+    assert not runner.is_alive(), (
+        "parallel_fetch did not terminate at the overall_deadline wall — the cap "
+        "failed to bound the fetch (derived budget would be 4000s)"
+    )
+    report = holder["r"]  # type: ignore[assignment]
+    outcomes = {r.source_url: r.outcome for r in report.results}
+    assert outcomes[wedge] is FetchOutcome.TIMEOUT  # started + over-ran the wall
+    assert outcomes[queued] is FetchOutcome.NOT_DISPATCHED  # never ran
+
+    for ev in release.values():
+        ev.set()
+
+
+def test_overall_deadline_in_future_does_not_disturb_healthy_batch() -> None:
+    """A GENEROUS future wall must not change a healthy all-success batch (the cap
+    only binds when the wall is the tighter of the two)."""
+    fetcher = _GatedFetcher(
+        release_events={u: threading.Event() for u in ()},  # no gating
+    )
+    # No release events -> release_events.get(url) is None -> tasks return immediately.
+    urls = [f"https://h{i}/a" for i in range(4)]
+    tasks = [FetchTask(u, f"host_{i}") for i, u in enumerate(urls)]
+    report = parallel_fetch(
+        tasks, fetcher,
+        max_workers=4,
+        per_task_timeout=30.0,
+        overall_deadline_monotonic=time.monotonic() + 10_000.0,  # far future
+    )
+    assert report.success_count == 4
+    assert report.timeout_count == 0
+    assert report.not_dispatched_count == 0

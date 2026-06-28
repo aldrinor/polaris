@@ -16,6 +16,7 @@ from scripts.run_honest_sweep_r3 import (  # noqa: E402
     quantified_degradation_disclosure,
     retrieval_failure_warning,
     retrieval_fetch_disclosure,
+    retrieval_wall_disclosure,
 )
 
 
@@ -34,6 +35,29 @@ def test_a10_warning_fires_over_threshold():
 def test_a10_warning_silent_under_threshold_and_on_zero():
     assert retrieval_failure_warning(150, 5, 155, 0.5) is None
     assert retrieval_failure_warning(0, 0, 0, 0.5) is None  # no candidates -> no div-by-zero, no warn
+
+
+# ---- I-deepfix-001 P1-4: retrieval-wall partial-handoff disclosure (output) ----
+def test_p14_wall_disclosure_line_when_hit():
+    """The wall-hit Methods line is the §-1.3 OUTPUT disclosure (rendered into
+    report.md). It must name the partial cutoff and that NO source was dropped."""
+    line = retrieval_wall_disclosure(True, 7, 55)
+    assert "Retrieval-phase wall reached" in line
+    assert "7 planned sub-queries not fired" in line
+    assert "55 fetched source(s) not classified" in line
+    assert "no gathered source was dropped" in line
+    assert line.endswith("\n")
+
+
+def test_p14_wall_disclosure_singular_query_grammar():
+    line = retrieval_wall_disclosure(True, 1, 0)
+    assert "1 planned sub-query not fired" in line  # singular
+
+
+def test_p14_wall_disclosure_empty_when_not_hit():
+    """OFF path: the wall never tripped => the line vanishes (byte-identical render)."""
+    assert retrieval_wall_disclosure(False, 0, 0) == ""
+    assert retrieval_wall_disclosure(False, 9, 9) == ""  # counts ignored when not hit
 
 
 # ---- A9: quantified-analysis silent-degradation disclosure ----

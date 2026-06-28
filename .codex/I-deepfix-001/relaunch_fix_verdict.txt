@@ -1,0 +1,19 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0:
+  - "P0-3 is under-fixed: W5/W7 can still degrade loudly but continue. Add required-winner structural fail-closed or an equivalent pre-spend/post-run gate that rejects W5 device=unavailable/full-weight fallback and W7 reranker load failure."
+  - "P0-1/P1-9 retrieval deadline must be relaunch-blocking, not optional. A run-level wall only yields a timeout artifact; it does not complete+render. Add retrieval-phase handoff on partial fetches with disclosure."
+p1:
+  - "P0-2 diagnosis is correct: wrong import is real, but import fix alone is not enough. The persistent fallback implies first-load failure plus cached False. Keep GPU placement, retryable cache, and B4 structural-unavailable canary."
+  - "GPU smoke must cover all co-resident heavy loads, not only mineru25: W6 embedder on cuda:0, W5 0.6B on cuda:0, W7 4B on cuda:1, mineru25 parse on cuda:1, with nvidia-smi verification."
+p2:
+  - "Scope validator is query-only, not source-dropping; it is acceptable if containment+0.08 remains live."
+  - "Device env vars should stay launch env reads, not slate force-on entries; otherwise SLATE-PURITY will require allowlist handling."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add W5/W7 required-winner fail-closed behavior or explicit firing-gate rejection."
+  - "Make retrieval wall-deadline/handoff relaunch-blocking."
+  - "Run one document at a time with both GPUs visible on the known VM, or two VMs only if each run gets both GPUs; never two single-GPU-pinned concurrent runs."
+  - "Before full relaunch, smoke the exact static GPU split and mineru25 cuda:1 behavior."
+```

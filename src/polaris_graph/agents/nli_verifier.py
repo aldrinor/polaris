@@ -89,7 +89,10 @@ async def _load_faithlens():
             start = time.time()
             _faithlens_scorer = FaithLensInfer(
                 model_name=PG_FAITHLENS_MODEL,
-                device="cuda:0",
+                # I-deepfix-001 P0-3 (LAW VI): launch-env device knob, default cuda:0
+                # so behavior is unchanged when unset. The deepfix static 2-card split
+                # can repin FaithLens (off the critical path) via PG_NLI_DEVICE.
+                device=os.getenv("PG_NLI_DEVICE", "cuda:0"),
             )
             elapsed = time.time() - start
             logger.info(

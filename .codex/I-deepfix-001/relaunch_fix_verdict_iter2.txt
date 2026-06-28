@@ -1,0 +1,14 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "P0-2 diagnosis is correct as a combined failure mode: the wrong EmbeddingService import is real, but import repair alone is not sufficient. The plan correctly keeps GPU placement, retryable cached load failure, and a pre-generation firing gate in scope."
+  - "The fail-closed canary is correctly scoped as a wiring/config winner-firing gate, not a faithfulness/verifier hold. It should trip only after bounded retry/probe evidence of structural unavailability, not on one encode exception."
+  - "GPU topology should be one document at a time with both GPUs visible, or two VMs where each VM exposes both GPUs to its single run. Do not run two single-GPU-pinned jobs on one 2-GPU VM."
+  - "Retrieval wall-deadline is relaunch-blocking. It must hand off the partial fetched corpus with explicit disclosure, not just kill the run or silently drop pending sources."
+  - "W2/W7 identity tags are sufficient as relaunch-blocking observability for confirming the intended winner paths fired."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```

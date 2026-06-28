@@ -385,6 +385,7 @@ def parallel_fetch(
     max_workers: int = 8,
     per_backend_max_concurrent: Mapping[str, int] | None = None,
     per_task_timeout: float | None = None,
+    overall_deadline_monotonic: float | None = None,
 ) -> ParallelFetchReport:
     """Fan out `tasks` to a thread pool and collect results.
 
@@ -407,6 +408,19 @@ def parallel_fetch(
     abandoned. Backend semaphore is released either way (in a
     finally block), so subsequent tasks on the same backend
     don't deadlock waiting on a leaked permit.
+
+    `overall_deadline_monotonic` (I-deepfix-001 P1-3 #1344) is an
+    ABSOLUTE `time.monotonic()` instant that CAPS the global batch
+    deadline: the effective batch deadline becomes
+    `min(own_batch_budget_deadline, overall_deadline_monotonic)`.
+    None (default) preserves the existing behavior (the batch budget
+    is derived from `per_task_timeout`/the env knob only). This lets a
+    caller's retrieval-phase wall actually bound the fetch grind: the
+    derived batch budget (per_task_timeout * waves) can be many times
+    the wall, so without this cap the wall could not stop the fetch.
+    A value already in the PAST is honored — the batch returns on the
+    next poll with the still-remaining futures recorded as TIMEOUT /
+    NOT_DISPATCHED (a bounded immediate return, NOT an error).
 
     Returns a `ParallelFetchReport` summarizing per-task
     outcomes. Order of `results` is the input task order,
@@ -612,6 +626,21 @@ def parallel_fetch(
         batch_deadline = (
             batch_start + batch_budget if batch_budget is not None else None
         )
+        # I-deepfix-001 P1-3 (#1344): cap the batch deadline by the caller's overall
+        # retrieval-phase wall (an absolute time.monotonic() instant, same domain as
+        # batch_start). Effective deadline = min(own budget deadline, overall wall) so
+        # the retrieval wall can actually stop the fetch grind (the derived budget,
+        # per_task_timeout * waves, can be many times the wall). When the own budget is
+        # disabled (None) but a wall is supplied, the wall alone bounds the batch. A
+        # past wall is honored: the harvest loop returns on the next bounded poll with
+        # the remaining futures recorded TIMEOUT / NOT_DISPATCHED (bounded immediate
+        # return, never an error).
+        if overall_deadline_monotonic is not None:
+            batch_deadline = (
+                overall_deadline_monotonic
+                if batch_deadline is None
+                else min(batch_deadline, overall_deadline_monotonic)
+            )
 
         while remaining and protocol_error_to_raise is None:
             if per_task_timeout is None and batch_deadline is None:

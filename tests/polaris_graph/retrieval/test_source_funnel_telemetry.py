@@ -176,3 +176,47 @@ def test_section_backward_compatible_with_old_object():
     assert sec["drop_reasons"] == {}
     assert sec["kept_by_offtopic"] == 0
     assert sec["extraction_yield"] == {"fetched": 12, "finding_rows": 0}
+    # I-deepfix-001 P1-4 (#1344): the getattr defaults keep the new wall/B4 fields
+    # present + byte-identical OFF even on a pre-#1344 retrieval-like object.
+    assert sec["retrieval_wall_hit"] is False
+    assert sec["retrieval_queries_skipped"] == 0
+    assert sec["retrieval_candidates_unclassified"] == 0
+    assert sec["semantic_relevance_fell_back"] is False
+
+
+# ── I-deepfix-001 P1-4: retrieval-wall + B4 fallback disclosure serialized ──────
+def test_retrieval_wall_and_b4_fallback_serialized_in_manifest_section():
+    """The retrieval-wall partial-handoff telemetry AND the B4 semantic->lexical
+    fallback flag MUST be serialized by `_retrieval_manifest_section` (§-1.3 — the
+    partial cutoff / degraded winner is disclosed in the manifest, never silent)."""
+    r = LiveRetrievalResult(
+        classified_sources=[], evidence_rows=[],
+        total_candidates_pre_filter=900, candidates_kept_by_scope=3,
+        candidates_kept_by_offtopic=400, candidates_fetched=120,
+        candidates_failed_fetch=30,
+        retrieval_wall_hit=True,
+        retrieval_queries_skipped=7,
+        retrieval_candidates_unclassified=55,
+        semantic_relevance_fell_back=True,
+    )
+    sec = _section(r)
+    assert sec["retrieval_wall_hit"] is True
+    assert sec["retrieval_queries_skipped"] == 7
+    assert sec["retrieval_candidates_unclassified"] == 55
+    assert sec["semantic_relevance_fell_back"] is True
+
+
+def test_retrieval_wall_off_path_byte_identical_false():
+    """OFF path (wall never tripped, B4 gate off): the fields are present and falsey,
+    so the disclosure is byte-identical to a pre-#1344 healthy run."""
+    r = LiveRetrievalResult(
+        classified_sources=[], evidence_rows=[],
+        total_candidates_pre_filter=100, candidates_kept_by_scope=1,
+        candidates_kept_by_offtopic=50, candidates_fetched=40,
+        candidates_failed_fetch=2,
+    )
+    sec = _section(r)
+    assert sec["retrieval_wall_hit"] is False
+    assert sec["retrieval_queries_skipped"] == 0
+    assert sec["retrieval_candidates_unclassified"] == 0
+    assert sec["semantic_relevance_fell_back"] is False

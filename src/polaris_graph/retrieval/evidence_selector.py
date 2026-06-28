@@ -635,35 +635,112 @@ def _relevance_drop_ledger_enabled() -> bool:
 
 
 # Module-level cache: `prefetch_offtopic_filter._load_embedder()` constructs a
-# fresh `EmbeddingService` per call (it does NOT use the singleton), so cache the
-# handle here to reuse the already-resident MiniLM weights across rows / sections.
-# Sentinel `False` = "tried and failed to load" (distinct from `None` = "not yet
-# tried") so the loud-fallback path fires exactly once, not on every section.
+# fresh embedder per call (it does NOT use the singleton), so cache the handle here
+# to reuse the already-resident weights across rows / sections.
+#
+# I-deepfix-001 P0-2 RETRYABLE CACHE (Codex iter-1): the prior sentinel cached
+# `False` ("tried, unavailable") on ANY first failure — which permanently DARKENED
+# the embedder for the whole run when the very first load hit a TRANSIENT failure
+# (e.g. a GPU OOM / race while the heavy models co-resident). That is the deepfix
+# darkness this fix prevents. Now we distinguish:
+#   * STRUCTURAL failure (the import of `_load_embedder` itself raises — the module
+#     / symbol does not exist): cache `False` — retrying cannot help.
+#   * TRANSIENT failure (`_load_embedder()` returns None — it swallows its own
+#     load exception, which may be a recoverable OOM/race): do NOT cache `False`;
+#     return None so the NEXT section retries the load (one bad load doesn't dark
+#     the whole run).
+# The transient retry is BOUNDED (§8.4 resource discipline): `_load_embedder()`
+# reads a ~16GB model from disk before it can OOM, so an unbounded per-section retry
+# of a genuinely-persistent failure would thrash CPU/RAM every section. After
+# `PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES` consecutive transient None returns we
+# cache `False` and stop retrying. Sentinels are read with explicit `is None` /
+# `is False` identity (never truthiness) so a real handle is never misread.
 _SEMANTIC_EMBEDDER_CACHE: Any = None
+_SEMANTIC_EMBEDDER_TRANSIENT_FAILS: int = 0
+
+# I-deepfix-001 P1-1 (#1344): W7 selection-reranker (Qwen3-Reranker-4B) STRUCTURAL
+# load-failure signal, read by `winner_firing_gate` so W7 is actually hard-gated.
+# Tri-state, with the SAME semantics as the embedder cache sentinel:
+#   * None  => no W7 rerank attempted yet (load state not determined) — NOT dark.
+#   * True  => the LAZY IMPORT / MODEL LOAD raised structurally on a real attempt
+#              (the wiring is wrong) — dark. Persists across queries in a sweep so
+#              query N's structural load failure is read by query N+1's gate (the
+#              gate fires BEFORE selection on each query, so same-query W7 is only
+#              caught when an earlier selection — e.g. a finding-dedup/CRAG pass —
+#              already attempted the load).
+#   * False => the import+load SUCCEEDED on a real attempt (the model fired). A
+#              transient SCORING/permutation failure does NOT flip this to True
+#              (the load itself worked; the winner DID load) — only an import/load
+#              failure marks structural-dark, never a single transient encode
+#              exception (winner_firing_gate docstring).
+_W7_RERANKER_LOAD_FAILED: "bool | None" = None
+
+
+def _semantic_embedder_max_load_retries() -> int:
+    """Bound on consecutive TRANSIENT embedder-load failures before we give up and
+    cache `False` (§8.4 — avoid re-reading the ~16GB model every section on a
+    genuinely-persistent failure). Env `PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES`
+    (default 3). Clamped to >= 1 so at least one retry is always allowed."""
+    try:
+        raw = int(os.environ.get("PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES", "3"))
+    except (TypeError, ValueError):
+        raw = 3
+    return max(1, raw)
 
 
 def _get_semantic_embedder() -> Any:
     """Return the cached embedder (reusing `prefetch_offtopic_filter`'s loader so
-    we share the same MiniLM weights / model cost). Returns the embedder, or None
-    if it could not be loaded — the caller MUST handle None with a LOUD fallback
-    to the lexical scorer (LAW II: no silent degrade)."""
-    global _SEMANTIC_EMBEDDER_CACHE
-    if _SEMANTIC_EMBEDDER_CACHE is None:
-        try:
-            from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
-                _load_embedder,
-            )
-            loaded = _load_embedder()
-        except Exception as exc:  # import-path failure
-            _LOGGER.warning(
-                "[select] semantic relevance: embedder import failed (%s) — "
-                "the caller will fall back LOUDLY to the lexical scorer.",
-                str(exc)[:200],
-            )
-            loaded = None
-        # False sentinel = "load attempted, unavailable" so we don't retry per row.
-        _SEMANTIC_EMBEDDER_CACHE = loaded if loaded is not None else False
-    return _SEMANTIC_EMBEDDER_CACHE if _SEMANTIC_EMBEDDER_CACHE else None
+    we share the same weights / model cost). Returns the embedder, or None if it
+    could not be loaded — the caller MUST handle None with a LOUD fallback to the
+    lexical scorer (LAW II: no silent degrade).
+
+    Retryable per I-deepfix-001 P0-2: a STRUCTURAL import failure caches `False`
+    (never retried); a TRANSIENT `_load_embedder()` None return is retried on the
+    next call up to `PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES`, after which it caches
+    `False` to stop thrashing the heavy load."""
+    global _SEMANTIC_EMBEDDER_CACHE, _SEMANTIC_EMBEDDER_TRANSIENT_FAILS
+    # Already resolved (a real handle OR a structural-False) — return it as-is.
+    if _SEMANTIC_EMBEDDER_CACHE is not None:
+        return None if _SEMANTIC_EMBEDDER_CACHE is False else _SEMANTIC_EMBEDDER_CACHE
+    try:
+        from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+            _load_embedder,
+        )
+    except Exception as exc:  # STRUCTURAL: import-path failure — retrying cannot help.
+        _LOGGER.warning(
+            "[select] semantic relevance: embedder import failed (%s) — caching "
+            "unavailable (STRUCTURAL, no retry); the caller will fall back LOUDLY "
+            "to the lexical scorer.",
+            str(exc)[:200],
+        )
+        _SEMANTIC_EMBEDDER_CACHE = False
+        return None
+    loaded = _load_embedder()
+    if loaded is not None:
+        _SEMANTIC_EMBEDDER_CACHE = loaded
+        _SEMANTIC_EMBEDDER_TRANSIENT_FAILS = 0
+        return loaded
+    # TRANSIENT: _load_embedder() returned None (it swallowed its own load
+    # exception). Retry on the next call until the bound, then cache False.
+    _SEMANTIC_EMBEDDER_TRANSIENT_FAILS += 1
+    max_retries = _semantic_embedder_max_load_retries()
+    if _SEMANTIC_EMBEDDER_TRANSIENT_FAILS >= max_retries:
+        _LOGGER.warning(
+            "[select] semantic relevance: embedder load returned None %d times "
+            "(>= PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES=%d) — caching unavailable "
+            "to stop thrashing the heavy load; the caller falls back LOUDLY to the "
+            "lexical scorer.",
+            _SEMANTIC_EMBEDDER_TRANSIENT_FAILS, max_retries,
+        )
+        _SEMANTIC_EMBEDDER_CACHE = False
+    else:
+        _LOGGER.warning(
+            "[select] semantic relevance: embedder load returned None "
+            "(transient attempt %d of %d) — will RETRY on the next section; the "
+            "caller falls back LOUDLY to the lexical scorer for now.",
+            _SEMANTIC_EMBEDDER_TRANSIENT_FAILS, max_retries,
+        )
+    return None
 
 
 def _row_embed_text(row: dict[str, Any]) -> str:
@@ -2537,6 +2614,7 @@ def _maybe_rerank_selection(
         return selected_rows  # identity — no model import, no spend
     if len(selected_rows) <= 1:
         return selected_rows  # nothing to reorder
+    global _W7_RERANKER_LOAD_FAILED
     try:
         # LAZY import — nothing (incl. torch/transformers) loads unless the flag is ON.
         # The reranker WINNER (Qwen/Qwen3-Reranker-4B, I-recency-001 #1296) is an
@@ -2545,17 +2623,31 @@ def _maybe_rerank_selection(
         # encoder.predict() returns ~0.5 NOISE (the winner was effectively not running;
         # I-bug-reranker-noise #1312). The canonical bake-off method scores P("yes") via the
         # causal-LM next-token "yes"/"no" logits — that is what qwen_reranker_scorer does.
+        # I-deepfix-001 P1-1 (#1344): a FAILURE of THIS lazy import is the STRUCTURAL
+        # W7 load failure the winner-firing gate hard-gates on — captured below in the
+        # `except` as `_W7_RERANKER_LOAD_FAILED=True`. A scoring/permutation failure
+        # later in this block is a transient (the model DID load) and must NOT flip
+        # the structural signal — see the per-stage handling below.
         from src.config.core import CrossEncoderConfig
         from src.polaris_graph.retrieval.qwen_reranker_scorer import (
+            RerankerLoadError,
             score_query_document_relevance,
         )
 
         _ce_cfg = CrossEncoderConfig.from_env()
         model_name = _ce_cfg.model
-        # Honor a configured device override (PG_*/YAML). The "auto" default is the
-        # SENTINEL for "let the scorer GPU-first auto-resolve" (cuda-if-available else
-        # cpu) — pass None for it, NOT the literal "auto" (which would crash .to("auto")).
-        device_override = _ce_cfg.device if (_ce_cfg.device and _ce_cfg.device != "auto") else None
+        # Honor a configured device override (PG_*/YAML). Precedence (I-deepfix-001 P0-3):
+        # the NEW launch-env knob ``PG_RERANKER_DEVICE`` wins (the deepfix static 2-card
+        # split pins W7 to cuda:1 via this read), then the YAML/config ``device``, then the
+        # scorer's GPU-first auto-resolve. The "auto" config default is the SENTINEL for
+        # "let the scorer auto-resolve" (cuda-if-available else cpu) — pass None for it, NOT
+        # the literal "auto" (which would crash .to("auto")). PG_RERANKER_DEVICE is a
+        # LAUNCH-ENV read (not a slate force-ON value), so it does not trip SLATE-PURITY /
+        # NO-LOSER (those gate winner force-ON values, not device reads).
+        device_override = (
+            os.getenv("PG_RERANKER_DEVICE", "").strip()
+            or (_ce_cfg.device if (_ce_cfg.device and _ce_cfg.device != "auto") else None)
+        )
         documents = [
             " ".join(
                 str(row.get(k, "") or "")
@@ -2563,12 +2655,34 @@ def _maybe_rerank_selection(
             )
             for row in selected_rows
         ]
-        scores = score_query_document_relevance(
-            research_question or "",
-            documents,
-            model_id=model_name,
-            device=device_override,
-        )
+        # I-deepfix-001 P1-1 (#1344): the scorer raises a TYPED RerankerLoadError ONLY
+        # for a structural load failure (import / CUDA / from_pretrained / .to(device) /
+        # token-id resolution). That is the structural W7-dark signal the winner-firing
+        # gate hard-gates on → mark the sticky module signal True. A FORWARD-PASS
+        # exception (a transient encode/OOM) surfaces as a PLAIN exception and is NOT
+        # caught here — it propagates to the OUTER except as a transient and must NOT
+        # flip the sticky structural signal (winner_firing_gate: "never a single
+        # transient encode exception"; mirrors the embedder structural-vs-transient
+        # split). A SUCCESSFUL return proves the model loaded AND fired → mark not-dark.
+        try:
+            scores = score_query_document_relevance(
+                research_question or "",
+                documents,
+                model_id=model_name,
+                device=device_override,
+            )
+        except RerankerLoadError as load_exc:  # STRUCTURAL load failure only
+            _W7_RERANKER_LOAD_FAILED = True
+            _LOGGER.warning(
+                "[select] PG_RERANKER_MODEL set but the Qwen3-Reranker causal-LM "
+                "STRUCTURALLY FAILED TO LOAD (%s) — W7 dark; FELL BACK LOUDLY to the "
+                "tier-balanced order (no reorder). The winner-firing gate will surface "
+                "this. Not a silent degrade: the original order is a valid result.",
+                str(load_exc)[:200],
+            )
+            return selected_rows
+        # The model loaded and produced scores — W7 fired (not structurally dark).
+        _W7_RERANKER_LOAD_FAILED = False
         # Stable DESC sort by score; ties keep the input (tier-balanced) order.
         order = sorted(
             range(len(selected_rows)),
@@ -2584,7 +2698,15 @@ def _maybe_rerank_selection(
             )
             return selected_rows
         return reranked
-    except Exception as exc:  # import / load / scoring failure
+    except Exception as exc:  # transient: a post-load forward/permutation/config failure
+        # NOTE: a STRUCTURAL load failure is handled by the inner `except RerankerLoadError`
+        # above and has ALREADY set `_W7_RERANKER_LOAD_FAILED=True`. This outer handler
+        # covers a config read (CrossEncoderConfig.from_env), a per-document FORWARD-PASS
+        # exception (a transient encode/OOM — the model DID load), or a permutation/sort
+        # hiccup AFTER the model loaded — all transients that must NOT flip the sticky
+        # structural signal (winner_firing_gate: "never a single transient encode
+        # exception"). The signal is left untouched (None on the never-loaded path, or
+        # its prior value), so a one-off forward-pass error cannot poison later queries.
         _LOGGER.warning(
             "[select] PG_RERANKER_MODEL set but the Qwen3-Reranker causal-LM rerank failed "
             "(%s) — FELL BACK LOUDLY to the tier-balanced order (no reorder). This "

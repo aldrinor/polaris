@@ -174,6 +174,14 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
     notes: list[str] = []
     sidecar: dict = {}
     corpus_truncated = False
+    # I-deepfix-001 P1-2 / P1-4 (#1344): carry the retrieval-wall + B4 semantic
+    # fallback disclosure across the FS-Researcher merge so the winner-firing gate
+    # and the manifest/report see them (OR-combine the booleans like corpus_truncated;
+    # SUM the per-round counts like the other candidate counts).
+    retrieval_wall_hit = False
+    semantic_relevance_fell_back = False
+    retrieval_queries_skipped = 0
+    retrieval_candidates_unclassified = 0
     pre = kept_scope = kept_off = fetched = failed = 0
     cand_total = cand_processed = 0
     for r in results:
@@ -201,6 +209,14 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
             sidecar.update(_sc)  # keyed by canonical URL -> merge keeps all rounds' entries
         if getattr(r, "corpus_truncated", False):
             corpus_truncated = True
+        if getattr(r, "retrieval_wall_hit", False):
+            retrieval_wall_hit = True
+        if getattr(r, "semantic_relevance_fell_back", False):
+            semantic_relevance_fell_back = True
+        retrieval_queries_skipped += int(getattr(r, "retrieval_queries_skipped", 0) or 0)
+        retrieval_candidates_unclassified += int(
+            getattr(r, "retrieval_candidates_unclassified", 0) or 0
+        )
         pre += int(getattr(r, "total_candidates_pre_filter", 0) or 0)
         kept_scope += int(getattr(r, "candidates_kept_by_scope", 0) or 0)
         kept_off += int(getattr(r, "candidates_kept_by_offtopic", 0) or 0)
@@ -216,6 +232,11 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
         corpus_truncated=corpus_truncated, candidates_total=cand_total,
         candidates_processed=cand_processed,
         journal_metadata_sidecar=(sidecar or None),
+        # I-deepfix-001 P1-2 / P1-4 (#1344): merged retrieval-wall + B4 fallback disclosure.
+        retrieval_wall_hit=retrieval_wall_hit,
+        retrieval_queries_skipped=retrieval_queries_skipped,
+        retrieval_candidates_unclassified=retrieval_candidates_unclassified,
+        semantic_relevance_fell_back=semantic_relevance_fell_back,
     )
 
 

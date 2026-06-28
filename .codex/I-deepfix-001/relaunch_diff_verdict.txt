@@ -1,0 +1,35 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - >-
+    `src/polaris_graph/retrieval/winner_firing_gate.py` does not recognize the actual Gate-B W7 value.
+    `_w7_reranker_requested()` only accepts boolean-ish ON values, but the slate sets
+    `PG_RERANKER_MODEL=qwen3`; production will mark W7 as `not_requested`, not `pending_post_seam`.
+    Combined with no post-selection hard gate, Gap A is not acceptable for relaunch.
+  - >-
+    W6 semantic fallback is not actually wired into the gate. `evaluate_winner_firing(...,
+    semantic_fell_back=...)` has tests, but `scripts/run_honest_sweep_r3.py` never passes a real
+    fallback signal, and B4/B1 scorer failures can leave the cache non-False. A requested semantic
+    winner can fall back to lexical and still proceed.
+  - >-
+    `PG_RETRIEVAL_WALL_SECONDS` does not bound the main `parallel_fetch` wait. The wall is checked
+    before search queries and after `parallel_fetch` returns; with `PG_SWEEP_FETCH_CAP=740`,
+    `PG_LIVE_RETRIEVER_MAX_WORKERS=24`, and 120s per-task timeout, the derived fetch batch budget is
+    about 3960s, above the claimed 1800s wall.
+  - >-
+    Retrieval-wall disclosure is not propagated through the actual final manifest path. New fields on
+    `LiveRetrievalResult` are not serialized by `_retrieval_manifest_section`, and FS/IterResearch
+    merge paths carry notes/counts but drop the structured wall fields; report rendering only shows
+    `retrieval.notes[-1]`, so a wall-hit partial can be hidden in the relaunch path.
+p2:
+  - >-
+    Gap B, per-invocation rather than per-question deadline, is acceptable only after the per-invocation
+    wall really covers fetch. It is not itself a blocker, but it should be wired next to prevent
+    multi-round retrieval from multiplying the budget.
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix W7 requested detection for `qwen3` and add a post-selection/pre-generation hard gate or explicit W7 load-failure telemetry."
+  - "Wire real W6 semantic fallback telemetry into `evaluate_winner_firing`."
+  - "Pass the retrieval deadline into `parallel_fetch` or force its batch budget to the remaining wall time."
+  - "Serialize and merge `retrieval_wall_hit`, `retrieval_queries_skipped`, and `retrieval_candidates_unclassified` into final manifest/report surfaces."

@@ -108,6 +108,73 @@ def test_fs_researcher_empty_results_merge():
     assert any("no rounds" in n for n in merged.notes)
 
 
+def test_fs_researcher_merge_carries_wall_and_b4_fallback_disclosure():
+    """I-deepfix-001 P1-2 / P1-4 (#1344): the merge MUST carry the retrieval-wall +
+    B4 semantic->lexical fallback disclosure onto the merged result. This is the
+    PRODUCTION cert path: when FS-Researcher is on, EVERY run_live_retrieval result
+    flows through this merge before the winner-firing gate reads it — if the merge
+    dropped these fields the gate would read False forever and P1-2/P1-4 would
+    silently no-op. OR-combine the booleans; SUM the per-round counts."""
+    a = _MockLRR(
+        evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://a/1"}],
+        retrieval_wall_hit=True,
+        semantic_relevance_fell_back=True,
+        retrieval_queries_skipped=3,
+        retrieval_candidates_unclassified=10,
+    )
+    b = _MockLRR(
+        evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://b/1"}],
+        retrieval_wall_hit=False,
+        semantic_relevance_fell_back=False,
+        retrieval_queries_skipped=2,
+        retrieval_candidates_unclassified=5,
+    )
+    merged = fsq.merge_retrieval_results([a, b], _MockLRR)
+    assert merged.retrieval_wall_hit is True          # OR-combine
+    assert merged.semantic_relevance_fell_back is True  # OR-combine
+    assert merged.retrieval_queries_skipped == 5        # SUM 3 + 2
+    assert merged.retrieval_candidates_unclassified == 15  # SUM 10 + 5
+
+
+def test_fs_researcher_merge_off_path_disclosure_all_clear():
+    """All-clear rounds => merged disclosure is False/0 (byte-identical OFF)."""
+    a = _MockLRR(evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://a/1"}])
+    b = _MockLRR(evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://b/1"}])
+    merged = fsq.merge_retrieval_results([a, b], _MockLRR)
+    assert merged.retrieval_wall_hit is False
+    assert merged.semantic_relevance_fell_back is False
+    assert merged.retrieval_queries_skipped == 0
+    assert merged.retrieval_candidates_unclassified == 0
+
+
+def test_iterresearch_merge_carries_wall_and_b4_fallback_disclosure():
+    """I-deepfix-001 P1-2 / P1-4 (#1344): the IterResearch merge (identical contract to
+    FS-Researcher, the fallback adaptive query-gen path) MUST also carry the
+    retrieval-wall + B4 fallback disclosure onto the merged result so the winner-gate /
+    manifest see them when PG_QGEN_ITERRESEARCH is the active strategy."""
+    from src.polaris_graph.retrieval import iterresearch_query_gen as iq
+
+    a = _MockLRR(
+        evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://a/1"}],
+        retrieval_wall_hit=True,
+        semantic_relevance_fell_back=True,
+        retrieval_queries_skipped=4,
+        retrieval_candidates_unclassified=8,
+    )
+    b = _MockLRR(
+        evidence_rows=[{"evidence_id": "ev_000", "source_url": "https://b/1"}],
+        retrieval_wall_hit=False,
+        semantic_relevance_fell_back=False,
+        retrieval_queries_skipped=1,
+        retrieval_candidates_unclassified=2,
+    )
+    merged = iq.merge_retrieval_results([a, b], _MockLRR)
+    assert merged.retrieval_wall_hit is True
+    assert merged.semantic_relevance_fell_back is True
+    assert merged.retrieval_queries_skipped == 5    # SUM 4 + 1
+    assert merged.retrieval_candidates_unclassified == 10  # SUM 8 + 2
+
+
 if __name__ == "__main__":
     test_fs_researcher_flag_default_off()
     test_fs_researcher_loop_issues_queries_and_merges()

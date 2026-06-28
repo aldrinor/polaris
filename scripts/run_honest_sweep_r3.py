@@ -687,6 +687,28 @@ def retrieval_fetch_disclosure(fetched: int, failed: int, total: int) -> str:
     )
 
 
+def retrieval_wall_disclosure(
+    wall_hit: bool, queries_skipped: int, candidates_unclassified: int
+) -> str:
+    """I-deepfix-001 P1-4 (#1344): one reader-facing Methods line disclosing that the
+    per-question retrieval-phase wall (PG_RETRIEVAL_WALL_SECONDS) fired, so the corpus
+    is a DISCLOSED PARTIAL — the fan-out / fetch grind was stopped at the time budget
+    and the already-gathered corpus was handed off to render (§-1.3: the cutoff MUST be
+    disclosed in the actual output, never silently dropped). Returns "" when the wall
+    never tripped (byte-identical OFF path). Pure; no I/O."""
+    if not wall_hit:
+        return ""
+    _q = int(queries_skipped)
+    _u = int(candidates_unclassified)
+    return (
+        "Retrieval-phase wall reached: the retrieval fan-out / fetch was stopped at "
+        "the per-question time budget and the already-gathered PARTIAL corpus was "
+        f"used ({_q} planned sub-quer{'y' if _q == 1 else 'ies'} not fired; "
+        f"{_u} fetched source(s) not classified). Coverage may be reduced; no "
+        "gathered source was dropped.\n"
+    )
+
+
 def retrieval_failure_warning(fetched: int, failed: int, total: int, warn_rate: float) -> str | None:
     """FIX-A10 (#1100): LOUD warning string when the fetch-failure rate >= ``warn_rate`` (env-driven,
     LAW VI), else None. Silent upstream starvation is the no-downgrade directive's high-harm case."""
@@ -3691,6 +3713,21 @@ def _retrieval_manifest_section(retrieval) -> dict:
         "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
         "candidates_total": getattr(retrieval, "candidates_total", 0),
         "candidates_processed": getattr(retrieval, "candidates_processed", 0),
+        # I-deepfix-001 P1-4 (#1344): retrieval-wall partial-handoff disclosure +
+        # the B4 semantic->lexical fallback signal (§-1.3 — a partial cutoff / a
+        # degraded semantic winner MUST be disclosed in the actual output, never a
+        # silent drop). getattr defaults keep this backward compatible + byte-
+        # identical on the OFF path (wall never trips, B4 gate OFF => all False/0).
+        "retrieval_wall_hit": bool(getattr(retrieval, "retrieval_wall_hit", False)),
+        "retrieval_queries_skipped": getattr(
+            retrieval, "retrieval_queries_skipped", 0,
+        ),
+        "retrieval_candidates_unclassified": getattr(
+            retrieval, "retrieval_candidates_unclassified", 0,
+        ),
+        "semantic_relevance_fell_back": bool(
+            getattr(retrieval, "semantic_relevance_fell_back", False)
+        ),
         # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics,
         # SIBLING fields (NOT folded into api_calls — that dict[str,int]
         # contract stays unwidened). None when the parallel-fetch path did not
@@ -9713,6 +9750,150 @@ async def run_one_query(
              f"numeric_contradictions={len(contradictions)}  "
              f"qualitative_conflicts={_qual_hard}  qualitative_review_flags={_qual_review}")
 
+        # ── I-deepfix-001 (#1344) item 2: WINNER-FIRING FAIL-CLOSED GATE ─────────────
+        # POST-RETRIEVAL / PRE-GENERATION assertion. Two winners-only PAID runs burned
+        # GPU + tokens while the relevance-layer WINNERS were structurally DARK (W6
+        # embedder / B4 semantic scorer fell back to the lexical cut every round; W5
+        # content-relevance reranker logged reranker_device='unavailable' → full weight).
+        # The deliverable would have been labeled "winners-only" while 3 headline winners
+        # never fired. This gate aborts BEFORE the expensive generation when a REQUESTED
+        # relevance-layer winner is STRUCTURALLY dark (import/load fail — NOT a single
+        # transient encode, NOT a CPU fallback which is a disclosed-but-fired degrade).
+        #
+        # DISTINCTION (CLAUDE.md §-1.3 — this is NOT a faithfulness hold): a winner is
+        # dark ⇒ the run is not winners-only ⇒ abort before a falsely-labeled deliverable.
+        # The faithfulness engine (strict_verify / 4-role / D8 / NLI / span-grounding) is
+        # UNTOUCHED and still always releases + labels. No source is dropped here.
+        #
+        # The decision is a PURE function (no model load, no GPU, no network — it inspects
+        # state the retrieval phase already produced). Kill-switchable via
+        # PG_WINNER_FIRING_GATE (default ON). On the default/legacy path NO relevance-layer
+        # winner is requested (PG_EMBEDDER_MODEL / PG_RERANKER_MODEL unset, redesign-off),
+        # so the gate is a no-op ⇒ byte-identical OFF. Reuses the existing
+        # abort_discovery_degraded terminal status (semantics: "a force-ENABLED feature was
+        # on but did NOT fire — silently degraded to baseline; refuse to ship as success"),
+        # which is exactly the winner-dark condition; the dark-winner detail is fully
+        # disclosed in manifest['winner_firing_gate'] + the report.md verdict.
+        _winner_gate_on = os.getenv("PG_WINNER_FIRING_GATE", "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        )
+        if _winner_gate_on:
+            try:
+                from src.polaris_graph.retrieval import evidence_selector as _ev_sel_mod
+                from src.polaris_graph.retrieval.winner_firing_gate import (
+                    evaluate_winner_firing as _evaluate_winner_firing,
+                )
+                # W2/W7 IDENTITY LOG TAGS (item 5): positively confirm the slate winners
+                # fired vs a silent IterResearch / wrong-reranker swap. Read-only env reads
+                # of the SAME flags the winners themselves gate on (fs_researcher_enabled =
+                # PG_QGEN_FS_RESEARCHER; iterresearch = PG_QGEN_ITERRESEARCH; W7 reranker =
+                # PG_RERANKER_MODEL). The next run's log positively confirms W2=FS-Researcher
+                # and W7=Qwen3-Reranker-4B rather than a silently-swapped strategy/model.
+                _w2_fs_on = os.getenv("PG_QGEN_FS_RESEARCHER", "0").strip() in ("1", "true", "True")
+                _w2_iterresearch_on = os.getenv("PG_QGEN_ITERRESEARCH", "0").strip() in ("1", "true", "True")
+                _w2_qgen_strategy = (
+                    "FS-Researcher" if _w2_fs_on
+                    else ("IterResearch" if _w2_iterresearch_on else "legacy/(unset)")
+                )
+                _w7_reranker_model = os.getenv("PG_RERANKER_MODEL", "(unset)")
+                _log(
+                    f"[winner-id]   W2 qgen_strategy={_w2_qgen_strategy} "
+                    f"(fs={_w2_fs_on} iterresearch={_w2_iterresearch_on})  "
+                    f"W7 reranker_model={_w7_reranker_model}"
+                )
+                _winner_verdict = _evaluate_winner_firing(
+                    content_relevance=getattr(retrieval, "content_relevance", None),
+                    embedder_cache_sentinel=getattr(
+                        _ev_sel_mod, "_SEMANTIC_EMBEDDER_CACHE", None
+                    ),
+                    # I-deepfix-001 P1-2 (#1344): the B4 semantic->lexical fallback
+                    # (live_retriever ~4423) is now surfaced on the retrieval result; a
+                    # requested semantic winner that fell back to lexical is W6 dark.
+                    semantic_fell_back=bool(
+                        getattr(retrieval, "semantic_relevance_fell_back", False)
+                    ),
+                    # I-deepfix-001 P1-1 (#1344): W7 selection-reranker structural
+                    # load-failure signal. None on query 1 (no rerank attempted before
+                    # this seam) => W7 pending; a prior selection's (finding-dedup/CRAG
+                    # or a previous query's) structural load failure flips it True so W7
+                    # is actually hard-gated. False once the reranker has loaded+fired.
+                    w7_load_failed=getattr(
+                        _ev_sel_mod, "_W7_RERANKER_LOAD_FAILED", None
+                    ),
+                )
+            except Exception as _wfg_exc:  # noqa: BLE001 — gate failure must never crash silently
+                # The gate itself failing is a wiring bug, but it must not abort a healthy
+                # run; log LOUDLY and fall through (the downstream faithfulness gates still
+                # hold). It is observability/firing-confirmation, not a faithfulness check.
+                _log(f"[winner-gate] gate evaluation skipped (fail-open): {_wfg_exc}")
+                _winner_verdict = None
+            if _winner_verdict is not None and _winner_verdict.abort:
+                _dark = ", ".join(_winner_verdict.dark_winners)
+                _log(
+                    f"[winner-gate] ABORT before generation: relevance-layer winner(s) "
+                    f"STRUCTURALLY DARK [{_dark}] — the run is NOT winners-only. "
+                    + " ".join(_winner_verdict.diagnostics)
+                )
+                summary["status"] = "abort_discovery_degraded"
+                summary["error"] = (
+                    "winner_firing_gate: relevance-layer winner(s) structurally dark "
+                    f"[{_dark}] — aborted before generation (run not winners-only)."
+                )
+                (run_dir / "report.md").write_text(
+                    f"# Research report: {_strip_injected_instruction_appendix(q['question'])}\n\n"
+                    "## Pipeline verdict\n\n"
+                    "POLARIS aborted BEFORE generation: one or more relevance-layer "
+                    f"WINNERS were structurally dark ({_dark}). A winner is the configured, "
+                    "force-ENABLED model for a pipeline stage; when it cannot be loaded the "
+                    "stage silently degrades to a legacy fallback, so the run is NOT actually "
+                    "running winners-only. Rather than spend the (expensive) generation budget "
+                    "and ship a deliverable falsely labeled 'winners-only', the run is HELD.\n\n"
+                    "This is a configuration / wiring firing-gate, NOT a faithfulness hold: the "
+                    "faithfulness engine (strict_verify / 4-role / span-grounding) was never "
+                    "reached. No evidence source was dropped.\n\n"
+                    "### Dark winner diagnostics\n\n"
+                    + "".join(f"- {d}\n" for d in _winner_verdict.diagnostics)
+                    + "\n### Suggested next steps\n\n"
+                    "- Confirm the GPU placement / device knobs so each relevance-layer model "
+                    "loads (see the I-deepfix-001 relaunch fix brief).\n"
+                    "- Inspect `retrieval_trace.jsonl` / the run log for the LOUD fallback line.\n"
+                    "- Re-run once the winners load (the pre-spend GPU smoke must pass first).\n",
+                    encoding="utf-8",
+                )
+                run_cost = current_run_cost()
+                manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                manifest.update({
+                    "status": "abort_discovery_degraded",
+                    "winner_firing_gate": _winner_verdict.to_dict(),
+                })
+                manifest = augment_v6_manifest(
+                    manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                manifest = _attach_tool_utilization(manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = manifest
+                summary["cost_usd"] = run_cost
+                try: write_per_run_cost_ledger(run_dir, run_id)
+                except Exception: pass
+                if q.get("v6_mode") and q.get("external_run_id"):
+                    emit_terminal_event(
+                        q.get("external_run_id"),
+                        "abort_discovery_degraded",
+                        error_msg=summary.get("error"),
+                    )
+                set_current_run_id(None)
+                set_reasoning_sink(None)
+                log_f.close()
+                return summary
+
         # Multi-section generation with Limitations (R-1)
         # BUG-M-201 fix (deep-dive R6): tier-balanced + relevance-ranked
         # selection instead of raw-order truncation. Previously the
@@ -12297,6 +12478,17 @@ async def run_one_query(
         )
         if _ret_warn:
             _log(f"[retrieval]   WARNING: {_ret_warn}")
+        # I-deepfix-001 P1-4 (#1344): when the per-question retrieval-phase wall
+        # (PG_RETRIEVAL_WALL_SECONDS) fired, the corpus is a DISCLOSED PARTIAL — the
+        # fan-out / fetch grind was stopped and the already-gathered corpus handed off
+        # to render (§-1.3: the cutoff is disclosed in the actual report, never silently
+        # dropped). The pure helper returns "" when the wall never tripped (byte-
+        # identical) so this line vanishes on a healthy run.
+        _ret_wall_line = retrieval_wall_disclosure(
+            bool(getattr(retrieval, "retrieval_wall_hit", False)),
+            int(getattr(retrieval, "retrieval_queries_skipped", 0) or 0),
+            int(getattr(retrieval, "retrieval_candidates_unclassified", 0) or 0),
+        )
         methods = (
             "\n\n## Methods\n"
             f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
@@ -12304,6 +12496,7 @@ async def run_one_query(
             f"augmented by domain backends ({q['domain']}: "
             f"{retrieval.notes[-1] if retrieval.notes else 'none'}).\n"
             f"{retrieval_fetch_disclosure(_ret_fetched, _ret_failed, _ret_total)}"
+            f"{_ret_wall_line}"
             f"Generator model: {PG_GENERATOR_MODEL} (multi-section: outline + "
             # D-5 (#1182): exclude 0-verified gap stubs from the Methods parallel-section
             # count using the SAME universal survivor signal filter_verified_sections uses

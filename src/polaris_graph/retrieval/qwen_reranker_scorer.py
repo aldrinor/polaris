@@ -36,9 +36,22 @@ INVARIANTS PRESERVED BY THE CALLER (``evidence_selector._maybe_rerank_selection`
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, Sequence
 
 logger = logging.getLogger("polaris_graph.qwen_reranker_scorer")
+
+
+class RerankerLoadError(RuntimeError):
+    """I-deepfix-001 P1-1 (#1344): raised ONLY when the W7 reranker STRUCTURALLY
+    fails to load — the lazy torch/transformers import, ``from_pretrained``, the
+    ``.to(device)`` placement, or the yes/no token-id resolution. The caller
+    (``evidence_selector._maybe_rerank_selection``) treats this as the structural
+    W7-dark signal the winner-firing gate hard-gates on. A failure of the per-document
+    FORWARD PASS (a transient encode/OOM exception) is NOT wrapped in this type — it
+    surfaces as a plain exception so the caller can treat it as a transient (the model
+    DID load) and NOT flip the sticky structural signal. This mirrors the embedder's
+    structural-vs-transient split (``evidence_selector._get_semantic_embedder``)."""
 
 # The fixed scoring template from the Qwen3-Reranker model card (verbatim with the bake-off's
 # proven ``_build_qwen_causal_fn``). The model answers "yes"/"no"; we read the next-token logits
@@ -57,9 +70,19 @@ _MAX_INPUT_TOKENS = 4096
 
 
 def _resolve_device(device: Optional[str]) -> str:
-    """GPU-first: ``cuda`` when available, else ``cpu``. Honors an explicit override."""
+    """GPU-first: ``cuda`` when available, else ``cpu``. Honors an explicit override.
+
+    Precedence: an explicit ``device`` arg wins (the production W7 path pre-resolves
+    in ``evidence_selector._maybe_rerank_selection`` so env > cfg.device is decided
+    THERE, before the call). This ``PG_RERANKER_DEVICE`` fallback is defense for
+    DIRECT callers that pass ``device=None`` (and the offline test surface) — it is a
+    LAUNCH-ENV read, not a slate force-ON value, so it does not affect SLATE-PURITY /
+    NO-LOSER gating (those gate winner force-ON *values*, not device reads)."""
     if device:
         return device
+    env_device = os.getenv("PG_RERANKER_DEVICE", "").strip()
+    if env_device:
+        return env_device
     import torch  # lazy
 
     return "cuda" if torch.cuda.is_available() else "cpu"
@@ -86,22 +109,32 @@ def score_query_document_relevance(
     if not docs:
         return []
 
-    import torch  # lazy — nothing here loads on the reranker-OFF path
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    # I-deepfix-001 P1-1 (#1344): the STRUCTURAL LOAD region. A failure HERE (import /
+    # from_pretrained / device placement / token-id resolution) is a structural W7-dark
+    # signal -> re-raise as RerankerLoadError so the caller marks the gate dark. A
+    # later FORWARD-PASS failure (below, in _score_one) is a transient and is NOT
+    # wrapped, so it does not flip the sticky structural signal.
+    try:
+        import torch  # lazy — nothing here loads on the reranker-OFF path
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    resolved_device = _resolve_device(device)
-    logger.info(
-        "[qwen-reranker] loading %s on %s (causal-LM yes/no-logit scoring; NOT CrossEncoder)",
-        model_id, resolved_device,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
-    model = (
-        AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
-        .to(resolved_device)
-        .eval()
-    )
-    token_id_no = tokenizer.convert_tokens_to_ids("no")
-    token_id_yes = tokenizer.convert_tokens_to_ids("yes")
+        resolved_device = _resolve_device(device)
+        logger.info(
+            "[qwen-reranker] loading %s on %s (causal-LM yes/no-logit scoring; NOT CrossEncoder)",
+            model_id, resolved_device,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
+        model = (
+            AutoModelForCausalLM.from_pretrained(model_id, dtype="auto")
+            .to(resolved_device)
+            .eval()
+        )
+        token_id_no = tokenizer.convert_tokens_to_ids("no")
+        token_id_yes = tokenizer.convert_tokens_to_ids("yes")
+    except Exception as load_exc:  # structural import / load / device / token failure
+        raise RerankerLoadError(
+            f"W7 reranker structural load failed for {model_id!r}: {load_exc}"
+        ) from load_exc
 
     def _score_one(document: str) -> float:
         text = (

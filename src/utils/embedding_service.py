@@ -115,11 +115,40 @@ class EmbeddingService:
                 try:
                     sys.stderr.flush()
                 except OSError:
-                    import os
+                    # `os` is imported module-level (line 33); the prior nested
+                    # `import os` here made `os` a function-local, which broke the
+                    # PG_EMBED_DEVICE read below with UnboundLocalError (I-deepfix-001
+                    # P0-3, 2026-06-28). Use the module-level `os` directly.
                     sys.stderr = open(os.devnull, 'w')
                     logger.warning("[FIX-127] sys.stderr was broken (piped process), redirected to devnull")
 
-                self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+                # I-deepfix-001 P0-3 (2026-06-28): honor PG_EMBED_DEVICE so the
+                # run launcher can pin the embedder to a specific card (static
+                # 2-GPU split). LAUNCH-ENV read only (not a slate force-on).
+                # Wrapped so an installed sentence-transformers that rejects
+                # `device=` falls back to the no-arg constructor with a LOUD
+                # warning (never a silent device drop). Empty/unset => no-arg
+                # constructor (byte-identical to prior behavior).
+                _embed_device = (os.getenv("PG_EMBED_DEVICE", "") or "").strip()
+                if _embed_device:
+                    try:
+                        self._model = SentenceTransformer(
+                            EMBEDDING_MODEL_NAME, device=_embed_device
+                        )
+                        logger.info(
+                            "Embedding service device pinned via PG_EMBED_DEVICE=%s",
+                            _embed_device,
+                        )
+                    except TypeError:
+                        logger.warning(
+                            "[PG_EMBED_DEVICE] installed sentence-transformers "
+                            "rejected device=%r — falling back to no-arg "
+                            "constructor (model lands on its default device).",
+                            _embed_device,
+                        )
+                        self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+                else:
+                    self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
                 self._model_name = EMBEDDING_MODEL_NAME
                 self._dimensions = EMBEDDING_DIMENSIONS
 

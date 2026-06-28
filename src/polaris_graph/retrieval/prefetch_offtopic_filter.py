@@ -101,7 +101,13 @@ def _load_embedder() -> Any:
     as an optional primary for callers that wire it, but the SentenceTransformer
     path on the env-pinned model is the production loader."""
     try:
-        from src.polaris_graph.agents.nli_verifier import (  # type: ignore
+        # I-deepfix-001 P0-2a (2026-06-28): EmbeddingService is defined in
+        # `src.utils.embedding_service`, NOT `nli_verifier` (which never defined
+        # or re-exported it). The old import targeted the wrong module → it ALWAYS
+        # raised ImportError, silently knocking out the EmbeddingService primary
+        # path and forcing the SentenceTransformer fallback every run. Repointed
+        # to the real definition so the EmbeddingService path is reachable again.
+        from src.utils.embedding_service import (  # type: ignore
             EmbeddingService,
         )
         return EmbeddingService()
@@ -110,9 +116,35 @@ def _load_embedder() -> Any:
             # Production path: sentence-transformers on the env-pinned slate model.
             from sentence_transformers import SentenceTransformer
             model_name = _embed_model_name()
+            # I-deepfix-001 P0-3 (2026-06-28): honor PG_EMBED_DEVICE so the run
+            # launcher can pin the 8B embedder to a specific card (static 2-GPU
+            # split). A LAUNCH-ENV read only (not a slate force-on). Wrapped so an
+            # installed sentence-transformers that rejects `device=` falls back to
+            # the no-arg constructor with a LOUD warning (never a silent device
+            # drop). Empty/unset PG_EMBED_DEVICE => no-arg constructor (unchanged).
+            device = (os.getenv("PG_EMBED_DEVICE", "") or "").strip()
+            if device:
+                try:
+                    model = SentenceTransformer(model_name, device=device)
+                    logger.info(
+                        "[prefetch_offtopic] loading relevance embedder model=%s "
+                        "device=%s (B1 locked-slate default; PG_EMBED_MODEL / "
+                        "PG_EMBED_DEVICE override)",
+                        model_name, device,
+                    )
+                    return model
+                except TypeError:
+                    logger.warning(
+                        "[prefetch_offtopic] installed sentence-transformers "
+                        "rejected device=%r — falling back to no-arg constructor "
+                        "(model will land on its default device). model=%s",
+                        device, model_name,
+                    )
+                    return SentenceTransformer(model_name)
             logger.info(
                 "[prefetch_offtopic] loading relevance embedder model=%s "
-                "(B1 locked-slate default; PG_EMBED_MODEL overrides)",
+                "(B1 locked-slate default; PG_EMBED_MODEL overrides; "
+                "PG_EMBED_DEVICE unset → default device)",
                 model_name,
             )
             return SentenceTransformer(model_name)
