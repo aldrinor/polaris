@@ -1,0 +1,18 @@
+Findings: none.
+
+I re-verified the three iter-3 fixes first:
+- B16 is now value-anchored in [overstatement_guard.py](</C:/POLARIS/src/polaris_graph/generator/overstatement_guard.py:141>) and only appends failure reasons at [provenance_generator.py](</C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2359>).
+- B18 restores the lost leading cell without truncating cells in [markdown_table_normalizer.py](</C:/POLARIS/src/polaris_graph/generator/markdown_table_normalizer.py:144>).
+- D8 banner emission is strict `adjudicated is False` only in [provenance_generator.py](</C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2666>).
+
+Static-only review; I did not run pytest or the pipeline. The touched faithfulness surfaces are additive/strictening only, render changes disclose counts or formatting only, and the contradiction reroute still discloses all source rows.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

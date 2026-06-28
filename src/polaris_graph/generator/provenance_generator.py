@@ -61,6 +61,18 @@ from src.polaris_graph.retrieval.shell_detector import (
     is_cited_span_shell as _is_cited_span_shell,
 )
 
+# I-deepfix B16 (#1360): additive overstatement guards (epistemic-marker
+# preservation + temporal-scope match). Pure stdlib leaf module, zero-cost on the
+# hot per-sentence path. These ONLY add drops/flags on top of strict_verify;
+# they never relax an existing check. Both legs are env-flag gated (default ON);
+# disabling reverts byte-identical pre-B16 behaviour.
+from src.polaris_graph.generator.overstatement_guard import (
+    epistemic_guard_enabled as _epistemic_guard_enabled,
+    epistemic_overstatement_reason as _epistemic_overstatement_reason,
+    temporal_scope_guard_enabled as _temporal_scope_guard_enabled,
+    temporal_scope_reason as _temporal_scope_reason,
+)
+
 logger = logging.getLogger("polaris_graph.provenance_generator")
 
 
@@ -2344,6 +2356,27 @@ def verify_sentence_provenance(
                                 f"verdict={verdict}:reason={reason[:80]}"
                             )
 
+    # I-deepfix B16 (#1360): additive overstatement guards. ADDITIVE legs on top
+    # of the numeric/content/entailment checks — they only ever APPEND a failure
+    # (a drop), NEVER clear one, NEVER relax an existing check. Run ONLY when a
+    # valid cited span exists (a sentence with no valid token has already failed
+    # above and these guards have nothing to compare against). Compared against
+    # the SAME cited-span aggregate the numeric/content legs use (the cited
+    # byte-ranges, not the whole direct_quote — a B16 overstatement must be judged
+    # against what the paraphrase actually points at). Both env-flag gated
+    # (default ON); disabling reverts byte-identical pre-B16 behaviour.
+    if valid_token_found:
+        _b16_claim = sentence_for_numbers
+        _b16_span = " ".join(aggregated_span_text)
+        if _epistemic_guard_enabled():
+            _epi_reason = _epistemic_overstatement_reason(_b16_claim, _b16_span)
+            if _epi_reason:
+                failures.append(_epi_reason)
+        if _temporal_scope_guard_enabled():
+            _temp_reason = _temporal_scope_reason(_b16_claim, _b16_span)
+            if _temp_reason:
+                failures.append(_temp_reason)
+
     # Gap-2 soft check: detect unhedged superlatives. This does NOT
     # drop the sentence — it emits a warning that the evaluator (PT13)
     # can surface to the user.
@@ -2534,6 +2567,135 @@ def build_drop_disclosure(dropped_sentences: list[SentenceVerification]) -> dict
         "support_failed_reason_counts": support_failed_reason_counts,
         "unprovenanced_reason_counts": unprovenanced_reason_counts,
     }
+
+
+def render_full_drop_disclosure_md(
+    drop_summary: dict,
+    *,
+    dedup_redundant_count: int = 0,
+    m41c_underframed_count: int = 0,
+) -> str:
+    """B08 (#1352) finding #2: render the ## Evidence-support disclosure block from the FULL
+    drop accounting, not the support-failed subset only.
+
+    The prior render surfaced ONLY ``support_failed_count`` + its reasons, so a reader of
+    report.md saw "30 removed" when the run actually dropped support-failed +
+    un-provenanced (``no_provenance_token`` / ``empty_or_contentless_sentence``) +
+    dedup-redundant + M-41c under-framed sentences. This understated how much content was
+    removed and is the disclosure-to-render gap B08 fixes.
+
+    Faithfulness-NEUTRAL: every category below is a COUNT (+ reason tally) only — NO raw
+    dropped sentence text is ever rendered as prose (a support-failed sentence is
+    generator-hallucinated / unsupported and must not ship). It converts a partial
+    disclosure into the complete one; it never resurrects a dropped claim and never touches
+    a strict_verify / NLI / span / 4-role verdict.
+
+    ``drop_summary`` is the dict returned by :func:`build_drop_disclosure`. ``dedup_redundant``
+    sentences are LLM-consolidated near-duplicates (a CONSOLIDATION, not a faithfulness drop —
+    §-1.3 keep-all corroboration) and ``m41c_underframed`` sentences PASSED strict_verify but
+    were removed by the claim-frame policy filter; both are disclosed as distinct, named
+    categories so the reader can tell a removal apart from a verification failure.
+
+    Returns "" when there is NOTHING to disclose across ALL categories (so a clean run's
+    report.md is byte-identical to having no block).
+    """
+    support_failed = int(drop_summary.get("support_failed_count", 0) or 0)
+    unprovenanced = int(drop_summary.get("unprovenanced_count", 0) or 0)
+    dedup_redundant = int(dedup_redundant_count or 0)
+    m41c = int(m41c_underframed_count or 0)
+    total_removed = support_failed + unprovenanced + dedup_redundant + m41c
+    if total_removed <= 0:
+        return ""
+
+    lines: list[str] = [
+        "",
+        "",
+        "## Evidence-support disclosure",
+        "",
+        (
+            f"{total_removed} generated sentence(s) were REMOVED before the findings above "
+            "and are disclosed here rather than silently dropped. The total breaks down by "
+            "category:"
+        ),
+        "",
+    ]
+    if support_failed > 0:
+        reason_md = ", ".join(
+            f"{k}: {v}"
+            for k, v in sorted(
+                (drop_summary.get("support_failed_reason_counts", {}) or {}).items()
+            )
+        )
+        lines.append(
+            f"- Support-failed ({support_failed}): a claim was generated but did not pass "
+            "span/numeric/entailment verification against its OWN cited source, so it was "
+            "removed (not asserted as fact)."
+            + (f" Drop reasons: {reason_md}." if reason_md else "")
+            + " (Reason counts are tallied per failed verification check, so a claim that "
+            "failed more than one check is counted under each; the reason counts therefore "
+            "need not sum to the count above.)"
+        )
+    if unprovenanced > 0:
+        reason_md = ", ".join(
+            f"{k}: {v}"
+            for k, v in sorted(
+                (drop_summary.get("unprovenanced_reason_counts", {}) or {}).items()
+            )
+        )
+        lines.append(
+            f"- Un-provenanced ({unprovenanced}): a sentence carried no usable "
+            "provenance token (no grounded claim to verify), so it was dropped as a hygiene "
+            "removal."
+            + (f" Drop reasons: {reason_md}." if reason_md else "")
+        )
+    if dedup_redundant > 0:
+        lines.append(
+            f"- Dedup-redundant ({dedup_redundant}): a near-duplicate sentence carrying the "
+            "SAME claim as a kept sentence was consolidated away (corroboration is kept on the "
+            "surviving sentence; this is a de-duplication, not a verification failure)."
+        )
+    if m41c > 0:
+        lines.append(
+            f"- Claim-frame policy ({m41c}): a sentence PASSED span verification but was "
+            "removed by the under-framed-trial-name claim-frame filter."
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_d8_unadjudicated_banner(release_disclosure: "dict | None") -> str:
+    """B08 (#1352) finding #1: a run-specific top-of-report banner surfaced into report.md
+    when the strongest verifier (four-role D8) did NOT adjudicate this run.
+
+    The A18 always-release path serializes the honest ``adjudicated`` flag into
+    ``manifest['release_disclosure']`` — but a reader of report.md ALONE could not tell the
+    keystone verifier was skipped, because that disclosure lived only in manifest.json. This
+    helper renders the banner from that SAME serialized flag so report.md is honest on its own.
+
+    Returns the banner markdown ONLY when ``release_disclosure`` is a dict that explicitly
+    records ``adjudicated == False``. Returns "" when the disclosure is missing, malformed, or
+    records ``adjudicated`` truthy (a genuinely D8-judged release stays banner-free). The
+    helper asserts NO finding and touches NO faithfulness verdict — it is pure disclosure
+    plumbing.
+    """
+    if not isinstance(release_disclosure, dict):
+        return ""
+    # Strict identity (I-deepfix-001 Codex P2): emit the banner ONLY when
+    # adjudicated is EXPLICITLY False. A missing key or a malformed falsey value
+    # (None / 0 / "") must NOT trigger it — the contract is "explicit
+    # adjudicated == False", not "falsey".
+    if release_disclosure.get("adjudicated") is not False:
+        return ""
+    return (
+        "> **STRONGEST VERIFIER (four-role D8) DID NOT RUN for this run — findings are "
+        "UNVERIFIED-by-D8.**\n"
+        ">\n"
+        "> The four-role D8 adjudication (the strongest faithfulness verifier) did not bind "
+        "for this run, so the findings below carry only the strict_verify / span-grounding / "
+        "NLI evidence — NOT the final D8 adjudication. Treat them as UNVERIFIED-by-D8 pending "
+        "a re-judge. See `manifest.json` (`release_disclosure`) for the per-run disclosure "
+        "detail.\n\n"
+    )
 
 
 def split_findings_and_limitations(text: str) -> tuple[str, str]:

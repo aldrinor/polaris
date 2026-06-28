@@ -95,6 +95,7 @@ CRITICAL RULES:
    (b) Named contradictions — if the telemetry lists contradictions, name the subject and predicate (e.g., "sources disagree on semaglutide weight-loss magnitude").
    (c) Evidence horizons — mention temporal or population gaps that the telemetry block surfaces.
    Limitations sentences do not need [ev_XXX] markers (they discuss the pipeline, not the evidence).
+11. **Preserve the epistemic status and the time-horizon of the cited span.** If a span states a MODELING ASSUMPTION or PROJECTION (e.g., "we assumed 60%", "projected", "under the assumption", "illustrative scenario"), your sentence MUST keep that hedge ("the model assumes 60% [ev_001]", "a projected 0.5 new positions [ev_001]") — never re-render an assumption as an empirical finding ("the data show 60%"). And do NOT widen or merge time-horizons: if a source reports an effect "over five years", say "over five years" — do not restate it under a different or longer period (e.g., a "2010-2023" window). Report only the horizon the cited span actually names.
 
 Output format: plain prose paragraphs. No preamble, no sign-off."""
 

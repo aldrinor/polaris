@@ -1934,6 +1934,46 @@ def detect_contradictions(
     return records
 
 
+# I-deepfix-001 B18 (#1344) — contradiction-telemetry noise cleanup.
+# A record whose predicate carries the ``[possible_metric_mismatch]`` marker is the
+# detector DECLARING it could NOT positively confirm a shared metric (comparator /
+# population / time-window may differ). Its surfaced ``relative_difference`` is the
+# RAW magnitude across two numbers that may not measure the same quantity — on the
+# cert artifact this rendered ``rel_diff`` up to 437,481.7% as a headline "quality
+# signal", which is meaningless (and lethal in clinical context per §-1.1). This is
+# the same class the production render path already suppresses
+# (``run_honest_sweep_r3._render_contradicts_block`` skips the marker), but the
+# plain-text ``format_contradictions_for_user`` summary still counted + rendered it
+# with the junk magnitude. We route a marker-bearing record OUT of the headline
+# contradiction count into a dedicated "possible metric mismatch" disclosure (no
+# misleading rel/abs magnitude) — every claim/source still DISCLOSED (never dropped,
+# §-1.3). Default-ON kill-switch ``PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH`` so the
+# OFF path is byte-identical to the pre-fix output. This is a render/telemetry change
+# only; no faithfulness threshold is touched and a CONFIRMED shared-metric
+# contradiction (no marker) is unaffected.
+_SUPPRESS_METRIC_MISMATCH_FLAG = "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH"
+_SUPPRESS_METRIC_MISMATCH_OFF_VALUES = frozenset({"0", "false", "off", "no"})
+
+
+def _suppress_metric_mismatch_enabled() -> bool:
+    """True (default) unless ``PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH`` is OFF.
+
+    Default-ON: an unset/empty env var keeps the suppression ON. Set to
+    ``0``/``false``/``off``/``no`` to restore the pre-fix byte-identical headline."""
+    return (
+        os.environ.get(_SUPPRESS_METRIC_MISMATCH_FLAG, "").strip().lower()
+        not in _SUPPRESS_METRIC_MISMATCH_OFF_VALUES
+    )
+
+
+def _is_possible_metric_mismatch_record(record: "ContradictionRecord") -> bool:
+    """True iff ``record``'s predicate carries the possible_metric_mismatch marker.
+
+    A marker-bearing record is an UNCONFIRMED-shared-metric pairing, not a confirmed
+    contradiction. Pure, never raises."""
+    return POSSIBLE_METRIC_MISMATCH_MARKER in str(getattr(record, "predicate", "") or "")
+
+
 def format_contradictions_for_user(
     records: list[ContradictionRecord],
 ) -> str:
@@ -1945,11 +1985,30 @@ def format_contradictions_for_user(
     rel/abs magnitude. Its claims are still listed (disclosed, never dropped) under
     a separate notice so the reader sees why the numbers are not a real
     disagreement.
+
+    I-deepfix-001 B18 (#1344): a ``possible_metric_mismatch``-marked record is
+    likewise routed OUT of the headline contradiction count into a dedicated
+    "possible metric mismatch" disclosure (no junk rel/abs magnitude), matching the
+    production render path. Default-ON via ``PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH``;
+    set the flag OFF for the pre-fix byte-identical headline. Faithfulness untouched.
     """
     if not records:
         return "No contradictions detected in the evidence corpus."
-    comparable = [r for r in records if not getattr(r, "not_comparable", False)]
+    suppress_mismatch = _suppress_metric_mismatch_enabled()
     not_comparable = [r for r in records if getattr(r, "not_comparable", False)]
+    metric_mismatch = [
+        r
+        for r in records
+        if not getattr(r, "not_comparable", False)
+        and suppress_mismatch
+        and _is_possible_metric_mismatch_record(r)
+    ]
+    comparable = [
+        r
+        for r in records
+        if not getattr(r, "not_comparable", False)
+        and not (suppress_mismatch and _is_possible_metric_mismatch_record(r))
+    ]
     lines = [
         f"Detected {len(comparable)} contradiction(s) in the evidence corpus.",
         "",
@@ -1968,6 +2027,26 @@ def format_contradictions_for_user(
             )
         lines.append(f"    Action: {r.recommended_action}")
         lines.append("")
+    if metric_mismatch:
+        lines.append(
+            f"Also surfaced {len(metric_mismatch)} possible-metric-mismatch bucket(s) "
+            "(shared metric NOT confirmed — comparator/population/time-window may "
+            "differ; NOT counted as a contradiction):"
+        )
+        lines.append("")
+        for k, r in enumerate(metric_mismatch, 1):
+            lines.append(
+                f"[PM{k}] {r.subject} / {r.predicate} — possible metric mismatch "
+                "(no asserted disagreement magnitude until a shared metric is confirmed)"
+            )
+            for c in r.claims:
+                lines.append(
+                    f"    - {c.value} {c.unit}   "
+                    f"[ev={c.evidence_id}, tier={c.source_tier}]   "
+                    f"{c.context_snippet[:120]}"
+                )
+            lines.append(f"    Action: {r.recommended_action}")
+            lines.append("")
     if not_comparable:
         lines.append(
             f"Also surfaced {len(not_comparable)} not-comparable bucket(s) "

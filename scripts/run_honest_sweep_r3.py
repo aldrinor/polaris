@@ -11876,6 +11876,23 @@ async def run_one_query(
         from src.polaris_graph.llm.openrouter_client import (
             PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
         )
+        # B08 (#1352) finding (Methods hardcoding): derive the REAL generator/evaluator training
+        # lineages for THIS run instead of the hardcoded "(different family)" string. The two-family
+        # invariant guarantees they differ, but the report must state the ACTUAL families (e.g.
+        # "deepseek vs qwen"), not a fixed claim that could go stale if the lock changes. Pure read of
+        # the live model names + the same family_from_model helper the segregation gate uses.
+        from src.polaris_graph.llm.openrouter_client import (
+            PG_EVALUATOR_FAMILY_OVERRIDE,
+            PG_GENERATOR_FAMILY_OVERRIDE,
+            family_from_model,
+        )
+        _gen_family = family_from_model(PG_GENERATOR_MODEL, PG_GENERATOR_FAMILY_OVERRIDE)
+        _eval_family = family_from_model(PG_EVALUATOR_MODEL, PG_EVALUATOR_FAMILY_OVERRIDE)
+        _eval_family_clause = (
+            f"({_eval_family} lineage; generator is {_gen_family} — distinct training families)"
+            if _gen_family != _eval_family
+            else f"({_eval_family} lineage)"
+        )
         # Build expected-distribution string from the scope template so
         # PT07 passes regardless of domain.
         expected_parts = []
@@ -11936,7 +11953,7 @@ async def run_one_query(
             # text, so the bare not-dropped check over-stated the section count.
             f"{len([s for s in multi.sections if not s.dropped_due_to_failure and not getattr(s, 'is_gap_stub', False) and getattr(s, 'sentences_verified', 1) > 0])} "
             f"parallel sections + strict_verify + regen-on-failure).\n"
-            f"Evaluator model: {PG_EVALUATOR_MODEL} (different family).\n"
+            f"Evaluator model: {PG_EVALUATOR_MODEL} {_eval_family_clause}.\n"
             f"Sources classified using T1-T7 tier taxonomy.\n"
             f"Inclusion / exclusion per {q['domain']} template. "
             f"Sponsor / conflict-of-interest review per source.\n"
@@ -12202,19 +12219,40 @@ async def run_one_query(
         try:
             from src.polaris_graph.roles.release_policy import always_release_enabled as _alw_rel
             if _alw_rel():
-                from src.polaris_graph.generator.provenance_generator import build_drop_disclosure
+                # B08 (#1352) finding #2: build the disclosure from the FULL drop accounting —
+                # support-failed PLUS un-provenanced (no_provenance_token /
+                # empty_or_contentless_sentence) PLUS dedup-redundant consolidations PLUS M-41c
+                # claim-frame policy drops — so the reader sees the TRUE total removed, not the
+                # support-failed subset only (the prior block undercounted, e.g. "30 removed"
+                # when verification_details totalled 49). The dedup-redundant + M-41c counts are
+                # read from the SAME SectionResult fields verification_details.json aggregates
+                # below (drop-count parity). Faithfulness-NEUTRAL: COUNTS + reasons only, never the
+                # raw dropped sentence text. Render gated by PG_REPORT_FULL_DROP_DISCLOSURE so the
+                # legacy (support-failed-only) text can be restored without code change; default ON.
+                from src.polaris_graph.generator.provenance_generator import (
+                    build_drop_disclosure,
+                    render_full_drop_disclosure_md,
+                )
                 _all_dropped: list = []
+                _dedup_redundant_count = 0
+                _m41c_underframed_count = 0
                 for _sr in getattr(multi, "sections", []) or []:
                     _all_dropped.extend(getattr(_sr, "dropped_sentences_final", None) or [])
+                    _dedup_redundant_count += len(
+                        getattr(_sr, "dropped_sentences_dedup_redundant", None) or []
+                    )
+                    _m41c_underframed_count += len(
+                        getattr(_sr, "dropped_sentences_m41c_underframed", None) or []
+                    )
                 _drop_summary = build_drop_disclosure(_all_dropped)
-                if _drop_summary["support_failed_count"] > 0:
-                    # Reasons SPLIT by disposition (Codex diff-gate P2): the support-failed claim
-                    # count uses ONLY the support-failed reason tally, never the un-provenanced
-                    # hygiene reasons. I-beatboth-011 idx 36 (#1289): the claim count is PER-CLAIM
-                    # while the reason counts are tallied PER FAILED CHECK, so a claim failing more
-                    # than one check contributes to more than one reason — the two need not be equal
-                    # (the divergence is BIDIRECTIONAL). Both numbers are individually correct; the
-                    # report text below states the relationship so they never read as a contradiction.
+                if _env_flag("PG_REPORT_FULL_DROP_DISCLOSURE", default=True):
+                    _drop_disclosure_md = render_full_drop_disclosure_md(
+                        _drop_summary,
+                        dedup_redundant_count=_dedup_redundant_count,
+                        m41c_underframed_count=_m41c_underframed_count,
+                    )
+                elif _drop_summary["support_failed_count"] > 0:
+                    # Legacy (support-failed-only) text — preserved verbatim under the OFF flag.
                     _reason_md = ", ".join(
                         f"{k}: {v}"
                         for k, v in sorted(_drop_summary["support_failed_reason_counts"].items())
@@ -12378,6 +12416,22 @@ async def run_one_query(
                 )
         except Exception as _seam_exc:  # noqa: BLE001 — additive screen; never abort the report
             _log(f"[render-seam] skipped (fail-open): {_seam_exc}")
+        # I-deepfix-001 B18 (#1344): GFM-table normalize the ASSEMBLED report — insert the missing
+        # `| --- |` separator row after a header and re-pad data rows to the header column count
+        # WITHOUT dropping any cell (fixes the malformed summary table whose 6 data rows were column-
+        # shifted so specific numeric claims rendered uncited). Render/formatting only: never edits a
+        # cell's content, never adds/removes a citation token, never drops a row/cell. Default-ON kill-
+        # switch PG_RENDER_GFM_TABLE_NORMALIZE; fail-open (never abort the report). Faithfulness-neutral.
+        try:
+            from src.polaris_graph.generator.markdown_table_normalizer import (  # noqa: PLC0415
+                normalize_gfm_tables,
+            )
+            _tbl_norm = normalize_gfm_tables(final_report)
+            final_report = _tbl_norm.text
+            if _tbl_norm.changed:
+                _log(f"[gfm-table-normalizer] {_tbl_norm.canary}")
+        except Exception as _tbl_exc:  # noqa: BLE001 — additive normalize; never abort the report
+            _log(f"[gfm-table-normalizer] skipped (fail-open): {_tbl_exc}")
         # SECTION-lane cross-wire (I-arch-005 #1257): PREPEND the SECTION lane's reliability
         # header (corroboration-strength counts) to the report.md ARTIFACT only. The field does
         # NOT exist on MultiSectionResult at this base -> getattr None -> render "" -> byte-
@@ -14955,6 +15009,39 @@ async def run_one_query(
                     )
         except Exception as _cc_exc:  # noqa: BLE001 — canary is additive; never abort the run on its own error
             _log(f"[chrome-canary]  WARN skipped (fail-open): {_cc_exc}")
+
+        # B08 (#1352) finding #1: inject the D8-unadjudicated banner into report.md when the
+        # FINAL manifest records adjudicated=False. This runs LAST — after every status
+        # reconciliation (4-role seam, A18 release-invariant, chrome canary) — so it reads the
+        # HONEST adjudicated flag the A18 path serialized into release_disclosure. A reader of
+        # report.md alone could not previously tell the strongest verifier was skipped for THIS
+        # run; the banner closes that disclosure-to-render gap. Faithfulness-NEUTRAL: a top-of-
+        # report disclosure block, never spliced into a finding or any verdict. Idempotent
+        # (skips when the banner marker is already present) so a resume/re-finalize never stacks
+        # banners. Default-ON kill-switch PG_REPORT_D8_BANNER; fail-open (never abort the run).
+        if _env_flag("PG_REPORT_D8_BANNER", default=True):
+            try:
+                from src.polaris_graph.generator.provenance_generator import (
+                    build_d8_unadjudicated_banner,
+                )
+                _d8_banner = build_d8_unadjudicated_banner(
+                    manifest.get("release_disclosure")
+                )
+                if _d8_banner:
+                    _banner_report_path = run_dir / "report.md"
+                    if _banner_report_path.is_file():
+                        _banner_existing = _banner_report_path.read_text(encoding="utf-8")
+                        # Idempotency marker = the banner's distinctive opening clause.
+                        if "STRONGEST VERIFIER (four-role D8) DID NOT RUN" not in _banner_existing:
+                            _banner_report_path.write_text(
+                                _d8_banner + _banner_existing, encoding="utf-8"
+                            )
+                            _log(
+                                "[d8-banner]   report.md prepended with the D8-unadjudicated "
+                                "banner (release_disclosure.adjudicated=False)."
+                            )
+            except Exception as _db_exc:  # noqa: BLE001 — additive disclosure; never abort the run
+                _log(f"[d8-banner]   skipped (fail-open): {_db_exc}")
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
