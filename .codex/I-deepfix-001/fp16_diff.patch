@@ -1,0 +1,44 @@
+diff --git a/src/utils/embedding_service.py b/src/utils/embedding_service.py
+index dbd14ebb..95faecb3 100644
+--- a/src/utils/embedding_service.py
++++ b/src/utils/embedding_service.py
+@@ -130,14 +130,24 @@ class EmbeddingService:
+                 # warning (never a silent device drop). Empty/unset => no-arg
+                 # constructor (byte-identical to prior behavior).
+                 _embed_device = (os.getenv("PG_EMBED_DEVICE", "") or "").strip()
++                # I-deepfix-001 P0-3b (2026-06-28): the Qwen3-Embedding-8B winner loads
++                # FP32 by default (~24-32GB) and OOMs a single 24GB card — the embedder
++                # then returns None (DARK) and the static 2-GPU split is impossible. Load
++                # the 8B in FP16 (~15GB on cuda:0, validated; encode dim=4096) so it fits
++                # WITH headroom for the co-resident W5 reranker. The MiniLM default
++                # (384-dim) is UNCHANGED (no model_kwargs) => byte-identical OFF path.
++                _st_kwargs: dict = {}
++                if EMBEDDING_DIMENSIONS == 4096:  # the Qwen3-Embedding-8B selection
++                    import torch as _torch  # local: only the large-model path needs it
++                    _st_kwargs["model_kwargs"] = {"torch_dtype": _torch.float16}
+                 if _embed_device:
+                     try:
+                         self._model = SentenceTransformer(
+-                            EMBEDDING_MODEL_NAME, device=_embed_device
++                            EMBEDDING_MODEL_NAME, device=_embed_device, **_st_kwargs
+                         )
+                         logger.info(
+-                            "Embedding service device pinned via PG_EMBED_DEVICE=%s",
+-                            _embed_device,
++                            "Embedding service device pinned via PG_EMBED_DEVICE=%s fp16=%s",
++                            _embed_device, bool(_st_kwargs),
+                         )
+                     except TypeError:
+                         logger.warning(
+@@ -146,9 +156,9 @@ class EmbeddingService:
+                             "constructor (model lands on its default device).",
+                             _embed_device,
+                         )
+-                        self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
++                        self._model = SentenceTransformer(EMBEDDING_MODEL_NAME, **_st_kwargs)
+                 else:
+-                    self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
++                    self._model = SentenceTransformer(EMBEDDING_MODEL_NAME, **_st_kwargs)
+                 self._model_name = EMBEDDING_MODEL_NAME
+                 self._dimensions = EMBEDDING_DIMENSIONS
+ 
