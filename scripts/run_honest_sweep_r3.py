@@ -4210,6 +4210,44 @@ _RUN_WALL_CLOCK_DEADLINE_CTX: "contextvars.ContextVar[float | None]" = contextva
 )
 
 
+# I-deepfix-001 fix-2 (#1344): SHARED per-question retrieval wall-deadline.
+# `run_live_retrieval` already accepts `retrieval_deadline_monotonic` and, on expiry,
+# hands off the partial corpus WITH disclosure (proven offline). The relaunch gap was
+# the CALLER: `run_one_query` never passed a SHARED instant, so EACH retrieval lane
+# (initial / IterResearch-or-FS / CRAG corrective loop-back / R-6 expansion / deepener
+# / agentic / STORM) anchored its OWN fresh `PG_RETRIEVAL_WALL_SECONDS` (30 min) wall —
+# the forensic run ground ~57 min in retrieval because every lane reset the clock. This
+# helper reads the NEW `PG_RETRIEVAL_QUESTION_WALL_SECONDS` knob and returns ONE absolute
+# `time.monotonic()` instant for the whole question; `run_one_query` anchors it ONCE and
+# threads it into every `run_live_retrieval` call. Unset / garbage / non-positive => None
+# (DEFAULT => byte-identical per-invocation bounding, the proven relaunch behavior). §-1.3:
+# this only stops the per-lane CLOCK RESET; it caps no breadth and drops no source (the
+# existing wall hands off the partial corpus with disclosure), and touches no faithfulness
+# gate.
+_QUESTION_RETRIEVAL_WALL_ENV = "PG_RETRIEVAL_QUESTION_WALL_SECONDS"
+
+
+def _per_question_retrieval_deadline() -> "float | None":
+    """Absolute ``time.monotonic()`` instant bounding the WHOLE per-question retrieval
+    phase, or ``None`` when ``PG_RETRIEVAL_QUESTION_WALL_SECONDS`` is unset / garbage /
+    non-positive (=> the proven per-invocation default; byte-identical). Anchored ONCE
+    per question by ``run_one_query`` and SHARED across all retrieval lanes so the wall
+    cannot be reset per lane."""
+    raw = os.getenv(_QUESTION_RETRIEVAL_WALL_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # Mirror live_retriever._env_float: a non-finite (inf/nan) or non-positive wall is
+    # rejected (a broken deadline is worse than the per-invocation default).
+    import math as _math  # local: keep module import-time cost unchanged
+    if not _math.isfinite(seconds) or seconds <= 0:
+        return None
+    return time.monotonic() + seconds
+
+
 def run_wall_clock_cancellation_active() -> bool:
     """B20 P1-1: True iff the CURRENT asyncio task is being cancelled AND the run-scoped
     wall-clock deadline has elapsed — i.e. this CancelledError unwind is the B20 wall-clock
@@ -7823,6 +7861,17 @@ async def run_one_query(
             _trial_doi_seeds = []
 
         t0 = time.time()
+        # I-deepfix-001 fix-2 (#1344): anchor ONE shared per-question retrieval
+        # wall-deadline HERE (retrieval-phase start) and thread it into EVERY
+        # `run_live_retrieval(...)` lane below (initial / IterResearch-or-FS / CRAG
+        # corrective loop-back / R-6 expansion / deepener / agentic / STORM) so all
+        # lanes SHARE ONE wall instead of each resetting a fresh `PG_RETRIEVAL_WALL_
+        # SECONDS` (the ~57-min retrieval grind). `None` (knob unset — the default)
+        # leaves each lane on its proven per-invocation wall (byte-identical). §-1.3:
+        # only the per-lane clock RESET is stopped; the existing wall hands off the
+        # partial corpus with disclosure (no breadth cap, no source drop, no
+        # faithfulness gate touched).
+        _question_retrieval_deadline = _per_question_retrieval_deadline()
         _hb("retrieval_started")  # GH #1258 PART 2: stage-tick before the long fetch+classify phase
         # I-meta-005 Phase 1 (#985) + Phase 2 (#986): ON-mode bypasses the
         # legacy domain router (brief §2.4) — `domain=None` skips the
@@ -8016,6 +8065,7 @@ async def run_one_query(
                         seed_urls=_seed,
                         research_frame=_retrieval_frame,
                         progress_cb=_hb,
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (IterResearch/FS lane)
                     )
 
                 if _fs_researcher_enabled():
@@ -8054,6 +8104,7 @@ async def run_one_query(
                     seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
                     research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
                     progress_cb=_hb,  # GH #1258 PART 2: tick the heartbeat during fetch + classify
+                    retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (initial lane)
                 )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -8352,6 +8403,7 @@ async def run_one_query(
                         enable_openalex_enrich=True,
                         enable_prefetch_filter=False,
                         domain=q["domain"],
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (CRAG corrective loop-back)
                     )
                     # Merge: add new sources / evidence not already present
                     # (same proven pattern as the R-6 expansion below).
@@ -8530,6 +8582,7 @@ async def run_one_query(
                     enable_openalex_enrich=True,
                     enable_prefetch_filter=False,
                     domain=q["domain"],
+                    retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (R-6 expansion lane)
                 )
                 _log(f"[expansion]   fetched={exp_retrieval.candidates_fetched} "
                      f"new evidence rows")
@@ -8634,6 +8687,7 @@ async def run_one_query(
                         # lane (seed-split + SENTINEL_ORIGINS include deepener_seed); telemetry only.
                         seed_source="deepener_seed",
                         seed_query_origin="deepener_seed",
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (citation-snowball deepener lane)
                     )
                     # ATOMIC merge (Codex diff-gate iter-1 P1): stage everything in LOCAL copies,
                     # recompute dist/completeness/adequacy over the staged corpus, and COMMIT all
@@ -8860,6 +8914,7 @@ async def run_one_query(
                         # (seed-split splits on {primary_trial_doi, agentic_seed}); telemetry only.
                         seed_source="agentic_seed",
                         seed_query_origin="agentic_seed",
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (agentic lane)
                     )
                     # ATOMIC merge via the pure helper (dedup by URL + global ev_### renumber), then
                     # recompute dist/completeness/adequacy over the staged corpus and COMMIT only after
@@ -8929,6 +8984,7 @@ async def run_one_query(
                         seed_only=True,   # ONLY the STORM URLs — no Serper/S2/domain fan-out
                         seed_source="storm_seed",
                         seed_query_origin="storm_seed",
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (STORM lane)
                     )
                     _st_sources, _st_rows, _st_acc_src, _st_acc_rows = merge_seed_url_evidence(
                         retrieval.classified_sources,
@@ -10935,6 +10991,7 @@ async def run_one_query(
                         seed_urls=[],
                         research_frame=_retrieval_frame,
                         anchor_seed=False,   # GAP round: no broad anchor re-run
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (saturation gap round)
                     )
                     # Codex P1-1 (#1289): a saturation gap round runs the SAME
                     # `run_live_retrieval` fetch chain AFTER the initial junk

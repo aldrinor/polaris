@@ -121,6 +121,42 @@ _SIM_MEASURES = {"jaccard": _jaccard, "containment": _containment}
 _DEFAULT_SIM_MEASURE = "containment"
 _DEFAULT_SCOPE_FLOOR = 0.08
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 keystone (#1344) — KEEP-BEST-N anti-empty-round guard.
+# Relaunch forensic P1-8: the scope validator could drop a whole snowball / CRAG-
+# corrective sub-query set to "0 unique candidates". An empty kept-set fires NO
+# search => no new sources merge => the CRAG adequacy grader re-grades the unchanged
+# corpus not-sufficient => the corrective loop burns its budget WITHOUT widening the
+# corpus (retrieval never converges). A validator that HARD-DROPS to empty is the
+# §-1.3 "filter, not weight" anti-pattern. KEEP-BEST-N rescues the round: when EVERY
+# non-directive, non-empty candidate would be scope-dropped, keep the top-N by scope
+# similarity (a WEIGHT — the most on-intent survivors) so the round still fires.
+# This is keep-and-proceed; it is a pre-fetch query/scope gate and touches NO
+# faithfulness gate (strict_verify / NLI / 4-role / span). It NEVER acts when the
+# kept-set is already non-empty (an always-kept anchor or any passing query satisfies
+# the >=1 guarantee), so the default-ON path is byte-identical except for the precise
+# empty-round case it exists to prevent. `PG_SCOPE_KEEP_BEST_N=0` reverts to the
+# legacy drop-to-empty.
+_KEEP_BEST_N_ENV = "PG_SCOPE_KEEP_BEST_N"
+_DEFAULT_KEEP_BEST_N = 1
+
+
+def _keep_best_n() -> int:
+    """Top-N survivors to keep when the scope floor would strand an empty round.
+
+    Reads ``PG_SCOPE_KEEP_BEST_N`` (default 1). ``0`` => legacy drop-to-empty
+    (byte-identical). A malformed value falls back to the default rather than
+    raising — the anti-empty-round budget is an operational knob, not a
+    correctness gate (the floor itself is unchanged)."""
+    raw = os.getenv(_KEEP_BEST_N_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_KEEP_BEST_N
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_KEEP_BEST_N
+    return max(0, value)
+
 
 def _select_sim_measure():
     """Return the (name, fn) for the configured similarity measure.
@@ -379,6 +415,10 @@ def validate_amplified_queries(
             seen.add(norm)
             unique_amplified.append(q.strip())
 
+    # I-deepfix-001 keystone (#1344): track the below-floor (but non-directive,
+    # non-empty) candidates with their scope similarity so KEEP-BEST-N can rescue
+    # the most on-intent survivors if the kept-set would otherwise be EMPTY.
+    below_floor: list[tuple[str, float, str]] = []
     for q in unique_amplified:
         q_tokens = _tokenize(q)
         if not q_tokens:
@@ -394,7 +434,7 @@ def validate_amplified_queries(
             _reason = f"below_scope_floor_{floor:.2f}"
             if sim_name != "jaccard":
                 _reason = f"{_reason}_{sim_name}"
-            dropped.append((q, sim, _reason))
+            below_floor.append((q, sim, _reason))
 
     # Record the B3 directive drops in the telemetry so they are auditable
     # (sim=0.0, an explicit injected-directive reason — never silently swallowed).
@@ -407,6 +447,34 @@ def validate_amplified_queries(
     if always_keep_anchor and research_question:
         if research_question not in kept:
             kept.insert(0, research_question)
+
+    # I-deepfix-001 keystone (#1344): KEEP-BEST-N anti-empty-round rescue. Fires ONLY
+    # when the floor loop left the kept-set EMPTY (the convergence-blocking case) AND
+    # there were below-floor candidates to rescue. Keep the top-N by scope similarity
+    # — the most on-intent survivors — so the round still fires. §-1.3 keep-and-proceed:
+    # this can only ADD on-intent queries the floor would have stranded; it never
+    # drops a source, never relaxes a faithfulness gate. When kept is already non-empty
+    # (an always-kept anchor or any passing query) this no-ops => byte-identical.
+    keep_best_n = _keep_best_n()
+    if not kept and keep_best_n > 0 and below_floor:
+        # Deterministic: highest sim first; ties broken by original (stable) order.
+        ranked = sorted(
+            enumerate(below_floor), key=lambda iv: (-iv[1][1], iv[0])
+        )
+        rescued_idx = {i for i, _ in ranked[:keep_best_n]}
+        for i, (q, sim, _reason) in enumerate(below_floor):
+            if i in rescued_idx:
+                kept.append(q)
+            else:
+                dropped.append((q, sim, _reason))
+        logger.info(
+            "[scope_validator] KEEP-BEST-N rescued %d of %d below-floor query(ies) "
+            "to avoid a stranded empty retrieval round (PG_SCOPE_KEEP_BEST_N=%d).",
+            len(rescued_idx), len(below_floor), keep_best_n,
+        )
+    else:
+        # No rescue needed (or disabled): every below-floor candidate stays dropped.
+        dropped.extend(below_floor)
 
     logger.info(
         "[scope_validator] measure=%s floor=%.2f kept=%d dropped=%d (anchor_tokens=%d)",

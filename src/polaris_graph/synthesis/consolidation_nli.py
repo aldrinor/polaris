@@ -51,11 +51,18 @@ ENV_MODEL = "PG_CONSOLIDATION_NLI_MODEL"                # cross-encoder id
 ENV_WORKERS = "PG_CONSOLIDATION_NLI_WORKERS"            # bounded-parallel cap
 ENV_MARGIN = "PG_CONSOLIDATION_NLI_MARGIN"              # entailment-logit margin
 ENV_MAX_PAIRS = "PG_CONSOLIDATION_NLI_MAX_PAIRS"        # O(n^2) safety cap
+# I-deepfix-001 fix-3 (#1344): optional device placement for the cross-encoder. On
+# the crammed 2-GPU split (W6 embedder + W5 reranker + W10 NLI co-resident on cuda:0)
+# a CUDA OOM during load/predict used to RAISE and KILL the consolidation step (a
+# §-1.3 WEIGHT, not a faithfulness gate). Unset => NO device kwarg (byte-identical
+# library auto-placement). A CUDA OOM degrades to CPU (keeps MORE baskets, never dies).
+ENV_DEVICE = "PG_CONSOLIDATION_NLI_DEVICE"
 
 _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
 _DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
 _DEFAULT_MAX_PAIRS = "20000"
+_CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
 # test): index 0 = contradiction, 1 = entailment, 2 = neutral.
@@ -101,29 +108,99 @@ def _max_pairs() -> int:
     return _read_int(ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS, lo=1, hi=10_000_000)
 
 
+def _device() -> Optional[str]:
+    """Configured cross-encoder device (``PG_CONSOLIDATION_NLI_DEVICE``), or None when
+    unset/blank => NO device kwarg passed (byte-identical library auto-placement)."""
+    raw = os.environ.get(ENV_DEVICE, "").strip()
+    return raw or None
+
+
+def _is_cuda_oom(exc: BaseException) -> bool:
+    """True iff ``exc`` is a CUDA out-of-memory error (the only failure the W10 winner
+    DEGRADES to CPU; every other error fails loud per §-1.4). Detects both the typed
+    ``torch.cuda.OutOfMemoryError`` and the generic ``RuntimeError('CUDA out of
+    memory ...')`` by class name + message, so this needs no hard torch import."""
+    name = type(exc).__name__
+    if name in ("OutOfMemoryError", "CudaOutOfMemoryError"):
+        return True
+    msg = str(exc).lower()
+    return "out of memory" in msg and ("cuda" in msg or "gpu" in msg)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Lazy cross-encoder load (one model per process, thread-safe)
 # ─────────────────────────────────────────────────────────────────────────
 _MODEL_LOCK = threading.Lock()
 _MODEL: Any = None
+# I-deepfix-001 fix-3 (#1344): the device the resident `_MODEL` was loaded on (or None
+# for library auto-placement). When a predict-time CUDA OOM forces a CPU degrade, the
+# model is rebuilt on CPU and this is set to "cpu" so the rebuild happens once.
+_MODEL_DEVICE: Optional[str] = None
 
 
-def _load_model() -> Any:
+def _construct_cross_encoder(model_id: str, device: Optional[str]) -> Any:
+    """Build a `CrossEncoder` with an OPTIONAL device kwarg (lazy import). A None
+    device passes NO kwarg (byte-identical library auto-placement)."""
+    from sentence_transformers import CrossEncoder  # noqa: PLC0415 — lazy by design
+
+    if device is None:
+        return CrossEncoder(model_id)
+    return CrossEncoder(model_id, device=device)
+
+
+def _load_model(device: Optional[str] = None) -> Any:
     """Lazily load the cross-encoder ONCE per process (double-checked lock). Loading
     happens only inside the flag-ON branch (the caller already gated on the flag), so an
     environment without `sentence_transformers` only fails when the winner is actually
-    activated — never on import."""
-    global _MODEL
+    activated — never on import.
+
+    I-deepfix-001 fix-3 (#1344): honors ``PG_CONSOLIDATION_NLI_DEVICE`` (or the explicit
+    ``device`` arg, used by the predict-OOM CPU degrade). On a CUDA OOM during the GPU
+    load the model is RETRIED on CPU (degrade) so the consolidation winner still FIRES —
+    it never raises an OOM and never loses a basket. A non-OOM load error still fails
+    loud (§-1.4). The model is cached with its loaded device in ``_MODEL_DEVICE``."""
+    global _MODEL, _MODEL_DEVICE
     if _MODEL is not None:
         return _MODEL
     with _MODEL_LOCK:
         if _MODEL is not None:
             return _MODEL
-        from sentence_transformers import CrossEncoder  # noqa: PLC0415 — lazy by design
-
         model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
-        logger.info("[consolidation_nli] loading cross-encoder %s", model_id)
-        _MODEL = CrossEncoder(model_id)
+        want_device = _device() if device is None else device
+        logger.info(
+            "[consolidation_nli] loading cross-encoder %s (device=%s)",
+            model_id, want_device or "auto",
+        )
+        try:
+            _MODEL = _construct_cross_encoder(model_id, want_device)
+            _MODEL_DEVICE = want_device
+        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+            if not _is_cuda_oom(exc) or want_device == _CPU_DEVICE:
+                raise  # non-OOM (or already-CPU) load failure => fail loud (§-1.4)
+            logger.warning(
+                "[consolidation_nli] CUDA OOM loading the cross-encoder on device=%s; "
+                "DEGRADING to CPU so consolidation still fires (no basket lost): %s",
+                want_device, exc,
+            )
+            _MODEL = _construct_cross_encoder(model_id, _CPU_DEVICE)
+            _MODEL_DEVICE = _CPU_DEVICE
+        return _MODEL
+
+
+def _reload_model_on_cpu() -> Any:
+    """Drop the resident (GPU) cross-encoder and rebuild it on CPU — the predict-time
+    CUDA OOM degrade. Returns the CPU model. Thread-safe (under ``_MODEL_LOCK``)."""
+    global _MODEL, _MODEL_DEVICE
+    with _MODEL_LOCK:
+        if _MODEL is not None and _MODEL_DEVICE == _CPU_DEVICE:
+            return _MODEL  # another thread already degraded
+        model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
+        logger.warning(
+            "[consolidation_nli] CUDA OOM during predict; DEGRADING the cross-encoder "
+            "to CPU and re-scoring (no basket lost)."
+        )
+        _MODEL = _construct_cross_encoder(model_id, _CPU_DEVICE)
+        _MODEL_DEVICE = _CPU_DEVICE
         return _MODEL
 
 
@@ -207,9 +284,18 @@ def score_pairs(
             f"{ENV_MAX_PAIRS}={max_pairs}; raise the cap or pre-bucket the clusters."
         )
 
+    # I-deepfix-001 fix-3 (#1344): track whether the predict came from the real lazy
+    # cross-encoder (production) vs an injected stub (the fire-test seam). On a CUDA OOM
+    # during predict, the production path RELOADS the model on CPU and re-scores (degrade,
+    # no basket lost); an injected stub is simply retried (its own recovery semantics).
+    _injected_predict = predict_fn is not None
     if predict_fn is None:
         model = _load_model()
         predict_fn = model.predict  # type: ignore[assignment]
+    # A 1-element holder so a CPU degrade in one chunk swaps the active predict for ALL
+    # subsequent chunks (the GPU model is gone; reloading per chunk would thrash).
+    _predict_holder: list[Any] = [predict_fn]
+    _degraded = threading.Event()
 
     # Chunk the pairs across the bounded worker pool. A chunk is scored with ONE batched
     # predict (both directions in the same batch), so a chunk == one model call.
@@ -217,13 +303,32 @@ def score_pairs(
     chunk_size = (len(pairs) + n_chunks - 1) // n_chunks
     chunks = [pairs[k:k + chunk_size] for k in range(0, len(pairs), chunk_size)]
 
+    def _predict_with_oom_degrade(batch: list[tuple[str, str]]) -> Any:
+        """Run the active predict; on a CUDA OOM, DEGRADE to CPU (production) or retry
+        the injected stub, then re-run ONCE. A non-OOM error fails loud (§-1.4)."""
+        try:
+            return _predict_holder[0](batch)
+        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+            if not _is_cuda_oom(exc):
+                raise
+            if _injected_predict:
+                # Test/degrade seam: retry the same injected predict once.
+                _degraded.set()
+                return _predict_holder[0](batch)
+            # Production: rebuild the cross-encoder on CPU and swap it in for this and
+            # every later chunk, then re-score this batch.
+            cpu_model = _reload_model_on_cpu()
+            _predict_holder[0] = cpu_model.predict
+            _degraded.set()
+            return _predict_holder[0](batch)
+
     def _score_chunk(chunk: list[tuple[int, int]]) -> list[tuple[int, int]]:
         # Build BOTH directions for every pair in one batch: [A->B, B->A, ...].
         batch: list[tuple[str, str]] = []
         for i, j in chunk:
             batch.append((texts[i], texts[j]))
             batch.append((texts[j], texts[i]))
-        logits = predict_fn(batch)  # shape (2*len(chunk), 3)
+        logits = _predict_with_oom_degrade(batch)  # shape (2*len(chunk), 3)
         edges: list[tuple[int, int]] = []
         for idx, (i, j) in enumerate(chunk):
             fwd = logits[2 * idx]
