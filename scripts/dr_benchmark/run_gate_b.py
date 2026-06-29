@@ -2202,8 +2202,9 @@ _BENCHMARK_EXTRA_ENV_FLOORS = {
 
 
 # I-arch-007 SMOKE scale-down. Applied (FORCE-SET, bypassing the ~1000-URL FLOOR) AFTER the
-# full-capability slate ONLY when --smoke-scale is passed, so a PLUMBING smoke runs ~15-20 min and a
-# HANG self-kills in ~40 min instead of 6h. INPUT BREADTH (the 5 fetch lanes + query-breadth counts)
+# full-capability slate ONLY when --smoke-scale is passed, so a PLUMBING smoke runs ~25-35 min and a
+# HANG self-kills in ~60 min instead of 6h (I-deepfix-001: retrieval wall 1200 + run-wall 3600). INPUT
+# BREADTH (the 5 fetch lanes + query-breadth counts)
 # and timeout BACKSTOPS ONLY — the faithfulness engine (strict_verify / NLI / 4-role D8 / provenance),
 # the A20 consolidate-keep-all funnel (PG_SWEEP_CREDIBILITY_REDESIGN), and the native 4-role seam are
 # UNTOUCHED. A smaller HONEST run, never a relaxed one. Default OFF (the flag) => full run byte-identical.
@@ -2233,14 +2234,26 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
     "PG_PREFLIGHT_MIN_BREADTH": "10",        # was 100
     # I-cred-008b basket-coverage gate scales with breadth; keep the super-heavy preflight's own
     # gates ON (faithfulness/behavioral) — only the BREADTH-count floor is lowered for the smoke.
-    # timeout hierarchy — coherent per-call < generator < section < seam < run-wall, scaled so a HANG
-    # is caught in ~40 min. A tiny smoke section finishes in minutes, well under these, so none
-    # truncates a HEALTHY section (the arch-005 trap).
+    # timeout hierarchy — coherent retrieval-wall < run-wall (with back-half headroom) AND
+    # per-call < generator < section < seam < run-wall, scaled so a HANG is caught in ~60 min.
+    # A tiny smoke section finishes in minutes, well under these, so none truncates a HEALTHY
+    # section (the arch-005 trap).
+    # I-deepfix-001 (#1344) SMOKE-HANDOFF FIX: the full slate pins PG_RETRIEVAL_QUESTION_WALL_SECONDS
+    # =5400 via FLOOR semantics; on the smoke that EXCEEDS the smoke run-wall (was 2400), so the
+    # per-question retrieval deadline could NEVER hand off the partial corpus -> retrieval ran
+    # UNBOUNDED and the smoke never reached generation/render (the back-half plumbing stayed
+    # unexercised). The benchmark preflight SKIPS the retrieval<run coherence check on smoke_scale
+    # (run_gate_b.py:2616 `and not smoke_scale`), so nothing caught the incoherent hierarchy. Pin a
+    # smoke retrieval wall STRICTLY BELOW the smoke run-wall with ample back-half room: 1200 retrieval
+    # + up to 2400 back-half <= 3600 run-wall (seam backstop 1800 < 2400 -> a healthy back half is
+    # never guillotined). Smoke-only; the PAID slate (5400 < 10800) is UNTOUCHED. Faithfulness-neutral:
+    # a disclosed retrieval_wall_hit hands off the partial corpus and drops no source (§-1.3).
+    "PG_RETRIEVAL_QUESTION_WALL_SECONDS": "1200", # per-question retrieval handoff (20 min) — < run-wall
     "PG_VERIFIER_LLM_TIMEOUT_SECONDS": "300",    # per verifier LLM call (5 min)
     "PG_GENERATOR_LLM_TIMEOUT_SECONDS": "600",   # per generator call (10 min) — synced to live module below
     "PG_SECTION_WALLCLOCK_SECONDS": "900",       # per section (15 min)
     "PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS": "1800", # 4-role D8 seam (30 min)
-    "PG_RUN_WALL_CLOCK_SEC": "2400",             # OUTER backstop (40 min)
+    "PG_RUN_WALL_CLOCK_SEC": "3600",             # OUTER backstop (60 min) — retrieval 1200 + back-half 2400
     # modest cost cap for a smoke (synced to the live module below)
     "PG_MAX_COST_PER_RUN": "10",
     # CORRECTNESS (not scale-down): the GLM-5.1 Mirror blanks at xhigh effort and STALLS the 4-role
@@ -2255,7 +2268,7 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
 
     ``smoke_scale=True`` (the --smoke-scale flag) force-applies ``_SMOKE_SCALE_OVERRIDES`` AFTER the
-    floor loop (bypassing max()), shrinking INPUT breadth + timeout backstops for a ~15-20 min plumbing
+    floor loop (bypassing max()), shrinking INPUT breadth + timeout backstops for a ~25-35 min plumbing
     smoke. Faithfulness gates, the A20 funnel, and the 4-role seam are NOT touched. Default OFF.
 
     Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
@@ -2284,7 +2297,7 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
             current = float(value)
         os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
     # I-arch-007 SMOKE: AFTER the full-capability floor, FORCE-SET the small-scale overrides (bypassing
-    # the FLOOR's max()) so a --smoke-scale plumbing run is ~15-20 min. INPUT BREADTH + timeout BACKSTOPS
+    # the FLOOR's max()) so a --smoke-scale plumbing run is ~25-35 min. INPUT BREADTH + timeout BACKSTOPS
     # ONLY — no faithfulness gate / A20 funnel / 4-role seam touched. Placed BEFORE the two live-module
     # setters below so the smoke's small PG_MAX_COST_PER_RUN + PG_GENERATOR_LLM_TIMEOUT_SECONDS reach the
     # cached module globals (set_max_cost_per_run / set_generator_timeout_seconds) too, not just os.environ.
@@ -3873,7 +3886,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--smoke-scale", action="store_true", default=False,
         help=(
-            "I-arch-007 SMOKE: small-scale FAST run (~15-20 min) for PLUMBING validation. After the "
+            "I-arch-007 SMOKE: small-scale FAST run (~25-35 min) for PLUMBING validation. After the "
             "full-capability floor slate, FORCE-SET (bypassing the ~1000-URL floor) the retrieval "
             "BREADTH knobs small (~45 URLs total) + a coherent short timeout hierarchy so a HANG is "
             "known in ~40 min, not 6h. INPUT-breadth + backstops ONLY — the faithfulness engine, the "

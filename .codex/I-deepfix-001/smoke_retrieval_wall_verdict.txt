@@ -1,0 +1,7 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["scripts/dr_benchmark/run_gate_b.py:2205, scripts/dr_benchmark/run_gate_b.py:2270, scripts/dr_benchmark/run_gate_b.py:2299, scripts/dr_benchmark/run_gate_b.py:3888-3891 stale smoke-duration comments/help still say ~15-20 min / ~40 min while effective smoke run wall is now 3600s; comment/help drift only, no code assertion of 2400 found."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
