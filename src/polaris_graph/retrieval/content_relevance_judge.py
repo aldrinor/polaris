@@ -408,32 +408,49 @@ def _predict_with_qwen3_reranker(
         # small enough to fit alongside the co-resident Qwen3-Embedding-8B on
         # cuda:0 (the W5-dark → CRAG-non-convergence keystone bug). DEFAULT 0
         # (PG_CONTENT_RELEVANCE_SCORE_CHUNK unset) => ONE pass over all pairs =>
-        # BYTE-IDENTICAL to prior behavior. >0 => score in groups of that size,
-        # freeing the CUDA cache between groups. FAITHFULNESS-NEUTRAL: the yes/no
-        # softmax is per-row independent, so every per-pair score is identical
-        # regardless of grouping; no source is dropped/capped/thinned. LAW VI.
-        _score_chunk = int(os.getenv("PG_CONTENT_RELEVANCE_SCORE_CHUNK", "0") or "0")
-        if _score_chunk <= 0 or _score_chunk >= len(pairs):
-            _pair_groups = [pairs]
+        # BYTE-IDENTICAL to prior behavior. >0 => score in groups of that size.
+        # Parse-guarded (Codex iter1 P2): garbage/negative => 0 (one-pass), never
+        # a ValueError leaking into the scorer's broad ``except`` (full-weight).
+        try:
+            _score_chunk = int(os.getenv("PG_CONTENT_RELEVANCE_SCORE_CHUNK", "0") or "0")
+        except ValueError:
+            _score_chunk = 0
+        if _score_chunk < 0:
+            _score_chunk = 0
+
+        # Tokenize ALL pairs ONCE, then pad EVERY chunk to the SAME global-longest
+        # length the one-pass path pads to. Codex iter1 P1-2: the reranker is a
+        # LEFT-padded decoder-only causal LM, so the pad amount shifts RoPE position
+        # ids; padding each chunk to its own LOCAL longest would perturb per-pair
+        # scores across groupings. Padding every chunk to the GLOBAL longest makes
+        # the chunked scores IDENTICAL to one-pass AND chunk-size-invariant — so
+        # relevance stays a stable WEIGHT (faithfulness-neutral). chunk==0 => a
+        # single group whose pad length == the one-pass batch-longest == byte-id.
+        formatted_all = [_format_qwen3_pair(q, d) for q, d in pairs]
+        enc_all = tokenizer(
+            formatted_all, padding=False, truncation="longest_first",
+            return_attention_mask=False,
+            max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
+        )
+        ids_all = [
+            prefix_tokens + enc_all["input_ids"][idx] + suffix_tokens
+            for idx in range(len(enc_all["input_ids"]))
+        ]
+        global_len = max((len(x) for x in ids_all), default=0)
+
+        if _score_chunk == 0 or _score_chunk >= len(ids_all):
+            index_groups = [list(range(len(ids_all)))]
         else:
-            _pair_groups = [
-                pairs[i:i + _score_chunk] for i in range(0, len(pairs), _score_chunk)
+            index_groups = [
+                list(range(i, min(i + _score_chunk, len(ids_all))))
+                for i in range(0, len(ids_all), _score_chunk)
             ]
 
         all_scores: list[float] = []
-        for _group in _pair_groups:
-            formatted = [_format_qwen3_pair(q, d) for q, d in _group]
-            enc = tokenizer(
-                formatted, padding=False, truncation="longest_first",
-                return_attention_mask=False,
-                max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
-            )
-            for idx in range(len(enc["input_ids"])):
-                enc["input_ids"][idx] = (
-                    prefix_tokens + enc["input_ids"][idx] + suffix_tokens
-                )
+        for _grp in index_groups:
             inputs = tokenizer.pad(
-                enc, padding=True, return_tensors="pt", max_length=max_length,
+                {"input_ids": [ids_all[i] for i in _grp]},
+                padding="max_length", max_length=global_len, return_tensors="pt",
             )
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
             with torch.no_grad():
@@ -444,8 +461,12 @@ def _predict_with_qwen3_reranker(
                 probs = torch.nn.functional.log_softmax(stacked, dim=1)
                 scores = probs[:, 1].exp().tolist()
             all_scores.extend(float(s) for s in scores)
-            # Free this group's reserved logits block before the next (cuda only).
-            if len(_pair_groups) > 1 and str(model.device).startswith("cuda"):
+            # Codex iter1 P1-1: DROP refs to the large CUDA tensors BEFORE
+            # empty_cache() so the [chunk x seq x vocab] block is actually released
+            # before the next forward (otherwise empty_cache is a no-op — they are
+            # still live — and the next allocation can overlap and OOM).
+            del logits, true_v, false_v, stacked, probs, inputs
+            if len(index_groups) > 1 and str(model.device).startswith("cuda"):
                 try:
                     torch.cuda.empty_cache()
                 except Exception:  # noqa: BLE001 — best-effort, never fatal

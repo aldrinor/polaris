@@ -1928,7 +1928,17 @@ def _apply_min_body_stub_gate(
     if _oa_resolver_enabled():
         _oa_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
         if _oa_doi:
-            _oa_content = _try_oa_resolution(
+            # Codex iter1 P1-3: use the BOUNDED OA resolver here. This gate runs
+            # on the naive-httpx FALLBACK return, which is reached via
+            # `_fallback_naive_fetch` from (among others) the AccessBypass TIMEOUT
+            # path — where FIX-3-piece-2 already attempted a bounded OA. A bare
+            # synchronous `_try_oa_resolution` here would be a SECOND, UNBOUNDED OA
+            # that can re-route the AccessBypass browser cascade and re-open the
+            # very timeout storm we just escaped. `_try_oa_resolution_bounded`
+            # caps it at PG_OA_RECOVERY_DEADLINE (daemon+join) and hands a wedged
+            # thread to the drain registry. Recovery still only ADDS content
+            # (§-1.3: never drops).
+            _oa_content = _try_oa_resolution_bounded(
                 url=url,
                 extracted_doi=_oa_doi,
                 pmid=(pmid_hint or "").strip(),
