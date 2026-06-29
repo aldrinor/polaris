@@ -339,15 +339,43 @@ def _fetch_openrouter_catalog(http_client: httpx.Client | None = None) -> list[d
     url = f"{openrouter_base_url()}{_OPENROUTER_MODELS_PATH}"
     own_client = http_client is None
     client = http_client or httpx.Client(timeout=_TIMEOUT_SECONDS)
+    # I-deepfix-001 (#1344): the pre-spend catalog probe must ride out a TRANSIENT OpenRouter
+    # hiccup (HTTP 408/425/429/5xx or a connect/read timeout) instead of crashing the whole run to
+    # a $0 abort on a single blip (observed: a lone 408 killed the run before retrieval started).
+    # Bounded retry with capped exponential backoff; a GENUINE persistent failure STILL fails LOUD
+    # (LAW II). Faithfulness-neutral (pre-spend liveness probe only, no spend, no gate touched).
+    # PG_PREFLIGHT_CATALOG_RETRIES (default 5); the injected MockTransport test path returns 200 on
+    # the first attempt so it is byte-identical.
+    import time  # local import — module has no top-level `time` (mirrors the local imports elsewhere)
     try:
-        response = client.get(url, timeout=_TIMEOUT_SECONDS)
+        _catalog_retries = max(1, int(os.getenv("PG_PREFLIGHT_CATALOG_RETRIES", "5")))
+    except (TypeError, ValueError):
+        _catalog_retries = 5
+    _transient_status = {408, 425, 429, 500, 502, 503, 504}
+    try:
+        for _attempt in range(_catalog_retries):
+            try:
+                response = client.get(url, timeout=_TIMEOUT_SECONDS)
+            except httpx.HTTPError as _exc:  # connect / read / pool timeout — transient transport fault
+                if _attempt < _catalog_retries - 1:
+                    time.sleep(min(2.0 * (2 ** _attempt), 30.0))
+                    continue
+                raise RuntimeError(
+                    f"OpenRouter catalog preflight: GET {url} transport error after "
+                    f"{_catalog_retries} attempts: {_exc}"
+                ) from _exc
+            if response.status_code == httpx.codes.OK:
+                break
+            if response.status_code in _transient_status and _attempt < _catalog_retries - 1:
+                time.sleep(min(2.0 * (2 ** _attempt), 30.0))
+                continue
+            raise RuntimeError(
+                f"OpenRouter catalog preflight: GET {url} returned HTTP {response.status_code}"
+                + (f" after {_attempt + 1} attempts" if _attempt else "")
+            )
     finally:
         if own_client:
             client.close()
-    if response.status_code != httpx.codes.OK:
-        raise RuntimeError(
-            f"OpenRouter catalog preflight: GET {url} returned HTTP {response.status_code}"
-        )
     body = response.json()
     data = body.get("data")
     if not isinstance(data, list):
@@ -2266,7 +2294,13 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
     "PG_GENERATOR_LLM_TIMEOUT_SECONDS": "600",   # per generator call (10 min) — synced to live module below
     "PG_SECTION_WALLCLOCK_SECONDS": "900",       # per section (15 min)
     "PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS": "1800", # 4-role D8 seam (30 min)
-    "PG_RUN_WALL_CLOCK_SEC": "3600",             # OUTER backstop (60 min) — retrieval 1200 + back-half 2400
+    # I-deepfix-001 (#1344) back-half headroom: the first authorized smoke must fit retrieval (1200) +
+    # tiering + adequacy/CRAG + generation + strict_verify + the 4-role seam (1800) inside the run-wall.
+    # 3600 risked guillotining mid-back-half (error_unexpected, no report); 5400 keeps seam 1800 <
+    # run-wall and retrieval 1200 < run-wall (passes the coherence preflight). Also pin the credibility
+    # pass wall coherent with the smoke (the full slate force-exacts 3000, incoherent vs a 5400 run-wall).
+    "PG_RUN_WALL_CLOCK_SEC": "5400",             # OUTER backstop (90 min) — retrieval 1200 + back-half ~4200
+    "PG_CREDIBILITY_PASS_WALL_S": "600",         # smoke credibility-pass wall (10 min) — < run-wall, coherent
     # modest cost cap for a smoke (synced to the live module below)
     "PG_MAX_COST_PER_RUN": "10",
     # CORRECTNESS (not scale-down): the GLM-5.1 Mirror blanks at xhigh effort and STALLS the 4-role
