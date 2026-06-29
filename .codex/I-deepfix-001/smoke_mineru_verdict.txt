@@ -1,0 +1,7 @@
+novel_p0: []
+continuing_p0: []
+p1: ["scripts/dr_benchmark/run_gate_b.py:2525-2532 still unconditionally asserts every _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS entry; that map still requires PG_CLINICAL_PDF_EXTRACTOR='mineru25' at scripts/dr_benchmark/run_gate_b.py:1868. Because --smoke-scale force-sets PG_CLINICAL_PDF_EXTRACTOR='docling' at scripts/dr_benchmark/run_gate_b.py:2314-2316 after the full-slate force-exact loop, the smoke will fail preflight before reaching the conditional W4 GPU gate."]
+p2: ["Stale comments at scripts/dr_benchmark/run_gate_b.py:1365-1370 and scripts/dr_benchmark/run_gate_b.py:2522-2524 still say _SMOKE_SCALE_OVERRIDES does not touch the winner/model selector path."]
+convergence_call: continue
+remaining_blockers_for_execution: ["Make the PG_CLINICAL_PDF_EXTRACTOR exact-value assertion smoke-aware while preserving mineru25 assertion for non-smoke paid runs."]
+verdict: REQUEST_CHANGES

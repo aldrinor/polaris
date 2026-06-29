@@ -1,0 +1,7 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["Comment-only drift: a few broader smoke comments still say _SMOKE_SCALE_OVERRIDES is only input breadth + timeout backstops, but it now has one explicit PG_CLINICAL_PDF_EXTRACTOR=docling exception. Non-blocking; the two updated comments themselves are accurate."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
