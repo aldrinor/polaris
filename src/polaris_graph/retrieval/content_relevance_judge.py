@@ -345,6 +345,17 @@ def _load_qwen3_reranker(report: RelevanceReport) -> Any:
             "fallback — no CUDA). GPU is the production path (wiring_standard pt 2).",
         )
 
+    # I-deepfix-001 FIX-1 (keystone): free any cached-but-unallocated CUDA blocks
+    # (e.g. the co-resident Qwen3-Embedding-8B's embed-batch cache) on this card
+    # BEFORE loading the W5 reranker, so its weights + scoring activations fit
+    # alongside the 14.4GB resident embedder on cuda:0. cuda-only; a no-op on CPU.
+    # Faithfulness-neutral — pure GPU-memory mechanics, no model/score change.
+    if device.startswith("cuda"):
+        try:
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 — best-effort cache free, never fatal
+            pass
+
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
     # Random-head canary: AutoModelForCausalLM keeps the pretrained LM head, so no
     # "newly initialized" score.weight warning should fire. We surface any such
@@ -392,29 +403,54 @@ def _predict_with_qwen3_reranker(
         prefix_tokens = handle["prefix_tokens"]
         suffix_tokens = handle["suffix_tokens"]
         max_length = max(512, int(os.getenv("PG_CONTENT_RELEVANCE_MAX_LENGTH", "4096")))
+        # I-deepfix-001 FIX-1 (keystone): score in CHUNKS so the per-forward
+        # ``model(**inputs).logits`` tensor ([chunk x seq x ~152k-vocab]) stays
+        # small enough to fit alongside the co-resident Qwen3-Embedding-8B on
+        # cuda:0 (the W5-dark → CRAG-non-convergence keystone bug). DEFAULT 0
+        # (PG_CONTENT_RELEVANCE_SCORE_CHUNK unset) => ONE pass over all pairs =>
+        # BYTE-IDENTICAL to prior behavior. >0 => score in groups of that size,
+        # freeing the CUDA cache between groups. FAITHFULNESS-NEUTRAL: the yes/no
+        # softmax is per-row independent, so every per-pair score is identical
+        # regardless of grouping; no source is dropped/capped/thinned. LAW VI.
+        _score_chunk = int(os.getenv("PG_CONTENT_RELEVANCE_SCORE_CHUNK", "0") or "0")
+        if _score_chunk <= 0 or _score_chunk >= len(pairs):
+            _pair_groups = [pairs]
+        else:
+            _pair_groups = [
+                pairs[i:i + _score_chunk] for i in range(0, len(pairs), _score_chunk)
+            ]
 
-        formatted = [_format_qwen3_pair(q, d) for q, d in pairs]
-        enc = tokenizer(
-            formatted, padding=False, truncation="longest_first",
-            return_attention_mask=False,
-            max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
-        )
-        for idx in range(len(enc["input_ids"])):
-            enc["input_ids"][idx] = (
-                prefix_tokens + enc["input_ids"][idx] + suffix_tokens
+        all_scores: list[float] = []
+        for _group in _pair_groups:
+            formatted = [_format_qwen3_pair(q, d) for q, d in _group]
+            enc = tokenizer(
+                formatted, padding=False, truncation="longest_first",
+                return_attention_mask=False,
+                max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
             )
-        inputs = tokenizer.pad(
-            enc, padding=True, return_tensors="pt", max_length=max_length,
-        )
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            logits = model(**inputs).logits[:, -1, :]
-            true_v = logits[:, handle["true_id"]]
-            false_v = logits[:, handle["false_id"]]
-            stacked = torch.stack([false_v, true_v], dim=1)
-            probs = torch.nn.functional.log_softmax(stacked, dim=1)
-            scores = probs[:, 1].exp().tolist()
-        return [float(s) for s in scores]
+            for idx in range(len(enc["input_ids"])):
+                enc["input_ids"][idx] = (
+                    prefix_tokens + enc["input_ids"][idx] + suffix_tokens
+                )
+            inputs = tokenizer.pad(
+                enc, padding=True, return_tensors="pt", max_length=max_length,
+            )
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                logits = model(**inputs).logits[:, -1, :]
+                true_v = logits[:, handle["true_id"]]
+                false_v = logits[:, handle["false_id"]]
+                stacked = torch.stack([false_v, true_v], dim=1)
+                probs = torch.nn.functional.log_softmax(stacked, dim=1)
+                scores = probs[:, 1].exp().tolist()
+            all_scores.extend(float(s) for s in scores)
+            # Free this group's reserved logits block before the next (cuda only).
+            if len(_pair_groups) > 1 and str(model.device).startswith("cuda"):
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:  # noqa: BLE001 — best-effort, never fatal
+                    pass
+        return all_scores
     except Exception as exc:
         logger.warning(
             "[content_relevance] Qwen3-Reranker load/scoring failed (%s) — FALLING "

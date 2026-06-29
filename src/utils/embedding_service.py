@@ -64,8 +64,26 @@ else:
     EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
     EMBEDDING_DIMENSIONS = 384
 
-# Batch processing
-DEFAULT_BATCH_SIZE = 32
+# Batch processing. PG_EMBED_BATCH_SIZE caps the per-forward-pass activation PEAK
+# (I-deepfix-001 FIX-1 keystone): the qwen3 Qwen3-Embedding-8B batch-32 activation
+# peak fills cuda:0 under the static 2-GPU split and OOMs the co-resident W5
+# content-relevance reranker (the W5-dark → CRAG-non-convergence keystone bug).
+# Lowering the batch shrinks the GPU activation peak. THROUGHPUT/MEMORY ONLY —
+# every passage is still embedded, the vectors are identical (sentence-transformers
+# batching is row-independent), NO source is dropped/capped/thinned (§-1.3-neutral);
+# the faithfulness engine (strict_verify/NLI/4-role/span-grounding) is untouched.
+# Default 32 on unset/garbage => byte-identical to prior behavior. LAW VI: env-driven.
+def _default_batch_size() -> int:
+    raw = os.getenv("PG_EMBED_BATCH_SIZE", "").strip()
+    if not raw:
+        return 32
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 32
+
+
+DEFAULT_BATCH_SIZE = _default_batch_size()
 
 
 # =============================================================================

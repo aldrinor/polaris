@@ -1883,6 +1883,86 @@ def _strip_html(html: str) -> str:
     return base
 
 
+def _apply_min_body_stub_gate(
+    *,
+    content: str,
+    ok: bool,
+    url: str,
+    method: str,
+    max_chars: int,
+    extracted_title: str,
+    body_type: str,
+    jsonld: str,
+    doi_hint: str = "",
+    pmid_hint: str = "",
+) -> tuple[str, bool, str, str, str]:
+    """FIX #2 (I-deepfix-001): apply the SAME F14 min-body stub gate that the
+    PRIMARY ``_fetch_content`` branch applies (the 3014-3073 block) to the
+    naive-httpx FALLBACK return path, which previously returned ``ok=True`` for a
+    sub-floor body (an 11-char "Just a moment..." Cloudflare/paywall shell) — a
+    dead fetch masquerading as a good source, exactly what F14 was built to stop,
+    but only on the fallback path.
+
+    Semantics MIRROR the primary branch: when the body is below the configured
+    floor AND a DOI is resolvable, give the OA resolver a chance to UPGRADE the
+    shell to full text; otherwise LABEL it ``stub`` (ok=False) — the content is
+    STILL returned (a down-weight consumer can inspect it), never DROPPED (§-1.3
+    label-not-drop). DEFAULT floor 0 (``PG_FETCH_MIN_BODY_CHARS`` unset) =>
+    returns the tuple UNCHANGED => byte-identical to today; the gate fires only on
+    the cert sweep (floor=1000). LAW VI: reuses only existing env knobs. The
+    faithfulness engine (strict_verify / NLI / 4-role / span-grounding) is
+    downstream and untouched — this is a fetch-layer ok-flag + telemetry change.
+
+    Unlike the primary branch, this helper records ONLY the keyed ``_m45`` reason
+    (no ``_trace_tool``): the naive path is reached via ``_fallback_naive_fetch``,
+    which already emits the SINGLE per-fetch ``ok``/``fail`` trace for this call —
+    mirroring the existing empty-extract precedent (the ``_m45``-only record at
+    the ``fetched_200_but_empty_extract`` site below).
+    """
+    if not ok:
+        return content, ok, extracted_title, body_type, jsonld
+    _min_body = _fetch_min_body_chars()
+    if _min_body <= 0 or len(content) >= _min_body:
+        return content, ok, extracted_title, body_type, jsonld
+    # Below the floor — give the OA resolver a chance to upgrade the short shell.
+    if _oa_resolver_enabled():
+        _oa_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+        if _oa_doi:
+            _oa_content = _try_oa_resolution(
+                url=url,
+                extracted_doi=_oa_doi,
+                pmid=(pmid_hint or "").strip(),
+                max_chars=max_chars,
+            )
+            if _oa_content and len(_oa_content) >= _min_body:
+                logger.info(
+                    "[live_retriever] fetch_oa_upgrade %s (naive-path "
+                    "short_body=%d -> oa_body=%d) — short shell upgraded to "
+                    "full text via OA resolver",
+                    url[:80], len(content), len(_oa_content),
+                )
+                _m45_record_fetch_telemetry(url, "oa_resolver", "")
+                return _oa_content, True, extracted_title, body_type, jsonld
+    # Still short after the OA attempt — STUB, not ok. KEEP content (§-1.3).
+    _is_paywall_pub = _is_paywall_publisher_url(url)
+    if _is_paywall_pub and not os.getenv("ZYTE_API_KEY"):
+        logger.warning(
+            "[live_retriever] PAYWALL_STUB_NO_ZYTE %s (method=%s chars=%d < "
+            "floor=%d) — naive-fallback paywalled-publisher short shell and "
+            "ZYTE_API_KEY is UNSET; the Zyte paid fallback was a silent no-op.",
+            url[:80], method, len(content), _min_body,
+        )
+    else:
+        logger.warning(
+            "[live_retriever] PAYWALL_STUB %s (method=%s chars=%d < floor=%d, "
+            "paywall_publisher=%s) — naive-fallback short body treated as a "
+            "stub, NOT ok (fail-loud).",
+            url[:80], method, len(content), _min_body, _is_paywall_pub,
+        )
+    _m45_record_fetch_telemetry(url, method, "paywall_stub_short_body")
+    return content, False, extracted_title, body_type, jsonld
+
+
 def _fetch_content_httpx_naive(
     url: str, max_chars: int
 ) -> tuple[str, bool, str, str, str]:
@@ -1952,7 +2032,21 @@ def _fetch_content_httpx_naive(
             _m45_record_fetch_telemetry(
                 url, "httpx_naive", "fetched_200_but_empty_extract",
             )
-        return content, bool(content), extracted_title, body_type, jsonld
+        # FIX #2 (I-deepfix-001): apply the SAME F14 min-body stub gate the
+        # PRIMARY branch applies. Sub-floor fallback bodies (paywall shells,
+        # 'Just a moment...' interstitials) are LABELED stub/ok=False (content
+        # KEPT — §-1.3) instead of admitted as ok=True. DEFAULT floor 0 (unset)
+        # => returns the tuple UNCHANGED => byte-identical.
+        return _apply_min_body_stub_gate(
+            content=content,
+            ok=bool(content),
+            url=url,
+            method="httpx_naive",
+            max_chars=max_chars,
+            extracted_title=extracted_title,
+            body_type=body_type,
+            jsonld=jsonld,
+        )
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
