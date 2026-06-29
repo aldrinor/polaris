@@ -1105,6 +1105,132 @@ def reset_bypass_leak_state() -> None:
         _bypass_leaked_worker_count = 0
     with _bypass_inflight_semaphore_lock:
         _bypass_inflight_semaphore = None
+    with _bypass_abandoned_lock:
+        _bypass_abandoned_workers.clear()
+
+
+# ---------------------------------------------------------------------------
+# FIX-3 PIECE 1 (I-deepfix-001): bounded drain + live/cumulative gauge split.
+#
+# `record_bypass_leaked_worker` above is a CUMULATIVE monotonic event counter —
+# it climbs by design every time the outer join abandons a still-alive worker.
+# It CANNOT tell "how many abandoned workers are still alive right now" from
+# "how many were ever abandoned this process". In a long-lived UI/server process
+# cooperatively-finishable abandoned workers also persist ACROSS questions with
+# no end-of-run reclamation.
+#
+# This adds, ALONGSIDE the cumulative counter (which stays untouched):
+#   * a LIVE registry of abandoned worker Threads (a set guarded by a lock),
+#   * `register_abandoned_bypass_worker` / `deregister_abandoned_bypass_worker`
+#     so the timeout path registers on abandon and the worker self-deregisters
+#     in its OWN finally,
+#   * `bypass_live_leaked_count()` — the count of registered workers STILL alive
+#     (distinct from the cumulative gauge),
+#   * `drain_bypass_workers(budget)` — a BOUNDED best-effort join of the
+#     registered workers within `PG_BYPASS_DRAIN_SECONDS` (default 30.0),
+#     called ONCE at end of run_live_retrieval so cooperative abandoned workers
+#     are reclaimed and the registry cannot grow unbounded across questions.
+#
+# The existing `threading.BoundedSemaphore` (PG_BYPASS_MAX_INFLIGHT) stays the
+# concurrency bound — this adds NO second bound, only reclamation + an honest
+# live gauge.
+#
+# HONEST LIMITATION (mirrors the BB5-S02 active-teardown + trafilatura SIGSEGV
+# notes): a worker wedged in a synchronous C-level Playwright call CANNOT be
+# joined in-process — `join(timeout)` returns when the budget elapses but the
+# thread is still alive. The drain reclaims COOPERATIVE cases and caps
+# cross-question accumulation; it does NOT promise zero residual threads, and a
+# wedged worker is still counted live by `bypass_live_leaked_count()`.
+# ---------------------------------------------------------------------------
+
+# Default wall-clock budget (seconds) for the end-of-run bounded drain. Named
+# constant (LAW VI — no magic number). Env-overridable via PG_BYPASS_DRAIN_SECONDS.
+_BYPASS_DRAIN_SECONDS_DEFAULT = 30.0
+PG_BYPASS_DRAIN_SECONDS_ENV = "PG_BYPASS_DRAIN_SECONDS"
+
+# The LIVE registry of abandoned bypass worker threads, guarded by its own lock
+# (NOT the cumulative-counter lock — the two gauges are independent).
+_bypass_abandoned_workers: "set[threading.Thread]" = set()
+_bypass_abandoned_lock = threading.Lock()
+
+
+def register_abandoned_bypass_worker(worker: "threading.Thread") -> None:
+    """FIX-3 piece 1: record a worker the outer join abandoned (still alive past
+    the deadline) into the LIVE registry so the end-of-run drain can attempt to
+    reclaim it. Thread-safe. Idempotent (a set). The worker self-deregisters in
+    its own finally; the `is_alive()` filter in count/drain prunes any
+    already-dead entry from the register/deregister race."""
+    with _bypass_abandoned_lock:
+        _bypass_abandoned_workers.add(worker)
+
+
+def deregister_abandoned_bypass_worker(worker: "threading.Thread") -> None:
+    """FIX-3 piece 1: remove a worker from the LIVE registry. Called from the
+    worker's OWN finally so a worker that eventually terminates (after being
+    abandoned) drops out of the live gauge. Thread-safe; no-op if not present."""
+    with _bypass_abandoned_lock:
+        _bypass_abandoned_workers.discard(worker)
+
+
+def bypass_live_leaked_count() -> int:
+    """FIX-3 piece 1: count abandoned workers that are STILL ALIVE right now —
+    the LIVE gauge, distinct from the CUMULATIVE `bypass_leaked_worker_count`.
+    Counts only `is_alive()` threads so a dead-but-not-yet-deregistered entry
+    (register/deregister race) is not over-counted. Thread-safe snapshot."""
+    with _bypass_abandoned_lock:
+        return sum(1 for t in _bypass_abandoned_workers if t.is_alive())
+
+
+def _bypass_drain_budget_seconds() -> float:
+    """Resolve the drain budget (seconds) from PG_BYPASS_DRAIN_SECONDS, else the
+    named default. A malformed/<=0 value falls back to the default — mirrors the
+    `_get_bypass_inflight_semaphore` parse pattern; a bad knob must never disable
+    the drain (LAW VI)."""
+    raw = os.getenv(PG_BYPASS_DRAIN_SECONDS_ENV)
+    if raw is not None and raw.strip():
+        try:
+            parsed = float(raw)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return _BYPASS_DRAIN_SECONDS_DEFAULT
+
+
+def drain_bypass_workers(budget: "float | None" = None) -> int:
+    """FIX-3 piece 1: BOUNDED best-effort join of the abandoned-worker registry.
+
+    Joins each registered worker with a per-worker `join(timeout=remaining)`
+    where `remaining` is whatever is left of the total `budget` (default
+    PG_BYPASS_DRAIN_SECONDS / `_BYPASS_DRAIN_SECONDS_DEFAULT`). The TOTAL drain
+    can never exceed the budget — a wedged worker consumes the rest of the
+    budget and the loop then breaks, so the drain NEVER re-introduces the
+    #554-class hang. After the bounded join it prunes every dead thread from the
+    registry and returns the number of workers STILL ALIVE (the residual live
+    leak — typically C-wedged Playwright workers that cannot be joined
+    in-process).
+
+    Returns the residual live count (0 when everything was reclaimed).
+    """
+    budget = _bypass_drain_budget_seconds() if budget is None else max(0.0, budget)
+    deadline = _time_module.monotonic() + budget
+    with _bypass_abandoned_lock:
+        snapshot = list(_bypass_abandoned_workers)
+    for worker in snapshot:
+        remaining = deadline - _time_module.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            worker.join(timeout=remaining)
+        except Exception:  # noqa: BLE001 — best-effort; a join error never breaks the run
+            pass
+    # Prune dead threads from the registry (cooperative cases that terminated,
+    # plus any dead-from-the-race entry) and report the residual live count.
+    with _bypass_abandoned_lock:
+        for worker in list(_bypass_abandoned_workers):
+            if not worker.is_alive():
+                _bypass_abandoned_workers.discard(worker)
+        return sum(1 for t in _bypass_abandoned_workers if t.is_alive())
 
 
 # ---------------------------------------------------------------------------

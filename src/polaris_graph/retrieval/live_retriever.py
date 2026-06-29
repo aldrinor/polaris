@@ -2422,6 +2422,89 @@ def _try_oa_resolution(
     return ""
 
 
+# FIX-3 PIECE 2 (I-deepfix-001): bounded OA recovery for the AccessBypass TIMEOUT
+# path. Default deadline (seconds) for the whole recovery attempt. Named constant
+# (LAW VI); env-overridable via PG_OA_RECOVERY_DEADLINE. A malformed/<=0 value
+# falls back to the default so a bad knob can never UNBOUND the recovery (which
+# would re-open the timeout storm the abandon path exists to escape).
+_OA_RECOVERY_DEADLINE_DEFAULT = 20.0
+PG_OA_RECOVERY_DEADLINE_ENV = "PG_OA_RECOVERY_DEADLINE"
+
+
+def _oa_recovery_deadline_seconds() -> float:
+    """Resolve the timeout-path OA-recovery wall-clock budget (seconds) from
+    PG_OA_RECOVERY_DEADLINE, else `_OA_RECOVERY_DEADLINE_DEFAULT`."""
+    raw = os.getenv(PG_OA_RECOVERY_DEADLINE_ENV)
+    if raw is not None and raw.strip():
+        try:
+            parsed = float(raw)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return _OA_RECOVERY_DEADLINE_DEFAULT
+
+
+def _try_oa_resolution_bounded(
+    url: str,
+    extracted_doi: str = "",
+    pmid: str = "",
+    max_chars: int = DEFAULT_CONTENT_MAX_CHARS,
+) -> str:
+    """FIX-3 piece 2: run :func:`_try_oa_resolution` under a HARD wall-clock so it
+    can be called on the AccessBypass timeout path WITHOUT re-opening the storm.
+
+    `_try_oa_resolution` is NOT purely fast-API: its Unpaywall step calls
+    `_fetch_oa_url_via_bypass`, which routes `frame_fetcher._fetch_url_pattern`
+    (the AccessBypass browser cascade). A bare synchronous call could therefore
+    stall the very path whose purpose is to NOT stall. So run it in a daemon
+    thread and `join(PG_OA_RECOVERY_DEADLINE)`; on timeout REGISTER that thread
+    with the same abandoned-bypass-worker registry the main worker uses (so the
+    end-of-run bounded drain reclaims it / the live gauge counts it) and return
+    "" so the caller falls through to the naive return unchanged (fail-OPEN).
+
+    Returns recovered content (str) on a hit within budget, else "".
+    """
+    if not _oa_resolver_enabled():
+        return ""
+    _holder: dict[str, str] = {}
+
+    def _runner() -> None:
+        try:
+            _holder["content"] = _try_oa_resolution(
+                url=url, extracted_doi=extracted_doi, pmid=pmid, max_chars=max_chars,
+            )
+        except Exception:  # noqa: BLE001 — fail-OPEN; never raise out of the thread
+            _holder["content"] = ""
+        finally:
+            # Symmetry with the main bypass worker: if this thread was abandoned
+            # (registered on timeout) but then finished, drop it from the live
+            # registry. A no-op when it was never registered. The drain/count
+            # `is_alive()` filter also prunes it, so this is belt-and-suspenders.
+            try:
+                from src.tools.access_bypass import (
+                    deregister_abandoned_bypass_worker,
+                )
+                deregister_abandoned_bypass_worker(threading.current_thread())
+            except Exception:  # noqa: BLE001 — best-effort cleanup
+                pass
+
+    _t = threading.Thread(target=_runner, daemon=True)
+    _t.start()
+    _t.join(timeout=_oa_recovery_deadline_seconds())
+    if _t.is_alive():
+        # Recovery exceeded its budget (the bypass cascade wedged). Hand the
+        # thread to the SAME abandoned-worker registry so it is drained/counted
+        # like an abandoned main worker; do NOT block on it (preserve non-hang).
+        try:
+            from src.tools.access_bypass import register_abandoned_bypass_worker
+            register_abandoned_bypass_worker(_t)
+        except Exception:  # noqa: BLE001 — best-effort; never break retrieval
+            pass
+        return ""
+    return _holder.get("content", "") or ""
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch via the FORCED Zyte path.
 #
@@ -2812,8 +2895,10 @@ def _fetch_content(
     # (releasing on abandonment over-releases; not releasing leaks the slot).
     from src.tools.access_bypass import (
         _get_bypass_inflight_semaphore,
+        deregister_abandoned_bypass_worker,
         polaris_asyncio_run,
         record_bypass_leaked_worker,
+        register_abandoned_bypass_worker,
     )
     result_holder: dict[str, Any] = {}
     _inflight_sem = _get_bypass_inflight_semaphore()
@@ -2889,6 +2974,12 @@ def _fetch_content(
             result_holder["error"] = exc
         finally:
             _inflight_sem.release()
+            # FIX-3 piece 1 (I-deepfix-001): self-deregister from the LIVE
+            # abandoned-worker registry. If the outer join abandoned this worker
+            # (registered it on the timeout path) but the worker then finished
+            # cooperatively, drop it out of the live gauge so it is not counted
+            # as a residual leak. A no-op when this worker was never abandoned.
+            deregister_abandoned_bypass_worker(threading.current_thread())
 
     worker = threading.Thread(target=_bypass_worker, daemon=True)
     worker.start()
@@ -2914,6 +3005,15 @@ def _fetch_content(
         # flag covers the never-started (pre-loop) case; the loop cancel below
         # covers the in-flight (post-loop) case.
         _abandoned.set()
+        # FIX-3 piece 1 (I-deepfix-001): register the abandoned worker in the
+        # LIVE registry so the end-of-run bounded drain can attempt to reclaim it
+        # and `bypass_live_leaked_count()` reports whether it is still alive
+        # (distinct from the cumulative gauge recorded just below). The worker
+        # self-deregisters in its own finally if it later finishes cooperatively;
+        # the `is_alive()` filter in the drain/count prunes the dead-from-race
+        # case. The existing BoundedSemaphore stays the concurrency bound — this
+        # adds reclamation + an honest live gauge, no second bound.
+        register_abandoned_bypass_worker(worker)
         # BB5-S02 (#1177): the worker is ABANDONED (still alive past the join
         # deadline) — it holds its in-flight slot + possibly a live browser
         # subprocess until it finally terminates. Record the leak gauge so the
@@ -2967,6 +3067,45 @@ def _fetch_content(
         _m45_record_fetch_telemetry(
             url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
         )
+        # FIX-3 piece 2 (I-deepfix-001): DOI recovery on the previously-DARK
+        # TIMEOUT path. The existing stub-path OA resolver (below, ~L3129) is
+        # UNREACHABLE from here — this return fires first — so a 90s-timed-out
+        # academic doi.org URL never got an Unpaywall/EFetch attempt and went
+        # dark. When the resolver is enabled and a DOI resolves (carried hint or
+        # embedded in the URL), try the OA recovery BOUNDED by
+        # PG_OA_RECOVERY_DEADLINE (the helper runs it in a daemon thread + joins
+        # within budget so it CANNOT re-open the timeout storm). On a hit return
+        # the recovered full text with ok=True; on miss/error fall through to the
+        # naive return unchanged (fail-OPEN). Gated on _oa_resolver_enabled()
+        # (default ON, like the stub-path OA at L3129) — when the resolver is OFF
+        # this branch is byte-identical to the prior timeout return.
+        if _oa_resolver_enabled():
+            _to_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+            if _to_doi:
+                _oa_content = _try_oa_resolution_bounded(
+                    url=url,
+                    extracted_doi=_to_doi,
+                    pmid=(pmid_hint or "").strip(),
+                    max_chars=max_chars,
+                )
+                if _oa_content:
+                    logger.info(
+                        "[live_retriever] fetch_oa_timeout_recovery %s "
+                        "(doi=%s chars=%d) — recovered via OA resolver on the "
+                        "AccessBypass timeout path (was previously dark)",
+                        url[:80], _to_doi, len(_oa_content),
+                    )
+                    _m45_record_fetch_telemetry(
+                        url, "oa_resolver", "timeout_recovery"
+                    )
+                    _trace_tool(
+                        "fetch_content", target=url, status="ok",
+                        latency_ms=(time.time() - _t0) * 1000.0,
+                        backend_used="oa_resolver",
+                        bytes_received=len(_oa_content),
+                        content_length=len(_oa_content),
+                    )
+                    return _oa_content, True, "", "", ""
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail). The
         # backend that actually ran is httpx_naive, not access_bypass.
         return _fallback_naive_fetch(
@@ -5529,6 +5668,67 @@ def run_live_retrieval(
                     _row["authority_confidence"] = _auth.authority_confidence.value
                 evidence_rows.append(_row)
                 _trace_kept(cand.url, cand.source)
+        elif (not ok) and _credibility_redesign_enabled():
+            # FIX-3 piece 3 (I-deepfix-001, §-1.3 STOP THE SILENT HARD-DROP):
+            # a `not ok` candidate with EMPTY content (the doi.org-timeout →
+            # naive-paywall → empty-body case) never reaches the `if content:`
+            # block above, so the ONLY evidence_rows.append site is skipped and
+            # the source is SILENTLY HARD-DROPPED — a high-credibility failed
+            # academic DOI vanishes while a low-tier source that fetched fine is
+            # kept (credibility inversion). The existing F30 down-weight-and-keep
+            # path also lives inside `if content:`, so it does NOT cover the
+            # empty-content case. Under the EXISTING redesign flag, RETAIN the
+            # source as a DISCLOSED zero-weight row instead of dropping it
+            # (§-1.3 WEIGHT-not-FILTER / disclose-don't-drop). This is the
+            # `else`-of-`if content:` seam where `tier_result`/`signals`/
+            # `classifier_title` are already bound for EVERY candidate
+            # (computed unconditionally above, ~L5177/L5234/L5254), so the branch
+            # references only locals valid at this scope.
+            #
+            # FAITHFULNESS-SAFE BY CONSTRUCTION: the row carries `direct_quote=""`
+            # AND sets NO `statement`, so the provenance generator's grounding
+            # fallback (`ev.get("direct_quote") or ev.get("statement") or ""` at
+            # provenance_generator.py:1480) yields "" → `return None`: the row can
+            # NEVER be selected to ground a claim, NEVER be cited, NEVER feed or
+            # relax strict_verify / NLI / 4-role / span-grounding. It is disclosed
+            # corpus metadata only. `retrieval_weight=0.0` is read by the SOLE
+            # consumer `evidence_selector._retrieval_weight` as
+            # `1.0 if w is None else float(w)` (NOT an `or`-default — 0.0 is
+            # preserved, sorts the row LAST), and no other consumer `or`-launders
+            # it (grep-verified). OFF path (redesign flag unset) → this elif is
+            # never entered → byte-identical legacy hard-drop.
+            _row0: dict[str, Any] = {
+                "evidence_id": f"ev_{i:03d}",
+                "source_url": cand.url,
+                # NO `statement` key — see grounding note above.
+                "title": classifier_title or cand.title or "",
+                "direct_quote": "",
+                "tier": tier_result.tier.value,
+                "source": cand.source,
+                "full_content_length": 0,
+                "retrieval_weight": 0.0,
+                "down_weighted": True,
+                "fetch_failed": True,
+                "full_text_capable": False,
+                "query_origin": getattr(cand, "query_origin", "") or "",
+            }
+            if _pub_year is not None:
+                _row0["year"] = _pub_year
+                _row0["publication_year"] = _pub_year
+            if research_frame is not None:
+                _auth0 = score_source_authority(signals)
+                _row0["authority_score"] = float(_auth0.authority_score)
+                _row0["authority_confidence"] = _auth0.authority_confidence.value
+            evidence_rows.append(_row0)
+            logger.info(
+                "[live_retriever] §-1.3 RETAIN failed-fetch source at ZERO weight "
+                "for %r (tier=%s) — DISCLOSED (weight=0.0, fetch_failed=True, "
+                "direct_quote='' so it can never ground a claim), NOT silently "
+                "dropped",
+                cand.url, tier_result.tier.value,
+            )
+            # DISCLOSED zero-weight retention is a KEEP, not a drop (§-1.3).
+            _trace_kept(cand.url, cand.source)
 
     # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): bounded-parallel per-source LLM-tiering
     # post-step. Runs ONCE over every deferred source via a ThreadPoolExecutor capped by
@@ -5600,6 +5800,25 @@ def run_live_retrieval(
         )
         logger.warning("[live_retriever] %s", _wall_note)
         notes.append(_wall_note)
+
+    # FIX-3 piece 1 (I-deepfix-001): bounded end-of-run drain of abandoned bypass
+    # workers. Fires ONCE per run on BOTH the parallel and serial fetch paths
+    # (this is reached just before the single return). Reclaims cooperatively-
+    # finishable abandoned workers within PG_BYPASS_DRAIN_SECONDS so the registry
+    # cannot grow unbounded across questions in a long-lived UI/server process,
+    # and surfaces the LIVE leak gauge (residual still-alive workers — typically
+    # C-wedged Playwright workers that cannot be joined in-process) alongside the
+    # existing CUMULATIVE gauge. Telemetry-only + fail-safe: a drain error never
+    # breaks retrieval.
+    try:
+        from src.tools.access_bypass import (
+            bypass_live_leaked_count,
+            drain_bypass_workers,
+        )
+        api_calls["bypass_live_leaked_count_pre_drain"] = bypass_live_leaked_count()
+        api_calls["bypass_live_leaked_count_post_drain"] = drain_bypass_workers()
+    except Exception:  # noqa: BLE001 — telemetry only; never break retrieval
+        pass
 
     return LiveRetrievalResult(
         classified_sources=classified_sources,
