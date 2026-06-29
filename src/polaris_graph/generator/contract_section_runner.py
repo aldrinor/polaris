@@ -1285,7 +1285,8 @@ async def run_contract_section(
         det_dropped_final,
         det_total_in,
         det_rewritten_draft,
-    ) = _verify_one_stream(
+    ) = await asyncio.to_thread(
+        _verify_one_stream,
         raw_draft=det_raw_draft,
         evidence_pool=evidence_pool,
         contract_entity_ids=contract_entity_ids,
@@ -1307,7 +1308,8 @@ async def run_contract_section(
         reg_dropped_final,
         reg_total_in,
         reg_rewritten_draft,
-    ) = _verify_one_stream(
+    ) = await asyncio.to_thread(
+        _verify_one_stream,
         raw_draft=regulatory_raw_draft,
         evidence_pool=evidence_pool,
         contract_entity_ids=contract_entity_ids,
@@ -1330,7 +1332,8 @@ async def run_contract_section(
         narr_dropped_final,
         narr_total_in,
         narr_rewritten_draft,
-    ) = _verify_one_stream(
+    ) = await asyncio.to_thread(
+        _verify_one_stream,
         raw_draft=narrative_raw_draft,
         evidence_pool=evidence_pool,
         contract_entity_ids=contract_entity_ids,

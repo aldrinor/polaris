@@ -293,11 +293,34 @@ def verify_sentence(
         # silent downgrade of the binding faithfulness gate (LAW II / lethal-in-clinical). Detect it and
         # FAIL CLOSED in enforce mode (drop the sentence, like an unsupported one); warn-mode logs only.
         if isinstance(reason, str) and reason.startswith("judge_error:"):
+            # I-deepfix-001 W11-section-verify-judge-error-degrade (#1344): a judge_error is
+            # a TRANSPORT fault (the judge socket failed / returned unparseable), NOT a
+            # genuine NEUTRAL/CONTRADICTED faithfulness verdict. The mechanical provenance
+            # gates (a)-(e) ALREADY passed above (evidence-id, span-bounds, decimals, >=2
+            # content-word overlap), so this is an otherwise span-grounded claim being
+            # dropped purely because of a socket fault. Under a SUSTAINED judge outage the
+            # enforce-drop can empty EVERY section -> abort_no_verified_sections despite real
+            # span-grounded evidence. Per the operator-locked "verifier NEVER holds a report":
+            # when PG_STRICT_VERIFY_JUDGE_ERROR_ALWAYS_RELEASE is ON, DEGRADE to KEEP-with-
+            # disclosed-label (the per-claim 'entailment_unverified_judge_error' label IS the
+            # faithfulness signal). This applies ONLY to judge_error (transport) — genuine
+            # NEUTRAL/CONTRADICTED below stay DROPPED (faithfulness NOT relaxed). Default-OFF
+            # preserves the byte-identical enforce-drop.
             logger.warning(
                 "entailment judge_error (mode=%s): sentence=%r reason=%r — failing closed",
                 mode, sentence_clean, reason,
             )
             if mode == "enforce":
+                _je_release = os.environ.get(
+                    "PG_STRICT_VERIFY_JUDGE_ERROR_ALWAYS_RELEASE", "0",
+                ).strip().lower() in ("1", "true", "yes", "on")
+                if _je_release:
+                    logger.warning(
+                        "entailment judge_error (mode=enforce): KEEPING span-grounded "
+                        "sentence with disclosed label (always-release; transport fault, "
+                        "not a NEUTRAL/CONTRADICTED verdict): %r", sentence_clean,
+                    )
+                    return True, "entailment_unverified_judge_error"
                 return False, "entailment_judge_error_fail_closed"
         if verdict in ("NEUTRAL", "CONTRADICTED"):
             logger.warning(
@@ -328,12 +351,22 @@ def verify_sentence_to_record(
         is_synthesis_claim=is_synthesis_claim,
     )
     tokens = [t.raw for t in extract_tokens(sentence_text)]
+    # I-deepfix-001 (Codex e2e gate P1): verify_sentence can return (passed=True, reason=<label>)
+    # for the judge-error always-release path (span-grounded sentence KEPT with a disclosed
+    # caveat). The VerifiedSentence schema forbids a non-None drop_reason when verifier_pass=True,
+    # so a KEPT-with-disclosure caveat MUST ride in release_disclosure, not drop_reason — else the
+    # construction raises and the intended ship-with-label ABORTS. drop_reason stays the
+    # DROPPED-only reason (passed is False). Faithfulness untouched: NEUTRAL/CONTRADICTED still
+    # fail (passed=False) and carry drop_reason exactly as before.
+    kept_disclosure_label = reason if (passed and reason is not None) else None
+    drop_reason = None if passed else reason
     return VerifiedSentence(
         section_id=section_id,
         sentence_text=sentence_text,
         provenance_tokens=tokens,
         verifier_pass=passed,
-        drop_reason=reason,
+        drop_reason=drop_reason,
+        kept_disclosure_label=kept_disclosure_label,
         evaluator_agrees=passed,
         is_synthesis_claim=is_synthesis_claim,
     )

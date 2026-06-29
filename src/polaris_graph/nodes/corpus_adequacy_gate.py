@@ -472,14 +472,31 @@ def assess_corpus_adequacy(
             f"only excluded from the sufficiency count."
         )
 
+    # I-deepfix-001 W01-fx06 (#1344): the DECISION above (proceed/expand/abort) and
+    # all on-topic disclosure ride on `gate_tier_counts` / `on_topic_*` — that is
+    # UNCHANGED (methods-honesty preserved byte-for-byte). But the REPORTED
+    # `total_sources` / `tier_counts` are restored to the CLASSIFIER population (the
+    # passed-in `tier_counts` arg = corpus_approval `dist` counts), exactly as
+    # pre-7000627a. RATIONALE: the FX-06 self-consistency tripwire in the spine
+    # (run_honest_sweep_r3.py ~9341) compares `adequacy.total_sources` /
+    # `adequacy.tier_counts` against the approval `dist` population. When B7 re-tallied
+    # the REPORTED counts over ON-TOPIC evidence_rows, the two populations diverged BY
+    # CONSTRUCTION whenever ANY row was demoted off-topic (e.g. 833 classified vs 639
+    # on-topic), firing error_corpus_population_mismatch on EVERY normal run before a
+    # single generator token. Reporting the classifier population restores FX-06
+    # equality by construction while the on-topic gate honesty lives entirely in the
+    # dedicated on_topic_* fields. The decision is byte-identical (it never reads these
+    # two reported fields — they are artifact/approval-population fields only).
+    reported_tier_counts = dict(tier_counts)
+    reported_total_sources = sum(reported_tier_counts.values())
     return CorpusAdequacyReport(
         decision=decision,
         findings=findings,
-        total_sources=total,
-        # When real rows were supplied the gate ran over on-topic tier counts;
-        # surface those as the gate's tier_counts (raw classifier histogram is
-        # still available to the caller). When not, byte-identical legacy shape.
-        tier_counts=dict(gate_tier_counts),
+        total_sources=reported_total_sources,
+        # REPORTED population = the classifier histogram (the population the approval
+        # gate `dist` and the report consume). The on-topic counts the DECISION used
+        # are surfaced separately via on_topic_tier_counts / on_topic_evidence_rows.
+        tier_counts=reported_tier_counts,
         evidence_rows=grounded_evidence_rows,
         notes=notes,
         thresholds=asdict(thr),

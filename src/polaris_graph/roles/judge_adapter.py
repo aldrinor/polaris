@@ -19,6 +19,7 @@ from typing import Any
 
 from src.polaris_graph.roles.judge_contract import (
     JUDGE_CHOICES,
+    JudgeEnumError,
     Verdict,
     parse_judge_verdict,
 )
@@ -295,8 +296,33 @@ def run_judge(
             parsed=_JUDGE_FAIL_CLOSED_VERDICT,
         )
         return _JUDGE_FAIL_CLOSED_VERDICT, [record]
-    # FAIL LOUD: a non-enum verdict raises JudgeEnumError here and is NOT caught.
-    verdict = parse_judge_verdict(response.raw_text)
+    # I-deepfix-001 W14-four-role-judge-offenum-degrade (#1344): on the BENCHMARK path the
+    # Judge enum is set as a vLLM structured-outputs key that OpenRouter cannot enforce, so the
+    # reasoning-xhigh Judge is effectively UNCONSTRAINED and can emit a punctuated/lowercased/
+    # JSON-wrapped token. parse_judge_verdict's exact-match then raises JudgeEnumError which —
+    # uncaught — tears down the WHOLE D8 seam (discarding every OTHER claim's valid adjudication)
+    # -> seam_error:JudgeEnumError -> abort_four_role_release_held = no report. DEGRADE THIS claim
+    # (not the whole seam) to the fail-closed UNSUPPORTED verdict + a <judge_offenum> record,
+    # mirroring the RoleTransportError arm above so role_pipeline's degrade-record merge surfaces
+    # it. CONSERVATIVE: the claim is NOT-verified and a disclosure is emitted — faithfulness only
+    # TIGHTENS. Gated on the SAME PG_ROLE_TRANSPORT_DEGRADE flag; off-enum is genuinely impossible
+    # on the sovereign vLLM grammar-decode path (the catch never fires there -> invariant
+    # byte-identical). Flag OFF -> re-raise so the §3.3 seam hard-halt branch handles it as before.
+    try:
+        verdict = parse_judge_verdict(response.raw_text)
+    except JudgeEnumError as enum_exc:
+        if not _role_transport_degrade_enabled():
+            raise
+        record = RoleCallRecord(
+            role=_ROLE,
+            model_slug=model_slug,
+            served_model=response.served_model,
+            raw_text=(
+                f"<judge_offenum>{type(enum_exc).__name__}: {enum_exc}</judge_offenum>"
+            ),
+            parsed=_JUDGE_FAIL_CLOSED_VERDICT,
+        )
+        return _JUDGE_FAIL_CLOSED_VERDICT, [record]
     record = RoleCallRecord(
         role=_ROLE,
         model_slug=model_slug,

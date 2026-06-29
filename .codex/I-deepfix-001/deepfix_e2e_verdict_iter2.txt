@@ -1,0 +1,10 @@
+novel_p0: []
+continuing_p0: []
+p1:
+  - "W12 remains broken: `scripts/run_honest_sweep_r3.py:12576` imports `always_release_enabled` from nonexistent `src.polaris_graph.generator.release_policy`; the real module is `src.polaris_graph.roles.release_policy`. Any excessive-gap + nonempty verified_sections path raises before disclose-and-ship."
+  - "W13 remains a wall path: `scripts/run_honest_sweep_r3.py:7163-7172` wraps `.result(timeout=...)` in `with ThreadPoolExecutor`, so on timeout `__exit__` still calls `shutdown(wait=True)` and can block the event-loop thread instead of reaching the degrade handler."
+p2:
+  - "The `kept_disclosure_label` render/manifest surfacing deferral is not blocking for this gate because `PG_STRICT_VERIFY_JUDGE_ERROR_ALWAYS_RELEASE` is default-off and not in the Gate-B slate; it should be fixed before enabling that path."
+convergence_call: continue
+remaining_blockers_for_execution: ["P1#1 is fully resolved: Gate-B installs/resets the generator run-wall deadline and the timeout still reaches the outer handler.", "P1#2 is fully resolved: ship-with-label no longer violates the `drop_reason=None when verifier_pass=True` invariant; genuine drops still carry `drop_reason`.", "Render surfacing deferral is non-blocking for default execution, P2 before enabling the W11 flag.", "A wall-class path remains end-to-end: W12 crashes on bad import, and W13 can still hang on executor shutdown."]
+verdict: REQUEST_CHANGES

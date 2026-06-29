@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -129,6 +130,24 @@ def _passage_chars() -> int:
         return 2000
 
 
+def _escalation_deadline_seconds() -> float:
+    """I-deepfix-001 W06 (#1344): a fallback TOTAL wall (seconds) for the GLM escalation
+    pool when the caller threads NO absolute deadline. At the campaign's 25x fetch_cap
+    (~1000 candidates) a mis-calibrated reranker can escalate the whole mid-band; the pool
+    BLOCKS until ALL futures finish (~ceil(N/workers)*per-call), with zero deadline checks
+    inside, which can exceed the retrieval wall. ``<= 0`` disables the fallback wall (the
+    caller's threaded deadline still applies if given). Default 600s (generous)."""
+    raw = os.getenv("PG_CONTENT_RELEVANCE_DEADLINE_S", "600").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 600.0
+    import math as _math
+    if not _math.isfinite(value) or value <= 0:
+        return 0.0
+    return value
+
+
 @dataclass
 class RelevanceVerdict:
     """Per-passage relevance outcome (a WEIGHT + a disclosed label, never a drop)."""
@@ -155,6 +174,10 @@ class RelevanceReport:
     used_cpu_fallback: bool = False
     band_low: float = 0.0
     band_high: float = 0.0
+    # I-deepfix-001 W06-content-relevance-deadline (#1344): set True when the GLM
+    # escalation deadline elapsed and the remaining ambiguous passages were emitted at
+    # FULL weight (always-release, never demote-on-timeout) instead of escalated.
+    escalation_wall_hit: bool = False
 
     def by_idx(self) -> dict[int, RelevanceVerdict]:
         return {v.idx: v for v in self.verdicts}
@@ -167,6 +190,7 @@ class RelevanceReport:
             "n_escalated": self.n_escalated,
             "reranker_device": self.reranker_device,
             "used_cpu_fallback": self.used_cpu_fallback,
+            "escalation_wall_hit": self.escalation_wall_hit,
             "band_low": self.band_low,
             "band_high": self.band_high,
             # §-1.3: list the DEMOTED urls (kept at low weight) — never a drop list.
@@ -193,6 +217,7 @@ def score_passages(
     *,
     glm_judge_fn: Optional[Callable[[str, str], "tuple[str, str]"]] = None,
     reranker_predict_fn: Optional[Callable[[list[list[str]]], list[float]]] = None,
+    deadline_monotonic: "float | None" = None,
 ) -> RelevanceReport:
     """Score (idx, url, body) passages for relevance to the research question.
 
@@ -262,9 +287,20 @@ def score_passages(
 
     # ── Stage 2: GLM-5.2 escalation on the ambiguous band, bounded-parallel ──
     if ambiguous:
+        # I-deepfix-001 W06 (#1344): the escalation pool is bounded by an absolute
+        # deadline — the caller's threaded `deadline_monotonic` (= the remaining
+        # retrieval wall) when given, else the env fallback `PG_CONTENT_RELEVANCE_
+        # DEADLINE_S`. The TIGHTER (earlier) of the two wins.
+        _fallback_wall = _escalation_deadline_seconds()
+        _eff_deadline = deadline_monotonic
+        if _fallback_wall > 0:
+            _fb_instant = time.monotonic() + _fallback_wall
+            _eff_deadline = (
+                _fb_instant if _eff_deadline is None else min(_eff_deadline, _fb_instant)
+            )
         _resolve_ambiguous(
             research_question, passages, scores, ambiguous,
-            demote_w, report, glm_judge_fn,
+            demote_w, report, glm_judge_fn, _eff_deadline,
         )
 
     # Finalize counts.
@@ -491,6 +527,7 @@ def _resolve_ambiguous(
     demote_w: float,
     report: RelevanceReport,
     glm_judge_fn: Optional[Callable[[str, str], "tuple[str, str]"]],
+    deadline_monotonic: "float | None" = None,
 ) -> None:
     """GLM-5.2 escalation for the ambiguous-band passages, bounded-parallel.
 
@@ -500,7 +537,11 @@ def _resolve_ambiguous(
     A GLM transport/parse error => keep the passage RELEVANT at full weight
     (always-release: a runtime error never demotes — relevance_judge.py contract).
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import (  # noqa: PLC0415 — lazy by design
+        FIRST_COMPLETED,
+        ThreadPoolExecutor,
+        wait as futures_wait,
+    )
 
     # Resolve the GLM judge callable (real OpenRouter GLM-5.2 unless injected).
     judge_fn = glm_judge_fn
@@ -556,7 +597,63 @@ def _resolve_ambiguous(
                 reason=f"GLM error {str(exc)[:80]} — kept (always-release)",
             )
 
+    def _full_weight_keep(pos: int) -> RelevanceVerdict:
+        """I-deepfix-001 W06 (#1344): a passage NOT escalated because the deadline
+        elapsed is KEPT at FULL weight (always-release, never demote-on-timeout). §-1.3:
+        the wall NEVER demotes/drops a source — it just skips the escalation WEIGHT."""
+        idx, url, _body = passages[pos]
+        return RelevanceVerdict(
+            idx=idx, url=url, label=LABEL_ESCALATED_KEEP, weight=1.0,
+            reranker_score=scores[pos], escalated=True,
+            reason="escalation wall hit — kept at full weight (always-release)",
+        )
+
     workers = min(_workers(), max(1, len(ambiguous)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for v in pool.map(_one, ambiguous):
-            report.verdicts.append(v)
+    # I-deepfix-001 W06 (#1344): submit each ambiguous future and gather with the absolute
+    # deadline. When the wall passes, STOP escalating the remainder and emit them at FULL
+    # weight (always-release). pool.map BLOCKED until ALL futures finished with no deadline
+    # check — at ~1000 candidates that can exceed the retrieval wall. The pool is managed
+    # MANUALLY (NOT `with`): a `with ThreadPoolExecutor` __exit__ calls shutdown(wait=True),
+    # which BLOCKS until the wedged worker finishes — defeating the wall entirely (the exact
+    # seam-worker class). shutdown(wait=False, cancel_futures=True) returns promptly.
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        future_to_pos = {pool.submit(_one, pos): pos for pos in ambiguous}
+        pending = set(future_to_pos)
+        while pending:
+            _remaining = (
+                None if deadline_monotonic is None
+                else max(0.0, deadline_monotonic - time.monotonic())
+            )
+            if _remaining is not None and _remaining <= 0:
+                break
+            done, pending = futures_wait(
+                pending, timeout=_remaining, return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                break  # the wall elapsed mid-flight
+            for fut in done:
+                report.verdicts.append(fut.result())
+        if pending:
+            # The deadline elapsed: emit the un-escalated remainder at FULL weight
+            # (never block on the still-running futures; SS-1.3 keep-all).
+            report.escalation_wall_hit = True
+            for fut in list(pending):
+                _pos = future_to_pos[fut]
+                if fut.done():
+                    try:
+                        report.verdicts.append(fut.result())
+                        continue
+                    except Exception:  # noqa: BLE001 — a late failure falls through to keep
+                        pass
+                report.verdicts.append(_full_weight_keep(_pos))
+            logger.warning(
+                "[content_relevance] W06: GLM escalation wall hit — %d ambiguous "
+                "passage(s) kept at FULL weight (always-release, no demote/drop, §-1.3).",
+                len(pending),
+            )
+    finally:
+        # NON-BLOCKING teardown so a wedged GLM future cannot delay the return (the wall
+        # would be cosmetic if __exit__ waited on it). The orphaned thread exits on its own
+        # per-call timeout. Mirrors the seam-worker non-blocking shutdown.
+        pool.shutdown(wait=False, cancel_futures=True)

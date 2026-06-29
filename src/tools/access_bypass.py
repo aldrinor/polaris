@@ -891,6 +891,63 @@ def reset_block_page_canary() -> None:
 _mineru25_gpu_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
+# I-deepfix-001 BUG-B (#1344): mineru25 (W4 clinical-PDF VLM) CIRCUIT BREAKER.
+#
+# `_maybe_mineru25_extract` already has a per-call `PG_MINERU25_TIMEOUT_S` (300s)
+# wall, but had NO circuit breaker. On a GPU host where mineru25 is CONSISTENTLY
+# failing/timing out (model-load failure, CUDA OOM, hung VLM), EVERY clinical PDF in
+# a ~1000-URL run paid the full 300s before falling back to Docling — the run ground
+# for hours. This mirrors the module-global jina/firecrawl/zyte/crawl4ai breakers
+# above: after N CONSECUTIVE genuine mineru25 failures (timeout OR hard exception —
+# NOT a thin/empty per-PDF CONTENT outcome), OPEN the breaker for a cooldown so
+# subsequent PDFs skip mineru25 directly and go straight to the UNCHANGED
+# Docling -> PyMuPDF fallback. A genuine success (md > 500 chars) resets the counter.
+#
+# §-1.3 / faithfulness: this changes only the EXTRACTOR-SELECTION TIMING. The body is
+# STILL extracted by the disclosed Docling/PyMuPDF fallback (no source dropped, no
+# cap/thin/target), and the verbatim text strict_verify grounds is unchanged. Every
+# open-skip is a LOUD, disclosed degradation (W4-CANARY + tool-trace), never silent.
+#
+# Default-ON (a healthy run never trips => byte-identical happy path); a disable
+# sentinel (`PG_MINERU25_CIRCUIT_THRESHOLD <= 0`) turns it off. Separate knobs from
+# the shared `_CIRCUIT_BREAKER_THRESHOLD=8` — at 300s/failure, 8 = ~40 min to trip
+# (useless); the default is 3.
+# ---------------------------------------------------------------------------
+_mineru25_consecutive_failures: int = 0
+_mineru25_circuit_open_until: float = 0.0
+_MINERU25_CIRCUIT_THRESHOLD_DEFAULT = 3
+_MINERU25_CIRCUIT_COOLDOWN_DEFAULT = 300.0
+
+
+def _mineru25_circuit_threshold() -> int:
+    """Consecutive-failure count that OPENS the mineru25 breaker. ``<= 0`` disables
+    the breaker entirely (the operator escape hatch, mirroring the campaign's FIX-1
+    ``=0`` / FIX-2 unset sentinels). A malformed value falls back to the small
+    default (the breaker is an operational knob, not a correctness gate)."""
+    raw = os.getenv("PG_MINERU25_CIRCUIT_THRESHOLD", "").strip()
+    if not raw:
+        return _MINERU25_CIRCUIT_THRESHOLD_DEFAULT
+    try:
+        return int(raw)
+    except ValueError:
+        return _MINERU25_CIRCUIT_THRESHOLD_DEFAULT
+
+
+def _mineru25_circuit_cooldown() -> float:
+    """Seconds the mineru25 breaker stays OPEN after tripping. Default 300s (one
+    per-call timeout window) — long enough to ride out a wedged VLM, short enough to
+    retry if it recovers."""
+    raw = os.getenv("PG_MINERU25_CIRCUIT_COOLDOWN", "").strip()
+    if not raw:
+        return _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        return _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
+    return value if value > 0 else _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
+
+
+# ---------------------------------------------------------------------------
 # Crawl4AI availability flag (set on first import attempt)
 # ---------------------------------------------------------------------------
 _crawl4ai_available: "bool | None" = None
@@ -3620,10 +3677,27 @@ class AccessBypass:
             try:
                 import asyncio as _aio
                 loop = _aio.get_event_loop()
-                docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
+                # I-deepfix-001 W10-docling-extract-timeout (#1344): BOUND the docling
+                # extraction with asyncio.wait_for (the mineru path is already wrapped; this
+                # one was NOT). docling's C++ convert can wedge/run-minutes on a malformed/
+                # encrypted/image-heavy PDF that passed the OOM-V2 page/byte gate, bounded only
+                # by the 90s outer join. With mineru25 OFF this is the PRIMARY extraction path.
+                # A wedged docling now fails-fast to the PyMuPDF fallback INSIDE the worker
+                # window instead of abandoning the whole worker. Env-driven, < the 90s outer
+                # join. Faithfulness-neutral: only changes WHICH extractor produces the text.
+                _docling_to = float(os.getenv("PG_DOCLING_TIMEOUT_S", "60"))
+                docling_text = await _aio.wait_for(
+                    loop.run_in_executor(None, self._docling_extract, pdf_bytes),
+                    timeout=max(1.0, _docling_to),
+                )
                 if docling_text and len(docling_text) > 500:
                     logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
                     return docling_text
+            except _aio.TimeoutError:
+                logger.warning(
+                    "[ACCESS] W10: Docling extraction timed out (PG_DOCLING_TIMEOUT_S) "
+                    "-> PyMuPDF fallback for %s", url[:50],
+                )
             except Exception as exc:
                 logger.debug("[ACCESS] PL: Docling failed, trying PyMuPDF: %s", str(exc)[:80])
 
@@ -4720,13 +4794,83 @@ class AccessBypass:
                     requested_extractor="mineru25", fallback_reason="no_gpu")
             return ""
 
+        # I-deepfix-001 BUG-B (#1344): mineru25 circuit breaker. After N CONSECUTIVE
+        # genuine failures (timeout / hard exception) the breaker OPENS and skips the
+        # 300s-per-PDF mineru attempt — going straight to the disclosed Docling/PyMuPDF
+        # fallback so a wedged VLM cannot grind a ~1000-URL run for hours. `<= 0`
+        # threshold disables it (escape hatch). The body is STILL extracted by the
+        # fallback (no source dropped); the skip is LOUD (W4-CANARY + tool-trace).
+        _ckt_threshold = _mineru25_circuit_threshold()
+        if _ckt_threshold > 0 and _mineru25_circuit_open_until > _time.monotonic():
+            _remaining = _mineru25_circuit_open_until - _time.monotonic()
+            logger.warning(
+                "[ACCESS] W4: mineru25 circuit breaker OPEN (%.0fs remaining after "
+                "%d consecutive failures) -> DISCLOSED fallback to Docling for %s "
+                "(PG_MINERU25_CIRCUIT_THRESHOLD)",
+                _remaining, _mineru25_consecutive_failures, url[:60],
+            )
+            _record("docling", "retry", 0.0, selected_extractor="docling",
+                    requested_extractor="mineru25",
+                    fallback_reason="mineru25_circuit_open")
+            return ""
+
+        def _note_mineru25_failure() -> None:
+            """I-deepfix-001 BUG-B: count one consecutive mineru25 HEALTH failure
+            (timeout / hard exception); OPEN the breaker at the threshold. Disabled
+            when the threshold is ``<= 0``."""
+            global _mineru25_consecutive_failures, _mineru25_circuit_open_until
+            if _ckt_threshold <= 0:
+                return
+            _mineru25_consecutive_failures += 1
+            if _mineru25_consecutive_failures >= _ckt_threshold:
+                _mineru25_circuit_open_until = (
+                    _time.monotonic() + _mineru25_circuit_cooldown()
+                )
+                logger.warning(
+                    "[ACCESS] W4: mineru25 circuit breaker TRIPPED after %d "
+                    "consecutive failures — skipping mineru25 for %.0fs (Docling "
+                    "fallback only)",
+                    _mineru25_consecutive_failures, _mineru25_circuit_cooldown(),
+                )
+
+        def _reset_mineru25_circuit() -> None:
+            """I-deepfix-001 BUG-B: a genuine success clears the consecutive-failure
+            run (mirrors jina:3802) so a transient blip never false-trips a healthy
+            mineru."""
+            global _mineru25_consecutive_failures
+            _mineru25_consecutive_failures = 0
+
         _t0 = _time.perf_counter()
         try:
             import asyncio as _aio
             loop = _aio.get_event_loop()
             # Finite-generous timeout (point 5): never infinite. A hung VLM
             # must not stall the per-URL fetch fan-out.
-            timeout_s = float(os.getenv("PG_MINERU25_TIMEOUT_S", "300"))
+            # I-deepfix-001 W09-mineru-gpu-lock-bound (#1344): the per-PDF mineru timeout
+            # must NOT exceed the OUTER per-URL fetch deadline (PG_FETCH_DEADLINE_SECONDS,
+            # ~90s). When it did (300 > 90) the outer fetch abandoned the worker at 90s while
+            # this wait_for kept the inner thread running do_parse to completion (holding the
+            # GPU lock) — so the inner TimeoutError NEVER fired, the BUG-B breaker never saw a
+            # timeout, and the convoy persisted. ALIGN: cap mineru's own wait_for to the fetch
+            # deadline minus a small margin so it fails-fast to docling INSIDE the 90s window,
+            # letting the breaker actually see + count the timeout. Env-driven (LAW VI); the
+            # default is still 300 when no fetch deadline is set.
+            _raw_mineru_to = float(os.getenv("PG_MINERU25_TIMEOUT_S", "300"))
+            # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): the GOVERNING per-URL
+            # wall that abandons the bypass worker is live_retriever's worker.join on
+            # PG_FETCH_DEADLINE_SECONDS, whose code default is 90 (live_retriever.py:3003)
+            # — NOT 0. The cert slate sets NEITHER PG_FETCH_DEADLINE_SECONDS nor
+            # PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS, so both fall to their code
+            # defaults (90 and 120). Reading "0" here made the alignment a NO-OP in the
+            # configured run (mineru kept its 300s wait_for while the worker was
+            # abandoned at 90s). Mirror live_retriever's 90 default so the mineru
+            # wait_for aligns to min(300, 90 - margin) even when the slate is silent.
+            _fetch_deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90") or "90")
+            _mineru_margin = float(os.getenv("PG_MINERU25_TIMEOUT_MARGIN_S", "5"))
+            if _fetch_deadline > 0:
+                timeout_s = max(1.0, min(_raw_mineru_to, _fetch_deadline - _mineru_margin))
+            else:
+                timeout_s = max(1.0, _raw_mineru_to)
             md_text = await _aio.wait_for(
                 loop.run_in_executor(None, self._mineru25_extract, pdf_bytes),
                 timeout=timeout_s,
@@ -4737,10 +4881,16 @@ class AccessBypass:
                     "[ACCESS] W4: mineru25 (GPU VLM) extracted %d chars from PDF %s",
                     len(md_text), url[:60],
                 )
+                # I-deepfix-001 BUG-B: a genuine success clears the breaker's
+                # consecutive-failure run (mineru is healthy).
+                _reset_mineru25_circuit()
                 _record("mineru25", "ok", latency_ms,
                         selected_extractor="mineru25", chars=len(md_text))
                 return md_text
             # Empty / landing-stub output => disclosed fallback (the §1B mode).
+            # I-deepfix-001 BUG-B: this is a per-PDF CONTENT outcome (this PDF was a
+            # landing stub), NOT a mineru HEALTH failure — it does NOT count toward
+            # the breaker (tripping on it would skip PDFs mineru could handle).
             logger.warning(
                 "[ACCESS] W4: mineru25 returned thin/empty output (%d chars) "
                 "-> DISCLOSED fallback to Docling for %s",
@@ -4751,6 +4901,9 @@ class AccessBypass:
             return ""
         except _aio.TimeoutError:
             latency_ms = (_time.perf_counter() - _t0) * 1000.0
+            # I-deepfix-001 BUG-B: a hung VLM is a genuine HEALTH failure (the
+            # dominant grind mode) — count it toward the breaker.
+            _note_mineru25_failure()
             logger.warning(
                 "[ACCESS] W4: mineru25 timed out after %.0fs -> DISCLOSED fallback "
                 "to Docling for %s", latency_ms / 1000.0, url[:60],
@@ -4760,6 +4913,9 @@ class AccessBypass:
             return ""
         except Exception as exc:  # noqa: BLE001 — any mineru failure => LOUD fallback
             latency_ms = (_time.perf_counter() - _t0) * 1000.0
+            # I-deepfix-001 BUG-B: a hard exception (model-load failure, CUDA OOM)
+            # is a genuine HEALTH failure — count it toward the breaker.
+            _note_mineru25_failure()
             logger.warning(
                 "[ACCESS] W4: mineru25 failed (%s) -> DISCLOSED fallback to Docling "
                 "for %s", str(exc)[:120], url[:60],
@@ -4842,10 +4998,27 @@ class AccessBypass:
             # PDFium + shared-model-singleton race is in-process. The remote "vlm-http-client"
             # backend's concurrency is the API server's domain; locking it here would needlessly
             # serialize concurrent PDF fetches (throughput cliff) without fixing any race.
-            import contextlib as _contextlib  # noqa: PLC0415
             _inproc_vlm = backend != "vlm-http-client"
-            _gpu_ctx = _mineru25_gpu_lock if _inproc_vlm else _contextlib.nullcontext()
-            with _gpu_ctx:
+            # I-deepfix-001 W09-mineru-gpu-lock-bound (#1344): a BOUNDED lock acquire. The
+            # plain blocking `with _mineru25_gpu_lock:` had NO timeout — when the outer 90s
+            # fetch deadline abandoned a worker mid-do_parse, that worker's executor thread
+            # kept the GPU lock held, and the NEXT worker blocked here FOREVER (the convoy).
+            # Acquire with a timeout; on failure emit a LOUD W4-CANARY and return "" to fall
+            # through to the disclosed docling path (no source dropped, §-1.3). The remote
+            # "vlm-http-client" backend takes the nullcontext (its concurrency is the API
+            # server's domain) — unchanged.
+            _lock_held = False
+            if _inproc_vlm:
+                _lock_wait = float(os.getenv("PG_MINERU25_LOCK_WAIT_S", "60"))
+                if not _mineru25_gpu_lock.acquire(timeout=_lock_wait):
+                    logger.warning(
+                        "[ACCESS] W4-CANARY: mineru25 GPU lock not acquired within %.0fs "
+                        "(a prior abandoned do_parse still holds it) -> DISCLOSED docling "
+                        "fallback (PG_MINERU25_LOCK_WAIT_S)", _lock_wait,
+                    )
+                    return ""
+                _lock_held = True
+            try:
                 do_parse(
                     output_dir=_out_dir,
                     pdf_file_names=[name],
@@ -4865,6 +5038,12 @@ class AccessBypass:
                     f_dump_orig_pdf=False,
                     f_dump_content_list=False,
                 )
+            finally:
+                # I-deepfix-001 W09 (#1344): ALWAYS release the bounded GPU lock, even if
+                # do_parse raised — otherwise an exception inside do_parse would leak the lock
+                # and re-create the convoy this fix removes.
+                if _lock_held:
+                    _mineru25_gpu_lock.release()
 
             # Locate the produced markdown. VLM backend lands it at
             # <out>/<name>/vlm/<name>.md; be tolerant of layout drift.

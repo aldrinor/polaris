@@ -599,6 +599,33 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # values and fixes ONLY the missing run-level guard + the inverted run-wall ordering). A legit single-
     # query run is ~86 min, so 10800 (3h) clears it with margin yet still catches a total hang.
     "PG_RUN_WALL_CLOCK_SEC": "10800",
+    # I-deepfix-001 W02-retrieval-wall-activate (#1344): the SHARED per-question retrieval
+    # wall. This is the ACTIVATION SWITCH for the entire staged retrieval-deadline class
+    # (FIX-2 search-site deadline, BUG-A 5-outer-loop gates, the WALL-03 FS-Researcher qgen
+    # gate, the W08 CRAG total-call clamp): the spine reads PG_RETRIEVAL_QUESTION_WALL_SECONDS
+    # ONCE and anchors `_question_retrieval_deadline`; when UNSET that deadline is None and
+    # EVERY one of those gates no-ops (deadline is None => never passed), so retrieval +
+    # generation can cross the 10800s run-wall and the question dies as a TIMEOUT stub
+    # instead of a report. Setting it < the run-wall (5400 < 10800) means the partial
+    # corpus HANDS OFF (disclosed retrieval_wall_hit) WELL BEFORE the run-wall guillotines.
+    # 5400s (90 min) is generous for retrieval+classification on the ~1000-URL cap yet
+    # leaves the back half (generation, 4-role D8, render) ~90 min inside the 3h run-wall.
+    # FLOOR semantics via the slate setdefault; the aggregate-fit preflight below FAILS
+    # CLOSED if these inner budgets cannot fit the run-wall. SS-1.3: drops no source — the
+    # partial corpus is handed off, never thinned.
+    "PG_RETRIEVAL_QUESTION_WALL_SECONDS": "5400",
+    # I-deepfix-001 W05-consolidation-nli-coldload-bound (#1344): bound the HuggingFace Hub
+    # FIRST-LOAD network download of the consolidation cross-encoder (and any other
+    # HF-downloaded model on a cold VM cache). Without a download timeout a stalled/throttled
+    # Hub connection WEDGES the consolidation stage on a fresh cache with no bound. This env
+    # var is read by huggingface_hub's file_download; a stalled download then fails fast and
+    # the W05 degrade SKIPS the consolidation WEIGHT (skipping only under-merges => keeps MORE
+    # baskets, §-1.3) rather than blocking. NOTE: the production VM should ALSO pre-stage the
+    # cross-encoder into the image cache during preflight and set HF_HUB_OFFLINE=1 so the paid
+    # path never touches the network — that is a VM-image concern, not a slate default (setting
+    # HF_HUB_OFFLINE=1 here would break a legitimately-cold first run). FLOOR semantics: the
+    # download timeout is forced exact via the string slate (a non-numeric value).
+    "HF_HUB_DOWNLOAD_TIMEOUT": "30",
     # I-beatboth-011 #1290: BOUND the 4-role D8 seam in the FULL slate (was pinned ONLY in
     # _SMOKE_SCALE_OVERRIDES) so a full/--resume run cannot grind the default max(7200, 4*6500)=26000s
     # (~7.2h) the path-audit caught. The env wins outright in _resolve_four_role_seam_timeout
@@ -1017,6 +1044,17 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # 4-role-seam verifier POST. Force-EXACT (these are wall-seconds, not capability floors).
     "PG_CREDIBILITY_JUDGE_TOTAL_S": "300",
     "PG_ROLE_TRANSPORT_TOTAL_S": "300",
+    # I-deepfix-001 W07-credibility-tiering-batch-wall (#1344): a tiering BLANK is advisory
+    # (the un-tiered source keeps the deterministic rules-floor — a WEIGHT, never a drop), so
+    # the W5 tiering caller does NOT need the full retry budget the binding D8 verifier does.
+    # Cap the total-deadline retries to 1 so a blank/trickle storm cannot multiply the per-call
+    # budget across retries inside the batch wall. Force-exact (a wall/retry knob).
+    "PG_CREDIBILITY_JUDGE_TOTAL_DEADLINE_RETRIES": "1",
+    # The W5 LLM-tiering batch TOTAL wall (W07): even when the per-question retrieval wall is
+    # threaded, this is the standalone batch cap so a mirror blank-200 storm cannot grind the
+    # post-loop tiering batch (run_live_retrieval runs SYNC on the event loop, so the run-level
+    # wall cannot preempt it). Generous; the un-returned sources keep the rules-floor.
+    "PG_TIER_LLM_BATCH_WALL_SECONDS": "600",
     # I-arch-011 (verify-speed): provider-ROTATION on a blank/garbled 200. The mirror role pins ONE host
     # (z-ai) with allow_fallbacks:False; z-ai has intermittent empty-body-200 windows under account-QPS load
     # (measured 2026-06-19: a micro-test stormed with blank-200s during one window, then ran 100% clean ~40min
@@ -2560,6 +2598,29 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
             "the slate so PG_GENERATOR_LLM_TIMEOUT_SECONDS < PG_SECTION_WALLCLOCK_SECONDS < "
             "PG_RUN_WALL_CLOCK_SEC before the run."
         )
+    # I-deepfix-001 W02-retrieval-wall-activate (#1344): the per-question retrieval wall MUST be
+    # STRICTLY BELOW the run-wall so the partial corpus HANDS OFF (disclosed retrieval_wall_hit)
+    # BEFORE the run-level asyncio.wait_for guillotines the whole question to a TIMEOUT stub. This
+    # is the only sum-free invariant that MUST hold to "reach a report"; it FAILS CLOSED here, before
+    # any spend, if a stale .env value (FLOOR semantics can only RAISE the wall) pushed the retrieval
+    # wall to/past the run-wall. NOTE: a forensic-style aggregate-fit assertion of the form
+    # `retrieval_wall + bounded-parallel(n_sections x section_wall) + seam_timeout <= run_wall` was
+    # REJECTED as category-confused: section_wall (9000) and seam (7200) are INDEPENDENT hang-CATCH
+    # backstops each deliberately sized ABOVE expected time, while run_wall (10800) is sized to the
+    # EXPECTED ~86-min run + margin (per the B20 slate comment), NOT to the sum of inner backstops.
+    # That sum (5400+9000+7200=21600) is ~2x the locked run-wall and would fail-close on EVERY healthy
+    # run; inventing "expected-time" constants to make it pass would be a banned magic-number knob
+    # (LAW VI / §-1.3). Whether the BACK HALF actually fits in (run_wall - retrieval_wall) is a real-run
+    # timing property, not a static-preflight one — it belongs to the smoke/real-run check, not here.
+    _eff_retr_wall = int(os.getenv("PG_RETRIEVAL_QUESTION_WALL_SECONDS", "0") or "0")
+    if _eff_retr_wall > 0 and not (_eff_retr_wall < _eff_run_wall) and not smoke_scale:
+        raise RuntimeError(
+            "benchmark preflight FAILED: PG_RETRIEVAL_QUESTION_WALL_SECONDS="
+            f"{_eff_retr_wall} is not strictly below PG_RUN_WALL_CLOCK_SEC={_eff_run_wall} — the "
+            "per-question retrieval wall would not hand off the partial corpus before the run-wall "
+            "guillotines the whole question to a TIMEOUT stub. Lower the retrieval wall below the "
+            "run-wall (the slate sets 5400 < 10800) before the run."
+        )
     # Codex diff-gate iter-2 P1-1: extra CALL-TIME env floors that .env was silently winning over the
     # slate (e.g. PG_MOST_MAX_EVIDENCE=300 in .env survived the old setdefault). The floor-slate raised
     # them; validate so a regression cannot re-introduce the throttle.
@@ -3372,24 +3433,43 @@ async def run_gate_b_query(
         finalize_run_artifact,
         run_wall_clock_seconds,
     )
+    # I-deepfix-001 (Codex e2e gate P1): the paid Gate-B path must ALSO install the
+    # multi_section_generator run-wall deadline (mirror run_honest_sweep_r3.py B20). Without it
+    # the per-section wall-clock guard + disclosed gap-stub path is INACTIVE here, so a wedged
+    # section consumes the run wall -> error_unexpected timeout / NO rendered report instead of a
+    # disclosed gap-stub report. Faithfulness untouched (a gap-stub asserts no findings).
+    from src.polaris_graph.generator.multi_section_generator import (
+        set_run_wall_deadline as _msg_set_run_wall_deadline,
+        reset_run_wall_deadline as _msg_reset_run_wall_deadline,
+    )
     _wall = run_wall_clock_seconds()
     _run_dir = out_root / q["domain"] / q["slug"]
     _run_dir.mkdir(parents=True, exist_ok=True)
     _t0 = _time.time()
-    _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(_time.monotonic() + _wall)
+    _run_wall_deadline = _time.monotonic() + _wall
+    _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(_run_wall_deadline)
+    _msg_deadline_token = _msg_set_run_wall_deadline(_run_wall_deadline)
     try:
-        return await asyncio.wait_for(
-            run_one_query(
-                q,
-                out_root,
-                four_role_transport=active_transport,
-                four_role_input_builder=builder,
-                query_index=query_index,
-                query_total=query_total,
-                resume=resume,  # GAP1: A3 replay-harness corpus-snapshot resume (back-half-only)
-            ),
-            timeout=_wall,
-        )
+        try:
+            return await asyncio.wait_for(
+                run_one_query(
+                    q,
+                    out_root,
+                    four_role_transport=active_transport,
+                    four_role_input_builder=builder,
+                    query_index=query_index,
+                    query_total=query_total,
+                    resume=resume,  # GAP1: A3 replay-harness corpus-snapshot resume (back-half-only)
+                ),
+                timeout=_wall,
+            )
+        finally:
+            # Reset the generator run-wall deadline (paired with the set above) so it never leaks
+            # into a subsequent query. Runs on BOTH the success return and the timeout path.
+            try:
+                _msg_reset_run_wall_deadline(_msg_deadline_token)
+            except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
+                pass
     except (asyncio.TimeoutError, TimeoutError):
         # PERMANENT-SILENCE HANG caught (B20). Emit a labeled, non-empty timeout artifact + manifest so
         # the run is NEVER silent; RETURN the summary (the caller's F25 isolation records it + continues).

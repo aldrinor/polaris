@@ -85,6 +85,19 @@ class VerifiedSentence(BaseModel):
     )
     verifier_pass: bool
     drop_reason: DropReason | None = None
+    kept_disclosure_label: str | None = Field(
+        default=None,
+        description=(
+            "I-deepfix-001 (Codex e2e gate P1): a per-sentence KEPT-with-disclosure caveat for a "
+            "sentence that PASSED strict-verify but carries a release note (e.g. "
+            "'entailment_unverified_judge_error' = span-grounded yet the entailment judge was "
+            "unreachable; kept-and-disclosed per the operator-locked 'verifier never holds a "
+            "report' rule). drop_reason MUST stay None when verifier_pass=True, so this caveat "
+            "rides HERE, not in drop_reason. NOTE: distinct from the run-level manifest key "
+            "'release_disclosure' (a dict for D8 unadjudicated disclosure) — this is per-sentence. "
+            "Default None preserves byte-identical back-compat."
+        ),
+    )
     evaluator_agrees: bool | None = Field(
         default=None,
         description=(

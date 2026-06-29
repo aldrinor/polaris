@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -229,29 +230,104 @@ def _section_wallclock_seconds() -> int:
         return int(PG_SECTION_WALLCLOCK_SECONDS_DEFAULT)
 
 
+# COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): the run-wall deadline as an absolute
+# ``time.monotonic()`` instant. The spine (run_honest_sweep_r3.run_one_query) sets this from
+# its own ``_RUN_WALL_CLOCK_DEADLINE_CTX`` right before generation so the per-section guard
+# can cap each ``wait_for`` by the REMAINING run-wall budget and fire the gap-stub on the
+# FIRST attempt when a second attempt can no longer fit inside the run-wall. Without this the
+# section guard does up to ``2 x PG_SECTION_WALLCLOCK_SECONDS`` (slate=9000 => 18000s) while
+# the whole run is wrapped in ``asyncio.wait_for(run-wall=10800)`` — so a wedged section is
+# GUILLOTINED by the run-wall (status=error_unexpected, NO rendered report) at 10800s, BEFORE
+# the gap-stub (which only fires after BOTH attempts raise at ~18000s) can ever render. A
+# ContextVar (NOT a module global) so concurrent runs stay isolated; default None => the
+# legacy bare ``min(wall, ...)`` is skipped and behaviour is byte-identical (non-benchmark /
+# dev / smoke callers that never set it).
+_RUN_WALL_DEADLINE_CTX: "contextvars.ContextVar[float | None]" = contextvars.ContextVar(
+    "pg_msg_run_wall_deadline", default=None
+)
+
+
+def set_run_wall_deadline(deadline_monotonic):
+    """Public setter the spine calls (``multi_section_generator.set_run_wall_deadline``)
+    with the absolute ``time.monotonic()`` run-wall instant so the per-section wall-clock
+    guard can cooperate with the run-wall. Returns the reset token (caller resets in a
+    finally). ``None`` clears it (byte-identical legacy path)."""
+    return _RUN_WALL_DEADLINE_CTX.set(deadline_monotonic)
+
+
+def reset_run_wall_deadline(token) -> None:
+    """Reset the run-wall deadline ctx (paired with ``set_run_wall_deadline``)."""
+    try:
+        _RUN_WALL_DEADLINE_CTX.reset(token)
+    except (ValueError, LookupError):
+        # A reset against a token from a different context is a no-op, never fatal.
+        pass
+
+
 async def _run_section_with_wallclock(runner, plan):
     """Wrap a section bounded-runner in a per-section wall-clock guard (I-arch-002
     #1248). OFF (<= 0) => exact ``await runner(plan)`` (byte-identical). ON => one
     wait_for, one retry, then fail-loud on a persistent wedge. ``runner`` re-runs the
     full section on retry (re-acquires the semaphore + re-does the work); a cancelled
-    first attempt appends nothing, so there is no double-write."""
+    first attempt appends nothing, so there is no double-write.
+
+    COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): when the spine has published a
+    run-wall deadline (``set_run_wall_deadline``), cap EACH ``wait_for`` by
+    ``min(wall, remaining_run_wall_budget)`` and SKIP attempt 2 when the remaining budget
+    cannot fit a second full attempt. This guarantees the section raises a TimeoutError —
+    and the caller's ``_gather_sections_isolated`` converts it into a VISIBLE gap-stub —
+    BEFORE the run-wall guillotine (which would otherwise emit error_unexpected with NO
+    rendered report). Faithfulness-neutral: a gap-stub section never fabricates; the
+    strict_verify / NLI / 4-role / provenance gates are untouched."""
     wall = _section_wallclock_seconds()
     if wall <= 0:
         return await runner(plan)
     last_exc: BaseException | None = None
     for attempt in (1, 2):
+        # Cap this attempt by the REMAINING run-wall budget so the gap-stub fires before
+        # the run-wall guillotine. Margin keeps a sliver for the gap-stub assembly +
+        # downstream render to actually run after the section raises.
+        effective = float(wall)
+        run_deadline = _RUN_WALL_DEADLINE_CTX.get()
+        if run_deadline is not None:
+            try:
+                _gap_margin = float(os.getenv("PG_SECTION_RUNWALL_MARGIN_S", "120"))
+            except ValueError:
+                _gap_margin = 120.0
+            remaining = run_deadline - time.monotonic() - _gap_margin
+            if remaining <= 0:
+                # No budget left for even a partial attempt — gap-stub NOW so the run-wall
+                # never gets to guillotine an unrendered report.
+                logger.warning(
+                    "[gen-wallclock] run-wall budget exhausted before section attempt "
+                    "%d/2 — gap-stubbing immediately so a report still renders",
+                    attempt,
+                )
+                last_exc = last_exc or TimeoutError("run-wall budget exhausted")
+                break
+            effective = min(effective, remaining)
+            # If even a full ``wall`` second attempt cannot fit, do NOT start one — let
+            # the first failure gap-stub now rather than risk the run-wall guillotine.
+            if attempt == 2 and remaining < float(wall):
+                logger.warning(
+                    "[gen-wallclock] insufficient run-wall budget for a 2nd full "
+                    "%ds attempt (%.0fs remaining) — failing loud now so the gap-stub "
+                    "renders before the run-wall guillotine",
+                    wall, remaining,
+                )
+                break
         try:
-            return await asyncio.wait_for(runner(plan), timeout=wall)
+            return await asyncio.wait_for(runner(plan), timeout=effective)
         except asyncio.TimeoutError as exc:
             last_exc = exc
             logger.warning(
-                "[gen-wallclock] section exceeded %ds wall-clock (attempt %d/2) — "
+                "[gen-wallclock] section exceeded %.0fs wall-clock (attempt %d/2) — "
                 "likely a transient provider stall; %s",
-                wall, attempt, "retrying" if attempt == 1 else "failing loud",
+                effective, attempt, "retrying" if attempt == 1 else "failing loud",
             )
     raise TimeoutError(
-        f"section generation exceeded {wall}s wall-clock x2 — failing loud instead "
-        f"of hanging the report (I-arch-002 #1248)"
+        f"section generation exceeded {wall}s wall-clock (run-wall-aware) — failing loud "
+        f"instead of hanging the report (I-arch-002 #1248 / I-deepfix-001 round-2)"
     ) from last_exc
 
 
@@ -4065,7 +4141,15 @@ async def _run_section(
 
     # Strict verify against full evidence_pool (not subset — the model
     # might cite an ev from outside the assigned subset; still valid).
-    report = strict_verify(rewritten, evidence_pool)
+    # I-deepfix-001 W03-strict-verify-offload (#1344): OFFLOAD the inline SYNC
+    # strict_verify to a worker thread so the enclosing asyncio.wait_for (the
+    # per-section 9000s wall + the 7200s run-wall) can ACTUALLY preempt a wedged
+    # per-sentence entailment judge. Run on the event-loop thread it blocked with NO
+    # await between per-sentence judge calls, so neither wall could interrupt it (the
+    # py-spy 'ssl.recv on MainThread, 0 CPU' freeze that hung Q72/Q76/Q90). Mirrors the
+    # credibility-pass to_thread fix already in this file (:7210). SAME verdicts, SAME
+    # engine, faithfulness BYTE-IDENTICAL — only the thread changes.
+    report = await asyncio.to_thread(strict_verify, rewritten, evidence_pool)
 
     # I-bug-108: verifier-driven sentence repair loop. Per Codex
     # strategic-review iter 1 path B (recommended after PR #350 D).
@@ -4185,7 +4269,9 @@ async def _run_section(
         total_in_tok += in_tok2
         total_out_tok += out_tok2
         rewritten2, _c2, _u2 = _rewrite_draft_with_spans(raw2, evidence_pool)
-        report2 = strict_verify(rewritten2, evidence_pool)
+        # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
+        # offloaded for the same reason as the primary verify above.
+        report2 = await asyncio.to_thread(strict_verify, rewritten2, evidence_pool)
         # M-41c pass-2: compare POST-FILTER kept counts, not
         # pre-filter strict_verify totals. This prevents a retry with
         # many under-framed trial-name claims from winning over a
@@ -7721,7 +7807,11 @@ async def generate_multi_section_report(
                 # original sentences already passed upstream strict_verify.
                 accepted_rewrite_svs: list[Any] = []
                 if rewrite_candidates:
-                    rewrite_report = strict_verify(
+                    # I-deepfix-001 W03-strict-verify-offload (#1344): the
+                    # dedup-rewrite re-verify, offloaded so the section/run walls can
+                    # preempt a wedged judge (same fix class as the two verifies above).
+                    rewrite_report = await asyncio.to_thread(
+                        strict_verify,
                         "\n".join(rewrite_candidates), evidence_pool,
                     )
                     accepted_rewrite_svs = list(rewrite_report.kept_sentences)

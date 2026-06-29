@@ -36,7 +36,8 @@ import json
 import logging
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as futures_wait
 from typing import Callable
 
 from src.polaris_graph.retrieval.tier_classifier import (
@@ -211,6 +212,39 @@ def _tier_llm_workers() -> int:
     return max(1, n)
 
 
+def _tier_llm_batch_wall_seconds() -> float:
+    """I-deepfix-001 W07 (#1344): a TOTAL wall (seconds) for the whole LLM-tiering batch.
+    `classify_sources_llm_tiering` is per-CALL bounded, but `pool.map` BLOCKS until ALL N
+    futures finish; on a mirror blank-200/trickle storm each source can burn up to its
+    per-call budget x retries, so the batch wall = ceil(N/workers)*per-call. Because
+    `run_live_retrieval` runs on the event-loop thread, the run-level wall cannot preempt
+    this post-loop W5 batch. When the deadline passes we STOP waiting and keep the
+    deterministic rules-FLOOR tier for every un-returned source (no drop, §-1.3). `<= 0`
+    disables the wall. Default 600s (generous)."""
+    raw = os.getenv("PG_TIER_LLM_BATCH_WALL_SECONDS", "600").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 600.0
+    import math as _math
+    if not _math.isfinite(value) or value <= 0:
+        return 0.0
+    return value
+
+
+def _tier_llm_degrade_after() -> int:
+    """I-deepfix-001 W07 (#1344): a consecutive-fallback circuit-breaker count. Once this
+    many tiering calls in a row fall back (blank/trickle storm), short-circuit the REMAINING
+    sources straight to the rules-floor instead of paying the per-call budget on each. `<= 0`
+    disables the breaker. Default 8."""
+    raw = os.getenv("PG_TIER_LLM_DEGRADE_AFTER", "8").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 8
+    return value
+
+
 def _default_caller() -> Callable[[str], str]:
     """Bind the production GLM-5.2 credibility caller (lazy — keeps the OFF path free of
     httpx + the authority package). Reuses the SAME control surface as the entailment /
@@ -227,6 +261,7 @@ def classify_sources_llm_tiering(
     *,
     call_llm: Callable[[str], str] | None = None,
     max_workers: int | None = None,
+    deadline_monotonic: "float | None" = None,
 ) -> list[ClassificationResult]:
     """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
 
@@ -269,15 +304,91 @@ def classify_sources_llm_tiering(
     llm_success = 0
     fallback_count = 0
     error_count = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for idx, res, status in pool.map(_one, range(n)):
-            llm_by_idx[idx] = res
-            if status == _TIER_STATUS_SUCCESS:
-                llm_success += 1
-            elif status == _TIER_STATUS_ERROR:
-                error_count += 1
-            else:
-                fallback_count += 1
+    # I-deepfix-001 W07 (#1344): bound the whole batch by a TOTAL deadline + a
+    # consecutive-fallback circuit-breaker. The TIGHTER (earlier) of the threaded
+    # `deadline_monotonic` (the caller's retrieval wall) and the env fallback wins.
+    _batch_wall = _tier_llm_batch_wall_seconds()
+    _eff_deadline = deadline_monotonic
+    if _batch_wall > 0:
+        _wall_instant = time.monotonic() + _batch_wall
+        _eff_deadline = (
+            _wall_instant if _eff_deadline is None else min(_eff_deadline, _wall_instant)
+        )
+    _degrade_after = _tier_llm_degrade_after()
+    _consecutive_fallbacks = 0
+    _short_circuited = 0
+    _wall_unreturned = 0
+    # I-deepfix-001 W07 (#1344): manage the pool MANUALLY (NOT `with`) so the
+    # non-blocking shutdown below cannot be defeated by `with`'s __exit__ shutdown(wait=True),
+    # which would BLOCK until a wedged worker finishes — making the batch wall cosmetic.
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        future_to_idx = {pool.submit(_one, i): i for i in range(n)}
+        pending = set(future_to_idx)
+        _stop = False
+        while pending and not _stop:
+            _remaining = (
+                None if _eff_deadline is None
+                else max(0.0, _eff_deadline - time.monotonic())
+            )
+            if _remaining is not None and _remaining <= 0:
+                break
+            done, pending = futures_wait(
+                pending, timeout=_remaining, return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                break  # the wall elapsed mid-flight
+            for fut in done:
+                idx, res, status = fut.result()
+                llm_by_idx[idx] = res
+                if status == _TIER_STATUS_SUCCESS:
+                    llm_success += 1
+                    _consecutive_fallbacks = 0
+                elif status == _TIER_STATUS_ERROR:
+                    error_count += 1
+                    _consecutive_fallbacks += 1
+                else:
+                    fallback_count += 1
+                    _consecutive_fallbacks += 1
+                # Circuit-breaker: once consecutive fallbacks exceed the threshold, stop
+                # waiting on the rest and let them fall through to the rules-floor.
+                if _degrade_after > 0 and _consecutive_fallbacks >= _degrade_after:
+                    _stop = True
+                    break
+        # Any future not yet collected (wall hit OR circuit-breaker tripped) keeps the
+        # deterministic rules-floor (no drop, §-1.3). Do NOT block on the still-running
+        # futures — they finish in their threads but we stop waiting on them.
+        if pending:
+            for fut in list(pending):
+                if fut.done():
+                    try:
+                        idx, res, status = fut.result()
+                        llm_by_idx[idx] = res
+                        if status == _TIER_STATUS_SUCCESS:
+                            llm_success += 1
+                        elif status == _TIER_STATUS_ERROR:
+                            error_count += 1
+                        else:
+                            fallback_count += 1
+                        continue
+                    except Exception:  # noqa: BLE001 — a late failure falls to the floor
+                        pass
+                if _stop:
+                    _short_circuited += 1
+                else:
+                    _wall_unreturned += 1
+        if _short_circuited or _wall_unreturned:
+            logger.warning(
+                "[credibility_llm_tiering] W07: batch bounded — %d short-circuited "
+                "(>=%d consecutive fallbacks), %d un-returned at wall; ALL kept at the "
+                "deterministic rules-floor (no drop, §-1.3).",
+                _short_circuited, _degrade_after, _wall_unreturned,
+            )
+    finally:
+        # NON-BLOCKING teardown: a wedged tiering worker must not delay the return (the
+        # un-returned source already keeps its rules-floor). The orphaned thread exits on
+        # its own per-call timeout.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
     out: list[ClassificationResult] = []

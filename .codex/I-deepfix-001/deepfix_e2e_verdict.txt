@@ -1,0 +1,15 @@
+novel_p0: []
+continuing_p0: []
+p1: [
+  "scripts/dr_benchmark/run_gate_b.py:3440: paid Gate-B sets only the sweep run-wall context, not multi_section_generator.set_run_wall_deadline. The new per-section gap-stub/run-wall protection in src/polaris_graph/generator/multi_section_generator.py:267 is therefore inactive on the direct Gate-B path, so a wedged section can still consume the run wall and produce timeout artifact/no report instead of disclosed gap-stub output.",
+  "src/polaris_graph/clinical_generator/strict_verify.py:323: W11 returns (True, 'entailment_unverified_judge_error'), but verify_sentence_to_record passes that as drop_reason and src/polaris_graph/clinical_generator/verified_report.py:143 rejects verifier_pass=True with any drop_reason. On that production clinical_generator path, the intended ship-with-label conversion can abort instead of preserving the label."
+]
+p2: [
+  "src/polaris_graph/synthesis/consolidation_nli.py:1739: timeout telemetry reports len(all_edges) as chunks scored, so the warning can misstate progress. This is observability-only."
+]
+convergence_call: continue
+remaining_blockers_for_execution: [
+  "strict_verify.py classification: allowed ship-with-label concept, not forbidden relaxation of evidence-id-in-pool/span-bounds/decimal-match/content-word-overlap checks; NEUTRAL/CONTRADICTED still fail. However the implementation has the P1 schema/label-propagation abort above.",
+  "End-to-end wall-class status: a wall-class path remains in the paid Gate-B entrypoint because the generator run-wall deadline is not installed there."
+]
+verdict: REQUEST_CHANGES

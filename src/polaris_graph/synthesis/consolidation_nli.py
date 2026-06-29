@@ -37,7 +37,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ThreadPoolExecutor,
+    wait as futures_wait,
+)
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -51,6 +56,15 @@ ENV_MODEL = "PG_CONSOLIDATION_NLI_MODEL"                # cross-encoder id
 ENV_WORKERS = "PG_CONSOLIDATION_NLI_WORKERS"            # bounded-parallel cap
 ENV_MARGIN = "PG_CONSOLIDATION_NLI_MARGIN"              # entailment-logit margin
 ENV_MAX_PAIRS = "PG_CONSOLIDATION_NLI_MAX_PAIRS"        # O(n^2) safety cap
+# I-deepfix-001 W04-consolidation-nli-wall (#1344): a TOTAL wall-clock deadline for the
+# whole score_pairs scoring loop. The bounded-parallel pool.map blocks until EVERY chunk
+# finishes — on a slow/contended/CPU-degraded cross-encoder (the post-OOM CPU re-score
+# pins the rest of the run), this had NO time bound (the MAX_PAIRS cap bounds COUNT, not
+# wall-clock), and the prose path runs it ONCE PER SECTION. When the deadline passes we
+# STOP collecting further edges and return the edges gathered so far. §-1.3: a partial
+# edge set only UNDER-merges => keeps MORE/equal baskets, never drops a corroborator.
+# Consolidation is a WEIGHT, not a faithfulness gate. Default generous; <= 0 disables.
+ENV_WALL_SECONDS = "PG_CONSOLIDATION_NLI_WALL_SECONDS"
 # I-deepfix-001 fix-3 (#1344): optional device placement for the cross-encoder. On
 # the crammed 2-GPU split (W6 embedder + W5 reranker + W10 NLI co-resident on cuda:0)
 # a CUDA OOM during load/predict used to RAISE and KILL the consolidation step (a
@@ -62,6 +76,7 @@ _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
 _DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
 _DEFAULT_MAX_PAIRS = "20000"
+_DEFAULT_WALL_SECONDS = "90"   # I-deepfix-001 W04: per-call score_pairs total wall (s)
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
@@ -106,6 +121,25 @@ def _margin() -> float:
 
 def _max_pairs() -> int:
     return _read_int(ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS, lo=1, hi=10_000_000)
+
+
+def _wall_seconds() -> float:
+    """I-deepfix-001 W04 (#1344): the total score_pairs wall in seconds. ``<= 0`` (or a
+    non-finite value) disables the wall => the loop blocks unbounded exactly as before
+    (the escape hatch). Default 90s."""
+    raw = os.environ.get(ENV_WALL_SECONDS, "").strip() or _DEFAULT_WALL_SECONDS
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[consolidation_nli] %s=%r not a float; using %s",
+            ENV_WALL_SECONDS, raw, _DEFAULT_WALL_SECONDS,
+        )
+        return float(_DEFAULT_WALL_SECONDS)
+    import math as _math
+    if not _math.isfinite(value) or value <= 0:
+        return 0.0
+    return value
 
 
 def _device() -> Optional[str]:
@@ -275,14 +309,25 @@ def score_pairs(
     if n < 2:
         return []
 
-    # All upper-triangle index pairs. O(n^2) is bounded by `max_pairs` (fail-loud guard):
-    # a runaway cluster count must not silently scan millions of pairs on a paid run.
+    # All upper-triangle index pairs. O(n^2) is bounded by `max_pairs`.
     pairs: list[tuple[int, int]] = [(i, j) for i in range(n) for j in range(i + 1, n)]
     if len(pairs) > max_pairs:
-        raise ValueError(
-            f"[consolidation_nli] {len(pairs)} candidate pairs exceeds "
-            f"{ENV_MAX_PAIRS}={max_pairs}; raise the cap or pre-bucket the clusters."
+        # I-deepfix-001 W04-consolidation-nli-wall (#1344): an over-MAX_PAIRS scale guard
+        # must DEGRADE, not ABORT the whole run. The prior `raise ValueError` propagated
+        # uncaught through `_apply_consolidation_nli` (finding_dedup.py) and aborted the
+        # run on a large cluster count. Consolidation is a WEIGHT, not a faithfulness
+        # gate: when the pair count exceeds the cap, SKIP scoring and return NO edges =>
+        # the literal clusters pass through UNMERGED (keeps MORE/equal baskets, §-1.3),
+        # exactly mirroring the prose path's correct over-cap skip in fact_dedup.py. The
+        # skip is a LOUD telemetry note, never silent. The whole-run abort is converted to
+        # a per-step under-merge.
+        logger.warning(
+            "[consolidation_nli] W04: %d candidate pairs exceeds %s=%d — SKIPPING NLI "
+            "consolidation for this bucket (literal clusters pass through UNMERGED; no "
+            "basket dropped). Raise %s or pre-bucket to merge them.",
+            len(pairs), ENV_MAX_PAIRS, max_pairs, ENV_MAX_PAIRS,
         )
+        return []
 
     # I-deepfix-001 fix-3 (#1344): track whether the predict came from the real lazy
     # cross-encoder (production) vs an injected stub (the fire-test seam). On a CUDA OOM
@@ -337,14 +382,72 @@ def score_pairs(
                 edges.append((i, j))
         return edges
 
+    # I-deepfix-001 W04-consolidation-nli-wall (#1344): a TOTAL wall-clock deadline over the
+    # whole scoring loop. The bounded-parallel gather previously BLOCKED until EVERY chunk
+    # finished (pool.map drains all); on a slow/CPU-degraded cross-encoder that had no time
+    # bound. When the deadline passes we STOP collecting further chunk edges and return the
+    # edges gathered so far. A partial edge set only UNDER-merges => keeps MORE/equal baskets
+    # (§-1.3), never drops a corroborator. `wall <= 0` disables the deadline (unbounded, the
+    # escape hatch / byte-identical default-OFF caller). Deterministic: the returned edges are
+    # still sorted, so for a non-truncated run the output is identical regardless of timing.
+    _wall = _wall_seconds()
+    _deadline = (time.monotonic() + _wall) if _wall > 0 else None
+
+    def _deadline_passed() -> bool:
+        return _deadline is not None and time.monotonic() > _deadline
+
     all_edges: list[tuple[int, int]] = []
+    _truncated = False
     if workers <= 1 or len(chunks) <= 1:
         for chunk in chunks:
+            if _deadline_passed():
+                _truncated = True
+                break
             all_edges.extend(_score_chunk(chunk))
     else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            for chunk_edges in pool.map(_score_chunk, chunks):
-                all_edges.extend(chunk_edges)
+        # I-deepfix-001 W04 (#1344): manage the pool MANUALLY (NOT `with`) so the
+        # non-blocking shutdown cannot be defeated by `with`'s __exit__ shutdown(wait=True),
+        # which would BLOCK until a wedged cross-encoder chunk finishes — making the wall
+        # cosmetic (the function would not RETURN until the slow chunks drained).
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = [pool.submit(_score_chunk, chunk) for chunk in chunks]
+            pending = set(futures)
+            while pending:
+                _remaining = None if _deadline is None else max(0.0, _deadline - time.monotonic())
+                if _remaining is not None and _remaining <= 0:
+                    _truncated = True
+                    break
+                done, pending = futures_wait(
+                    pending, timeout=_remaining, return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    # `wait` returned on the timeout with nothing newly completed => the wall
+                    # elapsed mid-flight. Collect whatever already finished and stop.
+                    _truncated = True
+                    break
+                for fut in done:
+                    all_edges.extend(fut.result())
+            if _truncated:
+                # Collect any futures that DID finish before the wall (do not block on the
+                # rest — they keep running to completion in their threads but we stop waiting,
+                # SS-1.3: skipping their edges only UNDER-merges).
+                for fut in list(pending):
+                    if fut.done():
+                        try:
+                            all_edges.extend(fut.result())
+                        except Exception:  # noqa: BLE001 — a late failure must not abort the run
+                            pass
+        finally:
+            # NON-BLOCKING teardown so a wedged chunk cannot delay the partial return.
+            pool.shutdown(wait=False, cancel_futures=True)
+    if _truncated:
+        logger.warning(
+            "[consolidation_nli] W04: scoring wall (%ss) elapsed with %d/%d chunks scored "
+            "— returning the partial edge set (UNDER-merges only; no basket dropped, §-1.3). "
+            "Raise %s to score more pairs.",
+            _wall, len(all_edges), len(chunks), ENV_WALL_SECONDS,
+        )
 
     # DETERMINISTIC post-step: sort the gathered edges so the union-find input is
     # concurrency-invariant (the union is order-stable anyway because it attaches to the

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any, Callable
 
 # (research_question, **kw) -> LiveRetrievalResult. Injected so this module never imports the
@@ -66,6 +67,25 @@ def _lines(text: str, cap: int = 12) -> list[str]:
     return out
 
 
+def _retrieval_deadline_passed(deadline: "float | None") -> bool:
+    """I-deepfix-001 WALL-03 (#1344): True iff the SHARED per-question retrieval wall
+    (a monotonic instant anchored ONCE by the spine) has passed.
+
+    Mirrors ``run_honest_sweep_r3._question_retrieval_deadline_passed`` byte-for-byte:
+    pure ``time.monotonic()`` comparison against the ALREADY-anchored deadline (never
+    re-reads the env — that would re-anchor the wall per call). STRICT ``>`` so the
+    boundary instant itself is not yet 'passed'. ``deadline is None`` (the DEFAULT — the
+    spine passes None when ``PG_RETRIEVAL_QUESTION_WALL_SECONDS`` is unset) => always
+    ``False`` => the FS-Researcher loop is unbounded exactly as before (byte-identical).
+
+    When set, the outer round-loop and the inner per-todo loop consult this so, once the
+    wall passes, the loop STOPS issuing new GLM rounds (query-derivation + checklist
+    critic — the rounds FIX-2's per-query-retrieve short-circuit does NOT cover) and
+    returns the queries gathered so far. §-1.3: stops adding query rounds; drops NO
+    gathered source; touches no faithfulness gate."""
+    return deadline is not None and time.monotonic() > deadline
+
+
 def _obs_digest(rows: list[dict], n: int = 3, chars: int = 160) -> str:
     """A short digest of the newest evidence rows (steers the checklist's gap analysis)."""
     parts = []
@@ -84,6 +104,7 @@ def plan_fs_researcher_queries(
     max_queries: int | None = None,
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
+    retrieval_deadline_monotonic: "float | None" = None,
 ) -> tuple[list[str], list[Any]]:
     """Run the FS-Researcher TOC/todo-queue + 6-item-checklist loop; return
     (queries_issued, per_query_results).
@@ -93,10 +114,30 @@ def plan_fs_researcher_queries(
     self-review checklist (exhaustive coverage + information density) yields the deficient sub-topics
     that become the next round's todos. Stops on NONE or the query budget. Pure control flow over the
     injected llm/retrieve — no network or live_retriever import here.
+
+    I-deepfix-001 WALL-03 (#1344): ``retrieval_deadline_monotonic`` is the SHARED per-question
+    retrieval wall (anchored ONCE by the spine, ``None`` when the wall knob is unset). FIX-2 already
+    short-circuits the per-query ``per_query_retrieve`` once the wall passes; but the adaptive GLM
+    rounds — the TOC deconstruction, the per-todo query-derivation ``llm()``, and the 6-item checklist
+    critic ``llm()`` — kept firing past the wall (the Codex iter-1 P1). When the deadline is set and
+    has passed, the outer round-loop and the inner per-todo loop break, returning the queries gathered
+    so far. ``None`` (default) => never trips => byte-identical. §-1.3: drops ZERO gathered queries /
+    sources; the engine is untouched.
     """
     max_queries = max_queries or _max_queries()
     max_rounds = max_rounds or _max_rounds()
     retrieve_kwargs = dict(retrieve_kwargs or {})
+
+    queries: list[str] = []
+    results: list[Any] = []
+    seen_q: set[str] = set()
+    notes: list[str] = []
+
+    # WALL-03: if the wall has ALREADY passed before the first GLM round, skip the loop
+    # entirely (no TOC-deconstruction llm() either) and hand off the empty query set so the
+    # spine merges the corpus gathered upstream rather than grinding the GLM TOC call.
+    if _retrieval_deadline_passed(retrieval_deadline_monotonic):
+        return queries, results
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
     todos = _lines(
@@ -107,16 +148,19 @@ def plan_fs_researcher_queries(
         cap=10,
     ) or [question]
 
-    queries: list[str] = []
-    results: list[Any] = []
-    seen_q: set[str] = set()
-    notes: list[str] = []
-
     for _ in range(max_rounds):
         if len(queries) >= max_queries or not todos:
             break
+        # WALL-03: stop issuing NEW GLM rounds once the shared retrieval wall passes.
+        if _retrieval_deadline_passed(retrieval_deadline_monotonic):
+            break
         for todo in list(todos):
             if len(queries) >= max_queries:
+                break
+            # WALL-03: gate each per-todo query-derivation llm() too, so a wall that passes
+            # mid-round (between todos) stops the very next GLM call rather than draining the
+            # whole todo list.
+            if _retrieval_deadline_passed(retrieval_deadline_monotonic):
                 break
             raw = llm("Write ONE search query for this sub-topic. Query only.\n\n" + todo)
             query = ""
@@ -133,6 +177,10 @@ def plan_fs_researcher_queries(
             results.append(result)
             notes.append(f"[{todo[:50]}] {_obs_digest(getattr(result, 'evidence_rows', None) or [])}")
         if len(queries) >= max_queries:
+            break
+        # WALL-03: gate the 6-item checklist critic llm() — it is one of the two GLM rounds
+        # the Codex iter-1 P1 flagged as still firing past the wall.
+        if _retrieval_deadline_passed(retrieval_deadline_monotonic):
             break
         # 6-item self-review checklist critic -> deficient sub-topics become the next todos.
         deficient = _lines(
@@ -249,12 +297,18 @@ def run_fs_researcher_retrieval(
     max_queries: int | None = None,
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
+    retrieval_deadline_monotonic: "float | None" = None,
 ) -> tuple[Any, list[str]]:
     """The production entry point: run the FS-Researcher loop over `per_query_retrieve` and return
     (merged LiveRetrievalResult, queries_issued). Faithful to the bake-off winner — each query goes
-    through the SAME production retrieval; only query SELECTION is FS-Researcher."""
+    through the SAME production retrieval; only query SELECTION is FS-Researcher.
+
+    I-deepfix-001 WALL-03 (#1344): ``retrieval_deadline_monotonic`` is the SHARED per-question
+    retrieval wall threaded from the spine; the adaptive GLM rounds stop firing once it passes
+    (``None`` = default = byte-identical)."""
     queries, results = plan_fs_researcher_queries(
         question, llm, per_query_retrieve,
         max_queries=max_queries, max_rounds=max_rounds, retrieve_kwargs=retrieve_kwargs,
+        retrieval_deadline_monotonic=retrieval_deadline_monotonic,
     )
     return merge_retrieval_results(results, result_factory), queries

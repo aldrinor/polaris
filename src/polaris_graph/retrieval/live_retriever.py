@@ -5047,7 +5047,14 @@ def run_live_retrieval(
         for _wi, _wcand in enumerate(candidates):
             _wcontent = fetched_side.get(_wcand.url, ("", False, "", "", ""))[0]
             _w2_passages.append((_wi, _wcand.url, _wcontent or ""))
-        _w2_report = score_passages(research_question, _w2_passages)
+        # I-deepfix-001 W06 (#1344): thread the retrieval-phase deadline into the W2
+        # escalation pool so a mis-calibrated reranker that escalates the whole mid-band
+        # cannot run the GLM pool past the retrieval wall. On expiry the remaining
+        # ambiguous passages are kept at FULL weight (always-release, no drop).
+        _w2_report = score_passages(
+            research_question, _w2_passages,
+            deadline_monotonic=_retrieval_deadline,
+        )
         _w2_by_idx = _w2_report.by_idx()
         # Highest-visibility console event (point 8): the W2 disposition.
         logger.info(
@@ -5756,7 +5763,14 @@ def run_live_retrieval(
             "tiering over %d sources",
             len(_deferred_tier_signals),
         )
-        _tier_results = classify_sources_llm_tiering(_deferred_tier_signals)
+        # I-deepfix-001 W07 (#1344): thread the retrieval-phase deadline into the W5
+        # LLM-tiering batch so a mirror blank-200/trickle storm cannot grind the post-loop
+        # batch past the retrieval wall (run_live_retrieval runs SYNC on the event loop, so
+        # the run-level wall cannot preempt it). Un-returned sources keep the rules-floor.
+        _tier_results = classify_sources_llm_tiering(
+            _deferred_tier_signals,
+            deadline_monotonic=_retrieval_deadline,
+        )
         for _row_idx, _tier_result in zip(_deferred_tier_row_idx, _tier_results):
             _src = classified_sources[_row_idx]
             _src.tier = _tier_result.tier.value

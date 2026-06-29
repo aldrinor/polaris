@@ -83,6 +83,12 @@ from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
 from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
+    # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): publish the run-wall deadline into
+    # the generator so the per-section wall-clock guard caps each section attempt by the
+    # REMAINING run-wall budget and gap-stubs BEFORE the run-wall guillotine (which would
+    # otherwise emit error_unexpected with NO rendered report).
+    set_run_wall_deadline as _msg_set_run_wall_deadline,
+    reset_run_wall_deadline as _msg_reset_run_wall_deadline,
     # I-arch-002 (#1246) P-W2breadth: enforce_breadth_canary + _normalize_source_key
     # were imported only for the post-bibliography breadth-count REFUSAL gate, a
     # §-1.1-banned metadata (cited-source COUNT) proxy. Both the gate and the helper
@@ -4248,6 +4254,27 @@ def _per_question_retrieval_deadline() -> "float | None":
     return time.monotonic() + seconds
 
 
+def _question_retrieval_deadline_passed(deadline: "float | None") -> bool:
+    """I-deepfix-001 BUG-A (#1344): True iff the SHARED per-question retrieval wall
+    (the instant anchored ONCE by ``_per_question_retrieval_deadline``) has passed.
+
+    Pure monotonic comparison against the ALREADY-anchored deadline — it does NOT
+    re-read the env (that would re-anchor the wall per call and defeat the shared
+    deadline). Mirrors ``live_retriever``'s inner search-fan-out guard
+    (``time.monotonic() > _retrieval_deadline`` at 4353/5075) — STRICT ``>`` so the
+    boundary instant itself is not yet 'passed'.
+
+    ``deadline is None`` (``PG_RETRIEVAL_QUESTION_WALL_SECONDS`` unset / garbage /
+    non-positive — the DEFAULT) => always ``False`` => the outer loops are unbounded
+    exactly as before (byte-identical). When set, the CRAG corrective ``while`` and
+    each additive retrieval lane consult this so, once the wall passes, retrieval
+    STOPS ADDING rounds and the corpus gathered so far HANDS OFF to generation —
+    rather than the run-level ``asyncio.wait_for`` wall guillotining the whole
+    question with no report. §-1.3: stops adding query rounds; drops NO gathered
+    source; touches no faithfulness gate."""
+    return deadline is not None and time.monotonic() > deadline
+
+
 def run_wall_clock_cancellation_active() -> bool:
     """B20 P1-1: True iff the CURRENT asyncio task is being cancelled AND the run-scoped
     wall-clock deadline has elapsed — i.e. this CancelledError unwind is the B20 wall-clock
@@ -7078,6 +7105,17 @@ async def run_one_query(
                     str(_INTENT_FRAME_DEFAULT_REASONING_MAX_TOKENS),
                 )
             )
+            # I-deepfix-001 W13-scope-intent-frame-timeout-degrade (#1344): a DEDICATED
+            # timeout for the intent_frame decompose. Without it the GLM-5.2 generate()
+            # inherits GENERATOR_TIMEOUT_SECONDS (6500s on the cert slate) and the spine
+            # awaits the worker via a synchronous .result() with NO timeout — so a wedged
+            # worker blocks the event-loop thread that the run-level wall cannot interrupt
+            # (block ~= 3x(6500+30)s). intent_frame is ADVISORY (it shapes WHICH questions
+            # are asked, touches NO faithfulness gate), so a tight cap is correct. Env-driven
+            # (LAW VI), default ~150s — well inside the run-wall.
+            _intent_frame_timeout_s = float(
+                os.getenv("PG_SCOPE_INTENT_FRAME_TIMEOUT_SEC", "150")
+            )
 
             def _intent_frame_llm(_prompt: str) -> str:
                 # Mirrors _iter_llm (this file): run_one_query is async, so the GLM
@@ -7101,6 +7139,9 @@ async def run_one_query(
                             # only the reasoning POOL is bounded so content is never
                             # starved on the GLM-5.2 _ALWAYS_REASON mirror.
                             reasoning_max_tokens=_intent_frame_reasoning_max_tokens,
+                            # I-deepfix-001 W13 (#1344): an EXPLICIT dedicated timeout so the
+                            # advisory decompose cannot inherit the 6500s generator budget.
+                            timeout=_intent_frame_timeout_s,
                         )
                         return getattr(_resp, "content", "") or ""
                     finally:
@@ -7118,58 +7159,99 @@ async def run_one_query(
                         lambda: _intent_frame_asyncio.run(_run())
                     )
 
+                # I-deepfix-001 W13 (#1344) FIX (Codex e2e gate iter-2 P1): do NOT use
+                # `with ThreadPoolExecutor(...) as _ex:` — its __exit__ calls shutdown(wait=True),
+                # which BLOCKS the event-loop thread waiting for a WEDGED worker on the .result()
+                # timeout path, defeating the timeout (the loop never reaches the W13 degrade).
+                # Manage the executor explicitly and shutdown(wait=False, cancel_futures=True) so a
+                # timeout frees the loop IMMEDIATELY; a still-running wedged worker is abandoned
+                # (daemon-like), the proven retrieval-path pattern. On expiry .result raises
+                # concurrent.futures.TimeoutError -> IntentFrameError -> the W13 degrade at the
+                # call site ships the raw question with disclosure.
+                _ex = _intent_frame_futures.ThreadPoolExecutor(max_workers=1)
                 try:
-                    with _intent_frame_futures.ThreadPoolExecutor(
-                        max_workers=1
-                    ) as _ex:
-                        return _ex.submit(_worker).result()
+                    return _ex.submit(_worker).result(
+                        timeout=_intent_frame_timeout_s + 30.0
+                    )
                 finally:
+                    try:
+                        _ex.shutdown(wait=False, cancel_futures=True)
+                    except TypeError:  # py<3.9: no cancel_futures kwarg
+                        _ex.shutdown(wait=False)
                     _cost_delta = _worker_cost_after[0] - _parent_cost_before
                     if _cost_delta > 0:
                         _IntentFrameCostCtx.set(_parent_cost_before + _cost_delta)
 
-            # FAIL-CLOSED: IntentFrameError propagates (NOT caught here). Flag is on,
-            # so run_intent_frame never returns None — the frame is always non-None.
-            intent_frame_advisory = _run_intent_frame(q["question"], _intent_frame_llm)
-            # FIRING CANARY into the run-dir log file. The module emits an identical
-            # logger.info line, but that only reaches stdout; _log tees to log_f, which
-            # the §-1.1 audit reads. Tokens match the pinned grep byte-for-byte.
-            _log(
-                "[intent_frame] #scope IntentFrame fired: "
-                f"questions={len(intent_frame_advisory.questions)} "
-                f"domain={intent_frame_advisory.domain} "
-                f"clarify={len(intent_frame_advisory.clarification_needed)}"
+            # I-deepfix-001 W13-scope-intent-frame-timeout-degrade (#1344): intent_frame is
+            # ADVISORY (it shapes WHICH questions are asked, touches NO faithfulness gate), so
+            # a TimeoutError / IntentFrameError / blank-reply on a normal answerable query must
+            # NOT abort the whole query to error_unexpected. DEGRADE to the raw question WITH
+            # DISCLOSURE (honors no-silent-fallback): keep _clean_question = q['question'], stamp
+            # the degraded marker, log a disclosed line, and PROCEED into run_scope_gate. SS-1.3
+            # safe (still produces a report). Gated behind the same default-ON intent_frame flag;
+            # OFF byte-identical (this block is never entered).
+            from src.polaris_graph.nodes.intent_frame import (
+                IntentFrameError as _IntentFrameError,
             )
-            # Forward the decomposition as advisory context. summary is serialized to
-            # sweep_summary.json (and round-trips via summary['manifest']); the success
-            # manifest also stamps manifest['intent_frame'] below.
-            summary["intent_frame"] = {
-                "questions": list(intent_frame_advisory.questions),
-                "domain": intent_frame_advisory.domain,
-                "clarification_needed": list(
-                    intent_frame_advisory.clarification_needed
-                ),
-                # I-deepfix-001 P2b (#1344): serialize the parsed meta-directives / prohibitions /
-                # output-constraints so an auditor (and the wave-2 date/journal/language enforcement
-                # handoff) can see WHAT the frame isolated out of the research questions. Empty list
-                # when the frame parsed no constraints (byte-additive; never echoed as a question).
-                "constraints": list(intent_frame_advisory.constraints),
-            }
-            # I-deepfix-001 B3 (#1344): substitute the CLEAN, injection-stripped research question
-            # for the downstream decompose/retrieval/planner backends. Only when the frame returned
-            # >=1 non-empty question (it always does when enabled — run_intent_frame is fail-closed —
-            # but guard defensively so an empty join can never null the query). The RAW q["question"]
-            # is untouched. Faithfulness-neutral: the backends now search the genuine question.
-            _frame_questions = [
-                _qq.strip() for _qq in intent_frame_advisory.questions if _qq and _qq.strip()
-            ]
-            if _frame_questions:
-                _clean_question = " ".join(_frame_questions)
-                _log(
-                    "[intent_frame] #scope clean-question substitution active for "
-                    f"decompose/retrieval (len {len(_clean_question)} chars; raw question kept "
-                    "verbatim in protocol/report/scope)"
+            import concurrent.futures as _w13_futures
+            intent_frame_advisory = None
+            try:
+                intent_frame_advisory = _run_intent_frame(
+                    q["question"], _intent_frame_llm
                 )
+            except (_IntentFrameError, _w13_futures.TimeoutError, TimeoutError) as _if_exc:
+                _if_reason = f"{type(_if_exc).__name__}: {str(_if_exc)[:160]}"
+                _log(
+                    "[intent_frame] #scope DEGRADED (advisory) — "
+                    f"{_if_reason}; proceeding with the raw question WITH DISCLOSURE "
+                    "(intent_frame is advisory; no faithfulness gate touched)"
+                )
+                summary["intent_frame"] = {"degraded": True, "reason": _if_reason}
+                summary["intent_frame_degraded"] = True
+            # I-deepfix-001 W13 (#1344): the advisory-forwarding block runs ONLY when the
+            # frame succeeded; on the DEGRADED path intent_frame_advisory is None, _clean_question
+            # stays q['question'] (already initialized above), and we fall straight through to the
+            # scope gate with the disclosure already stamped.
+            if intent_frame_advisory is not None:
+                # FIRING CANARY into the run-dir log file. The module emits an identical
+                # logger.info line, but that only reaches stdout; _log tees to log_f, which
+                # the §-1.1 audit reads. Tokens match the pinned grep byte-for-byte.
+                _log(
+                    "[intent_frame] #scope IntentFrame fired: "
+                    f"questions={len(intent_frame_advisory.questions)} "
+                    f"domain={intent_frame_advisory.domain} "
+                    f"clarify={len(intent_frame_advisory.clarification_needed)}"
+                )
+                # Forward the decomposition as advisory context. summary is serialized to
+                # sweep_summary.json (and round-trips via summary['manifest']); the success
+                # manifest also stamps manifest['intent_frame'] below.
+                summary["intent_frame"] = {
+                    "questions": list(intent_frame_advisory.questions),
+                    "domain": intent_frame_advisory.domain,
+                    "clarification_needed": list(
+                        intent_frame_advisory.clarification_needed
+                    ),
+                    # I-deepfix-001 P2b (#1344): serialize the parsed meta-directives / prohibitions /
+                    # output-constraints so an auditor (and the wave-2 date/journal/language enforcement
+                    # handoff) can see WHAT the frame isolated out of the research questions. Empty list
+                    # when the frame parsed no constraints (byte-additive; never echoed as a question).
+                    "constraints": list(intent_frame_advisory.constraints),
+                }
+                # I-deepfix-001 B3 (#1344): substitute the CLEAN, injection-stripped research question
+                # for the downstream decompose/retrieval/planner backends. Only when the frame returned
+                # >=1 non-empty question (it always does when enabled — run_intent_frame is fail-closed —
+                # but guard defensively so an empty join can never null the query). The RAW q["question"]
+                # is untouched. Faithfulness-neutral: the backends now search the genuine question.
+                _frame_questions = [
+                    _qq.strip() for _qq in intent_frame_advisory.questions if _qq and _qq.strip()
+                ]
+                if _frame_questions:
+                    _clean_question = " ".join(_frame_questions)
+                    _log(
+                        "[intent_frame] #scope clean-question substitution active for "
+                        f"decompose/retrieval (len {len(_clean_question)} chars; raw question kept "
+                        "verbatim in protocol/report/scope)"
+                    )
 
         # Phase 2b scope gate
         # I-beatboth-fix-000 (#1171): thread per-question PICO/PCC scope
@@ -8029,10 +8111,49 @@ async def run_one_query(
                     def _worker() -> str:
                         return _parent_ctx.run(lambda: _iter_asyncio.run(_run()))
 
+                    # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2, FS-Researcher in-call
+                    # overshoot): WALL-03 gates whether a NEW adaptive GLM round FIRES (it
+                    # checks the shared per-question retrieval deadline BEFORE calling llm()),
+                    # but once a single _iter_llm call STARTS it was bounded ONLY by the
+                    # OpenRouterClient internal timeout x MAX_RETRIES (~30 min worst case), NOT
+                    # by the per-question wall — so a call that began just before the 5400s
+                    # wall could run ~30 min past it. Cap the .result() wait by the REMAINING
+                    # per-question retrieval budget (+ a small grace) so an in-flight round
+                    # cannot overshoot the wall; on expiry abandon the worker WITHOUT blocking
+                    # (shutdown(wait=False)) and return "" so the deadline-gated loop exits and
+                    # the corpus gathered so far flows downstream (SS-1.3: no source dropped).
+                    _iter_call_timeout: "float | None" = None
+                    if _question_retrieval_deadline is not None:
+                        try:
+                            _iter_grace = float(os.getenv("PG_QGEN_IN_CALL_GRACE_S", "60"))
+                        except ValueError:
+                            _iter_grace = 60.0
+                        _iter_call_timeout = max(
+                            1.0,
+                            _question_retrieval_deadline - time.monotonic() + _iter_grace,
+                        )
+                    _ex = _iter_futures.ThreadPoolExecutor(max_workers=1)
                     try:
-                        with _iter_futures.ThreadPoolExecutor(max_workers=1) as _ex:
-                            return _ex.submit(_worker).result()
+                        _fut = _ex.submit(_worker)
+                        try:
+                            return _fut.result(timeout=_iter_call_timeout)
+                        except _iter_futures.TimeoutError:
+                            logging.getLogger(__name__).warning(
+                                "[fs-researcher] adaptive GLM round exceeded the remaining "
+                                "per-question retrieval budget — abandoning the in-flight "
+                                "round so the corpus gathered so far hands off (WALL-03 "
+                                "in-call bound, I-deepfix-001 round-2)"
+                            )
+                            return ""
                     finally:
+                        # wait=False: never block the spine on an abandoned worker thread (it
+                        # exits on its own per-call OpenRouterClient timeout). cancel_futures
+                        # drops not-yet-started work.
+                        try:
+                            _ex.shutdown(wait=False, cancel_futures=True)
+                        except TypeError:
+                            # cancel_futures is py3.9+; fall back without it on older runtimes.
+                            _ex.shutdown(wait=False)
                         _cost_delta = _worker_cost_after[0] - _parent_cost_before
                         if _cost_delta > 0:
                             _IterCostCtx.set(_parent_cost_before + _cost_delta)
@@ -8070,7 +8191,8 @@ async def run_one_query(
 
                 if _fs_researcher_enabled():
                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
-                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR  # I-deepfix-001 B3 P1-B: clean query seed
+                        _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR,  # I-deepfix-001 B3 P1-B: clean query seed
+                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 WALL-03 (#1344): SHARED per-question wall gates the adaptive GLM rounds
                     )
                     _log(
                         f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "
@@ -8316,6 +8438,30 @@ async def run_one_query(
             _crag_client = _CragOpenRouterClient(model=_crag_adq._crag_model())
             _crag_max_tokens = _crag_adq._crag_max_tokens()
 
+            def _crag_classifier_timeout() -> float:
+                # I-deepfix-001 WALL-01 (#1344): an EXPLICIT total per-call timeout for the
+                # aux CRAG STOP-decision classifier. WITHOUT this, a glm-5.2 socket stall
+                # makes the await INHERIT the 6500s reasoning-first GENERATOR budget the
+                # Gate-B slate floors via set_generator_timeout_seconds(); with MAX_RETRIES=2
+                # that is ~3x6500s per call, x2 calls (initial + re-grade) = ~10.8h of
+                # classifier-only wall the run-level wall then guillotines into a no-report
+                # abort. The classifier is a STOP decision, not a faithfulness gate, so a
+                # tight cap is correct. Generous env-driven default (LAW VI, no magic number);
+                # additionally CLAMPED to the SHARED per-question retrieval wall so an aux call
+                # can never run past it. Returns a strictly-positive float (>= 1.0).
+                _raw = os.getenv("PG_ADEQUACY_CRAG_LLM_TIMEOUT_SECONDS", "180").strip()
+                try:
+                    _base = float(_raw)
+                except ValueError:
+                    _base = 180.0
+                _base = max(1.0, _base)
+                if _question_retrieval_deadline is not None:
+                    _remaining = _question_retrieval_deadline - time.monotonic()
+                    # Clamp to the shared wall, but never below 1s (a sub-second budget would
+                    # fail-fast every call — let the deadline GATE at the call sites skip it).
+                    _base = max(1.0, min(_base, _remaining))
+                return _base
+
             async def _run_crag_classifier() -> dict:
                 # This seam is INSIDE the running `run_one_query` event loop, so
                 # we AWAIT the production client directly (an `asyncio.run()`
@@ -8330,6 +8476,7 @@ async def run_one_query(
                     _crag_resp = await _crag_client.generate(
                         prompt=_crag_prompt, max_tokens=_crag_max_tokens,
                         temperature=0.0,
+                        timeout=_crag_classifier_timeout(),  # I-deepfix-001 WALL-01 (#1344): bound the aux STOP-decision call
                     )
                     _crag_raw = getattr(_crag_resp, "content", "") or ""
                 except Exception as _crag_exc:  # noqa: BLE001 — surface, never silent
@@ -8354,6 +8501,13 @@ async def run_one_query(
                 "injected_urls": [],
                 "per_loop": [],
                 "classifications": [],
+                # I-deepfix-001 BUG-A (#1344): why the corrective loop stopped.
+                # "sufficient_or_budget" (the proven default) when the CRAG grader
+                # said enough OR the bounded loop budget was exhausted;
+                # "retrieval_wall" when the SHARED per-question wall passed and the
+                # corpus gathered so far HANDS OFF to generation (disclosed, never a
+                # silent cap — drops ZERO gathered sources).
+                "stopped_reason": "sufficient_or_budget",
             }
             _initial_url_set = {s.url for s in retrieval.classified_sources}
             _loops_done = 0
@@ -8373,6 +8527,25 @@ async def run_one_query(
             while _crag_loop_enabled and _crag_adq.should_loop_back(
                 sufficient=_crag_sufficient, loops_done=_loops_done,
             ):
+                # I-deepfix-001 BUG-A (#1344) KEYSTONE: honor the SHARED per-question
+                # retrieval wall. FIX-2 short-circuits the `run_live_retrieval` INSIDE
+                # this loop, but the loop itself still derives NEW gap queries + fires
+                # a fresh `_run_crag_classifier()` LLM round + re-classify + re-grade
+                # each iteration — work FIX-2 does not cover, so it grinds tens of
+                # minutes past the wall and retrieval never HANDS OFF to generation
+                # (the run-level `asyncio.wait_for` wall then guillotines the whole
+                # question with no report). Once the wall passes, STOP ADDING rounds
+                # and hand off the corpus gathered so far — disclosed in the trace,
+                # never a silent cap. `None` (knob unset — default) => never trips =>
+                # byte-identical. §-1.3: drops ZERO gathered sources.
+                if _question_retrieval_deadline_passed(_question_retrieval_deadline):
+                    _crag_loop_trace["stopped_reason"] = "retrieval_wall"
+                    _log(f"[crag-adequacy] per-question retrieval wall hit after "
+                         f"{_loops_done} loop(s) — stopping corrective loop-back; "
+                         f"handing off the {len(retrieval.classified_sources)} "
+                         f"sources gathered so far "
+                         f"(PG_RETRIEVAL_QUESTION_WALL_SECONDS)")
+                    break
                 _gap_queries = _crag_adq.derive_gap_queries(
                     research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                     findings=adequacy.findings,
@@ -8440,6 +8613,19 @@ async def run_one_query(
                         ) + "\n",
                         encoding="utf-8",
                     )
+                    # I-deepfix-001 W08 (#1344): once the SHARED per-question retrieval wall
+                    # has passed, do NOT spend one more classifier round — the corpus is already
+                    # merged; hand it off to generation instead of re-grading. The loop-top gate
+                    # (~8441) catches the next iteration, but a wall that passes AFTER the merge
+                    # would otherwise still pay this re-grade. Drops zero sources (§-1.3).
+                    if _question_retrieval_deadline_passed(_question_retrieval_deadline):
+                        _per_loop["stopped_reason"] = "retrieval_wall"
+                        _log(
+                            "[crag-adequacy] retrieval wall passed after merge — "
+                            "skipping the re-grade, handing off the merged corpus"
+                        )
+                        _crag_loop_trace["per_loop"].append(_per_loop)
+                        break
                     _crag_verdict = await _run_crag_classifier()
                     _crag_loop_trace["classifications"].append(_crag_verdict)
                     _crag_sufficient = bool(_crag_verdict["sufficient"])
@@ -8558,6 +8744,10 @@ async def run_one_query(
         enable_expansion = (
             os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
             and not _use_research_planner
+            # I-deepfix-001 BUG-A (#1344): skip ADDING this additive lane once the
+            # SHARED per-question retrieval wall has passed (hand off what we have).
+            # `None` (default) => never trips => byte-identical.
+            and not _question_retrieval_deadline_passed(_question_retrieval_deadline)
         )
         if (not _resume_active and not _resume_from_fetch and enable_expansion
                 and completeness.expand_queries
@@ -8654,13 +8844,19 @@ async def run_one_query(
             run_deepener_sync,
             should_trigger_deepener,
         )
-        if (not _resume_active) and (not _resume_from_fetch) and should_trigger_deepener(
+        # I-deepfix-001 BUG-A (#1344): the deepener does non-`run_live_retrieval`
+        # snowball-discovery work (`run_deepener_sync`) FIX-2 does not cover, so skip
+        # ADDING it once the SHARED per-question wall has passed (hand off what we
+        # have). `None` (default) => never trips => byte-identical.
+        if ((not _resume_active) and (not _resume_from_fetch)
+                and not _question_retrieval_deadline_passed(_question_retrieval_deadline)
+                and should_trigger_deepener(
             flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
             has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
             has_seed_evidence=len(retrieval.evidence_rows) > 0,
             adequacy_decision=adequacy.decision,
             total_uncovered=completeness.total_uncovered,
-        ):
+        )):
             _hb("deepener_started")  # GH #1258 PART 2: stage-tick bracketing the evidence deepener
             try:
                 _deep_state = build_deepener_state(retrieval.evidence_rows, q["question"])
@@ -8762,9 +8958,16 @@ async def run_one_query(
         # is booked + the cap ENFORCED BEFORE the loop (STORM pattern); the loop runs in an ISOLATED
         # context so its real spend is discarded (the envelope IS the parent's accounting). Fail-open:
         # any agentic/fetch/merge error leaves the post-deepener corpus untouched.
-        if (not _resume_active) and (not _resume_from_fetch) and os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
+        # I-deepfix-001 BUG-A (#1344): the agentic lane runs multi-round searcher
+        # work (up to PG_AGENTIC_MAX_ROUNDS LLM calls) beyond the FIX-2-covered
+        # `run_live_retrieval`, so skip ADDING it once the SHARED per-question wall
+        # has passed (hand off what we have). `None` (default) => never trips =>
+        # byte-identical.
+        if ((not _resume_active) and (not _resume_from_fetch)
+                and not _question_retrieval_deadline_passed(_question_retrieval_deadline)
+                and os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
             "1", "true", "True",
-        ):
+        )):
             _agentic_telemetry["enabled"] = True
             _agentic_telemetry["firing_status"] = "attempted_empty"
             _hb("agentic_started")  # GH #1258 PART 2: stage-tick bracketing the agentic discovery rounds
@@ -9250,7 +9453,40 @@ async def run_one_query(
         # report does not consume.
         _pop_total_mismatch = adequacy.total_sources != dist.total_sources
         _pop_tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
-        if _pop_total_mismatch or _pop_tier_mismatch:
+        # I-deepfix-001 W01-fx06 (#1344): the W01 root fix (corpus_adequacy_gate.py
+        # reports the CLASSIFIER population, decision stays on-topic) restores FX-06
+        # equality by construction, so this tripwire should never fire again. As a
+        # belt-and-suspenders disposition per the operator-locked "verifier never holds
+        # the WHOLE report": FX-06 verifies no CLAIM and refuses nothing HARMFUL — it is
+        # a pure self-consistency accounting tripwire. So if it ever DOES diverge, the
+        # default is to LOG + DISCLOSE + PROCEED (approval still uses `dist`; per-claim
+        # faithfulness — strict_verify / 4-role D8 — still gates downstream). A
+        # mismatch becomes a HARD ABORT only when the operator explicitly opts in via
+        # PG_FX06_HARD_ABORT=1. Default-0 = ship-with-disclosure, never a no-report stub.
+        _fx06_hard_abort = os.getenv("PG_FX06_HARD_ABORT", "0").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if (_pop_total_mismatch or _pop_tier_mismatch) and not _fx06_hard_abort:
+            _fx06_disc = (
+                f"FX-06 self-consistency note (non-fatal): corpus_adequacy(total="
+                f"{adequacy.total_sources}, tier_counts={dict(adequacy.tier_counts)}) "
+                f"!= corpus_approval dist(total={dist.total_sources}, "
+                f"tier_counts={dict(dist.tier_counts)}). Proceeding WITH DISCLOSURE per "
+                f"the operator-locked 'verifier never holds the whole report' — approval "
+                f"gates on `dist`, per-claim faithfulness still gates. Set "
+                f"PG_FX06_HARD_ABORT=1 to abort instead."
+            )
+            _log(f"[FX-06]       {_fx06_disc}")
+            try:
+                _fx06_existing = summary.get("disclosed_gaps")
+                if not isinstance(_fx06_existing, list):
+                    _fx06_existing = []
+                _fx06_existing.append(_fx06_disc[:500])
+                summary["disclosed_gaps"] = _fx06_existing
+                summary["fx06_population_reconciled"] = True
+            except Exception:  # noqa: BLE001 — disclosure bookkeeping never blocks the run
+                _log("[FX-06]       (disclosure bookkeeping skipped; proceeding)")
+        if (_pop_total_mismatch or _pop_tier_mismatch) and _fx06_hard_abort:
             _pop_msg = (
                 f"FX-06 invariant violated: corpus_adequacy(total={adequacy.total_sources}, "
                 f"tier_counts={dict(adequacy.tier_counts)}) != corpus_approval dist(total="
@@ -10978,6 +11214,25 @@ async def run_one_query(
                     enclosing `retrieval` / `evidence_for_gen` / `_suff` so the
                     final round's state flows to the generator."""
                     nonlocal retrieval, evidence_for_gen, _suff, _jo_sidecar
+                    # I-deepfix-001 BUG-A (#1344): honor the SHARED per-question
+                    # retrieval wall. Once it passes, STOP ADDING gap rounds — return
+                    # a ZERO-NOVELTY outcome (no new fetch) so `run_saturation_loop`'s
+                    # novelty-flatten stop fires and the corpus gathered so far HANDS
+                    # OFF to generation. `None` (knob unset — default) => never trips
+                    # => byte-identical. §-1.3: drops ZERO gathered sources (the
+                    # cumulative corpus + current evidence_for_gen are unchanged).
+                    if _question_retrieval_deadline_passed(_question_retrieval_deadline):
+                        _log("[saturation] per-question retrieval wall hit — stopping "
+                             "gap rounds; handing off the "
+                             f"{len(retrieval.classified_sources)} sources gathered so "
+                             "far (PG_RETRIEVAL_QUESTION_WALL_SECONDS)")
+                        return RoundOutcome(
+                            cumulative_retrieved_rows=list(retrieval.evidence_rows),
+                            evidence_for_gen=evidence_for_gen,
+                            sufficiency_report=_suff,
+                            new_round_rows=[],          # zero novelty => flatten-stop
+                            prev_corpus_rows=list(retrieval.evidence_rows),
+                        )
                     _gap_ret = run_live_retrieval(
                         research_question=q["question"],
                         amplified_queries=list(gap_queries),
@@ -12308,6 +12563,58 @@ async def run_one_query(
             bool(verified_sections)
             and is_excessive_gap(_verified_count, _total_sections, _min_frac)
         )
+        # I-deepfix-001 W12-excessive-gap-ship-disclosed (#1344): abort_excessive_gap HOLDS
+        # the WHOLE report even though strict_verify-CLEAN verified sections EXIST — solely
+        # because the gap-stub fraction exceeds the floor. The early-return below pre-empts
+        # the b18 always-release disposition (abort_excessive_gap is deliberately ABSENT from
+        # _B18_B19_CONVERTIBLE_HOLDS, so adding it there alone is DEAD CODE). Per the
+        # operator-locked "verifier never holds a report": when verified_sections is
+        # non-empty AND always_release is enabled AND the shortfall is NOT a degraded
+        # verifier (judge outage) / not the truly-zero case, CONVERT the abort to SHIP the
+        # verified sections with the excessive-gap text demoted to a disclosed 'Coverage gap'.
+        # GUARDRAIL: gated on bool(verified_sections) AND NOT judge_degraded so it can NEVER
+        # swallow the two genuine SAFETY holds (abort_no_verified_sections /
+        # abort_verifier_degraded). Every shipped sentence already passed strict_verify — only
+        # the whole-report DROP is converted to LABEL+SHIP. Env-gated by PG_ALWAYS_RELEASE;
+        # OFF keeps the byte-identical abort.
+        _w12_ship_excessive_gap = False
+        if _excessive_gap and verified_sections:
+            # I-deepfix-001 W12 (#1344) FIX (Codex e2e gate iter-2 P1): the module is
+            # roles.release_policy, NOT generator.release_policy (the latter does not exist ->
+            # ImportError raised on the excessive-gap disclose-and-ship path, defeating W12).
+            # always_release_enabled lives in src/polaris_graph/roles/release_policy.py.
+            from src.polaris_graph.roles.release_policy import (
+                always_release_enabled as _w12_always_release_enabled,
+            )
+            (
+                _w12_jerr_degraded,
+                _w12_jerr_rate,
+                _w12_jerr_calls,
+                _w12_jerr_errs,
+            ) = judge_error_degraded_from_telemetry(_run_judge_tel)
+            if _w12_always_release_enabled() and not _w12_jerr_degraded:
+                _w12_ship_excessive_gap = True
+                _excessive_gap = False  # do NOT abort; ship the verified remainder
+                _w12_gap_disclosure = (
+                    f"Coverage gap (disclosed, not held): only {_verified_count}/"
+                    f"{_total_sections} sections produced strict_verify-clean prose "
+                    f"({(_verified_count / _total_sections):.0%}); the remaining sections "
+                    f"are gap disclosures. Per the operator-locked 'verifier never holds the "
+                    f"whole report', the {_verified_count} verified section(s) are SHIPPED "
+                    f"with this disclosed coverage gap (released_with_disclosed_gaps). Set "
+                    f"PG_ALWAYS_RELEASE=0 to abort instead."
+                )
+                _w12_existing = summary.get("disclosed_gaps")
+                if not isinstance(_w12_existing, list):
+                    _w12_existing = []
+                _w12_existing.append(_w12_gap_disclosure)
+                summary["disclosed_gaps"] = _w12_existing
+                summary["excessive_gap_shipped_with_disclosure"] = True
+                _log(
+                    f"[W12] excessive-gap CONVERTED to ship-with-disclosure: "
+                    f"{_verified_count}/{_total_sections} verified sections SHIPPED "
+                    f"(released_with_disclosed_gaps); coverage gap disclosed, not held."
+                )
         if not verified_sections or _excessive_gap:
             # ITEM 3 (I-arch-007 death-forensic): CORRECT abort cause-attribution. The
             # binding entailment verifier may have bricked its shared client (the Q78
@@ -13016,13 +13323,42 @@ async def run_one_query(
         # (exempt from paragraph-dedup, which would otherwise empty the ## Conclusion / drop the body
         # copy); when summaries are OFF (_abstract_md == _conclusion_md == "") it uses the EXACT pre-PR-d
         # dedup(title+body) path, so default-OFF report.md is BYTE-IDENTICAL.
-        final_report = assemble_report_md(
-            f"# Research report: {_strip_injected_instruction_appendix(q['question'])}\n\n",
-            _abstract_md,
-            _key_findings + sections_concat + _depth_layer + methods + biblio_section + _drop_disclosure_md,
-            _conclusion_md,
-            dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
+        # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): the success-path report
+        # assembly is the ONE finish-line step that was NOT wrapped — a raise inside
+        # assemble_report_md (e.g. a dedup/regex edge on a pathological body) would
+        # propagate to the BUG-21 outer catch-all and yield an error_<phase> manifest
+        # with NO rendered report, defeating the operator bar (a RENDERED report). The
+        # body string is fully built above, so fail-open to a plain title + pre-assembled
+        # concat keeps the report rendering even if the dedup/sandwich assembly raises.
+        # Pure string assembly (no LLM/socket) so this never masks a HANG or faithfulness
+        # gate — it only guarantees the finish-line writes.
+        _assembled_title = (
+            f"# Research report: {_strip_injected_instruction_appendix(q['question'])}\n\n"
         )
+        _assembled_body = (
+            _key_findings + sections_concat + _depth_layer + methods
+            + biblio_section + _drop_disclosure_md
+        )
+        try:
+            final_report = assemble_report_md(
+                _assembled_title,
+                _abstract_md,
+                _assembled_body,
+                _conclusion_md,
+                dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
+            )
+        except Exception as _assemble_exc:  # noqa: BLE001 — finish-line: a rendered report MUST ship
+            _log(
+                f"[assemble-report] assemble_report_md raised ({_assemble_exc}); "
+                "fail-open to title + abstract + pre-assembled concat + conclusion so a "
+                "report still renders (I-deepfix-001 round-2)"
+            )
+            final_report = (
+                _assembled_title
+                + (f"{_abstract_md}\n\n" if _abstract_md else "")
+                + _assembled_body
+                + (f"\n\n{_conclusion_md}" if _conclusion_md else "")
+            )
         # I-beatboth-011 drb_78 (#1289): HEADER-SANITY screen on the ASSEMBLED report — drop any
         # `#`..`######` header LINE that is a garbled scraped fragment (a URL / login-CTA / `[N]`
         # citation / `[...]` truncation marker), e.g. the facebook login-wall that rendered as an
@@ -14211,7 +14547,21 @@ async def run_one_query(
                 _seam_partial_verdicts: "dict[str, str]" = {}
                 _seam_partial_coverage = 0.0
                 _seam_partial_settled = 0
-                if _seam_held_reason == "seam_timeout":
+                # I-deepfix-001 W14-four-role-judge-offenum-degrade (#1344) part 2: extend the
+                # partial-recovery from seam_timeout-ONLY to ALSO cover seam_error:* — the settled
+                # sidecar (four_role_settled_verdicts.jsonl, written per-claim at sweep_integration)
+                # exists regardless of WHY the seam tore down (a mid-seam JudgeEnumError settles
+                # claims before the exception just like the wall does), so discarding it for a
+                # seam_error wasted real adjudications. CRITICAL: this is audit-fidelity ONLY — the
+                # recovered partial is STILL routed through the SAME build_seam_release_outcome below,
+                # whose non-empty SEAM_GAP_UNADJUDICATED disclosed gap forces released_with_disclosed_
+                # gaps / held; it can NEVER false-certify the run (unsettled claims are absent from
+                # final_verdicts = fail-closed). W14 part 1 already prevents the dominant JudgeEnumError
+                # from reaching the seam at all; this preserves fidelity for any OTHER seam_error class.
+                if _seam_held_reason == "seam_timeout" or (
+                    isinstance(_seam_held_reason, str)
+                    and _seam_held_reason.startswith("seam_error:")
+                ):
                     (
                         _seam_partial_verdicts,
                         _seam_partial_coverage,
@@ -16379,7 +16729,14 @@ async def main_async() -> int:
             # degraded one. asyncio.wait_for copies the current context into the awaited task, so the
             # task sees this value. The token is reset in a finally so it never leaks to the next
             # query in the sweep loop.
-            _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(time.monotonic() + _wall)
+            _run_wall_deadline_monotonic = time.monotonic() + _wall
+            _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(_run_wall_deadline_monotonic)
+            # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): mirror the SAME absolute
+            # deadline into the generator's ContextVar (a distinct module-level var) so the
+            # per-section wall-clock guard can cap each section attempt by the remaining
+            # run-wall budget. asyncio.wait_for copies the current context into the awaited
+            # task, so the section runner inside run_one_query sees this value.
+            _msg_deadline_token = _msg_set_run_wall_deadline(_run_wall_deadline_monotonic)
             try:
                 with gate_around_question(
                     enabled=args.pathB_gate, run_dir=_pathb_run_dir,
@@ -16444,11 +16801,21 @@ async def main_async() -> int:
                     _RUN_WALL_CLOCK_DEADLINE_CTX.reset(_deadline_token)
                 except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
                     pass
+                # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): reset the generator deadline too.
+                try:
+                    _msg_reset_run_wall_deadline(_msg_deadline_token)
+                except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
+                    pass
                 continue
             # B20 P1-1: clear the run-scoped wall-clock deadline on the NORMAL (non-timeout) path
             # too, so a later in-iteration cancellation cannot be misread as a wall-clock timeout.
             try:
                 _RUN_WALL_CLOCK_DEADLINE_CTX.reset(_deadline_token)
+            except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
+                pass
+            # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): reset the generator deadline too.
+            try:
+                _msg_reset_run_wall_deadline(_msg_deadline_token)
             except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
                 pass
             dt = time.time() - t0
