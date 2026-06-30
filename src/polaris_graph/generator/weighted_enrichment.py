@@ -813,6 +813,104 @@ _STATS_TABLE_RE = re.compile(
     r"(?:\(\s*[-−]?\d+\.\d+\s*\)\s*){3,}|(?:\d+\.\d+\s*\*{1,3}\s*){3,}"
 )
 
+# I-deepfix-002 (#1363) FIX-1 — cookie/consent banner, DOI-registry error page, mixed-script
+# masthead. drb_72 smoke leaked these into cited claims (cookie-wall [10][23][24], DOI-Not-Found
+# error page [25], Russian journal masthead [5][11]); they self-entail strict_verify (text == its
+# own span) so the faithfulness engine cannot catch them — they are page furniture / dead-fetch
+# shells, never a corroborating source. SUPPRESS-only (FLAG-not-drop); engine UNCHANGED.
+_COOKIE_CONSENT_RE = re.compile(
+    r"utiliz\w*\s+technologies\s+such\s+as\s+cookies"
+    r"|we\s+use\s+cookies\s+to\s+enhance\s+your\s+browsing"
+    r"|we\s+value\s+your\s+privacy"
+    r"|analytics,?\s+personali[sz]ation,?\s+and\s+targeted\s+advertising"
+    r"|necessary\s+cookies\s+are\s+required"
+    r"|the\s+technical\s+storage\s+or\s+access\s+(?:is|that\s+is)\s+(?:strictly\s+necessary|used\s+exclusively)"
+    r"|opens\s+(?:in\s+a\s+new\s+window|an\s+external\s+website)"
+    r"|store\s+and/or\s+access\s+information\s+on\s+your\s+device"
+    r"|error\s*[-–—]\s*cookies\s+turned\s+off"
+    r"|cookieabsent"
+    r"|press\s+alt\+1\s+for\s+screen-reader\s+mode"
+    r"|strictly\s+necessary\s+for\s+the\s+legitimate\s+purpose"
+    r"|accept\s+all\s+cookies", re.IGNORECASE)
+_DOI_ERROR_RE = re.compile(
+    r"DOI\s+Not\s+Found"
+    r"|this\s+DOI\s+cannot\s+be\s+found\s+in\s+the\s+DOI\s+System"
+    r"|report\s+this\s+error\s+to\s+the\s+responsible\s+DOI\s+Registration\s+Agency"
+    r"|the\s+DOI\s+has\s+not\s+been\s+activated\s+yet"
+    r"|search\s+again\s+from\s+DOI\.ORG", re.IGNORECASE)
+# A 4+ char non-Latin run (Cyrillic U+0400–052F added — the legacy _NONLATIN_CHAR_RE omitted it)
+# AND a Vol/Issue/№/Том token = a foreign-language journal masthead, not English prose quoting a
+# short foreign term.
+_NONLATIN_MASTHEAD_RUN_RE = re.compile(r"[Ѐ-ԯ؀-ۿ一-鿿぀-ヿ가-힣]{4,}")
+_MASTHEAD_VOL_TOKEN_RE = re.compile(r"\b(?:Vol\.?|Volume|Issue|No\.)\b|№|Том\b", re.IGNORECASE)
+
+
+def _is_foreign_journal_masthead(text: str) -> bool:
+    return bool(_NONLATIN_MASTHEAD_RUN_RE.search(text) and _MASTHEAD_VOL_TOKEN_RE.search(text))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) DEFER-4 — residual WHOLE-UNIT page-furniture the FIX-1 (cookie/DOI/foreign-
+# masthead/byline) and legacy categories miss. drb_72 smoke leaked these as cited claims:
+#   A14 publisher PAYWALL call-to-action ("Get full access to this article / View all access and
+#       purchase options for this article." [20]) — the legacy chrome_furniture_screen._PAYWALL_RE
+#       covers Member-only/Feature-Story but not this Sage/Atypon access-wall string.
+#   A15 working-paper COVER masthead + author-opinion DISCLAIMER ("DISCUSSION PAPER SERIES IZA DP
+#       No. 14409 ... Any opinions expressed in this paper are those of the author(s) ..." [19]).
+#   A16 PDF FOOTNOTE / citation-apparatus run ("See OECD (2020), Table 3.3. 14Tate and Yang (2016)
+#       analyze ... 7 Post-merger restructuring." [19]).
+#
+# PRECISION + OVER-STRIP SAFETY (operator-locked drop-path law "over-strip deletes a real finding,
+# worse than a leak"): each rule fires ONLY on a unit that is DOMINANTLY page furniture — a paywall
+# CTA, a series-cover masthead, a footnote/reference run with NO finding clause. A real economics /
+# labor finding never carries these anchors. Units that are a REAL finding welded to a SMALL artifact
+# (A17 "…eliminated.1 1 This number assumes…", A18 "Box 3.1 … In collaboration with Indeed …",
+# A19 "(See Exhibit 1.)", E1 truncated "…not only access to.") are DELIBERATELY NOT matched here —
+# dropping their whole unit would delete the real finding inside, so they are left to the render-seam
+# REPAIR / truncation legs. A20 ("eloundou_gpts_are_gpts") is a SUPPORT sub-bullet source-locator
+# (keep-only surface), not a claim unit, so it is out of this predicate's lane too. FLAG-not-drop:
+# the source row stays in evidence_pool + the credibility disclosure; the faithfulness engine
+# (strict_verify / NLI / 4-role / span-grounding) is UNCHANGED.
+
+# A14 — publisher paywall / "get full access" CTA furniture. Multi-word, access-wall-specific.
+_PAYWALL_ACCESS_RE = re.compile(
+    r"\bget\s+full\s+access\s+to\s+this\s+article\b"
+    r"|\bview\s+all\s+access\s+and\s+purchase\s+options\b"
+    r"|\bpurchase\s+options\s+for\s+this\s+article\b",
+    re.IGNORECASE,
+)
+# A15 — working-paper / discussion-paper COVER masthead + author-opinion DISCLAIMER. Both phrases are
+# series-cover boilerplate a real finding never contains (the working-paper-NUMBER masthead form
+# "Policy Research Working Paper 11057" is already covered by _MASTHEAD_CHROME_RE; this adds the
+# "DISCUSSION PAPER SERIES" series header and the "Any opinions expressed in this paper are those of
+# the author(s)" disclaimer that the IZA cover carries).
+_WORKING_PAPER_COVER_RE = re.compile(
+    r"\bdiscussion\s+paper\s+series\b"
+    r"|\bany\s+opinions?\s+expressed\s+in\s+this\s+paper\s+are\s+those\s+of\s+the\b",
+    re.IGNORECASE,
+)
+# A16 — PDF footnote / citation-apparatus run: a 1-2 digit footnote number GLUED directly to a
+# Capitalized surname ("14Tate and Yang (2016)") or a "See <REF> (year), Table N" cross-reference
+# opener. A real sentence writes "Tate and Yang (2016)" (space, no glue) and never opens "See OECD
+# (2020), Table 3.3.". The glue rule's ``[A-Z][a-z]{2,}`` excludes all-caps tokens (so "4IR", "23
+# OECD") and lowercase (so "165million") — only a footnote-digit welded to a Mixed-case surname.
+_FOOTNOTE_GLUE_RE = re.compile(
+    r"\b\d{1,2}[A-Z][a-z]{2,}\s+(?:and|et\s+al\.?|\(\d{4}\))"
+    r"|\bSee\s+[A-Z][A-Za-z]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z]+)?\s*\(\d{4}\)\s*,?\s+Table\s+\d",
+)
+
+
+def _is_residual_chrome_furniture(text: str) -> bool:
+    """I-deepfix-001 (#1344) DEFER-4: True iff ``text`` is a residual furniture-DOMINATED unit
+    (publisher paywall CTA, working-paper cover masthead/disclaimer, PDF footnote/citation run).
+    High-precision whole-unit screen; a real finding welded to a small artifact is NOT matched."""
+    return bool(
+        _PAYWALL_ACCESS_RE.search(text)
+        or _WORKING_PAPER_COVER_RE.search(text)
+        or _FOOTNOTE_GLUE_RE.search(text)
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # I-wire-016 (#1338) gap-fill — precision-safe furniture rules the legacy categories miss (the OSS
 # survey confirmed no fetch-time HTML extractor fits the render seam; extend the deterministic
@@ -907,6 +1005,13 @@ def _contains_forensic_chrome(text: str) -> bool:
     low = s.lower()
     # browser/UI · license · author/submission metadata · bibliographic/portal · masthead
     if _NAV_CHROME_RE.search(s) or _LICENSE_CHROME_RE.search(s) or _BIBLIO_CHROME_RE.search(s):
+        return True
+    # I-deepfix-002 (#1363) FIX-1: cookie/consent banner · DOI-registry error page · foreign masthead
+    if _COOKIE_CONSENT_RE.search(s) or _DOI_ERROR_RE.search(s) or _is_foreign_journal_masthead(s):
+        return True
+    # I-deepfix-001 (#1344) DEFER-4: residual furniture-dominated units — publisher paywall CTA ·
+    # working-paper cover masthead/disclaimer · PDF footnote/citation-apparatus run.
+    if _is_residual_chrome_furniture(s):
         return True
     if _SUBMISSION_META_RE.search(s) or _MASTHEAD_CHROME_RE.search(s) or _STATS_TABLE_RE.search(s):
         return True

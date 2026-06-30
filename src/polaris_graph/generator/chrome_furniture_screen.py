@@ -48,8 +48,24 @@ _JOURNAL_HTML_RULES = [
     r"(?:(?:CRediT authorship contribution statement|Author Contributions|Funding|"
     r"Declaration of competing interest|Conflicts? of Interest|Ethics declaration|"
     r"Institutional Review Board Statement|Informed Consent Statement|"
-    r"Data Availability Statement|Acknowledgements|Acknowledgments|Appendix [A-Z])"
+    r"Data Availability Statement|Acknowledgements|Acknowledgments|Appendix [A-Z]|"
+    # I-deepfix-001 (#1344): widen the back-matter label set — these slipped the run and
+    # left a >=4-word residue, so is_furniture_dominant returned False on a heading pile.
+    r"Conclusions?|References|Supplementary (?:Materials?|Information)|Highlights|"
+    r"Graphical Abstract|Keywords?|Abbreviations|Author Information|"
+    r"How to cite(?: this article)?|Competing interests|Supporting Information|"
+    r"Notes on contributors?|Disclosure statement)"
     r"\s*){2,}",
+    # I-deepfix-001 (#1344): comparison/back-matter TABLE-HEADER row — >=3 pipe-delimited
+    # short Title-Case cells (e.g. "| Authors | Article Title | Year | Lead Article vs.").
+    r"(?:\|\s*[A-Z][^|]{0,40}){3,}\|?",
+    # I-deepfix-001 (#1344): library-catalog / JS-gate scrape chrome (multilingual).
+    r"Permalink(?:\s+als\s+QR-Code)?",
+    r"\bQR-Code\b",
+    r"Literaturnachweis",
+    r"Inhaltsverzeichnis",
+    r"nur vorhanden,?\s+wenn\s+Javascript\s+eingeschaltet(?:\s+ist)?",
+    r"Javascript\s+eingeschaltet",
 ]
 _JOURNAL_HTML_RE = re.compile("|".join(_JOURNAL_HTML_RULES), re.IGNORECASE)
 
@@ -77,7 +93,21 @@ _COOKIE_RULES = [
 ]
 _COOKIE_RE = re.compile("|".join(_COOKIE_RULES), re.IGNORECASE)
 
-_FURNITURE_RES = [_JOURNAL_HTML_RE, _AFFIL_RE, _PAYWALL_RE, _COOKIE_RE]
+# I-deepfix-002 (#1363) FIX-1 — author/date byline furniture welded to the front of a fetched body
+# (drb_72 "August 30, 2023 **[By Jim Jones]** ..." [8]; "_Written by Jim McGwin, College of Business_"
+# [14]). Obeys the whole-unit-collapse over-strip guard (is_furniture_dominant: suppress ONLY when the
+# post-strip residue has < 4 real words) — a pure byline LINE collapses; a byline prefix welded to a real
+# multi-clause claim keeps its >=4-word residue and is returned UNCHANGED. "By <Name>" is bounded to <=3
+# capitalized tokens so "...found that, by March 2024, employment..." is never matched.
+_BYLINE_RULES = [
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"\s+\d{1,2},?\s+\d{4}\s*\**\s*\[?\s*[Bb]y\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s*\]?(?:\([^)\s]*\))?\s*\**",
+    r"_?\b(?:Written|Posted|Reviewed|Edited|Authored|Reported|Compiled)\s+[Bb]y\s+"
+    r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}(?:,\s+[A-Z][^_\n]{0,40})?_?",
+]
+_BYLINE_RE = re.compile("|".join(_BYLINE_RULES))
+
+_FURNITURE_RES = [_JOURNAL_HTML_RE, _AFFIL_RE, _PAYWALL_RE, _COOKIE_RE, _BYLINE_RE]
 
 # A residue is "near-empty" if it has < this many alphabetic words of length>=2 (no real clause).
 _NEAR_EMPTY_WORD_FLOOR = 4
