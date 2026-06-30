@@ -341,6 +341,85 @@ def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
     return words or None
 
 
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 FIX-D part 3 (#1335) — snap a mid-sentence-truncated cited span to a sentence boundary
+#
+# Forensic (drb_72): an evidence span byte-range that terminates MID-SENTENCE / MID-NUMBER (the
+# extractor cut the quote) composes a dangling clause (e.g. "quadrupled from approximately 100,000
+# [ev]" with the "to 400,000" endpoint dropped). The fix EXTENDS the cited span forward to the next
+# sentence boundary WITHIN THE SAME evidence row, so the composed clause is whole. Extend-ONLY: the
+# snapped span is always a SUPERSET of the original within the same row, so it stays grounded by
+# construction (the token covers exactly the emitted text) and NEVER fabricates. Faithfulness-NEUTRAL.
+# Default-ON; ``PG_COMPOSE_SNAP_SPAN_SENTENCE=0`` restores byte-identical legacy behavior.
+_ENV_SNAP_SPAN_SENTENCE = "PG_COMPOSE_SNAP_SPAN_SENTENCE"
+_ENV_SNAP_MAX_EXTEND_CHARS = "PG_COMPOSE_SNAP_SPAN_MAX_EXTEND_CHARS"
+_DEFAULT_SNAP_MAX_EXTEND_CHARS = 320   # cap so a missing terminator never swallows the whole row
+
+
+def _snap_span_enabled() -> bool:
+    # default-ON; only an explicit 0/false/off/no disables. An EMPTY string behaves like UNSET
+    # (Codex #1335 gate P2) -> stays ON, so a blank env var cannot silently disable the snap.
+    return os.getenv(_ENV_SNAP_SPAN_SENTENCE, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _is_real_sentence_terminator(haystack: str, k: int, n: int) -> bool:
+    """True iff ``haystack[k]`` actually ends a sentence. ``!``/``?`` always do. A ``.`` does ONLY
+    when the next char (past a closing quote/paren) is whitespace / EOL / end-of-string — a ``.``
+    glued to a DIGIT is a decimal point (e.g. ``3.75``) and a ``.`` glued to a letter is an
+    abbreviation, neither of which ends a sentence. This stops the span-snap from truncating a
+    number to its integer part (Codex #1335 gate P1: ``... to 3.75`` must never snap to ``... to 3.``)."""
+    if not (0 <= k < n):
+        return False
+    c = haystack[k]
+    if c in "!?":
+        return True
+    if c != ".":
+        return False
+    j = k + 1
+    if j < n and haystack[j] in "\"')]":
+        j += 1
+    return j >= n or haystack[j] in " \t\r\n"
+
+
+def _ends_at_sentence_boundary(haystack: str, end: int) -> bool:
+    """True iff the cited span [.., end) already ends at a REAL sentence boundary — the last
+    non-(space/close-quote/paren) char before ``end`` is a genuine terminal ``. ! ?`` (a decimal
+    point or abbreviation dot does NOT count). Empty/oob-safe."""
+    k = end - 1
+    while k >= 0 and k < len(haystack) and haystack[k] in " \t\r\n\"')]":
+        k -= 1
+    return _is_real_sentence_terminator(haystack, k, len(haystack))
+
+
+def _snap_span_end_to_sentence(haystack: str, start: int, end: int) -> int:
+    """EXTEND ``end`` forward to just past the next REAL sentence terminator in ``haystack`` when the
+    cited span ends mid-sentence. Extend-ONLY (never shrinks) -> the result is always a SUPERSET of the
+    original span within the SAME row. Returns ``end`` unchanged when the span already ends at a
+    boundary, when no REAL terminator is found within the bounded scan (avoid running to EOF), or on
+    any out-of-range input (fail-safe no-op). A decimal point / abbreviation dot is NOT a terminator
+    (Codex #1335 gate P1) so the snap can never truncate a number to its integer part."""
+    if not haystack:
+        return end
+    n = len(haystack)
+    if not (0 <= start < end <= n):
+        return end
+    if _ends_at_sentence_boundary(haystack, end):
+        return end
+    try:
+        max_extend = int(os.getenv(_ENV_SNAP_MAX_EXTEND_CHARS, "").strip() or _DEFAULT_SNAP_MAX_EXTEND_CHARS)
+    except ValueError:
+        max_extend = _DEFAULT_SNAP_MAX_EXTEND_CHARS
+    max_extend = max(1, max_extend)
+    limit = min(n, end + max_extend)
+    for i in range(end, limit):
+        if _is_real_sentence_terminator(haystack, i, n):
+            j = i + 1
+            if j < n and haystack[j] in "\"')]":
+                j += 1
+            return j
+    return end
+
+
 def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
@@ -361,13 +440,28 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         if not eid or not quote or gspan is None:
             continue
         start, end = gspan
+        # I-deepfix-001 FIX-D part 3 (#1335): if the verified span ends MID-SENTENCE (the extractor cut
+        # the quote), EXTEND it forward to the next sentence boundary IN THE SAME ROW so the composed
+        # clause is not left dangling. Extend-only -> a SUPERSET of the same row -> grounded by
+        # construction (the widened token covers exactly the emitted text), never fabricates. When no
+        # snap applies (snap_end == end) the path is byte-identical to legacy. Default-ON.
+        snap_end = end
+        span_text = quote
+        if _snap_span_enabled():
+            row = (evidence_pool or {}).get(eid) or {}
+            haystack = str(row.get("direct_quote") or row.get("statement") or "")
+            snap_end = _snap_span_end_to_sentence(haystack, start, end)
+            if snap_end > end and 0 <= start < snap_end <= len(haystack):
+                # Rebuild the prose from the SAME-row slice the widened token cites, so the completed
+                # final sentence is whole; the earlier sentences are unchanged (they are a prefix of it).
+                span_text = haystack[start:snap_end]
         # PER-SENTENCE units (Codex P1-4): a multi-sentence verified span must NOT ship as one blob
         # with a single trailing token (strict_verify would split it and drop the un-tokened earlier
         # units). Each sentence carries the member's OWN span token — the whole verified span grounds
         # each sub-sentence (it literally contains it). Offsets are the member's REAL GLOBAL offsets
         # (Codex P1-3) so downstream resolution anchors to the verified span, never 0-len of a span
         # that may differ from the global row for a shared source.
-        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        units = [u.strip() for u in (split_into_sentences(span_text) or [span_text]) if u.strip()]
         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
@@ -382,7 +476,7 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
             # [A-Z0-9]) keeps it ATTACHED. The prior "U. [#ev:...]" form orphaned the token into a
             # contentless fragment -> no_provenance_token -> verified=0 (the P6 v2 STORM-section zero).
             u_core = _strip_terminal_punct(u)
-            out.append(f"{u_core} [#ev:{eid}:{start}-{end}].")
+            out.append(f"{u_core} [#ev:{eid}:{start}-{snap_end}].")
         if out:
             return " ".join(out)
     return None

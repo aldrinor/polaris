@@ -1,0 +1,9 @@
+verdict: APPROVE
+
+p1: []
+
+p2: [
+  "src/polaris_graph/generator/verified_compose.py:365: Decimal truncation is cleared: `.` followed by a digit is not a terminator, so `3.75 in 2024.` snaps to the final sentence period, not the decimal. Residual P2: abbreviation handling is still incomplete for abbreviations whose final dot is followed by whitespace, e.g. `Fig. 2`, `Dr. Smith`, `U.S. adoption`; that dot can still be treated as a boundary. This is a quality edge, not a P1 faithfulness/source-drop risk."
+]
+
+The empty-env snap fix is correct, and the slot-field dedup now preserves same literal values when they cite different spans. The changed surface is limited to `slot_fill.py` and `verified_compose.py`; strict_verify/NLI/4-role/provenance/span-grounding are not modified, and no source is dropped.

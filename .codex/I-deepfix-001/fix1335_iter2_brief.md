@@ -1,0 +1,306 @@
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1/2. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- Reserve P0/P1 for real execution risks; classify the rest P2/P3.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+CONTEXT: #1335/FIX-D composer-repetition fix, iter 2. Two files: slot_fill.py (content-driven length replacing the hardcoded 14-20 sentence/300-450 word FLOOR; field-dedup) + verified_compose.py (snap a mid-sentence-truncated cited span forward to the next sentence boundary, extend-only).
+
+ITER-1 found ONE P1 + two P2 — this iter addresses ALL THREE; verify each is CLEARED and no NEW issue:
+- P1 (verified_compose span-snap treated ANY '.' as a sentence terminator -> could snap '... to 3.75' to '... to 3.', truncating a NUMBER): FIXED by a new _is_real_sentence_terminator(haystack,k,n) — '!'/'?' always terminate; a '.' terminates ONLY when the next char (past a closing quote/paren) is whitespace/EOL/end-of-string, so a '.' glued to a DIGIT (decimal 3.75) or a LETTER (abbreviation) is NOT a terminator. Used by both _snap_span_end_to_sentence (the forward scan) and _ends_at_sentence_boundary (the already-at-boundary check). VERIFY: the snap can no longer truncate a number to its integer part; '3.75 in 2024.' snaps to the real '.' after 2024, not the decimal point.
+- P2 (PG_COMPOSE_SNAP_SPAN_SENTENCE='' empty-string disabled the snap): FIXED — _snap_span_enabled now disables ONLY on explicit 0/false/off/no; empty behaves like unset -> default-ON.
+- P2 (slot_fill _dedup_extracted_fields keyed on value alone, could over-merge two distinct facts sharing a literal value): FIXED — now keys on the (value, source_span) PAIR, so two fields merge ONLY when BOTH match (collapses the acemoglu same-span case; keeps two distinct facts that share a value but cite different spans).
+
+REVIEW ASK: confirm (a) the P1 decimal/abbreviation truncation is genuinely impossible now (the span-snap is faithfulness-safe — extend-only, grounded-by-construction, never truncates a number); (b) the two P2 fixes are correct and introduce no regression; (c) faithfulness engine (strict_verify/NLI/4-role D8/provenance/span-grounding) remains untouched and no SOURCE is dropped (§-1.3). The diff is below.
+
+OUTPUT SCHEMA: verdict: APPROVE | REQUEST_CHANGES / p1: [...] / p2: [...]
+
+=== DIFF ===
+diff --git a/src/polaris_graph/generator/slot_fill.py b/src/polaris_graph/generator/slot_fill.py
+index e69ab9fb..d0a425f4 100644
+--- a/src/polaris_graph/generator/slot_fill.py
++++ b/src/polaris_graph/generator/slot_fill.py
+@@ -54,6 +54,7 @@ from __future__ import annotations
+ 
+ import json
+ import logging
++import os
+ import re
+ from dataclasses import dataclass
+ from typing import Literal
+@@ -591,6 +592,91 @@ assert GAP_PROSE_MARKER in _GAP_PHRASE, (
+ )
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────
++# I-deepfix-001 FIX-D (#1335) — content-driven narrative length + field dedup
++#
++# Forensic (drb_72, contract_slot composer): the narrative prompt hardcoded a
++# "14-20 sentence / 300-450 word" LOWER FLOOR and the model PADDED 2-5 extracted
++# facts up to that floor -> degenerate near-verbatim repetition (the §-1.3 BANNED
++# forced-target anti-pattern; the model's own reasoning admitted "14-20 sentences
++# with only 2 facts is quite repetitive ... some repetition is inevitable"). The
++# fix makes length CONTENT-DRIVEN (one sentence per DISTINCT fact, no floor) and
++# DEDUPs identical extracted fields before composing. Both are faithfulness-NEUTRAL
++# — they change LENGTH/DEDUP only, never what is asserted, and the per-sentence
++# strict_verify gate downstream is untouched.
++# ─────────────────────────────────────────────────────────────────────
++_ENV_NARRATIVE_SENTENCE_ALLOWANCE = "PG_SLOT_NARRATIVE_SENTENCE_ALLOWANCE"
++# Slack ABOVE one-sentence-per-fact for legitimate connective/transition prose. This
++# is NOT a floor — it only widens the UPPER ceiling. Default 1 means 2 facts -> at
++# most ~3 sentences (the forensic-prescribed "~2-3 sentences, not 14").
++_DEFAULT_NARRATIVE_SENTENCE_ALLOWANCE = 1
++_ENV_NARRATIVE_MAX_SENTENCES = "PG_SLOT_NARRATIVE_MAX_SENTENCES"
++# Absolute anti-bloat CEILING on a single per-entity paragraph (kept per FIX-D part 1:
++# "keep any UPPER cap, DELETE the LOWER floor"). NOT a target the model must reach.
++_DEFAULT_NARRATIVE_MAX_SENTENCES = 20
++
++
++def _env_int(name: str, default: int) -> int:
++    """Read an int env knob (LAW VI). Empty/invalid -> default (warn-on-invalid)."""
++    raw = os.getenv(name, "").strip()
++    if not raw:
++        return default
++    try:
++        return int(raw)
++    except ValueError:
++        logger.warning("[slot_fill] %s=%r not an int; using default %d", name, raw, default)
++        return default
++
++
++def _dedup_extracted_fields(fields: list[SlotFieldFill]) -> list[SlotFieldFill]:
++    """I-deepfix-001 FIX-D part 2 (#1335): drop extracted fields whose VALUE (or, when value is
++    empty, source_span) is identical to one already kept, after whitespace+case normalization.
++    Keep-FIRST, order-stable. Faithfulness-NEUTRAL: a second field that restates an already-present
++    value/span carries no new evidence and (in the contract_slot path) shares the same bound citation,
++    so emitting it again only produces a near-verbatim duplicate sentence (forensic: acemoglu_restrepo
++    displacement_vs_reinstatement + empirical_support resolve to the SAME span). NEVER drops a field
++    that carries a distinct value -> never drops a distinct fact / a source's corroboration."""
++    seen: set[tuple[str, str]] = set()
++    out: list[SlotFieldFill] = []
++    for f in fields:
++        # Key on the (value, source_span) PAIR (Codex #1335 gate P2): two fields are duplicates only
++        # when they would emit the same sentence — i.e. the SAME value AND the SAME cited span. Keying
++        # on value alone would over-merge two DISTINCT facts that happen to share a literal value (e.g.
++        # "15%") but cite different spans; the pair keeps those, while still collapsing the forensic
++        # acemoglu_restrepo case (two field names, ONE span -> one sentence).
++        key = (
++            _whitespace_collapse(str(f.value or "")).lower(),
++            _whitespace_collapse(str(f.source_span or "")).lower(),
++        )
++        if not (key[0] or key[1]):
++            # No comparable text (defensive) — keep it rather than silently swallow.
++            out.append(f)
++            continue
++        if key in seen:
++            continue
++        seen.add(key)
++        out.append(f)
++    return out
++
++
++def _narrative_length_guidance(n_facts: int) -> str:
++    """I-deepfix-001 FIX-D part 1 (#1335, §-1.3): CONTENT-DRIVEN length instruction. One clear
++    sentence per DISTINCT fact, NO lower floor; an env-overridable UPPER ceiling only (LAW VI). With
++    few facts the correct paragraph is short — the model must NOT pad to hit a quota."""
++    n_facts = max(1, int(n_facts))
++    allowance = max(0, _env_int(_ENV_NARRATIVE_SENTENCE_ALLOWANCE, _DEFAULT_NARRATIVE_SENTENCE_ALLOWANCE))
++    abs_cap = max(1, _env_int(_ENV_NARRATIVE_MAX_SENTENCES, _DEFAULT_NARRATIVE_MAX_SENTENCES))
++    ceiling = min(abs_cap, n_facts + allowance)
++    return (
++        f"There are {n_facts} distinct fact(s) above. Write ONE clear declarative sentence per "
++        f"distinct fact — about {n_facts} sentence(s) total. There is NO minimum length: brevity is "
++        f"correct when the facts are few, and a {n_facts}-sentence paragraph is the right answer for "
++        f"{n_facts} fact(s). Do NOT repeat, restate, or rephrase a fact you have already stated, and "
++        f"never add a sentence merely to reach a length target. Hard ceiling: do not exceed {ceiling} "
++        f"sentences."
++    )
++
++
+ def build_slot_narrative_prompt(
+     payload: SlotFillPayload,
+     *,
+@@ -632,16 +718,22 @@ def build_slot_narrative_prompt(
+     don't duplicate the slot-fill LLM call.
+     """
+     bound = payload.bound_ev_id
+-    field_lines: list[str] = []
+-    for field in payload.fields:
+-        if field.status == "extracted":
+-            field_lines.append(
+-                f"- {field.field_name}: \"{field.value}\""
+-            )
++    # I-deepfix-001 FIX-D part 2 (#1335): DEDUP identical extracted fields BEFORE composing so two
++    # fields resolving to the SAME value/span are not emitted as two near-verbatim sentences.
++    extracted_fields = _dedup_extracted_fields(
++        [field for field in payload.fields if field.status == "extracted"]
++    )
++    field_lines = [
++        f"- {field.field_name}: \"{field.value}\"" for field in extracted_fields
++    ]
+     if not field_lines:
+         return ""
+     fields_block = "\n".join(field_lines)
+-    return f"""You are writing one PER-ENTITY NARRATIVE PARAGRAPH for a top-tier Deep Research clinical report (the depth of GPT-5.4 DR / Gemini 3.1 Pro DR — those competitors produce 200-400 word per-entity narrative blocks, not 60-110 word fact-bullets).
++    # I-deepfix-001 FIX-D part 1 (#1335, §-1.3): length is CONTENT-DRIVEN off the count of DISTINCT
++    # extracted facts — NO hardcoded sentence/word floor to pad toward.
++    n_facts = len(extracted_fields)
++    length_guidance = _narrative_length_guidance(n_facts)
++    return f"""You are writing one PER-ENTITY NARRATIVE PARAGRAPH for a top-tier Deep Research clinical report (the depth of GPT-5.4 DR / Gemini 3.1 Pro DR — flowing declarative prose, not "Field: value" fact-bullets). Depth comes from stating each DISTINCT fact clearly and specifically; it NEVER comes from restating the same fact in different words.
+ 
+ Subsection: {subsection_title}
+ Research question: {research_question}
+@@ -651,13 +743,13 @@ VERBATIM-EXTRACTED FIELDS FROM PRIMARY SOURCE (use ONLY these values, do not inv
+ 
+ Source citation marker (use verbatim with no modification): [{bound}]
+ 
+-TASK: Weave the extracted fields above into a 14-20 sentence narrative paragraph (300-450 words). Each factual sentence must end with the citation marker [{bound}] before the period. The marker uses the bare-bracket format `[{bound}]` — the post-processor converts it to a span token automatically. Use AT LEAST 2-3 contrast markers ("however", "in contrast", "whereas", "by comparison", "although", "despite") per paragraph when the extracted fields support contrastive framing.
++TASK: Restate each extracted field above as ONE clear, plain, declarative sentence. {length_guidance} Each factual sentence must end with the citation marker [{bound}] before the period. The marker uses the bare-bracket format `[{bound}]` — the post-processor converts it to a span token automatically. Use a contrast marker ("however", "in contrast", "whereas", "by comparison", "although", "despite") ONLY where two DISTINCT facts genuinely contrast — never add a sentence solely to use one.
+ 
+ NARRATIVE STYLE (matching top-tier DR competitors):
+ - ONE flowing paragraph, NOT bullet points or "Field: value" listings
+ - Integrate fields contextually: lead with study/entity introduction, then design + population, then dose/comparator, then primary endpoint + result, then secondary findings, then safety/limitation context
+ - Use connective synthesis: "In this trial...", "By comparison...", "However...", "In contrast...", "The treatment difference was...", "Secondary outcomes included...", "Adverse events were dose-related..."
+-- USE CONTRAST MARKERS when supported by the extracted values: "however", "in contrast", "whereas", "by comparison", "although", "despite". Top-tier DR uses 1 contrast marker per ~200 words.
++- Use a contrast marker ("however", "in contrast", "whereas", "by comparison", "although", "despite") ONLY where two distinct extracted values genuinely contrast — do not manufacture contrast, and do not add a sentence just to use a marker.
+ - Integrate clinical interpretation in the comparator-class context (e.g., "consistent with the broader GLP-1 / GIP dual-agonist mechanism literature") ONLY when the extracted fields support that framing — do NOT invent context.
+ 
+ VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by verify_sentence_provenance against the cited spans AFTER you write it, and any sentence that is not entailed by the cited span is DROPPED from the report and CANNOT be rescued):
+@@ -668,7 +760,7 @@ VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by
+ - If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source".
+ - When in doubt, say LESS: a shorter paragraph that only restates the fields is correct; a longer paragraph that adds unstated specifics will be dropped at verification.
+ 
+-OUTPUT: plain prose, ONE paragraph (14-20 sentences, 300-450 words). No heading, no bullet list, no preamble. Just the paragraph body. Every factual sentence ends with [{bound}] before its period."""
++OUTPUT: plain prose, ONE paragraph — about {n_facts} sentence(s), one per distinct fact, with no padding or repetition. No heading, no bullet list, no preamble. Just the paragraph body. Every factual sentence ends with [{bound}] before its period."""
+ 
+ 
+ def render_slot_prose(payload: SlotFillPayload) -> str:
+diff --git a/src/polaris_graph/generator/verified_compose.py b/src/polaris_graph/generator/verified_compose.py
+index f394c6c1..d7dfd89a 100644
+--- a/src/polaris_graph/generator/verified_compose.py
++++ b/src/polaris_graph/generator/verified_compose.py
+@@ -341,6 +341,85 @@ def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
+     return words or None
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────
++# I-deepfix-001 FIX-D part 3 (#1335) — snap a mid-sentence-truncated cited span to a sentence boundary
++#
++# Forensic (drb_72): an evidence span byte-range that terminates MID-SENTENCE / MID-NUMBER (the
++# extractor cut the quote) composes a dangling clause (e.g. "quadrupled from approximately 100,000
++# [ev]" with the "to 400,000" endpoint dropped). The fix EXTENDS the cited span forward to the next
++# sentence boundary WITHIN THE SAME evidence row, so the composed clause is whole. Extend-ONLY: the
++# snapped span is always a SUPERSET of the original within the same row, so it stays grounded by
++# construction (the token covers exactly the emitted text) and NEVER fabricates. Faithfulness-NEUTRAL.
++# Default-ON; ``PG_COMPOSE_SNAP_SPAN_SENTENCE=0`` restores byte-identical legacy behavior.
++_ENV_SNAP_SPAN_SENTENCE = "PG_COMPOSE_SNAP_SPAN_SENTENCE"
++_ENV_SNAP_MAX_EXTEND_CHARS = "PG_COMPOSE_SNAP_SPAN_MAX_EXTEND_CHARS"
++_DEFAULT_SNAP_MAX_EXTEND_CHARS = 320   # cap so a missing terminator never swallows the whole row
++
++
++def _snap_span_enabled() -> bool:
++    # default-ON; only an explicit 0/false/off/no disables. An EMPTY string behaves like UNSET
++    # (Codex #1335 gate P2) -> stays ON, so a blank env var cannot silently disable the snap.
++    return os.getenv(_ENV_SNAP_SPAN_SENTENCE, "1").strip().lower() not in ("0", "false", "off", "no")
++
++
++def _is_real_sentence_terminator(haystack: str, k: int, n: int) -> bool:
++    """True iff ``haystack[k]`` actually ends a sentence. ``!``/``?`` always do. A ``.`` does ONLY
++    when the next char (past a closing quote/paren) is whitespace / EOL / end-of-string — a ``.``
++    glued to a DIGIT is a decimal point (e.g. ``3.75``) and a ``.`` glued to a letter is an
++    abbreviation, neither of which ends a sentence. This stops the span-snap from truncating a
++    number to its integer part (Codex #1335 gate P1: ``... to 3.75`` must never snap to ``... to 3.``)."""
++    if not (0 <= k < n):
++        return False
++    c = haystack[k]
++    if c in "!?":
++        return True
++    if c != ".":
++        return False
++    j = k + 1
++    if j < n and haystack[j] in "\"')]":
++        j += 1
++    return j >= n or haystack[j] in " \t\r\n"
++
++
++def _ends_at_sentence_boundary(haystack: str, end: int) -> bool:
++    """True iff the cited span [.., end) already ends at a REAL sentence boundary — the last
++    non-(space/close-quote/paren) char before ``end`` is a genuine terminal ``. ! ?`` (a decimal
++    point or abbreviation dot does NOT count). Empty/oob-safe."""
++    k = end - 1
++    while k >= 0 and k < len(haystack) and haystack[k] in " \t\r\n\"')]":
++        k -= 1
++    return _is_real_sentence_terminator(haystack, k, len(haystack))
++
++
++def _snap_span_end_to_sentence(haystack: str, start: int, end: int) -> int:
++    """EXTEND ``end`` forward to just past the next REAL sentence terminator in ``haystack`` when the
++    cited span ends mid-sentence. Extend-ONLY (never shrinks) -> the result is always a SUPERSET of the
++    original span within the SAME row. Returns ``end`` unchanged when the span already ends at a
++    boundary, when no REAL terminator is found within the bounded scan (avoid running to EOF), or on
++    any out-of-range input (fail-safe no-op). A decimal point / abbreviation dot is NOT a terminator
++    (Codex #1335 gate P1) so the snap can never truncate a number to its integer part."""
++    if not haystack:
++        return end
++    n = len(haystack)
++    if not (0 <= start < end <= n):
++        return end
++    if _ends_at_sentence_boundary(haystack, end):
++        return end
++    try:
++        max_extend = int(os.getenv(_ENV_SNAP_MAX_EXTEND_CHARS, "").strip() or _DEFAULT_SNAP_MAX_EXTEND_CHARS)
++    except ValueError:
++        max_extend = _DEFAULT_SNAP_MAX_EXTEND_CHARS
++    max_extend = max(1, max_extend)
++    limit = min(n, end + max_extend)
++    for i in range(end, limit):
++        if _is_real_sentence_terminator(haystack, i, n):
++            j = i + 1
++            if j < n and haystack[j] in "\"')]":
++                j += 1
++            return j
++    return end
++
++
+ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
+     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
+     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
+@@ -361,13 +440,28 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
+         if not eid or not quote or gspan is None:
+             continue
+         start, end = gspan
++        # I-deepfix-001 FIX-D part 3 (#1335): if the verified span ends MID-SENTENCE (the extractor cut
++        # the quote), EXTEND it forward to the next sentence boundary IN THE SAME ROW so the composed
++        # clause is not left dangling. Extend-only -> a SUPERSET of the same row -> grounded by
++        # construction (the widened token covers exactly the emitted text), never fabricates. When no
++        # snap applies (snap_end == end) the path is byte-identical to legacy. Default-ON.
++        snap_end = end
++        span_text = quote
++        if _snap_span_enabled():
++            row = (evidence_pool or {}).get(eid) or {}
++            haystack = str(row.get("direct_quote") or row.get("statement") or "")
++            snap_end = _snap_span_end_to_sentence(haystack, start, end)
++            if snap_end > end and 0 <= start < snap_end <= len(haystack):
++                # Rebuild the prose from the SAME-row slice the widened token cites, so the completed
++                # final sentence is whole; the earlier sentences are unchanged (they are a prefix of it).
++                span_text = haystack[start:snap_end]
+         # PER-SENTENCE units (Codex P1-4): a multi-sentence verified span must NOT ship as one blob
+         # with a single trailing token (strict_verify would split it and drop the un-tokened earlier
+         # units). Each sentence carries the member's OWN span token — the whole verified span grounds
+         # each sub-sentence (it literally contains it). Offsets are the member's REAL GLOBAL offsets
+         # (Codex P1-3) so downstream resolution anchors to the verified span, never 0-len of a span
+         # that may differ from the global row for a shared source.
+-        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
++        units = [u.strip() for u in (split_into_sentences(span_text) or [span_text]) if u.strip()]
+         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
+         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
+         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+@@ -382,7 +476,7 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
+             # [A-Z0-9]) keeps it ATTACHED. The prior "U. [#ev:...]" form orphaned the token into a
+             # contentless fragment -> no_provenance_token -> verified=0 (the P6 v2 STORM-section zero).
+             u_core = _strip_terminal_punct(u)
+-            out.append(f"{u_core} [#ev:{eid}:{start}-{end}].")
++            out.append(f"{u_core} [#ev:{eid}:{start}-{snap_end}].")
+         if out:
+             return " ".join(out)
+     return None
