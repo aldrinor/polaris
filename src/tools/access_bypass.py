@@ -634,6 +634,56 @@ def is_junk_source(url: str = "", text: str = "") -> bool:
 
 
 # ---------------------------------------------------------------------------
+# F4 (I-deepfix-001 #1344): DOI / handle REGISTRY "not found" error-page screen.
+#
+# The B02/B04 forced-Zyte degraded re-fetch "recovered" a doi.org "DOI Not Found"
+# proxy page (~821 chars of real English) and ADOPTED it unchanged as upgraded full
+# text (drb_72 ev_057, DOI 10.5555/2485288). Recovery measured LENGTH only
+# (is_content_starved → False), and the registry page also slipped past
+# is_error_shell_text / classify_block_page (verified live). These signatures are
+# full registry-PROXY phrases that NEVER occur in a real article body, so a plain
+# lowercased whole-substring hit is a confident "this is the registry error page,
+# not the article" verdict — high precision, no length/coverage gate needed.
+# §-1.3: a "not found" page is never a corroborator; refusing to adopt a fetch
+# FAILURE as grounding is not a hard-drop (the row keeps its disclosed-gap
+# disposition). Default-ON, kill-switch PG_REGISTRY_ERROR_GUARD.
+_ENV_REGISTRY_ERROR_GUARD = "PG_REGISTRY_ERROR_GUARD"
+_REGISTRY_ERROR_SIGNATURES = (
+    "this doi cannot be found in the doi system",
+    "report this error to the responsible doi registration agency",
+    "the doi has not been activated yet",
+    "doi name not found",
+    "this doi has not been registered",
+    "this handle is not registered",
+    "handle not found",
+)
+
+
+def registry_error_guard_enabled() -> bool:
+    """Kill-switch ``PG_REGISTRY_ERROR_GUARD`` (default ON). OFF
+    ('0'/'false'/'no'/'off', case-insensitive) => :func:`is_registry_error_page`
+    is bypassed by its callers so the recovery path is byte-identical to the legacy
+    length-only adopt."""
+    return os.getenv(_ENV_REGISTRY_ERROR_GUARD, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def is_registry_error_page(text: str) -> bool:
+    """True iff ``text`` is a DOI / handle REGISTRY "not found" error page.
+
+    Lowercased whole-substring match against full registry-proxy phrases a real
+    article body never carries. High-precision (no length gate): the phrases are
+    long and registry-specific, so a real paper that merely DISCUSSES DOIs / the
+    handle system (e.g. "the DOI was not found in our local cache", "Crossref",
+    "handle.net proxy") never trips one. When in doubt, KEEP (return False)."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(sig in lowered for sig in _REGISTRY_ERROR_SIGNATURES)
+
+
+# ---------------------------------------------------------------------------
 # D (I-extract-001 #1327): Layer-A block-page / stub DETECTOR.
 #
 # Per the I-extract-001 forensic the DOMINANT Layer-A junk source was NOT the

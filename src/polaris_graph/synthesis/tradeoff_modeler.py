@@ -813,8 +813,17 @@ def build_quantified_spec(
         ev_text = _evidence_text(ev_row)
         located = _locate_unique_literal(ev_text, value)
         if located is None:                                  # (i) literal+span
-            # fall back to the datapoint context string (still evidence-derived)
-            located = _locate_unique_literal(str(dp.get("context", "")), value)
+            # F2 (#1344): literal non-unique in full ev_text (e.g. "15%" x3). Disambiguate
+            # via the datapoint context window, but TRANSLATE context-relative offsets into
+            # the ev_text frame so literal_start/end index the SAME string every consumer reads.
+            ctx = str(dp.get("context", ""))
+            ctx_located = _locate_unique_literal(ctx, value)
+            if ctx_located is not None and ev_text and ctx:
+                anchor = ev_text.find(ctx)
+                if anchor >= 0 and ev_text.find(ctx, anchor + 1) == -1:   # context unique => unambiguous
+                    _lit, _cs, _ce = ctx_located
+                    if ev_text[anchor + _cs: anchor + _ce] == _lit:
+                        located = (_lit, anchor + _cs, anchor + _ce)
         if located is None:
             return _reject(f"no_unique_literal_span:{name}:{ev_id}")
         literal, lstart, lend = located

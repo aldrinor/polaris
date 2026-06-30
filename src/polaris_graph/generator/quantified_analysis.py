@@ -72,6 +72,39 @@ _TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip(
 # decline is waste). Total attempts = 1 + retries. Default 1 retry (2 attempts).
 _SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
 
+# FIX-2 (#1344) — quantified filler suppression (LAW VI kill-switch, default-ON).
+# Withholds invented unit-free scalar OUTPUTS that merely relate >=2 distinct sourced
+# inputs (e.g. "displacement productivity ratio 2.14286", "restructuring efficiency 5",
+# "net job shift 1" — dimensionless numbers built by dividing unrelated percentages from
+# different studies x a free scaling_factor). FLAG/withhold-not-faithfulness: a dimensioned
+# result (currency/percent/count, or a transform of a single sourced number) passes through,
+# nothing in the corpus/bibliography is dropped, and the faithfulness engine is untouched.
+# Set PG_QUANTIFIED_FILLER_SUPPRESS=0 to revert to byte-identical legacy rendering.
+_FILLER_SUPPRESS_ENABLED = os.environ.get(
+    "PG_QUANTIFIED_FILLER_SUPPRESS", "1"
+).strip().lower() not in ("0", "false", "no", "off")
+_DIMENSIONLESS_DISPLAY_KINDS = frozenset({"number", "ratio"})
+_FILLER_MIN_SOURCED_INPUTS = max(
+    2, int(os.environ.get("PG_QUANTIFIED_FILLER_MIN_SOURCED", "2"))
+)
+
+
+def is_low_value_filler_output(field: dict[str, Any]) -> bool:
+    """True iff ``field`` is a unit-free number/ratio scalar relating >=2 distinct
+    sourced inputs — the invented-filler signature. Counts sourced INPUTS (not ev_ids),
+    so "3% - 2%" from the SAME source is still caught. A dimensioned result, a non-
+    number/ratio display kind, or a scalar over <2 sourced inputs is NOT filler."""
+    if not _FILLER_SUPPRESS_ENABLED:
+        return False
+    if str(field.get("unit") or "").strip():
+        return False
+    if str(field.get("display_kind") or "number") not in _DIMENSIONLESS_DISPLAY_KINDS:
+        return False
+    n_sourced = sum(
+        1 for t in (field.get("sourced_tokens") or []) if isinstance(t, dict)
+    )
+    return n_sourced >= _FILLER_MIN_SOURCED_INPUTS
+
 
 def detect_sourced_conflicts(
     sourced_numbers: list[dict[str, Any]],
@@ -317,6 +350,11 @@ def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> s
     sents: list[str] = []
     for o in spec.outputs:
         if o.name in result.fields:
+            # FIX-2 (#1344): withhold unit-free scalar outputs that merely relate >=2
+            # sourced inputs (invented "ratio"/"number" filler). Break-even / sensitivity
+            # render on their own exempt branch below, so they are never suppressed here.
+            if is_low_value_filler_output(result.fields[o.name]):
+                continue
             human = o.name.replace("_", " ")
             sents.append(f"The {human} is {{{{calc:{o.name}}}}}{_label(o.name)}.")
     if spec.solve_for is not None:
@@ -507,6 +545,21 @@ async def run_quantified_section(
 
     prose = render_decision_matrix_prose(spec, result)
     bound = bind_calc_tokens(prose, result)
+    # FIX-2 (#1344): if every computed output was suppressed as low-value unit-free
+    # filler (and there is no break-even/sensitivity sentence), the bound prose is empty.
+    # Withhold the section under a DISTINCT honest status rather than letting it fall
+    # through to the Regime-C ``no_verified_sentences`` path (which would mislabel an
+    # intentional filler-withhold as a faithfulness failure).
+    if not bound.strip():
+        telem["firing_status"] = "suppressed_low_value_quantified"
+        telem["quantified_filler_suppressed"] = True
+        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
+        logger.warning(
+            "[quantified_analysis] NO-OP (suppressed_low_value_quantified): all computed "
+            "outputs were unit-free filler scalars relating >=2 sourced inputs (model %s)",
+            spec.model_id,
+        )
+        return None, telem
     report = strict_verify(
         bound, evidence_pool, quantified_models={result.key(): result},
     )
@@ -561,5 +614,11 @@ async def run_quantified_section(
     rendered, _biblio = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,
     )
+    # I-deepfix-001 F3 (#1344): surface the section-LOCAL bibliography so the caller can
+    # remap this section's local ``[N]`` markers onto the GLOBAL multi-section bibliography
+    # (the quantified section is assembled outside the multi-section pipeline, so its local
+    # [1][2] otherwise collide with global [1]=Acemoglu/[2]=Autor and its input sources never
+    # appear in References). Additive telemetry field; byte-identical when unused.
+    telem["section_biblio"] = _biblio
     section_md = f"### Quantified Trade-off\n\n{rendered}"
     return section_md, telem

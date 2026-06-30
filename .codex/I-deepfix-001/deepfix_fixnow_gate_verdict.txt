@@ -1,0 +1,17 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "DEFER-1 overreaches: `multi_section_generator.py:5698-5699,5738,5750,8579-8599` removes confirmed-off-topic eids from the global bibliography and strips their `[N]` markers across every section path, not just the standalone weighted-enrichment cite. That can turn strict-verified prose into uncited prose and hard-removes the source from the numbered bibliography based on an advisory label."
+  - "F4 rollback is not byte-identical: `live_retriever.py:3564-3568` gates only `is_registry_error_page()` on `PG_REGISTRY_ERROR_GUARD`; even with the switch OFF, the new `is_error_shell_text()` and `classify_block_page()` recovered-body rejection still runs. OFF must restore the legacy length-only adoption path."
+  - "B2 rollback is not byte-identical: `credibility_llm_tiering.py:121-124` hardens the LLM prompt outside `PG_TIER_REQUIRE_VENUE_CORROBORATION`. With the switch OFF, the cap is disabled but the model still receives different instructions, so legacy behavior is not restored."
+p2:
+  - "B2 cap is only wired through batch tiering: `classify_source_tier_llm()` at `credibility_llm_tiering.py:598-599` still returns uncorroborated T1/T2 LLM results directly on the public single-source dispatcher path."
+  - "F1-STRUCTURAL ev_016 is acceptable, but precision would be cleaner if truncation were applied only to the member span, or if `head.text` used a chrome-only predicate; the current `member_span OR head.text` shape can demote clean members when only the basket head is truncated."
+ev016_truncation_judgment: "Acceptable under §-1.3 as implemented for the reported ev_016 edge: the source is kept in the basket/pool/disclosure, and a mid-word-truncated fragment is genuinely unrenderable, so removing it from the verified corroboration count is a display/consolidation tightening, not a faithfulness relaxation or source drop. I would not block on ev_016 itself, but I would narrow the predicate as a P2 precision fix."
+faithfulness_engine_untouched: true
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix DEFER-1 so off-topic suppression cannot globally strip bibliography entries/citations from already verified section prose; scope it to the intended standalone cite surface or preserve a disclosed non-load-bearing bibliography entry."
+  - "Make `PG_REGISTRY_ERROR_GUARD=0` bypass all new recovered-content error/block rejection added by F4."
+  - "Gate the B2 prompt hardening, or otherwise make `PG_TIER_REQUIRE_VENUE_CORROBORATION=0` restore legacy prompt and cap behavior."

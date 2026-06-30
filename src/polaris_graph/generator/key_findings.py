@@ -552,6 +552,23 @@ def build_depth_layer(
             + "\n".join(f"- {item}" for item in single_items)
         )
     _cap = _max_key_findings_markers()
+    # FIX-3 (#1344): the front ``## Key Findings`` block (build_key_findings) already renders
+    # each verified section's first sentence as a headline. When that block is rendered, the
+    # per-section Analytical-synthesis headline below is a CROSS-SURFACE DUPLICATE — so omit it
+    # here and carry only the DISTINCT Challenges/Tension sentences. Headline-LABEL de-dup only:
+    # nothing leaves the corpus/bibliography/body; the headline still renders once in the front
+    # KF block and once in the section body. Built only when the front KF block is rendered.
+    front_headlines: set[str] = set()
+    if key_findings_enabled():
+        for sr in sections or []:
+            if getattr(sr, "dropped_due_to_failure", False):
+                continue
+            if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
+                continue
+            _vt = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
+            _first = _first_verified_sentences(_vt, 1)
+            if _first:
+                front_headlines.add(_first[0])
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):
             continue
@@ -565,7 +582,7 @@ def build_depth_layer(
             continue
         title = humanize_section_title(getattr(sr, "title", "") or "Section") or "Section"
         headline = cap_citation_marker_runs(ordered[0], _cap)
-        lines = [f"### {title}", "", f"**Key Findings** {headline}"]
+        lines = [f"### {title}", ""]
         # Lift a REAL challenge sentence (a verbatim verified sentence carrying a challenge cue) —
         # never fabricate one. Prefer one distinct from the headline.
         challenge = next(
@@ -584,12 +601,23 @@ def build_depth_layer(
         )
         if tension:
             lines.append(f"**Tension** {cap_citation_marker_runs(tension, _cap)}")
+        # FIX-3 (#1344): emit the headline line ONLY when there is no distinct Challenges/Tension
+        # to carry this subsection. If the front KF block already owns the headline, omit the whole
+        # subsection (no duplicate); if the KF block is off, the headline has no other home so keep it.
+        if not challenge and not tension:
+            if ordered[0] in front_headlines:
+                continue  # KF block already owns the headline -> omit, don't duplicate
+            lines.append(f"**Key Findings** {headline}")  # KF block off -> headline's only home
+        if len(lines) == 2:  # only "### title" + "" -> no distinct content to carry
+            continue
         blocks.append("\n".join(lines))
     if not blocks:
         return ""
     header = (
         "## Analytical synthesis\n\n"
-        "_Per-section headline finding and (where the evidence itself raises one) a verbatim "
-        "limitation/challenge — all carried up from cited, span-verified body prose; no new claim._\n\n"
+        "_Per-section, the distinct **Challenges**/**Tension** the evidence itself raises (the "
+        "headline finding lives in the Key Findings block above and is not repeated here); a "
+        "headline appears below only when the section raises no separate tension/challenge. All "
+        "carried up verbatim from cited, span-verified body prose; no new claim._\n\n"
     )
     return header + "\n\n".join(blocks) + "\n\n"

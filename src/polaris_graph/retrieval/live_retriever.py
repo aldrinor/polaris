@@ -3535,6 +3535,53 @@ def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
     return False
 
 
+def _recovered_content_error_class(text: str) -> str:
+    """I-deepfix-001 (#1344) F4: classify a B02/B04-RECOVERED body as a
+    registry/error/block page, returning a short class token (empty = real
+    content, ADOPT it).
+
+    The forced-Zyte degraded re-fetch only measured LENGTH (``is_content_starved``)
+    before adopting a recovered body as upgraded full text — so a ~821-char doi.org
+    "DOI Not Found" registry page (real English prose, well above the starvation
+    floor) was adopted unchanged and cited (drb_72 ev_057). This delegates to the
+    three EXISTING shell screens — the new registry-error screen, the error-shell
+    text screen, and the block-page classifier — so an error / registry / block page
+    is NOT adopted and the row instead keeps the existing degraded disposition (a
+    disclosed gap, NOT deleted). FAIL-OPEN: if the screen import/scan raises, return
+    "" with a LOUD warning so a transient import error never silently rejects a real
+    body. §-1.3: a registry "not found" page is never a corroborator — refusing to
+    adopt a fetch FAILURE as grounding is not a hard-drop. Faithfulness engine
+    untouched."""
+    if not text:
+        return ""
+    try:
+        from src.tools.access_bypass import (
+            classify_block_page,
+            is_error_shell_text,
+            is_registry_error_page,
+            registry_error_guard_enabled,
+        )
+        # I-deepfix-002 (#1363): the WHOLE screen is behind the kill-switch — OFF
+        # restores the legacy length-only adoption path byte-identically (no
+        # error-shell / block-page rejection runs when PG_REGISTRY_ERROR_GUARD=0).
+        if not registry_error_guard_enabled():
+            return ""
+        if is_registry_error_page(text):
+            return "doi_registry_error"
+        if is_error_shell_text(text):
+            return "error_shell"
+        klass = classify_block_page(text)
+        if klass:
+            return f"block_page:{klass}"
+    except Exception as exc:  # FAIL-OPEN — never silently reject a real recovered body.
+        logger.warning(
+            "[live_retriever] F4 recovered-error screen raised (fail-open, "
+            "adopting the recovered body): %s", str(exc)[:200],
+        )
+        return ""
+    return ""
+
+
 def _build_provenance_quote(
     content: str,
     head_chars: int = _PROVENANCE_HEAD_CHARS_CAP,
@@ -5600,7 +5647,20 @@ def run_live_retrieval(
                 _refetched = _try_refetch_degraded_row(
                     cand.url, DEFAULT_CONTENT_MAX_CHARS,
                 )
-                if _refetched and not is_content_starved(_refetched):
+                # I-deepfix-001 (#1344) F4: the recovery test measured LENGTH only
+                # (is_content_starved), so a doi.org "DOI Not Found" registry page (~821
+                # chars of real English) was ADOPTED as upgraded full text and cited
+                # (ev_057). Adopt the recovered span ONLY if it is BOTH non-starved AND not
+                # a registry/error/block page — otherwise it falls into the existing
+                # degraded branch (row stays a disclosed gap, NOT passed off as full text).
+                _recovered_error = (
+                    _recovered_content_error_class(_refetched) if _refetched else ""
+                )
+                if (
+                    _refetched
+                    and not is_content_starved(_refetched)
+                    and not _recovered_error
+                ):
                     logger.info(
                         "[live_retriever] B02/B04 RE-FETCH RECOVERED %r "
                         "(stub_len=%d -> zyte_len=%d) — degraded shell upgraded "
@@ -5611,6 +5671,22 @@ def run_live_retrieval(
                     content = _refetched
                     _starved = False
                     _is_landing = False
+                elif _refetched and _recovered_error:
+                    # The forced Zyte fetch returned a REGISTRY/ERROR/BLOCK page, not the
+                    # article — refuse to adopt it (F4). Mark the row degraded so the
+                    # UNCHANGED down-weight/skip path below labels + excludes it; it is
+                    # NEVER passed off as full text. Distinct warning so the recovered-but-
+                    # rejected error page is auditable, never silent.
+                    if not _starved and not _is_landing:
+                        _starved = True
+                    logger.warning(
+                        "[live_retriever] B02/B04 RE-FETCH RECOVERED-ERROR-PAGE %r "
+                        "(zyte_len=%d class=%s) — forced Zyte returned a registry/error/"
+                        "block page, NOT the article; row stays LABELED degraded (NOT "
+                        "adopted as full text). §-1.3: a 'not found' page is never a "
+                        "corroborator; the source keeps its disclosed-gap disposition.",
+                        cand.url, len(_refetched), _recovered_error,
+                    )
                 else:
                     # FAITHFULNESS: the re-fetch did not recover this row, so it is
                     # NOT full text. A row that entered via the fetch layer's stub
@@ -5704,6 +5780,18 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # I-deepfix-001 (#1344) DEFER-1: carry the W2 content-relevance LABEL
+                # (and its weight) onto the groundable evidence row so the cite-surface
+                # off-topic suppression (weighted_enrichment._is_confirmed_offtopic) can
+                # read the SEMANTIC confirmed-OFF verdict the W2 judge produced. The label
+                # already rides on CorpusSource (classified_sources); this surfaces it on
+                # the row the GENERATOR reads. Set ONLY when the label is non-empty (W2 ON
+                # with a real disposition) so a W2-OFF / unlabelled row is byte-identical.
+                # Pure placement/relevance metadata — never enters a verified claim, never
+                # relaxes strict_verify / NLI / 4-role (§-1.3 disclose-don't-drop).
+                if _w2_label:
+                    _row["content_relevance_label"] = _w2_label
+                    _row["content_relevance_weight"] = _w2_weight
                 # I-deepfix-001 B10(b) (#1352): carry the publication year FORWARD.
                 # `year` is the key the evidence_selector recency path already reads
                 # (_row_year at evidence_selector.py:805) AND the B10(d) date-window

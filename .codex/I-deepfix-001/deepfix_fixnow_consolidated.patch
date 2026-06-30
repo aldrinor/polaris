@@ -1,0 +1,898 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 8a427916..30d0a033 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2501,6 +2501,30 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+     surfaced (the member_tier contract, credibility_pass.py:152 — the members still live
+     in the basket upstream; we choose not to render garbage, not to drop a source).
+     Returns "" when no basket data is present => caller appends nothing."""
++    # I-deepfix-001 F1 (#1344): the per-claim block trusted a pre-bibliography
++    # ``verified_support_origin_count`` computed from each member's ISOLATED span_verdict.
++    # Chrome self-entails (text == its own span), so a phantom corroborator that earned NO
++    # numbered bibliography entry (its span grounded no cited sentence => inline ``[N]`` already
++    # denied it) was still counted here, inflating "2 verified independent source(s)" to a
++    # chrome x chrome basket. Filter verified members to the set the report ACTUALLY cites (the
++    # bibliography arg) and recompute the count from survivors. RENDER/provenance-binding ONLY:
++    # strict_verify / NLI / 4-role D8 / span-grounding / provenance are untouched; this REDUCES
++    # an inflated count (never inflates breadth) and the sources still live in the numbered
++    # Bibliography. Default-ON kill-switch (LAW VI) => OFF is byte-identical.
++    _biblio_eids = {str(b.get("evidence_id") or "") for b in bibliography if str(b.get("evidence_id") or "")}
++    _biblio_urls = {str(b.get("url") or "") for b in bibliography if str(b.get("url") or "")}
++
++    def _biblio_present_enabled() -> bool:
++        return os.environ.get("PG_CORROBORATION_BIBLIO_PRESENT", "1").strip().lower() in (
++            "1", "true", "on", "yes", "enabled",
++        )
++
++    def _is_biblio_present(m: dict) -> bool:
++        return (
++            str(m.get("evidence_id") or "") in _biblio_eids
++            or str(m.get("source_url") or "") in _biblio_urls
++        )
++
+     seen_clusters: set[str] = set()
+     blocks: list[str] = []
+     for b in bibliography:
+@@ -2520,7 +2544,23 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+                 m for m in members
+                 if str(m.get("member_tier") or "") == "DETERMINISTIC_ONLY"
+             ]
+-            count = int(basket.get("verified_support_origin_count") or 0)
++            # I-deepfix-001 F1 (#1344): when the gate is ON, restrict verified support to members
++            # the report actually cites (bibliography-present) and recompute the count from the
++            # surviving distinct origins. A basket whose ONLY support is a phantom (not cited, not
++            # weak, not contested) is skipped — its sources still live in the numbered Bibliography.
++            if _biblio_present_enabled():
++                verified = [m for m in verified if _is_biblio_present(m)]
++                count = len(
++                    {str(m.get("origin_cluster_id") or m.get("evidence_id") or "") for m in verified}
++                )
++                _contested_now = (
++                    str(basket.get("basket_verdict") or "") == "contested"
++                    or bool(basket.get("refuter_cluster_ids"))
++                )
++                if not verified and not weak and not _contested_now:
++                    continue
++            else:
++                count = int(basket.get("verified_support_origin_count") or 0)
+             # I-beatboth-011 idx 62/9 (#1289): clean the corroboration-block HEADER the same way the
+             # SEMANTIC-contradiction render does. _normalize_claim_summary is wired at the semantic
+             # block (:1465) but was MISSING here, so a raw scraped consent/privacy/bibliography line
+@@ -12626,6 +12666,51 @@ async def run_one_query(
+                     credibility_analysis=getattr(multi, "credibility_analysis", None),
+                 )
+                 if _q_section_md:
++                    # I-deepfix-001 F3 (#1344): the quantified section is assembled OUTSIDE the
++                    # multi-section bibliography pipeline — it builds a fresh section-LOCAL [N]
++                    # starting at 1. Appended raw, its local [1][2] collide with global
++                    # [1]=Acemoglu/[2]=Autor and its real input sources never appear in
++                    # References. Remap local->global (mirroring multi_section_generator.
++                    # _remap_section_markers_to_global) and FOLD any missing input source into
++                    # multi.bibliography BEFORE _render_bibliography_lines runs, so newly-folded
++                    # sources appear in References. Citation-binding correction: binds rendered
++                    # [N] to the evidence_ids the inputs actually came from and ADDS a real
++                    # source already in evidence_pool — never removes a corroborator, never
++                    # promotes an unverified unit. Gated default-ON (LAW VI); OFF => byte-identical.
++                    if os.environ.get("PG_QUANTIFIED_BIBLIO_REMAP", "1").strip().lower() in (
++                        "1", "true", "on", "yes", "enabled",
++                    ):
++                        _ev2g = {
++                            _b.get("evidence_id"): _b.get("num")
++                            for _b in (multi.bibliography or [])
++                        }
++                        _next = (
++                            max([_b.get("num", 0) for _b in (multi.bibliography or [])] or [0]) + 1
++                        )
++                        _local = _quantified_telemetry.get("section_biblio") or []
++                        for _e in _local:
++                            _ev = _e.get("evidence_id")
++                            if _ev and _ev not in _ev2g:
++                                _row = _q_ev_pool.get(_ev, {})
++                                if multi.bibliography is None:
++                                    multi.bibliography = []
++                                multi.bibliography.append({
++                                    "num": _next, "evidence_id": _ev,
++                                    "url": _row.get("source_url", ""),
++                                    "tier": _row.get("tier", ""),
++                                    "statement": _row.get("statement", ""),
++                                })
++                                _ev2g[_ev] = _next
++                                _next += 1
++                        _l2g = {
++                            _e.get("num"): _ev2g.get(_e.get("evidence_id")) for _e in _local
++                        }
++
++                        def _qrepl(_m, _map=_l2g):
++                            _g = _map.get(int(_m.group(1)))
++                            return f"[{_g}]" if _g else _m.group(0)
++
++                        _q_section_md = re.sub(r"\[(\d+)\]", _qrepl, _q_section_md)
+                     sections_concat += "\n\n" + _q_section_md
+                     _log(
+                         "[phase7]      quantified trade-off: "
+diff --git a/src/polaris_graph/generator/key_findings.py b/src/polaris_graph/generator/key_findings.py
+index c84202e4..1e0c5fff 100644
+--- a/src/polaris_graph/generator/key_findings.py
++++ b/src/polaris_graph/generator/key_findings.py
+@@ -552,6 +552,23 @@ def build_depth_layer(
+             + "\n".join(f"- {item}" for item in single_items)
+         )
+     _cap = _max_key_findings_markers()
++    # FIX-3 (#1344): the front ``## Key Findings`` block (build_key_findings) already renders
++    # each verified section's first sentence as a headline. When that block is rendered, the
++    # per-section Analytical-synthesis headline below is a CROSS-SURFACE DUPLICATE — so omit it
++    # here and carry only the DISTINCT Challenges/Tension sentences. Headline-LABEL de-dup only:
++    # nothing leaves the corpus/bibliography/body; the headline still renders once in the front
++    # KF block and once in the section body. Built only when the front KF block is rendered.
++    front_headlines: set[str] = set()
++    if key_findings_enabled():
++        for sr in sections or []:
++            if getattr(sr, "dropped_due_to_failure", False):
++                continue
++            if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
++                continue
++            _vt = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
++            _first = _first_verified_sentences(_vt, 1)
++            if _first:
++                front_headlines.add(_first[0])
+     for sr in sections or []:
+         if getattr(sr, "dropped_due_to_failure", False):
+             continue
+@@ -565,7 +582,7 @@ def build_depth_layer(
+             continue
+         title = humanize_section_title(getattr(sr, "title", "") or "Section") or "Section"
+         headline = cap_citation_marker_runs(ordered[0], _cap)
+-        lines = [f"### {title}", "", f"**Key Findings** {headline}"]
++        lines = [f"### {title}", ""]
+         # Lift a REAL challenge sentence (a verbatim verified sentence carrying a challenge cue) —
+         # never fabricate one. Prefer one distinct from the headline.
+         challenge = next(
+@@ -584,12 +601,23 @@ def build_depth_layer(
+         )
+         if tension:
+             lines.append(f"**Tension** {cap_citation_marker_runs(tension, _cap)}")
++        # FIX-3 (#1344): emit the headline line ONLY when there is no distinct Challenges/Tension
++        # to carry this subsection. If the front KF block already owns the headline, omit the whole
++        # subsection (no duplicate); if the KF block is off, the headline has no other home so keep it.
++        if not challenge and not tension:
++            if ordered[0] in front_headlines:
++                continue  # KF block already owns the headline -> omit, don't duplicate
++            lines.append(f"**Key Findings** {headline}")  # KF block off -> headline's only home
++        if len(lines) == 2:  # only "### title" + "" -> no distinct content to carry
++            continue
+         blocks.append("\n".join(lines))
+     if not blocks:
+         return ""
+     header = (
+         "## Analytical synthesis\n\n"
+-        "_Per-section headline finding and (where the evidence itself raises one) a verbatim "
+-        "limitation/challenge — all carried up from cited, span-verified body prose; no new claim._\n\n"
++        "_Per-section, the distinct **Challenges**/**Tension** the evidence itself raises (the "
++        "headline finding lives in the Key Findings block above and is not repeated here); a "
++        "headline appears below only when the section raises no separate tension/challenge. All "
++        "carried up verbatim from cited, span-verified body prose; no new claim._\n\n"
+     )
+     return header + "\n\n".join(blocks) + "\n\n"
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 01e1b71b..3326154e 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -5673,7 +5673,14 @@ def _merge_bibliographies(
+     section_slices: list[list[dict[str, Any]]],
+ ) -> list[dict[str, Any]]:
+     """Merge per-section biblios into a single ordered bibliography,
+-    remapping section-local citation numbers to global numbers."""
++    remapping section-local citation numbers to global numbers.
++
++    I-deepfix-002 (#1363): off-topic cite-suppression is scoped to the standalone
++    weighted-enrichment selection only (``weighted_enrichment.diagnose_unbound_supports_selection``
++    withholds confirmed-off-topic SUPPORTS members from ``ev_ids``). The global
++    bibliography numberer is NOT a suppression surface: stripping a global ``[N]``
++    here would orphan a citation in already strict_verify-PASSED section prose. So
++    this builds the bibliography from whatever is actually cited, unchanged."""
+     # Each section's biblio has its own 1-based numbering. We need to
+     # renumber globally, but the section's verified_text already has
+     # [1][2][3] markers in section-local space.
+@@ -5702,7 +5709,11 @@ def _remap_section_markers_to_global(
+     """Rewrite each section's [N] markers from section-local to global.
+ 
+     Returns a list of remapped section prose strings.
+-    """
++
++    I-deepfix-002 (#1363): this NEVER drops a marker. Every [N] in already
++    strict_verify-PASSED section prose maps to its global number; off-topic
++    cite-suppression is handled upstream at the enrichment selection only, so a
++    verified section citation is never orphaned here."""
+     ev_to_global = {b["evidence_id"]: b["num"] for b in global_biblio}
+     remapped: list[str] = []
+     for sect in section_results:
+@@ -7658,6 +7669,19 @@ async def generate_multi_section_report(
+             # the bound set on the contract path is byte-identical to the prior behavior.
+             contract_plans=list(v30_contract_plans or []),
+         )
++        # I-deepfix-001 (#1344) DEFER-1: DISCLOSE the SEMANTIC confirmed-off-topic
++        # members withheld from the cited breadth surface (kept in evidence_pool +
++        # the credibility disclosure — never deleted). LOUD so the suppression is
++        # auditable, never silent; the run layer writes the off-topic-excluded sidecar.
++        if getattr(_wfe, "offtopic_suppressed", ()):  # tuple, empty when gate OFF
++            logger.info(
++                "[multi_section] I-deepfix-001 DEFER-1 off-topic cite-suppression: "
++                "%d SEMANTIC confirmed-off-topic source(s) withheld FROM CITATION "
++                "(kept in evidence_pool + disclosure, NOT deleted; faithfulness engine "
++                "untouched): %s",
++                len(_wfe.offtopic_suppressed),
++                ", ".join(_wfe.offtopic_suppressed[:30]),
++            )
+         _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
+         if _wfe_plan is not None:
+             plans.append(_wfe_plan)
+@@ -8533,6 +8557,10 @@ async def generate_multi_section_report(
+     # Stage 3: assembly
+     biblio_slices = [sr.biblio_slice for sr in section_results
+                      if not sr.dropped_due_to_failure]
++    # I-deepfix-002 (#1363): off-topic cite-suppression is scoped to the standalone
++    # weighted-enrichment selection (see weighted_enrichment.diagnose_unbound_supports_selection);
++    # the global bibliography numberer is NOT a suppression surface (stripping a global
++    # [N] here would orphan a citation in already strict_verify-PASSED section prose).
+     global_biblio = _merge_bibliographies(biblio_slices)
+     remapped_texts = _remap_section_markers_to_global(
+         [sr for sr in section_results if not sr.dropped_due_to_failure],
+diff --git a/src/polaris_graph/generator/quantified_analysis.py b/src/polaris_graph/generator/quantified_analysis.py
+index 8985862c..7afbd12f 100644
+--- a/src/polaris_graph/generator/quantified_analysis.py
++++ b/src/polaris_graph/generator/quantified_analysis.py
+@@ -72,6 +72,39 @@ _TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip(
+ # decline is waste). Total attempts = 1 + retries. Default 1 retry (2 attempts).
+ _SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
+ 
++# FIX-2 (#1344) — quantified filler suppression (LAW VI kill-switch, default-ON).
++# Withholds invented unit-free scalar OUTPUTS that merely relate >=2 distinct sourced
++# inputs (e.g. "displacement productivity ratio 2.14286", "restructuring efficiency 5",
++# "net job shift 1" — dimensionless numbers built by dividing unrelated percentages from
++# different studies x a free scaling_factor). FLAG/withhold-not-faithfulness: a dimensioned
++# result (currency/percent/count, or a transform of a single sourced number) passes through,
++# nothing in the corpus/bibliography is dropped, and the faithfulness engine is untouched.
++# Set PG_QUANTIFIED_FILLER_SUPPRESS=0 to revert to byte-identical legacy rendering.
++_FILLER_SUPPRESS_ENABLED = os.environ.get(
++    "PG_QUANTIFIED_FILLER_SUPPRESS", "1"
++).strip().lower() not in ("0", "false", "no", "off")
++_DIMENSIONLESS_DISPLAY_KINDS = frozenset({"number", "ratio"})
++_FILLER_MIN_SOURCED_INPUTS = max(
++    2, int(os.environ.get("PG_QUANTIFIED_FILLER_MIN_SOURCED", "2"))
++)
++
++
++def is_low_value_filler_output(field: dict[str, Any]) -> bool:
++    """True iff ``field`` is a unit-free number/ratio scalar relating >=2 distinct
++    sourced inputs — the invented-filler signature. Counts sourced INPUTS (not ev_ids),
++    so "3% - 2%" from the SAME source is still caught. A dimensioned result, a non-
++    number/ratio display kind, or a scalar over <2 sourced inputs is NOT filler."""
++    if not _FILLER_SUPPRESS_ENABLED:
++        return False
++    if str(field.get("unit") or "").strip():
++        return False
++    if str(field.get("display_kind") or "number") not in _DIMENSIONLESS_DISPLAY_KINDS:
++        return False
++    n_sourced = sum(
++        1 for t in (field.get("sourced_tokens") or []) if isinstance(t, dict)
++    )
++    return n_sourced >= _FILLER_MIN_SOURCED_INPUTS
++
+ 
+ def detect_sourced_conflicts(
+     sourced_numbers: list[dict[str, Any]],
+@@ -317,6 +350,11 @@ def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> s
+     sents: list[str] = []
+     for o in spec.outputs:
+         if o.name in result.fields:
++            # FIX-2 (#1344): withhold unit-free scalar outputs that merely relate >=2
++            # sourced inputs (invented "ratio"/"number" filler). Break-even / sensitivity
++            # render on their own exempt branch below, so they are never suppressed here.
++            if is_low_value_filler_output(result.fields[o.name]):
++                continue
+             human = o.name.replace("_", " ")
+             sents.append(f"The {human} is {{{{calc:{o.name}}}}}{_label(o.name)}.")
+     if spec.solve_for is not None:
+@@ -507,6 +545,21 @@ async def run_quantified_section(
+ 
+     prose = render_decision_matrix_prose(spec, result)
+     bound = bind_calc_tokens(prose, result)
++    # FIX-2 (#1344): if every computed output was suppressed as low-value unit-free
++    # filler (and there is no break-even/sensitivity sentence), the bound prose is empty.
++    # Withhold the section under a DISTINCT honest status rather than letting it fall
++    # through to the Regime-C ``no_verified_sentences`` path (which would mislabel an
++    # intentional filler-withhold as a faithfulness failure).
++    if not bound.strip():
++        telem["firing_status"] = "suppressed_low_value_quantified"
++        telem["quantified_filler_suppressed"] = True
++        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
++        logger.warning(
++            "[quantified_analysis] NO-OP (suppressed_low_value_quantified): all computed "
++            "outputs were unit-free filler scalars relating >=2 sourced inputs (model %s)",
++            spec.model_id,
++        )
++        return None, telem
+     report = strict_verify(
+         bound, evidence_pool, quantified_models={result.key(): result},
+     )
+@@ -561,5 +614,11 @@ async def run_quantified_section(
+     rendered, _biblio = resolve_provenance_to_citations(
+         report.kept_sentences, evidence_pool,
+     )
++    # I-deepfix-001 F3 (#1344): surface the section-LOCAL bibliography so the caller can
++    # remap this section's local ``[N]`` markers onto the GLOBAL multi-section bibliography
++    # (the quantified section is assembled outside the multi-section pipeline, so its local
++    # [1][2] otherwise collide with global [1]=Acemoglu/[2]=Autor and its input sources never
++    # appear in References). Additive telemetry field; byte-identical when unused.
++    telem["section_biblio"] = _biblio
+     section_md = f"### Quantified Trade-off\n\n{rendered}"
+     return section_md, telem
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index 68059e95..4ab71229 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -98,6 +98,50 @@ def _relevance_sort_key(relevance: float | None) -> float:
+     return _MISSING_RELEVANCE_SORT_KEY if relevance is None else relevance
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-deepfix-001 (#1344) DEFER-1 — off-topic CITE-SURFACE suppression.
++#
++# drb_72 cited OFF-TOPIC sources (B1 supply-chain blogs, B2 Russian cosmetics, B3
++# recycling journal, B4 post-merger M&A) as numbered findings in the breadth
++# "Corroborated Weighted Findings" section. The keystone (I-arch-011 B18) correctly
++# forbids the lexical ``selection_relevance < floor`` DROP (it killed 729/746 real
++# unbound SUPPORTS and also suppressed REAL on-topic low-cred sources). So the
++# discriminator is NOT the noisy score — it is the SEMANTIC confirmed-OFF verdict
++# the topic gate / W2 content-relevance judge already produced and stamped on the
++# row (``topic_offtopic_demoted`` / ``content_relevance_label``). A confirmed
++# "this is about cosmetics, not AI labor" verdict is, by definition, not a
++# corroborator of an AI-labor claim, so withholding it from CITATION is not a
++# §-1.3 hard-drop: the source STAYS in evidence_pool + the credibility disclosure
++# (kept-and-disclosed). Gated default-ON; ``PG_OFFTOPIC_CITE_SUPPRESS=0`` restores
++# the byte-identical legacy cite-surface.
++_CONFIRMED_OFFTOPIC_LABELS = frozenset({"demoted", "escalated_demoted"})
++
++
++def offtopic_cite_suppress_enabled() -> bool:
++    """Kill-switch ``PG_OFFTOPIC_CITE_SUPPRESS`` (default ON). OFF => the cite
++    surface is byte-identical to the legacy keep-all-and-cite behaviour."""
++    return os.environ.get("PG_OFFTOPIC_CITE_SUPPRESS", "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def _is_confirmed_offtopic(row: Any) -> bool:
++    """True iff a SEMANTIC judge confirmed this source is OFF-topic.
++
++    Keys ONLY on the topic-gate sidecar (``topic_offtopic_demoted is True``) OR the
++    W2 content-relevance LABEL (``content_relevance_label`` in
++    {``demoted``, ``escalated_demoted``}) — NEVER on the noisy lexical/embedding
++    ``selection_relevance`` score (that is the §-1.3-banned keystone DROP). A
++    missing/absent label is keep-neutral (NOT off-topic): an unjudged or
++    judged-RELEVANT row is never suppressed."""
++    if not isinstance(row, dict):
++        return False
++    if row.get("topic_offtopic_demoted") is True:
++        return True
++    label = str(row.get("content_relevance_label", "") or "").strip().lower()
++    return label in _CONFIRMED_OFFTOPIC_LABELS
++
++
+ def breadth_enrichment_enabled() -> bool:
+     """True iff the default-OFF master flag is explicitly enabled (LAW VI)."""
+     return os.environ.get(_ENV_BREADTH_ENRICHMENT, "").strip().lower() in (
+@@ -165,6 +209,13 @@ class UnboundSupportsSelection(NamedTuple):
+     # I-arch-011 (B18): kept-but-below-floor count (telemetry); NOT an exclusion. Field name held
+     # stable for the out-of-lane consumer (multi_section_generator.py:6794/6822).
+     excluded_below_floor: int
++    # I-deepfix-001 (#1344) DEFER-1: evidence_ids of SUPPORTS members SUPPRESSED FROM
++    # CITATION because a SEMANTIC judge confirmed them OFF-topic (kept in
++    # evidence_pool + the credibility disclosure — never deleted, never a faithfulness
++    # change). Default () keeps the legacy 7-positional constructors valid + the OFF
++    # path (PG_OFFTOPIC_CITE_SUPPRESS=0 => empty) byte-identical. Pure TELEMETRY +
++    # the disclosed off-topic-excluded-from-citation set the call site surfaces.
++    offtopic_suppressed: tuple[str, ...] = ()
+ 
+ 
+ def diagnose_unbound_supports_selection(
+@@ -202,6 +253,10 @@ def diagnose_unbound_supports_selection(
+     excluded_bound = 0
+     excluded_pool_absent = 0
+     below_floor_count = 0  # I-arch-011 (B18): KEPT-but-below-floor (telemetry); NEVER an exclusion.
++    # I-deepfix-001 (#1344) DEFER-1: SEMANTIC confirmed-OFF members withheld from the
++    # CITED breadth surface (kept in pool + disclosure; NOT a faithfulness change).
++    suppress_offtopic = offtopic_cite_suppress_enabled()
++    offtopic_suppressed: list[str] = []
+     for basket in baskets:
+         try:
+             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
+@@ -220,6 +275,18 @@ def diagnose_unbound_supports_selection(
+             if eid not in pool:
+                 excluded_pool_absent += 1
+                 continue
++            # I-deepfix-001 (#1344) DEFER-1: a member a SEMANTIC judge confirmed OFF-topic
++            # (topic-gate / W2 label) is WITHHELD FROM CITATION — not surfaced into the
++            # breadth section's ev_ids, so the bibliography numberer never assigns it [N].
++            # §-1.3-SAFE: it is NOT a lexical ``relevance < floor`` drop (that is the banned
++            # keystone DROP); it keys ONLY on the confirmed-OFF verdict, and the source STAYS
++            # in evidence_pool + the credibility disclosure (kept-and-disclosed, never deleted).
++            # The faithfulness engine (strict_verify / NLI / 4-role / span-grounding) is
++            # untouched. OFF (PG_OFFTOPIC_CITE_SUPPRESS=0) => no member is skipped => the
++            # ev_ids list is byte-identical to the legacy keep-all-and-cite behaviour.
++            if suppress_offtopic and _is_confirmed_offtopic(pool.get(eid)):
++                offtopic_suppressed.append(eid)
++                continue
+             # I-arch-011 (B18) — WEIGHT, DON'T FILTER (§-1.3, the keystone): the pre-fix code
+             # RE-IMPOSED a hard ``relevance < floor`` DROP here — the FILTER-AND-CAP anti-pattern the
+             # selector docstring (evidence_selector.py:1944-1953) forbids, which killed 729/746
+@@ -281,6 +348,7 @@ def diagnose_unbound_supports_selection(
+         excluded_bound=excluded_bound,
+         excluded_pool_absent=excluded_pool_absent,
+         excluded_below_floor=below_floor_count,  # field name held stable; meaning = kept-below-floor
++        offtopic_suppressed=tuple(offtopic_suppressed),  # I-deepfix-001 DEFER-1 (kept+disclosed)
+     )
+ 
+ 
+diff --git a/src/polaris_graph/retrieval/credibility_llm_tiering.py b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+index 34270fa2..5fb859ef 100644
+--- a/src/polaris_graph/retrieval/credibility_llm_tiering.py
++++ b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+@@ -45,6 +45,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
+     ClassificationSignals,
+     TierLevel,
+     _classify_source_tier_rules,
++    _is_known_scholarly_venue,
+ )
+ 
+ logger = logging.getLogger(__name__)
+@@ -104,7 +105,7 @@ _TIER_SCHEME = (
+     "stub with no full article."
+ )
+ 
+-_PROMPT = (
++_PROMPT_HEAD = (
+     "You are a source-credibility TIER classifier for ONE retrieved source. Assign the "
+     "single best-fitting POLARIS tier (T1..T7) from the observable signals below. Judge "
+     "the SOURCE TYPE / venue authority, not the topic.\n\n"
+@@ -117,6 +118,17 @@ _PROMPT = (
+     "  venue: {venue}\n"
+     "  is_retracted: {is_retracted}\n"
+     "  fetched_content_length: {content_length}\n\n"
++)
++# I-deepfix-002 (#1363): the venue-corroboration prompt hardening is gated by the SAME
++# kill-switch as the cap (PG_TIER_REQUIRE_VENUE_CORROBORATION). With the switch OFF the
++# prompt is byte-identical to the legacy un-hardened prompt (no prompt drift on revert).
++_PROMPT_VENUE_HARDENING = (
++    "T1 and T2 REQUIRE a NAMED peer-reviewed venue or recognized publisher. Do NOT "
++    "infer T1/T2 from a DOI, a URL, or an academic-sounding title alone. If venue and "
++    "source_type are empty, or the venue is unrecognized/obscure, classify as T4 "
++    "(peer-reviewed but unverified venue) or lower.\n\n"
++)
++_PROMPT_TAIL = (
+     "Return STRICT JSON only, no prose, no code fence:\n"
+     '{{"tier": "<one of T1,T2,T3,T4,T5,T6,T7>", '
+     '"rationale": "<one short sentence citing the signal you relied on>"}}'
+@@ -128,8 +140,11 @@ def build_tier_prompt(signals: ClassificationSignals) -> str:
+ 
+     Carries ONLY observable fields (url/title/pub_type/source_type/venue/is_retracted/
+     content_length) — never any gold tier or rule verdict (LAW II, no answer leakage).
++    The B2 venue-corroboration hardening clause is included only when the kill-switch is
++    ON; OFF yields the byte-identical legacy prompt.
+     """
+-    return _PROMPT.format(
++    _hardening = _PROMPT_VENUE_HARDENING if _venue_corroboration_required() else ""
++    return (_PROMPT_HEAD + _hardening + _PROMPT_TAIL).format(
+         scheme=_TIER_SCHEME,
+         url=signals.url or "",
+         title=signals.title or "",
+@@ -219,6 +234,44 @@ def llm_tier_one(
+     )
+ 
+ 
++# B2 (#1344) — venue-corroboration backstop (LAW VI kill-switch, default-ON). The GLM can
++# return a T1/T2 verdict from a bare DOI + scholarly-sounding title even when OpenAlex
++# resolved NO venue/source_type (the off-topic Russian-cosmetics ev_061 mis-tiered T1/0.95
++# was exactly this). When the deterministic venue detector cannot corroborate a recognized
++# peer-reviewed venue, an uncorroborated top-tier (T1/T2) LLM verdict is CAPPED to the
++# deterministic rules-floor. WEIGHT-only (§-1.3): it can ONLY lower an uncorroborated top
++# tier; it never raises a tier, never drops a source, never gates release. A genuinely
++# corroborated journal (host on PEER_REVIEWED_JOURNAL_DOMAINS, peer-reviewed DOI prefix, or
++# a resolved OpenAlex JOURNAL venue) is untouched. Set
++# PG_TIER_REQUIRE_VENUE_CORROBORATION=0 to revert to byte-identical legacy behavior.
++_UNCORROBORATED_TOP_TIERS = frozenset({TierLevel.T1, TierLevel.T2})
++
++
++def _venue_corroboration_required() -> bool:
++    """LAW VI kill-switch for the B2 venue-corroboration backstop (default-ON)."""
++    return os.environ.get(
++        "PG_TIER_REQUIRE_VENUE_CORROBORATION", "1"
++    ).strip().lower() not in ("0", "false", "no", "off")
++
++
++def _cap_uncorroborated_top_tier(
++    llm_res: ClassificationResult | None,
++    signals: ClassificationSignals,
++    floor_res: ClassificationResult,
++) -> ClassificationResult | None:
++    """Return the rules-floor result when the LLM assigned an uncorroborated top tier
++    (T1/T2) to a source with NO recognized scholarly venue; otherwise the LLM result is
++    kept unchanged. Only ever LOWERS — never promotes, never drops (§-1.3)."""
++    if (
++        llm_res is not None
++        and _venue_corroboration_required()
++        and llm_res.tier in _UNCORROBORATED_TOP_TIERS
++        and not _is_known_scholarly_venue(signals)
++    ):
++        return floor_res
++    return llm_res
++
++
+ def _tier_llm_workers() -> int:
+     """Bounded-parallel worker count from PG_TIER_LLM_WORKERS (LAW VI). Clamped >=1."""
+     try:
+@@ -482,7 +535,21 @@ def classify_sources_llm_tiering(
+     out: list[ClassificationResult] = []
+     for idx in range(n):
+         llm_res = llm_by_idx.get(idx)
+-        out.append(llm_res if llm_res is not None else floor_results[idx])
++        # B2 (#1344): cap an uncorroborated top-tier (T1/T2) GLM verdict to the
++        # deterministic rules-floor when no recognized scholarly venue corroborates it.
++        chosen = _cap_uncorroborated_top_tier(
++            llm_res, signals_list[idx], floor_results[idx],
++        )
++        if llm_res is not None and chosen is not llm_res:
++            logger.warning(
++                "[credibility_llm_tiering] B2 venue-corroboration CAP: GLM tier %s -> "
++                "floor %s for %s (no recognized peer-reviewed venue; "
++                "PG_TIER_REQUIRE_VENUE_CORROBORATION). WEIGHT lowered, source NOT "
++                "dropped (§-1.3).",
++                llm_res.tier.value, chosen.tier.value,
++                (signals_list[idx].url or "")[:80],
++            )
++        out.append(chosen if chosen is not None else floor_results[idx])
+ 
+     # POST-execution canary + HONEST machine-readable status (D5 #1344) — REAL runtime
+     # counts, fired only after the fan-out ran (NEVER a config echo). ``len(out) == n``
+@@ -539,4 +606,8 @@ def classify_source_tier_llm(signals: ClassificationSignals) -> ClassificationRe
+     high-throughput entry; this keeps the single-source dispatcher contract intact."""
+     floor = _classify_source_tier_rules(signals)
+     llm_res = llm_tier_one(signals, _default_caller())
+-    return llm_res if llm_res is not None else floor
++    # I-deepfix-002 (#1363): apply the SAME B2 uncorroborated-top-tier cap as the batch
++    # path so the single-source dispatcher cannot return an uncorroborated T1/T2 from a
++    # bare DOI/title either (gated by PG_TIER_REQUIRE_VENUE_CORROBORATION; only lowers).
++    capped = _cap_uncorroborated_top_tier(llm_res, signals, floor)
++    return capped if capped is not None else floor
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 577d74d2..95a13064 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -2460,6 +2460,16 @@ def _relevance_floor_selection(
+     for idx, score, tier, row in kept:
+         new_row = dict(row)
+         new_row["selection_relevance"] = float(score)
++        # I-deepfix-001 (#1344) DEFER-1: carry the SEMANTIC off-topic sidecar FORWARD
++        # onto the selected evidence row so the cite-surface suppression
++        # (weighted_enrichment._is_confirmed_offtopic) can read the confirmed-OFF verdict.
++        # ``dict(row)`` already preserves these when present; this is an EXPLICIT,
++        # additive carry (only when the key exists) so the contract is robust to upstream
++        # row reshaping. Pure metadata — never enters a verified claim, never relaxes a
++        # gate (§-1.3 disclose-don't-drop). Absent => byte-identical.
++        for _w2_key in ("content_relevance_label", "topic_offtopic_demoted"):
++            if _w2_key in row:
++                new_row[_w2_key] = row[_w2_key]
+         selected_rows.append(new_row)
+         selected_counts[tier] = selected_counts.get(tier, 0) + 1
+     anchor_exempt = sum(
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index d09db555..a42ac0ca 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -3535,6 +3535,53 @@ def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
+     return False
+ 
+ 
++def _recovered_content_error_class(text: str) -> str:
++    """I-deepfix-001 (#1344) F4: classify a B02/B04-RECOVERED body as a
++    registry/error/block page, returning a short class token (empty = real
++    content, ADOPT it).
++
++    The forced-Zyte degraded re-fetch only measured LENGTH (``is_content_starved``)
++    before adopting a recovered body as upgraded full text — so a ~821-char doi.org
++    "DOI Not Found" registry page (real English prose, well above the starvation
++    floor) was adopted unchanged and cited (drb_72 ev_057). This delegates to the
++    three EXISTING shell screens — the new registry-error screen, the error-shell
++    text screen, and the block-page classifier — so an error / registry / block page
++    is NOT adopted and the row instead keeps the existing degraded disposition (a
++    disclosed gap, NOT deleted). FAIL-OPEN: if the screen import/scan raises, return
++    "" with a LOUD warning so a transient import error never silently rejects a real
++    body. §-1.3: a registry "not found" page is never a corroborator — refusing to
++    adopt a fetch FAILURE as grounding is not a hard-drop. Faithfulness engine
++    untouched."""
++    if not text:
++        return ""
++    try:
++        from src.tools.access_bypass import (
++            classify_block_page,
++            is_error_shell_text,
++            is_registry_error_page,
++            registry_error_guard_enabled,
++        )
++        # I-deepfix-002 (#1363): the WHOLE screen is behind the kill-switch — OFF
++        # restores the legacy length-only adoption path byte-identically (no
++        # error-shell / block-page rejection runs when PG_REGISTRY_ERROR_GUARD=0).
++        if not registry_error_guard_enabled():
++            return ""
++        if is_registry_error_page(text):
++            return "doi_registry_error"
++        if is_error_shell_text(text):
++            return "error_shell"
++        klass = classify_block_page(text)
++        if klass:
++            return f"block_page:{klass}"
++    except Exception as exc:  # FAIL-OPEN — never silently reject a real recovered body.
++        logger.warning(
++            "[live_retriever] F4 recovered-error screen raised (fail-open, "
++            "adopting the recovered body): %s", str(exc)[:200],
++        )
++        return ""
++    return ""
++
++
+ def _build_provenance_quote(
+     content: str,
+     head_chars: int = _PROVENANCE_HEAD_CHARS_CAP,
+@@ -5600,7 +5647,20 @@ def run_live_retrieval(
+                 _refetched = _try_refetch_degraded_row(
+                     cand.url, DEFAULT_CONTENT_MAX_CHARS,
+                 )
+-                if _refetched and not is_content_starved(_refetched):
++                # I-deepfix-001 (#1344) F4: the recovery test measured LENGTH only
++                # (is_content_starved), so a doi.org "DOI Not Found" registry page (~821
++                # chars of real English) was ADOPTED as upgraded full text and cited
++                # (ev_057). Adopt the recovered span ONLY if it is BOTH non-starved AND not
++                # a registry/error/block page — otherwise it falls into the existing
++                # degraded branch (row stays a disclosed gap, NOT passed off as full text).
++                _recovered_error = (
++                    _recovered_content_error_class(_refetched) if _refetched else ""
++                )
++                if (
++                    _refetched
++                    and not is_content_starved(_refetched)
++                    and not _recovered_error
++                ):
+                     logger.info(
+                         "[live_retriever] B02/B04 RE-FETCH RECOVERED %r "
+                         "(stub_len=%d -> zyte_len=%d) — degraded shell upgraded "
+@@ -5611,6 +5671,22 @@ def run_live_retrieval(
+                     content = _refetched
+                     _starved = False
+                     _is_landing = False
++                elif _refetched and _recovered_error:
++                    # The forced Zyte fetch returned a REGISTRY/ERROR/BLOCK page, not the
++                    # article — refuse to adopt it (F4). Mark the row degraded so the
++                    # UNCHANGED down-weight/skip path below labels + excludes it; it is
++                    # NEVER passed off as full text. Distinct warning so the recovered-but-
++                    # rejected error page is auditable, never silent.
++                    if not _starved and not _is_landing:
++                        _starved = True
++                    logger.warning(
++                        "[live_retriever] B02/B04 RE-FETCH RECOVERED-ERROR-PAGE %r "
++                        "(zyte_len=%d class=%s) — forced Zyte returned a registry/error/"
++                        "block page, NOT the article; row stays LABELED degraded (NOT "
++                        "adopted as full text). §-1.3: a 'not found' page is never a "
++                        "corroborator; the source keeps its disclosed-gap disposition.",
++                        cand.url, len(_refetched), _recovered_error,
++                    )
+                 else:
+                     # FAITHFULNESS: the re-fetch did not recover this row, so it is
+                     # NOT full text. A row that entered via the fetch layer's stub
+@@ -5704,6 +5780,18 @@ def run_live_retrieval(
+                     # Additive only; absent/empty for seed-lane or legacy rows.
+                     "query_origin": getattr(cand, "query_origin", "") or "",
+                 }
++                # I-deepfix-001 (#1344) DEFER-1: carry the W2 content-relevance LABEL
++                # (and its weight) onto the groundable evidence row so the cite-surface
++                # off-topic suppression (weighted_enrichment._is_confirmed_offtopic) can
++                # read the SEMANTIC confirmed-OFF verdict the W2 judge produced. The label
++                # already rides on CorpusSource (classified_sources); this surfaces it on
++                # the row the GENERATOR reads. Set ONLY when the label is non-empty (W2 ON
++                # with a real disposition) so a W2-OFF / unlabelled row is byte-identical.
++                # Pure placement/relevance metadata — never enters a verified claim, never
++                # relaxes strict_verify / NLI / 4-role (§-1.3 disclose-don't-drop).
++                if _w2_label:
++                    _row["content_relevance_label"] = _w2_label
++                    _row["content_relevance_weight"] = _w2_weight
+                 # I-deepfix-001 B10(b) (#1352): carry the publication year FORWARD.
+                 # `year` is the key the evidence_selector recency path already reads
+                 # (_row_year at evidence_selector.py:805) AND the B10(d) date-window
+diff --git a/src/polaris_graph/retrieval/topic_relevance_gate.py b/src/polaris_graph/retrieval/topic_relevance_gate.py
+index ab3dc0e9..71ef8dc5 100644
+--- a/src/polaris_graph/retrieval/topic_relevance_gate.py
++++ b/src/polaris_graph/retrieval/topic_relevance_gate.py
+@@ -55,9 +55,17 @@ _MAX_SNIPPET_CHARS = 320
+ 
+ 
+ def topic_gate_enabled() -> bool:
+-    """Kill-switch ``PG_SCOPE_TOPIC_GATE`` (default OFF). When OFF the
+-    orchestrator never calls the gate, so the pool is byte-identical."""
+-    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "0").strip().lower()
++    """Kill-switch ``PG_SCOPE_TOPIC_GATE`` (default ON — I-deepfix-001 DEFER-1).
++
++    Default flipped ``"0"->"1"`` (2026-06-30): the gate is the SEMANTIC
++    discriminator the cite-surface off-topic suppression keys on (a lexical floor
++    cannot separate on-topic from off-topic — disproven on drb_72). It is §-1.3
++    keystone-compatible: the DEFAULT verdict is DEMOTE-not-DROP (every source stays
++    in the pool, the confident-OFF ones carry the ``topic_offtopic_demoted``
++    sidecar), so turning it ON adds a disclosed WEIGHT, never a hard filter. Set
++    ``PG_SCOPE_TOPIC_GATE=0`` to restore the byte-identical legacy (gate never
++    called) behaviour."""
++    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "1").strip().lower()
+     return raw not in ("0", "false", "no", "off", "")
+ 
+ 
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index b05b6333..a894d269 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -275,6 +275,26 @@ BASKET_VERDICT_PARTIAL = "partial"      # some but not all members verified
+ BASKET_VERDICT_CONTESTED = "contested"  # >=1 refuter edge references this cluster (user judges)
+ BASKET_VERDICT_UNVERIFIED = "unverified"  # no member verified alone
+ 
++# I-deepfix-001 F1-STRUCTURAL (#1344) — kill-switch for the basket-build chrome screen.
++# The consolidation engine matched two pieces of page-furniture (a truncated DOI/running-header
++# fragment and a CC-license footer) across two papers and certified them as one claim with two
++# origins (the chrome x chrome basket behind F1 + A1-A10). When ON (default), each SUPPORTS
++# member's claim-local span AND the cluster claim_text are screened through the SAME shared
++# render-seam predicate ``weighted_enrichment.is_render_chrome_or_unrenderable``; a member whose
++# span is chrome/unrenderable is EXCLUDED from ``verified_origin_ids`` (the strengthening count)
++# but is KEPT as a basket member (never deleted) and stays in the pool + disclosure. This is
++# faithfulness-ADJACENT (consolidation layer): it ONLY REMOVES a chrome/unrenderable span from a
++# corroboration COUNT -- it strengthens faithfulness, can never relax a gate or inflate breadth,
++# and never hard-drops a source. LAW VI: OFF => byte-identical legacy count.
++_ENV_BASKET_CHROME_SCREEN = "PG_BASKET_CHROME_SCREEN"
++
++
++def _basket_chrome_screen_enabled() -> bool:
++    """I-deepfix-001 F1-STRUCTURAL: is the basket-build chrome screen ON? (default ON). LAW VI."""
++    return os.environ.get(_ENV_BASKET_CHROME_SCREEN, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
+ # I-arch-010 FIX-2 Step 0 — the 3-value per-member entailment tier (the no-leak
+ # classifier). ``span_verdict`` stays STRICTLY BINARY (SUPPORTS/UNSUPPORTED) so every
+ # existing ``== "SUPPORTS"`` consumer (render/count/enrichment/biblio) is byte-unchanged;
+@@ -818,8 +838,45 @@ def _assemble_baskets(
+             verdict, member_tier = verdicts[_verdict_cursor]
+             _verdict_cursor += 1
+             if verdict == "SUPPORTS":
+-                verified_any = True
+-                verified_origin_ids.add(origin_id)
++                # I-deepfix-001 F1-STRUCTURAL (#1344): screen the member's claim-local span AND the
++                # cluster claim_text through the shared render-seam predicate before crediting the
++                # strengthening count. A chrome/unrenderable span is page furniture
++                # (cookie/byline/foreign-masthead/paywall/DOI-error) or a dead-fetch shell, never a
++                # genuine corroborator -- exclude it from verified_origin_ids (the member is STILL
++                # appended below, never deleted; the source stays in the pool + disclosure).
++                # FAITHFULNESS-ADJACENT (consolidation layer): this only REMOVES a chrome span from a
++                # corroboration COUNT -- it strengthens, never relaxes a gate, never inflates breadth,
++                # never hard-drops a source. FLAG for Codex extra-care: is_render_chrome_or_unrenderable
++                # folds the ``unrenderable``/truncation arm, so a TRUNCATED-but-real span (e.g. a span
++                # cut mid-word) is also demoted from the count -- such a span would not render as
++                # verified support anyway, but this is the §-1.3-sensitive edge.
++                _span_is_chrome = False
++                if _basket_chrome_screen_enabled():
++                    try:
++                        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
++                            is_render_chrome_or_unrenderable as _is_render_chrome,
++                        )
++                        # I-deepfix-002 (#1363, Codex P2 precision): screen ONLY THIS MEMBER's
++                        # span, not the cluster ``head.text``. A chrome/truncated basket HEAD must
++                        # not demote an otherwise-clean member (each member is judged on its own
++                        # span); this removes the over-demotion risk Codex flagged while leaving
++                        # the real-corpus outcome unchanged.
++                        _span_is_chrome = bool(_is_render_chrome(claim_local_span))
++                    except Exception as _screen_exc:  # fail-OPEN: never crash the pass on a screen fault
++                        import logging as _logging  # noqa: PLC0415
++                        _logging.getLogger(__name__).warning(
++                            "[credibility-pass] F1-STRUCTURAL basket chrome screen unavailable "
++                            "(%s) -- failing OPEN, crediting the member as before", _screen_exc,
++                        )
++                        _span_is_chrome = False
++                if _span_is_chrome:
++                    # chrome/unrenderable span: excluded from the verified-origin COUNT; the member is
++                    # still appended below (kept). Not "all verified" since this span is not genuine
++                    # renderable verified support (basket_verdict is a display LABEL, never a gate).
++                    all_verified = False
++                else:
++                    verified_any = True
++                    verified_origin_ids.add(origin_id)
+             else:
+                 all_verified = False
+             members.append(BasketMember(
+diff --git a/src/polaris_graph/synthesis/tradeoff_modeler.py b/src/polaris_graph/synthesis/tradeoff_modeler.py
+index 3e5497e0..e6602c22 100644
+--- a/src/polaris_graph/synthesis/tradeoff_modeler.py
++++ b/src/polaris_graph/synthesis/tradeoff_modeler.py
+@@ -813,8 +813,17 @@ def build_quantified_spec(
+         ev_text = _evidence_text(ev_row)
+         located = _locate_unique_literal(ev_text, value)
+         if located is None:                                  # (i) literal+span
+-            # fall back to the datapoint context string (still evidence-derived)
+-            located = _locate_unique_literal(str(dp.get("context", "")), value)
++            # F2 (#1344): literal non-unique in full ev_text (e.g. "15%" x3). Disambiguate
++            # via the datapoint context window, but TRANSLATE context-relative offsets into
++            # the ev_text frame so literal_start/end index the SAME string every consumer reads.
++            ctx = str(dp.get("context", ""))
++            ctx_located = _locate_unique_literal(ctx, value)
++            if ctx_located is not None and ev_text and ctx:
++                anchor = ev_text.find(ctx)
++                if anchor >= 0 and ev_text.find(ctx, anchor + 1) == -1:   # context unique => unambiguous
++                    _lit, _cs, _ce = ctx_located
++                    if ev_text[anchor + _cs: anchor + _ce] == _lit:
++                        located = (_lit, anchor + _cs, anchor + _ce)
+         if located is None:
+             return _reject(f"no_unique_literal_span:{name}:{ev_id}")
+         literal, lstart, lend = located
+diff --git a/src/tools/access_bypass.py b/src/tools/access_bypass.py
+index 40b8c3f3..3ce79fa1 100644
+--- a/src/tools/access_bypass.py
++++ b/src/tools/access_bypass.py
+@@ -633,6 +633,56 @@ def is_junk_source(url: str = "", text: str = "") -> bool:
+     return is_junk_source_host(url) or is_error_shell_text(text)
+ 
+ 
++# ---------------------------------------------------------------------------
++# F4 (I-deepfix-001 #1344): DOI / handle REGISTRY "not found" error-page screen.
++#
++# The B02/B04 forced-Zyte degraded re-fetch "recovered" a doi.org "DOI Not Found"
++# proxy page (~821 chars of real English) and ADOPTED it unchanged as upgraded full
++# text (drb_72 ev_057, DOI 10.5555/2485288). Recovery measured LENGTH only
++# (is_content_starved → False), and the registry page also slipped past
++# is_error_shell_text / classify_block_page (verified live). These signatures are
++# full registry-PROXY phrases that NEVER occur in a real article body, so a plain
++# lowercased whole-substring hit is a confident "this is the registry error page,
++# not the article" verdict — high precision, no length/coverage gate needed.
++# §-1.3: a "not found" page is never a corroborator; refusing to adopt a fetch
++# FAILURE as grounding is not a hard-drop (the row keeps its disclosed-gap
++# disposition). Default-ON, kill-switch PG_REGISTRY_ERROR_GUARD.
++_ENV_REGISTRY_ERROR_GUARD = "PG_REGISTRY_ERROR_GUARD"
++_REGISTRY_ERROR_SIGNATURES = (
++    "this doi cannot be found in the doi system",
++    "report this error to the responsible doi registration agency",
++    "the doi has not been activated yet",
++    "doi name not found",
++    "this doi has not been registered",
++    "this handle is not registered",
++    "handle not found",
++)
++
++
++def registry_error_guard_enabled() -> bool:
++    """Kill-switch ``PG_REGISTRY_ERROR_GUARD`` (default ON). OFF
++    ('0'/'false'/'no'/'off', case-insensitive) => :func:`is_registry_error_page`
++    is bypassed by its callers so the recovery path is byte-identical to the legacy
++    length-only adopt."""
++    return os.getenv(_ENV_REGISTRY_ERROR_GUARD, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def is_registry_error_page(text: str) -> bool:
++    """True iff ``text`` is a DOI / handle REGISTRY "not found" error page.
++
++    Lowercased whole-substring match against full registry-proxy phrases a real
++    article body never carries. High-precision (no length gate): the phrases are
++    long and registry-specific, so a real paper that merely DISCUSSES DOIs / the
++    handle system (e.g. "the DOI was not found in our local cache", "Crossref",
++    "handle.net proxy") never trips one. When in doubt, KEEP (return False)."""
++    if not text:
++        return False
++    lowered = text.lower()
++    return any(sig in lowered for sig in _REGISTRY_ERROR_SIGNATURES)
++
++
+ # ---------------------------------------------------------------------------
+ # D (I-extract-001 #1327): Layer-A block-page / stub DETECTOR.
+ #

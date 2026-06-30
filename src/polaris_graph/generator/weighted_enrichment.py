@@ -98,6 +98,50 @@ def _relevance_sort_key(relevance: float | None) -> float:
     return _MISSING_RELEVANCE_SORT_KEY if relevance is None else relevance
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) DEFER-1 — off-topic CITE-SURFACE suppression.
+#
+# drb_72 cited OFF-TOPIC sources (B1 supply-chain blogs, B2 Russian cosmetics, B3
+# recycling journal, B4 post-merger M&A) as numbered findings in the breadth
+# "Corroborated Weighted Findings" section. The keystone (I-arch-011 B18) correctly
+# forbids the lexical ``selection_relevance < floor`` DROP (it killed 729/746 real
+# unbound SUPPORTS and also suppressed REAL on-topic low-cred sources). So the
+# discriminator is NOT the noisy score — it is the SEMANTIC confirmed-OFF verdict
+# the topic gate / W2 content-relevance judge already produced and stamped on the
+# row (``topic_offtopic_demoted`` / ``content_relevance_label``). A confirmed
+# "this is about cosmetics, not AI labor" verdict is, by definition, not a
+# corroborator of an AI-labor claim, so withholding it from CITATION is not a
+# §-1.3 hard-drop: the source STAYS in evidence_pool + the credibility disclosure
+# (kept-and-disclosed). Gated default-ON; ``PG_OFFTOPIC_CITE_SUPPRESS=0`` restores
+# the byte-identical legacy cite-surface.
+_CONFIRMED_OFFTOPIC_LABELS = frozenset({"demoted", "escalated_demoted"})
+
+
+def offtopic_cite_suppress_enabled() -> bool:
+    """Kill-switch ``PG_OFFTOPIC_CITE_SUPPRESS`` (default ON). OFF => the cite
+    surface is byte-identical to the legacy keep-all-and-cite behaviour."""
+    return os.environ.get("PG_OFFTOPIC_CITE_SUPPRESS", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _is_confirmed_offtopic(row: Any) -> bool:
+    """True iff a SEMANTIC judge confirmed this source is OFF-topic.
+
+    Keys ONLY on the topic-gate sidecar (``topic_offtopic_demoted is True``) OR the
+    W2 content-relevance LABEL (``content_relevance_label`` in
+    {``demoted``, ``escalated_demoted``}) — NEVER on the noisy lexical/embedding
+    ``selection_relevance`` score (that is the §-1.3-banned keystone DROP). A
+    missing/absent label is keep-neutral (NOT off-topic): an unjudged or
+    judged-RELEVANT row is never suppressed."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("topic_offtopic_demoted") is True:
+        return True
+    label = str(row.get("content_relevance_label", "") or "").strip().lower()
+    return label in _CONFIRMED_OFFTOPIC_LABELS
+
+
 def breadth_enrichment_enabled() -> bool:
     """True iff the default-OFF master flag is explicitly enabled (LAW VI)."""
     return os.environ.get(_ENV_BREADTH_ENRICHMENT, "").strip().lower() in (
@@ -165,6 +209,13 @@ class UnboundSupportsSelection(NamedTuple):
     # I-arch-011 (B18): kept-but-below-floor count (telemetry); NOT an exclusion. Field name held
     # stable for the out-of-lane consumer (multi_section_generator.py:6794/6822).
     excluded_below_floor: int
+    # I-deepfix-001 (#1344) DEFER-1: evidence_ids of SUPPORTS members SUPPRESSED FROM
+    # CITATION because a SEMANTIC judge confirmed them OFF-topic (kept in
+    # evidence_pool + the credibility disclosure — never deleted, never a faithfulness
+    # change). Default () keeps the legacy 7-positional constructors valid + the OFF
+    # path (PG_OFFTOPIC_CITE_SUPPRESS=0 => empty) byte-identical. Pure TELEMETRY +
+    # the disclosed off-topic-excluded-from-citation set the call site surfaces.
+    offtopic_suppressed: tuple[str, ...] = ()
 
 
 def diagnose_unbound_supports_selection(
@@ -202,6 +253,10 @@ def diagnose_unbound_supports_selection(
     excluded_bound = 0
     excluded_pool_absent = 0
     below_floor_count = 0  # I-arch-011 (B18): KEPT-but-below-floor (telemetry); NEVER an exclusion.
+    # I-deepfix-001 (#1344) DEFER-1: SEMANTIC confirmed-OFF members withheld from the
+    # CITED breadth surface (kept in pool + disclosure; NOT a faithfulness change).
+    suppress_offtopic = offtopic_cite_suppress_enabled()
+    offtopic_suppressed: list[str] = []
     for basket in baskets:
         try:
             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
@@ -219,6 +274,18 @@ def diagnose_unbound_supports_selection(
                 continue
             if eid not in pool:
                 excluded_pool_absent += 1
+                continue
+            # I-deepfix-001 (#1344) DEFER-1: a member a SEMANTIC judge confirmed OFF-topic
+            # (topic-gate / W2 label) is WITHHELD FROM CITATION — not surfaced into the
+            # breadth section's ev_ids, so the bibliography numberer never assigns it [N].
+            # §-1.3-SAFE: it is NOT a lexical ``relevance < floor`` drop (that is the banned
+            # keystone DROP); it keys ONLY on the confirmed-OFF verdict, and the source STAYS
+            # in evidence_pool + the credibility disclosure (kept-and-disclosed, never deleted).
+            # The faithfulness engine (strict_verify / NLI / 4-role / span-grounding) is
+            # untouched. OFF (PG_OFFTOPIC_CITE_SUPPRESS=0) => no member is skipped => the
+            # ev_ids list is byte-identical to the legacy keep-all-and-cite behaviour.
+            if suppress_offtopic and _is_confirmed_offtopic(pool.get(eid)):
+                offtopic_suppressed.append(eid)
                 continue
             # I-arch-011 (B18) — WEIGHT, DON'T FILTER (§-1.3, the keystone): the pre-fix code
             # RE-IMPOSED a hard ``relevance < floor`` DROP here — the FILTER-AND-CAP anti-pattern the
@@ -281,6 +348,7 @@ def diagnose_unbound_supports_selection(
         excluded_bound=excluded_bound,
         excluded_pool_absent=excluded_pool_absent,
         excluded_below_floor=below_floor_count,  # field name held stable; meaning = kept-below-floor
+        offtopic_suppressed=tuple(offtopic_suppressed),  # I-deepfix-001 DEFER-1 (kept+disclosed)
     )
 
 

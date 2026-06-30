@@ -2501,6 +2501,30 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
     surfaced (the member_tier contract, credibility_pass.py:152 — the members still live
     in the basket upstream; we choose not to render garbage, not to drop a source).
     Returns "" when no basket data is present => caller appends nothing."""
+    # I-deepfix-001 F1 (#1344): the per-claim block trusted a pre-bibliography
+    # ``verified_support_origin_count`` computed from each member's ISOLATED span_verdict.
+    # Chrome self-entails (text == its own span), so a phantom corroborator that earned NO
+    # numbered bibliography entry (its span grounded no cited sentence => inline ``[N]`` already
+    # denied it) was still counted here, inflating "2 verified independent source(s)" to a
+    # chrome x chrome basket. Filter verified members to the set the report ACTUALLY cites (the
+    # bibliography arg) and recompute the count from survivors. RENDER/provenance-binding ONLY:
+    # strict_verify / NLI / 4-role D8 / span-grounding / provenance are untouched; this REDUCES
+    # an inflated count (never inflates breadth) and the sources still live in the numbered
+    # Bibliography. Default-ON kill-switch (LAW VI) => OFF is byte-identical.
+    _biblio_eids = {str(b.get("evidence_id") or "") for b in bibliography if str(b.get("evidence_id") or "")}
+    _biblio_urls = {str(b.get("url") or "") for b in bibliography if str(b.get("url") or "")}
+
+    def _biblio_present_enabled() -> bool:
+        return os.environ.get("PG_CORROBORATION_BIBLIO_PRESENT", "1").strip().lower() in (
+            "1", "true", "on", "yes", "enabled",
+        )
+
+    def _is_biblio_present(m: dict) -> bool:
+        return (
+            str(m.get("evidence_id") or "") in _biblio_eids
+            or str(m.get("source_url") or "") in _biblio_urls
+        )
+
     seen_clusters: set[str] = set()
     blocks: list[str] = []
     for b in bibliography:
@@ -2520,7 +2544,23 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                 m for m in members
                 if str(m.get("member_tier") or "") == "DETERMINISTIC_ONLY"
             ]
-            count = int(basket.get("verified_support_origin_count") or 0)
+            # I-deepfix-001 F1 (#1344): when the gate is ON, restrict verified support to members
+            # the report actually cites (bibliography-present) and recompute the count from the
+            # surviving distinct origins. A basket whose ONLY support is a phantom (not cited, not
+            # weak, not contested) is skipped — its sources still live in the numbered Bibliography.
+            if _biblio_present_enabled():
+                verified = [m for m in verified if _is_biblio_present(m)]
+                count = len(
+                    {str(m.get("origin_cluster_id") or m.get("evidence_id") or "") for m in verified}
+                )
+                _contested_now = (
+                    str(basket.get("basket_verdict") or "") == "contested"
+                    or bool(basket.get("refuter_cluster_ids"))
+                )
+                if not verified and not weak and not _contested_now:
+                    continue
+            else:
+                count = int(basket.get("verified_support_origin_count") or 0)
             # I-beatboth-011 idx 62/9 (#1289): clean the corroboration-block HEADER the same way the
             # SEMANTIC-contradiction render does. _normalize_claim_summary is wired at the semantic
             # block (:1465) but was MISSING here, so a raw scraped consent/privacy/bibliography line
@@ -12626,6 +12666,51 @@ async def run_one_query(
                     credibility_analysis=getattr(multi, "credibility_analysis", None),
                 )
                 if _q_section_md:
+                    # I-deepfix-001 F3 (#1344): the quantified section is assembled OUTSIDE the
+                    # multi-section bibliography pipeline — it builds a fresh section-LOCAL [N]
+                    # starting at 1. Appended raw, its local [1][2] collide with global
+                    # [1]=Acemoglu/[2]=Autor and its real input sources never appear in
+                    # References. Remap local->global (mirroring multi_section_generator.
+                    # _remap_section_markers_to_global) and FOLD any missing input source into
+                    # multi.bibliography BEFORE _render_bibliography_lines runs, so newly-folded
+                    # sources appear in References. Citation-binding correction: binds rendered
+                    # [N] to the evidence_ids the inputs actually came from and ADDS a real
+                    # source already in evidence_pool — never removes a corroborator, never
+                    # promotes an unverified unit. Gated default-ON (LAW VI); OFF => byte-identical.
+                    if os.environ.get("PG_QUANTIFIED_BIBLIO_REMAP", "1").strip().lower() in (
+                        "1", "true", "on", "yes", "enabled",
+                    ):
+                        _ev2g = {
+                            _b.get("evidence_id"): _b.get("num")
+                            for _b in (multi.bibliography or [])
+                        }
+                        _next = (
+                            max([_b.get("num", 0) for _b in (multi.bibliography or [])] or [0]) + 1
+                        )
+                        _local = _quantified_telemetry.get("section_biblio") or []
+                        for _e in _local:
+                            _ev = _e.get("evidence_id")
+                            if _ev and _ev not in _ev2g:
+                                _row = _q_ev_pool.get(_ev, {})
+                                if multi.bibliography is None:
+                                    multi.bibliography = []
+                                multi.bibliography.append({
+                                    "num": _next, "evidence_id": _ev,
+                                    "url": _row.get("source_url", ""),
+                                    "tier": _row.get("tier", ""),
+                                    "statement": _row.get("statement", ""),
+                                })
+                                _ev2g[_ev] = _next
+                                _next += 1
+                        _l2g = {
+                            _e.get("num"): _ev2g.get(_e.get("evidence_id")) for _e in _local
+                        }
+
+                        def _qrepl(_m, _map=_l2g):
+                            _g = _map.get(int(_m.group(1)))
+                            return f"[{_g}]" if _g else _m.group(0)
+
+                        _q_section_md = re.sub(r"\[(\d+)\]", _qrepl, _q_section_md)
                     sections_concat += "\n\n" + _q_section_md
                     _log(
                         "[phase7]      quantified trade-off: "

@@ -5673,7 +5673,14 @@ def _merge_bibliographies(
     section_slices: list[list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     """Merge per-section biblios into a single ordered bibliography,
-    remapping section-local citation numbers to global numbers."""
+    remapping section-local citation numbers to global numbers.
+
+    I-deepfix-002 (#1363): off-topic cite-suppression is scoped to the standalone
+    weighted-enrichment selection only (``weighted_enrichment.diagnose_unbound_supports_selection``
+    withholds confirmed-off-topic SUPPORTS members from ``ev_ids``). The global
+    bibliography numberer is NOT a suppression surface: stripping a global ``[N]``
+    here would orphan a citation in already strict_verify-PASSED section prose. So
+    this builds the bibliography from whatever is actually cited, unchanged."""
     # Each section's biblio has its own 1-based numbering. We need to
     # renumber globally, but the section's verified_text already has
     # [1][2][3] markers in section-local space.
@@ -5702,7 +5709,11 @@ def _remap_section_markers_to_global(
     """Rewrite each section's [N] markers from section-local to global.
 
     Returns a list of remapped section prose strings.
-    """
+
+    I-deepfix-002 (#1363): this NEVER drops a marker. Every [N] in already
+    strict_verify-PASSED section prose maps to its global number; off-topic
+    cite-suppression is handled upstream at the enrichment selection only, so a
+    verified section citation is never orphaned here."""
     ev_to_global = {b["evidence_id"]: b["num"] for b in global_biblio}
     remapped: list[str] = []
     for sect in section_results:
@@ -7658,6 +7669,19 @@ async def generate_multi_section_report(
             # the bound set on the contract path is byte-identical to the prior behavior.
             contract_plans=list(v30_contract_plans or []),
         )
+        # I-deepfix-001 (#1344) DEFER-1: DISCLOSE the SEMANTIC confirmed-off-topic
+        # members withheld from the cited breadth surface (kept in evidence_pool +
+        # the credibility disclosure — never deleted). LOUD so the suppression is
+        # auditable, never silent; the run layer writes the off-topic-excluded sidecar.
+        if getattr(_wfe, "offtopic_suppressed", ()):  # tuple, empty when gate OFF
+            logger.info(
+                "[multi_section] I-deepfix-001 DEFER-1 off-topic cite-suppression: "
+                "%d SEMANTIC confirmed-off-topic source(s) withheld FROM CITATION "
+                "(kept in evidence_pool + disclosure, NOT deleted; faithfulness engine "
+                "untouched): %s",
+                len(_wfe.offtopic_suppressed),
+                ", ".join(_wfe.offtopic_suppressed[:30]),
+            )
         _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
         if _wfe_plan is not None:
             plans.append(_wfe_plan)
@@ -8533,6 +8557,10 @@ async def generate_multi_section_report(
     # Stage 3: assembly
     biblio_slices = [sr.biblio_slice for sr in section_results
                      if not sr.dropped_due_to_failure]
+    # I-deepfix-002 (#1363): off-topic cite-suppression is scoped to the standalone
+    # weighted-enrichment selection (see weighted_enrichment.diagnose_unbound_supports_selection);
+    # the global bibliography numberer is NOT a suppression surface (stripping a global
+    # [N] here would orphan a citation in already strict_verify-PASSED section prose).
     global_biblio = _merge_bibliographies(biblio_slices)
     remapped_texts = _remap_section_markers_to_global(
         [sr for sr in section_results if not sr.dropped_due_to_failure],

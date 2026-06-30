@@ -45,6 +45,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     TierLevel,
     _classify_source_tier_rules,
+    _is_known_scholarly_venue,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ _TIER_SCHEME = (
     "stub with no full article."
 )
 
-_PROMPT = (
+_PROMPT_HEAD = (
     "You are a source-credibility TIER classifier for ONE retrieved source. Assign the "
     "single best-fitting POLARIS tier (T1..T7) from the observable signals below. Judge "
     "the SOURCE TYPE / venue authority, not the topic.\n\n"
@@ -117,6 +118,17 @@ _PROMPT = (
     "  venue: {venue}\n"
     "  is_retracted: {is_retracted}\n"
     "  fetched_content_length: {content_length}\n\n"
+)
+# I-deepfix-002 (#1363): the venue-corroboration prompt hardening is gated by the SAME
+# kill-switch as the cap (PG_TIER_REQUIRE_VENUE_CORROBORATION). With the switch OFF the
+# prompt is byte-identical to the legacy un-hardened prompt (no prompt drift on revert).
+_PROMPT_VENUE_HARDENING = (
+    "T1 and T2 REQUIRE a NAMED peer-reviewed venue or recognized publisher. Do NOT "
+    "infer T1/T2 from a DOI, a URL, or an academic-sounding title alone. If venue and "
+    "source_type are empty, or the venue is unrecognized/obscure, classify as T4 "
+    "(peer-reviewed but unverified venue) or lower.\n\n"
+)
+_PROMPT_TAIL = (
     "Return STRICT JSON only, no prose, no code fence:\n"
     '{{"tier": "<one of T1,T2,T3,T4,T5,T6,T7>", '
     '"rationale": "<one short sentence citing the signal you relied on>"}}'
@@ -128,8 +140,11 @@ def build_tier_prompt(signals: ClassificationSignals) -> str:
 
     Carries ONLY observable fields (url/title/pub_type/source_type/venue/is_retracted/
     content_length) — never any gold tier or rule verdict (LAW II, no answer leakage).
+    The B2 venue-corroboration hardening clause is included only when the kill-switch is
+    ON; OFF yields the byte-identical legacy prompt.
     """
-    return _PROMPT.format(
+    _hardening = _PROMPT_VENUE_HARDENING if _venue_corroboration_required() else ""
+    return (_PROMPT_HEAD + _hardening + _PROMPT_TAIL).format(
         scheme=_TIER_SCHEME,
         url=signals.url or "",
         title=signals.title or "",
@@ -217,6 +232,44 @@ def llm_tier_one(
             "content_length": signals.fetched_content_length,
         },
     )
+
+
+# B2 (#1344) — venue-corroboration backstop (LAW VI kill-switch, default-ON). The GLM can
+# return a T1/T2 verdict from a bare DOI + scholarly-sounding title even when OpenAlex
+# resolved NO venue/source_type (the off-topic Russian-cosmetics ev_061 mis-tiered T1/0.95
+# was exactly this). When the deterministic venue detector cannot corroborate a recognized
+# peer-reviewed venue, an uncorroborated top-tier (T1/T2) LLM verdict is CAPPED to the
+# deterministic rules-floor. WEIGHT-only (§-1.3): it can ONLY lower an uncorroborated top
+# tier; it never raises a tier, never drops a source, never gates release. A genuinely
+# corroborated journal (host on PEER_REVIEWED_JOURNAL_DOMAINS, peer-reviewed DOI prefix, or
+# a resolved OpenAlex JOURNAL venue) is untouched. Set
+# PG_TIER_REQUIRE_VENUE_CORROBORATION=0 to revert to byte-identical legacy behavior.
+_UNCORROBORATED_TOP_TIERS = frozenset({TierLevel.T1, TierLevel.T2})
+
+
+def _venue_corroboration_required() -> bool:
+    """LAW VI kill-switch for the B2 venue-corroboration backstop (default-ON)."""
+    return os.environ.get(
+        "PG_TIER_REQUIRE_VENUE_CORROBORATION", "1"
+    ).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _cap_uncorroborated_top_tier(
+    llm_res: ClassificationResult | None,
+    signals: ClassificationSignals,
+    floor_res: ClassificationResult,
+) -> ClassificationResult | None:
+    """Return the rules-floor result when the LLM assigned an uncorroborated top tier
+    (T1/T2) to a source with NO recognized scholarly venue; otherwise the LLM result is
+    kept unchanged. Only ever LOWERS — never promotes, never drops (§-1.3)."""
+    if (
+        llm_res is not None
+        and _venue_corroboration_required()
+        and llm_res.tier in _UNCORROBORATED_TOP_TIERS
+        and not _is_known_scholarly_venue(signals)
+    ):
+        return floor_res
+    return llm_res
 
 
 def _tier_llm_workers() -> int:
@@ -482,7 +535,21 @@ def classify_sources_llm_tiering(
     out: list[ClassificationResult] = []
     for idx in range(n):
         llm_res = llm_by_idx.get(idx)
-        out.append(llm_res if llm_res is not None else floor_results[idx])
+        # B2 (#1344): cap an uncorroborated top-tier (T1/T2) GLM verdict to the
+        # deterministic rules-floor when no recognized scholarly venue corroborates it.
+        chosen = _cap_uncorroborated_top_tier(
+            llm_res, signals_list[idx], floor_results[idx],
+        )
+        if llm_res is not None and chosen is not llm_res:
+            logger.warning(
+                "[credibility_llm_tiering] B2 venue-corroboration CAP: GLM tier %s -> "
+                "floor %s for %s (no recognized peer-reviewed venue; "
+                "PG_TIER_REQUIRE_VENUE_CORROBORATION). WEIGHT lowered, source NOT "
+                "dropped (§-1.3).",
+                llm_res.tier.value, chosen.tier.value,
+                (signals_list[idx].url or "")[:80],
+            )
+        out.append(chosen if chosen is not None else floor_results[idx])
 
     # POST-execution canary + HONEST machine-readable status (D5 #1344) — REAL runtime
     # counts, fired only after the fan-out ran (NEVER a config echo). ``len(out) == n``
@@ -539,4 +606,8 @@ def classify_source_tier_llm(signals: ClassificationSignals) -> ClassificationRe
     high-throughput entry; this keeps the single-source dispatcher contract intact."""
     floor = _classify_source_tier_rules(signals)
     llm_res = llm_tier_one(signals, _default_caller())
-    return llm_res if llm_res is not None else floor
+    # I-deepfix-002 (#1363): apply the SAME B2 uncorroborated-top-tier cap as the batch
+    # path so the single-source dispatcher cannot return an uncorroborated T1/T2 from a
+    # bare DOI/title either (gated by PG_TIER_REQUIRE_VENUE_CORROBORATION; only lowers).
+    capped = _cap_uncorroborated_top_tier(llm_res, signals, floor)
+    return capped if capped is not None else floor

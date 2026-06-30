@@ -2460,6 +2460,16 @@ def _relevance_floor_selection(
     for idx, score, tier, row in kept:
         new_row = dict(row)
         new_row["selection_relevance"] = float(score)
+        # I-deepfix-001 (#1344) DEFER-1: carry the SEMANTIC off-topic sidecar FORWARD
+        # onto the selected evidence row so the cite-surface suppression
+        # (weighted_enrichment._is_confirmed_offtopic) can read the confirmed-OFF verdict.
+        # ``dict(row)`` already preserves these when present; this is an EXPLICIT,
+        # additive carry (only when the key exists) so the contract is robust to upstream
+        # row reshaping. Pure metadata — never enters a verified claim, never relaxes a
+        # gate (§-1.3 disclose-don't-drop). Absent => byte-identical.
+        for _w2_key in ("content_relevance_label", "topic_offtopic_demoted"):
+            if _w2_key in row:
+                new_row[_w2_key] = row[_w2_key]
         selected_rows.append(new_row)
         selected_counts[tier] = selected_counts.get(tier, 0) + 1
     anchor_exempt = sum(

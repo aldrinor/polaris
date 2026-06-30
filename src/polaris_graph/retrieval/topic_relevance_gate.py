@@ -55,9 +55,17 @@ _MAX_SNIPPET_CHARS = 320
 
 
 def topic_gate_enabled() -> bool:
-    """Kill-switch ``PG_SCOPE_TOPIC_GATE`` (default OFF). When OFF the
-    orchestrator never calls the gate, so the pool is byte-identical."""
-    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "0").strip().lower()
+    """Kill-switch ``PG_SCOPE_TOPIC_GATE`` (default ON — I-deepfix-001 DEFER-1).
+
+    Default flipped ``"0"->"1"`` (2026-06-30): the gate is the SEMANTIC
+    discriminator the cite-surface off-topic suppression keys on (a lexical floor
+    cannot separate on-topic from off-topic — disproven on drb_72). It is §-1.3
+    keystone-compatible: the DEFAULT verdict is DEMOTE-not-DROP (every source stays
+    in the pool, the confident-OFF ones carry the ``topic_offtopic_demoted``
+    sidecar), so turning it ON adds a disclosed WEIGHT, never a hard filter. Set
+    ``PG_SCOPE_TOPIC_GATE=0`` to restore the byte-identical legacy (gate never
+    called) behaviour."""
+    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "1").strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 

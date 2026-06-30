@@ -275,6 +275,26 @@ BASKET_VERDICT_PARTIAL = "partial"      # some but not all members verified
 BASKET_VERDICT_CONTESTED = "contested"  # >=1 refuter edge references this cluster (user judges)
 BASKET_VERDICT_UNVERIFIED = "unverified"  # no member verified alone
 
+# I-deepfix-001 F1-STRUCTURAL (#1344) — kill-switch for the basket-build chrome screen.
+# The consolidation engine matched two pieces of page-furniture (a truncated DOI/running-header
+# fragment and a CC-license footer) across two papers and certified them as one claim with two
+# origins (the chrome x chrome basket behind F1 + A1-A10). When ON (default), each SUPPORTS
+# member's claim-local span AND the cluster claim_text are screened through the SAME shared
+# render-seam predicate ``weighted_enrichment.is_render_chrome_or_unrenderable``; a member whose
+# span is chrome/unrenderable is EXCLUDED from ``verified_origin_ids`` (the strengthening count)
+# but is KEPT as a basket member (never deleted) and stays in the pool + disclosure. This is
+# faithfulness-ADJACENT (consolidation layer): it ONLY REMOVES a chrome/unrenderable span from a
+# corroboration COUNT -- it strengthens faithfulness, can never relax a gate or inflate breadth,
+# and never hard-drops a source. LAW VI: OFF => byte-identical legacy count.
+_ENV_BASKET_CHROME_SCREEN = "PG_BASKET_CHROME_SCREEN"
+
+
+def _basket_chrome_screen_enabled() -> bool:
+    """I-deepfix-001 F1-STRUCTURAL: is the basket-build chrome screen ON? (default ON). LAW VI."""
+    return os.environ.get(_ENV_BASKET_CHROME_SCREEN, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
 # I-arch-010 FIX-2 Step 0 — the 3-value per-member entailment tier (the no-leak
 # classifier). ``span_verdict`` stays STRICTLY BINARY (SUPPORTS/UNSUPPORTED) so every
 # existing ``== "SUPPORTS"`` consumer (render/count/enrichment/biblio) is byte-unchanged;
@@ -818,8 +838,45 @@ def _assemble_baskets(
             verdict, member_tier = verdicts[_verdict_cursor]
             _verdict_cursor += 1
             if verdict == "SUPPORTS":
-                verified_any = True
-                verified_origin_ids.add(origin_id)
+                # I-deepfix-001 F1-STRUCTURAL (#1344): screen the member's claim-local span AND the
+                # cluster claim_text through the shared render-seam predicate before crediting the
+                # strengthening count. A chrome/unrenderable span is page furniture
+                # (cookie/byline/foreign-masthead/paywall/DOI-error) or a dead-fetch shell, never a
+                # genuine corroborator -- exclude it from verified_origin_ids (the member is STILL
+                # appended below, never deleted; the source stays in the pool + disclosure).
+                # FAITHFULNESS-ADJACENT (consolidation layer): this only REMOVES a chrome span from a
+                # corroboration COUNT -- it strengthens, never relaxes a gate, never inflates breadth,
+                # never hard-drops a source. FLAG for Codex extra-care: is_render_chrome_or_unrenderable
+                # folds the ``unrenderable``/truncation arm, so a TRUNCATED-but-real span (e.g. a span
+                # cut mid-word) is also demoted from the count -- such a span would not render as
+                # verified support anyway, but this is the §-1.3-sensitive edge.
+                _span_is_chrome = False
+                if _basket_chrome_screen_enabled():
+                    try:
+                        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+                            is_render_chrome_or_unrenderable as _is_render_chrome,
+                        )
+                        # I-deepfix-002 (#1363, Codex P2 precision): screen ONLY THIS MEMBER's
+                        # span, not the cluster ``head.text``. A chrome/truncated basket HEAD must
+                        # not demote an otherwise-clean member (each member is judged on its own
+                        # span); this removes the over-demotion risk Codex flagged while leaving
+                        # the real-corpus outcome unchanged.
+                        _span_is_chrome = bool(_is_render_chrome(claim_local_span))
+                    except Exception as _screen_exc:  # fail-OPEN: never crash the pass on a screen fault
+                        import logging as _logging  # noqa: PLC0415
+                        _logging.getLogger(__name__).warning(
+                            "[credibility-pass] F1-STRUCTURAL basket chrome screen unavailable "
+                            "(%s) -- failing OPEN, crediting the member as before", _screen_exc,
+                        )
+                        _span_is_chrome = False
+                if _span_is_chrome:
+                    # chrome/unrenderable span: excluded from the verified-origin COUNT; the member is
+                    # still appended below (kept). Not "all verified" since this span is not genuine
+                    # renderable verified support (basket_verdict is a display LABEL, never a gate).
+                    all_verified = False
+                else:
+                    verified_any = True
+                    verified_origin_ids.add(origin_id)
             else:
                 all_verified = False
             members.append(BasketMember(
