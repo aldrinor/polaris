@@ -14567,6 +14567,69 @@ async def run_one_query(
                         _seam_partial_coverage,
                         _seam_partial_settled,
                     ) = recover_seam_partial_verdicts(run_dir, _seam_total_claims)
+                # I-deepfix-001 FIX-1 (#1344) AUDIT-MAP-FROM-PARTIALS (keystone): on a torn seam the
+                # per-claim audit map (four_role_claim_audit.json) was NEVER written — sweep_integration
+                # writes it ONLY after run_four_role_evaluation returns, which a timed-out / errored seam
+                # never reaches. The post-seam redactor then finds the map MISSING and (under
+                # always-release) WITHHOLDS THE WHOLE findings body — discarding the D8-VERIFIED backbone
+                # too. That over-withhold is the §-1.3 violation: a seam timeout should keep ALL VERIFIED
+                # claims and surgically quarantine only the rest. The seam input builder is a PURE,
+                # deterministic function of the finished `multi` report (NO network, NO spend), so
+                # RE-DERIVE the full per-claim audit map here and PERSIST it, so the redactor can locate
+                # every claim's verbatim sentence: ship the VERIFIED, quarantine/label the non-VERIFIED.
+                # We ALSO fold every kept claim the seam never SETTLED into the verdict map as a
+                # non-VERIFIED "UNADJUDICATED" placeholder, so an un-adjudicated kept sentence is
+                # quarantined/labeled and NEVER ships as verified (settled verdicts WIN over the
+                # placeholder). Coverage stays the conservative `_seam_partial_coverage` (unchanged), so a
+                # timeout can still only resolve to released_with_disclosed_gaps / held — never a false
+                # full-certify. FAIL-SAFE: ANY failure leaves the prior behaviour (audit map absent ->
+                # redactor withholds the body) byte-unchanged. Builder path only (the static path mints no
+                # audit map). Faithfulness-STRICT: only VERIFIED claims survive as verified — strictly
+                # safer than the engine's intent, never a gate relaxation.
+                if four_role_input_builder is not None and run_dir is not None:
+                    _seam_audit_map: "dict[str, dict]" = {}
+                    try:
+                        _seam_recovery_bundle = four_role_input_builder(
+                            multi=multi,
+                            template=_template,
+                            slug=q["slug"],
+                            domain=q["domain"],
+                            ev_pool=ev_pool,
+                        )
+                        _seam_audit_map = dict(getattr(_seam_recovery_bundle, "audit_map", {}) or {})
+                    except Exception as _seam_audit_exc:  # noqa: BLE001 — FAIL-SAFE: keep prior withhold
+                        _log(
+                            "[four_role]   SEAM audit-map re-derive FAILED (kept prior body-withhold "
+                            f"behaviour): {type(_seam_audit_exc).__name__}: {str(_seam_audit_exc)[:120]}"
+                        )
+                    if _seam_audit_map:
+                        try:
+                            (run_dir / "four_role_claim_audit.json").write_text(
+                                json.dumps(_seam_audit_map, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                        except OSError as _seam_audit_io:  # noqa: BLE001 — write best-effort, fail-safe
+                            _log(
+                                "[four_role]   SEAM audit-map write FAILED (kept prior body-withhold "
+                                f"behaviour): {_seam_audit_io}"
+                            )
+                            _seam_audit_map = {}
+                    if _seam_audit_map:
+                        # Treat EVERY kept claim the seam never settled as non-VERIFIED so the redactor
+                        # quarantines/labels it (never ships an un-adjudicated claim as verified). A real
+                        # SETTLED verdict (VERIFIED/UNSUPPORTED/...) is authoritative and is never
+                        # overwritten by the placeholder.
+                        _seam_unadjudicated = 0
+                        for _seam_cid in _seam_audit_map:
+                            if _seam_cid not in _seam_partial_verdicts:
+                                _seam_partial_verdicts[_seam_cid] = "UNADJUDICATED"
+                                _seam_unadjudicated += 1
+                        _log(
+                            "[four_role]   SEAM audit-map re-derived from partials: "
+                            f"{len(_seam_audit_map)} claims (settled={_seam_partial_settled}, "
+                            f"unadjudicated->quarantine={_seam_unadjudicated}); VERIFIED backbone "
+                            "ships, non-VERIFIED surgically quarantined (was: whole-body withhold)"
+                        )
                 _seam_release_outcome, _seam_body_withheld, _seam_withhold_reason = (
                     build_seam_release_outcome(
                         sections=multi.sections,

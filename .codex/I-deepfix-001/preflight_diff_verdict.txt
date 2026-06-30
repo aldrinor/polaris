@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["Test hardening: the HR regression uses subject='drug_x', which does not hit the real-drug allowlist, so it catches the iter-1 not_comparable/magnitude-null bug but does not prove the no-[possible_metric_mismatch] hard-contradiction path. Use an allowlisted drug such as semaglutide and assert the marker is absent if that exact behavior needs locking.", "Config hardening: PG_CONTRADICTION_RAW_COUNT_FLOOR / PG_CONTRADICTION_SPURIOUS_REL are parsed as floats at import time without parse/floor guards. Defaults are safe; invalid or tiny override values could fail import or reintroduce suppression.", "Verification note: local policy blocked Python execution for targeted pytest/py_compile, so this verdict is based on static full-file trace plus the on-disk diff/preflight harness review."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

@@ -316,6 +316,13 @@ _BIBLIOGRAPHIC_ID_RE = re.compile(
     r"""
     \b10\.\d{4,9}/\S+                                  # DOI: 10.1038/s41586-024-07123
     | arxiv:\s*\d{4}\.\d{4,5}(?:v\d+)?                 # arXiv id: arXiv:2401.12345v2
+    # I-deepfix-001 FIX-#4 (drb_72): a BARE arXiv id with no "arXiv:" prefix
+    # (e.g. an inline "2507.07935") is still a citation artifact, never a metric
+    # value. YYMM.NNNNN shape, MONTH-VALIDATED (Codex preflight P2): 2-digit year +
+    # 2-digit month 01-12 + dot + 4-5 fraction digits (+ optional vN). The month gate
+    # rejects a real NNNN.NNNN(N) metric whose 3rd-4th digits are not a valid month
+    # (e.g. 1234.5678 -> "34" is not 01-12), so this screens arXiv ids only.
+    | \b\d{2}(?:0[1-9]|1[0-2])\.\d{4,5}(?:v\d+)?\b     # bare arXiv id: 2507.07935 (YYMM)
     | \bissn:?\s*\d{4}-\d{3}[\dxX]\b                   # ISSN: ISSN 0028-0836
     # I-wire-013 (#1327) iter-2 (Codex P2-2): the page-range dash class is written with EXPLICIT
     # codepoint escapes so it can never render ambiguously (e.g. `[\-?--?]`) under a non-UTF-8 read.
@@ -389,6 +396,22 @@ def _find_value_generic(
         # arXiv id / ISSN / page range) is a citation artifact, not a metric value — reject it so it
         # never becomes a fabricated possible_metric_mismatch. Unit-bearing values are unaffected.
         if not unit and _in_bibliographic_region(m.start(), biblio_regions):
+            continue
+        # I-deepfix-001 FIX-#4 (drb_72): a UNIT-LESS value whose leading '-' is the
+        # hyphen of a "N-N" token — a law/statute number ("P.L. 87-415" -> "-415"),
+        # a page/volume range ("412-419" -> "-419"), a dash-joined index/citation
+        # ("GEZANI-5" -> "-5") — is an IDENTIFIER / RANGE fragment, never a measured
+        # metric value. The generic '-?\d+' rule otherwise lifts the tail and
+        # fabricates a contradiction against a real number. Reject it so it never
+        # becomes a claim. Unit-bearing numbers (a real "-14.9%") are unaffected, and
+        # a standalone negative (the '-' not glued to a preceding digit) is still
+        # extracted.
+        if (
+            not unit
+            and raw.startswith("-")
+            and m.start() > 0
+            and text[m.start() - 1].isdigit()
+        ):
             continue
         candidates.append((value, unit, window, m.start()))
     if not candidates:
@@ -1713,6 +1736,99 @@ def _group_incommensurable_reason(group: list["ExtractedNumericClaim"]) -> str:
     return ""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 FIX-#4 (drb_72) — NON-COMPARABLE-NUMBER scale gate.
+#
+# The generic extractor lifts ANY number from prose, so a UNIT-LESS bucket can
+# pair numbers that do NOT measure the same quantity: a 0–1 probability/score
+# against a raw sample size (3,682), or an identifier fragment (arXiv id, law
+# number, author index) against a real value. The legacy comparison then stamped
+# a REAL complementarity study as "CONTRADICTED" purely because 3682 != 1 and
+# printed junk magnitudes (368100% / 3473.5%) in the report — the §-1.1-lethal
+# "mislabel a real finding" pattern. This guard marks such a unit-less bucket
+# not_comparable (nulled magnitude, kept OUT of the headline count, every source
+# still DISCLOSED — §-1.3). It complements the A17 physical-kind guard (which
+# fires only on positively-divergent physical quantity kinds) and SHARES its
+# enable flag, so the PG_CONTRADICTION_COMMENSURABILITY_GUARD escape hatch
+# disables the whole comparability family coherently. Faithfulness is IMPROVED
+# (stops fabricating false contradictions); no faithfulness threshold is changed,
+# and a genuine same-metric contradiction (same unit, sub-1000% gap) is untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A 0–1 ratio/probability paired with a value at/above this magnitude is an
+# incompatible-scale pairing (a fraction vs a raw count), not a contradiction.
+PG_CONTRADICTION_RAW_COUNT_FLOOR = float(
+    os.getenv("PG_CONTRADICTION_RAW_COUNT_FLOOR", "100")
+)
+# A unit-less relative difference at/above this ratio (default 10.0 = 1000%) is an
+# obviously-spurious magnitude from a scale/identifier mismatch, not a real
+# disagreement — a genuine same-metric gap is well under 1000%.
+PG_CONTRADICTION_SPURIOUS_REL = float(
+    os.getenv("PG_CONTRADICTION_SPURIOUS_REL", "10.0")
+)
+
+
+def _group_scale_not_comparable(
+    group: list["ExtractedNumericClaim"], rel: float,
+) -> str:
+    """Return a reason string iff a UNIT-LESS group's numbers are not genuinely
+    comparable, else "". Relabeling ALWAYS requires POSITIVE incomparability evidence
+    — at least one operand at/above PG_CONTRADICTION_RAW_COUNT_FLOOR (default 100). A
+    genuine unit-less metric (hazard ratio, odds ratio, risk ratio, probability, or a
+    composite/index score) is essentially always well under 100, so a value that large
+    in a unit-less bucket is a raw count / sample size / year / identifier lifted as a
+    value. Given that out-of-metric-range operand, two patterns are not_comparable:
+
+      * incompatible scales — it is paired with a 0–1 ratio/probability (a fraction vs
+        a raw count; e.g. a 0–1 metric collapsed with 3,682).
+      * spurious magnitude — the relative difference is >= PG_CONTRADICTION_SPURIOUS_REL
+        (default 1000%), confirming a scale/identifier mismatch.
+
+    Conservative by design: with NO out-of-metric-range operand the group is left as a
+    REAL contradiction even at a >1000% spread (a hazard ratio 0.5 vs 8.0 is a genuine
+    same-metric disagreement and is NEVER suppressed) — unit-less alone is NOT evidence
+    of incomparability (Codex I-deepfix-001 preflight P1, iter 1). Pure, never raises.
+    The caller restricts this to unit-less groups (a shared-unit bucket is commensurable
+    by construction, so its numbers are never re-judged)."""
+    vals: list[float] = []
+    for c in group:
+        try:
+            vals.append(float(getattr(c, "value", 0.0)))
+        except (TypeError, ValueError):
+            return ""
+    if len(vals) < 2:
+        return ""
+    has_ratio = any(0.0 < abs(v) <= 1.0 for v in vals)
+    has_count = any(abs(v) >= PG_CONTRADICTION_RAW_COUNT_FLOOR for v in vals)
+    # POSITIVE incomparability evidence is REQUIRED before relabeling: at least one
+    # operand at/above PG_CONTRADICTION_RAW_COUNT_FLOOR. A real unit-less metric (hazard
+    # ratio, odds ratio, risk ratio, probability, composite/index score) is essentially
+    # always well under that floor, so an operand >= it is a raw count / sample size /
+    # year / identifier lifted as a value. WITHOUT such an operand, the group is a REAL
+    # same-metric contradiction even at a >1000% spread (a hazard ratio 0.5 vs 8.0, rel
+    # = 1500%) and is NEVER suppressed here — unit-less alone is NOT incomparability
+    # (Codex I-deepfix-001 preflight P1, iter 1).
+    if not has_count:
+        return ""
+    if has_ratio:
+        return (
+            "incompatible scales in one bucket: a 0–1 ratio/probability paired with "
+            f"a raw count (>= {PG_CONTRADICTION_RAW_COUNT_FLOOR:g}) — the numbers do "
+            "not measure the same quantity (a unit token was missing, so they "
+            "collapsed under one surface key); the numeric gap is not a real "
+            "disagreement"
+        )
+    if rel >= PG_CONTRADICTION_SPURIOUS_REL:
+        return (
+            f"out-of-metric-range operand with a spurious magnitude: a unit-less value "
+            f">= {PG_CONTRADICTION_RAW_COUNT_FLOOR:g} (a raw count / sample size / year "
+            f"/ identifier lifted as a value) paired across a {rel * 100:.1f}% gap (>= "
+            f"{PG_CONTRADICTION_SPURIOUS_REL * 100:.0f}%) — not a real same-metric "
+            "disagreement"
+        )
+    return ""
+
+
 def detect_contradictions(
     claims: list[ExtractedNumericClaim],
     *,
@@ -1809,6 +1925,39 @@ def detect_contradictions(
                     ),
                     not_comparable=True,
                     incommensurable_reason=incommensurable_reason,
+                ))
+                continue
+            # I-deepfix-001 FIX-#4 (drb_72): NON-COMPARABLE-NUMBER scale gate. When the A17
+            # physical-kind guard found no divergent physical quantity, still reject a unit-less
+            # bucket whose numbers are not genuinely comparable — an incompatible scale (a 0–1
+            # ratio/probability vs a raw count/identifier) or an obviously-spurious magnitude
+            # (>1000%) produced by an arXiv id / law number / author index / sample size lifted as a
+            # value. The run stamped a REAL complementarity study CONTRADICTED purely because
+            # 3682 != 1 and printed junk magnitudes (368100% / 3473.5%). Relabel not_comparable,
+            # null the magnitude, keep it OUT of the headline count, DISCLOSE every source (§-1.3).
+            # Shares the A17 enable flag; unit-less only (a shared-unit bucket is commensurable by
+            # construction, so a genuine same-unit contradiction is never re-judged here).
+            scale_reason = ""
+            if _a17_guard_enabled() and unit == "":
+                scale_reason = _group_scale_not_comparable(group, rel)
+            if scale_reason:
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=f"{predicate_display} [not_comparable]",
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=0.0,
+                    absolute_difference=0.0,
+                    severity="low",
+                    recommended_action=(
+                        "Not comparable (scale guard, FIX-#4): the numbers in this bucket are on "
+                        "incompatible scales (a 0–1 ratio/probability vs a raw count) or produced "
+                        "an obviously-spurious magnitude, so they do not measure the same quantity "
+                        "— typically an arXiv id, law/statute number, author index, page/volume "
+                        "number, or sample size lifted as a value. Disclose each value with its own "
+                        "context; do NOT assert a numeric contradiction across them."
+                    ),
+                    not_comparable=True,
+                    incommensurable_reason=scale_reason,
                 ))
                 continue
             # A17 SAME-SOURCE guard (iarch007 FETCH-P0): a CROSS-source contradiction requires the

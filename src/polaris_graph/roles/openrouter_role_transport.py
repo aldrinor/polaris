@@ -1185,7 +1185,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
     NOT exclusive with effort and MUST exceed the reasoning budget. Under `effort=xhigh` the
     provider spends ~95% of top-level `max_tokens` on reasoning, so a popped/absent `max_tokens`
     starves the verdict. I-meta-008 FULL-POWER therefore SETS a generous top-level `max_tokens`
-    (PG_VERIFIER_REASONING_MAX_TOKENS, default 16384) for the reasoning verifiers and an explicit
+    (PG_D8_VERDICT_MAX_TOKENS, default 16384) for the reasoning Judge's verdict and an explicit
     small classifier budget (PG_SENTINEL_MAX_TOKENS, default 256) for the non-reasoning Sentinel.
     Source: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
     """
@@ -1225,7 +1225,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # bare verdict, AND the certification used reasoning + max_tokens>=3000. So the decomposition
         # Sentinel gets its OWN generous budget (default 16384, hard-floored at 3000 so an env
         # override can never re-introduce the run-12 truncation that collapses every claim to a
-        # fail-closed UNGROUNDED). Other reasoning verifiers keep PG_VERIFIER_REASONING_MAX_TOKENS.
+        # fail-closed UNGROUNDED). The reasoning Judge gets a verdict-sized PG_D8_VERDICT_MAX_TOKENS (FIX #2).
         if request.role == "sentinel":
             # I-arch-003 (#1253, operator "max max"): MAX output without hard-erroring. Under
             # allow_fallbacks:False the binding cap is the MIN max_completion_tokens across the
@@ -1272,19 +1272,33 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
                 _MIRROR_MAX_TOKENS_CHAIN_MIN,
             )
         else:
-            # I-arch-003 (#1253, operator "max max"): the reasoning Judge (Qwen3.6-35B-A3B) verdict
-            # is a short enum/JSON, so a generous output cap can only HELP (more reasoning room, never
-            # starves — max_tokens is billed by usage, not pre-allocated). Raised 16384 -> 262140, the
-            # MIN max_completion_tokens across the Judge chain (live OpenRouter read 2026-06-14:
-            # wandb=262144, io-net=262140; atlas-cloud=65536 DROPPED from the chain in the routing yaml
-            # because its 65536 cap is incompatible with the max-output directive and would 400 here).
-            # Qwen lists `effort` so it is reasoning-bounded by the model, not by an explicit numeric
-            # cap; the total budget simply guarantees the verdict never truncates.
-            # I-arch-003 hardening: clamp to the Judge chain min so an env override can never 400.
-            body["max_tokens"] = min(
-                int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "262140")),
-                _JUDGE_MAX_TOKENS_CHAIN_MIN,
-            )
+            # I-deepfix-001 (#1344, drb_72 forensic FIX #2): the reasoning Judge (Qwen3.6-35B-A3B)
+            # adjudicates ONE claim with reasoning effort=xhigh and returns a SHORT structured verdict.
+            # The prior I-arch-003 "max max" raise to 262140 MIS-APPLIED the §9.1.8 "max_tokens ALWAYS
+            # MAX" rule (which governs the GENERATOR, not a tiny verdict): reserving ~262k per call blew
+            # the OpenRouter TPM budget (193x HTTP-429) AND, summed with even a small prompt, exceeded the
+            # ~262144 Qwen context window (67x HTTP-400 "requested > context") so the D8 seam timed out.
+            # FIX: restore I-meta-008's generous-but-BOUNDED Judge budget (16384). This RESPECTS §9.1.8
+            # "never starve": effort=xhigh allocates ~95% of max_tokens to reasoning, so the total must
+            # stay strictly above that allocation or the bare verdict truncates to empty (the I-meta-008
+            # starvation failure — "popping it starved the verdict to empty"); 16384 leaves ample room
+            # for xhigh reasoning AND the verdict. It ALSO kills the blowup: ~16x fewer reserved tokens
+            # than 262140, and well under the 262144 window so the HTTP-400 can never fire. (Codex
+            # I-deepfix-001 preflight iter-1 flagged the FIX-4 over-suppression; this iter-2 raise of the
+            # Judge default 4000 -> 16384 additionally removes the starvation risk a 4000 cap carried
+            # under xhigh.) Scoped to THIS verdict-judge call only — the generator keeps its MAX budget
+            # (and is not served by this transport: role_endpoint('generator') raises). FAITHFULNESS-
+            # NEUTRAL: identical model + reasoning + verdict parsing; only the reserved output ceiling
+            # shrinks from the over-raised 262140 back to the proven 16384. LAW VI: env-overridable +
+            # parse-guarded; a non-positive override falls back to the default; still clamped to the
+            # Judge chain min as a 400-proof backstop.
+            try:
+                verdict_budget = int(os.getenv("PG_D8_VERDICT_MAX_TOKENS", "16384"))
+            except (TypeError, ValueError):
+                verdict_budget = 16384
+            if verdict_budget <= 0:
+                verdict_budget = 16384
+            body["max_tokens"] = min(verdict_budget, _JUDGE_MAX_TOKENS_CHAIN_MIN)
     else:
         # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
         # on an unknown provider default (no pop-and-hope). I-arch-003 (#1253, operator "max max"):

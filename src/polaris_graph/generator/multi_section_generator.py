@@ -3915,6 +3915,153 @@ def _normalize_citation_punctuation(text: str) -> str:
     return _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) FIX-3 — COMPOSE-time render-cleanliness gate for the FIX-K
+# deterministic verified-span dump (drb_72 forensic root cause). The "Corroborated
+# Weighted Findings" enrichment section RAW-DUMPS each verified span; the forensic found
+# it shipped (a) page-furniture CHROME as findings (a bare contact email, a "Written by
+# <Name>" byline, a "<X> website will be retired" service-sunset nav line — chrome that
+# IS the verbatim span and so passes provenance) and (b) OFF-TOPIC weight-~0 sources
+# composed as findings (legal-aid / nationhood-sociology / bankruptcy / a Dunzo teaching
+# case for a clinical question) because relevance is computed but not enforced at compose.
+#
+# Both filters are RENDER-ONLY and faithfulness-NEUTRAL. A held source/span STAYS in
+# ``evidence_pool`` and in the disclosed pool — it is only kept OUT OF THE COMPOSED
+# FINDINGS. No faithfulness gate (strict_verify / NLI / 4-role D8 / provenance span-
+# grounding) is touched. §-1.3 WEIGHT-not-FILTER is preserved exactly: this is a render
+# seam that WITHHOLDS a unit from the rollup (the same category as the chrome screen), at
+# the COMPOSE boundary AFTER selection/disclosure — NOT the forbidden re-imposition of a
+# hard ``selection_relevance < floor`` DROP at the selection boundary (B18), which would
+# delete a source from the corpus. A missing/unparseable score is keep-NEUTRAL.
+_COMPOSE_RELEVANCE_FLOOR_ENV = "PG_COMPOSE_RELEVANCE_FLOOR"
+_DEFAULT_COMPOSE_RELEVANCE_FLOOR = 0.10
+
+
+def _compose_relevance_floor() -> float:
+    """The compose-time topicality floor (env ``PG_COMPOSE_RELEVANCE_FLOOR``, default 0.10),
+    parse-guarded to [0.0, 1.0] (LAW VI). ``0.0`` disables the gate (no score is < 0.0)."""
+    raw = os.environ.get(_COMPOSE_RELEVANCE_FLOOR_ENV)
+    if raw is None or not str(raw).strip():
+        return _DEFAULT_COMPOSE_RELEVANCE_FLOOR
+    try:
+        val = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_COMPOSE_RELEVANCE_FLOOR
+    if val != val:  # NaN guard
+        return _DEFAULT_COMPOSE_RELEVANCE_FLOOR
+    return min(1.0, max(0.0, val))
+
+
+def _compose_relevance_floored_ev_ids(ev_ids: Any, evidence_pool: Any) -> list[str]:
+    """The caller-ordered ev_id list with off-topic weight-~0 rows held OUT OF THE COMPOSED
+    findings (drb_72 forensic). A row is held ONLY when its KNOWN topicality score
+    (``selection_relevance`` via the shared ``_row_relevance`` reader) is below the floor; a
+    missing/unparseable score is keep-NEUTRAL (never held) — identical to the selection
+    ordering's missing-relevance handling. The held rows REMAIN in ``evidence_pool`` and in
+    the disclosed pool (§-1.3 WEIGHT-not-FILTER); they are only not COMPOSED as findings."""
+    from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+        _row_relevance,
+    )
+
+    floor = _compose_relevance_floor()
+    pool = evidence_pool or {}
+    kept: list[str] = []
+    for ev_id in (ev_ids or []):
+        eid = str(ev_id or "")
+        if not eid:
+            continue
+        rel = _row_relevance(pool.get(eid))
+        if rel is not None and rel < floor:
+            continue  # off-topic weight-~0 row: held from the render, KEPT in the pool
+        kept.append(eid)
+    return kept
+
+
+# Per-span chrome leak classes the SHARED render-chrome predicate (is_render_chrome_or_
+# unrenderable) does NOT yet catch — the exact drb_72 forensic leaks. Structure-anchored /
+# precision-first: a real finding never OPENS "Written by <Name>", is never a lone contact
+# email (near-empty once the email token is removed), and never says a website/service "will
+# be retired" — so a real verbatim claim is never dropped (precision over recall on a drop
+# path, per the I-wire-013/016 chrome-rule convention).
+_FIXK_BYLINE_RE = re.compile(
+    r"^(?:[Ww]ritten|[Pp]osted|[Rr]eviewed|[Ee]dited|[Aa]uthored|[Rr]eported|[Cc]ompiled)"
+    r"\s+[Bb]y\s+[A-Z][a-z]+",
+)
+_FIXK_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_FIXK_SERVICE_SUNSET_RE = re.compile(
+    r"\b(?:web\s?site|website|service|site|platform|portal|product|page|database|app|system)\b"
+    r"[^.]{0,40}\bwill be\s+(?:retired|discontinued|shut\s?down|decommissioned|sunset|"
+    r"deprecated|removed|unavailable)\b",
+    re.IGNORECASE,
+)
+_FIXK_TRAILING_MARKERS_RE = re.compile(r"(?:\s\[[^\[\]]+\])+\.?\s*$")
+_FIXK_ALPHA_WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+_COMPOSE_EMAIL_RESIDUE_WORD_FLOOR = 4  # < this many real words once the email is removed => a contact masthead
+# A FIX-K unit is "<core, no [ ] brackets> [eid][eid].": ``_substantive_units`` rejects any
+# unit containing "[" or "]", so the ONLY bracketed tokens in the joined draft are the ev-id
+# markers and every unit reliably ends with one-or-more " [eid]" markers + ".". Each ``\S``-
+# anchored match is exactly one space-joined ``_emit_unit`` part (byte-identical span).
+_FIXK_UNIT_RE = re.compile(r"\S.*?(?:\s\[[^\[\]]+\])+\.")
+
+
+def _is_compose_email_masthead(core: str) -> bool:
+    """True iff ``core`` (markers stripped) is a contact-email masthead: it carries an email AND,
+    once the email token is removed, has fewer than the residue word floor of real words. A real
+    finding that merely cites an email keeps substantial surrounding prose and is NOT flagged."""
+    if not _FIXK_EMAIL_RE.search(core):
+        return False
+    residue = _FIXK_EMAIL_RE.sub(" ", core)
+    return len(_FIXK_ALPHA_WORD_RE.findall(residue)) < _COMPOSE_EMAIL_RESIDUE_WORD_FLOOR
+
+
+def _is_compose_render_chrome(unit: str, shared_predicate: Any) -> bool:
+    """True iff a FIX-K verbatim unit is render chrome: the SHARED predicate (reused — the strong
+    detector) OR one of the three named leak classes it does not yet catch (author byline / bare
+    contact-email / service-sunset nav). SUPPRESS-ONLY — never touches a faithfulness verdict; the
+    source stays in the pool."""
+    if shared_predicate(unit):
+        return True
+    core = _FIXK_TRAILING_MARKERS_RE.sub("", unit).strip()
+    if _FIXK_BYLINE_RE.match(core):
+        return True
+    if _is_compose_email_masthead(core):
+        return True
+    return bool(_FIXK_SERVICE_SUNSET_RE.search(core))
+
+
+def _screen_fixk_render_chrome(raw_draft: str) -> str:
+    """Drop page-furniture chrome SPANS from the FIX-K verbatim-span dump before render.
+
+    Each emitted unit is re-screened through the SHARED render-chrome predicate
+    (``is_render_chrome_or_unrenderable``) PLUS the three named leak classes it does not yet
+    catch (drb_72 forensic). A chrome unit is dropped from the rendered draft; the SOURCE is
+    untouched (it remains in ``evidence_pool`` + disclosure). FAIL-SAFE: if the draft cannot be
+    losslessly segmented into marker-terminated units, it is returned UNCHANGED (never risk
+    dropping a real verbatim span on a parse miss). An all-chrome draft collapses to "" => the
+    caller renders its gap stub (never a silent success)."""
+    if not raw_draft or not raw_draft.strip():
+        return raw_draft
+    units = _FIXK_UNIT_RE.findall(raw_draft)
+    if not units:
+        return raw_draft
+    # FAIL-SAFE: the ``\S``-anchored marker-terminated units must reconstruct the draft EXACTLY
+    # (they are the original space-joined parts). A mismatch means the unit shape assumption broke
+    # for this draft -> keep the raw draft rather than risk dropping or corrupting a real span.
+    if " ".join(units) != raw_draft:
+        return raw_draft
+    from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+        is_render_chrome_or_unrenderable,
+    )
+    kept = [u for u in units if not _is_compose_render_chrome(u, is_render_chrome_or_unrenderable)]
+    dropped = len(units) - len(kept)
+    if dropped:
+        logger.info(
+            "[multi_section] FIX-K render-chrome screen dropped %d/%d span(s)",
+            dropped, len(units),
+        )
+    return " ".join(kept)
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -4029,12 +4176,20 @@ async def _run_section(
         # post-_call_section draft. Zero token cost; empty atom catalog (no
         # generated atoms). An empty draft => strict_verify keeps 0 => the
         # section renders its gap stub (never a silent success).
-        raw = _build_verified_span_draft(section.ev_ids, evidence_pool)
+        # I-deepfix-001 (#1344) FIX-3: COMPOSE-time render-cleanliness gate (drb_72 forensic).
+        # (a) hold off-topic weight-~0 sources OUT OF THE COMPOSED findings (they stay in the
+        # pool + disclosure — §-1.3 WEIGHT-not-FILTER); (b) drop page-furniture chrome SPANS
+        # (author masthead / email / byline / service-sunset nav) before they enter the dump.
+        # Both are RENDER-ONLY and faithfulness-neutral; the source is never dropped from the
+        # corpus. See the _compose_relevance_floored_ev_ids / _screen_fixk_render_chrome helpers.
+        _compose_ev_ids = _compose_relevance_floored_ev_ids(section.ev_ids, evidence_pool)
+        raw = _build_verified_span_draft(_compose_ev_ids, evidence_pool)
+        raw = _screen_fixk_render_chrome(raw)
         in_tok = out_tok = 0
         section_atom_catalog = {}
         logger.info(
-            "[multi_section] %s FIX-K verified-span render: sources=%d draft_chars=%d",
-            section.title, len(section.ev_ids or []), len(raw),
+            "[multi_section] %s FIX-K verified-span render: sources=%d composed=%d draft_chars=%d",
+            section.title, len(section.ev_ids or []), len(_compose_ev_ids), len(raw),
         )
         _draft_directly_tokened = True  # I-beatboth-009 (#1287): already [#ev:]-tokened; skip REDUCE filter
     elif (
