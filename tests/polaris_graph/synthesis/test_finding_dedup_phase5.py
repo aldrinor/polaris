@@ -450,3 +450,175 @@ def test_p3_3_finding_key_on_keeps_exact_value():
     assert k_a != k_b
     assert k_a[2] == 14.9001
     assert k_b[2] == 14.9002
+
+
+# ── I-deepfix-001 D1 (#1344) — QUALITATIVE corroboration baskets (§-1.3) ──────
+#
+# The numeric ``_finding_key`` path keys every basket on an EXTRACTED numeric
+# value slot, so a QUALITATIVE (non-numeric) claim several INDEPENDENT sources
+# assert earned NO corroboration basket (the D1 diced-dice blind spot:
+# ``dice_d1_consolidation_qualitative_basket``). The qualitative pass forms ONE
+# multi-citation basket carrying ALL members, keyed on a NON-NUMERIC normalized
+# signature. CONSERVATIVE (high Jaccard + polarity guard): two DIFFERENT
+# qualitative claims never merge (false-merge is worse than no-merge). KEEP-ALL:
+# no source dropped. Gated on the consolidate-keep-all regime (the redesign flag)
+# + the ``PG_FINDING_DEDUP_QUALITATIVE`` kill switch.
+
+_QUAL_FLAG = "PG_FINDING_DEDUP_QUALITATIVE"
+
+# A qualitative claim (no extractable numeric finding) several sources assert.
+_QUAL_CLAIM = "The therapy was generally well tolerated across the study cohort."
+
+
+def _has_numeric_finding_key(finding_key) -> bool:
+    # The EXACT predicate dice_d1_consolidation_qualitative_basket uses: a key is
+    # numeric iff any element is a NON-ZERO int/float (bools excluded).
+    if not isinstance(finding_key, (list, tuple)):
+        return False
+    for el in finding_key:
+        if isinstance(el, bool):
+            continue
+        if isinstance(el, (int, float)) and float(el) != 0.0:
+            return True
+    return False
+
+
+def test_d1_qualitative_same_claim_forms_one_basket_all_kept(monkeypatch):
+    # N independent hosts asserting the SAME qualitative claim -> ONE basket with
+    # N members (ALL kept, §-1.3 keep-all), a NON-NUMERIC finding_key, and
+    # corroboration over the N distinct hosts.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _QUAL_CLAIM, authority=0.9),
+        _row("ev1", "https://thelancet.com/b", _QUAL_CLAIM, authority=0.7),
+        _row("ev2", "https://nih.gov/c", _QUAL_CLAIM, authority=0.6),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    # keep-all: every source survives (no corroborator dropped).
+    assert len(res.deduped_rows) == 3
+    assert res.qualitative_basket_count == 1
+    qual = [
+        c for c in res.clusters
+        if isinstance(c.finding_key, tuple) and c.finding_key
+        and c.finding_key[0] == "__qual__"
+    ]
+    assert len(qual) == 1
+    basket = qual[0]
+    # ONE basket carrying ALL 3 members (multi-citation).
+    assert basket.member_indices == [0, 1, 2]
+    # corroboration over the 3 distinct independent hosts.
+    assert basket.corroboration_count == 3
+    assert basket.member_hosts == ["nejm.org", "nih.gov", "thelancet.com"]
+    # the finding_key is QUALITATIVE (non-numeric) — what the D1 dice asserts.
+    assert not _has_numeric_finding_key(list(basket.finding_key))
+    # the numeric distinct-finding count is unchanged (qualitative is separate).
+    assert res.distinct_finding_count == 0
+
+
+def test_d1_qualitative_basket_satisfies_dice_predicate(monkeypatch):
+    # End-to-end against the EXACT dice predicate: >=1 corroborated (count>1)
+    # basket whose finding_key is non-numeric => the D1 dice goes GREEN.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _QUAL_CLAIM, authority=0.9),
+        _row("ev1", "https://who.int/b", _QUAL_CLAIM, authority=0.7),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    corro = [c for c in res.clusters if int(c.corroboration_count) > 1]
+    qual_corro = [
+        c for c in corro if not _has_numeric_finding_key(list(c.finding_key))
+    ]
+    assert len(qual_corro) >= 1
+
+
+def test_d1_different_qualitative_claims_not_merged(monkeypatch):
+    # Two DIFFERENT qualitative claims (low shingle overlap) must NEVER merge.
+    # Both stay singletons -> no basket; both rows kept.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://a.org/x", _QUAL_CLAIM),
+        _row("ev1", "https://b.org/y",
+             "Mortality increased sharply among the older subgroup of patients."),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert len(res.deduped_rows) == 2
+    assert res.qualitative_basket_count == 0
+
+
+def test_d1_polarity_guard_blocks_negation_flip(monkeypatch):
+    # A negation flip ("was associated" vs "was NOT associated") shares ~0.88
+    # Jaccard but asserts the OPPOSITE claim. The polarity guard blocks the merge
+    # even above threshold, so a real opposing claim is never corroborated away.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    pos = ("The combination therapy was associated with a clinically meaningful "
+           "and statistically robust improvement in progression free survival "
+           "among previously treated adult patients.")
+    neg = pos.replace("was associated", "was not associated")
+    rows = [
+        _row("ev0", "https://a.org/x", pos),
+        _row("ev1", "https://b.org/y", neg),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert res.qualitative_basket_count == 0     # opposite polarity -> never merged
+    assert len(res.deduped_rows) == 2
+
+
+def test_d1_qualitative_same_host_is_not_corroboration(monkeypatch):
+    # Two rows asserting the same qualitative claim but from the SAME registrable
+    # domain are NOT independent corroboration: the basket's corroboration_count
+    # is 1 (so the D1 dice, which requires >1, would not count it). No row dropped.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://nih.gov/a", _QUAL_CLAIM),
+        _row("ev1", "https://www.nih.gov/b", _QUAL_CLAIM),   # same domain, www + path
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert len(res.deduped_rows) == 2
+    qual = [
+        c for c in res.clusters
+        if isinstance(c.finding_key, tuple) and c.finding_key
+        and c.finding_key[0] == "__qual__"
+    ]
+    assert len(qual) == 1
+    assert qual[0].corroboration_count == 1      # one registrable domain
+
+
+def test_d1_qualitative_kill_switch_off_no_basket(monkeypatch):
+    # LAW VI: PG_FINDING_DEDUP_QUALITATIVE=0 restores the numeric-only behavior
+    # (no qualitative basket) even with the redesign regime on. No row dropped.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    monkeypatch.setenv(_QUAL_FLAG, "0")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _QUAL_CLAIM),
+        _row("ev1", "https://nih.gov/b", _QUAL_CLAIM),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert res.qualitative_basket_count == 0
+    assert len(res.deduped_rows) == 2            # qualitative rows still kept
+
+
+def test_d1_legacy_regime_no_qualitative_basket(monkeypatch):
+    # Gated on the consolidate-keep-all regime: with the legacy (drop) regime
+    # explicitly off, NO qualitative basket forms (the path is byte-inert) —
+    # same-claim qualitative rows are kept exactly as the legacy did.
+    monkeypatch.setenv(_REDESIGN_FLAG, "0")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _QUAL_CLAIM),
+        _row("ev1", "https://nih.gov/b", _QUAL_CLAIM),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert res.qualitative_basket_count == 0
+    assert len(res.deduped_rows) == 2
+
+
+def test_d1_qualitative_does_not_mutate_input_rows(monkeypatch):
+    # Purity holds for the qualitative path too: the caller's rows never gain
+    # corroboration keys (we return shallow copies).
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _QUAL_CLAIM),
+        _row("ev1", "https://nih.gov/b", _QUAL_CLAIM),
+    ]
+    dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert "corroboration_count" not in rows[0]
+    assert "finding_keys" not in rows[0]

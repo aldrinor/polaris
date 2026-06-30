@@ -9818,6 +9818,12 @@ async def run_one_query(
                 domain=q["domain"],
                 research_question=q["question"],
                 authority_by_url=_wc_authority_by_url,
+                # I-deepfix-001 D5 (#1344): plumb the honest credibility-tiering batch status
+                # (live_retriever captured it off the TieringBatchResult) onto the durable
+                # manifest disclosure so the diced preflight's D5 gate can assert
+                # tiering_mode != 'rules_floor_degraded' on a FRESH run. getattr-with-None default
+                # keeps non-LiveRetrievalResult retrieval objects (replay paths) safe.
+                tiering_status=getattr(retrieval, "credibility_tiering_status", None),
             )
             _wc_disclosure_dict = disclosure_to_dict(_wc_disclosure)
             (run_dir / "corpus_credibility_disclosure.json").write_text(
@@ -9883,6 +9889,14 @@ async def run_one_query(
                     "approved": False,
                 },
             })
+            # I-deepfix-001 wave-3 (#1344) D5: surface the credibility-tiering disclosure on the
+            # corpus-approval ABORT too. It is built on the weighted-gate proceed path above
+            # (~:9812-9828) but was dropped on this early abort, so a tiering DEGRADE
+            # (tiering_mode == 'rules_floor_degraded') was visible on SUCCESS yet lost on abort.
+            # Guarded + faithfulness-neutral (pure manifest surfacing; mirrors the success path
+            # ~:14313). A degrade is now disclosed on BOTH success AND abort.
+            if _wc_disclosure_dict is not None:
+                manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict
             manifest = augment_v6_manifest(
                 manifest,
                 external_run_id=q.get("external_run_id"),
@@ -10039,6 +10053,10 @@ async def run_one_query(
                     "status": "abort_conflict_judge_unavailable",
                     "conflict_judge_hold": {"reason": str(_cj_exc), "strict_gates": True},
                 })
+                # I-deepfix-001 wave-3 (#1344) D5: same credibility-gate region early abort —
+                # disclose the tiering status on this hold too (guarded; faithfulness-neutral).
+                if _wc_disclosure_dict is not None:
+                    manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict
                 manifest = augment_v6_manifest(
                     manifest,
                     external_run_id=q.get("external_run_id"),
@@ -10200,6 +10218,10 @@ async def run_one_query(
                     "status": "abort_discovery_degraded",
                     "winner_firing_gate": _winner_verdict.to_dict(),
                 })
+                # I-deepfix-001 wave-3 (#1344) D5: same credibility-gate region early abort —
+                # disclose the tiering status on this winner-gate hold too (guarded; faithfulness-neutral).
+                if _wc_disclosure_dict is not None:
+                    manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict
                 manifest = augment_v6_manifest(
                     manifest,
                     external_run_id=q.get("external_run_id"),
@@ -16598,6 +16620,26 @@ async def main_async() -> int:
             "scoring. Persists pathB_gate_pin.json + pathB_gate_result.json to run_dir."
         ),
     )
+    # ── I-deepfix-001 wave-3 (#1344) FOOLPROOF-BREADTH — sanctioned-launch invariant ────────────
+    # The breadth weighted-enrichment surface is gated by the env flag PG_BREADTH_ENRICHMENT_ENABLED
+    # (weighted_enrichment.breadth_enrichment_enabled(), default-OFF by LAW VI). It is force-ON ONLY
+    # by scripts/dr_benchmark/run_gate_b.py's apply_full_capability_benchmark_slate(), so:
+    #
+    #   * The ONLY sanctioned PAID benchmark launcher is `run_gate_b.py --only <slug> [--resume]`.
+    #     It applies the full slate (PG_BREADTH_ENRICHMENT_ENABLED=1 + the rest) -> a BROAD report.
+    #   * Launching `run_honest_sweep_r3.py` directly — including with `--pathB-gate` — DOES NOT apply
+    #     the slate. `--pathB-gate` is a capture/preflight gate (it wraps run_one_query without the
+    #     slate ON PURPOSE), so breadth stays default-OFF -> a NARROW report. This is intended for
+    #     capture/preflight, NOT for the paid benchmark.
+    #
+    # Why the module default stays OFF (option B, not a global flip): flipping
+    # breadth_enrichment_enabled() ON globally would silently turn breadth ON for this deliberate
+    # `--pathB-gate` capture path (narrow -> broad) and falsify the launch-path disclosure baked into
+    # scripts/operational_readiness_preflight.py:check_d1_launch_path. The wrong-launch trap is
+    # already gated at the CODE level there: D-1.launch_path.slate_applied RED-gates any regression in
+    # which the canonical entrypoint (run_gate_b.py) stops applying the slate. Run that preflight
+    # before every paid launch. Faithfulness-neutral either way (breadth is a §-1.3 WEIGHT/surfacing
+    # routed through the UNCHANGED strict_verify; the flag never relaxes a faithfulness gate).
     parser.add_argument(
         "--replay-from-pin", type=str, default=None,
         help=(

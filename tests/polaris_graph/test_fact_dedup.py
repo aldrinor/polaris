@@ -851,3 +851,62 @@ def test_build_groups_transitive_chain_without_conflict_still_merges() -> None:
     assert len(members) == 3, (
         f"Expected all 3 sentences in the cluster, got {len(members)}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 D1 (#1344) — QUALITATIVE consolidation at the SENTENCE layer
+# ─────────────────────────────────────────────────────────────────────────
+#
+# fact_dedup's numeric ``FactSignature`` (decimals / dollars / years) is
+# numeric-only — a PURE-PROSE (non-numeric) restatement has an empty signature
+# and the numeric path SKIPS it. The §-1.3 CONSOLIDATE-qualitative-too guarantee
+# at this (sentence) layer is provided by the default-ON prose path
+# (``_build_prose_groups``), the SENTENCE-layer counterpart of the D1 source-
+# basket qualitative consolidation in ``synthesis/finding_dedup.py``. These tests
+# pin the keep-all + false-merge-guard contract there: N occurrences of the SAME
+# qualitative claim cluster into ONE RedundancyGroup (the downstream cross-ref
+# rewrite preserves every citation), and two DIFFERENT qualitative claims never
+# merge. PG_CONSOLIDATION_NLI is left OFF so only the dep-free Jaccard path runs.
+
+_QUAL_SENTENCE = "The therapy was generally well tolerated across the study cohort [ev_1]."
+
+
+def test_d1_qualitative_prose_same_claim_one_group(monkeypatch) -> None:
+    # The SAME qualitative claim restated across two sections clusters into ONE
+    # RedundancyGroup (>=2 occurrences) — CONSOLIDATE qualitative too (§-1.3).
+    monkeypatch.delenv("PG_FACT_DEDUP_PROSE", raising=False)        # default-ON
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI", raising=False)       # NLI master OFF
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI_PROSE", raising=False)
+    sections = {"Efficacy": [_QUAL_SENTENCE], "Safety": [_QUAL_SENTENCE]}
+    groups = build_groups(sections, section_order=["Efficacy", "Safety"])
+    assert len(groups) == 1
+    assert 1 + len(groups[0].redundants) == 2     # both occurrences, one group
+
+
+def test_d1_qualitative_prose_different_claims_not_merged(monkeypatch) -> None:
+    # Two DIFFERENT qualitative claims (low shingle overlap) must NEVER cluster
+    # (false-merge worse than no-merge). No RedundancyGroup forms.
+    monkeypatch.delenv("PG_FACT_DEDUP_PROSE", raising=False)
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI", raising=False)
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI_PROSE", raising=False)
+    sections = {
+        "Efficacy": [_QUAL_SENTENCE],
+        "Safety": ["Mortality increased sharply among the older subgroup of patients [ev_2]."],
+    }
+    groups = build_groups(sections, section_order=["Efficacy", "Safety"])
+    assert groups == []
+
+
+def test_d1_qualitative_prose_polarity_guard_blocks_negation(monkeypatch) -> None:
+    # A negation flip ("was associated" vs "was NOT associated") clears the Jaccard
+    # threshold but asserts the OPPOSITE claim; the polarity guard blocks the merge
+    # so a real opposing claim is never cross-reffed (consolidated) away.
+    monkeypatch.delenv("PG_FACT_DEDUP_PROSE", raising=False)
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI", raising=False)
+    monkeypatch.delenv("PG_CONSOLIDATION_NLI_PROSE", raising=False)
+    pos = ("The combination therapy was associated with a clinically meaningful and "
+           "statistically robust improvement in progression free survival overall [ev_1].")
+    neg = pos.replace("was associated", "was not associated")
+    sections = {"Efficacy": [pos], "Safety": [neg]}
+    groups = build_groups(sections, section_order=["Efficacy", "Safety"])
+    assert groups == []

@@ -146,12 +146,17 @@ def breadth_vm_command() -> str:
 def kimi_vm_command() -> str:
     """PROBE 2 -- the exact VM command for the kimi 4-role D8 seam smoke.
 
-    --pathB-gate is what CONSTRUCTS the kimi judge transport (via benchmark_verifier_lineup)
-    and sets PG_FOUR_ROLE_MODE=1 (the seam activates ONLY when a transport is injected AND
-    PG_FOUR_ROLE_MODE is on). --resume re-enters from the SMALL banked corpus_snapshot under
-    {out_root}/{slug}/ so there is NO re-fetch (cheap). PG_BENCHMARK_JUDGE_MODEL is LEFT UNSET
-    so the default moonshotai/kimi-k2.6 judge is used. The seam wall is raised generously for
-    the big/slow judge (PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS wins outright, LAW VI override).
+    LAUNCH VIA run_gate_b.py, NOT run_honest_sweep_r3.py --pathB-gate. run_gate_b.py is the ONLY
+    slate-applying entrypoint: its main() + run_gate_b_query CONSTRUCT the kimi judge transport (via
+    benchmark_verifier_lineup), call enable_four_role_mode() (PG_FOUR_ROLE_MODE=1 -> the seam
+    activates), AND apply_full_capability_benchmark_slate() (so PG_BREADTH_ENRICHMENT_ENABLED is ON
+    -> the kimi judge adjudicates the FULL breadth basket, not a narrow report). run_honest_sweep_r3.py
+    --pathB-gate wraps run_one_query in pathB_runner.gate_around_question, which does NOT apply the
+    slate -> enrichment OFF -> the cite-breadth + kimi-judge path is not really exercised. run_gate_b.py
+    has its OWN --resume (-> run_gate_b_query(resume=...) -> run_one_query(resume=...)), so it re-enters
+    from the SMALL banked corpus_snapshot under {out_root}/<domain>/{slug}/ with NO re-fetch (cheap).
+    PG_BENCHMARK_JUDGE_MODEL is LEFT UNSET so the default moonshotai/kimi-k2.6 judge is used. The seam
+    wall is raised generously for the big/slow judge (PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS, LAW VI override).
     """
     slug = _env("PG_PROBE_KIMI_SLUG", "drb_72_ai_labor")
     out_root = _env("PG_PROBE_KIMI_OUT", "outputs/probe_kimi_resume")
@@ -160,8 +165,8 @@ def kimi_vm_command() -> str:
         f"{_ssh_prefix()} 'cd {_remote_repo()} && "
         f"env -u OPENAI_API_KEY "
         f"PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS={seam_wall} "
-        f"python scripts/run_honest_sweep_r3.py "
-        f"--only {slug} --resume --pathB-gate --out-root {out_root} "
+        f"python scripts/dr_benchmark/run_gate_b.py "
+        f"--only {slug} --resume --out-root {out_root} "
         f"2>&1 | tee /tmp/probe_kimi.log'"
     )
 
@@ -257,7 +262,7 @@ def kimi_seam_checks(
     """The KIMI 4-role D8 seam proof, read from a FRESH --resume run_dir.
 
     1. status != abort_role_transport_exhausted  (the seam did not die).
-    2. four_role_seam_inert is not True           (a transport WAS injected -- --pathB-gate).
+    2. four_role_seam_inert is not True           (a transport WAS injected -- run_gate_b.py).
     3. no held_reason starts with "seam_"         (proxy for the runtime _seam_held_reason is None).
     4. no four_role_seam_unadjudicated disclosed gap (the judge bound for the claims).
     5. rate_limit_hits_total <= max_429            (no 429-storm; the kimi 21-provider point).
@@ -381,12 +386,24 @@ def _load_jsonl(path: Path) -> list[dict]:
     return out
 
 
-def diced_preflight_checks(run_dir: Path, diced_path: Path) -> list[Check]:
+def diced_preflight_checks(run_dir: Path, diced_path: Path, dice_names: list[str]) -> list[Check]:
     """Shell out to the (offline, read-only) diced preflight on the FRESH run_dir and assert the
-    two breadth dice are GREEN. The diced preflight NEVER makes a paid call (its own docstring);
-    we gate ONLY on D2_composition_breadth + D3_prefetch_weight_not_filter (other dice may be RED
-    for unrelated reasons on a single-query dir; the task asks only that the breadth/D3 dice flip
-    GREEN). A concurrent workflow owns pipeline_diced_preflight.py -- we only CONSUME its verdict."""
+    NAMED dice are GREEN. The diced preflight NEVER makes a paid call (its own docstring); we gate
+    ONLY on the ``dice_names`` the caller passes (other dice may be RED for unrelated reasons on a
+    single-query dir; each probe asserts only the dice its LAUNCH PATH can actually flip GREEN).
+
+    WHICH DICE PER PROBE (the diced-leg/launch-path coupling -- Codex P1 #1344 wave-3):
+      * BREADTH probe -> ``["D3_relevance_gate_fetch_budget"]`` ONLY. The breadth probe launches the
+        NO-slate ``run_honest_sweep_r3.py`` (PG_BREADTH_ENRICHMENT_ENABLED stays OFF), so its proof
+        is the FRONT-HALF demote-not-drop + fetch-budget dice (D3). The BACK-HALF cite-breadth dice
+        ``D2_composition_breadth`` reads report.md cited/pool ratio and is GREEN only once the slate's
+        post-gen weighted-enrichment fires -> it would stay RED here even on a correctly-fixed
+        pipeline (a false-FAIL), so it is NOT asserted on the breadth probe.
+      * KIMI probe -> ``["D2_composition_breadth"]``. The kimi probe launches via ``run_gate_b.py``
+        WITH the slate -> enrichment ON -> the composer surfaces the weighted tail, so the cite-breadth
+        dice can legitimately go GREEN there.
+
+    A concurrent workflow owns pipeline_diced_preflight.py -- we only CONSUME its verdict."""
     if not diced_path.is_file():
         return [Check("diced.preflight_present", False, f"diced preflight not found at {diced_path}")]
     with tempfile.TemporaryDirectory(prefix="probe_diced_") as td:
@@ -403,7 +420,7 @@ def diced_preflight_checks(run_dir: Path, diced_path: Path) -> list[Check]:
         payload = _load_json(out)
     offline = {r.get("name"): r.get("status") for r in payload.get("offline", []) or []}
     checks: list[Check] = []
-    for dice in ("D2_composition_breadth", "D3_relevance_gate_fetch_budget"):
+    for dice in dice_names:
         st = offline.get(dice, "ABSENT")
         checks.append(Check(
             f"diced.{dice}", st == GREEN,
@@ -431,6 +448,12 @@ def print_breadth(_argv_note: str = "") -> None:
     print("proof lives ONLY in the finalized manifest.json. A single NON-simple query is the cheap")
     print("unit (far below the $40 8-query sweep). Do NOT pick a trivially-simple slug: the sweep")
     print("simple-router would drop the fetch budget to PG_SIMPLE_FETCH_CAP=40.")
+    print("NOTE on the launcher: this FRONT-HALF breadth proof is FINE via run_honest_sweep_r3.py.")
+    print("The §-1.3 demote + fetch-budget mechanism lives in RETRIEVAL (manifest.retrieval.*), not")
+    print("in the post-gen breadth ENRICHMENT, so it fires with PG_RETRIEVAL_RELEVANCE_GATE=1 set")
+    print("explicitly + PG_SWEEP_FETCH_CAP defaulting to 200 -- the slate (which run_honest_sweep_r3.py")
+    print("does NOT apply -> PG_BREADTH_ENRICHMENT_ENABLED stays OFF) is not needed for THIS proof.")
+    print("(The kimi seam probe below DOES need the slate, so it launches via run_gate_b.py.)")
     print("\nVM COMMAND:")
     print("  " + breadth_vm_command())
     print("\nTHEN assert offline on the fresh run_dir (this runner, no spend):")
@@ -441,18 +464,23 @@ def print_breadth(_argv_note: str = "") -> None:
     print("  - relevance_gate.demoted_fetched_to_fill > 0          (the §-1.3 demote fired)")
     print("  - retrieval_caps.dropped_pre_fetch <= the disclosed fetch budget (no hard floor-drop)")
     print("  - candidates_fetched materially > the legacy 40")
-    print("  - diced preflight on the fresh dir: D2_composition_breadth + "
-          "D3_prefetch_weight_not_filter == GREEN")
+    print("  - diced preflight on the fresh dir: D3_relevance_gate_fetch_budget == GREEN")
+    print("    (the FRONT-HALF demote+budget dice; the BACK-HALF cite-breadth dice "
+          "D2_composition_breadth belongs to the KIMI probe, which runs WITH the slate)")
 
 
 def print_kimi(_argv_note: str = "") -> None:
     print("\n--- PROBE 2: KIMI 4-role D8 seam smoke (cheap live proof the seam completes) ---")
-    print("WHY --resume + --pathB-gate: Gate-B constructs the kimi judge transport (via")
-    print("benchmark_verifier_lineup) and sets PG_FOUR_ROLE_MODE=1; --resume re-enters from a SMALL")
-    print("banked corpus_snapshot so there is NO re-fetch (cheap). PG_BENCHMARK_JUDGE_MODEL is left")
-    print("UNSET so the default moonshotai/kimi-k2.6 judge is used. This is the LIVE companion to")
-    print("the diced preflight's D4_four_role_judge_seam_LIVE dice.")
-    print("\nVM COMMAND (point --out-root at a dir already holding <slug>/corpus_snapshot.json):")
+    print("WHY run_gate_b.py --resume (NOT run_honest_sweep_r3.py --pathB-gate): run_gate_b.py is the")
+    print("ONLY slate-applying entrypoint. Its main()/run_gate_b_query construct the kimi judge")
+    print("transport (benchmark_verifier_lineup), call enable_four_role_mode() (PG_FOUR_ROLE_MODE=1),")
+    print("AND apply_full_capability_benchmark_slate() (PG_BREADTH_ENRICHMENT_ENABLED ON -> the judge")
+    print("adjudicates the FULL breadth basket). run_honest_sweep_r3.py --pathB-gate does NOT apply the")
+    print("slate -> enrichment OFF -> the kimi-judge path is not really exercised. run_gate_b.py has its")
+    print("OWN --resume, so it re-enters from a SMALL banked corpus_snapshot (NO re-fetch, cheap).")
+    print("PG_BENCHMARK_JUDGE_MODEL is left UNSET so the default moonshotai/kimi-k2.6 judge is used.")
+    print("This is the LIVE companion to the diced preflight's D4_four_role_judge_seam_LIVE dice.")
+    print("\nVM COMMAND (point --out-root at a dir already holding <domain>/<slug>/corpus_snapshot.json):")
     print("  " + kimi_vm_command())
     print("\nTHEN assert offline on the produced run_dir (this runner, no spend):")
     print("  python scripts/small_scale_validation_probe.py --probe kimi --assert-dir "
@@ -465,6 +493,9 @@ def print_kimi(_argv_note: str = "") -> None:
     print("  - four_role_evaluation.final_verdicts non-empty")
     print("  - every judge call returned a parseable verdict body (no 400 on the bare reasoning "
           "block); distinct served_model reported as the multi-provider proxy")
+    print("  - diced preflight on the produced dir: D2_composition_breadth == GREEN")
+    print("    (the slate is ON here -> post-gen weighted-enrichment fires -> the composer surfaces "
+          "the cite-breadth tail; this dice cannot go GREEN on the no-slate breadth probe)")
 
 
 # --------------------------------------------------------------------------------------------
@@ -475,17 +506,26 @@ def assert_breadth(run_dir: Path, diced_path: Path) -> list[Check]:
     manifest = _load_json(run_dir / "manifest.json")
     legacy_floor = _env_int("PG_PROBE_LEGACY_FETCH_FLOOR", 40)
     checks = breadth_manifest_checks(manifest, legacy_fetch_floor=legacy_floor)
-    checks += diced_preflight_checks(run_dir, diced_path)
+    # FRONT-HALF diced leg ONLY: the breadth probe launches the NO-slate run_honest_sweep_r3.py, so
+    # the BACK-HALF cite-breadth dice (D2_composition_breadth) cannot go GREEN here (enrichment OFF)
+    # -> asserting it would be a false-FAIL. Assert the FRONT-HALF demote+budget dice only; the
+    # cite-breadth dice is asserted by the KIMI probe (slate ON -> enrichment surfaces the tail).
+    checks += diced_preflight_checks(run_dir, diced_path, ["D3_relevance_gate_fetch_budget"])
     return checks
 
 
-def assert_kimi(run_dir: Path) -> list[Check]:
+def assert_kimi(run_dir: Path, diced_path: Path) -> list[Check]:
     manifest = _load_json(run_dir / "manifest.json")
     rl_path = run_dir / "four_role_rate_limit_telemetry.json"
     rate_limit = _load_json(rl_path) if rl_path.is_file() else None
     role_calls = _load_jsonl(run_dir / "four_role_role_calls.jsonl")
     max_429 = _env_int("PG_PROBE_MAX_429", 0)
-    return kimi_seam_checks(manifest, rate_limit, role_calls, max_429=max_429)
+    checks = kimi_seam_checks(manifest, rate_limit, role_calls, max_429=max_429)
+    # BACK-HALF cite-breadth diced leg: the kimi probe launches via run_gate_b.py WITH the slate ->
+    # PG_BREADTH_ENRICHMENT_ENABLED ON -> the composer surfaces the weighted tail, so the post-gen
+    # D2_composition_breadth dice can legitimately go GREEN here (it cannot on the no-slate breadth probe).
+    checks += diced_preflight_checks(run_dir, diced_path, ["D2_composition_breadth"])
+    return checks
 
 
 def _print_checks(title: str, checks: list[Check]) -> bool:
@@ -558,7 +598,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if "kimi" in probes:
         try:
-            checks = assert_kimi(run_dir)
+            checks = assert_kimi(run_dir, diced_path)
         except Exception as exc:
             checks = [Check("kimi.harness", False, f"EXCEPTION {type(exc).__name__}: {exc}")]
         all_results["kimi"] = checks

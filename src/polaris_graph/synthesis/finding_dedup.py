@@ -44,6 +44,8 @@ Pure: constructs no client, no network, no LLM. snake_case; explicit imports.
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -56,6 +58,8 @@ from src.polaris_graph.authority.corroboration import (
 from src.polaris_graph.retrieval.contradiction_detector import (
     extract_numeric_claims,
 )
+
+logger = logging.getLogger("polaris_graph.finding_dedup")
 
 # The fallback subject `extract_numeric_claims` returns when it cannot identify
 # the entity nearest the numeric value. Such claims are NEVER mergeable.
@@ -576,6 +580,13 @@ class FindingDedupResult:
     # behavioral-canary signal: >0 proves the NLI merged same-claim paraphrases the
     # literal floor left separate.
     nli_merge_count: int = 0
+    # I-deepfix-001 D1 (#1344): number of QUALITATIVE (non-numeric) corroboration
+    # baskets formed from no-numeric-finding rows (§-1.3 CONSOLIDATE qualitative too).
+    # 0 when the kill switch is off OR the consolidate-keep-all regime is off (the
+    # numeric-only legacy), so the field is byte-inert for every legacy caller. >0 is
+    # the behavioral-canary signal that the qualitative-consolidation blind spot is
+    # closed (the D1 diced-dice goes GREEN once one such basket has >1 distinct host).
+    qualitative_basket_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -743,6 +754,169 @@ def _apply_consolidation_nli(
     return new_groups, absorbed
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Qualitative-claim basket formation — I-deepfix-001 D1 (#1344)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# §-1.3 Principle 2 (CONSOLIDATE qualitative claims TOO, never numeric-only):
+# the numeric ``_finding_key`` path above keys every corroboration basket on an
+# EXTRACTED NUMERIC value slot, so a QUALITATIVE (non-numeric) claim that several
+# INDEPENDENT sources assert can never form a multi-source basket — it survives
+# as a SAFE singleton (never dropped) but earns NO corroboration weight. That is
+# the D1 diced-dice blind spot (``dice_d1_consolidation_qualitative_basket``):
+# baskets keyed numeric-only. This pass groups the NO-numeric-finding rows that
+# assert the SAME qualitative claim into ONE multi-citation basket carrying ALL
+# members, keyed on a NON-NUMERIC normalized subject/predicate signature, so the
+# corroboration (count + distinct hosts) is surfaced as a WEIGHT.
+#
+# CONSERVATIVE (false-merge is worse than no-merge, §-1.3): two rows cluster ONLY
+# when their content-word shingle sets clear a HIGH Jaccard threshold AND their
+# polarity signatures match (an antonym / negation flip blocks the merge even at
+# Jaccard ~1.0). A genuinely-unique claim stays a singleton (never emitted as a
+# basket). Plain greedy single-pass clustering — deterministic + order-stable.
+#
+# FAITHFULNESS-NEUTRAL / KEEP-ALL: this only ADDS corroboration baskets +
+# ``corroboration_count`` WEIGHT. It DROPS NO ROW (every member still flows
+# through ``deduped_rows`` under keep-all), and touches NO verify gate
+# (strict_verify / the NLI entailment verifier / 4-role D8 / provenance /
+# span-grounding are untouched). Even an over-merge can only inflate a weight
+# count — it can never relax faithfulness and never lose a source.
+#
+# The shingle / polarity / Jaccard predicates are REUSED from the proven
+# fact_dedup prose path (the polarity guard is the Codex #1289 P1 antonym-flip
+# defense), imported LAZILY at function scope — the same defer-to-dodge-cycles
+# discipline this module already uses for credibility_pass / consolidation_nli.
+_QUAL_BASKET_ENV = "PG_FINDING_DEDUP_QUALITATIVE"
+_QUAL_JACCARD_ENV = "PG_FINDING_DEDUP_QUALITATIVE_JACCARD"
+_QUAL_JACCARD_DEFAULT = "0.82"
+# Cap the readable signature-token word count (deterministic, bounded key string).
+_QUAL_KEY_MAX_WORDS = 16
+
+
+def _qualitative_enabled() -> bool:
+    """``PG_FINDING_DEDUP_QUALITATIVE`` kill switch (LAW VI). DEFAULT-ON: the
+    qualitative-basket pass is the §-1.3 CONSOLIDATE-qualitative-too path. Set to
+    ``0`` to restore the byte-identical numeric-only behavior (no qualitative
+    baskets formed). It is ADDITIONALLY gated on the consolidate-keep-all regime
+    (``credibility_redesign_enabled``) by the caller, so a legacy (drop) run never
+    sees a qualitative basket."""
+    return os.getenv(_QUAL_BASKET_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _qual_jaccard_threshold() -> float:
+    """Read ``PG_FINDING_DEDUP_QUALITATIVE_JACCARD`` as a float in (0, 1].
+    Malformed / out-of-range => default 0.82 (logged once at WARNING, never
+    raised — a typo must not crash a paid run). 0.82 is the proven conservative
+    prose-merge threshold (only near-identical restatements cluster)."""
+    raw = os.environ.get(_QUAL_JACCARD_ENV, "").strip() or _QUAL_JACCARD_DEFAULT
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r is not a float; using default %s",
+            _QUAL_JACCARD_ENV, raw, _QUAL_JACCARD_DEFAULT,
+        )
+        return float(_QUAL_JACCARD_DEFAULT)
+    if not (0.0 < value <= 1.0):
+        logger.warning(
+            "[finding_dedup] %s=%s out of (0,1]; using default %s",
+            _QUAL_JACCARD_ENV, value, _QUAL_JACCARD_DEFAULT,
+        )
+        return float(_QUAL_JACCARD_DEFAULT)
+    return value
+
+
+def _qual_key_token(text: str) -> str:
+    """A deterministic, NON-NUMERIC, human-auditable signature token for a
+    qualitative basket: lowercased -> citation-tokens stripped -> alnum
+    word-tokenized -> stopwords dropped -> SORTED+deduped -> capped to
+    ``_QUAL_KEY_MAX_WORDS`` -> space-joined. The whole token is a single STRING
+    element of the finding_key tuple, so a content word that happens to be a bare
+    number (e.g. ``2024``) never makes the key NUMERIC — it stays a string.
+    Reuses fact_dedup's citation/stopword/word predicates so the normalization is
+    byte-consistent with the prose path."""
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _CITATION_TOKEN_RE,
+        _STOPWORDS,
+        _WORD_RE,
+    )
+
+    low = _CITATION_TOKEN_RE.sub(" ", (text or "").lower())
+    words = [w for w in _WORD_RE.findall(low) if w not in _STOPWORDS]
+    return " ".join(sorted(set(words))[:_QUAL_KEY_MAX_WORDS])
+
+
+def _build_qualitative_groups(
+    rows: list[dict[str, Any]],
+    row_has_finding: list[bool],
+    dropped: set[int],
+    *,
+    threshold: float,
+) -> dict[tuple, list[int]]:
+    """Cluster the NO-numeric-finding (qualitative) rows that assert the SAME
+    claim into corroboration baskets. Returns ``{qualitative_key: [row_idx, ...]}``
+    for every cluster with >= 2 members, where ``qualitative_key`` is the
+    all-STRING tuple ``("__qual__", <rep_evidence_id>, <signature_token>)`` — a
+    NON-NUMERIC finding_key by construction (the D1 dice's qualitative-basket
+    requirement). Singleton qualitative rows are NOT emitted (no basket).
+
+    Conservative greedy single-pass clustering: each candidate joins the FIRST
+    existing cluster whose representative shingle set is within ``threshold`` AND
+    whose polarity signature matches; else it opens a new cluster. Deterministic +
+    order-stable (candidates are visited in ascending row order). Two DIFFERENT
+    qualitative claims never merge (low shingle overlap OR a polarity mismatch).
+    """
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _PROSE_NO_MATCH,
+        _jaccard,
+        _polarity_signature,
+        _prose_shingles,
+    )
+
+    # Collect the qualitative candidates (no numeric finding, not dropped, long
+    # enough to shingle) in ascending row order for deterministic greedy merge.
+    candidates: list[tuple[int, frozenset, tuple]] = []
+    for ri in range(len(rows)):
+        if ri in dropped or row_has_finding[ri]:
+            continue
+        body = _row_text(rows[ri])
+        shingles = _prose_shingles(body)
+        if shingles is _PROSE_NO_MATCH or not shingles:
+            continue  # too short to cluster (false-positive guard) — safe singleton
+        candidates.append((ri, shingles, _polarity_signature(body)))
+
+    # Greedy clustering. Each cluster = [rep_shingles, rep_polarity, [member_ris]].
+    clusters: list[list[Any]] = []
+    for ri, shingles, polarity in candidates:
+        placed = False
+        for cluster in clusters:
+            if cluster[1] != polarity:
+                continue  # polarity guard: never merge an opposite-polarity claim
+            if _jaccard(shingles, cluster[0]) >= threshold:
+                cluster[2].append(ri)
+                placed = True
+                break
+        if not placed:
+            clusters.append([shingles, polarity, [ri]])
+
+    out: dict[tuple, list[int]] = {}
+    for cluster in clusters:
+        members = cluster[2]
+        if len(members) < 2:
+            continue  # a genuinely-unique qualitative claim stays a singleton
+        rep_ri = members[0]  # lowest row index (deterministic); re-ranked in emission
+        rep_eid = str(rows[rep_ri].get("evidence_id", rep_ri))
+        token = _qual_key_token(_row_text(rows[rep_ri]))
+        # All-string key => NON-NUMERIC finding_key (D1 dice). The rep evidence_id
+        # makes the key unique per cluster (no cross-cluster key collision / false
+        # merge); the token makes it semantically auditable in the manifest.
+        key = ("__qual__", rep_eid, token)
+        out[key] = sorted(set(members))
+    return out
+
+
 def dedup_by_finding(
     rows: list[dict[str, Any]],
     *,
@@ -879,11 +1053,41 @@ def dedup_by_finding(
     if groups and _consolidation_nli_enabled():
         groups, nli_merge_count = _apply_consolidation_nli(groups, rows, _rank)
 
-    # 2. Per cluster: representative + corroboration over INDEPENDENT hosts.
+    # 1c. QUALITATIVE basket formation (I-deepfix-001 D1, #1344). §-1.3 CONSOLIDATE
+    #     qualitative claims TOO (not numeric-only): rows with NO extracted numeric
+    #     finding that assert the SAME qualitative claim form a multi-citation
+    #     corroboration basket keyed on a NON-NUMERIC normalized signature. The
+    #     numeric `groups` above can never key such a basket, so a qualitative claim
+    #     several independent sources assert earned no corroboration weight (the D1
+    #     dice's blind spot). CONSERVATIVE (high Jaccard + polarity guard) so two
+    #     DIFFERENT qualitative claims never merge; KEEP-ALL (no row dropped);
+    #     faithfulness-neutral (weight only — strict_verify / the entailment verifier
+    #     / 4-role / provenance / span-grounding untouched). Gated on the
+    #     consolidate-keep-all regime + a kill switch; OFF => no qualitative baskets
+    #     (byte-identical numeric-only behavior). Disjoint from `groups` (qualitative
+    #     rows have row_has_finding==False), so it adds baskets without re-clustering
+    #     any numeric finding and leaves `distinct_finding_count` (numeric) unchanged.
+    qual_groups: dict[tuple, list[int]] = {}
+    if redesign_on and _qualitative_enabled():
+        qual_groups = _build_qualitative_groups(
+            rows, row_has_finding, dropped, threshold=_qual_jaccard_threshold(),
+        )
+        if qual_groups:
+            logger.info(
+                "[finding_dedup] qualitative consolidation FIRED: %d qualitative "
+                "basket(s) formed from no-numeric-finding rows (§-1.3 CONSOLIDATE "
+                "qualitative too; keep-all, weight-only, faithfulness-neutral)",
+                len(qual_groups),
+            )
+
+    # 2. Per cluster: representative + corroboration over INDEPENDENT hosts. The
+    #    qualitative baskets (1c) are emitted alongside the numeric `groups` so they
+    #    surface the same corroboration WEIGHT (count + distinct hosts) and rep
+    #    annotation; their keys are NON-NUMERIC by construction.
     clusters: list[FindingCluster] = []
     rep_indices: set[int] = set()
     rep_meta: dict[int, dict[str, Any]] = {}
-    for key, member_ris in groups.items():
+    for key, member_ris in list(groups.items()) + list(qual_groups.items()):
         distinct_ris = sorted(set(member_ris))
         rep_ri = max(distinct_ris, key=_rank)
         # Same-work fold: count each member by its WORK's canonical host, so N
@@ -973,4 +1177,5 @@ def dedup_by_finding(
         collapsed_row_count=len(rows) - len(deduped_rows),
         same_work=same_work,
         nli_merge_count=nli_merge_count,
+        qualitative_basket_count=len(qual_groups),
     )

@@ -9,6 +9,7 @@ src.polaris_graph package __init__ never runs.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -226,3 +227,96 @@ def test_kimi_role_label_fallback_to_all_calls():
     rc = [{"claim_id": "c1", "role": "verifier", "served_model": "x", "raw_text": "VERIFIED"}]
     by = _by_name(probe.kimi_seam_checks(_good_kimi_manifest(), {"rate_limit_hits_total": 0}, rc))
     assert by["kimi.judge_calls_parseable"].passed
+
+
+# --------------------------------------------------------------------------------------------
+# LAUNCH-PATH: the kimi seam probe must launch via the SLATE-APPLYING run_gate_b.py, NOT
+# run_honest_sweep_r3.py --pathB-gate (which skips the slate -> enrichment OFF -> narrow report).
+# --------------------------------------------------------------------------------------------
+
+def test_kimi_command_launches_via_run_gate_b_not_pathb_gate():
+    cmd = probe.kimi_vm_command()
+    assert "scripts/dr_benchmark/run_gate_b.py" in cmd, cmd
+    assert "--pathB-gate" not in cmd, "the slate-SKIPPING --pathB-gate wrapper must not be used"
+    assert "--resume" in cmd and "--only" in cmd, cmd
+
+
+def test_breadth_command_uses_sweep_with_explicit_relevance_gate():
+    cmd = probe.breadth_vm_command()
+    # the FRONT-HALF breadth proof is fine via run_honest_sweep_r3.py (the §-1.3 demote lives in
+    # retrieval, not the post-gen enrichment); it sets PG_RETRIEVAL_RELEVANCE_GATE=1 explicitly.
+    assert "run_honest_sweep_r3.py" in cmd, cmd
+    assert "PG_RETRIEVAL_RELEVANCE_GATE=1" in cmd, cmd
+    assert "run_gate_b.py" not in cmd, cmd
+
+
+# --------------------------------------------------------------------------------------------
+# DICED-LEG / LAUNCH-PATH coupling (Codex P1 #1344 wave-3): the BREADTH probe (no-slate
+# run_honest_sweep_r3.py) asserts the FRONT-HALF dice D3_relevance_gate_fetch_budget ONLY -- the
+# back-half cite-breadth dice D2_composition_breadth would be a false-FAIL there (enrichment OFF).
+# The KIMI probe (slate-applying run_gate_b.py) is the one that asserts D2_composition_breadth.
+# --------------------------------------------------------------------------------------------
+
+def _stub_diced_script(tmp_path: Path, statuses: dict[str, str]) -> Path:
+    """A tiny stand-in for pipeline_diced_preflight.py: writes the same --json contract the probe
+    consumes (an "offline" list of {name, status}). No run, no model -- pure I/O."""
+    rows = ",".join(
+        "{" + f"'name': {name!r}, 'status': {st!r}" + "}" for name, st in statuses.items()
+    )
+    stub = tmp_path / "stub_diced.py"
+    stub.write_text(
+        "import json, sys\n"
+        "out = sys.argv[sys.argv.index('--json') + 1]\n"
+        f"payload = {{'offline': [{rows}]}}\n"
+        "open(out, 'w', encoding='utf-8').write(json.dumps(payload))\n",
+        encoding="utf-8",
+    )
+    return stub
+
+
+def test_diced_preflight_checks_selects_only_requested_dice(tmp_path):
+    stub = _stub_diced_script(tmp_path, {
+        "D2_composition_breadth": "GREEN",
+        "D3_relevance_gate_fetch_budget": "RED",
+    })
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # breadth leg requests D3 ONLY -> exactly one check, named for D3, RED here.
+    front = probe.diced_preflight_checks(run_dir, stub, ["D3_relevance_gate_fetch_budget"])
+    assert [c.name for c in front] == ["diced.D3_relevance_gate_fetch_budget"]
+    assert not front[0].passed
+    # kimi leg requests D2 ONLY -> exactly one check, named for D2, GREEN here.
+    back = probe.diced_preflight_checks(run_dir, stub, ["D2_composition_breadth"])
+    assert [c.name for c in back] == ["diced.D2_composition_breadth"]
+    assert back[0].passed
+
+
+def test_assert_breadth_requests_only_front_half_d3(tmp_path, monkeypatch):
+    captured = {}
+
+    def _fake(run_dir, diced_path, dice_names):
+        captured["names"] = list(dice_names)
+        return []
+
+    monkeypatch.setattr(probe, "diced_preflight_checks", _fake)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps(_good_breadth_manifest()), encoding="utf-8")
+    probe.assert_breadth(run_dir, tmp_path / "diced.py")
+    assert captured["names"] == ["D3_relevance_gate_fetch_budget"]
+    assert "D2_composition_breadth" not in captured["names"]
+
+
+def test_assert_kimi_requests_back_half_d2(tmp_path, monkeypatch):
+    captured = {}
+
+    def _fake(run_dir, diced_path, dice_names):
+        captured["names"] = list(dice_names)
+        return []
+
+    monkeypatch.setattr(probe, "diced_preflight_checks", _fake)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps(_good_kimi_manifest()), encoding="utf-8")
+    probe.assert_kimi(run_dir, tmp_path / "diced.py")
+    assert captured["names"] == ["D2_composition_breadth"]

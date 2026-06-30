@@ -316,6 +316,12 @@ def _build_prose_groups(
     rewrite (keep-all cross-ref) is unchanged. Deterministic greedy single-pass clustering: each
     candidate joins the FIRST existing cluster whose representative shingle set is within threshold,
     else opens a new cluster — correct at our scale and order-stable.
+
+    I-deepfix-001 D1 (#1344): this prose pass is the SENTENCE-layer counterpart of the §-1.3
+    "CONSOLIDATE qualitative claims too" guarantee. The SOURCE-basket layer (synthesis/finding_dedup.py
+    ``_build_qualitative_groups``) forms the matching NON-NUMERIC corroboration basket the D1 diced dice
+    asserts. Both layers share the SAME conservative predicate (high content-word shingle Jaccard + the
+    polarity guard below) so neither merges two DIFFERENT qualitative claims, and both KEEP-ALL.
     """
     # Collect every empty-numeric-signature location (the prose candidates) in section_order.
     prose_locs: list[SentenceLocation] = []

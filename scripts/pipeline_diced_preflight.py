@@ -690,11 +690,12 @@ def dice_d4_relevance_weight_not_drop(ctx: Ctx) -> DiceResult:
 
 def dice_d5_credibility_honest_tiering(ctx: Ctx) -> DiceResult:
     """GAP: credibility/tier is an honest WEIGHT over ALL sources (§-1.3), never a degraded
-    rules-floor that silently drops. Strong invariant (when a fresh manifest carries `tiering_mode`):
-    mode != rules_floor_degraded AND every source classified (0 dropped). The banked manifest lacks
-    `tiering_mode` -> assert the weaker invariant (disclosure present + classified count == sources)
-    and emit a LIVE-SMOKE-REQUIRED note for tiering_mode. A classified!=sources mismatch (a drop) or
-    a degraded tiering mode flips this RED."""
+    rules-floor that silently drops. Strong invariant (when a fresh manifest carries the NESTED
+    `corpus_credibility_disclosure.tiering_status.tiering_mode`): mode != rules_floor_degraded AND
+    every source classified (0 dropped). The banked manifest lacks `tiering_status.tiering_mode`
+    -> assert the weaker invariant (disclosure present + classified count == sources) and emit a
+    LIVE-SMOKE-REQUIRED note for tiering_mode. A classified!=sources mismatch (a drop) or a degraded
+    tiering mode flips this RED."""
     inv = ("credibility is honest WEIGHT-tiering: tiering_mode != rules_floor_degraded AND every "
            "source classified (classified count == total_sources, 0 dropped)")
     m = ctx.fx.load_json("manifest.json")
@@ -706,7 +707,16 @@ def dice_d5_credibility_honest_tiering(ctx: Ctx) -> DiceResult:
     status_present = bool(ccd) and bool(ccd.get("gate") or ccd.get("disclosure_note"))
     count_ok = (total_sources is not None and classified == total_sources
                 and total_sources == corpus_count)
-    tiering_mode = ccd.get("tiering_mode")
+    # D5 wiring (#1344 wave-3) serializes the batch tiering status NESTED under the disclosure as
+    # corpus_credibility_disclosure.tiering_status.tiering_mode (weighted_corpus_gate.disclosure_to_dict
+    # -> asdict of CorpusCredibilityDisclosure.tiering_status). Read the NESTED path -- the old TOP-level
+    # ccd.get("tiering_mode") was ALWAYS None, so the strong invariant never fired even on a fresh ON run.
+    # Defensive: tiering_status is a dict on a fresh ON run, None on the OFF path / replay, and ABSENT on
+    # the banked fixture -> all three collapse to {} so we fall through to the weaker classified-count
+    # invariant when no real tiering_mode is present.
+    tiering_status = ccd.get("tiering_status")
+    tiering_status = tiering_status if isinstance(tiering_status, dict) else {}
+    tiering_mode = tiering_status.get("tiering_mode")
     disclosed_gap = m.get("credibility_disclosed_gap")
     if tiering_mode is not None:
         ok = status_present and count_ok and tiering_mode != ctx.th.degraded_tiering_mode
@@ -715,7 +725,7 @@ def dice_d5_credibility_honest_tiering(ctx: Ctx) -> DiceResult:
                   f"status_present={status_present} -> {'HONEST TIERING' if ok else 'DEGRADED/DROP'}")
     else:
         ok = status_present and count_ok
-        detail = (f"banked manifest lacks tiering_mode -> WEAKER invariant: status_present="
+        detail = (f"banked manifest lacks tiering_status.tiering_mode -> WEAKER invariant: status_present="
                   f"{status_present} classified={classified}==total_sources={total_sources}=="
                   f"corpus.count={corpus_count} -> {'KEEP-ALL OK' if ok else 'COUNT MISMATCH/DROP'}; "
                   f"credibility_disclosed_gap={str(disclosed_gap)[:60]!r}; LIVE-SMOKE-REQUIRED: "

@@ -507,6 +507,16 @@ class LiveRetrievalResult:
     #     reports the POST-expansion total, not the extraction yield. This frozen
     #     int is the stable fetched->finding extraction count.
     extraction_finding_rows: int = 0
+    # I-deepfix-001 D5 (#1344): the HONEST machine-readable credibility-tiering batch
+    # status produced by classify_sources_llm_tiering (a TieringBatchResult.tiering_status:
+    # {tiering_mode, llm_success_count, rules_floor_count, fallback_count, error_count,
+    # total}). Plumbed through to the durable manifest disclosure so the diced preflight's
+    # D5 gate can assert `tiering_mode != 'rules_floor_degraded'` on a FRESH run — i.e. that
+    # GLM credibility-tiering actually fired and the batch did not silently collapse to the
+    # deterministic rules-floor. Default {} = LLM-tiering OFF, or no deferred sources to tier
+    # (the W5 block never ran) => byte-identical OFF path. PURE telemetry: credibility stays a
+    # WEIGHT (no drop, no abort — §-1.3); the faithfulness engine is untouched.
+    credibility_tiering_status: dict[str, Any] = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5847,6 +5857,11 @@ def run_live_retrieval(
     # never changes a per-source tier. The rules-floor is the instant fallback on any
     # judge_error/timeout. Tier is a WEIGHT, never a drop — every row keeps its slot and
     # only its tier fields are back-filled. OFF path never enters here (list is empty).
+    # I-deepfix-001 D5 (#1344): default empty status; the W5 block (LLM-tiering ON, with
+    # deferred sources) reassigns it with the real machine-readable batch mode below. The OFF
+    # path (or no deferred sources) keeps {} so the manifest disclosure carries an honest
+    # "tiering did not run" rather than a misleading absent/None field.
+    _credibility_tiering_status: dict[str, Any] = {}
     if _llm_tiering_on and _deferred_tier_signals:
         from src.polaris_graph.retrieval.credibility_llm_tiering import (
             classify_sources_llm_tiering,
@@ -5865,6 +5880,11 @@ def run_live_retrieval(
             _deferred_tier_signals,
             deadline_monotonic=_retrieval_deadline,
         )
+        # I-deepfix-001 D5 (#1344): capture the honest machine-readable batch status off the
+        # TieringBatchResult so it survives to the durable manifest credibility disclosure
+        # (the diced preflight's D5 gate reads tiering_mode here). Default {} if the producer
+        # ever returns a bare list (defensive getattr) — never breaks the WEIGHT-only path.
+        _credibility_tiering_status = getattr(_tier_results, "tiering_status", {})
         for _row_idx, _tier_result in zip(_deferred_tier_row_idx, _tier_results):
             _src = classified_sources[_row_idx]
             _src.tier = _tier_result.tier.value
@@ -5978,4 +5998,8 @@ def run_live_retrieval(
         # return), before run_one_query mutates evidence_rows via the expansion/
         # deepener/agentic lanes.
         extraction_finding_rows=len(evidence_rows),
+        # I-deepfix-001 D5 (#1344): honest credibility-tiering batch status (tiering_mode /
+        # llm_success_count / rules_floor_count / ...) -> durable manifest disclosure. {} on
+        # the OFF path (W5 never ran) => byte-identical.
+        credibility_tiering_status=_credibility_tiering_status,
     )

@@ -168,6 +168,16 @@ class CorpusCredibilityDisclosure:
     weighted_credibility_mean: float  # source-count-weighted mean of per-source credibility (disclosure)
     per_source: list[SourceCredibilityRow] = field(default_factory=list)
     disclosure_note: str = ""
+    # I-deepfix-001 D5 (#1344): the honest machine-readable credibility-TIERING batch status
+    # carried from live_retriever (classify_sources_llm_tiering's TieringBatchResult.tiering_status:
+    # {tiering_mode, llm_success_count, rules_floor_count, fallback_count, error_count, total}).
+    # Plumbed onto this durable disclosure so the diced preflight's D5 gate can assert
+    # `tiering_mode != 'rules_floor_degraded'` on a FRESH run — i.e. GLM tiering actually fired and
+    # the batch did not silently collapse to the deterministic rules-floor. None when the caller did
+    # not thread a status (LLM-tiering OFF / non-LiveRetrievalResult retrieval) => byte-identical
+    # absence. ADVISORY / DISCLOSURE only — credibility stays a WEIGHT (no drop, no abort — §-1.3);
+    # the binding per-claim gates (strict_verify + 4-role D8) are untouched. asdict() serializes it.
+    tiering_status: dict | None = None
 
 
 def has_usable_corpus(classified_sources: list[Any], evidence_rows: list[Any]) -> bool:
@@ -232,6 +242,7 @@ def build_corpus_credibility_disclosure(
     domain: str,
     research_question: str,
     authority_by_url: dict[str, Any] | None = None,
+    tiering_status: dict | None = None,
 ) -> CorpusCredibilityDisclosure:
     """Build the deterministic, domain-aware corpus credibility disclosure — PURE, offline, no LLM.
 
@@ -344,6 +355,13 @@ def build_corpus_credibility_disclosure(
         weighted_credibility_mean=weighted_mean,
         per_source=per_source,
         disclosure_note=note,
+        # I-deepfix-001 D5 (#1344): carry the honest credibility-tiering batch status straight
+        # through onto the durable disclosure (asdict serializes it into the manifest). PURE
+        # plumbing — a defensive shallow copy of exactly what the caller threaded (no normalization
+        # of mode/counts), so the diced preflight's D5 gate reads the REAL tiering_mode. None passes
+        # through as None (caller did not thread a status). DISCLOSURE only — no drop, no abort; the
+        # faithfulness engine is untouched.
+        tiering_status=(dict(tiering_status) if isinstance(tiering_status, dict) else tiering_status),
     )
 
 

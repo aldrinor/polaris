@@ -295,6 +295,109 @@ def test_disclosure_clamps_out_of_range_authority() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 D5 (#1344): credibility-TIERING status plumbed through to the durable
+# manifest disclosure dict (so the diced preflight's D5 gate can read tiering_mode on a
+# FRESH run). FAITHFULNESS-NEUTRAL plumbing — credibility stays a WEIGHT (no drop/abort).
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _minimal_disclosure(**overrides):
+    base = dict(
+        classified_sources=[_FakeSource("https://x", "T4", "nber.org", authority_score=0.62)],
+        tier_counts={"T4": 1},
+        tier_fractions={"T4": 1.0},
+        total_sources=1,
+        had_material_deviation=True,
+        domain="economics",
+        research_question="q",
+    )
+    base.update(overrides)
+    return build_corpus_credibility_disclosure(**base)
+
+
+def test_tiering_status_reaches_durable_disclosure_dict() -> None:
+    """THE wiring assertion: the honest credibility-tiering batch status (captured in live_retriever off
+    the TieringBatchResult, threaded through run_honest_sweep) must survive onto the disclosure object
+    AND its asdict serialization — the exact payload that becomes manifest['corpus_credibility_disclosure'].
+    Without this, the diced preflight's D5 gate has no tiering_mode to read on a fresh run."""
+    status = {
+        "tiering_mode": "tiered_via_glm",
+        "llm_success_count": 200,
+        "rules_floor_count": 0,
+        "fallback_count": 0,
+        "error_count": 0,
+        "total": 200,
+    }
+    d = _minimal_disclosure(tiering_status=status)
+    assert d.tiering_status == status
+    as_dict = disclosure_to_dict(d)
+    assert as_dict["tiering_status"] == status
+    assert as_dict["tiering_status"]["tiering_mode"] == "tiered_via_glm"
+
+
+def test_tiering_status_preserves_degraded_mode_for_d5_gate() -> None:
+    """The exact mode the D5 gate trips on (rules_floor_degraded) must round-trip honestly — never
+    silently rewritten to a passing mode. This is the failure the D5 plumbing exists to surface."""
+    status = {"tiering_mode": "rules_floor_degraded", "llm_success_count": 0,
+              "rules_floor_count": 200, "fallback_count": 200, "error_count": 0, "total": 200}
+    as_dict = disclosure_to_dict(_minimal_disclosure(tiering_status=status))
+    assert as_dict["tiering_status"]["tiering_mode"] == "rules_floor_degraded"
+    assert as_dict["tiering_status"]["rules_floor_count"] == 200
+
+
+def test_tiering_status_defaults_none_when_not_supplied() -> None:
+    """Byte-identical absence: a caller that does not thread a status yields tiering_status=None on the
+    dataclass + serialized dict (the OFF / replay path), never a fabricated mode."""
+    d = _minimal_disclosure()
+    assert d.tiering_status is None
+    assert disclosure_to_dict(d)["tiering_status"] is None
+
+
+def test_tiering_status_is_a_defensive_copy_not_an_alias() -> None:
+    """Pure plumbing must not alias the live mutable the caller passed — a later mutation of the source
+    dict must not retro-edit the durable disclosure."""
+    status = {"tiering_mode": "partial", "llm_success_count": 5, "total": 10}
+    d = _minimal_disclosure(tiering_status=status)
+    status["tiering_mode"] = "MUTATED"
+    assert d.tiering_status["tiering_mode"] == "partial"
+
+
+def test_live_retrieval_result_carries_tiering_status_field_default_empty() -> None:
+    """The producer side: LiveRetrievalResult exposes credibility_tiering_status defaulting to {} (the
+    OFF path / W5-never-ran value) so run_honest_sweep's getattr always finds an honest value."""
+    from src.polaris_graph.retrieval.live_retriever import LiveRetrievalResult
+
+    r = LiveRetrievalResult(
+        classified_sources=[],
+        evidence_rows=[],
+        total_candidates_pre_filter=0,
+        candidates_kept_by_scope=0,
+        candidates_kept_by_offtopic=0,
+        candidates_fetched=0,
+        candidates_failed_fetch=0,
+    )
+    assert r.credibility_tiering_status == {}
+    # and an explicit status is carried verbatim (the ON path)
+    r2 = LiveRetrievalResult(
+        classified_sources=[],
+        evidence_rows=[],
+        total_candidates_pre_filter=0,
+        candidates_kept_by_scope=0,
+        candidates_kept_by_offtopic=0,
+        candidates_fetched=0,
+        candidates_failed_fetch=0,
+        credibility_tiering_status={"tiering_mode": "tiered_via_glm", "total": 3},
+    )
+    assert r2.credibility_tiering_status["tiering_mode"] == "tiered_via_glm"
+
+
+def test_sweep_threads_tiering_status_into_disclosure() -> None:
+    """Sweep wiring (offline inspect.getsource): the build_corpus_credibility_disclosure call must thread
+    the retrieval's credibility_tiering_status through, so the manifest disclosure carries the real mode."""
+    src = _sweep_src()
+    assert 'tiering_status=getattr(retrieval, "credibility_tiering_status", None)' in src
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Sweep wiring (inspect.getsource — offline, no network)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -366,6 +469,36 @@ def test_binding_faithfulness_gates_untouched() -> None:
     assert "strict_verify" in src or "generate_multi_section_report(" in src
     # the 4-role seam toggle is unchanged (env flag still read, not removed)
     assert "PG_FOUR_ROLE_MODE" in src or "_seam_will_run" in src
+
+
+def test_sweep_discloses_tiering_status_on_credibility_gate_aborts() -> None:
+    """I-deepfix-001 wave-3 (#1344) D5: the credibility-tiering disclosure (which carries a possible
+    ``rules_floor_degraded`` DEGRADE) must be surfaced on the manifest on the credibility-gate EARLY
+    aborts, not only on success. Pre-fix it was built on the weighted-gate proceed path then DROPPED on
+    every early abort, so a degrade was visible on SUCCESS yet silently lost on abort. Offline source-
+    positional check: inside each abort block (its status literal -> the next ``return summary``) the
+    GUARDED disclosure assignment must appear, mirroring the success path (~:14313)."""
+    src = _sweep_src()
+    disclosure_assign = 'manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict'
+    for status in (
+        "abort_corpus_approval_denied",       # the named wave-3 P1 target
+        "abort_conflict_judge_unavailable",   # sibling credibility-gate early abort
+        "abort_discovery_degraded",           # sibling credibility-gate early abort (winner-gate hold)
+    ):
+        status_idx = src.find(f'summary["status"] = "{status}"')
+        assert status_idx != -1, f"abort block for {status} not found in run_one_query"
+        return_idx = src.find("return summary", status_idx)
+        assert return_idx != -1, f"no `return summary` after the {status} block"
+        block = src[status_idx:return_idx]
+        assert disclosure_assign in block, (
+            f"D5 REGRESSION: the {status} manifest no longer surfaces "
+            f"corpus_credibility_disclosure — a tiering degrade is lost on this abort."
+        )
+        # Guarded so it is a byte-identical no-op when the weighted gate was OFF (disclosure unbuilt).
+        assert "if _wc_disclosure_dict is not None:" in block, (
+            f"D5: the {status} disclosure surfacing must stay guarded on "
+            f"`_wc_disclosure_dict is not None` (no NameError / no empty-dict noise when gate OFF)."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
