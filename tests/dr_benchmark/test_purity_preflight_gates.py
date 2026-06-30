@@ -235,8 +235,9 @@ def test_slate_purity_negative_bogus_force_on_flag_raises(monkeypatch):
 # GATE (B) WINNER-FIRES — run_gate_b.py:2617 (the firing-marker contract + offline identity probes)
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 
-# The 13 winner keys the post-run firing-marker contract MUST carry (W1-W14 minus W9, which is DARK and
-# intentionally absent — run_gate_b.py:1864). Order matches the contract dict.
+# The 14 winner keys the post-run firing-marker contract MUST carry (W1-W14, ALL — I-deepfix-001 #1344
+# GRADUATED W9 from DARK to wired, so it is now grep-asserted on the run like every other winner). Order
+# matches the contract dict.
 _EXPECTED_FIRING_MARKER_KEYS = (
     "W1_scope_intent_frame",
     "W2_qgen_fs_researcher",
@@ -246,6 +247,7 @@ _EXPECTED_FIRING_MARKER_KEYS = (
     "W6_embed_qwen3_8b",
     "W7_rerank_qwen3_4b",
     "W8_cred_llm_tiering",
+    "W9_dedup_content_consolidate",
     "W10_consolidate_nli",
     "W11_adequacy_crag",
     "W12_compose_floor_abstractive",
@@ -254,17 +256,17 @@ _EXPECTED_FIRING_MARKER_KEYS = (
 )
 
 
-def test_winner_fires_firing_marker_contract_has_13_winner_keys_with_nonempty_markers():
+def test_winner_fires_firing_marker_contract_has_14_winner_keys_with_nonempty_markers():
     """The WINNER-FIRES post-run firing-marker contract (_WINNER_FIRING_MARKER_CONTRACT) must carry
-    exactly the 13 expected winner keys (W1-W14 minus the DARK W9), each with a NON-EMPTY firing marker
-    the post-run §-1.1 audit greps. A missing key / empty marker would let a wired-but-dark winner ship
-    unverified."""
+    exactly the 14 expected winner keys (W1-W14, including the now-GRADUATED W9), each with a NON-EMPTY
+    firing marker the post-run §-1.1 audit greps. A missing key / empty marker would let a wired-but-dark
+    winner ship unverified."""
     assert set(_WINNER_FIRING_MARKER_CONTRACT.keys()) == set(_EXPECTED_FIRING_MARKER_KEYS), (
-        "firing-marker contract keys drifted from the expected 13 winners: "
+        "firing-marker contract keys drifted from the expected 14 winners: "
         f"missing={sorted(set(_EXPECTED_FIRING_MARKER_KEYS) - set(_WINNER_FIRING_MARKER_CONTRACT))}, "
         f"extra={sorted(set(_WINNER_FIRING_MARKER_CONTRACT) - set(_EXPECTED_FIRING_MARKER_KEYS))}"
     )
-    assert len(_WINNER_FIRING_MARKER_CONTRACT) == 13
+    assert len(_WINNER_FIRING_MARKER_CONTRACT) == 14
     for _key, _marker in _WINNER_FIRING_MARKER_CONTRACT.items():
         assert isinstance(_marker, _FiringMarker), (
             f"firing marker for {_key} must be a _FiringMarker predicate, not a bare substring "
@@ -277,10 +279,10 @@ def test_winner_fires_firing_marker_contract_has_13_winner_keys_with_nonempty_ma
             f"firing marker for {_key} has an empty/blank forbid substring — a blank forbid matches every "
             f"line and would suppress EVERY genuine fire"
         )
-    # W9 is DARK (no run-path consumer) and MUST be absent from the firing contract (handled by the loud
-    # W9 ack gate, never grep-asserted on the run — run_gate_b.py:1864).
-    assert not any(_k.startswith("W9") for _k in _WINNER_FIRING_MARKER_CONTRACT), (
-        "W9 must NOT be in the firing-marker contract — it is the DARK winner handled by the W9 gate"
+    # I-deepfix-001 #1344: W9 GRADUATED — it MUST now be present in the firing-marker contract (its
+    # consolidate-keep-all canary [content_dedup_consolidate] W9: is grep-asserted post-run like the rest).
+    assert any(_k.startswith("W9") for _k in _WINNER_FIRING_MARKER_CONTRACT), (
+        "W9 must be in the firing-marker contract — it was graduated from DARK to a wired winner"
     )
 
 
@@ -406,6 +408,7 @@ _PRODUCER_SOURCE_FOR_MARKER: dict[str, str] = {
     "W6_embed_qwen3_8b": "src/polaris_graph/retrieval/prefetch_offtopic_filter.py",
     "W7_rerank_qwen3_4b": "src/polaris_graph/retrieval/qwen_reranker_scorer.py",
     "W8_cred_llm_tiering": "src/polaris_graph/retrieval/credibility_llm_tiering.py",
+    "W9_dedup_content_consolidate": "src/polaris_graph/synthesis/content_dedup_consolidate.py",
     "W10_consolidate_nli": "src/polaris_graph/synthesis/consolidation_nli.py",
     "W11_adequacy_crag": "scripts/run_honest_sweep_r3.py",
     "W12_compose_floor_abstractive": "src/polaris_graph/generator/abstractive_writer.py",
@@ -449,11 +452,11 @@ def test_every_firing_marker_must_contain_is_a_real_producer_string():
 
 def test_firing_marker_contract_substrings_back_compat_view():
     """``firing_marker_contract_substrings()`` returns the {winner -> must_contain} positive-substring view
-    (back-compat surface for a consumer that only needs the positive grep needle); it must carry the same 13
-    keys, each non-empty."""
+    (back-compat surface for a consumer that only needs the positive grep needle); it must carry the same 14
+    keys (W1-W14 incl. the graduated W9), each non-empty."""
     subs = firing_marker_contract_substrings()
     assert set(subs.keys()) == set(_WINNER_FIRING_MARKER_CONTRACT.keys())
-    assert len(subs) == 13
+    assert len(subs) == 14
     for _key, _needle in subs.items():
         assert _needle and _needle.strip(), f"{_key}: empty positive substring"
 
@@ -463,13 +466,14 @@ def test_firing_marker_contract_substrings_back_compat_view():
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 
 def test_w9_subsumed_default_proceeds():
-    """POSITIVE: with the DROP variant UNWIRED (the default), W9 is DARK BY DESIGN — its content near-dup
-    function is SUBSUMED by the keep-all consolidation stack — so the W9 gate LOGS loudly and PROCEEDS
-    (no raise)."""
+    """POSITIVE: with the §-1.3-violating DROP variant UNWIRED (the default), the W9 gate LOGS the
+    keep-all-wired status loudly and PROCEEDS (no raise). I-deepfix-001 #1344: W9 is now WIRED via the
+    consolidate-keep-all stage (PG_CONTENT_DEDUP_CONSOLIDATE, applied by the clean slate); the gate's only
+    remaining job is to forbid the DROP variant."""
     _apply_clean_winners_only_slate()
     os.environ.pop("PG_W9_CONTENT_DEDUP", None)
     os.environ.pop("PG_W9_DARK_ACK", None)
-    _run_preflight_offline()  # no raise == W9 SUBSUMED branch proceeded
+    _run_preflight_offline()  # no raise == DROP variant unwired, keep-all winner proceeds
 
 
 def test_w9_drop_variant_without_ack_raises():

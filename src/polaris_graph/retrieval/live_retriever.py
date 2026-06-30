@@ -51,6 +51,10 @@ from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276)
 from src.polaris_graph.retrieval import title_body_consistency  # I-deepfix-001 B14 (#1358)
 from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
+# I-deepfix-001 (#1344) Bug B: the SAME retraction truthiness predicate the credibility
+# engine + the generator gate use, so `is_retracted="false"` is correctly NOT retracted
+# (bool("false") is True in Python — the coercion bug Codex iter-1 flagged).
+from src.polaris_graph.authority.supersession import _is_truthy as _retraction_is_truthy
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     TierLevel,
@@ -5543,7 +5547,10 @@ def run_live_retrieval(
                 openalex_pub_type=oa.get("openalex_pub_type", "") or "",
                 openalex_source_type=oa.get("openalex_source_type", "") or "",
                 is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
-                is_retracted=bool(oa.get("is_retracted", False)),
+                # I-deepfix-001 (#1344) Codex iter-2 P2: same single predicate as the
+                # grounding row + the credibility engine (bool("false") is True — the
+                # coercion bug); a string "false"/"0" must not mark the source retracted.
+                is_retracted=_retraction_is_truthy(oa, "is_retracted"),
                 doi=_jo_doi_resolved,
                 venue=oa.get("openalex_venue", "") or "",
             )
@@ -5711,6 +5718,19 @@ def run_live_retrieval(
                 # fallback (never demoted on a missing/malformed date — fail-open).
                 if _pub_date is not None:
                     _row["pub_date"] = _pub_date
+                # I-deepfix-001 (#1344) Bug B: carry the OpenAlex retraction flag
+                # FORWARD onto the groundable evidence row so the generator's retraction
+                # grounding gate (retraction_gate.partition_pool) can EXCLUDE a
+                # retracted/withdrawn study from grounding BEFORE composition. The same
+                # flag already feeds the journal_only sidecar (is_retracted at the
+                # `_jo_meta_entry` call above) and the credibility supersession penalty —
+                # this carries it onto the row the GENERATOR reads. Set ONLY when True so
+                # a non-retracted row is byte-identical (fail-open: absent => not
+                # retracted). Placement/credibility metadata; never enters a verified
+                # claim, never relaxes strict_verify / NLI / 4-role (§-1.3: the one hard
+                # exclusion is the faithfulness/credibility-safety gate, not a breadth cap).
+                if _retraction_is_truthy(oa, "is_retracted"):
+                    _row["is_retracted"] = True
                 # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
                 # the generator/dedup can avoid reasoning about a mis-stitched source
                 # under two identities. Keys ABSENT when the gate is OFF => the OFF
@@ -5719,6 +5739,18 @@ def run_live_retrieval(
                     _row.update(
                         title_body_consistency.consistency_keys(_tb_verdict)
                     )
+                    # I-deepfix-001 (#1344): on a confirmed title<->body mismatch,
+                    # correct the row's DISPLAY title to the body-derived one so the
+                    # bibliography points a reader at the ACTUAL fetched document, not
+                    # the mis-stitched metadata title (the [105] English-title /
+                    # Romanian-body fault). The original metadata_title is preserved in
+                    # the keys above for audit. Faithfulness-STRENGTHENING; never a drop.
+                    if (
+                        not _tb_verdict.identity_consistent
+                        and _tb_verdict.resolved_title
+                    ):
+                        _row["source_title"] = _tb_verdict.resolved_title
+                        _row["title"] = _tb_verdict.resolved_title
                 # I-wire-001 W5 (Codex P1#1): when LLM-tiering is ON, the `_row["tier"]`
                 # written above is the rules-floor PLACEHOLDER. Record this evidence
                 # row's position in the deferred-tier batch so the post-loop

@@ -1,0 +1,20 @@
+verdict: REQUEST_CHANGES
+
+novel_p0: []
+
+continuing_p0:
+- Retraction gate is generator-local, but Gate-B has later grounding surfaces that rebuild from the original `evidence_for_gen`. `run_gate_b.py` force-enables `PG_ENABLE_QUANTIFIED_ANALYSIS=1`, and `run_honest_sweep_r3.py` builds `_q_ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}` for `run_quantified_section`, bypassing the cleaned `evidence_pool` from `generate_multi_section_report`. A retracted numeric source can still reach quantified extraction/Regime-C strict verification; with credibility redesign ON this likely aborts as a coverage gap, and with it OFF it can render. This leaves the clinical-safety P0 incompletely fixed. See [run_gate_b.py](C:/POLARIS/scripts/dr_benchmark/run_gate_b.py:3313), [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:12480), [quantified_analysis.py](C:/POLARIS/src/polaris_graph/generator/quantified_analysis.py:510).
+
+p1:
+- The claimed disclosure/observability is not durable on the Gate-B artifact path. The diff adds `MultiSectionResult.retraction_disclosed` and `body_syndication_telemetry`, but `run_honest_sweep_r3.py` persists M-44/M-47/fact-dedup telemetry and never writes these new fields to manifest or sidecar JSON. A log line is useful, and an uncited bibliography entry would be wrong, but “telemetry + log” is not actually true in production artifacts yet. See [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:8972) and [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:14322).
+
+p2:
+- W9 runs before M-52. Any non-retracted row pulled from `live_corpus` after that is never included in body-syndication clustering or telemetry. No row is dropped and this is not a faithfulness risk, but W9 does not cover the effective final grounding pool. See [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:7359) and [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:7386).
+- `live_retriever.py` carries `is_retracted` with `bool(oa.get("is_retracted", False))`; if a cached/upstream value is the string `"false"`/`"0"`, it becomes `True` before `_is_truthy` can fail open. OpenAlex normally supplies a boolean, so I do not classify this as P1, but it violates the intended single predicate boundary. See [live_retriever.py](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:5725).
+- The W9 no-op claim is overstated: rows are unannotated when no basket forms, but telemetry is always a non-empty zeroed dict and W9 logs every run. That is acceptable if “observable canary” is intended, but not “empty dict / byte-identical object.”
+
+convergence_call: continue
+
+remaining_blockers_for_execution:
+- Apply the retraction partition to the effective run-level grounding pool, or pass a cleaned pool to every post-generator grounding surface, especially quantified analysis.
+- Persist `retraction_disclosed` and `body_syndication_telemetry` into durable Gate-B artifacts or manifest fields; do not render uncited bibliography entries.

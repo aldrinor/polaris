@@ -66,6 +66,14 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     dedup_same_span_sentences,
     split_into_sentences,
 )
+# I-deepfix-001 (#1344) Bug B: retraction grounding gate — a retracted/withdrawn
+# source must never ground generated prose (it is excluded from evidence_pool BEFORE
+# selection / M-44 injection / M-52 pull, then disclosed in run telemetry — §-1.3).
+from src.polaris_graph.generator import retraction_gate
+# I-deepfix-001 (#1344) W9: content-dedup CONSOLIDATE-KEEP-ALL — group near-identical-
+# body syndicated sources into keep-all corroboration baskets (annotate, never drop,
+# never merge). Wired on the groundable pool so W9 fires on the Gate-B path (§-1.3).
+from src.polaris_graph.synthesis import content_dedup_consolidate
 
 logger = logging.getLogger("polaris_graph.multi_section")
 
@@ -1101,6 +1109,17 @@ class MultiSectionResult:
     # or no primaries matched.
     m44_injection_log: list[dict[str, Any]] = field(default_factory=list)
     m44_validator_violations: list[dict[str, Any]] = field(default_factory=list)
+    # I-deepfix-001 (#1344) Bug B: retracted/withdrawn sources EXCLUDED from grounding
+    # (the credibility-safety arm of the faithfulness gate). One disclosure record per
+    # excluded source (evidence_id/title/url/which-flag); empty when the corpus has no
+    # retracted source (byte-identical). The source is recorded here, NEVER silently
+    # dropped (§-1.3 weight-not-filter).
+    retraction_disclosed: list[dict[str, Any]] = field(default_factory=list)
+    # I-deepfix-001 (#1344) W9: content-dedup consolidate-keep-all telemetry — how many
+    # near-identical-body syndication baskets were formed (rows_grouped, rows_dropped=0).
+    # Empty dict when the stage is OFF or no near-dup bodies (byte-identical). Makes W9
+    # OBSERVABLE on the Gate-B path (vs. the prior build-deferred ABSENCE).
+    body_syndication_telemetry: dict[str, Any] = field(default_factory=dict)
     # M-47 (2026-04-22): evidence-linked clamp/PK validator diagnostic
     # for the Mechanism section. Empty dict when Mechanism had no
     # clamp paper in its subset (no-op). See
@@ -7310,6 +7329,39 @@ async def generate_multi_section_report(
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
 
+    # I-deepfix-001 (#1344) Bug B — RETRACTION GROUNDING GATE. A retracted/withdrawn
+    # source must NEVER ground generated prose: strict_verify checks sentence<->span
+    # fidelity, NOT whether the study was withdrawn, so a sentence grounded on a
+    # retracted RCT can PASS the faithfulness gate yet be clinically wrong. Exclude
+    # retracted rows from the groundable pool HERE — before M-52 pull / M-44 injection
+    # / outline selection — so NO grounding surface (evidence_pool OR m44_primary_by_anchor,
+    # which is built from this pool) can cite them. The excluded rows are RETURNED and
+    # disclosed in run telemetry + a LOUD log, never silently dropped (§-1.3). DEFAULT ON;
+    # a no-op (byte-identical pool) when the corpus carries zero retracted sources.
+    evidence_pool, _retracted_rows = retraction_gate.partition_pool(evidence_pool)
+    retraction_disclosed: list[dict[str, Any]] = list(_retracted_rows)
+    if _retracted_rows:
+        logger.warning(
+            "[multi_section] RETRACTION-GATE: excluded %d retracted/withdrawn "
+            "source(s) from grounding (disclosed, not dropped): %s",
+            len(_retracted_rows),
+            [r.get("evidence_id") for r in _retracted_rows],
+        )
+
+    # I-deepfix-001 (#1344) W9 — content-dedup CONSOLIDATE-KEEP-ALL. Group near-
+    # identical-BODY syndicated sources (the same report republished under a different
+    # title with no shared DOI — what finding_dedup's DOI/title keying MISSES) into
+    # keep-all corroboration baskets. ANNOTATE-only: every row stays in the pool, no two
+    # rows are merged, no gate is touched (§-1.3 consolidate-don't-drop). Mutates the
+    # pool rows in place (so the annotation rides on the exact dicts generation reads);
+    # the returned list is the same objects. DEFAULT ON; byte-identical when no two
+    # bodies are near-identical. Runs on the post-retraction groundable pool.
+    _w9_rows, _w9_body_syndication_telemetry = (
+        content_dedup_consolidate.consolidate_body_syndication(
+            list(evidence_pool.values())
+        )
+    )
+
     # I-arch-002 (#1246) P-W2breadth: the LEGACY-PATH source-breadth augmenter
     # (_augment_legacy_section_breadth + PG_LEGACY_SECTION_BREADTH_TARGET) was a
     # breadth-NUMBER-forcing bolt-on named in the CLAUDE.md §-1.3 BANNED list and is
@@ -7340,6 +7392,28 @@ async def generate_multi_section_report(
                 "live_corpus into evidence_pool: %s",
                 len(m52_pulled_rows),
                 [p["anchor"] for p in m52_pulled_rows],
+            )
+        # I-deepfix-001 (#1344) Bug B: the M-52 pull can re-add a retracted PRIMARY
+        # trial from live_corpus into evidence_pool — the MOST dangerous case (a
+        # withdrawn RCT force-injected as the primary citation). Re-apply the gate so
+        # the pulled rows are filtered too, and drop them from m52_pulled_rows so the
+        # injection_log below stays consistent with the cleaned pool. Idempotent on the
+        # already-clean base pool (no-op when nothing retracted was pulled).
+        evidence_pool, _retracted_pulled = retraction_gate.partition_pool(evidence_pool)
+        if _retracted_pulled:
+            retraction_disclosed.extend(_retracted_pulled)
+            _retracted_pulled_ids = {
+                r.get("evidence_id") for r in _retracted_pulled
+            }
+            m52_pulled_rows = [
+                r for r in m52_pulled_rows
+                if r.get("evidence_id") not in _retracted_pulled_ids
+            ]
+            logger.warning(
+                "[multi_section] RETRACTION-GATE: excluded %d retracted M-52-pulled "
+                "source(s) from grounding (disclosed, not dropped): %s",
+                len(_retracted_pulled),
+                [r.get("evidence_id") for r in _retracted_pulled],
             )
         m44_primary_by_anchor = _m44_detect_primary_ev_ids(
             evidence_pool, primary_trial_anchors,
@@ -8893,6 +8967,11 @@ async def generate_multi_section_report(
         # M-44 (2026-04-22)
         m44_injection_log=m44_injection_log,
         m44_validator_violations=m44_validator_violations,
+        # I-deepfix-001 (#1344) Bug B: disclosure records for retracted/withdrawn
+        # sources excluded from grounding (compact: evidence_id/title/url/flag).
+        retraction_disclosed=retraction_gate.disclosure_records(retraction_disclosed),
+        # I-deepfix-001 (#1344) W9: body-syndication consolidate-keep-all telemetry.
+        body_syndication_telemetry=_w9_body_syndication_telemetry,
         # M-47 (2026-04-22)
         m47_mechanism_clamp_diagnostic=m47_diag,
         # M-50 (2026-04-22)

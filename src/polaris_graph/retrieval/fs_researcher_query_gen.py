@@ -273,6 +273,28 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
         cand_total += int(getattr(r, "candidates_total", 0) or 0)
         cand_processed += int(getattr(r, "candidates_processed", 0) or 0)
     notes.append(f"fs_researcher: merged {len(results)} queries -> {len(ev_rows)} evidence rows (renumbered)")
+    # I-deepfix-001 (#1344, winner-gate false-negative): carry the W5 content-relevance
+    # telemetry through the merge. The per-query reports were DROPPED here (the I-deepfix-001
+    # P1-2/P1-4 carry-through wired retrieval_wall_hit + semantic_relevance_fell_back but MISSED
+    # this one) -> winner_firing_gate read retrieval.content_relevance=None and false-aborted
+    # "the judge never ran" even though the reranker FIRED every round (scored/demoted real
+    # passages). Carry a report whose reranker actually LOADED (reranker_device != 'unavailable'),
+    # preferring the most comprehensive round (largest n_scored); if EVERY round's reranker failed
+    # to load, carry an 'unavailable' report so the gate correctly marks W5 dark; None iff no round
+    # produced a report. Telemetry/disclosure only — faithfulness-NEUTRAL (content_relevance is a
+    # WEIGHT, never the faithfulness engine; §-1.3 no drop).
+    _cr_reports = [
+        c for c in (getattr(r, "content_relevance", None) for r in results)
+        if isinstance(c, dict)
+    ]
+    _cr_loaded = [
+        c for c in _cr_reports
+        if str(c.get("reranker_device", "") or "").strip().lower() != "unavailable"
+    ]
+    merged_content_relevance = (
+        max(_cr_loaded, key=lambda c: int(c.get("n_scored", 0) or 0)) if _cr_loaded
+        else (_cr_reports[0] if _cr_reports else None)
+    )
     return result_factory(
         classified_sources=sources, evidence_rows=ev_rows, total_candidates_pre_filter=pre,
         candidates_kept_by_scope=kept_scope, candidates_kept_by_offtopic=kept_off,
@@ -285,6 +307,9 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
         retrieval_queries_skipped=retrieval_queries_skipped,
         retrieval_candidates_unclassified=retrieval_candidates_unclassified,
         semantic_relevance_fell_back=semantic_relevance_fell_back,
+        # I-deepfix-001 (#1344): carry the merged W5 content-relevance telemetry so the
+        # winner-firing gate sees the reranker fired (was dropped -> false-abort).
+        content_relevance=merged_content_relevance,
     )
 
 

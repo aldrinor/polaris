@@ -94,6 +94,7 @@ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     # §-1.1-banned metadata (cited-source COUNT) proxy. Both the gate and the helper
     # are deleted; breadth EMERGES from no-drop weighted multi-attribution.
 )
+from src.polaris_graph.generator import retraction_gate as _retraction_gate  # noqa: E402
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     resolve_provenance_to_citations,
     strict_verify,
@@ -10124,8 +10125,21 @@ async def run_one_query(
         # on but did NOT fire — silently degraded to baseline; refuse to ship as success"),
         # which is exactly the winner-dark condition; the dark-winner detail is fully
         # disclosed in manifest['winner_firing_gate'] + the report.md verdict.
-        _winner_gate_on = os.getenv("PG_WINNER_FIRING_GATE", "1").strip().lower() not in (
-            "0", "false", "no", "off",
+        # I-deepfix-001 (#1344): the winner-firing gate verifies that the LIVE-retrieval
+        # relevance winners (W5 content-relevance / W6 embedder / W7 selection reranker)
+        # actually fired in THIS process. On a --resume the corpus is RECONSTRUCTED from a
+        # snapshot (no live retrieval ran here), so the gate is N/A — the winners fired (or
+        # not) in the ORIGINAL run, frozen in the snapshot, and `retrieval.content_relevance`
+        # is necessarily None on the rebuilt object. Checking it false-aborts EVERY resume
+        # ("the judge never ran") even though the resume only re-does generation -> verify ->
+        # render. Skipping it on resume is honest: the faithfulness engine (strict_verify +
+        # 4-role D8 + span-grounding) STILL runs on the resumed corpus; only the (inapplicable)
+        # live-retrieval firing check is skipped. A fresh (non-resume) run keeps the gate ON.
+        _winner_gate_on = (
+            os.getenv("PG_WINNER_FIRING_GATE", "1").strip().lower()
+            not in ("0", "false", "no", "off")
+            and not _resume_active
+            and not _resume_from_fetch
         )
         if _winner_gate_on:
             try:
@@ -11891,6 +11905,29 @@ async def run_one_query(
                     "the pass runs PRIORS-ONLY (deterministic authority weights), every source labeled "
                     "credibility_unscored (disclosed gap). strict_verify + 4-role remain binding."
                 )
+
+        # I-deepfix-001 (#1344) Bug B — RUN-LEVEL RETRACTION GATE (Codex iter-1 P0). The
+        # generator's internal retraction gate cleans only the multi_section evidence_pool;
+        # the quantified-analysis stage builds its OWN _q_ev_pool from evidence_for_gen
+        # (run_honest_sweep_r3:_q_ev_pool), bypassing it. THIS seam is the single point where
+        # evidence_for_gen is fully constructed and re-entered on --resume, so cleaning HERE
+        # excludes retracted/withdrawn sources from EVERY downstream grounding surface at once
+        # (multi_section generator, quantified _q_ev_pool, AND the resume corpus snapshot). The
+        # excluded rows are kept for DURABLE disclosure in the manifest below (§-1.3: recorded,
+        # never silently dropped). DEFAULT ON; no-op when the corpus has zero retracted sources.
+        evidence_for_gen, _retracted_for_disclosure = _retraction_gate.partition_rows(
+            evidence_for_gen
+        )
+        _run_retraction_disclosed = _retraction_gate.disclosure_records(
+            _retracted_for_disclosure
+        )
+        if _retracted_for_disclosure:
+            _log(
+                "[retraction-gate] RUN-LEVEL: excluded "
+                f"{len(_retracted_for_disclosure)} retracted/withdrawn source(s) from the "
+                "grounding pool (generator + quantified + snapshot); disclosed in manifest: "
+                f"{[r.get('evidence_id') for r in _retracted_for_disclosure]}"
+            )
 
         # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
         # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
@@ -14320,6 +14357,28 @@ async def run_one_query(
             "PG_SWEEP_CREDIBILITY_REDESIGN", ""
         )
         manifest["credibility_redesign_required"] = _require_cred_redesign
+
+        # I-deepfix-001 (#1344) Bug B + W9 (Codex iter-1 P1 + iter-2 P1): persist the DURABLE
+        # disclosure the in-memory result fields alone did not provide. retraction_disclosed
+        # MERGES the run-level exclusions (_run_retraction_disclosed, from the evidence_for_gen
+        # seam) with the generator-internal ones (multi.retraction_disclosed — the M-52
+        # live_corpus pull can surface a retracted PRIMARY only the generator sees), deduped by
+        # evidence_id so EVERY excluded retracted source is disclosed exactly once.
+        # body_syndication = the W9 consolidate-keep-all telemetry. These are additive
+        # OBSERVABILITY keys — present on every success manifest (so a §-1.1 auditor can always
+        # see the retraction gate + W9 ran, even at zero exclusions / zero baskets); the legacy
+        # manifest is a strict SUBSET, not byte-identical.
+        _gen_retraction_disclosed = getattr(multi, "retraction_disclosed", []) or []
+        _merged_retraction_disclosed = list(_run_retraction_disclosed)
+        _seen_retraction_ev = {
+            r.get("evidence_id") for r in _merged_retraction_disclosed
+        }
+        for _gr in _gen_retraction_disclosed:
+            if _gr.get("evidence_id") not in _seen_retraction_ev:
+                _merged_retraction_disclosed.append(_gr)
+                _seen_retraction_ev.add(_gr.get("evidence_id"))
+        manifest["retraction_disclosed"] = _merged_retraction_disclosed
+        manifest["body_syndication"] = getattr(multi, "body_syndication_telemetry", {})
 
         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
         # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy

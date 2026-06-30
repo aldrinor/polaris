@@ -1,0 +1,18 @@
+verdict: REQUEST_CHANGES
+
+novel_p0: []
+
+continuing_p0: []
+
+p1:
+- Continuing disclosure gap: M-52 can pull a retracted row from `live_corpus`, the generator re-applies the retraction gate and records it on `multi.retraction_disclosed`, but the success manifest writes only the run-level `_run_retraction_disclosed`. A retracted source that exists only in `live_corpus` and is pulled/filtered by M-52 is excluded from grounding but not durably disclosed in `manifest.json`. See [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:7402), [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:8972), and [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:14367). Fix by merging `multi.retraction_disclosed` with the run-level disclosure, de-duped by evidence_id/url.
+
+p2:
+- No-op manifest shape is not byte-identical: `retraction_disclosed` and `body_syndication` are always added to the success manifest, and W9 returns a non-empty zero telemetry dict even when no baskets form. That contradicts the stated “legacy manifest shape preserved” invariant. See [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:14367).
+- The `live_retriever` single-source predicate claim is overstated: the grounding row uses `_retraction_is_truthy`, but the journal-only sidecar still has `is_retracted=bool(oa.get("is_retracted", False))`. That is not a grounding bypass, but it leaves the original string-`"false"` coercion bug in the journal-only predicate path. See [live_retriever.py](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:5550).
+- Accepted P2 remains: W9 runs before M-52, so M-52-pulled rows are not body-syndication annotated. Non-blocking for faithfulness.
+
+convergence_call: continue
+
+remaining_blockers_for_execution:
+- Persist all excluded retracted rows in the success manifest, including generator-internal M-52 exclusions from `multi.retraction_disclosed`.

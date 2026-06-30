@@ -187,6 +187,24 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
         cand_total += int(getattr(r, "candidates_total", 0) or 0)
         cand_processed += int(getattr(r, "candidates_processed", 0) or 0)
     notes.append(f"iterresearch: merged {len(results)} rounds -> {len(ev_rows)} evidence rows (renumbered)")
+    # I-deepfix-001 (#1344, winner-gate false-negative): carry the W5 content-relevance
+    # telemetry through the merge (twin of fs_researcher_query_gen). Dropping it made
+    # winner_firing_gate read retrieval.content_relevance=None and false-abort "the judge
+    # never ran" even though the reranker FIRED every round. Prefer a report whose reranker
+    # LOADED (device != 'unavailable'), largest n_scored; if all failed, carry 'unavailable'
+    # so the gate marks W5 dark; None iff no round produced one. Telemetry-only, faithfulness-NEUTRAL.
+    _cr_reports = [
+        c for c in (getattr(r, "content_relevance", None) for r in results)
+        if isinstance(c, dict)
+    ]
+    _cr_loaded = [
+        c for c in _cr_reports
+        if str(c.get("reranker_device", "") or "").strip().lower() != "unavailable"
+    ]
+    merged_content_relevance = (
+        max(_cr_loaded, key=lambda c: int(c.get("n_scored", 0) or 0)) if _cr_loaded
+        else (_cr_reports[0] if _cr_reports else None)
+    )
     return result_factory(
         classified_sources=sources, evidence_rows=ev_rows, total_candidates_pre_filter=pre,
         candidates_kept_by_scope=kept_scope, candidates_kept_by_offtopic=kept_off,
@@ -199,6 +217,8 @@ def merge_retrieval_results(results: list[Any], result_factory: Callable[..., An
         retrieval_queries_skipped=retrieval_queries_skipped,
         retrieval_candidates_unclassified=retrieval_candidates_unclassified,
         semantic_relevance_fell_back=semantic_relevance_fell_back,
+        # I-deepfix-001 (#1344): carry the merged W5 content-relevance telemetry.
+        content_relevance=merged_content_relevance,
     )
 
 

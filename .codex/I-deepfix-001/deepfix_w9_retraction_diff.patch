@@ -1,0 +1,1321 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 09e655b2..ca3d8eb2 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -1367,25 +1367,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     #   W12 compose=floor_abstractive  -> PG_ABSTRACTIVE_WRITER (force-ON + preflight-required above)
+     #   W13 verify=keep-floor          -> PG_STRICT_VERIFY_ENTAILMENT=enforce + the FROZEN faithfulness engine
+     #   W14 render=det                 -> deterministic render (default) + PG_RENDER_CHROME_CANARY=enforce
+-    # W9 dedup=ContentDeduplicator: NO Gate-B run-path consumer exists — and NO flag (not even
+-    #   PG_ADEQUACY_CRAG) wires it. Verified (I-wire-001 P1-2): the ONLY module that calls
+-    #   ContentDeduplicator.deduplicate() on any pipeline is CRAGRetriever._dedup_chunks
+-    #   (crag_retriever.py:664), whose ONLY call site is graph_v2.py:341 — the FROZEN pipeline-B
+-    #   LangGraph, DEAD on the active sweep path (docs/content_relevance_filtering_2026.md:73-82; 0 CRAG
+-    #   refs in run_honest_sweep_r3). The Gate-B W11 "CRAG" (PG_ADEQUACY_CRAG) is a DIFFERENT module — the
+-    #   crag_adequacy_loop LLM classifier, which explicitly refuses to instantiate CRAGRetriever
+-    #   (crag_adequacy_loop.py:35) and never calls ContentDeduplicator. So PG_ADEQUACY_CRAG does NOT wire
+-    #   W9 transitively. The other deduplicate() callers (agents/analyst_agent, polaris_graph/agents/
+-    #   analyzer, polaris_graph/graph) are also pipeline-B/C and are NOT imported by run_honest_sweep_r3.
+-    #   Therefore the [content_dedup] canary fires for pipeline-B/agents callers only; its ABSENCE on a
+-    #   Gate-B run is EXPECTED, not a regression. The content/source near-dup FUNCTION on Gate-B is served
+-    #   in the §-1.3 consolidate-keep-all form by finding_dedup same-work consolidation (#7, keys on DOI/
+-    #   folded title); a residual gap remains for different-title near-identical-body syndication that
+-    #   ContentDeduplicator's body-MinHash would catch — deferred, NOT bolted on as a hard-drop stage
+-    #   (deduplicate() returns only unique_items, i.e. a DROP — shedding corroborators would violate §-1.3
+-    #   / the FROZEN faithfulness contract). NOT slate-forced / NOT preflight-required; named in the
+-    #   build-deferred WARNING. Do NOT add a "W9 flag" until a real consolidate-keep-all content-dedup
+-    #   stage is wired onto the sweep evidence path.
++    # W9 dedup=ContentDeduplicator: GRADUATED from build-deferred to a wired winner (I-deepfix-001
++    #   #1344). The consolidate-keep-all content-dedup stage this comment previously demanded as the
++    #   precondition NOW EXISTS: src/polaris_graph/synthesis/content_dedup_consolidate.py groups
++    #   different-title near-identical-BODY syndicated sources (the residual gap finding_dedup's DOI/
++    #   folded-title keying misses) into keep-all corroboration baskets — ANNOTATE-only, never drop,
++    #   never merge (§-1.3). It is wired on the generator's post-retraction pool
++    #   (multi_section_generator.consolidate_body_syndication) with a firing canary
++    #   ([content_dedup_consolidate] W9: ...) + the body_syndication manifest telemetry, so its firing
++    #   is OBSERVABLE (no longer the build-deferred ABSENCE). The §-1.3-VIOLATING DROP variant
++    #   (PG_W9_CONTENT_DEDUP -> ContentDeduplicator.unique_items, which sheds corroborators) STAYS
++    #   forbidden by the W9 GATE at the end of preflight_full_capability. The keep-all winner is
++    #   force-ON here + preflight-required + allowlisted (the conscious "winner" decision).
++    "PG_CONTENT_DEDUP_CONSOLIDATE": "1",                          # W9 dedup=ContentDeduplicator consolidate-keep-all (content_dedup_consolidate.py)
+     # SMOKE NOTE: _SMOKE_SCALE_OVERRIDES inherits the real EMBED/RERANK winners (Qwen3 embed/rerank) as
+     # genuine model-loading plumbing coverage — a smoke on the default MiniLM would never exercise the
+     # winner-model load path, so a load bug would surface only on the expensive full run. EXCEPTION
+@@ -1452,6 +1446,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     # cleanup, ZERO cap per §-1.3); a required-truthy flag set to 0 in the slate would fail the preflight.
+     # The pool is consolidated keep-all (CONSOLIDATE-DON'T-DROP); the cap is GONE, not merely bypassed.
+     "PG_USE_FINDING_DEDUP",
++    # I-deepfix-001 (#1344): W9 dedup=ContentDeduplicator GRADUATED to wired — the consolidate-keep-all
++    # body-syndication stage (content_dedup_consolidate.consolidate_body_syndication) now fires on the
++    # generator's post-retraction pool with a canary + manifest telemetry, so OFF is a silent winner-dark.
++    # Fail closed if off before spend. (The §-1.3-violating DROP variant PG_W9_CONTENT_DEDUP stays
++    # forbidden by the W9 GATE — distinct flag.)
++    "PG_CONTENT_DEDUP_CONSOLIDATE",
+     # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
+     # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
+     # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
+@@ -1911,25 +1911,23 @@ _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS: dict[str, str] = {
+ # truthy-required flag with no run-path consumer would FALSE-PASS (env="1" while the feature never
+ # fires). preflight_full_capability emits a LOUD WARNING naming each (the operator reads by ear), so the
+ # gap is never silent. (name, reason) — surfaced verbatim in the warning.
+-# I-wire-001 P1-1: W1 intent_frame GRADUATED out of this list — run_intent_frame() is now called on the
+-# run path (run_honest_sweep_r3.py:6426, fail-closed), so it is preflight-required above. Only W9
+-# remains: the I-wire-001 P1-2 dedup-agent reconcile traced EVERY ContentDeduplicator.deduplicate()
+-# caller and confirmed W9 is NEITHER a standalone wire NOR CRAG-transitive (PG_ADEQUACY_CRAG is the
+-# crag_adequacy_loop classifier, which never calls it) — so it is genuinely deferred, warn-only, not a
+-# fake required-flag and not falsely claimed "covered by CRAG".
+-_BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = (
+-    (
+-        "W9 dedup=ContentDeduplicator",
+-        "NO Gate-B run-path consumer and NO wiring flag (not even PG_ADEQUACY_CRAG): the only caller of "
+-        "ContentDeduplicator.deduplicate() is CRAGRetriever (graph_v2 / pipeline-B, dead on the active "
+-        "sweep path); the Gate-B PG_ADEQUACY_CRAG is the crag_adequacy_loop classifier, which never calls "
+-        "it (I-wire-001 P1-2 dedup-agent reconcile — W9 does NOT fire transitively via CRAG). The content "
+-        "near-dup function is served on Gate-B by finding_dedup same-work consolidation (#7, "
+-        "consolidate-keep-all); a hard-drop content-dedup stage is deliberately NOT wired (it would shed "
+-        "corroborators — §-1.3). Wire a consolidate-keep-all content-dedup stage before adding any W9 "
+-        "flag — NOT slate-forced and NOT preflight-required",
+-    ),
+-)
++# I-wire-001 P1-1: W1 intent_frame GRADUATED (run_intent_frame() called at run_honest_sweep_r3.py:6426).
++# I-deepfix-001 #1344: W9 dedup GRADUATED too — its consolidate-keep-all body-syndication stage is now
++# wired (content_dedup_consolidate.consolidate_body_syndication) + canary + manifest telemetry, so it is
++# force-ON + preflight-required + allowlisted. The list is now EMPTY. (Historical note: the I-wire-001
++# P1-2 dedup-agent reconcile correctly found the ContentDeduplicator DROP variant was neither a standalone
++# wire nor CRAG-transitive — that DROP variant stays forbidden by the W9 GATE; what graduated is the new
++# keep-all stage, not the DROP variant.) A FUTURE build-deferred winner (module built, consumer not yet
++# wired) is re-added to the tuple below so preflight_full_capability emits its LOUD WARNING.
++# I-deepfix-001 (#1344): EMPTY — W9 dedup=ContentDeduplicator was the last build-deferred winner and is
++# now GRADUATED. The consolidate-keep-all body-syndication stage
++# (src/polaris_graph/synthesis/content_dedup_consolidate.py, wired in
++# multi_section_generator.consolidate_body_syndication) fires on the Gate-B run path with a canary +
++# body_syndication manifest telemetry, so W9 is force-ON + preflight-required + allowlisted above, not
++# warn-only. The §-1.3-violating ContentDeduplicator DROP variant (PG_W9_CONTENT_DEDUP) stays forbidden by
++# the W9 GATE. A FUTURE build-deferred winner (module built, consumer not yet wired) is re-added here so
++# preflight_full_capability emits its LOUD WARNING.
++_BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = ()
+ 
+ # ─────────────────────────────────────────────────────────────────────────────────────────────────────
+ # I-deepfix-001 (#1344) PURITY — the WINNER FIRE-CONTRACT + slate-purity data the 3 serious-preflight gates
+@@ -2010,6 +2008,12 @@ _WINNER_FIRING_MARKER_CONTRACT: dict[str, _FiringMarker] = {
+     "W8_cred_llm_tiering": _FiringMarker(
+         "[credibility_llm_tiering] tiered via GLM", forbid=("DEGRADED (rules-floor only)",)
+     ),
++    # W9 — content_dedup_consolidate.py "[content_dedup_consolidate] W9: ... basket(s) ... (KEEP-ALL ...)"
++    # (I-deepfix-001 #1344 GRADUATED). The consolidate-keep-all body-syndication canary; fires on every
++    # Gate-B run that reaches the generator's post-retraction pool (>=2 eligible rows) — even at 0 baskets
++    # (a legitimate fire: it ran, found no near-identical-body syndication). KEEP-ALL is asserted in the
++    # line; FORBID nothing (0 baskets is success). This is the behavioral proof W9 fired (was the DARK gap).
++    "W9_dedup_content_consolidate": _FiringMarker("[content_dedup_consolidate] W9:"),
+     # W10 — consolidation_nli.py:125 "[consolidation_nli] loading cross-encoder %s" (CONDITIONAL: only when
+     # >=2 cross-cluster keys exist; absence is allowed).
+     "W10_consolidate_nli": _FiringMarker("[consolidation_nli] loading cross-encoder", conditional=True),
+@@ -2104,6 +2108,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
+     "PG_RELEVANCE_SCORER",                   # W6 main-path activation (semantic_v2 string)
+     "PG_RERANKER_MODEL",                     # W7 rerank=Qwen3-Reranker-4B (string winner)
+     "PG_CREDIBILITY_LLM_TIERING",            # W8 cred=llm_tiering
++    "PG_CONTENT_DEDUP_CONSOLIDATE",          # W9 dedup=ContentDeduplicator (consolidate-keep-all body-syndication; I-deepfix-001 #1344 GRADUATED from build-deferred)
+     "PG_CONSOLIDATION_NLI",                  # W10 consolidate=NLI
+     "PG_ADEQUACY_CRAG",                      # W11 adequacy=CRAG
+     "PG_VERIFIED_COMPOSE",                   # W12 compose=floor_abstractive
+@@ -3019,29 +3024,31 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False)
+                 f"'winner or infra?' decision the gate exists to force)."
+             )
+ 
+-    # ── W9 GATE — DARK winner, LOUD operator-ack (never a silent pass, never a block) ────────────────
+-    # W9 (dedup=ContentDeduplicator) ships a DROP variant; wiring it as-is sheds corroborators and VIOLATES
+-    # §-1.3 consolidate-keep-all + the FROZEN faithfulness contract. The FIRST-BUILD-STEP reconcile VERIFIED
+-    # (not assumed) that the content near-dup function is SUBSUMED on Gate-B by the keep-all consolidation
+-    # stack (_W9_SUBSUMED_BY). So W9's DARK state is CORRECT-BY-DESIGN — the gate LOGS this LOUDLY (the
+-    # operator reads by ear) and PROCEEDS. It does NOT silent-pass: if a future operator wires the DROP
+-    # variant onto the run path (PG_W9_CONTENT_DEDUP truthy) it FAILS CLOSED — that would violate §-1.3 —
+-    # unless the operator signs the §-1.3 waiver PG_W9_DARK_ACK=1 (logged loudly). This REPLACES the prior
+-    # build-deferred WARNING (now emitted at the top of preflight_full_capability for W9).
++    # ── W9 GATE — keep-all winner WIRED; the §-1.3-violating DROP variant stays forbidden ────────────
++    # I-deepfix-001 (#1344): W9 GRADUATED. The CONSOLIDATE-KEEP-ALL variant
++    # (PG_CONTENT_DEDUP_CONSOLIDATE -> content_dedup_consolidate.consolidate_body_syndication) is now wired
++    # on the run path (groups near-identical-BODY syndication into keep-all baskets — annotate, never drop)
++    # and is force-ON + preflight-required above, so OFF already fails the required-flags loop. This gate's
++    # REMAINING job is to forbid the SEPARATE §-1.3-VIOLATING DROP variant: ContentDeduplicator's
++    # ``unique_items`` (PG_W9_CONTENT_DEDUP) sheds corroborators. If a future operator wires the DROP variant
++    # it FAILS CLOSED — unless they sign the §-1.3 waiver PG_W9_DARK_ACK=1 (logged loudly). The keep-all
++    # winner's BEHAVIORAL proof is the [content_dedup_consolidate] run-log canary + body_syndication manifest.
++    _w9_keepall_on = os.getenv("PG_CONTENT_DEDUP_CONSOLIDATE", "1").strip().lower() in _ON_TOKENS
+     _w9_drop_wired = os.getenv("PG_W9_CONTENT_DEDUP", "0").strip().lower() in _ON_TOKENS
+     _w9_ack = os.getenv("PG_W9_DARK_ACK", "0").strip().lower() in _ON_TOKENS
+     if _w9_drop_wired and not _w9_ack:
+         raise RuntimeError(
+             "benchmark preflight FAILED [W9]: PG_W9_CONTENT_DEDUP is wired (the ContentDeduplicator DROP "
+             "variant) but the §-1.3 waiver PG_W9_DARK_ACK is not set — a hard-drop content-dedup stage sheds "
+-            f"corroborators and violates consolidate-keep-all. The content near-dup function is already "
+-            f"SUBSUMED by {_W9_SUBSUMED_BY}. Remove PG_W9_CONTENT_DEDUP, or build a consolidate-keep-all "
+-            "content-dedup stage, or sign PG_W9_DARK_ACK=1 to override."
++            f"corroborators and violates consolidate-keep-all. The keep-all winner "
++            f"(PG_CONTENT_DEDUP_CONSOLIDATE) + {_W9_SUBSUMED_BY} already cover near-dup consolidation. "
++            "Remove PG_W9_CONTENT_DEDUP, or sign PG_W9_DARK_ACK=1 to override."
+         )
+     _w9_status_msg = (
+-        "[preflight W9-GATE] W9 dedup=ContentDeduplicator is DARK BY DESIGN on the Gate-B run path — its "
+-        f"content near-dup function is SUBSUMED by {_W9_SUBSUMED_BY}. Proceeding (the DROP variant stays "
+-        "UNWIRED; wiring it would violate §-1.3)."
++        "[preflight W9-GATE] W9 dedup=ContentDeduplicator WIRED via the consolidate-keep-all body-"
++        f"syndication stage (PG_CONTENT_DEDUP_CONSOLIDATE={'on' if _w9_keepall_on else 'OFF'}); the §-1.3-"
++        "violating DROP variant (PG_W9_CONTENT_DEDUP) stays forbidden. Behavioral proof = the "
++        "[content_dedup_consolidate] run-log canary + body_syndication manifest telemetry."
+     )
+     if _w9_drop_wired and _w9_ack:
+         _w9_status_msg = (
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 8be6566e..8a427916 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -94,6 +94,7 @@ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+     # §-1.1-banned metadata (cited-source COUNT) proxy. Both the gate and the helper
+     # are deleted; breadth EMERGES from no-drop weighted multi-attribution.
+ )
++from src.polaris_graph.generator import retraction_gate as _retraction_gate  # noqa: E402
+ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+     resolve_provenance_to_citations,
+     strict_verify,
+@@ -10124,8 +10125,21 @@ async def run_one_query(
+         # on but did NOT fire — silently degraded to baseline; refuse to ship as success"),
+         # which is exactly the winner-dark condition; the dark-winner detail is fully
+         # disclosed in manifest['winner_firing_gate'] + the report.md verdict.
+-        _winner_gate_on = os.getenv("PG_WINNER_FIRING_GATE", "1").strip().lower() not in (
+-            "0", "false", "no", "off",
++        # I-deepfix-001 (#1344): the winner-firing gate verifies that the LIVE-retrieval
++        # relevance winners (W5 content-relevance / W6 embedder / W7 selection reranker)
++        # actually fired in THIS process. On a --resume the corpus is RECONSTRUCTED from a
++        # snapshot (no live retrieval ran here), so the gate is N/A — the winners fired (or
++        # not) in the ORIGINAL run, frozen in the snapshot, and `retrieval.content_relevance`
++        # is necessarily None on the rebuilt object. Checking it false-aborts EVERY resume
++        # ("the judge never ran") even though the resume only re-does generation -> verify ->
++        # render. Skipping it on resume is honest: the faithfulness engine (strict_verify +
++        # 4-role D8 + span-grounding) STILL runs on the resumed corpus; only the (inapplicable)
++        # live-retrieval firing check is skipped. A fresh (non-resume) run keeps the gate ON.
++        _winner_gate_on = (
++            os.getenv("PG_WINNER_FIRING_GATE", "1").strip().lower()
++            not in ("0", "false", "no", "off")
++            and not _resume_active
++            and not _resume_from_fetch
+         )
+         if _winner_gate_on:
+             try:
+@@ -11892,6 +11906,29 @@ async def run_one_query(
+                     "credibility_unscored (disclosed gap). strict_verify + 4-role remain binding."
+                 )
+ 
++        # I-deepfix-001 (#1344) Bug B — RUN-LEVEL RETRACTION GATE (Codex iter-1 P0). The
++        # generator's internal retraction gate cleans only the multi_section evidence_pool;
++        # the quantified-analysis stage builds its OWN _q_ev_pool from evidence_for_gen
++        # (run_honest_sweep_r3:_q_ev_pool), bypassing it. THIS seam is the single point where
++        # evidence_for_gen is fully constructed and re-entered on --resume, so cleaning HERE
++        # excludes retracted/withdrawn sources from EVERY downstream grounding surface at once
++        # (multi_section generator, quantified _q_ev_pool, AND the resume corpus snapshot). The
++        # excluded rows are kept for DURABLE disclosure in the manifest below (§-1.3: recorded,
++        # never silently dropped). DEFAULT ON; no-op when the corpus has zero retracted sources.
++        evidence_for_gen, _retracted_for_disclosure = _retraction_gate.partition_rows(
++            evidence_for_gen
++        )
++        _run_retraction_disclosed = _retraction_gate.disclosure_records(
++            _retracted_for_disclosure
++        )
++        if _retracted_for_disclosure:
++            _log(
++                "[retraction-gate] RUN-LEVEL: excluded "
++                f"{len(_retracted_for_disclosure)} retracted/withdrawn source(s) from the "
++                "grounding pool (generator + quantified + snapshot); disclosed in manifest: "
++                f"{[r.get('evidence_id') for r in _retracted_for_disclosure]}"
++            )
++
+         # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
+         # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
+         # V30 contract / req-entity / upload prepends all applied) and NOTHING further mutates
+@@ -14321,6 +14358,28 @@ async def run_one_query(
+         )
+         manifest["credibility_redesign_required"] = _require_cred_redesign
+ 
++        # I-deepfix-001 (#1344) Bug B + W9 (Codex iter-1 P1 + iter-2 P1): persist the DURABLE
++        # disclosure the in-memory result fields alone did not provide. retraction_disclosed
++        # MERGES the run-level exclusions (_run_retraction_disclosed, from the evidence_for_gen
++        # seam) with the generator-internal ones (multi.retraction_disclosed — the M-52
++        # live_corpus pull can surface a retracted PRIMARY only the generator sees), deduped by
++        # evidence_id so EVERY excluded retracted source is disclosed exactly once.
++        # body_syndication = the W9 consolidate-keep-all telemetry. These are additive
++        # OBSERVABILITY keys — present on every success manifest (so a §-1.1 auditor can always
++        # see the retraction gate + W9 ran, even at zero exclusions / zero baskets); the legacy
++        # manifest is a strict SUBSET, not byte-identical.
++        _gen_retraction_disclosed = getattr(multi, "retraction_disclosed", []) or []
++        _merged_retraction_disclosed = list(_run_retraction_disclosed)
++        _seen_retraction_ev = {
++            r.get("evidence_id") for r in _merged_retraction_disclosed
++        }
++        for _gr in _gen_retraction_disclosed:
++            if _gr.get("evidence_id") not in _seen_retraction_ev:
++                _merged_retraction_disclosed.append(_gr)
++                _seen_retraction_ev.add(_gr.get("evidence_id"))
++        manifest["retraction_disclosed"] = _merged_retraction_disclosed
++        manifest["body_syndication"] = getattr(multi, "body_syndication_telemetry", {})
++
+         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
+         # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy
+         # manifest shape byte-for-byte, matching the other ON-mode keys below). The full per-source
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 7dee0021..01e1b71b 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -66,6 +66,14 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
+     dedup_same_span_sentences,
+     split_into_sentences,
+ )
++# I-deepfix-001 (#1344) Bug B: retraction grounding gate — a retracted/withdrawn
++# source must never ground generated prose (it is excluded from evidence_pool BEFORE
++# selection / M-44 injection / M-52 pull, then disclosed in run telemetry — §-1.3).
++from src.polaris_graph.generator import retraction_gate
++# I-deepfix-001 (#1344) W9: content-dedup CONSOLIDATE-KEEP-ALL — group near-identical-
++# body syndicated sources into keep-all corroboration baskets (annotate, never drop,
++# never merge). Wired on the groundable pool so W9 fires on the Gate-B path (§-1.3).
++from src.polaris_graph.synthesis import content_dedup_consolidate
+ 
+ logger = logging.getLogger("polaris_graph.multi_section")
+ 
+@@ -1101,6 +1109,17 @@ class MultiSectionResult:
+     # or no primaries matched.
+     m44_injection_log: list[dict[str, Any]] = field(default_factory=list)
+     m44_validator_violations: list[dict[str, Any]] = field(default_factory=list)
++    # I-deepfix-001 (#1344) Bug B: retracted/withdrawn sources EXCLUDED from grounding
++    # (the credibility-safety arm of the faithfulness gate). One disclosure record per
++    # excluded source (evidence_id/title/url/which-flag); empty when the corpus has no
++    # retracted source (byte-identical). The source is recorded here, NEVER silently
++    # dropped (§-1.3 weight-not-filter).
++    retraction_disclosed: list[dict[str, Any]] = field(default_factory=list)
++    # I-deepfix-001 (#1344) W9: content-dedup consolidate-keep-all telemetry — how many
++    # near-identical-body syndication baskets were formed (rows_grouped, rows_dropped=0).
++    # Empty dict when the stage is OFF or no near-dup bodies (byte-identical). Makes W9
++    # OBSERVABLE on the Gate-B path (vs. the prior build-deferred ABSENCE).
++    body_syndication_telemetry: dict[str, Any] = field(default_factory=dict)
+     # M-47 (2026-04-22): evidence-linked clamp/PK validator diagnostic
+     # for the Mechanism section. Empty dict when Mechanism had no
+     # clamp paper in its subset (no-op). See
+@@ -7310,6 +7329,39 @@ async def generate_multi_section_report(
+ 
+     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
+ 
++    # I-deepfix-001 (#1344) Bug B — RETRACTION GROUNDING GATE. A retracted/withdrawn
++    # source must NEVER ground generated prose: strict_verify checks sentence<->span
++    # fidelity, NOT whether the study was withdrawn, so a sentence grounded on a
++    # retracted RCT can PASS the faithfulness gate yet be clinically wrong. Exclude
++    # retracted rows from the groundable pool HERE — before M-52 pull / M-44 injection
++    # / outline selection — so NO grounding surface (evidence_pool OR m44_primary_by_anchor,
++    # which is built from this pool) can cite them. The excluded rows are RETURNED and
++    # disclosed in run telemetry + a LOUD log, never silently dropped (§-1.3). DEFAULT ON;
++    # a no-op (byte-identical pool) when the corpus carries zero retracted sources.
++    evidence_pool, _retracted_rows = retraction_gate.partition_pool(evidence_pool)
++    retraction_disclosed: list[dict[str, Any]] = list(_retracted_rows)
++    if _retracted_rows:
++        logger.warning(
++            "[multi_section] RETRACTION-GATE: excluded %d retracted/withdrawn "
++            "source(s) from grounding (disclosed, not dropped): %s",
++            len(_retracted_rows),
++            [r.get("evidence_id") for r in _retracted_rows],
++        )
++
++    # I-deepfix-001 (#1344) W9 — content-dedup CONSOLIDATE-KEEP-ALL. Group near-
++    # identical-BODY syndicated sources (the same report republished under a different
++    # title with no shared DOI — what finding_dedup's DOI/title keying MISSES) into
++    # keep-all corroboration baskets. ANNOTATE-only: every row stays in the pool, no two
++    # rows are merged, no gate is touched (§-1.3 consolidate-don't-drop). Mutates the
++    # pool rows in place (so the annotation rides on the exact dicts generation reads);
++    # the returned list is the same objects. DEFAULT ON; byte-identical when no two
++    # bodies are near-identical. Runs on the post-retraction groundable pool.
++    _w9_rows, _w9_body_syndication_telemetry = (
++        content_dedup_consolidate.consolidate_body_syndication(
++            list(evidence_pool.values())
++        )
++    )
++
+     # I-arch-002 (#1246) P-W2breadth: the LEGACY-PATH source-breadth augmenter
+     # (_augment_legacy_section_breadth + PG_LEGACY_SECTION_BREADTH_TARGET) was a
+     # breadth-NUMBER-forcing bolt-on named in the CLAUDE.md §-1.3 BANNED list and is
+@@ -7341,6 +7393,28 @@ async def generate_multi_section_report(
+                 len(m52_pulled_rows),
+                 [p["anchor"] for p in m52_pulled_rows],
+             )
++        # I-deepfix-001 (#1344) Bug B: the M-52 pull can re-add a retracted PRIMARY
++        # trial from live_corpus into evidence_pool — the MOST dangerous case (a
++        # withdrawn RCT force-injected as the primary citation). Re-apply the gate so
++        # the pulled rows are filtered too, and drop them from m52_pulled_rows so the
++        # injection_log below stays consistent with the cleaned pool. Idempotent on the
++        # already-clean base pool (no-op when nothing retracted was pulled).
++        evidence_pool, _retracted_pulled = retraction_gate.partition_pool(evidence_pool)
++        if _retracted_pulled:
++            retraction_disclosed.extend(_retracted_pulled)
++            _retracted_pulled_ids = {
++                r.get("evidence_id") for r in _retracted_pulled
++            }
++            m52_pulled_rows = [
++                r for r in m52_pulled_rows
++                if r.get("evidence_id") not in _retracted_pulled_ids
++            ]
++            logger.warning(
++                "[multi_section] RETRACTION-GATE: excluded %d retracted M-52-pulled "
++                "source(s) from grounding (disclosed, not dropped): %s",
++                len(_retracted_pulled),
++                [r.get("evidence_id") for r in _retracted_pulled],
++            )
+         m44_primary_by_anchor = _m44_detect_primary_ev_ids(
+             evidence_pool, primary_trial_anchors,
+         )
+@@ -8893,6 +8967,11 @@ async def generate_multi_section_report(
+         # M-44 (2026-04-22)
+         m44_injection_log=m44_injection_log,
+         m44_validator_violations=m44_validator_violations,
++        # I-deepfix-001 (#1344) Bug B: disclosure records for retracted/withdrawn
++        # sources excluded from grounding (compact: evidence_id/title/url/flag).
++        retraction_disclosed=retraction_gate.disclosure_records(retraction_disclosed),
++        # I-deepfix-001 (#1344) W9: body-syndication consolidate-keep-all telemetry.
++        body_syndication_telemetry=_w9_body_syndication_telemetry,
+         # M-47 (2026-04-22)
+         m47_mechanism_clamp_diagnostic=m47_diag,
+         # M-50 (2026-04-22)
+diff --git a/src/polaris_graph/generator/retraction_gate.py b/src/polaris_graph/generator/retraction_gate.py
+new file mode 100644
+index 00000000..27a599b8
+--- /dev/null
++++ b/src/polaris_graph/generator/retraction_gate.py
+@@ -0,0 +1,152 @@
++"""I-deepfix-001 (#1344) Bug B — retraction grounding gate.
++
++A RETRACTED / WITHDRAWN source must NEVER be a grounding surface for generated
++prose. A retracted RCT's dose / contraindication / effect size is exactly the
++clinical-safety hazard the §-1.1 line-by-line standard guards against: a sentence
++grounded on a retracted study can PASS strict_verify (the cited span really does
++contain the number, the words overlap) and still be clinically wrong, because the
++study was withdrawn. The faithfulness engine checks sentence<->span fidelity, NOT
++whether the source itself was retracted — so the exclusion must happen BEFORE
++grounding, at the evidence pool, where the credibility engine already knows the
++retraction flag.
++
++§-1.3 posture (WEIGHT-not-FILTER): this is NOT a breadth cap. It is the
++clinical-safety arm of the ONLY hard gate (faithfulness). A retracted source is
++not a low-weight corroborator to keep in the basket — it is a withdrawn claim. But
++the source is NOT silently vanished: every excluded row is RETURNED to the caller
++and surfaced in disclosure telemetry + a LOUD log, so an auditor sees the pipeline
++found it and excluded it (recorded, not dropped). The tier classifier's
++``R0_retracted`` rule already states "Caller should filter retracted sources before
++composition" — this module is that caller-side filter.
++
++Single source of truth: the retraction predicate REUSES
++``authority.supersession._is_truthy`` — the EXACT truthiness rule the credibility
++engine already applies to the retraction/withdrawal flags — so the grounding gate
++and the credibility down-weight can never disagree about what "retracted" means. A
++string ``'false'`` / ``'0'`` / ``'no'`` / ``''`` or a MISSING flag is NOT retracted
++(fail-open: a source with no retraction info grounds normally).
++
++Pure leaf module: no network, no model import, no faithfulness-engine import. Env
++kill-switch (LAW VI). DEFAULT ON — a clinical-safety gate. When the corpus has
++zero retracted sources (the common case) the groundable pool is byte-identical to
++the input, so default-ON changes nothing until a real retracted source appears.
++"""
++from __future__ import annotations
++
++import logging
++import os
++from typing import Any, Mapping
++
++# Single source of truth for the retraction predicate. We deliberately reuse the
++# credibility engine's private truthiness helper (operator directive 2026-06-30:
++# "reuse supersession._is_truthy") so the grounding gate and the credibility
++# down-weight agree byte-for-byte. If supersession ever renames it, this import
++# fails LOUDLY at module load (LAW II) — the shared predicate moved and BOTH
++# call-sites must be reconciled, not silently forked.
++from src.polaris_graph.authority.supersession import _is_truthy as _supersession_is_truthy
++
++logger = logging.getLogger("polaris_graph.retraction_gate")
++
++_ENV_FLAG = "PG_RETRACTION_GROUNDING_GATE"
++_OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
++
++# The retraction/withdrawal flag keys — IDENTICAL to authority.supersession's
++# retraction check (``_is_truthy(row, "is_retracted", "retracted",
++# "retraction_notice", "withdrawn")``), the single source of truth.
++_RETRACTION_KEYS = ("is_retracted", "retracted", "retraction_notice", "withdrawn")
++
++
++def retraction_gate_enabled() -> bool:
++    """Kill-switch. DEFAULT ON (clinical-safety). Set ``PG_RETRACTION_GROUNDING_GATE``
++    to a falsey value to disable — the groundable pool is then byte-identical to the
++    input and no row is excluded."""
++    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
++
++
++def is_row_retracted(row: Mapping[str, Any]) -> bool:
++    """True iff ``row`` carries a truthy retraction/withdrawal flag, using the SAME
++    predicate the credibility engine uses. A string ``'false'`` / ``'0'`` / ``'no'``
++    / ``''`` or a missing field is NOT retracted (fail-open). A predicate bug must
++    NEVER exclude a source — on any internal error we treat the row as NOT retracted
++    (loud-degrade, LAW II)."""
++    try:
++        return bool(_supersession_is_truthy(row, *_RETRACTION_KEYS))
++    except Exception as exc:  # noqa: BLE001 — never exclude a source on a predicate bug
++        logger.warning(
++            "[retraction_gate] retraction predicate errored (%s) — treating row as "
++            "NOT retracted (fail-open, no exclusion on a bug).", str(exc)[:160],
++        )
++        return False
++
++
++def partition_pool(
++    evidence_pool: dict[str, dict[str, Any]],
++) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
++    """Split an ``{evidence_id: row}`` grounding pool into
++    ``(groundable_pool, retracted_rows)``.
++
++    * ``groundable_pool`` — the rows generation may ground against (retracted
++      EXCLUDED). A NEW dict; the input is never mutated.
++    * ``retracted_rows`` — the excluded retracted/withdrawn rows, RETURNED so the
++      caller can disclose them (never silently dropped, §-1.3).
++
++    Order-preserving. Idempotent: re-running on an already-clean pool returns it
++    unchanged with an empty retracted list (so the caller may safely re-apply the
++    gate after an M-52 corpus-pull re-adds rows). When the kill-switch is OFF,
++    returns ``(dict(evidence_pool), [])`` — a byte-identical groundable pool.
++    """
++    if not retraction_gate_enabled():
++        return dict(evidence_pool), []
++    groundable: dict[str, dict[str, Any]] = {}
++    retracted: list[dict[str, Any]] = []
++    for ev_id, row in evidence_pool.items():
++        if isinstance(row, Mapping) and is_row_retracted(row):
++            retracted.append(row)
++        else:
++            groundable[ev_id] = row
++    return groundable, retracted
++
++
++def partition_rows(
++    rows: list[dict[str, Any]],
++) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
++    """List form of :func:`partition_pool` for the RUN-LEVEL grounding pool
++    (``evidence_for_gen``), so EVERY downstream grounding surface — the multi-section
++    generator, the quantified-analysis ``_q_ev_pool``, and the resume corpus snapshot —
++    sees the same retracted-free pool from one chokepoint.
++
++    Returns ``(groundable_rows, retracted_rows)``. Order-preserving; never mutates the
++    input; idempotent. When the kill-switch is OFF, returns ``(list(rows), [])``.
++    """
++    if not retraction_gate_enabled():
++        return list(rows), []
++    groundable: list[dict[str, Any]] = []
++    retracted: list[dict[str, Any]] = []
++    for row in rows:
++        if isinstance(row, Mapping) and is_row_retracted(row):
++            retracted.append(row)
++        else:
++            groundable.append(row)
++    return groundable, retracted
++
++
++def disclosure_records(retracted_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    """Compact disclosure rows for the run telemetry (the audit trail that proves
++    the pipeline found and excluded each retracted source). The ``retraction_flag``
++    names WHICH key was truthy, resolved through the SAME shared predicate so the
++    disclosure cannot disagree with the exclusion decision."""
++    out: list[dict[str, Any]] = []
++    for row in retracted_rows:
++        if not isinstance(row, Mapping):
++            continue
++        which = next(
++            (k for k in _RETRACTION_KEYS if is_row_retracted({k: row.get(k)})), "",
++        )
++        out.append({
++            "evidence_id": row.get("evidence_id", ""),
++            "title": row.get("source_title") or row.get("title") or "",
++            "url": row.get("url") or row.get("source_url") or "",
++            "retraction_flag": which,
++            "excluded_from_grounding": True,
++        })
++    return out
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index bddf49be..d09db555 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -51,6 +51,10 @@ from src.polaris_graph.retrieval import shell_detector  # I-beatboth-001 (#1276)
+ from src.polaris_graph.retrieval import title_body_consistency  # I-deepfix-001 B14 (#1358)
+ from src.polaris_graph.authority.authority_model import score_source_authority
+ from src.polaris_graph.authority.source_class import AuthoritySignals
++# I-deepfix-001 (#1344) Bug B: the SAME retraction truthiness predicate the credibility
++# engine + the generator gate use, so `is_retracted="false"` is correctly NOT retracted
++# (bool("false") is True in Python — the coercion bug Codex iter-1 flagged).
++from src.polaris_graph.authority.supersession import _is_truthy as _retraction_is_truthy
+ from src.polaris_graph.retrieval.tier_classifier import (
+     ClassificationSignals,
+     TierLevel,
+@@ -5543,7 +5547,10 @@ def run_live_retrieval(
+                 openalex_pub_type=oa.get("openalex_pub_type", "") or "",
+                 openalex_source_type=oa.get("openalex_source_type", "") or "",
+                 is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
+-                is_retracted=bool(oa.get("is_retracted", False)),
++                # I-deepfix-001 (#1344) Codex iter-2 P2: same single predicate as the
++                # grounding row + the credibility engine (bool("false") is True — the
++                # coercion bug); a string "false"/"0" must not mark the source retracted.
++                is_retracted=_retraction_is_truthy(oa, "is_retracted"),
+                 doi=_jo_doi_resolved,
+                 venue=oa.get("openalex_venue", "") or "",
+             )
+@@ -5711,6 +5718,19 @@ def run_live_retrieval(
+                 # fallback (never demoted on a missing/malformed date — fail-open).
+                 if _pub_date is not None:
+                     _row["pub_date"] = _pub_date
++                # I-deepfix-001 (#1344) Bug B: carry the OpenAlex retraction flag
++                # FORWARD onto the groundable evidence row so the generator's retraction
++                # grounding gate (retraction_gate.partition_pool) can EXCLUDE a
++                # retracted/withdrawn study from grounding BEFORE composition. The same
++                # flag already feeds the journal_only sidecar (is_retracted at the
++                # `_jo_meta_entry` call above) and the credibility supersession penalty —
++                # this carries it onto the row the GENERATOR reads. Set ONLY when True so
++                # a non-retracted row is byte-identical (fail-open: absent => not
++                # retracted). Placement/credibility metadata; never enters a verified
++                # claim, never relaxes strict_verify / NLI / 4-role (§-1.3: the one hard
++                # exclusion is the faithfulness/credibility-safety gate, not a breadth cap).
++                if _retraction_is_truthy(oa, "is_retracted"):
++                    _row["is_retracted"] = True
+                 # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
+                 # the generator/dedup can avoid reasoning about a mis-stitched source
+                 # under two identities. Keys ABSENT when the gate is OFF => the OFF
+@@ -5719,6 +5739,18 @@ def run_live_retrieval(
+                     _row.update(
+                         title_body_consistency.consistency_keys(_tb_verdict)
+                     )
++                    # I-deepfix-001 (#1344): on a confirmed title<->body mismatch,
++                    # correct the row's DISPLAY title to the body-derived one so the
++                    # bibliography points a reader at the ACTUAL fetched document, not
++                    # the mis-stitched metadata title (the [105] English-title /
++                    # Romanian-body fault). The original metadata_title is preserved in
++                    # the keys above for audit. Faithfulness-STRENGTHENING; never a drop.
++                    if (
++                        not _tb_verdict.identity_consistent
++                        and _tb_verdict.resolved_title
++                    ):
++                        _row["source_title"] = _tb_verdict.resolved_title
++                        _row["title"] = _tb_verdict.resolved_title
+                 # I-wire-001 W5 (Codex P1#1): when LLM-tiering is ON, the `_row["tier"]`
+                 # written above is the rules-floor PLACEHOLDER. Record this evidence
+                 # row's position in the deferred-tier batch so the post-loop
+diff --git a/src/polaris_graph/synthesis/content_dedup_consolidate.py b/src/polaris_graph/synthesis/content_dedup_consolidate.py
+new file mode 100644
+index 00000000..fb460a3c
+--- /dev/null
++++ b/src/polaris_graph/synthesis/content_dedup_consolidate.py
+@@ -0,0 +1,221 @@
++"""I-deepfix-001 (#1344) W9 — content-dedup CONSOLIDATE-KEEP-ALL (body-syndication baskets).
++
++The W9 winner is dedup=ContentDeduplicator. Its native ``deduplicate()`` returns
++``unique_items`` — a DROP that sheds corroborators, which VIOLATES §-1.3 (the pipeline
++is WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP). So W9 is wired here in the ONLY
++§-1.3-legal form: ContentDeduplicator's body-MinHash CLUSTERS are used to GROUP
++near-identical-body sources into a corroboration BASKET, and EVERY row is kept.
++Nothing is dropped; nothing is merged.
++
++WHAT IT ADDS over the existing finding_dedup same-work consolidation (#7, which keys
++on DOI / folded title): finding_dedup catches the SAME work cited under the same
++identity. It MISSES different-title near-identical-BODY syndication — the same report
++republished at two URLs with different titles and no shared DOI. That is exactly what
++ContentDeduplicator's body-MinHash catches. Here it is surfaced as a keep-all
++corroboration WEIGHT, never a drop.
++
++FAITHFULNESS POSTURE (the load-bearing safety argument — VERIFY it):
++  * KEEP-ALL: every input row is returned, unchanged except for additive annotation
++    keys. No row is removed; the output list has the SAME length as the input.
++  * MERGE-NOTHING: unlike finding_dedup this NEVER collapses two findings into one
++    representative. It only ATTACHES "these N rows share a near-identical body" to
++    each member. So it cannot over-merge two distinct clinical findings — the
++    clinical-lethal over-merge risk finding_dedup's conservative key guards against is
++    not in play here, because no claim is ever dropped, rewritten, or merged.
++  * NEAR-IDENTICAL ONLY: grouping fires only at the EXACT/NEAR_DUPLICATE tier
++    (MinHash similarity >= ``PG_W9_BODY_SIM``, default 0.85). The loose SIMILAR tier
++    (0.70-0.85) is DELIBERATELY excluded (we pin ``similar_threshold`` up to the
++    near-dup floor) so merely-topical sources are NOT grouped — only true syndication.
++  * GROUNDING-UNTOUCHED: the annotation is metadata. It never changes which rows
++    ground prose, never feeds or relaxes strict_verify / NLI / 4-role / span-grounding.
++    A corroboration count is a disclosure WEIGHT, not a gate.
++
++Pure leaf: no network, no model, no LLM. Reuses ``src.utils.content_deduplicator``
++(MinHash/SimHash, pure python, bounded O(n^2) over the corpus). Env kill-switch
++(LAW VI). DEFAULT ON. ROW-level byte-identical when no two rows share a near-identical
++body (no multi-member cluster => no row gains an annotation key); the stage still emits
++a zeroed telemetry dict + one canary log line as the observability signal (it does NOT
++claim an empty/absent result object).
++"""
++from __future__ import annotations
++
++import logging
++import os
++from typing import Any
++
++from src.utils.content_deduplicator import (
++    ContentDeduplicator,
++    DeduplicationConfig,
++)
++
++logger = logging.getLogger("polaris_graph.content_dedup_consolidate")
++
++_ENV_FLAG = "PG_CONTENT_DEDUP_CONSOLIDATE"
++_OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
++
++# MinHash similarity floor for "near-identical body" (LAW VI). The SIMILAR tier is
++# pinned UP to this floor so only EXACT + NEAR_DUPLICATE group — never merely-topical.
++_ENV_SIM = "PG_W9_BODY_SIM"
++_DEFAULT_SIM = 0.85
++
++# A body shorter than this is too small to call "syndication" reliably (MinHash on a
++# tiny snippet is noisy). Such rows stay SINGLETONS (kept, never annotated, never
++# dropped). LAW VI.
++_ENV_MIN_BODY_CHARS = "PG_W9_MIN_BODY_CHARS"
++_DEFAULT_MIN_BODY_CHARS = 200
++
++
++def consolidate_enabled() -> bool:
++    """Kill-switch. DEFAULT ON. Set ``PG_CONTENT_DEDUP_CONSOLIDATE`` to a falsey value
++    to disable — rows are then returned unannotated (byte-identical)."""
++    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
++
++
++def _sim() -> float:
++    raw = os.getenv(_ENV_SIM, "").strip()
++    if not raw:
++        return _DEFAULT_SIM
++    try:
++        return min(max(float(raw), 0.0), 1.0)
++    except ValueError:
++        return _DEFAULT_SIM
++
++
++def _min_body_chars() -> int:
++    try:
++        return max(0, int(os.getenv(_ENV_MIN_BODY_CHARS, str(_DEFAULT_MIN_BODY_CHARS))))
++    except (TypeError, ValueError):
++        return _DEFAULT_MIN_BODY_CHARS
++
++
++def _dedup_text(row: dict[str, Any]) -> str:
++    """The body text W9 compares: direct_quote, then statement, then title. NOT the
++    empty 'content' key (which is absent on Gate-B rows — comparing it would fold every
++    source into ONE cluster, the false-green the workflow draft hit)."""
++    return str(
++        row.get("direct_quote")
++        or row.get("statement")
++        or row.get("title")
++        or row.get("source_title")
++        or ""
++    ).strip()
++
++
++class _UnionFind:
++    def __init__(self, n: int) -> None:
++        self._parent = list(range(n))
++
++    def find(self, x: int) -> int:
++        root = x
++        while self._parent[root] != root:
++            root = self._parent[root]
++        while self._parent[x] != root:  # path compression
++            self._parent[x], x = root, self._parent[x]
++        return root
++
++    def union(self, a: int, b: int) -> None:
++        ra, rb = self.find(a), self.find(b)
++        if ra != rb:
++            self._parent[max(ra, rb)] = min(ra, rb)
++
++
++def consolidate_body_syndication(
++    rows: list[dict[str, Any]],
++) -> tuple[list[dict[str, Any]], dict[str, Any]]:
++    """Annotate near-identical-body sources into KEEP-ALL corroboration baskets.
++
++    Returns ``(rows, telemetry)``. ``rows`` is the SAME list object, with each member
++    of a multi-row body-syndication basket gaining three additive keys:
++    ``body_syndication_cluster_id`` (stable, derived from the basket's smallest
++    evidence_id), ``body_syndication_count`` (basket size >= 2), and
++    ``body_syndication_ev_ids`` (the sorted basket of evidence_ids). Singletons and
++    short-body rows are untouched. The list NEVER shrinks and no two rows are merged.
++
++    ``telemetry`` reports ``rows_in`` / ``eligible`` / ``baskets`` / ``rows_grouped`` /
++    ``rows_dropped`` (always 0) so the stage is OBSERVABLE in the run artifacts.
++    """
++    n_total = len(rows)
++    telemetry: dict[str, Any] = {
++        "rows_in": n_total,
++        "eligible": 0,
++        "baskets": 0,
++        "rows_grouped": 0,
++        "rows_dropped": 0,
++        "enabled": consolidate_enabled(),
++    }
++    if not consolidate_enabled() or n_total < 2:
++        return rows, telemetry
++
++    min_chars = _min_body_chars()
++    # Eligible rows: a non-trivial body. Build the items the deduplicator scores, and a
++    # back-map item_index -> original row index. Short/empty-body rows stay singletons.
++    items: list[dict[str, Any]] = []
++    positions: list[int] = []
++    for idx, row in enumerate(rows):
++        text = _dedup_text(row)
++        if len(text) >= min_chars:
++            items.append({"_w9_text": text})
++            positions.append(idx)
++    telemetry["eligible"] = len(items)
++    if len(items) < 2:
++        logger.info(
++            "[content_dedup_consolidate] W9: %d rows, %d eligible (>=%d chars) -> "
++            "0 baskets, 0 dropped (KEEP-ALL)",
++            n_total, len(items), min_chars,
++        )
++        return rows, telemetry
++
++    # Pin similar_threshold UP to the near-dup floor so ONLY exact + near-identical
++    # bodies are flagged duplicates (the loose SIMILAR tier never fires) — no topical
++    # over-grouping, and no row is prematurely claimed by a loose match.
++    sim = _sim()
++    cfg = DeduplicationConfig(
++        exact_match_threshold=1.0,
++        near_duplicate_threshold=sim,
++        similar_threshold=sim,
++    )
++    try:
++        result = ContentDeduplicator(cfg).deduplicate(items, content_key="_w9_text")
++    except Exception as exc:  # noqa: BLE001 — a dedup bug must NEVER drop/merge a row
++        logger.warning(
++            "[content_dedup_consolidate] W9 dedup errored (%s) — returning rows "
++            "UNANNOTATED (no drop, no merge on a bug).", str(exc)[:160],
++        )
++        return rows, telemetry
++
++    # Union the near-identical edges over the ELIGIBLE-item index space, then translate
++    # the multi-member components back to ORIGINAL row indices. Every edge here is
++    # EXACT/NEAR (>= sim) by construction of cfg, so no SIMILAR-tier edge sneaks in.
++    uf = _UnionFind(len(items))
++    for dup in result.duplicates:
++        uf.union(dup.original_index, dup.duplicate_index)
++    groups: dict[int, list[int]] = {}
++    for item_idx in range(len(items)):
++        groups.setdefault(uf.find(item_idx), []).append(item_idx)
++
++    baskets = 0
++    rows_grouped = 0
++    for members in groups.values():
++        if len(members) < 2:
++            continue
++        orig_idx = [positions[m] for m in members]
++        ev_ids = sorted(str(rows[o].get("evidence_id", "")) for o in orig_idx)
++        cluster_id = "bsyn_" + (next((e for e in ev_ids if e), str(orig_idx[0])))
++        for o in orig_idx:
++            rows[o]["body_syndication_cluster_id"] = cluster_id
++            rows[o]["body_syndication_count"] = len(orig_idx)
++            rows[o]["body_syndication_ev_ids"] = ev_ids
++        baskets += 1
++        rows_grouped += len(orig_idx)
++
++    telemetry["baskets"] = baskets
++    telemetry["rows_grouped"] = rows_grouped
++    # Firing canary: present on every Gate-B run that reaches this stage; its counts
++    # make W9 OBSERVABLE (vs. the prior build-deferred ABSENCE). KEEP-ALL invariant
++    # asserted in the message: 0 dropped, list length unchanged.
++    logger.info(
++        "[content_dedup_consolidate] W9: %d rows (%d eligible) -> %d body-syndication "
++        "basket(s), %d rows grouped, 0 dropped (KEEP-ALL, sim>=%.2f)",
++        n_total, len(items), baskets, rows_grouped, sim,
++    )
++    return rows, telemetry
+diff --git a/tests/dr_benchmark/test_purity_preflight_gates.py b/tests/dr_benchmark/test_purity_preflight_gates.py
+index b155e178..ac0ae03d 100644
+--- a/tests/dr_benchmark/test_purity_preflight_gates.py
++++ b/tests/dr_benchmark/test_purity_preflight_gates.py
+@@ -235,8 +235,9 @@ def test_slate_purity_negative_bogus_force_on_flag_raises(monkeypatch):
+ # GATE (B) WINNER-FIRES — run_gate_b.py:2617 (the firing-marker contract + offline identity probes)
+ # ════════════════════════════════════════════════════════════════════════════════════════════════════
+ 
+-# The 13 winner keys the post-run firing-marker contract MUST carry (W1-W14 minus W9, which is DARK and
+-# intentionally absent — run_gate_b.py:1864). Order matches the contract dict.
++# The 14 winner keys the post-run firing-marker contract MUST carry (W1-W14, ALL — I-deepfix-001 #1344
++# GRADUATED W9 from DARK to wired, so it is now grep-asserted on the run like every other winner). Order
++# matches the contract dict.
+ _EXPECTED_FIRING_MARKER_KEYS = (
+     "W1_scope_intent_frame",
+     "W2_qgen_fs_researcher",
+@@ -246,6 +247,7 @@ _EXPECTED_FIRING_MARKER_KEYS = (
+     "W6_embed_qwen3_8b",
+     "W7_rerank_qwen3_4b",
+     "W8_cred_llm_tiering",
++    "W9_dedup_content_consolidate",
+     "W10_consolidate_nli",
+     "W11_adequacy_crag",
+     "W12_compose_floor_abstractive",
+@@ -254,17 +256,17 @@ _EXPECTED_FIRING_MARKER_KEYS = (
+ )
+ 
+ 
+-def test_winner_fires_firing_marker_contract_has_13_winner_keys_with_nonempty_markers():
++def test_winner_fires_firing_marker_contract_has_14_winner_keys_with_nonempty_markers():
+     """The WINNER-FIRES post-run firing-marker contract (_WINNER_FIRING_MARKER_CONTRACT) must carry
+-    exactly the 13 expected winner keys (W1-W14 minus the DARK W9), each with a NON-EMPTY firing marker
+-    the post-run §-1.1 audit greps. A missing key / empty marker would let a wired-but-dark winner ship
+-    unverified."""
++    exactly the 14 expected winner keys (W1-W14, including the now-GRADUATED W9), each with a NON-EMPTY
++    firing marker the post-run §-1.1 audit greps. A missing key / empty marker would let a wired-but-dark
++    winner ship unverified."""
+     assert set(_WINNER_FIRING_MARKER_CONTRACT.keys()) == set(_EXPECTED_FIRING_MARKER_KEYS), (
+-        "firing-marker contract keys drifted from the expected 13 winners: "
++        "firing-marker contract keys drifted from the expected 14 winners: "
+         f"missing={sorted(set(_EXPECTED_FIRING_MARKER_KEYS) - set(_WINNER_FIRING_MARKER_CONTRACT))}, "
+         f"extra={sorted(set(_WINNER_FIRING_MARKER_CONTRACT) - set(_EXPECTED_FIRING_MARKER_KEYS))}"
+     )
+-    assert len(_WINNER_FIRING_MARKER_CONTRACT) == 13
++    assert len(_WINNER_FIRING_MARKER_CONTRACT) == 14
+     for _key, _marker in _WINNER_FIRING_MARKER_CONTRACT.items():
+         assert isinstance(_marker, _FiringMarker), (
+             f"firing marker for {_key} must be a _FiringMarker predicate, not a bare substring "
+@@ -277,10 +279,10 @@ def test_winner_fires_firing_marker_contract_has_13_winner_keys_with_nonempty_ma
+             f"firing marker for {_key} has an empty/blank forbid substring — a blank forbid matches every "
+             f"line and would suppress EVERY genuine fire"
+         )
+-    # W9 is DARK (no run-path consumer) and MUST be absent from the firing contract (handled by the loud
+-    # W9 ack gate, never grep-asserted on the run — run_gate_b.py:1864).
+-    assert not any(_k.startswith("W9") for _k in _WINNER_FIRING_MARKER_CONTRACT), (
+-        "W9 must NOT be in the firing-marker contract — it is the DARK winner handled by the W9 gate"
++    # I-deepfix-001 #1344: W9 GRADUATED — it MUST now be present in the firing-marker contract (its
++    # consolidate-keep-all canary [content_dedup_consolidate] W9: is grep-asserted post-run like the rest).
++    assert any(_k.startswith("W9") for _k in _WINNER_FIRING_MARKER_CONTRACT), (
++        "W9 must be in the firing-marker contract — it was graduated from DARK to a wired winner"
+     )
+ 
+ 
+@@ -406,6 +408,7 @@ _PRODUCER_SOURCE_FOR_MARKER: dict[str, str] = {
+     "W6_embed_qwen3_8b": "src/polaris_graph/retrieval/prefetch_offtopic_filter.py",
+     "W7_rerank_qwen3_4b": "src/polaris_graph/retrieval/qwen_reranker_scorer.py",
+     "W8_cred_llm_tiering": "src/polaris_graph/retrieval/credibility_llm_tiering.py",
++    "W9_dedup_content_consolidate": "src/polaris_graph/synthesis/content_dedup_consolidate.py",
+     "W10_consolidate_nli": "src/polaris_graph/synthesis/consolidation_nli.py",
+     "W11_adequacy_crag": "scripts/run_honest_sweep_r3.py",
+     "W12_compose_floor_abstractive": "src/polaris_graph/generator/abstractive_writer.py",
+@@ -449,11 +452,11 @@ def test_every_firing_marker_must_contain_is_a_real_producer_string():
+ 
+ def test_firing_marker_contract_substrings_back_compat_view():
+     """``firing_marker_contract_substrings()`` returns the {winner -> must_contain} positive-substring view
+-    (back-compat surface for a consumer that only needs the positive grep needle); it must carry the same 13
+-    keys, each non-empty."""
++    (back-compat surface for a consumer that only needs the positive grep needle); it must carry the same 14
++    keys (W1-W14 incl. the graduated W9), each non-empty."""
+     subs = firing_marker_contract_substrings()
+     assert set(subs.keys()) == set(_WINNER_FIRING_MARKER_CONTRACT.keys())
+-    assert len(subs) == 13
++    assert len(subs) == 14
+     for _key, _needle in subs.items():
+         assert _needle and _needle.strip(), f"{_key}: empty positive substring"
+ 
+@@ -463,13 +466,14 @@ def test_firing_marker_contract_substrings_back_compat_view():
+ # ════════════════════════════════════════════════════════════════════════════════════════════════════
+ 
+ def test_w9_subsumed_default_proceeds():
+-    """POSITIVE: with the DROP variant UNWIRED (the default), W9 is DARK BY DESIGN — its content near-dup
+-    function is SUBSUMED by the keep-all consolidation stack — so the W9 gate LOGS loudly and PROCEEDS
+-    (no raise)."""
++    """POSITIVE: with the §-1.3-violating DROP variant UNWIRED (the default), the W9 gate LOGS the
++    keep-all-wired status loudly and PROCEEDS (no raise). I-deepfix-001 #1344: W9 is now WIRED via the
++    consolidate-keep-all stage (PG_CONTENT_DEDUP_CONSOLIDATE, applied by the clean slate); the gate's only
++    remaining job is to forbid the DROP variant."""
+     _apply_clean_winners_only_slate()
+     os.environ.pop("PG_W9_CONTENT_DEDUP", None)
+     os.environ.pop("PG_W9_DARK_ACK", None)
+-    _run_preflight_offline()  # no raise == W9 SUBSUMED branch proceeded
++    _run_preflight_offline()  # no raise == DROP variant unwired, keep-all winner proceeds
+ 
+ 
+ def test_w9_drop_variant_without_ack_raises():
+diff --git a/tests/polaris_graph/test_content_dedup_consolidate.py b/tests/polaris_graph/test_content_dedup_consolidate.py
+new file mode 100644
+index 00000000..633df818
+--- /dev/null
++++ b/tests/polaris_graph/test_content_dedup_consolidate.py
+@@ -0,0 +1,173 @@
++"""I-deepfix-001 (#1344) W9 — content-dedup CONSOLIDATE-KEEP-ALL. Pure-function tests.
++
++The W9 stage groups near-identical-BODY syndicated sources into keep-all corroboration
++baskets: ANNOTATE only, never drop, never merge. Tests assert the §-1.3 invariants on
++real evidence-row shapes (direct_quote / statement / title), including the false-green
++guard the workflow draft hit (reading the empty 'content' key would collapse every row
++into ONE cluster).
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.synthesis import content_dedup_consolidate as cdc
++
++
++_BODY_A = (
++    "The randomized controlled trial enrolled 1240 adults with type 2 diabetes across "
++    "37 centres. After 52 weeks the treatment arm showed a mean HbA1c reduction of 1.8 "
++    "percentage points versus 0.4 in placebo, with the hazard ratio for the composite "
++    "cardiovascular endpoint at 0.79 (95% CI 0.66 to 0.94). Adverse events were balanced "
++    "between arms and no new safety signals emerged over the follow-up period."
++)
++_BODY_A_SYNDICATED = (
++    "The randomized controlled trial enrolled 1240 adults with type 2 diabetes across "
++    "37 centres. After 52 weeks the treatment arm showed a mean HbA1c reduction of 1.8 "
++    "percentage points versus 0.4 in placebo, with the hazard ratio for the composite "
++    "cardiovascular endpoint at 0.79 (95% CI 0.66 to 0.94). Adverse events were balanced "
++    "between the arms and no new safety signals emerged over the follow-up period."  # tiny edit
++)
++_BODY_B = (
++    "A separate cohort study of 8800 participants examined ambient air pollution and "
++    "incident asthma in children. Each 10 microgram per cubic metre increase in PM2.5 "
++    "was associated with a 12 percent higher incidence over a ten year window, after "
++    "adjustment for socioeconomic status, parental smoking, and urban density gradients."
++)
++
++
++def _row(ev_id: str, **extra) -> dict:
++    row = {
++        "evidence_id": ev_id,
++        "source_url": f"https://example.org/{ev_id}",
++        "tier": "T1",
++    }
++    row.update(extra)
++    return row
++
++
++@pytest.fixture(autouse=True)
++def _gate_on():
++    prev = os.environ.pop("PG_CONTENT_DEDUP_CONSOLIDATE", None)
++    prevc = os.environ.pop("PG_W9_MIN_BODY_CHARS", None)
++    yield
++    for k, v in (("PG_CONTENT_DEDUP_CONSOLIDATE", prev), ("PG_W9_MIN_BODY_CHARS", prevc)):
++        if v is None:
++            os.environ.pop(k, None)
++        else:
++            os.environ[k] = v
++
++
++def test_exact_syndication_groups_keep_all():
++    rows = [
++        _row("ev_001", direct_quote=_BODY_A),
++        _row("ev_002", direct_quote=_BODY_A),            # exact body twin (other URL)
++        _row("ev_003", direct_quote=_BODY_B),            # unrelated
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    # KEEP-ALL: nothing dropped.
++    assert len(out) == 3
++    assert tel["rows_dropped"] == 0
++    assert tel["baskets"] == 1
++    # The two twins share one basket carrying BOTH ev_ids.
++    assert out[0]["body_syndication_cluster_id"] == out[1]["body_syndication_cluster_id"]
++    assert out[0]["body_syndication_count"] == 2
++    assert out[0]["body_syndication_ev_ids"] == ["ev_001", "ev_002"]
++    # The unrelated source stays a singleton (NOT annotated).
++    assert "body_syndication_cluster_id" not in out[2]
++
++
++def test_near_identical_body_groups():
++    rows = [
++        _row("ev_001", direct_quote=_BODY_A),
++        _row("ev_002", direct_quote=_BODY_A_SYNDICATED),  # one-word edit -> near-dup
++        _row("ev_003", direct_quote=_BODY_B),
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["baskets"] == 1
++    assert out[0]["body_syndication_count"] == 2
++    assert "body_syndication_cluster_id" not in out[2]
++
++
++def test_unrelated_sources_stay_singletons():
++    rows = [
++        _row("ev_001", direct_quote=_BODY_A),
++        _row("ev_002", direct_quote=_BODY_B),
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["baskets"] == 0
++    assert tel["rows_grouped"] == 0
++    for r in out:
++        assert "body_syndication_cluster_id" not in r
++
++
++def test_empty_content_key_does_not_collapse_all():
++    # The false-green guard: every row has an EMPTY 'content' key but DIFFERENT bodies
++    # in direct_quote. Reading 'content' would fold all into one cluster; reading
++    # direct_quote keeps them apart.
++    rows = [
++        _row("ev_001", content="", direct_quote=_BODY_A),
++        _row("ev_002", content="", direct_quote=_BODY_B),
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["baskets"] == 0
++    for r in out:
++        assert "body_syndication_cluster_id" not in r
++
++
++def test_statement_and_title_fallbacks():
++    # No direct_quote: falls back to statement, then title. Two rows with the same long
++    # statement still group.
++    rows = [
++        _row("ev_001", statement=_BODY_A),
++        _row("ev_002", statement=_BODY_A),
++        _row("ev_003", title=_BODY_B),  # unrelated, via title fallback
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["baskets"] == 1
++    assert out[0]["body_syndication_count"] == 2
++    assert "body_syndication_cluster_id" not in out[2]
++
++
++def test_short_body_rows_stay_singletons():
++    # Bodies below the min-char floor are too small to call syndication -> singletons.
++    rows = [
++        _row("ev_001", direct_quote="HbA1c fell 1.8 points."),
++        _row("ev_002", direct_quote="HbA1c fell 1.8 points."),
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["baskets"] == 0
++    assert tel["eligible"] == 0
++    for r in out:
++        assert "body_syndication_cluster_id" not in r
++
++
++def test_kill_switch_off_no_annotation():
++    os.environ["PG_CONTENT_DEDUP_CONSOLIDATE"] = "0"
++    rows = [
++        _row("ev_001", direct_quote=_BODY_A),
++        _row("ev_002", direct_quote=_BODY_A),
++    ]
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert tel["enabled"] is False
++    assert tel["baskets"] == 0
++    for r in out:
++        assert "body_syndication_cluster_id" not in r
++
++
++def test_zero_dropped_invariant_large():
++    # 20 rows, 2 syndication pairs; assert length is exactly preserved.
++    rows = []
++    for i in range(16):
++        rows.append(_row(f"ev_{i:03d}", direct_quote=_BODY_B + f" Variant note {i}."))
++    rows.append(_row("ev_900", direct_quote=_BODY_A))
++    rows.append(_row("ev_901", direct_quote=_BODY_A))
++    n_in = len(rows)
++    out, tel = cdc.consolidate_body_syndication(rows)
++    assert len(out) == n_in
++    assert tel["rows_dropped"] == 0
++    # The A-twins group; assert they share a basket.
++    a_rows = [r for r in out if r["evidence_id"] in ("ev_900", "ev_901")]
++    assert a_rows[0].get("body_syndication_count") == 2
+diff --git a/tests/polaris_graph/test_retraction_gate.py b/tests/polaris_graph/test_retraction_gate.py
+new file mode 100644
+index 00000000..6dfd1db5
+--- /dev/null
++++ b/tests/polaris_graph/test_retraction_gate.py
+@@ -0,0 +1,200 @@
++"""I-deepfix-001 (#1344) Bug B — retraction grounding gate. Pure-function unit tests.
++
++No network, no model, no fixtures. The gate excludes retracted/withdrawn sources from
++the GROUNDING pool (so a withdrawn RCT can never ground generated prose) while RETURNING
++them for disclosure (§-1.3 weight-not-filter: recorded, never silently dropped). The
++predicate REUSES authority.supersession._is_truthy (single source of truth), so a string
++'false'/'0'/'no'/'' or a missing flag is NOT retracted (fail-open).
++"""
++
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.generator import retraction_gate as rg
++
++
++# ---- real evidence-row shapes (the keys live_retriever actually writes) -----------
++
++def _groundable_row(ev_id: str, **extra) -> dict:
++    """A normal groundable evidence row (the _row dict built in live_retriever)."""
++    row = {
++        "evidence_id": ev_id,
++        "source_url": f"https://example.org/{ev_id}",
++        "source_title": f"Real Study {ev_id}",
++        "title": f"Real Study {ev_id}",
++        "direct_quote": "The hazard ratio was 0.82 (95% CI 0.70-0.96).",
++        "tier": "T1",
++    }
++    row.update(extra)
++    return row
++
++
++@pytest.fixture(autouse=True)
++def _gate_on():
++    """Default the kill-switch ON for each test (clinical-safety default)."""
++    prev = os.environ.pop("PG_RETRACTION_GROUNDING_GATE", None)
++    yield
++    if prev is None:
++        os.environ.pop("PG_RETRACTION_GROUNDING_GATE", None)
++    else:
++        os.environ["PG_RETRACTION_GROUNDING_GATE"] = prev
++
++
++# ---- is_row_retracted: the predicate -----------------------------------------------
++
++def test_string_false_is_not_retracted():
++    # The exact bug guard: a string 'false'/'0'/'no'/'' must NOT strip the source.
++    for val in ("false", "False", "FALSE", "0", "no", "off", ""):
++        assert rg.is_row_retracted({"is_retracted": val}) is False, val
++
++
++def test_missing_field_is_not_retracted_fail_open():
++    assert rg.is_row_retracted({"evidence_id": "ev_001"}) is False
++
++
++def test_bool_true_is_retracted():
++    assert rg.is_row_retracted({"is_retracted": True}) is True
++
++
++def test_string_truthy_variants_are_retracted():
++    for val in ("1", "true", "yes", "retracted", "withdrawn"):
++        assert rg.is_row_retracted({"is_retracted": val}) is True, val
++
++
++def test_alternate_retraction_keys():
++    assert rg.is_row_retracted({"retracted": True}) is True
++    assert rg.is_row_retracted({"retraction_notice": "yes"}) is True
++    assert rg.is_row_retracted({"withdrawn": True}) is True
++
++
++def test_bool_false_is_not_retracted():
++    # bool False (not just the string) must be groundable.
++    assert rg.is_row_retracted({"is_retracted": False}) is False
++
++
++# ---- partition_pool: the grounding exclusion ---------------------------------------
++
++def test_retracted_excluded_real_retracted_disclosed():
++    pool = {
++        "ev_001": _groundable_row("ev_001"),
++        "ev_002": _groundable_row("ev_002", is_retracted=True),  # a real retracted study
++        "ev_003": _groundable_row("ev_003"),
++    }
++    groundable, retracted = rg.partition_pool(pool)
++    # Excluded from grounding...
++    assert set(groundable.keys()) == {"ev_001", "ev_003"}
++    assert "ev_002" not in groundable
++    # ...but RETURNED for disclosure (not silently dropped — §-1.3).
++    assert len(retracted) == 1
++    assert retracted[0]["evidence_id"] == "ev_002"
++    # union == input: nothing vanished.
++    assert len(groundable) + len(retracted) == len(pool)
++
++
++def test_string_false_row_stays_groundable():
++    pool = {
++        "ev_001": _groundable_row("ev_001", is_retracted="false"),
++        "ev_002": _groundable_row("ev_002", is_retracted="0"),
++    }
++    groundable, retracted = rg.partition_pool(pool)
++    assert set(groundable.keys()) == {"ev_001", "ev_002"}
++    assert retracted == []
++
++
++def test_no_retracted_is_byte_identical_pool():
++    pool = {"ev_001": _groundable_row("ev_001"), "ev_002": _groundable_row("ev_002")}
++    groundable, retracted = rg.partition_pool(pool)
++    assert groundable == pool
++    assert retracted == []
++
++
++def test_input_not_mutated():
++    pool = {"ev_001": _groundable_row("ev_001", is_retracted=True)}
++    before = dict(pool)
++    rg.partition_pool(pool)
++    assert pool == before  # the input dict is untouched
++
++
++def test_idempotent_on_clean_pool():
++    pool = {
++        "ev_001": _groundable_row("ev_001"),
++        "ev_002": _groundable_row("ev_002", is_retracted=True),
++    }
++    groundable1, _ = rg.partition_pool(pool)
++    groundable2, retracted2 = rg.partition_pool(groundable1)
++    # Re-running on the already-clean pool changes nothing and finds no new retracted.
++    assert groundable2 == groundable1
++    assert retracted2 == []
++
++
++def test_kill_switch_off_returns_everything():
++    os.environ["PG_RETRACTION_GROUNDING_GATE"] = "0"
++    pool = {
++        "ev_001": _groundable_row("ev_001"),
++        "ev_002": _groundable_row("ev_002", is_retracted=True),
++    }
++    groundable, retracted = rg.partition_pool(pool)
++    assert groundable == pool  # OFF => byte-identical, no exclusion
++    assert retracted == []
++
++
++# ---- disclosure_records: the audit trail -------------------------------------------
++
++def test_disclosure_records_shape():
++    pool = {"ev_002": _groundable_row("ev_002", is_retracted=True)}
++    _, retracted = rg.partition_pool(pool)
++    recs = rg.disclosure_records(retracted)
++    assert len(recs) == 1
++    rec = recs[0]
++    assert rec["evidence_id"] == "ev_002"
++    assert rec["title"] == "Real Study ev_002"
++    assert rec["url"] == "https://example.org/ev_002"
++    assert rec["retraction_flag"] == "is_retracted"
++    assert rec["excluded_from_grounding"] is True
++
++
++def test_disclosure_flag_names_the_truthy_key():
++    pool = {"ev_009": _groundable_row("ev_009", withdrawn=True)}
++    _, retracted = rg.partition_pool(pool)
++    recs = rg.disclosure_records(retracted)
++    assert recs[0]["retraction_flag"] == "withdrawn"
++
++
++# ---- partition_rows: the RUN-LEVEL (list) form (Codex iter-1 P0 fix) ----------------
++
++def test_partition_rows_excludes_retracted_keeps_disclosed():
++    rows = [
++        _groundable_row("ev_001"),
++        _groundable_row("ev_002", is_retracted=True),
++        _groundable_row("ev_003"),
++    ]
++    groundable, retracted = rg.partition_rows(rows)
++    assert [r["evidence_id"] for r in groundable] == ["ev_001", "ev_003"]
++    assert [r["evidence_id"] for r in retracted] == ["ev_002"]
++    # union == input (nothing vanished); order preserved.
++    assert len(groundable) + len(retracted) == len(rows)
++
++
++def test_partition_rows_string_false_stays_groundable():
++    rows = [_groundable_row("ev_001", is_retracted="false")]
++    groundable, retracted = rg.partition_rows(rows)
++    assert [r["evidence_id"] for r in groundable] == ["ev_001"]
++    assert retracted == []
++
++
++def test_partition_rows_does_not_mutate_input():
++    rows = [_groundable_row("ev_001", is_retracted=True)]
++    before = [dict(r) for r in rows]
++    rg.partition_rows(rows)
++    assert rows == before
++
++
++def test_partition_rows_kill_switch_off():
++    os.environ["PG_RETRACTION_GROUNDING_GATE"] = "0"
++    rows = [_groundable_row("ev_001", is_retracted=True), _groundable_row("ev_002")]
++    groundable, retracted = rg.partition_rows(rows)
++    assert [r["evidence_id"] for r in groundable] == ["ev_001", "ev_002"]
++    assert retracted == []

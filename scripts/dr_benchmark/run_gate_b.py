@@ -1367,25 +1367,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #   W12 compose=floor_abstractive  -> PG_ABSTRACTIVE_WRITER (force-ON + preflight-required above)
     #   W13 verify=keep-floor          -> PG_STRICT_VERIFY_ENTAILMENT=enforce + the FROZEN faithfulness engine
     #   W14 render=det                 -> deterministic render (default) + PG_RENDER_CHROME_CANARY=enforce
-    # W9 dedup=ContentDeduplicator: NO Gate-B run-path consumer exists — and NO flag (not even
-    #   PG_ADEQUACY_CRAG) wires it. Verified (I-wire-001 P1-2): the ONLY module that calls
-    #   ContentDeduplicator.deduplicate() on any pipeline is CRAGRetriever._dedup_chunks
-    #   (crag_retriever.py:664), whose ONLY call site is graph_v2.py:341 — the FROZEN pipeline-B
-    #   LangGraph, DEAD on the active sweep path (docs/content_relevance_filtering_2026.md:73-82; 0 CRAG
-    #   refs in run_honest_sweep_r3). The Gate-B W11 "CRAG" (PG_ADEQUACY_CRAG) is a DIFFERENT module — the
-    #   crag_adequacy_loop LLM classifier, which explicitly refuses to instantiate CRAGRetriever
-    #   (crag_adequacy_loop.py:35) and never calls ContentDeduplicator. So PG_ADEQUACY_CRAG does NOT wire
-    #   W9 transitively. The other deduplicate() callers (agents/analyst_agent, polaris_graph/agents/
-    #   analyzer, polaris_graph/graph) are also pipeline-B/C and are NOT imported by run_honest_sweep_r3.
-    #   Therefore the [content_dedup] canary fires for pipeline-B/agents callers only; its ABSENCE on a
-    #   Gate-B run is EXPECTED, not a regression. The content/source near-dup FUNCTION on Gate-B is served
-    #   in the §-1.3 consolidate-keep-all form by finding_dedup same-work consolidation (#7, keys on DOI/
-    #   folded title); a residual gap remains for different-title near-identical-body syndication that
-    #   ContentDeduplicator's body-MinHash would catch — deferred, NOT bolted on as a hard-drop stage
-    #   (deduplicate() returns only unique_items, i.e. a DROP — shedding corroborators would violate §-1.3
-    #   / the FROZEN faithfulness contract). NOT slate-forced / NOT preflight-required; named in the
-    #   build-deferred WARNING. Do NOT add a "W9 flag" until a real consolidate-keep-all content-dedup
-    #   stage is wired onto the sweep evidence path.
+    # W9 dedup=ContentDeduplicator: GRADUATED from build-deferred to a wired winner (I-deepfix-001
+    #   #1344). The consolidate-keep-all content-dedup stage this comment previously demanded as the
+    #   precondition NOW EXISTS: src/polaris_graph/synthesis/content_dedup_consolidate.py groups
+    #   different-title near-identical-BODY syndicated sources (the residual gap finding_dedup's DOI/
+    #   folded-title keying misses) into keep-all corroboration baskets — ANNOTATE-only, never drop,
+    #   never merge (§-1.3). It is wired on the generator's post-retraction pool
+    #   (multi_section_generator.consolidate_body_syndication) with a firing canary
+    #   ([content_dedup_consolidate] W9: ...) + the body_syndication manifest telemetry, so its firing
+    #   is OBSERVABLE (no longer the build-deferred ABSENCE). The §-1.3-VIOLATING DROP variant
+    #   (PG_W9_CONTENT_DEDUP -> ContentDeduplicator.unique_items, which sheds corroborators) STAYS
+    #   forbidden by the W9 GATE at the end of preflight_full_capability. The keep-all winner is
+    #   force-ON here + preflight-required + allowlisted (the conscious "winner" decision).
+    "PG_CONTENT_DEDUP_CONSOLIDATE": "1",                          # W9 dedup=ContentDeduplicator consolidate-keep-all (content_dedup_consolidate.py)
     # SMOKE NOTE: _SMOKE_SCALE_OVERRIDES inherits the real EMBED/RERANK winners (Qwen3 embed/rerank) as
     # genuine model-loading plumbing coverage — a smoke on the default MiniLM would never exercise the
     # winner-model load path, so a load bug would surface only on the expensive full run. EXCEPTION
@@ -1452,6 +1446,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # cleanup, ZERO cap per §-1.3); a required-truthy flag set to 0 in the slate would fail the preflight.
     # The pool is consolidated keep-all (CONSOLIDATE-DON'T-DROP); the cap is GONE, not merely bypassed.
     "PG_USE_FINDING_DEDUP",
+    # I-deepfix-001 (#1344): W9 dedup=ContentDeduplicator GRADUATED to wired — the consolidate-keep-all
+    # body-syndication stage (content_dedup_consolidate.consolidate_body_syndication) now fires on the
+    # generator's post-retraction pool with a canary + manifest telemetry, so OFF is a silent winner-dark.
+    # Fail closed if off before spend. (The §-1.3-violating DROP variant PG_W9_CONTENT_DEDUP stays
+    # forbidden by the W9 GATE — distinct flag.)
+    "PG_CONTENT_DEDUP_CONSOLIDATE",
     # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
     # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
     # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
@@ -1911,25 +1911,23 @@ _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS: dict[str, str] = {
 # truthy-required flag with no run-path consumer would FALSE-PASS (env="1" while the feature never
 # fires). preflight_full_capability emits a LOUD WARNING naming each (the operator reads by ear), so the
 # gap is never silent. (name, reason) — surfaced verbatim in the warning.
-# I-wire-001 P1-1: W1 intent_frame GRADUATED out of this list — run_intent_frame() is now called on the
-# run path (run_honest_sweep_r3.py:6426, fail-closed), so it is preflight-required above. Only W9
-# remains: the I-wire-001 P1-2 dedup-agent reconcile traced EVERY ContentDeduplicator.deduplicate()
-# caller and confirmed W9 is NEITHER a standalone wire NOR CRAG-transitive (PG_ADEQUACY_CRAG is the
-# crag_adequacy_loop classifier, which never calls it) — so it is genuinely deferred, warn-only, not a
-# fake required-flag and not falsely claimed "covered by CRAG".
-_BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = (
-    (
-        "W9 dedup=ContentDeduplicator",
-        "NO Gate-B run-path consumer and NO wiring flag (not even PG_ADEQUACY_CRAG): the only caller of "
-        "ContentDeduplicator.deduplicate() is CRAGRetriever (graph_v2 / pipeline-B, dead on the active "
-        "sweep path); the Gate-B PG_ADEQUACY_CRAG is the crag_adequacy_loop classifier, which never calls "
-        "it (I-wire-001 P1-2 dedup-agent reconcile — W9 does NOT fire transitively via CRAG). The content "
-        "near-dup function is served on Gate-B by finding_dedup same-work consolidation (#7, "
-        "consolidate-keep-all); a hard-drop content-dedup stage is deliberately NOT wired (it would shed "
-        "corroborators — §-1.3). Wire a consolidate-keep-all content-dedup stage before adding any W9 "
-        "flag — NOT slate-forced and NOT preflight-required",
-    ),
-)
+# I-wire-001 P1-1: W1 intent_frame GRADUATED (run_intent_frame() called at run_honest_sweep_r3.py:6426).
+# I-deepfix-001 #1344: W9 dedup GRADUATED too — its consolidate-keep-all body-syndication stage is now
+# wired (content_dedup_consolidate.consolidate_body_syndication) + canary + manifest telemetry, so it is
+# force-ON + preflight-required + allowlisted. The list is now EMPTY. (Historical note: the I-wire-001
+# P1-2 dedup-agent reconcile correctly found the ContentDeduplicator DROP variant was neither a standalone
+# wire nor CRAG-transitive — that DROP variant stays forbidden by the W9 GATE; what graduated is the new
+# keep-all stage, not the DROP variant.) A FUTURE build-deferred winner (module built, consumer not yet
+# wired) is re-added to the tuple below so preflight_full_capability emits its LOUD WARNING.
+# I-deepfix-001 (#1344): EMPTY — W9 dedup=ContentDeduplicator was the last build-deferred winner and is
+# now GRADUATED. The consolidate-keep-all body-syndication stage
+# (src/polaris_graph/synthesis/content_dedup_consolidate.py, wired in
+# multi_section_generator.consolidate_body_syndication) fires on the Gate-B run path with a canary +
+# body_syndication manifest telemetry, so W9 is force-ON + preflight-required + allowlisted above, not
+# warn-only. The §-1.3-violating ContentDeduplicator DROP variant (PG_W9_CONTENT_DEDUP) stays forbidden by
+# the W9 GATE. A FUTURE build-deferred winner (module built, consumer not yet wired) is re-added here so
+# preflight_full_capability emits its LOUD WARNING.
+_BENCHMARK_BUILD_DEFERRED_WINNERS: tuple[tuple[str, str], ...] = ()
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────
 # I-deepfix-001 (#1344) PURITY — the WINNER FIRE-CONTRACT + slate-purity data the 3 serious-preflight gates
@@ -2010,6 +2008,12 @@ _WINNER_FIRING_MARKER_CONTRACT: dict[str, _FiringMarker] = {
     "W8_cred_llm_tiering": _FiringMarker(
         "[credibility_llm_tiering] tiered via GLM", forbid=("DEGRADED (rules-floor only)",)
     ),
+    # W9 — content_dedup_consolidate.py "[content_dedup_consolidate] W9: ... basket(s) ... (KEEP-ALL ...)"
+    # (I-deepfix-001 #1344 GRADUATED). The consolidate-keep-all body-syndication canary; fires on every
+    # Gate-B run that reaches the generator's post-retraction pool (>=2 eligible rows) — even at 0 baskets
+    # (a legitimate fire: it ran, found no near-identical-body syndication). KEEP-ALL is asserted in the
+    # line; FORBID nothing (0 baskets is success). This is the behavioral proof W9 fired (was the DARK gap).
+    "W9_dedup_content_consolidate": _FiringMarker("[content_dedup_consolidate] W9:"),
     # W10 — consolidation_nli.py:125 "[consolidation_nli] loading cross-encoder %s" (CONDITIONAL: only when
     # >=2 cross-cluster keys exist; absence is allowed).
     "W10_consolidate_nli": _FiringMarker("[consolidation_nli] loading cross-encoder", conditional=True),
@@ -2104,6 +2108,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_RELEVANCE_SCORER",                   # W6 main-path activation (semantic_v2 string)
     "PG_RERANKER_MODEL",                     # W7 rerank=Qwen3-Reranker-4B (string winner)
     "PG_CREDIBILITY_LLM_TIERING",            # W8 cred=llm_tiering
+    "PG_CONTENT_DEDUP_CONSOLIDATE",          # W9 dedup=ContentDeduplicator (consolidate-keep-all body-syndication; I-deepfix-001 #1344 GRADUATED from build-deferred)
     "PG_CONSOLIDATION_NLI",                  # W10 consolidate=NLI
     "PG_ADEQUACY_CRAG",                      # W11 adequacy=CRAG
     "PG_VERIFIED_COMPOSE",                   # W12 compose=floor_abstractive
@@ -3019,29 +3024,31 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
                 f"'winner or infra?' decision the gate exists to force)."
             )
 
-    # ── W9 GATE — DARK winner, LOUD operator-ack (never a silent pass, never a block) ────────────────
-    # W9 (dedup=ContentDeduplicator) ships a DROP variant; wiring it as-is sheds corroborators and VIOLATES
-    # §-1.3 consolidate-keep-all + the FROZEN faithfulness contract. The FIRST-BUILD-STEP reconcile VERIFIED
-    # (not assumed) that the content near-dup function is SUBSUMED on Gate-B by the keep-all consolidation
-    # stack (_W9_SUBSUMED_BY). So W9's DARK state is CORRECT-BY-DESIGN — the gate LOGS this LOUDLY (the
-    # operator reads by ear) and PROCEEDS. It does NOT silent-pass: if a future operator wires the DROP
-    # variant onto the run path (PG_W9_CONTENT_DEDUP truthy) it FAILS CLOSED — that would violate §-1.3 —
-    # unless the operator signs the §-1.3 waiver PG_W9_DARK_ACK=1 (logged loudly). This REPLACES the prior
-    # build-deferred WARNING (now emitted at the top of preflight_full_capability for W9).
+    # ── W9 GATE — keep-all winner WIRED; the §-1.3-violating DROP variant stays forbidden ────────────
+    # I-deepfix-001 (#1344): W9 GRADUATED. The CONSOLIDATE-KEEP-ALL variant
+    # (PG_CONTENT_DEDUP_CONSOLIDATE -> content_dedup_consolidate.consolidate_body_syndication) is now wired
+    # on the run path (groups near-identical-BODY syndication into keep-all baskets — annotate, never drop)
+    # and is force-ON + preflight-required above, so OFF already fails the required-flags loop. This gate's
+    # REMAINING job is to forbid the SEPARATE §-1.3-VIOLATING DROP variant: ContentDeduplicator's
+    # ``unique_items`` (PG_W9_CONTENT_DEDUP) sheds corroborators. If a future operator wires the DROP variant
+    # it FAILS CLOSED — unless they sign the §-1.3 waiver PG_W9_DARK_ACK=1 (logged loudly). The keep-all
+    # winner's BEHAVIORAL proof is the [content_dedup_consolidate] run-log canary + body_syndication manifest.
+    _w9_keepall_on = os.getenv("PG_CONTENT_DEDUP_CONSOLIDATE", "1").strip().lower() in _ON_TOKENS
     _w9_drop_wired = os.getenv("PG_W9_CONTENT_DEDUP", "0").strip().lower() in _ON_TOKENS
     _w9_ack = os.getenv("PG_W9_DARK_ACK", "0").strip().lower() in _ON_TOKENS
     if _w9_drop_wired and not _w9_ack:
         raise RuntimeError(
             "benchmark preflight FAILED [W9]: PG_W9_CONTENT_DEDUP is wired (the ContentDeduplicator DROP "
             "variant) but the §-1.3 waiver PG_W9_DARK_ACK is not set — a hard-drop content-dedup stage sheds "
-            f"corroborators and violates consolidate-keep-all. The content near-dup function is already "
-            f"SUBSUMED by {_W9_SUBSUMED_BY}. Remove PG_W9_CONTENT_DEDUP, or build a consolidate-keep-all "
-            "content-dedup stage, or sign PG_W9_DARK_ACK=1 to override."
+            f"corroborators and violates consolidate-keep-all. The keep-all winner "
+            f"(PG_CONTENT_DEDUP_CONSOLIDATE) + {_W9_SUBSUMED_BY} already cover near-dup consolidation. "
+            "Remove PG_W9_CONTENT_DEDUP, or sign PG_W9_DARK_ACK=1 to override."
         )
     _w9_status_msg = (
-        "[preflight W9-GATE] W9 dedup=ContentDeduplicator is DARK BY DESIGN on the Gate-B run path — its "
-        f"content near-dup function is SUBSUMED by {_W9_SUBSUMED_BY}. Proceeding (the DROP variant stays "
-        "UNWIRED; wiring it would violate §-1.3)."
+        "[preflight W9-GATE] W9 dedup=ContentDeduplicator WIRED via the consolidate-keep-all body-"
+        f"syndication stage (PG_CONTENT_DEDUP_CONSOLIDATE={'on' if _w9_keepall_on else 'OFF'}); the §-1.3-"
+        "violating DROP variant (PG_W9_CONTENT_DEDUP) stays forbidden. Behavioral proof = the "
+        "[content_dedup_consolidate] run-log canary + body_syndication manifest telemetry."
     )
     if _w9_drop_wired and _w9_ack:
         _w9_status_msg = (

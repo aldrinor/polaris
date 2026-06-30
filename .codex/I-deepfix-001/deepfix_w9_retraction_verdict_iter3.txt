@@ -1,0 +1,16 @@
+verdict: APPROVE
+
+novel_p0: []
+
+continuing_p0: []
+
+p1: []
+
+p2:
+- `PG_CONTENT_DEDUP_CONSOLIDATE` is in the slate, required flags, and allowlist, but not `_BENCHMARK_FORCE_ON_FLAGS`; it is effectively forced via the numeric-floor slate path and the required-truthy gate catches OFF, so execution is not blocked. But SLATE-PURITY does not actually exercise the new allowlist entry. See [run_gate_b.py](/C:/POLARIS/scripts/dr_benchmark/run_gate_b.py:1560).
+- The W9 marker producer is real: `[content_dedup_consolidate] W9:` is emitted on the eligible early-return and main paths. The broader firing-marker contract still appears to be an exposed/manual audit contract, not an in-run post-success enforcement path; no W9-specific blocker if the external §-1.1 audit greps the process log.
+- Accepted/non-blocking: W9 still runs before M-52 pull, so M-52-pulled non-retracted rows are not body-syndication annotated. Retraction cleanup for M-52 remains intact.
+
+convergence_call: accept_remaining
+
+remaining_blockers_for_execution: []
