@@ -637,7 +637,11 @@ def test_openrouter_probe_request_matches_production(monkeypatch, role):
 
     # I-beatboth-008 (#1285): all-GLM-5.2 — the benchmark Mirror slug is upgraded z-ai/glm-5.1 ->
     # z-ai/glm-5.2 (the production verifier lineup the probe must match field-for-field).
-    slugs = {"mirror": "z-ai/glm-5.2", "sentinel": "minimax/minimax-m2", "judge": "qwen/qwen3.6-35b-a3b"}
+    # I-judge-kimi (2026-06-29): the benchmark Judge slug is swapped qwen/qwen3.6-35b-a3b ->
+    # moonshotai/kimi-k2.6 (21-provider load-spread -> no 429). This fixture mirrors the ACTIVE
+    # production lineup (openrouter_role_transport._BENCHMARK_LINEUP_DEFAULT_SLUG), so it tracks the
+    # swap the same way the Mirror upgrade above did.
+    slugs = {"mirror": "z-ai/glm-5.2", "sentinel": "minimax/minimax-m2", "judge": "moonshotai/kimi-k2.6"}
     slug = slugs[role]
     monkeypatch.setattr(rgb, "four_role_transport_mode", lambda: "openrouter")
     os.environ["OPENROUTER_API_KEY"] = "test-key"

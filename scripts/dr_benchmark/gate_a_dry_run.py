@@ -287,6 +287,8 @@ def check_role_contracts() -> CheckResult:
         )
 
     # Judge through the adapter+transport: an off-enum token must RAISE (no silent default).
+    # I-judge-kimi (2026-06-29): the benchmark Judge is now moonshotai/kimi-k2.6 (was qwen); the
+    # off-enum rejection under test is model-agnostic, so this just reflects the current Judge slug.
     try:
         run_judge(
             transport,
@@ -294,7 +296,7 @@ def check_role_contracts() -> CheckResult:
             evidence,
             "supported",
             "ungrounded",
-            model_slug="qwen/qwen3.6-35b-a3b",
+            model_slug="moonshotai/kimi-k2.6",
         )
         problems.append(
             f"Judge accepted off-enum token {_JUDGE_OFF_ENUM!r} via transport "

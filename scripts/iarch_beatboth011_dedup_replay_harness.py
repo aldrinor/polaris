@@ -29,10 +29,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # ── import-check the two production modules under test ────────────────────────────────────────────
+import re as _re_module  # noqa: E402
 import src.polaris_graph.generator.fact_dedup as fact_dedup  # noqa: E402
 import src.polaris_graph.generator.verified_compose as verified_compose  # noqa: E402
 
-_EV_RE = fact_dedup._SPAN_PROVENANCE_TOKEN_RE  # reuse the [#ev:id:a-b] grammar
+# Local copy of the [#ev:<id>:<start>-<end>] provenance grammar. The shared
+# fact_dedup._SPAN_PROVENANCE_TOKEN_RE was removed when the §-1.3-banned
+# PG_SPAN_PER_SOURCE_CITE_CAP bolt-on was deleted (I-deepfix-001 breadth fix);
+# this harness only needs to read ev_ids out of rendered prose, so it carries
+# its own self-contained regex.
+_EV_RE = _re_module.compile(r"\[#ev:(?P<ev_id>[^:\]]+):(?P<start>\d+)-(?P<end>\d+)\]")
 
 
 def _ev_ids_in(sections: dict) -> list[str]:

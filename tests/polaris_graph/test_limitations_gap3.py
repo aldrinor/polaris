@@ -33,6 +33,41 @@ def test_gap3_telemetry_block_format() -> None:
     assert "2010-01-01" in block
 
 
+def test_gap3_telemetry_not_comparable_excluded_from_count() -> None:
+    # I-deepfix-001: a bucket the A17 guard screened as not-comparable must NOT inflate
+    # ``contradictions_detected`` nor be described as "sources disagree"; it is disclosed as a
+    # screened pairing with no contradiction asserted.
+    block = _format_telemetry_block(
+        tier_fractions={"T1": 0.22},
+        contradictions=[
+            {"subject": "technological", "predicate": "change [not_comparable]",
+             "relative_difference": 0.0, "severity": "low", "not_comparable": True},
+            {"subject": "displacement", "predicate": "risk [not_comparable]",
+             "relative_difference": 0.0, "severity": "low", "not_comparable": True},
+        ],
+        date_range=None,
+    )
+    assert "contradictions_detected: 0" in block
+    assert "not_comparable_pairings: 2" in block
+    assert "NO cross-source contradiction is asserted" in block
+
+
+def test_gap3_telemetry_mixed_partition_counts_only_comparable() -> None:
+    block = _format_telemetry_block(
+        tier_fractions=None,
+        contradictions=[
+            {"subject": "dose", "predicate": "response",
+             "relative_difference": 0.4, "severity": "high"},
+            {"subject": "scale", "predicate": "metric [not_comparable]",
+             "relative_difference": 0.0, "severity": "low", "not_comparable": True},
+        ],
+        date_range=None,
+    )
+    assert "contradictions_detected: 1" in block
+    assert "not_comparable_pairings: 1" in block
+    assert "dose / response" in block
+
+
 def test_gap3_telemetry_omitted_when_empty() -> None:
     prompt = build_prompt(
         "Question?",

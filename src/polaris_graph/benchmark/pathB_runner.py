@@ -24,6 +24,7 @@ from typing import Iterator
 
 from src.polaris_graph.benchmark import pathB_capture as _capture
 from src.polaris_graph.llm.openrouter_client import validate_role_families
+from src.polaris_graph.roles.openrouter_role_transport import benchmark_verifier_slug
 from scripts.architecture.verify_lock import load_lock
 from scripts.dr_benchmark.pathB_run_gate import (
     GateError,
@@ -48,6 +49,16 @@ _ROLE_ENV_OVERRIDE = {
     "sentinel": "PG_SENTINEL_MODEL",
     "judge": "PG_JUDGE_MODEL",
 }
+
+
+def _benchmark_openrouter_route() -> bool:
+    """True iff the four-role transport is the benchmark OpenRouter route (PG_FOUR_ROLE_TRANSPORT
+    unset or 'openrouter' — the DEFAULT). On that route the per-claim verifiers are served by the
+    benchmark lineup over OpenRouter (the moonshotai/kimi-k2.6 Judge etc.), NOT the lock's sovereign
+    self-host boxes. 'self_host' => the lock route (qwen Judge on the vast box), so the benchmark
+    override below does NOT apply. Mirrors run_gate_b.four_role_transport_mode's default test WITHOUT
+    importing the heavy benchmark CLI (LAW VII: a benchmark-side helper, not a lock change)."""
+    return (os.getenv("PG_FOUR_ROLE_TRANSPORT") or "openrouter").strip().lower() == "openrouter"
 
 
 def _lock_default_slug(role: str) -> str:
@@ -100,6 +111,21 @@ def _role_pins() -> list[RolePin]:
     I-bug-946 (#932): provider_name is left empty here; preflight() resolves the ACTUAL served
     provider per role via /api/v1/models/<id>/endpoints (the env is a candidate list)."""
     slug_by_role = {role: _resolve_role_slug(role) for role in _LOCKED_ROLES}
+    # I-judge-kimi (2026-06-29): BENCHMARK-AWARE Judge pin. On the benchmark OpenRouter route the
+    # Judge is NOT served by the lock's sovereign self-host qwen — qwen's ~2 OpenRouter providers
+    # 429-tore the per-claim D8 seam, so the benchmark Judge was swapped to moonshotai/kimi-k2.6
+    # (21 OpenRouter endpoints; see openrouter_role_transport._BENCHMARK_LINEUP_DEFAULT_SLUG). The
+    # served identity the post-run gate must match is therefore the BENCHMARK lineup slug
+    # (benchmark_verifier_slug('judge') = kimi) served OVER OpenRouter — NOT qwen @ vast_self_host_fp8.
+    # So on this route the Judge pin's slug comes from the benchmark lineup AND its serving_route is
+    # forced to 'openrouter' (set on the RolePin below; preflight preserves a pre-set route). The
+    # Mirror/Sentinel/Generator pins are UNCHANGED. The SOVEREIGN lock path is untouched: in
+    # self_host mode this override is OFF (the Judge stays the lock's qwen @ vast_self_host_fp8), and
+    # PG_JUDGE_MODEL / the openrouter_client default stay the canonical-pinned qwen. This is a
+    # benchmark-side serving override, NOT a lock change.
+    judge_on_benchmark_route = _benchmark_openrouter_route()
+    if judge_on_benchmark_route:
+        slug_by_role["judge"] = benchmark_verifier_slug("judge")
     # N-way family segregation on the effective 4-role map (raises RuntimeError on collision).
     # I-beatboth-008 (#1285): honor the lock's family_policy.allowed_collisions (the single
     # source of truth) so the operator-approved all-GLM-5.2 generator+mirror collision PASSES
@@ -110,7 +136,27 @@ def _role_pins() -> list[RolePin]:
     validate_role_families(slug_by_role, allowed_collisions=_allowed_collisions)
     surrogate_fields = ("provider_name", "model")
     return [
-        RolePin(role, slug_by_role[role], "", surrogate_fields)
+        RolePin(
+            role,
+            slug_by_role[role],
+            "",
+            surrogate_fields,
+            # I-judge-kimi: the benchmark Judge is served over OpenRouter (kimi), so pin its route
+            # to 'openrouter' to OVERRIDE the lock's vast_self_host_fp8 (preflight preserves a
+            # pre-set serving_route). Every other role passes None -> preflight sources its route
+            # from the lock as before (byte-identical: generator/mirror=openrouter, sentinel=
+            # vast_self_host, judge=vast_self_host_fp8 in the sovereign self_host path).
+            serving_route=("openrouter" if role == "judge" and judge_on_benchmark_route else None),
+            # I-judge-kimi: the benchmark Judge is DELIBERATELY UNPINNED on OpenRouter (the
+            # judge `order`/allow_fallbacks pin was removed from openrouter_provider_routing.yaml so
+            # OpenRouter LOAD-BALANCES the ~178 per-claim D8 calls across kimi's 21 endpoints -> no
+            # 429), and the blank-verdict recovery rotates providers. So a legitimate, fully-verified
+            # kimi run serves MANY providers; allow_provider_drift tells assert_post_run to enforce
+            # served==pinned MODEL (kimi) over the OpenRouter route but ALLOW the provider to vary.
+            # ONLY the benchmark kimi Judge gets this; Mirror/Sentinel/Generator + every self-host
+            # role keep allow_provider_drift=False (strict single-provider gate, byte-for-byte).
+            allow_provider_drift=(role == "judge" and judge_on_benchmark_route),
+        )
         for role in _LOCKED_ROLES
     ]
 

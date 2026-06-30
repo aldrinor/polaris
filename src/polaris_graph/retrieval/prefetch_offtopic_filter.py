@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 logger = logging.getLogger("polaris_graph.prefetch_offtopic")
@@ -65,14 +65,29 @@ class SearchCandidate:
 
 @dataclass
 class FilterResult:
-    """Return value of filter_search_results()."""
+    """Return value of filter_search_results().
+
+    §-1.3 DEMOTE-NOT-DROP (operator-locked 2026-06-13 WEIGHT-and-CONSOLIDATE):
+    ``kept`` carries EVERY candidate — cosine is a WEIGHT and an ordering signal,
+    NOT a gate. ``kept`` is sorted by cosine DESCENDING so the most-relevant are
+    fetched first; below-threshold candidates are KEPT at the tail (DEMOTED) and
+    recorded in ``demoted`` (the disclosed drop->demote conversion), NEVER moved to
+    ``rejected``. ``rejected`` is reserved ONLY for genuine structural errors, so
+    ``total_rejected == 0`` on the normal path. The ONLY sanctioned hard DROP in
+    the whole pipeline is the downstream faithfulness engine (strict_verify / NLI /
+    4-role D8 / provenance / span-grounding) — which is untouched here.
+    """
 
     kept: list[SearchCandidate]
-    rejected: list[tuple[SearchCandidate, float, str]]  # (cand, sim, reason)
+    rejected: list[tuple[SearchCandidate, float, str]]  # structural errors ONLY (cand, sim, reason)
     threshold_used: float
     total_in: int
     total_kept: int
     total_rejected: int
+    # §-1.3 telemetry: the below-threshold-but-KEPT (demoted) candidates with their
+    # cosine sim. Surfaced so the drop->demote conversion is DISCLOSED, not silent.
+    demoted: list[tuple[SearchCandidate, float]] = field(default_factory=list)
+    total_demoted: int = 0
 
 
 # I-deepfix-001 B1 (2026-06-28): the relevance embedder is the LOCKED slate
@@ -233,7 +248,17 @@ def filter_search_results(
     research_question: str,
     threshold: Optional[float] = None,
 ) -> FilterResult:
-    """Filter search candidates by semantic similarity to the research question.
+    """Order search candidates by semantic similarity to the research question —
+    DEMOTE-NOT-DROP (§-1.3 WEIGHT-and-CONSOLIDATE, operator-locked 2026-06-13).
+
+    Cosine similarity to the canonical research question is a WEIGHT and an ordering
+    signal, NEVER a gate. EVERY candidate flows through to the fetch stage: the
+    returned ``kept`` list is sorted by cosine DESCENDING (most-relevant first) and
+    the below-threshold tail is DEMOTED (kept at the end), recorded in ``demoted``
+    for disclosure — it is NOT hard-dropped. The downstream fetch BUDGET (the
+    disclosed cost bound) decides how far down the cosine-ordered list we actually
+    fetch; the off-topic THRESHOLD only orders, it no longer filters. This removes
+    the §-1.3-banned hard FILTER at the search-candidate boundary.
 
     Args:
         candidates: List of SearchCandidate. Must have .snippet_text.
@@ -241,12 +266,15 @@ def filter_search_results(
             This is the ONLY anchor — do not use state.query or
             amplifier-derived variants here.
         threshold: Override for PG_OFFTOPIC_PREFETCH_THRESHOLD. None
-            uses the env var (default 0.25).
+            uses the env var (default 0.25). NOTE: this is now a DEMOTION
+            boundary (below it => demoted, kept at the tail), not a drop gate.
 
     Returns:
-        FilterResult with kept / rejected lists and telemetry counts.
-        FAIL-OPEN: if the embedder fails to load or similarity raises,
-        we keep everything and log a warning. Retrieval continues with
+        FilterResult with ``kept`` (ALL candidates, cosine-DESC ordered),
+        ``demoted`` (the below-threshold tail, disclosed), an empty ``rejected``
+        (reserved for genuine structural errors), and telemetry counts.
+        FAIL-OPEN: if the embedder fails to load or similarity raises, we keep
+        everything in arrival order and log a warning. Retrieval continues with
         the looser post-fetch filter as the second line of defense.
     """
     if not candidates:
@@ -299,22 +327,35 @@ def filter_search_results(
             total_rejected=0,
         )
 
-    kept: list[SearchCandidate] = []
-    rejected: list[tuple[SearchCandidate, float, str]] = []
+    # §-1.3 DEMOTE-NOT-DROP: cosine is a WEIGHT/ordering signal, NOT a gate. Keep
+    # EVERY candidate; below-threshold ones are DEMOTED (kept, recorded), never
+    # moved to `rejected`. `rejected` stays reserved for genuine structural errors
+    # (there are none on this path now), so `total_rejected == 0` by default.
+    scored: list[tuple[SearchCandidate, float]] = []
+    demoted: list[tuple[SearchCandidate, float]] = []
     for cand, sim in zip(candidates, sims):
-        if not cand.snippet_text.strip():
-            # Keep candidates with no snippet — we need to fetch to know.
-            kept.append(cand)
-            continue
-        if sim >= threshold:
-            kept.append(cand)
-        else:
-            rejected.append((cand, float(sim), "below_prefetch_threshold"))
+        sim_val = float(sim)
+        scored.append((cand, sim_val))
+        # A candidate WITH embeddable text scoring below the threshold is DEMOTED
+        # (kept at the tail), never dropped. Empty-snippet candidates carry no
+        # relevance signal ("fetch to know") so they are NOT counted as demoted —
+        # they simply sort by their ~0.0 sim toward the tail like before they were
+        # interspersed, but they still SURVIVE for the fetch stage.
+        if cand.snippet_text.strip() and sim_val < threshold:
+            demoted.append((cand, sim_val))
+
+    # Sort the FULL kept list by cosine DESCENDING (stable: equal sims keep arrival
+    # order). The consumer fetches `kept` in list order up to the fetch budget, so
+    # this puts the most-relevant first and lets the below-threshold demoted tail
+    # SURVIVE at the end — fetched only if the budget reaches it (a disclosed bound),
+    # never hard-dropped here.
+    kept: list[SearchCandidate] = [cand for cand, _sim in sorted(scored, key=lambda t: -t[1])]
+    rejected: list[tuple[SearchCandidate, float, str]] = []  # structural errors only
 
     logger.info(
-        "[prefetch_offtopic] filter threshold=%.2f kept=%d rejected=%d "
-        "total=%d",
-        threshold, len(kept), len(rejected), len(candidates),
+        "[prefetch_offtopic] DEMOTE-not-drop threshold=%.2f kept=%d "
+        "(demoted_below_threshold=%d, dropped=0) total=%d",
+        threshold, len(kept), len(demoted), len(candidates),
     )
 
     return FilterResult(
@@ -322,4 +363,6 @@ def filter_search_results(
         total_in=len(candidates),
         total_kept=len(kept),
         total_rejected=len(rejected),
+        demoted=demoted,
+        total_demoted=len(demoted),
     )

@@ -17,10 +17,16 @@ at all; only the GENERAL `ibm-granite/granite-4.1-8b` is, not the Guardian varia
 benchmark stage the operator re-picked the OpenRouter-available alternatives, Codex-gated in
 `outputs/I-meta-002/role_selection_final.md` (2026-05-31): Mirror -> `z-ai/glm-5.1`
 (family z-ai), Sentinel -> the general `ibm-granite/granite-4.1-8b` (family ibm-granite).
-Writer (`deepseek/deepseek-v4-pro`) and Judge (`qwen/qwen3.6-35b-a3b`) are IDENTICAL in the lock
-and the benchmark lineup. So at the benchmark stage this transport resolves each verifier role's
-slug from `BENCHMARK_VERIFIER_LINEUP` (the env-overridable lineup below), NOT from the lock's
-`_lock_model_slug`.
+Writer/generator is IDENTICAL in the lock and the benchmark lineup. The Judge DIVERGED 2026-06-29
+(I-judge-kimi, operator directive): the benchmark Judge is now `moonshotai/kimi-k2.6` while the
+canonical-pinned lock still names the sovereign Judge `qwen/qwen3.6-35b-a3b` (pending an operator-
+signed reconciliation) — the SAME benchmark-vs-lock divergence the Mirror/Sentinel already use. WHY
+the swap: `qwen/qwen3.6-35b-a3b` has too few OpenRouter providers (wandb/io-net only), so the
+per-claim Judge burst 429-rate-limited and TORE the 4-role D8 seam (the report only rendered via the
+FIX-1 partial-backbone fallback). `moonshotai/kimi-k2.6` has 21 OpenRouter endpoints, so OpenRouter
+spreads the burst and it does NOT 429 -> the seam completes -> the report renders FULLY D8-verified.
+So at the benchmark stage this transport resolves each verifier role's slug from
+`BENCHMARK_VERIFIER_LINEUP` (the env-overridable lineup below), NOT from the lock's `_lock_model_slug`.
 
 SENTINEL BENCHMARK-vs-SOVEREIGN TRADEOFF (honest, per the Codex gate on
 role_selection_final.md): the general `ibm-granite/granite-4.1-8b` is NOT the purpose-built
@@ -56,7 +62,10 @@ the `reasoning_content` field OR a leading inline `<think>` block split off the 
 the Mirror `<co>` raw-text-as-is invariant, and Path-B capture sanitization
 (`_sanitize_raw_for_capture`). The genuinely-new bits here are the OpenRouter-specific ones:
 the base URL, the Bearer-`OPENROUTER_API_KEY` auth, the reasoning REQUEST param
-(`{"enabled": True, "effort": "xhigh"}` — `xhigh` is OpenRouter's documented MAXIMUM effort),
+(`{"enabled": True, "effort": "xhigh"}` — `xhigh` is OpenRouter's documented MAXIMUM effort; the
+`moonshotai/kimi-k2.6` Judge instead gets a BARE `{"enabled": True}` reasoning block via
+`_judge_reasoning_block`, since kimi advertises no `supported_efforts` and would 400 on any effort
+tier — reasoning stays ON),
 the served-identity stash (`{provider, model, system_fingerprint}` — OpenRouter reports a
 `provider`, unlike a self-host vLLM whose identity is its endpoint), the benchmark-lineup slug
 resolution (P1-1), the `message.reasoning` extraction (P1-3, see below), and the
@@ -147,11 +156,19 @@ _EXCLUDED_ROLE = "generator"
 #                                                                   (the Guardian is the SOVEREIGN
 #                                                                   Sentinel — see module docstring's
 #                                                                   benchmark-vs-sovereign tradeoff).
-#   - Judge    `qwen/qwen3.6-35b-a3b`       (family qwen)        — IDENTICAL to the lock.
-# Writer/generator (`deepseek/deepseek-v4-pro`, family deepseek) is also IDENTICAL to the lock;
-# it runs upstream on OpenRouter via openrouter_client and is not served by THIS transport, but
-# its family is needed by the 4-distinct-family check (resolved from the lock by run_gate_b.py).
-# Families across the active benchmark lineup: deepseek / z-ai / ibm-granite / qwen = 4 distinct.
+#   - Judge    `moonshotai/kimi-k2.6`       (family moonshotai)  — I-judge-kimi (2026-06-29):
+#                                                                   DIVERGES from the lock's sovereign
+#                                                                   Judge `qwen/qwen3.6-35b-a3b` (too
+#                                                                   few OpenRouter providers -> 429
+#                                                                   tore the D8 seam). kimi-k2.6 has 21
+#                                                                   endpoints (load-spread, no 429).
+#                                                                   Lock reconciliation pending.
+# Writer/generator (the lock's `z-ai/glm-5.2`, provider-prefix family z-ai) runs upstream on
+# OpenRouter via openrouter_client and is not served by THIS transport, but its family is needed by
+# the 4-distinct-family check (resolved from the lock by run_gate_b.py; gen+mirror share the z-ai
+# lane via the lock's allowed_collisions).
+# Families across the active benchmark lineup: z-ai (gen+mirror, allowed collision) / minimax /
+# moonshotai = the Sentinel + Judge stay in their own distinct lanes (4-distinct invariant holds).
 #
 # LAW VI (zero hard-coding): each verifier role's benchmark slug is env-overridable via the
 # lock's per-role env_vars (`PG_MIRROR_MODEL` / `PG_SENTINEL_MODEL` / `PG_JUDGE_MODEL`),
@@ -160,7 +177,14 @@ _EXCLUDED_ROLE = "generator"
 _BENCHMARK_LINEUP_ENV = {
     "mirror": "PG_MIRROR_MODEL",
     "sentinel": "PG_SENTINEL_MODEL",
-    "judge": "PG_JUDGE_MODEL",
+    # I-judge-kimi gate P1-1: the benchmark Judge reads a DEDICATED env, DECOUPLED from the lock's
+    # PG_JUDGE_MODEL. Reusing PG_JUDGE_MODEL was unsafe — if it were ever set to the lock's qwen slug,
+    # benchmark_verifier_slug('judge') would silently revert the Judge to the few-provider qwen that
+    # TORE the seam (or hard-stop on the family guard). With a separate env the lock path
+    # (PG_JUDGE_MODEL -> qwen, verify_lock-asserted) and the benchmark path (PG_BENCHMARK_JUDGE_MODEL
+    # -> kimi default) are independent; a cross-family override of EITHER still fails loud at
+    # benchmark_verifier_family.
+    "judge": "PG_BENCHMARK_JUDGE_MODEL",
 }
 _BENCHMARK_LINEUP_DEFAULT_SLUG = {
     # I-beatboth-008 (#1285): all-GLM-5.2 -> mirror z-ai/glm-5.1 -> z-ai/glm-5.2 (== lock model_slug).
@@ -169,7 +193,22 @@ _BENCHMARK_LINEUP_DEFAULT_SLUG = {
     # (replaces the general ibm-granite/granite-4.1-8b, which mislabeled grounded claims). The
     # benchmark default mode for the Sentinel is "decomposition" (see sentinel_adapter).
     "sentinel": "minimax/minimax-m2",
-    "judge": "qwen/qwen3.6-35b-a3b",
+    # I-judge-kimi (2026-06-29, operator directive): benchmark Judge swapped qwen/qwen3.6-35b-a3b
+    # -> moonshotai/kimi-k2.6. WHY: qwen3.6-35b-a3b has too few OpenRouter providers (wandb/io-net
+    # only), so the per-claim Judge burst 429-rate-limited and TORE the 4-role D8 seam (report only
+    # rendered via the FIX-1 partial-backbone fallback). kimi-k2.6 has 21 OpenRouter endpoints (live
+    # /endpoints 2026-06-29: Chutes/Baidu/DeepInfra/SiliconFlow/Novita/Moonshot/Parasail/DigitalOcean/
+    # WandB/AtlasCloud/Ambient/Inceptron/ModelRun/StreamLake/BaseTen/Phala/Cloudflare/Together/
+    # Fireworks/Venice/Decart), so OpenRouter spreads the burst -> NO 429 -> the seam completes -> the
+    # report renders FULLY D8-verified. kimi-k2.6 is the latest Kimi K2 (~1T-param MoE reasoning
+    # model), Modified-MIT open-weight, non-US (Moonshot AI); context 262144, max_completion 262144,
+    # supports `reasoning`. This benchmark default DIVERGES from the canonical-pinned lock's sovereign
+    # Judge (qwen, pending an operator-signed reconciliation) — the SAME benchmark-vs-lock divergence
+    # the Mirror/Sentinel already use. The transport reads THIS default via the DEDICATED
+    # PG_BENCHMARK_JUDGE_MODEL env (NOT the lock's PG_JUDGE_MODEL — gate P1-1 decouple). The lock env
+    # PG_JUDGE_MODEL must still stay at qwen (openrouter_client.PG_JUDGE_MODEL, which verify_lock asserts
+    # == the pinned lock's qwen slug, reads it at import); the benchmark Judge is unaffected by it.
+    "judge": "moonshotai/kimi-k2.6",
 }
 # Expected DEFAULT family lane per benchmark verifier role (the lane each role's
 # role_selection_final slug belongs to). This is the EXPECTED value, not the asserted one —
@@ -192,7 +231,14 @@ _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
     "mirror": "z-ai",
     # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
     "sentinel": "minimax",
-    "judge": "qwen",
+    # I-judge-kimi (2026-06-29): Judge swapped qwen -> moonshotai/kimi-k2.6, so its provider-prefix
+    # family lane is now `moonshotai` (the EXPECTED lane benchmark_verifier_family asserts the active
+    # slug stays within). `moonshotai` is a NEW DISTINCT lane: it does NOT collide with generator+
+    # mirror (`z-ai`, the lock's allowed-collision pair) or the Sentinel (`minimax`), so the 4-distinct
+    # invariant (run_gate_b.assert_four_role_families_distinct) still holds with the Judge alone in
+    # `moonshotai`. The family registry (openrouter_client._FAMILY_PREFIXES) already maps moonshotai/
+    # -> the `kimi` lineage, so a lock reconciliation to family `kimi` would also validate cleanly.
+    "judge": "moonshotai",
 }
 
 
@@ -294,6 +340,40 @@ FOUR_ROLE_STAGE = "benchmark_openrouter"
 # LAW VI: effort is overridable via PG_FOUR_ROLE_REASONING_EFFORT (default "xhigh" = MAX).
 _REASONING_EFFORT = os.getenv("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh")
 
+# === kimi-k2.6 Judge reasoning guard (I-judge-kimi 2026-06-29) ================================
+# The benchmark Judge is now moonshotai/kimi-k2.6 (see _BENCHMARK_LINEUP_DEFAULT_SLUG). Live
+# OpenRouter /models + /endpoints (2026-06-29) report kimi-k2.6 supported_parameters =
+# ['reasoning', 'include_reasoning', ...] on ALL 21 endpoints but OMIT a `supported_efforts` list:
+# kimi accepts the unified `reasoning` param (so the Judge MUST still reason — it is the
+# faithfulness arbiter) but does NOT expose effort selection. Sending ANY effort tier (even "high")
+# risks a 400 on a kimi endpoint, which would TEAR the D8 seam exactly like the 429s this swap fixes.
+# So a kimi-served slug gets a BARE reasoning block {enabled: True} (reasoning ON, no effort) via
+# `_judge_reasoning_block`; non-kimi reasoning slugs (the minimax Sentinel) keep their
+# {enabled: True, effort: ...}. Scoped to kimi slugs by prefix so the Mirror (numeric reasoning cap)
+# and the minimax Sentinel are byte-identical. FAITHFULNESS-NEUTRAL: reasoning stays ON for every
+# reasoning role; only kimi's effort LABEL is dropped (kimi accepts none). There is deliberately NO
+# xhigh->high "clamp" helper — kimi takes NO effort, so the effort field is omitted, not lowered.
+_KIMI_SLUG_PREFIXES = ("moonshotai/", "moonshot/", "kimi/")
+
+
+def _is_kimi_slug(slug: str | None) -> bool:
+    """True iff `slug` is a moonshotai/kimi model (the benchmark Judge family)."""
+    return bool(slug) and str(slug).strip().lower().startswith(_KIMI_SLUG_PREFIXES)
+
+
+def _judge_reasoning_block(slug: str | None, effort: object) -> dict:
+    """Build the `reasoning` block for a reasoning role's OpenRouter body (I-judge-kimi gate P1-2).
+
+    moonshotai/kimi-k2.6's live OpenRouter metadata advertises the `reasoning` parameter but OMITS
+    `supported_efforts` — per OpenRouter that means kimi does NOT expose effort selection, so sending
+    ANY effort tier (even "high") risks a 400 that tears the exact D8 seam this swap fixes. So a kimi
+    slug gets a BARE block {enabled: True} (reasoning stays ON, no effort); the blank-verdict ladder's
+    final reasoning-OFF rung still applies. A non-kimi reasoning slug (minimax / glm) keeps
+    {enabled: True, effort: <effort>} unchanged."""
+    if _is_kimi_slug(slug):
+        return {"enabled": True}
+    return {"enabled": True, "effort": effort}
+
 # I-run11-004: hard floor on the decomposition Sentinel's top-level max_tokens. The certified
 # MiniMax-M2 call used reasoning + max_tokens>=3000; anything below that truncates the JSON
 # {verdict, atoms} mid-emission (the run-12 truncator) and collapses every claim to a fail-closed
@@ -311,7 +391,16 @@ _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS = 3000
 # config/settings/openrouter_provider_routing.yaml is re-pinned to higher-cap-only providers.
 _MIRROR_MAX_TOKENS_CHAIN_MIN = 131072    # glm-5.1: atlas-cloud 202752, z-ai/baidu/novita/gmicloud >= 131072
 _SENTINEL_MAX_TOKENS_CHAIN_MIN = 131072  # minimax-m2: google/atlas-cloud 196608, novita/minimax 131072
-_JUDGE_MAX_TOKENS_CHAIN_MIN = 262140     # qwen3.6: wandb 262144, io-net 262140
+# I-judge-kimi (2026-06-29): the Judge is now moonshotai/kimi-k2.6 and is UNPINNED on OpenRouter
+# (see config/settings/openrouter_provider_routing.yaml — the judge `order`/allow_fallbacks pin was
+# removed so OpenRouter LOAD-BALANCES the per-claim burst across all 21 kimi endpoints -> no 429).
+# So there is no single pinned chain; this nominal cap = kimi-k2.6's high-cap endpoints'
+# max_completion (262144). The DEFAULT Judge verdict budget PG_D8_VERDICT_MAX_TOKENS=16384 is <=
+# EVERY kimi endpoint's cap (DeepInfra floor 16384, Chutes 65535, Venice 65536, the rest 262144/
+# 256000), so OpenRouter's own max_tokens provider-filter keeps ALL 21 in the load-balance. A higher
+# env override is OpenRouter-FILTERED to the high-cap subset (it narrows the spread; it does NOT 400,
+# because the judge is unpinned). Re-derive if the Judge is ever re-pinned to a specific chain.
+_JUDGE_MAX_TOKENS_CHAIN_MIN = 262144     # kimi-k2.6 nominal max_completion (high-cap endpoints)
 
 # I-meta-008 / #1026: blank-verdict step-down ladder. When a reasoning-first verifier returns a
 # BLANK bare verdict (reasoning budget exhausted without converging under the high effort), retry
@@ -337,10 +426,11 @@ _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
 
 # Per-role reasoning policy (Codex iter-2 P1 — reasoning is NOT a one-size-fits-all switch).
 #
-# WHY per-role: Mirror (`z-ai/glm-5.1`) and Judge (`qwen/qwen3.6-35b-a3b`) are DELIBERATIVE
-# verifiers — they weigh evidence and argue a verdict, so they get MAX reasoning effort
-# (`xhigh`) AND `provider.require_parameters=True` (only route to a provider that honors
-# reasoning).
+# WHY per-role: Mirror (`z-ai/glm-5.2`) and Judge (`moonshotai/kimi-k2.6`) are DELIBERATIVE
+# verifiers — they weigh evidence and argue a verdict, so they get MAX reasoning (`xhigh` for the
+# effort-honoring roles; the kimi Judge instead gets a BARE `{"enabled": True}` block via
+# `_judge_reasoning_block`, since kimi advertises no `supported_efforts`) AND
+# `provider.require_parameters=True` (only route to a provider that honors reasoning).
 #
 # Sentinel is MODE-AWARE (I-run11-004): the CERTIFIED MiniMax-M2 DECOMPOSITION Sentinel
 # (`minimax/minimax-m2`, the benchmark + lock default) was certified WITH reasoning ON and
@@ -1200,7 +1290,10 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
     # its OpenRouter slug does not advertise `reasoning`, so `require_parameters=True` would refuse
     # to route and fail the first call. See `role_reasoning_enabled` for the full rationale.
     if role_reasoning_enabled(request.role, request.model_slug):
-        body["reasoning"] = {"enabled": True, "effort": _REASONING_EFFORT}
+        # I-judge-kimi: the kimi Judge gets a BARE {"enabled": True} block (kimi advertises no
+        # supported_efforts, so any effort tier risks a 400); non-kimi reasoning slugs (Sentinel)
+        # keep {"enabled": True, "effort": ...}. Reasoning stays ON for every reasoning role.
+        body["reasoning"] = _judge_reasoning_block(model_slug, _REASONING_EFFORT)
         # require_parameters=True makes OpenRouter ONLY route to a provider that actually HONORS the
         # `reasoning` param (OpenRouter's default when absent is False — it could otherwise route a
         # verifier to a provider that silently IGNORES reasoning, defeating the operator's
@@ -1272,26 +1365,30 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
                 _MIRROR_MAX_TOKENS_CHAIN_MIN,
             )
         else:
-            # I-deepfix-001 (#1344, drb_72 forensic FIX #2): the reasoning Judge (Qwen3.6-35B-A3B)
-            # adjudicates ONE claim with reasoning effort=xhigh and returns a SHORT structured verdict.
-            # The prior I-arch-003 "max max" raise to 262140 MIS-APPLIED the §9.1.8 "max_tokens ALWAYS
-            # MAX" rule (which governs the GENERATOR, not a tiny verdict): reserving ~262k per call blew
-            # the OpenRouter TPM budget (193x HTTP-429) AND, summed with even a small prompt, exceeded the
-            # ~262144 Qwen context window (67x HTTP-400 "requested > context") so the D8 seam timed out.
-            # FIX: restore I-meta-008's generous-but-BOUNDED Judge budget (16384). This RESPECTS §9.1.8
-            # "never starve": effort=xhigh allocates ~95% of max_tokens to reasoning, so the total must
-            # stay strictly above that allocation or the bare verdict truncates to empty (the I-meta-008
-            # starvation failure — "popping it starved the verdict to empty"); 16384 leaves ample room
-            # for xhigh reasoning AND the verdict. It ALSO kills the blowup: ~16x fewer reserved tokens
-            # than 262140, and well under the 262144 window so the HTTP-400 can never fire. (Codex
-            # I-deepfix-001 preflight iter-1 flagged the FIX-4 over-suppression; this iter-2 raise of the
-            # Judge default 4000 -> 16384 additionally removes the starvation risk a 4000 cap carried
-            # under xhigh.) Scoped to THIS verdict-judge call only — the generator keeps its MAX budget
-            # (and is not served by this transport: role_endpoint('generator') raises). FAITHFULNESS-
-            # NEUTRAL: identical model + reasoning + verdict parsing; only the reserved output ceiling
-            # shrinks from the over-raised 262140 back to the proven 16384. LAW VI: env-overridable +
-            # parse-guarded; a non-positive override falls back to the default; still clamped to the
-            # Judge chain min as a 400-proof backstop.
+            # I-deepfix-001 (#1344, drb_72 forensic FIX #2): the reasoning Judge (I-judge-kimi
+            # 2026-06-29: moonshotai/kimi-k2.6, formerly qwen/qwen3.6-35b-a3b) adjudicates ONE claim
+            # with reasoning ON (kimi gets a bare {"enabled": True} via _judge_reasoning_block — no
+            # effort tier, since kimi advertises no supported_efforts)
+            # and returns a SHORT structured verdict. The prior I-arch-003 "max max" raise to 262140
+            # MIS-APPLIED the §9.1.8 "max_tokens ALWAYS MAX" rule (which governs the GENERATOR, not a
+            # tiny verdict): reserving ~262k per call blew the OpenRouter TPM budget (193x HTTP-429)
+            # AND, summed with even a small prompt, exceeded the ~262144 context window (67x HTTP-400
+            # "requested > context") so the D8 seam timed out. FIX: restore I-meta-008's generous-but-
+            # BOUNDED Judge budget (16384). This RESPECTS §9.1.8 "never starve": reasoning allocates
+            # most of max_tokens to the chain-of-thought, so the total must stay strictly above that
+            # allocation or the bare verdict truncates to empty (the I-meta-008 starvation failure —
+            # "popping it starved the verdict to empty"); 16384 leaves ample room for kimi reasoning
+            # AND the verdict. It ALSO kills the blowup: ~16x fewer reserved tokens than 262140, and
+            # well under the 262144 kimi window so the HTTP-400 can never fire. 16384 is also <= the
+            # LOWEST kimi endpoint cap (DeepInfra 16384) so OpenRouter keeps ALL 21 unpinned kimi
+            # providers in the load-balance (the 429 fix). (Codex I-deepfix-001 preflight iter-1
+            # flagged the FIX-4 over-suppression; this iter-2 raise of the Judge default 4000 -> 16384
+            # additionally removes the starvation risk a 4000 cap carried.) Scoped to THIS verdict-
+            # judge call only — the generator keeps its MAX budget (and is not served by this transport:
+            # role_endpoint('generator') raises). FAITHFULNESS-NEUTRAL: identical model-role + reasoning
+            # + verdict parsing; only the reserved output ceiling shrinks from the over-raised 262140
+            # back to the proven 16384. LAW VI: env-overridable + parse-guarded; a non-positive override
+            # falls back to the default; still clamped to the Judge chain min as a 400-proof backstop.
             try:
                 verdict_budget = int(os.getenv("PG_D8_VERDICT_MAX_TOKENS", "16384"))
             except (TypeError, ValueError):
@@ -1657,7 +1754,11 @@ class OpenRouterRoleTransport:
                             if not provider:
                                 body.pop("provider", None)
                     else:
-                        body["reasoning"] = {"enabled": True, "effort": effort}
+                        # I-judge-kimi: _judge_reasoning_block drops the effort for a kimi slug (bare
+                        # {"enabled": True}, since kimi advertises no supported_efforts) and keeps the
+                        # stepped-down effort for a non-kimi reasoning slug. model_slug is the served
+                        # slug resolved at the top of _complete_inner.
+                        body["reasoning"] = _judge_reasoning_block(model_slug, effort)
 
                 # I-run11-008 (#1053): a transient transport failure (connection reset / WinError
                 # 10054, read timeout, remote-protocol error) on a SINGLE role call must NOT abort the
@@ -1989,12 +2090,38 @@ class OpenRouterRoleTransport:
                         if blanked_provider not in ignore_list:
                             ignore_list.append(blanked_provider)
                     if attempt + 1 < len(effort_ladder):
-                        logger.warning(
-                            "[polaris graph] #1026: %s blank verdict at reasoning effort=%s "
-                            "(attempt %d/%d) — stepping effort down to %s and retrying.",
-                            request.role, effort, attempt + 1, len(effort_ladder),
-                            effort_ladder[attempt + 1],
+                        _next_effort = effort_ladder[attempt + 1]
+                        # I-judge-kimi (2026-06-29): honest recovery log. A BARE-reasoning judge
+                        # (moonshotai/kimi-k2.6 — OpenRouter advertises NO effort tiers for it, so
+                        # _judge_reasoning_block re-sends the SAME {enabled: True} every rung) cannot
+                        # step effort DOWN: the effort-step is INERT. Its real recovery is PURE
+                        # PROVIDER ROTATION — the blanked provider was just appended to the `ignore`
+                        # list above, so OpenRouter load-balances the next paid retry onto a different
+                        # healthy kimi endpoint (its 21-provider spread is the whole point of the
+                        # swap). Log THAT truthfully, not the misleading "stepping effort down". The
+                        # exception is the final reasoning-OFF rung (_next_effort is None) — dropping
+                        # the reasoning block IS a real change even for a bare-reasoning model, so that
+                        # transition keeps the effort-step wording. Faithfulness-NEUTRAL: same model,
+                        # same bare reasoning; only the served provider rotates.
+                        _cur_reasoning = body.get("reasoning")
+                        _bare_reasoning = (
+                            isinstance(_cur_reasoning, dict) and "effort" not in _cur_reasoning
                         )
+                        if _bare_reasoning and _next_effort is not None:
+                            logger.warning(
+                                "[polaris graph] #1026: %s blank verdict with bare reasoning "
+                                "(attempt %d/%d) — effort-stepping is inert for this model; rotating "
+                                "to the next provider (ignore=%r) and retrying.",
+                                request.role, attempt + 1, len(effort_ladder),
+                                (body.get("provider") or {}).get("ignore"),
+                            )
+                        else:
+                            logger.warning(
+                                "[polaris graph] #1026: %s blank verdict at reasoning effort=%s "
+                                "(attempt %d/%d) — stepping effort down to %s and retrying.",
+                                request.role, effort, attempt + 1, len(effort_ladder),
+                                _next_effort,
+                            )
                         continue
                     raise  # ladder exhausted: even reasoning-off blanked -> genuine fail-loud.
 

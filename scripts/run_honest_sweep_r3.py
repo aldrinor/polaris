@@ -219,6 +219,7 @@ from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     serialize_contradiction_record,
 )
 from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
+    DEFAULT_FETCH_CAP,
     _is_low_content_host_or_page,
     run_live_retrieval,
 )
@@ -3669,7 +3670,13 @@ def _retrieval_caps_disclosure(retrieval) -> dict:
 
     # The ACTIVE env-driven caps (LAW VI). Read here for DISCLOSURE only — the retrieval
     # backends own + apply them; this block never enforces or alters a cap.
-    fetch_cap = _env_int("PG_LIVE_FETCH_CAP", 40)
+    # I-deepfix-001 D3 (#1344, Codex P2a): the disclosure default MUST track the retriever's
+    # real default — `live_retriever.DEFAULT_FETCH_CAP` (raised 40->200 in the D3 breadth fix).
+    # A hardcoded 40 here reported the WRONG cap + WRONG `bit` truncation flag whenever
+    # PG_LIVE_FETCH_CAP was unset. Reading the imported constant as the fallback means this
+    # disclosure can NEVER drift from the retriever's literal default again (it auto-tracks any
+    # future change to DEFAULT_FETCH_CAP), while still re-reading the env at call time (LAW VI).
+    fetch_cap = _env_int("PG_LIVE_FETCH_CAP", DEFAULT_FETCH_CAP)
     serper_total = _env_int("PG_SERPER_TOTAL_PER_QUERY", 0)
     serper_pages = _env_int("PG_SERPER_MAX_PAGES", 3)
     search_truncations: list[dict] = [
@@ -3762,6 +3769,17 @@ def _retrieval_manifest_section(retrieval) -> dict:
         # drop). None when the filter is disabled or only seeds are present —
         # honestly absent rather than a faked count.
         "prefetch_offtopic": getattr(retrieval, "prefetch_offtopic", None),
+        # I-deepfix-001 D3 (#1344, Codex P1): the B4 relevance-ORDER + fetch-budget
+        # telemetry (RelevanceGateResult.to_dict()), mirrored into the DURABLE manifest
+        # exactly like prefetch_offtopic above. WHY THIS IS REQUIRED, not nice-to-have:
+        # the §-1.3 DEMOTE-NOT-DROP proof lives in `relevance_gate.demoted_fetched_to_fill`
+        # (below-floor candidates the fetch BUDGET reached + FETCHED — proof the floor is
+        # no longer a pre-fetch hard cut). In the fetched-to-fill SUCCESS case BOTH tail
+        # drop_reasons (`relevance_budget_tail`, `relevance_below_floor_tail`) are 0, so the
+        # demote proof would be DROPPED from the on-disk manifest if it were only carried on
+        # the in-memory result. None when the B4 gate is OFF / only seeds present — honestly
+        # absent, never a faked count. DISCLOSURE ONLY (read-only getattr, faithfulness-neutral).
+        "relevance_gate": getattr(retrieval, "relevance_gate", None),
         # Per-reason drop aggregate (offtopic / rerank_not_selected /
         # fetch_failed / content_starved) so each stage's loss is attributable.
         "drop_reasons": getattr(retrieval, "drop_reasons", {}),
@@ -7483,15 +7501,28 @@ async def run_one_query(
         # Env-controllable retrieval width for full-scale runs:
         #   PG_SWEEP_MAX_SERPER  (default 12)  — results per query from Serper
         #   PG_SWEEP_MAX_S2      (default 12)  — same from Semantic Scholar
-        #   PG_SWEEP_FETCH_CAP   (default 40)  — max URLs to classify & fetch
+        #   PG_SWEEP_FETCH_CAP   (default 200) — max URLs to classify & fetch
         #     in TOTAL after dedup (NOT per query — I-meta-002-q1d #943 doc
         #     fix). Bounded by PG_MAX_COST_PER_RUN.
         # I-meta-002-q1d (#943): raised 8/8/20 → 12/12/40 to close the
         # evidence-depth gap vs frontier DR; the fetch-time relevance rerank
         # (#951) keeps the most relevant candidates within the total cap.
+        # I-deepfix-001 D3 (#1344): PG_SWEEP_FETCH_CAP is the REAL breadth knob on
+        # the sweep main lane — it is passed as `fetch_cap=` to run_live_retrieval and
+        # therefore OVERRIDES the retriever's own DEFAULT_FETCH_CAP (200). At 40 it was
+        # the dominant silent breadth throttle (e.g. 926 discovered -> ~149 fetched).
+        # Raised 40 -> 200 (5x) so breadth EMERGES by default (operator: cost is never
+        # the constraint, time is) — the fetch is BOUNDED-PARALLEL (worker ceiling 48,
+        # per-host cap 4) AND wall-bounded by the shared per-question retrieval deadline,
+        # so a generous cap stays wall-sane. A CAP, not a target: billed by ACTUAL fetches
+        # and still hard-bounded by PG_MAX_COST_PER_RUN. Stays env-overridable (LAW VI):
+        # the Gate-B benchmark slate sets its own explicit value (740/500/20). The fetch
+        # BUDGET is the §-1.3 DISCLOSED bound (retrieval_caps.dropped_pre_fetch in the
+        # manifest); we do NOT set corpus_truncated on a budget-bind (that flag is the
+        # post-fetch loop-deadline signal, not a cap signal).
         _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
-        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
+        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "200"))
 
         # I-ready-006 (#1082): query-complexity router (CAP-ONLY — Codex diff-gate iter-5 §-1.2 rule 6).
         # Default OFF (PG_COMPLEXITY_ROUTING) -> the full heavyweight path, BYTE-IDENTICAL. When ON, a
@@ -7533,7 +7564,8 @@ async def run_one_query(
             except Exception as _cr_exc:  # noqa: BLE001 — FAIL OPEN: router/env error -> full path.
                 _routing_decision = None
                 _simple_routed = False
-                _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
+                # I-deepfix-001 D3 (#1344): same main-lane breadth default as above (40 -> 200).
+                _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "200"))
                 _log(
                     f"[complexity]  router/env error -> FULL path (fail-open): "
                     f"{type(_cr_exc).__name__}: {_cr_exc}"
@@ -8762,13 +8794,21 @@ async def run_one_query(
                 # 5/5/15, a silent secondary throttle the benchmark slate could not lift. Make them
                 # env-driven (Gate-B raises them via the full-capability slate); defaults preserve the
                 # prior behavior for any non-benchmark caller.
+                # I-deepfix-001 D3 (#1344): this completeness-expansion lane is DEFAULT-ON
+                # (PG_R6_ENABLE_EXPANSION=1) and ADDITIVE — it fetches NEW gap-filling URLs beyond the
+                # main lane. Its 15-cap was tight enough to bind its own gap-query discovered pool
+                # (~PG_R6_EXPAND_QUERY_CAP=4 queries x ~10 results), so raised 15 -> 60 to match the
+                # main-lane breadth raise (cost is never the constraint, time is). Wall-safe: this whole
+                # lane is SKIPPED once the SHARED per-question retrieval deadline has passed (see
+                # `enable_expansion` above), so the bigger cap cannot blow the run wall. Env-overridable
+                # (LAW VI); the fetch is bounded-parallel + cost-gated by PG_MAX_COST_PER_RUN.
                 exp_retrieval = run_live_retrieval(
                     research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                     amplified_queries=exp_queries,
                     protocol=protocol,
                     max_serper=int(os.getenv("PG_R6_EXPAND_MAX_SERPER", "5")),
                     max_s2=int(os.getenv("PG_R6_EXPAND_MAX_S2", "5")),
-                    fetch_cap=int(os.getenv("PG_R6_EXPAND_FETCH_CAP", "15")),
+                    fetch_cap=int(os.getenv("PG_R6_EXPAND_FETCH_CAP", "60")),
                     enable_openalex_enrich=True,
                     enable_prefetch_filter=False,
                     domain=q["domain"],
@@ -12173,11 +12213,30 @@ async def run_one_query(
                 })
 
         # Assemble final report
+        # I-deepfix-001: (a) humanize a RAW entity_id section title ("Generative_AI_Evidence" ->
+        # "Generative AI Evidence") so the render never leaks a contract id as a header; (b)
+        # disambiguate a body section whose title collides with a structural / front-matter heading
+        # (the "## Key Findings" extractive summary, "## Methods", etc.) or a prior body header, so
+        # the report never shows two "Key Findings" headings. Render-only — SectionResult, section_id,
+        # verified_text and every faithfulness/verdict path are untouched.
+        from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+            humanize_section_title as _humanize_section_title,
+        )
         section_bodies = []
+        _used_section_headings: set[str] = {
+            "key findings", "abstract", "conclusion", "methods",
+            "references", "bibliography",
+        }
         for sr in multi.sections:
             if sr.dropped_due_to_failure or not sr.verified_text:
                 continue
-            section_bodies.append(f"### {sr.title}\n\n{sr.verified_text}")
+            _heading = _humanize_section_title(sr.title) or (sr.title or "Section")
+            _hkey = _heading.strip().lower()
+            if _hkey in _used_section_headings:
+                _heading = f"{_heading} (detailed)"
+                _hkey = _heading.strip().lower()
+            _used_section_headings.add(_hkey)
+            section_bodies.append(f"### {_heading}\n\n{sr.verified_text}")
         sections_concat = "\n\n".join(section_bodies)
         # M-36 (2026-04-21): insert the Trial Summary table between the
         # main sections and Limitations. Empty string when the prose

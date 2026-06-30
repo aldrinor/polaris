@@ -96,7 +96,18 @@ AUTHORITY_CACHE_SCHEMA_VERSION = 3
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
 DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
-DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+# I-deepfix-001 D3 breadth (2026-06-29): the fetch BUDGET is the §-1.3 disclosed
+# bound (the ONLY thing that limits how far down the demote-not-drop cosine-ordered
+# candidate list we fetch). The legacy default of 40 was the dominant breadth lever
+# on the diced-preflight drb_72 fixture (926 discovered -> 166 selected -> 149
+# fetched: a 760-candidate count-cut). Raised to a generous 200 (5x) — cost is never
+# the constraint, time is, and the fetch is BOUNDED-PARALLEL (worker ceiling 48, per-
+# host cap 4) so a generous cap stays wall-time sane. Still env-overridable (LAW VI):
+# a validation run that wants the FULL discovered pool fetched (dropped_pre_fetch==0)
+# sets PG_LIVE_FETCH_CAP higher (and the sweep's own PG_SWEEP_FETCH_CAP, which
+# overrides this default on run_live_retrieval's main lane). A CAP, not a target —
+# billed by actual fetches, so a generous cap is free insurance.
+DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "200"))
 DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
 DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
 
@@ -471,11 +482,14 @@ class LiveRetrievalResult:
     #     which is empty on a normal sweep).
     prefetch_offtopic: dict[str, Any] | None = None
     drop_reasons: dict[str, int] = field(default_factory=dict)
-    # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-threshold + fetch-budget
+    # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-ORDER + fetch-budget
     # selection telemetry. Populated ONLY on the B4 ON path
-    # (PG_RETRIEVAL_RELEVANCE_GATE=1); None when OFF => byte-identical. Records the
-    # unfetched-but-relevant tail (above-threshold candidates the fetch BUDGET
-    # could not afford) so the recall cost is measurable, never dropped-and-
+    # (PG_RETRIEVAL_RELEVANCE_GATE=1); None when OFF => byte-identical. §-1.3
+    # DEMOTE-NOT-DROP (I-deepfix-001 D3): the floor no longer hard-drops below-floor
+    # candidates — it orders them to the tail and DISCLOSES the demote conversion
+    # (`demoted_below_floor` / `demoted_fetched_to_fill` / `demoted_tail`). Records
+    # both the above-floor unfetched tail and the below-floor demoted tail (the fetch
+    # BUDGET could not afford) so the recall cost is measurable, never dropped-and-
     # forgotten. A plain dict (RelevanceGateResult.to_dict()) so the manifest
     # write is a no-op getattr with a None default for pre-B4 callers.
     relevance_gate: dict[str, Any] | None = None
@@ -3756,7 +3770,8 @@ def _rerank_and_reserve(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-THRESHOLD + fetch-BUDGET
+# B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-ORDER + fetch-BUDGET
+# (§-1.3 DEMOTE-NOT-DROP as of I-deepfix-001 D3 — the floor ORDERS, never filters)
 # ─────────────────────────────────────────────────────────────────────────────
 # THE BUG (PHASE2_3_LANE_SPECS.md LANE-RETRIEVAL): the fetch-time cut above is a
 # fixed top-N COUNT cut keyed on a PURE-LEXICAL relevance score
@@ -3767,19 +3782,21 @@ def _rerank_and_reserve(
 # because the cap could not afford it — and the cut count was lumped into the
 # generic `rerank_not_selected` reason, dropped-and-forgotten.
 #
-# THE FIX (surgical, §-1.3 weight-not-filter for credibility; topical relevance
-# MAY gate): replace the COUNT cut with a relevance THRESHOLD by REUSING B1's
-# semantic relevance scorer WHOLESALE —
-# `evidence_selector._semantic_relevance_scores(research_question, sub_queries,
-# evidence_rows)`. B4 does NOT re-implement the scoring loop: it shapes its
-# pre-fetch candidates into the row-dicts B1's `_row_embed_text` reads, calls B1's
-# scorer ONCE, and applies B1's IDENTICAL keep predicate (`score >= floor`). One
-# scorer, one relevance story across B1+B4 — the scorer contract CANNOT drift
-# because there is only one implementation (Codex B4 iter-2 P1). Then the
-# `fetch_cap` stays purely a COST budget on how many of the on-topic survivors we
-# actually fetch — but the above-threshold-but-beyond-budget tail is RECORDED
-# (count + reason + scores) instead of silently discarded. Each kept candidate's
-# relevance score is carried FORWARD as a weight onto its evidence row.
+# THE FIX (surgical, §-1.3 WEIGHT-and-CONSOLIDATE / DEMOTE-NOT-DROP): replace the
+# COUNT cut with a relevance ORDERING by REUSING B1's semantic relevance scorer
+# WHOLESALE — `evidence_selector._semantic_relevance_scores(research_question,
+# sub_queries, evidence_rows)`. B4 does NOT re-implement the scoring loop: it shapes
+# its pre-fetch candidates into the row-dicts B1's `_row_embed_text` reads, calls
+# B1's scorer ONCE, and uses B1's IDENTICAL `score >= floor` predicate — but as of
+# I-deepfix-001 D3 that predicate ORDERS + DISCLOSES, it is NOT a hard cut: above-
+# floor candidates rank first, below-floor candidates are DEMOTED to the tail (NOT
+# dropped) and survive to the fetch budget. One scorer, one relevance story across
+# B1+B4 — the scorer contract CANNOT drift because there is only one implementation
+# (Codex B4 iter-2 P1). The `fetch_cap` is then purely a COST budget on how far down
+# the demote-ordered list we actually fetch — and the beyond-budget tail (above-floor
+# relevant + below-floor demoted) is RECORDED (counts + reason + scores) instead of
+# silently discarded. Each fetched candidate's relevance score is carried FORWARD as
+# a weight onto its evidence row.
 #
 # B1's scorer returns ``None`` when the embedder is unavailable / scoring fails /
 # there is no usable anchor — and B4 falls back LOUDLY to the legacy lexical
@@ -3793,15 +3810,19 @@ def _rerank_and_reserve(
 # `_semantic_relevance_scores` propagates that as ``None`` when EVERY anchor fails,
 # so B4 here falls back LOUDLY to the legacy lexical `_rerank_and_reserve` (keeps the
 # candidates) on a scorer/embedder failure — it NEVER mass-drops the corpus on an
-# embedder hiccup. A genuinely empty/text-less SNIPPET still scores a real 0.0 and
-# drops (the documented no-embeddable-text path), distinct from an infra failure.
+# embedder hiccup. §-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3): a genuinely empty/text-
+# less SNIPPET still scores a real 0.0, but it is now DEMOTED to the tail (kept,
+# fetched-to-know if the budget reaches it), NOT dropped — the only hard drop is the
+# downstream faithfulness engine. This is distinct from an infra failure (``None``).
 #
-# CREDIBILITY/TIER IS NEVER A DROP HERE — only TOPICAL relevance gates (off-topic
-# is useless at any weight). The faithfulness engine (strict_verify / 4-role D8 /
-# provenance) lives in the generator/evaluator and is UNTOUCHED: this lane only
-# changes the pre-fetch candidate menu + adds an additive weight + telemetry.
+# CREDIBILITY/TIER IS NEVER A DROP HERE — and as of I-deepfix-001 D3 (§-1.3
+# DEMOTE-NOT-DROP) the relevance floor is no longer a DROP either: it ORDERS (above-
+# floor first, below-floor demoted to the tail) and the fetch BUDGET is the only
+# bound. The faithfulness engine (strict_verify / 4-role D8 / provenance) lives in
+# the generator/evaluator and is UNTOUCHED: this lane only changes the pre-fetch
+# candidate ORDER + which fill the budget, adds an additive weight + telemetry.
 #
-# GATING: `PG_RETRIEVAL_RELEVANCE_GATE` (default OFF). OFF => the legacy
+# GATING: `PG_RETRIEVAL_RELEVANCE_GATE` (default ON). OFF => the legacy
 # `_rerank_and_reserve` count-cut runs byte-identically (the embedder is never
 # even imported — preserving `test_no_embedder_model_loaded`). ON + embedder
 # unavailable => LOUD fallback to the legacy lexical path (LAW II: no silent
@@ -3810,39 +3831,43 @@ def _rerank_and_reserve(
 # B4 relevance floor — ONE relevance story across B1+B4 (Codex iter-1 P1.1).
 # The threshold is NOT a B4-private constant; it is B1's `PG_RELEVANCE_FLOOR`
 # (default 0.30, `evidence_selector._DEFAULT_RELEVANCE_FLOOR`), parsed by B1's
-# `evidence_selector.parse_relevance_floor`. B4 and B1 therefore gate on the
-# IDENTICAL floor against the IDENTICAL [0,1]-clamped semantic cosine — a candidate
-# B1's selector would keep (`item[1] >= relevance_floor` at evidence_selector.py
-# _relevance_floor_selection) is never pre-fetch-dropped here by a tighter B4-only
-# number. A cosine below this floor against EVERY anchor (question + each sub-query)
-# = off-topic. The floor is consumed only on the B4 ON path
-# (PG_RETRIEVAL_RELEVANCE_GATE=1); OFF => the legacy count-cut runs byte-identically
-# and the floor is never even read. `parse_relevance_floor` is imported lazily
-# inside `_relevance_gate_threshold` so the OFF path never imports evidence_selector.
+# `evidence_selector.parse_relevance_floor`. B4 and B1 use the IDENTICAL floor
+# against the IDENTICAL [0,1]-clamped semantic cosine. §-1.3 DEMOTE-NOT-DROP
+# (I-deepfix-001 D3): the floor is an ORDERING + disclosure boundary, NOT a hard cut.
+# A cosine below this floor against EVERY anchor (question + each sub-query) marks a
+# candidate as below-floor — it is DEMOTED to the tail of the cosine-ordered list,
+# NOT removed, and survives to the fetch budget (fetched if the budget reaches it).
+# The floor is consumed only on the B4 ON path (PG_RETRIEVAL_RELEVANCE_GATE=1); OFF
+# => the legacy count-cut runs byte-identically and the floor is never even read.
+# `parse_relevance_floor` is imported lazily inside `_relevance_gate_threshold` so
+# the OFF path never imports evidence_selector.
 
 def _relevance_gate_enabled() -> bool:
     """Kill-switch `PG_RETRIEVAL_RELEVANCE_GATE`.
 
-    DEFAULT ON (I-deepfix-001 B1 keystone, 2026-06-28): the pre-fetch topical
-    threshold replaces the blind `_rerank_and_reserve` COUNT-cut that silently
-    cut on-topic candidates beyond the fetch budget. Off-topic is the one axis
-    §-1.3 permits to gate (useless at any weight); the above-threshold-beyond-
-    budget tail is RECORDED (RelevanceGateResult.unfetched_relevant_tail), never
-    lost. Set `PG_RETRIEVAL_RELEVANCE_GATE=0` (or off/false/no) to revert to the
-    byte-identical legacy count-cut (the semantic embedder is then never imported,
-    preserving `test_no_embedder_model_loaded` on the OFF path)."""
+    DEFAULT ON (I-deepfix-001 B1 keystone, 2026-06-28): the pre-fetch relevance
+    ORDER replaces the blind `_rerank_and_reserve` COUNT-cut that silently cut
+    on-topic candidates beyond the fetch budget. §-1.3 DEMOTE-NOT-DROP (D3,
+    2026-06-29): the floor orders (above-floor first, below-floor demoted to the
+    tail) but never hard-drops; the fetch BUDGET is the only bound, and the whole
+    unfetched tail is RECORDED (RelevanceGateResult unfetched_relevant_tail +
+    demoted_tail), never lost. Set `PG_RETRIEVAL_RELEVANCE_GATE=0` (or off/false/no)
+    to revert to the byte-identical legacy count-cut (the semantic embedder is then
+    never imported, preserving `test_no_embedder_model_loaded` on the OFF path)."""
     raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "1").strip().lower()
     return raw not in ("0", "false", "no", "off", "disabled", "")
 
 
 def _relevance_gate_threshold() -> float:
-    """Topical-relevance floor — B1's `PG_RELEVANCE_FLOOR` (default 0.30), parsed by
-    B1's `evidence_selector.parse_relevance_floor` so B1 and B4 share ONE floor and
-    ONE relevance story (Codex iter-1 P1.1). A candidate whose MAX cosine over
-    {research_question} ∪ {sub-queries} is below this floor is OFF-TOPIC and gated
-    out (topical filter, the one axis §-1.3 permits to filter). The comparison is
-    the IDENTICAL `score >= floor` on the IDENTICAL [0,1]-clamped cosine that B1
-    applies at `_relevance_floor_selection` (`item[1] >= relevance_floor`).
+    """Relevance floor — B1's `PG_RELEVANCE_FLOOR` (default 0.30), parsed by B1's
+    `evidence_selector.parse_relevance_floor` so B1 and B4 share ONE floor and ONE
+    relevance story (Codex iter-1 P1.1). §-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3): a
+    candidate whose MAX cosine over {research_question} ∪ {sub-queries} is below this
+    floor is below-floor and DEMOTED to the tail of the cosine-ordered list — NOT
+    dropped; the fetch BUDGET decides whether it is reached. The comparison is the
+    IDENTICAL `score >= floor` on the IDENTICAL [0,1]-clamped cosine that B1 applies
+    at `_relevance_floor_selection` (`item[1] >= relevance_floor`) — used here for
+    ORDERING + disclosure, not as a hard cut.
 
     FAIL LOUD on a garbage / out-of-range `PG_RELEVANCE_FLOOR`: `parse_relevance_floor`
     raises `ValueError` (range (0.0, 1.0]) — identical to B1's behaviour — so a
@@ -3855,23 +3880,46 @@ def _relevance_gate_threshold() -> float:
 
 @dataclass
 class RelevanceGateResult:
-    """B4 telemetry for the relevance-threshold + fetch-budget selection.
+    """B4 telemetry for the relevance-ORDER + fetch-budget selection.
 
     Emitted on `LiveRetrievalResult.relevance_gate` ONLY on the B4 ON path (None
-    when OFF => byte-identical). Records the unfetched-but-relevant tail (the
-    above-threshold candidates the fetch BUDGET could not afford) so the recall
-    cost is MEASURABLE + auditable, never dropped-and-forgotten.
+    when OFF => byte-identical). Records the unfetched tail (the candidates the
+    fetch BUDGET could not afford) so the recall cost is MEASURABLE + auditable,
+    never dropped-and-forgotten.
+
+    §-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3, 2026-06-29, Codex iter-1 P1): the
+    relevance floor (`PG_RELEVANCE_FLOOR`) no longer HARD-DROPS below-floor
+    candidates pre-fetch — that was the §-1.3-banned hard FILTER on the sweep path.
+    The floor now only ORDERS + DISCLOSES: above-floor candidates rank first, the
+    below-floor ones are DEMOTED to the tail (in relevance order). The fetch BUDGET
+    (a generous disclosed COST cap) is the ONLY bound; if there are fewer above-floor
+    than the budget, the most-relevant below-floor candidates FILL the remainder
+    (`demoted_fetched_to_fill`) instead of the budget going unused. Off-topic content
+    with no overlap still fails the faithfulness engine (strict_verify / NLI / 4-role
+    D8 / provenance) downstream — the ONLY sanctioned hard drop.
 
     Fields:
-      - threshold: the topical-relevance floor used.
+      - threshold: the relevance floor used (ordering + disclosure boundary, NOT a
+        drop gate).
       - total_scored: non-seed candidates scored (seeds bypass scoring).
-      - kept_on_topic: above-threshold candidates (the on-topic survivors).
-      - dropped_off_topic: below-threshold candidates (true off-topic, gated out).
-      - fetched_budget: on-topic candidates the fetch BUDGET could afford to keep.
-      - unfetched_relevant_tail: on-topic candidates BEYOND the budget — RELEVANT
+      - kept_on_topic: above-floor candidate count (the on-topic survivors; these
+        rank first). Renamed conceptually to "above-floor count" but the key is kept
+        for telemetry continuity.
+      - demoted_below_floor: below-floor candidate count — DEMOTED (kept, re-ordered
+        to the tail), NOT dropped. The disclosed drop->demote conversion (replaces
+        the old `dropped_off_topic`, which implied a hard drop that no longer occurs).
+      - demoted_fetched_to_fill: below-floor candidates the BUDGET reached and FETCHED
+        (the budget had room beyond the above-floor set) — proof the floor is no
+        longer a pre-fetch hard cut.
+      - demoted_tail: below-floor candidates left UNFETCHED in the budget tail (a COST
+        bound, not a relevance/credibility drop).
+      - fetched_budget: total candidates the fetch BUDGET kept (above-floor fetched
+        + demoted_fetched_to_fill).
+      - unfetched_relevant_tail: above-floor candidates BEYOND the budget — RELEVANT
         but unfetched for COST reasons (a real resource bound, not a relevance/
         credibility drop). This is the recall cost the operator must see.
-      - tail_score_min / tail_score_max: the relevance-score band of that tail.
+      - tail_score_min / tail_score_max: the relevance-score band of the WHOLE tail
+        (above-floor + demoted), so the operator sees the full unfetched band.
       - scorer: 'semantic_v2' (B1 embedder) or 'lexical_fallback' (embedder
         unavailable — LOUD degrade per LAW II).
     """
@@ -3879,7 +3927,9 @@ class RelevanceGateResult:
     threshold: float
     total_scored: int = 0
     kept_on_topic: int = 0
-    dropped_off_topic: int = 0
+    demoted_below_floor: int = 0
+    demoted_fetched_to_fill: int = 0
+    demoted_tail: int = 0
     fetched_budget: int = 0
     unfetched_relevant_tail: int = 0
     tail_score_min: float | None = None
@@ -3891,7 +3941,9 @@ class RelevanceGateResult:
             "threshold": self.threshold,
             "total_scored": self.total_scored,
             "kept_on_topic": self.kept_on_topic,
-            "dropped_off_topic": self.dropped_off_topic,
+            "demoted_below_floor": self.demoted_below_floor,
+            "demoted_fetched_to_fill": self.demoted_fetched_to_fill,
+            "demoted_tail": self.demoted_tail,
             "fetched_budget": self.fetched_budget,
             "unfetched_relevant_tail": self.unfetched_relevant_tail,
             "tail_score_min": self.tail_score_min,
@@ -3955,8 +4007,13 @@ def _relevance_threshold_select(
     fetch_cap: int,
     n_seed_injected: int,
 ) -> tuple[list["SearchCandidate"], dict[str, float], Optional[RelevanceGateResult]]:
-    """B4 ON-path selection: relevance THRESHOLD (topical gate) + fetch BUDGET
-    (cost cap), using B1's semantic embedding-cosine scorer.
+    """B4 ON-path selection: relevance ORDER (the floor orders, never filters) +
+    fetch BUDGET (cost cap), using B1's semantic embedding-cosine scorer.
+
+    §-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3, 2026-06-29, Codex iter-1 P1): the floor
+    used to HARD-DROP every below-floor candidate BEFORE the budget slice, so a
+    below-floor source could NEVER be fetched no matter how high the budget — the
+    §-1.3-banned hard FILTER on the sweep path. It now only ORDERS + DISCLOSES.
 
     Pipeline:
       1. Split seeds (`source in _SEED_SOURCE_LABELS`) — NEVER scored, NEVER
@@ -3964,19 +4021,22 @@ def _relevance_threshold_select(
          preserved: primary-trial DOI seeds carry empty title/snippet).
       2. Score every non-seed by REUSING B1's `_semantic_relevance_scores` (max
          cosine over {question} ∪ {sub-queries}) — no B4-private scoring loop.
-      3. THRESHOLD: drop BELOW-threshold (off-topic) candidates with B1's IDENTICAL
-         `score >= floor` predicate (no empty-snippet bypass) — topical relevance is
-         the only axis allowed to gate (§-1.3). Credibility/tier is NEVER consulted.
-      4. BUDGET: keep the on-topic survivors in DESCENDING relevance up to
-         `fetch_cap` (a pure COST budget). The above-threshold-but-beyond-budget
-         tail is RECORDED in `RelevanceGateResult.unfetched_relevant_tail` (count
-         + score band), not silently discarded.
+      3. ORDER (no drop): rank ALL scored candidates by relevance DESC — above-floor
+         first, below-floor DEMOTED to the tail (in relevance order). The floor
+         (`score >= floor`) decides ORDER + disclosure only; it NEVER removes a
+         candidate. Credibility/tier is NEVER consulted.
+      4. BUDGET: keep the top `fetch_cap` of that ordered list (a pure COST budget).
+         If there are fewer above-floor than the budget, the most-relevant below-floor
+         candidates FILL the remaining budget (`demoted_fetched_to_fill`) instead of
+         the budget going unused while relevant-ish sources are hard-dropped. The
+         beyond-budget tail (above-floor + demoted) is RECORDED in
+         `RelevanceGateResult` (counts + score band), not silently discarded.
       5. Carry each kept candidate's relevance score forward as a WEIGHT
          (`relevance_weight` on the returned score map, keyed by url).
 
     Returns `(selected_candidates, url_to_relevance_weight, gate_telemetry)`.
-    Selected order: seeds first (arrival order), then on-topic survivors in
-    ARRIVAL order among the budget-selected set (a stable corpus, mirroring
+    Selected order: seeds first (arrival order), then budget-selected non-seeds in
+    ARRIVAL order among the selected set (a stable corpus, mirroring
     `_rerank_and_reserve`'s stable-order emit). On any scorer failure returns
     `(None, {}, None)` so the caller falls back LOUDLY to the legacy lexical cut.
 
@@ -4001,22 +4061,26 @@ def _relevance_threshold_select(
     budget = max(0, int(fetch_cap))
     # (score, arrival_index, candidate) for stable, deterministic ordering.
     scored = list(zip(scores, range(len(non_seeds)), non_seeds))
-    # IDENTICAL B1 keep predicate (Codex B4 iter-2 P1): `score >= floor`, exactly the
-    # `item[1] >= relevance_floor` B1 applies at `_relevance_floor_selection`. NO
-    # B4-private empty-snippet bypass: a candidate with no embeddable text scores 0.0
-    # under B1's scorer and therefore drops below the floor — the SAME way B1 treats a
-    # row with no text. Seeds (the floor-EXEMPT lane, B1's primary-trial-anchor
-    # analogue) are already split out above and never scored, so they are never
-    # dropped here; the only thing this floor drops is a genuinely text-less non-seed,
-    # which is the documented reconciliation (do not diverge from B1's predicate).
-    on_topic = [t for t in scored if t[0] >= threshold]
-    off_topic = [t for t in scored if t[0] < threshold]
+    # §-1.3 DEMOTE-NOT-DROP: the floor ORDERS, it does not filter. Partition by the
+    # IDENTICAL B1 predicate (`score >= floor`, exactly `item[1] >= relevance_floor`
+    # at B1's `_relevance_floor_selection`) but KEEP both sides. Above-floor ranks
+    # first (relevance DESC), then the below-floor candidates are DEMOTED to the tail
+    # (relevance DESC). A text-less non-seed scores 0.0 and is demoted (not dropped)
+    # — it SURVIVES to the budget so it can be fetched-to-know if the budget reaches
+    # it. The fetch BUDGET is the ONLY bound; off-topic content with no overlap fails
+    # the downstream faithfulness engine (the only sanctioned hard drop), never here.
+    above_floor = sorted((t for t in scored if t[0] >= threshold), key=lambda t: (-t[0], t[1]))
+    below_floor = sorted((t for t in scored if t[0] < threshold), key=lambda t: (-t[0], t[1]))
+    ranked = above_floor + below_floor
 
-    # BUDGET: rank on-topic survivors by (-score, arrival_index); the top `budget`
-    # are fetched, the rest are the unfetched-but-relevant tail (a COST drop).
-    on_topic_ranked = sorted(on_topic, key=lambda t: (-t[0], t[1]))
-    fetched = on_topic_ranked[:budget]
-    tail = on_topic_ranked[budget:]
+    # BUDGET (the §-1.3 disclosed bound): the top `budget` of the demote-ordered list
+    # are fetched; the rest are the unfetched tail (a COST bound). Because below-floor
+    # is demoted to the tail of `ranked`, the budget fetches above-floor FIRST and only
+    # reaches the below-floor demoted candidates when it has room beyond the above-floor
+    # set — exactly the fill-the-budget behaviour §-1.3 wants (no unused budget while
+    # relevant-ish sources are hard-dropped).
+    fetched = ranked[:budget]
+    tail = ranked[budget:]
 
     selected_idx = {t[1] for t in fetched}
     # Stable corpus: emit fetched non-seeds in ARRIVAL order among the selected set.
@@ -4027,14 +4091,22 @@ def _relevance_threshold_select(
     for score, idx, cand in fetched:
         url_weight[cand.url] = float(score)
 
+    # Disclosure splits: how the below-floor DEMOTED set was handled (fetched-to-fill
+    # the budget vs left in the tail) + the above-floor relevant tail (cost-bound).
+    demoted_fetched_to_fill = sum(1 for t in fetched if t[0] < threshold)
+    demoted_tail = sum(1 for t in tail if t[0] < threshold)
+    above_floor_tail = sum(1 for t in tail if t[0] >= threshold)
+
     tail_scores = [t[0] for t in tail]
     gate = RelevanceGateResult(
         threshold=threshold,
         total_scored=len(non_seeds),
-        kept_on_topic=len(on_topic),
-        dropped_off_topic=len(off_topic),
+        kept_on_topic=len(above_floor),
+        demoted_below_floor=len(below_floor),
+        demoted_fetched_to_fill=demoted_fetched_to_fill,
+        demoted_tail=demoted_tail,
         fetched_budget=len(fetched),
-        unfetched_relevant_tail=len(tail),
+        unfetched_relevant_tail=above_floor_tail,
         tail_score_min=(min(tail_scores) if tail_scores else None),
         tail_score_max=(max(tail_scores) if tail_scores else None),
         scorer="semantic_v2",
@@ -4630,20 +4702,33 @@ def run_live_retrieval(
         if _nonseed_cands:
             _pre_offtopic_urls = {c.url for c in _nonseed_cands}
             filt = filter_search_results(_nonseed_cands, research_question)
+            # I-deepfix-001 D3 (2026-06-29): DEMOTE-NOT-DROP (§-1.3). `filt.kept`
+            # now carries EVERY non-seed candidate in cosine-DESCENDING order (most-
+            # relevant first); the below-threshold tail is DEMOTED (kept), not
+            # hard-dropped. The candidate ORDERING survives to the fetch stage via
+            # this sorted list, so the downstream fetch BUDGET (the disclosed bound)
+            # fetches the most-relevant first. The set-difference below is now empty
+            # by construction (nothing is pre-fetch-dropped); it is kept defensively
+            # in case `rejected` ever carries a genuine structural error.
             candidates = _seed_cands + filt.kept
             for _dropped_url in _pre_offtopic_urls - {c.url for c in filt.kept}:
                 _trace_drop(_dropped_url, "offtopic")
                 drop_reasons["offtopic"] += 1
             notes.append(
-                f"prefetch_offtopic: {filt.total_kept} kept / "
-                f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
+                f"prefetch_offtopic: {filt.total_kept} kept "
+                f"({filt.total_demoted} demoted below threshold, "
+                f"{filt.total_rejected} dropped) "
+                f"(threshold={filt.threshold_used:.2f}, demote-not-drop)"
             )
             # I-ready-017 Task 2a (#1204): persist the off-topic split. Store the
             # raw threshold float (not the :.2f note string) so the manifest
-            # carries the unrounded value used in the filter decision.
+            # carries the unrounded value used in the ordering decision.
+            # I-deepfix-001 D3: `demoted` makes the drop->demote conversion DISCLOSED
+            # in the manifest; `rejected` is 0 by default (demote-not-drop).
             prefetch_offtopic = {
                 "kept": filt.total_kept,
                 "rejected": filt.total_rejected,
+                "demoted": filt.total_demoted,
                 "threshold": filt.threshold_used,
             }
         # else: only seeds present (e.g. seed_only mode) — nothing to off-topic filter.
@@ -4695,23 +4780,32 @@ def run_live_retrieval(
             n_seed_injected=_n_seed_injected,
         )
     _rerank_dropped_urls = _pre_rerank_urls - {c.url for c in candidates}
-    # B4: split the topical OFF-topic drops from the cost-bound RELEVANT tail so
-    # the recall cost is attributable. On the B4 ON path, the unfetched-but-
-    # relevant tail is a COST drop (above threshold, beyond budget) recorded under
-    # `relevance_budget_tail`; truly off-topic drops are `offtopic_below_threshold`.
+    # B4 (§-1.3 DEMOTE-NOT-DROP, I-deepfix-001 D3 2026-06-29, Codex iter-1 P1): the
+    # floor no longer HARD-DROPS below-floor candidates pre-fetch, so the ONLY
+    # unfetched candidates are the budget TAIL — a disclosed COST bound, never a
+    # quality/credibility verdict. The tail is split into the above-floor RELEVANT
+    # tail (`relevance_budget_tail`) and the below-floor DEMOTED tail
+    # (`relevance_below_floor_tail`); both are unfetched for COST. The old
+    # `offtopic_below_threshold` DROP reason is GONE — below-floor is now demoted,
+    # and its drop->demote conversion (total demoted + how many were fetched-to-fill
+    # the budget vs left in the tail) is surfaced on `relevance_gate` telemetry
+    # (manifest) below. `_rerank_dropped_urls` here is exactly the tail (the only
+    # non-fetched set), so every traced url is a cost non-fetch, not a relevance drop.
     if _b4_gate is not None:
         drop_reasons.setdefault("relevance_budget_tail", 0)
-        drop_reasons.setdefault("offtopic_below_threshold", 0)
+        drop_reasons.setdefault("relevance_below_floor_tail", 0)
         drop_reasons["relevance_budget_tail"] += _b4_gate.unfetched_relevant_tail
-        drop_reasons["offtopic_below_threshold"] += _b4_gate.dropped_off_topic
+        drop_reasons["relevance_below_floor_tail"] += _b4_gate.demoted_tail
         for _dropped_url in _rerank_dropped_urls:
             _trace_drop(_dropped_url, "relevance_gate_not_fetched")
         _msg = (
             f"relevance_gate: threshold={_b4_gate.threshold:.2f} scored="
-            f"{_b4_gate.total_scored} on_topic={_b4_gate.kept_on_topic} "
-            f"off_topic={_b4_gate.dropped_off_topic} fetched={_b4_gate.fetched_budget} "
+            f"{_b4_gate.total_scored} above_floor={_b4_gate.kept_on_topic} "
+            f"demoted_below_floor={_b4_gate.demoted_below_floor} "
+            f"(fetched_to_fill={_b4_gate.demoted_fetched_to_fill}, "
+            f"tail={_b4_gate.demoted_tail}) fetched={_b4_gate.fetched_budget} "
             f"unfetched_relevant_tail={_b4_gate.unfetched_relevant_tail} "
-            f"(fetch_cap={fetch_cap} scorer={_b4_gate.scorer})"
+            f"(fetch_cap={fetch_cap} scorer={_b4_gate.scorer}, demote-not-drop)"
         )
         logger.info("[live_retriever] %s", _msg)
         notes.append(_msg)

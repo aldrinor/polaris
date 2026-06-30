@@ -362,12 +362,51 @@ def _snap_span_enabled() -> bool:
     return os.getenv(_ENV_SNAP_SPAN_SENTENCE, "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+# I-deepfix-001 (Codex #1335 gate P2): a closed set of common abbreviations whose trailing ``.``
+# is NOT a sentence boundary. Matched against the lowercased alphabetic token IMMEDIATELY before
+# the ``.`` (so "Fig." → "fig", "vs." → "vs", "No." → "no", "pp." → "pp", "et al." → "al"). The
+# dotted-initialism forms (U.S., e.g., i.e.) are caught by the single-letter-preceded-by-a-dot rule
+# in ``_preceding_token_is_abbreviation`` rather than by listing every chained letter. Refusing a
+# boundary here can only EXTEND the snapped span (extend-only + bounded), so a rare false positive
+# never truncates a span — it is faithfulness-safe by construction.
+_KNOWN_ABBREVIATIONS = frozenset(
+    {
+        "fig", "figs", "dr", "mr", "mrs", "ms", "prof", "no", "nos", "pp", "vs",
+        "al", "vol", "etc", "eg", "ie", "cf", "approx", "ca", "inc", "ltd", "co",
+        "jr", "sr", "st", "ed", "eds", "repr", "ch", "sec",
+    }
+)
+
+
+def _preceding_token_is_abbreviation(haystack: str, k: int) -> bool:
+    """True iff the alphabetic token immediately before ``haystack[k]`` (a ``.``) is a known
+    abbreviation (``Fig`` / ``Dr`` / ``No`` / ``pp`` / ``vs`` / ``al`` …) OR a single letter that is
+    itself preceded by a ``.`` — the dotted-initialism shape of ``U.S.`` / ``e.g.`` / ``i.e.`` (so the
+    final dot of the initialism is not read as a sentence end). A single capital that is NOT preceded
+    by a dot ("…the grade was A.") stays a real terminator. Pure, oob-safe."""
+    i = k - 1
+    while i >= 0 and haystack[i].isalpha():
+        i -= 1
+    token = haystack[i + 1:k].lower()
+    if not token:
+        return False
+    if token in _KNOWN_ABBREVIATIONS:
+        return True
+    # Single-letter token glued to a leading '.' → a chained initialism (U.S. / e.g. / i.e.).
+    if len(token) == 1 and i >= 0 and haystack[i] == ".":
+        return True
+    return False
+
+
 def _is_real_sentence_terminator(haystack: str, k: int, n: int) -> bool:
     """True iff ``haystack[k]`` actually ends a sentence. ``!``/``?`` always do. A ``.`` does ONLY
     when the next char (past a closing quote/paren) is whitespace / EOL / end-of-string — a ``.``
     glued to a DIGIT is a decimal point (e.g. ``3.75``) and a ``.`` glued to a letter is an
     abbreviation, neither of which ends a sentence. This stops the span-snap from truncating a
-    number to its integer part (Codex #1335 gate P1: ``... to 3.75`` must never snap to ``... to 3.``)."""
+    number to its integer part (Codex #1335 gate P1: ``... to 3.75`` must never snap to ``... to 3.``).
+    I-deepfix-001 (Codex #1335 gate P2): a ``.`` immediately after a known abbreviation token
+    (Fig. / Dr. / U.S. / et al. / e.g. / i.e. / vs. / No. / pp.) is likewise NOT a terminator, so the
+    span-snap can no longer stop after the abbreviation. Extend-only + faithfulness-safe."""
     if not (0 <= k < n):
         return False
     c = haystack[k]
@@ -378,7 +417,13 @@ def _is_real_sentence_terminator(haystack: str, k: int, n: int) -> bool:
     j = k + 1
     if j < n and haystack[j] in "\"')]":
         j += 1
-    return j >= n or haystack[j] in " \t\r\n"
+    if not (j >= n or haystack[j] in " \t\r\n"):
+        return False
+    # The dot looks terminal (whitespace/EOL follows) — but reject it when the preceding token is a
+    # common abbreviation, so e.g. "see Fig. 4 for the trend" never snaps to end after "Fig.".
+    if _preceding_token_is_abbreviation(haystack, k):
+        return False
+    return True
 
 
 def _ends_at_sentence_boundary(haystack: str, end: int) -> bool:

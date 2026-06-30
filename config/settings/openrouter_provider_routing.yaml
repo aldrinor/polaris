@@ -73,14 +73,22 @@ roles:
     ignore: [google-vertex]
     notes: "I-wire-007 2026-06-25: google-vertex dropped from the front (slow/NULL-uptime forced leader, the #1320 trickle-hang root cause); novita-led, atlas-cloud+minimax backing. 300s deadline floor kept. some providers have NULL uptime (ranked last)."
   judge:
-    model: qwen/qwen3.6-35b-a3b
-    # I-arch-003 (#1253, operator 2026-06-14 "max max"): atlas-cloud DROPPED from the chain. Live
-    # OpenRouter read 2026-06-14: wandb=262144, io-net=262140, atlas-cloud=65536. The transport now
-    # sends max_tokens=262140 (min of the kept chain), which would 400 on atlas-cloud's 65536 cap, so
-    # atlas-cloud is removed to keep the chain self-consistent. WandB (4/4 reliable in I-arch-003
-    # tests) leads; Io Net (262140) backs it. Both fp8.
-    order: [wandb, io-net]
-    ignore: [ambient, parasail, akashml, siliconflow, atlas-cloud]
+    model: moonshotai/kimi-k2.6
+    # I-judge-kimi (2026-06-29, operator directive): the Judge is now moonshotai/kimi-k2.6 and is
+    # DELIBERATELY UNPINNED (no `order` / no `allow_fallbacks:false`). WHY: the prior qwen Judge was
+    # pinned to `order: [wandb, io-net]` + allow_fallbacks:false — a 2-host PRIORITY list (OpenRouter
+    # always hits order[0] first, NOT load-balanced), so the per-claim Judge burst hammered ONE host
+    # and 429-rate-limited, TEARING the 4-role D8 seam. That pin is also WRONG for kimi: io-net does
+    # NOT serve kimi-k2.6 (live /endpoints 2026-06-29), so it would collapse to wandb-only. The swap's
+    # whole mechanism is to SPREAD the burst across kimi's 21 endpoints (Chutes/Baidu/DeepInfra/
+    # SiliconFlow/Novita/Moonshot/Parasail/DigitalOcean/WandB/AtlasCloud/...). Removing the order key
+    # makes role_provider_routing('judge') return None, so the transport keeps only
+    # provider.require_parameters=True (route to a reasoning-honoring provider — ALL 21 kimi endpoints
+    # advertise `reasoning`) and OpenRouter LOAD-BALANCES the burst across them -> no 429 -> the seam
+    # completes -> the report renders FULLY D8-verified. The default verdict budget (16384) is <= every
+    # kimi endpoint's max_completion (DeepInfra floor 16384), so OpenRouter's max_tokens provider-filter
+    # keeps all 21 in the balance. (If a future operator wants to PIN kimi to a ranked healthy subset,
+    # add `order:`/`ignore:` here and re-derive _JUDGE_MAX_TOKENS_CHAIN_MIN in openrouter_role_transport.)
 provider_aliases:
   "AkashML": akashml
   "Alibaba": alibaba

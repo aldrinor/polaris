@@ -37,173 +37,6 @@ logger = logging.getLogger("polaris_graph.fact_dedup")
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Span over-concentration cap — I-pipe-007 (GH#1232)
-# ─────────────────────────────────────────────────────────────────────────
-#
-# Forensic finding (dual Claude+Codex 2026-06-12, drb_72): a single ~800-char
-# evidence span (e.g. brynjolfsson:0-800, acemoglu:0-800) was cited 18-19x as
-# near-redundant padding that fact_dedup's numeric+≥2-section grouping missed
-# (the citing sentences had distinct or empty numeric signatures, so they were
-# never grouped). This inflates the "verified sentence" count without adding
-# information: the SAME 800-char span is re-cited over and over.
-#
-# Fix: a per-(evidence_id, start, end) citation cap. When the cap is exceeded,
-# the EXCESS citing sentences are DROPPED (selection only) — never replaced
-# with anything, never rewritten, never fabricated. A sentence is droppable by
-# this cap ONLY when EVERY distinct evidence span it cites has already reached
-# the cap; a sentence that still contributes an under-cap span is always kept.
-# Sentences carrying no `[#ev:...]` provenance token are NEVER touched by this
-# cap (the cap is about evidence-span concentration, not bare prose).
-#
-# FAITHFULNESS LOCK: this is presentation/selection only. strict_verify, the
-# NLI entailment judge, the 4-role D8 audit, and provenance binding are
-# completely untouched. Dropping an already-verified, over-concentrated
-# citation cannot introduce an unverified claim.
-#
-# Default OFF: PG_SPAN_PER_SOURCE_CITE_CAP unset / "0" / "" / non-positive →
-# the cap is a no-op and the sections are returned byte-identical.
-SPAN_CITE_CAP_ENV = "PG_SPAN_PER_SOURCE_CITE_CAP"
-
-# Mirror of provenance_generator._PROVENANCE_TOKEN_RE — the canonical
-# `[#ev:<evidence_id>:<start>-<end>]` provenance grammar. Kept as a local copy
-# (LAW VII CLI-isolation: fact_dedup must not import across the generator
-# package's verifier internals just to read this constant).
-_SPAN_PROVENANCE_TOKEN_RE = re.compile(
-    r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
-)
-
-
-def _read_span_cite_cap() -> int:
-    """Read PG_SPAN_PER_SOURCE_CITE_CAP as a non-negative int (0 == off).
-
-    Malformed / negative values are treated as OFF (0) and logged once at
-    WARNING, never raised — a typo in an env var must not crash a paid run,
-    and "off" is the byte-identical safe default.
-    """
-    raw = os.environ.get(SPAN_CITE_CAP_ENV, "").strip()
-    if not raw:
-        return 0
-    try:
-        value = int(raw)
-    except (ValueError, TypeError):
-        logger.warning(
-            "[fact_dedup] %s=%r is not an int; treating span-cite cap as OFF",
-            SPAN_CITE_CAP_ENV, raw,
-        )
-        return 0
-    if value < 0:
-        logger.warning(
-            "[fact_dedup] %s=%d is negative; treating span-cite cap as OFF",
-            SPAN_CITE_CAP_ENV, value,
-        )
-        return 0
-    return value
-
-
-def _sentence_spans(sentence: str) -> set[tuple[str, int, int]]:
-    """Extract the distinct (evidence_id, start, end) spans a sentence cites.
-
-    Returns an empty set for a sentence with no `[#ev:...]` provenance token.
-    """
-    spans: set[tuple[str, int, int]] = set()
-    for match in _SPAN_PROVENANCE_TOKEN_RE.finditer(sentence):
-        try:
-            spans.add((
-                match.group("ev_id"),
-                int(match.group("start")),
-                int(match.group("end")),
-            ))
-        except (ValueError, TypeError):
-            continue
-    return spans
-
-
-def apply_span_cite_cap(
-    sections: dict[str, list[str]],
-    cap: int,
-    section_order: Optional[list[str]] = None,
-) -> tuple[dict[str, list[str]], dict[str, Any]]:
-    """Drop sentences that only re-cite already-over-capped evidence spans.
-
-    A pure, side-effect-free selection pass (no LLM, no rewrite, no fabrication).
-    For each distinct evidence span `(evidence_id, start, end)`, allow at most
-    `cap` citing sentences across the WHOLE report. Sentences are visited in
-    `section_order` (then by their index within each section) so the FIRST
-    `cap` occurrences of any span are the ones kept — deterministic and stable.
-
-    A sentence is dropped ONLY when EVERY distinct span it cites has already
-    reached `cap`. A sentence that still carries at least one under-cap span,
-    or that cites no span at all, is always kept (and, if kept, its spans'
-    counters are incremented).
-
-    Args:
-        sections: section_title -> list of sentence strings.
-        cap: max citations per span. cap <= 0 is a no-op (returns the SAME
-            dict object unchanged and an empty-effect telemetry).
-        section_order: explicit visitation order; defaults to insertion order.
-
-    Returns:
-        (new_sections, telemetry). When cap <= 0 the original `sections` object
-        is returned unchanged (byte-identical no-op). telemetry keys:
-            - n_span_cite_dropped: sentences removed by the cap
-            - n_spans_over_cap: distinct spans that exceeded `cap`
-    """
-    telemetry: dict[str, Any] = {
-        "n_span_cite_dropped": 0,
-        "n_spans_over_cap": 0,
-    }
-    if cap <= 0:
-        # OFF: return the caller's object untouched — byte-identical.
-        return sections, telemetry
-
-    if section_order is None:
-        section_order = list(sections.keys())
-    # Visit every section deterministically: ordered sections first, then any
-    # remaining sections not named in section_order (defensive — keeps every
-    # sentence accounted for).
-    ordered_titles = [t for t in section_order if t in sections]
-    ordered_titles += [t for t in sections if t not in set(ordered_titles)]
-
-    span_counts: dict[tuple[str, int, int], int] = {}
-    over_cap_spans: set[tuple[str, int, int]] = set()
-    new_sections: dict[str, list[str]] = {t: [] for t in sections}
-
-    for title in ordered_titles:
-        for sentence in sections[title]:
-            spans = _sentence_spans(sentence)
-            if not spans:
-                # No provenance token → never a cap candidate; keep as-is.
-                new_sections[title].append(sentence)
-                continue
-            # Under-cap spans this sentence still contributes.
-            under_cap = {s for s in spans if span_counts.get(s, 0) < cap}
-            if not under_cap:
-                # Every cited span is already saturated → over-concentration.
-                telemetry["n_span_cite_dropped"] += 1
-                for s in spans:
-                    over_cap_spans.add(s)
-                continue
-            # Keep the sentence and charge ALL its cited spans (a kept sentence
-            # really does cite each of them once more).
-            new_sections[title].append(sentence)
-            for s in spans:
-                span_counts[s] = span_counts.get(s, 0) + 1
-                if span_counts[s] >= cap:
-                    over_cap_spans.add(s)
-
-    telemetry["n_spans_over_cap"] = len(over_cap_spans)
-    if telemetry["n_span_cite_dropped"]:
-        logger.info(
-            "[fact_dedup] span-cite cap=%d dropped %d over-concentrated "
-            "citation sentence(s) across %d saturated span(s)",
-            cap,
-            telemetry["n_span_cite_dropped"],
-            telemetry["n_spans_over_cap"],
-        )
-    return new_sections, telemetry
-
-
-# ─────────────────────────────────────────────────────────────────────────
 # Numeric-token extraction
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -1145,18 +978,7 @@ async def dedup_pass(
             - n_redundants: total redundant sentences flagged
             - n_rewrites_applied: successful rewrites
             - n_drops: sentences dropped because rewrite returned None
-            - n_span_cite_dropped: sentences dropped by the span-cite cap
-              (I-pipe-007 #1232; 0 unless PG_SPAN_PER_SOURCE_CITE_CAP > 0)
-            - n_spans_over_cap: distinct spans that saturated the cap
     """
-    # I-pipe-007 (#1232): span over-concentration cap. Read once up front;
-    # default 0 == OFF == byte-identical. The cap runs as the FINAL selection
-    # step on BOTH dedup paths (groups present OR not) because the
-    # over-concentrated padding sentences have distinct/empty numeric
-    # signatures and are NOT caught by build_groups — that is precisely the
-    # gap this cap closes. Selection only; faithfulness gates untouched.
-    span_cite_cap = _read_span_cite_cap()
-
     groups = build_groups(sections, section_order=section_order)
     n_redundants = count_redundancy(groups)
     telemetry: dict[str, Any] = {
@@ -1164,15 +986,9 @@ async def dedup_pass(
         "n_redundants": n_redundants,
         "n_rewrites_applied": 0,
         "n_drops": 0,
-        "n_span_cite_dropped": 0,
-        "n_spans_over_cap": 0,
     }
     if not groups:
-        capped_sections, cap_telemetry = apply_span_cite_cap(
-            sections, span_cite_cap, section_order=section_order,
-        )
-        telemetry.update(cap_telemetry)
-        return capped_sections, telemetry
+        return sections, telemetry
 
     logger.info(
         "[fact_dedup] %d duplicate-fact groups detected, "
@@ -1191,9 +1007,4 @@ async def dedup_pass(
         "[fact_dedup] applied=%d, dropped=%d",
         telemetry["n_rewrites_applied"], telemetry["n_drops"],
     )
-
-    new_sections, cap_telemetry = apply_span_cite_cap(
-        new_sections, span_cite_cap, section_order=section_order,
-    )
-    telemetry.update(cap_telemetry)
     return new_sections, telemetry

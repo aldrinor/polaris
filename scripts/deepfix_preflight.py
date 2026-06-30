@@ -102,7 +102,10 @@ def canary_2_verdict_cap() -> str:
     # snapshot + force the DEFAULT so the 4000 default-path is what we measure
     _saved = os.environ.pop("PG_D8_VERDICT_MAX_TOKENS", None)
     try:
-        judge = build("judge", "qwen/qwen3.6-35b-a3b")
+        # I-judge-kimi (2026-06-29): the benchmark Judge is now moonshotai/kimi-k2.6 (was
+        # qwen/qwen3.6-35b-a3b). The verdict cap is role-based (PG_D8_VERDICT_MAX_TOKENS default
+        # 16384, clamped to _JUDGE_MAX_TOKENS_CHAIN_MIN), so the assertions below are slug-agnostic.
+        judge = build("judge", "moonshotai/kimi-k2.6")
         mirror = build("mirror", "z-ai/glm-5.1")
         sentinel = build("sentinel", "minimax/minimax-m2")
         jmax = judge.get("max_tokens")
@@ -126,7 +129,7 @@ def canary_2_verdict_cap() -> str:
 
         # prove the cap is WIRED to PG_D8_VERDICT_MAX_TOKENS (defends vs a hardcoded 4000)
         os.environ["PG_D8_VERDICT_MAX_TOKENS"] = "1234"
-        jmax_override = build("judge", "qwen/qwen3.6-35b-a3b").get("max_tokens")
+        jmax_override = build("judge", "moonshotai/kimi-k2.6").get("max_tokens")
         _p(f"  judge.max_tokens(PG_D8_VERDICT_MAX_TOKENS=1234) = {jmax_override}  (env-wired, LAW VI)")
         _check(jmax_override == 1234,
                f"judge cap must follow PG_D8_VERDICT_MAX_TOKENS override (1234), got {jmax_override}")

@@ -22,7 +22,13 @@ from scripts.dr_benchmark.pathB_run_gate import GateError
 _GEN_SLUG = "z-ai/glm-5.2"
 _MIRROR_SLUG = "z-ai/glm-5.2"
 _SENTINEL_SLUG = "minimax/minimax-m2"
+# Sovereign-lock Judge (PG_FOUR_ROLE_TRANSPORT=self_host) — the canonical-pinned qwen on the vast box.
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
+# I-judge-kimi (2026-06-29): the BENCHMARK Judge served over OpenRouter (PG_FOUR_ROLE_TRANSPORT
+# unset/openrouter, the default). qwen's ~2 OpenRouter providers 429-tore the per-claim D8 seam, so
+# the benchmark Judge swapped to moonshotai/kimi-k2.6 (21 endpoints). _role_pins is benchmark-aware:
+# on the OpenRouter route the Judge pin is this slug @ serving_route='openrouter' (NOT lock qwen).
+_BENCHMARK_JUDGE_SLUG = "moonshotai/kimi-k2.6"
 
 _FOUR_ROLE_SLUGS = {
     "generator": _GEN_SLUG,
@@ -164,15 +170,24 @@ def test_pin_reads_pg_generator_model_first(monkeypatch) -> None:
 
 # --- I-meta-002 sub-PR-5: _role_pins() returns the FOUR locked roles, lock-sourced slugs ---
 def test_role_pins_returns_four_locked_roles(monkeypatch) -> None:
-    # No PG_*_MODEL overrides set: defaults are sourced from the architecture lock.
+    # No PG_*_MODEL overrides set: defaults are sourced from the architecture lock, EXCEPT the
+    # benchmark-aware Judge (I-judge-kimi). On the DEFAULT benchmark OpenRouter route the Judge is
+    # served as the benchmark lineup slug (moonshotai/kimi-k2.6), NOT the lock's sovereign qwen.
     monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("PG_MIRROR_MODEL", raising=False)
     monkeypatch.delenv("PG_SENTINEL_MODEL", raising=False)
     monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("PG_BENCHMARK_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default = benchmark openrouter
     from src.polaris_graph.benchmark.pathB_runner import _role_pins
     pins = {p.role: p.model_slug for p in _role_pins()}
-    assert pins == _FOUR_ROLE_SLUGS  # lock-sourced generator/mirror/sentinel/judge
+    assert pins == {
+        "generator": _GEN_SLUG,
+        "mirror": _MIRROR_SLUG,
+        "sentinel": _SENTINEL_SLUG,
+        "judge": _BENCHMARK_JUDGE_SLUG,  # benchmark Judge served via OpenRouter (NOT lock qwen)
+    }
 
 
 # --- per-role PG_*_MODEL env override is applied ON TOP of the lock default ---
@@ -192,14 +207,55 @@ def test_role_pins_rejects_family_collision(monkeypatch) -> None:
     # I-beatboth-008 (#1285): under the all-GLM-5.2 lock the generator defaults to z-ai/glm-5.2
     # (family 'glm'), and (generator, mirror) is the ONLY operator-approved allowed_collision.
     # Force the judge into the 'glm' family -> collides with the generator on a pair that is NOT
-    # in allowed_collisions, so _role_pins must still raise LOUD. (The prior judge->deepseek
-    # collision premise was stale: the generator is no longer deepseek post all-GLM-5.2 switch.)
+    # in allowed_collisions, so _role_pins must still raise LOUD.
+    # I-judge-kimi (2026-06-29): on the default benchmark OpenRouter route the Judge slug resolves
+    # via PG_BENCHMARK_JUDGE_MODEL (the dedicated benchmark env), so the collision must be forced
+    # through THAT env — PG_JUDGE_MODEL no longer reaches the benchmark Judge pin.
     monkeypatch.delenv("PG_GENERATOR_MODEL", raising=False)
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
-    monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")  # family 'glm' -> non-allowed collision
+    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default = benchmark openrouter
+    monkeypatch.setenv("PG_BENCHMARK_JUDGE_MODEL", "z-ai/glm-5.1")  # 'glm' -> non-allowed collision
     from src.polaris_graph.benchmark.pathB_runner import _role_pins
     with pytest.raises(RuntimeError, match="family"):
         _role_pins()
+
+
+# --- I-judge-kimi: benchmark-aware Judge pin = kimi @ serving_route 'openrouter' (overrides lock) ---
+def test_role_pins_judge_is_benchmark_kimi_on_openrouter_route(monkeypatch) -> None:
+    # On the DEFAULT benchmark OpenRouter route the Judge pin is the benchmark lineup slug
+    # (moonshotai/kimi-k2.6) with serving_route='openrouter' — overriding the lock's sovereign
+    # qwen @ vast_self_host_fp8 so the post-run gate accepts the kimi-via-OpenRouter capture
+    # (provider+model branch, NOT the self-host endpoint branch). Mirror/Sentinel/Generator pins
+    # keep their lock slugs and a lock-sourced (None here) serving_route.
+    for v in ("PG_GENERATOR_MODEL", "OPENROUTER_DEFAULT_MODEL", "PG_MIRROR_MODEL",
+              "PG_SENTINEL_MODEL", "PG_JUDGE_MODEL", "PG_BENCHMARK_JUDGE_MODEL",
+              "PG_FOUR_ROLE_TRANSPORT"):
+        monkeypatch.delenv(v, raising=False)
+    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    pins = {p.role: p for p in _role_pins()}
+    assert pins["judge"].model_slug == _BENCHMARK_JUDGE_SLUG     # kimi, NOT lock qwen
+    assert pins["judge"].serving_route == "openrouter"          # overrides vast_self_host_fp8
+    # Mirror/Sentinel/Generator UNCHANGED: lock slugs, serving_route left for the lock (None here).
+    assert pins["generator"].model_slug == _GEN_SLUG
+    assert pins["mirror"].model_slug == _MIRROR_SLUG
+    assert pins["sentinel"].model_slug == _SENTINEL_SLUG
+    assert pins["generator"].serving_route is None
+    assert pins["mirror"].serving_route is None
+    assert pins["sentinel"].serving_route is None
+
+
+def test_role_pins_judge_reverts_to_lock_qwen_in_self_host_mode(monkeypatch) -> None:
+    # The benchmark override is SCOPED to the OpenRouter route. In sovereign self_host mode the Judge
+    # stays the lock's qwen @ its lock serving_route (None here -> preflight sources vast_self_host_fp8
+    # from the lock). This keeps the canonical-pinned sovereign Judge path UNTOUCHED.
+    for v in ("PG_GENERATOR_MODEL", "OPENROUTER_DEFAULT_MODEL", "PG_MIRROR_MODEL",
+              "PG_SENTINEL_MODEL", "PG_JUDGE_MODEL", "PG_BENCHMARK_JUDGE_MODEL"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
+    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    pins = {p.role: p for p in _role_pins()}
+    assert pins["judge"].model_slug == _JUDGE_SLUG              # lock qwen (sovereign)
+    assert pins["judge"].serving_route is None                 # lock-sourced at preflight
 
 
 # --- Codex PR-2 iter-1 P1 #2: system_fingerprint must NOT be a required surrogate field;
@@ -276,3 +332,160 @@ def test_body_exception_propagates_without_assert(tmp_path: Path, monkeypatch) -
     # pin was written (preflight succeeded) but result was NOT (post-run didn't run)
     assert (tmp_path / "pathB_gate_pin.json").exists()
     assert not (tmp_path / "pathB_gate_result.json").exists()
+
+
+# ===========================================================================================
+# I-judge-kimi (2026-06-29) — multi-provider kimi Judge gate-flow tests (P1-2).
+#
+# These drive the FULL gate flow (gate_around_question -> preflight -> assert_post_run) — not just
+# _role_pins() — on CAPTURED calls. On the DEFAULT benchmark OpenRouter route _role_pins() pins:
+#   generator z-ai/glm-5.2          @ openrouter        (lock serving_route)
+#   mirror    z-ai/glm-5.2          @ openrouter        (lock serving_route)
+#   sentinel  minimax/minimax-m2    @ vast_self_host    (lock serving_route)
+#   judge     moonshotai/kimi-k2.6  @ openrouter, allow_provider_drift=True (benchmark override)
+# The kimi Judge is DELIBERATELY load-balanced across its 21 endpoints (the judge order/
+# allow_fallbacks pin was removed so OpenRouter spreads the ~178 per-claim D8 burst -> no 429), so a
+# legitimate run serves MANY providers for the judge while every judge call is model=kimi. The gate
+# must PASS that (provider may drift) yet still FAIL a wrong MODEL / wrong route.
+_KIMI_JUDGE_SLUG = "moonshotai/kimi-k2.6"
+_KIMI_GEN_SLUG = "z-ai/glm-5.2"
+_KIMI_MIRROR_SLUG = "z-ai/glm-5.2"
+_KIMI_SENTINEL_SLUG = "minimax/minimax-m2"
+_KIMI_SENTINEL_BASE_URL = "http://10.0.0.6:8000"
+_KIMI_JUDGE_BASE_URL = "http://10.0.0.7:8000"
+
+
+def _kimi_route_env(monkeypatch) -> None:
+    """Full-power env for the DEFAULT benchmark OpenRouter route (kimi Judge). Sets BOTH the
+    entailment and evaluator model equal so preflight's eff_entail==eff_eval invariant holds even if
+    the process env leaks a glm PG_ENTAILMENT_MODEL (the stale-fixture failure class)."""
+    monkeypatch.setenv("OPENROUTER_ALLOW_FALLBACKS", "false")
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
+    monkeypatch.setenv("SERPER_API_KEY", "x")
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "y")
+    monkeypatch.setenv("PG_PATHB_GATE_SALT", "pathB-test-salt-VERY-secret")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", _KIMI_GEN_SLUG)
+    monkeypatch.setenv("PG_ENTAILMENT_MODEL", "z-ai/glm-5.1")
+    monkeypatch.setenv("PG_EVALUATOR_MODEL", "z-ai/glm-5.1")
+    # sentinel is the only self-host role on the benchmark route (lock serving_route).
+    monkeypatch.setenv("PG_SENTINEL_BASE_URL", _KIMI_SENTINEL_BASE_URL)
+    # DEFAULT benchmark openrouter route + lock-default slugs for mirror/sentinel/judge.
+    for v in ("PG_MIRROR_MODEL", "PG_SENTINEL_MODEL", "PG_JUDGE_MODEL",
+              "PG_BENCHMARK_JUDGE_MODEL", "PG_FOUR_ROLE_TRANSPORT", "OPENROUTER_DEFAULT_MODEL"):
+        monkeypatch.delenv(v, raising=False)
+
+
+def _capture_openrouter(role: str, slug: str, provider: str) -> None:
+    """One OpenRouter-served completion: build_response_metadata -> {provider_name, model}."""
+    pc.capture_llm_call(
+        role=role,
+        messages=[{"role": "user", "content": role}],
+        raw_response={"provider": provider, "model": slug},
+    )
+
+
+def _capture_self_host(role: str, slug: str, endpoint: str) -> None:
+    """One self-hosted vLLM completion: raw['_pathb_served'] -> {model, endpoint} (no provider)."""
+    pc.capture_llm_call(
+        role=role,
+        messages=[{"role": "user", "content": role}],
+        raw_response={"_pathb_served": {"endpoint": endpoint, "model": slug}},
+    )
+
+
+def _capture_benchmark_route(*, judge_providers, judge_model=_KIMI_JUDGE_SLUG) -> None:
+    """generator/mirror over OpenRouter (deepinfra), sentinel self-host, judge over OpenRouter
+    served by MANY providers (one capture per entry in judge_providers) all at model=judge_model."""
+    _capture_openrouter("generator", _KIMI_GEN_SLUG, "deepinfra")
+    _capture_openrouter("mirror", _KIMI_MIRROR_SLUG, "deepinfra")
+    _capture_self_host("sentinel", _KIMI_SENTINEL_SLUG, _KIMI_SENTINEL_BASE_URL)
+    for provider in judge_providers:
+        _capture_openrouter("judge", judge_model, provider)
+
+
+# --- a multi-provider kimi Judge run PASSES (provider drift allowed, model+route enforced) ---
+def test_kimi_judge_multi_provider_run_passes(tmp_path: Path, monkeypatch) -> None:
+    _kimi_route_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with gate_around_question(enabled=True, run_dir=tmp_path):
+        # 3 judge calls served by THREE DIFFERENT providers — the load-balanced kimi reality.
+        _capture_benchmark_route(judge_providers=["deepinfra", "novita", "fireworks"])
+        pc.record_retrieval_attempt("serper")
+        pc.record_retrieval_attempt("semantic_scholar")
+    pin = json.loads((tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8"))
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "PASS"
+    assert set(result["served_identity_by_role"]) == {
+        "generator", "mirror", "sentinel", "judge",
+    }
+    judge_pin = next(rp for rp in pin["role_pins"] if rp["role"] == "judge")
+    assert judge_pin["model_slug"] == _KIMI_JUDGE_SLUG
+    assert judge_pin["serving_route"] == "openrouter"
+    assert judge_pin["allow_provider_drift"] is True  # the relaxation is declared on the pin
+    # the other roles keep the strict gate (no drift flag).
+    for role in ("generator", "mirror", "sentinel"):
+        rp = next(p for p in pin["role_pins"] if p["role"] == role)
+        assert rp["allow_provider_drift"] is False
+
+
+# --- the model+route are NEVER relaxed: a WRONG-MODEL judge capture still FAILS closed ---
+def test_kimi_judge_wrong_model_still_fails(tmp_path: Path, monkeypatch) -> None:
+    _kimi_route_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with pytest.raises(GateError, match="served model"):
+        with gate_around_question(enabled=True, run_dir=tmp_path):
+            # provider drift is allowed, but a NON-kimi served MODEL must STILL fail closed.
+            _capture_benchmark_route(
+                judge_providers=["deepinfra", "novita"], judge_model="wrong/not-kimi"
+            )
+            pc.record_retrieval_attempt("serper")
+            pc.record_retrieval_attempt("semantic_scholar")
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "FAIL"
+
+
+# --- the OpenRouter route is NEVER relaxed: a self-host-shape judge capture (no provider_name)
+#     fails the openrouter-route present-check even though provider drift is allowed ---
+def test_kimi_judge_wrong_route_self_host_shape_fails(tmp_path: Path, monkeypatch) -> None:
+    _kimi_route_env(monkeypatch)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with pytest.raises(GateError, match="missing surrogate field"):
+        with gate_around_question(enabled=True, run_dir=tmp_path):
+            _capture_openrouter("generator", _KIMI_GEN_SLUG, "deepinfra")
+            _capture_openrouter("mirror", _KIMI_MIRROR_SLUG, "deepinfra")
+            _capture_self_host("sentinel", _KIMI_SENTINEL_SLUG, _KIMI_SENTINEL_BASE_URL)
+            # WRONG ROUTE: the kimi Judge captured as a self-host shape (no provider_name). The
+            # judge pin is the OpenRouter route, so the missing provider_name surrogate fails closed.
+            _capture_self_host("judge", _KIMI_JUDGE_SLUG, _KIMI_JUDGE_BASE_URL)
+            pc.record_retrieval_attempt("serper")
+            pc.record_retrieval_attempt("semantic_scholar")
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "FAIL"
+
+
+# --- no regression: the sovereign self-host qwen Judge still passes its STRICT single-provider
+#     (single endpoint/model) gate; allow_provider_drift is False in self_host mode ---
+def test_self_host_qwen_judge_strict_gate_no_regression(tmp_path: Path, monkeypatch) -> None:
+    _kimi_route_env(monkeypatch)
+    # sovereign self_host mode: the Judge reverts to the lock's qwen @ vast_self_host_fp8 (strict).
+    monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
+    monkeypatch.setenv("PG_JUDGE_BASE_URL", _KIMI_JUDGE_BASE_URL)
+    _patch_preflight_offline(monkeypatch)
+    pc.clear_pathB_capture()
+    with gate_around_question(enabled=True, run_dir=tmp_path):
+        _capture_openrouter("generator", _KIMI_GEN_SLUG, "deepinfra")
+        _capture_openrouter("mirror", _KIMI_MIRROR_SLUG, "deepinfra")
+        _capture_self_host("sentinel", _KIMI_SENTINEL_SLUG, _KIMI_SENTINEL_BASE_URL)
+        # the self-host qwen Judge: a SINGLE endpoint/model (the strict single-provider gate).
+        _capture_self_host("judge", _JUDGE_SLUG, _KIMI_JUDGE_BASE_URL)
+        pc.record_retrieval_attempt("serper")
+        pc.record_retrieval_attempt("semantic_scholar")
+    pin = json.loads((tmp_path / "pathB_gate_pin.json").read_text(encoding="utf-8"))
+    result = json.loads((tmp_path / "pathB_gate_result.json").read_text(encoding="utf-8"))
+    assert result["verdict"] == "PASS"
+    judge_pin = next(rp for rp in pin["role_pins"] if rp["role"] == "judge")
+    assert judge_pin["model_slug"] == _JUDGE_SLUG          # lock qwen (sovereign)
+    assert judge_pin["allow_provider_drift"] is False      # strict gate, NO drift in self_host mode

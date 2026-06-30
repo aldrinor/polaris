@@ -61,6 +61,21 @@ def topic_gate_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def topic_gate_hard_drop_enabled() -> bool:
+    """LEGACY escape hatch ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (default OFF).
+
+    §-1.3 (WEIGHT, DON'T FILTER — the operator names the "scope hard-filter" as a
+    BANNED anti-pattern; the ONLY hard gate is the faithfulness engine): a
+    confident-OFF source is, by DEFAULT, KEPT in the pool and DEMOTED (disclosed
+    as off-topic), NEVER hard-dropped. Topicality is a WEIGHT, not a DROP — the
+    source still flows to composition where the UNCHANGED strict_verify / NLI /
+    4-role faithfulness engine is the only gate. Set this flag truthy ONLY to
+    restore the pre-I-deepfix-001 hard-drop (audit / reversal); the default
+    keep-all + demote is the §-1.3-correct behavior."""
+    raw = os.environ.get("PG_SCOPE_TOPIC_GATE_HARD_DROP", "0").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
 def topic_batch_size() -> int:
     """``PG_SCOPE_TOPIC_BATCH`` (default 25), the max sources per LLM call.
     A non-positive / unparseable value falls back to the default (FAIL-SAFE:
@@ -87,6 +102,13 @@ class TopicGateResult:
     n_dropped_offtopic: int = 0
     n_exempt: int = 0
     notes: list[str] = field(default_factory=list)
+    # I-deepfix-001 (§-1.3 WEIGHT-not-FILTER): confident-OFF sources that were
+    # KEPT-and-DEMOTED instead of hard-dropped (the DEFAULT). They remain in
+    # ``kept_rows`` (the source flows to composition) but are disclosed here as
+    # off-topic-demoted. Empty when the legacy hard-drop flag is set.
+    demoted_rows: list[dict[str, Any]] = field(default_factory=list)
+    demoted_titles: list[str] = field(default_factory=list)
+    n_demoted_offtopic: int = 0
 
 
 def _row_title_text(row: dict[str, Any]) -> str:
@@ -283,16 +305,26 @@ def classify_topic_relevance(
         judged_rows.append(row)
         judged_meta.append((title, snippet))
 
-    # Only DROPS are accumulated in the loop. The kept set is computed once
-    # below preserving the caller's ORIGINAL order — critical because
-    # `evidence_for_gen` arrives already ranked best-first (relevance x
+    # Confident-OFF verdicts are accumulated in the loop. The kept set is
+    # computed once below preserving the caller's ORIGINAL order — critical
+    # because `evidence_for_gen` arrives already ranked best-first (relevance x
     # authority) and there is NO re-rank between this gate and the generator.
     # Partitioning exempt/kept to the end would push high-value marquee / anchor
     # rows to the tail of the list the generator sees (a real regression on the
-    # gate-ON acceptance path). Only confident-OFF rows enter `dropped_rows`;
-    # exempt rows and fail-open batches never do, so they stay in place.
-    dropped_rows: list[dict[str, Any]] = []
-    dropped_titles: list[str] = []
+    # gate-ON acceptance path).
+    #
+    # I-deepfix-001 (§-1.3 WEIGHT, DON'T FILTER — the operator names the "scope
+    # hard-filter" as a BANNED anti-pattern; the ONLY hard gate is the
+    # faithfulness engine): a confident-OFF source is, BY DEFAULT, KEPT in the
+    # pool and DEMOTED (disclosed off-topic via the ``topic_offtopic_demoted``
+    # sidecar), NEVER hard-dropped. Topicality is a WEIGHT — the source still
+    # flows to composition where the UNCHANGED strict_verify / NLI / 4-role
+    # engine is the only gate. The legacy hard-drop is preserved behind
+    # ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (audit / reversal). Order is unchanged in
+    # BOTH modes (no tail-partition), so a demoted row stays best-first-ranked.
+    hard_drop = topic_gate_hard_drop_enabled()
+    offtopic_rows: list[dict[str, Any]] = []
+    offtopic_titles: list[str] = []
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -321,24 +353,39 @@ def classify_topic_relevance(
             continue
         for local_idx, row in enumerate(batch_rows):
             if verdicts.get(local_idx) is True:  # confident OFF only
-                dropped_rows.append(row)
+                offtopic_rows.append(row)
                 # batch_meta is already the per-batch slice -> index locally.
-                dropped_titles.append(batch_meta[local_idx][0] or "(no title)")
+                offtopic_titles.append(batch_meta[local_idx][0] or "(no title)")
 
-    # Compute the kept set ONCE, preserving the original best-first order.
-    _dropped_ids = {id(r) for r in dropped_rows}
-    kept_rows = [r for r in sources if id(r) not in _dropped_ids]
+    if hard_drop:
+        # LEGACY (explicit opt-in): hard-drop the confident-OFF set.
+        _off_ids = {id(r) for r in offtopic_rows}
+        kept_rows = [r for r in sources if id(r) not in _off_ids]
+        dropped_rows, dropped_titles = offtopic_rows, offtopic_titles
+        demoted_rows: list[dict[str, Any]] = []
+        demoted_titles: list[str] = []
+    else:
+        # DEFAULT (§-1.3 keep-all + demote): KEEP every source (original order),
+        # disclose the confident-OFF set as DEMOTED, and stamp a faithfulness-
+        # neutral sidecar so a downstream weighter can sink it WITHOUT dropping.
+        kept_rows = list(sources)
+        for row in offtopic_rows:
+            row["topic_offtopic_demoted"] = True
+        dropped_rows, dropped_titles = [], []
+        demoted_rows, demoted_titles = offtopic_rows, offtopic_titles
 
+    verb = "dropped_offtopic" if hard_drop else "demoted_offtopic"
     notes = [
         f"topic_gate: in={n_in} kept={len(kept_rows)} "
-        f"dropped_offtopic={len(dropped_rows)} exempt={len(exempt_rows)} "
+        f"{verb}={len(offtopic_rows)} exempt={len(exempt_rows)} "
         f"batch_size={size}"
     ]
-    if dropped_titles:
+    if offtopic_titles:
         _LOGGER.info(
-            "[scope] topic_gate dropped %d off-topic source(s): %s",
-            len(dropped_titles),
-            "; ".join(t[:120] for t in dropped_titles),
+            "[scope] topic_gate %s %d off-topic source(s): %s",
+            "DROPPED" if hard_drop else "DEMOTED(kept, disclosed)",
+            len(offtopic_titles),
+            "; ".join(t[:120] for t in offtopic_titles),
         )
 
     return TopicGateResult(
@@ -350,4 +397,7 @@ def classify_topic_relevance(
         n_dropped_offtopic=len(dropped_rows),
         n_exempt=len(exempt_rows),
         notes=notes,
+        demoted_rows=demoted_rows,
+        demoted_titles=demoted_titles,
+        n_demoted_offtopic=len(demoted_rows),
     )

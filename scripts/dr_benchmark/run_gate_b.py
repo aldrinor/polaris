@@ -806,14 +806,10 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # REQUIRED_FLAGS below (a required-truthy flag set to 0 would fail the preflight).
     "PG_CAPPED_FINDING_DEDUP": "0",
     "PG_RELEVANCE_FLOOR": "0.30",
-    # I-arch-007 #1264 DORMANT-CAP CLEANUP (operator: ZERO cap, §-1.3 BANNED bolt-on). The per-source
-    # citation cap (fact_dedup.py: drops over-concentrated citations from an already-verified section to
-    # hit a per-source number). Default OFF already (unset/""/0/<=0 == no-op, byte-identical sections —
-    # fact_dedup.py:63-94 `_read_span_cite_cap`), so it has never been ON on a benchmark run; pin it
-    # EXPLICITLY to "0" (force-EXACT below) so a stray operator/.env PG_SPAN_PER_SOURCE_CITE_CAP=N can
-    # never silently re-enable the cap on the paid run. FAITHFULNESS-NEUTRAL: the cap only ever DROPPED an
-    # already-verified citation; OFF keeps every verified citation.
-    "PG_SPAN_PER_SOURCE_CITE_CAP": "0",
+    # I-deepfix-001 BREADTH (§-1.3 DELETE the bolt-on, not just default-0): the per-source citation cap
+    # `PG_SPAN_PER_SOURCE_CITE_CAP` (the operator's EXACT named §-1.3 BANNED bolt-on) has been DELETED
+    # from fact_dedup.py — the knob + its drop path are gone, so there is no env to pin here any more.
+    # The slate force-exact entry + the preflight-required entry below were removed with it.
     # I-perm-011 (#1205): max-over-subqueries relevance floor. `_row_relevance`
     # normalizes overlap by the WHOLE multi-part question token set, so a ~73-token
     # research question makes the 0.30 floor demand >=22 exact-word matches — which
@@ -1801,13 +1797,13 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # so a stray operator/.env PG_PARALLEL_VERIFY can neither exceed the intended 16-worker cap nor
     # silently revert to serial (=1, the bug that froze run #6). Concurrency knob only; verdicts unchanged.
     "PG_PARALLEL_VERIFY",
-    # I-arch-007 #1264 DORMANT-CAP CLEANUP: pin both number-forcing caps EXACTLY OFF ("0") so a stray
-    # operator/.env value can never silently re-enable them (operator: ZERO cap; §-1.3 BANNED bolt-ons).
+    # I-arch-007 #1264 DORMANT-CAP CLEANUP: pin the re-cap EXACTLY OFF ("0") so a stray operator/.env
+    # value can never silently re-enable it (operator: ZERO cap; §-1.3 BANNED bolt-on).
     # PG_CAPPED_FINDING_DEDUP=0 removes the re-cap-to-max_ev (verified the ONLY consumer is the two
-    # run_honest_sweep_r3 re-cap sites, both `and _capped_dedup`-gated); PG_SPAN_PER_SOURCE_CITE_CAP=0 is
-    # the fact_dedup no-op default made explicit. Both faithfulness-neutral (a cap only ever DROPPED).
+    # run_honest_sweep_r3 re-cap sites, both `and _capped_dedup`-gated). Faithfulness-neutral (a cap only
+    # ever DROPPED). NOTE: the sibling PG_SPAN_PER_SOURCE_CITE_CAP pin was REMOVED here — I-deepfix-001
+    # DELETED that bolt-on from fact_dedup.py entirely, so there is no env left to force-exact.
     "PG_CAPPED_FINDING_DEDUP",
-    "PG_SPAN_PER_SOURCE_CITE_CAP",
     # I-wire-013 (#1327): the render chrome-as-claim CANARY mode is a STRING ("enforce") — force-EXACT
     # (the int FLOOR path would crash on float("enforce")) so a stray operator PG_RENDER_CHROME_CANARY=
     # warn|off cannot silently downgrade the cert-run tripwire to telemetry-only. Faithfulness-neutral

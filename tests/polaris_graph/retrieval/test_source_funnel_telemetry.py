@@ -176,6 +176,9 @@ def test_section_backward_compatible_with_old_object():
     assert sec["drop_reasons"] == {}
     assert sec["kept_by_offtopic"] == 0
     assert sec["extraction_yield"] == {"fetched": 12, "finding_rows": 0}
+    # I-deepfix-001 D3 (#1344): the new B4 relevance_gate mirror is getattr-default
+    # None on a pre-D3 retrieval-like object (no `relevance_gate` attr) — never a KeyError.
+    assert sec["relevance_gate"] is None
     # I-deepfix-001 P1-4 (#1344): the getattr defaults keep the new wall/B4 fields
     # present + byte-identical OFF even on a pre-#1344 retrieval-like object.
     assert sec["retrieval_wall_hit"] is False
@@ -220,3 +223,72 @@ def test_retrieval_wall_off_path_byte_identical_false():
     assert sec["retrieval_queries_skipped"] == 0
     assert sec["retrieval_candidates_unclassified"] == 0
     assert sec["semantic_relevance_fell_back"] is False
+
+
+# ── I-deepfix-001 D3 (#1344, Codex P1): the §-1.3 DEMOTE-NOT-DROP proof persists ──────
+def test_relevance_gate_demote_proof_persisted_in_durable_manifest_section():
+    """REQUIRED (Codex P1): `run_live_retrieval` returns the B4 demote telemetry on
+    `result.relevance_gate` (live_retriever.py:~5966), but the DURABLE manifest section
+    used by BOTH the abort + success paths must MIRROR it — otherwise the §-1.3
+    demote-not-drop proof is dropped from the on-disk manifest.
+
+    THE FETCHED-TO-FILL SUCCESS CASE the fix targets: the fetch budget was large enough
+    to fetch EVERY candidate — all above-floor AND the below-floor demoted ones — so
+    BOTH tail drop_reasons (`relevance_budget_tail` = unfetched_relevant_tail = 0,
+    `relevance_below_floor_tail` = demoted_tail = 0) are 0. The ONLY surviving on-disk
+    proof that the floor demoted-not-dropped (and that the budget reached below-floor
+    candidates) is `relevance_gate.demoted_fetched_to_fill`. If the manifest does not
+    mirror `relevance_gate`, that proof vanishes precisely in the success case."""
+    # RelevanceGateResult.to_dict() shape (live_retriever.py:~3936), fetched-to-fill case:
+    #   total_scored 154 = above-floor 120 + below-floor 34; budget (200) > 154 -> ALL
+    #   fetched: fetched_budget 154, demoted_fetched_to_fill 34, demoted_tail 0,
+    #   unfetched_relevant_tail 0, empty tail -> tail scores None.
+    rel_gate = {
+        "threshold": 0.30,
+        "total_scored": 154,
+        "kept_on_topic": 120,
+        "demoted_below_floor": 34,
+        "demoted_fetched_to_fill": 34,
+        "demoted_tail": 0,
+        "fetched_budget": 154,
+        "unfetched_relevant_tail": 0,
+        "tail_score_min": None,
+        "tail_score_max": None,
+        "scorer": "semantic_v2",
+    }
+    r = LiveRetrievalResult(
+        classified_sources=[], evidence_rows=[{"evidence_id": "ev_000"}],
+        total_candidates_pre_filter=154, candidates_kept_by_scope=0,
+        candidates_kept_by_offtopic=154, candidates_fetched=154,
+        candidates_failed_fetch=0,
+        relevance_gate=rel_gate,
+        drop_reasons={
+            "offtopic": 0, "rerank_not_selected": 0,
+            "fetch_failed": 0, "content_starved": 0,
+            # BOTH tail reasons are 0 in the fetched-to-fill success case:
+            "relevance_budget_tail": 0, "relevance_below_floor_tail": 0,
+        },
+    )
+    sec = _section(r)
+    # The demote telemetry survives into the DURABLE section verbatim.
+    assert sec["relevance_gate"] == rel_gate
+    # The proof key specifically persists (this is the §-1.3 demote-not-drop evidence).
+    assert sec["relevance_gate"]["demoted_fetched_to_fill"] == 34
+    # And it is NOT recoverable from drop_reasons alone in this success case — both
+    # tail reasons are 0, so without the relevance_gate mirror the proof would be lost.
+    assert sec["drop_reasons"]["relevance_budget_tail"] == 0
+    assert sec["drop_reasons"]["relevance_below_floor_tail"] == 0
+
+
+def test_relevance_gate_none_when_b4_gate_off():
+    """OFF path (PG_RETRIEVAL_RELEVANCE_GATE=0 -> result.relevance_gate is None): the
+    manifest field is honestly None, never a faked 0-count — byte-identical disclosure."""
+    r = LiveRetrievalResult(
+        classified_sources=[], evidence_rows=[],
+        total_candidates_pre_filter=100, candidates_kept_by_scope=1,
+        candidates_kept_by_offtopic=50, candidates_fetched=40,
+        candidates_failed_fetch=2,
+        relevance_gate=None,
+    )
+    sec = _section(r)
+    assert sec["relevance_gate"] is None

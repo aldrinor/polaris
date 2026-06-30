@@ -149,8 +149,15 @@ _STATIC_MODEL_LIMITS: dict[str, tuple[int, Optional[int]]] = {
     # fallback is the REAL window (262144 ctx, 262144 cap). The clamp then reconciles a generous
     # max_tokens DOWN against the true window (ctx - prompt - margin) — the actual qwen-judge
     # HTTP-400 fix — instead of mis-clamping to a stale 65536. The LIVE /models table still
-    # overrides this when reachable.
+    # overrides this when reachable. (Retained: the canonical-pinned lock's sovereign Judge is
+    # still qwen, pending an operator-signed reconciliation — see I-judge-kimi.)
     "qwen/qwen3.6-35b-a3b":       (262144, 262144),
+    # Judge (ACTIVE benchmark, I-judge-kimi 2026-06-29): moonshotai/kimi-k2.6. Live /models +
+    # /endpoints 2026-06-29: context_length 262144, top_provider.max_completion_tokens 262144. The
+    # offline fallback mirrors the live values so an offline clamp reconciles a generous max_tokens
+    # DOWN against the true 262144 window (ctx - prompt - margin), never a stale figure. The LIVE
+    # /models table overrides this when reachable.
+    "moonshotai/kimi-k2.6":       (262144, 262144),
 }
 
 

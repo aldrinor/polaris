@@ -56,6 +56,7 @@ def _clean_scope_env(monkeypatch):
         "PG_SCOPE_DENYLIST_DOMAINS",
         "PG_SCOPE_TOPIC_GATE",
         "PG_SCOPE_TOPIC_BATCH",
+        "PG_SCOPE_TOPIC_GATE_HARD_DROP",
         "PG_SCOPE_PREFER_JOURNAL",
     ):
         monkeypatch.delenv(var, raising=False)
@@ -189,9 +190,13 @@ def test_topic_gate_disabled_default():
     assert topic_batch_size() == 25
 
 
-def test_topic_gate_drops_offtopic_keeps_ontopic():
-    """Stub LLM marks source index 0 ON and index 1 OFF -> the off-topic
-    spinal-cord row is dropped, the on-topic semaglutide row kept."""
+def test_topic_gate_demotes_offtopic_keeps_all_by_default():
+    """§-1.3 (WEIGHT, DON'T FILTER) — DEFAULT: a confident-OFF source is KEPT in
+    the pool and DEMOTED (disclosed off-topic), NEVER hard-dropped.
+
+    Stub LLM marks source index 0 ON and index 1 OFF. Both rows survive in
+    kept_rows (keep-all); the off-topic spinal-cord row is recorded as demoted +
+    stamped with the ``topic_offtopic_demoted`` sidecar; nothing is dropped."""
     rows = _topic_rows()
 
     def _stub(prompt: str) -> str:
@@ -200,7 +205,30 @@ def test_topic_gate_drops_offtopic_keeps_ontopic():
 
     result = classify_topic_relevance(rows, "semaglutide CV outcomes", _stub)
     assert result.n_in == 2
+    assert result.n_dropped_offtopic == 0      # §-1.3: never hard-dropped
+    assert result.n_demoted_offtopic == 1
+    assert result.n_kept == 2                  # keep-all
+    kept_titles = [r["title"] for r in result.kept_rows]
+    assert "Semaglutide cardiovascular outcomes in T2D" in kept_titles
+    assert "Spinal cord stimulation for chronic pain" in kept_titles
+    assert any("Spinal cord" in t for t in result.demoted_titles)
+    # The demoted source carries the disclosure sidecar for downstream weighting.
+    demoted = [r for r in result.kept_rows if r.get("topic_offtopic_demoted")]
+    assert [r["title"] for r in demoted] == ["Spinal cord stimulation for chronic pain"]
+
+
+def test_topic_gate_legacy_hard_drop_flag(monkeypatch):
+    """LEGACY escape hatch PG_SCOPE_TOPIC_GATE_HARD_DROP=1 restores the old
+    confident-OFF hard-drop (audit / reversal only)."""
+    monkeypatch.setenv("PG_SCOPE_TOPIC_GATE_HARD_DROP", "1")
+    rows = _topic_rows()
+
+    def _stub(prompt: str) -> str:
+        return "0: ON\n1: OFF"
+
+    result = classify_topic_relevance(rows, "semaglutide CV outcomes", _stub)
     assert result.n_dropped_offtopic == 1
+    assert result.n_demoted_offtopic == 0
     assert result.n_kept == 1
     kept_titles = [r["title"] for r in result.kept_rows]
     assert kept_titles == ["Semaglutide cardiovascular outcomes in T2D"]
@@ -244,8 +272,8 @@ def test_topic_gate_fails_open_on_garbage():
 
 
 def test_topic_gate_exempts_marquee_even_if_offtopic():
-    """A marquee anchor is NEVER classified/dropped, even if the stub would
-    have called it OFF."""
+    """A marquee anchor is NEVER classified, even if the stub would call it OFF.
+    The non-exempt off-topic source is DEMOTED (kept), not dropped (§-1.3)."""
     rows = [
         {"title": "Required trial primary paper",
          "source_url": "https://nejm.org/a", "is_marquee": True},
@@ -259,9 +287,13 @@ def test_topic_gate_exempts_marquee_even_if_offtopic():
 
     result = classify_topic_relevance(rows, "semaglutide CV outcomes", _stub)
     assert result.n_exempt == 1
-    assert result.n_dropped_offtopic == 1
+    assert result.n_dropped_offtopic == 0     # §-1.3: demote, never drop
+    assert result.n_demoted_offtopic == 1
+    assert result.n_kept == 2                 # marquee + demoted both kept
     kept_titles = [r["title"] for r in result.kept_rows]
     assert "Required trial primary paper" in kept_titles
+    assert "Blockchain sustainability review" in kept_titles
+    assert any("Blockchain" in t for t in result.demoted_titles)
 
 
 def test_topic_gate_batches_bound_calls(monkeypatch):

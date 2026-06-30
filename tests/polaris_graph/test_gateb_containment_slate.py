@@ -120,21 +120,22 @@ def test_per_call_total_deadline_walls_force_set(slate_env):
 def test_dormant_caps_forced_off(slate_env):
     """I-arch-007 #1264 DORMANT-CAP CLEANUP (operator: ZERO cap; §-1.3 BANNED number-forcing bolt-ons).
 
-    Both caps are pinned EXACTLY OFF ("0") so a stray operator/.env value can never silently re-enable
-    a CAP that fights the WEIGHT-AND-CONSOLIDATE architecture:
+    PG_CAPPED_FINDING_DEDUP is pinned EXACTLY OFF ("0") so a stray operator/.env value can never silently
+    re-enable a CAP that fights the WEIGHT-AND-CONSOLIDATE architecture:
       * PG_CAPPED_FINDING_DEDUP=0 removes the re-cap-to-max_ev (the consolidated keep-all floor pool flows
         to composition bounded only by the per-section token budget + the UNCHANGED faithfulness gate).
         Verified the ONLY consumer is the two run_honest_sweep_r3 re-cap sites (both `and _capped_dedup`-
         gated), so 0 makes `and _capped_dedup` short-circuit and skips BOTH re-cap calls.
-      * PG_SPAN_PER_SOURCE_CITE_CAP=0 is the fact_dedup no-op default made EXPLICIT (0 == OFF, byte-
-        identical sections — fact_dedup `_read_span_cite_cap`).
-    Both faithfulness-neutral (a cap only ever DROPPED an already-verified citation / consolidated row)."""
+    Faithfulness-neutral (a cap only ever DROPPED an already-verified / consolidated row).
+
+    I-deepfix-001 BREADTH: the sibling PG_SPAN_PER_SOURCE_CITE_CAP slate pin was REMOVED — that §-1.3
+    BANNED bolt-on was DELETED from fact_dedup.py entirely, so there is no env left to force-exact."""
     assert slate_env["PG_CAPPED_FINDING_DEDUP"] == "0"
-    assert slate_env["PG_SPAN_PER_SOURCE_CITE_CAP"] == "0"
+    assert "PG_SPAN_PER_SOURCE_CITE_CAP" not in slate_env  # bolt-on deleted, no pin
     # Force-EXACT to "0" (NOT force-ON, NOT preflight-required — a required-truthy flag set to 0 would
     # fail the preflight). The flag is GONE from both enforcement sets that demand truthiness.
     assert "PG_CAPPED_FINDING_DEDUP" in gate_b._BENCHMARK_FORCE_EXACT_FLAGS
-    assert "PG_SPAN_PER_SOURCE_CITE_CAP" in gate_b._BENCHMARK_FORCE_EXACT_FLAGS
+    assert "PG_SPAN_PER_SOURCE_CITE_CAP" not in gate_b._BENCHMARK_FORCE_EXACT_FLAGS  # bolt-on deleted
     assert "PG_CAPPED_FINDING_DEDUP" not in gate_b._BENCHMARK_FORCE_ON_FLAGS
     assert "PG_CAPPED_FINDING_DEDUP" not in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
     assert "PG_SPAN_PER_SOURCE_CITE_CAP" not in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
@@ -144,10 +145,10 @@ def test_capped_dedup_zero_survives_hostile_operator_one(monkeypatch):
     """A hostile operator PG_CAPPED_FINDING_DEDUP=1 (trying to RESTORE the cap) cannot survive the
     force-EXACT slate — the slate pins it back to "0" (ZERO cap, unconditional)."""
     monkeypatch.setenv("PG_CAPPED_FINDING_DEDUP", "1")          # operator tries to RE-ENABLE the cap
-    monkeypatch.setenv("PG_SPAN_PER_SOURCE_CITE_CAP", "5")      # operator tries to set a per-source cap
     gate_b.apply_full_capability_benchmark_slate(smoke_scale=False)
     assert os.environ["PG_CAPPED_FINDING_DEDUP"] == "0"
-    assert os.environ["PG_SPAN_PER_SOURCE_CITE_CAP"] == "0"
+    # PG_SPAN_PER_SOURCE_CITE_CAP is no longer pinned (the bolt-on was deleted); a stray operator value
+    # is simply inert now — there is no code in fact_dedup that reads it.
 
 
 def test_sentinel_on_and_resume_intentionally_off(slate_env):

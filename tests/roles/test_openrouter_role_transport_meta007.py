@@ -49,13 +49,16 @@ from src.polaris_graph.roles.openrouter_role_transport import (
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
 # BENCHMARK-STAGE OpenRouter lineup slugs (P1-1). I-run11-004: lock + benchmark now converge —
-# Mirror z-ai/glm-5.2, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge qwen.
+# Mirror z-ai/glm-5.2, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge moonshotai/kimi-k2.6.
 # I-beatboth-008 (#1285): all-GLM-5.2 — the Mirror is upgraded z-ai/glm-5.1 -> z-ai/glm-5.2 (the
 # generator is also z-ai/glm-5.2 now; that gen+mirror collision is the operator-approved
 # family_policy.allowed_collisions pair — see test_family_check_passes_on_benchmark_lineup).
+# I-judge-kimi (2026-06-29, operator directive): the benchmark Judge swapped qwen/qwen3.6-35b-a3b
+# -> moonshotai/kimi-k2.6 (21 OpenRouter endpoints vs qwen's 2 — the few-provider qwen 429-tore the
+# D8 seam). The Judge family lane is therefore now `moonshotai` (4-distinct invariant holds).
 _MIRROR_SLUG = "z-ai/glm-5.2"
 _SENTINEL_SLUG = "minimax/minimax-m2"
-_JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
+_JUDGE_SLUG = "moonshotai/kimi-k2.6"
 
 # Writer/generator — I-beatboth-008 (#1285): all-GLM-5.2 switched the generator
 # deepseek/deepseek-v4-pro -> z-ai/glm-5.2 (same slug as the Mirror; the allowed_collisions pair).
@@ -159,7 +162,14 @@ def test_sends_pinned_slug_and_max_reasoning(role, slug):
         # I-arch-003 (#1253): Mirror reasoning cap raised 4000 -> 100000 (kept << total max_tokens so
         # it never re-blanks; bake-off verified clean on all 5 fp8 providers).
         assert body["reasoning"] == {"max_tokens": 100000}
+    elif role == "judge":
+        # I-judge-kimi (2026-06-29): moonshotai/kimi-k2.6 advertises the `reasoning` parameter but
+        # OMITS the supported-efforts list, so an `effort` key risks a 400 on its unpinned endpoints.
+        # _judge_reasoning_block therefore sends a BARE {enabled: true} for the kimi Judge — reasoning
+        # is ON at the model's native (max) depth, no effort field. (§9.1.8: never starve reasoning.)
+        assert body["reasoning"] == {"enabled": True}
     else:
+        # Sentinel (minimax/minimax-m2) is NOT kimi, so it keeps the MAX effort=xhigh.
         assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
     # require_parameters=True makes OpenRouter only route to a provider that HONORS reasoning
     # (otherwise the max-reasoning request could be silently ignored on a fallback provider).
@@ -214,7 +224,39 @@ def test_served_equals_pinned_on_openrouter(monkeypatch):
 
 
 def test_reasoning_effort_env_overridable(monkeypatch):
-    # LAW VI: effort is env-overridable. The module reads the env at import; reload to pick it up.
+    # LAW VI: PG_FOUR_ROLE_REASONING_EFFORT is read at import. For the effort-honoring Sentinel
+    # (minimax/minimax-m2, NOT kimi) the override flows through verbatim, proving the env knob works.
+    import importlib
+
+    import src.polaris_graph.roles.openrouter_role_transport as mod
+
+    monkeypatch.setenv("PG_FOUR_ROLE_REASONING_EFFORT", "medium")
+    importlib.reload(mod)
+    try:
+        handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "VERIFIED"})
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        mod.OpenRouterRoleTransport(client).complete(
+            RoleRequest(
+                role="sentinel",
+                model_slug=_SENTINEL_SLUG,
+                messages=[
+                    {"role": "assistant", "content": "claim"},
+                    {"role": "user", "content": "<guardian>groundedness</guardian>"},
+                ],
+                params={"documents": [{"doc_id": "d1", "text": "evidence"}]},
+            )
+        )
+        assert seen["body"]["reasoning"] == {"enabled": True, "effort": "medium"}
+    finally:
+        # Restore the module to its default-effort state for the rest of the suite.
+        monkeypatch.delenv("PG_FOUR_ROLE_REASONING_EFFORT", raising=False)
+        importlib.reload(mod)
+
+
+def test_kimi_judge_strips_effort_to_bare_block(monkeypatch):
+    # I-judge-kimi: the kimi-k2.6 Judge advertises NO supported efforts, so _judge_reasoning_block
+    # STRIPS effort and sends a BARE {enabled: true} REGARDLESS of PG_FOUR_ROLE_REASONING_EFFORT —
+    # pin that so a future effort tweak can never silently 400 the Judge on an unpinned kimi endpoint.
     import importlib
 
     import src.polaris_graph.roles.openrouter_role_transport as mod
@@ -227,9 +269,8 @@ def test_reasoning_effort_env_overridable(monkeypatch):
         mod.OpenRouterRoleTransport(client).complete(
             RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x")
         )
-        assert seen["body"]["reasoning"] == {"enabled": True, "effort": "medium"}
+        assert seen["body"]["reasoning"] == {"enabled": True}
     finally:
-        # Restore the module to its default-effort state for the rest of the suite.
         monkeypatch.delenv("PG_FOUR_ROLE_REASONING_EFFORT", raising=False)
         importlib.reload(mod)
 
@@ -556,11 +597,14 @@ def test_family_check_passes_on_benchmark_lineup(monkeypatch):
     # invariant and is asserted by test_family_check_fails_loud_on_cross_family_override below.
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
     fams = run_gate_b.assert_four_role_families_distinct()
+    # I-judge-kimi (2026-06-29): the benchmark Judge swapped qwen -> moonshotai/kimi-k2.6, so its
+    # provider-prefix family lane is now `moonshotai` (a NEW distinct lane, not colliding with the
+    # z-ai gen+mirror pair or the minimax Sentinel).
     assert fams == {
         "generator": "z-ai",
         "mirror": "z-ai",
         "sentinel": "minimax",
-        "judge": "qwen",
+        "judge": "moonshotai",
     }
     # gen+mirror share the allowed_collisions z-ai lineage; the other two are distinct -> 3 families.
     assert fams["generator"] == fams["mirror"] == "z-ai"
@@ -571,13 +615,16 @@ def test_family_check_fails_loud_on_cross_family_override(monkeypatch):
     # P1-1 clinical-lethal guard / the BINDING NEGATIVE case: an UNLISTED same-family collision
     # must FAIL LOUD even under the all-GLM-5.2 allowed_collisions relaxation. I-beatboth-008
     # (#1285): gen+mirror are BOTH z-ai (the operator-approved allowed_collisions pair), so a
-    # PG_JUDGE_MODEL=z-ai/glm-5.1 override puts a THIRD role into the z-ai lineage — the Judge would
+    # benchmark-Judge override into the z-ai lineage puts a THIRD role into z-ai — the Judge would
     # then share z-ai with the generator+mirror (same family self-verifying). The (generator, judge)
     # pair is NOT in allowed_collisions, so the active-family-from-slug derivation must RAISE. This
     # proves the relaxation is scoped to ONLY the signed pair and the two-family invariant still
     # holds for every other role.
+    # I-judge-kimi (2026-06-29): the benchmark Judge family is derived from PG_BENCHMARK_JUDGE_MODEL
+    # (the dedicated benchmark env, DECOUPLED from the lock's PG_JUDGE_MODEL — gate P1-1). So the
+    # collision must be forced through THAT env; PG_JUDGE_MODEL no longer reaches the benchmark Judge.
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
-    monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")
+    monkeypatch.setenv("PG_BENCHMARK_JUDGE_MODEL", "z-ai/glm-5.1")
     with pytest.raises((RuntimeError, ValueError), match="(?i)judge|lane|collision"):
         run_gate_b.assert_four_role_families_distinct()
 
@@ -610,7 +657,8 @@ def test_stage_marker_records_benchmark_openrouter(monkeypatch, tmp_path):
     assert marker["verifier_families"] == {
         "mirror": "z-ai",
         "sentinel": "minimax",
-        "judge": "qwen",
+        # I-judge-kimi (2026-06-29): Judge qwen -> moonshotai/kimi-k2.6 -> lane `moonshotai`.
+        "judge": "moonshotai",
     }
     path = run_gate_b.write_four_role_stage_marker(tmp_path)
     assert path.exists()
@@ -710,9 +758,12 @@ def test_reasoning_role_sets_generous_max_tokens(role, slug):
         assert seen["body"]["max_tokens"] == 16384, (
             f"{role}: verdict budget must be the bounded PG_D8_VERDICT_MAX_TOKENS default (16384)"
         )
-        assert seen["body"]["max_tokens"] < 262144  # well under the serving window; no 400
-        # the Judge still requests MAX reasoning effort.
-        assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
+        assert seen["body"]["max_tokens"] < 262144  # well under the kimi serving window; no 400
+        # I-judge-kimi (2026-06-29): moonshotai/kimi-k2.6 advertises `reasoning` but NO supported
+        # efforts (live OpenRouter /endpoints 2026-06-29), so the Judge sends a BARE {enabled: True}
+        # — reasoning ON at the model's native (max) depth, no effort key that could 400 an unpinned
+        # kimi endpoint (§9.1.8: never starve reasoning).
+        assert seen["body"]["reasoning"] == {"enabled": True}
 
 
 def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
@@ -834,10 +885,13 @@ def test_sentinel_classifier_budget_when_reasoning_disabled(monkeypatch):
 # --------------------------------------------------------------------------------------
 # I-meta-008 / #1026: blank-verdict reasoning step-down ladder
 #
-# A reasoning-first verifier (GLM-5.1 Mirror, Qwen Judge) under effort=xhigh can burn its whole
-# reasoning budget WITHOUT converging and return blank content. The transport must NOT crash the
-# whole 4-role run on that — it steps the reasoning effort DOWN and retries, fail-loud only if even
-# reasoning-off blanks. (This reproduced the live drb_72 Mirror pass-2 abort.)
+# A reasoning-first verifier (GLM Mirror, minimax decomposition Sentinel, kimi Judge) under MAX
+# reasoning can burn its whole reasoning budget WITHOUT converging and return blank content. The
+# transport must NOT crash the whole 4-role run on that — for an effort-tier model it steps the
+# reasoning effort DOWN and retries; for the kimi Judge (no OpenRouter effort tiers -> bare reasoning)
+# the effort-step is inert and recovery is PURE PROVIDER ROTATION (the blanked provider is added to
+# provider.ignore). Both paths fail-loud only if even the final reasoning-off rung blanks. (This
+# reproduced the live drb_72 Mirror pass-2 abort.)
 # --------------------------------------------------------------------------------------
 def _sequenced_handler(responses: list[dict], *, served_model: str, provider: str = "DeepInfra"):
     """A MockTransport handler returning `responses[i]` for the i-th call (clamped to the last),
@@ -859,11 +913,15 @@ def _sequenced_handler(responses: list[dict], *, served_model: str, provider: st
 
 
 def test_blank_verdict_steps_down_reasoning_and_recovers():
-    # I-run11-008 (#1053): the effort-step-down ladder is now an EFFORT-reasoning-role behavior (the
-    # Judge), NOT the Mirror — the Mirror uses a fixed numeric reasoning cap + provider-failover for
-    # blank recovery (tested in test_provider_routing.py). First xhigh response is blank-after-
-    # reasoning; the retry (effort stepped DOWN to "low") returns a real verdict. complete() must
-    # return that verdict, NOT raise.
+    # I-judge-kimi (2026-06-29): the blank-verdict ladder for the kimi Judge recovers via PROVIDER
+    # ROTATION, not effort-stepping. moonshotai/kimi-k2.6 advertises NO effort tiers, so
+    # _judge_reasoning_block re-sends the SAME bare {enabled: True} on every rung — the effort-step
+    # is INERT. The HONEST recovery is the ignore-list: the blanked provider (DeepInfra) is added to
+    # provider.ignore so the paid retry load-balances onto a different healthy kimi endpoint (the
+    # 21-provider spread is the whole point of the swap). First (DeepInfra) blanks-after-reasoning;
+    # the rotated retry returns a real verdict. complete() must return it, NOT raise. (The
+    # effort-reasoning step-down ladder is still exercised by the minimax decomposition Sentinel in
+    # test_decomposition_sentinel_blank_steps_down_reasoning_and_recovers.)
     blank = {"content": "", "reasoning": "looped without converging on a verdict"}
     good = {"content": "VERIFIED"}
     handler, seen = _sequenced_handler([blank, good], served_model=_JUDGE_SLUG)
@@ -872,14 +930,19 @@ def test_blank_verdict_steps_down_reasoning_and_recovers():
     )
     assert resp.raw_text == "VERIFIED"
     assert len(seen["bodies"]) == 2, "should have retried exactly once after the blank"
-    assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh", "first attempt at MAX effort"
-    assert seen["bodies"][1]["reasoning"]["effort"] == "low", "retry steps the effort DOWN"
+    # BARE reasoning ON both attempts (no effort key -> never starved, §9.1.8).
+    assert seen["bodies"][0]["reasoning"] == {"enabled": True}, "first attempt: bare reasoning ON"
+    assert seen["bodies"][1]["reasoning"] == {"enabled": True}, "retry stays bare (effort-step inert)"
+    # The RECOVERY mechanism is PROVIDER ROTATION: the blanked provider is in the retry's ignore list.
+    assert "ignore" not in seen["bodies"][0].get("provider", {}), "first attempt: nothing ignored yet"
+    assert "deepinfra" in seen["bodies"][1]["provider"]["ignore"], "blanked provider rotated out"
 
 
 def test_blank_verdict_ladder_exhausted_fails_loud_with_reasoning_off_last():
-    # Every attempt blanks -> fail loud after the ladder (xhigh -> low -> off). The FINAL attempt
-    # disables reasoning entirely (no `reasoning` block) to force content; when even that blanks the
-    # transport raises BlankVerdictError (a RoleTransportError subclass). (Judge: the effort-ladder role.)
+    # Every attempt blanks -> fail loud after the ladder (3 attempts at the default cap). I-judge-kimi:
+    # the kimi Judge sends BARE reasoning, so the first two rungs rotate provider (effort-step inert)
+    # while the FINAL rung still disables reasoning entirely (no `reasoning` block) to force content;
+    # when even that blanks the transport raises BlankVerdictError (a RoleTransportError subclass).
     blank = {"content": "", "reasoning": "never converges"}
     handler, seen = _sequenced_handler([blank], served_model=_JUDGE_SLUG)
     with pytest.raises(BlankVerdictError):
@@ -887,8 +950,12 @@ def test_blank_verdict_ladder_exhausted_fails_loud_with_reasoning_off_last():
             RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
         )
     assert len(seen["bodies"]) == 3, "default ladder is (xhigh, low, off) = 3 attempts"
-    assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh"
-    assert seen["bodies"][1]["reasoning"]["effort"] == "low"
+    # Rungs 1-2: bare reasoning (effort-step inert for kimi); recovery is provider rotation.
+    assert seen["bodies"][0]["reasoning"] == {"enabled": True}
+    assert seen["bodies"][1]["reasoning"] == {"enabled": True}
+    assert "deepinfra" in seen["bodies"][1]["provider"]["ignore"], "blanked provider rotated out"
+    # Final rung still disables reasoning entirely (a real change even for a bare-reasoning model) to
+    # force content; even that blank -> genuine fail-loud (no synthesized verdict).
     assert "reasoning" not in seen["bodies"][2], "final resort disables reasoning to force content"
     # require_parameters pin is dropped once reasoning is off (it only forces reasoning honoring)
     assert "provider" not in seen["bodies"][2] or "require_parameters" not in seen["bodies"][2].get("provider", {})

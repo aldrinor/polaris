@@ -38,7 +38,7 @@ def test_families_are_four_distinct_lineages():
     # I-beatboth-008 (#1285) re-premise: all-GLM-5.2 — the generator AND the mirror are now BOTH
     # z-ai/glm-5.2 (the operator-signed family_policy.allowed_collisions pair [[generator, mirror]]
     # in the lock). The 4 roles are still ENUMERATED, but the active families are {z-ai (gen+mirror),
-    # minimax (sentinel), qwen (judge)} = 3 distinct lineages — the gen+mirror collision is the ONE
+    # minimax (sentinel), moonshotai (judge)} = 3 distinct lineages — the gen+mirror collision is the ONE
     # permitted pair. The two-family invariant for every OTHER role is asserted by the negative
     # collision test below.
     fams = g.assert_four_role_families_distinct()
@@ -53,9 +53,12 @@ def test_unlisted_same_family_collision_raises(monkeypatch):
     FAIL LOUD — the two-family invariant is preserved for every other role. PG_JUDGE_MODEL into the
     z-ai lineage puts a THIRD role (Judge) into the generator+mirror family; the (generator, judge)
     pair is NOT in allowed_collisions, so the family check must RAISE. monkeypatch auto-reverts the
-    env so it does not leak into later tests in this file (which has no env-isolation fixture)."""
+    env so it does not leak into later tests in this file (which has no env-isolation fixture).
+
+    I-judge-kimi (2026-06-29): the benchmark Judge now resolves via PG_BENCHMARK_JUDGE_MODEL (the
+    decouple from the lock's PG_JUDGE_MODEL — gate P1-1), so the collision is forced through THAT env."""
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
-    monkeypatch.setenv("PG_JUDGE_MODEL", "z-ai/glm-5.1")
+    monkeypatch.setenv("PG_BENCHMARK_JUDGE_MODEL", "z-ai/glm-5.1")
     with pytest.raises((RuntimeError, ValueError), match="(?i)judge|lane|collision"):
         g.assert_four_role_families_distinct()
 

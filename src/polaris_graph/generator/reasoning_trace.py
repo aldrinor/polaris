@@ -38,6 +38,12 @@ CALL_TYPES = frozenset(
     {
         "outline",
         "section",
+        # I-deepfix-001: the per-section map-reduce control LLM call
+        # (multi_section_generator ``_reduce`` site, set_reasoning_call_context
+        # call_type="section_reduce"). Without this the trace record is dropped
+        # with "unknown reasoning-trace call_type: 'section_reduce'" — a
+        # telemetry loss only (no claim/verdict path touched).
+        "section_reduce",
         "repair",
         "regen",
         "limitations",

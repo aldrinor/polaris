@@ -171,8 +171,8 @@ def test_low_tier_relevant_source_not_dropped_by_count_cut(monkeypatch):
     assert "https://journal/a" in out_urls           # highest-cosine fetched
     # The low-tier on-topic source is NOT off-topic-dropped — it clears the gate
     # and lands in the recorded unfetched-relevant tail (a COST bound, not a tier
-    # or relevance drop). kept_on_topic counts BOTH; off-topic is zero.
-    assert gate.kept_on_topic == 2 and gate.dropped_off_topic == 0
+    # or relevance drop). kept_on_topic counts BOTH; demoted (below-floor) is zero.
+    assert gate.kept_on_topic == 2 and gate.demoted_below_floor == 0
     assert gate.fetched_budget == 1 and gate.unfetched_relevant_tail == 1
     # The fetched survivor carries its cosine forward as a weight.
     assert weights["https://journal/a"] == pytest.approx(0.80)
@@ -198,7 +198,7 @@ def test_low_tier_relevant_source_kept_when_budget_fits_all(monkeypatch):
     assert "https://blog/b" in out_urls and "https://journal/a" in out_urls
     assert weights["https://blog/b"] == pytest.approx(0.55)
     assert weights["https://journal/a"] == pytest.approx(0.80)
-    assert gate.kept_on_topic == 2 and gate.dropped_off_topic == 0
+    assert gate.kept_on_topic == 2 and gate.demoted_below_floor == 0
 
 
 # ── (b) threshold+budget keeps MORE on-topic than the old fixed-N count cut ─────
@@ -238,8 +238,14 @@ def test_threshold_keeps_more_on_topic_than_fixed_n_at_equal_cap(monkeypatch):
     )
     b4_kept_on = sum(1 for c in b4_out if c.url.startswith("https://on/"))
     assert b4_kept_on == 3                                   # all 3 on-topic kept
-    assert all(not c.url.startswith("https://decoy/") for c in b4_out)  # decoys gated
-    assert gate.dropped_off_topic == 3                       # 3 decoys below threshold
+    # The decoys are DEMOTED (below floor) to the tail, not hard-dropped: at cap=3
+    # the 3 above-floor on-topic sources FILL the budget, so the demoted decoys land
+    # in the tail (fetched_to_fill=0). They are absent from the budget output because
+    # the budget was full of higher-relevance sources — NOT because of a hard cut.
+    assert all(not c.url.startswith("https://decoy/") for c in b4_out)  # decoys demoted past budget
+    assert gate.demoted_below_floor == 3                     # 3 decoys below threshold (DEMOTED)
+    assert gate.demoted_fetched_to_fill == 0                 # budget filled by above-floor
+    assert gate.demoted_tail == 3                            # all 3 demoted to the cost tail
 
     # Legacy lexical fixed-N cut at the SAME cap fills with the higher-lexical
     # decoys and keeps strictly fewer on-topic (here ZERO).
@@ -274,7 +280,7 @@ def test_unfetched_relevant_tail_is_recorded(monkeypatch):
         fetch_cap=2, n_seed_injected=0,
     )
     assert gate.kept_on_topic == 4            # all 4 above threshold
-    assert gate.dropped_off_topic == 0        # none off-topic
+    assert gate.demoted_below_floor == 0      # none below floor (none demoted)
     assert gate.fetched_budget == 2           # budget bounds the fetch
     assert gate.unfetched_relevant_tail == 2  # the tail is RECORDED
     assert gate.tail_score_max == pytest.approx(0.50)
@@ -431,58 +437,68 @@ def test_embedder_unavailable_via_b1_none_falls_back_loudly(monkeypatch):
     assert out is None and weights == {} and gate is None
 
 
-def test_genuine_off_topic_with_healthy_embedder_drops(monkeypatch):
-    """A HEALTHY embedder scoring a truly-off-topic candidate (cosine below floor)
-    drops it as off-topic — a real relevance verdict, NOT a fallback. B4 inherits
-    this from B1's `score >= floor` predicate; there is no canary to over-trigger.
+def test_genuine_below_floor_is_demoted_not_dropped_fills_budget(monkeypatch):
+    """§-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3, Codex iter-1 P1): a HEALTHY embedder
+    scoring a candidate below the floor (cosine 0.0 for every anchor) now DEMOTES it,
+    NOT drops it. With a budget large enough (fetch_cap=10 >> 1 candidate), the demoted
+    below-floor candidate IS fetched-to-fill the budget — it is NEVER hard-dropped
+    pre-fetch. Off-topic content with no overlap is caught by the downstream
+    faithfulness engine (strict_verify), the ONLY sanctioned hard drop, not here.
 
-    RECONCILIATION (iter-3): because `prefetch_offtopic_filter._similarity_scores`
-    SWALLOWS its infra failures to all-zeros (it never raises), B1 cannot tell a
-    rare loaded-but-zeroed scorer from a genuinely off-topic pool — both drop. That
-    matches B1's own behavior and degrades LOUDLY to a downstream corpus-adequacy
-    abort (empty corpus), never a confidently-wrong report; a canary, if wanted,
-    belongs in B1's SHARED scorer, not a B4-private divergence."""
+    This is the CONVERSE of the old hard-drop test it replaces: the old code returned
+    `out == []` (the below-floor source dropped before the budget). The fix makes the
+    floor an ordering/disclosure boundary, so the source SURVIVES to the budget."""
     import src.polaris_graph.retrieval.evidence_selector as es
     import src.polaris_graph.retrieval.prefetch_offtopic_filter as pf
     monkeypatch.setattr(es, "_get_semantic_embedder", lambda: _FakeEmbedder())
-    # Healthy embedder, candidate truly off-topic (cosine 0.0 for every anchor).
+    # Healthy embedder, candidate below floor (cosine 0.0 for every anchor).
     monkeypatch.setattr(pf, "_similarity_scores", lambda embedder, anchor, texts: [0.0 for _ in texts])
     monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
     cands = [_cand("https://c/0", title="unrelated cooking recipe", origin="q1")]
     scores = _candidate_relevance_scores(_LONG_QUESTION, [], cands)
-    assert scores == [pytest.approx(0.0)]           # real off-topic score, not None
+    assert scores == [pytest.approx(0.0)]           # real below-floor score, not None
     out, weights, gate = _relevance_threshold_select(
         cands, research_question=_LONG_QUESTION, sub_queries=[],
         fetch_cap=10, n_seed_injected=0,
     )
-    assert out == []                                # the off-topic source is dropped
+    out_urls = {c.url for c in out}
+    assert "https://c/0" in out_urls                # DEMOTED, not dropped — fetched-to-fill
     assert gate is not None                         # NOT a fallback — a real verdict
-    assert gate.dropped_off_topic == 1 and gate.kept_on_topic == 0
+    assert gate.kept_on_topic == 0                  # nothing above floor
+    assert gate.demoted_below_floor == 1            # the below-floor source DEMOTED
+    assert gate.demoted_fetched_to_fill == 1        # budget had room -> it IS fetched
+    assert gate.demoted_tail == 0                   # none stranded in the tail
+    assert gate.fetched_budget == 1
+    assert weights["https://c/0"] == pytest.approx(0.0)  # carries its (low) weight forward
 
 
-# ── empty-snippet contract: B1's IDENTICAL predicate drops a text-less non-seed ──
-def test_empty_snippet_nonseed_drops_under_b1_predicate(monkeypatch):
-    """Codex B4 iter-2 P1: B4 applies B1's IDENTICAL `score >= floor` predicate with
-    NO empty-snippet bypass. A non-seed with EMPTY snippet_text has no text to embed,
-    so B1's scorer scores it 0.0 — below the floor — and it DROPS, exactly the way
-    B1 treats a row with no text. The previous B4-private bypass that KEPT such rows
-    diverged from B1's contract and is removed. Seeds remain the floor-EXEMPT lane
-    (split out pre-scoring, never dropped) — see test_seeds_never_scored_or_dropped."""
+# ── empty-snippet contract: a text-less non-seed is DEMOTED, fetched-to-know ──────
+def test_empty_snippet_nonseed_demoted_not_dropped(monkeypatch):
+    """§-1.3 DEMOTE-NOT-DROP (I-deepfix-001 D3): a non-seed with EMPTY snippet_text has
+    no text to embed, so B1's scorer scores it 0.0 — below the floor. The old code
+    HARD-DROPPED it pre-fetch; the fix DEMOTES it (kept at the tail) and, with budget
+    room (fetch_cap=10), FETCHES it ("fetch to know") instead of dropping it. The
+    above-floor source still ranks FIRST (higher relevance); the empty-snippet row is
+    demoted but SURVIVES. Seeds remain the floor-EXEMPT lane (split out pre-scoring,
+    never scored) — see test_seeds_never_scored_or_dropped."""
     has_text = _cand("https://has/text", title="microbiome colorectal mechanism", origin="q1")
     no_text = _cand("https://no/text", title="", snippet="", source="serper", origin="q1")
     assert no_text.snippet_text == ""               # genuinely empty embed surface
     monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
-    # has_text scores 0.70 (on-topic); no_text is not in the map => 0.0 (below floor).
+    # has_text scores 0.70 (above floor); no_text is not in the map => 0.0 (below floor).
     _patch_semantic(monkeypatch, {has_text.snippet_text: 0.70})
     out, weights, gate = _relevance_threshold_select(
         [has_text, no_text], research_question=_LONG_QUESTION, sub_queries=[],
         fetch_cap=10, n_seed_injected=0,
     )
     out_urls = {c.url for c in out}
-    assert "https://has/text" in out_urls           # on-topic source kept
-    assert "https://no/text" not in out_urls         # text-less non-seed dropped (B1 predicate)
-    assert gate.dropped_off_topic == 1               # the empty-snippet row is below floor
-    assert gate.kept_on_topic == 1
+    assert "https://has/text" in out_urls           # above-floor source kept (ranks first)
+    assert "https://no/text" in out_urls            # text-less non-seed DEMOTED, fetched-to-know
+    assert out[0].url == "https://has/text"          # above-floor ranks ahead of the demoted row
+    assert gate.kept_on_topic == 1                  # the above-floor source
+    assert gate.demoted_below_floor == 1            # the empty-snippet row is below floor (demoted)
+    assert gate.demoted_fetched_to_fill == 1        # budget room -> the demoted row IS fetched
+    assert gate.demoted_tail == 0
 
 
 def test_empty_snippet_seed_is_kept_floor_exempt(monkeypatch):
@@ -503,7 +519,7 @@ def test_empty_snippet_seed_is_kept_floor_exempt(monkeypatch):
     assert "https://doi.org/10.1056/seed_empty" in out_urls  # seed kept (floor-exempt)
     assert "https://n/0" in out_urls
     assert gate.total_scored == 1                    # only the non-seed scored
-    assert gate.dropped_off_topic == 0
+    assert gate.demoted_below_floor == 0
 
 
 # ── P2.1: INTEGRATED run_live_retrieval ON-path — weight + telemetry on rows ────
@@ -573,19 +589,115 @@ def test_integrated_run_live_retrieval_emits_weight_and_gate_telemetry(monkeypat
     # (1) the relevance-gate telemetry is populated on the result.
     assert res.relevance_gate is not None
     assert res.relevance_gate["scorer"] == "semantic_v2"
-    assert res.relevance_gate["dropped_off_topic"] == 1       # the off-topic source
-    assert res.relevance_gate["kept_on_topic"] == 2           # both on-topic
+    # §-1.3 DEMOTE-NOT-DROP: the off-topic (below-floor) source is DEMOTED, not dropped.
+    # At cap=1 the highest-cosine above-floor source fills the budget, so the demoted
+    # below-floor source lands in the cost tail (fetched_to_fill=0).
+    assert res.relevance_gate["demoted_below_floor"] == 1     # the below-floor source DEMOTED
+    assert res.relevance_gate["demoted_fetched_to_fill"] == 0 # budget filled by above-floor
+    assert res.relevance_gate["demoted_tail"] == 1            # demoted to the cost tail
+    assert res.relevance_gate["kept_on_topic"] == 2           # both above-floor
     assert res.relevance_gate["fetched_budget"] == 1          # cap=1 binds
-    assert res.relevance_gate["unfetched_relevant_tail"] == 1 # 2nd on-topic recorded
+    assert res.relevance_gate["unfetched_relevant_tail"] == 1 # 2nd above-floor recorded
 
     # (2) the fetched evidence row carries the carried-forward relevance_weight.
     fetched_rows = [r for r in res.evidence_rows if r["source_url"] == on_url]
     assert fetched_rows, "the highest-cosine on-topic source must produce a row"
     assert fetched_rows[0]["relevance_weight"] == pytest.approx(0.80)
 
-    # (3) the relevance-gate drop_reasons keys are emitted on the result.
-    assert res.drop_reasons.get("offtopic_below_threshold") == 1
+    # (3) the relevance-gate drop_reasons keys are emitted on the result. The
+    # below-floor source is now disclosed as a COST tail (relevance_below_floor_tail),
+    # NOT as a hard-drop (the old offtopic_below_threshold drop reason is GONE).
+    assert "offtopic_below_threshold" not in res.drop_reasons   # no hard pre-fetch drop
+    assert res.drop_reasons.get("relevance_below_floor_tail") == 1
     assert res.drop_reasons.get("relevance_budget_tail") == 1
+
+
+def test_integrated_below_floor_demoted_survives_to_budget_consumer_path(monkeypatch):
+    """CONSUMER-PATH REGRESSION (I-deepfix-001 D3, Codex iter-1 P1 + iter-1 P2): the
+    ACTUAL residual breadth hard-drop — the B4 relevance gate hard-dropping every
+    below-floor candidate BEFORE the fetch budget — is GONE. Drives the INTEGRATED
+    `run_live_retrieval` ON-path (PG_RETRIEVAL_RELEVANCE_GATE=1) with a budget LARGE
+    enough for ALL candidates and proves a BELOW-FLOOR candidate:
+      - SURVIVES the pre-fetch gate (is NOT hard-dropped), and
+      - is actually FETCHED (produces an evidence row carrying its low relevance_weight),
+        because the budget had room beyond the above-floor set, and
+      - is DISCLOSED in the manifest as demoted-not-dropped (demoted_fetched_to_fill>=1),
+        with the old `offtopic_below_threshold` hard-drop reason ABSENT.
+
+    FAIL LOUD: if the below-floor candidate were hard-dropped before the budget (the
+    old §-1.3-banned filter), it produces NO evidence row and (1) fails loudly. Distinct
+    per-url fetch bodies avoid any content-dedup collapsing the assertion."""
+    import src.polaris_graph.retrieval.evidence_selector as es
+    import src.polaris_graph.retrieval.prefetch_offtopic_filter as pf
+
+    on_url = "https://journal/on"            # above floor (0.80)
+    mid_url = "https://journal/mid"          # above floor (0.50)
+    below_url = "https://blog/below"         # BELOW floor (0.05) — the residual-drop victim
+
+    def _stub_serper(q, num=10, api_calls=None):
+        return [
+            {"url": on_url, "title": "microbiome colorectal mechanism butyrate", "snippet": "on-topic"},
+            {"url": mid_url, "title": "Fusobacterium adenoma carcinoma sequence", "snippet": "on-topic too"},
+            {"url": below_url, "title": "local sports team championship recap", "snippet": "below floor"},
+        ]
+
+    def _stub_fetch_distinct(url, max_chars, **kwargs):
+        # Distinct per-url on-topic body so each produces a row and dedup can't collapse
+        # the below-floor row away (which would mask the regression for the wrong reason).
+        body = (
+            f"Source {url}: the gut microbiome modulates colorectal tumorigenesis via "
+            "butyrate and Fusobacterium nucleatum signalling in human cohorts. " * 12
+        )
+        return (body, True, f"Title {url}", "html", "")
+
+    monkeypatch.setattr(lr, "_serper_search", _stub_serper)
+    monkeypatch.setattr(lr, "_s2_bulk_search", lambda q, limit=20: [])
+    monkeypatch.setattr(lr, "_fetch_content", _stub_fetch_distinct)
+
+    score_by_text = {
+        "microbiome colorectal mechanism butyrate on-topic": 0.80,
+        "Fusobacterium adenoma carcinoma sequence on-topic too": 0.50,
+        "local sports team championship recap below floor": 0.05,  # below the 0.30 floor
+    }
+    monkeypatch.setattr(es, "_get_semantic_embedder", lambda: _FakeEmbedder())
+
+    def _fake_sims(embedder, anchor, texts):
+        return [score_by_text.get((t or "").strip(), 0.0) for t in texts]
+
+    monkeypatch.setattr(pf, "_similarity_scores", _fake_sims)
+
+    monkeypatch.setenv("PG_RETRIEVAL_RELEVANCE_GATE", "1")
+    monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
+    # budget (5) >= candidate count (3): the below-floor candidate MUST be reached.
+    res = lr.run_live_retrieval(
+        research_question=_LONG_QUESTION,
+        fetch_cap=5,
+        enable_openalex_enrich=False,
+        enable_prefetch_filter=False,
+    )
+
+    # (1) FAIL-LOUD: the below-floor candidate SURVIVED to the fetch + produced a row.
+    below_rows = [r for r in res.evidence_rows if r["source_url"] == below_url]
+    assert below_rows, (
+        "REGRESSION: the below-floor candidate was hard-dropped before the fetch "
+        "budget (the §-1.3-banned pre-fetch filter) — it must be DEMOTED + fetched."
+    )
+    # it carries its low relevance weight forward (a WEIGHT, never a gate).
+    assert below_rows[0]["relevance_weight"] == pytest.approx(0.05)
+
+    # (2) the manifest discloses the demote-not-drop conversion + the fetched-to-fill.
+    assert res.relevance_gate is not None
+    assert res.relevance_gate["kept_on_topic"] == 2            # 2 above floor
+    assert res.relevance_gate["demoted_below_floor"] == 1      # 1 below floor (DEMOTED, not dropped)
+    assert res.relevance_gate["demoted_fetched_to_fill"] == 1  # budget reached it -> fetched
+    assert res.relevance_gate["demoted_tail"] == 0             # nothing stranded in the tail
+    assert res.relevance_gate["fetched_budget"] == 3           # all 3 fetched (budget had room)
+    assert res.relevance_gate["unfetched_relevant_tail"] == 0
+
+    # (3) NO hard pre-fetch drop reason; nothing left in the cost tail.
+    assert "offtopic_below_threshold" not in res.drop_reasons
+    assert res.drop_reasons.get("relevance_below_floor_tail", 0) == 0
+    assert res.drop_reasons.get("relevance_budget_tail", 0) == 0
 
 
 def test_integrated_off_path_emits_no_relevance_gate(monkeypatch):

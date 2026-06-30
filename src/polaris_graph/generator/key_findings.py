@@ -373,6 +373,22 @@ def refilter_key_findings_block(report_text: str) -> str:
     return report_text[:block_start] + new_block + report_text[block_end:]
 
 
+def humanize_section_title(title: str) -> str:
+    """Render a RAW contract entity_id section title as its human display title.
+
+    I-deepfix-001: an outline section bound to a contract entity sometimes carries the raw snake_case
+    entity_id as its title (e.g. "Generative_AI_Evidence", "Foundational_Theory"), which then leaks
+    into a "### Generative_AI_Evidence" header / "**Generative_AI_Evidence.**" bullet. Heuristic that
+    fires ONLY on the raw-id shape: an underscore present AND no space (a real multi-word title like
+    "Robots and Jobs" already has spaces and is returned untouched). Underscores collapse to single
+    spaces; existing token casing is preserved so initialisms ("AI", "U.S.") survive. Pure render-only
+    — touches no claim, verdict, count, or faithfulness path."""
+    t = (title or "").strip()
+    if t and "_" in t and " " not in t:
+        t = re.sub(r"_+", " ", t).strip()
+    return t
+
+
 def build_key_findings(sections: list[Any]) -> str:
     """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
     from each non-dropped section with verified_text. Verified-only + extractive — never a new claim.
@@ -394,7 +410,7 @@ def build_key_findings(sections: list[Any]) -> str:
         verified_text = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
         if not verified_text.strip():
             continue
-        title = getattr(sr, "title", "") or ""
+        title = humanize_section_title(getattr(sr, "title", "") or "")
         _marker_cap = _max_key_findings_markers()
         for sentence in _first_verified_sentences(verified_text, _SENTENCES_PER_SECTION):
             # I-wire-011 (#1325) fix 2: cap each adjacent citation-marker RUN to the most-relevant
@@ -547,7 +563,7 @@ def build_depth_layer(
         ordered = _first_verified_sentences(verified_text, 10_000)
         if not ordered:
             continue
-        title = getattr(sr, "title", "") or "Section"
+        title = humanize_section_title(getattr(sr, "title", "") or "Section") or "Section"
         headline = cap_citation_marker_runs(ordered[0], _cap)
         lines = [f"### {title}", "", f"**Key Findings** {headline}"]
         # Lift a REAL challenge sentence (a verbatim verified sentence carrying a challenge cue) —

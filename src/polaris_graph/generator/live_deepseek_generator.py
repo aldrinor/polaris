@@ -100,6 +100,16 @@ CRITICAL RULES:
 Output format: plain prose paragraphs. No preamble, no sign-off."""
 
 
+def _contradiction_not_comparable(c: dict[str, Any]) -> bool:
+    """True iff a serialized contradiction record was screened by the A17 commensurability guard as
+    NOT-comparable (different physical quantity kinds → no contradiction asserted). The serialized
+    dict carries ``not_comparable: True`` only on records the guard fired on, and the detector also
+    stamps ``[not_comparable]`` into the predicate; either signal classifies the bucket. Pure."""
+    if c.get("not_comparable"):
+        return True
+    return "[not_comparable]" in str(c.get("predicate", "") or "")
+
+
 def _format_telemetry_block(
     tier_fractions: dict[str, float] | None,
     contradictions: list[dict[str, Any]] | None,
@@ -146,8 +156,19 @@ def _format_telemetry_block(
                 lines.append(f"  {tier}: {frac*100:.0f}%")
 
     if contradictions:
-        lines.append(f"contradictions_detected: {len(contradictions)}")
-        for c in contradictions[:5]:
+        # I-deepfix-001: partition by the A17 commensurability disposition so the LLM-authored
+        # Limitations paragraph never asserts a contradiction the engine actually SCREENED as
+        # not-comparable (the drb_72 §-1.1 miss: telemetry said "3 detected contradictions /
+        # sources disagree" while the engine asserted none — all not_comparable). A record is
+        # not-comparable when the A17 guard fired (serialized ``not_comparable: True``) OR its
+        # predicate carries the ``[not_comparable]`` tag the detector stamps on such buckets. The
+        # headline ``contradictions_detected`` counts ONLY the comparable buckets; the screened
+        # ones are disclosed separately as "no contradiction asserted". Faithfulness untouched —
+        # disclosure count/wording consistency only.
+        comparable = [c for c in contradictions if not _contradiction_not_comparable(c)]
+        not_comparable = [c for c in contradictions if _contradiction_not_comparable(c)]
+        lines.append(f"contradictions_detected: {len(comparable)}")
+        for c in comparable[:5]:
             subj = c.get("subject", "") or ""
             pred = c.get("predicate", "") or ""
             rel = (c.get("relative_difference") or 0) * 100
@@ -155,6 +176,16 @@ def _format_telemetry_block(
             lines.append(
                 f"  - {subj} / {pred}: rel_diff {rel:.1f}%, severity={sev}"
             )
+        if not_comparable:
+            lines.append(
+                f"not_comparable_pairings: {len(not_comparable)} "
+                "(numeric pairings screened as not-comparable — different quantity kinds; "
+                "NO cross-source contradiction is asserted)"
+            )
+            for c in not_comparable[:5]:
+                subj = c.get("subject", "") or ""
+                pred = str(c.get("predicate", "") or "").replace(" [not_comparable]", "")
+                lines.append(f"  - {subj} / {pred}: not-comparable")
 
     if date_range:
         s = date_range.get("start")

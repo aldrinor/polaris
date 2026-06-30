@@ -64,6 +64,22 @@ _TIER_STATUS_SUCCESS = "success"
 _TIER_STATUS_FALLBACK = "fallback"
 _TIER_STATUS_ERROR = "error"
 
+# I-deepfix-001 D5 (#1344): HONEST machine-readable batch tiering MODE surfaced on the
+# returned result (the §-1.3 "completes-not-claims" fix). On a mirror blank-200 / trickle
+# storm the GLM tiering can degrade to the rules-floor for EVERY source (llm_success == 0);
+# the run MUST report that as ``rules_floor_degraded``, NEVER as ``tiered_via_glm``.
+# Credibility is a WEIGHT (T1-T7), never a hard gate — so the run CONTINUES; the degrade is
+# DISCLOSED (a LOUD warning + this machine-readable status), never silent, never a false
+# "tiered_via_glm" claim (the prior false-positive this fix kills).
+_TIERING_MODE_TIERED_VIA_GLM = "tiered_via_glm"   # GLM tiered EVERY source (llm_success == total)
+_TIERING_MODE_PARTIAL = "partial"                 # GLM tiered SOME (0 < llm_success < total)
+_TIERING_MODE_RULES_FLOOR_DEGRADED = "rules_floor_degraded"  # GLM tiered NONE (llm_success == 0, total > 0)
+_VALID_TIERING_MODES = frozenset({
+    _TIERING_MODE_TIERED_VIA_GLM,
+    _TIERING_MODE_PARTIAL,
+    _TIERING_MODE_RULES_FLOOR_DEGRADED,
+})
+
 # Valid tier labels the LLM may return (UNKNOWN excluded — the LLM must commit to a
 # tier; an unparseable / out-of-scheme answer falls back to the rules-floor).
 _VALID_TIER_LABELS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
@@ -256,13 +272,71 @@ def _default_caller() -> Callable[[str], str]:
     return make_openrouter_credibility_caller()
 
 
+class TieringBatchResult(list):
+    """A ``list[ClassificationResult]`` that ALSO carries an honest, machine-readable
+    ``tiering_status`` dict (I-deepfix-001 D5 #1344).
+
+    It IS a list — it iterates, indexes, and ``len()``s EXACTLY like the legacy bare-list
+    return, so every existing caller (``live_retriever`` zips + indexes it) is byte-
+    compatible. The extra ``.tiering_status`` attribute lets a downstream surface the
+    GLM-vs-rules-floor batch MODE into the durable manifest disclosure. Subclassing
+    ``list`` (NO ``__slots__``) keeps the per-instance ``__dict__`` so the attribute
+    assignment is legal. ``.tiering_status`` is a machine-readable dict, e.g.
+    ``{"tiering_mode": "rules_floor_degraded", "llm_success_count": 0,
+    "rules_floor_count": 200, "fallback_count": 200, "error_count": 0, "total": 200}``."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # PER-INSTANCE default (never a shared class-level mutable); the producer reassigns
+        # this with the real status before returning.
+        self.tiering_status: dict = {}
+
+
+def _resolve_tiering_mode(llm_success: int, total: int) -> str:
+    """Pure: the HONEST batch mode from the REAL runtime counts (never a config echo).
+
+    * ``rules_floor_degraded`` — there WERE sources but GLM tiered NONE (llm_success == 0):
+      every source fell back to the deterministic rules-floor. This is the prior
+      false-positive the D5 fix kills — it must NEVER be reported as ``tiered_via_glm``.
+    * ``partial`` — GLM tiered some but not all (0 < llm_success < total).
+    * ``tiered_via_glm`` — GLM tiered every source (llm_success == total), OR the vacuous
+      empty-corpus case (total <= 0: nothing to tier, so nothing degraded — the
+      corpus-zero floor is enforced by separate adequacy gates, not by this weight stage)."""
+    if total <= 0:
+        return _TIERING_MODE_TIERED_VIA_GLM
+    if llm_success <= 0:
+        return _TIERING_MODE_RULES_FLOOR_DEGRADED
+    if llm_success >= total:
+        return _TIERING_MODE_TIERED_VIA_GLM
+    return _TIERING_MODE_PARTIAL
+
+
+def _build_tiering_status(
+    *, llm_success: int, fallback_count: int, error_count: int, total: int,
+) -> dict:
+    """Pure: assemble the machine-readable status dict (JSON-ready for the manifest).
+
+    ``rules_floor_count = total - llm_success`` is the single honest number a preflight /
+    operator reads: how many of ``total`` sources are carrying the deterministic rules-floor
+    tier rather than a GLM tier."""
+    return {
+        "tiering_mode": _resolve_tiering_mode(llm_success, total),
+        "llm_success_count": int(llm_success),
+        "rules_floor_count": int(max(0, total - llm_success)),
+        "fallback_count": int(fallback_count),
+        "error_count": int(error_count),
+        "total": int(total),
+    }
+
+
 def classify_sources_llm_tiering(
     signals_list: list[ClassificationSignals],
     *,
     call_llm: Callable[[str], str] | None = None,
     max_workers: int | None = None,
     deadline_monotonic: "float | None" = None,
-) -> list[ClassificationResult]:
+    status_out: dict | None = None,
+) -> "TieringBatchResult":
     """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
 
     For EVERY source the deterministic rules-floor is computed first (the instant,
@@ -270,13 +344,27 @@ def classify_sources_llm_tiering(
     its rules-floor result on any judge_error / timeout / malformed output. The result
     list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
     the per-source outcome (§8 determinism invariant). No source is ever dropped
-    (§-1.3 weight-not-filter).
+    (§-1.3 weight-not-filter) — ``len(result) == len(signals_list)`` ALWAYS.
 
-    Returns a list aligned 1:1 with ``signals_list``.
+    Returns a ``TieringBatchResult`` — a ``list`` aligned 1:1 with ``signals_list`` that
+    ALSO carries an honest machine-readable ``.tiering_status`` dict (I-deepfix-001 D5
+    #1344): ``tiering_mode`` in {``tiered_via_glm``, ``partial``, ``rules_floor_degraded``}
+    plus ``llm_success_count`` / ``rules_floor_count`` / ``total``. A 100%-rules-floor batch
+    (every GLM call errored on a blank-200 / trickle storm) is reported as
+    ``rules_floor_degraded``, NEVER as ``tiered_via_glm``, and emits a LOUD warning — the
+    run still CONTINUES (credibility is a WEIGHT, not a gate), the degrade is just DISCLOSED.
+    ``status_out`` (optional): if a dict is passed it is updated in place with the SAME
+    status, an explicit channel for callers that cannot read the return attribute.
     """
     n = len(signals_list)
     if n == 0:
-        return []
+        empty = TieringBatchResult([])
+        empty.tiering_status = _build_tiering_status(
+            llm_success=0, fallback_count=0, error_count=0, total=0,
+        )
+        if status_out is not None:
+            status_out.update(empty.tiering_status)
+        return empty
     # Deterministic floor for every source first — the instant fallback (no network).
     floor_results: list[ClassificationResult] = [
         _classify_source_tier_rules(s) for s in signals_list
@@ -396,23 +484,52 @@ def classify_sources_llm_tiering(
         llm_res = llm_by_idx.get(idx)
         out.append(llm_res if llm_res is not None else floor_results[idx])
 
-    # POST-execution canary — REAL runtime counts, fired only after the fan-out ran.
-    # If GLM tiered nothing (llm_success == 0) the batch is DEGRADED to the rules-floor;
-    # never claim "tiered via GLM" when every source fell back (the prior false-positive).
-    attempted = n
-    if llm_success == 0:
-        logger.info(
-            "[credibility_llm_tiering] DEGRADED (rules-floor only): attempted=%d "
-            "llm_success=0 fallback=%d error=%d — GLM tiering did NOT fire",
-            attempted, fallback_count, error_count,
+    # POST-execution canary + HONEST machine-readable status (D5 #1344) — REAL runtime
+    # counts, fired only after the fan-out ran (NEVER a config echo). ``len(out) == n``
+    # always (no source dropped — tier is a WEIGHT, §-1.3). When GLM tiered NOTHING the
+    # batch is ``rules_floor_degraded``; it is NEVER falsely reported as ``tiered_via_glm``
+    # (the prior false-positive). The run CONTINUES — credibility is a weight, not a gate —
+    # but the degrade is DISCLOSED via a LOUD warning + the status carried on the result.
+    status = _build_tiering_status(
+        llm_success=llm_success, fallback_count=fallback_count,
+        error_count=error_count, total=n,
+    )
+    mode = status["tiering_mode"]
+    if mode == _TIERING_MODE_RULES_FLOOR_DEGRADED:
+        # LOUD disclosure (§-1.3). The literal "DEGRADED (rules-floor only)" + "GLM tiering did
+        # NOT fire" substrings are the post-run W8 firing-marker FORBID twins
+        # (scripts/dr_benchmark/run_gate_b.py:2010) — preserved VERBATIM so the post-run audit
+        # still detects the degrade; the new ``tiering_mode=rules_floor_degraded`` field is the
+        # machine-readable disclosure (also carried on the returned result + manifest status).
+        logger.warning(
+            "[credibility_llm_tiering] DEGRADED (rules-floor only): attempted=%d llm_success=0 "
+            "fallback=%d error=%d — GLM tiering did NOT fire (blank-200/trickle storm?); "
+            "tiering_mode=rules_floor_degraded — ALL %d sources kept at the deterministic "
+            "rules-floor (WEIGHT, no drop, §-1.3). DISCLOSED, never a false 'tiered_via_glm' claim.",
+            n, fallback_count, error_count, n,
         )
     else:
-        logger.info(
-            "[credibility_llm_tiering] tiered via GLM: attempted=%d llm_success=%d "
-            "fallback=%d error=%d",
-            attempted, llm_success, fallback_count, error_count,
+        # GLM tiered at least one source. The literal "[credibility_llm_tiering] tiered via GLM"
+        # substring is the post-run W8 firing-marker must_contain (run_gate_b.py:2011) — preserved
+        # VERBATIM so the audit detects the genuine fire on BOTH the full and partial paths (legacy
+        # parity: it fired for any llm_success>0). ``tiering_mode=`` now HONESTLY distinguishes a
+        # full (tiered_via_glm) batch from a partial one. A partial batch logs LOUD (WARNING) since
+        # some sources fell back to the rules-floor; a full batch logs INFO.
+        _fire_line = (
+            "[credibility_llm_tiering] tiered via GLM: attempted=%d llm_success=%d fallback=%d "
+            "error=%d (tiering_mode=%s rules_floor=%d; WEIGHT, no drop, §-1.3)"
         )
-    return out
+        _fire_args = (n, llm_success, fallback_count, error_count, mode, n - llm_success)
+        if mode == _TIERING_MODE_PARTIAL:
+            logger.warning(_fire_line, *_fire_args)
+        else:
+            logger.info(_fire_line, *_fire_args)
+
+    result = TieringBatchResult(out)
+    result.tiering_status = status
+    if status_out is not None:
+        status_out.update(status)
+    return result
 
 
 def classify_source_tier_llm(signals: ClassificationSignals) -> ClassificationResult:

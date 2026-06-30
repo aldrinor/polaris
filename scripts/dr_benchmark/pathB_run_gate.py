@@ -171,6 +171,13 @@ class RolePin:
     # captured at preflight (trailing slash stripped). assert_post_run compares the served
     # endpoint to THIS pinned value (drift-safe — PG_<ROLE>_BASE_URL is built via .format() so
     # it is not in the grepped control surface / config-drift hash). Trailing defaulted.
+    allow_provider_drift: bool = False   # I-judge-kimi (2026-06-29): True ONLY for a deliberately
+    # load-balanced OpenRouter role (the unpinned kimi Judge, spread across its 21 endpoints so the
+    # per-claim D8 burst never 429-tears the seam). When True, assert_post_run RELAXES the
+    # single-provider equality + the provider surrogate-drift check FOR THIS ROLE — the provider is
+    # allowed to vary across calls. It does NOT relax the served==pinned MODEL check or the OpenRouter
+    # route requirement (both NEVER relaxed). Default False => every pinned/self-host role keeps the
+    # strict single-provider gate byte-for-byte. Set by pathB_runner._role_pins on the benchmark Judge.
 
 
 def _role_surrogate(metadata: dict, surrogate_fields: tuple[str, ...] | list) -> str:
@@ -245,8 +252,15 @@ def preflight(
         # and record the pinned base_url + serving_route for the post-run served==pinned check.
         # NO network here (env presence + lock read only — the live /v1/models identity probe is
         # the M2 canary, not preflight). Skip canonical_slug + OpenRouter provider resolution.
-        route = serving_routes.get(rp.role)
-        rp.serving_route = route
+        # I-judge-kimi (2026-06-29): RESPECT a serving_route the caller PRE-SET on the pin. The
+        # benchmark-aware Judge pin (pathB_runner._role_pins) sets serving_route='openrouter' to
+        # override the lock's sovereign self-host route for the kimi Judge served over OpenRouter.
+        # Only an UNSET (None) route is sourced from the lock — every existing caller passes
+        # serving_route=None, so this is byte-identical for them (lock-sourced) and only the
+        # benchmark Judge's explicit 'openrouter' override is preserved.
+        if rp.serving_route is None:
+            rp.serving_route = serving_routes.get(rp.role)
+        route = rp.serving_route
         if _is_self_host_route(route):
             base_url_env = _SELF_HOST_BASE_URL_ENV_TEMPLATE.format(role=rp.role.upper())
             base_url = os.environ.get(base_url_env)
@@ -722,6 +736,15 @@ def assert_post_run(
         for fld in rp["surrogate_fields"]:
             if fld not in c.response_metadata:
                 raise GateError(f"call {c.call_id}: served metadata missing surrogate field {fld!r}")
+        # I-judge-kimi (2026-06-29): a role marked allow_provider_drift is served by a DELIBERATELY
+        # load-balanced OpenRouter route (the unpinned kimi Judge spread across its 21 endpoints to
+        # dodge the per-claim 429 seam-tear) — so it serves MANY providers in one run BY DESIGN. For
+        # such a role the single-provider equality + the provider surrogate-drift check are RELAXED.
+        # What is NEVER relaxed: (a) the served MODEL must still be the pinned slug (alias/canonical),
+        # and (b) the ROUTE must be OpenRouter — which reaching this branch already proves, since a
+        # self-host role `continue`d above. The model-identity surrogate below stays single-valued
+        # (provider_name dropped from the drift set), so a mid-run model swap still fails closed.
+        allow_provider_drift = bool(rp.get("allow_provider_drift"))
         # EXACT provider + EXACT full-slug model match (Codex P1 — no loose substring).
         # I-bug-944 (#925 smoke #13): provider comparison is case-insensitive (OpenRouter
         # returns "Fireworks" / "DeepInfra" with title case while the pin env var
@@ -730,12 +753,13 @@ def assert_post_run(
         # case-sensitive — slugs are canonical.
         served_provider = (c.response_metadata.get("provider_name") or "").strip().lower()
         pinned_provider = (rp["provider_name"] or "").strip().lower()
-        if served_provider != pinned_provider:
+        if not allow_provider_drift and served_provider != pinned_provider:
             raise GateError(f"call {c.call_id}: served provider {c.response_metadata.get('provider_name')!r} != pinned {rp['provider_name']!r}")
         # I-bug-945 (#931): accept served model matching EITHER the pinned alias OR the
         # canonical_slug resolved at preflight. The OpenRouter chat-completions response
         # returns `model=<canonical_slug>` while the env pin is the alias; both are identity-
-        # equivalent and recorded in the persisted pin (pathB_gate_pin.json).
+        # equivalent and recorded in the persisted pin (pathB_gate_pin.json). NEVER relaxed —
+        # the served==pinned MODEL check holds even for a provider-drift role.
         served_model = c.response_metadata.get("model")
         accepted_models = {rp["model_slug"]}
         if rp.get("canonical_slug"):
@@ -750,7 +774,16 @@ def assert_post_run(
         # surrogate value (otherwise raw-model drift would false-fail the mid-run check).
         normalized_metadata = dict(c.response_metadata)
         normalized_metadata["model"] = rp["model_slug"]
-        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(normalized_metadata, rp["surrogate_fields"]))
+        # I-judge-kimi: for a provider-drift role drop provider_name from the per-role drift
+        # surrogate so the mid-run drift check enforces ONLY the (single-valued) MODEL identity;
+        # the provider is allowed to vary. Every other role keeps the full surrogate_fields
+        # (e.g. ('provider_name','model')) so its single-provider drift gate is byte-identical.
+        drift_fields = (
+            tuple(f for f in rp["surrogate_fields"] if f != "provider_name")
+            if allow_provider_drift
+            else rp["surrogate_fields"]
+        )
+        surrogate_by_role.setdefault(c.role, set()).add(_role_surrogate(normalized_metadata, drift_fields))
     # per-role served identity must be SINGLE-VALUED across the run (no mid-run drift, Codex P1)
     for role, ids in surrogate_by_role.items():
         if len(ids) != 1:
