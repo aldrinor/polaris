@@ -81,6 +81,12 @@ from pathlib import Path
 from typing import Iterator, Mapping, Optional
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+# Put the repo root on sys.path so `import scripts.dr_benchmark.run_gate_b` + `import src.polaris_graph...`
+# resolve when this harness is run directly as `python scripts/operational_readiness_preflight.py` from a
+# plain shell (where only the script's own dir is on the path, not the repo root). Without this the
+# harness dies with ModuleNotFoundError — ironic for a "will it die" check.
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 _DICED_PREFLIGHT = _REPO_ROOT / "scripts" / "pipeline_diced_preflight.py"
 # The honest_sweep --pathB-gate wrapper (read READ-ONLY via AST; never imported) — the launch-path
 # check confirms it does NOT apply the slate, so the paid run must launch via run_gate_b.py instead.
