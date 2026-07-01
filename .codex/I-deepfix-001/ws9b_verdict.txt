@@ -1,0 +1,8 @@
+```yaml
+verdict: NO_CHANGE_NEEDED
+faithfulness_neutral: true
+label_accurately_names_quantity: true
+novel_p0: []
+p1: []
+summary: "Trace is sound: both render labels read the same post-P3 BasketMember/EvidenceCredibility credibility_weight; no code diff, frozen engine scoped diff empty, and no drop/cap introduced."
+```
