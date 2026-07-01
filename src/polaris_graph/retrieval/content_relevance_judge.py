@@ -482,6 +482,17 @@ def _predict_with_qwen3_reranker(
                 for i in range(0, len(ids_all), _score_chunk)
             ]
 
+        # I-deepfix-001 (#1344) WS-0 CANARY: prove the W5 score-chunk actually FIRED on the run (a live log
+        # the §-1.1 monitor can grep). Emitted only when chunking is active (>1 group) so a healthy paid run
+        # (PG_CONTENT_RELEVANCE_SCORE_CHUNK=2 on a large co-resident pool) stamps it; a one-pass run stays
+        # quiet. Faithfulness-neutral (pure logging — chunked scores are byte-identical to one-pass).
+        if len(index_groups) > 1:
+            logger.info(
+                "[content_relevance] SCORE_CHUNK active: %d pairs in %d chunks (chunk_size=%d) — "
+                "per-forward logits bounded to avoid the one-pass co-resident OOM (WS-0).",
+                len(ids_all), len(index_groups), _score_chunk,
+            )
+
         all_scores: list[float] = []
         for _grp in index_groups:
             inputs = tokenizer.pad(

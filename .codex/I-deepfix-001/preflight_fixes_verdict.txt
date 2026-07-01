@@ -1,0 +1,13 @@
+```yaml
+verdict: APPROVE
+storm_fully_off: true
+prespend_assertion_covers_w2_and_preimport: true
+prespend_no_false_positive: true
+ws0_score_chunk_on_path: true
+frozen_engine_untouched: true
+env_no_wrong_model_var: true
+s13_no_drop: true
+novel_p0: []
+p1: []
+convergence_call: accept_remaining
+```

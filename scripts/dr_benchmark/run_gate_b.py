@@ -1379,6 +1379,16 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_EMBEDDER_MODEL": "qwen3",                                  # W6 embed=Qwen3-Embedding-8B (config/core:195, embedding_service:59; else MiniLM)
     "PG_RERANKER_MODEL": "qwen3",                                  # W7 rerank=Qwen3-Reranker-4B (config/core:218, evidence_selector:2306; else MiniLM/identity)
     "PG_CONTENT_RELEVANCE_RERANKER_MODEL": "Qwen/Qwen3-Reranker-0.6B",  # W5 relevance reranker model (content_relevance_judge:182)
+    # I-deepfix-001 (#1344) WS-0: the W5 content-relevance reranker (Qwen3-Reranker-0.6B) scores the WHOLE
+    # candidate pool in ONE forward pass by default (PG_CONTENT_RELEVANCE_SCORE_CHUNK unset => 0 => one pass,
+    # content_relevance_judge.py:451). Co-resident on ONE card with the Qwen3-Embedding-8B, that one-pass
+    # [pairs x seq x ~152k-vocab] logits tensor OOMs and the scorer FALLS BACK to full weight for every
+    # passage (W5 silently dark — the drb_72 W5-dark keystone). Pin the score-chunk to 2 so each forward is
+    # bounded. Chunked scores are BYTE-IDENTICAL to one-pass (global-longest padding, content_relevance_judge.
+    # py:457-464) => faithfulness-neutral WEIGHT. Force-EXACT "2" (in _BENCHMARK_FORCE_EXACT_FLAGS) — NOT a
+    # FLOOR: a stray HIGHER operator/.env value (a scratchpad launcher exports 8) would re-open the one-pass
+    # OOM, so pin EXACTLY 2. Numeric => the SLATE-PURITY gate skips it (infra config, not a feature-enable).
+    "PG_CONTENT_RELEVANCE_SCORE_CHUNK": "2",  # WS-0: bound the W5 reranker forward pass (avoid one-pass co-resident OOM)
     # WINNERS ALREADY COVERED by EXISTING slate entries (kept intact, NOT re-added):
     #   W12 compose=floor_abstractive  -> PG_ABSTRACTIVE_WRITER (force-ON + preflight-required above)
     #   W13 verify=keep-floor          -> PG_STRICT_VERIFY_ENTAILMENT=enforce + the FROZEN faithfulness engine
@@ -1848,6 +1858,11 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_EMBEDDER_MODEL",
     "PG_RERANKER_MODEL",
     "PG_CONTENT_RELEVANCE_RERANKER_MODEL",
+    # I-deepfix-001 (#1344) WS-0: force-EXACT the W5 score-chunk to the slate "2" (numeric infra knob — NOT a
+    # FLOOR: a stray HIGHER operator/.env value would re-open the one-pass co-resident OOM that leaves W5
+    # dark). SLATE-PURITY skips it (float-parseable => infra, not a feature-enable). Faithfulness-neutral
+    # (chunked reranker scores are byte-identical to one-pass).
+    "PG_CONTENT_RELEVANCE_SCORE_CHUNK",
     # I-deepfix-001 (#1344) PURITY — force-EXACT the LOSER kill-switches to "0" so a stray operator/.env
     # value can NEVER re-arm a killed loser past the slate. Each is also in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
     # (the NO-LOSER gate fails CLOSED if any resolves truthy). STORM core + its ingest seed-lane are STORM's
@@ -2544,6 +2559,60 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     _sweep_integration._CLAIM_WORKERS = max(
         1, int(os.environ.get("PG_FOUR_ROLE_CLAIM_WORKERS", "6"))
     )
+
+
+def _winner_slate_prespend_assert_enabled() -> bool:
+    """Default-ON kill-switch for the pre-spend winner-slate assertion (LAW VI — env-driven, no hardcode).
+    Set ``PG_WINNER_SLATE_PRESPEND_ASSERT=0`` to disable (only for a deliberate operator experiment)."""
+    return os.getenv("PG_WINNER_SLATE_PRESPEND_ASSERT", "1").strip().lower() in ("1", "true", "yes", "on")
+
+
+def assert_full_capability_slate_applied(smoke_scale: bool = False) -> None:
+    """FAIL CLOSED (pre-spend, BEFORE the sweep import) if the full-capability slate did NOT actually land
+    for a force-on / force-exact flag — i.e. a WINNER (esp. W2 ``PG_QGEN_FS_RESEARCHER``) would run silently
+    DARK because a stray operator/.env value survived, or ``apply_full_capability_benchmark_slate``'s force
+    semantics regressed to ``setdefault``.
+
+    This is the drb_72 dark-winner class: the paid run silently ran a NON-WINNER config because the running
+    process did not carry the winner flag truthy, and the only marker check was POST-run (after full spend).
+    This turns that into a pre-spend HARD STOP, naming the offending flag, BEFORE the heavy sweep import and
+    long before ``preflight_full_capability`` at the token boundary — the earliest, cheapest tripwire.
+
+    Called IMMEDIATELY after ``apply_full_capability_benchmark_slate`` in ``run_gate_b_query`` (so the env
+    reflects exactly the slate's force values, before any downstream ``os.environ`` set). ``smoke_scale``
+    honors ``_SMOKE_SCALE_OVERRIDES`` (a smoke deliberately deviates from the slate, e.g. docling clinical
+    PDF) so the assertion is correct on both the paid and smoke benchmark paths.
+
+    FAITHFULNESS-NEUTRAL: reads ``os.environ`` + the slate constants only; touches no gate, no evidence, no
+    verdict. Env-driven kill-switch ``PG_WINNER_SLATE_PRESPEND_ASSERT`` (default ON; LAW VI).
+    """
+    if not _winner_slate_prespend_assert_enabled():
+        return
+    mismatches = []
+    for _flag in sorted(_BENCHMARK_FORCE_ON_FLAGS | _BENCHMARK_FORCE_EXACT_FLAGS):
+        # The EFFECTIVELY-applied expected value: a --smoke-scale run deliberately overrides some slate
+        # values (e.g. PG_CLINICAL_PDF_EXTRACTOR=docling), so honor _SMOKE_SCALE_OVERRIDES first, then the
+        # slate. A force flag that is NOT a slate/smoke key is not governed by apply_slate — skip it (its own
+        # default/preflight governs it); never assert a value apply_slate never set.
+        if smoke_scale and _flag in _SMOKE_SCALE_OVERRIDES:
+            _expected = _SMOKE_SCALE_OVERRIDES[_flag]
+        elif _flag in _FULL_CAPABILITY_BENCHMARK_SLATE:
+            _expected = _FULL_CAPABILITY_BENCHMARK_SLATE[_flag]
+        else:
+            continue
+        if os.environ.get(_flag) != _expected:
+            mismatches.append((_flag, _expected, os.environ.get(_flag)))
+    if mismatches:
+        _detail = "; ".join(f"{_f} expected {_e!r} got {_a!r}" for _f, _e, _a in mismatches)
+        raise RuntimeError(
+            "benchmark preflight FAILED [WINNER-SLATE-DARK] (pre-spend, pre-import): the full-capability "
+            f"slate did not take effect for {len(mismatches)} force-on/force-exact flag(s) — a WINNER would "
+            "run silently DARK (the drb_72 FS-Researcher dark-winner class this gate exists to kill). "
+            f"Offending: {_detail}. Esp. PG_QGEN_FS_RESEARCHER MUST be '1'. "
+            "apply_full_capability_benchmark_slate() must run immediately before this assertion (its "
+            "force-set semantics are the fix); set PG_WINNER_SLATE_PRESPEND_ASSERT=0 ONLY for a deliberate "
+            "operator experiment."
+        )
 
 
 def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) -> None:
@@ -3466,6 +3535,13 @@ async def run_gate_b_query(
     # — not just the call-time PG_SWEEP_* knobs. This is what makes a Gate-B run full-depth regardless
     # of the operator's shell env (the prior ~40-URL throttle was a missing/wrong-named slate).
     apply_full_capability_benchmark_slate(smoke_scale=smoke_scale)
+    # I-deepfix-001 (#1344) FIX 2 — PRE-SPEND WINNER-SLATE ASSERTION (pre-import, pre-spend). Fail CLOSED
+    # HERE if the slate did not land a force-on / force-exact winner (esp. W2 PG_QGEN_FS_RESEARCHER) — the
+    # drb_72 silent dark-winner class where the running process ran a NON-WINNER config and the only marker
+    # check was POST-run (after full spend). This is the EARLIEST tripwire: it runs BEFORE the heavy sweep
+    # import below and long before preflight_full_capability at the token boundary. Env kill-switch
+    # (PG_WINNER_SLATE_PRESPEND_ASSERT) default-ON; faithfulness-neutral (reads env + slate constants only).
+    assert_full_capability_slate_applied(smoke_scale=smoke_scale)
 
     from scripts.run_honest_sweep_r3 import run_one_query
 
