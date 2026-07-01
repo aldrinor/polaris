@@ -1,0 +1,17 @@
+```yaml
+verdict: APPROVE
+frozen_engine_untouched: true
+p0_1_cache_leak_resolved: true
+p0_2_judge_posture_ok: true
+p1_m6_canary_wired_and_fails_on_noop: true
+ws1_cache_or_retry_can_flip_unsupported_to_verified: false
+s13_violations: []
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Note: direct test execution was blocked by the sandbox policy here, so this verdict is from code/diff inspection and scoped checks, not a local rerun.
