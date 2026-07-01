@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+faithfulness_neutral: true
+frozen_engine_untouched: true
+p0: []
+p1: []
+p2:
+  - "Byte-identical claim needs one qualification: chunking is verdict-identical only when `PG_CONSOLIDATION_NLI_WALL_SECONDS` does not truncate. With wall truncation, smaller chunks can change which completed edges are gathered before the deadline. This under-merges only, so faithfulness is not weakened."
+  - "The CUBLAS matcher is acceptable for the observed crash, but `cublas_status_not_initialized` is a broad OOM-equivalent heuristic. It does not catch all cuBLAS statuses, so shape/dtype execution failures should still fail loud; a future negative test for `CUBLAS_STATUS_EXECUTION_FAILED` / `INVALID_VALUE` would tighten this."
+  - "The new test checks `_predict_chunk()` env parsing, not the actual `score_pairs()` max forward batch size. Static code review confirms `chunk_size = min(chunk_size, _pchunk)`, so this is a coverage gap, not a blocker."
+convergence_call: accept_remaining
+```

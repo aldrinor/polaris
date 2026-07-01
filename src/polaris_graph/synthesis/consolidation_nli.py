@@ -71,12 +71,19 @@ ENV_WALL_SECONDS = "PG_CONSOLIDATION_NLI_WALL_SECONDS"
 # §-1.3 WEIGHT, not a faithfulness gate). Unset => NO device kwarg (byte-identical
 # library auto-placement). A CUDA OOM degrades to CPU (keeps MORE baskets, never dies).
 ENV_DEVICE = "PG_CONSOLIDATION_NLI_DEVICE"
+# I-deepfix-001 (#1344): cap the index-pairs scored in ONE cross-encoder `.predict`
+# forward, INDEPENDENT of the worker count. The old chunk_size = ceil(pairs/min(workers,
+# pairs)) grew UNBOUNDED with corpus size (~2500 pairs -> a ~5000-tuple forward), which
+# OOM'd the crammed card on the 890+-source clinical corpora (the CUBLAS_STATUS_ALLOC_FAILED
+# crash). Bounding the forward keeps peak GPU memory constant regardless of corpus size.
+ENV_PREDICT_CHUNK = "PG_CONSOLIDATION_NLI_PREDICT_CHUNK"
 
 _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
 _DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
 _DEFAULT_MAX_PAIRS = "20000"
 _DEFAULT_WALL_SECONDS = "90"   # I-deepfix-001 W04: per-call score_pairs total wall (s)
+_DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
@@ -123,6 +130,16 @@ def _max_pairs() -> int:
     return _read_int(ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS, lo=1, hi=10_000_000)
 
 
+def _predict_chunk() -> int:
+    """I-deepfix-001 (#1344): the max index-pairs scored in ONE cross-encoder `.predict`
+    forward. Caps peak GPU memory INDEPENDENT of corpus size (the old chunk grew unbounded
+    and OOM'd the clinical corpora). The grouping is an order-independent union-find over
+    the gathered edges, so smaller forwards are byte-identical to the verdict (only
+    WHERE-in-a-batch a pair sits, never WHICH pairs are compared or the entailment margin).
+    ``<= 0`` disables the cap (unbounded, the byte-identical legacy behaviour). Default 256."""
+    return _read_int(ENV_PREDICT_CHUNK, _DEFAULT_PREDICT_CHUNK, lo=0, hi=1_000_000)
+
+
 def _wall_seconds() -> float:
     """I-deepfix-001 W04 (#1344): the total score_pairs wall in seconds. ``<= 0`` (or a
     non-finite value) disables the wall => the loop blocks unbounded exactly as before
@@ -150,15 +167,26 @@ def _device() -> Optional[str]:
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    """True iff ``exc`` is a CUDA out-of-memory error (the only failure the W10 winner
-    DEGRADES to CPU; every other error fails loud per §-1.4). Detects both the typed
-    ``torch.cuda.OutOfMemoryError`` and the generic ``RuntimeError('CUDA out of
-    memory ...')`` by class name + message, so this needs no hard torch import."""
+    """True iff ``exc`` is a CUDA out-of-memory / allocation failure (the only failure the
+    W10 winner DEGRADES to CPU; every other error fails loud per §-1.4). Detects the typed
+    ``torch.cuda.OutOfMemoryError``, the generic ``RuntimeError('CUDA out of memory ...')``,
+    AND the cuBLAS allocation failures ``CUBLAS_STATUS_ALLOC_FAILED`` /
+    ``CUBLAS_STATUS_NOT_INITIALIZED`` — by class name + message, so no hard torch import.
+
+    I-deepfix-001 (#1344): the cuBLAS branch is the crash fix. When the card is full the
+    SAME out-of-memory condition surfaces from a cuBLAS handle allocation as
+    ``CUDA error: CUBLAS_STATUS_ALLOC_FAILED`` (or ``..._NOT_INITIALIZED`` when a prior
+    alloc poisoned the handle) with NO 'out of memory' substring. The old matcher missed
+    it, so the CPU degrade never fired and the run DIED at the consolidation step on the
+    large clinical corpora. cuBLAS-alloc is OOM-equivalent — route it to the SAME
+    already-tested identical-result CPU degrade."""
     name = type(exc).__name__
     if name in ("OutOfMemoryError", "CudaOutOfMemoryError"):
         return True
     msg = str(exc).lower()
-    return "out of memory" in msg and ("cuda" in msg or "gpu" in msg)
+    if "out of memory" in msg and ("cuda" in msg or "gpu" in msg):
+        return True
+    return "cublas_status_alloc_failed" in msg or "cublas_status_not_initialized" in msg
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -346,6 +374,13 @@ def score_pairs(
     # predict (both directions in the same batch), so a chunk == one model call.
     n_chunks = max(1, min(workers, len(pairs)))
     chunk_size = (len(pairs) + n_chunks - 1) // n_chunks
+    # I-deepfix-001 (#1344): cap the per-forward batch so it cannot grow unbounded with
+    # corpus size (the clinical CUBLAS_STATUS_ALLOC_FAILED). At most `workers` chunks run
+    # concurrently, so peak GPU memory is bounded by workers * predict_chunk regardless of
+    # corpus size. Union-find over the edges is order-independent => byte-identical output.
+    _pchunk = _predict_chunk()
+    if _pchunk > 0:
+        chunk_size = min(chunk_size, _pchunk)
     chunks = [pairs[k:k + chunk_size] for k in range(0, len(pairs), chunk_size)]
 
     def _predict_with_oom_degrade(batch: list[tuple[str, str]]) -> Any:

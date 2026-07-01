@@ -35,11 +35,40 @@ import src.polaris_graph.synthesis.consolidation_nli as cnli
 
 
 _OOM_MESSAGE = "CUDA out of memory. Tried to allocate 2.00 GiB"
+# I-deepfix-001 (#1344): the REAL clinical crash signature. A cuBLAS handle-alloc failure
+# when the card is full contains NO 'out of memory' substring, so the old _is_cuda_oom
+# returned False, the CPU degrade never fired, and the run DIED at consolidation. Must now
+# be detected as OOM-equivalent and routed to the same identical-result CPU degrade.
+_CUBLAS_MESSAGE = "CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`"
 
 
 def _reset_model() -> None:
     cnli._MODEL = None
     cnli._MODEL_DEVICE = None
+
+
+def test_is_cuda_oom_detects_cublas_alloc_failed():
+    """RED before I-deepfix-001 #1344 (the matcher only caught 'out of memory'), GREEN
+    after. The clinical run crashed with CUBLAS_STATUS_ALLOC_FAILED, which the old
+    _is_cuda_oom missed, so the CPU degrade never fired and the run died."""
+    assert cnli._is_cuda_oom(RuntimeError(_CUBLAS_MESSAGE)) is True
+    assert cnli._is_cuda_oom(RuntimeError("CUDA error: CUBLAS_STATUS_NOT_INITIALIZED")) is True
+    # the plain CUDA-OOM path is still detected
+    assert cnli._is_cuda_oom(RuntimeError(_OOM_MESSAGE)) is True
+    # a genuinely-unrelated error must STILL fail loud (NOT be swallowed as an OOM degrade)
+    assert cnli._is_cuda_oom(ValueError("bad tensor shape")) is False
+
+
+def test_predict_chunk_env_bounds_forward_batch(monkeypatch):
+    """I-deepfix-001 #1344: PG_CONSOLIDATION_NLI_PREDICT_CHUNK caps the per-forward batch
+    (default 256; <=0 disables) — the guard against the unbounded chunk_size that OOM'd
+    the card on the large clinical corpora."""
+    monkeypatch.delenv(cnli.ENV_PREDICT_CHUNK, raising=False)
+    assert cnli._predict_chunk() == 256
+    monkeypatch.setenv(cnli.ENV_PREDICT_CHUNK, "64")
+    assert cnli._predict_chunk() == 64
+    monkeypatch.setenv(cnli.ENV_PREDICT_CHUNK, "0")
+    assert cnli._predict_chunk() == 0
 
 
 class _FakeCrossEncoder:
