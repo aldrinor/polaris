@@ -2742,14 +2742,86 @@ def _m2_journal_pref_active(protocol: "dict | None") -> bool:
         return False
 
 
-def _m2_bib_genre(b: dict, *, protocol: "dict | None", document_type_by_url: "dict | None"):
+# I-deepfix-001 WS-8 (D4): publication-year recency leg for the journal-only genre re-rank. A very old
+# (e.g. 1986 pre-AI) source must not HEADLINE a recent-topic review just because its tier is high — but it
+# STAYS in the list at a lower rank (WEIGHT-and-DISCLOSE, never a drop; §-1.3). Constants are env-overridable
+# (LAW VI); the reference year is CORPUS-RELATIVE (the newest source in the same bibliography), so the leg is
+# deterministic + testable and never reaches for a wall-clock. Default-ON via PG_M2_RECENCY_RERANK; OFF or an
+# unknown/absent year => factor 1.0 => byte-identical ordering (never guess a year, never penalize on missing).
+_M2_RECENCY_RERANK_ENV = "PG_M2_RECENCY_RERANK"
+_M2_RECENCY_DECAY_PER_YEAR_ENV = "PG_M2_RECENCY_DECAY_PER_YEAR"
+_M2_RECENCY_GRACE_YEARS_ENV = "PG_M2_RECENCY_GRACE_YEARS"
+_M2_RECENCY_FLOOR_ENV = "PG_M2_RECENCY_FLOOR"
+_M2_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _m2_recency_rerank_enabled() -> bool:
+    return os.getenv(_M2_RECENCY_RERANK_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _m2_publication_year(b: dict) -> "int | None":
+    """The row's publication year: an explicit year field first, else the FIRST plausible 4-digit year
+    parsed from the statement/title/url/doi. Returns None when none is found (=> no recency penalty —
+    never guessed)."""
+    for k in ("year", "publication_year", "pub_year"):
+        v = b.get(k)
+        if v is None:
+            continue
+        try:
+            y = int(str(v).strip()[:4])
+        except (TypeError, ValueError):
+            continue
+        if 1500 <= y <= 2100:
+            return y
+    for k in ("statement", "title", "url", "doi"):
+        m = _M2_YEAR_RE.search(str(b.get(k) or ""))
+        if m:
+            y = int(m.group(0))
+            if 1500 <= y <= 2100:
+                return y
+    return None
+
+
+def _m2_recency_factor(b: dict, reference_year: "int | None") -> float:
+    """A display re-rank multiplier in [floor, 1.0]: 1.0 for a source within ``grace`` years of the
+    corpus-newest source, decaying linearly by ``decay`` per year older, floored at ``floor``. Never 0
+    (an old source is DEMOTED, never dropped — §-1.3). Missing/unknown year or flag OFF => 1.0."""
+    if reference_year is None or not _m2_recency_rerank_enabled():
+        return 1.0
+    y = _m2_publication_year(b)
+    if y is None:
+        return 1.0
+    try:
+        grace = int(os.getenv(_M2_RECENCY_GRACE_YEARS_ENV, "5"))
+        decay = float(os.getenv(_M2_RECENCY_DECAY_PER_YEAR_ENV, "0.02"))
+        floor = float(os.getenv(_M2_RECENCY_FLOOR_ENV, "0.25"))
+    except (TypeError, ValueError):
+        grace, decay, floor = 5, 0.02, 0.25
+    age = max(0, int(reference_year) - y - grace)
+    return max(floor, 1.0 - decay * age)
+
+
+def _m2_reference_year(bibliography: "list[dict]") -> "int | None":
+    """The corpus-relative reference year = the NEWEST publication year across the bibliography rows
+    (None when no row carries a parseable year)."""
+    years = [y for y in (_m2_publication_year(b) for b in (bibliography or [])) if y is not None]
+    return max(years) if years else None
+
+
+def _m2_bib_genre(
+    b: dict, *, protocol: "dict | None", document_type_by_url: "dict | None",
+    reference_year: "int | None" = None,
+):
     """I-deepfix-001 M2: resolve a bibliography row's document GENRE + a DISPLAY-only adjusted
-    weight (``tier_prior(tier) * document_type_weight``) for the genre tag + corroboration re-rank.
+    weight (``tier_prior(tier) * document_type_weight * recency_factor``) for the genre tag +
+    corroboration re-rank.
 
     Genre resolves from the carried-through url->document_type join when present, else a
     deterministic offline classify from the row's url/title. Pure; no network/LLM. Returns
     ``(DocumentType, adjusted_weight)``. The adjusted weight is a display re-rank multiplier only —
-    no source is dropped, every bibliography entry stays in the list."""
+    no source is dropped, every bibliography entry stays in the list. WS-8 (D4): the recency_factor
+    (default-ON, corpus-relative) demotes a very-old source for headline ordering; ``reference_year``
+    None => factor 1.0 => byte-identical to the pre-WS-8 weight."""
     from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
         DocumentType,
         classify_document_type,
@@ -2764,7 +2836,7 @@ def _m2_bib_genre(b: dict, *, protocol: "dict | None", document_type_by_url: "di
     else:
         dt, _ = classify_document_type(url=url, title=str(b.get("statement") or ""))
     w = resolve_document_type_weight(dt, protocol)
-    return dt, _tier_prior(str(b.get("tier") or "")) * w
+    return dt, _tier_prior(str(b.get("tier") or "")) * w * _m2_recency_factor(b, reference_year)
 
 
 def _render_bibliography_lines(
@@ -2900,10 +2972,14 @@ def _render_bibliography_lines(
         _bib_for_corr = bibliography
         if journal_preference_active:
             try:
+                # WS-8 (D4): corpus-relative reference year (newest source) drives the recency leg so a
+                # very-old source is demoted for headline ordering (still kept — §-1.3). Computed ONCE.
+                _ref_year = _m2_reference_year(bibliography)
                 _bib_for_corr = sorted(
                     bibliography,
                     key=lambda _b: -_m2_bib_genre(
-                        _b, protocol=protocol, document_type_by_url=document_type_by_url
+                        _b, protocol=protocol, document_type_by_url=document_type_by_url,
+                        reference_year=_ref_year,
                     )[1],
                 )
             except Exception:  # noqa: BLE001 — additive re-rank; never break the render
