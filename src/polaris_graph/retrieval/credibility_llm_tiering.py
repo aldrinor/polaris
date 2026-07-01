@@ -314,6 +314,20 @@ def _tier_llm_degrade_after() -> int:
     return value
 
 
+def _tier_llm_parallel_enabled() -> bool:
+    """WS-13 (#1344): LAW VI kill-switch for the bounded-parallel tiering leg
+    (default-ON). ON is what lets the fetched-but-unclassified sources get tiered
+    inside the retrieval wall instead of being dropped unclassified at
+    ``retrieval_wall_hit`` — the bounded fan-out finishes many more sources in the
+    same wall than the serial leg. OFF (``0``/``false``/``no``/``off``) routes to the
+    legacy SERIAL leg, byte-identical to the pre-parallel behavior. Either way NO
+    source is ever dropped: an un-tiered source keeps its deterministic rules-floor
+    tier (a WEIGHT, §-1.3), never a drop."""
+    return os.environ.get(
+        "PG_TIER_LLM_PARALLEL", "1"
+    ).strip().lower() not in ("0", "false", "no", "off")
+
+
 def _default_caller() -> Callable[[str], str]:
     """Bind the production GLM-5.2 credibility caller (lazy — keeps the OFF path free of
     httpx + the authority package). Reuses the SAME control surface as the entailment /
@@ -382,65 +396,72 @@ def _build_tiering_status(
     }
 
 
-def classify_sources_llm_tiering(
+def _tier_one_outcome(
     signals_list: list[ClassificationSignals],
-    *,
-    call_llm: Callable[[str], str] | None = None,
-    max_workers: int | None = None,
-    deadline_monotonic: "float | None" = None,
-    status_out: dict | None = None,
-) -> "TieringBatchResult":
-    """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
+    idx: int,
+    caller: Callable[[str], str],
+) -> tuple[int, "ClassificationResult | None", str]:
+    """Single-source tiering outcome ``(idx, result_or_None, status)`` — SHARED by the
+    serial and bounded-parallel legs so both classify a given source identically.
 
-    For EVERY source the deterministic rules-floor is computed first (the instant,
-    no-network fallback). The LLM escalation then runs bounded-parallel; a source keeps
-    its rules-floor result on any judge_error / timeout / malformed output. The result
-    list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
-    the per-source outcome (§8 determinism invariant). No source is ever dropped
-    (§-1.3 weight-not-filter) — ``len(result) == len(signals_list)`` ALWAYS.
-
-    Returns a ``TieringBatchResult`` — a ``list`` aligned 1:1 with ``signals_list`` that
-    ALSO carries an honest machine-readable ``.tiering_status`` dict (I-deepfix-001 D5
-    #1344): ``tiering_mode`` in {``tiered_via_glm``, ``partial``, ``rules_floor_degraded``}
-    plus ``llm_success_count`` / ``rules_floor_count`` / ``total``. A 100%-rules-floor batch
-    (every GLM call errored on a blank-200 / trickle storm) is reported as
-    ``rules_floor_degraded``, NEVER as ``tiered_via_glm``, and emits a LOUD warning — the
-    run still CONTINUES (credibility is a WEIGHT, not a gate), the degrade is just DISCLOSED.
-    ``status_out`` (optional): if a dict is passed it is updated in place with the SAME
-    status, an explicit channel for callers that cannot read the return attribute.
-    """
-    n = len(signals_list)
-    if n == 0:
-        empty = TieringBatchResult([])
-        empty.tiering_status = _build_tiering_status(
-            llm_success=0, fallback_count=0, error_count=0, total=0,
+    ``llm_tier_one`` is contracted NOT to raise (it captures judge_error / timeout
+    internally and degrades to ``None``). The defensive guard counts any truly
+    unexpected escape as ERROR so the canary never silently swallows it."""
+    try:
+        res = llm_tier_one(signals_list[idx], caller)
+    except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
+        logger.warning(
+            "[credibility_llm_tiering] unexpected error tiering idx=%d — "
+            "falling back to rules-floor: %s",
+            idx, exc,
         )
-        if status_out is not None:
-            status_out.update(empty.tiering_status)
-        return empty
-    # Deterministic floor for every source first — the instant fallback (no network).
-    floor_results: list[ClassificationResult] = [
-        _classify_source_tier_rules(s) for s in signals_list
-    ]
-    caller = call_llm if call_llm is not None else _default_caller()
-    workers = max_workers if max_workers is not None else _tier_llm_workers()
+        return idx, None, _TIER_STATUS_ERROR
+    status = _TIER_STATUS_SUCCESS if res is not None else _TIER_STATUS_FALLBACK
+    return idx, res, status
 
-    def _one(idx: int) -> tuple[int, ClassificationResult | None, str]:
-        # llm_tier_one is contracted NOT to raise (it captures judge_error / timeout
-        # internally and degrades to None). The defensive guard counts any truly
-        # unexpected escape as ERROR so the canary never silently swallows it.
-        try:
-            res = llm_tier_one(signals_list[idx], caller)
-        except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
-            logger.warning(
-                "[credibility_llm_tiering] unexpected error tiering idx=%d — "
-                "falling back to rules-floor: %s",
-                idx, exc,
-            )
-            return idx, None, _TIER_STATUS_ERROR
-        status = _TIER_STATUS_SUCCESS if res is not None else _TIER_STATUS_FALLBACK
-        return idx, res, status
 
+def _run_llm_tiering_serial(
+    signals_list: list[ClassificationSignals],
+    caller: Callable[[str], str],
+) -> tuple[dict[int, "ClassificationResult | None"], int, int, int]:
+    """WS-13 (#1344): legacy SERIAL execution leg (``PG_TIER_LLM_PARALLEL=0``).
+
+    Processes every source in index order with NO ``ThreadPoolExecutor`` and NO batch
+    wall / circuit-breaker — byte-identical to the pre-parallel serial behavior. Returns
+    ``(llm_by_idx, llm_success, fallback_count, error_count)``; the shared gather-then-sort
+    tail in ``classify_sources_llm_tiering`` still applies the deterministic rules-floor
+    to any ``None`` entry, so no source is ever dropped (§-1.3)."""
+    llm_by_idx: dict[int, ClassificationResult | None] = {}
+    llm_success = 0
+    fallback_count = 0
+    error_count = 0
+    for idx in range(len(signals_list)):
+        _idx, res, status = _tier_one_outcome(signals_list, idx, caller)
+        llm_by_idx[_idx] = res
+        if status == _TIER_STATUS_SUCCESS:
+            llm_success += 1
+        elif status == _TIER_STATUS_ERROR:
+            error_count += 1
+        else:
+            fallback_count += 1
+    return llm_by_idx, llm_success, fallback_count, error_count
+
+
+def _run_llm_tiering_parallel(
+    signals_list: list[ClassificationSignals],
+    caller: Callable[[str], str],
+    workers: int,
+    deadline_monotonic: "float | None",
+) -> tuple[dict[int, "ClassificationResult | None"], int, int, int]:
+    """WS-13 (#1344): BOUNDED-PARALLEL execution leg (default via ``PG_TIER_LLM_PARALLEL``).
+
+    In-flight requests are capped at ``workers`` (``PG_TIER_LLM_WORKERS``); the whole batch
+    is bounded by a TOTAL wall (``deadline_monotonic`` and/or ``PG_TIER_LLM_BATCH_WALL_SECONDS``,
+    tighter wins) plus a consecutive-fallback circuit-breaker. Returns
+    ``(llm_by_idx, llm_success, fallback_count, error_count)``. Any future un-returned at the
+    wall (a straggler) is simply absent from ``llm_by_idx`` — the shared tail then keeps that
+    source's deterministic rules-floor tier (a WEIGHT, no drop, §-1.3)."""
+    n = len(signals_list)
     llm_by_idx: dict[int, ClassificationResult | None] = {}
     llm_success = 0
     fallback_count = 0
@@ -464,7 +485,10 @@ def classify_sources_llm_tiering(
     # which would BLOCK until a wedged worker finishes — making the batch wall cosmetic.
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        future_to_idx = {pool.submit(_one, i): i for i in range(n)}
+        future_to_idx = {
+            pool.submit(_tier_one_outcome, signals_list, i, caller): i
+            for i in range(n)
+        }
         pending = set(future_to_idx)
         _stop = False
         while pending and not _stop:
@@ -530,6 +554,67 @@ def classify_sources_llm_tiering(
         # un-returned source already keeps its rules-floor). The orphaned thread exits on
         # its own per-call timeout.
         pool.shutdown(wait=False, cancel_futures=True)
+    return llm_by_idx, llm_success, fallback_count, error_count
+
+
+def classify_sources_llm_tiering(
+    signals_list: list[ClassificationSignals],
+    *,
+    call_llm: Callable[[str], str] | None = None,
+    max_workers: int | None = None,
+    deadline_monotonic: "float | None" = None,
+    status_out: dict | None = None,
+) -> "TieringBatchResult":
+    """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
+
+    For EVERY source the deterministic rules-floor is computed first (the instant,
+    no-network fallback). The LLM escalation then runs bounded-parallel; a source keeps
+    its rules-floor result on any judge_error / timeout / malformed output. The result
+    list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
+    the per-source outcome (§8 determinism invariant). No source is ever dropped
+    (§-1.3 weight-not-filter) — ``len(result) == len(signals_list)`` ALWAYS.
+
+    Returns a ``TieringBatchResult`` — a ``list`` aligned 1:1 with ``signals_list`` that
+    ALSO carries an honest machine-readable ``.tiering_status`` dict (I-deepfix-001 D5
+    #1344): ``tiering_mode`` in {``tiered_via_glm``, ``partial``, ``rules_floor_degraded``}
+    plus ``llm_success_count`` / ``rules_floor_count`` / ``total``. A 100%-rules-floor batch
+    (every GLM call errored on a blank-200 / trickle storm) is reported as
+    ``rules_floor_degraded``, NEVER as ``tiered_via_glm``, and emits a LOUD warning — the
+    run still CONTINUES (credibility is a WEIGHT, not a gate), the degrade is just DISCLOSED.
+    ``status_out`` (optional): if a dict is passed it is updated in place with the SAME
+    status, an explicit channel for callers that cannot read the return attribute.
+    """
+    n = len(signals_list)
+    if n == 0:
+        empty = TieringBatchResult([])
+        empty.tiering_status = _build_tiering_status(
+            llm_success=0, fallback_count=0, error_count=0, total=0,
+        )
+        if status_out is not None:
+            status_out.update(empty.tiering_status)
+        return empty
+    # Deterministic floor for every source first — the instant fallback (no network).
+    floor_results: list[ClassificationResult] = [
+        _classify_source_tier_rules(s) for s in signals_list
+    ]
+    caller = call_llm if call_llm is not None else _default_caller()
+    workers = max_workers if max_workers is not None else _tier_llm_workers()
+
+    # WS-13 (#1344): pick the execution leg via the LAW VI kill-switch. Default-ON
+    # runs the BOUNDED-PARALLEL leg (in-flight capped at ``workers`` = PG_TIER_LLM_WORKERS,
+    # bounded by the batch wall + circuit-breaker) so the fetched sources get tiered inside
+    # the retrieval wall instead of being dropped unclassified. OFF runs the legacy SERIAL
+    # leg (byte-identical to the pre-parallel behavior). BOTH legs feed the SAME deterministic
+    # gather-then-sort tail below, so switching legs never changes a per-source classification
+    # — only throughput. Neither leg ever drops a source (rules-floor fallback in the tail).
+    if _tier_llm_parallel_enabled():
+        llm_by_idx, llm_success, fallback_count, error_count = _run_llm_tiering_parallel(
+            signals_list, caller, workers, deadline_monotonic,
+        )
+    else:
+        llm_by_idx, llm_success, fallback_count, error_count = _run_llm_tiering_serial(
+            signals_list, caller,
+        )
 
     # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
     out: list[ClassificationResult] = []

@@ -2320,3 +2320,120 @@ def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
                     markers.append(m_eid)
             parts.append(_emit_unit(unit, markers))
     return " ".join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 WS-3 (#1344) — NUMBERED "Evidence base" breadth surface.
+#
+# THE LEAK (drb_72 "12 of 88 cited"): the FULL ordered unbound-SUPPORTS surface from
+# ``select_unbound_supports_by_weight`` is already UNCAPPED (weighted_enrichment.py:295,469,573),
+# but nothing RENDERS it as a numbered reference block, so most span-verified sources never
+# receive a ``[N]`` citation. This surfaces EVERY source that carries a surviving isolated-
+# ``SUPPORTS`` span into ONE numbered "Evidence base" section: one numbered entry per distinct
+# WORK (same-work CONSOLIDATION, §-1.3 — never N entries for one work), each entry = that work's
+# OWN verbatim span unit(s) tagged with its ``[ev_id]`` marker(s) so the downstream bibliography
+# numberer assigns each a real ``[N]``.
+#
+# §-1.3 — WEIGHT-and-CONSOLIDATE, never FILTER-and-CAP: this is SURFACING breadth (keep-all), NOT a
+# cap / floor / thinner. The input ``ev_ids`` is already the uncapped ordered surface; this ONLY
+# renders it. Faithfulness is UNTOUCHED — each emitted unit is a verbatim span carrying a legacy
+# ``[ev_id]`` marker that flows through the UNCHANGED ``_rewrite_draft_with_spans`` -> ``strict_verify``
+# exactly like every other section; a unit that cannot ground is dropped by that gate, never padded.
+# The SAME render-safety screens as ``build_verified_span_draft`` apply (control-byte strip, junk
+# screen, per-unit char bound, same-work consolidation). Default-ON;
+# ``PG_BREADTH_EVIDENCE_BASE_SECTION=0`` => returns "" => no section => byte-identical legacy output.
+_ENV_EVIDENCE_BASE_SECTION = "PG_BREADTH_EVIDENCE_BASE_SECTION"
+_EVIDENCE_BASE_TITLE = "Evidence base"
+
+
+def evidence_base_section_enabled() -> bool:
+    """Kill-switch ``PG_BREADTH_EVIDENCE_BASE_SECTION`` (default ON). OFF => the numbered
+    Evidence base section is not rendered (``build_evidence_base_section`` returns "") =>
+    byte-identical legacy output."""
+    return os.environ.get(_ENV_EVIDENCE_BASE_SECTION, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def build_evidence_base_section(
+    ev_ids: Any,
+    evidence_pool: Any,
+    *,
+    start_index: int = 1,
+) -> str:
+    """Render the FULL ordered unbound-SUPPORTS surface as ONE numbered "Evidence base" markdown
+    section so EVERY source with a surviving span gets a ``[N]`` citation.
+
+    ``ev_ids`` is the ordered surface from ``select_unbound_supports_by_weight`` (already uncapped —
+    NO cap / floor / thinner is applied here). Members are CONSOLIDATED into same-work buckets
+    (§-1.3 keep-all-count-once): one numbered entry per distinct work, in the caller's
+    relevance/weight order, each carrying its verbatim span unit(s) + the ``[ev_id]`` marker(s) the
+    downstream span-binder + ``strict_verify`` re-check.
+
+    Returns "" when the flag is OFF, ``ev_ids`` is empty, or no surfaced source yields a substantive
+    verbatim unit (caller renders nothing — byte-identical). NO LLM; NO faithfulness-gate touch.
+    """
+    if not evidence_base_section_enabled():
+        return ""
+    ev_ids = list(ev_ids or [])
+    if not ev_ids:
+        return ""
+    pool = evidence_pool or {}
+    is_junk = _make_junk_screen()
+    budget = spans_per_source()
+
+    # Same-work grouping, PRESERVING the caller's relevance/weight order (mirrors
+    # ``build_verified_span_draft``: a work's bucket is keyed by its FIRST-seen member so the
+    # highest-ordered member of each work is the representative and bucket order is work order).
+    work_order: list[str] = []
+    work_members: dict[str, list[str]] = {}
+    for ev_id in ev_ids:
+        eid = str(ev_id or "")
+        if not eid:
+            continue
+        ev = pool.get(eid)
+        if not isinstance(ev, dict):
+            continue
+        direct_quote = _member_quote(ev)
+        if not direct_quote or is_junk(direct_quote):
+            continue
+        key = _work_identity(eid, ev)
+        if key not in work_members:
+            work_members[key] = []
+            work_order.append(key)
+        work_members[key].append(eid)
+
+    lines: list[str] = []
+    number = start_index
+    for key in work_order:
+        member_eids = work_members[key]
+        representative = member_eids[0]
+        rep_ev = pool.get(representative)
+        if not isinstance(rep_ev, dict):
+            continue
+        rep_quote = _member_quote(rep_ev)
+        units = _substantive_units(rep_quote, is_junk=is_junk)
+        if not units:
+            continue
+        # Pre-compute each corroborator's sanitized quote ONCE for the contains-check (same-work URLs
+        # co-cite ONLY when their own fetch actually contains the emitted unit — span-grounded markers).
+        corroborator_quotes = [
+            (m, _member_quote(pool[m]))
+            for m in member_eids[1:]
+            if isinstance(pool.get(m), dict)
+        ]
+        emitted: list[str] = []
+        for unit in units[:budget]:
+            markers = [representative]
+            for m_eid, m_quote in corroborator_quotes:
+                if unit in m_quote and m_eid not in markers:
+                    markers.append(m_eid)
+            emitted.append(_emit_unit(unit, markers))
+        if not emitted:
+            continue
+        lines.append(f"{number}. {' '.join(emitted)}")
+        number += 1
+
+    if not lines:
+        return ""
+    return f"## {_EVIDENCE_BASE_TITLE}\n\n" + "\n".join(lines)

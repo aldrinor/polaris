@@ -16962,6 +16962,56 @@ async def run_one_query(
     return summary
 
 
+# ── I-deepfix-001 (#1344) WS-2 — WINNER SLATE ON THE PAID RUN PATH ──────────────────────────
+# The paid ``run_honest_sweep_r3.py`` launch applies the four confirmed default-OFF WINNER flags so
+# the WEIGHT-and-CONSOLIDATE machinery fires on the paid path (previously only ``run_gate_b.py``'s
+# ``apply_full_capability_benchmark_slate`` set them, so a direct paid launch shipped a NARROW report
+# with zero consolidation / zero analysis). §-1.3: every flag is a WEIGHT or a CONSOLIDATION, never a
+# DROP / CAP / TARGET —
+#   * PG_CONSOLIDATION_NLI       — W10 NLI consolidation, MERGE-ONLY (keeps ALL sources as multi-cite)
+#   * PG_CONSOLIDATION_NLI_PROSE — the prose-side NLI consolidation companion (keep-all corroboration)
+#   * PG_CROSS_SOURCE_SYNTHESIS  — M6 cross-source analytical layer, ADDITIVE keep-all
+#   * PG_BREADTH_ENRICHMENT_ENABLED — the UNCAPPED breadth surface, routed through the UNCHANGED
+#     strict_verify (the 485->~13 funnel fix)
+# All four are read at CALL time downstream (breadth_enrichment_enabled / consolidation_nli_enabled /
+# _cross_source_synthesis_enabled / the prose gate), so a start-of-run ``os.environ`` set is honored
+# with no import-timing rebind. Default-ON via a LAW-VI kill-switch; when it is set OFF this is a
+# BYTE-IDENTICAL no-op (the flags keep their ``.env`` / default values). The frozen faithfulness
+# engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is NOT touched.
+_WINNER_SLATE_ON_PAID_PATH_ENV = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
+_PAID_PATH_WINNER_FLAGS: tuple[str, ...] = (
+    "PG_CONSOLIDATION_NLI",
+    "PG_CONSOLIDATION_NLI_PROSE",
+    "PG_CROSS_SOURCE_SYNTHESIS",
+    "PG_BREADTH_ENRICHMENT_ENABLED",
+)
+
+
+def winner_slate_on_paid_path_enabled() -> bool:
+    """Default-ON kill-switch (LAW VI). OFF only on an explicit 0/false/off/no."""
+    return os.environ.get(_WINNER_SLATE_ON_PAID_PATH_ENV, "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
+
+
+def apply_winner_slate_on_paid_path() -> dict[str, str]:
+    """Apply the WS-2 winner slate at the paid launcher's flag-resolution point.
+
+    Returns the ``{flag: "1"}`` dict actually SET (EMPTY when the kill-switch is OFF — a byte-identical
+    revert). Each winner flag is forced ``"1"`` in ``os.environ``. §-1.3 WEIGHT-and-CONSOLIDATE:
+    consolidation is merge-only (keeps every source as a multi-citation basket), cross-source synthesis
+    is additive keep-all, and breadth enrichment is the uncapped surface through the UNCHANGED
+    strict_verify — no source is dropped, no cap / floor / target is added. The frozen faithfulness
+    engine is not touched."""
+    if not winner_slate_on_paid_path_enabled():
+        return {}
+    applied: dict[str, str] = {}
+    for _flag in _PAID_PATH_WINNER_FLAGS:
+        os.environ[_flag] = "1"
+        applied[_flag] = "1"
+    return applied
+
+
 async def main_async() -> int:
     """CLI entry. Supports --only <slug> to run a single query and
     --out-root <path> to override the output directory. Documented in
@@ -17034,6 +17084,23 @@ async def main_async() -> int:
         ),
     )
     args = parser.parse_args()
+
+    # I-deepfix-001 (#1344) WS-2: apply the confirmed default-OFF WINNER slate on the PAID run path,
+    # at the flag-resolution point BEFORE any query runs (all four flags are read at call time
+    # downstream, so a start-of-run os.environ set is honored). Default-ON via the LAW-VI kill-switch
+    # PG_APPLY_WINNER_SLATE_ON_PAID_PATH; when it is OFF this is a byte-identical no-op. §-1.3
+    # WEIGHT-and-CONSOLIDATE — none of the four flags drops a source or adds a cap/floor/target.
+    _winner_slate_applied = apply_winner_slate_on_paid_path()
+    if _winner_slate_applied:
+        print(
+            "[WS-2] winner slate applied on the paid path: "
+            + ", ".join(f"{_k}={_v}" for _k, _v in _winner_slate_applied.items())
+        )
+    else:
+        print(
+            f"[WS-2] winner slate NOT applied ({_WINNER_SLATE_ON_PAID_PATH_ENV} disabled) — the four "
+            f"winner flags keep their .env/default values (byte-identical revert)"
+        )
 
     # M-INT-0b: --replay-from-pin handler. Build the replay plan
     # from the captured pin and apply it via the

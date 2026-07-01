@@ -1113,6 +1113,128 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
     return out
 
 
+# ── I-deepfix-001 WS-3 (#1344) — NO-PROVENANCE-TOKEN LEAK REPAIR ─────────────────────────────────
+#
+# THE LEAK (drb_72 ``no_provenance_token=34``): an abstractive-writer sentence that arrives with NO
+# ``[#ev:...]`` provenance token is silently DROPPED by strict_verify — so a claim genuinely supported
+# by a corroborating basket span never renders and its source never counts toward breadth. Instead of
+# dropping, REPAIR it: bind the NEAREST supporting basket's OWN verified clause (via the per-basket
+# verified contract ``_per_basket_verified_clause``, :665) BEFORE strict_verify. The emitted clause is
+# that basket's own strict_verify-PASSED span carrying a real ``[#ev]`` token — faithful-BY-CONSTRUCTION,
+# exactly the QUOTATION-is-faithful philosophy the K-span fallback already uses everywhere in this module.
+#
+# §-1.3 / FAITHFULNESS: this NEVER fabricates a binding. It does NOT keep the untokened sentence and it
+# does NOT staple a token onto it; it REPLACES it with the nearest overlapping basket's verified clause.
+# "Nearest" = maximum shared content-word overlap between the sentence and the basket's claim + its
+# isolated-``SUPPORTS`` members' spans, requiring >= ``min_overlap`` (default 2, mirroring the
+# strict_verify >=2-content-word invariant) so an UNRELATED basket is never bound. If NO candidate basket
+# clears the overlap bar AND yields a verified clause, the sentence is STILL dropped (returns ``None``) —
+# the repair can only ADD a faithful cited clause where the legacy path rendered nothing; it can never
+# make the output less faithful. The frozen faithfulness engine (strict_verify / NLI / provenance /
+# span-grounding) is UNTOUCHED: the returned clause re-passes the UNCHANGED strict_verify per clause.
+# Default-ON; ``PG_NO_TOKEN_SENTENCE_REPAIR=0`` => an untokened sentence returns ``None`` (the legacy
+# drop) => byte-identical.
+_NO_TOKEN_REPAIR_ENV = "PG_NO_TOKEN_SENTENCE_REPAIR"
+_DEFAULT_REPAIR_MIN_OVERLAP = 2
+
+# Content-word extractor for the nearest-basket selection: alphabetic-led tokens >= 3 chars, minus a
+# small closed stopword set. Provenance tokens are stripped first so span offsets never count as content.
+_CONTENT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
+_REPAIR_STOPWORDS = frozenset({
+    "the", "and", "for", "that", "this", "with", "from", "have", "has", "had", "was", "were",
+    "are", "been", "will", "would", "could", "should", "their", "there", "these", "those",
+    "which", "while", "when", "where", "what", "who", "whom", "into", "than", "then", "such",
+    "also", "not", "but", "its", "our", "your", "his", "her", "they", "them", "some", "more",
+    "most", "over", "under", "between", "among", "per", "via", "about", "each", "any", "all",
+})
+
+
+def no_token_sentence_repair_enabled() -> bool:
+    """Kill-switch ``PG_NO_TOKEN_SENTENCE_REPAIR`` (default ON). OFF => an untokened abstractive
+    sentence is NOT repaired (``repair_untokened_sentence`` returns ``None``) => the legacy silent
+    drop => byte-identical."""
+    return os.getenv(_NO_TOKEN_REPAIR_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _repair_content_words(text: str) -> set:
+    """Lowercased content words in ``text`` (>=3 chars, minus stopwords); provenance tokens stripped."""
+    stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    return {
+        w.lower()
+        for w in _CONTENT_WORD_RE.findall(stripped)
+        if w.lower() not in _REPAIR_STOPWORDS
+    }
+
+
+def _basket_repair_content_words(basket: Any) -> set:
+    """The content words the basket's claim + its isolated-``SUPPORTS`` member spans carry (the overlap
+    target for nearest-basket selection). Pure read; no faithfulness state touched."""
+    parts = [
+        str(getattr(basket, "claim_text", "") or ""),
+        str(getattr(basket, "subject", "") or ""),
+        str(getattr(basket, "predicate", "") or ""),
+    ]
+    for m in _basket_supports_members(basket):
+        parts.append(str(getattr(m, "direct_quote", "") or ""))
+    return _repair_content_words(" ".join(parts))
+
+
+def repair_untokened_sentence(
+    sentence: str,
+    baskets: list,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    min_overlap: int = _DEFAULT_REPAIR_MIN_OVERLAP,
+) -> Optional[str]:
+    """Repair an abstractive-writer sentence that carries NO provenance token by binding the NEAREST
+    supporting basket's verified clause (via ``_per_basket_verified_clause``), so its source counts as
+    breadth instead of being silently dropped.
+
+    Returns:
+      * the ORIGINAL ``sentence`` unchanged when it ALREADY carries a ``[#ev:...]`` token (only an
+        untokened sentence is a repair candidate — a tokened one is handled by the normal path);
+      * a verified, tokened clause (the nearest overlapping basket's OWN strict_verify-PASSED span)
+        when a real ``SUPPORTS`` span can be bound;
+      * ``None`` when the flag is OFF, the sentence is empty/wordless, or NO candidate basket clears the
+        overlap bar AND yields a verified clause — the sentence is then STILL dropped (never fabricate a
+        binding).
+
+    §-1.3: the untokened sentence is REPLACED by the bound basket's verified clause, never kept and
+    never given a fabricated token; the clause re-passes the UNCHANGED ``strict_verify`` per clause. The
+    caller supplies the production ``writer_fn`` / ``verify_fn`` (the same ones every compose path uses),
+    so the repair adds NO new model and touches NO gate.
+    """
+    if not sentence or not sentence.strip():
+        return None
+    # A sentence that already cites a span is not this path's concern — return it untouched.
+    if _EV_TOKEN_RE.search(sentence):
+        return sentence
+    if not no_token_sentence_repair_enabled():
+        return None  # legacy: an untokened sentence is dropped
+    sentence_words = _repair_content_words(sentence)
+    if not sentence_words:
+        return None
+    # Rank candidate baskets that carry an isolated-``SUPPORTS`` span by content-word overlap
+    # (nearest first). A basket with no SUPPORTS span cannot bind a verified clause -> skipped.
+    ranked: list = []
+    for basket in (baskets or []):
+        if not _basket_supports_members(basket):
+            continue
+        overlap = len(sentence_words & _basket_repair_content_words(basket))
+        if overlap >= min_overlap:
+            ranked.append((basket, overlap))
+    ranked.sort(key=lambda t: t[1], reverse=True)
+    for basket, _overlap in ranked:
+        clause = _per_basket_verified_clause(
+            basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+        )
+        if clause:  # carries a real [#ev] token + passed strict_verify per clause
+            return clause
+    return None  # no real SUPPORTS span could be bound -> still dropped (never fabricated)
+
+
 def _section_assigned_ev_ids(section: Any) -> set:
     """The evidence_ids assigned to a section plan, read defensively across the plan shapes
     (``ev_ids`` list, or rows carrying ``evidence_id``). Empty set when unresolvable."""

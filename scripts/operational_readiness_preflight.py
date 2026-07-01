@@ -465,6 +465,89 @@ def check_d1_launch_path(rg) -> list[CheckResult]:
 
 
 # --------------------------------------------------------------------------------------------
+# D-1 PAID PATH — the winner slate on run_honest_sweep_r3.py (I-deepfix-001 #1344 WS-2)
+# --------------------------------------------------------------------------------------------
+# The paid ``run_honest_sweep_r3.py`` launch now applies the four winner flags ITSELF
+# (``apply_winner_slate_on_paid_path``, default-ON kill-switch ``PG_APPLY_WINNER_SLATE_ON_PAID_PATH``),
+# so a direct paid launch no longer needs the run_gate_b.py wrapper to avoid a NARROW report. This
+# check RED-gates a paid launch whose EFFECTIVE winner-flag config is not fully ON: when the
+# kill-switch is ON the launcher force-sets the four flags ``"1"`` (GREEN); when the operator DISABLES
+# the kill-switch, the flags keep their raw env, so a paid run with any winner flag OFF cannot launch.
+# Flag names mirror ``run_honest_sweep_r3._PAID_PATH_WINNER_FLAGS`` (the source of truth).
+_PAID_PATH_WINNER_SLATE_ENV = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
+_PAID_PATH_WINNER_FLAGS: tuple[tuple[str, str], ...] = (
+    ("PG_CONSOLIDATION_NLI", "W10 consolidate=NLI (same-claim baskets -> multi-source corroboration)"),
+    ("PG_CONSOLIDATION_NLI_PROSE", "NLI prose consolidation (keep-all corroboration in prose)"),
+    ("PG_CROSS_SOURCE_SYNTHESIS", "M6 cross-source analytical layer (the Comparative-Assessment yield)"),
+    ("PG_BREADTH_ENRICHMENT_ENABLED", "breadth weighted-enrichment surface (the 485->~13 funnel fix)"),
+)
+# The paid launcher whose main_async must call apply_winner_slate_on_paid_path (read READ-ONLY via
+# AST; NEVER imported — the module is heavy and runs load_dotenv at import).
+_RUN_HONEST_SWEEP = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
+
+
+def _paid_path_winner_slate_on(env: Mapping[str, str]) -> bool:
+    """Default-ON kill-switch parse, byte-identical to run_honest_sweep_r3.winner_slate_on_paid_path_enabled."""
+    return env.get(_PAID_PATH_WINNER_SLATE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def resolve_paid_path_winner_flags(env: Mapping[str, str]) -> dict[str, str]:
+    """READ-ONLY replica of ``run_honest_sweep_r3.apply_winner_slate_on_paid_path``'s env mutation:
+    when the kill-switch is ON the launcher force-sets each winner flag ``"1"``; when OFF the flag
+    keeps its raw env value. Pure — never writes ``os.environ``."""
+    killswitch_on = _paid_path_winner_slate_on(env)
+    return {
+        flag: ("1" if killswitch_on else env.get(flag, ""))
+        for flag, _why in _PAID_PATH_WINNER_FLAGS
+    }
+
+
+def check_d1_paid_path_winner_slate(env: Mapping[str, str]) -> list[CheckResult]:
+    """RED-gate a PAID run_honest_sweep_r3.py launch whose EFFECTIVE winner slate is not fully ON."""
+    out: list[CheckResult] = []
+    killswitch_on = _paid_path_winner_slate_on(env)
+    eff = resolve_paid_path_winner_flags(env)
+    for flag, why in _PAID_PATH_WINNER_FLAGS:
+        ok = _truthy(eff.get(flag))
+        detail = (
+            f"kill-switch {_PAID_PATH_WINNER_SLATE_ENV}={'ON' if killswitch_on else 'OFF'}; "
+            f"effective={eff.get(flag)!r} -> "
+            + (
+                "force-set '1' by apply_winner_slate_on_paid_path (a paid run cannot launch with it OFF)"
+                if ok else
+                f"NOT '1' — the kill-switch is OFF and the operator env leaves {flag} OFF, so a PAID "
+                f"run would ship {why} DISABLED. Set {flag}=1 or re-enable "
+                f"{_PAID_PATH_WINNER_SLATE_ENV}."
+            )
+        )
+        out.append(CheckResult("D-1.paid_path." + flag, why, GREEN if ok else RED, STATIC, detail))
+
+    # GATING: the paid launcher's main_async ACTUALLY calls apply_winner_slate_on_paid_path (AST call-
+    # node check, not a substring that false-passes on a comment). Read the file text READ-ONLY.
+    launcher_applies = False
+    if _RUN_HONEST_SWEEP.is_file():
+        try:
+            src = _RUN_HONEST_SWEEP.read_text(encoding="utf-8")
+            launcher_applies = _source_calls(src, "main_async", "apply_winner_slate_on_paid_path")
+            note = f"run_honest_sweep_r3.main_async calls apply_winner_slate_on_paid_path={launcher_applies}"
+        except OSError as exc:
+            note = f"could not read {_RUN_HONEST_SWEEP.name}: {exc}"
+    else:
+        note = f"{_RUN_HONEST_SWEEP.name} not found (cannot confirm the paid launcher statically)"
+    out.append(CheckResult(
+        "D-1.paid_path.launcher_applies",
+        "the paid launcher run_honest_sweep_r3.py applies the winner slate in main_async",
+        GREEN if launcher_applies else RED, STATIC,
+        note + " -> " + (
+            "WIRED (main_async force-applies the winner slate when the kill-switch is ON)"
+            if launcher_applies else
+            "REGRESSION: main_async no longer applies the winner slate on the paid path"
+        ),
+    ))
+    return out
+
+
+# --------------------------------------------------------------------------------------------
 # D-2 — MODELS RIGHT + REACHABLE
 # --------------------------------------------------------------------------------------------
 
@@ -860,6 +943,9 @@ def run_static_checks(env: Mapping[str, str], th: Thresholds) -> tuple[list[Chec
         results: list[CheckResult] = []
         results += check_d1_flags(cfg, env, meta, four_role_mode_wired)
         results += check_d1_launch_path(rg)
+        # I-deepfix-001 (#1344) WS-2: RED-gate a PAID run_honest_sweep_r3.py launch whose winner slate
+        # is not fully ON (the paid launcher now applies it itself via the default-ON kill-switch).
+        results += check_d1_paid_path_winner_slate(env)
         results += check_d2_models_static(lineup, generator_slug, lock, families, families_error, th)
         results += check_d3_tokens(cfg, th)
         results += check_d4_timeouts(cfg, th)
