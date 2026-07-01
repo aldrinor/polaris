@@ -64,6 +64,11 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     _verified_compose_enabled,
     build_verified_span_draft,
     dedup_same_span_sentences,
+    # I-deepfix-001 WS-3 (#1344): no-provenance-token leak repair (the drb_72
+    # no_provenance_token=34 leak) — an untokened abstractive sentence is REPAIRED to
+    # the nearest supporting basket's verified clause BEFORE strict_verify drops it.
+    no_token_sentence_repair_enabled,
+    repair_untokened_sentence,
     split_into_sentences,
 )
 # I-deepfix-001 (#1344) Bug B: retraction grounding gate — a retracted/withdrawn
@@ -4090,6 +4095,57 @@ def _screen_fixk_render_chrome(raw_draft: str) -> str:
     return " ".join(kept)
 
 
+def _repair_untokened_draft(
+    raw: str,
+    baskets: list,
+    evidence_pool: dict,
+    *,
+    writer_fn,
+    verify_fn,
+) -> str:
+    """I-deepfix-001 WS-3 (#1344) — NO-PROVENANCE-TOKEN LEAK REPAIR wiring.
+
+    Before the composed draft ``raw`` flows into the UNCHANGED ``_rewrite_draft_with_spans`` ->
+    ``strict_verify`` tail (where an untokened sentence is dropped ``no_provenance_token`` — the
+    drb_72 ``no_provenance_token=34`` leak), attempt to REPAIR each untokened sentence by binding
+    the NEAREST supporting basket's OWN verified clause via ``repair_untokened_sentence`` (default-ON
+    ``PG_NO_TOKEN_SENTENCE_REPAIR``), using the SAME production ``writer_fn`` / ``verify_fn`` already
+    composing this section. A tokened sentence is returned unchanged; an untokened sentence with a
+    bindable isolated-``SUPPORTS`` span is REPLACED by that basket's strict_verify-PASSED clause; an
+    untokened sentence with no binding is left AS-IS (so ``strict_verify`` still drops it — the legacy
+    behavior). Faithfulness-neutral: the frozen faithfulness engine is untouched — the repair only ADDS
+    a faithful cited clause where the legacy path rendered nothing, and every emitted clause re-passes
+    the UNCHANGED ``strict_verify`` per clause.
+
+    Byte-identical when the flag is OFF or when NO sentence is repaired (``raw`` is returned unchanged).
+    """
+    if not raw or not no_token_sentence_repair_enabled():
+        return raw
+    units = split_into_sentences(raw)
+    if not units:
+        return raw
+    repaired: list[str] = []
+    changed = 0
+    for sentence in units:
+        rep = repair_untokened_sentence(
+            sentence, baskets, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+        )
+        if rep is not None and rep != sentence:
+            repaired.append(rep)
+            changed += 1
+        else:
+            # Tokened sentence (returned unchanged), no bindable span, or flag off -> keep as-is
+            # so the UNCHANGED strict_verify tail applies its normal verdict (drop if untokened).
+            repaired.append(sentence)
+    if not changed:
+        return raw  # byte-identical: nothing was repaired
+    logger.info(
+        "[multi_section] WS-3 no-token repair: rebound %d untokened sentence(s) to a verified "
+        "basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)", changed,
+    )
+    return "\n".join(repaired)
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -4260,9 +4316,13 @@ async def _run_section(
             _vc_precomputed = await abstractive_pre_pass(
                 _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
             )
+            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
+            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
+            _vc_writer_fn = make_abstractive_writer_fn(_vc_precomputed)
+            _vc_verify_fn = _vc_writer_verify
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
-                writer_fn=make_abstractive_writer_fn(_vc_precomputed), verify_fn=_vc_writer_verify,
+                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
                 # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
                 # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
@@ -4273,9 +4333,13 @@ async def _run_section(
             # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
             # (fires-through-render? short prose fits 150K? does D8/glm hang locally?). Byte-identical
             # to the pre-#1282 behavior; replaced by the LLM writer when PG_ABSTRACTIVE_WRITER is ON.
+            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
+            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
+            _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool)  # noqa: E731
+            _vc_verify_fn = _vc_verify
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
-                writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
+                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
                 # cross-source analytical pass can LICENSE a conflict connective. No-op unless
                 # PG_CROSS_SOURCE_SYNTHESIS is ON.
@@ -4290,6 +4354,16 @@ async def _run_section(
         # passes the UNCHANGED strict_verify per-clause in the _rewrite_draft_with_spans + strict_verify
         # tail below; faithfulness is untouched (composition layer only).
         raw = "\n".join(c for c in _vc_composed if c and c.strip())
+        # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
+        # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
+        # dropped no_provenance_token — the drb_72 leak), rebind any untokened sentence to the nearest
+        # supporting basket's OWN verified clause, using the SAME production writer/verify fns that
+        # composed this section. Default-ON (PG_NO_TOKEN_SENTENCE_REPAIR); byte-identical when OFF or
+        # when nothing is repaired. Faithfulness-neutral — the frozen engine is untouched.
+        raw = _repair_untokened_draft(
+            raw, _vc_baskets, evidence_pool,
+            writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+        )
         in_tok = out_tok = 0
         section_atom_catalog = {}
         logger.info(
@@ -5757,6 +5831,147 @@ def _remap_section_markers_to_global(
         text = re.sub(r"\[(\d+)\]", _replace, text)
         remapped.append(text)
     return remapped
+
+
+# I-deepfix-001 WS-3 (#1344): the [ev_id] marker build_evidence_base_section emits — any bracketed
+# non-empty token. Membership in evidence_pool decides whether it is a real evidence marker to
+# resolve into a [N] (a stray literal bracket is left untouched). Single-pass so a freshly-produced
+# [N] is never re-matched.
+_EVIDENCE_BASE_MARKER_RE = re.compile(r"\[([^\[\]]+)\]")
+
+
+def _append_evidence_base_section(
+    section_results: "list[SectionResult]",
+    global_biblio: "list[dict[str, Any]]",
+    ev_ids: "list[str]",
+    evidence_pool: "dict[str, Any]",
+) -> bool:
+    """I-deepfix-001 WS-3 (#1344) — append the numbered "Evidence base" breadth surface.
+
+    Renders the FULL ordered unbound-SUPPORTS ``ev_ids`` surface (already UNCAPPED — see
+    ``weighted_enrichment.select_unbound_supports_by_weight``) as ONE numbered "Evidence base"
+    ``SectionResult`` so every source carrying a surviving isolated-``SUPPORTS`` span gets a real
+    ``[N]``. The ``[ev_id]`` markers ``build_evidence_base_section`` emits are resolved to GLOBAL
+    ``[N]`` against ``global_biblio``, which is EXTENDED IN PLACE for any newly-surfaced work so the
+    downstream Bibliography lists it. §-1.3: this only SURFACES the already-uncapped keep-all set —
+    NO cap / floor / thinner is added. Default-ON via ``PG_BREADTH_EVIDENCE_BASE_SECTION`` (checked
+    inside ``build_evidence_base_section``); returns ``False`` (no append, byte-identical) when the
+    flag is OFF, ``ev_ids`` is empty, or the block is empty.
+
+    FAITHFULNESS: faithfulness-neutral. Each numbered entry is a VERBATIM isolated-``SUPPORTS`` span
+    (``span_verdict == "SUPPORTS"``) — the SAME per-member isolated verification the weighted-
+    enrichment section relies on; the frozen faithfulness engine (strict_verify / NLI / 4-role /
+    provenance / span-grounding) is UNTOUCHED. Returns ``True`` iff a section was appended.
+    """
+    from .weighted_enrichment import (  # noqa: PLC0415
+        _EVIDENCE_BASE_TITLE,
+        build_evidence_base_section,
+    )
+    from .live_deepseek_generator import _rewrite_draft_with_spans  # noqa: PLC0415
+    from .provenance_generator import (  # noqa: PLC0415
+        resolve_provenance_to_citations_with_count,
+        strict_verify,
+    )
+
+    block = build_evidence_base_section(ev_ids, evidence_pool)  # flag-gated internally
+    if not block or not block.strip():
+        return False
+
+    # I-deepfix-001 WS-3 P1 FIX (Codex iter-1: "Evidence base bypasses the frozen verification path").
+    # A breadth-surface line MUST NOT ship without passing the frozen faithfulness gate. Route the
+    # verbatim-span block through the SAME `_rewrite_draft_with_spans` + `strict_verify` the sections
+    # use (the FIX-K verbatim-span pattern @4214). Strip build_evidence_base_section's OWN
+    # "## Evidence base" header + leading "N. " display numbers so strict_verify sees clean span
+    # sentences; the [ev_id] markers resolve to real [#ev:...] provenance tokens exactly like the FIX-K
+    # draft. Each surviving sentence is a strict_verify-VERIFIED span carrying a real provenance token
+    # -> a genuine verified claim the downstream 4-role D8 gate judges (native_gate_b_inputs reads
+    # SectionResult.kept_sentences_pre_resolve), NOT a line shipping outside strict_verify/D8.
+    # §-1.3: SURFACE the already-uncapped keep-all SUPPORTS set; a line that CANNOT ground is DROPPED
+    # by the frozen gate (never padded, never fabricated). The frozen engine is UNTOUCHED (called, not
+    # edited). Default-ON via the flag checked inside build_evidence_base_section.
+    _own_header = f"## {_EVIDENCE_BASE_TITLE}\n\n"
+    draft = block[len(_own_header):] if block.startswith(_own_header) else block
+    draft = re.sub(r"(?m)^\s*\d+\.\s+", "", draft)  # drop the display "N. " prefixes -> clean span lines
+    if not draft.strip():
+        return False
+
+    rewritten, _converted, _unverified = _rewrite_draft_with_spans(draft, evidence_pool)
+    report = strict_verify(rewritten, evidence_pool)
+    kept_verified = [v for v in (report.kept_sentences or []) if getattr(v, "is_verified", False)]
+    if not kept_verified:
+        return False  # nothing survived the frozen gate -> NO section (no unverified breadth ships)
+
+    local_text, local_biblio, emitted = resolve_provenance_to_citations_with_count(
+        report.kept_sentences, evidence_pool,
+    )
+    if emitted <= 0 or not local_text.strip():
+        return False
+
+    # The section is appended AFTER the global bibliography remap, so map the resolver's LOCAL [N]
+    # onto the GLOBAL numbering here; extend global_biblio for any newly-surfaced work (§-1.3 keep-all,
+    # never drops a source).
+    ev_to_gnum: dict[str, int] = {
+        str(b.get("evidence_id", "")): b.get("num")
+        for b in (global_biblio or [])
+        if b.get("evidence_id")
+    }
+    next_gnum = [max((int(b.get("num", 0) or 0) for b in (global_biblio or [])), default=0) + 1]
+    local_to_global: dict[int, int] = {}
+    for row in (local_biblio or []):
+        eid = str(row.get("evidence_id", ""))
+        lnum = row.get("num")
+        if lnum is None or not eid:
+            continue
+        gnum = ev_to_gnum.get(eid)
+        if gnum is None:
+            gnum = next_gnum[0]
+            next_gnum[0] += 1
+            ev_to_gnum[eid] = gnum
+            global_biblio.append({
+                "num": gnum,
+                "evidence_id": eid,
+                "url": row.get("url", ""),
+                "tier": row.get("tier", ""),
+                "statement": row.get("statement", ""),
+            })
+        local_to_global[int(lnum)] = gnum
+
+    def _local_to_global_marker(match: "re.Match") -> str:
+        lnum = int(match.group(1))
+        return f"[{local_to_global.get(lnum, lnum)}]"
+
+    body = re.sub(r"\[(\d+)\]", _local_to_global_marker, local_text).strip()
+    if not body:
+        return False
+
+    section_results.append(SectionResult(
+        title=_EVIDENCE_BASE_TITLE,
+        focus=(
+            "Breadth surface: every source carrying a surviving isolated-SUPPORTS span, each entry "
+            "strict_verify-VERIFIED and 4-role D8-judged (routed through the frozen gate, no bypass)."
+        ),
+        ev_ids_assigned=[str(e) for e in (ev_ids or []) if e],
+        raw_draft=block,
+        rewritten_draft=rewritten,
+        verified_text=body,
+        biblio_slice=[],
+        sentences_verified=emitted,
+        sentences_dropped=(
+            report.total_dropped
+            + max(0, (report.total_kept or len(report.kept_sentences)) - emitted)
+        ),
+        regen_attempted=False,
+        dropped_due_to_failure=False,
+        # THE P1 FIX: real strict_verify SentenceVerification objects so native_gate_b_inputs promotes
+        # each VERIFIED entry to a FourRoleClaim and the 4-role D8 gate judges it (no bypass).
+        kept_sentences_pre_resolve=list(report.kept_sentences),
+    ))
+    logger.info(
+        "[multi_section] WS-3 Evidence base: %d strict_verify-VERIFIED source entr(ies) routed "
+        "through strict_verify + 4-role D8 (uncapped SUPPORTS surface -> global [N])",
+        emitted,
+    )
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7672,6 +7887,11 @@ async def generate_multi_section_report(
     # survives to the MultiSectionResult construction below. Empty unless the breadth enrichment ran
     # AND demoted >=1 near-zero single-origin non-journal member (kept + disclosed, never dropped).
     _cwf_disclosed_sources: list[dict[str, Any]] = []
+    # I-deepfix-001 WS-3 (#1344): the UNCAPPED unbound-SUPPORTS ev_id surface, carried to the
+    # assembly stage so the numbered "Evidence base" section can surface every span-verified source
+    # with a [N]. Empty ([] => no Evidence base section => byte-identical) unless the breadth
+    # enrichment ran and found unbound SUPPORTS members.
+    _evidence_base_ev_ids: list[str] = []
     if partial_mode:
         logger.info(
             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
@@ -7690,6 +7910,9 @@ async def generate_multi_section_report(
             # the bound set on the contract path is byte-identical to the prior behavior.
             contract_plans=list(v30_contract_plans or []),
         )
+        # I-deepfix-001 WS-3 (#1344): carry the UNCAPPED ordered SUPPORTS surface to the assembly
+        # stage for the numbered "Evidence base" section (§-1.3: SURFACE the keep-all set, no cap).
+        _evidence_base_ev_ids = list(_wfe.ev_ids)
         # I-deepfix-001 (#1344) DEFER-1: DISCLOSE the SEMANTIC confirmed-off-topic
         # members withheld from the cited breadth surface (kept in evidence_pool +
         # the credibility disclosure — never deleted). LOUD so the suppression is
@@ -8621,6 +8844,16 @@ async def generate_multi_section_report(
                 sr.verified_text = next(remap_iter)
             except StopIteration:
                 break
+
+    # I-deepfix-001 WS-3 (#1344): append the numbered "Evidence base" breadth surface AFTER the
+    # global bibliography + citation remap are final, so its [ev_id] markers resolve to GLOBAL [N]
+    # (and any newly-surfaced work is added to global_biblio for the downstream Bibliography). This
+    # renders through the normal `section_results` -> report-body assembly like every other section.
+    # §-1.3: SURFACE the already-uncapped keep-all SUPPORTS set — NO cap added. Default-ON
+    # (PG_BREADTH_EVIDENCE_BASE_SECTION); empty ev_ids / flag OFF => no-op => byte-identical.
+    _append_evidence_base_section(
+        section_results, global_biblio, _evidence_base_ev_ids, evidence_pool,
+    )
 
     # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3 + iter-2 P2.1):
     # post-hoc atom validation hook. Runs AFTER final citation remap
