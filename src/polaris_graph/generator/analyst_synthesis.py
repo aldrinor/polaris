@@ -522,12 +522,17 @@ async def generate_analyst_synthesis(
             # generator (GLM-5.2 in-campaign) is in openrouter_client._ALWAYS_REASON_MODELS, whose
             # branch-1 path runs reasoning at effort=high with NO cap when no reasoning_max_tokens
             # is passed — it can consume the whole max_tokens (PG_SECTION_MAX_TOKENS=64000) ceiling
-            # on reasoning and return content="". A generous 16384-token reasoning slice (mirrors
-            # the REDUCE section sibling) leaves the bulk of the ceiling for the 1500-3000-word
-            # synthesis. LAW VI env-tunable; §9.1.8 token-budget fix only, faithfulness-neutral
-            # (this is the UNVERIFIED analyst layer; strict_verify governs the verified core).
+            # on reasoning and return content="". A generous reasoning slice leaves the bulk of the
+            # ceiling for the 1500-3000-word synthesis. LAW VI env-tunable; §9.1.8 token-budget fix only,
+            # faithfulness-neutral (this is the UNVERIFIED analyst layer; strict_verify governs the
+            # verified core).
+            # I-deepfix-001 M6 (Layer 2): the reasoning-first writer was returning empty in drb_72 (the
+            # #1323/#1335 dark-synthesis trap — reasoning burned the slice, content=""). Per §9.1
+            # token-MAX ("reasoning effort + max_tokens ALWAYS go MAX; a starved budget truncates
+            # reasoning -> empty content"), raise the DEFAULT slice 16384 -> 32768 (a CAP, not a target,
+            # billed by actual usage -> generous cap is free insurance). Still LAW VI env-overridable.
             reasoning_max_tokens=int(
-                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "16384")
+                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "32768")
             ),
         )
         text = (response.content or "").strip()

@@ -64,6 +64,21 @@ _DEFAULT_DEADLINE_S = 60.0
 
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no", "disabled"})
 
+# I-deepfix-001 M6 (Layer 2) — PROMOTE mode. Default-OFF (LAW VI): a synthesis sentence the groundedness
+# judge says IS grounded against its cited [N] span is positively labeled (KEEP-and-PROMOTE = a
+# BUCKET_MODERATE "verified against the cited source" marker) instead of passing bare. Ungrounded /
+# no-source sentences keep their existing hedge/label. This NEVER deletes a sentence and NEVER touches
+# strict_verify — it is a pure label CHANGE, the inverse of the existing KEEP-and-LABEL on the grounded
+# side. OFF (default) => grounded sentences pass through bare, byte-identical to the legacy leg.
+_ENV_PROMOTE_GROUNDED = "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED"
+
+
+def promote_grounded_enabled() -> bool:
+    """True iff the default-OFF PROMOTE mode is active (M6 Layer 2). Requires the deviation check to be
+    enabled (it shares that gate) AND the fine PROMOTE flag to be explicitly on."""
+    promote_on = os.environ.get(_ENV_PROMOTE_GROUNDED, "0").strip().lower() not in _OFF_VALUES
+    return promote_on and deviation_check_enabled()
+
 # A confidence marker is appended ONCE per sentence; this guards against a double-append when the
 # function is (defensively) called twice on already-labeled prose.
 _ALREADY_LABELED_MARKER = "[confidence:"
@@ -201,9 +216,14 @@ def screen_synthesis_against_baskets(
     telemetry = {
         "synthesis_deviation_labeled_count": 0,
         "synthesis_deviation_unresolved_count": 0,
+        "synthesis_deviation_promoted_count": 0,
     }
     if not text or not text.strip() or not deviation_check_enabled():
         return text, telemetry
+
+    # I-deepfix-001 M6 (Layer 2): default-OFF PROMOTE mode — a grounded sentence is positively labeled
+    # (KEEP-and-PROMOTE) instead of passing bare. Resolved once; OFF => grounded sentences stay bare.
+    promote = promote_grounded_enabled()
 
     if judge_fn is None:
         judge_fn = _default_sentinel_judge()
@@ -267,7 +287,15 @@ def screen_synthesis_against_baskets(
             telemetry["synthesis_deviation_unresolved_count"] += 1
             continue
         if supported.get(i, False):
-            out_sentences.append(sentence)  # cited span SUPPORTS the sentence — KEEP unchanged
+            # Cited span SUPPORTS the sentence. PROMOTE mode (default-OFF): append a positive
+            # BUCKET_MODERATE marker (KEEP-and-PROMOTE — the grounded sentence loses its ambiguity);
+            # OFF => pass through bare (byte-identical legacy). NEVER deletes, NEVER touches strict_verify.
+            if promote:
+                marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
+                out_sentences.append(f"{sentence} {marker}")
+                telemetry["synthesis_deviation_promoted_count"] += 1
+            else:
+                out_sentences.append(sentence)  # KEEP unchanged
             continue
         # Cited span does NOT support the sentence (or the judge fail-closed) -> LABEL low, KEEP.
         marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_LOW)

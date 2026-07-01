@@ -1,0 +1,3595 @@
+diff --git a/config/scope_templates/workforce.yaml b/config/scope_templates/workforce.yaml
+index 8b629fc5..0c1748c3 100644
+--- a/config/scope_templates/workforce.yaml
++++ b/config/scope_templates/workforce.yaml
+@@ -90,6 +90,37 @@ expected_tier_distribution:
+ # JOURNAL_ONLY_BENCHMARK_SLUGS. It is NOT used by any current question.
+ source_restriction: journal_only
+ 
++# -------------------------------------------------------------------
++# I-deepfix-001 M2: per-citation document-TYPE WEIGHT-and-DISCLOSE preference.
++# This is a NEW, DISTINCT mechanism from the dormant reversed `source_restriction:
++# journal_only` DROP/COUNT-floor above — it NEVER drops a source. When active it (a)
++# surfaces a per-citation document-genre label, (b) attaches an orthogonal multiplicative
++# display weight to the credibility disclosure (a SECOND adjusted mean; the raw
++# credibility_weight is untouched and read by every gate exactly as before), and (c) re-ranks
++# the rendered Corroborated Weighted Findings so a non-journal/predatory venue falls below the
++# journal articles but STAYS in the list, labelled.
++#
++# DOUBLE-GATED + default-OFF byte-identical: BOTH the runtime flag PG_DOCUMENT_TYPE_WEIGHT=1
++# AND this `document_type_preference: journal_article` field must hold. Activation for a real
++# run is a one-line operator decision for a DELIBERATE journal-only question. The faithfulness
++# engine (strict_verify / NLI / 4-role D8 / span-grounding / provenance) is untouched; no
++# abort/approval/release gate reads the document-type weight.
++document_type_preference: journal_article
++document_type_weights:        # LAW VI overridable multipliers (else module defaults). NOT a floor/cap.
++  journal_article: 1.0
++  review_article: 1.0
++  preprint: 0.7
++  working_paper: 0.6
++  conference_paper: 0.7
++  report: 0.5
++  book: 0.5
++  news: 0.4
++  press_release: 0.35
++  blog_commentary: 0.3
++  encyclopedia: 0.25
++  predatory_oa_journal: 0.25
++  unknown: 0.5
++
+ journal_only_tier_distribution:
+   - tier: T1
+     min_fraction: 0.40
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 30d0a033..e2af5d66 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1640,10 +1640,17 @@ def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
+ 
+ def _bib_entry_has_locator(entry: "dict") -> bool:
+     """#1239: True iff a bibliography entry carries a non-blank URL or DOI locator. A CITED bib
+-    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE."""
++    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE.
++
++    M3a (I-deepfix-001): a non-blank PMID is ALSO a resolvable locator
++    (https://pubmed.ncbi.nlm.nih.gov/<pmid>/), so a URL-less, DOI-less primary that still
++    carries a real PMID renders that PubMed link instead of the gap line. Only reached when
++    PG_BIB_REQUIRE_LOCATOR is ON (the sole call site is the require_locator render branch), so
++    the OFF path is byte-identical. Never fabricates — uses only ids the row already carries."""
+     url = str(entry.get("url") or "").strip()
+     doi = str(entry.get("doi") or "").strip()
+-    return bool(url or doi)
++    pmid = str(entry.get("pmid") or "").strip()
++    return bool(url or doi or pmid)
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -2686,8 +2693,50 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+     )
+ 
+ 
++def _m2_journal_pref_active(protocol: "dict | None") -> bool:
++    """I-deepfix-001 M2: the journal-only document-type-preference double gate, fail-safe.
++
++    True iff PG_DOCUMENT_TYPE_WEIGHT=1 AND the raw scope template declares
++    ``document_type_preference: journal_article``. Any import/eval error => False (OFF =>
++    byte-identical render)."""
++    try:
++        from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
++            document_type_weighting_active,
++        )
++        return bool(document_type_weighting_active(protocol))
++    except Exception:  # noqa: BLE001 — fail OFF
++        return False
++
++
++def _m2_bib_genre(b: dict, *, protocol: "dict | None", document_type_by_url: "dict | None"):
++    """I-deepfix-001 M2: resolve a bibliography row's document GENRE + a DISPLAY-only adjusted
++    weight (``tier_prior(tier) * document_type_weight``) for the genre tag + corroboration re-rank.
++
++    Genre resolves from the carried-through url->document_type join when present, else a
++    deterministic offline classify from the row's url/title. Pure; no network/LLM. Returns
++    ``(DocumentType, adjusted_weight)``. The adjusted weight is a display re-rank multiplier only —
++    no source is dropped, every bibliography entry stays in the list."""
++    from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
++        DocumentType,
++        classify_document_type,
++        resolve_document_type_weight,
++    )
++    from src.polaris_graph.nodes.weighted_corpus_gate import _tier_prior  # noqa: PLC0415
++
++    url = str(b.get("url") or "")
++    dt_str = (document_type_by_url or {}).get(url)
++    if dt_str and dt_str in DocumentType._value2member_map_:
++        dt = DocumentType(dt_str)
++    else:
++        dt, _ = classify_document_type(url=url, title=str(b.get("statement") or ""))
++    w = resolve_document_type_weight(dt, protocol)
++    return dt, _tier_prior(str(b.get("tier") or "")) * w
++
++
+ def _render_bibliography_lines(
+-    bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False
++    bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False,
++    journal_preference_active: bool = False, protocol: "dict | None" = None,
++    document_type_by_url: "dict | None" = None,
+ ) -> str:
+     """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
+     to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
+@@ -2750,6 +2799,28 @@ def _render_bibliography_lines(
+             _domain = urlsplit(_url_s).netloc.strip() if _url_s else ""
+             _doi = str(b.get("doi") or "").strip()
+             statement = (_domain or _doi or f"source {b.get('num', '')}".strip())[:200]
++        # I-deepfix-001 M2: append a per-citation document-GENRE tag when the journal-only
++        # document-type preference is active (PG_DOCUMENT_TYPE_WEIGHT=1 AND the template field).
++        # Default-OFF keyword => empty tag => byte-identical legacy render. Pure label; the entry,
++        # its citation number, and the source are untouched (WEIGHT-and-DISCLOSE, no drop).
++        _genre_tag = ""
++        if journal_preference_active:
++            try:
++                from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
++                    is_peer_reviewed_journal_article,
++                )
++                _dt, _ = _m2_bib_genre(
++                    b, protocol=protocol, document_type_by_url=document_type_by_url
++                )
++                if is_peer_reviewed_journal_article(_dt):
++                    _genre_tag = " — [peer-reviewed journal article]"
++                else:
++                    _genre_tag = (
++                        f" — [document type: {_dt.value.lower().replace('_', ' ')} "
++                        "— not a peer-reviewed journal article]"
++                    )
++            except Exception:  # noqa: BLE001 — additive label; never break the render
++                _genre_tag = ""
+         if require_locator and not _bib_entry_has_locator(b):
+             # #1239 (Codex iter-1 REQUEST_CHANGES): a cited-but-locator-less entry must KEEP its
+             # citation number so the report BODY's [N] marker still resolves (the old code dropped
+@@ -2758,7 +2829,7 @@ def _render_bibliography_lines(
+             # out a non-blank URL or DOI, so there is genuinely no resolvable locator to show.
+             out += (
+                 f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
+-                f"(disclosed evidence gap, tier {tier})\n"
++                f"(disclosed evidence gap, tier {tier}){_genre_tag}\n"
+             )
+         else:
+             # #1239 (Codex iter-1 REQUEST_CHANGES): when require_locator is ON and the URL is
+@@ -2772,15 +2843,77 @@ def _render_bibliography_lines(
+                 _doi = str(b.get("doi") or "").strip()
+                 if _doi:
+                     locator = f"https://doi.org/{_doi}"
+-            out += f"[{b['num']}] {statement} — {locator} (tier {tier})\n"
++                else:
++                    # M3a (I-deepfix-001): when url AND doi are both blank but a PMID
++                    # is present, render the canonical PubMed locator. Never fabricates
++                    # — uses only a real PMID the entry already carries. Gated behind
++                    # require_locator so require_locator=False stays byte-identical.
++                    _pmid = str(b.get("pmid") or "").strip()
++                    if _pmid:
++                        locator = f"https://pubmed.ncbi.nlm.nih.gov/{_pmid}/"
++            # M2 (I-deepfix-001): append the additive document-type genre tag (empty unless the
++            # journal-only document-type preference is active). M3a PMID fallback above + M2 tag here.
++            out += f"[{b['num']}] {statement} — {locator} (tier {tier}){_genre_tag}\n"
+     # I-arch-011 PR-b (#1268): APPEND the per-claim Argus keep-all corroboration block.
+     # Default-OFF keyword => this is skipped entirely => the bibliography render above is
+     # byte-identical to the legacy output.
+     if corroboration_render:
+-        out += _basket_corroboration_block(bibliography)
++        # I-deepfix-001 M2: when the journal-only document-type preference is active, ORDER the
++        # corroboration block by display-only document-type-adjusted weight (a WEIGHT re-rank, NOT
++        # a drop) so a predatory/non-journal venue falls below the journal articles but STAYS in the
++        # list (the block dedups baskets by claim_cluster_id, so the row order sets which basket
++        # renders first). Default-OFF keyword => unsorted => byte-identical legacy ordering.
++        _bib_for_corr = bibliography
++        if journal_preference_active:
++            try:
++                _bib_for_corr = sorted(
++                    bibliography,
++                    key=lambda _b: -_m2_bib_genre(
++                        _b, protocol=protocol, document_type_by_url=document_type_by_url
++                    )[1],
++                )
++            except Exception:  # noqa: BLE001 — additive re-rank; never break the render
++                _bib_for_corr = bibliography
++        out += _basket_corroboration_block(_bib_for_corr)
+     return out
+ 
+ 
++def _cwf_disclosed_block(disclosed: "list[dict] | None") -> str:
++    """I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only surface.
++
++    The unbound-SUPPORTS enrichment partitions its span-verified members into PROMOTED (each
++    earns a standalone numbered finding) vs DISCLOSED-ONLY (kept + disclosed, never a standalone
++    cited claim) — a near-zero-weight, single-origin, non-journal source no longer anchors a
++    top-level finding (drb_72's cognifit / inboundlogistics / procom / protolabs / wsu-blog /
++    IZA-WP / predatory-DOI / off-topic-DOI). A demoted source still lives in ``evidence_pool`` AND
++    ``corpus_credibility_disclosure.json``; it left the per-claim corroboration block only because
++    it is no longer cited, so this dedicated block re-surfaces it and NET disclosure is preserved.
++
++    §-1.3: this is keep-and-DISCLOSE, never a drop. Pure read of ``multi.cwf_disclosed_sources``
++    (no LLM, no verdict, no faithfulness gate). Returns "" when nothing was demoted (the caller
++    appends nothing => byte-identical)."""
++    rows = [d for d in (disclosed or []) if d.get("source_url") or d.get("evidence_id")]
++    if not rows:
++        return ""
++    lines = []
++    for d in rows:
++        w = d.get("credibility_weight")
++        ws = f"{float(w):.2f}" if isinstance(w, (int, float)) and not isinstance(w, bool) else "n/a"
++        tier = d.get("source_tier") or "n/a"
++        label = d.get("source_url") or d.get("evidence_id")
++        lines.append(f"- {label} (tier {tier}, weight {ws})")
++    return (
++        "\n\n## Disclosed single-origin low-weight sources\n\n"
++        f"{len(rows)} on-topic source(s) were KEPT in the corpus and disclosure but NOT promoted "
++        "to a standalone numbered finding: each is single-origin (uncorroborated), carries "
++        "near-zero credibility weight, and is not a recognized journal venue. They remain in the "
++        "evidence pool and the corpus credibility disclosure; they did not EARN a top-level cited "
++        "claim.\n\n"
++        + "\n".join(lines)
++        + "\n"
++    )
++
++
+ def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
+     """BB5-P02: reduce a scraped row's raw text to a short, trimmed claim summary.
+ 
+@@ -9845,11 +9978,19 @@ async def run_one_query(
+             # carries authority_score (legacy mode) — the disclosure then weights by the per-tier prior.
+             # Read-only; no row mutation, no network, no spend.
+             _wc_authority_by_url: dict[str, float] = {}
++            # I-deepfix-001 M2: build the url->document_type join exactly like the authority join
++            # above (read off the evidence rows where the classifier stamped the genre when
++            # PG_DOCUMENT_TYPE_WEIGHT is ON). Empty when the flag is OFF => the disclosure builder's
++            # M2 block never fires => byte-identical. Read-only; no row mutation, no spend.
++            _wc_document_type_by_url: dict[str, str] = {}
+             for _row in (retrieval.evidence_rows or []):
+                 _u = str(_row.get("source_url") or _row.get("url") or "")
+                 _a = _row.get("authority_score")
+                 if _u and _a is not None and _u not in _wc_authority_by_url:
+                     _wc_authority_by_url[_u] = _a
++                _dt = _row.get("document_type")
++                if _u and _dt and _u not in _wc_document_type_by_url:
++                    _wc_document_type_by_url[_u] = str(_dt)
+             _wc_disclosure = build_corpus_credibility_disclosure(
+                 classified_sources=retrieval.classified_sources,
+                 tier_counts=dist.tier_counts,
+@@ -9859,6 +10000,13 @@ async def run_one_query(
+                 domain=q["domain"],
+                 research_question=q["question"],
+                 authority_by_url=_wc_authority_by_url,
++                # I-deepfix-001 M2: thread the RAW scope template (carries document_type_preference;
++                # the serialized ProtocolDocument drops it — same reason journal_only reads _jo_cfg)
++                # + the url->document_type join so the disclosure can attach the genre WEIGHT and the
++                # SECOND adjusted mean. Both inert unless PG_DOCUMENT_TYPE_WEIGHT=1 AND the template
++                # declares document_type_preference: journal_article (default-OFF byte-identical).
++                protocol=_jo_cfg,
++                document_type_by_url=_wc_document_type_by_url,
+                 # I-deepfix-001 D5 (#1344): plumb the honest credibility-tiering batch status
+                 # (live_retriever captured it off the TieringBatchResult) onto the durable
+                 # manifest disclosure so the diced preflight's D5 gate can assert
+@@ -13261,6 +13409,13 @@ async def run_one_query(
+             corroboration_render=_env_flag(
+                 _BASKET_CORROBORATION_RENDER_ENV, default=False
+             ),
++            # I-deepfix-001 M2: per-citation genre tag + corroboration re-rank, active ONLY under
++            # the journal-only document-type preference double gate (PG_DOCUMENT_TYPE_WEIGHT=1 AND
++            # the raw template's document_type_preference: journal_article). Default-OFF =>
++            # byte-identical render. ``document_type_by_url=None`` => the render helper classifies
++            # each row's genre deterministically from its url/title (host fallback).
++            journal_preference_active=_m2_journal_pref_active(_jo_cfg),
++            protocol=_jo_cfg,
+         )
+ 
+         # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary
+@@ -13538,9 +13693,23 @@ async def run_one_query(
+         _assembled_title = (
+             f"# Research report: {_strip_injected_instruction_appendix(q['question'])}\n\n"
+         )
++        # I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only block right after
++        # the bibliography (which already carries the per-claim corroboration block). The demoted
++        # source already lives in evidence_pool + corpus_credibility_disclosure.json; this re-surfaces
++        # it as a kept-but-not-cited disclosure so net disclosure is preserved (it left the per-claim
++        # corroboration block only because it is no longer cited). Default-ON kill-switch
++        # PG_CWF_DISCLOSURE_BLOCK; OFF (or nothing demoted) => "" => byte-identical.
++        _cwf_disclosed_md = ""
++        if _env_flag("PG_CWF_DISCLOSURE_BLOCK", default=True):
++            try:
++                _cwf_disclosed_md = _cwf_disclosed_block(
++                    getattr(multi, "cwf_disclosed_sources", None)
++                )
++            except Exception as _cwf_exc:  # noqa: BLE001 — additive disclosure; never abort the report
++                _log(f"[cwf-disclosed-block] skipped (fail-open): {_cwf_exc}")
+         _assembled_body = (
+             _key_findings + sections_concat + _depth_layer + methods
+-            + biblio_section + _drop_disclosure_md
++            + biblio_section + _cwf_disclosed_md + _drop_disclosure_md
+         )
+         try:
+             final_report = assemble_report_md(
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index 23b5423f..9f3e5e11 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -522,12 +522,17 @@ async def generate_analyst_synthesis(
+             # generator (GLM-5.2 in-campaign) is in openrouter_client._ALWAYS_REASON_MODELS, whose
+             # branch-1 path runs reasoning at effort=high with NO cap when no reasoning_max_tokens
+             # is passed — it can consume the whole max_tokens (PG_SECTION_MAX_TOKENS=64000) ceiling
+-            # on reasoning and return content="". A generous 16384-token reasoning slice (mirrors
+-            # the REDUCE section sibling) leaves the bulk of the ceiling for the 1500-3000-word
+-            # synthesis. LAW VI env-tunable; §9.1.8 token-budget fix only, faithfulness-neutral
+-            # (this is the UNVERIFIED analyst layer; strict_verify governs the verified core).
++            # on reasoning and return content="". A generous reasoning slice leaves the bulk of the
++            # ceiling for the 1500-3000-word synthesis. LAW VI env-tunable; §9.1.8 token-budget fix only,
++            # faithfulness-neutral (this is the UNVERIFIED analyst layer; strict_verify governs the
++            # verified core).
++            # I-deepfix-001 M6 (Layer 2): the reasoning-first writer was returning empty in drb_72 (the
++            # #1323/#1335 dark-synthesis trap — reasoning burned the slice, content=""). Per §9.1
++            # token-MAX ("reasoning effort + max_tokens ALWAYS go MAX; a starved budget truncates
++            # reasoning -> empty content"), raise the DEFAULT slice 16384 -> 32768 (a CAP, not a target,
++            # billed by actual usage -> generous cap is free insurance). Still LAW VI env-overridable.
+             reasoning_max_tokens=int(
+-                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "16384")
++                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "32768")
+             ),
+         )
+         text = (response.content or "").strip()
+diff --git a/src/polaris_graph/generator/analyst_synthesis_deviation_check.py b/src/polaris_graph/generator/analyst_synthesis_deviation_check.py
+index e694bec8..fd5d6c90 100644
+--- a/src/polaris_graph/generator/analyst_synthesis_deviation_check.py
++++ b/src/polaris_graph/generator/analyst_synthesis_deviation_check.py
+@@ -64,6 +64,21 @@ _DEFAULT_DEADLINE_S = 60.0
+ 
+ _OFF_VALUES = frozenset({"", "0", "false", "off", "no", "disabled"})
+ 
++# I-deepfix-001 M6 (Layer 2) — PROMOTE mode. Default-OFF (LAW VI): a synthesis sentence the groundedness
++# judge says IS grounded against its cited [N] span is positively labeled (KEEP-and-PROMOTE = a
++# BUCKET_MODERATE "verified against the cited source" marker) instead of passing bare. Ungrounded /
++# no-source sentences keep their existing hedge/label. This NEVER deletes a sentence and NEVER touches
++# strict_verify — it is a pure label CHANGE, the inverse of the existing KEEP-and-LABEL on the grounded
++# side. OFF (default) => grounded sentences pass through bare, byte-identical to the legacy leg.
++_ENV_PROMOTE_GROUNDED = "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED"
++
++
++def promote_grounded_enabled() -> bool:
++    """True iff the default-OFF PROMOTE mode is active (M6 Layer 2). Requires the deviation check to be
++    enabled (it shares that gate) AND the fine PROMOTE flag to be explicitly on."""
++    promote_on = os.environ.get(_ENV_PROMOTE_GROUNDED, "0").strip().lower() not in _OFF_VALUES
++    return promote_on and deviation_check_enabled()
++
+ # A confidence marker is appended ONCE per sentence; this guards against a double-append when the
+ # function is (defensively) called twice on already-labeled prose.
+ _ALREADY_LABELED_MARKER = "[confidence:"
+@@ -201,10 +216,15 @@ def screen_synthesis_against_baskets(
+     telemetry = {
+         "synthesis_deviation_labeled_count": 0,
+         "synthesis_deviation_unresolved_count": 0,
++        "synthesis_deviation_promoted_count": 0,
+     }
+     if not text or not text.strip() or not deviation_check_enabled():
+         return text, telemetry
+ 
++    # I-deepfix-001 M6 (Layer 2): default-OFF PROMOTE mode — a grounded sentence is positively labeled
++    # (KEEP-and-PROMOTE) instead of passing bare. Resolved once; OFF => grounded sentences stay bare.
++    promote = promote_grounded_enabled()
++
+     if judge_fn is None:
+         judge_fn = _default_sentinel_judge()
+ 
+@@ -267,7 +287,15 @@ def screen_synthesis_against_baskets(
+             telemetry["synthesis_deviation_unresolved_count"] += 1
+             continue
+         if supported.get(i, False):
+-            out_sentences.append(sentence)  # cited span SUPPORTS the sentence — KEEP unchanged
++            # Cited span SUPPORTS the sentence. PROMOTE mode (default-OFF): append a positive
++            # BUCKET_MODERATE marker (KEEP-and-PROMOTE — the grounded sentence loses its ambiguity);
++            # OFF => pass through bare (byte-identical legacy). NEVER deletes, NEVER touches strict_verify.
++            if promote:
++                marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
++                out_sentences.append(f"{sentence} {marker}")
++                telemetry["synthesis_deviation_promoted_count"] += 1
++            else:
++                out_sentences.append(sentence)  # KEEP unchanged
+             continue
+         # Cited span does NOT support the sentence (or the judge fail-closed) -> LABEL low, KEEP.
+         marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_LOW)
+diff --git a/src/polaris_graph/generator/cross_source_synthesis.py b/src/polaris_graph/generator/cross_source_synthesis.py
+new file mode 100644
+index 00000000..86dc79b0
+--- /dev/null
++++ b/src/polaris_graph/generator/cross_source_synthesis.py
+@@ -0,0 +1,324 @@
++"""I-deepfix-001 M6 (Layer 1) — the VERIFIED cross-source analytical-synthesis composer.
++
++POLARIS had NO verified analytical-synthesis path, so DRB-II analysis (18% weight) scored near-zero
++and "Comparative Assessment" rendered a gap stub. The within-basket multi-cited producer
++(``verified_compose.compose_basket_multicited_sentence``) consolidates corroborators WITHIN one
++basket and joins them with a SEMANTICALLY-NEUTRAL connective; it never spans TWO baskets and the
++``relational_quantifier_guard`` actively STRIPS any relational predicate. There was no producer that
++emits a sentence relating TWO distinct baskets.
++
++THE M6 ARCHITECTURE (the only faithfulness-safe way to add analysis depth):
++
++    An analytical sentence = ``[verified clause A][LICENSED relation connective][verified clause B]``
++
++where (1) each clause is an existing ``strict_verify``-PASSED unit carrying its OWN
++``[#ev:<id>:<start>-<end>]`` token (built by the UNCHANGED ``verified_compose`` per-basket contract),
++and (2) the connective is from a CLOSED set and is LICENSED by an existing cross-basket relation
++engine (``claim_graph.ClaimGraph.edges`` ContradictionEdge from the three certified detectors, or the
++``consolidation_nli`` / equivalence agreement map). The synthesis asserts NO new free-standing fact —
++it asserts a RELATION between two already-verified facts, and that relation is gated by the engine.
++
++``strict_verify`` still passes iff BOTH atoms pass (the connective carries no provenance token), so the
++FROZEN faithfulness engine remains the only hard gate. This module CALLS the production
++``verify_sentence_provenance`` (through the per-basket ``verify_fn`` it is given) but NEVER modifies it.
++It is the C2 atomic-entailment family from I-faith-001, applied at composition time: *synthesize the
++RELATION, verify the ATOMS.*
++
++FAIL-CLOSED (the §-1.3 + brief boundary contract, "under-relax is safe; over-relax is lethal"):
++  * when the licensing engine does NOT fire for a pair, the connective DEFAULTS to ``neutral`` pure
++    juxtaposition — a wrong "in contrast" / "consistent with this" can NEVER render;
++  * when either clause fails to build / re-verify, the analytical unit is DROPPED and the two atoms
++    survive as independent single-source sentences (the existing per-basket path emits them) — KEEP-ALL;
++  * "extension" is in the closed vocabulary but the increment-1 ``license_relation`` NEVER returns it
++    (a future producer with a directional-entailment engine may), so it is unreachable here by design.
++
++LAW VI: gated by ``PG_CROSS_SOURCE_SYNTHESIS`` (read by the caller in ``verified_compose``); when the
++flag is off this module is never invoked and the section producer is byte-identical. PURE: no network,
++no model, no faithfulness-file import, no input mutation. snake_case.
++"""
++from __future__ import annotations
++
++import logging
++import re
++from typing import Any, Callable, Optional
++
++logger = logging.getLogger(__name__)
++
++# The CLOSED set of cross-source connectives. The VALUE is inserted between the two verified clauses;
++# it carries NO factual content and NO provenance token, so ``strict_verify`` still gates iff both atoms
++# pass. ``neutral`` is pure juxtaposition (the fail-closed default). Keep the relation PHRASES in sync
++# with ``relational_quantifier_guard._ANALYTICAL_CONNECTIVE_RELATION`` (the guard neutralizes an
++# UNLICENSED connective back to ``neutral``).
++LICENSED_CONNECTIVES: dict[str, str] = {
++    "agreement": "; consistent with this, ",
++    "conflict": "; in contrast, ",
++    "extension": "; extending this, ",  # reserved: license_relation never returns this in increment 1
++    "neutral": "; separately, ",
++}
++
++# A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the shape strict_verify parses).
++_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
++_EV_SPAN_RE = re.compile(r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]")
++
++
++def _norm_anchor(text: str) -> str:
++    """The conservative normalized anchor key for a basket's subject (or predicate). Lower-cased,
++    whitespace-collapsed, punctuation-trimmed. An empty / whitespace string is NOT an anchor (returns
++    "") so empty-subject baskets are never paired (random juxtaposition is forbidden, brief risk #3)."""
++    s = re.sub(r"\s+", " ", str(text or "").strip().lower())
++    s = s.strip(" \t\r\n.,;:-—–")
++    return s
++
++
++def _basket_anchor(basket: Any) -> str:
++    """A basket's pairing anchor = normalized ``subject`` + "|" + normalized ``predicate``. Two baskets
++    are pairing CANDIDATES iff they share this anchor (same subject AND predicate); the RELATION between
++    them is then decided by the licensing engine, never by the anchor. "" when subject is blank (the
++    basket is not eligible for analytical pairing — it has no anchor to compare against)."""
++    subj = _norm_anchor(getattr(basket, "subject", "") or "")
++    if not subj:
++        return ""
++    pred = _norm_anchor(getattr(basket, "predicate", "") or "")
++    return f"{subj}|{pred}"
++
++
++def _cluster_id(basket: Any) -> str:
++    return str(getattr(basket, "claim_cluster_id", "") or "")
++
++
++def _edge_between(edges: Any, cluster_a_id: str, cluster_b_id: str) -> bool:
++    """True iff a ContradictionEdge joins the two claim clusters (``claim_graph.ClaimGraph.edges`` /
++    ``CredibilityAnalysis.edges``). An edge's ``claim_cluster_ids`` is the sorted pair of endpoints; we
++    accept any edge whose endpoint set CONTAINS both cluster ids (recall-first, mirrors the recall-first
++    edge sourcing). Conservative on missing/garbage data -> False (no conflict licensed)."""
++    if not edges or not cluster_a_id or not cluster_b_id or cluster_a_id == cluster_b_id:
++        return False
++    want = {cluster_a_id, cluster_b_id}
++    for e in edges:
++        ids = getattr(e, "claim_cluster_ids", None)
++        if ids is None and isinstance(e, dict):
++            ids = e.get("claim_cluster_ids")
++        try:
++            id_set = {str(x) for x in (ids or ())}
++        except TypeError:
++            continue
++        if want <= id_set:
++            return True
++    return False
++
++
++def _agree(agree_map: Any, equiv_clusters: Any, cluster_a_id: str, cluster_b_id: str) -> bool:
++    """True iff the consolidation/equivalence engine says cluster A and cluster B AGREE (A entails/equiv
++    B). The signal is OPTIONAL: the run threads it only when an inter-basket agreement map was computed.
++
++    ``agree_map`` may be a dict ``cluster_id -> iterable[cluster_id]`` (or set of frozenset/tuple pairs);
++    ``equiv_clusters`` may be a list of clusters (each an iterable of cluster_ids) that were merged as
++    equivalent. Conservative: empty / unreadable => False (NO agreement licensed -> neutral). Never a
++    network/model call (the licensing already happened upstream; this is a pure lookup)."""
++    if not cluster_a_id or not cluster_b_id or cluster_a_id == cluster_b_id:
++        return False
++    pair = {cluster_a_id, cluster_b_id}
++    # (1) dict form: cluster -> neighbours that it entails/agrees-with (either direction).
++    if isinstance(agree_map, dict):
++        try:
++            if cluster_b_id in (agree_map.get(cluster_a_id) or ()):
++                return True
++            if cluster_a_id in (agree_map.get(cluster_b_id) or ()):
++                return True
++        except TypeError:
++            pass
++    # (2) set/list of pairs form.
++    elif agree_map:
++        for entry in agree_map:
++            try:
++                if pair <= {str(x) for x in entry}:
++                    return True
++            except TypeError:
++                continue
++    # (3) equivalence groups: both ids inside the SAME merged group => they agree.
++    for group in (equiv_clusters or ()):
++        try:
++            members = {str(x) for x in group}
++        except TypeError:
++            continue
++        if pair <= members:
++            return True
++    return False
++
++
++def license_relation(
++    cluster_a_id: str,
++    cluster_b_id: str,
++    *,
++    edges: Any = None,
++    equiv_clusters: Any = None,
++    agree_map: Any = None,
++) -> str:
++    """Decide the LICENSED relation between two claim clusters from the EXISTING certified engines.
++
++    Returns one of ``conflict`` / ``agreement`` / ``neutral`` (NEVER ``extension`` in increment 1):
++      * ``conflict``   iff a ContradictionEdge joins the pair (the certified semantic/qualitative/rule
++        contradiction detectors) — surfaces the disagreement ("in contrast"), the DeepTRACE
++        one-sidedness win, ONLY ever from a real verified edge;
++      * ``agreement``  iff the consolidation/equivalence engine says A entails/equiv B;
++      * ``neutral``    otherwise — pure juxtaposition. NEVER fabricate a relation the engines did not
++        license (over-relax is the lethal direction). Conflict takes precedence over agreement (a
++        contested pair is reported as a conflict, never smoothed into agreement)."""
++    if _edge_between(edges, cluster_a_id, cluster_b_id):
++        return "conflict"
++    if _agree(agree_map, equiv_clusters, cluster_a_id, cluster_b_id):
++        return "agreement"
++    return "neutral"
++
++
++def _distinct_ev_ids(text: str) -> set[str]:
++    """The distinct evidence_ids cited by the provenance tokens in ``text``."""
++    return {m.group("ev_id") for m in _EV_SPAN_RE.finditer(text or "")}
++
++
++def _first_verified_clause(
++    basket: Any,
++    evidence_pool: dict,
++    *,
++    writer_fn: Callable[[Any, dict], str],
++    verify_fn: Callable[..., Any],
++) -> Optional[str]:
++    """ONE single-sentence verified clause for a basket, suitable for analytical co-location.
++
++    Reuses the UNCHANGED ``verified_compose._per_basket_verified_clause`` (the existing P1-2/P1-1
++    per-basket contract: writer drafts -> ``strict_verify`` each sentence against THIS basket's scoped
++    pool -> own-region gate -> verbatim K-span fallback). The returned clause is therefore an EXISTING
++    strict_verify-PASSED (or faithful-by-construction verbatim-span) unit carrying its OWN ``[#ev]``
++    token. We then reduce it to its FIRST sentence-unit so the analytical join yields ONE clean sentence
++    carrying exactly one token per clause. Returns None when the basket yields no verified clause (the
++    pair is then skipped; the basket's own single-source unit is surfaced by the per-basket path)."""
++    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
++        _per_basket_verified_clause,
++        split_into_sentences,
++    )
++    clause = _per_basket_verified_clause(
++        basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
++    )
++    if not clause or not clause.strip():
++        return None
++    units = [u for u in (split_into_sentences(clause) or [clause]) if u and u.strip()]
++    if not units:
++        return None
++    first = units[0].strip()
++    # The clause MUST carry exactly one provenance token (a clean single-source atom for the join).
++    if not _EV_TOKEN_RE.search(first):
++        return None
++    return first
++
++
++def compose_cross_source_analytical_units(
++    section_baskets: list,
++    evidence_pool: dict,
++    *,
++    writer_fn: Callable[[Any, dict], str],
++    verify_fn: Callable[..., Any],
++    edges: Any = None,
++    equiv_clusters: Any = None,
++    agree_map: Any = None,
++) -> list[str]:
++    """Produce verified cross-source ANALYTICAL sentences for a section.
++
++    For every UNORDERED pair of section baskets that share a subject-predicate anchor and have DISTINCT
++    claim clusters:
++      1. build ``clause_A`` / ``clause_B`` via the EXISTING per-basket verified contract (each already
++         strict_verify-PASSED, each carrying its OWN ``[#ev]`` token);
++      2. ``rel = license_relation(...)`` from the certified engines; ``connective = LICENSED_CONNECTIVES[rel]``;
++      3. join ``clause_A + connective + clause_B`` (reusing ``_join_verified_clauses`` — one sentence,
++         continuation lowercased), so the result carries TWO distinct ``[#ev]`` tokens from TWO baskets;
++      4. run the joined sentence through ``guard_relational_quantifier(..., licensed_relations={rel})``
++         so an UNLICENSED connective is neutralized to pure juxtaposition (a wrong "in contrast" can
++         never render);
++      5. KEEP the unit ONLY if it still carries >=2 distinct cited evidence_ids (a real cross-source
++         relation). Otherwise the pair is dropped and the two atoms survive via the per-basket path.
++
++    Pure read of the production verifier (through ``verify_fn``); the FROZEN engine is never touched.
++    Order-stable. Returns the list of analytical sentence strings (possibly empty — analytical yield
++    EMERGES from real anchored pairs + engine-licensed relations, it is never forced)."""
++    from src.polaris_graph.generator.verified_compose import _join_verified_clauses  # noqa: PLC0415
++    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
++        guard_relational_quantifier,
++    )
++
++    baskets = [b for b in (section_baskets or []) if b is not None]
++    # Group baskets by anchor; only anchors with >=2 DISTINCT-cluster baskets can form an analytical pair.
++    by_anchor: dict[str, list] = {}
++    for b in baskets:
++        anchor = _basket_anchor(b)
++        if anchor:
++            by_anchor.setdefault(anchor, []).append(b)
++
++    units: list[str] = []
++    seen_pair_keys: set[frozenset] = set()
++    eligible_pairs = 0
++    for anchor, group in by_anchor.items():
++        if len(group) < 2:
++            continue
++        for i in range(len(group)):
++            for j in range(i + 1, len(group)):
++                a, b = group[i], group[j]
++                ca, cb = _cluster_id(a), _cluster_id(b)
++                if not ca or not cb or ca == cb:
++                    continue  # same / unidentifiable cluster is not a cross-source pair
++                pair_key = frozenset((ca, cb))
++                if pair_key in seen_pair_keys:
++                    continue
++                seen_pair_keys.add(pair_key)
++                eligible_pairs += 1
++                clause_a = _first_verified_clause(
++                    a, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
++                )
++                clause_b = _first_verified_clause(
++                    b, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
++                )
++                if not clause_a or not clause_b:
++                    continue  # an atom failed to build/verify -> keep both as independent sentences
++                # The two clauses MUST cite DISTINCT origins (a real cross-SOURCE relation).
++                if not (_distinct_ev_ids(clause_a) - _distinct_ev_ids(clause_b)):
++                    continue
++                rel = license_relation(
++                    ca, cb, edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
++                )
++                connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
++                # Strip clause_A's terminal so the join reads as one flowing sentence
++                # "[clause A]<connective>[clause B]". _join_verified_clauses lowercases + de-terminates
++                # the continuation and keeps the whole thing ONE sentence under the production splitter.
++                from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
++                    _strip_terminal_punct,
++                )
++                joined = _join_verified_clauses(
++                    [_strip_terminal_punct(clause_a), clause_b], connective=connective,
++                )
++                if not joined:
++                    continue
++                # The guard neutralizes an UNLICENSED connective (defense-in-depth: our composer only
++                # ever emits a licensed one, so this is a no-op on the happy path). licensed_relations is
++                # the SINGLE relation we licensed for this sentence.
++                guarded = guard_relational_quantifier(
++                    joined, None, licensed_relations={rel},
++                )
++                final = (guarded or joined).strip()
++                # KEEP only a real cross-source unit: >=2 distinct cited evidence_ids survive.
++                if len(_distinct_ev_ids(final)) < 2:
++                    continue
++                units.append(final)
++
++    if eligible_pairs and not units:
++        # Fail-LOUD canary (the "verify the feature fired in output, not in config" rule): the flag was
++        # ON and anchored cross-source pairs EXISTED, yet zero analytical units survived re-verify. This
++        # is the silent-no-op trap — surface it LOUD rather than quietly emit nothing.
++        logger.warning(
++            "[cross_source_synthesis] %d anchored cross-source pair(s) but 0 analytical units survived "
++            "per-clause re-verify/licensing — analytical layer produced nothing for this section",
++            eligible_pairs,
++        )
++    elif units:
++        logger.info(
++            "[cross_source_synthesis] composed %d cross-source analytical unit(s) from %d anchored pair(s)",
++            len(units), eligible_pairs,
++        )
++    return units
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 3326154e..44679954 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -1171,6 +1171,15 @@ class MultiSectionResult:
+     # OFF) => byte-identical. The SWEEP lane prepends this disclosed header to the assembled
+     # body; the data is computed + surfaced here (in-lane) regardless.
+     reliability_header: dict[str, Any] | None = None
++    # I-deepfix-001 (#1344 M5): the PROMOTION-ELIGIBILITY disclosed-only partition — the unbound
++    # SUPPORTS members ROUTED to keep-and-disclose (single-origin, near-zero credibility weight,
++    # non-journal) instead of promoted to a standalone numbered finding. Each record:
++    # {evidence_id, source_url, source_tier, credibility_weight, reason}. Empty when the gate is OFF
++    # (PG_CWF_PROMOTION_ELIGIBILITY=0) or no member was demoted (byte-identical). The source STAYS in
++    # evidence_pool + the credibility disclosure; the SWEEP lane renders a dedicated disclosure block
++    # from this (run_honest_sweep_r3._cwf_disclosed_block). NOT a drop — a ROUTE; the faithfulness
++    # engine is untouched.
++    cwf_disclosed_sources: list[dict[str, Any]] = field(default_factory=list)
+ 
+ 
+ @dataclass
+@@ -4254,6 +4263,10 @@ async def _run_section(
+             _vc_composed = _compose_section_per_basket(
+                 _vc_baskets, evidence_pool,
+                 writer_fn=make_abstractive_writer_fn(_vc_precomputed), verify_fn=_vc_writer_verify,
++                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
++                # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
++                # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
++                edges=getattr(credibility_analysis, "edges", None),
+             )
+         else:
+             # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
+@@ -4263,6 +4276,10 @@ async def _run_section(
+             _vc_composed = _compose_section_per_basket(
+                 _vc_baskets, evidence_pool,
+                 writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
++                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
++                # cross-source analytical pass can LICENSE a conflict connective. No-op unless
++                # PG_CROSS_SOURCE_SYNTHESIS is ON.
++                edges=getattr(credibility_analysis, "edges", None),
+             )
+         # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
+         # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE
+@@ -7651,6 +7668,10 @@ async def generate_multi_section_report(
+     # bound set when contract plans exist (UNCHANGED behavior on the contract path) and an empty
+     # set on the generic path (so NOTHING is wrongly excluded). Faithfulness-neutral: the appended
+     # section still routes through the UNCHANGED strict_verify + section floor.
++    # I-deepfix-001 (#1344 M5): the PROMOTION-ELIGIBILITY disclosed-only partition, captured here so it
++    # survives to the MultiSectionResult construction below. Empty unless the breadth enrichment ran
++    # AND demoted >=1 near-zero single-origin non-journal member (kept + disclosed, never dropped).
++    _cwf_disclosed_sources: list[dict[str, Any]] = []
+     if partial_mode:
+         logger.info(
+             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
+@@ -7682,6 +7703,24 @@ async def generate_multi_section_report(
+                 len(_wfe.offtopic_suppressed),
+                 ", ".join(_wfe.offtopic_suppressed[:30]),
+             )
++        # I-deepfix-001 (#1344 M5): capture the PROMOTION-ELIGIBILITY disclosed-only partition (the
++        # near-zero, single-origin, non-journal members ROUTED to keep-and-disclose instead of a
++        # standalone numbered finding). LOUD so the routing is auditable, never silent; the source
++        # STAYS in evidence_pool + the credibility disclosure (kept, never dropped) and the
++        # faithfulness engine is untouched. Empty tuple when the gate is OFF (byte-identical).
++        _cwf_disclosed_sources = list(getattr(_wfe, "disclosed_only", ()) or ())
++        if _cwf_disclosed_sources:
++            logger.info(
++                "[multi_section] I-deepfix-001 M5 promotion-eligibility: %d promoted, "
++                "%d disclosed-only KEPT (single-origin low-weight non-journal; kept in "
++                "evidence_pool + disclosure, NOT a standalone cited finding): %s",
++                len(_wfe.ev_ids),
++                len(_cwf_disclosed_sources),
++                ", ".join(
++                    f"{d.get('evidence_id')}={d.get('source_url') or 'n/a'}"
++                    for d in _cwf_disclosed_sources[:30]
++                ),
++            )
+         _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
+         if _wfe_plan is not None:
+             plans.append(_wfe_plan)
+@@ -9032,4 +9071,8 @@ async def generate_multi_section_report(
+         # the per-claim baskets (None when basket data is absent => byte-identical).
+         budget_tail_drops=list(_budget_tail_drop_telemetry),
+         reliability_header=_build_reliability_header(credibility_analysis),
++        # I-deepfix-001 (#1344 M5): the promotion-eligibility disclosed-only partition captured
++        # during planning (empty unless the breadth enrichment ran AND demoted a near-zero
++        # single-origin non-journal member). Drives the SWEEP-lane disclosure block; kept-not-dropped.
++        cwf_disclosed_sources=list(_cwf_disclosed_sources),
+     )
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 8b7fbe10..0c4d6257 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -4011,6 +4011,17 @@ def resolve_provenance_to_citations_with_count(
+                 "num": ev_to_num[ev_id],
+                 "evidence_id": ev_id,
+                 "url": ev.get("source_url", ""),
++                # M3a (I-deepfix-001): carry the DOI/PMID the evidence_pool row already
++                # holds so a URL-less-but-DOI-bearing primary (e.g. JPE 2020
++                # 10.1086/705716, Science 2024 10.1126/science.adj0998) keeps a
++                # resolvable locator. Without these keys `_bib_entry_has_locator`
++                # (run_honest_sweep_r3.py) sees an empty url+blank doi and renders the
++                # "no resolvable URL/DOI locator" gap line even though the existing
++                # PG_BIB_REQUIRE_LOCATOR doi.org fallback would render
++                # https://doi.org/<doi>. Additive: when PG_BIB_REQUIRE_LOCATOR is OFF
++                # the renderer ignores both keys => byte-identical rendered report.
++                "doi": ev.get("doi", ""),
++                "pmid": ev.get("pmid", ""),
+                 "tier": ev.get("tier", ""),
+                 "statement": (ev.get("statement") or "")[:300],
+             }
+diff --git a/src/polaris_graph/generator/relational_quantifier_guard.py b/src/polaris_graph/generator/relational_quantifier_guard.py
+index 72c775ac..390c65fa 100644
+--- a/src/polaris_graph/generator/relational_quantifier_guard.py
++++ b/src/polaris_graph/generator/relational_quantifier_guard.py
+@@ -168,6 +168,40 @@ _COMPARATIVE_RE = re.compile(
+ )
+ 
+ 
++# I-deepfix-001 M6 — the CLOSED set of cross-source analytical connective PHRASES + their relation key.
++# These mirror ``cross_source_synthesis.LICENSED_CONNECTIVES`` (kept in sync). A connective is LICENSED
++# upstream by a certified relation engine (``claim_graph`` ContradictionEdge / ``consolidation_nli`` /
++# equivalence); the composer passes the licensed relation(s) via ``licensed_relations`` so the guard can
++# NEUTRALIZE any connective whose relation was NOT licensed back to pure juxtaposition — "a wrong
++# 'in contrast' can never render". The neutral phrase asserts no relation, so it is never neutralized.
++_ANALYTICAL_CONNECTIVE_RELATION: dict[str, str] = {
++    "in contrast": "conflict",
++    "consistent with this": "agreement",
++    "extending this": "extension",
++}
++_NEUTRAL_CONNECTIVE_PHRASE = "separately"
++# Each relation phrase as it appears inside the connective ``; <phrase>, `` — captured WITH its leading
++# "; " and trailing ", " so a neutralized phrase swaps cleanly to ``; separately, ``.
++_ANALYTICAL_CONNECTIVE_RE = re.compile(
++    r";\s*(?P<phrase>in contrast|consistent with this|extending this)\s*,\s*",
++    re.IGNORECASE,
++)
++
++
++def _neutralize_unlicensed_connectives(sentence: str, licensed_relations: "set[str]") -> str:
++    """Replace any analytical connective whose relation is NOT in ``licensed_relations`` with the neutral
++    juxtaposition connective ``; separately, ``. A connective whose relation IS licensed is preserved
++    verbatim. Pure; deterministic. The neutral connective itself is never matched (it asserts no
++    relation), so over-application is impossible."""
++    def _swap(m: "re.Match") -> str:
++        phrase = m.group("phrase").strip().lower()
++        relation = _ANALYTICAL_CONNECTIVE_RELATION.get(phrase, "")
++        if relation and relation in licensed_relations:
++            return m.group(0)  # licensed -> keep verbatim
++        return f"; {_NEUTRAL_CONNECTIVE_PHRASE}, "  # unlicensed -> neutralize
++    return _ANALYTICAL_CONNECTIVE_RE.sub(_swap, sentence)
++
++
+ def contains_relational_quantifier(sentence: str) -> bool:
+     """True iff ``sentence`` carries a detectable aggregate/relational quantifier (lexicon hit).
+ 
+@@ -304,7 +338,12 @@ def _strip_quantifiers(sentence: str) -> str:
+     return text
+ 
+ 
+-def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
++def guard_relational_quantifier(
++    sentence: str,
++    basket: Any,
++    *,
++    licensed_relations: "set[str] | None" = None,
++) -> Optional[str]:
+     """The guard: given a candidate sentence + its supporting basket, return the sentence with any
+     UNLICENSED relational quantifier STRIPPED (faithful residue), else the sentence unchanged.
+ 
+@@ -315,6 +354,14 @@ def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
+       * Quantifier present AND NOT licensed -> STRIP it, returning the faithful residue (its provenance
+         tokens intact, so the caller's UNCHANGED strict_verify re-passes it).
+ 
++    I-deepfix-001 M6 — ``licensed_relations`` (cross-source analytical path): when supplied (a set of
++    engine-licensed relation keys, e.g. ``{"conflict"}``), the sentence is a COMPOSED analytical
++    sentence whose two atoms were ALREADY individually guarded/verified when built; the guard's ONLY job
++    here is to NEUTRALIZE any analytical connective whose relation was NOT licensed (a wrong "in
++    contrast" -> "; separately, "). It does NOT re-run the per-clause aggregate strip on the multi-basket
++    sentence (that would mis-handle a verbatim comparative inside an atom). ``licensed_relations=None``
++    (default) is BYTE-IDENTICAL to the legacy single-clause behavior.
++
+     Returns ``None`` ONLY when stripping leaves NO content-bearing residue (the sentence was nothing but
+     an aggregate predicate with no span-grounded claim) — the caller then drops that unit (an aggregate
+     predicate with no underlying span is not a faithful claim to render). A residue that still carries a
+@@ -323,6 +370,10 @@ def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
+     text = sentence or ""
+     if not text.strip():
+         return None
++    if licensed_relations is not None:
++        # Cross-source analytical sentence: license-check the connective only (atoms already guarded).
++        neutralized = _neutralize_unlicensed_connectives(text, set(licensed_relations))
++        return neutralized if neutralized.strip() else None
+     if not contains_relational_quantifier(text):
+         return text
+     # VERBATIM SOURCE TEXT is faithful-by-construction: a quantifier the SOURCE itself wrote (the candidate
+diff --git a/src/polaris_graph/generator/verified_compose.py b/src/polaris_graph/generator/verified_compose.py
+index 535c98f4..f472e4ad 100644
+--- a/src/polaris_graph/generator/verified_compose.py
++++ b/src/polaris_graph/generator/verified_compose.py
+@@ -43,6 +43,12 @@ _VERIFIED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE"
+ # ``compose_multicited_sentence`` for the per-clause (NOT whole-sentence) verify invariant.
+ _MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
+ 
++# I-deepfix-001 M6 — verified CROSS-SOURCE analytical synthesis. Default-OFF (LAW VI): when unset/off the
++# section producer is byte-identical (no import, no call); ON, an ADDITIVE pass appends analytical
++# sentences (two verified atoms joined by an engine-LICENSED connective) on top of the keep-all
++# single-source units. The faithfulness engine is never touched — see ``cross_source_synthesis``.
++_CROSS_SOURCE_SYNTHESIS_ENV = "PG_CROSS_SOURCE_SYNTHESIS"
++
+ # A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
+ _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+ # Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
+@@ -158,6 +164,13 @@ def _multicited_compose_enabled() -> bool:
+     return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+ 
+ 
++def _cross_source_synthesis_enabled() -> bool:
++    """PG_CROSS_SOURCE_SYNTHESIS gate (I-deepfix-001 M6). DEFAULT-OFF => the cross-source analytical
++    producer is never invoked and the section producer is byte-identical; ON => after the per-basket
++    units are built, ADDITIVELY append engine-licensed analytical sentences (keep-all)."""
++    return os.getenv(_CROSS_SOURCE_SYNTHESIS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
++
++
+ def split_into_sentences(text: str) -> list[str]:
+     """Split composed prose into sentence units for per-sentence strict_verify. Keeps each
+     sentence's trailing provenance token(s) attached (the ``]`` lookbehind). Empty-safe."""
+@@ -945,11 +958,24 @@ def _compose_section_per_basket(
+     *,
+     writer_fn: Callable[[Any, dict], str],
+     verify_fn: Callable[..., Any],
++    edges: Any = None,
++    equiv_clusters: Any = None,
++    agree_map: Any = None,
+ ) -> list[str]:
+     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
+     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
+     Returns one composed string per basket, in order. Order-stable.
+ 
++    I-deepfix-001 M6 (cross-source analytical synthesis): when ``PG_CROSS_SOURCE_SYNTHESIS`` is ON
++    (DEFAULT-OFF => byte-identical; ``edges``/``equiv_clusters``/``agree_map`` are then unused and never
++    read), an ADDITIVE pass appends analytical sentences — each ``[verified clause A][engine-LICENSED
++    connective][verified clause B]`` spanning TWO baskets — AFTER the per-basket units are built. The
++    two atoms keep their own ``[#ev]`` tokens and re-pass the UNCHANGED ``strict_verify`` per clause; the
++    connective carries no token and is licensed by ``cross_source_synthesis.license_relation`` from the
++    certified relation engines (``edges`` = ContradictionEdge list, the agreement map). KEEP-ALL: the
++    analytical unit is additive on top of the single-source units; the idx8 footprint dedup below never
++    collapses it (its two-token footprint is a SUPERSET of either atom's), so no source/basket vanishes.
++
+     I-beatboth-011 (#1289):
+       §3.5 placeholder-leak — DROP any per-basket result that is the internal insufficient-evidence
+         marker before appending (the same filter the sibling multi-cite path already applies at the
+@@ -1028,6 +1054,43 @@ def _compose_section_per_basket(
+         seen_spans |= spans
+         seen_texts.add(norm)
+         out.append(composed)
++
++    # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
++    # no call). ON => append analytical sentences (two engine-licensed verified atoms) on top of the
++    # keep-all single-source units. Each analytical unit carries TWO distinct [#ev] tokens whose two-span
++    # footprint is a SUPERSET of either atom's, so the idx8 footprint-dedup above (applied identically
++    # below) can never collapse it against an atom — keep-all holds. The downstream
++    # _rewrite_draft_with_spans + UNCHANGED strict_verify tail gates each analytical sentence per clause.
++    if _cross_source_synthesis_enabled():
++        from src.polaris_graph.generator.cross_source_synthesis import (  # noqa: PLC0415
++            compose_cross_source_analytical_units,
++        )
++        analytical = compose_cross_source_analytical_units(
++            section_baskets, evidence_pool,
++            writer_fn=writer_fn, verify_fn=verify_fn,
++            edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
++        )
++        for unit in analytical:
++            if not unit or not unit.strip():
++                continue
++            spans = _resolved_spans(unit)
++            norm = " ".join(unit.split())
++            footprint = frozenset(spans)
++            # Same footprint-equality + subset dedup contract as the per-basket loop above (so a
++            # true-duplicate analytical unit collapses) — but the two-span footprint guarantees a real
++            # cross-source unit is never a subset of a single-source sibling.
++            if footprint and footprint in seen_numbers_by_footprint:
++                unit_numbers = _number_tokens(unit)
++                if not (unit_numbers - seen_numbers_by_footprint[footprint]):
++                    continue
++                seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
++            if spans and spans <= seen_spans and norm in seen_texts:
++                continue
++            if footprint and footprint not in seen_numbers_by_footprint:
++                seen_numbers_by_footprint[footprint] = _number_tokens(unit)
++            seen_spans |= spans
++            seen_texts.add(norm)
++            out.append(unit)
+     return out
+ 
+ 
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index 4ab71229..b05f101a 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -43,11 +43,14 @@ degraded pass (``credibility_analysis is None``) also yields an empty selection
+ 
+ from __future__ import annotations
+ 
++import logging
+ import os
+ import re
+ from collections import Counter
+ from typing import Any, NamedTuple
+ 
++logger = logging.getLogger(__name__)
++
+ # LAW VI: env-overridable, default OFF (unset => byte-identical legacy render).
+ _ENV_BREADTH_ENRICHMENT = "PG_BREADTH_ENRICHMENT_ENABLED"
+ 
+@@ -149,6 +152,105 @@ def breadth_enrichment_enabled() -> bool:
+     )
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# I-deepfix-001 (#1344 follow-on, M5) — PROMOTION-ELIGIBILITY PARTITION.
++#
++# drb_72 let near-zero-weight, single-origin, non-journal sources anchor standalone
++# numbered findings exactly like a corroborated NEJM/AEA source: cognifit blog
++# (weight 0.03), inboundlogistics (0.00), procom (0.01), protolabs (0.00), a wsu
++# blog (0.06), an IZA working paper (0.05), a predatory 10.5555 DOI (0.00), and an
++# off-topic 10.26163 DOI (0.00). Each is on-topic enough to span-verify (the body
++# sentence is verbatim from the source span, so it self-entails and PASSES the
++# UNCHANGED strict_verify), yet carries ~0 credibility weight and is corroborated by
++# nobody. Whether a source EARNED a top-level cited claim is a SURFACE-placement
++# (credibility / corroboration) decision, NOT a grounding decision — it is handled
++# here at the cite surface, NEVER in the frozen faithfulness engine.
++#
++# §-1.3 — WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP: this is a ROUTING decision,
++# not a removal. A member is PROMOTED (earns a standalone cited claim) if ANY of:
++#   * corroboration >= K distinct verified origins (the CONSOLIDATE leg), OR
++#   * credibility weight >= W (the WEIGHT leg), OR
++#   * its host is a recognized peer-reviewed journal venue (over-demotion guard).
++# A single-origin AND below-W AND non-journal member is ROUTED to ``disclosed_only``:
++# KEPT in evidence_pool + the credibility disclosure + a dedicated report block, but
++# NOT promoted to a standalone numbered finding. Nothing is dropped; conservation holds
++# (promoted UNION disclosed_only == the original ordered list). The faithfulness engine
++# (strict_verify / NLI / 4-role D8 / span-grounding / provenance) is untouched — weight
++# and corroboration are credibility judgments, never a faithfulness gate. The OR-with-
++# corroboration leg IS the §-1.3 CONSOLIDATE principle (any source another agrees with is
++# rescued). Gated default-ON; ``PG_CWF_PROMOTION_ELIGIBILITY=0`` fails OPEN to promote-all
++# => the partition is byte-identical to the legacy keep-all-and-cite selection.
++_ENV_PROMOTION = "PG_CWF_PROMOTION_ELIGIBILITY"                 # default ON
++_ENV_PROMOTION_MIN_WEIGHT = "PG_CWF_PROMOTION_MIN_WEIGHT"       # LAW VI override (default below)
++_ENV_PROMOTION_MIN_CORROBORATION = "PG_CWF_PROMOTION_MIN_CORROBORATION"
++_DEFAULT_PROMOTION_MIN_WEIGHT = 0.10   # WEIGHT leg threshold (LAW VI overridable)
++_DEFAULT_PROMOTION_MIN_CORROBORATION = 2  # CONSOLIDATE leg: distinct verified origins (LAW VI overridable)
++_DISCLOSED_ONLY_REASON = "single_origin_low_weight_non_journal"
++
++
++def promotion_eligibility_enabled() -> bool:
++    """Kill-switch ``PG_CWF_PROMOTION_ELIGIBILITY`` (default ON). OFF => promote-all =>
++    the enrichment selection is byte-identical to the legacy keep-all-and-cite list."""
++    return os.environ.get(_ENV_PROMOTION, "1").strip().lower() in (
++        "1", "true", "on", "yes", "enabled",
++    )
++
++
++def _parse_promotion_min_weight(raw: Any) -> float:
++    """The WEIGHT-leg threshold W in [0.0, 1.0] (LAW VI). Garbage => ValueError (fail-loud)."""
++    if raw is None or not str(raw).strip():
++        value = _DEFAULT_PROMOTION_MIN_WEIGHT
++    else:
++        try:
++            value = float(str(raw).strip())
++        except ValueError as e:
++            raise ValueError(
++                f"{_ENV_PROMOTION_MIN_WEIGHT} must be a float in [0.0, 1.0]; got {raw!r}"
++            ) from e
++    if not (0.0 <= value <= 1.0):
++        raise ValueError(f"{_ENV_PROMOTION_MIN_WEIGHT} out of range [0.0, 1.0]: {value}")
++    return value
++
++
++def _parse_promotion_min_corroboration(raw: Any) -> int:
++    """The CONSOLIDATE-leg threshold K (distinct verified origins), int >= 1 (LAW VI).
++    Garbage => ValueError (fail-loud)."""
++    if raw is None or not str(raw).strip():
++        return _DEFAULT_PROMOTION_MIN_CORROBORATION
++    try:
++        value = int(str(raw).strip())
++    except ValueError as e:
++        raise ValueError(
++            f"{_ENV_PROMOTION_MIN_CORROBORATION} must be an int >= 1; got {raw!r}"
++        ) from e
++    if value < 1:
++        raise ValueError(f"{_ENV_PROMOTION_MIN_CORROBORATION} must be >= 1: {value}")
++    return value
++
++
++def _host_is_known_journal(url: str) -> bool:
++    """Over-demotion guard: a recognized peer-reviewed journal article is ALWAYS
++    promotion-eligible regardless of weight, so a freak-low weight can never demote a
++    real journal. Pure read of the EXISTING ``PEER_REVIEWED_JOURNAL_DOMAINS`` weighting
++    table (a credibility classifier, not a faithfulness gate). Lazy import keeps this
++    module free of any retrieval-side dependency; any error fails-CLOSED (not a journal)
++    so the guard can only RESCUE, never accidentally demote."""
++    if not url:
++        return False
++    try:
++        from urllib.parse import urlparse
++
++        from src.polaris_graph.retrieval.tier_classifier import (
++            PEER_REVIEWED_JOURNAL_DOMAINS,
++            _domain_matches,
++        )
++
++        host = (urlparse(url).hostname or "").lower()
++        return bool(host) and _domain_matches(host, PEER_REVIEWED_JOURNAL_DOMAINS)
++    except Exception:  # noqa: BLE001 — guard fails CLOSED (treat as non-journal); never raises
++        return False
++
++
+ def contract_bound_evidence_ids(contract_plans: Any) -> set[str]:
+     """The evidence_ids already inside the contract render universe (excluded from enrichment).
+ 
+@@ -216,6 +318,15 @@ class UnboundSupportsSelection(NamedTuple):
+     # path (PG_OFFTOPIC_CITE_SUPPRESS=0 => empty) byte-identical. Pure TELEMETRY +
+     # the disclosed off-topic-excluded-from-citation set the call site surfaces.
+     offtopic_suppressed: tuple[str, ...] = ()
++    # I-deepfix-001 (#1344 M5): PROMOTION-ELIGIBILITY partition — the members ROUTED to
++    # DISCLOSED-ONLY (kept in evidence_pool + the credibility disclosure, re-surfaced in a
++    # dedicated report block, but NOT promoted to a standalone numbered finding) because each is
++    # single-origin (uncorroborated) AND below the credibility-weight bar AND not a recognized
++    # journal venue. Each record: ``{evidence_id, source_url, source_tier, credibility_weight,
++    # reason}``. Append-only LAST field (default () keeps every legacy positional constructor valid
++    # AND the OFF path byte-identical). NOT a drop — a ROUTE; conservation holds (``ev_ids`` UNION
++    # ``disclosed_only`` == the full ordered list); the faithfulness engine is untouched.
++    disclosed_only: tuple[dict[str, Any], ...] = ()
+ 
+ 
+ def diagnose_unbound_supports_selection(
+@@ -257,11 +368,27 @@ def diagnose_unbound_supports_selection(
+     # CITED breadth surface (kept in pool + disclosure; NOT a faithfulness change).
+     suppress_offtopic = offtopic_cite_suppress_enabled()
+     offtopic_suppressed: list[str] = []
++    # I-deepfix-001 (#1344 M5) PROMOTION-ELIGIBILITY accumulators (most-favorable-to-promotion so
++    # any demotion is conservative): per-eid the MAX member ``credibility_weight`` seen (absent =>
++    # unknown => keep-neutral promote), the MAX basket ``verified_support_origin_count`` (the
++    # CONSOLIDATE leg), whether ANY member's host is a recognized peer-reviewed journal venue (the
++    # over-demotion guard), and a tier label for the disclosure surface. Pure READS of already-
++    # computed credibility state — no faithfulness gate is touched.
++    best_cred_weight: dict[str, float] = {}
++    max_origin: dict[str, int] = {}
++    is_journal: dict[str, bool] = {}
++    best_tier: dict[str, str] = {}
+     for basket in baskets:
+         try:
+             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
+         except (TypeError, ValueError):
+             weight = 0.0
++        # I-deepfix-001 (#1344 M5): the basket's distinct isolated-verified origin count (the
++        # CONSOLIDATE-leg signal). Non-int / missing => 0 (conservative: no corroboration credit).
++        try:
++            verified_origin = int(getattr(basket, "verified_support_origin_count", 0) or 0)
++        except (TypeError, ValueError):
++            verified_origin = 0
+         for member in (getattr(basket, "supporting_members", None) or ()):
+             if str(getattr(member, "span_verdict", "")).strip().upper() != _SUPPORTS:
+                 continue  # CONSOLIDATE: only isolated-verified SUPPORTS members are offered
+@@ -304,6 +431,32 @@ def diagnose_unbound_supports_selection(
+                 best_weight[eid] = weight
+             # First-seen relevance is deterministic across baskets (same row); keep it stable.
+             relevance_by_eid.setdefault(eid, relevance)
++            # I-deepfix-001 (#1344 M5): accumulate the promotion-eligibility signals for this eid
++            # (most-favorable-to-promotion). ``credibility_weight`` is the MEMBER's own credibility
++            # (BasketMember.credibility_weight); None/unparseable is left unknown (=> promote-neutral).
++            _mw = getattr(member, "credibility_weight", None)
++            if _mw is not None:
++                try:
++                    _mw = float(_mw)
++                except (TypeError, ValueError):
++                    _mw = None
++            if _mw is not None:
++                _prev_w = best_cred_weight.get(eid)
++                best_cred_weight[eid] = _mw if _prev_w is None else max(_prev_w, _mw)
++            if verified_origin > max_origin.get(eid, 0):
++                max_origin[eid] = verified_origin
++            if not is_journal.get(eid, False):
++                _murl = str(getattr(member, "source_url", "") or "") or str(
++                    (pool.get(eid) or {}).get("source_url")
++                    or (pool.get(eid) or {}).get("url")
++                    or ""
++                )
++                if _host_is_known_journal(_murl):
++                    is_journal[eid] = True
++            if not best_tier.get(eid):
++                _mt = str(getattr(member, "source_tier", "") or "")
++                if _mt:
++                    best_tier[eid] = _mt
+ 
+     # I-arch-011 (B18) ORDER, KEEP-ALL-SORT-BELOW-FLOOR-LAST:
+     #   1. ``is_below_floor`` (False before True) — a PRESENT-and-below-floor row sorts AFTER every
+@@ -334,12 +487,68 @@ def diagnose_unbound_supports_selection(
+ 
+     # I-arch-011 (B18): the empty case can no longer be "all below floor" (the floor never
+     # excludes). Report the TRUE reason: no SUPPORTS member at all, else everything bound/pool-absent.
++    # I-deepfix-001 (#1344 M5): ``reason`` is computed from the FULL surviving list BEFORE the
++    # promotion partition, so it honestly reports whether any unbound SUPPORTS member was FOUND —
++    # the partition only ROUTES the found members into promoted vs disclosed-only, it never changes
++    # whether members existed.
+     if ev_ids:
+         reason = _REASON_OK
+     elif supports_members_seen == 0:
+         reason = _REASON_NO_SUPPORTS_MEMBERS
+     else:
+         reason = _REASON_ALL_BOUND_OR_ABSENT
++
++    # I-deepfix-001 (#1344 M5) PROMOTION-ELIGIBILITY PARTITION — route (NOT drop) near-zero,
++    # single-origin, non-journal members to ``disclosed_only`` (kept + re-surfaced, never deleted).
++    # §-1.3: WEIGHT-and-CONSOLIDATE — a member is PROMOTED if its weight clears W OR another source
++    # corroborates it (>= K verified origins) OR it is a recognized journal venue; only a member
++    # failing ALL three is routed to disclosed-only. Conservation holds: ``promoted`` UNION
++    # ``disclosed_only`` == the full ``ev_ids`` above (nothing vanishes). The faithfulness engine is
++    # untouched — weight/corroboration are credibility judgments, never a grounding gate.
++    disclosed_only: list[dict[str, Any]] = []
++    if promotion_eligibility_enabled():
++        # FAIL-LOUD env parse (LAW VI): a garbage threshold is an operator config error and raises
++        # ValueError, NOT swallowed by the fail-open guard below.
++        min_w = _parse_promotion_min_weight(os.environ.get(_ENV_PROMOTION_MIN_WEIGHT))
++        min_c = _parse_promotion_min_corroboration(os.environ.get(_ENV_PROMOTION_MIN_CORROBORATION))
++        try:
++            def _promotion_eligible(eid: str) -> bool:
++                w = best_cred_weight.get(eid)
++                if w is None:
++                    return True                                   # unknown weight => keep-neutral (promote)
++                if w >= min_w:
++                    return True                                   # WEIGHT leg
++                if max_origin.get(eid, 0) >= min_c:
++                    return True                                   # CONSOLIDATE leg (corroboration rescues)
++                if is_journal.get(eid, False):
++                    return True                                   # journal carve-out (over-demotion guard)
++                return False
++
++            _promoted = [e for e in ev_ids if _promotion_eligible(e)]
++            disclosed_only = [
++                {
++                    "evidence_id": e,
++                    "source_url": str(
++                        (pool.get(e) or {}).get("source_url")
++                        or (pool.get(e) or {}).get("url")
++                        or ""
++                    ),
++                    "source_tier": best_tier.get(e, ""),
++                    "credibility_weight": best_cred_weight.get(e),
++                    "reason": _DISCLOSED_ONLY_REASON,
++                }
++                for e in ev_ids
++                if not _promotion_eligible(e)
++            ]
++            ev_ids = _promoted
++        except Exception:  # noqa: BLE001 — fail-OPEN to promote-all = byte-identical legacy keep-all
++            logger.warning(
++                "[weighted_enrichment] M5 promotion-eligibility partition failed; FAIL-OPEN to "
++                "promote-all (byte-identical legacy keep-all-and-cite). ev_ids left unchanged.",
++                exc_info=True,
++            )
++            disclosed_only = []
++
+     return UnboundSupportsSelection(
+         ev_ids=ev_ids,
+         reason=reason,
+@@ -349,6 +558,7 @@ def diagnose_unbound_supports_selection(
+         excluded_pool_absent=excluded_pool_absent,
+         excluded_below_floor=below_floor_count,  # field name held stable; meaning = kept-below-floor
+         offtopic_suppressed=tuple(offtopic_suppressed),  # I-deepfix-001 DEFER-1 (kept+disclosed)
++        disclosed_only=tuple(disclosed_only),  # I-deepfix-001 M5 (routed-to-disclosed, never dropped)
+     )
+ 
+ 
+diff --git a/src/polaris_graph/nodes/assemble.py b/src/polaris_graph/nodes/assemble.py
+index 3093f74a..2f28d9b2 100644
+--- a/src/polaris_graph/nodes/assemble.py
++++ b/src/polaris_graph/nodes/assemble.py
+@@ -171,6 +171,13 @@ def _resolve_all_citations(
+             "evidence_id": eid,
+             "title": ev.get("source_title", "Unknown Source"),
+             "url": ev.get("source_url", ""),
++            # M3a (I-deepfix-001): carry DOI/PMID on the v3-assemble bib row too, so a
++            # contract source reaching the renderer via this path (rather than
++            # provenance_generator._num_for) keeps a resolvable doi.org/pubmed locator
++            # instead of dropping to the "no resolvable URL/DOI locator" gap line.
++            # Additive keys; render-neutral when the locator fallback is OFF.
++            "doi": ev.get("doi", ""),
++            "pmid": ev.get("pmid", ""),
+             "authors": ev.get("authors", []),
+             "year": ev.get("year", ""),
+         })
+diff --git a/src/polaris_graph/nodes/weighted_corpus_gate.py b/src/polaris_graph/nodes/weighted_corpus_gate.py
+index b0a3b77a..a62bcff4 100644
+--- a/src/polaris_graph/nodes/weighted_corpus_gate.py
++++ b/src/polaris_graph/nodes/weighted_corpus_gate.py
+@@ -147,6 +147,18 @@ class SourceCredibilityRow:
+     domain: str
+     credibility_weight: float
+     weight_basis: str   # "authority_score" | "tier_prior"
++    # ── I-deepfix-001 M2 ADDITIVE document-GENRE disclosure (orthogonal to the credibility
++    # axis above — ``credibility_weight``/``weight_basis`` are UNTOUCHED). Populated ONLY when
++    # the journal-only document-type preference is active (``document_type_weighting_active`` —
++    # PG_DOCUMENT_TYPE_WEIGHT=1 AND protocol document_type_preference=journal_article).
++    # ``document_type_weight`` is a multiplicative (0,1] SURFACE weight; ``document_type_adjusted_weight``
++    # = credibility_weight * document_type_weight is a SEPARATE disclosed value that NO gate reads.
++    # Default None => stripped from the serialized disclosure (``disclosure_to_dict``) so the OFF
++    # path is byte-identical to HEAD. WEIGHT-and-DISCLOSE, never a drop/floor/cap.
++    document_type: str | None = None
++    is_journal_article: bool | None = None
++    document_type_weight: float | None = None
++    document_type_adjusted_weight: float | None = None
+ 
+ 
+ @dataclass
+@@ -178,6 +190,14 @@ class CorpusCredibilityDisclosure:
+     # absence. ADVISORY / DISCLOSURE only — credibility stays a WEIGHT (no drop, no abort — §-1.3);
+     # the binding per-claim gates (strict_verify + 4-role D8) are untouched. asdict() serializes it.
+     tiering_status: dict | None = None
++    # ── I-deepfix-001 M2: a SECOND disclosed mean — the source-weighted mean of
++    # ``credibility_weight * document_type_weight`` — so a journal-only question honestly shows
++    # the corpus is non-journal-heavy WITHOUT mutating ``weighted_credibility_mean`` and WITHOUT
++    # any gate reading the adjusted value. None (+ ``document_type_preference_active`` False) when
++    # the M2 preference did not fire => both are stripped from the serialized disclosure
++    # (``disclosure_to_dict``) so the OFF path is byte-identical to HEAD.
++    document_type_adjusted_mean: float | None = None
++    document_type_preference_active: bool = False
+ 
+ 
+ def has_usable_corpus(classified_sources: list[Any], evidence_rows: list[Any]) -> bool:
+@@ -243,6 +263,8 @@ def build_corpus_credibility_disclosure(
+     research_question: str,
+     authority_by_url: dict[str, Any] | None = None,
+     tiering_status: dict | None = None,
++    protocol: dict | None = None,
++    document_type_by_url: dict[str, Any] | None = None,
+ ) -> CorpusCredibilityDisclosure:
+     """Build the deterministic, domain-aware corpus credibility disclosure — PURE, offline, no LLM.
+ 
+@@ -263,6 +285,25 @@ def build_corpus_credibility_disclosure(
+     network, no spend.
+     """
+     auth_by_url = authority_by_url or {}
++    # ── I-deepfix-001 M2: per-citation document-TYPE WEIGHT-and-DISCLOSE. Active ONLY under the
++    # double gate (PG_DOCUMENT_TYPE_WEIGHT=1 AND protocol document_type_preference=journal_article).
++    # The credibility ``weight``/``basis`` computed below is UNTOUCHED; the document-type weight is
++    # an ORTHOGONAL multiplicative surface read by NO gate. OFF => the M2 row/disclosure fields stay
++    # None and are stripped in ``disclosure_to_dict`` => byte-identical.
++    dt_by_url = document_type_by_url or {}
++    _m2_active = False
++    _m2_adj_sum = 0.0
++    try:
++        from src.polaris_graph.retrieval.document_type_classifier import (
++            DocumentType,
++            classify_document_type,
++            document_type_weighting_active,
++            is_peer_reviewed_journal_article,
++            resolve_document_type_weight,
++        )
++        _m2_active = document_type_weighting_active(protocol)
++    except Exception:  # noqa: BLE001 — additive disclosure; never break the credibility build
++        _m2_active = False
+     per_source: list[SourceCredibilityRow] = []
+     weight_sum = 0.0
+     for s in (classified_sources or []):
+@@ -318,16 +359,46 @@ def build_corpus_credibility_disclosure(
+                 weight = _tier_prior(tier)
+                 basis = "tier_prior"
+         weight_sum += weight
+-        per_source.append(SourceCredibilityRow(
++        _row = SourceCredibilityRow(
+             url=str(getattr(s, "url", "") or ""),
+             tier=tier,
+             domain=str(getattr(s, "domain", "") or ""),
+             credibility_weight=round(weight, 4),
+             weight_basis=basis,
+-        ))
++        )
++        # I-deepfix-001 M2: stamp the ORTHOGONAL document-genre disclosure AFTER the credibility
++        # weight/basis above are final (they are NOT mutated). Genre resolves from (1) the source's
++        # carried-through ``document_type``; (2) the caller's url->document_type join; (3) a
++        # deterministic offline classify from url/title (so the disclosure is meaningful on every
++        # classifier path). ``document_type_adjusted_weight = credibility_weight * document_type_weight``
++        # is a SEPARATE disclosed value no gate reads. WEIGHT-and-DISCLOSE; no drop.
++        if _m2_active:
++            try:
++                _url = str(getattr(s, "url", "") or "")
++                _dt_str = getattr(s, "document_type", None) or dt_by_url.get(_url)
++                if _dt_str and _dt_str in DocumentType._value2member_map_:
++                    _dt = DocumentType(_dt_str)
++                else:
++                    _dt, _ = classify_document_type(
++                        url=_url, title=str(getattr(s, "title", "") or "")
++                    )
++                _dtw = resolve_document_type_weight(_dt, protocol)
++                _row.document_type = _dt.value
++                _row.is_journal_article = is_peer_reviewed_journal_article(_dt)
++                _row.document_type_weight = round(_dtw, 4)
++                _row.document_type_adjusted_weight = round(weight * _dtw, 4)
++                _m2_adj_sum += weight * _dtw
++            except Exception:  # noqa: BLE001 — additive label; never break the credibility build
++                _row.document_type = None
++                _row.is_journal_article = None
++                _row.document_type_weight = None
++                _row.document_type_adjusted_weight = None
++        per_source.append(_row)
+ 
+     n = len(per_source)
+     weighted_mean = round(weight_sum / n, 4) if n else 0.0
++    # I-deepfix-001 M2: SECOND disclosed mean (genre-adjusted) — never replaces weighted_mean.
++    _m2_adj_mean = round(_m2_adj_sum / n, 4) if (_m2_active and n) else None
+ 
+     note = (
+         f"Weighted-corpus gate ({_FLAG}) ON: the corpus is ACCEPTED and its credibility is DISCLOSED "
+@@ -362,9 +433,37 @@ def build_corpus_credibility_disclosure(
+         # through as None (caller did not thread a status). DISCLOSURE only — no drop, no abort; the
+         # faithfulness engine is untouched.
+         tiering_status=(dict(tiering_status) if isinstance(tiering_status, dict) else tiering_status),
++        # I-deepfix-001 M2: the genre-adjusted SECOND mean + the active flag. None/False when the
++        # document-type preference did not fire (stripped in disclosure_to_dict => byte-identical OFF).
++        document_type_adjusted_mean=_m2_adj_mean,
++        document_type_preference_active=bool(_m2_active),
+     )
+ 
+ 
++# I-deepfix-001 M2: the additive document-type keys are emitted ONLY when the journal-only
++# preference fired, so the OFF path serializes byte-identically to HEAD.
++_M2_ROW_KEYS = (
++    "document_type",
++    "is_journal_article",
++    "document_type_weight",
++    "document_type_adjusted_weight",
++)
++_M2_DISCLOSURE_KEYS = ("document_type_adjusted_mean", "document_type_preference_active")
++
++
+ def disclosure_to_dict(disclosure: CorpusCredibilityDisclosure) -> dict[str, Any]:
+-    """Serialize the disclosure to a plain dict (for ``corpus_credibility_disclosure.json`` + manifest)."""
+-    return asdict(disclosure)
++    """Serialize the disclosure to a plain dict (for ``corpus_credibility_disclosure.json`` + manifest).
++
++    I-deepfix-001 M2: when the journal-only document-type preference did NOT fire, the additive
++    M2 keys are STRIPPED from the dict (both the top-level adjusted-mean/active flag and every
++    ``per_source`` row's 4 genre keys) so the OFF disclosure + per_source are byte-identical to
++    HEAD. When it fired, the keys are present.
++    """
++    d = asdict(disclosure)
++    if not getattr(disclosure, "document_type_preference_active", False):
++        for _k in _M2_DISCLOSURE_KEYS:
++            d.pop(_k, None)
++        for _row in d.get("per_source", []) or []:
++            for _k in _M2_ROW_KEYS:
++                _row.pop(_k, None)
++    return d
+diff --git a/src/polaris_graph/retrieval/document_type_classifier.py b/src/polaris_graph/retrieval/document_type_classifier.py
+new file mode 100644
+index 00000000..348df489
+--- /dev/null
++++ b/src/polaris_graph/retrieval/document_type_classifier.py
+@@ -0,0 +1,258 @@
++"""I-deepfix-001 M2 — per-citation document-TYPE WEIGHT-and-DISCLOSE (deterministic, offline).
++
++POLARIS has a CREDIBILITY axis (tier T1-T7, ``authority_score``, ``source_class``,
++``predatory_oa``) but NO orthogonal document-TYPE axis. drb_72 asked for "high-quality,
++English-language journal articles only," yet the cited corpus is dominated by on-topic
++*wrong-genre* sources — arxiv preprints, an Amazon book, WEF/IZA/OECD reports, university
++news blogs, BCG/McKinsey consultancy, and a predatory ``ewadirect`` proceedings venue that
++*leads* the Corroborated Weighted Findings. There is no per-citation genre label anywhere;
++the only existing genre mechanism (``journal_only_filter.py``) is a FILTER-AND-DROP +
++``min_distinct_journals`` COUNT-floor that the operator REVERSED on 2026-06-07 and which
++must stay dormant.
++
++THIS module is the orthogonal WEIGHT axis, NOT a drop:
++  * ``classify_document_type`` reads the OpenAlex genre signals POLARIS already computes
++    (``openalex_publication_type`` / ``openalex_source_type`` / ``openalex_is_peer_reviewed``
++    / ``predatory_oa``) plus a deterministic host/url fallback, and returns a per-citation
++    ``DocumentType`` label + a short basis string. No LLM, no network, no row mutation.
++  * ``DEFAULT_DOCUMENT_TYPE_WEIGHTS`` is a multiplicative ``(0, 1]`` SURFACE weight — a
++    re-rank/disclosure multiplier, never a threshold/floor/cap. Every source still flows
++    through; a misclassification is a visible label + softened display weight, never a
++    lost source.
++  * The whole path is gated by ``document_type_weighting_active`` — a DOUBLE gate
++    (``PG_DOCUMENT_TYPE_WEIGHT=1`` AND the protocol's ``document_type_preference ==
++    "journal_article"``). Default-OFF => byte-identical revert (LAW VI).
++
++§-1.3 posture: WEIGHT-and-DISCLOSE, not FILTER-and-DROP. This module NEVER calls the
++reversed ``journal_only`` DROP machinery (``journal_only_active`` / ``is_citeable_journal``
++exclude branch / ``JournalOnlyLeakError`` / ``assert_no_leak`` / ``prune_contract_plans`` /
++``min_distinct_journals``). The faithfulness engine (strict_verify / NLI / 4-role D8 /
++span-grounding / provenance) is FROZEN and untouched — the document-type weight is advisory
++disclosure of the SAME class as the existing ``credibility_weight`` and is read by NO
++abort/approval/release gate.
++
++The journal-POSITIVE test deliberately requires ``source_type == "journal"`` AND
++peer-reviewed (NOT publication_type alone): the 2025 OPENBIB/QSS literature confirms
++OpenAlex over-marks ~99% of works as "article," so type alone would mislabel preprints and
++proceedings as journal articles. This is the same predicate the dormant ``is_citeable_journal``
++already encodes, reused here as a WEIGHT signal rather than a drop filter.
++"""
++from __future__ import annotations
++
++import os
++from enum import Enum
++from urllib.parse import urlsplit
++
++
++class DocumentType(str, Enum):
++    """Per-citation document GENRE — orthogonal to the T1-T7 credibility tier."""
++
++    JOURNAL_ARTICLE = "JOURNAL_ARTICLE"
++    REVIEW_ARTICLE = "REVIEW_ARTICLE"
++    PREPRINT = "PREPRINT"
++    CONFERENCE_PAPER = "CONFERENCE_PAPER"
++    WORKING_PAPER = "WORKING_PAPER"
++    BOOK = "BOOK"
++    REPORT = "REPORT"
++    NEWS = "NEWS"
++    PRESS_RELEASE = "PRESS_RELEASE"
++    BLOG_COMMENTARY = "BLOG_COMMENTARY"
++    ENCYCLOPEDIA = "ENCYCLOPEDIA"
++    DATASET = "DATASET"
++    UGC = "UGC"
++    PREDATORY_OA_JOURNAL = "PREDATORY_OA_JOURNAL"
++    UNKNOWN = "UNKNOWN"
++
++
++# ── Deterministic host/url heuristic fallback sets (LAW VI: module defaults; a protocol /
++# config may extend them upstream, but these guarantee the offline classifier is never blank).
++_PREPRINT_HOSTS = frozenset({
++    "arxiv.org", "ssrn.com", "papers.ssrn.com", "osf.io", "psyarxiv.com",
++    "researchgate.net", "biorxiv.org", "medrxiv.org",
++})
++_REPORT_HOSTS = frozenset({
++    "weforum.org", "oecd.org", "ilo.org", "imf.org", "worldbank.org",
++    "mckinsey.com", "bcg.com", "mercatus.org", "brookings.edu", "iza.org",
++    "ftp.iza.org", "docs.iza.org",
++})
++_NEWS_HOSTS = frozenset({
++    "reuters.com", "bloomberg.com", "ft.com", "nytimes.com", "wsj.com",
++    "bbc.com", "economist.com",
++})
++_BLOG_PLATFORMS = frozenset({
++    "medium.com", "substack.com", "wordpress.com", "blogspot.com",
++})
++_BOOK_HOSTS = frozenset({
++    "amazon.com", "books.google.com",
++})
++_ENCYCLOPEDIA_HOSTS = frozenset({
++    "wikipedia.org", "britannica.com",
++})
++# University news/blog surface markers (NOT a peer-reviewed journal); checked against the
++# whole lowercased url, not just the host.
++_UNI_NEWS_MARKERS = (".edu/20", "/news/", "/blog/")
++
++
++def _host(url: str) -> str:
++    """Lowercased registrable host of ``url`` (empty on a blank/garbage url). Pure, offline."""
++    if not url:
++        return ""
++    try:
++        netloc = urlsplit(str(url).strip()).netloc.lower()
++    except Exception:
++        return ""
++    # strip credentials + port
++    netloc = netloc.rsplit("@", 1)[-1].split(":", 1)[0]
++    return netloc
++
++
++def _host_in(host: str, host_set: frozenset[str]) -> bool:
++    """True iff ``host`` equals or is a sub-domain of any host in ``host_set``."""
++    return any(host == h or host.endswith("." + h) for h in host_set)
++
++
++def classify_document_type(
++    *,
++    openalex_publication_type: str = "",
++    openalex_source_type: str = "",
++    openalex_is_peer_reviewed: "bool | None" = None,
++    predatory_oa: bool = False,
++    source_class: str = "",
++    url: str = "",
++    title: str = "",
++    doi: str = "",
++) -> "tuple[DocumentType, str]":
++    """Classify a source's document GENRE deterministically (no LLM, no network).
++
++    Returns ``(DocumentType, basis)`` where ``basis`` is a short provenance string for audit.
++
++    Priority:
++      1. OpenAlex GOLD genre signals (require ``source_type == "journal"`` AND peer-reviewed
++         for the journal-POSITIVE verdict — ``publication_type`` alone over-marks ~99% as
++         "article", so type alone is NOT trusted). ``predatory_oa`` short-circuits a
++         predatory venue BEFORE the journal verdict.
++      2. ``source_class`` secondary (field-agnostic credibility class).
++      3. Deterministic host/url fallback (when OpenAlex genre is absent).
++    UNKNOWN (neutral weight) when nothing resolves — never punished, never dropped.
++    """
++    pt = (openalex_publication_type or "").strip().lower()
++    st = (openalex_source_type or "").strip().lower()
++    host = _host(url)
++
++    # 1) OpenAlex GOLD signal.
++    if predatory_oa and pt in ("article", "review"):
++        return DocumentType.PREDATORY_OA_JOURNAL, f"oa_predatory:{pt}"
++    if st == "journal" and openalex_is_peer_reviewed and pt == "review":
++        return DocumentType.REVIEW_ARTICLE, "oa_journal_review"
++    if st == "journal" and openalex_is_peer_reviewed and pt == "article":
++        return DocumentType.JOURNAL_ARTICLE, "oa_journal_article"
++    if pt == "preprint" or st == "repository":
++        return DocumentType.PREPRINT, f"oa_preprint:{pt or st}"
++    if pt in ("book", "book-chapter") or st in ("ebook platform", "book series"):
++        return DocumentType.BOOK, f"oa_book:{pt or st}"
++    if st == "conference" or pt == "proceedings-article":
++        return DocumentType.CONFERENCE_PAPER, "oa_conference"
++    if pt in ("report", "working-paper"):
++        return DocumentType.REPORT, f"oa_report:{pt}"
++
++    # 2) source_class secondary.
++    sc = (source_class or "").strip().upper()
++    if sc == "PRESS_RELEASE":
++        return DocumentType.PRESS_RELEASE, "sourceclass_press"
++    if sc == "UGC":
++        return DocumentType.UGC, "sourceclass_ugc"
++
++    # 3) deterministic host/url fallback.
++    low_url = (url or "").lower()
++    if _host_in(host, _PREPRINT_HOSTS):
++        return DocumentType.PREPRINT, f"host_preprint:{host}"
++    if _host_in(host, _BOOK_HOSTS):
++        return DocumentType.BOOK, f"host_book:{host}"
++    if _host_in(host, _ENCYCLOPEDIA_HOSTS):
++        return DocumentType.ENCYCLOPEDIA, f"host_encyclopedia:{host}"
++    if _host_in(host, _REPORT_HOSTS):
++        return DocumentType.REPORT, f"host_report:{host}"
++    if _host_in(host, _NEWS_HOSTS):
++        return DocumentType.NEWS, f"host_news:{host}"
++    if _host_in(host, _BLOG_PLATFORMS) or any(m in low_url for m in _UNI_NEWS_MARKERS):
++        return DocumentType.BLOG_COMMENTARY, "host_blog_or_uni_news"
++    if sc == "PRIMARY_SCHOLARLY":
++        return DocumentType.JOURNAL_ARTICLE, "sourceclass_scholarly_fallback"
++    if sc == "COMMENTARY":
++        return DocumentType.BLOG_COMMENTARY, "sourceclass_commentary"
++    return DocumentType.UNKNOWN, "unresolved"
++
++
++_PEER_REVIEWED_JOURNAL = frozenset({DocumentType.JOURNAL_ARTICLE, DocumentType.REVIEW_ARTICLE})
++
++
++def is_peer_reviewed_journal_article(dt: "DocumentType") -> bool:
++    """True only for a peer-reviewed journal/review article (the journal-only POSITIVE class)."""
++    return dt in _PEER_REVIEWED_JOURNAL
++
++
++# ── Multiplicative SURFACE weights in ``(0, 1]`` — a disclosure/re-rank multiplier, NOT a
++# threshold/floor/cap. UNKNOWN carries a neutral 0.5 (never punished). LAW VI overridable.
++DEFAULT_DOCUMENT_TYPE_WEIGHTS: dict[str, float] = {
++    "JOURNAL_ARTICLE": 1.0,
++    "REVIEW_ARTICLE": 1.0,
++    "PREPRINT": 0.7,
++    "WORKING_PAPER": 0.6,
++    "CONFERENCE_PAPER": 0.7,
++    "BOOK": 0.5,
++    "REPORT": 0.5,
++    "NEWS": 0.4,
++    "PRESS_RELEASE": 0.35,
++    "BLOG_COMMENTARY": 0.3,
++    "ENCYCLOPEDIA": 0.25,
++    "DATASET": 0.4,
++    "UGC": 0.2,
++    "PREDATORY_OA_JOURNAL": 0.25,
++    "UNKNOWN": 0.5,
++}
++
++JOURNAL_DOC_WEIGHT_FLAG = "PG_DOCUMENT_TYPE_WEIGHT"
++
++
++def _flag_on() -> bool:
++    """The ``PG_DOCUMENT_TYPE_WEIGHT`` leg of the double gate (default OFF)."""
++    return os.getenv(JOURNAL_DOC_WEIGHT_FLAG, "0").strip().lower() in (
++        "1", "true", "on", "yes", "enabled",
++    )
++
++
++def document_type_weighting_active(protocol: "dict | None") -> bool:
++    """DOUBLE gate: ``PG_DOCUMENT_TYPE_WEIGHT`` flag ON AND the protocol declares
++    ``document_type_preference: journal_article``. Both must hold => byte-identical OFF.
++
++    ``protocol`` is the RAW scope-template dict (it carries ``document_type_preference``;
++    the serialized ``ProtocolDocument`` drops fixed-field-unknown keys, so callers pass the
++    raw template — same pattern as the journal_only config read).
++    """
++    if not _flag_on():
++        return False
++    if not protocol:
++        return False
++    pref = str((protocol or {}).get("document_type_preference") or "").strip().lower()
++    return pref == "journal_article"
++
++
++def resolve_document_type_weight(dt: "DocumentType", protocol: "dict | None") -> float:
++    """The multiplicative document-type weight for ``dt`` — protocol override else module default.
++
++    The protocol's ``document_type_weights`` keys may be lower-case (YAML convention,
++    e.g. ``journal_article``) while ``DocumentType.value`` is upper-case, so override keys
++    are normalized to upper-case before lookup. Always returns a finite ``(0, 1]`` float.
++    """
++    overrides = (protocol or {}).get("document_type_weights") or {}
++    norm = {}
++    if isinstance(overrides, dict):
++        for k, v in overrides.items():
++            try:
++                norm[str(k).strip().upper()] = float(v)
++            except (TypeError, ValueError):
++                continue
++    key = dt.value
++    if key in norm:
++        return norm[key]
++    return float(DEFAULT_DOCUMENT_TYPE_WEIGHTS.get(key, DEFAULT_DOCUMENT_TYPE_WEIGHTS["UNKNOWN"]))
+diff --git a/src/polaris_graph/retrieval/frame_fetcher.py b/src/polaris_graph/retrieval/frame_fetcher.py
+index e636fb60..b7284dad 100644
+--- a/src/polaris_graph/retrieval/frame_fetcher.py
++++ b/src/polaris_graph/retrieval/frame_fetcher.py
+@@ -207,6 +207,12 @@ _OPENALEX_FRAME_FALLBACK_ENABLED = (
+     os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
+     not in ("0", "false", "no", "off")
+ )
++# Semantic Scholar Graph API /paper/DOI:{doi} — M3b (I-deepfix-001) 3rd deterministic
++# abstract source. For a closed-access primary whose CrossRef/OpenAlex abstract is a
++# degenerate fragment (or a single transient throttle leaves it empty), S2 carries a
++# full abstract for most indexed DOIs. DOI-driven; deterministic; abstract is the honest
++# reachable ceiling for a paywalled primary (NO full-text, NO Sci-Hub).
++_S2_WORK_BASE = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
+ # Minimum chars for an OA full-text fetch to count as REAL full text
+ # (issue #1034). Paywalled-PDF stubs (e.g. aeaweb via Jina ~540 chars)
+ # fall below this -> they must not block the abstract fallbacks and
+@@ -239,6 +245,31 @@ _FULLTEXT_ENTITY_TYPES = frozenset(
+     if t.strip()
+ )
+ 
++def _frame_multi_abstract_enabled() -> bool:
++    """M3b (I-deepfix-001) gather-all-then-pick-richest toggle (default ON).
++
++    When ON, the deterministic abstract sources (OpenAlex, and Semantic Scholar
++    below) are consulted for a DOI EVEN WHEN CrossRef/PubMed already returned an
++    abstract, so the RICHEST abstract wins via ``_pick_richest_abstract`` instead
++    of a degenerate first-source fragment short-circuiting the gather. Read at
++    CALL TIME so a test/operator can flip ``PG_FRAME_MULTI_ABSTRACT`` after import
++    (same pattern as ``_core_enabled``). OFF restores the legacy
++    ``not abstract_crossref and not abstract_pubmed`` short-circuit byte-identically.
++    """
++    return os.getenv("PG_FRAME_MULTI_ABSTRACT", "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def _frame_s2_abstract_enabled() -> bool:
++    """M3b (I-deepfix-001) Semantic Scholar Graph API 3rd abstract source toggle
++    (default ON). Read at CALL TIME. OFF removes the S2 source entirely so the
++    abstract gather is byte-identical to the pre-M3b CrossRef/OpenAlex/PubMed set."""
++    return os.getenv("PG_FRAME_S2_ABSTRACT", "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
+ def _core_enabled() -> bool:
+     """CORE (core.ac.uk) legal OA full-text fetch toggle (I-faith-002).
+ 
+@@ -809,6 +840,98 @@ def _call_openalex(
+     return data, attempts, timings
+ 
+ 
++def _call_s2(
++    client: httpx.Client, doi: str
++) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
++    """Deterministic Semantic Scholar Graph API /paper/DOI:{doi} fetch — M3b
++    (I-deepfix-001) 3rd abstract source.
++
++    Mirrors ``_call_openalex``: same ``_request_with_retry`` discipline (one
++    RetrievalAttempt per HTTP request, fixed backoff, status->outcome mapping)
++    so M-60 manifest telemetry shows the S2 attempt. An optional
++    ``SEMANTIC_SCHOLAR_API_KEY`` (already an env in the codebase) is sent as the
++    ``x-api-key`` header for rate-limit headroom; unauthenticated still works
++    (S2 throttles, which the 429 backoff already handles)."""
++    headers: dict[str, str] = {}
++    key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
++    if key:
++        headers["x-api-key"] = key
++    url = _S2_WORK_BASE + _urlsafe_doi(doi)
++    r, outcome, attempts, timings = _request_with_retry(
++        client, "GET", "s2", url,
++        params={"fields": "title,abstract,year,venue,externalIds"},
++        headers=headers,
++    )
++    if outcome != "success" or r is None:
++        return None, attempts, timings
++    try:
++        data = r.json()
++    except ValueError:
++        last = attempts[-1]
++        attempts[-1] = RetrievalAttempt(
++            source=last.source, url=last.url,
++            attempt_index=last.attempt_index,
++            http_status=last.http_status,
++            outcome="error:invalid_json",
++        )
++        return None, attempts, timings
++    return data, attempts, timings
++
++
++def _parse_s2_response(data: dict[str, Any]) -> dict[str, Any]:
++    """Extract abstract + metadata from a Semantic Scholar Graph API
++    /paper/DOI:{doi} JSON object (M3b). Returns dict with keys: title, authors,
++    journal, year, abstract, doi (normalized, prefix-stripped, lowercased).
++    Values may be None/empty when absent. DOI is read from ``externalIds.DOI``
++    so the caller's DOI-consistency guard can reject a wrong-paper response
++    (mirrors the OpenAlex/PubMed guards)."""
++    if not isinstance(data, dict):
++        return {}
++
++    abstract = data.get("abstract")
++    if isinstance(abstract, str):
++        abstract = abstract.strip() or None
++    else:
++        abstract = None
++
++    title = data.get("title")
++    if isinstance(title, str):
++        title = title.strip() or None
++    else:
++        title = None
++
++    journal = data.get("venue")
++    if isinstance(journal, str):
++        journal = journal.strip() or None
++    else:
++        journal = None
++
++    year = data.get("year")
++    if not isinstance(year, int):
++        year = None
++
++    doi_norm: str | None = None
++    ext = data.get("externalIds")
++    if isinstance(ext, dict):
++        doi_raw = ext.get("DOI") or ext.get("doi") or ""
++        if isinstance(doi_raw, str):
++            doi_norm = doi_raw.lower().strip()
++            for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
++                if doi_norm.startswith(prefix):
++                    doi_norm = doi_norm[len(prefix):]
++                    break
++            doi_norm = doi_norm.rstrip("/") or None
++
++    return {
++        "title": title,
++        "authors": (),
++        "journal": journal,
++        "year": year,
++        "abstract": abstract,
++        "doi": doi_norm,
++    }
++
++
+ def _looks_like_html_junk(text: str) -> bool:
+     """True when a fetched 'full text' is actually raw HTML markup or a
+     Sci-Hub wrapper page rather than clean extracted prose (#1034
+@@ -845,13 +968,16 @@ def _pick_richest_abstract(
+     crossref: str | None,
+     openalex: str | None,
+     pubmed: str | None,
++    s2: str | None = None,
+     partial_full_text: str | None = None,
+ ) -> tuple[str, str]:
+     """Choose the RICHEST (longest) available abstract text + its
+     quote_source label. Candidates in priority order CrossRef >
+-    OpenAlex > PubMed > thin-OA-full-text partial; the LONGEST wins,
+-    ties break toward the higher-priority source (deterministic —
+-    strictly-greater comparison while iterating priority order).
++    OpenAlex > PubMed > Semantic Scholar (M3b) > thin-OA-full-text
++    partial; the LONGEST wins, ties break toward the higher-priority
++    source (deterministic — strictly-greater comparison while
++    iterating priority order). ``s2`` defaults to None so existing
++    keyword callers are byte-identical.
+ 
+     A thin oa_full_text stub (paywalled-PDF Jina result, ~540 chars)
+     is admitted only as the last-priority `partial_full_text`
+@@ -865,6 +991,8 @@ def _pick_richest_abstract(
+         candidates.append((openalex, "openalex_abstract"))
+     if pubmed:
+         candidates.append((pubmed, "pubmed_abstract"))
++    if s2:
++        candidates.append((s2, "s2_abstract"))
+     # A thin OA full-text stub is a TRUE last resort: admit it ONLY when
+     # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
+     # finding #1034), a paywall junk stub must never become the extracted
+@@ -1462,11 +1590,21 @@ def _fetch_frame_entity_inner(
+     # journal DOIs (Acemoglu/Autor/Brynjolfsson/Eloundou all resolve).
+     # DOI-driven; no source allowlist; same DOI -> byte-identical text.
+     abstract_openalex: str | None = None
++    # M3b (I-deepfix-001): gather-all-then-pick-richest. With PG_FRAME_MULTI_ABSTRACT
++    # ON (default), OpenAlex is consulted for a DOI EVEN WHEN CrossRef/PubMed already
++    # returned an abstract, so a degenerate first-source fragment can no longer
++    # short-circuit the gather and starve the slot — `_pick_richest_abstract` picks the
++    # longest. OFF restores the legacy `not abstract_crossref and not abstract_pubmed`
++    # short-circuit byte-identically. The full-text guard clause is INTENTIONALLY kept:
++    # a clinical entity with real OA full text still skips OpenAlex (full text wins),
++    # while the paywalled primaries here (no usable full text) still consult OpenAlex.
+     if (
+         _OPENALEX_FRAME_FALLBACK_ENABLED
+         and doi
+-        and not abstract_crossref
+-        and not abstract_pubmed
++        and (
++            _frame_multi_abstract_enabled()
++            or (not abstract_crossref and not abstract_pubmed)
++        )
+         and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
+     ):
+         oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
+@@ -1497,6 +1635,49 @@ def _fetch_frame_entity_inner(
+                 journal = journal or parsed_oa.get("journal")
+                 year = year or parsed_oa.get("year")
+ 
++    # Step 5: Semantic Scholar abstract source (M3b, I-deepfix-001). A 3rd
++    # deterministic source so a closed-access primary whose CrossRef/OpenAlex
++    # abstract is a degenerate fragment (or a single transient throttle left it
++    # empty) still lands a full abstract. Same gather-all gating as OpenAlex: when
++    # PG_FRAME_S2_ABSTRACT is ON (default), consult S2 even if other sources have an
++    # abstract so `_pick_richest_abstract` can pick the longest; OFF removes S2
++    # entirely. The full-text guard is kept so a real OA full text still wins. Same
++    # DOI-consistency guard as OpenAlex/PubMed — never extract from the wrong work.
++    abstract_s2: str | None = None
++    if (
++        _frame_s2_abstract_enabled()
++        and doi
++        and (
++            _frame_multi_abstract_enabled()
++            or (not abstract_crossref and not abstract_pubmed and not abstract_openalex)
++        )
++        and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
++    ):
++        s2_meta, s2_attempts, s2_timings = _call_s2(client, doi)
++        attempts.extend(s2_attempts)
++        timings.extend(s2_timings)
++        if s2_meta is not None:
++            parsed_s2 = _parse_s2_response(s2_meta)
++            s2_doi = parsed_s2.get("doi") or ""
++            bound_doi_l = (doi or "").lower()
++            if s2_doi and s2_doi != bound_doi_l:
++                attempts.append(RetrievalAttempt(
++                    source="s2",
++                    url=f"s2:doi={bound_doi_l}",
++                    attempt_index=1,
++                    http_status=None,
++                    outcome=(
++                        f"error:doi_mismatch bound={bound_doi_l} "
++                        f"s2_returned={s2_doi}"
++                    ),
++                ))
++            else:
++                abstract_s2 = parsed_s2.get("abstract")
++                title = title or parsed_s2.get("title")
++                authors = authors or parsed_s2.get("authors") or ()
++                journal = journal or parsed_s2.get("journal")
++                year = year or parsed_s2.get("year")
++
+     # Decide provenance_class and direct_quote.
+     # OPEN_ACCESS when Unpaywall surfaced ANY OA locator (PDF or
+     # HTML landing). HTML-only is still fetchable by existing
+@@ -1515,6 +1696,7 @@ def _fetch_frame_entity_inner(
+         crossref=abstract_crossref,
+         openalex=abstract_openalex,
+         pubmed=abstract_pubmed,
++        s2=abstract_s2,
+         partial_full_text=(
+             oa_full_text
+             if (
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index a42ac0ca..49213842 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -5780,6 +5780,14 @@ def run_live_retrieval(
+                     # Additive only; absent/empty for seed-lane or legacy rows.
+                     "query_origin": getattr(cand, "query_origin", "") or "",
+                 }
++                # I-deepfix-001 M2: carry the per-citation document GENRE forward onto the
++                # groundable evidence row (mirror of ``.tier``/``.authority_score``) so the
++                # weighted-corpus credibility disclosure can build its url->document_type join.
++                # Set ONLY when the classifier stamped a non-None genre (i.e. PG_DOCUMENT_TYPE_WEIGHT
++                # ON) so an OFF row is byte-identical. Pure placement/disclosure metadata — never
++                # enters a verified claim, never relaxes strict_verify / NLI / 4-role (§-1.3).
++                if getattr(tier_result, "document_type", None):
++                    _row["document_type"] = tier_result.document_type
+                 # I-deepfix-001 (#1344) DEFER-1: carry the W2 content-relevance LABEL
+                 # (and its weight) onto the groundable evidence row so the cite-surface
+                 # off-topic suppression (weighted_enrichment._is_confirmed_offtopic) can
+@@ -5960,6 +5968,12 @@ def run_live_retrieval(
+                 _auth0 = score_source_authority(signals)
+                 _row0["authority_score"] = float(_auth0.authority_score)
+                 _row0["authority_confidence"] = _auth0.authority_confidence.value
++            # I-deepfix-001 M2: carry the document GENRE on the disclosed zero-weight row too
++            # (set ONLY when the classifier stamped one => PG_DOCUMENT_TYPE_WEIGHT ON; OFF row
++            # byte-identical). Disclosure metadata only; this row already carries direct_quote=""
++            # so it can never ground a claim (the faithfulness engine is untouched).
++            if getattr(tier_result, "document_type", None):
++                _row0["document_type"] = tier_result.document_type
+             evidence_rows.append(_row0)
+             logger.info(
+                 "[live_retriever] §-1.3 RETAIN failed-fetch source at ZERO weight "
+diff --git a/src/polaris_graph/retrieval/tier_classifier.py b/src/polaris_graph/retrieval/tier_classifier.py
+index 9413df31..7a9377d9 100644
+--- a/src/polaris_graph/retrieval/tier_classifier.py
++++ b/src/polaris_graph/retrieval/tier_classifier.py
+@@ -154,6 +154,17 @@ class ClassificationResult:
+     #     content-adequacy stay separate signals).
+     # Default False = byte-identical to HEAD for every non-stub row.
+     fetch_degraded: bool = False
++    # ── I-deepfix-001 M2 ADDITIVE fields — per-citation document GENRE (orthogonal to the
++    # T1-T7 credibility tier). Populated ONLY when PG_DOCUMENT_TYPE_WEIGHT is ON (computed
++    # at the ``classify_source_tier`` dispatcher so EVERY classifier path — rules,
++    # authority-model, LLM-tiering — carries it); default None = byte-identical to HEAD.
++    # ``document_type`` is a DocumentType.value; ``is_journal_article`` is True only for a
++    # peer-reviewed journal/review article. WEIGHT-and-LABEL: no consumer reads these as a
++    # drop/abort/release gate — they ride to the credibility-disclosure layer as advisory
++    # genre, of the SAME class as ``authority_score``/``source_class``. The faithfulness
++    # engine is untouched.
++    document_type: str | None = None
++    is_journal_article: bool | None = None
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -1237,10 +1248,60 @@ def classify_source_tier(
+             classify_source_tier_llm,
+         )
+ 
+-        return classify_source_tier_llm(signals)
+-    if os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
+-        return _classify_via_authority_model(signals)
+-    return _classify_source_tier_rules(signals)
++        result = classify_source_tier_llm(signals)
++    elif os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
++        result = _classify_via_authority_model(signals)
++    else:
++        result = _classify_source_tier_rules(signals)
++    # ── I-deepfix-001 M2: stamp the per-citation document GENRE at the SINGLE dispatch
++    # point so EVERY path (rules / authority-model / LLM-tiering) carries it identically —
++    # the genre rides next to ``authority_score``/``source_class`` to the credibility
++    # disclosure. Gated by ``PG_DOCUMENT_TYPE_WEIGHT`` (the flag leg of the M2 double gate);
++    # default OFF => fields stay None => byte-identical to HEAD (no consumer reads them OFF).
++    # ``predatory_oa`` is read off the authority sidecar when the authority model ran (the
++    # only path that computes it); the deterministic OpenAlex/host fallback covers the other
++    # paths. PURE — no network/LLM; the faithfulness engine is untouched.
++    _m2_dt(result, signals)
++    return result
++
++
++def _m2_dt(result: "ClassificationResult", signals: "ClassificationSignals") -> None:
++    """I-deepfix-001 M2: stamp ``document_type``/``is_journal_article`` on ``result`` IN
++    PLACE when ``PG_DOCUMENT_TYPE_WEIGHT`` is ON. No-op (byte-identical) otherwise.
++
++    Fail-open: any error leaves the additive fields None (never raises into classification).
++    """
++    from src.polaris_graph.retrieval.document_type_classifier import _flag_on  # noqa: PLC0415
++
++    if not _flag_on():
++        return
++    try:
++        from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
++            classify_document_type,
++            is_peer_reviewed_journal_article,
++        )
++
++        authority = (
++            result.signals_used.get("authority")
++            if isinstance(result.signals_used, dict)
++            else None
++        )
++        predatory = bool(authority.get("predatory_oa")) if isinstance(authority, dict) else False
++        dt, _basis = classify_document_type(
++            openalex_publication_type=signals.openalex_publication_type,
++            openalex_source_type=signals.openalex_source_type,
++            openalex_is_peer_reviewed=signals.openalex_is_peer_reviewed,
++            predatory_oa=predatory,
++            source_class=str(result.source_class or ""),
++            url=signals.url,
++            title=signals.title,
++            doi=signals.doi,
++        )
++        result.document_type = dt.value
++        result.is_journal_article = is_peer_reviewed_journal_article(dt)
++    except Exception:  # noqa: BLE001 — additive label; never break classification
++        result.document_type = None
++        result.is_journal_article = None
+ 
+ 
+ def _classify_source_tier_rules(
+diff --git a/tests/polaris_graph/f_m5_promotion_eligibility_test.py b/tests/polaris_graph/f_m5_promotion_eligibility_test.py
+new file mode 100644
+index 00000000..8301231c
+--- /dev/null
++++ b/tests/polaris_graph/f_m5_promotion_eligibility_test.py
+@@ -0,0 +1,304 @@
++"""I-deepfix-001 (#1344 M5) — isolated OFFLINE replay of the PROMOTION-ELIGIBILITY partition.
++
++Runs ``weighted_enrichment.diagnose_unbound_supports_selection`` over the REAL banked drb_72
++``bibliography.json`` baskets (no paid API, no GPU). Asserts the partition demotes EXACTLY the 8
++named near-zero single-origin non-journal sources and ZERO promoted ones, conservation holds
++(promoted UNION disclosed == the full list), the gate-OFF path is byte-identical, the
++over-demotion guards (journal carve-out, corroboration leg, unknown-weight keep-neutral) all
++rescue, and a garbage threshold env raises ValueError (fail-loud).
++
++Direct run:  python tests/polaris_graph/f_m5_promotion_eligibility_test.py
++Pytest:      python -m pytest tests/polaris_graph/f_m5_promotion_eligibility_test.py
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import sys
++from pathlib import Path
++from types import SimpleNamespace
++
++# Make ``src`` importable when run directly (mirrors the pytest rootdir import).
++_REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++from src.polaris_graph.generator.weighted_enrichment import (  # noqa: E402
++    diagnose_unbound_supports_selection,
++)
++
++# The REAL banked drb_72 artifact (absolute; outside the worktree per the task brief).
++_BANKED_BIB = Path(
++    "C:/POLARIS/.codex/I-deepfix-001/smoke_forensics/outputs/"
++    "deepfix_safety_smoke/workforce/drb_72_ai_labor/bibliography.json"
++)
++
++# The 8 near-zero, single-origin, NON-journal sources the design says MUST demote (by evidence_id),
++# with the URL substring that identifies each in the §-1.1 audit (for human-readable failure msgs).
++_EXPECTED_DEMOTED = {
++    "ev_000": ("wsu blog", "etm.wsu.edu"),          # 0.06
++    "ev_009": ("iza working paper", "docs.iza.org"),  # 0.05
++    "ev_050": ("cognifit blog", "blog.cognifit.com"),  # 0.03
++    "ev_064": ("inboundlogistics", "inboundlogistics.com"),  # 0.00
++    "ev_054": ("procom", "procomservices.com"),     # 0.01
++    "ev_066": ("protolabs", "protolabs.com"),        # 0.00
++    "ev_057": ("predatory 10.5555 doi", "10.5555"),  # 0.00
++    "ev_061": ("off-topic 10.26163 doi", "10.26163"),  # 0.00
++}
++
++
++def _load_baskets_and_pool():
++    """Rebuild the credibility_analysis baskets + a minimal evidence_pool from the banked bib.
++
++    Each banked basket is attached to every member's bib row, so dedup by ``claim_cluster_id`` to
++    mirror the real ``CredibilityAnalysis.baskets`` list (each basket once). Members + baskets are
++    wrapped in SimpleNamespace so the production ``getattr`` access path is exercised unchanged."""
++    bib = json.loads(_BANKED_BIB.read_text(encoding="utf-8"))
++    baskets_by_ccid: dict[str, object] = {}
++    pool: dict[str, dict] = {}
++    for row in bib:
++        for bk in (row.get("baskets") or []):
++            ccid = str(bk.get("claim_cluster_id") or "")
++            if not ccid or ccid in baskets_by_ccid:
++                continue
++            members = []
++            for m in (bk.get("supporting_members") or []):
++                eid = str(m.get("evidence_id") or "")
++                if not eid:
++                    continue
++                members.append(
++                    SimpleNamespace(
++                        evidence_id=eid,
++                        source_url=m.get("source_url", ""),
++                        source_tier=m.get("source_tier", ""),
++                        credibility_weight=m.get("credibility_weight"),
++                        span_verdict=m.get("span_verdict", ""),
++                        member_tier=m.get("member_tier", ""),
++                    )
++                )
++                pool.setdefault(eid, {"source_url": m.get("source_url", "")})
++            baskets_by_ccid[ccid] = SimpleNamespace(
++                claim_cluster_id=ccid,
++                weight_mass=bk.get("weight_mass", 0.0),
++                verified_support_origin_count=bk.get("verified_support_origin_count", 0),
++                supporting_members=members,
++            )
++    return list(baskets_by_ccid.values()), pool
++
++
++class _Env:
++    """Deterministic env scope: set the given M5 vars, restore prior values on exit."""
++
++    _KEYS = (
++        "PG_CWF_PROMOTION_ELIGIBILITY",
++        "PG_CWF_PROMOTION_MIN_WEIGHT",
++        "PG_CWF_PROMOTION_MIN_CORROBORATION",
++    )
++
++    def __init__(self, **overrides):
++        self._overrides = overrides
++
++    def __enter__(self):
++        self._saved = {k: os.environ.get(k) for k in self._KEYS}
++        for k in self._KEYS:
++            os.environ.pop(k, None)
++        for k, v in self._overrides.items():
++            os.environ[k] = v
++        return self
++
++    def __exit__(self, *exc):
++        for k in self._KEYS:
++            os.environ.pop(k, None)
++            if self._saved.get(k) is not None:
++                os.environ[k] = self._saved[k]
++        return False
++
++
++def _run(baskets, pool):
++    fake_cred = SimpleNamespace(baskets=baskets)
++    return diagnose_unbound_supports_selection(
++        evidence_pool=pool, credibility_analysis=fake_cred, contract_plans=[]
++    )
++
++
++# ── assertions, also callable directly ────────────────────────────────────────
++
++def _require_banked():
++    if not _BANKED_BIB.exists():
++        msg = f"banked artifact missing: {_BANKED_BIB}"
++        try:
++            import pytest  # type: ignore
++
++            pytest.skip(msg)
++        except Exception:
++            print(f"SKIP {msg}")
++            raise SystemExit(0)
++
++
++def test_gate_off_is_byte_identical_keep_all():
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    with _Env(PG_CWF_PROMOTION_ELIGIBILITY="0"):
++        res = _run(baskets, pool)
++    # All 25 distinct eids flow; the 8 are present; disclosed_only empty (legacy keep-all).
++    assert len(res.ev_ids) == 25, f"expected 25 ev_ids gate-OFF, got {len(res.ev_ids)}"
++    for eid in _EXPECTED_DEMOTED:
++        assert eid in res.ev_ids, f"gate-OFF must KEEP {eid} in ev_ids"
++    assert res.disclosed_only == (), "gate-OFF must yield empty disclosed_only"
++    return res
++
++
++def test_gate_on_demotes_exactly_the_eight():
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    with _Env():  # defaults: gate ON, W=0.10, K=2
++        res = _run(baskets, pool)
++    disclosed_ids = {d["evidence_id"] for d in res.disclosed_only}
++    assert disclosed_ids == set(_EXPECTED_DEMOTED), (
++        f"disclosed_only must be EXACTLY the 8; got {sorted(disclosed_ids)} "
++        f"(missing {set(_EXPECTED_DEMOTED) - disclosed_ids}, "
++        f"extra {disclosed_ids - set(_EXPECTED_DEMOTED)})"
++    )
++    for eid in _EXPECTED_DEMOTED:
++        assert eid not in res.ev_ids, f"{eid} must be DEMOTED out of ev_ids"
++    # ZERO over-demotion: every promoted source has weight >= 0.10 (or is rescued), none of the 8.
++    assert len(res.ev_ids) == 17, f"expected 17 promoted, got {len(res.ev_ids)}"
++    # Each disclosed record carries the full schema the render block consumes.
++    for d in res.disclosed_only:
++        assert set(d) == {
++            "evidence_id", "source_url", "source_tier", "credibility_weight", "reason",
++        }, f"disclosed record schema drift: {sorted(d)}"
++        assert d["reason"] == "single_origin_low_weight_non_journal"
++        assert isinstance(d["credibility_weight"], float) and d["credibility_weight"] < 0.10
++    return res
++
++
++def test_no_over_demotion_promoted_set_intact():
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    with _Env():
++        res = _run(baskets, pool)
++    # Every real source with weight >= 0.10 STAYS promoted (the design's named promoted set).
++    expected_promoted_floor = {
++        "ev_035": 0.12, "ev_021": 0.14, "ev_018": 0.1425, "ev_002": 0.16, "ev_040": 0.18,
++        "ev_047": 0.24, "ev_026": 0.27, "ev_016": 0.32, "ev_044": 0.35, "ev_015": 0.36,
++        "ev_032": 0.9025, "ev_024": 0.9025,
++    }
++    for eid in expected_promoted_floor:
++        assert eid in res.ev_ids, f"{eid} (weight>=0.10) was wrongly demoted"
++    return res
++
++
++def test_over_correction_guards_rescue():
++    """journal carve-out, corroboration leg, and unknown-weight keep-neutral all rescue a low weight."""
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    # (a) journal-domain member at weight 0.01 — KEPT via the journal carve-out.
++    pool["synthetic_journal"] = {"source_url": "https://www.nejm.org/doi/10.1056/synthetic"}
++    # (b) low-weight member whose basket has 2 verified origins — KEPT via the corroboration leg.
++    pool["synthetic_corroborated"] = {"source_url": "https://example.org/corroborated"}
++    # (c) unknown-weight (None) member — KEPT via keep-neutral (unknown => promote).
++    pool["synthetic_unknown_weight"] = {"source_url": "https://example.org/unknown"}
++    extra = [
++        SimpleNamespace(
++            claim_cluster_id="synthetic_journal_cluster", weight_mass=0.01,
++            verified_support_origin_count=1,
++            supporting_members=[SimpleNamespace(
++                evidence_id="synthetic_journal", source_url="https://www.nejm.org/doi/10.1056/synthetic",
++                source_tier="T1", credibility_weight=0.01, span_verdict="SUPPORTS",
++                member_tier="ENTAILMENT_VERIFIED")],
++        ),
++        SimpleNamespace(
++            claim_cluster_id="synthetic_corroborated_cluster", weight_mass=0.01,
++            verified_support_origin_count=2,
++            supporting_members=[SimpleNamespace(
++                evidence_id="synthetic_corroborated", source_url="https://example.org/corroborated",
++                source_tier="T6", credibility_weight=0.01, span_verdict="SUPPORTS",
++                member_tier="ENTAILMENT_VERIFIED")],
++        ),
++        SimpleNamespace(
++            claim_cluster_id="synthetic_unknown_cluster", weight_mass=0.0,
++            verified_support_origin_count=1,
++            supporting_members=[SimpleNamespace(
++                evidence_id="synthetic_unknown_weight", source_url="https://example.org/unknown",
++                source_tier="T6", credibility_weight=None, span_verdict="SUPPORTS",
++                member_tier="ENTAILMENT_VERIFIED")],
++        ),
++    ]
++    with _Env():
++        res = _run(baskets + extra, pool)
++    disclosed_ids = {d["evidence_id"] for d in res.disclosed_only}
++    assert "synthetic_journal" in res.ev_ids, "journal carve-out must rescue a low-weight journal"
++    assert "synthetic_corroborated" in res.ev_ids, "corroboration leg must rescue a 2-origin member"
++    assert "synthetic_unknown_weight" in res.ev_ids, "unknown weight must keep-neutral (promote)"
++    assert disclosed_ids == set(_EXPECTED_DEMOTED), (
++        "the 3 rescued synthetics must NOT appear in disclosed_only"
++    )
++    return res
++
++
++def test_conservation_nothing_vanishes():
++    """promoted UNION disclosed == the full ordered list (routed, never dropped)."""
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    with _Env(PG_CWF_PROMOTION_ELIGIBILITY="0"):
++        full = set(_run(baskets, pool).ev_ids)
++    with _Env():
++        on = _run(baskets, pool)
++    union = set(on.ev_ids) | {d["evidence_id"] for d in on.disclosed_only}
++    assert union == full, (
++        f"conservation broken: union {len(union)} != full {len(full)} "
++        f"(lost {full - union}, gained {union - full})"
++    )
++    assert not (set(on.ev_ids) & {d["evidence_id"] for d in on.disclosed_only}), (
++        "promoted and disclosed_only must be DISJOINT"
++    )
++    return full, on
++
++
++def test_garbage_env_raises_value_error():
++    _require_banked()
++    baskets, pool = _load_baskets_and_pool()
++    raised = 0
++    for k, v in (
++        ("PG_CWF_PROMOTION_MIN_WEIGHT", "abc"),
++        ("PG_CWF_PROMOTION_MIN_WEIGHT", "1.5"),
++        ("PG_CWF_PROMOTION_MIN_CORROBORATION", "0"),
++        ("PG_CWF_PROMOTION_MIN_CORROBORATION", "xx"),
++    ):
++        with _Env(**{k: v}):
++            try:
++                _run(baskets, pool)
++            except ValueError:
++                raised += 1
++            else:
++                raise AssertionError(f"garbage {k}={v!r} must raise ValueError (fail-loud)")
++    assert raised == 4
++    return raised
++
++
++def main():
++    _require_banked()
++    off = test_gate_off_is_byte_identical_keep_all()
++    print(f"[1] gate OFF: ev_ids={len(off.ev_ids)} disclosed={len(off.disclosed_only)}  PASS")
++    on = test_gate_on_demotes_exactly_the_eight()
++    demoted = sorted(d["evidence_id"] for d in on.disclosed_only)
++    print(f"[2] gate ON : promoted={len(on.ev_ids)} demoted={len(on.disclosed_only)} -> {demoted}  PASS")
++    test_no_over_demotion_promoted_set_intact()
++    print("[3] no over-demotion: every weight>=0.10 source stays promoted  PASS")
++    test_over_correction_guards_rescue()
++    print("[4] guards: journal / corroboration / unknown-weight all rescue  PASS")
++    full, oncons = test_conservation_nothing_vanishes()
++    print(f"[5] conservation: promoted({len(oncons.ev_ids)}) U disclosed({len(oncons.disclosed_only)}) == full({len(full)})  PASS")
++    n = test_garbage_env_raises_value_error()
++    print(f"[6] fail-loud: {n}/4 garbage env values raised ValueError  PASS")
++    print("\nALL M5 ASSERTIONS PASS")
++    # Render-block smoke (the report surface), proving the disclosed records render.
++    print("\n[disclosed block sample]")
++    for d in oncons.disclosed_only:
++        print(f"  - {d['source_url'] or d['evidence_id']} (tier {d['source_tier']}, weight {d['credibility_weight']:.2f})")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/polaris_graph/test_cross_source_synthesis_m6.py b/tests/polaris_graph/test_cross_source_synthesis_m6.py
+new file mode 100644
+index 00000000..00cc7dc0
+--- /dev/null
++++ b/tests/polaris_graph/test_cross_source_synthesis_m6.py
+@@ -0,0 +1,353 @@
++"""I-deepfix-001 M6 behavioral test — verified cross-source analytical synthesis.
++
++ISOLATED + OFFLINE: no paid API, no GPU. The composer is driven by the DETERMINISTIC short writer
++(``build_short_member_sentence``, no LLM) + the production ``verify_sentence_provenance`` (which runs
++offline with PG_VERIFICATION_MODE=off / PG_STRICT_VERIFY_ENTAILMENT unset — no network judge), exactly
++mirroring the production RENDER-PROBE path in ``multi_section_generator`` (the non-abstractive branch).
++
++Baskets + members are reconstructed from THIS run's banked artifacts
++(``.codex/I-deepfix-001/smoke_forensics/.../bibliography.json``); the evidence pool from the banked
++``evidence_pool.json``. A controlled two-basket SHARED-ANCHOR pairing is set up (the real members/spans
++are untouched; only the section-level subject/predicate anchor is set to make the two baskets pairing
++CANDIDATES — the scenario the composer is designed for). Asserts, against real values:
++  1. a composed analytical sentence carries TWO distinct [#ev] tokens from TWO baskets;
++  2. re-running the production verify_sentence_provenance PER CLAUSE PASSES (both atoms verify), and a
++     clause mutated to cite a foreign span FAILS (engine still gates);
++  3. a no-edge pair -> neutral connective ("; separately,"); injecting a ContradictionEdge -> "; in
++     contrast,"; injecting an agree_map -> "; consistent with this," (relation is engine-licensed,
++     never free-form);
++  4. KEEP-ALL — no source/basket present pre-change is absent post-change.
++"""
++from __future__ import annotations
++
++import json
++import os
++import sys
++from pathlib import Path
++
++try:  # Windows console is cp1252; force UTF-8 so diagnostic prints never crash the test.
++    sys.stdout.reconfigure(encoding="utf-8")
++except Exception:
++    pass
++
++# Repo root on path.
++_REPO = Path(__file__).resolve().parents[2]
++if str(_REPO) not in sys.path:
++    sys.path.insert(0, str(_REPO))
++
++# Offline: no extra judge calls, no network entailment.
++os.environ["PG_VERIFICATION_MODE"] = "off"
++os.environ.pop("PG_STRICT_VERIFY_ENTAILMENT", None)
++
++from src.polaris_graph.generator.cross_source_synthesis import (  # noqa: E402
++    LICENSED_CONNECTIVES,
++    compose_cross_source_analytical_units,
++    license_relation,
++)
++from src.polaris_graph.generator.verified_compose import (  # noqa: E402
++    _resolved_spans,
++)
++from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
++    verify_sentence_provenance,
++    split_into_sentences,
++)
++from src.polaris_graph.synthesis.credibility_pass import BasketMember, ClaimBasket  # noqa: E402
++
++_BANK = (
++    _REPO / ".codex" / "I-deepfix-001" / "smoke_forensics" / "outputs"
++    / "deepfix_safety_smoke" / "workforce" / "drb_72_ai_labor"
++)
++# Fall back to the absolute main-repo location (the worktree may not carry the smoke_forensics bank).
++if not _BANK.exists():
++    _BANK = Path(
++        "C:/POLARIS/.codex/I-deepfix-001/smoke_forensics/outputs/"
++        "deepfix_safety_smoke/workforce/drb_72_ai_labor"
++    )
++
++
++def _load_json(name):
++    return json.load(open(_BANK / name, encoding="utf-8"))
++
++
++def _short_writer(_basket, _pool):
++    """The DETERMINISTIC production short writer (no LLM) — first verified sentence of the strongest
++    SUPPORTS member, real global offsets."""
++    from src.polaris_graph.generator.verified_compose import build_short_member_sentence
++    return build_short_member_sentence(_basket, _evidence_pool_global)
++
++
++def _build_member(m: dict) -> BasketMember:
++    dq = str(m.get("direct_quote") or "")
++    return BasketMember(
++        evidence_id=str(m["evidence_id"]),
++        source_url=str(m.get("source_url") or ""),
++        source_tier=str(m.get("source_tier") or ""),
++        origin_cluster_id=str(m.get("origin_cluster_id") or f"origin::{m['evidence_id']}"),
++        credibility_weight=float(m.get("credibility_weight") or 0.0),
++        authority_score=float(m.get("authority_score") or 0.0),
++        span=(0, len(dq)),
++        direct_quote=dq,
++        span_verdict=str(m.get("span_verdict") or ""),
++        member_tier=str(m.get("member_tier") or ""),
++    )
++
++
++def _build_basket(bk: dict) -> ClaimBasket:
++    members = [_build_member(m) for m in bk.get("supporting_members", [])]
++    return ClaimBasket(
++        claim_cluster_id=str(bk.get("claim_cluster_id") or ""),
++        claim_text=str(bk.get("claim_text") or ""),
++        subject=str(bk.get("subject") or ""),
++        predicate=str(bk.get("predicate") or ""),
++        supporting_members=members,
++        refuter_cluster_ids=tuple(bk.get("refuter_cluster_ids") or ()),
++        weight_mass=float(bk.get("weight_mass") or 0.0),
++        total_clustered_origin_count=int(bk.get("total_clustered_origin_count") or 0),
++        verified_support_origin_count=int(bk.get("verified_support_origin_count") or 0),
++        basket_verdict=str(bk.get("basket_verdict") or ""),
++    )
++
++
++def _resolvable(basket: ClaimBasket, pool: dict) -> bool:
++    """True iff the basket has a SUPPORTS member whose verbatim quote is locatable in the pool (so the
++    short writer can build a verified clause)."""
++    for m in basket.supporting_members:
++        if str(getattr(m, "span_verdict", "")).upper() != "SUPPORTS":
++            continue
++        eid = m.evidence_id
++        quote = (m.direct_quote or "").strip()
++        row = pool.get(eid) or {}
++        hay = str(row.get("direct_quote") or row.get("statement") or "")
++        if quote and hay and quote in hay:
++            return True
++    return False
++
++
++# ── Load real banked baskets + pool ───────────────────────────────────────────────────────────────
++_bib = _load_json("bibliography.json")
++_raw_baskets = []
++for entry in _bib:
++    for bk in entry.get("baskets", []):
++        if bk.get("supporting_members"):
++            _raw_baskets.append(bk)
++
++# Build the GLOBAL evidence pool: prefer the real evidence_pool.json row; guarantee each chosen
++# member's verbatim span is locatable by also stocking the member's own direct_quote (the pool row's
++# direct_quote IS the member's verified span in production).
++_evidence_pool_global: dict = {}
++try:
++    for eid, row in _load_json("evidence_pool.json").items():
++        _evidence_pool_global[str(eid)] = dict(row)
++except Exception:
++    pass
++for bk in _raw_baskets:
++    for m in bk["supporting_members"]:
++        eid = str(m["evidence_id"])
++        dq = str(m.get("direct_quote") or "")
++        row = _evidence_pool_global.get(eid) or {}
++        hay = str(row.get("direct_quote") or row.get("statement") or "")
++        if dq and dq not in hay:
++            # Ensure the member's verified span resolves (the pool row carries that span in prod).
++            _evidence_pool_global[eid] = {"direct_quote": dq, "statement": dq}
++
++_baskets = [_build_basket(bk) for bk in _raw_baskets]
++_resolvable_baskets = [b for b in _baskets if _resolvable(b, _evidence_pool_global)]
++assert len(_resolvable_baskets) >= 2, (
++    f"need >=2 resolvable baskets in the bank; got {len(_resolvable_baskets)}"
++)
++
++# Controlled SHARED-ANCHOR pairing: take the first TWO resolvable baskets with DISTINCT clusters and
++# give them a shared subject+predicate so they are pairing candidates. Real members/spans untouched.
++_A = _resolvable_baskets[0]
++_B = next(b for b in _resolvable_baskets[1:] if b.claim_cluster_id != _A.claim_cluster_id)
++_A.subject = _B.subject = "ai labor impact"
++_A.predicate = _B.predicate = "affects"
++_SECTION = [_A, _B]
++_CID_A, _CID_B = _A.claim_cluster_id, _B.claim_cluster_id
++
++
++def _make_edge(a, b):
++    class _E:
++        claim_cluster_ids = (a, b)
++        source = "semantic"
++        severity = "review"
++    return _E()
++
++
++_failures: list[str] = []
++_passes: list[str] = []
++
++
++def _check(name, cond, detail=""):
++    (_passes if cond else _failures).append(f"{name}: {detail}")
++    print(("PASS " if cond else "FAIL ") + name + (f" -- {detail}" if detail else ""))
++
++
++# ── ASSERTION 1 + 3 (neutral): no-edge pair -> neutral connective; sentence carries 2 distinct tokens.
++_units_neutral = compose_cross_source_analytical_units(
++    _SECTION, _evidence_pool_global,
++    writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
++    edges=None, equiv_clusters=None, agree_map=None,
++)
++_check("A1_neutral_unit_produced", len(_units_neutral) >= 1,
++       f"{len(_units_neutral)} analytical unit(s)")
++if _units_neutral:
++    _u = _units_neutral[0]
++    _toks = _resolved_spans(_u)
++    _evids = {t[0] for t in _toks}
++    _check("A1_two_distinct_ev_tokens", len(_evids) >= 2,
++           f"distinct ev_ids={sorted(_evids)}")
++    _check("A3_neutral_connective", LICENSED_CONNECTIVES["neutral"].strip() in _u,
++           f"connective present; in_contrast_absent={LICENSED_CONNECTIVES['conflict'].strip() not in _u}")
++    _check("A3_no_fabricated_in_contrast", LICENSED_CONNECTIVES["conflict"].strip() not in _u
++           and LICENSED_CONNECTIVES["agreement"].strip() not in _u,
++           "no conflict/agreement phrase on a no-edge pair")
++
++# ── ASSERTION 2: per-clause re-verify PASSES; a foreign-span mutation FAILS. ─────────────────────────
++if _units_neutral:
++    _u = _units_neutral[0]
++    _clauses = split_into_sentences(_u) or [_u]
++    # The analytical sentence is ONE sentence carrying both tokens; verify it as the production engine
++    # would, AND verify each token's own clause grounds.
++    _whole = verify_sentence_provenance(_u, _evidence_pool_global)
++    # Per-clause: rebuild each atom token into a standalone sentence-form and re-verify.
++    import re as _re
++    _tok_re = _re.compile(r"\[#ev:(?P<ev>[A-Za-z0-9_]+):(?P<s>\d+)-(?P<e>\d+)\]")
++    _per_clause_ok = True
++    _seen_tokens = list(_tok_re.finditer(_u))
++    _check("A2_two_tokens_in_sentence", len(_seen_tokens) >= 2,
++           f"{len(_seen_tokens)} [#ev] tokens in the analytical sentence")
++    for mt in _seen_tokens:
++        ev, s, e = mt.group("ev"), int(mt.group("s")), int(mt.group("e"))
++        row = _evidence_pool_global.get(ev) or {}
++        span_text = str(row.get("direct_quote") or row.get("statement") or "")[s:e]
++        clause_sentence = f"{span_text.strip()} [#ev:{ev}:{s}-{e}]."
++        res = verify_sentence_provenance(clause_sentence, _evidence_pool_global)
++        if not bool(getattr(res, "is_verified", False)):
++            _per_clause_ok = False
++    _check("A2_per_clause_verify_passes", _per_clause_ok,
++           "each atom clause re-passes verify_sentence_provenance")
++
++    # Foreign-span mutation: re-point clause B's token to a span from a DIFFERENT evidence id with a
++    # blatantly out-of-bounds offset -> the engine must FAIL it (span_out_of_bounds / not in pool).
++    _bad = f"Some fabricated relation [#ev:__not_in_pool__:0-50]."
++    _bad_res = verify_sentence_provenance(_bad, _evidence_pool_global)
++    _check("A2_foreign_span_fails", not bool(getattr(_bad_res, "is_verified", False)),
++           f"foreign-id sentence rejected (reasons={list(getattr(_bad_res,'failure_reasons',[]))[:2]})")
++
++# ── ASSERTION 3 (conflict): inject a ContradictionEdge -> "; in contrast,". ──────────────────────────
++_check("A3_license_conflict",
++       license_relation(_CID_A, _CID_B, edges=[_make_edge(_CID_A, _CID_B)]) == "conflict",
++       "edge between the pair -> conflict")
++_units_conflict = compose_cross_source_analytical_units(
++    _SECTION, _evidence_pool_global,
++    writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
++    edges=[_make_edge(_CID_A, _CID_B)],
++)
++_check("A3_conflict_connective_renders",
++       bool(_units_conflict) and LICENSED_CONNECTIVES["conflict"].strip() in _units_conflict[0],
++       (_units_conflict[0] if _units_conflict else "no unit"))
++
++# ── ASSERTION 3 (agreement): inject an agree_map -> "; consistent with this,". ───────────────────────
++_check("A3_license_agreement",
++       license_relation(_CID_A, _CID_B, agree_map={_CID_A: {_CID_B}}) == "agreement",
++       "agree_map entry -> agreement")
++_units_agree = compose_cross_source_analytical_units(
++    _SECTION, _evidence_pool_global,
++    writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
++    edges=None, agree_map={_CID_A: {_CID_B}},
++)
++_check("A3_agreement_connective_renders",
++       bool(_units_agree) and LICENSED_CONNECTIVES["agreement"].strip() in _units_agree[0],
++       (_units_agree[0] if _units_agree else "no unit"))
++
++# Conflict precedence over agreement (a contested pair is never smoothed into agreement).
++_check("A3_conflict_precedence",
++       license_relation(_CID_A, _CID_B, edges=[_make_edge(_CID_A, _CID_B)],
++                        agree_map={_CID_A: {_CID_B}}) == "conflict",
++       "edge + agree_map -> conflict wins")
++
++# ── ASSERTION 4: KEEP-ALL — every source/basket cited pre-change is present post-change. ─────────────
++# The analytical unit is ADDITIVE: its two cited ev_ids are exactly the two baskets' members; nothing
++# is removed. Confirm both members' ev_ids appear in the produced analytical sentence's tokens.
++if _units_neutral:
++    _evids = {t[0] for t in _resolved_spans(_units_neutral[0])}
++    _a_members = {m.evidence_id for m in _A.supporting_members
++                  if str(m.span_verdict).upper() == "SUPPORTS"}
++    _b_members = {m.evidence_id for m in _B.supporting_members
++                  if str(m.span_verdict).upper() == "SUPPORTS"}
++    _check("A4_keep_all_both_baskets_cited",
++           bool(_evids & _a_members) and bool(_evids & _b_members),
++           f"unit cites a member of BOTH baskets (A_hit={_evids & _a_members}, B_hit={_evids & _b_members})")
++
++# ── Default-OFF byte-identical guard (the unit pass is purely additive; the flag gates the CALLER). ──
++# The composer itself is only invoked when PG_CROSS_SOURCE_SYNTHESIS is ON (verified_compose gate), so
++# here we assert the keystone neutral-default fail-closed: an UNANCHORED section yields zero units.
++_unanchored = [_build_basket(bk) for bk in _raw_baskets[:2]]
++for b in _unanchored:
++    b.subject = ""  # no anchor
++_units_none = compose_cross_source_analytical_units(
++    _unanchored, _evidence_pool_global,
++    writer_fn=_short_writer, verify_fn=verify_sentence_provenance, edges=None,
++)
++_check("A5_no_anchor_no_units", _units_none == [],
++       f"{len(_units_none)} units from unanchored baskets (must be 0 — no random juxtaposition)")
++
++
++# ── GUARD: licensed_relations neutralizes an UNLICENSED connective; keeps a licensed one. ────────────
++from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: E402
++    guard_relational_quantifier,
++)
++_synth = ("Claim A [#ev:acemoglu_restrepo_automation_tasks:0-40]; in contrast, "
++          "claim b [#ev:autor_why_still_jobs:0-40]")
++_kept = guard_relational_quantifier(_synth, None, licensed_relations={"conflict"})
++_check("G1_licensed_connective_kept",
++       "; in contrast," in (_kept or ""), "conflict licensed -> kept")
++_neut = guard_relational_quantifier(_synth, None, licensed_relations=set())
++_check("G2_unlicensed_connective_neutralized",
++       "; in contrast," not in (_neut or "") and "; separately," in (_neut or ""),
++       f"unlicensed -> neutralized ({(_neut or '')[:80]})")
++# Default-OFF (licensed_relations=None) is BYTE-IDENTICAL to the legacy single-clause guard: a plain
++# sentence with no aggregate quantifier returns UNCHANGED.
++_plain = "Employment rose by 3 percent [#ev:autor_why_still_jobs:0-40]."
++_check("G3_default_off_byte_identical",
++       guard_relational_quantifier(_plain, _A) == _plain,
++       "no-quantifier sentence unchanged on the legacy path")
++
++# ── LAYER 2: PROMOTE mode (default-OFF) labels a GROUNDED sentence; OFF leaves it bare. ──────────────
++from src.polaris_graph.generator import analyst_synthesis_deviation_check as _dev  # noqa: E402
++_bib_l2 = [{"evidence_id": "autor_why_still_jobs"}]
++_rows_l2 = [{"evidence_id": "autor_why_still_jobs",
++             "direct_quote": "Automation has not eliminated employment."}]
++_synth_text = "Automation has not eliminated employment [1]."
++_grounded_judge = lambda _c, _s: True  # noqa: E731 — deterministic offline judge
++# OFF (default): grounded sentence passes bare.
++os.environ.pop("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", None)
++_off_text, _off_tel = _dev.screen_synthesis_against_baskets(
++    _synth_text, _bib_l2, _rows_l2, judge_fn=_grounded_judge)
++_check("L2_promote_off_bare", "[confidence:" not in _off_text and _off_tel.get(
++    "synthesis_deviation_promoted_count", 0) == 0, "grounded sentence bare when PROMOTE off")
++# ON: grounded sentence gains a positive moderate confidence marker (KEEP-and-PROMOTE).
++os.environ["PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED"] = "1"
++_on_text, _on_tel = _dev.screen_synthesis_against_baskets(
++    _synth_text, _bib_l2, _rows_l2, judge_fn=_grounded_judge)
++os.environ.pop("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", None)
++_check("L2_promote_on_labels_grounded",
++       "[confidence: moderate" in _on_text and _on_tel.get("synthesis_deviation_promoted_count", 0) == 1,
++       f"grounded -> promoted ({_on_text[-60:]})")
++# An UNGROUNDED sentence stays hedged/labeled LOW regardless of PROMOTE (never promoted).
++_ung_text, _ung_tel = _dev.screen_synthesis_against_baskets(
++    _synth_text, _bib_l2, _rows_l2, judge_fn=lambda _c, _s: False)
++_check("L2_ungrounded_stays_low",
++       "[confidence: low" in _ung_text and _ung_tel.get("synthesis_deviation_labeled_count", 0) == 1,
++       "ungrounded sentence labeled LOW, never promoted")
++
++
++print("\n=== SUMMARY ===")
++print(f"PASS {len(_passes)} / {len(_passes) + len(_failures)}")
++if _failures:
++    print("FAILURES:")
++    for f in _failures:
++        print("  -", f)
++    sys.exit(1)
++print("ALL M6 BEHAVIORAL ASSERTIONS PASS")
+diff --git a/tests/polaris_graph/test_document_type_weight_m2.py b/tests/polaris_graph/test_document_type_weight_m2.py
+new file mode 100644
+index 00000000..7e5dc25b
+--- /dev/null
++++ b/tests/polaris_graph/test_document_type_weight_m2.py
+@@ -0,0 +1,329 @@
++"""I-deepfix-001 M2 — isolated OFFLINE test (no paid API, no GPU, no network).
++
++Covers the per-citation document-type WEIGHT-and-DISCLOSE path against the REAL banked
++drb_72 artifacts:
++  1. ``classify_document_type`` truth-table on the real drb_72 wrong-genre offenders.
++  2. ``build_corpus_credibility_disclosure`` replay over the real 64-row ``per_source``:
++     len/url-set conserved (KEEP-not-DROP), raw ``credibility_weight``/``weight_basis``
++     BYTE-IDENTICAL to the banked file (M2 does not touch the credibility axis), the 4 new
++     genre fields appear ON, the adjusted mean is a SEPARATE second mean, and OFF is
++     byte-identical (no M2 keys serialized).
++  3. Corroboration re-rank over the real ``bibliography.json``: the predatory ``ewadirect``
++     venue no longer sorts first under the document-type-adjusted weight AND is still present.
++  4. ``resolve_document_type_weight`` honors lower-case YAML overrides; garbage env is ignored.
++
++Run directly:  python tests/polaris_graph/test_document_type_weight_m2.py
++"""
++from __future__ import annotations
++
++import json
++import os
++import sys
++from pathlib import Path
++
++_REPO = Path(__file__).resolve().parents[2]
++if str(_REPO) not in sys.path:
++    sys.path.insert(0, str(_REPO))
++
++from src.polaris_graph.nodes.weighted_corpus_gate import (  # noqa: E402
++    build_corpus_credibility_disclosure,
++    disclosure_to_dict,
++    _tier_prior,
++)
++from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: E402
++    DocumentType,
++    classify_document_type,
++    document_type_weighting_active,
++    is_peer_reviewed_journal_article,
++    resolve_document_type_weight,
++)
++
++_BANKED = Path(
++    "C:/POLARIS/.codex/I-deepfix-001/smoke_forensics/outputs/"
++    "deepfix_safety_smoke/workforce/drb_72_ai_labor"
++)
++
++_PROTOCOL = {  # synthetic journal-only protocol mirroring config/scope_templates/workforce.yaml
++    "document_type_preference": "journal_article",
++    "document_type_weights": {
++        "journal_article": 1.0, "review_article": 1.0, "preprint": 0.7,
++        "report": 0.5, "book": 0.5, "blog_commentary": 0.3,
++        "predatory_oa_journal": 0.25, "unknown": 0.5,
++    },
++}
++
++
++def _load(name: str):
++    return json.loads((_BANKED / name).read_text(encoding="utf-8"))
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 1. classify_document_type truth table on the real drb_72 offenders.
++# ─────────────────────────────────────────────────────────────────────────────
++def test_classify_truth_table() -> list[str]:
++    fails: list[str] = []
++    cases = [
++        # (kwargs, expected DocumentType, expected is_journal_article)
++        (dict(url="https://arxiv.org/pdf/2011.03044"), DocumentType.PREPRINT, False),
++        (dict(url="https://www.amazon.com/Artificial-Intelligence-Fourth-Industrial-Revolution/dp/X"),
++         DocumentType.BOOK, False),
++        (dict(url="https://www.weforum.org/stories/2026/01/ai-has-already-added-jobs"),
++         DocumentType.REPORT, False),
++        (dict(url="https://its.uri.edu/2025/08/07/a-new-industrial-revolution-ai"),
++         DocumentType.BLOG_COMMENTARY, False),
++        (dict(url="https://etm.wsu.edu/2023/08/30/the-fourth-industrial-revolution/"),
++         DocumentType.BLOG_COMMENTARY, False),
++        (dict(url="https://labourdiscovery.ilo.org/discovery/fulldisplay?docid=alma123"),
++         DocumentType.REPORT, False),
++        (dict(url="https://www.researchgate.net/publication/385880711_Theorizing_Labor"),
++         DocumentType.PREPRINT, False),
++        # predatory OA proceedings venue that LED the corroborated findings
++        (dict(url="https://www.ewadirect.com/proceedings/ace/article/view/16842/pdf",
++              openalex_publication_type="article", predatory_oa=True),
++         DocumentType.PREDATORY_OA_JOURNAL, False),
++        # genuine peer-reviewed journal articles (source_type==journal AND peer-reviewed)
++        (dict(url="https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3",
++              openalex_publication_type="article", openalex_source_type="journal",
++              openalex_is_peer_reviewed=True),
++         DocumentType.JOURNAL_ARTICLE, True),
++        (dict(url="https://onlinelibrary.wiley.com/doi/10.1155/hbe2/3424335",
++              openalex_publication_type="article", openalex_source_type="journal",
++              openalex_is_peer_reviewed=True),
++         DocumentType.JOURNAL_ARTICLE, True),
++        # peer-reviewed REVIEW article
++        (dict(openalex_publication_type="review", openalex_source_type="journal",
++              openalex_is_peer_reviewed=True, url="https://example.org/x"),
++         DocumentType.REVIEW_ARTICLE, True),
++        # OpenAlex over-marks "article" but NO journal/peer-review => must NOT be journal-positive
++        (dict(openalex_publication_type="article", url="https://some-unknown-host.example/x"),
++         DocumentType.UNKNOWN, False),
++    ]
++    for kwargs, exp_dt, exp_journal in cases:
++        dt, basis = classify_document_type(**kwargs)
++        if dt is not exp_dt:
++            fails.append(f"classify {kwargs.get('url','')[:48]!r} -> {dt} (basis={basis}); expected {exp_dt}")
++        if is_peer_reviewed_journal_article(dt) is not exp_journal:
++            fails.append(f"is_journal_article {kwargs.get('url','')[:48]!r} -> "
++                         f"{is_peer_reviewed_journal_article(dt)}; expected {exp_journal}")
++    return fails
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Stub CorpusSource reconstructed from a banked per_source row (deterministically
++# reproduces the banked credibility_weight/weight_basis: seed authority_score for the
++# authority_score-basis rows; leave None for tier_prior rows so the builder recomputes
++# the same per-tier prior — verified 0/64 mismatch).
++# ─────────────────────────────────────────────────────────────────────────────
++class _StubSource:
++    def __init__(self, row: dict, document_type: str | None = None):
++        self.url = row["url"]
++        self.tier = row["tier"]
++        self.domain = row.get("domain", "")
++        self.title = ""
++        self.authority_score = (
++            row["credibility_weight"] if row["weight_basis"] == "authority_score" else None
++        )
++        if document_type is not None:
++            self.document_type = document_type
++
++
++def _build(srcs, banked, *, protocol=None):
++    return build_corpus_credibility_disclosure(
++        classified_sources=srcs,
++        tier_counts=banked["tier_counts"],
++        tier_fractions=banked["tier_fractions"],
++        total_sources=banked["total_sources"],
++        had_material_deviation=banked["had_material_deviation"],
++        domain=banked["domain"],
++        research_question=banked["research_question"],
++        protocol=protocol,
++    )
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 2. build_corpus_credibility_disclosure replay over the real 64-row per_source.
++# ─────────────────────────────────────────────────────────────────────────────
++def test_disclosure_replay() -> list[str]:
++    fails: list[str] = []
++    banked = _load("corpus_credibility_disclosure.json")
++    ps = banked["per_source"]
++    # tag ONE row's carried-through document_type to exercise the journal 1.0 + carry-through leg
++    journal_idx = next((i for i, r in enumerate(ps) if "sagepub" in r["url"]), 0)
++    srcs = [
++        _StubSource(r, document_type="JOURNAL_ARTICLE" if i == journal_idx else None)
++        for i, r in enumerate(ps)
++    ]
++
++    # --- OFF (no flag): byte-identical to HEAD ---
++    os.environ.pop("PG_DOCUMENT_TYPE_WEIGHT", None)
++    off = disclosure_to_dict(_build(srcs, banked, protocol=_PROTOCOL))  # flag unset => inactive
++    if len(off["per_source"]) != 64:
++        fails.append(f"OFF len(per_source)={len(off['per_source'])} != 64")
++    off_keys = sorted(off["per_source"][0].keys())
++    if off_keys != ["credibility_weight", "domain", "tier", "url", "weight_basis"]:
++        fails.append(f"OFF per_source row leaked M2 keys: {off_keys}")
++    for k in ("document_type_adjusted_mean", "document_type_preference_active"):
++        if k in off:
++            fails.append(f"OFF disclosure leaked top-level M2 key {k!r}")
++    # OFF credibility_weight/weight_basis byte-identical to the banked file
++    for orig, new in zip(ps, off["per_source"]):
++        if abs(orig["credibility_weight"] - new["credibility_weight"]) > 1e-9:
++            fails.append(f"OFF credibility_weight drift {orig['url'][:40]}")
++        if orig["weight_basis"] != new["weight_basis"]:
++            fails.append(f"OFF weight_basis drift {orig['url'][:40]}")
++
++    # --- ON (flag + active protocol) ---
++    os.environ["PG_DOCUMENT_TYPE_WEIGHT"] = "1"
++    try:
++        if not document_type_weighting_active(_PROTOCOL):
++            fails.append("document_type_weighting_active should be True under flag+protocol")
++        on = disclosure_to_dict(_build(srcs, banked, protocol=_PROTOCOL))
++    finally:
++        os.environ.pop("PG_DOCUMENT_TYPE_WEIGHT", None)
++
++    # (a) KEEP-not-DROP: len + url set conserved
++    if len(on["per_source"]) != 64:
++        fails.append(f"ON len(per_source)={len(on['per_source'])} != 64 (DROP!)")
++    if {r["url"] for r in on["per_source"]} != {r["url"] for r in ps}:
++        fails.append("ON url set changed (a source vanished)")
++    # (d) raw credibility axis BYTE-IDENTICAL to the banked file (M2 does not touch it)
++    for orig, new in zip(ps, on["per_source"]):
++        if abs(orig["credibility_weight"] - new["credibility_weight"]) > 1e-9:
++            fails.append(f"ON credibility_weight drift {orig['url'][:40]}: "
++                         f"{orig['credibility_weight']} -> {new['credibility_weight']}")
++        if orig["weight_basis"] != new["weight_basis"]:
++            fails.append(f"ON weight_basis drift {orig['url'][:40]}")
++    if abs(on["weighted_credibility_mean"] - banked["weighted_credibility_mean"]) > 1e-9:
++        fails.append("ON weighted_credibility_mean changed (M2 must NOT touch it)")
++    # (b) every ON row gained the 4 new fields
++    for r in on["per_source"]:
++        for k in ("document_type", "is_journal_article",
++                  "document_type_weight", "document_type_adjusted_weight"):
++            if k not in r or r[k] is None:
++                fails.append(f"ON row {r['url'][:40]} missing M2 field {k!r}")
++                break
++    by_url = {r["url"]: r for r in on["per_source"]}
++    # (c) journal row keeps 1.0; report/blog/preprint/book/predatory carry reduced multiplier
++    jr = on["per_source"][journal_idx]
++    if jr["document_type"] != "JOURNAL_ARTICLE" or abs(jr["document_type_weight"] - 1.0) > 1e-9:
++        fails.append(f"carried-through JOURNAL_ARTICLE row weight={jr.get('document_type_weight')} != 1.0")
++    if jr["is_journal_article"] is not True:
++        fails.append("carried-through journal row is_journal_article != True")
++    expect_mult = {
++        "https://arxiv.org/pdf/2011.03044": 0.7,  # PREPRINT
++        "https://www.weforum.org/stories/2026/01/ai-has-already-added-1-3-million-new-j": None,
++    }
++    # check a few real offenders by prefix match
++    def _row_for(prefix):
++        return next((r for u, r in by_url.items() if u.startswith(prefix)), None)
++    for prefix, dt_exp, mult_exp in [
++        ("https://arxiv.org/pdf/2011.03044", "PREPRINT", 0.7),
++        ("https://www.amazon.com/", "BOOK", 0.5),
++        ("https://www.weforum.org/stories", "REPORT", 0.5),
++        ("https://etm.wsu.edu/", "BLOG_COMMENTARY", 0.3),
++        ("https://its.uri.edu/", "BLOG_COMMENTARY", 0.3),
++    ]:
++        r = _row_for(prefix)
++        if r is None:
++            fails.append(f"expected offender {prefix} not in disclosure")
++            continue
++        if r["document_type"] != dt_exp:
++            fails.append(f"{prefix} document_type={r['document_type']} != {dt_exp}")
++        if abs(r["document_type_weight"] - mult_exp) > 1e-9:
++            fails.append(f"{prefix} document_type_weight={r['document_type_weight']} != {mult_exp}")
++        if r["document_type_weight"] >= 1.0:
++            fails.append(f"{prefix} non-journal carries full weight {r['document_type_weight']}")
++    # ewadirect (the predatory venue that LED the corroborated findings) is KEPT in the corpus
++    # disclosure (KEEP-not-DROP) and its document-type-adjusted weight falls BELOW the journal row.
++    ewa = next((r for r in on["per_source"] if "ewadirect" in r["url"]), None)
++    if ewa is None:
++        fails.append("ewadirect dropped from the corpus disclosure (must be KEPT)")
++    else:
++        if abs(ewa["credibility_weight"] - 0.6) > 1e-9:
++            fails.append(f"ewadirect raw credibility_weight changed: {ewa['credibility_weight']}")
++        if not (ewa["document_type_adjusted_weight"] < jr["document_type_adjusted_weight"]):
++            fails.append("ewadirect adjusted weight not below the journal row (re-rank would not demote it)")
++    # (e) the adjusted mean is a SEPARATE, lower second mean
++    if on.get("document_type_preference_active") is not True:
++        fails.append("ON document_type_preference_active != True")
++    adj = on.get("document_type_adjusted_mean")
++    if not isinstance(adj, (int, float)):
++        fails.append(f"ON document_type_adjusted_mean missing/non-numeric: {adj!r}")
++    elif not (adj < on["weighted_credibility_mean"]):
++        fails.append(f"adjusted_mean {adj} should be < weighted_mean {on['weighted_credibility_mean']}")
++    return fails
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3. Corroboration re-rank over the real bibliography.json (mirrors _m2_bib_genre).
++# ─────────────────────────────────────────────────────────────────────────────
++def _adjusted(b: dict) -> float:
++    dt, _ = classify_document_type(url=str(b.get("url") or ""),
++                                   title=str(b.get("statement") or ""))
++    return _tier_prior(str(b.get("tier") or "")) * resolve_document_type_weight(dt, _PROTOCOL)
++
++
++def test_corroboration_rerank() -> list[str]:
++    """The predatory ``ewadirect`` venue is a basket MEMBER, not a numbered bibliography row,
++    so its demotion is asserted at the disclosure layer (test_disclosure_replay). Here we prove
++    the bibliography re-rank itself: KEEP-not-DROP conservation + a real non-journal-below-journal
++    ordering, mirroring scripts/run_honest_sweep_r3.py:_m2_bib_genre."""
++    fails: list[str] = []
++    biblio = _load("bibliography.json")
++    ranked = sorted(biblio, key=lambda b: -_adjusted(b))
++    # conservation: nothing dropped/added (routed display order, not a filter)
++    if {str(b.get("num")) for b in ranked} != {str(b.get("num")) for b in biblio}:
++        fails.append("re-rank changed the bibliography set (must be conserved)")
++    if len(ranked) != len(biblio):
++        fails.append("re-rank changed the bibliography length (must be conserved)")
++    pos = {str(b.get("num")): i for i, b in enumerate(ranked)}
++    # cognifit blog (#21, T6 BLOG_COMMENTARY) must sort BELOW the wiley journal-host T1 entry (#10)
++    if "21" in pos and "10" in pos and not (pos["21"] > pos["10"]):
++        fails.append("blog #21 did not sort below journal-host T1 #10 after re-rank")
++    # monotonic non-increasing in the adjusted-weight key (sorted-by-construction sanity)
++    adj_seq = [_adjusted(b) for b in ranked]
++    if any(adj_seq[i] < adj_seq[i + 1] - 1e-12 for i in range(len(adj_seq) - 1)):
++        fails.append("re-rank ordering is not monotonic in document-type-adjusted weight")
++    return fails
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 4. resolve_document_type_weight override handling.
++# ─────────────────────────────────────────────────────────────────────────────
++def test_resolve_weight() -> list[str]:
++    fails: list[str] = []
++    # lower-case YAML override keys must resolve against upper-case DocumentType.value
++    proto = {"document_type_weights": {"preprint": 0.42, "journal_article": 0.9}}
++    if abs(resolve_document_type_weight(DocumentType.PREPRINT, proto) - 0.42) > 1e-9:
++        fails.append("lower-case YAML override 'preprint' not applied")
++    if abs(resolve_document_type_weight(DocumentType.JOURNAL_ARTICLE, proto) - 0.9) > 1e-9:
++        fails.append("lower-case YAML override 'journal_article' not applied")
++    # absent override falls to the module default
++    if abs(resolve_document_type_weight(DocumentType.BOOK, proto) - 0.5) > 1e-9:
++        fails.append("default BOOK weight not 0.5")
++    # garbage override value ignored -> module default
++    if abs(resolve_document_type_weight(DocumentType.REPORT, {"document_type_weights": {"report": "x"}}) - 0.5) > 1e-9:
++        fails.append("garbage override not ignored")
++    # no protocol => default
++    if abs(resolve_document_type_weight(DocumentType.UNKNOWN, None) - 0.5) > 1e-9:
++        fails.append("None protocol default not 0.5")
++    return fails
++
++
++def main() -> int:
++    all_fails: dict[str, list[str]] = {}
++    for fn in (test_classify_truth_table, test_disclosure_replay,
++               test_corroboration_rerank, test_resolve_weight):
++        f = fn()
++        all_fails[fn.__name__] = f
++        status = "PASS" if not f else "FAIL"
++        print(f"[{status}] {fn.__name__}  ({len(f)} failure(s))")
++        for line in f:
++            print(f"    - {line}")
++    total = sum(len(v) for v in all_fails.values())
++    print(f"\nTOTAL failures: {total}")
++    return 1 if total else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/polaris_graph/test_m3a_locator_carry_through.py b/tests/polaris_graph/test_m3a_locator_carry_through.py
+new file mode 100644
+index 00000000..e0adce22
+--- /dev/null
++++ b/tests/polaris_graph/test_m3a_locator_carry_through.py
+@@ -0,0 +1,149 @@
++"""M3a (I-deepfix-001) — DOI/PMID locator carry-through, offline.
++
++Proves the two real production functions, against the REAL banked drb72 fixture:
++
++  1. ``provenance_generator.resolve_provenance_to_citations_with_count`` (which
++     contains the ``_num_for`` bib-row builder) now carries ``doi``/``pmid`` from
++     the evidence_pool row onto each bibliography row.
++  2. ``run_honest_sweep_r3._render_bibliography_lines`` (with the existing
++     ``PG_BIB_REQUIRE_LOCATOR`` doi.org/pubmed fallback) renders a resolvable
++     locator for a URL-less-but-DOI-bearing primary instead of the
++     "no resolvable URL/DOI locator" gap line.
++
++The two canonical primaries in the fixture (acemoglu_restrepo_robots_jobs JPE 2020
++10.1086/705716 ; eloundou_gpts_are_gpts Science 2024 10.1126/science.adj0998) both
++carry an EMPTY source_url and a valid DOI — exactly the M3a defect scenario.
++
++No paid API, no GPU, no network.
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(ROOT))
++sys.path.insert(0, str(ROOT / "src"))
++
++# Relevance gate OFF so resolve() takes the byte-identical legacy path (no judge).
++os.environ.pop("PG_RELEVANCE_GATE", None)
++
++from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
++    ProvenanceToken,
++    SentenceVerification,
++    resolve_provenance_to_citations_with_count,
++)
++
++FIXTURE = ROOT / "tests" / "fixtures" / "drb72" / "evidence_pool.json"
++
++ROBOTS = "acemoglu_restrepo_robots_jobs"
++ELOUNDOU = "eloundou_gpts_are_gpts"
++ROBOTS_DOI = "10.1086/705716"
++ELOUNDOU_DOI = "10.1126/science.adj0998"
++
++
++def _load_render_fn():
++    """Import the 17k-line sweep script by path (import-safe: __main__-guarded,
++    no eager torch/chromadb) and return (_render_bibliography_lines, module)."""
++    spec = importlib.util.spec_from_file_location(
++        "rhs_m3a", str(ROOT / "scripts" / "run_honest_sweep_r3.py")
++    )
++    m = importlib.util.module_from_spec(spec)
++    sys.modules["rhs_m3a"] = m
++    spec.loader.exec_module(m)
++    return m
++
++
++def _pool_by_eid() -> dict[str, dict]:
++    rows = json.loads(FIXTURE.read_text(encoding="utf-8"))
++    return {str(r["evidence_id"]): r for r in rows if isinstance(r, dict)}
++
++
++def _sv(eid: str) -> SentenceVerification:
++    raw = f"[#ev:{eid}:0-40]"
++    sentence = (
++        f"Industrial robots reduced United States local labor market employment {raw}."
++    )
++    return SentenceVerification(
++        sentence=sentence,
++        tokens=[ProvenanceToken(evidence_id=eid, start=0, end=40, raw=raw)],
++        is_verified=True,
++    )
++
++
++def test_num_for_carries_doi_onto_bib_rows():
++    """The real resolve()/_num_for now stashes the row's DOI onto the bib row."""
++    pool = _pool_by_eid()
++    assert pool[ROBOTS]["doi"] == ROBOTS_DOI and pool[ROBOTS]["source_url"] == ""
++    assert pool[ELOUNDOU]["doi"] == ELOUNDOU_DOI and pool[ELOUNDOU]["source_url"] == ""
++
++    _text, biblio, emitted = resolve_provenance_to_citations_with_count(
++        [_sv(ROBOTS), _sv(ELOUNDOU)], pool
++    )
++    assert emitted == 2, emitted
++    by_eid = {r["evidence_id"]: r for r in biblio}
++    assert by_eid[ROBOTS]["doi"] == ROBOTS_DOI, by_eid[ROBOTS]
++    assert by_eid[ELOUNDOU]["doi"] == ELOUNDOU_DOI, by_eid[ELOUNDOU]
++    # url stayed empty (carry-through added the DOI; it did not invent a URL)
++    assert by_eid[ROBOTS]["url"] == ""
++    assert "pmid" in by_eid[ROBOTS]
++    return biblio
++
++
++def test_render_resolves_doi_locator_for_urlless_primaries():
++    """With require_locator ON, the URL-less DOI-bearing rows render the doi.org
++    locator instead of the 'no resolvable URL/DOI locator' gap line."""
++    m = _load_render_fn()
++    biblio = test_num_for_carries_doi_onto_bib_rows()
++    out = m._render_bibliography_lines(biblio, require_locator=True)
++    assert f"https://doi.org/{ROBOTS_DOI}" in out, out
++    assert f"https://doi.org/{ELOUNDOU_DOI}" in out, out
++    assert "no resolvable URL/DOI locator" not in out, out
++
++
++def test_render_control_idless_row_still_gaps():
++    """A genuinely id-less cited row (no url, no doi, no pmid) still renders the
++    disclosed gap line under require_locator — the fix does not paper over a real gap."""
++    m = _load_render_fn()
++    row = {"num": 99, "url": "", "doi": "", "pmid": "", "tier": "T3",
++           "statement": "An entry with no resolvable identifier at all"}
++    out = m._render_bibliography_lines([row], require_locator=True)
++    assert "no resolvable URL/DOI locator" in out, out
++
++
++def test_render_pmid_only_row_resolves_pubmed_locator():
++    """A URL-less, DOI-less row carrying only a PMID renders the canonical PubMed
++    locator (M3a optional extension), never fabricated."""
++    m = _load_render_fn()
++    row = {"num": 98, "url": "", "doi": "", "pmid": "31234567", "tier": "T1",
++           "statement": "A PMID-only primary source"}
++    out = m._render_bibliography_lines([row], require_locator=True)
++    assert "https://pubmed.ncbi.nlm.nih.gov/31234567/" in out, out
++    assert "no resolvable URL/DOI locator" not in out, out
++
++
++def test_off_path_doi_key_is_render_neutral():
++    """require_locator=False (PG_BIB_REQUIRE_LOCATOR OFF): the added doi/pmid keys
++    are render-neutral — a row WITH them renders byte-identically to one WITHOUT."""
++    m = _load_render_fn()
++    row_with = {"num": 1, "url": "", "doi": ROBOTS_DOI, "pmid": "",
++                "tier": "T1", "statement": "Robots and Jobs"}
++    row_without = {"num": 1, "url": "", "tier": "T1", "statement": "Robots and Jobs"}
++    a = m._render_bibliography_lines([row_with], require_locator=False)
++    b = m._render_bibliography_lines([row_without], require_locator=False)
++    assert a == b, (repr(a), repr(b))
++    # and the OFF path does NOT emit the doi.org fallback at all
++    assert "https://doi.org/" not in a, a
++
++
++if __name__ == "__main__":
++    n_pass = 0
++    for name, fn in sorted(globals().items()):
++        if name.startswith("test_") and callable(fn):
++            fn()
++            print(f"PASS {name}")
++            n_pass += 1
++    print(f"\nM3a: {n_pass}/{n_pass} passed")
+diff --git a/tests/polaris_graph/test_m3b_abstract_gather.py b/tests/polaris_graph/test_m3b_abstract_gather.py
+new file mode 100644
+index 00000000..cc292406
+--- /dev/null
++++ b/tests/polaris_graph/test_m3b_abstract_gather.py
+@@ -0,0 +1,266 @@
++"""M3b (I-deepfix-001) — abstract gather-all-then-pick-richest + Semantic Scholar
++3rd source, fully offline via a dependency-injected fake httpx.Client.
++
++Exercises the REAL ``frame_fetcher._fetch_frame_entity_inner`` for the two
++canonical closed-access primaries (robots_jobs JPE 2020 ; eloundou Science 2024),
++proving:
++
++  * the OpenAlex/S2 gather is consulted EVEN WHEN CrossRef returned an abstract
++    (PG_FRAME_MULTI_ABSTRACT default ON), so a degenerate first-source fragment
++    can no longer short-circuit the gather → ``_pick_richest_abstract`` picks the
++    longest;
++  * the new Semantic Scholar source lands a full abstract, DOI-consistency-guarded;
++  * both kill-switches OFF restore the legacy short-circuit byte-identically.
++
++No paid API, no GPU, no network — every HTTP call is served by FakeClient.
++"""
++from __future__ import annotations
++
++import os
++import sys
++from dataclasses import dataclass
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(ROOT))
++sys.path.insert(0, str(ROOT / "src"))
++
++# Hermetic: CORE OA full-text path off (it is only reached on an OA locator anyway,
++# which these paywalled primaries never have, but keep the test self-contained).
++os.environ["PG_CORE_ENABLED"] = "0"
++# Prefer-abstract flag is a module-level import-time constant; leave it default OFF.
++os.environ.pop("PG_FRAME_PREFER_ABSTRACT", None)
++
++from src.polaris_graph.nodes.frame_compiler import EvidenceBinding  # noqa: E402
++from src.polaris_graph.retrieval import frame_fetcher as ff  # noqa: E402
++
++ROBOTS_DOI = "10.1086/705716"
++ELOUNDOU_DOI = "10.1126/science.adj0998"
++
++# eloundou's real degenerate first-source fragment shape (the 56-char trap).
++ELOUNDOU_FRAGMENT = "Research is needed to estimate how jobs may be affected by"
++ELOUNDOU_FULL = (
++    "We investigate the potential implications of large language models (LLMs), "
++    "such as Generative Pre-trained Transformers (GPTs), on the U.S. labor market, "
++    "focusing on the increased capabilities arising from LLM-powered software "
++    "compared to LLMs on their own. Using a new rubric, we assess occupations based "
++    "on their alignment with LLM capabilities, integrating both human expertise and "
++    "GPT-4 classifications. Our findings reveal that around 80% of the U.S. workforce "
++    "could have at least 10% of their work tasks affected by the introduction of LLMs."
++)
++ROBOTS_OPENALEX = (
++    "We study the effects of industrial robots on US labor markets. We show "
++    "theoretically that robots may reduce employment and wages and that their local "
++    "impacts can be estimated using variation in exposure to robots across commuting "
++    "zones. We estimate robust negative effects of robots on employment and wages "
++    "across commuting zones between 1990 and 2007. One more robot per thousand workers "
++    "reduces the employment-to-population ratio by about 0.2 percentage points and "
++    "wages by 0.42%."
++)
++ROBOTS_S2_SHORT = "Industrial robots reduce employment and wages in exposed US commuting zones."
++
++
++def _inverted_index(text: str) -> dict[str, list[int]]:
++    inv: dict[str, list[int]] = {}
++    for i, w in enumerate(text.split()):
++        inv.setdefault(w, []).append(i)
++    return inv
++
++
++@dataclass
++class FakeResponse:
++    status_code: int
++    _json: object = None
++    text: str = ""
++
++    def json(self):
++        if self._json is None:
++            raise ValueError("no json")
++        return self._json
++
++
++class FakeClient:
++    """Routes by URL substring to canned responses; records every requested URL.
++    Any unexpected source raises so a test can never silently hit the network."""
++
++    def __init__(self, routes: dict[str, FakeResponse]):
++        self.routes = routes
++        self.calls: list[str] = []
++
++    def get(self, url, headers=None, params=None):  # noqa: D401 - mirrors httpx.Client.get
++        self.calls.append(url)
++        if "api.crossref.org" in url:
++            key = "crossref"
++        elif "api.unpaywall.org" in url:
++            key = "unpaywall"
++        elif "api.openalex.org" in url:
++            key = "openalex"
++        elif "semanticscholar.org" in url:
++            key = "s2"
++        elif "eutils.ncbi" in url:
++            key = "pubmed"
++        else:
++            raise AssertionError(f"unexpected outbound URL: {url}")
++        if key not in self.routes:
++            raise AssertionError(f"no canned response for source {key!r} (url={url})")
++        return self.routes[key]
++
++    def close(self):
++        pass
++
++
++def _crossref(*, doi: str, title: str, abstract: str | None) -> FakeResponse:
++    msg: dict = {"title": [title], "DOI": doi, "author": [],
++                 "container-title": ["J"], "published-print": {"date-parts": [[2020]]}}
++    if abstract is not None:
++        msg["abstract"] = abstract
++    return FakeResponse(200, {"message": msg})
++
++
++def _unpaywall_closed() -> FakeResponse:
++    return FakeResponse(200, {"is_oa": False, "best_oa_location": None})
++
++
++def _openalex(*, doi: str, title: str, abstract: str | None) -> FakeResponse:
++    body: dict = {"doi": f"https://doi.org/{doi}", "display_name": title,
++                  "publication_year": 2020, "authorships": [], "primary_location": {}}
++    body["abstract_inverted_index"] = _inverted_index(abstract) if abstract else None
++    return FakeResponse(200, body)
++
++
++def _s2(*, ext_doi: str, title: str, abstract: str | None) -> FakeResponse:
++    return FakeResponse(200, {"title": title, "abstract": abstract, "year": 2024,
++                              "venue": "Science", "externalIds": {"DOI": ext_doi}})
++
++
++def _binding(doi: str) -> EvidenceBinding:
++    return EvidenceBinding(
++        entity_id="e1", entity_type="economic_report",
++        primary_identifier=f"doi:{doi}", secondary_identifiers=(),
++        rendering_slot="body", required_fields=("thesis",),
++        min_fields_for_completion=1,
++    )
++
++
++def _set_flags(*, multi: str | None, s2: str | None):
++    for name, val in (("PG_FRAME_MULTI_ABSTRACT", multi), ("PG_FRAME_S2_ABSTRACT", s2)):
++        if val is None:
++            os.environ.pop(name, None)
++        else:
++            os.environ[name] = val
++
++
++# ── tests ────────────────────────────────────────────────────────────────────
++
++def test_robots_jobs_openalex_lands_abstract():
++    """Previously-empty primary: CrossRef no-abstract, OpenAlex 600+ char abstract,
++    S2 short → richest (OpenAlex) lands as ABSTRACT_ONLY direct_quote."""
++    _set_flags(multi=None, s2=None)  # both default ON
++    client = FakeClient({
++        "crossref": _crossref(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=None),
++        "unpaywall": _unpaywall_closed(),
++        "openalex": _openalex(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=ROBOTS_OPENALEX),
++        "s2": _s2(ext_doi=ROBOTS_DOI, title="Robots and Jobs", abstract=ROBOTS_S2_SHORT),
++    })
++    row = ff._fetch_frame_entity_inner(_binding(ROBOTS_DOI), client)
++    assert row.provenance_class == ff.ProvenanceClass.ABSTRACT_ONLY, row.provenance_class
++    assert row.quote_source == "openalex_abstract", row.quote_source
++    assert row.direct_quote == ROBOTS_OPENALEX, repr(row.direct_quote[:60])
++    assert len(row.direct_quote) > 400
++
++
++def test_eloundou_multi_consults_s2_and_full_beats_fragment():
++    """KEY MULTI test: CrossRef returns the 56-char fragment, but with MULTI ON the
++    gather still consults S2 (which carries the FULL abstract) and the full wins —
++    the degenerate fragment can no longer short-circuit the gather."""
++    _set_flags(multi=None, s2=None)  # both default ON
++    client = FakeClient({
++        "crossref": _crossref(doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=ELOUNDOU_FRAGMENT),
++        "unpaywall": _unpaywall_closed(),
++        "openalex": _openalex(doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=None),
++        "s2": _s2(ext_doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=ELOUNDOU_FULL),
++    })
++    row = ff._fetch_frame_entity_inner(_binding(ELOUNDOU_DOI), client)
++    assert row.direct_quote == ELOUNDOU_FULL, repr(row.direct_quote[:60])
++    assert row.quote_source == "s2_abstract", row.quote_source
++    assert len(row.direct_quote) > len(ELOUNDOU_FRAGMENT)
++    assert any("semanticscholar.org" in u for u in client.calls)
++
++
++def test_multi_and_s2_off_restores_crossref_fragment_byte_identical():
++    """Both kill-switches OFF: the legacy short-circuit holds — CrossRef's abstract
++    wins (even the 56-char fragment), S2 is never called."""
++    _set_flags(multi="0", s2="0")
++    client = FakeClient({
++        "crossref": _crossref(doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=ELOUNDOU_FRAGMENT),
++        "unpaywall": _unpaywall_closed(),
++        # openalex/s2 present but MUST NOT be consulted on the OFF path
++        "openalex": _openalex(doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=ELOUNDOU_FULL),
++        "s2": _s2(ext_doi=ELOUNDOU_DOI, title="GPTs are GPTs", abstract=ELOUNDOU_FULL),
++    })
++    row = ff._fetch_frame_entity_inner(_binding(ELOUNDOU_DOI), client)
++    assert row.direct_quote == ELOUNDOU_FRAGMENT, repr(row.direct_quote)
++    assert row.quote_source == "crossref_abstract", row.quote_source
++    assert not any("api.openalex.org" in u for u in client.calls), client.calls
++    assert not any("semanticscholar.org" in u for u in client.calls), client.calls
++
++
++def test_s2_doi_mismatch_rejected():
++    """S2 returns a wrong-paper DOI in externalIds → the DOI-consistency guard
++    rejects its abstract (never extract from the wrong work); a mismatch attempt is
++    logged for source 's2', and the slot honestly stays METADATA_ONLY."""
++    _set_flags(multi=None, s2=None)
++    client = FakeClient({
++        "crossref": _crossref(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=None),
++        "unpaywall": _unpaywall_closed(),
++        "openalex": _openalex(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=None),
++        "s2": _s2(ext_doi="10.9999/wrong-paper", title="Some Other Paper",
++                  abstract="A wrong-paper abstract that must NOT be extracted."),
++    })
++    row = ff._fetch_frame_entity_inner(_binding(ROBOTS_DOI), client)
++    assert row.provenance_class == ff.ProvenanceClass.METADATA_ONLY, row.provenance_class
++    assert row.direct_quote == "", repr(row.direct_quote)
++    s2_mismatch = [a for a in row.retrieval_attempts
++                   if a.source == "s2" and "doi_mismatch" in a.outcome]
++    assert s2_mismatch, [(a.source, a.outcome) for a in row.retrieval_attempts]
++
++
++def test_s2_off_no_s2_attempt_openalex_still_lands():
++    """PG_FRAME_S2_ABSTRACT=0 removes S2 entirely (no s2 attempt), while OpenAlex
++    still lands under MULTI ON — proves the two switches are independent."""
++    _set_flags(multi=None, s2="0")
++    client = FakeClient({
++        "crossref": _crossref(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=None),
++        "unpaywall": _unpaywall_closed(),
++        "openalex": _openalex(doi=ROBOTS_DOI, title="Robots and Jobs", abstract=ROBOTS_OPENALEX),
++        "s2": _s2(ext_doi=ROBOTS_DOI, title="Robots and Jobs", abstract=ROBOTS_S2_SHORT),
++    })
++    row = ff._fetch_frame_entity_inner(_binding(ROBOTS_DOI), client)
++    assert row.direct_quote == ROBOTS_OPENALEX, repr(row.direct_quote[:60])
++    assert not any("semanticscholar.org" in u for u in client.calls), client.calls
++    assert not any(a.source == "s2" for a in row.retrieval_attempts)
++
++
++def test_pick_richest_abstract_s2_unit():
++    """Unit: _pick_richest_abstract admits s2 as a candidate (longest wins); the
++    default s2=None keeps legacy 3-source behavior byte-identical."""
++    long_s2 = "x" * 500
++    text, src = ff._pick_richest_abstract(
++        crossref="short cross", openalex="med openalex text", pubmed=None, s2=long_s2,
++    )
++    assert src == "s2_abstract" and text == long_s2
++    # s2 omitted => legacy
++    t2, s2src = ff._pick_richest_abstract(
++        crossref="aaaa", openalex="bbbbbbbb", pubmed=None,
++    )
++    assert s2src == "openalex_abstract" and t2 == "bbbbbbbb"
++
++
++if __name__ == "__main__":
++    n = 0
++    for name, fn in sorted(globals().items()):
++        if name.startswith("test_") and callable(fn):
++            fn()
++            print(f"PASS {name}")
++            n += 1
++    print(f"\nM3b: {n}/{n} passed")
+diff --git a/tests/polaris_graph/test_m56_frame_fetcher.py b/tests/polaris_graph/test_m56_frame_fetcher.py
+index b99ae146..9d1c83b3 100644
+--- a/tests/polaris_graph/test_m56_frame_fetcher.py
++++ b/tests/polaris_graph/test_m56_frame_fetcher.py
+@@ -950,7 +950,14 @@ class TestAttemptURLQueryParams:
+ 
+ 
+ class TestRetrievalAttemptLog:
+-    def test_success_logged(self) -> None:
++    def test_success_logged(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        # M3b (I-deepfix-001): pin the gather-all flags OFF so the attempt/timing
++        # log is the legacy crossref/unpaywall/access_bypass shape this test
++        # asserts. With the default ON, OpenAlex+S2 add their own (404) attempts
++        # and timings for this CrossRef-abstract-present fixture — that telemetry
++        # is exercised in test_m3b_abstract_gather.py.
++        monkeypatch.setenv("PG_FRAME_MULTI_ABSTRACT", "0")
++        monkeypatch.setenv("PG_FRAME_S2_ABSTRACT", "0")
+         transport = _Transport([
+             ("api.crossref.org", 200, _crossref_response()),
+             ("api.unpaywall.org", 200,
+@@ -1289,9 +1296,20 @@ class TestOpenAlexFallback:
+         assert row.quote_source == "openalex_abstract"
+         assert "Tirzepatide" in row.direct_quote
+ 
+-    def test_crossref_abstract_present_skips_openalex(self) -> None:
+-        """When CrossRef already has an abstract, OpenAlex must NOT be
+-        called (priority + no wasted request)."""
++    def test_crossref_abstract_present_skips_openalex(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """LEGACY short-circuit: when CrossRef already has an abstract, OpenAlex
++        must NOT be called (priority + no wasted request).
++
++        M3b (I-deepfix-001) moved the DEFAULT to gather-all-then-pick-richest
++        (``PG_FRAME_MULTI_ABSTRACT``/``PG_FRAME_S2_ABSTRACT`` default ON), under
++        which OpenAlex/S2 ARE consulted even when CrossRef has an abstract so the
++        richest wins — that ON path is covered by test_m3b_abstract_gather.py.
++        This test pins the OFF flags to assert the legacy short-circuit is
++        byte-identically restored."""
++        monkeypatch.setenv("PG_FRAME_MULTI_ABSTRACT", "0")
++        monkeypatch.setenv("PG_FRAME_S2_ABSTRACT", "0")
+         transport = _Transport([
+             ("api.crossref.org", 200, _crossref_response()),
+             ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),

@@ -950,7 +950,14 @@ class TestAttemptURLQueryParams:
 
 
 class TestRetrievalAttemptLog:
-    def test_success_logged(self) -> None:
+    def test_success_logged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # M3b (I-deepfix-001): pin the gather-all flags OFF so the attempt/timing
+        # log is the legacy crossref/unpaywall/access_bypass shape this test
+        # asserts. With the default ON, OpenAlex+S2 add their own (404) attempts
+        # and timings for this CrossRef-abstract-present fixture — that telemetry
+        # is exercised in test_m3b_abstract_gather.py.
+        monkeypatch.setenv("PG_FRAME_MULTI_ABSTRACT", "0")
+        monkeypatch.setenv("PG_FRAME_S2_ABSTRACT", "0")
         transport = _Transport([
             ("api.crossref.org", 200, _crossref_response()),
             ("api.unpaywall.org", 200,
@@ -1289,9 +1296,20 @@ class TestOpenAlexFallback:
         assert row.quote_source == "openalex_abstract"
         assert "Tirzepatide" in row.direct_quote
 
-    def test_crossref_abstract_present_skips_openalex(self) -> None:
-        """When CrossRef already has an abstract, OpenAlex must NOT be
-        called (priority + no wasted request)."""
+    def test_crossref_abstract_present_skips_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LEGACY short-circuit: when CrossRef already has an abstract, OpenAlex
+        must NOT be called (priority + no wasted request).
+
+        M3b (I-deepfix-001) moved the DEFAULT to gather-all-then-pick-richest
+        (``PG_FRAME_MULTI_ABSTRACT``/``PG_FRAME_S2_ABSTRACT`` default ON), under
+        which OpenAlex/S2 ARE consulted even when CrossRef has an abstract so the
+        richest wins — that ON path is covered by test_m3b_abstract_gather.py.
+        This test pins the OFF flags to assert the legacy short-circuit is
+        byte-identically restored."""
+        monkeypatch.setenv("PG_FRAME_MULTI_ABSTRACT", "0")
+        monkeypatch.setenv("PG_FRAME_S2_ABSTRACT", "0")
         transport = _Transport([
             ("api.crossref.org", 200, _crossref_response()),
             ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),

@@ -154,6 +154,17 @@ class ClassificationResult:
     #     content-adequacy stay separate signals).
     # Default False = byte-identical to HEAD for every non-stub row.
     fetch_degraded: bool = False
+    # ── I-deepfix-001 M2 ADDITIVE fields — per-citation document GENRE (orthogonal to the
+    # T1-T7 credibility tier). Populated ONLY when PG_DOCUMENT_TYPE_WEIGHT is ON (computed
+    # at the ``classify_source_tier`` dispatcher so EVERY classifier path — rules,
+    # authority-model, LLM-tiering — carries it); default None = byte-identical to HEAD.
+    # ``document_type`` is a DocumentType.value; ``is_journal_article`` is True only for a
+    # peer-reviewed journal/review article. WEIGHT-and-LABEL: no consumer reads these as a
+    # drop/abort/release gate — they ride to the credibility-disclosure layer as advisory
+    # genre, of the SAME class as ``authority_score``/``source_class``. The faithfulness
+    # engine is untouched.
+    document_type: str | None = None
+    is_journal_article: bool | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1237,10 +1248,60 @@ def classify_source_tier(
             classify_source_tier_llm,
         )
 
-        return classify_source_tier_llm(signals)
-    if os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
-        return _classify_via_authority_model(signals)
-    return _classify_source_tier_rules(signals)
+        result = classify_source_tier_llm(signals)
+    elif os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
+        result = _classify_via_authority_model(signals)
+    else:
+        result = _classify_source_tier_rules(signals)
+    # ── I-deepfix-001 M2: stamp the per-citation document GENRE at the SINGLE dispatch
+    # point so EVERY path (rules / authority-model / LLM-tiering) carries it identically —
+    # the genre rides next to ``authority_score``/``source_class`` to the credibility
+    # disclosure. Gated by ``PG_DOCUMENT_TYPE_WEIGHT`` (the flag leg of the M2 double gate);
+    # default OFF => fields stay None => byte-identical to HEAD (no consumer reads them OFF).
+    # ``predatory_oa`` is read off the authority sidecar when the authority model ran (the
+    # only path that computes it); the deterministic OpenAlex/host fallback covers the other
+    # paths. PURE — no network/LLM; the faithfulness engine is untouched.
+    _m2_dt(result, signals)
+    return result
+
+
+def _m2_dt(result: "ClassificationResult", signals: "ClassificationSignals") -> None:
+    """I-deepfix-001 M2: stamp ``document_type``/``is_journal_article`` on ``result`` IN
+    PLACE when ``PG_DOCUMENT_TYPE_WEIGHT`` is ON. No-op (byte-identical) otherwise.
+
+    Fail-open: any error leaves the additive fields None (never raises into classification).
+    """
+    from src.polaris_graph.retrieval.document_type_classifier import _flag_on  # noqa: PLC0415
+
+    if not _flag_on():
+        return
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
+            classify_document_type,
+            is_peer_reviewed_journal_article,
+        )
+
+        authority = (
+            result.signals_used.get("authority")
+            if isinstance(result.signals_used, dict)
+            else None
+        )
+        predatory = bool(authority.get("predatory_oa")) if isinstance(authority, dict) else False
+        dt, _basis = classify_document_type(
+            openalex_publication_type=signals.openalex_publication_type,
+            openalex_source_type=signals.openalex_source_type,
+            openalex_is_peer_reviewed=signals.openalex_is_peer_reviewed,
+            predatory_oa=predatory,
+            source_class=str(result.source_class or ""),
+            url=signals.url,
+            title=signals.title,
+            doi=signals.doi,
+        )
+        result.document_type = dt.value
+        result.is_journal_article = is_peer_reviewed_journal_article(dt)
+    except Exception:  # noqa: BLE001 — additive label; never break classification
+        result.document_type = None
+        result.is_journal_article = None
 
 
 def _classify_source_tier_rules(

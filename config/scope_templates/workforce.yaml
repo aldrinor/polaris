@@ -90,6 +90,37 @@ expected_tier_distribution:
 # JOURNAL_ONLY_BENCHMARK_SLUGS. It is NOT used by any current question.
 source_restriction: journal_only
 
+# -------------------------------------------------------------------
+# I-deepfix-001 M2: per-citation document-TYPE WEIGHT-and-DISCLOSE preference.
+# This is a NEW, DISTINCT mechanism from the dormant reversed `source_restriction:
+# journal_only` DROP/COUNT-floor above — it NEVER drops a source. When active it (a)
+# surfaces a per-citation document-genre label, (b) attaches an orthogonal multiplicative
+# display weight to the credibility disclosure (a SECOND adjusted mean; the raw
+# credibility_weight is untouched and read by every gate exactly as before), and (c) re-ranks
+# the rendered Corroborated Weighted Findings so a non-journal/predatory venue falls below the
+# journal articles but STAYS in the list, labelled.
+#
+# DOUBLE-GATED + default-OFF byte-identical: BOTH the runtime flag PG_DOCUMENT_TYPE_WEIGHT=1
+# AND this `document_type_preference: journal_article` field must hold. Activation for a real
+# run is a one-line operator decision for a DELIBERATE journal-only question. The faithfulness
+# engine (strict_verify / NLI / 4-role D8 / span-grounding / provenance) is untouched; no
+# abort/approval/release gate reads the document-type weight.
+document_type_preference: journal_article
+document_type_weights:        # LAW VI overridable multipliers (else module defaults). NOT a floor/cap.
+  journal_article: 1.0
+  review_article: 1.0
+  preprint: 0.7
+  working_paper: 0.6
+  conference_paper: 0.7
+  report: 0.5
+  book: 0.5
+  news: 0.4
+  press_release: 0.35
+  blog_commentary: 0.3
+  encyclopedia: 0.25
+  predatory_oa_journal: 0.25
+  unknown: 0.5
+
 journal_only_tier_distribution:
   - tier: T1
     min_fraction: 0.40

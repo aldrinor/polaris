@@ -5780,6 +5780,14 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # I-deepfix-001 M2: carry the per-citation document GENRE forward onto the
+                # groundable evidence row (mirror of ``.tier``/``.authority_score``) so the
+                # weighted-corpus credibility disclosure can build its url->document_type join.
+                # Set ONLY when the classifier stamped a non-None genre (i.e. PG_DOCUMENT_TYPE_WEIGHT
+                # ON) so an OFF row is byte-identical. Pure placement/disclosure metadata — never
+                # enters a verified claim, never relaxes strict_verify / NLI / 4-role (§-1.3).
+                if getattr(tier_result, "document_type", None):
+                    _row["document_type"] = tier_result.document_type
                 # I-deepfix-001 (#1344) DEFER-1: carry the W2 content-relevance LABEL
                 # (and its weight) onto the groundable evidence row so the cite-surface
                 # off-topic suppression (weighted_enrichment._is_confirmed_offtopic) can
@@ -5960,6 +5968,12 @@ def run_live_retrieval(
                 _auth0 = score_source_authority(signals)
                 _row0["authority_score"] = float(_auth0.authority_score)
                 _row0["authority_confidence"] = _auth0.authority_confidence.value
+            # I-deepfix-001 M2: carry the document GENRE on the disclosed zero-weight row too
+            # (set ONLY when the classifier stamped one => PG_DOCUMENT_TYPE_WEIGHT ON; OFF row
+            # byte-identical). Disclosure metadata only; this row already carries direct_quote=""
+            # so it can never ground a claim (the faithfulness engine is untouched).
+            if getattr(tier_result, "document_type", None):
+                _row0["document_type"] = tier_result.document_type
             evidence_rows.append(_row0)
             logger.info(
                 "[live_retriever] §-1.3 RETAIN failed-fetch source at ZERO weight "

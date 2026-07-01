@@ -43,6 +43,12 @@ _VERIFIED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE"
 # ``compose_multicited_sentence`` for the per-clause (NOT whole-sentence) verify invariant.
 _MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
 
+# I-deepfix-001 M6 — verified CROSS-SOURCE analytical synthesis. Default-OFF (LAW VI): when unset/off the
+# section producer is byte-identical (no import, no call); ON, an ADDITIVE pass appends analytical
+# sentences (two verified atoms joined by an engine-LICENSED connective) on top of the keep-all
+# single-source units. The faithfulness engine is never touched — see ``cross_source_synthesis``.
+_CROSS_SOURCE_SYNTHESIS_ENV = "PG_CROSS_SOURCE_SYNTHESIS"
+
 # A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
 # Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
@@ -156,6 +162,13 @@ def _multicited_compose_enabled() -> bool:
     ``compose_multicited_sentence``. Independent of ``PG_VERIFIED_COMPOSE`` so the multi-cited path
     is a SEPARATE, explicitly-opted increment (no implicit activation)."""
     return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _cross_source_synthesis_enabled() -> bool:
+    """PG_CROSS_SOURCE_SYNTHESIS gate (I-deepfix-001 M6). DEFAULT-OFF => the cross-source analytical
+    producer is never invoked and the section producer is byte-identical; ON => after the per-basket
+    units are built, ADDITIVELY append engine-licensed analytical sentences (keep-all)."""
+    return os.getenv(_CROSS_SOURCE_SYNTHESIS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def split_into_sentences(text: str) -> list[str]:
@@ -945,10 +958,23 @@ def _compose_section_per_basket(
     *,
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
+    edges: Any = None,
+    equiv_clusters: Any = None,
+    agree_map: Any = None,
 ) -> list[str]:
     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
     Returns one composed string per basket, in order. Order-stable.
+
+    I-deepfix-001 M6 (cross-source analytical synthesis): when ``PG_CROSS_SOURCE_SYNTHESIS`` is ON
+    (DEFAULT-OFF => byte-identical; ``edges``/``equiv_clusters``/``agree_map`` are then unused and never
+    read), an ADDITIVE pass appends analytical sentences — each ``[verified clause A][engine-LICENSED
+    connective][verified clause B]`` spanning TWO baskets — AFTER the per-basket units are built. The
+    two atoms keep their own ``[#ev]`` tokens and re-pass the UNCHANGED ``strict_verify`` per clause; the
+    connective carries no token and is licensed by ``cross_source_synthesis.license_relation`` from the
+    certified relation engines (``edges`` = ContradictionEdge list, the agreement map). KEEP-ALL: the
+    analytical unit is additive on top of the single-source units; the idx8 footprint dedup below never
+    collapses it (its two-token footprint is a SUPERSET of either atom's), so no source/basket vanishes.
 
     I-beatboth-011 (#1289):
       §3.5 placeholder-leak — DROP any per-basket result that is the internal insufficient-evidence
@@ -1028,6 +1054,43 @@ def _compose_section_per_basket(
         seen_spans |= spans
         seen_texts.add(norm)
         out.append(composed)
+
+    # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
+    # no call). ON => append analytical sentences (two engine-licensed verified atoms) on top of the
+    # keep-all single-source units. Each analytical unit carries TWO distinct [#ev] tokens whose two-span
+    # footprint is a SUPERSET of either atom's, so the idx8 footprint-dedup above (applied identically
+    # below) can never collapse it against an atom — keep-all holds. The downstream
+    # _rewrite_draft_with_spans + UNCHANGED strict_verify tail gates each analytical sentence per clause.
+    if _cross_source_synthesis_enabled():
+        from src.polaris_graph.generator.cross_source_synthesis import (  # noqa: PLC0415
+            compose_cross_source_analytical_units,
+        )
+        analytical = compose_cross_source_analytical_units(
+            section_baskets, evidence_pool,
+            writer_fn=writer_fn, verify_fn=verify_fn,
+            edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+        )
+        for unit in analytical:
+            if not unit or not unit.strip():
+                continue
+            spans = _resolved_spans(unit)
+            norm = " ".join(unit.split())
+            footprint = frozenset(spans)
+            # Same footprint-equality + subset dedup contract as the per-basket loop above (so a
+            # true-duplicate analytical unit collapses) — but the two-span footprint guarantees a real
+            # cross-source unit is never a subset of a single-source sibling.
+            if footprint and footprint in seen_numbers_by_footprint:
+                unit_numbers = _number_tokens(unit)
+                if not (unit_numbers - seen_numbers_by_footprint[footprint]):
+                    continue
+                seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
+            if spans and spans <= seen_spans and norm in seen_texts:
+                continue
+            if footprint and footprint not in seen_numbers_by_footprint:
+                seen_numbers_by_footprint[footprint] = _number_tokens(unit)
+            seen_spans |= spans
+            seen_texts.add(norm)
+            out.append(unit)
     return out
 
 

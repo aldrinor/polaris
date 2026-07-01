@@ -1,0 +1,15 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "M6 canary is warning-only: src/polaris_graph/generator/cross_source_synthesis.py:310 logs when anchored pairs exist but 0 analytical units survive; it does not hard-fail the run. Not a faithfulness risk, but weaker than the strongest 'fail-loud' wording."
+  - "M2 override weights are not range-validated: src/polaris_graph/retrieval/document_type_classifier.py:247 accepts arbitrary override floats despite the (0,1] invariant. Advisory/render-only; no gate reads it."
+  - "M5 malformed promotion threshold env values fail loud before the fail-open partition: src/polaris_graph/generator/weighted_enrichment.py:512. Operator-config-only, not a source-value drop path."
+m6_agreement_leg_dark_judgment: acceptable for canary
+m3_fulltext_guard_scope_ok: true
+faithfulness_engine_untouched: true
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

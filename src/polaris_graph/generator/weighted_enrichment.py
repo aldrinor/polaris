@@ -43,10 +43,13 @@ degraded pass (``credibility_analysis is None``) also yields an empty selection 
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections import Counter
 from typing import Any, NamedTuple
+
+logger = logging.getLogger(__name__)
 
 # LAW VI: env-overridable, default OFF (unset => byte-identical legacy render).
 _ENV_BREADTH_ENRICHMENT = "PG_BREADTH_ENRICHMENT_ENABLED"
@@ -149,6 +152,105 @@ def breadth_enrichment_enabled() -> bool:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344 follow-on, M5) — PROMOTION-ELIGIBILITY PARTITION.
+#
+# drb_72 let near-zero-weight, single-origin, non-journal sources anchor standalone
+# numbered findings exactly like a corroborated NEJM/AEA source: cognifit blog
+# (weight 0.03), inboundlogistics (0.00), procom (0.01), protolabs (0.00), a wsu
+# blog (0.06), an IZA working paper (0.05), a predatory 10.5555 DOI (0.00), and an
+# off-topic 10.26163 DOI (0.00). Each is on-topic enough to span-verify (the body
+# sentence is verbatim from the source span, so it self-entails and PASSES the
+# UNCHANGED strict_verify), yet carries ~0 credibility weight and is corroborated by
+# nobody. Whether a source EARNED a top-level cited claim is a SURFACE-placement
+# (credibility / corroboration) decision, NOT a grounding decision — it is handled
+# here at the cite surface, NEVER in the frozen faithfulness engine.
+#
+# §-1.3 — WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP: this is a ROUTING decision,
+# not a removal. A member is PROMOTED (earns a standalone cited claim) if ANY of:
+#   * corroboration >= K distinct verified origins (the CONSOLIDATE leg), OR
+#   * credibility weight >= W (the WEIGHT leg), OR
+#   * its host is a recognized peer-reviewed journal venue (over-demotion guard).
+# A single-origin AND below-W AND non-journal member is ROUTED to ``disclosed_only``:
+# KEPT in evidence_pool + the credibility disclosure + a dedicated report block, but
+# NOT promoted to a standalone numbered finding. Nothing is dropped; conservation holds
+# (promoted UNION disclosed_only == the original ordered list). The faithfulness engine
+# (strict_verify / NLI / 4-role D8 / span-grounding / provenance) is untouched — weight
+# and corroboration are credibility judgments, never a faithfulness gate. The OR-with-
+# corroboration leg IS the §-1.3 CONSOLIDATE principle (any source another agrees with is
+# rescued). Gated default-ON; ``PG_CWF_PROMOTION_ELIGIBILITY=0`` fails OPEN to promote-all
+# => the partition is byte-identical to the legacy keep-all-and-cite selection.
+_ENV_PROMOTION = "PG_CWF_PROMOTION_ELIGIBILITY"                 # default ON
+_ENV_PROMOTION_MIN_WEIGHT = "PG_CWF_PROMOTION_MIN_WEIGHT"       # LAW VI override (default below)
+_ENV_PROMOTION_MIN_CORROBORATION = "PG_CWF_PROMOTION_MIN_CORROBORATION"
+_DEFAULT_PROMOTION_MIN_WEIGHT = 0.10   # WEIGHT leg threshold (LAW VI overridable)
+_DEFAULT_PROMOTION_MIN_CORROBORATION = 2  # CONSOLIDATE leg: distinct verified origins (LAW VI overridable)
+_DISCLOSED_ONLY_REASON = "single_origin_low_weight_non_journal"
+
+
+def promotion_eligibility_enabled() -> bool:
+    """Kill-switch ``PG_CWF_PROMOTION_ELIGIBILITY`` (default ON). OFF => promote-all =>
+    the enrichment selection is byte-identical to the legacy keep-all-and-cite list."""
+    return os.environ.get(_ENV_PROMOTION, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _parse_promotion_min_weight(raw: Any) -> float:
+    """The WEIGHT-leg threshold W in [0.0, 1.0] (LAW VI). Garbage => ValueError (fail-loud)."""
+    if raw is None or not str(raw).strip():
+        value = _DEFAULT_PROMOTION_MIN_WEIGHT
+    else:
+        try:
+            value = float(str(raw).strip())
+        except ValueError as e:
+            raise ValueError(
+                f"{_ENV_PROMOTION_MIN_WEIGHT} must be a float in [0.0, 1.0]; got {raw!r}"
+            ) from e
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{_ENV_PROMOTION_MIN_WEIGHT} out of range [0.0, 1.0]: {value}")
+    return value
+
+
+def _parse_promotion_min_corroboration(raw: Any) -> int:
+    """The CONSOLIDATE-leg threshold K (distinct verified origins), int >= 1 (LAW VI).
+    Garbage => ValueError (fail-loud)."""
+    if raw is None or not str(raw).strip():
+        return _DEFAULT_PROMOTION_MIN_CORROBORATION
+    try:
+        value = int(str(raw).strip())
+    except ValueError as e:
+        raise ValueError(
+            f"{_ENV_PROMOTION_MIN_CORROBORATION} must be an int >= 1; got {raw!r}"
+        ) from e
+    if value < 1:
+        raise ValueError(f"{_ENV_PROMOTION_MIN_CORROBORATION} must be >= 1: {value}")
+    return value
+
+
+def _host_is_known_journal(url: str) -> bool:
+    """Over-demotion guard: a recognized peer-reviewed journal article is ALWAYS
+    promotion-eligible regardless of weight, so a freak-low weight can never demote a
+    real journal. Pure read of the EXISTING ``PEER_REVIEWED_JOURNAL_DOMAINS`` weighting
+    table (a credibility classifier, not a faithfulness gate). Lazy import keeps this
+    module free of any retrieval-side dependency; any error fails-CLOSED (not a journal)
+    so the guard can only RESCUE, never accidentally demote."""
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+
+        from src.polaris_graph.retrieval.tier_classifier import (
+            PEER_REVIEWED_JOURNAL_DOMAINS,
+            _domain_matches,
+        )
+
+        host = (urlparse(url).hostname or "").lower()
+        return bool(host) and _domain_matches(host, PEER_REVIEWED_JOURNAL_DOMAINS)
+    except Exception:  # noqa: BLE001 — guard fails CLOSED (treat as non-journal); never raises
+        return False
+
+
 def contract_bound_evidence_ids(contract_plans: Any) -> set[str]:
     """The evidence_ids already inside the contract render universe (excluded from enrichment).
 
@@ -216,6 +318,15 @@ class UnboundSupportsSelection(NamedTuple):
     # path (PG_OFFTOPIC_CITE_SUPPRESS=0 => empty) byte-identical. Pure TELEMETRY +
     # the disclosed off-topic-excluded-from-citation set the call site surfaces.
     offtopic_suppressed: tuple[str, ...] = ()
+    # I-deepfix-001 (#1344 M5): PROMOTION-ELIGIBILITY partition — the members ROUTED to
+    # DISCLOSED-ONLY (kept in evidence_pool + the credibility disclosure, re-surfaced in a
+    # dedicated report block, but NOT promoted to a standalone numbered finding) because each is
+    # single-origin (uncorroborated) AND below the credibility-weight bar AND not a recognized
+    # journal venue. Each record: ``{evidence_id, source_url, source_tier, credibility_weight,
+    # reason}``. Append-only LAST field (default () keeps every legacy positional constructor valid
+    # AND the OFF path byte-identical). NOT a drop — a ROUTE; conservation holds (``ev_ids`` UNION
+    # ``disclosed_only`` == the full ordered list); the faithfulness engine is untouched.
+    disclosed_only: tuple[dict[str, Any], ...] = ()
 
 
 def diagnose_unbound_supports_selection(
@@ -257,11 +368,27 @@ def diagnose_unbound_supports_selection(
     # CITED breadth surface (kept in pool + disclosure; NOT a faithfulness change).
     suppress_offtopic = offtopic_cite_suppress_enabled()
     offtopic_suppressed: list[str] = []
+    # I-deepfix-001 (#1344 M5) PROMOTION-ELIGIBILITY accumulators (most-favorable-to-promotion so
+    # any demotion is conservative): per-eid the MAX member ``credibility_weight`` seen (absent =>
+    # unknown => keep-neutral promote), the MAX basket ``verified_support_origin_count`` (the
+    # CONSOLIDATE leg), whether ANY member's host is a recognized peer-reviewed journal venue (the
+    # over-demotion guard), and a tier label for the disclosure surface. Pure READS of already-
+    # computed credibility state — no faithfulness gate is touched.
+    best_cred_weight: dict[str, float] = {}
+    max_origin: dict[str, int] = {}
+    is_journal: dict[str, bool] = {}
+    best_tier: dict[str, str] = {}
     for basket in baskets:
         try:
             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
         except (TypeError, ValueError):
             weight = 0.0
+        # I-deepfix-001 (#1344 M5): the basket's distinct isolated-verified origin count (the
+        # CONSOLIDATE-leg signal). Non-int / missing => 0 (conservative: no corroboration credit).
+        try:
+            verified_origin = int(getattr(basket, "verified_support_origin_count", 0) or 0)
+        except (TypeError, ValueError):
+            verified_origin = 0
         for member in (getattr(basket, "supporting_members", None) or ()):
             if str(getattr(member, "span_verdict", "")).strip().upper() != _SUPPORTS:
                 continue  # CONSOLIDATE: only isolated-verified SUPPORTS members are offered
@@ -304,6 +431,32 @@ def diagnose_unbound_supports_selection(
                 best_weight[eid] = weight
             # First-seen relevance is deterministic across baskets (same row); keep it stable.
             relevance_by_eid.setdefault(eid, relevance)
+            # I-deepfix-001 (#1344 M5): accumulate the promotion-eligibility signals for this eid
+            # (most-favorable-to-promotion). ``credibility_weight`` is the MEMBER's own credibility
+            # (BasketMember.credibility_weight); None/unparseable is left unknown (=> promote-neutral).
+            _mw = getattr(member, "credibility_weight", None)
+            if _mw is not None:
+                try:
+                    _mw = float(_mw)
+                except (TypeError, ValueError):
+                    _mw = None
+            if _mw is not None:
+                _prev_w = best_cred_weight.get(eid)
+                best_cred_weight[eid] = _mw if _prev_w is None else max(_prev_w, _mw)
+            if verified_origin > max_origin.get(eid, 0):
+                max_origin[eid] = verified_origin
+            if not is_journal.get(eid, False):
+                _murl = str(getattr(member, "source_url", "") or "") or str(
+                    (pool.get(eid) or {}).get("source_url")
+                    or (pool.get(eid) or {}).get("url")
+                    or ""
+                )
+                if _host_is_known_journal(_murl):
+                    is_journal[eid] = True
+            if not best_tier.get(eid):
+                _mt = str(getattr(member, "source_tier", "") or "")
+                if _mt:
+                    best_tier[eid] = _mt
 
     # I-arch-011 (B18) ORDER, KEEP-ALL-SORT-BELOW-FLOOR-LAST:
     #   1. ``is_below_floor`` (False before True) — a PRESENT-and-below-floor row sorts AFTER every
@@ -334,12 +487,68 @@ def diagnose_unbound_supports_selection(
 
     # I-arch-011 (B18): the empty case can no longer be "all below floor" (the floor never
     # excludes). Report the TRUE reason: no SUPPORTS member at all, else everything bound/pool-absent.
+    # I-deepfix-001 (#1344 M5): ``reason`` is computed from the FULL surviving list BEFORE the
+    # promotion partition, so it honestly reports whether any unbound SUPPORTS member was FOUND —
+    # the partition only ROUTES the found members into promoted vs disclosed-only, it never changes
+    # whether members existed.
     if ev_ids:
         reason = _REASON_OK
     elif supports_members_seen == 0:
         reason = _REASON_NO_SUPPORTS_MEMBERS
     else:
         reason = _REASON_ALL_BOUND_OR_ABSENT
+
+    # I-deepfix-001 (#1344 M5) PROMOTION-ELIGIBILITY PARTITION — route (NOT drop) near-zero,
+    # single-origin, non-journal members to ``disclosed_only`` (kept + re-surfaced, never deleted).
+    # §-1.3: WEIGHT-and-CONSOLIDATE — a member is PROMOTED if its weight clears W OR another source
+    # corroborates it (>= K verified origins) OR it is a recognized journal venue; only a member
+    # failing ALL three is routed to disclosed-only. Conservation holds: ``promoted`` UNION
+    # ``disclosed_only`` == the full ``ev_ids`` above (nothing vanishes). The faithfulness engine is
+    # untouched — weight/corroboration are credibility judgments, never a grounding gate.
+    disclosed_only: list[dict[str, Any]] = []
+    if promotion_eligibility_enabled():
+        # FAIL-LOUD env parse (LAW VI): a garbage threshold is an operator config error and raises
+        # ValueError, NOT swallowed by the fail-open guard below.
+        min_w = _parse_promotion_min_weight(os.environ.get(_ENV_PROMOTION_MIN_WEIGHT))
+        min_c = _parse_promotion_min_corroboration(os.environ.get(_ENV_PROMOTION_MIN_CORROBORATION))
+        try:
+            def _promotion_eligible(eid: str) -> bool:
+                w = best_cred_weight.get(eid)
+                if w is None:
+                    return True                                   # unknown weight => keep-neutral (promote)
+                if w >= min_w:
+                    return True                                   # WEIGHT leg
+                if max_origin.get(eid, 0) >= min_c:
+                    return True                                   # CONSOLIDATE leg (corroboration rescues)
+                if is_journal.get(eid, False):
+                    return True                                   # journal carve-out (over-demotion guard)
+                return False
+
+            _promoted = [e for e in ev_ids if _promotion_eligible(e)]
+            disclosed_only = [
+                {
+                    "evidence_id": e,
+                    "source_url": str(
+                        (pool.get(e) or {}).get("source_url")
+                        or (pool.get(e) or {}).get("url")
+                        or ""
+                    ),
+                    "source_tier": best_tier.get(e, ""),
+                    "credibility_weight": best_cred_weight.get(e),
+                    "reason": _DISCLOSED_ONLY_REASON,
+                }
+                for e in ev_ids
+                if not _promotion_eligible(e)
+            ]
+            ev_ids = _promoted
+        except Exception:  # noqa: BLE001 — fail-OPEN to promote-all = byte-identical legacy keep-all
+            logger.warning(
+                "[weighted_enrichment] M5 promotion-eligibility partition failed; FAIL-OPEN to "
+                "promote-all (byte-identical legacy keep-all-and-cite). ev_ids left unchanged.",
+                exc_info=True,
+            )
+            disclosed_only = []
+
     return UnboundSupportsSelection(
         ev_ids=ev_ids,
         reason=reason,
@@ -349,6 +558,7 @@ def diagnose_unbound_supports_selection(
         excluded_pool_absent=excluded_pool_absent,
         excluded_below_floor=below_floor_count,  # field name held stable; meaning = kept-below-floor
         offtopic_suppressed=tuple(offtopic_suppressed),  # I-deepfix-001 DEFER-1 (kept+disclosed)
+        disclosed_only=tuple(disclosed_only),  # I-deepfix-001 M5 (routed-to-disclosed, never dropped)
     )
 
 

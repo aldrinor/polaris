@@ -1640,10 +1640,17 @@ def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
 
 def _bib_entry_has_locator(entry: "dict") -> bool:
     """#1239: True iff a bibliography entry carries a non-blank URL or DOI locator. A CITED bib
-    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE."""
+    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE.
+
+    M3a (I-deepfix-001): a non-blank PMID is ALSO a resolvable locator
+    (https://pubmed.ncbi.nlm.nih.gov/<pmid>/), so a URL-less, DOI-less primary that still
+    carries a real PMID renders that PubMed link instead of the gap line. Only reached when
+    PG_BIB_REQUIRE_LOCATOR is ON (the sole call site is the require_locator render branch), so
+    the OFF path is byte-identical. Never fabricates — uses only ids the row already carries."""
     url = str(entry.get("url") or "").strip()
     doi = str(entry.get("doi") or "").strip()
-    return bool(url or doi)
+    pmid = str(entry.get("pmid") or "").strip()
+    return bool(url or doi or pmid)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2686,8 +2693,50 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
     )
 
 
+def _m2_journal_pref_active(protocol: "dict | None") -> bool:
+    """I-deepfix-001 M2: the journal-only document-type-preference double gate, fail-safe.
+
+    True iff PG_DOCUMENT_TYPE_WEIGHT=1 AND the raw scope template declares
+    ``document_type_preference: journal_article``. Any import/eval error => False (OFF =>
+    byte-identical render)."""
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
+            document_type_weighting_active,
+        )
+        return bool(document_type_weighting_active(protocol))
+    except Exception:  # noqa: BLE001 — fail OFF
+        return False
+
+
+def _m2_bib_genre(b: dict, *, protocol: "dict | None", document_type_by_url: "dict | None"):
+    """I-deepfix-001 M2: resolve a bibliography row's document GENRE + a DISPLAY-only adjusted
+    weight (``tier_prior(tier) * document_type_weight``) for the genre tag + corroboration re-rank.
+
+    Genre resolves from the carried-through url->document_type join when present, else a
+    deterministic offline classify from the row's url/title. Pure; no network/LLM. Returns
+    ``(DocumentType, adjusted_weight)``. The adjusted weight is a display re-rank multiplier only —
+    no source is dropped, every bibliography entry stays in the list."""
+    from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
+        DocumentType,
+        classify_document_type,
+        resolve_document_type_weight,
+    )
+    from src.polaris_graph.nodes.weighted_corpus_gate import _tier_prior  # noqa: PLC0415
+
+    url = str(b.get("url") or "")
+    dt_str = (document_type_by_url or {}).get(url)
+    if dt_str and dt_str in DocumentType._value2member_map_:
+        dt = DocumentType(dt_str)
+    else:
+        dt, _ = classify_document_type(url=url, title=str(b.get("statement") or ""))
+    w = resolve_document_type_weight(dt, protocol)
+    return dt, _tier_prior(str(b.get("tier") or "")) * w
+
+
 def _render_bibliography_lines(
-    bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False
+    bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False,
+    journal_preference_active: bool = False, protocol: "dict | None" = None,
+    document_type_by_url: "dict | None" = None,
 ) -> str:
     """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
     to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
@@ -2750,6 +2799,28 @@ def _render_bibliography_lines(
             _domain = urlsplit(_url_s).netloc.strip() if _url_s else ""
             _doi = str(b.get("doi") or "").strip()
             statement = (_domain or _doi or f"source {b.get('num', '')}".strip())[:200]
+        # I-deepfix-001 M2: append a per-citation document-GENRE tag when the journal-only
+        # document-type preference is active (PG_DOCUMENT_TYPE_WEIGHT=1 AND the template field).
+        # Default-OFF keyword => empty tag => byte-identical legacy render. Pure label; the entry,
+        # its citation number, and the source are untouched (WEIGHT-and-DISCLOSE, no drop).
+        _genre_tag = ""
+        if journal_preference_active:
+            try:
+                from src.polaris_graph.retrieval.document_type_classifier import (  # noqa: PLC0415
+                    is_peer_reviewed_journal_article,
+                )
+                _dt, _ = _m2_bib_genre(
+                    b, protocol=protocol, document_type_by_url=document_type_by_url
+                )
+                if is_peer_reviewed_journal_article(_dt):
+                    _genre_tag = " — [peer-reviewed journal article]"
+                else:
+                    _genre_tag = (
+                        f" — [document type: {_dt.value.lower().replace('_', ' ')} "
+                        "— not a peer-reviewed journal article]"
+                    )
+            except Exception:  # noqa: BLE001 — additive label; never break the render
+                _genre_tag = ""
         if require_locator and not _bib_entry_has_locator(b):
             # #1239 (Codex iter-1 REQUEST_CHANGES): a cited-but-locator-less entry must KEEP its
             # citation number so the report BODY's [N] marker still resolves (the old code dropped
@@ -2758,7 +2829,7 @@ def _render_bibliography_lines(
             # out a non-blank URL or DOI, so there is genuinely no resolvable locator to show.
             out += (
                 f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
-                f"(disclosed evidence gap, tier {tier})\n"
+                f"(disclosed evidence gap, tier {tier}){_genre_tag}\n"
             )
         else:
             # #1239 (Codex iter-1 REQUEST_CHANGES): when require_locator is ON and the URL is
@@ -2772,13 +2843,75 @@ def _render_bibliography_lines(
                 _doi = str(b.get("doi") or "").strip()
                 if _doi:
                     locator = f"https://doi.org/{_doi}"
-            out += f"[{b['num']}] {statement} — {locator} (tier {tier})\n"
+                else:
+                    # M3a (I-deepfix-001): when url AND doi are both blank but a PMID
+                    # is present, render the canonical PubMed locator. Never fabricates
+                    # — uses only a real PMID the entry already carries. Gated behind
+                    # require_locator so require_locator=False stays byte-identical.
+                    _pmid = str(b.get("pmid") or "").strip()
+                    if _pmid:
+                        locator = f"https://pubmed.ncbi.nlm.nih.gov/{_pmid}/"
+            # M2 (I-deepfix-001): append the additive document-type genre tag (empty unless the
+            # journal-only document-type preference is active). M3a PMID fallback above + M2 tag here.
+            out += f"[{b['num']}] {statement} — {locator} (tier {tier}){_genre_tag}\n"
     # I-arch-011 PR-b (#1268): APPEND the per-claim Argus keep-all corroboration block.
     # Default-OFF keyword => this is skipped entirely => the bibliography render above is
     # byte-identical to the legacy output.
     if corroboration_render:
-        out += _basket_corroboration_block(bibliography)
+        # I-deepfix-001 M2: when the journal-only document-type preference is active, ORDER the
+        # corroboration block by display-only document-type-adjusted weight (a WEIGHT re-rank, NOT
+        # a drop) so a predatory/non-journal venue falls below the journal articles but STAYS in the
+        # list (the block dedups baskets by claim_cluster_id, so the row order sets which basket
+        # renders first). Default-OFF keyword => unsorted => byte-identical legacy ordering.
+        _bib_for_corr = bibliography
+        if journal_preference_active:
+            try:
+                _bib_for_corr = sorted(
+                    bibliography,
+                    key=lambda _b: -_m2_bib_genre(
+                        _b, protocol=protocol, document_type_by_url=document_type_by_url
+                    )[1],
+                )
+            except Exception:  # noqa: BLE001 — additive re-rank; never break the render
+                _bib_for_corr = bibliography
+        out += _basket_corroboration_block(_bib_for_corr)
     return out
+
+
+def _cwf_disclosed_block(disclosed: "list[dict] | None") -> str:
+    """I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only surface.
+
+    The unbound-SUPPORTS enrichment partitions its span-verified members into PROMOTED (each
+    earns a standalone numbered finding) vs DISCLOSED-ONLY (kept + disclosed, never a standalone
+    cited claim) — a near-zero-weight, single-origin, non-journal source no longer anchors a
+    top-level finding (drb_72's cognifit / inboundlogistics / procom / protolabs / wsu-blog /
+    IZA-WP / predatory-DOI / off-topic-DOI). A demoted source still lives in ``evidence_pool`` AND
+    ``corpus_credibility_disclosure.json``; it left the per-claim corroboration block only because
+    it is no longer cited, so this dedicated block re-surfaces it and NET disclosure is preserved.
+
+    §-1.3: this is keep-and-DISCLOSE, never a drop. Pure read of ``multi.cwf_disclosed_sources``
+    (no LLM, no verdict, no faithfulness gate). Returns "" when nothing was demoted (the caller
+    appends nothing => byte-identical)."""
+    rows = [d for d in (disclosed or []) if d.get("source_url") or d.get("evidence_id")]
+    if not rows:
+        return ""
+    lines = []
+    for d in rows:
+        w = d.get("credibility_weight")
+        ws = f"{float(w):.2f}" if isinstance(w, (int, float)) and not isinstance(w, bool) else "n/a"
+        tier = d.get("source_tier") or "n/a"
+        label = d.get("source_url") or d.get("evidence_id")
+        lines.append(f"- {label} (tier {tier}, weight {ws})")
+    return (
+        "\n\n## Disclosed single-origin low-weight sources\n\n"
+        f"{len(rows)} on-topic source(s) were KEPT in the corpus and disclosure but NOT promoted "
+        "to a standalone numbered finding: each is single-origin (uncorroborated), carries "
+        "near-zero credibility weight, and is not a recognized journal venue. They remain in the "
+        "evidence pool and the corpus credibility disclosure; they did not EARN a top-level cited "
+        "claim.\n\n"
+        + "\n".join(lines)
+        + "\n"
+    )
 
 
 def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
@@ -9845,11 +9978,19 @@ async def run_one_query(
             # carries authority_score (legacy mode) — the disclosure then weights by the per-tier prior.
             # Read-only; no row mutation, no network, no spend.
             _wc_authority_by_url: dict[str, float] = {}
+            # I-deepfix-001 M2: build the url->document_type join exactly like the authority join
+            # above (read off the evidence rows where the classifier stamped the genre when
+            # PG_DOCUMENT_TYPE_WEIGHT is ON). Empty when the flag is OFF => the disclosure builder's
+            # M2 block never fires => byte-identical. Read-only; no row mutation, no spend.
+            _wc_document_type_by_url: dict[str, str] = {}
             for _row in (retrieval.evidence_rows or []):
                 _u = str(_row.get("source_url") or _row.get("url") or "")
                 _a = _row.get("authority_score")
                 if _u and _a is not None and _u not in _wc_authority_by_url:
                     _wc_authority_by_url[_u] = _a
+                _dt = _row.get("document_type")
+                if _u and _dt and _u not in _wc_document_type_by_url:
+                    _wc_document_type_by_url[_u] = str(_dt)
             _wc_disclosure = build_corpus_credibility_disclosure(
                 classified_sources=retrieval.classified_sources,
                 tier_counts=dist.tier_counts,
@@ -9859,6 +10000,13 @@ async def run_one_query(
                 domain=q["domain"],
                 research_question=q["question"],
                 authority_by_url=_wc_authority_by_url,
+                # I-deepfix-001 M2: thread the RAW scope template (carries document_type_preference;
+                # the serialized ProtocolDocument drops it — same reason journal_only reads _jo_cfg)
+                # + the url->document_type join so the disclosure can attach the genre WEIGHT and the
+                # SECOND adjusted mean. Both inert unless PG_DOCUMENT_TYPE_WEIGHT=1 AND the template
+                # declares document_type_preference: journal_article (default-OFF byte-identical).
+                protocol=_jo_cfg,
+                document_type_by_url=_wc_document_type_by_url,
                 # I-deepfix-001 D5 (#1344): plumb the honest credibility-tiering batch status
                 # (live_retriever captured it off the TieringBatchResult) onto the durable
                 # manifest disclosure so the diced preflight's D5 gate can assert
@@ -13261,6 +13409,13 @@ async def run_one_query(
             corroboration_render=_env_flag(
                 _BASKET_CORROBORATION_RENDER_ENV, default=False
             ),
+            # I-deepfix-001 M2: per-citation genre tag + corroboration re-rank, active ONLY under
+            # the journal-only document-type preference double gate (PG_DOCUMENT_TYPE_WEIGHT=1 AND
+            # the raw template's document_type_preference: journal_article). Default-OFF =>
+            # byte-identical render. ``document_type_by_url=None`` => the render helper classifies
+            # each row's genre deterministically from its url/title (host fallback).
+            journal_preference_active=_m2_journal_pref_active(_jo_cfg),
+            protocol=_jo_cfg,
         )
 
         # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary
@@ -13538,9 +13693,23 @@ async def run_one_query(
         _assembled_title = (
             f"# Research report: {_strip_injected_instruction_appendix(q['question'])}\n\n"
         )
+        # I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only block right after
+        # the bibliography (which already carries the per-claim corroboration block). The demoted
+        # source already lives in evidence_pool + corpus_credibility_disclosure.json; this re-surfaces
+        # it as a kept-but-not-cited disclosure so net disclosure is preserved (it left the per-claim
+        # corroboration block only because it is no longer cited). Default-ON kill-switch
+        # PG_CWF_DISCLOSURE_BLOCK; OFF (or nothing demoted) => "" => byte-identical.
+        _cwf_disclosed_md = ""
+        if _env_flag("PG_CWF_DISCLOSURE_BLOCK", default=True):
+            try:
+                _cwf_disclosed_md = _cwf_disclosed_block(
+                    getattr(multi, "cwf_disclosed_sources", None)
+                )
+            except Exception as _cwf_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+                _log(f"[cwf-disclosed-block] skipped (fail-open): {_cwf_exc}")
         _assembled_body = (
             _key_findings + sections_concat + _depth_layer + methods
-            + biblio_section + _drop_disclosure_md
+            + biblio_section + _cwf_disclosed_md + _drop_disclosure_md
         )
         try:
             final_report = assemble_report_md(

@@ -207,6 +207,12 @@ _OPENALEX_FRAME_FALLBACK_ENABLED = (
     os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
     not in ("0", "false", "no", "off")
 )
+# Semantic Scholar Graph API /paper/DOI:{doi} — M3b (I-deepfix-001) 3rd deterministic
+# abstract source. For a closed-access primary whose CrossRef/OpenAlex abstract is a
+# degenerate fragment (or a single transient throttle leaves it empty), S2 carries a
+# full abstract for most indexed DOIs. DOI-driven; deterministic; abstract is the honest
+# reachable ceiling for a paywalled primary (NO full-text, NO Sci-Hub).
+_S2_WORK_BASE = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
 # Minimum chars for an OA full-text fetch to count as REAL full text
 # (issue #1034). Paywalled-PDF stubs (e.g. aeaweb via Jina ~540 chars)
 # fall below this -> they must not block the abstract fallbacks and
@@ -238,6 +244,31 @@ _FULLTEXT_ENTITY_TYPES = frozenset(
     ).split(",")
     if t.strip()
 )
+
+def _frame_multi_abstract_enabled() -> bool:
+    """M3b (I-deepfix-001) gather-all-then-pick-richest toggle (default ON).
+
+    When ON, the deterministic abstract sources (OpenAlex, and Semantic Scholar
+    below) are consulted for a DOI EVEN WHEN CrossRef/PubMed already returned an
+    abstract, so the RICHEST abstract wins via ``_pick_richest_abstract`` instead
+    of a degenerate first-source fragment short-circuiting the gather. Read at
+    CALL TIME so a test/operator can flip ``PG_FRAME_MULTI_ABSTRACT`` after import
+    (same pattern as ``_core_enabled``). OFF restores the legacy
+    ``not abstract_crossref and not abstract_pubmed`` short-circuit byte-identically.
+    """
+    return os.getenv("PG_FRAME_MULTI_ABSTRACT", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _frame_s2_abstract_enabled() -> bool:
+    """M3b (I-deepfix-001) Semantic Scholar Graph API 3rd abstract source toggle
+    (default ON). Read at CALL TIME. OFF removes the S2 source entirely so the
+    abstract gather is byte-identical to the pre-M3b CrossRef/OpenAlex/PubMed set."""
+    return os.getenv("PG_FRAME_S2_ABSTRACT", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
 
 def _core_enabled() -> bool:
     """CORE (core.ac.uk) legal OA full-text fetch toggle (I-faith-002).
@@ -809,6 +840,98 @@ def _call_openalex(
     return data, attempts, timings
 
 
+def _call_s2(
+    client: httpx.Client, doi: str
+) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
+    """Deterministic Semantic Scholar Graph API /paper/DOI:{doi} fetch — M3b
+    (I-deepfix-001) 3rd abstract source.
+
+    Mirrors ``_call_openalex``: same ``_request_with_retry`` discipline (one
+    RetrievalAttempt per HTTP request, fixed backoff, status->outcome mapping)
+    so M-60 manifest telemetry shows the S2 attempt. An optional
+    ``SEMANTIC_SCHOLAR_API_KEY`` (already an env in the codebase) is sent as the
+    ``x-api-key`` header for rate-limit headroom; unauthenticated still works
+    (S2 throttles, which the 429 backoff already handles)."""
+    headers: dict[str, str] = {}
+    key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    if key:
+        headers["x-api-key"] = key
+    url = _S2_WORK_BASE + _urlsafe_doi(doi)
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "s2", url,
+        params={"fields": "title,abstract,year,venue,externalIds"},
+        headers=headers,
+    )
+    if outcome != "success" or r is None:
+        return None, attempts, timings
+    try:
+        data = r.json()
+    except ValueError:
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
+            outcome="error:invalid_json",
+        )
+        return None, attempts, timings
+    return data, attempts, timings
+
+
+def _parse_s2_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract abstract + metadata from a Semantic Scholar Graph API
+    /paper/DOI:{doi} JSON object (M3b). Returns dict with keys: title, authors,
+    journal, year, abstract, doi (normalized, prefix-stripped, lowercased).
+    Values may be None/empty when absent. DOI is read from ``externalIds.DOI``
+    so the caller's DOI-consistency guard can reject a wrong-paper response
+    (mirrors the OpenAlex/PubMed guards)."""
+    if not isinstance(data, dict):
+        return {}
+
+    abstract = data.get("abstract")
+    if isinstance(abstract, str):
+        abstract = abstract.strip() or None
+    else:
+        abstract = None
+
+    title = data.get("title")
+    if isinstance(title, str):
+        title = title.strip() or None
+    else:
+        title = None
+
+    journal = data.get("venue")
+    if isinstance(journal, str):
+        journal = journal.strip() or None
+    else:
+        journal = None
+
+    year = data.get("year")
+    if not isinstance(year, int):
+        year = None
+
+    doi_norm: str | None = None
+    ext = data.get("externalIds")
+    if isinstance(ext, dict):
+        doi_raw = ext.get("DOI") or ext.get("doi") or ""
+        if isinstance(doi_raw, str):
+            doi_norm = doi_raw.lower().strip()
+            for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+                if doi_norm.startswith(prefix):
+                    doi_norm = doi_norm[len(prefix):]
+                    break
+            doi_norm = doi_norm.rstrip("/") or None
+
+    return {
+        "title": title,
+        "authors": (),
+        "journal": journal,
+        "year": year,
+        "abstract": abstract,
+        "doi": doi_norm,
+    }
+
+
 def _looks_like_html_junk(text: str) -> bool:
     """True when a fetched 'full text' is actually raw HTML markup or a
     Sci-Hub wrapper page rather than clean extracted prose (#1034
@@ -845,13 +968,16 @@ def _pick_richest_abstract(
     crossref: str | None,
     openalex: str | None,
     pubmed: str | None,
+    s2: str | None = None,
     partial_full_text: str | None = None,
 ) -> tuple[str, str]:
     """Choose the RICHEST (longest) available abstract text + its
     quote_source label. Candidates in priority order CrossRef >
-    OpenAlex > PubMed > thin-OA-full-text partial; the LONGEST wins,
-    ties break toward the higher-priority source (deterministic —
-    strictly-greater comparison while iterating priority order).
+    OpenAlex > PubMed > Semantic Scholar (M3b) > thin-OA-full-text
+    partial; the LONGEST wins, ties break toward the higher-priority
+    source (deterministic — strictly-greater comparison while
+    iterating priority order). ``s2`` defaults to None so existing
+    keyword callers are byte-identical.
 
     A thin oa_full_text stub (paywalled-PDF Jina result, ~540 chars)
     is admitted only as the last-priority `partial_full_text`
@@ -865,6 +991,8 @@ def _pick_richest_abstract(
         candidates.append((openalex, "openalex_abstract"))
     if pubmed:
         candidates.append((pubmed, "pubmed_abstract"))
+    if s2:
+        candidates.append((s2, "s2_abstract"))
     # A thin OA full-text stub is a TRUE last resort: admit it ONLY when
     # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
     # finding #1034), a paywall junk stub must never become the extracted
@@ -1462,11 +1590,21 @@ def _fetch_frame_entity_inner(
     # journal DOIs (Acemoglu/Autor/Brynjolfsson/Eloundou all resolve).
     # DOI-driven; no source allowlist; same DOI -> byte-identical text.
     abstract_openalex: str | None = None
+    # M3b (I-deepfix-001): gather-all-then-pick-richest. With PG_FRAME_MULTI_ABSTRACT
+    # ON (default), OpenAlex is consulted for a DOI EVEN WHEN CrossRef/PubMed already
+    # returned an abstract, so a degenerate first-source fragment can no longer
+    # short-circuit the gather and starve the slot — `_pick_richest_abstract` picks the
+    # longest. OFF restores the legacy `not abstract_crossref and not abstract_pubmed`
+    # short-circuit byte-identically. The full-text guard clause is INTENTIONALLY kept:
+    # a clinical entity with real OA full text still skips OpenAlex (full text wins),
+    # while the paywalled primaries here (no usable full text) still consult OpenAlex.
     if (
         _OPENALEX_FRAME_FALLBACK_ENABLED
         and doi
-        and not abstract_crossref
-        and not abstract_pubmed
+        and (
+            _frame_multi_abstract_enabled()
+            or (not abstract_crossref and not abstract_pubmed)
+        )
         and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
     ):
         oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
@@ -1497,6 +1635,49 @@ def _fetch_frame_entity_inner(
                 journal = journal or parsed_oa.get("journal")
                 year = year or parsed_oa.get("year")
 
+    # Step 5: Semantic Scholar abstract source (M3b, I-deepfix-001). A 3rd
+    # deterministic source so a closed-access primary whose CrossRef/OpenAlex
+    # abstract is a degenerate fragment (or a single transient throttle left it
+    # empty) still lands a full abstract. Same gather-all gating as OpenAlex: when
+    # PG_FRAME_S2_ABSTRACT is ON (default), consult S2 even if other sources have an
+    # abstract so `_pick_richest_abstract` can pick the longest; OFF removes S2
+    # entirely. The full-text guard is kept so a real OA full text still wins. Same
+    # DOI-consistency guard as OpenAlex/PubMed — never extract from the wrong work.
+    abstract_s2: str | None = None
+    if (
+        _frame_s2_abstract_enabled()
+        and doi
+        and (
+            _frame_multi_abstract_enabled()
+            or (not abstract_crossref and not abstract_pubmed and not abstract_openalex)
+        )
+        and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
+    ):
+        s2_meta, s2_attempts, s2_timings = _call_s2(client, doi)
+        attempts.extend(s2_attempts)
+        timings.extend(s2_timings)
+        if s2_meta is not None:
+            parsed_s2 = _parse_s2_response(s2_meta)
+            s2_doi = parsed_s2.get("doi") or ""
+            bound_doi_l = (doi or "").lower()
+            if s2_doi and s2_doi != bound_doi_l:
+                attempts.append(RetrievalAttempt(
+                    source="s2",
+                    url=f"s2:doi={bound_doi_l}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome=(
+                        f"error:doi_mismatch bound={bound_doi_l} "
+                        f"s2_returned={s2_doi}"
+                    ),
+                ))
+            else:
+                abstract_s2 = parsed_s2.get("abstract")
+                title = title or parsed_s2.get("title")
+                authors = authors or parsed_s2.get("authors") or ()
+                journal = journal or parsed_s2.get("journal")
+                year = year or parsed_s2.get("year")
+
     # Decide provenance_class and direct_quote.
     # OPEN_ACCESS when Unpaywall surfaced ANY OA locator (PDF or
     # HTML landing). HTML-only is still fetchable by existing
@@ -1515,6 +1696,7 @@ def _fetch_frame_entity_inner(
         crossref=abstract_crossref,
         openalex=abstract_openalex,
         pubmed=abstract_pubmed,
+        s2=abstract_s2,
         partial_full_text=(
             oa_full_text
             if (

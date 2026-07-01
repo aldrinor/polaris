@@ -168,6 +168,40 @@ _COMPARATIVE_RE = re.compile(
 )
 
 
+# I-deepfix-001 M6 — the CLOSED set of cross-source analytical connective PHRASES + their relation key.
+# These mirror ``cross_source_synthesis.LICENSED_CONNECTIVES`` (kept in sync). A connective is LICENSED
+# upstream by a certified relation engine (``claim_graph`` ContradictionEdge / ``consolidation_nli`` /
+# equivalence); the composer passes the licensed relation(s) via ``licensed_relations`` so the guard can
+# NEUTRALIZE any connective whose relation was NOT licensed back to pure juxtaposition — "a wrong
+# 'in contrast' can never render". The neutral phrase asserts no relation, so it is never neutralized.
+_ANALYTICAL_CONNECTIVE_RELATION: dict[str, str] = {
+    "in contrast": "conflict",
+    "consistent with this": "agreement",
+    "extending this": "extension",
+}
+_NEUTRAL_CONNECTIVE_PHRASE = "separately"
+# Each relation phrase as it appears inside the connective ``; <phrase>, `` — captured WITH its leading
+# "; " and trailing ", " so a neutralized phrase swaps cleanly to ``; separately, ``.
+_ANALYTICAL_CONNECTIVE_RE = re.compile(
+    r";\s*(?P<phrase>in contrast|consistent with this|extending this)\s*,\s*",
+    re.IGNORECASE,
+)
+
+
+def _neutralize_unlicensed_connectives(sentence: str, licensed_relations: "set[str]") -> str:
+    """Replace any analytical connective whose relation is NOT in ``licensed_relations`` with the neutral
+    juxtaposition connective ``; separately, ``. A connective whose relation IS licensed is preserved
+    verbatim. Pure; deterministic. The neutral connective itself is never matched (it asserts no
+    relation), so over-application is impossible."""
+    def _swap(m: "re.Match") -> str:
+        phrase = m.group("phrase").strip().lower()
+        relation = _ANALYTICAL_CONNECTIVE_RELATION.get(phrase, "")
+        if relation and relation in licensed_relations:
+            return m.group(0)  # licensed -> keep verbatim
+        return f"; {_NEUTRAL_CONNECTIVE_PHRASE}, "  # unlicensed -> neutralize
+    return _ANALYTICAL_CONNECTIVE_RE.sub(_swap, sentence)
+
+
 def contains_relational_quantifier(sentence: str) -> bool:
     """True iff ``sentence`` carries a detectable aggregate/relational quantifier (lexicon hit).
 
@@ -304,7 +338,12 @@ def _strip_quantifiers(sentence: str) -> str:
     return text
 
 
-def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
+def guard_relational_quantifier(
+    sentence: str,
+    basket: Any,
+    *,
+    licensed_relations: "set[str] | None" = None,
+) -> Optional[str]:
     """The guard: given a candidate sentence + its supporting basket, return the sentence with any
     UNLICENSED relational quantifier STRIPPED (faithful residue), else the sentence unchanged.
 
@@ -315,6 +354,14 @@ def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
       * Quantifier present AND NOT licensed -> STRIP it, returning the faithful residue (its provenance
         tokens intact, so the caller's UNCHANGED strict_verify re-passes it).
 
+    I-deepfix-001 M6 — ``licensed_relations`` (cross-source analytical path): when supplied (a set of
+    engine-licensed relation keys, e.g. ``{"conflict"}``), the sentence is a COMPOSED analytical
+    sentence whose two atoms were ALREADY individually guarded/verified when built; the guard's ONLY job
+    here is to NEUTRALIZE any analytical connective whose relation was NOT licensed (a wrong "in
+    contrast" -> "; separately, "). It does NOT re-run the per-clause aggregate strip on the multi-basket
+    sentence (that would mis-handle a verbatim comparative inside an atom). ``licensed_relations=None``
+    (default) is BYTE-IDENTICAL to the legacy single-clause behavior.
+
     Returns ``None`` ONLY when stripping leaves NO content-bearing residue (the sentence was nothing but
     an aggregate predicate with no span-grounded claim) — the caller then drops that unit (an aggregate
     predicate with no underlying span is not a faithful claim to render). A residue that still carries a
@@ -323,6 +370,10 @@ def guard_relational_quantifier(sentence: str, basket: Any) -> Optional[str]:
     text = sentence or ""
     if not text.strip():
         return None
+    if licensed_relations is not None:
+        # Cross-source analytical sentence: license-check the connective only (atoms already guarded).
+        neutralized = _neutralize_unlicensed_connectives(text, set(licensed_relations))
+        return neutralized if neutralized.strip() else None
     if not contains_relational_quantifier(text):
         return text
     # VERBATIM SOURCE TEXT is faithful-by-construction: a quantifier the SOURCE itself wrote (the candidate

@@ -171,6 +171,13 @@ def _resolve_all_citations(
             "evidence_id": eid,
             "title": ev.get("source_title", "Unknown Source"),
             "url": ev.get("source_url", ""),
+            # M3a (I-deepfix-001): carry DOI/PMID on the v3-assemble bib row too, so a
+            # contract source reaching the renderer via this path (rather than
+            # provenance_generator._num_for) keeps a resolvable doi.org/pubmed locator
+            # instead of dropping to the "no resolvable URL/DOI locator" gap line.
+            # Additive keys; render-neutral when the locator fallback is OFF.
+            "doi": ev.get("doi", ""),
+            "pmid": ev.get("pmid", ""),
             "authors": ev.get("authors", []),
             "year": ev.get("year", ""),
         })

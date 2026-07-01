@@ -1171,6 +1171,15 @@ class MultiSectionResult:
     # OFF) => byte-identical. The SWEEP lane prepends this disclosed header to the assembled
     # body; the data is computed + surfaced here (in-lane) regardless.
     reliability_header: dict[str, Any] | None = None
+    # I-deepfix-001 (#1344 M5): the PROMOTION-ELIGIBILITY disclosed-only partition — the unbound
+    # SUPPORTS members ROUTED to keep-and-disclose (single-origin, near-zero credibility weight,
+    # non-journal) instead of promoted to a standalone numbered finding. Each record:
+    # {evidence_id, source_url, source_tier, credibility_weight, reason}. Empty when the gate is OFF
+    # (PG_CWF_PROMOTION_ELIGIBILITY=0) or no member was demoted (byte-identical). The source STAYS in
+    # evidence_pool + the credibility disclosure; the SWEEP lane renders a dedicated disclosure block
+    # from this (run_honest_sweep_r3._cwf_disclosed_block). NOT a drop — a ROUTE; the faithfulness
+    # engine is untouched.
+    cwf_disclosed_sources: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -4254,6 +4263,10 @@ async def _run_section(
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
                 writer_fn=make_abstractive_writer_fn(_vc_precomputed), verify_fn=_vc_writer_verify,
+                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
+                # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
+                # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
+                edges=getattr(credibility_analysis, "edges", None),
             )
         else:
             # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
@@ -4263,6 +4276,10 @@ async def _run_section(
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
                 writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
+                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
+                # cross-source analytical pass can LICENSE a conflict connective. No-op unless
+                # PG_CROSS_SOURCE_SYNTHESIS is ON.
+                edges=getattr(credibility_analysis, "edges", None),
             )
         # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
         # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE
@@ -7651,6 +7668,10 @@ async def generate_multi_section_report(
     # bound set when contract plans exist (UNCHANGED behavior on the contract path) and an empty
     # set on the generic path (so NOTHING is wrongly excluded). Faithfulness-neutral: the appended
     # section still routes through the UNCHANGED strict_verify + section floor.
+    # I-deepfix-001 (#1344 M5): the PROMOTION-ELIGIBILITY disclosed-only partition, captured here so it
+    # survives to the MultiSectionResult construction below. Empty unless the breadth enrichment ran
+    # AND demoted >=1 near-zero single-origin non-journal member (kept + disclosed, never dropped).
+    _cwf_disclosed_sources: list[dict[str, Any]] = []
     if partial_mode:
         logger.info(
             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
@@ -7681,6 +7702,24 @@ async def generate_multi_section_report(
                 "untouched): %s",
                 len(_wfe.offtopic_suppressed),
                 ", ".join(_wfe.offtopic_suppressed[:30]),
+            )
+        # I-deepfix-001 (#1344 M5): capture the PROMOTION-ELIGIBILITY disclosed-only partition (the
+        # near-zero, single-origin, non-journal members ROUTED to keep-and-disclose instead of a
+        # standalone numbered finding). LOUD so the routing is auditable, never silent; the source
+        # STAYS in evidence_pool + the credibility disclosure (kept, never dropped) and the
+        # faithfulness engine is untouched. Empty tuple when the gate is OFF (byte-identical).
+        _cwf_disclosed_sources = list(getattr(_wfe, "disclosed_only", ()) or ())
+        if _cwf_disclosed_sources:
+            logger.info(
+                "[multi_section] I-deepfix-001 M5 promotion-eligibility: %d promoted, "
+                "%d disclosed-only KEPT (single-origin low-weight non-journal; kept in "
+                "evidence_pool + disclosure, NOT a standalone cited finding): %s",
+                len(_wfe.ev_ids),
+                len(_cwf_disclosed_sources),
+                ", ".join(
+                    f"{d.get('evidence_id')}={d.get('source_url') or 'n/a'}"
+                    for d in _cwf_disclosed_sources[:30]
+                ),
             )
         _wfe_plan = _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)
         if _wfe_plan is not None:
@@ -9032,4 +9071,8 @@ async def generate_multi_section_report(
         # the per-claim baskets (None when basket data is absent => byte-identical).
         budget_tail_drops=list(_budget_tail_drop_telemetry),
         reliability_header=_build_reliability_header(credibility_analysis),
+        # I-deepfix-001 (#1344 M5): the promotion-eligibility disclosed-only partition captured
+        # during planning (empty unless the breadth enrichment ran AND demoted a near-zero
+        # single-origin non-journal member). Drives the SWEEP-lane disclosure block; kept-not-dropped.
+        cwf_disclosed_sources=list(_cwf_disclosed_sources),
     )

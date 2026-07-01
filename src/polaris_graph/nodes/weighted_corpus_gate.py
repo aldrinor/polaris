@@ -147,6 +147,18 @@ class SourceCredibilityRow:
     domain: str
     credibility_weight: float
     weight_basis: str   # "authority_score" | "tier_prior"
+    # ── I-deepfix-001 M2 ADDITIVE document-GENRE disclosure (orthogonal to the credibility
+    # axis above — ``credibility_weight``/``weight_basis`` are UNTOUCHED). Populated ONLY when
+    # the journal-only document-type preference is active (``document_type_weighting_active`` —
+    # PG_DOCUMENT_TYPE_WEIGHT=1 AND protocol document_type_preference=journal_article).
+    # ``document_type_weight`` is a multiplicative (0,1] SURFACE weight; ``document_type_adjusted_weight``
+    # = credibility_weight * document_type_weight is a SEPARATE disclosed value that NO gate reads.
+    # Default None => stripped from the serialized disclosure (``disclosure_to_dict``) so the OFF
+    # path is byte-identical to HEAD. WEIGHT-and-DISCLOSE, never a drop/floor/cap.
+    document_type: str | None = None
+    is_journal_article: bool | None = None
+    document_type_weight: float | None = None
+    document_type_adjusted_weight: float | None = None
 
 
 @dataclass
@@ -178,6 +190,14 @@ class CorpusCredibilityDisclosure:
     # absence. ADVISORY / DISCLOSURE only — credibility stays a WEIGHT (no drop, no abort — §-1.3);
     # the binding per-claim gates (strict_verify + 4-role D8) are untouched. asdict() serializes it.
     tiering_status: dict | None = None
+    # ── I-deepfix-001 M2: a SECOND disclosed mean — the source-weighted mean of
+    # ``credibility_weight * document_type_weight`` — so a journal-only question honestly shows
+    # the corpus is non-journal-heavy WITHOUT mutating ``weighted_credibility_mean`` and WITHOUT
+    # any gate reading the adjusted value. None (+ ``document_type_preference_active`` False) when
+    # the M2 preference did not fire => both are stripped from the serialized disclosure
+    # (``disclosure_to_dict``) so the OFF path is byte-identical to HEAD.
+    document_type_adjusted_mean: float | None = None
+    document_type_preference_active: bool = False
 
 
 def has_usable_corpus(classified_sources: list[Any], evidence_rows: list[Any]) -> bool:
@@ -243,6 +263,8 @@ def build_corpus_credibility_disclosure(
     research_question: str,
     authority_by_url: dict[str, Any] | None = None,
     tiering_status: dict | None = None,
+    protocol: dict | None = None,
+    document_type_by_url: dict[str, Any] | None = None,
 ) -> CorpusCredibilityDisclosure:
     """Build the deterministic, domain-aware corpus credibility disclosure — PURE, offline, no LLM.
 
@@ -263,6 +285,25 @@ def build_corpus_credibility_disclosure(
     network, no spend.
     """
     auth_by_url = authority_by_url or {}
+    # ── I-deepfix-001 M2: per-citation document-TYPE WEIGHT-and-DISCLOSE. Active ONLY under the
+    # double gate (PG_DOCUMENT_TYPE_WEIGHT=1 AND protocol document_type_preference=journal_article).
+    # The credibility ``weight``/``basis`` computed below is UNTOUCHED; the document-type weight is
+    # an ORTHOGONAL multiplicative surface read by NO gate. OFF => the M2 row/disclosure fields stay
+    # None and are stripped in ``disclosure_to_dict`` => byte-identical.
+    dt_by_url = document_type_by_url or {}
+    _m2_active = False
+    _m2_adj_sum = 0.0
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import (
+            DocumentType,
+            classify_document_type,
+            document_type_weighting_active,
+            is_peer_reviewed_journal_article,
+            resolve_document_type_weight,
+        )
+        _m2_active = document_type_weighting_active(protocol)
+    except Exception:  # noqa: BLE001 — additive disclosure; never break the credibility build
+        _m2_active = False
     per_source: list[SourceCredibilityRow] = []
     weight_sum = 0.0
     for s in (classified_sources or []):
@@ -318,16 +359,46 @@ def build_corpus_credibility_disclosure(
                 weight = _tier_prior(tier)
                 basis = "tier_prior"
         weight_sum += weight
-        per_source.append(SourceCredibilityRow(
+        _row = SourceCredibilityRow(
             url=str(getattr(s, "url", "") or ""),
             tier=tier,
             domain=str(getattr(s, "domain", "") or ""),
             credibility_weight=round(weight, 4),
             weight_basis=basis,
-        ))
+        )
+        # I-deepfix-001 M2: stamp the ORTHOGONAL document-genre disclosure AFTER the credibility
+        # weight/basis above are final (they are NOT mutated). Genre resolves from (1) the source's
+        # carried-through ``document_type``; (2) the caller's url->document_type join; (3) a
+        # deterministic offline classify from url/title (so the disclosure is meaningful on every
+        # classifier path). ``document_type_adjusted_weight = credibility_weight * document_type_weight``
+        # is a SEPARATE disclosed value no gate reads. WEIGHT-and-DISCLOSE; no drop.
+        if _m2_active:
+            try:
+                _url = str(getattr(s, "url", "") or "")
+                _dt_str = getattr(s, "document_type", None) or dt_by_url.get(_url)
+                if _dt_str and _dt_str in DocumentType._value2member_map_:
+                    _dt = DocumentType(_dt_str)
+                else:
+                    _dt, _ = classify_document_type(
+                        url=_url, title=str(getattr(s, "title", "") or "")
+                    )
+                _dtw = resolve_document_type_weight(_dt, protocol)
+                _row.document_type = _dt.value
+                _row.is_journal_article = is_peer_reviewed_journal_article(_dt)
+                _row.document_type_weight = round(_dtw, 4)
+                _row.document_type_adjusted_weight = round(weight * _dtw, 4)
+                _m2_adj_sum += weight * _dtw
+            except Exception:  # noqa: BLE001 — additive label; never break the credibility build
+                _row.document_type = None
+                _row.is_journal_article = None
+                _row.document_type_weight = None
+                _row.document_type_adjusted_weight = None
+        per_source.append(_row)
 
     n = len(per_source)
     weighted_mean = round(weight_sum / n, 4) if n else 0.0
+    # I-deepfix-001 M2: SECOND disclosed mean (genre-adjusted) — never replaces weighted_mean.
+    _m2_adj_mean = round(_m2_adj_sum / n, 4) if (_m2_active and n) else None
 
     note = (
         f"Weighted-corpus gate ({_FLAG}) ON: the corpus is ACCEPTED and its credibility is DISCLOSED "
@@ -362,9 +433,37 @@ def build_corpus_credibility_disclosure(
         # through as None (caller did not thread a status). DISCLOSURE only — no drop, no abort; the
         # faithfulness engine is untouched.
         tiering_status=(dict(tiering_status) if isinstance(tiering_status, dict) else tiering_status),
+        # I-deepfix-001 M2: the genre-adjusted SECOND mean + the active flag. None/False when the
+        # document-type preference did not fire (stripped in disclosure_to_dict => byte-identical OFF).
+        document_type_adjusted_mean=_m2_adj_mean,
+        document_type_preference_active=bool(_m2_active),
     )
 
 
+# I-deepfix-001 M2: the additive document-type keys are emitted ONLY when the journal-only
+# preference fired, so the OFF path serializes byte-identically to HEAD.
+_M2_ROW_KEYS = (
+    "document_type",
+    "is_journal_article",
+    "document_type_weight",
+    "document_type_adjusted_weight",
+)
+_M2_DISCLOSURE_KEYS = ("document_type_adjusted_mean", "document_type_preference_active")
+
+
 def disclosure_to_dict(disclosure: CorpusCredibilityDisclosure) -> dict[str, Any]:
-    """Serialize the disclosure to a plain dict (for ``corpus_credibility_disclosure.json`` + manifest)."""
-    return asdict(disclosure)
+    """Serialize the disclosure to a plain dict (for ``corpus_credibility_disclosure.json`` + manifest).
+
+    I-deepfix-001 M2: when the journal-only document-type preference did NOT fire, the additive
+    M2 keys are STRIPPED from the dict (both the top-level adjusted-mean/active flag and every
+    ``per_source`` row's 4 genre keys) so the OFF disclosure + per_source are byte-identical to
+    HEAD. When it fired, the keys are present.
+    """
+    d = asdict(disclosure)
+    if not getattr(disclosure, "document_type_preference_active", False):
+        for _k in _M2_DISCLOSURE_KEYS:
+            d.pop(_k, None)
+        for _row in d.get("per_source", []) or []:
+            for _k in _M2_ROW_KEYS:
+                _row.pop(_k, None)
+    return d

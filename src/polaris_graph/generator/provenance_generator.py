@@ -4011,6 +4011,17 @@ def resolve_provenance_to_citations_with_count(
                 "num": ev_to_num[ev_id],
                 "evidence_id": ev_id,
                 "url": ev.get("source_url", ""),
+                # M3a (I-deepfix-001): carry the DOI/PMID the evidence_pool row already
+                # holds so a URL-less-but-DOI-bearing primary (e.g. JPE 2020
+                # 10.1086/705716, Science 2024 10.1126/science.adj0998) keeps a
+                # resolvable locator. Without these keys `_bib_entry_has_locator`
+                # (run_honest_sweep_r3.py) sees an empty url+blank doi and renders the
+                # "no resolvable URL/DOI locator" gap line even though the existing
+                # PG_BIB_REQUIRE_LOCATOR doi.org fallback would render
+                # https://doi.org/<doi>. Additive: when PG_BIB_REQUIRE_LOCATOR is OFF
+                # the renderer ignores both keys => byte-identical rendered report.
+                "doi": ev.get("doi", ""),
+                "pmid": ev.get("pmid", ""),
                 "tier": ev.get("tier", ""),
                 "statement": (ev.get("statement") or "")[:300],
             }
