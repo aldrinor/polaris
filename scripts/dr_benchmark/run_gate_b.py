@@ -47,6 +47,7 @@ _sys_clamp_bootstrap.path.insert(0, str(_Path_clamp_bootstrap(__file__).resolve(
 import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side effect: applies the clamp
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,6 +106,12 @@ from src.polaris_graph.roles.openrouter_role_transport import (
     openrouter_base_url,
     role_reasoning_enabled,
 )
+# I-deepfix-001 Codex gate P0 (WS-1 judge cache run-scope): the judge verdict idempotency cache is a
+# WITHIN-ONE-REPORT byte-twin dedup surface, but it is process-wide and (pre-fix) never reset — so a
+# document-1 verdict leaked into document-2 in the same sequential sweep process. reset_judge_verdict_cache
+# is called at the per-document boundary (top of run_gate_b_query) so each report's 4-role pass starts
+# clean. judge_adapter imports only stdlib + the roles contracts at module top (no network/spend).
+from src.polaris_graph.roles.judge_adapter import reset_judge_verdict_cache
 from src.polaris_graph.roles.release_policy import load_d8_policy_config
 
 # The three verifier roles this caller serves (the generator is excluded — it runs live on
@@ -2137,6 +2144,86 @@ def assert_cross_source_synthesis_fired(log_text: str) -> None:
         )
 
 
+# ── FIX 1 (I-deepfix-001 Codex gate P0, WS-1 judge cache run-scope) ──────────────────────────────────
+def _judge_verdict_idempotency_enabled() -> bool:
+    """Mirror ``judge_adapter._verdict_idempotency_enabled`` — the PG_JUDGE_VERDICT_IDEMPOTENCY kill-switch
+    (default ON). Read at CALL time (LAW VI) so a slate/operator override after import wins. When OFF the
+    idempotency cache is never populated by ``run_judge``, so the per-document reset is skipped too (no
+    behaviour change — byte-identical to pre-fix)."""
+    return os.getenv("PG_JUDGE_VERDICT_IDEMPOTENCY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+# ── FIX 3 (I-deepfix-001 Codex gate P1, M6 firing-canary wiring) ─────────────────────────────────────
+# The M6 producer (``cross_source_synthesis.compose_cross_source_analytical_units``) logs its fire /
+# silent-no-op markers via its MODULE logger, which streams to STDOUT — NOT to ``run_dir/run_log.txt``
+# (only the sweep's ``_log`` tee reaches that file; see run_honest_sweep_r3.py:7442-7444). So the post-run
+# canary cannot read the markers from the run-dir log. We instead CAPTURE that one module logger's records
+# in-process for the duration of the query, then feed the captured text to ``assert_cross_source_synthesis_
+# fired`` in the post-run block. Observability-only; captures nothing but the M6 marker lines; never reads,
+# alters, or decides a verdict (the frozen faithfulness engine is untouched).
+_CROSS_SOURCE_SYNTHESIS_LOGGER = "src.polaris_graph.generator.cross_source_synthesis"
+
+
+def _m6_firing_canary_enabled() -> bool:
+    """PG_M6_FIRING_CANARY kill-switch (default ON). OFF => no capture handler is attached and the post-run
+    M6 canary call is skipped entirely — byte-identical to pre-fix. Read at CALL time (LAW VI)."""
+    return os.getenv("PG_M6_FIRING_CANARY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+class _CrossSourceMarkerCaptureHandler(logging.Handler):
+    """Append the ``cross_source_synthesis`` module logger's message lines into ``sink`` so the post-run M6
+    canary can assert the analytical layer fired. A logging handler must NEVER raise into the caller, so
+    ``emit`` swallows any formatting error. Sequential-sweep safe (§8.4 — one query at a time); attached +
+    detached around a single ``asyncio.run(run_gate_b_query(...))`` so it never leaks across queries."""
+
+    def __init__(self, sink: list[str]) -> None:
+        super().__init__()
+        self._sink = sink
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._sink.append(record.getMessage())
+        except Exception:  # noqa: BLE001 — a logging handler must never propagate an error to the caller
+            pass
+
+
+def _run_m6_firing_canary(
+    log_lines: list[str],
+    status: str,
+    *,
+    smoke_scale: bool,
+    domain: str,
+    slug: str,
+) -> str:
+    """POST-RUN M6 firing canary (FIX 3). Mirrors the breadth-canary pattern: on a RELEASED, non-smoke run,
+    assert the M6 cross-source analytical layer fired (or was conditionally absent) from the captured
+    ``cross_source_synthesis`` marker lines. A GENUINE silent-no-op (anchored cross-source pair(s) existed
+    but 0 analytical units survived per-clause re-verify) raises RuntimeError -> "FAILED" (caller sets
+    overall_rc=1). ``assert_cross_source_synthesis_fired`` ALSO self-skips on PG_CROSS_SOURCE_SYNTHESIS off
+    (flag-off => early return, no raise). Reuses the breadth canary's released-status universe so the M6
+    canary applies exactly where a full-contract report was rendered. Returns a one-line sweep-record status.
+    Faithfulness-neutral: reads captured run telemetry, asserts nothing about any verdict."""
+    if status not in _BREADTH_CANARY_RELEASED_STATUSES:
+        return f"skip:status={status or '<none>'}"
+    if smoke_scale:
+        return "skip:smoke_scale"
+    log_text = "\n".join(log_lines)
+    try:
+        assert_cross_source_synthesis_fired(log_text)
+    except RuntimeError as _m6_exc:
+        logging.getLogger("run_gate_b").error(
+            "M6 cross-source firing canary FAILED for %s/%s: %s", domain, slug, _m6_exc,
+        )
+        print(f"<<< {domain} / {slug}: M6 cross-source firing canary FAILED: {_m6_exc}")
+        return "FAILED"
+    print(f"<<< {domain} / {slug}: M6 cross-source firing canary=ok")
+    return "ok"
+
+
 # W9 DARK-WINNER policy (spec OPERATOR DECISION #2). W9 (ContentDeduplicator) ships a DROP variant — wiring
 # it as-is would shed corroborators and VIOLATE §-1.3 consolidate-keep-all + the FROZEN faithfulness
 # contract. The FIRST-BUILD-STEP reconcile VERIFIED (not assumed) that the content near-dup function is
@@ -3383,6 +3470,20 @@ async def run_gate_b_query(
     from scripts.run_honest_sweep_r3 import run_one_query
 
     enable_four_role_mode()
+    # FIX 1 (I-deepfix-001 Codex gate P0, WS-1 judge cache run-scope): RESET the process-wide judge verdict
+    # idempotency cache at the START of THIS document's 4-role evaluation. The cache
+    # (judge_adapter._JUDGE_VERDICT_CACHE) keys a CLEAN parsed verdict on (normalized_claim, span-identity)
+    # to byte-twin-dedup WITHIN ONE report's 4-role pass. It is process-wide and, pre-fix, never cleared —
+    # so in the sequential multi-query sweep (main() runs each run_gate_b_query in the SAME process) a
+    # document-1 verdict could leak into document-2 and short-circuit a fresh judge call for a same-text
+    # claim/span, or be inherited on the degrade path. run_gate_b_query processes exactly ONE report, so its
+    # top is the per-document boundary: reset here, ONCE, BEFORE run_one_query runs this report's claims, so
+    # within-document twins still share the verdict but no verdict crosses a document boundary. Gated on the
+    # SAME default-ON PG_JUDGE_VERDICT_IDEMPOTENCY kill-switch that arms the cache (OFF => cache never
+    # populated => no-op, and not called => byte-identical). FAITHFULNESS-NEUTRAL: clears a transport-dedup
+    # cache only; parse_judge_verdict + _compose_final_verdict (how a verdict is DECIDED) are UNTOUCHED.
+    if _judge_verdict_idempotency_enabled():
+        reset_judge_verdict_cache()
     # I-meta-007: enable the verifiable quantified-trade-off calculator for the
     # benchmark/paid run ONLY here (gate-B entry), never globally — so the Phase-7
     # Regime-C-verified quantified section actually fires on the paid run.
@@ -4180,6 +4281,18 @@ def main(argv: list[str] | None = None) -> int:
         # now wrapped: an exception is logged with traceback, written as a durable
         # failed-manifest record under out_root, counted as a FAILURE (rc!=0), and the sweep
         # CONTINUES (PG_ABORT_ON_QUERY_ERROR=1 re-raises after recording, for the strict mode).
+        #
+        # FIX 3 (I-deepfix-001 Codex gate P1, M6 firing-canary wiring): attach the in-process capture
+        # handler to the cross_source_synthesis module logger BEFORE the run, so THIS document's M6 fire /
+        # silent-no-op markers are captured (they stream to stdout via the module logger, NOT to
+        # run_dir/run_log.txt). Detached in the `finally` below so it never leaks into the next query.
+        # Default-ON kill-switch PG_M6_FIRING_CANARY; OFF => no handler, no canary call (byte-identical).
+        _m6_log_lines: list[str] = []
+        _m6_handler = None
+        _m6_logger = logging.getLogger(_CROSS_SOURCE_SYNTHESIS_LOGGER)
+        if _m6_firing_canary_enabled():
+            _m6_handler = _CrossSourceMarkerCaptureHandler(_m6_log_lines)
+            _m6_logger.addHandler(_m6_handler)
         try:
             summary = asyncio.run(
                 run_gate_b_query(
@@ -4217,13 +4330,25 @@ def main(argv: list[str] | None = None) -> int:
                     "breadth-enrichment canary FAILED for %s/%s: %s", domain, slug, _bc_exc,
                 )
                 print(f"<<< {domain} / {slug}: breadth-enrichment canary FAILED: {_bc_exc}")
+            # FIX 3: POST-RUN M6 firing canary — mirror the breadth-canary pattern (unconditional call;
+            # self-skips on non-released/smoke, and on PG_CROSS_SOURCE_SYNTHESIS off inside the assert;
+            # sets overall_rc=1 on a GENUINE M6 silent-no-op). Reads the markers captured for THIS query.
+            _m6_canary = None
+            if _m6_handler is not None:
+                _m6_canary = _run_m6_firing_canary(
+                    _m6_log_lines, status,
+                    smoke_scale=args.smoke_scale, domain=domain, slug=slug,
+                )
+                if _m6_canary == "FAILED":
+                    overall_rc = 1
             _sweep_records.append({
                 "query_index": query_index,
                 "slug": slug,
                 "domain": domain,
                 "status": status,
-                "ok": _status_ok and _breadth_canary != "FAILED",
+                "ok": _status_ok and _breadth_canary != "FAILED" and _m6_canary != "FAILED",
                 "breadth_enrichment_canary": _breadth_canary,
+                "m6_cross_source_canary": _m6_canary,
                 "cost_usd": summary.get("cost_usd"),
             })
         except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently
@@ -4273,6 +4398,11 @@ def main(argv: list[str] | None = None) -> int:
             if _abort_on_error:
                 _persist_sweep_summary()
                 raise
+        finally:
+            # FIX 3: detach the M6 capture handler on EVERY exit path (success, crash, or _abort re-raise)
+            # so it never leaks into the next query's capture (sequential sweep, §8.4).
+            if _m6_handler is not None:
+                _m6_logger.removeHandler(_m6_handler)
         _persist_sweep_summary()
     return overall_rc
 

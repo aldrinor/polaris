@@ -3,20 +3,21 @@
 This amends `BEATBOTH_MASTER_PLAN.md`. Where this file and the plan disagree, THIS file wins. Codex verdict: `root_cause_sound: true`, `s13_violations: []`, `faithfulness_engine_relaxed_by: []` — the strategy is sound; these are factual/wiring corrections.
 
 ## OPERATOR DECISION (2026-07-01, SUPERSEDED same day)
-An earlier AskUserQuestion answer said "all-GLM (GLM-5.2 gen + judge, PERMIT=1)". The operator CORRECTED this same day: **the judge stays moonshotai/kimi-k2.6** — chosen deliberately for its high OpenRouter provider count (21 providers) which prevents the 429 trickle that caused the D8 false-negatives (per feedback_judge_model_provider_availability_render_blocker_2026_06_30). So the real policy is **TWO-FAMILY**:
-- Generator = GLM-5.2 (deepseek/glm family).
-- Judge = **moonshotai/kimi-k2.6** (distinct family) → the two-family self-bias safeguard is genuinely **ON** (`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=0`), the correct §9.1.8 posture (NOT disclosed-off).
-- The kimi default in `openrouter_role_transport.py:211` is CORRECT — do NOT force it to GLM. (The drb_72 re-smoke ran all-GLM with a glm judge, which is why its D8 trickled/gave false-negatives; kimi fixes that.)
+An earlier AskUserQuestion answer said "all-GLM (GLM-5.2 gen + judge, PERMIT=1)". The operator CORRECTED this same day: **the D8 terminal judge stays moonshotai/kimi-k2.6** — chosen deliberately for its high OpenRouter provider count (21 providers) which prevents the 429 trickle that caused the D8 false-negatives (per feedback_judge_model_provider_availability_render_blocker_2026_06_30). The precise posture is **all-GLM EVERYWHERE EXCEPT the D8 terminal judge**:
+- Generator = GLM-5.2. Mirror + side-checkers (entailment / semantic_conflict / credibility / span-quality) = GLM-5.2 too, by the operator-locked §9.1.8 side-judge→mirror mapping. External evaluator `PG_EVALUATOR_MODEL` = GLM-5.2 (the all-GLM / sovereignty-dropped campaign choice).
+- **D8 terminal faithfulness judge = moonshotai/kimi-k2.6 (DISTINCT family).** This IS the meaningful two-family self-bias safeguard: every VERIFIED / UNSUPPORTED verdict is decided by a model that did NOT write the text. `assert_four_role_families_distinct()` passes: `{generator: z-ai, mirror: z-ai, sentinel: minimax, judge: moonshotai}`.
+- **`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY` stays = 1** — NOT 0. Setting 0 would ABORT the run, because `check_family_segregation` compares the GLM generator against the GLM external evaluator / GLM side-checkers (same family, the intended disclosed all-GLM surface). PERMIT=1 governs only that disclosed same-family side surface; it does NOT weaken the D8 terminal judge, which is kimi (cross-family). (My earlier "set PERMIT=0" note here was wrong; the Wave-A fix agent caught it and left PERMIT=1, correctly.)
+- The kimi default in `openrouter_role_transport.py:211` is CORRECT — do NOT force it to GLM. (The drb_72 re-smoke ran with a GLM D8 judge, which is why its D8 trickled/gave false-negatives; kimi fixes that.)
 
 ## CORRECTED WORKSTREAMS
 
 ### WS-1 (REVISED) — kimi-k2.6 D8 judge RELIABILITY (keep the kimi judge; do NOT swap to GLM).
-Keep moonshotai/kimi-k2.6 as the judge (stable provider count). Two-family (gen=GLM, judge=kimi, safeguard ON). Kill the residual trickle/false-negative class via the NON-model mechanisms:
+Keep moonshotai/kimi-k2.6 as the judge (stable provider count). Two-family AT THE D8 TERMINAL JUDGE (gen=GLM, D8 judge=kimi = distinct family = the meaningful self-bias safeguard, genuinely ON — see the OPERATOR DECISION block above). Kill the residual trickle/false-negative class via the NON-model mechanisms:
 - (a) enforce the verdict enum via OpenRouter `response_format`/`json_schema` (not the vLLM-only `structured_outputs.choice` at `judge_adapter.py:229-231`) so `JudgeEnumError` cannot fire off-vLLM;
 - (b) bounded per-claim RETRY before the fail-closed degrade (`judge_adapter.py:284-298,311-325`) — a transient blank/429 re-asks, never convicts;
 - (c) verdict IDEMPOTENCY cache keyed on `(normalized_claim, span-identity)` so a byte-twin inherits a clean sibling's verdict — this removes the 02-001/02-007 split (the 3 false-negatives);
 - (d) raise the D8 seam wall for a slow GLM judge (per feedback_judge_model_provider) so the trickle does not tear the seam.
-- Keep `PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1` (all-GLM, operator-locked) and DISCLOSE the disabled two-family safeguard every run.
+- Keep `PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1`. This governs ONLY the disclosed all-GLM SIDE surface (GLM generator vs the GLM external-evaluator + GLM side-checkers, per the §9.1.8 side-judge→mirror lock). It does NOT touch the D8 terminal judge, which is kimi (cross-family). Setting it to 0 would ABORT the run at `check_family_segregation`. Disclose the all-GLM side surface every run.
 - Risk: still ADJACENT (touches the judge); safe-direction (a real UNSUPPORTED still holds; only transport-noise convictions removed). Depends hard on WS-0 (GPU un-degrade) since GLM tiering + judge share the trickle root.
 
 ### WS-2 (CORRECTED per Codex P1) — the slate does NOT contain all 4 winners.
