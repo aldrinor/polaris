@@ -1,0 +1,53 @@
+verdict: REQUEST_CHANGES
+covers_all_6_residuals_behaviorally: false
+covers_all_winners_firing: false
+faithfulness_bar_airtight: false
+s13_no_forced_number: false
+missed_elements:
+  - "P0: Stage B uses one realistic clinical query, but D1/D4/D5/D6 are drb_72 AI-labor-specific. The checks can pass vacuously unless the exact Eloundou, journal-only AI-labor, DOI-only coverage, and contradiction-total cases are forced present."
+  - "P0: Phase 5 only schedules Phase 4.1 before GO. Phase 4.2-4.6 scorer/corroboration/breadth/no-abort gates are not explicitly executed, and WS-14 scorers are left optional."
+  - "P0: 4.6 allows `release_allowed != true` as PASS if honestly disclosed. The master gate requires `release_allowed=True`; disclosed gaps cannot be accepted as success."
+  - "P0: 1.5 allows rules-floor/degraded tiering as success. The master acceptance requires no retrieval wall-drop and `tiering_mode != rules_floor_degraded`."
+  - "P1: D6 misses weight incoherence: no required `weight_basis` / single source of truth / `tiering_mode` disclosure check."
+  - "P1: D2 checks the printed count but not the citation-chrome root cause. A >0 corroboration count must be backed by non-chrome claim spans, not citation boilerplate/member length."
+  - "P1: WS-2/M6 are telemetry-checked, not output-checked. Require rendered, D8-verified cross-source sentences with two distinct evidence tokens and cited multi-source baskets."
+  - "P1: WS-3 `no_provenance_token` assertion is tautological (`>0 OR 0`). It does not prove no-token breadth was repaired, verified, or loudly withheld."
+  - "P1: WS-1 judge stability is not firing-checked: zero `JudgeEnumError`/`RoleTransportError`, enum schema enforcement, retry-before-degrade, and span-identity idempotency are missing."
+  - "P1: WS-12 quantified-analysis blocker is absent despite audit `spec_validation_rejected` / `quantified_silent_no_op`."
+  - "P1: WS-10 and WS-11 are absent: no source-necessity min-vertex-cover/orientation guard, no debate prompt proving pro+con baskets render."
+  - "P1: D4 should explicitly check the audit’s failing classes: 1986 pre-AI robotics, T4 Frontiers forecast, and OECD/working-paper/non-journal headline breach."
+  - "P1: D5 needs non-vacuous DOI-only and basket-member-credit fixtures plus report grep proving coverage gaps no longer disown body-VERIFIED entities."
+  - "P2: Stage C names a §-1.1 audit but only aborts on fabrication; the master gate also requires 0 over-claim."
+  - "P2: Concrete executor is underspecified; the repo’s existing `scripts/deepfix_preflight.py` is a different offline canary harness."
+
+config_or_threshold_errors:
+  - "SSOT conflict: PREFLIGHT says GLM-5.2 + kimi + `PERMIT=1`; the master acceptance also says deepseek-v4-pro/kimi with `PERMIT=0`. Resolve before gating."
+  - "`assert_four_role_families_distinct()` cannot literally pass with generator and mirror both z-ai/glm; the allowed collision must be explicit and judge collapse must still fail."
+  - "`polaris_runtime_lock.yaml` still pins judge qwen; PREFLIGHT says resolving the lock yields kimi. Update the lock or name the benchmark override."
+  - "Frozen-engine diff includes `judge_adapter` / `openrouter_role_transport`, but WS-1 requires safe-direction edits there. Define `<base>` and allowed audited changes."
+  - "DeepTRACE must be labeled ESTIMATE: no public scorer/leaderboard. `judge substitution disclosed` is close but not enough."
+  - "DRB-II gate should say TotalScore >=66, with InfoRecall/Analysis/Presentation subtargets separated."
+  - "Token-budget check must inspect observed request bodies per role/provider, not only `GET /models`."
+
+novel_p0:
+  - "Vacuous Stage B query cannot exercise the residuals."
+  - "GO path can skip Phase 4.2-4.6 / WS-14 scoring."
+  - "`release_allowed=false` disclosed-gap path can still pass."
+  - "Degraded rules-floor tiering can still pass."
+
+p1:
+  - "D6 weight-basis subdefect missing."
+  - "D2 citation-chrome root cause missing."
+  - "WS-2/M6 not output-fired."
+  - "WS-3 no-provenance check tautological."
+  - "WS-1 judge stability not behaviorally checked."
+  - "WS-12 quantified no-op missing."
+  - "WS-10/WS-11 DeepTRACE top-slot checks missing."
+  - "Forced breadth-number checks violate §-1.3."
+
+p2:
+  - "Audit abort criteria should include over-claim/PARTIAL, not fabrication only."
+  - "Executable driver for `{go, failed_checks}` is not named."
+  - "Several thresholds use vague phrases like `well above 12` and `most claims`."
+
+convergence_call: continue
