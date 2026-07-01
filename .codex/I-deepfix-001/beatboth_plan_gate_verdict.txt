@@ -1,0 +1,38 @@
+```yaml
+verdict: REQUEST_CHANGES
+root_cause_sound: true
+s13_violations: []
+faithfulness_engine_relaxed_by: []
+novel_p0: []
+continuing_p0: []
+p1:
+  - "WS-2/slate wiring is not sound as written: current Gate-B slate sets/preflights PG_CONSOLIDATION_NLI and PG_BREADTH_ENRICHMENT_ENABLED, but I found no PG_CROSS_SOURCE_SYNTHESIS or PG_DOCUMENT_TYPE_WEIGHT in run_gate_b.py. The plan's claim that applying apply_full_capability_benchmark_slate() turns on all 4 winners is false unless those two flags are added to slate/preflight or explicitly mapped to successor behavior with fail-loud firing assertions."
+  - "WS-1/two-family invariant does not match current repo state: the plan says kimi is segregated from deepseek-v4-pro and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY stays 0, but the current runtime lock is all-GLM-style and run_gate_b.py force-sets PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1. The plan must reconcile this before claiming verifier-family independence."
+  - "Acceptance proof overclaims DeepTRACE: DeepTRACE has a paper/OpenReview benchmark but no public official scorer/leaderboard I could corroborate; a reimplementation can estimate, not prove #1, unless calibrated externally and described as such."
+
+p2:
+  - "Root-cause wording needs reconciliation: direct run_honest_sweep_r3.py path does not apply the full slate, but the drb_72 Gate-B smoke did have some winners ON. Diagnosis should say mixed partial-ON/GPU-degraded, not simply all winners OFF."
+  - "WS-10 is directionally correct, but must explicitly keep quarantined sources in the audit ledger and non-scored Bibliography/sidecar; only the scored citation/reference list should be minimized."
+  - "B3 DeepScholar 'open top slot/no frontier DR' claim is contradicted by the live leaderboard listing OpenAI DeepResearch: https://guestrin-lab.github.io/deepscholar-leaderboard/leaderboard/deepscholar_bench_leaderboard.html"
+  - "B5 DeepResearch-Bench-v1 facts are stale: the project now says the official evaluator switched to GPT-5.5 in May 2026, so Gemini-2.5-Pro RACE 48.88 should be treated as historical: https://github.com/Ayanami0730/deep_research_bench"
+  - "The final gate proves B1/B2 much more strongly than all 5 boards; B3 submission, B4 subset checks, and B5 cross-checks are not sufficient #1 proof gates."
+  - "WS-11 and WS-15 remain under-de-risked as the plan says; add explicit abstain/no-evidence behavior for debate sides and bounded cost/wall-clock gates for TTD-DR."
+
+board_facts_unverifiable:
+  - "DeepTRACE live #1 proof / official scoring endpoint: not corroborated; paper/OpenReview corroborate Salesforce lineage and metric orientation, not a public official scorer. Sources: https://arxiv.org/html/2509.04499 and https://openreview.net/forum?id=QkaeTea16Y"
+  - "DRB-II AI21-DeepResearch 64.38 #1 is corroborated current: https://agentresearchlab.com/benchmarks/deepresearch-bench-ii/index.html"
+  - "Any B3/B5 current-rank claim in the plan must be refreshed from live boards before execution."
+
+missed_workstreams_or_blockers:
+  - "Add explicit slate/preflight work for PG_CROSS_SOURCE_SYNTHESIS and PG_DOCUMENT_TYPE_WEIGHT, or rename them to the actual successor flags and assert real output firing."
+  - "Add a model-family policy reconciliation workstream for current all-GLM Gate-B behavior vs WS-1's PG_PERMIT=0 safety claim."
+  - "Add DeepTRACE scorer validation/calibration; WS-14 reimplementation alone is not an official proof path."
+
+sequencing_ok: false
+acceptance_gate_sufficient: false
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Correct the master plan's slate contents and drb_72 smoke reconciliation."
+  - "Decide and encode the intended judge/generator family policy in lock, Gate-B, preflight, and manifest assertions."
+  - "Downgrade or externally validate the DeepTRACE '#1 proof' acceptance language."
+```
