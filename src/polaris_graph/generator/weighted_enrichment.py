@@ -1525,16 +1525,63 @@ def _report_claim_bullets(report_text: str) -> list[str]:
     return out
 
 
+# I-deepfix-001 WS-7 (D3): the chrome canary was BLIND to prose — it scored only top-level claim BULLETS
+# (_report_claim_bullets), so an in-prose chrome leak (a leading bare section-header word, an in-text
+# "(1, 2)" ref marker, a truncated "(2017)" subject) shipped without tripping the canary (drb_72: 0/33
+# bullets flagged while prose leaked). This adds the report's claim-bearing PROSE units to the canary
+# DENOMINATOR, screened with the SAME shared predicate, so a prose leak now trips the canary fail-closed.
+# MEASUREMENT ONLY — the canary computes a rate/verdict; it NEVER drops or edits a rendered unit (that is
+# the render seam's job). Default-ON PG_RENDER_CHROME_CANARY_PROSE; OFF => bullets-only => byte-identical.
+_RENDER_CANARY_PROSE_ENV = "PG_RENDER_CHROME_CANARY_PROSE"
+_PROSE_UNIT_MIN_CHARS = 40
+
+
+def _render_canary_prose_enabled() -> bool:
+    return os.environ.get(_RENDER_CANARY_PROSE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _report_prose_units(report_text: str) -> list[str]:
+    """The report's claim-bearing PROSE units (substantial non-bullet, non-header paragraph lines),
+    EXCLUDING scaffolding sections (Bibliography / Methods / disclosures / Source corroboration / the H1
+    question echo) whose legitimate DOIs/URLs are not chrome. PURE. These are the units the chrome canary
+    was blind to (it scored only top-level bullets)."""
+    out: list[str] = []
+    in_scaffold = False
+    for line in (report_text or "").split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        hdr = _SECTION_HEADER_RE.match(line)
+        if hdr:
+            title = hdr.group(2).strip().lower()
+            in_scaffold = any(title.startswith(t) for t in _SCAFFOLDING_SECTION_TITLES)
+            continue
+        if in_scaffold:
+            continue
+        if _TOP_LEVEL_BULLET_RE.match(line) or _LEADING_BULLET_RE.match(line):
+            continue  # bullets are already scored by _report_claim_bullets
+        if len(s) >= _PROSE_UNIT_MIN_CHARS:
+            out.append(_BOLD_MARKER_RE.sub("", s).strip())
+    return out
+
+
 def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
-    """Compute the chrome-as-claim rate over the SHIPPED report's claim bullets and the
-    canary verdict. PURE (no I/O). ``verdict='fail'`` ONLY in ``enforce`` mode when the
-    rate exceeds the floor and there is at least one claim bullet — so the caller can
-    flip the run status. In ``warn``/``off`` the verdict is always ``pass`` (telemetry
-    only). Each chrome bullet is screened with the SAME shared predicate every composer
-    uses (chrome + truncation), so the canary and the screens can never disagree."""
+    """Compute the chrome-as-claim rate over the SHIPPED report's claim bullets AND prose units, and the
+    canary verdict. PURE (no I/O). ``verdict='fail'`` ONLY in ``enforce`` mode when the rate exceeds the
+    floor and there is at least one claim unit — so the caller can flip the run status. In ``warn``/``off``
+    the verdict is always ``pass`` (telemetry only). Each chrome unit is screened with the SAME shared
+    predicate every composer uses (chrome + truncation), so the canary and the screens can never disagree.
+    WS-7 (D3): prose units are added to the denominator (default-ON PG_RENDER_CHROME_CANARY_PROSE) so an
+    in-prose chrome leak trips the canary — MEASUREMENT ONLY, no rendered unit is dropped or edited."""
     bullets = _report_claim_bullets(report_text)
-    chrome = [b for b in bullets if is_render_chrome_or_unrenderable(b)]
-    total = len(bullets)
+    units = list(bullets)
+    prose_units = 0
+    if _render_canary_prose_enabled():
+        prose = _report_prose_units(report_text)
+        prose_units = len(prose)
+        units = units + prose
+    chrome = [b for b in units if is_render_chrome_or_unrenderable(b)]
+    total = len(units)
     n_chrome = len(chrome)
     rate = (n_chrome / total) if total else 0.0
     floor = render_chrome_canary_floor()
@@ -1543,7 +1590,11 @@ def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
     return {
         "mode": mode,
         "floor": floor,
+        # WS-7 (D3): denominator now = bullets + prose units. total_claim_bullets kept for back-compat
+        # consumers (= total scored units); total_claim_units + prose_units_scored are the explicit names.
         "total_claim_bullets": total,
+        "total_claim_units": total,
+        "prose_units_scored": prose_units,
         "chrome_claim_bullets": n_chrome,
         "chrome_as_claim_rate": round(rate, 4),
         "verdict": "fail" if tripped else "pass",

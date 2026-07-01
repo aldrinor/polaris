@@ -1,0 +1,13 @@
+verdict: REQUEST_CHANGES
+s13_display_rerank_no_drop: true
+faithfulness_neutral: true
+byte_identical_when_off_or_unknown_year: true
+bib_rerank_sufficient_or_needs_composition: "Needs composition. The patch only reorders the post-bibliography source-corroboration block at scripts/run_honest_sweep_r3.py:2978. The report-body headline path still comes from weighted_enrichment selection/composition: src/polaris_graph/generator/weighted_enrichment.py:332, :479 and src/polaris_graph/generator/multi_section_generator.py:7947. Prior audit evidence says the 1986 source appeared in Abstract, Key Findings, and Evidence and Analysis, so bibliography re-rank alone is insufficient to close the headline breach."
+novel_p0: []
+p1:
+  - "scripts/run_honest_sweep_r3.py:2762: the known 1986 DOI shape `10.1016/0272-6963(86)90020-3` will be treated as unknown-year unless a top-level year field is present, because the parser only accepts explicit year fields or four-digit years in statement/title/url/doi. Unknown year returns factor 1.0, so the core 1986 case can fail to demote."
+  - "The body/headline ordering path is untouched. `weighted_enrichment` still ranks by below-floor status, relevance, basket weight, then evidence_id, with no publication-year leg; the patch only changes the appended source-corroboration ordering."
+p2:
+  - "Recency env values are not range-validated: negative decay or floor > 1 can make factors exceed 1.0 and promote old sources. Defaults are safe, but config should clamp/fail-loud."
+  - "All requested ranking constants are env-backed; the hardcoded plausible-year bounds are parsing guards, not ranking weights."
+convergence_call: continue
