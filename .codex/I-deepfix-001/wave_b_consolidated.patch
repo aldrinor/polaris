@@ -1,0 +1,2113 @@
+diff --git a/scripts/operational_readiness_preflight.py b/scripts/operational_readiness_preflight.py
+index 047f406c..460c2ee9 100644
+--- a/scripts/operational_readiness_preflight.py
++++ b/scripts/operational_readiness_preflight.py
+@@ -464,6 +464,89 @@ def check_d1_launch_path(rg) -> list[CheckResult]:
+     return out
+ 
+ 
++# --------------------------------------------------------------------------------------------
++# D-1 PAID PATH — the winner slate on run_honest_sweep_r3.py (I-deepfix-001 #1344 WS-2)
++# --------------------------------------------------------------------------------------------
++# The paid ``run_honest_sweep_r3.py`` launch now applies the four winner flags ITSELF
++# (``apply_winner_slate_on_paid_path``, default-ON kill-switch ``PG_APPLY_WINNER_SLATE_ON_PAID_PATH``),
++# so a direct paid launch no longer needs the run_gate_b.py wrapper to avoid a NARROW report. This
++# check RED-gates a paid launch whose EFFECTIVE winner-flag config is not fully ON: when the
++# kill-switch is ON the launcher force-sets the four flags ``"1"`` (GREEN); when the operator DISABLES
++# the kill-switch, the flags keep their raw env, so a paid run with any winner flag OFF cannot launch.
++# Flag names mirror ``run_honest_sweep_r3._PAID_PATH_WINNER_FLAGS`` (the source of truth).
++_PAID_PATH_WINNER_SLATE_ENV = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
++_PAID_PATH_WINNER_FLAGS: tuple[tuple[str, str], ...] = (
++    ("PG_CONSOLIDATION_NLI", "W10 consolidate=NLI (same-claim baskets -> multi-source corroboration)"),
++    ("PG_CONSOLIDATION_NLI_PROSE", "NLI prose consolidation (keep-all corroboration in prose)"),
++    ("PG_CROSS_SOURCE_SYNTHESIS", "M6 cross-source analytical layer (the Comparative-Assessment yield)"),
++    ("PG_BREADTH_ENRICHMENT_ENABLED", "breadth weighted-enrichment surface (the 485->~13 funnel fix)"),
++)
++# The paid launcher whose main_async must call apply_winner_slate_on_paid_path (read READ-ONLY via
++# AST; NEVER imported — the module is heavy and runs load_dotenv at import).
++_RUN_HONEST_SWEEP = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
++
++
++def _paid_path_winner_slate_on(env: Mapping[str, str]) -> bool:
++    """Default-ON kill-switch parse, byte-identical to run_honest_sweep_r3.winner_slate_on_paid_path_enabled."""
++    return env.get(_PAID_PATH_WINNER_SLATE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
++
++
++def resolve_paid_path_winner_flags(env: Mapping[str, str]) -> dict[str, str]:
++    """READ-ONLY replica of ``run_honest_sweep_r3.apply_winner_slate_on_paid_path``'s env mutation:
++    when the kill-switch is ON the launcher force-sets each winner flag ``"1"``; when OFF the flag
++    keeps its raw env value. Pure — never writes ``os.environ``."""
++    killswitch_on = _paid_path_winner_slate_on(env)
++    return {
++        flag: ("1" if killswitch_on else env.get(flag, ""))
++        for flag, _why in _PAID_PATH_WINNER_FLAGS
++    }
++
++
++def check_d1_paid_path_winner_slate(env: Mapping[str, str]) -> list[CheckResult]:
++    """RED-gate a PAID run_honest_sweep_r3.py launch whose EFFECTIVE winner slate is not fully ON."""
++    out: list[CheckResult] = []
++    killswitch_on = _paid_path_winner_slate_on(env)
++    eff = resolve_paid_path_winner_flags(env)
++    for flag, why in _PAID_PATH_WINNER_FLAGS:
++        ok = _truthy(eff.get(flag))
++        detail = (
++            f"kill-switch {_PAID_PATH_WINNER_SLATE_ENV}={'ON' if killswitch_on else 'OFF'}; "
++            f"effective={eff.get(flag)!r} -> "
++            + (
++                "force-set '1' by apply_winner_slate_on_paid_path (a paid run cannot launch with it OFF)"
++                if ok else
++                f"NOT '1' — the kill-switch is OFF and the operator env leaves {flag} OFF, so a PAID "
++                f"run would ship {why} DISABLED. Set {flag}=1 or re-enable "
++                f"{_PAID_PATH_WINNER_SLATE_ENV}."
++            )
++        )
++        out.append(CheckResult("D-1.paid_path." + flag, why, GREEN if ok else RED, STATIC, detail))
++
++    # GATING: the paid launcher's main_async ACTUALLY calls apply_winner_slate_on_paid_path (AST call-
++    # node check, not a substring that false-passes on a comment). Read the file text READ-ONLY.
++    launcher_applies = False
++    if _RUN_HONEST_SWEEP.is_file():
++        try:
++            src = _RUN_HONEST_SWEEP.read_text(encoding="utf-8")
++            launcher_applies = _source_calls(src, "main_async", "apply_winner_slate_on_paid_path")
++            note = f"run_honest_sweep_r3.main_async calls apply_winner_slate_on_paid_path={launcher_applies}"
++        except OSError as exc:
++            note = f"could not read {_RUN_HONEST_SWEEP.name}: {exc}"
++    else:
++        note = f"{_RUN_HONEST_SWEEP.name} not found (cannot confirm the paid launcher statically)"
++    out.append(CheckResult(
++        "D-1.paid_path.launcher_applies",
++        "the paid launcher run_honest_sweep_r3.py applies the winner slate in main_async",
++        GREEN if launcher_applies else RED, STATIC,
++        note + " -> " + (
++            "WIRED (main_async force-applies the winner slate when the kill-switch is ON)"
++            if launcher_applies else
++            "REGRESSION: main_async no longer applies the winner slate on the paid path"
++        ),
++    ))
++    return out
++
++
+ # --------------------------------------------------------------------------------------------
+ # D-2 — MODELS RIGHT + REACHABLE
+ # --------------------------------------------------------------------------------------------
+@@ -860,6 +943,9 @@ def run_static_checks(env: Mapping[str, str], th: Thresholds) -> tuple[list[Chec
+         results: list[CheckResult] = []
+         results += check_d1_flags(cfg, env, meta, four_role_mode_wired)
+         results += check_d1_launch_path(rg)
++        # I-deepfix-001 (#1344) WS-2: RED-gate a PAID run_honest_sweep_r3.py launch whose winner slate
++        # is not fully ON (the paid launcher now applies it itself via the default-ON kill-switch).
++        results += check_d1_paid_path_winner_slate(env)
+         results += check_d2_models_static(lineup, generator_slug, lock, families, families_error, th)
+         results += check_d3_tokens(cfg, th)
+         results += check_d4_timeouts(cfg, th)
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 1eb80566..5d213666 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -16962,6 +16962,56 @@ async def run_one_query(
+     return summary
+ 
+ 
++# ── I-deepfix-001 (#1344) WS-2 — WINNER SLATE ON THE PAID RUN PATH ──────────────────────────
++# The paid ``run_honest_sweep_r3.py`` launch applies the four confirmed default-OFF WINNER flags so
++# the WEIGHT-and-CONSOLIDATE machinery fires on the paid path (previously only ``run_gate_b.py``'s
++# ``apply_full_capability_benchmark_slate`` set them, so a direct paid launch shipped a NARROW report
++# with zero consolidation / zero analysis). §-1.3: every flag is a WEIGHT or a CONSOLIDATION, never a
++# DROP / CAP / TARGET —
++#   * PG_CONSOLIDATION_NLI       — W10 NLI consolidation, MERGE-ONLY (keeps ALL sources as multi-cite)
++#   * PG_CONSOLIDATION_NLI_PROSE — the prose-side NLI consolidation companion (keep-all corroboration)
++#   * PG_CROSS_SOURCE_SYNTHESIS  — M6 cross-source analytical layer, ADDITIVE keep-all
++#   * PG_BREADTH_ENRICHMENT_ENABLED — the UNCAPPED breadth surface, routed through the UNCHANGED
++#     strict_verify (the 485->~13 funnel fix)
++# All four are read at CALL time downstream (breadth_enrichment_enabled / consolidation_nli_enabled /
++# _cross_source_synthesis_enabled / the prose gate), so a start-of-run ``os.environ`` set is honored
++# with no import-timing rebind. Default-ON via a LAW-VI kill-switch; when it is set OFF this is a
++# BYTE-IDENTICAL no-op (the flags keep their ``.env`` / default values). The frozen faithfulness
++# engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is NOT touched.
++_WINNER_SLATE_ON_PAID_PATH_ENV = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
++_PAID_PATH_WINNER_FLAGS: tuple[str, ...] = (
++    "PG_CONSOLIDATION_NLI",
++    "PG_CONSOLIDATION_NLI_PROSE",
++    "PG_CROSS_SOURCE_SYNTHESIS",
++    "PG_BREADTH_ENRICHMENT_ENABLED",
++)
++
++
++def winner_slate_on_paid_path_enabled() -> bool:
++    """Default-ON kill-switch (LAW VI). OFF only on an explicit 0/false/off/no."""
++    return os.environ.get(_WINNER_SLATE_ON_PAID_PATH_ENV, "1").strip().lower() not in (
++        "0", "false", "off", "no",
++    )
++
++
++def apply_winner_slate_on_paid_path() -> dict[str, str]:
++    """Apply the WS-2 winner slate at the paid launcher's flag-resolution point.
++
++    Returns the ``{flag: "1"}`` dict actually SET (EMPTY when the kill-switch is OFF — a byte-identical
++    revert). Each winner flag is forced ``"1"`` in ``os.environ``. §-1.3 WEIGHT-and-CONSOLIDATE:
++    consolidation is merge-only (keeps every source as a multi-citation basket), cross-source synthesis
++    is additive keep-all, and breadth enrichment is the uncapped surface through the UNCHANGED
++    strict_verify — no source is dropped, no cap / floor / target is added. The frozen faithfulness
++    engine is not touched."""
++    if not winner_slate_on_paid_path_enabled():
++        return {}
++    applied: dict[str, str] = {}
++    for _flag in _PAID_PATH_WINNER_FLAGS:
++        os.environ[_flag] = "1"
++        applied[_flag] = "1"
++    return applied
++
++
+ async def main_async() -> int:
+     """CLI entry. Supports --only <slug> to run a single query and
+     --out-root <path> to override the output directory. Documented in
+@@ -17035,6 +17085,23 @@ async def main_async() -> int:
+     )
+     args = parser.parse_args()
+ 
++    # I-deepfix-001 (#1344) WS-2: apply the confirmed default-OFF WINNER slate on the PAID run path,
++    # at the flag-resolution point BEFORE any query runs (all four flags are read at call time
++    # downstream, so a start-of-run os.environ set is honored). Default-ON via the LAW-VI kill-switch
++    # PG_APPLY_WINNER_SLATE_ON_PAID_PATH; when it is OFF this is a byte-identical no-op. §-1.3
++    # WEIGHT-and-CONSOLIDATE — none of the four flags drops a source or adds a cap/floor/target.
++    _winner_slate_applied = apply_winner_slate_on_paid_path()
++    if _winner_slate_applied:
++        print(
++            "[WS-2] winner slate applied on the paid path: "
++            + ", ".join(f"{_k}={_v}" for _k, _v in _winner_slate_applied.items())
++        )
++    else:
++        print(
++            f"[WS-2] winner slate NOT applied ({_WINNER_SLATE_ON_PAID_PATH_ENV} disabled) — the four "
++            f"winner flags keep their .env/default values (byte-identical revert)"
++        )
++
+     # M-INT-0b: --replay-from-pin handler. Build the replay plan
+     # from the captured pin and apply it via the
+     # `apply_replay_plan` context manager so the env mutation is
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 44679954..333cab4f 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -64,6 +64,11 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
+     _verified_compose_enabled,
+     build_verified_span_draft,
+     dedup_same_span_sentences,
++    # I-deepfix-001 WS-3 (#1344): no-provenance-token leak repair (the drb_72
++    # no_provenance_token=34 leak) — an untokened abstractive sentence is REPAIRED to
++    # the nearest supporting basket's verified clause BEFORE strict_verify drops it.
++    no_token_sentence_repair_enabled,
++    repair_untokened_sentence,
+     split_into_sentences,
+ )
+ # I-deepfix-001 (#1344) Bug B: retraction grounding gate — a retracted/withdrawn
+@@ -4090,6 +4095,57 @@ def _screen_fixk_render_chrome(raw_draft: str) -> str:
+     return " ".join(kept)
+ 
+ 
++def _repair_untokened_draft(
++    raw: str,
++    baskets: list,
++    evidence_pool: dict,
++    *,
++    writer_fn,
++    verify_fn,
++) -> str:
++    """I-deepfix-001 WS-3 (#1344) — NO-PROVENANCE-TOKEN LEAK REPAIR wiring.
++
++    Before the composed draft ``raw`` flows into the UNCHANGED ``_rewrite_draft_with_spans`` ->
++    ``strict_verify`` tail (where an untokened sentence is dropped ``no_provenance_token`` — the
++    drb_72 ``no_provenance_token=34`` leak), attempt to REPAIR each untokened sentence by binding
++    the NEAREST supporting basket's OWN verified clause via ``repair_untokened_sentence`` (default-ON
++    ``PG_NO_TOKEN_SENTENCE_REPAIR``), using the SAME production ``writer_fn`` / ``verify_fn`` already
++    composing this section. A tokened sentence is returned unchanged; an untokened sentence with a
++    bindable isolated-``SUPPORTS`` span is REPLACED by that basket's strict_verify-PASSED clause; an
++    untokened sentence with no binding is left AS-IS (so ``strict_verify`` still drops it — the legacy
++    behavior). Faithfulness-neutral: the frozen faithfulness engine is untouched — the repair only ADDS
++    a faithful cited clause where the legacy path rendered nothing, and every emitted clause re-passes
++    the UNCHANGED ``strict_verify`` per clause.
++
++    Byte-identical when the flag is OFF or when NO sentence is repaired (``raw`` is returned unchanged).
++    """
++    if not raw or not no_token_sentence_repair_enabled():
++        return raw
++    units = split_into_sentences(raw)
++    if not units:
++        return raw
++    repaired: list[str] = []
++    changed = 0
++    for sentence in units:
++        rep = repair_untokened_sentence(
++            sentence, baskets, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
++        )
++        if rep is not None and rep != sentence:
++            repaired.append(rep)
++            changed += 1
++        else:
++            # Tokened sentence (returned unchanged), no bindable span, or flag off -> keep as-is
++            # so the UNCHANGED strict_verify tail applies its normal verdict (drop if untokened).
++            repaired.append(sentence)
++    if not changed:
++        return raw  # byte-identical: nothing was repaired
++    logger.info(
++        "[multi_section] WS-3 no-token repair: rebound %d untokened sentence(s) to a verified "
++        "basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)", changed,
++    )
++    return "\n".join(repaired)
++
++
+ async def _run_section(
+     section: SectionPlan,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -4260,9 +4316,13 @@ async def _run_section(
+             _vc_precomputed = await abstractive_pre_pass(
+                 _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
+             )
++            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
++            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
++            _vc_writer_fn = make_abstractive_writer_fn(_vc_precomputed)
++            _vc_verify_fn = _vc_writer_verify
+             _vc_composed = _compose_section_per_basket(
+                 _vc_baskets, evidence_pool,
+-                writer_fn=make_abstractive_writer_fn(_vc_precomputed), verify_fn=_vc_writer_verify,
++                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
+                 # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
+                 # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
+@@ -4273,9 +4333,13 @@ async def _run_section(
+             # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
+             # (fires-through-render? short prose fits 150K? does D8/glm hang locally?). Byte-identical
+             # to the pre-#1282 behavior; replaced by the LLM writer when PG_ABSTRACTIVE_WRITER is ON.
++            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
++            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
++            _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool)  # noqa: E731
++            _vc_verify_fn = _vc_verify
+             _vc_composed = _compose_section_per_basket(
+                 _vc_baskets, evidence_pool,
+-                writer_fn=lambda _b, _p: _vc_short_writer(_b, evidence_pool), verify_fn=_vc_verify,
++                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
+                 # cross-source analytical pass can LICENSE a conflict connective. No-op unless
+                 # PG_CROSS_SOURCE_SYNTHESIS is ON.
+@@ -4290,6 +4354,16 @@ async def _run_section(
+         # passes the UNCHANGED strict_verify per-clause in the _rewrite_draft_with_spans + strict_verify
+         # tail below; faithfulness is untouched (composition layer only).
+         raw = "\n".join(c for c in _vc_composed if c and c.strip())
++        # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
++        # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
++        # dropped no_provenance_token — the drb_72 leak), rebind any untokened sentence to the nearest
++        # supporting basket's OWN verified clause, using the SAME production writer/verify fns that
++        # composed this section. Default-ON (PG_NO_TOKEN_SENTENCE_REPAIR); byte-identical when OFF or
++        # when nothing is repaired. Faithfulness-neutral — the frozen engine is untouched.
++        raw = _repair_untokened_draft(
++            raw, _vc_baskets, evidence_pool,
++            writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
++        )
+         in_tok = out_tok = 0
+         section_atom_catalog = {}
+         logger.info(
+@@ -5759,6 +5833,147 @@ def _remap_section_markers_to_global(
+     return remapped
+ 
+ 
++# I-deepfix-001 WS-3 (#1344): the [ev_id] marker build_evidence_base_section emits — any bracketed
++# non-empty token. Membership in evidence_pool decides whether it is a real evidence marker to
++# resolve into a [N] (a stray literal bracket is left untouched). Single-pass so a freshly-produced
++# [N] is never re-matched.
++_EVIDENCE_BASE_MARKER_RE = re.compile(r"\[([^\[\]]+)\]")
++
++
++def _append_evidence_base_section(
++    section_results: "list[SectionResult]",
++    global_biblio: "list[dict[str, Any]]",
++    ev_ids: "list[str]",
++    evidence_pool: "dict[str, Any]",
++) -> bool:
++    """I-deepfix-001 WS-3 (#1344) — append the numbered "Evidence base" breadth surface.
++
++    Renders the FULL ordered unbound-SUPPORTS ``ev_ids`` surface (already UNCAPPED — see
++    ``weighted_enrichment.select_unbound_supports_by_weight``) as ONE numbered "Evidence base"
++    ``SectionResult`` so every source carrying a surviving isolated-``SUPPORTS`` span gets a real
++    ``[N]``. The ``[ev_id]`` markers ``build_evidence_base_section`` emits are resolved to GLOBAL
++    ``[N]`` against ``global_biblio``, which is EXTENDED IN PLACE for any newly-surfaced work so the
++    downstream Bibliography lists it. §-1.3: this only SURFACES the already-uncapped keep-all set —
++    NO cap / floor / thinner is added. Default-ON via ``PG_BREADTH_EVIDENCE_BASE_SECTION`` (checked
++    inside ``build_evidence_base_section``); returns ``False`` (no append, byte-identical) when the
++    flag is OFF, ``ev_ids`` is empty, or the block is empty.
++
++    FAITHFULNESS: faithfulness-neutral. Each numbered entry is a VERBATIM isolated-``SUPPORTS`` span
++    (``span_verdict == "SUPPORTS"``) — the SAME per-member isolated verification the weighted-
++    enrichment section relies on; the frozen faithfulness engine (strict_verify / NLI / 4-role /
++    provenance / span-grounding) is UNTOUCHED. Returns ``True`` iff a section was appended.
++    """
++    from .weighted_enrichment import (  # noqa: PLC0415
++        _EVIDENCE_BASE_TITLE,
++        build_evidence_base_section,
++    )
++    from .live_deepseek_generator import _rewrite_draft_with_spans  # noqa: PLC0415
++    from .provenance_generator import (  # noqa: PLC0415
++        resolve_provenance_to_citations_with_count,
++        strict_verify,
++    )
++
++    block = build_evidence_base_section(ev_ids, evidence_pool)  # flag-gated internally
++    if not block or not block.strip():
++        return False
++
++    # I-deepfix-001 WS-3 P1 FIX (Codex iter-1: "Evidence base bypasses the frozen verification path").
++    # A breadth-surface line MUST NOT ship without passing the frozen faithfulness gate. Route the
++    # verbatim-span block through the SAME `_rewrite_draft_with_spans` + `strict_verify` the sections
++    # use (the FIX-K verbatim-span pattern @4214). Strip build_evidence_base_section's OWN
++    # "## Evidence base" header + leading "N. " display numbers so strict_verify sees clean span
++    # sentences; the [ev_id] markers resolve to real [#ev:...] provenance tokens exactly like the FIX-K
++    # draft. Each surviving sentence is a strict_verify-VERIFIED span carrying a real provenance token
++    # -> a genuine verified claim the downstream 4-role D8 gate judges (native_gate_b_inputs reads
++    # SectionResult.kept_sentences_pre_resolve), NOT a line shipping outside strict_verify/D8.
++    # §-1.3: SURFACE the already-uncapped keep-all SUPPORTS set; a line that CANNOT ground is DROPPED
++    # by the frozen gate (never padded, never fabricated). The frozen engine is UNTOUCHED (called, not
++    # edited). Default-ON via the flag checked inside build_evidence_base_section.
++    _own_header = f"## {_EVIDENCE_BASE_TITLE}\n\n"
++    draft = block[len(_own_header):] if block.startswith(_own_header) else block
++    draft = re.sub(r"(?m)^\s*\d+\.\s+", "", draft)  # drop the display "N. " prefixes -> clean span lines
++    if not draft.strip():
++        return False
++
++    rewritten, _converted, _unverified = _rewrite_draft_with_spans(draft, evidence_pool)
++    report = strict_verify(rewritten, evidence_pool)
++    kept_verified = [v for v in (report.kept_sentences or []) if getattr(v, "is_verified", False)]
++    if not kept_verified:
++        return False  # nothing survived the frozen gate -> NO section (no unverified breadth ships)
++
++    local_text, local_biblio, emitted = resolve_provenance_to_citations_with_count(
++        report.kept_sentences, evidence_pool,
++    )
++    if emitted <= 0 or not local_text.strip():
++        return False
++
++    # The section is appended AFTER the global bibliography remap, so map the resolver's LOCAL [N]
++    # onto the GLOBAL numbering here; extend global_biblio for any newly-surfaced work (§-1.3 keep-all,
++    # never drops a source).
++    ev_to_gnum: dict[str, int] = {
++        str(b.get("evidence_id", "")): b.get("num")
++        for b in (global_biblio or [])
++        if b.get("evidence_id")
++    }
++    next_gnum = [max((int(b.get("num", 0) or 0) for b in (global_biblio or [])), default=0) + 1]
++    local_to_global: dict[int, int] = {}
++    for row in (local_biblio or []):
++        eid = str(row.get("evidence_id", ""))
++        lnum = row.get("num")
++        if lnum is None or not eid:
++            continue
++        gnum = ev_to_gnum.get(eid)
++        if gnum is None:
++            gnum = next_gnum[0]
++            next_gnum[0] += 1
++            ev_to_gnum[eid] = gnum
++            global_biblio.append({
++                "num": gnum,
++                "evidence_id": eid,
++                "url": row.get("url", ""),
++                "tier": row.get("tier", ""),
++                "statement": row.get("statement", ""),
++            })
++        local_to_global[int(lnum)] = gnum
++
++    def _local_to_global_marker(match: "re.Match") -> str:
++        lnum = int(match.group(1))
++        return f"[{local_to_global.get(lnum, lnum)}]"
++
++    body = re.sub(r"\[(\d+)\]", _local_to_global_marker, local_text).strip()
++    if not body:
++        return False
++
++    section_results.append(SectionResult(
++        title=_EVIDENCE_BASE_TITLE,
++        focus=(
++            "Breadth surface: every source carrying a surviving isolated-SUPPORTS span, each entry "
++            "strict_verify-VERIFIED and 4-role D8-judged (routed through the frozen gate, no bypass)."
++        ),
++        ev_ids_assigned=[str(e) for e in (ev_ids or []) if e],
++        raw_draft=block,
++        rewritten_draft=rewritten,
++        verified_text=body,
++        biblio_slice=[],
++        sentences_verified=emitted,
++        sentences_dropped=(
++            report.total_dropped
++            + max(0, (report.total_kept or len(report.kept_sentences)) - emitted)
++        ),
++        regen_attempted=False,
++        dropped_due_to_failure=False,
++        # THE P1 FIX: real strict_verify SentenceVerification objects so native_gate_b_inputs promotes
++        # each VERIFIED entry to a FourRoleClaim and the 4-role D8 gate judges it (no bypass).
++        kept_sentences_pre_resolve=list(report.kept_sentences),
++    ))
++    logger.info(
++        "[multi_section] WS-3 Evidence base: %d strict_verify-VERIFIED source entr(ies) routed "
++        "through strict_verify + 4-role D8 (uncapped SUPPORTS surface -> global [N])",
++        emitted,
++    )
++    return True
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # M-44 (2026-04-22): scorer/subset primary-trial boost + same-sentence
+ # validator. Codex V28 plan pass-2 APPROVED.
+@@ -7672,6 +7887,11 @@ async def generate_multi_section_report(
+     # survives to the MultiSectionResult construction below. Empty unless the breadth enrichment ran
+     # AND demoted >=1 near-zero single-origin non-journal member (kept + disclosed, never dropped).
+     _cwf_disclosed_sources: list[dict[str, Any]] = []
++    # I-deepfix-001 WS-3 (#1344): the UNCAPPED unbound-SUPPORTS ev_id surface, carried to the
++    # assembly stage so the numbered "Evidence base" section can surface every span-verified source
++    # with a [N]. Empty ([] => no Evidence base section => byte-identical) unless the breadth
++    # enrichment ran and found unbound SUPPORTS members.
++    _evidence_base_ev_ids: list[str] = []
+     if partial_mode:
+         logger.info(
+             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
+@@ -7690,6 +7910,9 @@ async def generate_multi_section_report(
+             # the bound set on the contract path is byte-identical to the prior behavior.
+             contract_plans=list(v30_contract_plans or []),
+         )
++        # I-deepfix-001 WS-3 (#1344): carry the UNCAPPED ordered SUPPORTS surface to the assembly
++        # stage for the numbered "Evidence base" section (§-1.3: SURFACE the keep-all set, no cap).
++        _evidence_base_ev_ids = list(_wfe.ev_ids)
+         # I-deepfix-001 (#1344) DEFER-1: DISCLOSE the SEMANTIC confirmed-off-topic
+         # members withheld from the cited breadth surface (kept in evidence_pool +
+         # the credibility disclosure — never deleted). LOUD so the suppression is
+@@ -8622,6 +8845,16 @@ async def generate_multi_section_report(
+             except StopIteration:
+                 break
+ 
++    # I-deepfix-001 WS-3 (#1344): append the numbered "Evidence base" breadth surface AFTER the
++    # global bibliography + citation remap are final, so its [ev_id] markers resolve to GLOBAL [N]
++    # (and any newly-surfaced work is added to global_biblio for the downstream Bibliography). This
++    # renders through the normal `section_results` -> report-body assembly like every other section.
++    # §-1.3: SURFACE the already-uncapped keep-all SUPPORTS set — NO cap added. Default-ON
++    # (PG_BREADTH_EVIDENCE_BASE_SECTION); empty ev_ids / flag OFF => no-op => byte-identical.
++    _append_evidence_base_section(
++        section_results, global_biblio, _evidence_base_ev_ids, evidence_pool,
++    )
++
+     # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3 + iter-2 P2.1):
+     # post-hoc atom validation hook. Runs AFTER final citation remap
+     # (verified_text now in its truly-final form for this section) and
+diff --git a/src/polaris_graph/generator/verified_compose.py b/src/polaris_graph/generator/verified_compose.py
+index f472e4ad..36f48f86 100644
+--- a/src/polaris_graph/generator/verified_compose.py
++++ b/src/polaris_graph/generator/verified_compose.py
+@@ -1113,6 +1113,128 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
+     return out
+ 
+ 
++# ── I-deepfix-001 WS-3 (#1344) — NO-PROVENANCE-TOKEN LEAK REPAIR ─────────────────────────────────
++#
++# THE LEAK (drb_72 ``no_provenance_token=34``): an abstractive-writer sentence that arrives with NO
++# ``[#ev:...]`` provenance token is silently DROPPED by strict_verify — so a claim genuinely supported
++# by a corroborating basket span never renders and its source never counts toward breadth. Instead of
++# dropping, REPAIR it: bind the NEAREST supporting basket's OWN verified clause (via the per-basket
++# verified contract ``_per_basket_verified_clause``, :665) BEFORE strict_verify. The emitted clause is
++# that basket's own strict_verify-PASSED span carrying a real ``[#ev]`` token — faithful-BY-CONSTRUCTION,
++# exactly the QUOTATION-is-faithful philosophy the K-span fallback already uses everywhere in this module.
++#
++# §-1.3 / FAITHFULNESS: this NEVER fabricates a binding. It does NOT keep the untokened sentence and it
++# does NOT staple a token onto it; it REPLACES it with the nearest overlapping basket's verified clause.
++# "Nearest" = maximum shared content-word overlap between the sentence and the basket's claim + its
++# isolated-``SUPPORTS`` members' spans, requiring >= ``min_overlap`` (default 2, mirroring the
++# strict_verify >=2-content-word invariant) so an UNRELATED basket is never bound. If NO candidate basket
++# clears the overlap bar AND yields a verified clause, the sentence is STILL dropped (returns ``None``) —
++# the repair can only ADD a faithful cited clause where the legacy path rendered nothing; it can never
++# make the output less faithful. The frozen faithfulness engine (strict_verify / NLI / provenance /
++# span-grounding) is UNTOUCHED: the returned clause re-passes the UNCHANGED strict_verify per clause.
++# Default-ON; ``PG_NO_TOKEN_SENTENCE_REPAIR=0`` => an untokened sentence returns ``None`` (the legacy
++# drop) => byte-identical.
++_NO_TOKEN_REPAIR_ENV = "PG_NO_TOKEN_SENTENCE_REPAIR"
++_DEFAULT_REPAIR_MIN_OVERLAP = 2
++
++# Content-word extractor for the nearest-basket selection: alphabetic-led tokens >= 3 chars, minus a
++# small closed stopword set. Provenance tokens are stripped first so span offsets never count as content.
++_CONTENT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
++_REPAIR_STOPWORDS = frozenset({
++    "the", "and", "for", "that", "this", "with", "from", "have", "has", "had", "was", "were",
++    "are", "been", "will", "would", "could", "should", "their", "there", "these", "those",
++    "which", "while", "when", "where", "what", "who", "whom", "into", "than", "then", "such",
++    "also", "not", "but", "its", "our", "your", "his", "her", "they", "them", "some", "more",
++    "most", "over", "under", "between", "among", "per", "via", "about", "each", "any", "all",
++})
++
++
++def no_token_sentence_repair_enabled() -> bool:
++    """Kill-switch ``PG_NO_TOKEN_SENTENCE_REPAIR`` (default ON). OFF => an untokened abstractive
++    sentence is NOT repaired (``repair_untokened_sentence`` returns ``None``) => the legacy silent
++    drop => byte-identical."""
++    return os.getenv(_NO_TOKEN_REPAIR_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
++
++
++def _repair_content_words(text: str) -> set:
++    """Lowercased content words in ``text`` (>=3 chars, minus stopwords); provenance tokens stripped."""
++    stripped = _EV_TOKEN_RE.sub(" ", text or "")
++    return {
++        w.lower()
++        for w in _CONTENT_WORD_RE.findall(stripped)
++        if w.lower() not in _REPAIR_STOPWORDS
++    }
++
++
++def _basket_repair_content_words(basket: Any) -> set:
++    """The content words the basket's claim + its isolated-``SUPPORTS`` member spans carry (the overlap
++    target for nearest-basket selection). Pure read; no faithfulness state touched."""
++    parts = [
++        str(getattr(basket, "claim_text", "") or ""),
++        str(getattr(basket, "subject", "") or ""),
++        str(getattr(basket, "predicate", "") or ""),
++    ]
++    for m in _basket_supports_members(basket):
++        parts.append(str(getattr(m, "direct_quote", "") or ""))
++    return _repair_content_words(" ".join(parts))
++
++
++def repair_untokened_sentence(
++    sentence: str,
++    baskets: list,
++    evidence_pool: dict,
++    *,
++    writer_fn: Callable[[Any, dict], str],
++    verify_fn: Callable[..., Any],
++    min_overlap: int = _DEFAULT_REPAIR_MIN_OVERLAP,
++) -> Optional[str]:
++    """Repair an abstractive-writer sentence that carries NO provenance token by binding the NEAREST
++    supporting basket's verified clause (via ``_per_basket_verified_clause``), so its source counts as
++    breadth instead of being silently dropped.
++
++    Returns:
++      * the ORIGINAL ``sentence`` unchanged when it ALREADY carries a ``[#ev:...]`` token (only an
++        untokened sentence is a repair candidate — a tokened one is handled by the normal path);
++      * a verified, tokened clause (the nearest overlapping basket's OWN strict_verify-PASSED span)
++        when a real ``SUPPORTS`` span can be bound;
++      * ``None`` when the flag is OFF, the sentence is empty/wordless, or NO candidate basket clears the
++        overlap bar AND yields a verified clause — the sentence is then STILL dropped (never fabricate a
++        binding).
++
++    §-1.3: the untokened sentence is REPLACED by the bound basket's verified clause, never kept and
++    never given a fabricated token; the clause re-passes the UNCHANGED ``strict_verify`` per clause. The
++    caller supplies the production ``writer_fn`` / ``verify_fn`` (the same ones every compose path uses),
++    so the repair adds NO new model and touches NO gate.
++    """
++    if not sentence or not sentence.strip():
++        return None
++    # A sentence that already cites a span is not this path's concern — return it untouched.
++    if _EV_TOKEN_RE.search(sentence):
++        return sentence
++    if not no_token_sentence_repair_enabled():
++        return None  # legacy: an untokened sentence is dropped
++    sentence_words = _repair_content_words(sentence)
++    if not sentence_words:
++        return None
++    # Rank candidate baskets that carry an isolated-``SUPPORTS`` span by content-word overlap
++    # (nearest first). A basket with no SUPPORTS span cannot bind a verified clause -> skipped.
++    ranked: list = []
++    for basket in (baskets or []):
++        if not _basket_supports_members(basket):
++            continue
++        overlap = len(sentence_words & _basket_repair_content_words(basket))
++        if overlap >= min_overlap:
++            ranked.append((basket, overlap))
++    ranked.sort(key=lambda t: t[1], reverse=True)
++    for basket, _overlap in ranked:
++        clause = _per_basket_verified_clause(
++            basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
++        )
++        if clause:  # carries a real [#ev] token + passed strict_verify per clause
++            return clause
++    return None  # no real SUPPORTS span could be bound -> still dropped (never fabricated)
++
++
+ def _section_assigned_ev_ids(section: Any) -> set:
+     """The evidence_ids assigned to a section plan, read defensively across the plan shapes
+     (``ev_ids`` list, or rows carrying ``evidence_id``). Empty set when unresolvable."""
+diff --git a/src/polaris_graph/generator/weighted_enrichment.py b/src/polaris_graph/generator/weighted_enrichment.py
+index b05f101a..042e8d95 100644
+--- a/src/polaris_graph/generator/weighted_enrichment.py
++++ b/src/polaris_graph/generator/weighted_enrichment.py
+@@ -2320,3 +2320,120 @@ def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
+                     markers.append(m_eid)
+             parts.append(_emit_unit(unit, markers))
+     return " ".join(parts)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# I-deepfix-001 WS-3 (#1344) — NUMBERED "Evidence base" breadth surface.
++#
++# THE LEAK (drb_72 "12 of 88 cited"): the FULL ordered unbound-SUPPORTS surface from
++# ``select_unbound_supports_by_weight`` is already UNCAPPED (weighted_enrichment.py:295,469,573),
++# but nothing RENDERS it as a numbered reference block, so most span-verified sources never
++# receive a ``[N]`` citation. This surfaces EVERY source that carries a surviving isolated-
++# ``SUPPORTS`` span into ONE numbered "Evidence base" section: one numbered entry per distinct
++# WORK (same-work CONSOLIDATION, §-1.3 — never N entries for one work), each entry = that work's
++# OWN verbatim span unit(s) tagged with its ``[ev_id]`` marker(s) so the downstream bibliography
++# numberer assigns each a real ``[N]``.
++#
++# §-1.3 — WEIGHT-and-CONSOLIDATE, never FILTER-and-CAP: this is SURFACING breadth (keep-all), NOT a
++# cap / floor / thinner. The input ``ev_ids`` is already the uncapped ordered surface; this ONLY
++# renders it. Faithfulness is UNTOUCHED — each emitted unit is a verbatim span carrying a legacy
++# ``[ev_id]`` marker that flows through the UNCHANGED ``_rewrite_draft_with_spans`` -> ``strict_verify``
++# exactly like every other section; a unit that cannot ground is dropped by that gate, never padded.
++# The SAME render-safety screens as ``build_verified_span_draft`` apply (control-byte strip, junk
++# screen, per-unit char bound, same-work consolidation). Default-ON;
++# ``PG_BREADTH_EVIDENCE_BASE_SECTION=0`` => returns "" => no section => byte-identical legacy output.
++_ENV_EVIDENCE_BASE_SECTION = "PG_BREADTH_EVIDENCE_BASE_SECTION"
++_EVIDENCE_BASE_TITLE = "Evidence base"
++
++
++def evidence_base_section_enabled() -> bool:
++    """Kill-switch ``PG_BREADTH_EVIDENCE_BASE_SECTION`` (default ON). OFF => the numbered
++    Evidence base section is not rendered (``build_evidence_base_section`` returns "") =>
++    byte-identical legacy output."""
++    return os.environ.get(_ENV_EVIDENCE_BASE_SECTION, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def build_evidence_base_section(
++    ev_ids: Any,
++    evidence_pool: Any,
++    *,
++    start_index: int = 1,
++) -> str:
++    """Render the FULL ordered unbound-SUPPORTS surface as ONE numbered "Evidence base" markdown
++    section so EVERY source with a surviving span gets a ``[N]`` citation.
++
++    ``ev_ids`` is the ordered surface from ``select_unbound_supports_by_weight`` (already uncapped —
++    NO cap / floor / thinner is applied here). Members are CONSOLIDATED into same-work buckets
++    (§-1.3 keep-all-count-once): one numbered entry per distinct work, in the caller's
++    relevance/weight order, each carrying its verbatim span unit(s) + the ``[ev_id]`` marker(s) the
++    downstream span-binder + ``strict_verify`` re-check.
++
++    Returns "" when the flag is OFF, ``ev_ids`` is empty, or no surfaced source yields a substantive
++    verbatim unit (caller renders nothing — byte-identical). NO LLM; NO faithfulness-gate touch.
++    """
++    if not evidence_base_section_enabled():
++        return ""
++    ev_ids = list(ev_ids or [])
++    if not ev_ids:
++        return ""
++    pool = evidence_pool or {}
++    is_junk = _make_junk_screen()
++    budget = spans_per_source()
++
++    # Same-work grouping, PRESERVING the caller's relevance/weight order (mirrors
++    # ``build_verified_span_draft``: a work's bucket is keyed by its FIRST-seen member so the
++    # highest-ordered member of each work is the representative and bucket order is work order).
++    work_order: list[str] = []
++    work_members: dict[str, list[str]] = {}
++    for ev_id in ev_ids:
++        eid = str(ev_id or "")
++        if not eid:
++            continue
++        ev = pool.get(eid)
++        if not isinstance(ev, dict):
++            continue
++        direct_quote = _member_quote(ev)
++        if not direct_quote or is_junk(direct_quote):
++            continue
++        key = _work_identity(eid, ev)
++        if key not in work_members:
++            work_members[key] = []
++            work_order.append(key)
++        work_members[key].append(eid)
++
++    lines: list[str] = []
++    number = start_index
++    for key in work_order:
++        member_eids = work_members[key]
++        representative = member_eids[0]
++        rep_ev = pool.get(representative)
++        if not isinstance(rep_ev, dict):
++            continue
++        rep_quote = _member_quote(rep_ev)
++        units = _substantive_units(rep_quote, is_junk=is_junk)
++        if not units:
++            continue
++        # Pre-compute each corroborator's sanitized quote ONCE for the contains-check (same-work URLs
++        # co-cite ONLY when their own fetch actually contains the emitted unit — span-grounded markers).
++        corroborator_quotes = [
++            (m, _member_quote(pool[m]))
++            for m in member_eids[1:]
++            if isinstance(pool.get(m), dict)
++        ]
++        emitted: list[str] = []
++        for unit in units[:budget]:
++            markers = [representative]
++            for m_eid, m_quote in corroborator_quotes:
++                if unit in m_quote and m_eid not in markers:
++                    markers.append(m_eid)
++            emitted.append(_emit_unit(unit, markers))
++        if not emitted:
++            continue
++        lines.append(f"{number}. {' '.join(emitted)}")
++        number += 1
++
++    if not lines:
++        return ""
++    return f"## {_EVIDENCE_BASE_TITLE}\n\n" + "\n".join(lines)
+diff --git a/src/polaris_graph/retrieval/credibility_llm_tiering.py b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+index 5fb859ef..b87d248b 100644
+--- a/src/polaris_graph/retrieval/credibility_llm_tiering.py
++++ b/src/polaris_graph/retrieval/credibility_llm_tiering.py
+@@ -314,6 +314,20 @@ def _tier_llm_degrade_after() -> int:
+     return value
+ 
+ 
++def _tier_llm_parallel_enabled() -> bool:
++    """WS-13 (#1344): LAW VI kill-switch for the bounded-parallel tiering leg
++    (default-ON). ON is what lets the fetched-but-unclassified sources get tiered
++    inside the retrieval wall instead of being dropped unclassified at
++    ``retrieval_wall_hit`` — the bounded fan-out finishes many more sources in the
++    same wall than the serial leg. OFF (``0``/``false``/``no``/``off``) routes to the
++    legacy SERIAL leg, byte-identical to the pre-parallel behavior. Either way NO
++    source is ever dropped: an un-tiered source keeps its deterministic rules-floor
++    tier (a WEIGHT, §-1.3), never a drop."""
++    return os.environ.get(
++        "PG_TIER_LLM_PARALLEL", "1"
++    ).strip().lower() not in ("0", "false", "no", "off")
++
++
+ def _default_caller() -> Callable[[str], str]:
+     """Bind the production GLM-5.2 credibility caller (lazy — keeps the OFF path free of
+     httpx + the authority package). Reuses the SAME control surface as the entailment /
+@@ -382,65 +396,72 @@ def _build_tiering_status(
+     }
+ 
+ 
+-def classify_sources_llm_tiering(
++def _tier_one_outcome(
+     signals_list: list[ClassificationSignals],
+-    *,
+-    call_llm: Callable[[str], str] | None = None,
+-    max_workers: int | None = None,
+-    deadline_monotonic: "float | None" = None,
+-    status_out: dict | None = None,
+-) -> "TieringBatchResult":
+-    """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
++    idx: int,
++    caller: Callable[[str], str],
++) -> tuple[int, "ClassificationResult | None", str]:
++    """Single-source tiering outcome ``(idx, result_or_None, status)`` — SHARED by the
++    serial and bounded-parallel legs so both classify a given source identically.
++
++    ``llm_tier_one`` is contracted NOT to raise (it captures judge_error / timeout
++    internally and degrades to ``None``). The defensive guard counts any truly
++    unexpected escape as ERROR so the canary never silently swallows it."""
++    try:
++        res = llm_tier_one(signals_list[idx], caller)
++    except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
++        logger.warning(
++            "[credibility_llm_tiering] unexpected error tiering idx=%d — "
++            "falling back to rules-floor: %s",
++            idx, exc,
++        )
++        return idx, None, _TIER_STATUS_ERROR
++    status = _TIER_STATUS_SUCCESS if res is not None else _TIER_STATUS_FALLBACK
++    return idx, res, status
+ 
+-    For EVERY source the deterministic rules-floor is computed first (the instant,
+-    no-network fallback). The LLM escalation then runs bounded-parallel; a source keeps
+-    its rules-floor result on any judge_error / timeout / malformed output. The result
+-    list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
+-    the per-source outcome (§8 determinism invariant). No source is ever dropped
+-    (§-1.3 weight-not-filter) — ``len(result) == len(signals_list)`` ALWAYS.
+ 
+-    Returns a ``TieringBatchResult`` — a ``list`` aligned 1:1 with ``signals_list`` that
+-    ALSO carries an honest machine-readable ``.tiering_status`` dict (I-deepfix-001 D5
+-    #1344): ``tiering_mode`` in {``tiered_via_glm``, ``partial``, ``rules_floor_degraded``}
+-    plus ``llm_success_count`` / ``rules_floor_count`` / ``total``. A 100%-rules-floor batch
+-    (every GLM call errored on a blank-200 / trickle storm) is reported as
+-    ``rules_floor_degraded``, NEVER as ``tiered_via_glm``, and emits a LOUD warning — the
+-    run still CONTINUES (credibility is a WEIGHT, not a gate), the degrade is just DISCLOSED.
+-    ``status_out`` (optional): if a dict is passed it is updated in place with the SAME
+-    status, an explicit channel for callers that cannot read the return attribute.
+-    """
+-    n = len(signals_list)
+-    if n == 0:
+-        empty = TieringBatchResult([])
+-        empty.tiering_status = _build_tiering_status(
+-            llm_success=0, fallback_count=0, error_count=0, total=0,
+-        )
+-        if status_out is not None:
+-            status_out.update(empty.tiering_status)
+-        return empty
+-    # Deterministic floor for every source first — the instant fallback (no network).
+-    floor_results: list[ClassificationResult] = [
+-        _classify_source_tier_rules(s) for s in signals_list
+-    ]
+-    caller = call_llm if call_llm is not None else _default_caller()
+-    workers = max_workers if max_workers is not None else _tier_llm_workers()
++def _run_llm_tiering_serial(
++    signals_list: list[ClassificationSignals],
++    caller: Callable[[str], str],
++) -> tuple[dict[int, "ClassificationResult | None"], int, int, int]:
++    """WS-13 (#1344): legacy SERIAL execution leg (``PG_TIER_LLM_PARALLEL=0``).
++
++    Processes every source in index order with NO ``ThreadPoolExecutor`` and NO batch
++    wall / circuit-breaker — byte-identical to the pre-parallel serial behavior. Returns
++    ``(llm_by_idx, llm_success, fallback_count, error_count)``; the shared gather-then-sort
++    tail in ``classify_sources_llm_tiering`` still applies the deterministic rules-floor
++    to any ``None`` entry, so no source is ever dropped (§-1.3)."""
++    llm_by_idx: dict[int, ClassificationResult | None] = {}
++    llm_success = 0
++    fallback_count = 0
++    error_count = 0
++    for idx in range(len(signals_list)):
++        _idx, res, status = _tier_one_outcome(signals_list, idx, caller)
++        llm_by_idx[_idx] = res
++        if status == _TIER_STATUS_SUCCESS:
++            llm_success += 1
++        elif status == _TIER_STATUS_ERROR:
++            error_count += 1
++        else:
++            fallback_count += 1
++    return llm_by_idx, llm_success, fallback_count, error_count
+ 
+-    def _one(idx: int) -> tuple[int, ClassificationResult | None, str]:
+-        # llm_tier_one is contracted NOT to raise (it captures judge_error / timeout
+-        # internally and degrades to None). The defensive guard counts any truly
+-        # unexpected escape as ERROR so the canary never silently swallows it.
+-        try:
+-            res = llm_tier_one(signals_list[idx], caller)
+-        except Exception as exc:  # noqa: BLE001 — fail-honest: degrade to rules-floor
+-            logger.warning(
+-                "[credibility_llm_tiering] unexpected error tiering idx=%d — "
+-                "falling back to rules-floor: %s",
+-                idx, exc,
+-            )
+-            return idx, None, _TIER_STATUS_ERROR
+-        status = _TIER_STATUS_SUCCESS if res is not None else _TIER_STATUS_FALLBACK
+-        return idx, res, status
+ 
++def _run_llm_tiering_parallel(
++    signals_list: list[ClassificationSignals],
++    caller: Callable[[str], str],
++    workers: int,
++    deadline_monotonic: "float | None",
++) -> tuple[dict[int, "ClassificationResult | None"], int, int, int]:
++    """WS-13 (#1344): BOUNDED-PARALLEL execution leg (default via ``PG_TIER_LLM_PARALLEL``).
++
++    In-flight requests are capped at ``workers`` (``PG_TIER_LLM_WORKERS``); the whole batch
++    is bounded by a TOTAL wall (``deadline_monotonic`` and/or ``PG_TIER_LLM_BATCH_WALL_SECONDS``,
++    tighter wins) plus a consecutive-fallback circuit-breaker. Returns
++    ``(llm_by_idx, llm_success, fallback_count, error_count)``. Any future un-returned at the
++    wall (a straggler) is simply absent from ``llm_by_idx`` — the shared tail then keeps that
++    source's deterministic rules-floor tier (a WEIGHT, no drop, §-1.3)."""
++    n = len(signals_list)
+     llm_by_idx: dict[int, ClassificationResult | None] = {}
+     llm_success = 0
+     fallback_count = 0
+@@ -464,7 +485,10 @@ def classify_sources_llm_tiering(
+     # which would BLOCK until a wedged worker finishes — making the batch wall cosmetic.
+     pool = ThreadPoolExecutor(max_workers=workers)
+     try:
+-        future_to_idx = {pool.submit(_one, i): i for i in range(n)}
++        future_to_idx = {
++            pool.submit(_tier_one_outcome, signals_list, i, caller): i
++            for i in range(n)
++        }
+         pending = set(future_to_idx)
+         _stop = False
+         while pending and not _stop:
+@@ -530,6 +554,67 @@ def classify_sources_llm_tiering(
+         # un-returned source already keeps its rules-floor). The orphaned thread exits on
+         # its own per-call timeout.
+         pool.shutdown(wait=False, cancel_futures=True)
++    return llm_by_idx, llm_success, fallback_count, error_count
++
++
++def classify_sources_llm_tiering(
++    signals_list: list[ClassificationSignals],
++    *,
++    call_llm: Callable[[str], str] | None = None,
++    max_workers: int | None = None,
++    deadline_monotonic: "float | None" = None,
++    status_out: dict | None = None,
++) -> "TieringBatchResult":
++    """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
++
++    For EVERY source the deterministic rules-floor is computed first (the instant,
++    no-network fallback). The LLM escalation then runs bounded-parallel; a source keeps
++    its rules-floor result on any judge_error / timeout / malformed output. The result
++    list is order-PRESERVING (gather-then-sort by index) so concurrency never changes
++    the per-source outcome (§8 determinism invariant). No source is ever dropped
++    (§-1.3 weight-not-filter) — ``len(result) == len(signals_list)`` ALWAYS.
++
++    Returns a ``TieringBatchResult`` — a ``list`` aligned 1:1 with ``signals_list`` that
++    ALSO carries an honest machine-readable ``.tiering_status`` dict (I-deepfix-001 D5
++    #1344): ``tiering_mode`` in {``tiered_via_glm``, ``partial``, ``rules_floor_degraded``}
++    plus ``llm_success_count`` / ``rules_floor_count`` / ``total``. A 100%-rules-floor batch
++    (every GLM call errored on a blank-200 / trickle storm) is reported as
++    ``rules_floor_degraded``, NEVER as ``tiered_via_glm``, and emits a LOUD warning — the
++    run still CONTINUES (credibility is a WEIGHT, not a gate), the degrade is just DISCLOSED.
++    ``status_out`` (optional): if a dict is passed it is updated in place with the SAME
++    status, an explicit channel for callers that cannot read the return attribute.
++    """
++    n = len(signals_list)
++    if n == 0:
++        empty = TieringBatchResult([])
++        empty.tiering_status = _build_tiering_status(
++            llm_success=0, fallback_count=0, error_count=0, total=0,
++        )
++        if status_out is not None:
++            status_out.update(empty.tiering_status)
++        return empty
++    # Deterministic floor for every source first — the instant fallback (no network).
++    floor_results: list[ClassificationResult] = [
++        _classify_source_tier_rules(s) for s in signals_list
++    ]
++    caller = call_llm if call_llm is not None else _default_caller()
++    workers = max_workers if max_workers is not None else _tier_llm_workers()
++
++    # WS-13 (#1344): pick the execution leg via the LAW VI kill-switch. Default-ON
++    # runs the BOUNDED-PARALLEL leg (in-flight capped at ``workers`` = PG_TIER_LLM_WORKERS,
++    # bounded by the batch wall + circuit-breaker) so the fetched sources get tiered inside
++    # the retrieval wall instead of being dropped unclassified. OFF runs the legacy SERIAL
++    # leg (byte-identical to the pre-parallel behavior). BOTH legs feed the SAME deterministic
++    # gather-then-sort tail below, so switching legs never changes a per-source classification
++    # — only throughput. Neither leg ever drops a source (rules-floor fallback in the tail).
++    if _tier_llm_parallel_enabled():
++        llm_by_idx, llm_success, fallback_count, error_count = _run_llm_tiering_parallel(
++            signals_list, caller, workers, deadline_monotonic,
++        )
++    else:
++        llm_by_idx, llm_success, fallback_count, error_count = _run_llm_tiering_serial(
++            signals_list, caller,
++        )
+ 
+     # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
+     out: list[ClassificationResult] = []
+diff --git a/src/polaris_graph/roles/coverage_binder.py b/src/polaris_graph/roles/coverage_binder.py
+index ab84e1b2..9f17ef80 100644
+--- a/src/polaris_graph/roles/coverage_binder.py
++++ b/src/polaris_graph/roles/coverage_binder.py
+@@ -132,3 +132,90 @@ def bind_s0_coverage(
+             credited_categories.add(s0_category)
+             credited_element_ids.add(entity[_KEY_ENTITY_ID])
+     return credited_categories, credited_element_ids
++
++
++# ── WS-4 (beat-both Wave B): basket-membership entity-coverage FALLBACK ───────────────────────
++# General ENTITY coverage (the completeness / coverage_fraction), NOT the S0 SAFETY floor. Credits a
++# required entity when an ALREADY-VERIFIED claim cites an evidence_id that is a SUPPORTS member of the
++# entity's OWN basket — i.e. the claim supports the entity through a corroborating source whose own
++# canonical identifier differs from the entity's declared one (a §-1.3 basket carries the SAME claim
++# across multiple sources). This is the second WS-4 leg (the first is the DOI-canonical tolerance in
++# native_gate_b_inputs); it rides the SAME default-ON `PG_ENTITY_COVERAGE_CITATION_CREDIT` kill-switch
++# (read by the caller seam, so flag-OFF never imports/calls this path).
++#
++# SAFETY (faithfulness-adjacent, highest care):
++#   * SUPPORTS-ONLY, enforced HERE (never trusted): a REFUTES / NEUTRAL basket member NEVER credits
++#     coverage — a source that refutes an entity must not mark it covered.
++#   * VERIFIED-ONLY: the caller invokes this ONLY for a strict_verify-VERIFIED sentence, and the D8
++#     coverage numerator downstream credits `covered_element_ids` only on a VERIFIED 4-role final
++#     verdict — so a non-verified claim can never credit (additive credit, D8 still gates).
++#   * NEVER an S0 SAFETY credit: this returns element_ids for the completeness ledger only; it never
++#     credits an s0_category (the frozen S0 conjunction owns the safety floor). Under-crediting is a
++#     SAFE disclosed gap; over-crediting safety would be lethal — this path can only under-, not over-,
++#     credit the safety floor because it never touches it.
++#   * FAIL-CLOSED: an entity with no SUPPORTS basket, or a claim citing none of its members, credits
++#     nothing. A malformed basket member is skipped, never credited.
++#
++# The entity's basket is read from the entity dict — DEFAULT-ABSENT -> no credit (additive, never
++# subtractive). Two accepted, forward-compatible shapes (upstream consolidation populates ONE):
++#   * entity["supports_evidence_ids"]: a list of evidence_id strings ALREADY filtered to SUPPORTS.
++#   * entity["evidence_basket"]: a list of {"evidence_id": str, "stance": str} members; ONLY the
++#     stance == "SUPPORTS" members are eligible.
++_KEY_SUPPORTS_EVIDENCE_IDS = "supports_evidence_ids"
++_KEY_EVIDENCE_BASKET = "evidence_basket"
++_KEY_MEMBER_EVIDENCE_ID = "evidence_id"
++_KEY_MEMBER_STANCE = "stance"
++_STANCE_SUPPORTS = "SUPPORTS"
++
++
++def _entity_supports_basket(entity: Mapping[str, Any]) -> set[str]:
++    """The set of evidence_ids that are SUPPORTS members of this entity's own basket.
++
++    Reads the two accepted shapes (see module note); the SUPPORTS-only rule is enforced HERE — a
++    REFUTES / NEUTRAL / unknown-stance member is dropped. A missing/empty/malformed basket yields the
++    empty set (fail-closed, no credit)."""
++    ids: set[str] = set()
++    raw_ids = entity.get(_KEY_SUPPORTS_EVIDENCE_IDS)
++    if isinstance(raw_ids, (list, tuple, set)):
++        for ev_id in raw_ids:
++            if isinstance(ev_id, str) and ev_id.strip():
++                ids.add(ev_id.strip())
++    basket = entity.get(_KEY_EVIDENCE_BASKET)
++    if isinstance(basket, (list, tuple)):
++        for member in basket:
++            if not isinstance(member, Mapping):
++                continue
++            stance = str(member.get(_KEY_MEMBER_STANCE, "")).strip().upper()
++            if stance != _STANCE_SUPPORTS:
++                continue
++            ev_id = member.get(_KEY_MEMBER_EVIDENCE_ID)
++            if isinstance(ev_id, str) and ev_id.strip():
++                ids.add(ev_id.strip())
++    return ids
++
++
++def bind_basket_coverage(
++    *,
++    claim_evidence_ids: Sequence[str],
++    validated_entities: Sequence[tuple[Mapping[str, Any], str, str | None]],
++) -> set[str]:
++    """Credit GENERAL entity coverage element_ids to ONE ALREADY-VERIFIED claim whose cited evidence
++    is a SUPPORTS member of an entity's own basket. Pure, additive, fail-closed.
++
++    The CALLER must invoke this ONLY for a strict_verify-VERIFIED claim (the build seam reaches it only
++    for `verification.is_verified` sentences). Returns the SET of covered element_ids (any severity) —
++    for the completeness / coverage fraction only; it NEVER credits an S0 safety category. An entity
++    with no SUPPORTS basket, or a claim citing none of its members, credits nothing (empty set)."""
++    cited = {
++        ev_id.strip()
++        for ev_id in (claim_evidence_ids or [])
++        if isinstance(ev_id, str) and ev_id.strip()
++    }
++    if not cited:
++        return set()
++    credited: set[str] = set()
++    for entity, _severity, _s0_category in validated_entities:
++        basket = _entity_supports_basket(entity)
++        if basket and (cited & basket):
++            credited.add(entity[_KEY_ENTITY_ID])
++    return credited
+diff --git a/src/polaris_graph/roles/native_gate_b_inputs.py b/src/polaris_graph/roles/native_gate_b_inputs.py
+index b2ee0faa..98e4c9ea 100644
+--- a/src/polaris_graph/roles/native_gate_b_inputs.py
++++ b/src/polaris_graph/roles/native_gate_b_inputs.py
+@@ -204,10 +204,33 @@ def normalize_evidence_pool_lookup(
+         record: dict[str, Any] = {_RECORD_TEXT_KEY: text}
+         if url:
+             record["url"] = url
+-        doi = _extract_doi(url, text)
++        # WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): a DOI-only evidence row carries the
++        # canonical DOI/PMID ONLY in its STRUCTURED `doi`/`pmid` field (its `source_url` is None or
++        # DOI-less) — the exact drb_72 case for entities [2]/[3]/[4]. The legacy regex-only extraction
++        # below never read that structured field, so those genuinely-cited works reached
++        # `_entity_canonical_match` with NO identifier and went un-covered. Under the flag, PREFER the
++        # structured identifier (as the first extraction candidate) and fall back to the url/text
++        # regex; OFF -> the candidate list is exactly [url, text] and the output is byte-identical.
++        credit_on = _entity_coverage_citation_credit_enabled()
++        doi_candidates: list[str] = []
++        pmid_candidates: list[str] = []
++        if credit_on:
++            raw_doi = row.get(_RAW_STRUCTURED_DOI_KEY)
++            if isinstance(raw_doi, str) and raw_doi.strip():
++                doi_candidates.append(raw_doi)
++            raw_pmid = row.get(_RAW_STRUCTURED_PMID_KEY)
++            # A bare structured PMID ('34170647' or 34170647) is not matched by the PubMed-URL /
++            # 'PMID:'-token regex, so wrap it as an explicit 'PMID:' token the extractor recognizes.
++            if isinstance(raw_pmid, int):
++                pmid_candidates.append(f"PMID: {raw_pmid}")
++            elif isinstance(raw_pmid, str) and raw_pmid.strip().isdigit():
++                pmid_candidates.append(f"PMID: {raw_pmid.strip()}")
++        doi_candidates.extend([url, text])
++        pmid_candidates.extend([url, text])
++        doi = _extract_doi(*doi_candidates)
+         if doi is not None:
+             record["doi"] = doi
+-        pmid = _extract_pmid(url, text)
++        pmid = _extract_pmid(*pmid_candidates)
+         if pmid is not None:
+             record["pmid"] = pmid
+         lookup[evidence_id] = record
+@@ -291,12 +314,89 @@ def validate_entity_severity(
+     return severity, s0_category
+ 
+ 
++# --- WS-4 (beat-both Wave B): DOI-tolerant entity coverage credit --------------------------------
++# ROOT CAUSE (drb_72): a required entity that is DOI-only (bare `doi`, empty `url_pattern`) went
++# UN-credited on genuinely-VERIFIED claims, so `required_entity_ledger` reported coverage_fraction
++# 4/7=0.571 and listed VERIFIED entities as gaps. TWO independent gaps caused it, BOTH in this file:
++#   (1) `normalize_evidence_pool_lookup` only regex-extracted a DOI from `source_url`/text and NEVER
++#       read the raw record's STRUCTURED `doi`/`pmid` field. drb_72 entities [2]/[3]/[4] carry the DOI
++#       ONLY in that structured field (their `source_url` is None or DOI-less), so the normalized
++#       record reached `_entity_canonical_match` with NO doi at all -> no match, un-covered.
++#   (2) `_entity_canonical_match` compared identifiers by RAW EXACT equality, so a DOI expressed as a
++#       `https://doi.org/…` resolver URL (or in a different case) never equalled the bare-token DOI on
++#       the other side even when they name the SAME work.
++# Both fixes ride ONE default-ON kill-switch `PG_ENTITY_COVERAGE_CITATION_CREDIT`; OFF => the exact
++# pre-WS-4 behavior, byte-identical (0.571 on the fixture). ADDITIVE ONLY: a DOI is a precise WORK
++# identifier — canonical-DOI equality is NEVER a substring/fragment match (two sources sharing a DOI
++# ARE the same work), so this cannot over-credit; and the D8 4-role VERIFIED filter downstream
++# (sweep_integration credits `covered_element_ids` only on a VERIFIED final verdict) is untouched, so
++# a NON-verified claim can never credit coverage.
++_ENV_ENTITY_COVERAGE_CITATION_CREDIT = "PG_ENTITY_COVERAGE_CITATION_CREDIT"
++# Default-ON off-token idiom (mirrors release_policy.always_release_enabled): OFF only on an EXPLICIT
++# off token; unset / empty / unrecognized resolves to ON so the fix cannot be silently disabled by a
++# stray value. Read at CALL TIME (never cached) so an OFF run is byte-identical to legacy.
++_COVERAGE_CREDIT_OFF_VALUES = frozenset({"0", "false", "no", "off"})
++# DOI resolver prefixes stripped to reach the bare canonical DOI token. A DOI is officially
++# case-insensitive and a doi.org / dx.doi.org URL is just a resolver wrapper around the same token.
++_DOI_RESOLVER_PREFIXES = (
++    "https://doi.org/",
++    "http://doi.org/",
++    "https://dx.doi.org/",
++    "http://dx.doi.org/",
++)
++# Structured identifier keys on the RAW evidence-pool row (read only under the flag).
++_RAW_STRUCTURED_DOI_KEY = "doi"
++_RAW_STRUCTURED_PMID_KEY = "pmid"
++
++
++def _entity_coverage_citation_credit_enabled() -> bool:
++    """``PG_ENTITY_COVERAGE_CITATION_CREDIT`` — default ON (WS-4). OFF only on an EXPLICIT off token
++    ('0'/'false'/'no'/'off'); unset / empty / unrecognized -> ON. OFF reproduces the pre-WS-4
++    exact-match behavior byte-identically (0.571 on the drb_72 fixture).
++    """
++    return (
++        os.environ.get(_ENV_ENTITY_COVERAGE_CITATION_CREDIT, "").strip().lower()
++        not in _COVERAGE_CREDIT_OFF_VALUES
++    )
++
++
++def _canonical_doi(value: Any) -> str:
++    """Return the bare, lowercased canonical DOI for a value, or '' if it is not a DOI.
++
++    Strips a doi.org / dx.doi.org resolver prefix (case-insensitive) then lowercases (DOIs are
++    officially case-insensitive). Returns '' unless the remainder starts with '10.' — so a plain
++    non-DOI URL / fragment / domain can NEVER masquerade as a DOI match (fail-closed: a fragment can
++    never equal a full bare DOI). Precise-identifier equality, never substring — so it cannot
++    over-credit.
++    """
++    if value in (None, ""):
++        return ""
++    text = str(value).strip()
++    lowered = text.lower()
++    for prefix in _DOI_RESOLVER_PREFIXES:
++        if lowered.startswith(prefix):
++            text = text[len(prefix):].strip()
++            break
++    text = text.lower()
++    if not text.startswith("10."):
++        return ""
++    return text
++
++
+ def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
+     """EXACT canonical-identifier match (P2 #4): DOI / PMID / full canonical URL.
+ 
+     Equality per (entity_key, record_key) pair only — never substring. The URL pair compares
+     the entity's `url_pattern` against the record's resolved `url`; a broad `url_pattern`
+     FRAGMENT can never equal a full resolved URL, so it fails closed.
++
++    WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): after the exact pairs, add a DOI-CANONICAL
++    tolerance leg. A DOI carried as a `https://doi.org/…` / `http://dx.doi.org/…` resolver URL — in
++    the entity's `doi` OR `url_pattern`, or the record's `doi` OR `url` — or in a different case, is
++    canonicalized (`_canonical_doi`: strip resolver prefix + lowercase) and matched on the bare DOI
++    token. This is precise WORK-identity equality (two sources sharing a DOI ARE the same work), NOT a
++    substring/fragment match, so it cannot over-credit. Flag OFF -> this leg is skipped, byte-identical
++    to the exact-equality behavior.
+     """
+     for entity_key, record_key in _CANONICAL_MATCH_PAIRS:
+         entity_value = entity.get(entity_key)
+@@ -307,6 +407,12 @@ def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
+             continue
+         if str(entity_value).strip() == str(record_value).strip():
+             return True
++    if _entity_coverage_citation_credit_enabled():
++        entity_doi = _canonical_doi(entity.get("doi")) or _canonical_doi(entity.get("url_pattern"))
++        if entity_doi:
++            record_doi = _canonical_doi(record.get("doi")) or _canonical_doi(record.get("url"))
++            if record_doi and entity_doi == record_doi:
++                return True
+     return False
+ 
+ 
+@@ -750,6 +856,38 @@ def build_native_gate_b_inputs(
+                 if bound_element_ids:
+                     best_rank = max(best_rank, _SEVERITY_RANK[_SEVERITY_S0])
+ 
++            # WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): basket-membership FALLBACK credit.
++            # AFTER the native canonical-match loop (this is a strict_verify-VERIFIED sentence — the
++            # `verification.is_verified` guard above), credit GENERAL entity coverage when this claim
++            # cites an evidence_id that is a SUPPORTS member of an entity's OWN basket (the coverage_
++            # binder owns the SUPPORTS-only rule; a REFUTES/NEUTRAL member never credits). This handles
++            # the case where a VERIFIED claim supports a required entity through a corroborating source
++            # whose OWN canonical identifier differs from the entity's declared one. It touches ONLY
++            # `covered_element_ids` (the completeness/coverage fraction) and `best_rank` — it NEVER adds
++            # a `covered_s0_categories` credit, so the frozen S0 SAFETY floor (which reads s0_categories,
++            # gated by the FULL content conjunction) is untouched. Additive + still D8-gated: the D8
++            # coverage numerator credits `covered_element_ids` only on a VERIFIED 4-role final verdict
++            # (sweep_integration), so a non-verified claim can never credit. DEFAULT ON but a no-op until
++            # upstream attaches a SUPPORTS basket to the entity (the caller's wiring); flag OFF -> the
++            # binder is never imported and `covered_element_ids` is byte-identical to legacy.
++            if _entity_coverage_citation_credit_enabled():
++                from src.polaris_graph.roles.coverage_binder import bind_basket_coverage
++
++                basket_covered_ids = bind_basket_coverage(
++                    claim_evidence_ids=evidence_ids,
++                    validated_entities=validated,
++                )
++                if basket_covered_ids:
++                    _severity_by_id = {
++                        entity[_KEY_ENTITY_ID]: severity for entity, severity, _ in validated
++                    }
++                    for element_id in basket_covered_ids:
++                        if element_id not in covered_element_ids:
++                            covered_element_ids.append(element_id)
++                            best_rank = max(
++                                best_rank, _SEVERITY_RANK[_severity_by_id[element_id]]
++                            )
++
+             claim_severity = next(
+                 sev for sev, rank in _SEVERITY_RANK.items() if rank == best_rank
+             )
+diff --git a/tests/polaris_graph/test_wave_b_ws13_parallel_tiering.py b/tests/polaris_graph/test_wave_b_ws13_parallel_tiering.py
+new file mode 100644
+index 00000000..2581dab9
+--- /dev/null
++++ b/tests/polaris_graph/test_wave_b_ws13_parallel_tiering.py
+@@ -0,0 +1,246 @@
++"""Beat-both Wave B / WS-13 (#1344) — bounded-PARALLEL retrieval-wall tier-classification.
++
++WS-13 problem: the LLM tier-classification used to run SERIAL, so on a slow judge socket the
++per-source calls could not all finish before the retrieval wall — the fetched-but-unclassified
++sources (~13 on the observed run) were dropped at ``retrieval_wall_hit=true``. §-1.3 is
++WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP: a source that could not be tiered in time must
++enter the corpus at the deterministic rules-floor tier (a WEIGHT), NOT be dropped.
++
++The fix (in ``credibility_llm_tiering.classify_sources_llm_tiering``) runs the per-source
++tiering BOUNDED-PARALLEL — in-flight requests capped at ``PG_TIER_LLM_WORKERS`` (the
++concurrency cap), bounded by a batch wall (``PG_TIER_LLM_BATCH_WALL_SECONDS`` and/or the
++caller's ``deadline_monotonic``, tighter wins) — so far more sources get tiered inside the same
++wall. A straggler that STILL exceeds the wall keeps its rules-floor tier (present, not dropped).
++The default-ON kill-switch ``PG_TIER_LLM_PARALLEL``; OFF reverts to the legacy SERIAL leg,
++byte-identical.
++
++These tests are OFFLINE + spend-free: the per-source LLM tiering call is dependency-injected
++(a fast deterministic fake), so NO real model / network / judge is used — allowed for a UNIT
++test of the concurrency/wall logic. The live-evidence DB is NOT mocked. NO ``unittest.mock``
++(CLAUDE.md §9.4) — the injected callers are plain callables. Faithfulness-NEUTRAL: nothing here
++touches strict_verify / NLI / D8 / provenance.
++"""
++from __future__ import annotations
++
++import contextlib
++import os
++import re
++import threading
++import time
++
++from src.polaris_graph.retrieval.credibility_llm_tiering import (
++    classify_sources_llm_tiering,
++)
++from src.polaris_graph.retrieval.tier_classifier import (
++    ClassificationSignals,
++    TierLevel,
++)
++
++_N_SOURCES = 13
++# Non-top tiers only (T3..T7) so the B2 uncorroborated-top-tier venue cap can never rewrite an
++# expected LLM tier (it is additionally disabled via env below). Cycled by index so a REORDER
++# under concurrency would surface as a tier/index mismatch (order-independence check).
++_TIER_CYCLE = ["T3", "T4", "T5", "T6", "T7"]
++
++
++@contextlib.contextmanager
++def _env(**overrides: str):
++    """Set env vars for the block, restoring prior values on exit (hermetic under pytest AND
++    a direct ``python file.py`` run — no monkeypatch dependency)."""
++    saved: dict[str, str | None] = {k: os.environ.get(k) for k in overrides}
++    try:
++        for k, v in overrides.items():
++            os.environ[k] = v
++        yield
++    finally:
++        for k, prior in saved.items():
++            if prior is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = prior
++
++
++def _sources(n: int = _N_SOURCES, *, slow_index: int | None = None) -> list[ClassificationSignals]:
++    """N non-retracted sources. Each URL encodes the tier the fake will return (``tier-T4``)
++    so the expected per-source classification is deterministic and index-bound. ``slow_index``
++    marks one source ``slow`` so the straggler fake can make it exceed the wall."""
++    out: list[ClassificationSignals] = []
++    for i in range(n):
++        tier = _TIER_CYCLE[i % len(_TIER_CYCLE)]
++        marker = "slow" if i == slow_index else "fast"
++        out.append(
++            ClassificationSignals(
++                url=f"https://example.com/{marker}/tier-{tier}/src-{i}",
++                title=f"Source {i}",
++                fetched_content_length=5000,
++            )
++        )
++    return out
++
++
++class _TrackingCaller:
++    """Deterministic offline LLM-tiering fake that ALSO tracks concurrency.
++
++    Returns the tier encoded in the prompt's URL (``tier-T4`` -> T4). Records the maximum
++    number of simultaneously in-flight calls under a lock so a test can assert the bounded
++    concurrency cap held (parallel: 1 < max <= cap; serial: max == 1). A small sleep forces
++    genuine overlap in the parallel leg. A source whose URL carries ``/slow/`` sleeps long
++    enough to exceed a tight wall (straggler)."""
++
++    def __init__(self, *, fast_sleep: float = 0.05, slow_sleep: float = 1.0) -> None:
++        self.fast_sleep = fast_sleep
++        self.slow_sleep = slow_sleep
++        self._lock = threading.Lock()
++        self._in_flight = 0
++        self.max_in_flight = 0
++        self.calls = 0
++
++    def __call__(self, prompt: str) -> str:
++        with self._lock:
++            self._in_flight += 1
++            self.calls += 1
++            if self._in_flight > self.max_in_flight:
++                self.max_in_flight = self._in_flight
++        try:
++            time.sleep(self.slow_sleep if "/slow/" in prompt else self.fast_sleep)
++            m = re.search(r"tier-(T[1-7])", prompt)
++            tier = m.group(1) if m else "T4"
++            return f'{{"tier": "{tier}", "rationale": "encoded {tier}"}}'
++        finally:
++            with self._lock:
++                self._in_flight -= 1
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 1) Bounded-parallel classifies ALL sources inside the wall, cap never exceeded.
++# ─────────────────────────────────────────────────────────────────────────────
++
++def test_parallel_classifies_all_within_wall_and_respects_concurrency_cap() -> None:
++    cap = 3
++    caller = _TrackingCaller(fast_sleep=0.05)
++    sources = _sources()
++    # Generous wall (600s env default + no caller deadline): nothing is cut off, so every
++    # source is expected to be tiered via the (fake) LLM.
++    with _env(
++        PG_TIER_LLM_PARALLEL="1",
++        PG_TIER_REQUIRE_VENUE_CORROBORATION="0",
++        PG_TIER_LLM_DEGRADE_AFTER="0",  # no circuit-breaker; prove pure wall/cap behavior
++        PG_TIER_LLM_BATCH_WALL_SECONDS="600",
++    ):
++        result = classify_sources_llm_tiering(
++            sources, call_llm=caller, max_workers=cap,
++        )
++
++    # No source dropped — tier is a WEIGHT (§-1.3).
++    assert len(result) == _N_SOURCES
++    # Every source was tiered via the LLM leg (none fell to the rules-floor) and carries the
++    # tier encoded in ITS OWN url — proving order-independent aggregation.
++    for i, res in enumerate(result):
++        assert res.matched_rules == ["llm_tiering"], (i, res.matched_rules)
++        assert res.tier == TierLevel(_TIER_CYCLE[i % len(_TIER_CYCLE)]), (i, res.tier)
++    # Bounded concurrency: in-flight NEVER exceeded the cap, and genuine parallelism happened.
++    assert caller.max_in_flight <= cap, caller.max_in_flight
++    assert caller.max_in_flight >= 2, caller.max_in_flight
++    assert caller.calls == _N_SOURCES
++    # Honest machine-readable status.
++    status = result.tiering_status
++    assert status["total"] == _N_SOURCES
++    assert status["llm_success_count"] == _N_SOURCES
++    assert status["rules_floor_count"] == 0
++    assert status["tiering_mode"] == "tiered_via_glm"
++    return caller.max_in_flight  # surfaced by the __main__ runner
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 2) A straggler past the wall enters at the rules-floor (present, NOT dropped).
++# ─────────────────────────────────────────────────────────────────────────────
++
++def test_straggler_past_wall_enters_at_rules_floor_not_dropped() -> None:
++    cap = 4
++    slow_index = _N_SOURCES - 1
++    caller = _TrackingCaller(fast_sleep=0.0, slow_sleep=1.0)
++    sources = _sources(slow_index=slow_index)
++    # TIGHT wall via the caller deadline: the 12 fast sources finish well inside 0.3s; the one
++    # slow source (1.0s) is un-returned at the wall and must keep its deterministic rules-floor.
++    with _env(
++        PG_TIER_LLM_PARALLEL="1",
++        PG_TIER_REQUIRE_VENUE_CORROBORATION="0",
++        PG_TIER_LLM_DEGRADE_AFTER="0",  # isolate the WALL path from the circuit-breaker
++        PG_TIER_LLM_BATCH_WALL_SECONDS="600",  # keep the env wall loose so the deadline binds
++    ):
++        result = classify_sources_llm_tiering(
++            sources,
++            call_llm=caller,
++            max_workers=cap,
++            deadline_monotonic=time.monotonic() + 0.3,
++        )
++
++    # No drop: the straggler is STILL present (§-1.3).
++    assert len(result) == _N_SOURCES
++    straggler = result[slow_index]
++    # It entered at the rules-floor WEIGHT — a real tier, NOT the LLM leg, NOT dropped/None.
++    assert straggler.matched_rules != ["llm_tiering"], straggler.matched_rules
++    assert isinstance(straggler.tier, TierLevel)
++    # The 12 fast sources were tiered via the LLM leg.
++    for i in range(_N_SOURCES):
++        if i == slow_index:
++            continue
++        assert result[i].matched_rules == ["llm_tiering"], (i, result[i].matched_rules)
++    # Status: 12 via GLM, 1 at the rules-floor -> partial (never a false 'tiered_via_glm').
++    status = result.tiering_status
++    assert status["total"] == _N_SOURCES
++    assert status["llm_success_count"] == _N_SOURCES - 1
++    assert status["rules_floor_count"] == 1
++    assert status["tiering_mode"] == "partial"
++    return caller.max_in_flight
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3) Kill-switch OFF -> serial leg, byte-identical classifications & status.
++# ─────────────────────────────────────────────────────────────────────────────
++
++def _run(parallel: str, cap: int) -> tuple[list, dict, int]:
++    caller = _TrackingCaller(fast_sleep=0.05)
++    sources = _sources()
++    with _env(
++        PG_TIER_LLM_PARALLEL=parallel,
++        PG_TIER_REQUIRE_VENUE_CORROBORATION="0",
++        PG_TIER_LLM_DEGRADE_AFTER="0",
++        PG_TIER_LLM_BATCH_WALL_SECONDS="600",
++    ):
++        result = classify_sources_llm_tiering(sources, call_llm=caller, max_workers=cap)
++    return list(result), dict(result.tiering_status), caller.max_in_flight
++
++
++def test_killswitch_off_serial_is_byte_identical_to_parallel() -> None:
++    par_out, par_status, par_max = _run("1", cap=3)   # default-ON bounded-parallel
++    ser_out, ser_status, ser_max = _run("0", cap=3)   # OFF -> legacy serial
++
++    # Same per-source classification, field-by-field — byte-identical outputs.
++    assert len(par_out) == len(ser_out) == _N_SOURCES
++    for i, (p, s) in enumerate(zip(par_out, ser_out)):
++        assert p.tier.value == s.tier.value, (i, p.tier, s.tier)
++        assert p.confidence == s.confidence, (i, p.confidence, s.confidence)
++        assert p.matched_rules == s.matched_rules, (i, p.matched_rules, s.matched_rules)
++        assert p.reasons == s.reasons, (i, p.reasons, s.reasons)
++        assert p.signals_used == s.signals_used, (i, p.signals_used, s.signals_used)
++    # Same honest machine-readable status.
++    assert par_status == ser_status
++    # The serial leg used NO concurrency (proves the OFF path is genuinely serial); the
++    # parallel leg genuinely overlapped (proves the ON path is genuinely parallel).
++    assert ser_max == 1, ser_max
++    assert par_max >= 2, par_max
++    return par_max, ser_max
++
++
++if __name__ == "__main__":
++    m1 = test_parallel_classifies_all_within_wall_and_respects_concurrency_cap()
++    print(f"[1] parallel-classifies-all: PASS  (observed max in-flight = {m1}, cap = 3)")
++    m2 = test_straggler_past_wall_enters_at_rules_floor_not_dropped()
++    print(f"[2] straggler-degrades-not-drops: PASS  (observed max in-flight = {m2}, cap = 4)")
++    par_max, ser_max = test_killswitch_off_serial_is_byte_identical_to_parallel()
++    print(
++        f"[3] killswitch-off-byte-identical: PASS  "
++        f"(parallel max in-flight = {par_max}, serial max in-flight = {ser_max})"
++    )
++    print("ALL WS-13 TESTS PASSED")
+diff --git a/tests/polaris_graph/test_wave_b_ws2_paid_slate.py b/tests/polaris_graph/test_wave_b_ws2_paid_slate.py
+new file mode 100644
+index 00000000..fd1c8ead
+--- /dev/null
++++ b/tests/polaris_graph/test_wave_b_ws2_paid_slate.py
+@@ -0,0 +1,221 @@
++"""Wave-B WS-2 (I-deepfix-001 #1344) — the winner slate on the PAID run path.
++
++BEHAVIORAL, fixture-driven, OFFLINE (no model / GPU / network / spend). Two surfaces under test:
++
++  1. ``scripts/run_honest_sweep_r3.py`` — the paid launcher's flag-resolution function
++     ``apply_winner_slate_on_paid_path`` must force the four confirmed default-OFF WINNER flags
++     ``"1"`` under the default-ON kill-switch, and be a BYTE-IDENTICAL no-op when the kill-switch is
++     OFF. We do NOT import run_honest_sweep_r3 (it pulls torch / sentence-transformers / live_retriever
++     at module import). Instead we AST-extract ONLY the WS-2 constants + two functions from the real
++     source and exec them in an isolated namespace with just ``os`` — a real test of the real code.
++
++  2. ``scripts/operational_readiness_preflight.py`` — ``check_d1_paid_path_winner_slate`` must RED-fail
++     a paid launch whose EFFECTIVE winner slate is not fully ON, and PASS when all four are ``"1"``.
++     The preflight module is stdlib-only at import (its heavy ``run_gate_b`` import lives inside
++     functions), so it imports safely offline.
++
++§-1.3: the four flags are WEIGHT / CONSOLIDATE knobs (merge-only consolidation, additive cross-source
++synthesis, uncapped breadth surface through the UNCHANGED strict_verify). None drops a source or adds a
++cap. The frozen faithfulness engine is not touched by this workstream.
++"""
++
++from __future__ import annotations
++
++import ast
++import contextlib
++import os
++import sys
++from pathlib import Path
++
++_REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++import scripts.operational_readiness_preflight as op  # noqa: E402
++
++_LAUNCHER = _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
++
++_EXPECTED_FLAGS = (
++    "PG_CONSOLIDATION_NLI",
++    "PG_CONSOLIDATION_NLI_PROSE",
++    "PG_CROSS_SOURCE_SYNTHESIS",
++    "PG_BREADTH_ENRICHMENT_ENABLED",
++)
++_KILL_SWITCH = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
++
++# The WS-2 names to lift out of the launcher source (constants + the two functions).
++_WANTED = {
++    "_WINNER_SLATE_ON_PAID_PATH_ENV",
++    "_PAID_PATH_WINNER_FLAGS",
++    "winner_slate_on_paid_path_enabled",
++    "apply_winner_slate_on_paid_path",
++}
++
++
++def _load_winner_slate_ns() -> dict:
++    """Extract ONLY the WS-2 winner-slate definitions from the real launcher source and exec them in
++    an isolated namespace holding just ``os``. This tests the ACTUAL source (a rename/edit is picked
++    up) without importing the heavy module."""
++    src = _LAUNCHER.read_text(encoding="utf-8")
++    tree = ast.parse(src)
++    segments: list[str] = []
++    for node in tree.body:
++        name = None
++        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
++            name = node.name
++        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
++            name = node.target.id
++        elif (
++            isinstance(node, ast.Assign)
++            and len(node.targets) == 1
++            and isinstance(node.targets[0], ast.Name)
++        ):
++            name = node.targets[0].id
++        if name in _WANTED:
++            seg = ast.get_source_segment(src, node)
++            if seg is not None:
++                segments.append(seg)
++    ns: dict = {"os": os}
++    # Trusted first-party source, offline; the segments are in source (dependency) order.
++    exec("\n\n".join(segments), ns)  # noqa: S102
++    return ns
++
++
++@contextlib.contextmanager
++def _isolated_env(**overrides: str):
++    """Snapshot + restore the WS-2 keys so a test's os.environ mutation never leaks."""
++    keys = list(_EXPECTED_FLAGS) + [_KILL_SWITCH]
++    snapshot = {k: os.environ.get(k) for k in keys}
++    for k in keys:
++        os.environ.pop(k, None)
++    for k, v in overrides.items():
++        os.environ[k] = v
++    try:
++        yield
++    finally:
++        for k in keys:
++            if snapshot[k] is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = snapshot[k]
++
++
++# ---------------------------------------------------------------------------------------------
++# 1. Launcher-side: apply_winner_slate_on_paid_path
++# ---------------------------------------------------------------------------------------------
++
++def test_launcher_slate_names_are_the_four_winners() -> None:
++    ns = _load_winner_slate_ns()
++    assert tuple(ns["_PAID_PATH_WINNER_FLAGS"]) == _EXPECTED_FLAGS
++    assert ns["_WINNER_SLATE_ON_PAID_PATH_ENV"] == _KILL_SWITCH
++
++
++def test_apply_sets_all_four_flags_when_killswitch_default() -> None:
++    ns = _load_winner_slate_ns()
++    with _isolated_env():  # kill-switch unset -> default ON; the four flags unset
++        applied = ns["apply_winner_slate_on_paid_path"]()
++        assert applied == {f: "1" for f in _EXPECTED_FLAGS}
++        for f in _EXPECTED_FLAGS:
++            assert os.environ[f] == "1", f"{f} not force-set to '1'"
++
++
++def test_apply_sets_all_four_flags_when_killswitch_explicit_on() -> None:
++    ns = _load_winner_slate_ns()
++    with _isolated_env(**{_KILL_SWITCH: "1"}):
++        applied = ns["apply_winner_slate_on_paid_path"]()
++        assert applied == {f: "1" for f in _EXPECTED_FLAGS}
++
++
++def test_killswitch_off_is_byte_identical_noop() -> None:
++    ns = _load_winner_slate_ns()
++    # Seed a prior OFF on one flag + an unset on another to prove NOTHING is touched.
++    with _isolated_env(**{_KILL_SWITCH: "0", "PG_CONSOLIDATION_NLI": "0"}):
++        before = dict(os.environ)
++        applied = ns["apply_winner_slate_on_paid_path"]()
++        assert applied == {}
++        assert dict(os.environ) == before  # byte-identical revert
++        assert os.environ["PG_CONSOLIDATION_NLI"] == "0"  # NOT flipped to "1"
++        assert "PG_BREADTH_ENRICHMENT_ENABLED" not in os.environ  # stayed unset
++
++
++def test_killswitch_parse_matches_default_on_convention() -> None:
++    ns = _load_winner_slate_ns()
++    enabled = ns["winner_slate_on_paid_path_enabled"]
++    for off_value in ("0", "false", "off", "no", "OFF", "False"):
++        with _isolated_env(**{_KILL_SWITCH: off_value}):
++            assert enabled() is False, f"{off_value!r} should disable the slate"
++    for on_value in ("1", "true", "on", "yes"):
++        with _isolated_env(**{_KILL_SWITCH: on_value}):
++            assert enabled() is True, f"{on_value!r} should enable the slate"
++    with _isolated_env():  # unset -> default ON
++        assert enabled() is True
++
++
++# ---------------------------------------------------------------------------------------------
++# 2. Preflight-side: check_d1_paid_path_winner_slate (RED-gate a slate-OFF paid launch)
++# ---------------------------------------------------------------------------------------------
++
++def _flag_checks(results) -> list:
++    return [r for r in results if r.check_id.startswith("D-1.paid_path.PG_")]
++
++
++def test_preflight_red_when_all_winner_flags_off() -> None:
++    # kill-switch OFF (auto-apply disabled) + the four flags unset -> the paid run would ship the
++    # slate OFF. Every winner-flag check RED-fails.
++    env = {_KILL_SWITCH: "0"}
++    results = op.check_d1_paid_path_winner_slate(env)
++    flag_checks = _flag_checks(results)
++    assert len(flag_checks) == 4
++    assert all(r.is_red for r in flag_checks)
++    assert [r.check_id for r in flag_checks] == [f"D-1.paid_path.{f}" for f in _EXPECTED_FLAGS]
++
++
++def test_preflight_red_on_single_winner_flag_off() -> None:
++    env = {
++        _KILL_SWITCH: "0",
++        "PG_CONSOLIDATION_NLI": "1",
++        "PG_CONSOLIDATION_NLI_PROSE": "1",
++        "PG_CROSS_SOURCE_SYNTHESIS": "1",
++        "PG_BREADTH_ENRICHMENT_ENABLED": "0",  # the one that is OFF
++    }
++    results = op.check_d1_paid_path_winner_slate(env)
++    reds = [r for r in results if r.is_red and r.check_id.startswith("D-1.paid_path.PG_")]
++    assert [r.check_id for r in reds] == ["D-1.paid_path.PG_BREADTH_ENRICHMENT_ENABLED"]
++
++
++def test_preflight_green_when_all_four_flags_on() -> None:
++    # Even with the auto-apply kill-switch OFF, a hand-set full slate PASSES.
++    env = {
++        _KILL_SWITCH: "0",
++        "PG_CONSOLIDATION_NLI": "1",
++        "PG_CONSOLIDATION_NLI_PROSE": "1",
++        "PG_CROSS_SOURCE_SYNTHESIS": "1",
++        "PG_BREADTH_ENRICHMENT_ENABLED": "1",
++    }
++    results = op.check_d1_paid_path_winner_slate(env)
++    assert all(r.status == op.GREEN for r in _flag_checks(results))
++    assert not any(r.is_red for r in results)  # incl. the launcher-applies gate
++
++
++def test_preflight_green_when_killswitch_on_forces_flags() -> None:
++    # The legitimate WS-2 launch: kill-switch default ON, flags unset -> the launcher force-sets them,
++    # so the effective slate is fully ON. Must NOT false-RED.
++    env: dict = {}
++    results = op.check_d1_paid_path_winner_slate(env)
++    assert all(r.status == op.GREEN for r in _flag_checks(results))
++
++
++def test_preflight_launcher_applies_gate_is_wired_green() -> None:
++    # The AST gate: run_honest_sweep_r3.main_async ACTUALLY calls apply_winner_slate_on_paid_path.
++    results = op.check_d1_paid_path_winner_slate({})
++    gate = [r for r in results if r.check_id == "D-1.paid_path.launcher_applies"]
++    assert len(gate) == 1
++    assert gate[0].status == op.GREEN
++
++
++def test_preflight_wired_into_run_static_checks() -> None:
++    # The new check is actually part of the static suite (not defined-but-unwired).
++    import inspect
++
++    src = inspect.getsource(op.run_static_checks)
++    assert "check_d1_paid_path_winner_slate" in src
+diff --git a/tests/polaris_graph/test_wave_b_ws3_breadth_surface.py b/tests/polaris_graph/test_wave_b_ws3_breadth_surface.py
+new file mode 100644
+index 00000000..dcbe48c7
+--- /dev/null
++++ b/tests/polaris_graph/test_wave_b_ws3_breadth_surface.py
+@@ -0,0 +1,364 @@
++"""I-deepfix-001 beat-both Wave B WS-3 — behavioral wiring test for the breadth surface
+++ no-provenance-token repair.
++
++Two WS-3 functions were built + committed (WIP 9f690609) but NOT wired and had no test:
++  * ``verified_compose.repair_untokened_sentence`` — rebinds an untokened abstractive sentence
++    to the nearest supporting basket's OWN verified clause BEFORE strict_verify drops it (the
++    drb_72 ``no_provenance_token=34`` leak).
++  * ``weighted_enrichment.build_evidence_base_section`` — surfaces the FULL uncapped unbound-
++    SUPPORTS ev_id surface as ONE numbered "Evidence base" section so every span-verified source
++    gets a ``[N]``.
++
++This test is OFFLINE, fixture-driven, no model / GPU / network. It asserts:
++  1. REPAIR: a fixture untokened sentence whose claim is supported by a basket span is REPAIRED
++     (bound to that span, carries a real ``[#ev]`` token, survives the UNCHANGED strict_verify);
++     a sentence with NO supporting basket span is STILL dropped (never fabricated).
++  2. BREADTH: ``build_evidence_base_section`` over a fixture surface of 8 DISTINCT works yields a
++     numbered list covering ALL 8 (one entry per work), FAIL LOUD if it regresses to a subset.
++  3. KILL-SWITCHES OFF => byte-identical legacy behaviour (untokened dropped, no Evidence base
++     section).
++  4. WIRING: the caller in ``multi_section_generator`` actually invokes BOTH — the repair pass
++     calls ``repair_untokened_sentence`` before dropping, and the assembly calls
++     ``_append_evidence_base_section`` (which appends the section) — so a future un-wiring FAILS.
++
++Entailment is forced OFF (``PG_STRICT_VERIFY_ENTAILMENT=off``) so ``strict_verify`` runs its
++deterministic mechanical checks only — a verbatim K-span self-quote passes them by construction,
++with zero model spend.
++"""
++
++from __future__ import annotations
++
++import inspect
++import re
++
++import pytest
++
++from src.polaris_graph.generator import multi_section_generator as msg
++from src.polaris_graph.generator import verified_compose as vc
++from src.polaris_graph.generator import weighted_enrichment as we
++from src.polaris_graph.generator.provenance_generator import (
++    strict_verify,
++    verify_sentence_provenance,
++)
++
++_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# Lightweight offline fixtures (no ClaimBasket / BasketMember imports — the
++# production functions read via getattr, so duck-typed shims are faithful).
++# ─────────────────────────────────────────────────────────────────────────────
++class _Member:
++    def __init__(
++        self,
++        evidence_id: str,
++        direct_quote: str,
++        *,
++        span_verdict: str = "SUPPORTS",
++        credibility_weight: float = 0.5,
++        origin_cluster_id: str | None = None,
++        source_url: str = "",
++        source_tier: str = "",
++    ) -> None:
++        self.evidence_id = evidence_id
++        self.direct_quote = direct_quote
++        self.span_verdict = span_verdict
++        self.credibility_weight = credibility_weight
++        self.origin_cluster_id = origin_cluster_id or evidence_id
++        self.source_url = source_url
++        self.source_tier = source_tier
++
++
++class _Basket:
++    def __init__(
++        self,
++        claim_text: str,
++        members: list,
++        *,
++        subject: str = "",
++        predicate: str = "",
++        claim_cluster_id: str = "cluster_x",
++    ) -> None:
++        self.claim_text = claim_text
++        self.subject = subject
++        self.predicate = predicate
++        self.supporting_members = members
++        self.claim_cluster_id = claim_cluster_id
++
++
++# The supported-claim quote (a clean, sentence-form verbatim span).
++_SUPPORTED_QUOTE = (
++    "Insulin resistance markedly increased fasting glucose in the treatment cohort "
++    "during the study period."
++)
++
++
++def _supported_basket_and_pool():
++    member = _Member("evA", _SUPPORTED_QUOTE, source_url="https://a.example", source_tier="T2")
++    basket = _Basket(
++        "Insulin resistance raises fasting glucose",
++        [member],
++        subject="insulin resistance",
++        predicate="raises fasting glucose",
++    )
++    pool = {
++        "evA": {
++            "direct_quote": _SUPPORTED_QUOTE,
++            "source_url": "https://a.example",
++            "source_tier": "T2",
++        }
++    }
++    return basket, pool
++
++
++def _empty_writer(_basket, _pool) -> str:
++    """A writer that produces NOTHING, forcing the deterministic verbatim K-span fallback —
++    so the repair is proven WITHOUT any model call."""
++    return ""
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 1. REPAIR — untokened + supported => repaired & survives strict_verify;
++#             untokened + unsupported => still dropped (None), never fabricated.
++# ─────────────────────────────────────────────────────────────────────────────
++def test_repair_binds_supported_untokened_sentence_and_survives_strict_verify(monkeypatch):
++    monkeypatch.setenv("PG_NO_TOKEN_SENTENCE_REPAIR", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
++    basket, pool = _supported_basket_and_pool()
++
++    untokened = "Insulin resistance raised fasting glucose across the study cohort overall."
++    assert not _EV_TOKEN_RE.search(untokened)  # the leak precondition
++
++    repaired = vc.repair_untokened_sentence(
++        untokened, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++    assert repaired is not None, "supported untokened sentence must be REPAIRED, not dropped"
++    assert _EV_TOKEN_RE.search(repaired), "repaired clause must carry a real [#ev] provenance token"
++    assert "evA" in repaired
++
++    # The repaired clause must SURVIVE the UNCHANGED strict_verify (mechanical mode).
++    report = strict_verify(repaired, pool)
++    assert report.kept_sentences, "repaired verbatim K-span clause must survive strict_verify"
++    kept_text = " ".join(str(getattr(s, "sentence", s)) for s in report.kept_sentences)
++    assert _EV_TOKEN_RE.search(kept_text)
++
++
++def test_repair_returns_tokened_sentence_unchanged():
++    basket, pool = _supported_basket_and_pool()
++    already = "Fasting glucose rose in the cohort [#ev:evA:0-40]."
++    out = vc.repair_untokened_sentence(
++        already, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++    assert out == already, "a sentence that already cites a span must be returned unchanged"
++
++
++def test_repair_drops_unsupported_untokened_sentence(monkeypatch):
++    monkeypatch.setenv("PG_NO_TOKEN_SENTENCE_REPAIR", "1")
++    basket, pool = _supported_basket_and_pool()
++    # Zero content-word overlap with the basket -> no binding -> still dropped (never fabricated).
++    unsupported = "Quantum chromodynamics governs subatomic gluon interactions entirely."
++    out = vc.repair_untokened_sentence(
++        unsupported, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++    assert out is None, "an unsupported untokened sentence must STAY dropped (no fabricated binding)"
++
++
++def test_repair_killswitch_off_is_byte_identical(monkeypatch):
++    monkeypatch.setenv("PG_NO_TOKEN_SENTENCE_REPAIR", "0")
++    basket, pool = _supported_basket_and_pool()
++    untokened = "Insulin resistance raised fasting glucose across the study cohort overall."
++    out = vc.repair_untokened_sentence(
++        untokened, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++    assert out is None, "flag OFF => the legacy silent drop (returns None) => byte-identical"
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 2. BREADTH — 8 distinct works => numbered list covering ALL 8 (one per work).
++# ─────────────────────────────────────────────────────────────────────────────
++def _eight_distinct_works():
++    """8 evidence rows that are 8 DISTINCT works (no DOI, no title => _work_identity falls
++    through to the distinct evidence_id, so none consolidate together)."""
++    pool = {}
++    ev_ids = []
++    for i in range(1, 9):
++        eid = f"ev{i:02d}"
++        ev_ids.append(eid)
++        pool[eid] = {
++            "direct_quote": (
++                f"Finding number {i}: the measured outcome improved substantially in "
++                f"cohort {i} across the observed follow-up window."
++            ),
++            "source_url": f"https://source{i:02d}.example/paper",
++            "source_tier": "T3",
++        }
++    return ev_ids, pool
++
++
++def test_evidence_base_section_covers_all_eight_distinct_works(monkeypatch):
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "1")
++    ev_ids, pool = _eight_distinct_works()
++
++    block = we.build_evidence_base_section(ev_ids, pool)
++    assert block, "8 distinct span-verified works must yield a non-empty Evidence base section"
++    assert block.startswith("## Evidence base")
++
++    # Exactly 8 numbered entries (one per distinct work) — FAIL LOUD on any regression to a subset.
++    numbered = re.findall(r"(?m)^(\d+)\.\s", block)
++    assert numbered == [str(n) for n in range(1, 9)], (
++        f"expected numbered entries 1..8 (one per distinct work); got {numbered!r}"
++    )
++    # Every work's own [ev_id] marker is present (no work silently dropped from the surface).
++    for eid in ev_ids:
++        assert f"[{eid}]" in block, f"work {eid} missing from the Evidence base surface (breadth regression)"
++
++
++def test_evidence_base_section_consolidates_same_work(monkeypatch):
++    """Two ev_ids that are the SAME work (shared DOI) consolidate to ONE numbered entry."""
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "1")
++    quote = (
++        "The randomized trial reported a statistically significant reduction in the "
++        "primary endpoint among treated participants."
++    )
++    pool = {
++        "evX": {"direct_quote": quote, "doi": "10.1000/same", "source_url": "https://x.example"},
++        "evY": {"direct_quote": quote, "doi": "10.1000/same", "source_url": "https://y.example"},
++    }
++    block = we.build_evidence_base_section(["evX", "evY"], pool)
++    numbered = re.findall(r"(?m)^(\d+)\.\s", block)
++    assert numbered == ["1"], f"same-work members must consolidate to ONE entry; got {numbered!r}"
++
++
++def test_evidence_base_section_killswitch_off_is_byte_identical(monkeypatch):
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "0")
++    ev_ids, pool = _eight_distinct_works()
++    block = we.build_evidence_base_section(ev_ids, pool)
++    assert block == "", "flag OFF => no Evidence base section => byte-identical legacy output"
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# 3. WIRING — the multi_section_generator callers invoke BOTH functions.
++# ─────────────────────────────────────────────────────────────────────────────
++def test_repair_draft_wiring_invokes_repair_before_dropping(monkeypatch):
++    """`_repair_untokened_draft` (called by `_run_section`) must invoke `repair_untokened_sentence`
++    for EACH sentence before strict_verify, replace an untokened+supported sentence, and leave a
++    tokened sentence unchanged."""
++    monkeypatch.setenv("PG_NO_TOKEN_SENTENCE_REPAIR", "1")
++    basket, pool = _supported_basket_and_pool()
++
++    seen: list[str] = []
++    real = msg.repair_untokened_sentence
++
++    def _spy(sentence, baskets, evidence_pool, **kw):
++        seen.append(sentence)
++        return real(sentence, baskets, evidence_pool, **kw)
++
++    monkeypatch.setattr(msg, "repair_untokened_sentence", _spy)
++
++    tokened = "Fasting glucose rose in the cohort [#ev:evA:0-40]."
++    untokened = "Insulin resistance raised fasting glucose across the study cohort overall."
++    raw = f"{tokened}\n{untokened}"
++
++    out = msg._repair_untokened_draft(
++        raw, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++
++    assert len(seen) == 2, "repair must be attempted on BOTH sentences (before any drop)"
++    assert tokened in out, "the already-tokened sentence must survive unchanged"
++    assert untokened not in out, "the untokened sentence must be REPLACED by its repaired clause"
++    assert _EV_TOKEN_RE.search(out.replace(tokened, "")), "the repaired portion must carry a [#ev] token"
++
++
++def test_repair_draft_wiring_byte_identical_when_off(monkeypatch):
++    monkeypatch.setenv("PG_NO_TOKEN_SENTENCE_REPAIR", "0")
++    basket, pool = _supported_basket_and_pool()
++    raw = "Insulin resistance raised fasting glucose across the study cohort overall."
++    out = msg._repair_untokened_draft(
++        raw, [basket], pool, writer_fn=_empty_writer, verify_fn=verify_sentence_provenance,
++    )
++    assert out == raw, "flag OFF => raw returned unchanged (untokened sentence still present, later dropped)"
++
++
++def test_evidence_base_wiring_appends_section_and_extends_biblio(monkeypatch):
++    """`_append_evidence_base_section` (called by `generate_multi_section_report`) must invoke
++    `build_evidence_base_section`, append ONE SectionResult, and resolve every [ev_id] to a global
++    [N] (extending the bibliography for newly-surfaced works)."""
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "1")
++    ev_ids, pool = _eight_distinct_works()
++
++    called: list = []
++    real = we.build_evidence_base_section
++
++    def _spy(passed_ev_ids, passed_pool, **kw):
++        called.append((list(passed_ev_ids), passed_pool))
++        return real(passed_ev_ids, passed_pool, **kw)
++
++    monkeypatch.setattr(we, "build_evidence_base_section", _spy)
++
++    section_results: list = []
++    global_biblio: list = []
++    appended = msg._append_evidence_base_section(section_results, global_biblio, ev_ids, pool)
++
++    assert appended is True
++    assert called, "the caller must invoke build_evidence_base_section"
++    assert called[0][0] == ev_ids, "the caller must pass the uncapped SUPPORTS ev_id surface"
++    assert len(section_results) == 1, "exactly ONE Evidence base section must be appended"
++    sect = section_results[0]
++    assert sect.title == "Evidence base"
++    assert not sect.dropped_due_to_failure and sect.verified_text
++    # P1 FIX (Codex iter-1 REQUEST_CHANGES): the Evidence base MUST NOT ship lines outside
++    # strict_verify/D8. It is routed through the frozen strict_verify, so every rendered entry is a
++    # real SentenceVerification carried in kept_sentences_pre_resolve — which native_gate_b_inputs
++    # promotes to a 4-role D8 claim. A revert to the pre-fix bypass (empty kept_sentences_pre_resolve)
++    # FAILS here.
++    assert sect.kept_sentences_pre_resolve, (
++        "Evidence base must carry strict_verify SentenceVerification objects in "
++        "kept_sentences_pre_resolve, else it bypasses strict_verify/D8 (the Codex iter-1 P1)"
++    )
++    assert all(getattr(v, "is_verified", False) for v in sect.kept_sentences_pre_resolve), (
++        "every Evidence base entry Gate-B/D8 sees must be a strict_verify-VERIFIED sentence"
++    )
++    # No raw [ev_id] markers survive; every work resolved to a global [N].
++    assert not re.search(r"\[ev\d", sect.verified_text), "every [ev_id] must resolve to a [N]"
++    nums = {b["evidence_id"]: b["num"] for b in global_biblio}
++    assert set(nums) == set(ev_ids), "global bibliography must be extended for all 8 surfaced works"
++    assert len(set(nums.values())) == 8, "each surfaced work gets a distinct global [N]"
++    for n in nums.values():
++        assert f"[{n}]" in sect.verified_text
++
++
++def test_evidence_base_wiring_reuses_existing_biblio_number(monkeypatch):
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "1")
++    ev_ids, pool = _eight_distinct_works()
++    # ev03 already cited elsewhere as [5] — its number must be REUSED, not renumbered.
++    global_biblio = [{"num": 5, "evidence_id": "ev03", "url": "", "tier": "", "statement": ""}]
++    section_results: list = []
++    assert msg._append_evidence_base_section(section_results, global_biblio, ev_ids, pool)
++    nums = {b["evidence_id"]: b["num"] for b in global_biblio}
++    assert nums["ev03"] == 5, "an already-numbered source must keep its existing global [N]"
++    assert f"[5]" in section_results[0].verified_text
++
++
++def test_evidence_base_wiring_noop_when_off(monkeypatch):
++    monkeypatch.setenv("PG_BREADTH_EVIDENCE_BASE_SECTION", "0")
++    ev_ids, pool = _eight_distinct_works()
++    section_results: list = []
++    global_biblio: list = []
++    appended = msg._append_evidence_base_section(section_results, global_biblio, ev_ids, pool)
++    assert appended is False
++    assert section_results == [], "flag OFF => no section appended => byte-identical"
++    assert global_biblio == [], "flag OFF => bibliography untouched"
++
++
++def test_pipeline_source_invokes_both_helpers():
++    """Source-level guard so a future UN-WIRING (removing either helper call from the pipeline)
++    FAILS this test — the behavioral helper tests above prove the helpers work; this proves the
++    real render path calls them."""
++    run_section_src = inspect.getsource(msg._run_section)
++    assert "_repair_untokened_draft(" in run_section_src, (
++        "_run_section must call _repair_untokened_draft (no-token repair un-wired)"
++    )
++    gen_src = inspect.getsource(msg.generate_multi_section_report)
++    assert "_append_evidence_base_section(" in gen_src, (
++        "generate_multi_section_report must call _append_evidence_base_section (breadth surface un-wired)"
++    )
