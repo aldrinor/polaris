@@ -1,0 +1,20 @@
+verdict: REQUEST_CHANGES
+frozen_engine_untouched: true
+s13_violations: []
+ws1_cache_or_retry_can_flip_unsupported_to_verified: true
+ws5_only_adds_caveats_never_mutates_verdict: true
+ws6_only_reduces_count: true
+novel_p0:
+  - "WS-1: default-on judge idempotency cache is process-wide and not reset on any run/query boundary. Cache hits return before a fresh judge call at src/polaris_graph/roles/judge_adapter.py:487, while reset_judge_verdict_cache is only defined at :367 and has no production caller. A poisoned/stale VERIFIED for the same normalized claim+span text can leak into a later document/run and bypass the current judge request."
+continuing_p0:
+  - "ALL-GLM lock is still violated on the active OpenRouter D8 benchmark path: src/polaris_graph/roles/openrouter_role_transport.py:211 defaults judge to moonshotai/kimi-k2.6, and scripts/dr_benchmark/run_gate_b.py:194 uses benchmark_verifier_lineup(). Wave A does not force PG_BENCHMARK_JUDGE_MODEL=z-ai/glm-5.2."
+p1:
+  - "WS-2: assert_cross_source_synthesis_fired is defined at scripts/dr_benchmark/run_gate_b.py:2107 but is not called by the production Gate-B post-run path. The existing post-run block calls only assert_breadth_enrichment_rendered at :4209, so an M6 silent no-op can still ship unless an external audit manually calls the helper."
+p2:
+  - "WS-5 wording: advisory inherited caveats reuse 'NOT confirmed by the cited source' for verified twins. Safer wording would say the figure has a sibling/conditional caveat; not a blocker because it only adds caution."
+  - "Formatting: git diff --check reports trailing whitespace in the Wave A hunks; cleanup if CI enforces it."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Run-bound or key-scope the WS-1 judge verdict cache so no cross-run stale/poisoned verdict can be reused."
+  - "Reconcile the active D8 judge path to operator-locked all-GLM, including the OpenRouter benchmark lineup."
+  - "Wire assert_cross_source_synthesis_fired into the actual post-run Gate-B/audit path."

@@ -589,6 +589,50 @@ _ROLE_TRANSPORT_TOTAL_S_ROLE_DEFAULT = {
     "sentinel": "300",
 }
 
+# I-deepfix-001 WS-1 (d): the D8 SEAM WALL for a SLOW GLM judge. The Judge is the deliberative
+# GLM-5.2 arbiter (reasoning ON) that legitimately runs to MINUTES/claim; the run slate sets the
+# GENERIC `PG_ROLE_TRANSPORT_TOTAL_S` TIGHT for the Sentinel fail-fast (run_gate_b sets 300s), and
+# because the Judge (no coded default above) falls through to that generic, a tight generic would
+# STRANGLE a healthy slow Judge — force-closing it mid-trickle and TEARING the D8 seam (the
+# "trickle tears the seam" failure, feedback_judge_model_provider_availability). So the Judge gets
+# its OWN generous coded FLOOR: its wall becomes MAX(generic, floor), DECOUPLED from the
+# Sentinel-tightening generic. An explicit `PG_ROLE_TRANSPORT_TOTAL_S_JUDGE` still wins (raise OR
+# lower — full operator control). FAITHFULNESS-NEUTRAL: a larger wall only changes HOW LONG a
+# slow-but-valid Judge call may finish; on genuine exhaustion the UNCHANGED fail-closed
+# `RoleTransportError` still fires (per-claim degrade, never a fabricated verdict). LAW VI:
+# env-overridable via `PG_ROLE_TRANSPORT_TOTAL_S_JUDGE_FLOOR` (default 1800); set it (or the
+# explicit judge knob) to 900 to revert to the pre-WS-1 generic behavior.
+_ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_ENV = {
+    "judge": "PG_ROLE_TRANSPORT_TOTAL_S_JUDGE_FLOOR",
+}
+_ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_DEFAULT = {
+    "judge": "1800",
+}
+
+
+def _role_transport_total_s_floor(role_key: str) -> float | None:
+    """I-deepfix-001 WS-1 (d): the generous coded WALL FLOOR (seconds) for a role, else None.
+
+    A role with a floor (the slow GLM Judge) resolves its wall to MAX(generic, floor) so a tight
+    Sentinel-oriented generic knob cannot strangle it. Env-overridable per role; an unparseable /
+    non-positive override falls back to the coded default (LAW VI, read at CALL time)."""
+    coded = _ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_DEFAULT.get(role_key)
+    if coded is None:
+        return None
+    env_name = _ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_ENV.get(role_key)
+    raw = os.getenv(env_name) if env_name else None
+    if raw is not None and raw.strip():
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(coded)
+    except (TypeError, ValueError):
+        return None
+
 
 def _role_transport_total_s(role: str | None = None) -> float:
     """The per-call total wall-deadline (seconds) for `role`, read at CALL time (slate override wins).
@@ -636,6 +680,13 @@ def _role_transport_total_s(role: str | None = None) -> float:
             return min(generic, float(coded_default))
         except (TypeError, ValueError):
             return generic
+    # I-deepfix-001 WS-1 (d): a role with a coded FLOOR (the slow GLM Judge) is DECOUPLED from a
+    # tight generic — its wall is MAX(generic, floor) so the Sentinel-tightening generic knob can
+    # never strangle a healthy slow Judge and tear the D8 seam. (An explicit per-role env already
+    # won at step 1 above.) Roles with neither a coded default nor a floor (Mirror) keep the generic.
+    floor = _role_transport_total_s_floor(role_key)
+    if floor is not None:
+        return max(generic, floor)
     return generic
 
 

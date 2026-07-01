@@ -284,6 +284,120 @@ def epistemic_overstatement_reason(claim: str, span_text: str) -> str | None:
     return "epistemic_overstatement_assumption_as_finding"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Effect-size conditional/threshold guard (WS-5 FIX-b, I-deepfix-001 beat-both).
+#
+# The re-smoke residual D1: the Eloundou span reads
+#   "...roughly 1.8% of jobs could have over half their tasks affected by LLMs...
+#    When accounting for current and likely future software developments that
+#    complement LLM capabilities, this share jumps to just over 46% of jobs."
+# so the "46%" figure is GOVERNED by the antecedent "when accounting for future
+# software developments" (a conditional) and the threshold "over half their tasks
+# affected". A re-lift that renders "just over 46% of jobs are exposed to
+# LLM-related technologies" keeps the NUMBER (strict_verify's numeric leg passes)
+# but DROPS the governing condition — an effect-size over-claim.
+#
+# This leg is ANNOTATE-ONLY (§-1.3): it returns a reason so the render layer can
+# APPEND a [confidence] caveat (or so the composer can carry the antecedent). It
+# NEVER drops a sentence, NEVER widens a span, NEVER changes a verdict. It is NOT
+# wired into strict_verify's drop path. Gated by PG_FIGURE_CONSISTENCY_ANNOTATE
+# (default ON); OFF -> inert (byte-identical). Pure, stdlib-only, network-free.
+# ─────────────────────────────────────────────────────────────────────────────
+def figure_consistency_annotate_enabled() -> bool:
+    """Whether the effect-size conditional/threshold annotate leg is active (default ON)."""
+    return os.getenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1").strip().lower() in _TRUE_TOKENS
+
+
+# Provenance / numbered-citation markers stripped off the CLAIM before number
+# extraction, so a span offset inside "[#ev:eloundou:0-800]" or a "[7]" marker is
+# never mistaken for a claimed figure.
+_CLAIM_CITATION_STRIP_RE = re.compile(r"\[#ev:[^\]]+\]|\[\d+\]")
+
+# A governing conditional / threshold token in the SPAN. When one of these
+# precedes a number in the span's number-bearing sentence, that number is
+# CONDITIONAL (its magnitude holds only under the stated antecedent/threshold),
+# not an unconditional empirical count. The task's three canonical cues
+# ("when accounting for", "could have", "over half") lead the set; the rest are
+# the standard conditional/threshold/scenario framings.
+_SPAN_EFFECT_CONDITION_RE = re.compile(
+    r"(?:"
+    r"when\s+accounting\s+for"
+    r"|when\s+we\s+account\s+for"
+    r"|\bcould\s+have\b"
+    r"|\bover\s+half\b"
+    r"|\bup\s+to\b"
+    r"|\bas\s+(?:much|many)\s+as\b"
+    r"|\bassum(?:e|es|ed|ing)\b"
+    r"|\bif\s+(?:we|you|the|current|future)\b"
+    r"|\bprovided\s+that\b"
+    r"|\bunder\s+(?:the|a|an)\s+\w+\s+scenario\b"
+    r"|\bhypothetical(?:ly)?\b"
+    r"|\bscenario\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# A governing condition/hedge CARRIED BY THE CLAIM. If the claim reproduces any
+# of these, the antecedent travelled with the number (the paraphrase is faithful)
+# -> the leg is inert (no caveat). Deliberately EXCLUDES bare epistemic verbs like
+# "estimate"/"found" (those keep the value framed as a finding, NOT as conditional)
+# so a bare re-lift such as "they estimate that just over 46% of jobs..." still
+# fires; it targets the specific conditional/threshold antecedent only.
+_CLAIM_ANTECEDENT_CARRIED_RE = re.compile(
+    r"(?:"
+    r"account(?:ing|s|ed)?\s+for"
+    r"|\bcould\b|\bmay\b|\bmight\b|\bwould\b"
+    r"|\bup\s+to\b|\bas\s+(?:much|many)\s+as\b|\bover\s+half\b"
+    r"|\bif\b|\bassum(?:e|es|ed|ing)\b|\bprovided\b"
+    r"|\bscenario\b|\bhypothetical(?:ly)?\b"
+    r"|\bwhen\b"
+    r"|future\s+(?:software|developments|technolog)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Split the span into sentences so a conditional only governs numbers in its OWN
+# sentence (a period that is NOT a decimal point is a boundary).
+_SPAN_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
+    """Return an ANNOTATE reason if the claim re-lifts a span number while dropping
+    the conditional/threshold antecedent that governs it in the cited span.
+
+    Fires only when ALL hold:
+      - the leg is enabled (PG_FIGURE_CONSISTENCY_ANNOTATE, default ON),
+      - the claim carries NO governing conditional/threshold of its own (a bare
+        assertion — "they estimate that just over 46% of jobs are exposed..."),
+      - the cited span has a sentence whose governing conditional/threshold token
+        PRECEDES a number, and
+      - the claim reproduces that governed number.
+    Otherwise returns None (inert — no false caveat). ANNOTATE-only: the caller
+    APPENDS a [confidence] caveat; this NEVER drops, widens a span, or changes a
+    verdict (§-1.3).
+    """
+    if not figure_consistency_annotate_enabled():
+        return None
+    if not claim or not span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
+    if not claim_numbers:
+        return None  # no figure re-lifted — nothing to over-claim
+    if _CLAIM_ANTECEDENT_CARRIED_RE.search(claim_bare):
+        return None  # the claim carries the governing condition — antecedent travelled, faithful
+    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
+        cond = _SPAN_EFFECT_CONDITION_RE.search(sentence)
+        if not cond:
+            continue
+        # Numbers AFTER the conditional in this sentence are the ones it governs.
+        governed = set(_NUMERIC_TOKEN_RE.findall(sentence[cond.start():]))
+        shared = claim_numbers & governed
+        if shared:
+            return "effect_size_conditional_stripped:num=" + ",".join(sorted(shared))
+    return None
+
+
 def temporal_scope_reason(claim: str, span_text: str) -> str | None:
     """Return a drop reason if the claim's time-horizon is not in the cited span.
 

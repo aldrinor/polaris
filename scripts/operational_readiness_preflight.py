@@ -350,6 +350,13 @@ def check_d1_flags(
         "PG_BREADTH_ENRICHMENT_ENABLED": "breadth weighted-enrichment surface (the 485->~13 funnel fix)",
         "PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS": "FIX-K: render the surfaced basket's VERIFIED spans verbatim",
         "PG_RETRIEVAL_RELEVANCE_GATE": "B4 relevance gate (weight-not-filter demote-not-drop)",
+        # I-deepfix-001 (#1344) WS-2: the two remaining winner flags the paid run must NOT launch with OFF.
+        # This turns the D-1 launch-path INFO disclosure (a paid run that skips the slate leaves these
+        # default-OFF -> zero consolidation / zero analysis) into a HARD RED assert on the paid path. The
+        # real Gate-B slate force-pins + preflight-requires both, so a slate-applied run is GREEN; a
+        # slate-OFF (or --pathB-gate) launch RED-gates -> NO-GO.
+        "PG_CONSOLIDATION_NLI": "W10 consolidate=NLI (same-claim paraphrase baskets -> multi-source corroboration)",
+        "PG_CROSS_SOURCE_SYNTHESIS": "M6 cross-source analytical layer (the Comparative-Assessment analysis yield)",
         "PG_FOUR_ROLE_MODE": "the native 4-role D8 verification seam",
     }
     for flag, why in pinned.items():
@@ -369,6 +376,12 @@ def check_d1_flags(
         force_exact = flag in meta.force_exact
         required = flag in meta.required
         in_slate = flag in meta.slate
+        # I-deepfix-001 (#1344) WS-2: only RED-gate a pinned winner flag that THIS slate-meta actually
+        # governs (in the slate or a force/required set). A meta with no knowledge of the flag (a synthetic
+        # unit-test meta, or a pre-M6 slate) must not spuriously RED it — the real Gate-B slate governs all
+        # of these, so the paid readiness run still hard-REDs a genuine slate-OFF launch.
+        if not (in_slate or force_on or force_exact or required):
+            continue
         # the numeric FLOOR guarantees a truthy "1" even on a stray =0 (max(0,1)=1) for slate keys.
         floor_guards = in_slate and not (force_on or force_exact)
         guaranteed = force_on or force_exact or required or floor_guards

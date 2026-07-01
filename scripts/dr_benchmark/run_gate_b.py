@@ -1346,6 +1346,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_CONTENT_RELEVANCE_JUDGE": "1",   # W5 relevance=Qwen3-Rerank-0.6B+GLM judge (content_relevance_judge:77 / live_retriever:459)
     "PG_CREDIBILITY_LLM_TIERING": "1",   # W8 cred=llm_tiering (tier_classifier:1233 / live_retriever:4178)
     "PG_CONSOLIDATION_NLI": "1",         # W10 consolidate=NLI (finding_dedup:585 / consolidation_nli:67)
+    # I-deepfix-001 (#1344) WS-2 M6 (BEATBOTH_PLAN_CORRECTIONS): the CROSS-SOURCE ANALYTICAL layer.
+    # DEFAULT-OFF (verified_compose.py:167-168) — the re-smoke had to set it by hand, so a paid Gate-B
+    # run silently shipped NO analysis (M6 dark, "Comparative Assessment" gap-stub). Slate-pin "1" so
+    # apply_full_capability_benchmark_slate FORCE-sets it (it is in _BENCHMARK_FORCE_ON_FLAGS below);
+    # ALSO in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed pre-spend) + _WINNER_FLAG_ALLOWLIST
+    # (SLATE-PURITY). FAITHFULNESS-NEUTRAL: each analytical sentence's two atoms re-pass the UNCHANGED
+    # strict_verify per clause; the connective is engine-LICENSED (cross_source_synthesis.license_relation).
+    # M2 (PG_DOCUMENT_TYPE_WEIGHT) stays OUT of the global slate (WS-8: journal-only template only).
+    "PG_CROSS_SOURCE_SYNTHESIS": "1",    # M6 cross-source analytical layer (verified_compose:167 / cross_source_synthesis:214)
     "PG_ADEQUACY_CRAG": "1",             # W11 adequacy=CRAG (run_honest_sweep_r3:7446 CRAG loop)
     # W1 scope=intent_frame: the MODULE (src/polaris_graph/nodes/intent_frame.py) is built + flag-aware,
     # and run_intent_frame() is NOW called on the sweep scope-gate path (run_honest_sweep_r3.py:6426,
@@ -1539,6 +1548,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_CONTENT_RELEVANCE_JUDGE",
     "PG_CREDIBILITY_LLM_TIERING",
     "PG_CONSOLIDATION_NLI",
+    # I-deepfix-001 (#1344) WS-2 M6: fail-CLOSED before spend if the cross-source analytical layer is
+    # off — a paid run with PG_CROSS_SOURCE_SYNTHESIS=0 silently ships zero analysis (the drb_72
+    # re-smoke defect). Force-ON above, so a stray operator =0 fails the run CLOSED here. This is the
+    # third of the three winner flags the WS-2 paid-preflight must reject a slate-OFF launch on
+    # (PG_CONSOLIDATION_NLI + PG_BREADTH_ENRICHMENT_ENABLED are the other two, already required above).
+    "PG_CROSS_SOURCE_SYNTHESIS",
     "PG_ADEQUACY_CRAG",
     # I-wire-001 P1-1: W1 scope=intent_frame GRADUATED from build-deferred to preflight-required.
     # run_intent_frame() is now CALLED on the run path (run_honest_sweep_r3.py:6426, gated by
@@ -1604,6 +1619,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # fail-open (a synthesis pre-pass failure omits the digest, never aborts the report); faithfulness-
     # SAFE because every synthesized sentence re-passes the UNCHANGED strict_verify or is dropped.
     "PG_SWEEP_DEPTH_LAYER",
+    # I-deepfix-001 (#1344) WS-2 M6: force-on the cross-source analytical layer so a stray operator =0
+    # cannot leave M6 wired-but-dead on the paid run (the drb_72 re-smoke had it OFF -> zero analysis /
+    # "Comparative Assessment" gap-stub). Its own PG_CROSS_SOURCE_SYNTHESIS is DEFAULT-OFF, so it MUST be
+    # force-set or it never fires. FAITHFULNESS-NEUTRAL (each analytical atom re-passes the UNCHANGED
+    # strict_verify per clause; the connective is engine-LICENSED). Allowlisted in _WINNER_FLAG_ALLOWLIST
+    # (SLATE-PURITY) + preflight-required above (fail-closed pre-spend).
+    "PG_CROSS_SOURCE_SYNTHESIS",
     # I-beatboth-011 KEYSTONE (#1289): force-on the span-quality gate + the block-page detector so a stray
     # operator =0 cannot survive the setdefault slate and silently leave the chrome/junk rollup screen
     # wired-but-dead (the exact false-done this issue exists to kill). FAITHFULNESS-NEUTRAL (an
@@ -2069,6 +2091,52 @@ def firing_marker_contract_substrings() -> dict[str, str]:
     forbid/conditional discrimination lives in ``firing_marker_matched``."""
     return {k: m.must_contain for k, m in _WINNER_FIRING_MARKER_CONTRACT.items()}
 
+
+# I-deepfix-001 (#1344) WS-2 M6 — the cross-source analytical layer's POST-RUN fail-loud firing
+# assertion. M6 is NOT one of the 14 section winners, so it is deliberately absent from
+# _WINNER_FIRING_MARKER_CONTRACT (which the SLATE-PURITY test pins at exactly 14); it gets its own
+# dedicated assertion here. The producer (cross_source_synthesis.compose_cross_source_analytical_units,
+# :310-323) logs a GENUINE-fire line "[cross_source_synthesis] composed N cross-source analytical
+# unit(s) ..." and a SILENT-NO-OP line "... anchored cross-source pair(s) but 0 analytical units
+# survived ..." when eligible pairs existed but nothing survived per-clause re-verify. The stems below
+# are the stable literals in those two producer lines.
+_CROSS_SOURCE_FIRED_MARKER = "[cross_source_synthesis] composed"
+_CROSS_SOURCE_SILENT_NOOP_MARKER = "anchored cross-source pair(s) but 0 analytical units survived"
+
+
+def assert_cross_source_synthesis_fired(log_text: str) -> None:
+    """WS-2 fail-loud M6 firing assertion (post-run, pure string logic — no spend, no network).
+
+    When PG_CROSS_SOURCE_SYNTHESIS is ON (the slate force-pins it) AND the run's cross_source_synthesis
+    producer reported that anchored cross-source pair(s) EXISTED (>=2 same-anchor, distinct-cluster
+    baskets) yet 0 analytical units survived per-clause re-verify across the WHOLE run, the M6 analytical
+    layer is a SILENT NO-OP (flag-on but dark) — raise RuntimeError. This is the exact firing failure the
+    drb_72 re-smoke shipped: slate-on but ``cross_source_analytical_units == 0`` while eligible pairs
+    existed.
+
+    A run with NO anchored pairs (the conditional-absence case — no silent-no-op line was ever logged)
+    NEVER raises: analytical yield EMERGES from real anchored pairs, it is never forced (§-1.3). A run
+    that produced >=1 analytical unit anywhere (a "composed" line present) NEVER raises even if one
+    section was individually barren — ``cross_source_analytical_units > 0`` at the run level. Slate-OFF is
+    a no-op (the feature's own PG_CROSS_SOURCE_SYNTHESIS is the LAW-VI kill-switch that disarms BOTH the
+    feature and this assertion). Consumed by the post-run §-1.1 audit alongside the winner firing-marker
+    grep; the durable section-test exercises the same function."""
+    if os.getenv("PG_CROSS_SOURCE_SYNTHESIS", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        return
+    lines = log_text.splitlines()
+    eligible_but_barren = any(_CROSS_SOURCE_SILENT_NOOP_MARKER in ln for ln in lines)
+    genuinely_fired = any(_CROSS_SOURCE_FIRED_MARKER in ln for ln in lines)
+    if eligible_but_barren and not genuinely_fired:
+        raise RuntimeError(
+            "benchmark post-run FAILED [WINNER-FIRES M6]: PG_CROSS_SOURCE_SYNTHESIS is ON and the run "
+            "logged anchored cross-source pair(s) with 0 analytical units surviving per-clause re-verify "
+            "for the WHOLE run — the M6 cross-source analytical layer is a SILENT NO-OP "
+            "(cross_source_analytical_units == 0 while >=2 same-anchor baskets existed). Investigate "
+            "cross_source_synthesis.license_relation / the per-clause re-verify; do NOT ship a run whose "
+            "analytical layer produced nothing while eligible pairs existed."
+        )
+
+
 # W9 DARK-WINNER policy (spec OPERATOR DECISION #2). W9 (ContentDeduplicator) ships a DROP variant — wiring
 # it as-is would shed corroborators and VIOLATE §-1.3 consolidate-keep-all + the FROZEN faithfulness
 # contract. The FIRST-BUILD-STEP reconcile VERIFIED (not assumed) that the content near-dup function is
@@ -2140,6 +2208,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_SWEEP_WEIGHTED_CORPUS_GATE",         # weighted-corpus gate (no tier-count refusal)
     "PG_VERIFIED_COMPOSE_MULTICITED",        # keystone multi-citation synthesis
     "PG_SWEEP_DEPTH_LAYER",                  # grounded DEPTH cross-source synthesis
+    "PG_CROSS_SOURCE_SYNTHESIS",             # M6 cross-source analytical layer (I-deepfix-001 #1344 WS-2)
     "PG_RESUME_REFETCH_DEGRADED",            # A15 resume fetch-shell re-fetch
     # ── transport / observability / honesty markers (NOT winners, NOT losers) ───────────────────────
     "PG_ENABLE_TOOL_TRACKER",                # tool-utilization tracker (firing observability)

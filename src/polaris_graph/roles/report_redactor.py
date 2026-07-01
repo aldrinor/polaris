@@ -68,6 +68,14 @@ import os
 import re
 from dataclasses import dataclass, field
 
+# WS-5 FIX-b (I-deepfix-001): the effect-size conditional/threshold guard lives in the additive
+# overstatement_guard leaf module (os/re only — no polaris imports, so no cycle). Imported lazily
+# would also work; a module-level import is safe and keeps the annotate path self-describing.
+from src.polaris_graph.generator.overstatement_guard import (
+    effect_size_conditional_reason,
+    figure_consistency_annotate_enabled,
+)
+
 # REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
 # mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
 # regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
@@ -103,6 +111,14 @@ _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
 # so stripping it is a no-op on the redaction path.
 _CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
 _WHITESPACE_RE = re.compile(r"\s+")
+# WS-5 FIX-a (I-deepfix-001): the provenance token carried by a claim's AUDIT sentence, used to
+# re-key the confidence annotation on SPAN identity so a flagged claim's byte/figure-twin (bound
+# to a DIFFERENT claim_id) inherits the caveat. Token form: [#ev:<evidence_id>:<start>-<end>].
+_SPAN_IDENTITY_RE = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
+# A numeric figure (integer or decimal) — links a flagged claim to a VERIFIED twin that re-lifts
+# the SAME figure from the SAME cited span (surgical: same-span prose that repeats no flagged
+# figure is NOT caveated).
+_FIGURE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?")
 # F10(b) (I-arch-004 A3): interior whitespace-before-punctuation, collapsed in
 # _normalize so the redaction stem matches the SHIPPED form. The resolver runs
 # `re.sub(r"\s+([.!?,;])", r"\1", ...)` on every sentence before it renders, so
@@ -200,6 +216,25 @@ def _normalize(text: str) -> str:
     text = _WHITESPACE_RE.sub(" ", text)
     text = _INTERIOR_SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
     return text.strip().rstrip(".").strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WS-5 (I-deepfix-001) — figure-consistency re-key helpers (annotate path only)
+# ─────────────────────────────────────────────────────────────────────────────
+def _span_identities(sentence: str) -> set[tuple[str, int, int]]:
+    """The (evidence_id, start, end) provenance tuples a claim's AUDIT sentence carries."""
+    return {
+        (m.group(1), int(m.group(2)), int(m.group(3)))
+        for m in _SPAN_IDENTITY_RE.finditer(sentence or "")
+    }
+
+
+def _figure_tokens(sentence: str) -> set[str]:
+    """Numeric figures in a claim's prose, EXCLUDING the digits inside its provenance token /
+    numbered citation markers (a span offset like ``0-800`` is not a claimed figure)."""
+    prose = _SPAN_IDENTITY_RE.sub("", sentence or "")
+    prose = _NUMBERED_MARKER_RE.sub("", prose)
+    return set(_FIGURE_TOKEN_RE.findall(prose))
 
 
 def reconcile_report_against_verdicts(
@@ -679,6 +714,8 @@ def annotate_report_against_verdicts(
     final_verdicts: dict[str, str],
     audit_map: dict[str, dict],
     marker_by_claim: dict[str, str],
+    *,
+    span_text_by_claim: dict[str, str] | None = None,
 ) -> AnnotationResult:
     """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
 
@@ -695,6 +732,22 @@ def annotate_report_against_verdicts(
     Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
     PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
     never ship a non-VERIFIED claim as bare unlabeled prose.
+
+    WS-5 FIGURE-CONSISTENCY re-key (I-deepfix-001, default ON via ``PG_FIGURE_CONSISTENCY_ANNOTATE``):
+    the low-confidence label used to key on ``claim_id`` alone, so a flagged claim's byte/figure-twin
+    bound to a DIFFERENT (VERIFIED) claim_id — e.g. the Eloundou "46%" re-lifted verbatim into the
+    Conclusion — shipped CLEAN with the caveat stripped. Two ADVISORY re-keys now make every twin
+    inherit the caveat:
+      * FIX-a: a VERIFIED claim that shares BOTH a span-identity tuple (evidence_id,start,end) AND a
+        numeric figure with a flagged claim inherits that flagged sibling's marker.
+      * FIX-b: when ``span_text_by_claim`` is supplied, a claim that re-lifts a span number while
+        dropping the span's governing conditional/threshold antecedent (``effect_size_conditional_reason``)
+        inherits a generic low marker.
+    Advisory claims are BEST-EFFORT and NEVER fail-closed: labelling a twin only ADDS a caveat (§-1.3),
+    so an absent / unpinnable twin is simply not labelled (its absence is not a leak — the twin is
+    VERIFIED and already ships). ``PG_FIGURE_CONSISTENCY_ANNOTATE=0`` (or ``span_text_by_claim=None``
+    for FIX-b) restores byte-identical claim_id-only behaviour. This never changes a verdict, never
+    widens a span, never removes a caveat.
     """
     # IDEMPOTENCE (Codex slice-2 iter-4 P1): strip any PRE-EXISTING confidence markers up front so a
     # re-run over already-annotated output segments cleanly (the no-terminator marker would otherwise
@@ -738,9 +791,24 @@ def annotate_report_against_verdicts(
         marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
         claims.append((claim_id, verdict, severity, stem_norm, marker))
 
+    # WS-5 (I-deepfix-001): collect figure-consistency ADVISORY claims (default ON). These are
+    # BEST-EFFORT twins of a flagged claim that inherit its caveat; unlike the mandatory
+    # non-VERIFIED claims above they NEVER fail-closed (labelling a twin only ADDS a caveat, so an
+    # absent / unpinnable twin is simply not labelled). Ordered AFTER the mandatory claims so a
+    # sentence that IS a genuine non-VERIFIED claim keeps its own marker (first-match wins).
+    advisory = _collect_figure_consistency_claims(
+        report_text,
+        final_verdicts,
+        audit_map,
+        marker_by_claim,
+        span_text_by_claim,
+        already_collected={c[0] for c in claims},
+    )
+
     # SINGLE labeling pass: spans come from the ORIGINAL line (never a marker-mutated one), so two
     # same-line claims each get their own marker. Each sentence is matched marker-stripped (idempotent)
-    # and labeled once with the FIRST claim it matches.
+    # and labeled once with the FIRST claim it matches. Mandatory claims precede advisory twins.
+    label_targets = claims + advisory
     labeled: set[str] = set()
     new_lines: list[str] = []
     for line in report_text.split("\n"):
@@ -754,7 +822,7 @@ def annotate_report_against_verdicts(
             sentence = line[start:end]
             stripped_sentence = _CONFIDENCE_MARKER_RE.sub("", sentence)
             chosen: tuple[str, str] | None = None
-            for claim_id, _v, _s, stem_norm, marker in claims:
+            for claim_id, _v, _s, stem_norm, marker in label_targets:
                 if _sentence_matches_stem(stripped_sentence, stem_norm):
                     chosen = (claim_id, marker)
                     break
@@ -769,7 +837,7 @@ def annotate_report_against_verdicts(
         new_lines.append("".join(out))
     working = "\n".join(new_lines)
 
-    # Defensive: a collected (present + pinnable) claim MUST have been labeled in the pass.
+    # Defensive: a collected (present + pinnable) MANDATORY claim MUST have been labeled in the pass.
     annotated: list[AnnotatedClaim] = []
     for claim_id, verdict, severity, _stem, marker in claims:
         if claim_id not in labeled:
@@ -780,8 +848,87 @@ def annotate_report_against_verdicts(
         annotated.append(
             AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
         )
+    # Advisory twins are best-effort: record only the ones that actually got labelled; NEVER raise.
+    for claim_id, verdict, severity, _stem, marker in advisory:
+        if claim_id in labeled:
+            annotated.append(
+                AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+            )
 
     return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+
+
+def _collect_figure_consistency_claims(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+    marker_by_claim: dict[str, str],
+    span_text_by_claim: dict[str, str] | None,
+    already_collected: set[str],
+) -> list[tuple[str, str, str, str, str]]:
+    """WS-5 (I-deepfix-001): build the ADVISORY figure-consistency labelling claims.
+
+    Returns ``(claim_id, verdict, severity, stem_norm, marker)`` tuples for every claim NOT already
+    collected as mandatory whose caveat must be inherited because it is a twin of a flagged claim:
+      * FIX-a: it shares BOTH a span-identity tuple AND a numeric figure with a non-VERIFIED claim
+        -> inherits that flagged sibling's marker.
+      * FIX-b: ``span_text_by_claim`` names its cited span AND ``effect_size_conditional_reason``
+        fires (the claim re-lifts a span number while dropping the governing conditional/threshold)
+        -> inherits a generic low marker.
+    Gated by ``PG_FIGURE_CONSISTENCY_ANNOTATE`` (default ON, via ``figure_consistency_annotate_enabled``);
+    disabled -> returns ``[]`` (byte-identical claim_id-only behaviour). Never raises: a twin the
+    per-line pass cannot pin is simply omitted (adding a caveat is a bonus, its absence is not a leak).
+    """
+    if not figure_consistency_annotate_enabled():
+        return []
+
+    # FIX-a index: (span-identities, figures, marker) for each flagged (non-VERIFIED) claim that
+    # names BOTH a span and a figure. A twin must intersect BOTH to inherit (surgical — same-span
+    # prose that repeats no flagged figure is NOT caveated).
+    flagged_index: list[tuple[set[tuple[str, int, int]], set[str], str]] = []
+    for claim_id, verdict in final_verdicts.items():
+        if verdict == _VERDICT_VERIFIED:
+            continue
+        sentence = str((audit_map.get(claim_id) or {}).get("sentence", ""))
+        spans = _span_identities(sentence)
+        figs = _figure_tokens(sentence)
+        if spans and figs:
+            marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+            flagged_index.append((spans, figs, marker))
+
+    advisory: list[tuple[str, str, str, str, str]] = []
+    seen = set(already_collected)
+    for claim_id, verdict in sorted(final_verdicts.items()):
+        if claim_id in seen:
+            continue
+        meta = audit_map.get(claim_id)
+        if meta is None:
+            continue
+        sentence = str(meta.get("sentence", ""))
+        stem_norm = _normalize(sentence)
+        if not stem_norm or not _prose_present(report_text, stem_norm):
+            continue  # nothing rendered to label
+
+        marker: str | None = None
+        # FIX-a — flagged span-identity + shared figure.
+        twin_spans = _span_identities(sentence)
+        twin_figs = _figure_tokens(sentence)
+        if twin_spans and twin_figs:
+            for f_spans, f_figs, f_marker in flagged_index:
+                if (twin_spans & f_spans) and (twin_figs & f_figs):
+                    marker = f_marker
+                    break
+        # FIX-b — effect-size conditional/threshold stripped (needs the cited span text).
+        if marker is None and span_text_by_claim:
+            span_text = span_text_by_claim.get(claim_id, "")
+            if span_text and effect_size_conditional_reason(sentence, span_text):
+                marker = _DEFAULT_LOW_MARKER
+
+        if marker is None:
+            continue
+        advisory.append((claim_id, verdict, str(meta.get("severity", "")), stem_norm, marker))
+        seen.add(claim_id)
+    return advisory
 
 
 # A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing

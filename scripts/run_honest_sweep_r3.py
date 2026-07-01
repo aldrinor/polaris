@@ -2532,6 +2532,13 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             or str(m.get("source_url") or "") in _biblio_urls
         )
 
+    def _count_authoritative_enabled() -> bool:
+        # I-deepfix-001 WS-6 (#1344) kill-switch (LAW VI, default-ON): cap the printed
+        # corroboration count by the authoritative CONSOLIDATE-leg field. OFF = byte-identical.
+        return os.environ.get("PG_CORROBORATION_COUNT_AUTHORITATIVE", "1").strip().lower() in (
+            "1", "true", "on", "yes", "enabled",
+        )
+
     seen_clusters: set[str] = set()
     blocks: list[str] = []
     for b in bibliography:
@@ -2568,6 +2575,33 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                     continue
             else:
                 count = int(basket.get("verified_support_origin_count") or 0)
+            # I-deepfix-001 WS-6 (#1344): the ``count`` above is a RENDER-side recompute from
+            # ENTAILMENT_VERIFIED member labels. Citation-chrome self-entails (text == its own span),
+            # so a member the authoritative CONSOLIDATE leg already ruled UNVERIFIED
+            # (``verified_support_origin_count == 0`` / ``basket_verdict == "unverified"``,
+            # credibility_pass.py:900, projected at provenance_generator._basket_for_biblio) can still
+            # read ENTAILMENT_VERIFIED in isolation and inflate the printed count to
+            # "1 verified independent source(s)" (the U2/U3 over-claim on [6] Brynjolfsson / [8]
+            # Frontiers). Cap the printed count by the authoritative field (MIN, never MAX — mirrors
+            # disclosure_population._surfaced_verified_count's "counts go DOWN; when in doubt keep
+            # separate" safety posture); when the authoritative count is 0 (or the basket is
+            # UNVERIFIED), print "0 verified independent source(s)" and route those render-verified
+            # members to the existing GROUNDED-BUT-WEAK sub-bullet so they are DISCLOSED, never counted
+            # as support. RENDER/count ONLY: strict_verify / NLI / 4-role D8 / span-grounding /
+            # provenance are untouched; this strictly REDUCES an inflated count and every source STILL
+            # lives in the numbered Bibliography (§-1.3 no-drop). Default-ON kill-switch (LAW VI) =>
+            # OFF is byte-identical.
+            if _count_authoritative_enabled():
+                _authoritative_count = int(basket.get("verified_support_origin_count") or 0)
+                _basket_unverified = str(basket.get("basket_verdict") or "") == "unverified"
+                count = min(count, _authoritative_count)
+                if _authoritative_count <= 0 or _basket_unverified:
+                    count = 0
+                    # Demote the render-verified members to GROUNDED-BUT-WEAK. They are
+                    # ENTAILMENT_VERIFIED, so disjoint from ``weak`` (DETERMINISTIC_ONLY) — no dup.
+                    # Sources stay VISIBLE + disclosed here AND in the numbered Bibliography.
+                    weak = weak + verified
+                    verified = []
             # I-beatboth-011 idx 62/9 (#1289): clean the corroboration-block HEADER the same way the
             # SEMANTIC-contradiction render does. _normalize_claim_summary is wired at the semantic
             # block (:1465) but was MISSING here, so a raw scraped consent/privacy/bibliography line
@@ -15367,12 +15401,48 @@ async def run_one_query(
                         )
                         for _cid in _nonverified_verdicts
                     }
+                    # WS-5 FIX-b (I-deepfix-001): build claim_id -> cited-span TEXT so the annotator
+                    # can flag an effect-size over-claim (a re-lift that drops the span's governing
+                    # conditional/threshold, e.g. Eloundou "46%"). Fully guarded + flag-gated: any
+                    # error or a missing evidence_pool leaves the map empty (FIX-b inert = byte
+                    # identical). FIX-a needs no span text (it re-keys on the audit sentence tokens).
+                    _span_text_by_claim: dict[str, str] = {}
+                    try:
+                        from src.polaris_graph.generator.overstatement_guard import (  # noqa: PLC0415
+                            figure_consistency_annotate_enabled,
+                        )
+                        _ep_path = run_dir / "evidence_pool.json"
+                        if figure_consistency_annotate_enabled() and _ep_path.is_file():
+                            _ev_text_by_id: dict[str, str] = {}
+                            _ep = json.loads(_ep_path.read_text(encoding="utf-8"))
+                            _ep_items = _ep if isinstance(_ep, list) else (
+                                _ep.get("evidence") or _ep.get("items") or []
+                            )
+                            for _it in _ep_items:
+                                if isinstance(_it, dict):
+                                    _eid = _it.get("evidence_id") or _it.get("id")
+                                    if _eid:
+                                        _ev_text_by_id[str(_eid)] = str(
+                                            _it.get("direct_quote") or _it.get("text") or ""
+                                        )
+                            _span_tok_re = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
+                            for _cid, _meta in _audit_map.items():
+                                _m = _span_tok_re.search(str(_meta.get("sentence", "")))
+                                if not _m:
+                                    continue
+                                _full = _ev_text_by_id.get(_m.group(1))
+                                if _full:
+                                    _span_text_by_claim[_cid] = _full[int(_m.group(2)):int(_m.group(3))]
+                    except Exception as _span_exc:  # noqa: BLE001 — inert on any failure (never break the run)
+                        _log(f"[label]       FIX-b span-text map skipped ({_span_exc}); annotate proceeds")
+                        _span_text_by_claim = {}
                     try:
                         _annotation = annotate_report_against_verdicts(
                             _redact_report_path.read_text(encoding="utf-8"),
                             _final_verdicts,
                             _audit_map,
                             _marker_by_claim,
+                            span_text_by_claim=_span_text_by_claim,
                         )
                     except ReportRedactionError as _annot_exc:
                         # B16/B17 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): annotate could not

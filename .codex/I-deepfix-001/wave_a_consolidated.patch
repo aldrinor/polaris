@@ -1,0 +1,1688 @@
+diff --git a/scripts/dr_benchmark/gpu_device_split.py b/scripts/dr_benchmark/gpu_device_split.py
+new file mode 100644
+index 00000000..bbda6f72
+--- /dev/null
++++ b/scripts/dr_benchmark/gpu_device_split.py
+@@ -0,0 +1,211 @@
++#!/usr/bin/env python3
++"""WS-0 (I-deepfix-001 #1344) — the run-launch GPU device-split config + a co-residence preflight.
++
++WHY THIS EXISTS (the drb_72 GPU-OOM degrade cascade)
++----------------------------------------------------
++On the 2-card VM (2x RTX3090Ti, ~24GB each) the paid Gate-B run put the W5 content-relevance reranker,
++the W6 Qwen3-Embedding-8B embedder, and the W10 consolidation NLI cross-encoder ALL on ``cuda:0`` (every
++device env unset defaults the model to card 0). The 16GB embedder + the reranker's ~24.8GB one-pass
++logits tensor then OOM'd, and the run SILENTLY DEGRADED: W2 semantic-relevance fell back to lexical,
++consolidation fell to the CPU wall (under-merge), and GLM credibility-tiering fell to the rules-floor.
++That single infra fault is the upstream root of the thin single-origin corpus (B2 Recall + Analysis).
++
++THE FIX (proven 2026-06-30) — a 2-card device split + a bounded W5 score chunk
++------------------------------------------------------------------------------
++  * ``PG_EMBED_DEVICE=cuda:0``            — W6 Qwen3-Embedding-8B alone on card 0 (~16GB fp16)
++  * ``PG_RERANKER_DEVICE=cuda:1``         — W7 Qwen3-Reranker-4B on card 1
++  * ``PG_NLI_DEVICE=cuda:1``              — FaithLens NLI cross-encoder on card 1 (off the critical path)
++  * ``PG_CONSOLIDATION_NLI_DEVICE=cuda:1``— W10 consolidation NLI cross-encoder on card 1
++  * ``PG_CONTENT_RELEVANCE_SCORE_CHUNK=2``— W5 reranker scores in chunks so the per-forward logits tensor
++    stays small enough to fit alongside the co-resident embedder (faithfulness-neutral — chunked scores
++    are byte-identical to the one-pass path; content_relevance_judge.py:442-455).
++
++The W5 content-relevance reranker (Qwen3-Reranker-0.6B) stays on ``cuda:0`` (its own
++``PG_CONTENT_RELEVANCE_DEVICE`` default "cuda") but is BOUNDED by the score chunk, so the split leaves
++card 0 = big embedder + bounded 0.6B reranker, card 1 = 4B reranker + two small NLI cross-encoders.
++
++SINGLE-CARD HOSTS (e.g. an A100-80GB)
++-------------------------------------
++On a host with only one visible CUDA device, a split cannot help — everything co-resides, and on an
++80GB card it fits with headroom. The card-split warning is therefore suppressed when ``device_count < 2``.
++The W5 score-chunk bound STILL applies (it is cheap insurance against the 24.8GB one-pass tensor even on
++a big card), so that warning is card-count-independent.
++
++BUILD-ONLY / NO SPEND / NO MODEL LOAD
++-------------------------------------
++Pure config. ``detect_coresidence_warnings`` is a pure function over an env map + a device count (offline-
++testable, no GPU needed). Only ``--check`` touches the GPU — a free ``torch.cuda.device_count()`` read
++(no model load, no completion call). ``--export`` emits sourceable ``export K=V`` lines for the launcher.
++
++LAW VI: the recommended values ARE this file's config surface (a documented launch template), not magic
++numbers scattered through the run path. The run path READS these envs; this helper DECLARES them.
++
++Usage
++-----
++    # print the documented launch template (human-readable)
++    python scripts/dr_benchmark/gpu_device_split.py
++
++    # emit sourceable export lines for a 2-card launch
++    source <(python scripts/dr_benchmark/gpu_device_split.py --export)
++    python scripts/dr_benchmark/run_gate_b.py --only <slug>
++
++    # preflight the CURRENT env against the visible GPU topology (warns on co-residence)
++    python scripts/dr_benchmark/gpu_device_split.py --check     # exit 0 clean, 3 == warnings emitted
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import sys
++from typing import Mapping, Optional
++
++# The recommended 2-card split + the W5 score-chunk bound (the proven 2026-06-30 fix). This is the
++# documented launch template; the run path reads each key at model-load / call time.
++RECOMMENDED_DEVICE_SPLIT: dict[str, str] = {
++    "PG_EMBED_DEVICE": "cuda:0",              # W6 Qwen3-Embedding-8B (embedding_service:150 / prefetch_offtopic_filter:140)
++    "PG_RERANKER_DEVICE": "cuda:1",           # W7 Qwen3-Reranker-4B (evidence_selector:2658 / qwen_reranker_scorer:83)
++    "PG_NLI_DEVICE": "cuda:1",                # FaithLens NLI (nli_verifier:95, off the critical path)
++    "PG_CONSOLIDATION_NLI_DEVICE": "cuda:1",  # W10 consolidation NLI cross-encoder (consolidation_nli:73)
++    "PG_CONTENT_RELEVANCE_SCORE_CHUNK": "2",  # W5 reranker chunked scoring (content_relevance_judge:451)
++}
++
++# The four HEAVY-model device envs whose co-residence on one card is the OOM-degrade risk. (The W5
++# content-relevance reranker uses PG_CONTENT_RELEVANCE_DEVICE and is bounded by the score chunk, so it
++# is intentionally NOT in the card-balance set — the score-chunk warning covers it.)
++_HEAVY_MODEL_DEVICE_ENVS: dict[str, str] = {
++    "PG_EMBED_DEVICE": "W6 embedder (Qwen3-Embedding-8B, ~16GB fp16)",
++    "PG_RERANKER_DEVICE": "W7 reranker (Qwen3-Reranker-4B, ~8GB)",
++    "PG_NLI_DEVICE": "FaithLens NLI cross-encoder",
++    "PG_CONSOLIDATION_NLI_DEVICE": "W10 consolidation NLI cross-encoder",
++}
++
++# An UNSET device env lands the model on the module default card (cuda:0). That default IS the OOM trap
++# the split fixes, so an unset env resolves to card 0 for the co-residence check (never "unknown").
++_DEFAULT_GPU_CARD = 0
++
++_SCORE_CHUNK_ENV = "PG_CONTENT_RELEVANCE_SCORE_CHUNK"
++
++
++def resolve_gpu_card(value: Optional[str]) -> Optional[int]:
++    """The GPU card index a device string targets. ``cuda:N`` -> N; ``cuda`` / bare ``N`` -> that index;
++    UNSET/empty -> the module default card 0 (the co-residence trap); ``cpu`` or an unparseable value ->
++    None (not a GPU card, excluded from the balance check)."""
++    v = (value or "").strip().lower()
++    if not v:
++        return _DEFAULT_GPU_CARD
++    if v == "cpu":
++        return None
++    if v == "cuda":
++        return 0
++    if v.startswith("cuda:"):
++        tail = v.split(":", 1)[1]
++        return int(tail) if tail.isdigit() else None
++    if v.isdigit():
++        return int(v)
++    return None
++
++
++def detect_coresidence_warnings(
++    env: Mapping[str, str], device_count: Optional[int]
++) -> list[str]:
++    """Pure preflight. Return the list of WARNING strings for the given env + visible GPU count.
++
++    (1) CARD CO-RESIDENCE — only when ``device_count >= 2``: if every heavy-model device env resolves to
++        a SINGLE GPU card, the models will co-reside and risk the GPU-OOM degrade cascade; recommend the
++        split. Suppressed on a 1-GPU host (a split cannot help there).
++    (2) W5 SCORE-CHUNK — card-count-independent: if ``PG_CONTENT_RELEVANCE_SCORE_CHUNK`` is unset/0/negative
++        (one-pass), the ~24.8GB one-pass logits tensor can OOM the co-resident embedder; recommend =2.
++    """
++    warns: list[str] = []
++
++    if device_count is not None and device_count >= 2:
++        gpu_cards: set[int] = set()
++        for name in _HEAVY_MODEL_DEVICE_ENVS:
++            card = resolve_gpu_card(env.get(name))
++            if card is not None:
++                gpu_cards.add(card)
++        if len(gpu_cards) <= 1:
++            only = next(iter(gpu_cards), _DEFAULT_GPU_CARD)
++            split = ", ".join(
++                f"{k}={RECOMMENDED_DEVICE_SPLIT[k]}"
++                for k in _HEAVY_MODEL_DEVICE_ENVS
++                if k in RECOMMENDED_DEVICE_SPLIT
++            )
++            warns.append(
++                f"[gpu-device-split WARNING] {device_count} CUDA devices visible but every heavy model "
++                f"resolves to a SINGLE card cuda:{only} "
++                f"({', '.join(_HEAVY_MODEL_DEVICE_ENVS)}) — they will co-reside and risk a GPU-OOM degrade "
++                f"(W5 reranker + W6 embedder + W10 NLI on one card was the drb_72 root). Apply the 2-card "
++                f"split: {split}."
++            )
++
++    try:
++        chunk = int((env.get(_SCORE_CHUNK_ENV) or "0").strip())
++    except (TypeError, ValueError):
++        chunk = 0
++    if chunk <= 0:
++        warns.append(
++            f"[gpu-device-split WARNING] {_SCORE_CHUNK_ENV} is unset/0 (one-pass) — the W5 Qwen3-Reranker "
++            f"scores ALL pairs in one forward pass (~24.8GB logits tensor) and can OOM the co-resident "
++            f"embedder on cuda:0. Set {_SCORE_CHUNK_ENV}=2 (faithfulness-neutral: chunked scores are "
++            f"byte-identical to one-pass)."
++        )
++    return warns
++
++
++def _visible_cuda_device_count() -> Optional[int]:
++    """A FREE ``torch.cuda.device_count()`` read (no model load, no spend). None if torch is unavailable."""
++    try:
++        import torch  # noqa: PLC0415
++    except ImportError:
++        return None
++    try:
++        return int(torch.cuda.device_count())
++    except Exception:  # noqa: BLE001 — a driver hiccup must never crash a preflight
++        return None
++
++
++def render_launch_template(as_export: bool = False) -> str:
++    """The documented launch config. ``as_export=True`` -> sourceable ``export K=V`` lines; else a
++    human-readable ``K=V  # why`` template."""
++    lines: list[str] = []
++    for key, value in RECOMMENDED_DEVICE_SPLIT.items():
++        if as_export:
++            lines.append(f"export {key}={value}")
++        else:
++            why = _HEAVY_MODEL_DEVICE_ENVS.get(key, "W5 reranker chunked scoring (one-pass OOM guard)")
++            lines.append(f"{key}={value}  # {why}")
++    return "\n".join(lines)
++
++
++def main(argv: Optional[list[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="WS-0 GPU device-split launch config + co-residence preflight.")
++    ap.add_argument("--export", action="store_true", help="emit sourceable `export K=V` lines")
++    ap.add_argument("--check", action="store_true",
++                    help="preflight the CURRENT env vs the visible GPU topology (exit 3 if warnings)")
++    args = ap.parse_args(argv)
++
++    if args.export:
++        print(render_launch_template(as_export=True))
++        return 0
++
++    if args.check:
++        device_count = _visible_cuda_device_count()
++        dc_note = "torch unavailable (card-split check skipped)" if device_count is None else f"{device_count} CUDA device(s)"
++        print(f"[gpu-device-split] visible: {dc_note}")
++        warns = detect_coresidence_warnings(os.environ, device_count)
++        for w in warns:
++            print(w)
++        if not warns:
++            print("[gpu-device-split] OK — no co-residence / one-pass OOM risk in the current env.")
++        return 3 if warns else 0
++
++    # default: print the documented template.
++    print("# WS-0 recommended 2-card GPU device split (source via --export):")
++    print(render_launch_template(as_export=False))
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index ca3d8eb2..8ab76775 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -1346,6 +1346,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     "PG_CONTENT_RELEVANCE_JUDGE": "1",   # W5 relevance=Qwen3-Rerank-0.6B+GLM judge (content_relevance_judge:77 / live_retriever:459)
+     "PG_CREDIBILITY_LLM_TIERING": "1",   # W8 cred=llm_tiering (tier_classifier:1233 / live_retriever:4178)
+     "PG_CONSOLIDATION_NLI": "1",         # W10 consolidate=NLI (finding_dedup:585 / consolidation_nli:67)
++    # I-deepfix-001 (#1344) WS-2 M6 (BEATBOTH_PLAN_CORRECTIONS): the CROSS-SOURCE ANALYTICAL layer.
++    # DEFAULT-OFF (verified_compose.py:167-168) — the re-smoke had to set it by hand, so a paid Gate-B
++    # run silently shipped NO analysis (M6 dark, "Comparative Assessment" gap-stub). Slate-pin "1" so
++    # apply_full_capability_benchmark_slate FORCE-sets it (it is in _BENCHMARK_FORCE_ON_FLAGS below);
++    # ALSO in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed pre-spend) + _WINNER_FLAG_ALLOWLIST
++    # (SLATE-PURITY). FAITHFULNESS-NEUTRAL: each analytical sentence's two atoms re-pass the UNCHANGED
++    # strict_verify per clause; the connective is engine-LICENSED (cross_source_synthesis.license_relation).
++    # M2 (PG_DOCUMENT_TYPE_WEIGHT) stays OUT of the global slate (WS-8: journal-only template only).
++    "PG_CROSS_SOURCE_SYNTHESIS": "1",    # M6 cross-source analytical layer (verified_compose:167 / cross_source_synthesis:214)
+     "PG_ADEQUACY_CRAG": "1",             # W11 adequacy=CRAG (run_honest_sweep_r3:7446 CRAG loop)
+     # W1 scope=intent_frame: the MODULE (src/polaris_graph/nodes/intent_frame.py) is built + flag-aware,
+     # and run_intent_frame() is NOW called on the sweep scope-gate path (run_honest_sweep_r3.py:6426,
+@@ -1539,6 +1548,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     "PG_CONTENT_RELEVANCE_JUDGE",
+     "PG_CREDIBILITY_LLM_TIERING",
+     "PG_CONSOLIDATION_NLI",
++    # I-deepfix-001 (#1344) WS-2 M6: fail-CLOSED before spend if the cross-source analytical layer is
++    # off — a paid run with PG_CROSS_SOURCE_SYNTHESIS=0 silently ships zero analysis (the drb_72
++    # re-smoke defect). Force-ON above, so a stray operator =0 fails the run CLOSED here. This is the
++    # third of the three winner flags the WS-2 paid-preflight must reject a slate-OFF launch on
++    # (PG_CONSOLIDATION_NLI + PG_BREADTH_ENRICHMENT_ENABLED are the other two, already required above).
++    "PG_CROSS_SOURCE_SYNTHESIS",
+     "PG_ADEQUACY_CRAG",
+     # I-wire-001 P1-1: W1 scope=intent_frame GRADUATED from build-deferred to preflight-required.
+     # run_intent_frame() is now CALLED on the run path (run_honest_sweep_r3.py:6426, gated by
+@@ -1604,6 +1619,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # fail-open (a synthesis pre-pass failure omits the digest, never aborts the report); faithfulness-
+     # SAFE because every synthesized sentence re-passes the UNCHANGED strict_verify or is dropped.
+     "PG_SWEEP_DEPTH_LAYER",
++    # I-deepfix-001 (#1344) WS-2 M6: force-on the cross-source analytical layer so a stray operator =0
++    # cannot leave M6 wired-but-dead on the paid run (the drb_72 re-smoke had it OFF -> zero analysis /
++    # "Comparative Assessment" gap-stub). Its own PG_CROSS_SOURCE_SYNTHESIS is DEFAULT-OFF, so it MUST be
++    # force-set or it never fires. FAITHFULNESS-NEUTRAL (each analytical atom re-passes the UNCHANGED
++    # strict_verify per clause; the connective is engine-LICENSED). Allowlisted in _WINNER_FLAG_ALLOWLIST
++    # (SLATE-PURITY) + preflight-required above (fail-closed pre-spend).
++    "PG_CROSS_SOURCE_SYNTHESIS",
+     # I-beatboth-011 KEYSTONE (#1289): force-on the span-quality gate + the block-page detector so a stray
+     # operator =0 cannot survive the setdefault slate and silently leave the chrome/junk rollup screen
+     # wired-but-dead (the exact false-done this issue exists to kill). FAITHFULNESS-NEUTRAL (an
+@@ -2069,6 +2091,52 @@ def firing_marker_contract_substrings() -> dict[str, str]:
+     forbid/conditional discrimination lives in ``firing_marker_matched``."""
+     return {k: m.must_contain for k, m in _WINNER_FIRING_MARKER_CONTRACT.items()}
+ 
++
++# I-deepfix-001 (#1344) WS-2 M6 — the cross-source analytical layer's POST-RUN fail-loud firing
++# assertion. M6 is NOT one of the 14 section winners, so it is deliberately absent from
++# _WINNER_FIRING_MARKER_CONTRACT (which the SLATE-PURITY test pins at exactly 14); it gets its own
++# dedicated assertion here. The producer (cross_source_synthesis.compose_cross_source_analytical_units,
++# :310-323) logs a GENUINE-fire line "[cross_source_synthesis] composed N cross-source analytical
++# unit(s) ..." and a SILENT-NO-OP line "... anchored cross-source pair(s) but 0 analytical units
++# survived ..." when eligible pairs existed but nothing survived per-clause re-verify. The stems below
++# are the stable literals in those two producer lines.
++_CROSS_SOURCE_FIRED_MARKER = "[cross_source_synthesis] composed"
++_CROSS_SOURCE_SILENT_NOOP_MARKER = "anchored cross-source pair(s) but 0 analytical units survived"
++
++
++def assert_cross_source_synthesis_fired(log_text: str) -> None:
++    """WS-2 fail-loud M6 firing assertion (post-run, pure string logic — no spend, no network).
++
++    When PG_CROSS_SOURCE_SYNTHESIS is ON (the slate force-pins it) AND the run's cross_source_synthesis
++    producer reported that anchored cross-source pair(s) EXISTED (>=2 same-anchor, distinct-cluster
++    baskets) yet 0 analytical units survived per-clause re-verify across the WHOLE run, the M6 analytical
++    layer is a SILENT NO-OP (flag-on but dark) — raise RuntimeError. This is the exact firing failure the
++    drb_72 re-smoke shipped: slate-on but ``cross_source_analytical_units == 0`` while eligible pairs
++    existed.
++
++    A run with NO anchored pairs (the conditional-absence case — no silent-no-op line was ever logged)
++    NEVER raises: analytical yield EMERGES from real anchored pairs, it is never forced (§-1.3). A run
++    that produced >=1 analytical unit anywhere (a "composed" line present) NEVER raises even if one
++    section was individually barren — ``cross_source_analytical_units > 0`` at the run level. Slate-OFF is
++    a no-op (the feature's own PG_CROSS_SOURCE_SYNTHESIS is the LAW-VI kill-switch that disarms BOTH the
++    feature and this assertion). Consumed by the post-run §-1.1 audit alongside the winner firing-marker
++    grep; the durable section-test exercises the same function."""
++    if os.getenv("PG_CROSS_SOURCE_SYNTHESIS", "0").strip().lower() not in ("1", "true", "yes", "on"):
++        return
++    lines = log_text.splitlines()
++    eligible_but_barren = any(_CROSS_SOURCE_SILENT_NOOP_MARKER in ln for ln in lines)
++    genuinely_fired = any(_CROSS_SOURCE_FIRED_MARKER in ln for ln in lines)
++    if eligible_but_barren and not genuinely_fired:
++        raise RuntimeError(
++            "benchmark post-run FAILED [WINNER-FIRES M6]: PG_CROSS_SOURCE_SYNTHESIS is ON and the run "
++            "logged anchored cross-source pair(s) with 0 analytical units surviving per-clause re-verify "
++            "for the WHOLE run — the M6 cross-source analytical layer is a SILENT NO-OP "
++            "(cross_source_analytical_units == 0 while >=2 same-anchor baskets existed). Investigate "
++            "cross_source_synthesis.license_relation / the per-clause re-verify; do NOT ship a run whose "
++            "analytical layer produced nothing while eligible pairs existed."
++        )
++
++
+ # W9 DARK-WINNER policy (spec OPERATOR DECISION #2). W9 (ContentDeduplicator) ships a DROP variant — wiring
+ # it as-is would shed corroborators and VIOLATE §-1.3 consolidate-keep-all + the FROZEN faithfulness
+ # contract. The FIRST-BUILD-STEP reconcile VERIFIED (not assumed) that the content near-dup function is
+@@ -2140,6 +2208,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
+     "PG_SWEEP_WEIGHTED_CORPUS_GATE",         # weighted-corpus gate (no tier-count refusal)
+     "PG_VERIFIED_COMPOSE_MULTICITED",        # keystone multi-citation synthesis
+     "PG_SWEEP_DEPTH_LAYER",                  # grounded DEPTH cross-source synthesis
++    "PG_CROSS_SOURCE_SYNTHESIS",             # M6 cross-source analytical layer (I-deepfix-001 #1344 WS-2)
+     "PG_RESUME_REFETCH_DEGRADED",            # A15 resume fetch-shell re-fetch
+     # ── transport / observability / honesty markers (NOT winners, NOT losers) ───────────────────────
+     "PG_ENABLE_TOOL_TRACKER",                # tool-utilization tracker (firing observability)
+diff --git a/scripts/operational_readiness_preflight.py b/scripts/operational_readiness_preflight.py
+index 40747ad8..047f406c 100644
+--- a/scripts/operational_readiness_preflight.py
++++ b/scripts/operational_readiness_preflight.py
+@@ -350,6 +350,13 @@ def check_d1_flags(
+         "PG_BREADTH_ENRICHMENT_ENABLED": "breadth weighted-enrichment surface (the 485->~13 funnel fix)",
+         "PG_BREADTH_ENRICHMENT_RENDER_VERIFIED_SPANS": "FIX-K: render the surfaced basket's VERIFIED spans verbatim",
+         "PG_RETRIEVAL_RELEVANCE_GATE": "B4 relevance gate (weight-not-filter demote-not-drop)",
++        # I-deepfix-001 (#1344) WS-2: the two remaining winner flags the paid run must NOT launch with OFF.
++        # This turns the D-1 launch-path INFO disclosure (a paid run that skips the slate leaves these
++        # default-OFF -> zero consolidation / zero analysis) into a HARD RED assert on the paid path. The
++        # real Gate-B slate force-pins + preflight-requires both, so a slate-applied run is GREEN; a
++        # slate-OFF (or --pathB-gate) launch RED-gates -> NO-GO.
++        "PG_CONSOLIDATION_NLI": "W10 consolidate=NLI (same-claim paraphrase baskets -> multi-source corroboration)",
++        "PG_CROSS_SOURCE_SYNTHESIS": "M6 cross-source analytical layer (the Comparative-Assessment analysis yield)",
+         "PG_FOUR_ROLE_MODE": "the native 4-role D8 verification seam",
+     }
+     for flag, why in pinned.items():
+@@ -369,6 +376,12 @@ def check_d1_flags(
+         force_exact = flag in meta.force_exact
+         required = flag in meta.required
+         in_slate = flag in meta.slate
++        # I-deepfix-001 (#1344) WS-2: only RED-gate a pinned winner flag that THIS slate-meta actually
++        # governs (in the slate or a force/required set). A meta with no knowledge of the flag (a synthetic
++        # unit-test meta, or a pre-M6 slate) must not spuriously RED it — the real Gate-B slate governs all
++        # of these, so the paid readiness run still hard-REDs a genuine slate-OFF launch.
++        if not (in_slate or force_on or force_exact or required):
++            continue
+         # the numeric FLOOR guarantees a truthy "1" even on a stray =0 (max(0,1)=1) for slate keys.
+         floor_guards = in_slate and not (force_on or force_exact)
+         guaranteed = force_on or force_exact or required or floor_guards
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index e2af5d66..1eb80566 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2532,6 +2532,13 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+             or str(m.get("source_url") or "") in _biblio_urls
+         )
+ 
++    def _count_authoritative_enabled() -> bool:
++        # I-deepfix-001 WS-6 (#1344) kill-switch (LAW VI, default-ON): cap the printed
++        # corroboration count by the authoritative CONSOLIDATE-leg field. OFF = byte-identical.
++        return os.environ.get("PG_CORROBORATION_COUNT_AUTHORITATIVE", "1").strip().lower() in (
++            "1", "true", "on", "yes", "enabled",
++        )
++
+     seen_clusters: set[str] = set()
+     blocks: list[str] = []
+     for b in bibliography:
+@@ -2568,6 +2575,33 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+                     continue
+             else:
+                 count = int(basket.get("verified_support_origin_count") or 0)
++            # I-deepfix-001 WS-6 (#1344): the ``count`` above is a RENDER-side recompute from
++            # ENTAILMENT_VERIFIED member labels. Citation-chrome self-entails (text == its own span),
++            # so a member the authoritative CONSOLIDATE leg already ruled UNVERIFIED
++            # (``verified_support_origin_count == 0`` / ``basket_verdict == "unverified"``,
++            # credibility_pass.py:900, projected at provenance_generator._basket_for_biblio) can still
++            # read ENTAILMENT_VERIFIED in isolation and inflate the printed count to
++            # "1 verified independent source(s)" (the U2/U3 over-claim on [6] Brynjolfsson / [8]
++            # Frontiers). Cap the printed count by the authoritative field (MIN, never MAX — mirrors
++            # disclosure_population._surfaced_verified_count's "counts go DOWN; when in doubt keep
++            # separate" safety posture); when the authoritative count is 0 (or the basket is
++            # UNVERIFIED), print "0 verified independent source(s)" and route those render-verified
++            # members to the existing GROUNDED-BUT-WEAK sub-bullet so they are DISCLOSED, never counted
++            # as support. RENDER/count ONLY: strict_verify / NLI / 4-role D8 / span-grounding /
++            # provenance are untouched; this strictly REDUCES an inflated count and every source STILL
++            # lives in the numbered Bibliography (§-1.3 no-drop). Default-ON kill-switch (LAW VI) =>
++            # OFF is byte-identical.
++            if _count_authoritative_enabled():
++                _authoritative_count = int(basket.get("verified_support_origin_count") or 0)
++                _basket_unverified = str(basket.get("basket_verdict") or "") == "unverified"
++                count = min(count, _authoritative_count)
++                if _authoritative_count <= 0 or _basket_unverified:
++                    count = 0
++                    # Demote the render-verified members to GROUNDED-BUT-WEAK. They are
++                    # ENTAILMENT_VERIFIED, so disjoint from ``weak`` (DETERMINISTIC_ONLY) — no dup.
++                    # Sources stay VISIBLE + disclosed here AND in the numbered Bibliography.
++                    weak = weak + verified
++                    verified = []
+             # I-beatboth-011 idx 62/9 (#1289): clean the corroboration-block HEADER the same way the
+             # SEMANTIC-contradiction render does. _normalize_claim_summary is wired at the semantic
+             # block (:1465) but was MISSING here, so a raw scraped consent/privacy/bibliography line
+@@ -15367,12 +15401,48 @@ async def run_one_query(
+                         )
+                         for _cid in _nonverified_verdicts
+                     }
++                    # WS-5 FIX-b (I-deepfix-001): build claim_id -> cited-span TEXT so the annotator
++                    # can flag an effect-size over-claim (a re-lift that drops the span's governing
++                    # conditional/threshold, e.g. Eloundou "46%"). Fully guarded + flag-gated: any
++                    # error or a missing evidence_pool leaves the map empty (FIX-b inert = byte
++                    # identical). FIX-a needs no span text (it re-keys on the audit sentence tokens).
++                    _span_text_by_claim: dict[str, str] = {}
++                    try:
++                        from src.polaris_graph.generator.overstatement_guard import (  # noqa: PLC0415
++                            figure_consistency_annotate_enabled,
++                        )
++                        _ep_path = run_dir / "evidence_pool.json"
++                        if figure_consistency_annotate_enabled() and _ep_path.is_file():
++                            _ev_text_by_id: dict[str, str] = {}
++                            _ep = json.loads(_ep_path.read_text(encoding="utf-8"))
++                            _ep_items = _ep if isinstance(_ep, list) else (
++                                _ep.get("evidence") or _ep.get("items") or []
++                            )
++                            for _it in _ep_items:
++                                if isinstance(_it, dict):
++                                    _eid = _it.get("evidence_id") or _it.get("id")
++                                    if _eid:
++                                        _ev_text_by_id[str(_eid)] = str(
++                                            _it.get("direct_quote") or _it.get("text") or ""
++                                        )
++                            _span_tok_re = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
++                            for _cid, _meta in _audit_map.items():
++                                _m = _span_tok_re.search(str(_meta.get("sentence", "")))
++                                if not _m:
++                                    continue
++                                _full = _ev_text_by_id.get(_m.group(1))
++                                if _full:
++                                    _span_text_by_claim[_cid] = _full[int(_m.group(2)):int(_m.group(3))]
++                    except Exception as _span_exc:  # noqa: BLE001 — inert on any failure (never break the run)
++                        _log(f"[label]       FIX-b span-text map skipped ({_span_exc}); annotate proceeds")
++                        _span_text_by_claim = {}
+                     try:
+                         _annotation = annotate_report_against_verdicts(
+                             _redact_report_path.read_text(encoding="utf-8"),
+                             _final_verdicts,
+                             _audit_map,
+                             _marker_by_claim,
++                            span_text_by_claim=_span_text_by_claim,
+                         )
+                     except ReportRedactionError as _annot_exc:
+                         # B16/B17 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): annotate could not
+diff --git a/src/polaris_graph/generator/overstatement_guard.py b/src/polaris_graph/generator/overstatement_guard.py
+index 4e35d170..b06df970 100644
+--- a/src/polaris_graph/generator/overstatement_guard.py
++++ b/src/polaris_graph/generator/overstatement_guard.py
+@@ -284,6 +284,120 @@ def epistemic_overstatement_reason(claim: str, span_text: str) -> str | None:
+     return "epistemic_overstatement_assumption_as_finding"
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# Effect-size conditional/threshold guard (WS-5 FIX-b, I-deepfix-001 beat-both).
++#
++# The re-smoke residual D1: the Eloundou span reads
++#   "...roughly 1.8% of jobs could have over half their tasks affected by LLMs...
++#    When accounting for current and likely future software developments that
++#    complement LLM capabilities, this share jumps to just over 46% of jobs."
++# so the "46%" figure is GOVERNED by the antecedent "when accounting for future
++# software developments" (a conditional) and the threshold "over half their tasks
++# affected". A re-lift that renders "just over 46% of jobs are exposed to
++# LLM-related technologies" keeps the NUMBER (strict_verify's numeric leg passes)
++# but DROPS the governing condition — an effect-size over-claim.
++#
++# This leg is ANNOTATE-ONLY (§-1.3): it returns a reason so the render layer can
++# APPEND a [confidence] caveat (or so the composer can carry the antecedent). It
++# NEVER drops a sentence, NEVER widens a span, NEVER changes a verdict. It is NOT
++# wired into strict_verify's drop path. Gated by PG_FIGURE_CONSISTENCY_ANNOTATE
++# (default ON); OFF -> inert (byte-identical). Pure, stdlib-only, network-free.
++# ─────────────────────────────────────────────────────────────────────────────
++def figure_consistency_annotate_enabled() -> bool:
++    """Whether the effect-size conditional/threshold annotate leg is active (default ON)."""
++    return os.getenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1").strip().lower() in _TRUE_TOKENS
++
++
++# Provenance / numbered-citation markers stripped off the CLAIM before number
++# extraction, so a span offset inside "[#ev:eloundou:0-800]" or a "[7]" marker is
++# never mistaken for a claimed figure.
++_CLAIM_CITATION_STRIP_RE = re.compile(r"\[#ev:[^\]]+\]|\[\d+\]")
++
++# A governing conditional / threshold token in the SPAN. When one of these
++# precedes a number in the span's number-bearing sentence, that number is
++# CONDITIONAL (its magnitude holds only under the stated antecedent/threshold),
++# not an unconditional empirical count. The task's three canonical cues
++# ("when accounting for", "could have", "over half") lead the set; the rest are
++# the standard conditional/threshold/scenario framings.
++_SPAN_EFFECT_CONDITION_RE = re.compile(
++    r"(?:"
++    r"when\s+accounting\s+for"
++    r"|when\s+we\s+account\s+for"
++    r"|\bcould\s+have\b"
++    r"|\bover\s+half\b"
++    r"|\bup\s+to\b"
++    r"|\bas\s+(?:much|many)\s+as\b"
++    r"|\bassum(?:e|es|ed|ing)\b"
++    r"|\bif\s+(?:we|you|the|current|future)\b"
++    r"|\bprovided\s+that\b"
++    r"|\bunder\s+(?:the|a|an)\s+\w+\s+scenario\b"
++    r"|\bhypothetical(?:ly)?\b"
++    r"|\bscenario\b"
++    r")",
++    re.IGNORECASE,
++)
++
++# A governing condition/hedge CARRIED BY THE CLAIM. If the claim reproduces any
++# of these, the antecedent travelled with the number (the paraphrase is faithful)
++# -> the leg is inert (no caveat). Deliberately EXCLUDES bare epistemic verbs like
++# "estimate"/"found" (those keep the value framed as a finding, NOT as conditional)
++# so a bare re-lift such as "they estimate that just over 46% of jobs..." still
++# fires; it targets the specific conditional/threshold antecedent only.
++_CLAIM_ANTECEDENT_CARRIED_RE = re.compile(
++    r"(?:"
++    r"account(?:ing|s|ed)?\s+for"
++    r"|\bcould\b|\bmay\b|\bmight\b|\bwould\b"
++    r"|\bup\s+to\b|\bas\s+(?:much|many)\s+as\b|\bover\s+half\b"
++    r"|\bif\b|\bassum(?:e|es|ed|ing)\b|\bprovided\b"
++    r"|\bscenario\b|\bhypothetical(?:ly)?\b"
++    r"|\bwhen\b"
++    r"|future\s+(?:software|developments|technolog)"
++    r")",
++    re.IGNORECASE,
++)
++
++# Split the span into sentences so a conditional only governs numbers in its OWN
++# sentence (a period that is NOT a decimal point is a boundary).
++_SPAN_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
++
++
++def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
++    """Return an ANNOTATE reason if the claim re-lifts a span number while dropping
++    the conditional/threshold antecedent that governs it in the cited span.
++
++    Fires only when ALL hold:
++      - the leg is enabled (PG_FIGURE_CONSISTENCY_ANNOTATE, default ON),
++      - the claim carries NO governing conditional/threshold of its own (a bare
++        assertion — "they estimate that just over 46% of jobs are exposed..."),
++      - the cited span has a sentence whose governing conditional/threshold token
++        PRECEDES a number, and
++      - the claim reproduces that governed number.
++    Otherwise returns None (inert — no false caveat). ANNOTATE-only: the caller
++    APPENDS a [confidence] caveat; this NEVER drops, widens a span, or changes a
++    verdict (§-1.3).
++    """
++    if not figure_consistency_annotate_enabled():
++        return None
++    if not claim or not span_text:
++        return None
++    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
++    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
++    if not claim_numbers:
++        return None  # no figure re-lifted — nothing to over-claim
++    if _CLAIM_ANTECEDENT_CARRIED_RE.search(claim_bare):
++        return None  # the claim carries the governing condition — antecedent travelled, faithful
++    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
++        cond = _SPAN_EFFECT_CONDITION_RE.search(sentence)
++        if not cond:
++            continue
++        # Numbers AFTER the conditional in this sentence are the ones it governs.
++        governed = set(_NUMERIC_TOKEN_RE.findall(sentence[cond.start():]))
++        shared = claim_numbers & governed
++        if shared:
++            return "effect_size_conditional_stripped:num=" + ",".join(sorted(shared))
++    return None
++
++
+ def temporal_scope_reason(claim: str, span_text: str) -> str | None:
+     """Return a drop reason if the claim's time-horizon is not in the cited span.
+ 
+diff --git a/src/polaris_graph/roles/judge_adapter.py b/src/polaris_graph/roles/judge_adapter.py
+index 6d2c5d05..0f0be130 100644
+--- a/src/polaris_graph/roles/judge_adapter.py
++++ b/src/polaris_graph/roles/judge_adapter.py
+@@ -14,7 +14,11 @@ do not pattern-copy a fail-closed wrap here.)
+ 
+ from __future__ import annotations
+ 
++import hashlib
++import json
++import logging
+ import os
++import threading
+ from typing import Any
+ 
+ from src.polaris_graph.roles.judge_contract import (
+@@ -31,6 +35,8 @@ from src.polaris_graph.roles.role_transport import (
+     RoleTransport,
+ )
+ 
++logger = logging.getLogger(__name__)
++
+ _ROLE = "judge"
+ 
+ # I-beatboth-006 (#1283) Fix C.2: the fail-closed verdict a force-closed Judge transport maps to.
+@@ -184,6 +190,201 @@ def _render_sentinel_atoms(atoms: list[dict[str, Any]] | None) -> str:
+     return _SENTINEL_ATOMS_INSTRUCTION + "\n" + "\n".join(lines)
+ 
+ 
++# === WS-1 (I-deepfix-001) — GLM-5.2 D8 Judge transport RELIABILITY ============================
++# Three faithfulness-ADJACENT, safe-direction mechanisms that remove TRANSPORT-NOISE convictions
++# WITHOUT touching how a verdict is decided (`parse_judge_verdict` + the 4-role compose LOGIC are
++# UNCHANGED). Each is behind a default-ON LAW-VI kill-switch; OFF = byte-identical to pre-WS-1.
++#
++#   (a) PG_JUDGE_ENUM_RESPONSE_FORMAT — enforce the 5-verdict enum via an OpenRouter-HONORED
++#       `response_format` json_schema. OpenRouter IGNORES the vLLM-only `structured_outputs.choice`
++#       (judge_adapter build below still sends it for the sovereign vLLM path), so off-vLLM a
++#       reasoning-xhigh Judge emitted a punctuated/JSON-wrapped OFF-ENUM token -> `JudgeEnumError`
++#       -> the whole D8 seam tore. With the flag ON the Judge is constrained to emit
++#       `{"verdict": <one of the 5>}` and `run_judge` un-wraps that envelope BEFORE the UNCHANGED
++#       `parse_judge_verdict`. Un-wrap is LENIENT: a bare token (a provider that ignored the
++#       constraint) falls straight through, so this only ADDS a JSON escape hatch, never removes one.
++#   (b) PG_JUDGE_RETRY_BEFORE_DEGRADE — a bounded per-claim RE-ASK before the fail-closed degrade.
++#       A transient `RoleTransportError` (429/blank exhaustion) or an off-enum `JudgeEnumError` that
++#       survived the transport's own retries re-asks up to PG_JUDGE_RETRY_MAX_ATTEMPTS times instead
++#       of convicting the claim UNSUPPORTED. A REAL UNSUPPORTED parses cleanly (never raises), so a
++#       genuine non-support STILL HOLDS — only transport noise is retried.
++#   (c) PG_JUDGE_VERDICT_IDEMPOTENCY — a process-wide verdict cache keyed on
++#       (normalized_claim, span-identity). ONLY a CLEAN parsed verdict is cached, and the FIRST clean
++#       verdict for a key is PINNED (setdefault) so a later noisy sibling can never flip it. A
++#       byte-identical twin then (i) short-circuits to the pinned verdict (no paid call, fewer 429s)
++#       and (ii) on the degrade path inherits the pinned clean verdict instead of a noise conviction
++#       — this removes the 02-001/02-007 false-negative split. Faithfulness-NEUTRAL: the Judge answers
++#       claim-vs-span (a function of claim+span), and the per-claim `_compose_final_verdict` still
++#       re-applies THIS claim's own Mirror/Sentinel safety AFTER `run_judge`, so a shared raw Judge
++#       verdict can never bypass a claim's own grounding gate (a shared VERIFIED on an UNGROUNDED
++#       claim is still downgraded to UNSUPPORTED by compose).
++
++# (a) response_format enum enforcement -----------------------------------------------------------
++_ENUM_RESPONSE_FORMAT_FLAG = "PG_JUDGE_ENUM_RESPONSE_FORMAT"
++_RESPONSE_FORMAT_KEY = "response_format"
++_VERDICT_JSON_KEY = "verdict"
++
++
++def _enum_response_format_enabled() -> bool:
++    """True iff the OpenRouter-honored `response_format` enum constraint is ON (default ON).
++
++    Read at call time (LAW VI) so a slate/test override after import wins. OFF -> no
++    `response_format` is sent AND the JSON un-wrap is skipped, so the request params and the
++    parse path are BYTE-IDENTICAL to pre-WS-1."""
++    return os.getenv(_ENUM_RESPONSE_FORMAT_FLAG, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def _judge_verdict_response_format() -> dict:
++    """The OpenRouter structured-outputs schema constraining the Judge to one enum verdict.
++
++    Shape per https://openrouter.ai/docs/features/structured-outputs — a strict json_schema whose
++    only field `verdict` is an enum over the canonical `JUDGE_CHOICES`. A provider that honors it
++    can ONLY emit `{"verdict": "<one of the 5>"}`; `require_parameters=True` (already set for the
++    Judge in the transport) makes OpenRouter route ONLY to a provider that honors it."""
++    return {
++        "type": "json_schema",
++        "json_schema": {
++            "name": "judge_verdict",
++            "strict": True,
++            "schema": {
++                "type": "object",
++                "properties": {
++                    _VERDICT_JSON_KEY: {"type": "string", "enum": list(JUDGE_CHOICES)},
++                },
++                "required": [_VERDICT_JSON_KEY],
++                "additionalProperties": False,
++            },
++        },
++    }
++
++
++def _extract_verdict_token(raw_text: object) -> object:
++    """Un-wrap a `{"verdict": ...}` JSON envelope to the bare token; else pass raw_text unchanged.
++
++    LENIENT by construction so it can only ADD a decode path, never remove one: a bare token
++    ("VERIFIED"), a punctuated token ("VERIFIED."), or prose is NOT valid JSON-object-with-verdict,
++    so it falls straight through to the UNCHANGED `parse_judge_verdict` (which still does the exact
++    enum match / raises `JudgeEnumError`). Only a genuine `{"verdict": "X"}` object yields its `X`."""
++    if not isinstance(raw_text, str):
++        return raw_text
++    stripped = raw_text.strip()
++    if not (stripped.startswith("{") and stripped.endswith("}")):
++        return raw_text
++    try:
++        parsed = json.loads(stripped)
++    except (json.JSONDecodeError, ValueError):
++        return raw_text
++    if isinstance(parsed, dict) and _VERDICT_JSON_KEY in parsed:
++        token = parsed[_VERDICT_JSON_KEY]
++        # Only substitute a STRING verdict token; a non-string leaves raw_text for the parser to
++        # reject loudly (never silently coerce a malformed envelope into a verdict).
++        if isinstance(token, str):
++            return token
++    return raw_text
++
++
++# (b) bounded per-claim retry before the fail-closed degrade --------------------------------------
++_RETRY_BEFORE_DEGRADE_FLAG = "PG_JUDGE_RETRY_BEFORE_DEGRADE"
++_RETRY_MAX_ATTEMPTS_ENV = "PG_JUDGE_RETRY_MAX_ATTEMPTS"
++_RETRY_MAX_ATTEMPTS_DEFAULT = 2
++
++
++def _retry_before_degrade_enabled() -> bool:
++    """True iff a transient transport/enum fault re-asks before the fail-closed degrade (default ON)."""
++    return os.getenv(_RETRY_BEFORE_DEGRADE_FLAG, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def _judge_retry_max_attempts() -> int:
++    """Bounded per-claim RE-ASK count on a transient fault (default 2; 0 disables). Clamped >= 0.
++
++    Each re-ask is a full fresh `transport.complete()` (whose OWN bounded retries already ran), so
++    this catches the case where a rate-limit window / trickle passed between whole-call attempts."""
++    raw = os.getenv(_RETRY_MAX_ATTEMPTS_ENV)
++    if raw is None or not raw.strip():
++        return _RETRY_MAX_ATTEMPTS_DEFAULT
++    try:
++        return max(0, int(raw))
++    except (TypeError, ValueError):
++        return _RETRY_MAX_ATTEMPTS_DEFAULT
++
++
++# (c) verdict idempotency cache ------------------------------------------------------------------
++_VERDICT_IDEMPOTENCY_FLAG = "PG_JUDGE_VERDICT_IDEMPOTENCY"
++# Process-wide; keyed on (sha256(normalized_claim), sha256(normalized_span)). Only CLEAN verdicts
++# are stored, first-clean-wins (setdefault). Guarded by a lock — the D8 seam runs claim workers
++# concurrently (PG_FOUR_ROLE_CLAIM_WORKERS).
++_JUDGE_VERDICT_CACHE: dict[tuple[str, str], Verdict] = {}
++_JUDGE_VERDICT_CACHE_LOCK = threading.Lock()
++# Markers for the synthetic idempotency records (NOT the `_role_unavailable>` marker, so
++# role_pipeline does not append them as unavailable disclosures — the inherited verdict itself
++# flows through compose; these records are returned for logging/telemetry only).
++_CACHE_HIT_MARKER = "judge_verdict_cache_hit"
++_INHERITED_MARKER = "judge_verdict_inherited"
++
++
++def _verdict_idempotency_enabled() -> bool:
++    """True iff the byte-twin verdict idempotency cache is armed (default ON)."""
++    return os.getenv(_VERDICT_IDEMPOTENCY_FLAG, "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
++def _normalize_for_key(text: object) -> str:
++    """Whitespace-normalize for the idempotency key: strip + collapse internal whitespace runs.
++
++    Deliberately CONSERVATIVE (no case-folding, no punctuation stripping) so only claims/spans that
++    are byte-identical up to whitespace reflow ever share a cache bucket — the exact 02-001/02-007
++    byte-twin case. More aggressive normalization would risk merging genuinely-different claims."""
++    return " ".join(str(text or "").split())
++
++
++def _idempotency_key(claim: str, evidence: str) -> tuple[str, str]:
++    """(normalized_claim, span-identity) hashed to a compact, memory-bounded key.
++
++    The `evidence` passed to `run_judge` IS the joined cited-span text (the Judge's span identity),
++    so hashing (normalized claim, normalized span) is exactly the `(normalized_claim, span-identity)`
++    key the spec requires."""
++    claim_hash = hashlib.sha256(_normalize_for_key(claim).encode("utf-8")).hexdigest()
++    span_hash = hashlib.sha256(_normalize_for_key(evidence).encode("utf-8")).hexdigest()
++    return (claim_hash, span_hash)
++
++
++def _verdict_cache_get(key: tuple[str, str]) -> Verdict | None:
++    with _JUDGE_VERDICT_CACHE_LOCK:
++        return _JUDGE_VERDICT_CACHE.get(key)
++
++
++def _verdict_cache_put(key: tuple[str, str], verdict: Verdict) -> None:
++    """Pin the FIRST clean verdict for a key (setdefault) — idempotent; a later sibling can't flip it."""
++    with _JUDGE_VERDICT_CACHE_LOCK:
++        _JUDGE_VERDICT_CACHE.setdefault(key, verdict)
++
++
++def reset_judge_verdict_cache() -> None:
++    """Clear the process-wide idempotency cache (test hook + optional per-run reset)."""
++    with _JUDGE_VERDICT_CACHE_LOCK:
++        _JUDGE_VERDICT_CACHE.clear()
++
++
++def _inherited_record(model_slug: str, verdict: Verdict, fault: str) -> RoleCallRecord:
++    """Synthetic record for a byte-twin inheriting a clean sibling's verdict on the would-degrade path.
++
++    `served_model=None` (no call served this verdict) and the marker is NOT `_role_unavailable>`, so
++    role_pipeline leaves it out of the served-identity trail — the inherited verdict itself flows
++    through the UNCHANGED per-claim `_compose_final_verdict`. Returned for logging/telemetry."""
++    return RoleCallRecord(
++        role=_ROLE,
++        model_slug=model_slug,
++        served_model=None,
++        raw_text=f"<{_INHERITED_MARKER} fault={fault}>{verdict}</{_INHERITED_MARKER}>",
++        parsed=verdict,
++    )
++
++
+ def build_judge_request(
+     claim: str,
+     evidence: str,
+@@ -230,6 +431,13 @@ def build_judge_request(
+         _STRUCTURED_OUTPUTS_KEY: {_CHOICE_KEY: JUDGE_CHOICES},
+         "max_tokens": max_tokens,
+     }
++    # WS-1 (a): ALSO carry an OpenRouter-honored `response_format` enum constraint (default ON).
++    # OpenRouter ignores the vLLM-only `structured_outputs.choice` above, so off-vLLM the enum was
++    # UNENFORCED and an off-enum token tore the seam. `_build_body`'s passthrough allowlist forwards
++    # `response_format` to the OpenRouter body; the transport already keeps `require_parameters` on
++    # while an output-constraining param is present. Flag OFF -> no key added (byte-identical).
++    if _enum_response_format_enabled():
++        params[_RESPONSE_FORMAT_KEY] = _judge_verdict_response_format()
+     return RoleRequest(
+         role=_ROLE,
+         model_slug=model_slug,
+@@ -249,16 +457,45 @@ def run_judge(
+     max_tokens: int = _DEFAULT_MAX_TOKENS,
+     sentinel_atoms: list[dict[str, Any]] | None = None,
+ ) -> tuple[Verdict, list[RoleCallRecord]]:
+-    """Call the transport once and parse the enum verdict, FAIL LOUD.
+-
+-    Returns the `Verdict` and a 1-element `RoleCallRecord` list (one record per completion,
+-    iter-3 P1-a). `parse_judge_verdict` raises `JudgeEnumError` on any non-enum token; that
+-    propagates by design — there is NO silent default for the terminal arbiter.
++    """Call the transport, parse the enum verdict, and return `(Verdict, [RoleCallRecord])`.
++
++    WS-1 (I-deepfix-001) wraps TRANSPORT reliability around the UNCHANGED verdict LOGIC
++    (`parse_judge_verdict` + `_compose_final_verdict` are untouched — this only removes
++    transport-noise convictions, never changes how a verdict is decided):
++      (c) an idempotency SHORT-CIRCUIT returns a byte-twin's pinned clean verdict with no paid call;
++      (b) a transient `RoleTransportError`/`JudgeEnumError` RE-ASKS up to `PG_JUDGE_RETRY_MAX_ATTEMPTS`
++          before the fail-closed degrade (a real UNSUPPORTED parses cleanly and still holds);
++      (a) with `PG_JUDGE_ENUM_RESPONSE_FORMAT` ON the served `{"verdict": ...}` envelope is un-wrapped
++          before parse; and on exhaustion (c) inherits a clean twin's verdict rather than convict.
++    All three are default-ON kill-switches; with all OFF the body is a single attempt, byte-identical
++    to pre-WS-1. A clean parsed verdict is PINNED (first-clean-wins) for byte-identical twins.
+ 
+     `sentinel_atoms` (F05, GH #1254) is threaded into the request builder; it only changes the
+     PROMPT (when `PG_JUDGE_SENTINEL_ATOMS` is ON), never the verdict, the enum constraint, or the
+     record shape. Default `None` keeps existing call sites byte-identical.
+     """
++    # WS-1 (c) idempotency SHORT-CIRCUIT: a byte-identical twin (same normalized claim + span)
++    # inherits the FIRST clean settled verdict with NO paid call, so the 02-001/02-007 split cannot
++    # form and the per-claim 429 burst shrinks. Faithfulness-NEUTRAL: the per-claim
++    # `_compose_final_verdict` still re-applies THIS claim's own Mirror/Sentinel safety AFTER
++    # run_judge, so a shared raw Judge verdict never bypasses a claim's grounding gate. Flag OFF ->
++    # idem_key is None and this whole path is skipped (byte-identical).
++    idem_key: tuple[str, str] | None = (
++        _idempotency_key(claim, evidence) if _verdict_idempotency_enabled() else None
++    )
++    if idem_key is not None:
++        cached = _verdict_cache_get(idem_key)
++        if cached is not None:
++            return cached, [
++                RoleCallRecord(
++                    role=_ROLE,
++                    model_slug=model_slug,
++                    served_model=None,
++                    raw_text=f"<{_CACHE_HIT_MARKER}>{cached}</{_CACHE_HIT_MARKER}>",
++                    parsed=cached,
++                )
++            ]
++
+     request = build_judge_request(
+         claim,
+         evidence,
+@@ -268,66 +505,110 @@ def run_judge(
+         max_tokens=max_tokens,
+         sentinel_atoms=sentinel_atoms,
+     )
+-    # I-beatboth-006 (#1283) Fix C.2: a force-closed Judge `RoleTransportError` (the bounded
+-    # transport's fail-closed output, §3.1) — which SURVIVED the transport's own bounded retries —
+-    # must NOT propagate to the seam teardown. Map it to a PER-CLAIM fail-closed disclosed
+-    # adjudication: a CONCRETE UNSUPPORTED verdict (NEVER None — compose returns `raw_judge_verdict`
+-    # on the sentinel-grounded path) + a `<judge_role_unavailable>` disclosure record as the SOLE
+-    # returned record (the pipeline C.2-merge propagates it into recording.records). The claim is
+-    # disclosed UNSUPPORTED -> a non-credited (uncovered) claim, never a synthesized PASS. This can
+-    # only TIGHTEN. A `BudgetExceededError` is NOT a `RoleTransportError`, so it propagates unchanged
+-    # (the cap still bites). The existing `JudgeEnumError` fail-LOUD on a non-enum verdict token is
+-    # UNCHANGED (a transport fault is NOT a verdict-parse fault — it is NOT wrapped here). Flag OFF
+-    # (operator disabled the degrade) -> re-raise so the §3.3 C.3 seam hard-halt branch handles it.
+-    # NOTE: `BlankVerdictError` subclasses `RoleTransportError`, so a blank-verdict exhaustion ALSO
+-    # degrades here — tightening-only, consistent with the Sentinel arm.
+-    try:
+-        response: RoleResponse = transport.complete(request)
+-    except RoleTransportError as exc:
+-        if not _role_transport_degrade_enabled():
+-            raise
+-        record = RoleCallRecord(
+-            role=_ROLE,
+-            model_slug=model_slug,
+-            served_model=None,
+-            raw_text=(
+-                f"<judge_role_unavailable>{type(exc).__name__}: {exc}</judge_role_unavailable>"
+-            ),
+-            parsed=_JUDGE_FAIL_CLOSED_VERDICT,
++
++    # WS-1 (b): bounded per-claim RE-ASK on a transient transport/enum fault BEFORE the fail-closed
++    # degrade. `max_retries` extra whole-call attempts (each re-runs transport.complete()'s OWN
++    # bounded retries so a passed rate-limit window / trickle recovers); default 2, and 0 when the
++    # flag is OFF -> a single attempt, byte-identical to pre-WS-1. A REAL UNSUPPORTED parses cleanly
++    # (never raises), so a genuine non-support STILL HOLDS — only transport NOISE is retried.
++    max_retries = _judge_retry_max_attempts() if _retry_before_degrade_enabled() else 0
++    attempt = 0
++    while True:
++        # ---- transport POST (fail-closed degrade preserved; #1283 C.2 + #1344 W14 rationale) ----
++        # A force-closed Judge `RoleTransportError` that SURVIVED the transport's own bounded retries
++        # (BlankVerdictError subclasses it, so a blank-verdict exhaustion too) must NOT tear the D8
++        # seam. WS-1 (b) re-asks up to `max_retries` first; on exhaustion WS-1 (c) inherits a clean
++        # byte-twin's verdict if one exists, else the UNCHANGED per-claim degrade to a CONCRETE
++        # UNSUPPORTED (NEVER None — compose returns `raw_judge_verdict` on the sentinel-grounded path)
++        # + a `<judge_role_unavailable>` disclosure record fires (can only TIGHTEN; never a
++        # synthesized PASS). `BudgetExceededError` is NOT a `RoleTransportError` -> propagates (the cap
++        # still bites). Flag OFF (degrade disabled) -> re-raise for the §3.3 C.3 seam hard-halt branch.
++        try:
++            response: RoleResponse = transport.complete(request)
++        except RoleTransportError as exc:
++            if attempt < max_retries:
++                attempt += 1
++                logger.warning(
++                    "[polaris graph] WS-1(b): judge transport fault (%s) — re-asking (attempt "
++                    "%d/%d) before the fail-closed degrade.",
++                    type(exc).__name__, attempt, max_retries,
++                )
++                continue
++            if not _role_transport_degrade_enabled():
++                raise
++            inherited = _verdict_cache_get(idem_key) if idem_key is not None else None
++            if inherited is not None:
++                logger.warning(
++                    "[polaris graph] WS-1(c): judge transport fault (%s) — inheriting a clean "
++                    "byte-twin's settled verdict %s instead of a noise conviction.",
++                    type(exc).__name__, inherited,
++                )
++                return inherited, [_inherited_record(model_slug, inherited, type(exc).__name__)]
++            record = RoleCallRecord(
++                role=_ROLE,
++                model_slug=model_slug,
++                served_model=None,
++                raw_text=(
++                    f"<judge_role_unavailable>{type(exc).__name__}: {exc}</judge_role_unavailable>"
++                ),
++                parsed=_JUDGE_FAIL_CLOSED_VERDICT,
++            )
++            return _JUDGE_FAIL_CLOSED_VERDICT, [record]
++
++        # ---- parse the enum verdict (WS-1 (a) un-wrap; #1344 off-enum degrade preserved) --------
++        # WS-1 (a): with PG_JUDGE_ENUM_RESPONSE_FORMAT ON the served text is a {"verdict": <enum>}
++        # envelope — un-wrap it to the bare token BEFORE the UNCHANGED `parse_judge_verdict` (a bare
++        # token from a provider that ignored the constraint falls straight through). #1344 W14: a
++        # still-off-enum token degrades THIS claim (not the whole seam); WS-1 (b) re-asks first, WS-1
++        # (c) inherits a clean twin, else the UNCHANGED `<judge_offenum>` degrade fires. The verdict
++        # DECISION logic (`parse_judge_verdict` exact enum match) is UNTOUCHED.
++        raw_token = (
++            _extract_verdict_token(response.raw_text)
++            if _enum_response_format_enabled()
++            else response.raw_text
+         )
+-        return _JUDGE_FAIL_CLOSED_VERDICT, [record]
+-    # I-deepfix-001 W14-four-role-judge-offenum-degrade (#1344): on the BENCHMARK path the
+-    # Judge enum is set as a vLLM structured-outputs key that OpenRouter cannot enforce, so the
+-    # reasoning-xhigh Judge is effectively UNCONSTRAINED and can emit a punctuated/lowercased/
+-    # JSON-wrapped token. parse_judge_verdict's exact-match then raises JudgeEnumError which —
+-    # uncaught — tears down the WHOLE D8 seam (discarding every OTHER claim's valid adjudication)
+-    # -> seam_error:JudgeEnumError -> abort_four_role_release_held = no report. DEGRADE THIS claim
+-    # (not the whole seam) to the fail-closed UNSUPPORTED verdict + a <judge_offenum> record,
+-    # mirroring the RoleTransportError arm above so role_pipeline's degrade-record merge surfaces
+-    # it. CONSERVATIVE: the claim is NOT-verified and a disclosure is emitted — faithfulness only
+-    # TIGHTENS. Gated on the SAME PG_ROLE_TRANSPORT_DEGRADE flag; off-enum is genuinely impossible
+-    # on the sovereign vLLM grammar-decode path (the catch never fires there -> invariant
+-    # byte-identical). Flag OFF -> re-raise so the §3.3 seam hard-halt branch handles it as before.
+-    try:
+-        verdict = parse_judge_verdict(response.raw_text)
+-    except JudgeEnumError as enum_exc:
+-        if not _role_transport_degrade_enabled():
+-            raise
++        try:
++            verdict = parse_judge_verdict(raw_token)
++        except JudgeEnumError as enum_exc:
++            if attempt < max_retries:
++                attempt += 1
++                logger.warning(
++                    "[polaris graph] WS-1(b): judge off-enum token (%s) — re-asking (attempt "
++                    "%d/%d) before the fail-closed degrade.",
++                    type(enum_exc).__name__, attempt, max_retries,
++                )
++                continue
++            if not _role_transport_degrade_enabled():
++                raise
++            inherited = _verdict_cache_get(idem_key) if idem_key is not None else None
++            if inherited is not None:
++                logger.warning(
++                    "[polaris graph] WS-1(c): judge off-enum token (%s) — inheriting a clean "
++                    "byte-twin's settled verdict %s instead of a noise conviction.",
++                    type(enum_exc).__name__, inherited,
++                )
++                return inherited, [
++                    _inherited_record(model_slug, inherited, type(enum_exc).__name__)
++                ]
++            record = RoleCallRecord(
++                role=_ROLE,
++                model_slug=model_slug,
++                served_model=response.served_model,
++                raw_text=(
++                    f"<judge_offenum>{type(enum_exc).__name__}: {enum_exc}</judge_offenum>"
++                ),
++                parsed=_JUDGE_FAIL_CLOSED_VERDICT,
++            )
++            return _JUDGE_FAIL_CLOSED_VERDICT, [record]
++
++        # ---- CLEAN verdict: pin it for byte-twins (first-clean-wins) + return the served record --
++        if idem_key is not None:
++            _verdict_cache_put(idem_key, verdict)
+         record = RoleCallRecord(
+             role=_ROLE,
+             model_slug=model_slug,
+             served_model=response.served_model,
+-            raw_text=(
+-                f"<judge_offenum>{type(enum_exc).__name__}: {enum_exc}</judge_offenum>"
+-            ),
+-            parsed=_JUDGE_FAIL_CLOSED_VERDICT,
++            raw_text=response.raw_text,
++            parsed=verdict,
+         )
+-        return _JUDGE_FAIL_CLOSED_VERDICT, [record]
+-    record = RoleCallRecord(
+-        role=_ROLE,
+-        model_slug=model_slug,
+-        served_model=response.served_model,
+-        raw_text=response.raw_text,
+-        parsed=verdict,
+-    )
+-    return verdict, [record]
++        return verdict, [record]
+diff --git a/src/polaris_graph/roles/openrouter_role_transport.py b/src/polaris_graph/roles/openrouter_role_transport.py
+index d08fe92e..a56f519e 100644
+--- a/src/polaris_graph/roles/openrouter_role_transport.py
++++ b/src/polaris_graph/roles/openrouter_role_transport.py
+@@ -589,6 +589,50 @@ _ROLE_TRANSPORT_TOTAL_S_ROLE_DEFAULT = {
+     "sentinel": "300",
+ }
+ 
++# I-deepfix-001 WS-1 (d): the D8 SEAM WALL for a SLOW GLM judge. The Judge is the deliberative
++# GLM-5.2 arbiter (reasoning ON) that legitimately runs to MINUTES/claim; the run slate sets the
++# GENERIC `PG_ROLE_TRANSPORT_TOTAL_S` TIGHT for the Sentinel fail-fast (run_gate_b sets 300s), and
++# because the Judge (no coded default above) falls through to that generic, a tight generic would
++# STRANGLE a healthy slow Judge — force-closing it mid-trickle and TEARING the D8 seam (the
++# "trickle tears the seam" failure, feedback_judge_model_provider_availability). So the Judge gets
++# its OWN generous coded FLOOR: its wall becomes MAX(generic, floor), DECOUPLED from the
++# Sentinel-tightening generic. An explicit `PG_ROLE_TRANSPORT_TOTAL_S_JUDGE` still wins (raise OR
++# lower — full operator control). FAITHFULNESS-NEUTRAL: a larger wall only changes HOW LONG a
++# slow-but-valid Judge call may finish; on genuine exhaustion the UNCHANGED fail-closed
++# `RoleTransportError` still fires (per-claim degrade, never a fabricated verdict). LAW VI:
++# env-overridable via `PG_ROLE_TRANSPORT_TOTAL_S_JUDGE_FLOOR` (default 1800); set it (or the
++# explicit judge knob) to 900 to revert to the pre-WS-1 generic behavior.
++_ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_ENV = {
++    "judge": "PG_ROLE_TRANSPORT_TOTAL_S_JUDGE_FLOOR",
++}
++_ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_DEFAULT = {
++    "judge": "1800",
++}
++
++
++def _role_transport_total_s_floor(role_key: str) -> float | None:
++    """I-deepfix-001 WS-1 (d): the generous coded WALL FLOOR (seconds) for a role, else None.
++
++    A role with a floor (the slow GLM Judge) resolves its wall to MAX(generic, floor) so a tight
++    Sentinel-oriented generic knob cannot strangle it. Env-overridable per role; an unparseable /
++    non-positive override falls back to the coded default (LAW VI, read at CALL time)."""
++    coded = _ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_DEFAULT.get(role_key)
++    if coded is None:
++        return None
++    env_name = _ROLE_TRANSPORT_TOTAL_S_ROLE_FLOOR_ENV.get(role_key)
++    raw = os.getenv(env_name) if env_name else None
++    if raw is not None and raw.strip():
++        try:
++            value = float(raw)
++            if value > 0:
++                return value
++        except (TypeError, ValueError):
++            pass
++    try:
++        return float(coded)
++    except (TypeError, ValueError):
++        return None
++
+ 
+ def _role_transport_total_s(role: str | None = None) -> float:
+     """The per-call total wall-deadline (seconds) for `role`, read at CALL time (slate override wins).
+@@ -636,6 +680,13 @@ def _role_transport_total_s(role: str | None = None) -> float:
+             return min(generic, float(coded_default))
+         except (TypeError, ValueError):
+             return generic
++    # I-deepfix-001 WS-1 (d): a role with a coded FLOOR (the slow GLM Judge) is DECOUPLED from a
++    # tight generic — its wall is MAX(generic, floor) so the Sentinel-tightening generic knob can
++    # never strangle a healthy slow Judge and tear the D8 seam. (An explicit per-role env already
++    # won at step 1 above.) Roles with neither a coded default nor a floor (Mirror) keep the generic.
++    floor = _role_transport_total_s_floor(role_key)
++    if floor is not None:
++        return max(generic, floor)
+     return generic
+ 
+ 
+diff --git a/src/polaris_graph/roles/report_redactor.py b/src/polaris_graph/roles/report_redactor.py
+index 36577a2a..cc5112d6 100644
+--- a/src/polaris_graph/roles/report_redactor.py
++++ b/src/polaris_graph/roles/report_redactor.py
+@@ -68,6 +68,14 @@ import os
+ import re
+ from dataclasses import dataclass, field
+ 
++# WS-5 FIX-b (I-deepfix-001): the effect-size conditional/threshold guard lives in the additive
++# overstatement_guard leaf module (os/re only — no polaris imports, so no cycle). Imported lazily
++# would also work; a module-level import is safe and keeps the annotate path self-describing.
++from src.polaris_graph.generator.overstatement_guard import (
++    effect_size_conditional_reason,
++    figure_consistency_annotate_enabled,
++)
++
+ # REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
+ # mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
+ # regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
+@@ -103,6 +111,14 @@ _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+ # so stripping it is a no-op on the redaction path.
+ _CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+ _WHITESPACE_RE = re.compile(r"\s+")
++# WS-5 FIX-a (I-deepfix-001): the provenance token carried by a claim's AUDIT sentence, used to
++# re-key the confidence annotation on SPAN identity so a flagged claim's byte/figure-twin (bound
++# to a DIFFERENT claim_id) inherits the caveat. Token form: [#ev:<evidence_id>:<start>-<end>].
++_SPAN_IDENTITY_RE = re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
++# A numeric figure (integer or decimal) — links a flagged claim to a VERIFIED twin that re-lifts
++# the SAME figure from the SAME cited span (surgical: same-span prose that repeats no flagged
++# figure is NOT caveated).
++_FIGURE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?")
+ # F10(b) (I-arch-004 A3): interior whitespace-before-punctuation, collapsed in
+ # _normalize so the redaction stem matches the SHIPPED form. The resolver runs
+ # `re.sub(r"\s+([.!?,;])", r"\1", ...)` on every sentence before it renders, so
+@@ -202,6 +218,25 @@ def _normalize(text: str) -> str:
+     return text.strip().rstrip(".").strip()
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# WS-5 (I-deepfix-001) — figure-consistency re-key helpers (annotate path only)
++# ─────────────────────────────────────────────────────────────────────────────
++def _span_identities(sentence: str) -> set[tuple[str, int, int]]:
++    """The (evidence_id, start, end) provenance tuples a claim's AUDIT sentence carries."""
++    return {
++        (m.group(1), int(m.group(2)), int(m.group(3)))
++        for m in _SPAN_IDENTITY_RE.finditer(sentence or "")
++    }
++
++
++def _figure_tokens(sentence: str) -> set[str]:
++    """Numeric figures in a claim's prose, EXCLUDING the digits inside its provenance token /
++    numbered citation markers (a span offset like ``0-800`` is not a claimed figure)."""
++    prose = _SPAN_IDENTITY_RE.sub("", sentence or "")
++    prose = _NUMBERED_MARKER_RE.sub("", prose)
++    return set(_FIGURE_TOKEN_RE.findall(prose))
++
++
+ def reconcile_report_against_verdicts(
+     report_text: str,
+     final_verdicts: dict[str, str],
+@@ -679,6 +714,8 @@ def annotate_report_against_verdicts(
+     final_verdicts: dict[str, str],
+     audit_map: dict[str, dict],
+     marker_by_claim: dict[str, str],
++    *,
++    span_text_by_claim: dict[str, str] | None = None,
+ ) -> AnnotationResult:
+     """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
+ 
+@@ -695,6 +732,22 @@ def annotate_report_against_verdicts(
+     Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
+     PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
+     never ship a non-VERIFIED claim as bare unlabeled prose.
++
++    WS-5 FIGURE-CONSISTENCY re-key (I-deepfix-001, default ON via ``PG_FIGURE_CONSISTENCY_ANNOTATE``):
++    the low-confidence label used to key on ``claim_id`` alone, so a flagged claim's byte/figure-twin
++    bound to a DIFFERENT (VERIFIED) claim_id — e.g. the Eloundou "46%" re-lifted verbatim into the
++    Conclusion — shipped CLEAN with the caveat stripped. Two ADVISORY re-keys now make every twin
++    inherit the caveat:
++      * FIX-a: a VERIFIED claim that shares BOTH a span-identity tuple (evidence_id,start,end) AND a
++        numeric figure with a flagged claim inherits that flagged sibling's marker.
++      * FIX-b: when ``span_text_by_claim`` is supplied, a claim that re-lifts a span number while
++        dropping the span's governing conditional/threshold antecedent (``effect_size_conditional_reason``)
++        inherits a generic low marker.
++    Advisory claims are BEST-EFFORT and NEVER fail-closed: labelling a twin only ADDS a caveat (§-1.3),
++    so an absent / unpinnable twin is simply not labelled (its absence is not a leak — the twin is
++    VERIFIED and already ships). ``PG_FIGURE_CONSISTENCY_ANNOTATE=0`` (or ``span_text_by_claim=None``
++    for FIX-b) restores byte-identical claim_id-only behaviour. This never changes a verdict, never
++    widens a span, never removes a caveat.
+     """
+     # IDEMPOTENCE (Codex slice-2 iter-4 P1): strip any PRE-EXISTING confidence markers up front so a
+     # re-run over already-annotated output segments cleanly (the no-terminator marker would otherwise
+@@ -738,9 +791,24 @@ def annotate_report_against_verdicts(
+         marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+         claims.append((claim_id, verdict, severity, stem_norm, marker))
+ 
++    # WS-5 (I-deepfix-001): collect figure-consistency ADVISORY claims (default ON). These are
++    # BEST-EFFORT twins of a flagged claim that inherit its caveat; unlike the mandatory
++    # non-VERIFIED claims above they NEVER fail-closed (labelling a twin only ADDS a caveat, so an
++    # absent / unpinnable twin is simply not labelled). Ordered AFTER the mandatory claims so a
++    # sentence that IS a genuine non-VERIFIED claim keeps its own marker (first-match wins).
++    advisory = _collect_figure_consistency_claims(
++        report_text,
++        final_verdicts,
++        audit_map,
++        marker_by_claim,
++        span_text_by_claim,
++        already_collected={c[0] for c in claims},
++    )
++
+     # SINGLE labeling pass: spans come from the ORIGINAL line (never a marker-mutated one), so two
+     # same-line claims each get their own marker. Each sentence is matched marker-stripped (idempotent)
+-    # and labeled once with the FIRST claim it matches.
++    # and labeled once with the FIRST claim it matches. Mandatory claims precede advisory twins.
++    label_targets = claims + advisory
+     labeled: set[str] = set()
+     new_lines: list[str] = []
+     for line in report_text.split("\n"):
+@@ -754,7 +822,7 @@ def annotate_report_against_verdicts(
+             sentence = line[start:end]
+             stripped_sentence = _CONFIDENCE_MARKER_RE.sub("", sentence)
+             chosen: tuple[str, str] | None = None
+-            for claim_id, _v, _s, stem_norm, marker in claims:
++            for claim_id, _v, _s, stem_norm, marker in label_targets:
+                 if _sentence_matches_stem(stripped_sentence, stem_norm):
+                     chosen = (claim_id, marker)
+                     break
+@@ -769,7 +837,7 @@ def annotate_report_against_verdicts(
+         new_lines.append("".join(out))
+     working = "\n".join(new_lines)
+ 
+-    # Defensive: a collected (present + pinnable) claim MUST have been labeled in the pass.
++    # Defensive: a collected (present + pinnable) MANDATORY claim MUST have been labeled in the pass.
+     annotated: list[AnnotatedClaim] = []
+     for claim_id, verdict, severity, _stem, marker in claims:
+         if claim_id not in labeled:
+@@ -780,10 +848,89 @@ def annotate_report_against_verdicts(
+         annotated.append(
+             AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+         )
++    # Advisory twins are best-effort: record only the ones that actually got labelled; NEVER raise.
++    for claim_id, verdict, severity, _stem, marker in advisory:
++        if claim_id in labeled:
++            annotated.append(
++                AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
++            )
+ 
+     return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+ 
+ 
++def _collect_figure_consistency_claims(
++    report_text: str,
++    final_verdicts: dict[str, str],
++    audit_map: dict[str, dict],
++    marker_by_claim: dict[str, str],
++    span_text_by_claim: dict[str, str] | None,
++    already_collected: set[str],
++) -> list[tuple[str, str, str, str, str]]:
++    """WS-5 (I-deepfix-001): build the ADVISORY figure-consistency labelling claims.
++
++    Returns ``(claim_id, verdict, severity, stem_norm, marker)`` tuples for every claim NOT already
++    collected as mandatory whose caveat must be inherited because it is a twin of a flagged claim:
++      * FIX-a: it shares BOTH a span-identity tuple AND a numeric figure with a non-VERIFIED claim
++        -> inherits that flagged sibling's marker.
++      * FIX-b: ``span_text_by_claim`` names its cited span AND ``effect_size_conditional_reason``
++        fires (the claim re-lifts a span number while dropping the governing conditional/threshold)
++        -> inherits a generic low marker.
++    Gated by ``PG_FIGURE_CONSISTENCY_ANNOTATE`` (default ON, via ``figure_consistency_annotate_enabled``);
++    disabled -> returns ``[]`` (byte-identical claim_id-only behaviour). Never raises: a twin the
++    per-line pass cannot pin is simply omitted (adding a caveat is a bonus, its absence is not a leak).
++    """
++    if not figure_consistency_annotate_enabled():
++        return []
++
++    # FIX-a index: (span-identities, figures, marker) for each flagged (non-VERIFIED) claim that
++    # names BOTH a span and a figure. A twin must intersect BOTH to inherit (surgical — same-span
++    # prose that repeats no flagged figure is NOT caveated).
++    flagged_index: list[tuple[set[tuple[str, int, int]], set[str], str]] = []
++    for claim_id, verdict in final_verdicts.items():
++        if verdict == _VERDICT_VERIFIED:
++            continue
++        sentence = str((audit_map.get(claim_id) or {}).get("sentence", ""))
++        spans = _span_identities(sentence)
++        figs = _figure_tokens(sentence)
++        if spans and figs:
++            marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
++            flagged_index.append((spans, figs, marker))
++
++    advisory: list[tuple[str, str, str, str, str]] = []
++    seen = set(already_collected)
++    for claim_id, verdict in sorted(final_verdicts.items()):
++        if claim_id in seen:
++            continue
++        meta = audit_map.get(claim_id)
++        if meta is None:
++            continue
++        sentence = str(meta.get("sentence", ""))
++        stem_norm = _normalize(sentence)
++        if not stem_norm or not _prose_present(report_text, stem_norm):
++            continue  # nothing rendered to label
++
++        marker: str | None = None
++        # FIX-a — flagged span-identity + shared figure.
++        twin_spans = _span_identities(sentence)
++        twin_figs = _figure_tokens(sentence)
++        if twin_spans and twin_figs:
++            for f_spans, f_figs, f_marker in flagged_index:
++                if (twin_spans & f_spans) and (twin_figs & f_figs):
++                    marker = f_marker
++                    break
++        # FIX-b — effect-size conditional/threshold stripped (needs the cited span text).
++        if marker is None and span_text_by_claim:
++            span_text = span_text_by_claim.get(claim_id, "")
++            if span_text and effect_size_conditional_reason(sentence, span_text):
++                marker = _DEFAULT_LOW_MARKER
++
++        if marker is None:
++            continue
++        advisory.append((claim_id, verdict, str(meta.get("severity", "")), stem_norm, marker))
++        seen.add(claim_id)
++    return advisory
++
++
+ # A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
+ # (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
+ _DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+diff --git a/tests/dr_benchmark/test_ws2_cross_source_ws0_device_split_ideepfix001.py b/tests/dr_benchmark/test_ws2_cross_source_ws0_device_split_ideepfix001.py
+new file mode 100644
+index 00000000..9b085c20
+--- /dev/null
++++ b/tests/dr_benchmark/test_ws2_cross_source_ws0_device_split_ideepfix001.py
+@@ -0,0 +1,168 @@
++"""I-deepfix-001 (#1344) WS-2 + WS-0 behavioral replay-harness (offline, no GPU, no spend).
++
++WS-2 — the full winner slate on the PAID path now carries M6 (PG_CROSS_SOURCE_SYNTHESIS):
++  * it is in the slate dict, the force-on set, the preflight-required tuple, and the winner allowlist;
++  * a stray operator =0 is FORCE-overridden to "1" by the slate (a slate-OFF launch is impossible);
++  * the operational-readiness D-1 preflight RED-gates a slate-OFF launch for all THREE winner flags
++    (PG_CONSOLIDATION_NLI / PG_CROSS_SOURCE_SYNTHESIS / PG_BREADTH_ENRICHMENT_ENABLED);
++  * the post-run fail-loud M6 firing assertion raises when the run logged eligible pairs but 0 units.
++
++WS-0 — the device-split launch config + the co-residence preflight WARN fire correctly.
++
++These are PURE / config tests: no model load, no network, no paid call.
++"""
++
++from __future__ import annotations
++
++import inspect
++
++import pytest
++
++import scripts.dr_benchmark.run_gate_b as rg
++import scripts.operational_readiness_preflight as op
++import scripts.dr_benchmark.gpu_device_split as gds
++
++_CROSS = "PG_CROSS_SOURCE_SYNTHESIS"
++_THREE_WINNERS = ("PG_CONSOLIDATION_NLI", _CROSS, "PG_BREADTH_ENRICHMENT_ENABLED")
++
++
++# ── WS-2 (1): the slate + the three required/force/allowlist sets carry M6 ───────────────────────
++
++def test_ws2_cross_source_in_slate_required_forceon_allowlist():
++    assert rg._FULL_CAPABILITY_BENCHMARK_SLATE.get(_CROSS) == "1", "M6 not slate-pinned '1'"
++    assert _CROSS in rg._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS, "M6 not fail-closed pre-spend"
++    assert _CROSS in rg._BENCHMARK_FORCE_ON_FLAGS, "M6 not force-on (a stray =0 could survive)"
++    assert _CROSS in rg._WINNER_FLAG_ALLOWLIST, "M6 not allowlisted (SLATE-PURITY would fail closed)"
++    # the two sibling winner flags this WS pairs M6 with are ALSO fail-closed pre-spend.
++    assert "PG_CONSOLIDATION_NLI" in rg._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
++    assert "PG_BREADTH_ENRICHMENT_ENABLED" in rg._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
++    # WS-8 guard: PG_DOCUMENT_TYPE_WEIGHT (M2) must NOT be in the global slate (journal-only template only).
++    assert "PG_DOCUMENT_TYPE_WEIGHT" not in rg._FULL_CAPABILITY_BENCHMARK_SLATE, "M2 leaked into the global slate"
++
++
++# ── WS-2 (2): a slate-OFF launch is impossible — force-on overrides a stray operator =0 ───────────
++
++def test_ws2_stray_operator_zero_is_force_overridden_to_one():
++    meta = op.load_slate_meta()  # the REAL Gate-B slate constants
++    assert _CROSS in meta.slate and _CROSS in meta.force_on, "real slate does not govern M6"
++    eff = op.resolve_effective_config({_CROSS: "0"}, meta)  # replica of apply_slate's FORCE semantics
++    assert eff[_CROSS] == "1", f"a stray {_CROSS}=0 was NOT force-overridden to '1' (slate-OFF would launch)"
++
++
++# ── WS-2 (3): the paid-path readiness preflight RED-gates a slate-OFF launch ──────────────────────
++
++def _d1_reds(cfg: dict, meta) -> list[str]:
++    results = op.check_d1_flags(cfg, cfg, meta, four_role_mode_wired=True)
++    return [r.check_id for r in results if r.is_red]
++
++
++def test_ws2_paid_preflight_reds_slate_off_launch():
++    meta = op.load_slate_meta()
++    # slate-OFF launch: the three winner flags resolve OFF in the effective config.
++    cfg_off = {f: "0" for f in _THREE_WINNERS}
++    reds = _d1_reds(cfg_off, meta)
++    for flag in _THREE_WINNERS:
++        assert f"D-1.{flag}" in reds, f"paid preflight did NOT RED-gate a slate-OFF {flag}: {reds}"
++    # slate-ON launch (resolved through the REAL slate) — none of the three RED.
++    cfg_on = op.resolve_effective_config({}, meta)
++    reds_on = _d1_reds(cfg_on, meta)
++    for flag in _THREE_WINNERS:
++        assert f"D-1.{flag}" not in reds_on, f"slate-applied {flag} spuriously RED: {reds_on}"
++
++
++# ── WS-2 (4): the post-run fail-loud M6 firing assertion ─────────────────────────────────────────
++
++_PRODUCER_SILENT_NOOP = (
++    "[cross_source_synthesis] 3 anchored cross-source pair(s) but 0 analytical units survived "
++    "per-clause re-verify/licensing — analytical layer produced nothing for this section"
++)
++_PRODUCER_FIRED = (
++    "[cross_source_synthesis] composed 2 cross-source analytical unit(s) from 3 anchored pair(s)"
++)
++
++
++def test_ws2_marker_stems_are_real_producer_substrings():
++    """No phantom strings: both marker stems the post-run grep keys on MUST appear verbatim in the
++    real producer source (cross_source_synthesis.compose_cross_source_analytical_units)."""
++    src = inspect.getsource(
++        __import__("src.polaris_graph.generator.cross_source_synthesis", fromlist=["x"])
++    )
++    assert rg._CROSS_SOURCE_FIRED_MARKER in src, "the FIRED marker stem is not in the producer source"
++    assert rg._CROSS_SOURCE_SILENT_NOOP_MARKER in src, "the SILENT-NO-OP marker stem is not in the producer source"
++    # and the stems must actually match the realistic producer lines below.
++    assert rg._CROSS_SOURCE_FIRED_MARKER in _PRODUCER_FIRED
++    assert rg._CROSS_SOURCE_SILENT_NOOP_MARKER in _PRODUCER_SILENT_NOOP
++
++
++def test_ws2_m6_firing_assertion_raises_on_silent_noop(monkeypatch):
++    monkeypatch.setenv(_CROSS, "1")  # slate ON
++    log = "some earlier line\n" + _PRODUCER_SILENT_NOOP + "\nlater line"
++    with pytest.raises(RuntimeError, match="WINNER-FIRES M6"):
++        rg.assert_cross_source_synthesis_fired(log)
++
++
++def test_ws2_m6_firing_assertion_silent_when_it_fired(monkeypatch):
++    monkeypatch.setenv(_CROSS, "1")
++    # a run that composed >=1 unit somewhere never raises, even if one section was barren.
++    log = _PRODUCER_SILENT_NOOP + "\n" + _PRODUCER_FIRED
++    rg.assert_cross_source_synthesis_fired(log)  # no raise
++
++
++def test_ws2_m6_firing_assertion_silent_when_no_anchored_pairs(monkeypatch):
++    monkeypatch.setenv(_CROSS, "1")
++    rg.assert_cross_source_synthesis_fired("no cross_source lines at all\njust noise")  # conditional absence
++
++
++def test_ws2_m6_firing_assertion_noop_when_flag_off(monkeypatch):
++    monkeypatch.setenv(_CROSS, "0")  # kill-switch OFF -> the assertion disarms with the feature
++    rg.assert_cross_source_synthesis_fired(_PRODUCER_SILENT_NOOP)  # no raise even with the silent-no-op line
++
++
++# ── WS-0: the device-split launch config + co-residence preflight ────────────────────────────────
++
++def test_ws0_recommended_split_covers_the_four_device_vars_plus_chunk():
++    rec = gds.RECOMMENDED_DEVICE_SPLIT
++    assert rec.get("PG_EMBED_DEVICE") == "cuda:0"
++    assert rec.get("PG_RERANKER_DEVICE") == "cuda:1"
++    assert rec.get("PG_NLI_DEVICE") == "cuda:1"
++    assert rec.get("PG_CONSOLIDATION_NLI_DEVICE") == "cuda:1"
++    assert rec.get("PG_CONTENT_RELEVANCE_SCORE_CHUNK") == "2"
++    # genuinely SPLIT across two cards (not all on one).
++    cards = {gds.resolve_gpu_card(rec[k]) for k in gds._HEAVY_MODEL_DEVICE_ENVS}
++    assert cards == {0, 1}, f"the recommended split does not span 2 cards: {cards}"
++
++
++def test_ws0_warns_when_all_heavy_models_coreside_on_one_card():
++    env = {k: "cuda:0" for k in gds._HEAVY_MODEL_DEVICE_ENVS}
++    env["PG_CONTENT_RELEVANCE_SCORE_CHUNK"] = "2"  # isolate the card-co-residence warning
++    warns = gds.detect_coresidence_warnings(env, device_count=2)
++    assert any("SINGLE card" in w for w in warns), f"no co-residence warning on all-cuda:0 / 2 cards: {warns}"
++
++
++def test_ws0_unset_env_on_two_cards_warns_card_and_chunk():
++    # every device env UNSET => module default cuda:0 => co-residence + one-pass OOM both fire.
++    warns = gds.detect_coresidence_warnings({}, device_count=2)
++    assert any("SINGLE card" in w for w in warns), warns
++    assert any("PG_CONTENT_RELEVANCE_SCORE_CHUNK" in w for w in warns), warns
++
++
++def test_ws0_recommended_split_is_silent_on_two_cards():
++    warns = gds.detect_coresidence_warnings(gds.RECOMMENDED_DEVICE_SPLIT, device_count=2)
++    assert warns == [], f"the recommended split still warned: {warns}"
++
++
++def test_ws0_single_card_suppresses_card_warning_but_keeps_chunk_guard():
++    # one GPU: a split cannot help, so no card warning; but the one-pass OOM guard still fires when unset.
++    env = {k: "cuda:0" for k in gds._HEAVY_MODEL_DEVICE_ENVS}  # SCORE_CHUNK unset
++    warns = gds.detect_coresidence_warnings(env, device_count=1)
++    assert not any("SINGLE card" in w for w in warns), f"card warning should be suppressed on 1 GPU: {warns}"
++    assert any("PG_CONTENT_RELEVANCE_SCORE_CHUNK" in w for w in warns), warns
++    # with the chunk bound set, a single-card env is silent.
++    env["PG_CONTENT_RELEVANCE_SCORE_CHUNK"] = "2"
++    assert gds.detect_coresidence_warnings(env, device_count=1) == []
++
++
++def test_ws0_export_lines_are_sourceable():
++    text = gds.render_launch_template(as_export=True)
++    for key, value in gds.RECOMMENDED_DEVICE_SPLIT.items():
++        assert f"export {key}={value}" in text
+diff --git a/tests/roles/test_ws5_figure_consistency_annotate.py b/tests/roles/test_ws5_figure_consistency_annotate.py
+new file mode 100644
+index 00000000..dcd33964
+--- /dev/null
++++ b/tests/roles/test_ws5_figure_consistency_annotate.py
+@@ -0,0 +1,171 @@
++"""WS-5 (I-deepfix-001 beat-both) — figure-consistency re-key of the low-confidence annotation.
++
++Residual D1 from the drb_72 re-smoke: the confidence annotation keyed on ``claim_id``, so the
++Eloundou "46%" figure was flagged low-confidence on its Key-Findings sibling (claim 02-002,
++UNSUPPORTED) yet its VERIFIED span/figure twin (claim 02-010) — re-lifted VERBATIM into the
++Conclusion — shipped CLEAN with the caveat stripped. These tests use the EXACT strings + span text
++from the banked drb_72 artifacts.
++
++FIX-a: a VERIFIED twin that shares a span-identity tuple AND a numeric figure with a flagged claim
++inherits the flagged sibling's marker (``annotate_report_against_verdicts``).
++FIX-b: ``effect_size_conditional_reason`` fires when a re-lift drops the span's governing
++conditional/threshold antecedent that qualifies the number ("When accounting for ... 46%").
++
++Both are ADD-caveat-only (§-1.3): they never change a verdict, widen a span, or remove a caveat.
++Kill-switch ``PG_FIGURE_CONSISTENCY_ANNOTATE`` (default ON) reverts byte-identically.
++Offline: pure string ops, no API, no GPU.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.roles.report_redactor import annotate_report_against_verdicts
++from src.polaris_graph.generator.overstatement_guard import effect_size_conditional_reason
++
++# ── EXACT banked strings (four_role_claim_audit.json) ────────────────────────────────────────────
++_FLAGGED_SENT = "Headline exposure estimate: just over 46% of jobs [#ev:eloundou_gpts_are_gpts:0-800]."
++_TWIN_SENT = (
++    "Using this framework, they estimate that just over 46% of jobs are exposed to "
++    "LLM-related technologies [#ev:eloundou_gpts_are_gpts:0-800]."
++)
++# Same-span (eloundou 0-800) but repeats NO flagged figure -> must NOT inherit the caveat.
++_SAME_SPAN_NO_FIGURE_SENT = (
++    "Eloundou et al. propose a framework for evaluating the potential impacts of large-language "
++    "models [#ev:eloundou_gpts_are_gpts:0-800]."
++)
++
++# The real evidence_pool eloundou_gpts_are_gpts[0:800] span (the 46% is governed by the
++# "When accounting for ... future software developments" conditional).
++_ELOUNDOU_SPAN = (
++    "Research is needed to estimate how jobs may be affected We propose a framework for evaluating "
++    "the potential impacts of large-language models (LLMs) and associated technologies on work by "
++    "considering their relevance to the tasks workers perform in their jobs. By applying this "
++    "framework (with both humans and using an LLM), we estimate that roughly 1.8% of jobs could "
++    "have over half their tasks affected by LLMs with simple interfaces and general training. When "
++    "accounting for current and likely future software developments that complement LLM "
++    "capabilities, this share jumps to just over 46% of jobs."
++)
++
++_SIBLING_MARKER = "[confidence: low — low confidence — NOT confirmed by the cited source; treat as unverified]"
++
++# Report body mirroring the banked shape: the flagged sentence + its VERIFIED twin share a
++# Key-Findings line; the twin is re-lifted VERBATIM into the Conclusion (caveat stripped today).
++_REPORT = (
++    "## Key Findings\n\n"
++    f"{_FLAGGED_SENT[:-len(' [#ev:eloundou_gpts_are_gpts:0-800].')]}.[7] "
++    f"{_TWIN_SENT[:-len(' [#ev:eloundou_gpts_are_gpts:0-800].')]}.[7] "
++    f"{_SAME_SPAN_NO_FIGURE_SENT[:-len(' [#ev:eloundou_gpts_are_gpts:0-800].')]}.[7]\n\n"
++    "## Conclusion\n\n"
++    f"{_TWIN_SENT[:-len(' [#ev:eloundou_gpts_are_gpts:0-800].')]}.[7]\n"
++)
++
++_AUDIT = {
++    "02-002-af53af14": {"sentence": _FLAGGED_SENT, "severity": "S3", "evidence_ids": ["eloundou_gpts_are_gpts"]},
++    "02-010-7792e98e": {"sentence": _TWIN_SENT, "severity": "S3", "evidence_ids": ["eloundou_gpts_are_gpts"]},
++    "02-009-10f90902": {"sentence": _SAME_SPAN_NO_FIGURE_SENT, "severity": "S3", "evidence_ids": ["eloundou_gpts_are_gpts"]},
++}
++
++
++def _conclusion_block(report_text: str) -> str:
++    return report_text.split("## Conclusion", 1)[1]
++
++
++# ───────────────────────────────────── FIX-a ─────────────────────────────────────────────────────
++def test_fixa_conclusion_twin_inherits_flagged_sibling_marker(monkeypatch):
++    """THE residual-D1 acceptance: the Conclusion "46%" twin (VERIFIED 02-010) now carries the SAME
++    low-confidence marker its flagged Key-Findings sibling (02-002) has."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    verdicts = {"02-002-af53af14": "UNSUPPORTED", "02-010-7792e98e": "VERIFIED", "02-009-10f90902": "VERIFIED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"02-002-af53af14": _SIBLING_MARKER})
++
++    concl = _conclusion_block(res.report_text)
++    # The Conclusion twin sentence is present AND now carries a confidence caveat...
++    assert "just over 46% of jobs are exposed to LLM-related technologies" in concl
++    assert "[confidence:" in concl, f"Conclusion twin still CLEAN (leak):\n{concl}"
++    # ...specifically the SAME marker the flagged sibling has.
++    assert _SIBLING_MARKER in concl, f"twin did not inherit the sibling marker:\n{concl}"
++    # 02-010 recorded as annotated (advisory twin), verdict untouched (still VERIFIED input).
++    assert "02-010-7792e98e" in {a.claim_id for a in res.annotated}
++    assert verdicts["02-010-7792e98e"] == "VERIFIED"  # the annotator NEVER flips a verdict (§-1.3)
++
++
++def test_fixa_surgical_same_span_without_shared_figure_not_caveated(monkeypatch):
++    """§-1.3 surgical: a same-span (0-800) VERIFIED claim that repeats NO flagged figure (02-009,
++    no '46') must stay CLEAN — over-caveating unrelated verified prose is not done."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    verdicts = {"02-002-af53af14": "UNSUPPORTED", "02-010-7792e98e": "VERIFIED", "02-009-10f90902": "VERIFIED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"02-002-af53af14": _SIBLING_MARKER})
++    assert "02-009-10f90902" not in {a.claim_id for a in res.annotated}
++    # The 02-009 sentence renders WITHOUT a caveat appended right after it.
++    seg = res.report_text.split("Eloundou et al. propose a framework", 1)[1][:120]
++    assert "[confidence:" not in seg, f"02-009 wrongly caveated: {seg!r}"
++
++
++def test_fixa_killswitch_off_leaves_twin_clean(monkeypatch):
++    """Flag OFF -> byte-identical claim_id-only behaviour: the Conclusion twin ships CLEAN (proving
++    the WS-5 re-key, not some pre-existing path, is what adds the caveat)."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "0")
++    verdicts = {"02-002-af53af14": "UNSUPPORTED", "02-010-7792e98e": "VERIFIED", "02-009-10f90902": "VERIFIED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"02-002-af53af14": _SIBLING_MARKER})
++    concl = _conclusion_block(res.report_text)
++    assert "[confidence:" not in concl, "flag OFF must NOT caveat the twin (regression)"
++    assert "02-010-7792e98e" not in {a.claim_id for a in res.annotated}
++
++
++# ───────────────────────────────────── FIX-b ─────────────────────────────────────────────────────
++def test_fixb_guard_fires_on_conditional_stripped_relift(monkeypatch):
++    """The effect-size guard FIRES: the bare re-lift keeps '46' but drops the span's 'When accounting
++    for ... future software developments' antecedent that governs it."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    bare = "Using this framework, they estimate that just over 46% of jobs are exposed to LLM-related technologies."
++    reason = effect_size_conditional_reason(bare, _ELOUNDOU_SPAN)
++    assert reason is not None and "46" in reason, reason
++
++
++def test_fixb_guard_inert_when_antecedent_travels(monkeypatch):
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    faithful = "When accounting for future software developments, just over 46% of jobs could be affected."
++    assert effect_size_conditional_reason(faithful, _ELOUNDOU_SPAN) is None
++
++
++def test_fixb_guard_inert_when_span_has_no_conditional(monkeypatch):
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    plain_span = "One more robot per thousand workers reduces the employment-to-population ratio by 46%."
++    bare = "The employment-to-population ratio fell by 46%."
++    assert effect_size_conditional_reason(bare, plain_span) is None
++
++
++def test_fixb_guard_killswitch_off_is_inert(monkeypatch):
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "0")
++    bare = "Using this framework, they estimate that just over 46% of jobs are exposed to LLM-related technologies."
++    assert effect_size_conditional_reason(bare, _ELOUNDOU_SPAN) is None
++
++
++def test_fixb_annotator_caveats_via_span_even_with_no_flagged_twin(monkeypatch):
++    """FIX-b fires INDEPENDENTLY of FIX-a: even when EVERY verdict is VERIFIED (no flagged sibling
++    for FIX-a to inherit from), supplying the cited span text makes the annotator caveat the
++    conditional-stripped 46% re-lift."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    verdicts = {"02-002-af53af14": "VERIFIED", "02-010-7792e98e": "VERIFIED", "02-009-10f90902": "VERIFIED"}
++    res = annotate_report_against_verdicts(
++        _REPORT, verdicts, _AUDIT, {},
++        span_text_by_claim={"02-010-7792e98e": _ELOUNDOU_SPAN, "02-009-10f90902": _ELOUNDOU_SPAN},
++    )
++    concl = _conclusion_block(res.report_text)
++    assert "[confidence:" in concl, f"FIX-b did not caveat the conditional-stripped twin:\n{concl}"
++    # 02-009 (no figure re-lifted) stays clean even with span text supplied.
++    assert "02-009-10f90902" not in {a.claim_id for a in res.annotated}
++
++
++def test_fixb_annotator_no_span_map_is_inert(monkeypatch):
++    """No span_text_by_claim + all VERIFIED -> byte-identical (FIX-b needs the span text)."""
++    monkeypatch.setenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1")
++    verdicts = {"02-002-af53af14": "VERIFIED", "02-010-7792e98e": "VERIFIED", "02-009-10f90902": "VERIFIED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})
++    assert res.report_text == _REPORT
++    assert res.annotated_count == 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(pytest.main([__file__, "-v"]))
