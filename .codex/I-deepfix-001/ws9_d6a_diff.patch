@@ -1,0 +1,50 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 5d213666..3436c6d2 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -13288,11 +13288,24 @@ async def run_one_query(
+         renderable_contradictions = [
+             c for c in contradictions if not _is_unconfirmed_metric_mismatch(c)
+         ]
++        # I-deepfix-001 WS-9 (D6): keep the DISCLOSED count coherent with manifest.contradictions_found
++        # (= len(contradictions)). The rendered list excludes possible_metric_mismatch records (they
++        # stay in contradictions.json — §-1.3 no-drop); disclose how many were withheld + the total
++        # detected so the report number never disagrees with the manifest (the drb_72 "1 vs 3").
++        # Honest reporting only — no verdict / gate / threshold change.
++        _d6_total_detected = len(contradictions)
++        _d6_withheld = _d6_total_detected - len(renderable_contradictions)
++        _d6_withheld_sentence = (
++            f" A further {_d6_withheld} record(s) were screened as possible metric mismatches "
++            f"(the detector declined to assert a shared-metric contradiction) and withheld from this "
++            f"list; they remain in `contradictions.json`. Total detected: {_d6_total_detected}."
++            if _d6_withheld > 0 else ""
++        )
+         if renderable_contradictions:
+             methods += (
+                 f"\n## Contradiction disclosures\n"
+                 f"The contradiction detector flagged {len(renderable_contradictions)} "
+-                f"numeric disagreements across the evidence pool. Most are "
++                f"numeric disagreements across the evidence pool.{_d6_withheld_sentence} Most are "
+                 f"extraction artifacts produced by grouping different "
+                 f"measured endpoints, units, sub-populations, time windows, "
+                 f"or comparators under the same subject/predicate label. The "
+@@ -13345,6 +13358,19 @@ async def run_one_query(
+                 f"discrepancy to its source regardless of detector "
+                 f"granularity.\n"
+             )
++        elif _d6_total_detected > 0:
++            # I-deepfix-001 WS-9 (D6): ALL detected records were withheld as possible metric mismatches.
++            # Pre-fix this rendered NOTHING while manifest.contradictions_found stayed > 0 (the extreme
++            # "0 shown vs N counted" incoherence). Disclose the total so the report stays coherent with
++            # the manifest and never silently omits the detector's finding (§-1.3 no silent drop).
++            methods += (
++                f"\n## Contradiction disclosures\n"
++                f"The contradiction detector flagged {_d6_total_detected} numeric discrepancy "
++                f"record(s), all screened as possible metric mismatches — different measured endpoints, "
++                f"units, sub-populations, time windows, or comparators grouped under the same "
++                f"subject/predicate label, where the detector declined to assert a confirmed "
++                f"shared-metric contradiction. Raw detector output is in `contradictions.json`.\n"
++            )
+ 
+         # Qualitative present-vs-absent safety-conflict disclosure (#944). Renders by ASSERTION
+         # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric

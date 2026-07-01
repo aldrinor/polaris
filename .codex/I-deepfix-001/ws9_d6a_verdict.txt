@@ -1,0 +1,10 @@
+```yaml
+verdict: APPROVE
+faithfulness_neutral_reporting_only: true
+disclosed_total_matches_manifest: true
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
