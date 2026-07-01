@@ -84,6 +84,118 @@ def test_1235_corpus_skew_on_blocks_only_material_deviation():
     assert sweep._corpus_skew_blocks_ready(True, False) is False
 
 
+# ── drb_72 weighted-gate proceed-on-skew (PG_WEIGHTED_GATE_PROCEED_ON_SKEW) ──────
+# A hard tier-COUNT refusal is itself the §-1.3 filter-by-number anti-pattern. When the
+# kill-switch is ON *and* the weighted-corpus gate is ON *and* the corpus is non-empty, a
+# MATERIAL tier skew DISCLOSES-and-PROCEEDS instead of aborting. A genuinely EMPTY corpus still
+# blocks. Default-OFF => byte-identical. These exercise the PURE helpers directly (no pipeline).
+def test_drb72_proceed_on_skew_flag_default_off():
+    with _env(PG_WEIGHTED_GATE_PROCEED_ON_SKEW=None):
+        assert sweep._weighted_gate_proceed_on_skew_enabled() is False
+
+
+def test_drb72_proceed_on_skew_flag_on():
+    with _env(PG_WEIGHTED_GATE_PROCEED_ON_SKEW="1"):
+        assert sweep._weighted_gate_proceed_on_skew_enabled() is True
+
+
+def test_drb72_proceed_on_skew_flag_explicit_falsy_is_off():
+    for val in ("0", "false", "False", "no", ""):
+        with _env(PG_WEIGHTED_GATE_PROCEED_ON_SKEW=val):
+            assert sweep._weighted_gate_proceed_on_skew_enabled() is False
+
+
+def test_drb72_corpus_skew_positional_call_byte_identical():
+    # The pre-existing #1235 positional signature is byte-identical: the three new keyword
+    # params default False, so a positional call still refuses a material deviation under strict.
+    assert sweep._corpus_skew_blocks_ready(True, True) is True
+    assert sweep._corpus_skew_blocks_ready(True, False) is False
+    assert sweep._corpus_skew_blocks_ready(False, True) is False
+
+
+def test_drb72_corpus_skew_proceeds_when_on_and_nonempty():
+    # flag ON + weighted gate ON + material deviation + NON-empty corpus -> DISCLOSE-and-PROCEED
+    # (returns False -> the caller's weighted auto-approve stands, no tier-COUNT refusal).
+    assert sweep._corpus_skew_blocks_ready(
+        True, True, weighted_gate_on=True, proceed_on_skew=True, corpus_nonempty=True,
+    ) is False
+
+
+def test_drb72_corpus_skew_still_blocks_empty_corpus():
+    # flag ON + weighted gate ON + material deviation but EMPTY corpus (corpus-ZERO floor) ->
+    # STILL blocks (returns True). A genuinely empty corpus is never proceeded-on.
+    assert sweep._corpus_skew_blocks_ready(
+        True, True, weighted_gate_on=True, proceed_on_skew=True, corpus_nonempty=False,
+    ) is True
+
+
+def test_drb72_corpus_skew_flag_off_still_blocks_material_deviation():
+    # kill-switch OFF (proceed_on_skew=False) -> byte-identical to #1235: strict + material
+    # deviation still blocks even with the weighted gate on and a non-empty corpus.
+    assert sweep._corpus_skew_blocks_ready(
+        True, True, weighted_gate_on=True, proceed_on_skew=False, corpus_nonempty=True,
+    ) is True
+
+
+def test_drb72_corpus_skew_needs_weighted_gate_on():
+    # proceed-on-skew requires the weighted-corpus gate itself to be ON; with it OFF the strict
+    # tier-COUNT refusal stands (returns True) even when the kill-switch is on.
+    assert sweep._corpus_skew_blocks_ready(
+        True, True, weighted_gate_on=False, proceed_on_skew=True, corpus_nonempty=True,
+    ) is True
+
+
+def test_drb72_corpus_skew_no_material_deviation_never_blocks():
+    # No material deviation -> never blocks regardless of the new params (a clean corpus
+    # auto-approves).
+    assert sweep._corpus_skew_blocks_ready(
+        True, False, weighted_gate_on=True, proceed_on_skew=True, corpus_nonempty=True,
+    ) is False
+
+
+def test_drb72_proceed_on_skew_disclosure_fires_and_records_skew():
+    # MUST-DISCLOSE: when the proceed-on-skew path fires, the discrete record carries the tier
+    # skew (had_material_deviation + the tier counts/fractions), never hides it.
+    disc = sweep._weighted_corpus_proceed_on_skew_disclosure(
+        strict=True,
+        has_material_deviation=True,
+        weighted_gate_on=True,
+        proceed_on_skew=True,
+        corpus_nonempty=True,
+        tier_counts={"T1": 4, "T2": 0, "T3": 4, "T4": 35, "T6": 37, "T7": 15},
+        tier_fractions={"T4": 0.35, "T6": 0.37},
+        total_sources=95,
+    )
+    assert disc is not None
+    assert disc["action"] == "disclose_and_proceed"
+    assert disc["gate"] == "PG_WEIGHTED_GATE_PROCEED_ON_SKEW"
+    assert disc["had_material_deviation"] is True
+    assert disc["corpus_nonempty"] is True
+    assert disc["total_sources"] == 95
+    # the skew itself is present in the disclosure (not a bare boolean)
+    assert disc["tier_counts"]["T3"] == 4
+    assert disc["tier_counts"]["T4"] == 35
+    assert "§-1.3" in disc["reason"] and "DISCLOSED" in disc["reason"]
+
+
+def test_drb72_proceed_on_skew_disclosure_none_when_not_fired():
+    # None (=> nothing attached => byte-identical OFF) whenever any precondition is missing.
+    base = dict(
+        strict=True, has_material_deviation=True, weighted_gate_on=True,
+        proceed_on_skew=True, corpus_nonempty=True,
+    )
+    # kill-switch off
+    assert sweep._weighted_corpus_proceed_on_skew_disclosure(**{**base, "proceed_on_skew": False}) is None
+    # weighted gate off
+    assert sweep._weighted_corpus_proceed_on_skew_disclosure(**{**base, "weighted_gate_on": False}) is None
+    # empty corpus
+    assert sweep._weighted_corpus_proceed_on_skew_disclosure(**{**base, "corpus_nonempty": False}) is None
+    # strict gates off
+    assert sweep._weighted_corpus_proceed_on_skew_disclosure(**{**base, "strict": False}) is None
+    # no material deviation
+    assert sweep._weighted_corpus_proceed_on_skew_disclosure(**{**base, "has_material_deviation": False}) is None
+
+
 # ── #1238 V30 contract broad-except ──────────────────────────────────────────────
 def test_1238_v30_off_never_reraises():
     # strict OFF -> the V30 fault falls back to legacy (no re-raise), as today.

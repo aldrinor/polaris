@@ -392,6 +392,63 @@ def site_scoped_serper(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WORKFORCE / labour: Serper with site: filters for statistical / data agencies
+# ─────────────────────────────────────────────────────────────────────────────
+# The workforce/labour domain's authoritative PRIMARY evidence is national +
+# international statistical / data agencies (BLS, OECD, ILO, StatCan, Eurostat,
+# World Bank, IMF, US Census, Federal Reserve). config/scope_templates/workforce.yaml
+# names them explicitly and requires T3 at 35-65%. But the workforce domain had NO
+# domain backend (run_domain_backends selected specs == [] for it), so the generic
+# Serper+S2 baseline under-reached the agencies — drb_72 fired a journal-publisher-only
+# amplified set and got T3=4 (~4%) -> abort_corpus_approval_denied. This backend biases
+# the SAME Serper budget toward those hosts via a `(site:bls.gov OR site:oecd.org OR ...)`
+# OR-clause so the corpus REACHES the agencies. §-1.3 weight-not-filter: it ADDS
+# agency-authoritative sources, never drops/caps/thins/filters, and hard-codes NO target
+# count. It reuses the shared, jurisdiction-agnostic `site_scoped_serper` seam (no new HTTP
+# literal). Default-OFF via the kill-switch: the workforce branch selects no backend unless
+# PG_WORKFORCE_T3_TARGETING is truthy, so the workforce domain stays byte-identical
+# (specs == []) when the switch is off.
+_STATISTICAL_AGENCY_HOSTS = (
+    "bls.gov",              # US Bureau of Labor Statistics
+    "oecd.org",             # OECD Employment / Skills / Future-of-Work outlooks
+    "ilo.org",              # International Labour Organization (+ ILOSTAT)
+    "statcan.gc.ca",        # Statistics Canada
+    "ec.europa.eu",         # Eurostat (ec.europa.eu/eurostat)
+    "worldbank.org",        # World Bank Open Data
+    "imf.org",              # International Monetary Fund
+    "census.gov",           # US Census Bureau
+    "federalreserve.gov",   # US Federal Reserve Board
+)
+
+
+def _workforce_t3_targeting_enabled() -> bool:
+    """LAW VI kill-switch for the workforce statistical-agency retrieval backend
+    (PG_WORKFORCE_T3_TARGETING). Default-OFF => the workforce domain selects no
+    backend (specs == []), byte-identical to legacy."""
+    return os.getenv("PG_WORKFORCE_T3_TARGETING", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def statistical_agency_serper(
+    query: str, limit: int = PG_DOMAIN_MAX_HITS,
+) -> list[SearchCandidate]:
+    """Issue a Serper query scoped to national + international statistical / data
+    agencies via a `(site:bls.gov OR site:oecd.org OR ...)` OR-clause.
+
+    Thin wrapper over the shared `site_scoped_serper` seam (fail-open, path-B
+    telemetry, no new HTTP literal). The workforce/labour domain's authoritative
+    primary quantitative evidence lives on statistical-agency hosts; this ADDS those
+    hits to the generic Serper+S2 corpus (§-1.3 weight-not-filter — never a drop)."""
+    return site_scoped_serper(
+        query,
+        scopes=list(_STATISTICAL_AGENCY_HOSTS),
+        source="serper_statistical_agency",
+        limit=limit,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DUE DILIGENCE: SEC EDGAR full-text search
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -777,6 +834,17 @@ def run_domain_backends(
         # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
         if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
             specs = [("europe_pmc", europe_pmc_search)]
+    elif domain == "workforce":
+        # T3 retrieval-targeting (PG_WORKFORCE_T3_TARGETING, default-OFF). The
+        # workforce/labour domain had NO legacy backend, so the statistical agencies
+        # it depends on (BLS / OECD / ILO / StatCan / Eurostat / World Bank / IMF) are
+        # under-reached by the generic Serper+S2 baseline (drb_72 -> T3=4). When the
+        # switch is ON, add the statistical-agency Serper backend so the SAME budget
+        # reaches those authoritative hosts (§-1.3: ADD sources, never drop/cap/filter;
+        # no hard-coded target count). OFF => specs stays [] => byte-identical to legacy
+        # (no workforce backend fires).
+        if _workforce_t3_targeting_enabled():
+            specs = [("serper_statistical_agency", statistical_agency_serper)]
 
     # I-wire-001 W3 (#1310): ON => bounded-parallel fan-out (deterministic
     # declared-order reassembly). OFF (default) => the serial `_run` loop,

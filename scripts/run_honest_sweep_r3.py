@@ -1306,6 +1306,16 @@ _BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
 _V30_ALLOW_LEGACY_FALLBACK_ENV = "PG_V30_ALLOW_LEGACY_FALLBACK"
 _BIB_REQUIRE_LOCATOR_ENV = "PG_BIB_REQUIRE_LOCATOR"
 _TIER_DISCLOSURE_SINGLE_SOURCE_ENV = "PG_TIER_DISCLOSURE_SINGLE_SOURCE"
+# drb_72 weighted-gate proceed-on-skew (default OFF). When the weighted-corpus gate is ON, the
+# benchmark strict gates plus a MATERIAL tier deviation RE-IMPOSE a hard tier-COUNT corpus
+# REFUSAL (#1235 -> abort_corpus_approval_denied). A hard tier-COUNT refusal is itself the §-1.3
+# "filter-by-number" anti-pattern (it verifies no individual claim). This default-OFF kill-switch
+# relaxes that refusal into DISCLOSE-and-PROCEED via the credibility-weighted path when the
+# corpus is non-empty (the corpus-ZERO floor STILL refuses a genuinely empty corpus). OFF
+# (default) => byte-identical: the strict path still refuses a material deviation. The per-claim
+# faithfulness floor (strict_verify + 4-role D8) is untouched — this is the pre-generation CORPUS
+# gate only; §-1.3 proceed+disclose is WEIGHT-not-FILTER (never drops a source).
+_WEIGHTED_GATE_PROCEED_ON_SKEW_ENV = "PG_WEIGHTED_GATE_PROCEED_ON_SKEW"
 
 # I-arch-011 PR-b (#1268) — Argus keep-all basket-corroboration render. When ON, each
 # cited claim's whole ClaimBasket is surfaced in report.md: the verified-support COUNT
@@ -1473,14 +1483,94 @@ def _conflict_judge_strict_fail_closed() -> bool:
     return _benchmark_strict_gates_on()
 
 
-def _corpus_skew_blocks_ready(strict: bool, has_material_deviation: bool) -> bool:
+def _weighted_gate_proceed_on_skew_enabled() -> bool:
+    """drb_72 weighted-gate proceed-on-skew kill-switch (PG_WEIGHTED_GATE_PROCEED_ON_SKEW,
+    default OFF). When ON *and* the weighted-corpus gate is ON *and* the corpus is non-empty, a
+    MATERIAL tier skew under the benchmark strict gates DISCLOSES-and-PROCEEDS instead of the
+    hard tier-COUNT refusal (#1235). OFF => byte-identical (the strict path still refuses a
+    material deviation). PURE env read."""
+    return _env_flag(_WEIGHTED_GATE_PROCEED_ON_SKEW_ENV, default=False)
+
+
+def _corpus_skew_blocks_ready(
+    strict: bool,
+    has_material_deviation: bool,
+    *,
+    weighted_gate_on: bool = False,
+    proceed_on_skew: bool = False,
+    corpus_nonempty: bool = False,
+) -> bool:
     """#1235: under strict gates, a corpus with a MATERIAL tier deviation must NOT be
     silently accepted as sweep-ready on the weighted-corpus path — it falls through to the
     EXISTING structured-authorization gate (check_auto_approve_allowed, which honors the
     operator override PG_AUTHORIZED_SWEEP_APPROVAL) instead. Returns True iff the caller must
-    bypass the weighted-corpus auto-approve. PURE — no faithfulness logic. Off => always
-    False => unchanged."""
-    return bool(strict and has_material_deviation)
+    bypass the weighted-corpus auto-approve. PURE — no faithfulness logic.
+
+    drb_72 weighted-gate proceed-on-skew (PG_WEIGHTED_GATE_PROCEED_ON_SKEW, default OFF): a hard
+    tier-COUNT refusal is itself the §-1.3 "filter-by-number" anti-pattern (it verifies no
+    individual claim). When the kill-switch is ON AND the weighted-corpus gate is ON AND the
+    corpus-ZERO floor passes (``corpus_nonempty``), a MATERIAL tier skew DISCLOSES-and-PROCEEDS
+    via the credibility-weighted path — i.e. this returns False so the caller's weighted
+    auto-approve stands. A genuinely EMPTY corpus (``corpus_nonempty`` False) STILL blocks. All
+    three extra params default False, so a positional call is byte-identical to the pre-existing
+    #1235 behavior (``bool(strict and has_material_deviation)``). The per-claim faithfulness floor
+    (strict_verify + 4-role D8) is untouched — this is the pre-generation CORPUS gate only."""
+    if not (strict and has_material_deviation):
+        return False
+    # strict + material deviation: the base #1235 behavior REFUSES. The default-OFF proceed-on-
+    # skew kill-switch relaxes that hard tier-COUNT refusal to disclose-and-proceed ONLY when the
+    # weighted gate is ON AND the corpus-ZERO floor passes (non-empty). Empty corpus still blocks.
+    if weighted_gate_on and proceed_on_skew and corpus_nonempty:
+        return False
+    return True
+
+
+def _weighted_corpus_proceed_on_skew_disclosure(
+    *,
+    strict: bool,
+    has_material_deviation: bool,
+    weighted_gate_on: bool,
+    proceed_on_skew: bool,
+    corpus_nonempty: bool,
+    tier_counts: "dict | None" = None,
+    tier_fractions: "dict | None" = None,
+    total_sources: int = 0,
+) -> "dict | None":
+    """drb_72 weighted-gate proceed-on-skew MUST-DISCLOSE record. Returns the discrete decision
+    dict when the PG_WEIGHTED_GATE_PROCEED_ON_SKEW path FIRED (strict + material deviation +
+    weighted gate ON + kill-switch ON + non-empty corpus) so the manifest / disclosure honestly
+    record that a MATERIAL tier skew was DISCLOSED-and-PROCEEDED rather than refused; None
+    otherwise => nothing attached => byte-identical OFF. PURE — no network / LLM / spend; the
+    per-claim faithfulness floor (strict_verify + 4-role D8) is untouched (this is the
+    pre-generation CORPUS gate). §-1.3: proceed+disclose is WEIGHT-not-FILTER (never drops a
+    source)."""
+    fired = bool(
+        strict
+        and has_material_deviation
+        and weighted_gate_on
+        and proceed_on_skew
+        and corpus_nonempty
+    )
+    if not fired:
+        return None
+    return {
+        "gate": _WEIGHTED_GATE_PROCEED_ON_SKEW_ENV,
+        "action": "disclose_and_proceed",
+        "reason": (
+            "Benchmark strict gates plus a MATERIAL tier deviation would, under #1235, hard-"
+            "refuse this corpus (abort_corpus_approval_denied) on a tier-COUNT proxy that "
+            "verifies no individual claim — itself the §-1.3 filter-by-number anti-pattern. With "
+            "PG_WEIGHTED_GATE_PROCEED_ON_SKEW ON and the weighted-corpus gate ON, the material "
+            "tier skew is DISCLOSED (see corpus_credibility_disclosure) and the run PROCEEDS; the "
+            "corpus-ZERO floor still refuses a genuinely empty corpus, and the per-claim "
+            "faithfulness floor (strict_verify + 4-role D8) is unchanged."
+        ),
+        "had_material_deviation": True,
+        "corpus_nonempty": True,
+        "total_sources": int(total_sources),
+        "tier_counts": dict(tier_counts or {}),
+        "tier_fractions": dict(tier_fractions or {}),
+    }
 
 
 def _v30_should_reraise(strict: bool, allow_legacy_fallback: bool) -> bool:
@@ -10036,8 +10126,40 @@ async def run_one_query(
         # on `approved`), so the corpus skew stays disclosed; it is just no longer rubber-stamped
         # as ready. Off (or no material deviation) => byte-identical to the prior weighted-gate
         # behavior. strict_verify + 4-role D8 unchanged.
+        #
+        # drb_72 weighted-gate proceed-on-skew (PG_WEIGHTED_GATE_PROCEED_ON_SKEW, default OFF): the
+        # #1235 hard tier-COUNT refusal is itself the §-1.3 filter-by-number anti-pattern (it
+        # verifies no individual claim). When the kill-switch is ON, the weighted gate is ON, and
+        # the corpus-ZERO floor passes (non-empty), a MATERIAL tier skew DISCLOSES-and-PROCEEDS via
+        # the credibility-weighted path instead of aborting — the skew is recorded in the
+        # corpus_credibility_disclosure (had_material_deviation + tier counts) AND in an explicit
+        # proceed-on-skew record, never hidden. A genuinely EMPTY corpus still blocks (corpus-ZERO
+        # floor). Default-OFF byte-identical.
+        _strict_gates_on = _benchmark_strict_gates_on()
+        _proceed_on_skew = _weighted_gate_proceed_on_skew_enabled()
+        _corpus_nonempty = has_usable_corpus(
+            retrieval.classified_sources, retrieval.evidence_rows
+        )
         _strict_corpus_skew = _corpus_skew_blocks_ready(
-            _benchmark_strict_gates_on(), dist.has_material_deviation,
+            _strict_gates_on,
+            dist.has_material_deviation,
+            weighted_gate_on=_weighted_corpus_on,
+            proceed_on_skew=_proceed_on_skew,
+            corpus_nonempty=_corpus_nonempty,
+        )
+        # MUST-DISCLOSE: the discrete decision record when the proceed-on-skew path fired (None
+        # otherwise => nothing attached => byte-identical OFF). Injected into the credibility
+        # disclosure dict below so it rides every manifest exit path + corpus_credibility_
+        # disclosure.json.
+        _proceed_on_skew_disclosure = _weighted_corpus_proceed_on_skew_disclosure(
+            strict=_strict_gates_on,
+            has_material_deviation=dist.has_material_deviation,
+            weighted_gate_on=_weighted_corpus_on,
+            proceed_on_skew=_proceed_on_skew,
+            corpus_nonempty=_corpus_nonempty,
+            tier_counts=dist.tier_counts,
+            tier_fractions=dist.tier_fractions,
+            total_sources=dist.total_sources,
         )
         if _weighted_corpus_approve and not _strict_corpus_skew:
             approved = True
@@ -10052,8 +10174,21 @@ async def run_one_query(
         note = (
             f"R-3 sweep. Domain={q['domain']}. "
             + (
-                "weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE): corpus accepted with a "
-                "credibility-weighted disclosure (no tier-count refusal)"
+                (
+                    "weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE): corpus accepted with a "
+                    "credibility-weighted disclosure (no tier-count refusal)"
+                    # drb_72 proceed-on-skew: when the kill-switch relaxed the benchmark strict
+                    # tier-COUNT refusal, the note DISCLOSES that a MATERIAL tier skew was
+                    # proceeded-on (not hidden). Empty string when the path did not fire => the
+                    # note is byte-identical to the prior weighted-gate wording.
+                    + (
+                        "; benchmark strict-gate tier-COUNT refusal RELAXED to disclose-and-"
+                        "proceed (PG_WEIGHTED_GATE_PROCEED_ON_SKEW): material tier skew DISCLOSED, "
+                        "not refused"
+                        if _proceed_on_skew_disclosure is not None
+                        else ""
+                    )
+                )
                 # I-pipe-010 (#1235): when the strict gate bypassed the weighted auto-approve on a
                 # material deviation, the note must reflect the ACTUAL structured-authorization
                 # decision, not falsely claim "corpus accepted".
@@ -10125,6 +10260,12 @@ async def run_one_query(
                 tiering_status=getattr(retrieval, "credibility_tiering_status", None),
             )
             _wc_disclosure_dict = disclosure_to_dict(_wc_disclosure)
+            # drb_72 proceed-on-skew MUST-DISCLOSE: when the kill-switch relaxed the benchmark
+            # strict tier-COUNT refusal into disclose-and-proceed, attach the discrete decision
+            # record ONTO the credibility disclosure dict so it rides every manifest exit path +
+            # corpus_credibility_disclosure.json. None => key absent => byte-identical OFF.
+            if _proceed_on_skew_disclosure is not None:
+                _wc_disclosure_dict["proceed_on_skew"] = _proceed_on_skew_disclosure
             (run_dir / "corpus_credibility_disclosure.json").write_text(
                 json.dumps(_wc_disclosure_dict, indent=2, sort_keys=True,
                            default=str) + "\n",
@@ -10137,6 +10278,15 @@ async def run_one_query(
                 f"had_material_deviation={_wc_disclosure.had_material_deviation}); "
                 f"no tier-count refusal. strict_verify + 4-role D8 unchanged."
             )
+            if _proceed_on_skew_disclosure is not None:
+                _log(
+                    "[weighted_corpus] proceed-on-skew ON "
+                    "(PG_WEIGHTED_GATE_PROCEED_ON_SKEW): benchmark strict-gate tier-COUNT "
+                    "refusal RELAXED to disclose-and-proceed on a MATERIAL tier skew "
+                    "(disclosed in corpus_credibility_disclosure.proceed_on_skew); the "
+                    "corpus-ZERO floor still refuses an empty corpus; strict_verify + 4-role "
+                    "D8 unchanged."
+                )
 
         # Codex round 1 B-2: ENFORCE the corpus-approval gate. Previously
         # the orchestrator wrote corpus_approval.json and then proceeded

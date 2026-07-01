@@ -1,0 +1,21 @@
+No P0/P1 findings.
+
+The diff is consistent with the requested shape: T3 targeting adds a workforce-only Serper site-scoped backend and the LLM-tiering floor only raises known statistical-agency under-tiers back to the deterministic floor. The weighted gate now proceeds on material skew only under `PG_WEIGHTED_GATE_PROCEED_ON_SKEW` + weighted gate + non-empty corpus, and it discloses tier counts/fractions in the credibility disclosure, note, and log. `has_usable_corpus` is a pure boolean predicate over existing lists, so the unconditional computation is not a meaningful off-flag behavior change.
+
+Concern: the retrieval host tuple in `domain_backends.py` is not literally the same object/list as `STATISTICAL_AGENCY_DOMAINS`; it is a subset-style duplicate. The floor itself uses `STATISTICAL_AGENCY_DOMAINS`, and tests verify each retrieval host matches that deterministic list, so this is not a blocker, just a drift risk.
+
+```yaml
+verdict: APPROVE
+s13_consistent: true
+faithfulness_neutral: true
+frozen_engine_untouched: true
+t3_targeting_adds_not_filters: true
+weighted_gate_discloses_and_proceeds: true
+default_safe_byte_identical_off: true
+novel_p0: []
+p1: []
+concerns:
+  - "Retrieval _STATISTICAL_AGENCY_HOSTS is a duplicated subset rather than literally importing STATISTICAL_AGENCY_DOMAINS; not blocking because the tier floor uses STATISTICAL_AGENCY_DOMAINS and every retrieval host matches it."
+```
+
+verdict: APPROVE

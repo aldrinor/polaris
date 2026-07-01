@@ -41,11 +41,14 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as futu
 from typing import Callable
 
 from src.polaris_graph.retrieval.tier_classifier import (
+    STATISTICAL_AGENCY_DOMAINS,
     ClassificationResult,
     ClassificationSignals,
     TierLevel,
     _classify_source_tier_rules,
+    _domain_matches,
     _is_known_scholarly_venue,
+    _normalize_domain,
 )
 
 logger = logging.getLogger(__name__)
@@ -270,6 +273,64 @@ def _cap_uncorroborated_top_tier(
     ):
         return floor_res
     return llm_res
+
+
+# ── Statistical-agency tier FLOOR guarantee (PG_WORKFORCE_T3_TARGETING, default-OFF) ──
+# The LLM-tiering scheme text (_TIER_SCHEME above) describes T3 as CLINICAL government /
+# regulatory bodies (FDA / EMA / NICE / WHO / CDC / Health Canada) and does NOT name
+# statistical / data agencies (BLS / OECD / ILO / StatCan / Eurostat / World Bank / IMF).
+# International orgs like OECD / ILO are not "regulators", so the GLM can DOWN-tier a genuine
+# statistical-agency page (e.g. OECD Employment Outlook -> T6) below the deterministic
+# rules-floor's correct T3 (tier_classifier R2b_statistical_agency). Because the LLM tier
+# OVERRIDES the rules-floor on success, an under-tiered agency page suppresses the workforce
+# T3 backbone that config/scope_templates/workforce.yaml depends on (drb_72 -> T3=4). When a
+# source's host is a KNOWN statistical-agency domain (the SAME deterministic
+# STATISTICAL_AGENCY_DOMAINS authority list the floor uses) and the chosen (LLM) tier is LOWER
+# credibility than the rules-floor tier, keep the rules-floor result. WEIGHT-only (§-1.3): it
+# can ONLY raise an under-tiered known-authority source UP to the tier the deterministic floor
+# already assigns — it never drops a source, never lowers a legitimately-higher LLM tier, never
+# gates release. Default-OFF => byte-identical to legacy LLM-tiering.
+def _workforce_t3_targeting_enabled() -> bool:
+    """LAW VI kill-switch (PG_WORKFORCE_T3_TARGETING), SHARED with the workforce
+    statistical-agency retrieval backend. Default-OFF => the statistical-agency tier
+    floor is NOT applied (byte-identical to legacy LLM-tiering)."""
+    return os.environ.get(
+        "PG_WORKFORCE_T3_TARGETING", "0"
+    ).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _tier_credibility_rank(tier: TierLevel) -> int:
+    """T1..T7 -> 1..7 (LOWER rank == HIGHER credibility). An unparseable label ranks 99
+    (least credible) so it can never spuriously win a floor comparison."""
+    try:
+        return int(str(tier.value)[1:])
+    except (TypeError, ValueError, IndexError):
+        return 99
+
+
+def _floor_known_statistical_agency(
+    chosen: ClassificationResult | None,
+    signals: ClassificationSignals,
+    floor_res: ClassificationResult,
+) -> ClassificationResult | None:
+    """Return the deterministic rules-floor result when the source is a KNOWN
+    statistical-agency domain AND the chosen (LLM) tier is LOWER credibility than the floor
+    tier; otherwise the chosen result is kept unchanged. Only ever RAISES an under-tiered
+    known-authority source to its deterministic floor tier — never drops, never lowers a
+    higher LLM tier (§-1.3). Gated by PG_WORKFORCE_T3_TARGETING; OFF => always returns
+    ``chosen`` unchanged (byte-identical). ``chosen is None`` (the LLM failed for this
+    source) is passed through untouched — the caller's gather tail already applies the floor
+    for a None."""
+    if not _workforce_t3_targeting_enabled():
+        return chosen
+    if chosen is None:
+        return chosen
+    domain = _normalize_domain(signals.url or "")
+    if not _domain_matches(domain, STATISTICAL_AGENCY_DOMAINS):
+        return chosen
+    if _tier_credibility_rank(chosen.tier) > _tier_credibility_rank(floor_res.tier):
+        return floor_res
+    return chosen
 
 
 def _tier_llm_workers() -> int:
@@ -634,6 +695,22 @@ def classify_sources_llm_tiering(
                 llm_res.tier.value, chosen.tier.value,
                 (signals_list[idx].url or "")[:80],
             )
+        # PG_WORKFORCE_T3_TARGETING statistical-agency FLOOR: raise an under-tiered
+        # KNOWN statistical-agency source back UP to its deterministic rules-floor tier
+        # (never drop, never lower a higher LLM tier — §-1.3). Default-OFF => no-op.
+        _pre_agency = chosen
+        chosen = _floor_known_statistical_agency(
+            chosen, signals_list[idx], floor_results[idx],
+        )
+        if chosen is not _pre_agency and chosen is not None:
+            logger.warning(
+                "[credibility_llm_tiering] statistical-agency FLOOR: raised tier %s -> "
+                "%s for %s (known statistical/data agency; PG_WORKFORCE_T3_TARGETING). "
+                "WEIGHT raised to the deterministic floor, source NOT dropped (§-1.3).",
+                (_pre_agency.tier.value if _pre_agency is not None else "floor"),
+                chosen.tier.value,
+                (signals_list[idx].url or "")[:80],
+            )
         out.append(chosen if chosen is not None else floor_results[idx])
 
     # POST-execution canary + HONEST machine-readable status (D5 #1344) — REAL runtime
@@ -695,4 +772,8 @@ def classify_source_tier_llm(signals: ClassificationSignals) -> ClassificationRe
     # path so the single-source dispatcher cannot return an uncorroborated T1/T2 from a
     # bare DOI/title either (gated by PG_TIER_REQUIRE_VENUE_CORROBORATION; only lowers).
     capped = _cap_uncorroborated_top_tier(llm_res, signals, floor)
-    return capped if capped is not None else floor
+    # PG_WORKFORCE_T3_TARGETING statistical-agency FLOOR (default-OFF no-op): keep the
+    # single-source dispatcher aligned with the batch path so a known statistical-agency
+    # source is not left under-tiered here either (only ever raises to the floor, §-1.3).
+    floored = _floor_known_statistical_agency(capped, signals, floor)
+    return floored if floored is not None else floor
