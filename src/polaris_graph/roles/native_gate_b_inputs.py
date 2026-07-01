@@ -204,10 +204,33 @@ def normalize_evidence_pool_lookup(
         record: dict[str, Any] = {_RECORD_TEXT_KEY: text}
         if url:
             record["url"] = url
-        doi = _extract_doi(url, text)
+        # WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): a DOI-only evidence row carries the
+        # canonical DOI/PMID ONLY in its STRUCTURED `doi`/`pmid` field (its `source_url` is None or
+        # DOI-less) — the exact drb_72 case for entities [2]/[3]/[4]. The legacy regex-only extraction
+        # below never read that structured field, so those genuinely-cited works reached
+        # `_entity_canonical_match` with NO identifier and went un-covered. Under the flag, PREFER the
+        # structured identifier (as the first extraction candidate) and fall back to the url/text
+        # regex; OFF -> the candidate list is exactly [url, text] and the output is byte-identical.
+        credit_on = _entity_coverage_citation_credit_enabled()
+        doi_candidates: list[str] = []
+        pmid_candidates: list[str] = []
+        if credit_on:
+            raw_doi = row.get(_RAW_STRUCTURED_DOI_KEY)
+            if isinstance(raw_doi, str) and raw_doi.strip():
+                doi_candidates.append(raw_doi)
+            raw_pmid = row.get(_RAW_STRUCTURED_PMID_KEY)
+            # A bare structured PMID ('34170647' or 34170647) is not matched by the PubMed-URL /
+            # 'PMID:'-token regex, so wrap it as an explicit 'PMID:' token the extractor recognizes.
+            if isinstance(raw_pmid, int):
+                pmid_candidates.append(f"PMID: {raw_pmid}")
+            elif isinstance(raw_pmid, str) and raw_pmid.strip().isdigit():
+                pmid_candidates.append(f"PMID: {raw_pmid.strip()}")
+        doi_candidates.extend([url, text])
+        pmid_candidates.extend([url, text])
+        doi = _extract_doi(*doi_candidates)
         if doi is not None:
             record["doi"] = doi
-        pmid = _extract_pmid(url, text)
+        pmid = _extract_pmid(*pmid_candidates)
         if pmid is not None:
             record["pmid"] = pmid
         lookup[evidence_id] = record
@@ -291,12 +314,89 @@ def validate_entity_severity(
     return severity, s0_category
 
 
+# --- WS-4 (beat-both Wave B): DOI-tolerant entity coverage credit --------------------------------
+# ROOT CAUSE (drb_72): a required entity that is DOI-only (bare `doi`, empty `url_pattern`) went
+# UN-credited on genuinely-VERIFIED claims, so `required_entity_ledger` reported coverage_fraction
+# 4/7=0.571 and listed VERIFIED entities as gaps. TWO independent gaps caused it, BOTH in this file:
+#   (1) `normalize_evidence_pool_lookup` only regex-extracted a DOI from `source_url`/text and NEVER
+#       read the raw record's STRUCTURED `doi`/`pmid` field. drb_72 entities [2]/[3]/[4] carry the DOI
+#       ONLY in that structured field (their `source_url` is None or DOI-less), so the normalized
+#       record reached `_entity_canonical_match` with NO doi at all -> no match, un-covered.
+#   (2) `_entity_canonical_match` compared identifiers by RAW EXACT equality, so a DOI expressed as a
+#       `https://doi.org/…` resolver URL (or in a different case) never equalled the bare-token DOI on
+#       the other side even when they name the SAME work.
+# Both fixes ride ONE default-ON kill-switch `PG_ENTITY_COVERAGE_CITATION_CREDIT`; OFF => the exact
+# pre-WS-4 behavior, byte-identical (0.571 on the fixture). ADDITIVE ONLY: a DOI is a precise WORK
+# identifier — canonical-DOI equality is NEVER a substring/fragment match (two sources sharing a DOI
+# ARE the same work), so this cannot over-credit; and the D8 4-role VERIFIED filter downstream
+# (sweep_integration credits `covered_element_ids` only on a VERIFIED final verdict) is untouched, so
+# a NON-verified claim can never credit coverage.
+_ENV_ENTITY_COVERAGE_CITATION_CREDIT = "PG_ENTITY_COVERAGE_CITATION_CREDIT"
+# Default-ON off-token idiom (mirrors release_policy.always_release_enabled): OFF only on an EXPLICIT
+# off token; unset / empty / unrecognized resolves to ON so the fix cannot be silently disabled by a
+# stray value. Read at CALL TIME (never cached) so an OFF run is byte-identical to legacy.
+_COVERAGE_CREDIT_OFF_VALUES = frozenset({"0", "false", "no", "off"})
+# DOI resolver prefixes stripped to reach the bare canonical DOI token. A DOI is officially
+# case-insensitive and a doi.org / dx.doi.org URL is just a resolver wrapper around the same token.
+_DOI_RESOLVER_PREFIXES = (
+    "https://doi.org/",
+    "http://doi.org/",
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+)
+# Structured identifier keys on the RAW evidence-pool row (read only under the flag).
+_RAW_STRUCTURED_DOI_KEY = "doi"
+_RAW_STRUCTURED_PMID_KEY = "pmid"
+
+
+def _entity_coverage_citation_credit_enabled() -> bool:
+    """``PG_ENTITY_COVERAGE_CITATION_CREDIT`` — default ON (WS-4). OFF only on an EXPLICIT off token
+    ('0'/'false'/'no'/'off'); unset / empty / unrecognized -> ON. OFF reproduces the pre-WS-4
+    exact-match behavior byte-identically (0.571 on the drb_72 fixture).
+    """
+    return (
+        os.environ.get(_ENV_ENTITY_COVERAGE_CITATION_CREDIT, "").strip().lower()
+        not in _COVERAGE_CREDIT_OFF_VALUES
+    )
+
+
+def _canonical_doi(value: Any) -> str:
+    """Return the bare, lowercased canonical DOI for a value, or '' if it is not a DOI.
+
+    Strips a doi.org / dx.doi.org resolver prefix (case-insensitive) then lowercases (DOIs are
+    officially case-insensitive). Returns '' unless the remainder starts with '10.' — so a plain
+    non-DOI URL / fragment / domain can NEVER masquerade as a DOI match (fail-closed: a fragment can
+    never equal a full bare DOI). Precise-identifier equality, never substring — so it cannot
+    over-credit.
+    """
+    if value in (None, ""):
+        return ""
+    text = str(value).strip()
+    lowered = text.lower()
+    for prefix in _DOI_RESOLVER_PREFIXES:
+        if lowered.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    text = text.lower()
+    if not text.startswith("10."):
+        return ""
+    return text
+
+
 def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
     """EXACT canonical-identifier match (P2 #4): DOI / PMID / full canonical URL.
 
     Equality per (entity_key, record_key) pair only — never substring. The URL pair compares
     the entity's `url_pattern` against the record's resolved `url`; a broad `url_pattern`
     FRAGMENT can never equal a full resolved URL, so it fails closed.
+
+    WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): after the exact pairs, add a DOI-CANONICAL
+    tolerance leg. A DOI carried as a `https://doi.org/…` / `http://dx.doi.org/…` resolver URL — in
+    the entity's `doi` OR `url_pattern`, or the record's `doi` OR `url` — or in a different case, is
+    canonicalized (`_canonical_doi`: strip resolver prefix + lowercase) and matched on the bare DOI
+    token. This is precise WORK-identity equality (two sources sharing a DOI ARE the same work), NOT a
+    substring/fragment match, so it cannot over-credit. Flag OFF -> this leg is skipped, byte-identical
+    to the exact-equality behavior.
     """
     for entity_key, record_key in _CANONICAL_MATCH_PAIRS:
         entity_value = entity.get(entity_key)
@@ -307,6 +407,12 @@ def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
             continue
         if str(entity_value).strip() == str(record_value).strip():
             return True
+    if _entity_coverage_citation_credit_enabled():
+        entity_doi = _canonical_doi(entity.get("doi")) or _canonical_doi(entity.get("url_pattern"))
+        if entity_doi:
+            record_doi = _canonical_doi(record.get("doi")) or _canonical_doi(record.get("url"))
+            if record_doi and entity_doi == record_doi:
+                return True
     return False
 
 
@@ -749,6 +855,38 @@ def build_native_gate_b_inputs(
                         covered_element_ids.append(element_id)
                 if bound_element_ids:
                     best_rank = max(best_rank, _SEVERITY_RANK[_SEVERITY_S0])
+
+            # WS-4 (PG_ENTITY_COVERAGE_CITATION_CREDIT, default ON): basket-membership FALLBACK credit.
+            # AFTER the native canonical-match loop (this is a strict_verify-VERIFIED sentence — the
+            # `verification.is_verified` guard above), credit GENERAL entity coverage when this claim
+            # cites an evidence_id that is a SUPPORTS member of an entity's OWN basket (the coverage_
+            # binder owns the SUPPORTS-only rule; a REFUTES/NEUTRAL member never credits). This handles
+            # the case where a VERIFIED claim supports a required entity through a corroborating source
+            # whose OWN canonical identifier differs from the entity's declared one. It touches ONLY
+            # `covered_element_ids` (the completeness/coverage fraction) and `best_rank` — it NEVER adds
+            # a `covered_s0_categories` credit, so the frozen S0 SAFETY floor (which reads s0_categories,
+            # gated by the FULL content conjunction) is untouched. Additive + still D8-gated: the D8
+            # coverage numerator credits `covered_element_ids` only on a VERIFIED 4-role final verdict
+            # (sweep_integration), so a non-verified claim can never credit. DEFAULT ON but a no-op until
+            # upstream attaches a SUPPORTS basket to the entity (the caller's wiring); flag OFF -> the
+            # binder is never imported and `covered_element_ids` is byte-identical to legacy.
+            if _entity_coverage_citation_credit_enabled():
+                from src.polaris_graph.roles.coverage_binder import bind_basket_coverage
+
+                basket_covered_ids = bind_basket_coverage(
+                    claim_evidence_ids=evidence_ids,
+                    validated_entities=validated,
+                )
+                if basket_covered_ids:
+                    _severity_by_id = {
+                        entity[_KEY_ENTITY_ID]: severity for entity, severity, _ in validated
+                    }
+                    for element_id in basket_covered_ids:
+                        if element_id not in covered_element_ids:
+                            covered_element_ids.append(element_id)
+                            best_rank = max(
+                                best_rank, _SEVERITY_RANK[_severity_by_id[element_id]]
+                            )
 
             claim_severity = next(
                 sev for sev, rank in _SEVERITY_RANK.items() if rank == best_rank

@@ -132,3 +132,90 @@ def bind_s0_coverage(
             credited_categories.add(s0_category)
             credited_element_ids.add(entity[_KEY_ENTITY_ID])
     return credited_categories, credited_element_ids
+
+
+# ── WS-4 (beat-both Wave B): basket-membership entity-coverage FALLBACK ───────────────────────
+# General ENTITY coverage (the completeness / coverage_fraction), NOT the S0 SAFETY floor. Credits a
+# required entity when an ALREADY-VERIFIED claim cites an evidence_id that is a SUPPORTS member of the
+# entity's OWN basket — i.e. the claim supports the entity through a corroborating source whose own
+# canonical identifier differs from the entity's declared one (a §-1.3 basket carries the SAME claim
+# across multiple sources). This is the second WS-4 leg (the first is the DOI-canonical tolerance in
+# native_gate_b_inputs); it rides the SAME default-ON `PG_ENTITY_COVERAGE_CITATION_CREDIT` kill-switch
+# (read by the caller seam, so flag-OFF never imports/calls this path).
+#
+# SAFETY (faithfulness-adjacent, highest care):
+#   * SUPPORTS-ONLY, enforced HERE (never trusted): a REFUTES / NEUTRAL basket member NEVER credits
+#     coverage — a source that refutes an entity must not mark it covered.
+#   * VERIFIED-ONLY: the caller invokes this ONLY for a strict_verify-VERIFIED sentence, and the D8
+#     coverage numerator downstream credits `covered_element_ids` only on a VERIFIED 4-role final
+#     verdict — so a non-verified claim can never credit (additive credit, D8 still gates).
+#   * NEVER an S0 SAFETY credit: this returns element_ids for the completeness ledger only; it never
+#     credits an s0_category (the frozen S0 conjunction owns the safety floor). Under-crediting is a
+#     SAFE disclosed gap; over-crediting safety would be lethal — this path can only under-, not over-,
+#     credit the safety floor because it never touches it.
+#   * FAIL-CLOSED: an entity with no SUPPORTS basket, or a claim citing none of its members, credits
+#     nothing. A malformed basket member is skipped, never credited.
+#
+# The entity's basket is read from the entity dict — DEFAULT-ABSENT -> no credit (additive, never
+# subtractive). Two accepted, forward-compatible shapes (upstream consolidation populates ONE):
+#   * entity["supports_evidence_ids"]: a list of evidence_id strings ALREADY filtered to SUPPORTS.
+#   * entity["evidence_basket"]: a list of {"evidence_id": str, "stance": str} members; ONLY the
+#     stance == "SUPPORTS" members are eligible.
+_KEY_SUPPORTS_EVIDENCE_IDS = "supports_evidence_ids"
+_KEY_EVIDENCE_BASKET = "evidence_basket"
+_KEY_MEMBER_EVIDENCE_ID = "evidence_id"
+_KEY_MEMBER_STANCE = "stance"
+_STANCE_SUPPORTS = "SUPPORTS"
+
+
+def _entity_supports_basket(entity: Mapping[str, Any]) -> set[str]:
+    """The set of evidence_ids that are SUPPORTS members of this entity's own basket.
+
+    Reads the two accepted shapes (see module note); the SUPPORTS-only rule is enforced HERE — a
+    REFUTES / NEUTRAL / unknown-stance member is dropped. A missing/empty/malformed basket yields the
+    empty set (fail-closed, no credit)."""
+    ids: set[str] = set()
+    raw_ids = entity.get(_KEY_SUPPORTS_EVIDENCE_IDS)
+    if isinstance(raw_ids, (list, tuple, set)):
+        for ev_id in raw_ids:
+            if isinstance(ev_id, str) and ev_id.strip():
+                ids.add(ev_id.strip())
+    basket = entity.get(_KEY_EVIDENCE_BASKET)
+    if isinstance(basket, (list, tuple)):
+        for member in basket:
+            if not isinstance(member, Mapping):
+                continue
+            stance = str(member.get(_KEY_MEMBER_STANCE, "")).strip().upper()
+            if stance != _STANCE_SUPPORTS:
+                continue
+            ev_id = member.get(_KEY_MEMBER_EVIDENCE_ID)
+            if isinstance(ev_id, str) and ev_id.strip():
+                ids.add(ev_id.strip())
+    return ids
+
+
+def bind_basket_coverage(
+    *,
+    claim_evidence_ids: Sequence[str],
+    validated_entities: Sequence[tuple[Mapping[str, Any], str, str | None]],
+) -> set[str]:
+    """Credit GENERAL entity coverage element_ids to ONE ALREADY-VERIFIED claim whose cited evidence
+    is a SUPPORTS member of an entity's own basket. Pure, additive, fail-closed.
+
+    The CALLER must invoke this ONLY for a strict_verify-VERIFIED claim (the build seam reaches it only
+    for `verification.is_verified` sentences). Returns the SET of covered element_ids (any severity) —
+    for the completeness / coverage fraction only; it NEVER credits an S0 safety category. An entity
+    with no SUPPORTS basket, or a claim citing none of its members, credits nothing (empty set)."""
+    cited = {
+        ev_id.strip()
+        for ev_id in (claim_evidence_ids or [])
+        if isinstance(ev_id, str) and ev_id.strip()
+    }
+    if not cited:
+        return set()
+    credited: set[str] = set()
+    for entity, _severity, _s0_category in validated_entities:
+        basket = _entity_supports_basket(entity)
+        if basket and (cited & basket):
+            credited.add(entity[_KEY_ENTITY_ID])
+    return credited
