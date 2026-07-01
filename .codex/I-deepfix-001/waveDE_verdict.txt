@@ -1,0 +1,16 @@
+verdict: REQUEST_CHANGES
+frozen_engine_untouched: true
+s13_violations:
+  - severity: P0
+    file: src/polaris_graph/generator/depth_synthesis.py
+    issue: "WS-8 recency reorders baskets before the existing max_findings cap. When PG_DEPTH_SYNTHESIS_MAX_FINDINGS/max_findings is positive, older baskets can be skipped by the cap, so recency becomes thinning/drop rather than pure ordering."
+    evidence: "patch lines 430-441 and 458-460"
+ttddr_bounded_and_default_off: false
+novel_p0:
+  - file: src/polaris_graph/generator/depth_synthesis.py
+    issue: "Recency is not guaranteed no-drop because it is applied before the synthesis cap."
+p1:
+  - file: src/polaris_graph/retrieval/ttddr_loop.py
+    issue: "WS-15 is default-OFF, injectable, and does not self-verify, but wall_seconds and cost_budget default to None and None explicitly disables those bounds. The hard requirement requires max_rounds, wall-clock, and cost bounds."
+    evidence: "patch lines 560-562 and 643-651"
+p2: []

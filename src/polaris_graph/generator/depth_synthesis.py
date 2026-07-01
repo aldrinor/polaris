@@ -232,6 +232,106 @@ def _scoped_pool(basket: Any, evidence_pool: dict) -> dict:
         return {eid: row for eid, row in (evidence_pool or {}).items() if eid in own}
 
 
+# ── I-deepfix-001 WS-8 (D4) THIRD headline path — basket-level recency RE-RANK ────────────────────────
+# Codex found the depth cross-source SYNTHESIS pass orders/consumes ``credibility_analysis.baskets``
+# DIRECTLY (the ``for basket in baskets`` loop below), bypassing the recency-ordered unbound-supports
+# selection — so a very-old source can still anchor a TOP Analysis finding. This leg DEMOTES an older
+# basket in the SYNTHESIS ORDER so it does not headline: a WEIGHT on ordering ONLY — every basket is KEPT
+# and still synthesized (§-1.3 no-drop / no-cap / no-filter). It reuses the SAME env curve
+# (``PG_M2_RECENCY_*``: grace 5, decay 0.02, floor 0.25) as the bibliography + composition legs, is gated
+# on the SAME journal-class signal (``PG_DOCUMENT_TYPE_WEIGHT``) AND a new default-ON
+# ``PG_DEPTH_RECENCY_RERANK`` kill-switch; OFF / non-journal-class / no basket carries a parseable year =>
+# the basket order is returned UNCHANGED (byte-identical). The faithfulness engine is untouched.
+_DEPTH_RECENCY_RERANK_ENV = "PG_DEPTH_RECENCY_RERANK"
+_DS_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _depth_recency_rerank_enabled() -> bool:
+    """Journal-class gate: the depth-synthesis recency re-rank fires only when ``PG_DOCUMENT_TYPE_WEIGHT``
+    is ON (the journal-class run signal, same gate as the bibliography + composition legs) AND
+    ``PG_DEPTH_RECENCY_RERANK`` is not disabled (default-ON kill-switch)."""
+    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+    rerank = os.environ.get(_DEPTH_RECENCY_RERANK_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+    return dtw and rerank
+
+
+def _ds_publication_year(entry: "dict | None") -> "int | None":
+    """Publication year of a member SOURCE dict (the evidence-pool row): an explicit year field, else the
+    first plausible 4-digit year in title/statement/url/doi. None when none found (=> neutral, no penalty).
+    Same parse shape as the other WS-8 legs (``weighted_enrichment._we_publication_year``)."""
+    if not isinstance(entry, dict):
+        return None
+    for k in ("year", "publication_year", "pub_year"):
+        v = entry.get(k)
+        if v is None:
+            continue
+        try:
+            y = int(str(v).strip()[:4])
+        except (TypeError, ValueError):
+            continue
+        if 1500 <= y <= 2100:
+            return y
+    for k in ("title", "statement", "url", "doi"):
+        m = _DS_YEAR_RE.search(str(entry.get(k) or ""))
+        if m:
+            y = int(m.group(0))
+            if 1500 <= y <= 2100:
+                return y
+    return None
+
+
+def _basket_newest_year(basket: Any, evidence_pool: dict) -> "int | None":
+    """A basket's recency = the NEWEST publication year among its distinct-origin SUPPORTS member sources
+    (each member's row looked up in ``evidence_pool`` by ``evidence_id``). None when NO member carries a
+    parseable year (=> the basket is neutral and keeps its order)."""
+    years: list[int] = []
+    for m in _distinct_origin_supports(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        y = _ds_publication_year((evidence_pool or {}).get(eid))
+        if y is not None:
+            years.append(y)
+    return max(years) if years else None
+
+
+def _depth_recency_factor(year: "int | None", reference_year: "int | None") -> float:
+    """A ``[floor, 1.0]`` ordering multiplier: 1.0 within ``grace`` years of the corpus-newest basket,
+    decaying linearly by ``decay`` per year older, FLOORED (an old basket is DEMOTED in the synthesis
+    order, never dropped). Same env curve as the bibliography + composition legs (``PG_M2_RECENCY_*``).
+    Missing year / missing reference / disabled => 1.0 (byte-identical)."""
+    if year is None or reference_year is None or not _depth_recency_rerank_enabled():
+        return 1.0
+    try:
+        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
+        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
+        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
+    except (TypeError, ValueError):
+        grace, decay, floor = 5, 0.02, 0.25
+    age = max(0, int(reference_year) - int(year) - grace)
+    return max(floor, 1.0 - decay * age)
+
+
+def _order_baskets_by_recency(baskets: Any, evidence_pool: dict) -> list:
+    """Re-order the baskets so an OLDER basket is DEMOTED below a NEWER one in the synthesis order (so a
+    very-old source does not anchor a top Analysis finding) — a STABLE WEIGHT on ordering ONLY: every
+    basket is KEPT (§-1.3 no-drop / no-cap / no-filter) and ties (including every basket when
+    disabled/unknown-year) preserve their original relative order => byte-identical. OFF /
+    non-journal-class / no basket carries a parseable year => the input order is returned UNCHANGED."""
+    baskets_list = list(baskets or [])
+    if not baskets_list or not _depth_recency_rerank_enabled():
+        return baskets_list
+    years = [_basket_newest_year(b, evidence_pool) for b in baskets_list]
+    parseable = [y for y in years if y is not None]
+    ref_year = max(parseable) if parseable else None
+    if ref_year is None:
+        return baskets_list  # no parseable year anywhere => byte-identical order
+    factors = [_depth_recency_factor(y, ref_year) for y in years]
+    # STABLE DESC sort by recency factor: an older basket (lower factor) sinks below a newer one; equal
+    # factors (the newest baskets + unknown-year neutral baskets, all 1.0) keep their original relative
+    # order (byte-identical). No basket is removed — this only permutes; the loop still visits them all.
+    order = sorted(range(len(baskets_list)), key=lambda i: -factors[i])
+    return [baskets_list[i] for i in order]
+
+
 def synthesize_cross_source_findings(
     baskets: Any,
     evidence_pool: dict,
@@ -283,7 +383,18 @@ def synthesize_cross_source_findings(
 
     findings: list[dict] = []
     seen: set[str] = set()
-    for basket in baskets or []:
+    # WS-8 (D4) THIRD headline path: DEMOTE an older basket in the synthesis ORDER so a very-old source
+    # does not anchor a top Analysis finding — a WEIGHT on ordering ONLY (every basket kept + still
+    # synthesized; §-1.3). OFF / non-journal-class / unknown-year => byte-identical order.
+    # WS-8 P0 fix (Codex waveDE gate): reorder ONLY when there is NO synthesis cap (cap<=0, the default).
+    # With a POSITIVE cap the loop below drops baskets past the cap line, so reordering by recency BEFORE
+    # the cap would turn an old-basket demotion into an actual DROP (§-1.3 violation). When capped, keep
+    # the original weight order for INCLUSION (byte-identical which baskets survive the cap); recency
+    # reorders only in the uncapped case, where every basket is synthesized so nothing can be dropped.
+    ordered_baskets = (
+        _order_baskets_by_recency(baskets, evidence_pool) if cap <= 0 else list(baskets or [])
+    )
+    for basket in ordered_baskets:
         if cap > 0 and len(findings) >= cap:
             break
         members = _distinct_origin_supports(basket)
