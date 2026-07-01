@@ -329,6 +329,65 @@ class UnboundSupportsSelection(NamedTuple):
     disclosed_only: tuple[dict[str, Any], ...] = ()
 
 
+# I-deepfix-001 WS-8 (D4) part 2: COMPOSITION-ordering recency leg. The bibliography re-rank alone did not
+# stop the headline breach (Codex: the 1986 source headlined from the selection/composition path). This
+# demotes an OLD source in the unbound-supports selection ORDERING so it no longer anchors a top finding —
+# a WEIGHT on the sort key only, NEVER a filter (the full list is kept; nothing is dropped/capped — §-1.3).
+# Journal-class only: gated on PG_DOCUMENT_TYPE_WEIGHT (the journal-class signal, same as the bib re-rank)
+# AND PG_COMPOSITION_RECENCY (default-ON); OFF, non-journal-class, or unknown/absent year => factor 1.0 =>
+# byte-identical ordering. Reuses the SAME env-tunable curve as the bibliography leg (PG_M2_RECENCY_*).
+_COMPOSITION_RECENCY_ENV = "PG_COMPOSITION_RECENCY"
+_WE_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _composition_recency_enabled() -> bool:
+    """Journal-class gate: the composition recency leg fires only when PG_DOCUMENT_TYPE_WEIGHT is ON (the
+    journal-class run signal) AND PG_COMPOSITION_RECENCY is not disabled (default-ON)."""
+    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+    comp = os.environ.get(_COMPOSITION_RECENCY_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+    return dtw and comp
+
+
+def _we_publication_year(entry: "dict | None") -> "int | None":
+    """Publication year of an evidence-pool entry: an explicit year field, else the first plausible
+    4-digit year in title/statement/direct_quote/url/doi. None when none found (=> no penalty)."""
+    if not isinstance(entry, dict):
+        return None
+    for k in ("year", "publication_year", "pub_year"):
+        v = entry.get(k)
+        if v is None:
+            continue
+        try:
+            y = int(str(v).strip()[:4])
+        except (TypeError, ValueError):
+            continue
+        if 1500 <= y <= 2100:
+            return y
+    for k in ("title", "statement", "direct_quote", "url", "doi"):
+        m = _WE_YEAR_RE.search(str(entry.get(k) or ""))
+        if m:
+            y = int(m.group(0))
+            if 1500 <= y <= 2100:
+                return y
+    return None
+
+
+def _we_recency_factor(year: "int | None", reference_year: "int | None") -> float:
+    """A [floor, 1.0] ordering multiplier: 1.0 within ``grace`` years of the corpus-newest source, decaying
+    linearly by ``decay`` per year older, FLOORED (an old source is DEMOTED for headline order, never
+    dropped). Same env curve as the bibliography leg. Missing year / disabled => 1.0."""
+    if year is None or reference_year is None or not _composition_recency_enabled():
+        return 1.0
+    try:
+        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
+        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
+        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
+    except (TypeError, ValueError):
+        grace, decay, floor = 5, 0.02, 0.25
+    age = max(0, int(reference_year) - int(year) - grace)
+    return max(floor, 1.0 - decay * age)
+
+
 def diagnose_unbound_supports_selection(
     *,
     evidence_pool: Any,
@@ -472,6 +531,12 @@ def diagnose_unbound_supports_selection(
         rel = relevance_by_eid.get(eid)
         return rel is not None and rel < relevance_floor
 
+    # WS-8 (D4) part 2: corpus-relative recency factor applied to the weight_mass ORDERING term (never to
+    # relevance, never a filter). Journal-class only + byte-identical when off/unknown-year. Computed once.
+    _year_by_eid = {eid: _we_publication_year(pool.get(eid)) for eid in best_weight}
+    _years = [y for y in _year_by_eid.values() if y is not None]
+    _ref_year = max(_years) if _years else None
+
     ev_ids = [
         eid
         for eid, _ in sorted(
@@ -479,7 +544,9 @@ def diagnose_unbound_supports_selection(
             key=lambda kv: (
                 _is_below_floor(kv[0]),                       # False (0) before True (1)
                 -_relevance_sort_key(relevance_by_eid.get(kv[0])),
-                -kv[1],
+                # WS-8 (D4): demote an OLD source in the weight_mass ordering (still kept — §-1.3); factor
+                # 1.0 when the recency leg is off / non-journal-class / year unknown => byte-identical.
+                -(kv[1] * _we_recency_factor(_year_by_eid.get(kv[0]), _ref_year)),
                 kv[0],
             ),
         )
