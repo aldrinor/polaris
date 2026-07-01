@@ -1,0 +1,683 @@
+diff --git a/scripts/dr_benchmark/drbii_wrapper.py b/scripts/dr_benchmark/drbii_wrapper.py
+new file mode 100644
+index 00000000..b6e0f954
+--- /dev/null
++++ b/scripts/dr_benchmark/drbii_wrapper.py
+@@ -0,0 +1,217 @@
++"""I-deepfix-001 WS-14 part 2 — DeepResearch-Bench-II (DRB-II) submission WRAPPER (thin, offline).
++
++DRB-II is a REAL, official research-report benchmark (132 tasks / 9,415 expert rubric items, Gemini
++rubric judge). It ships its own scorer, ``third_party/DeepResearch-Bench-II/run_evaluation.py``, which:
++  * scans a ``--pdf_dir`` tree for ``<model>/idx-<N>.<ext>`` files (``.md``/``.txt``/``.html``/``.pdf``/
++    ``.docx``/images),
++  * reads each file's ARTICLE text as the ``<passage>`` to grade,
++  * pulls the task text + rubric items + ``blocked`` reference from the catalog
++    ``tasks_and_rubrics.jsonl`` keyed by the file's ``idx`` (NOT from the submission),
++  * asks the Gemini judge for a THREE-WAY (1 / 0 / -1) score per rubric item,
++  * appends per-idx results to ``--out_jsonl``.
++
++This module is a THIN ADAPTER only. It does NOT re-implement DRB-II scoring — the official harness stays
++the scorer (contrast the DeepTRACE module, which is a re-implementation because DeepTRACE has NO public
++scorer). Two responsibilities, both PURE / OFFLINE:
++
++  1. ``build_drbii_submission(report_markdown, task_id, references)`` -> the DRB-II-shaped submission dict
++     (article text + DRB-II task idx + normalized reference list + the on-disk ``idx-<N>.md`` filename).
++  2. ``drbii_score_command(submission_path, out_path)`` -> the argv that invokes ``run_evaluation.py`` at
++     benchmark time. The harness path is parameterized by ``PG_DRBII_EVAL_SCRIPT`` (default: a documented
++     placeholder path). The wrapper NEVER imports or requires the harness / Gemini / network at
++     import/test time — the actual scoring runs later on the VM.
++
++``write_drbii_submission`` is a convenience materializer that writes the dict into the exact on-disk layout
++the harness scans. It is a plain file write (offline).
++
++Honesty / faithfulness notes:
++  * task_id IS the DRB-II ``idx``. The run-id <-> idx offset is REAL (run id "task72" is DRB-II idx 56).
++    This wrapper does NOT transform ids — the caller passes the resolved DRB-II ``idx``. A wrong idx would
++    score the report against the wrong task's rubrics (the §-1.4 silently-wrong-number class); build-time
++    validation guards only the shape, not the id-resolution (that lives in ``pack_drb2.py``).
++  * ``references`` are OUR article's cited sources, captured for provenance and so a downstream check can
++    compare them against the task's ``blocked`` reference. They are NOT the ``blocked`` field (which the
++    harness reads from its own catalog).
++  * No kill-switch: this is a NEW standalone eval-tooling module with ZERO import into the runtime
++    pipeline, so it changes no existing pipeline behavior. The faithfulness engine is untouched.
++  * LAW VI: every path/name is env-overridable; nothing is hard-coded into behavior.
++"""
++from __future__ import annotations
++
++import os
++import sys
++from pathlib import Path
++from typing import Any, Mapping, Optional, Sequence
++
++# --- Documented PLACEHOLDER defaults (overridable via env; the wrapper never requires these to exist). ---
++# The official DRB-II harness lives OUTSIDE this module's import graph. At benchmark time on the VM, set
++# PG_DRBII_EVAL_SCRIPT to the real run_evaluation.py. These defaults are documented placeholders so the
++# wrapper stays offline-safe (no filesystem/import dependency) at import/test time.
++DEFAULT_EVAL_SCRIPT = "third_party/DeepResearch-Bench-II/run_evaluation.py"
++DEFAULT_TASKS_JSONL = "third_party/DeepResearch-Bench-II/tasks_and_rubrics.jsonl"
++DEFAULT_MODEL_NAME = "polaris"
++SUBMISSION_SCHEMA_VERSION = "drbii-1"
++
++# The official harness's per-file idx pattern is ``^idx-(\d+)(?:\..+)?$`` (run_evaluation.py). The
++# submission filename MUST match it, else the harness silently skips the file.
++_SUBMISSION_FILENAME_TEMPLATE = "idx-{idx}.md"
++
++
++def _coerce_task_idx(task_id: Any) -> int:
++    """Return the DRB-II integer idx, FAILING LOUD on a non-integer / negative value. A malformed idx
++    would produce a filename the harness cannot key to a task (silent skip / wrong rubric)."""
++    try:
++        idx = int(task_id)
++    except (TypeError, ValueError):
++        raise ValueError(
++            f"[drbii_wrapper] task_id must be the integer DRB-II idx, got {task_id!r}. "
++            f"Pass the catalog `idx` (the run id 'task72' is idx 56 — resolve the offset upstream)."
++        )
++    if idx < 0:
++        raise ValueError(f"[drbii_wrapper] task_id (DRB-II idx) must be >= 0, got {idx}.")
++    return idx
++
++
++def _normalize_one_reference(ref: Any, position: int) -> dict[str, Any]:
++    """Normalize a single reference to ``{id, title, url, authors}``. Accepts a mapping (any subset of
++    id/title/url/authors) or a bare string (a URL if it looks like one, else a title)."""
++    default_id = f"ref_{position}"
++    if isinstance(ref, Mapping):
++        url = str(ref.get("url") or "").strip()
++        title = str(ref.get("title") or "").strip()
++        authors_raw = ref.get("authors") or []
++        if isinstance(authors_raw, (str, bytes)):
++            authors = [str(authors_raw).strip()] if str(authors_raw).strip() else []
++        elif isinstance(authors_raw, Sequence):
++            authors = [str(a).strip() for a in authors_raw if str(a).strip()]
++        else:
++            authors = []
++        ref_id = str(ref.get("id") or ref.get("evidence_id") or default_id).strip() or default_id
++        return {"id": ref_id, "title": title, "url": url, "authors": authors}
++    # bare string
++    text = str(ref).strip()
++    if text.lower().startswith(("http://", "https://")):
++        return {"id": default_id, "title": "", "url": text, "authors": []}
++    return {"id": default_id, "title": text, "url": "", "authors": []}
++
++
++def _normalize_references(references: Any) -> list[dict[str, Any]]:
++    """Normalize the reference list. ``None`` -> ``[]``. A single mapping/string is wrapped in a list."""
++    if references is None:
++        return []
++    if isinstance(references, (Mapping, str, bytes)):
++        references = [references]
++    if not isinstance(references, Sequence):
++        raise ValueError(
++            f"[drbii_wrapper] references must be a list of dicts/strings (or None), got {type(references)}."
++        )
++    return [_normalize_one_reference(r, i + 1) for i, r in enumerate(references)]
++
++
++def build_drbii_submission(
++    report_markdown: str,
++    task_id: Any,
++    references: Any = None,
++    *,
++    model: str = DEFAULT_MODEL_NAME,
++) -> dict[str, Any]:
++    """Prepare a POLARIS rendered report into the DRB-II submission shape (PURE / OFFLINE).
++
++    The returned dict is the structured POLARIS-side representation of one DRB-II submission item:
++      * ``article``     : the report markdown text the Gemini judge grades as ``<passage>``.
++      * ``task_id`` / ``idx`` : the DRB-II catalog idx this report answers (the caller resolves the
++        run-id <-> idx offset; this wrapper does not transform it).
++      * ``references``  : normalized cited-source list (id/title/url/authors) — provenance + a hook to
++        cross-check against the task's ``blocked`` reference at score time.
++      * ``model`` / ``submission_filename`` : the on-disk layout ``<model>/idx-<idx>.md`` the harness scans.
++      * honesty fields: ``scorer`` (the official harness) and ``reimplemented=False``.
++
++    ``write_drbii_submission`` materializes this dict into that on-disk layout for the scorer.
++    """
++    if report_markdown is None:
++        raise ValueError("[drbii_wrapper] report_markdown must be a string, got None (fail loud).")
++    article = str(report_markdown)
++    idx = _coerce_task_idx(task_id)
++    refs = _normalize_references(references)
++    model_name = str(model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
++    filename = _SUBMISSION_FILENAME_TEMPLATE.format(idx=idx)
++    return {
++        "schema_version": SUBMISSION_SCHEMA_VERSION,
++        "benchmark": "deepresearch-bench-ii",
++        # ---- the scored payload ----
++        "article": article,
++        "task_id": idx,
++        "idx": idx,
++        "references": refs,
++        # ---- on-disk layout the harness scans (<pdf_dir>/<model>/idx-<idx>.md) ----
++        "model": model_name,
++        "submission_filename": filename,
++        "submission_relpath": f"{model_name}/{filename}",
++        # ---- convenience metadata ----
++        "article_char_count": len(article),
++        "n_references": len(refs),
++        # ---- honesty / provenance ----
++        "scorer": "third_party/DeepResearch-Bench-II/run_evaluation.py (official Gemini rubric judge)",
++        "reimplemented": False,
++    }
++
++
++def write_drbii_submission(submission: Mapping[str, Any], out_dir: str | os.PathLike[str]) -> Path:
++    """Materialize a submission dict into ``out_dir/<model>/idx-<idx>.md`` (the layout the harness scans).
++
++    Plain file write — offline, no network, no harness import. Returns the written path. ``out_dir`` is the
++    ``--pdf_dir`` root you later pass to :func:`drbii_score_command`."""
++    relpath = str(submission.get("submission_relpath") or "").strip()
++    if not relpath:
++        model = str(submission.get("model") or DEFAULT_MODEL_NAME)
++        filename = str(submission.get("submission_filename") or "")
++        if not filename:
++            raise ValueError("[drbii_wrapper] submission is missing submission_filename/relpath.")
++        relpath = f"{model}/{filename}"
++    article = submission.get("article")
++    if article is None:
++        raise ValueError("[drbii_wrapper] submission is missing 'article' text.")
++    out_path = Path(out_dir) / relpath
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    out_path.write_text(str(article), encoding="utf-8")
++    return out_path
++
++
++def drbii_score_command(
++    submission_path: str | os.PathLike[str],
++    out_path: str | os.PathLike[str],
++    *,
++    eval_script: Optional[str] = None,
++    tasks_jsonl: Optional[str] = None,
++    python_executable: Optional[str] = None,
++    extra_args: Optional[Sequence[str]] = None,
++) -> list[str]:
++    """Return the argv to invoke the OFFICIAL DRB-II ``run_evaluation.py`` (does NOT run it).
++
++    ``submission_path`` is the ``--pdf_dir`` ROOT that contains ``<model>/idx-<N>.md`` (NOT a single file —
++    the harness scans first-level subdirectories). ``out_path`` is the ``--out_jsonl`` results file.
++
++    Parameterization (LAW VI, all env-overridable; a documented placeholder default so nothing is required
++    to exist at build time):
++      * eval_script      <- ``eval_script`` arg or ``PG_DRBII_EVAL_SCRIPT`` env or ``DEFAULT_EVAL_SCRIPT``.
++      * tasks_jsonl      <- ``tasks_jsonl`` arg or ``PG_DRBII_TASKS_JSONL`` env or ``DEFAULT_TASKS_JSONL``.
++      * python_executable<- ``python_executable`` arg or ``PG_DRBII_PYTHON`` env or ``sys.executable``.
++
++    No filesystem checks, no harness import — pure argv construction, offline-safe. The returned list is
++    handed to ``subprocess`` on the VM at benchmark time."""
++    script = eval_script or os.getenv("PG_DRBII_EVAL_SCRIPT") or DEFAULT_EVAL_SCRIPT
++    tasks = tasks_jsonl or os.getenv("PG_DRBII_TASKS_JSONL") or DEFAULT_TASKS_JSONL
++    python_exe = python_executable or os.getenv("PG_DRBII_PYTHON") or sys.executable or "python"
++    argv = [
++        str(python_exe),
++        str(script),
++        "--pdf_dir",
++        str(submission_path),
++        "--out_jsonl",
++        str(out_path),
++        "--tasks_jsonl",
++        str(tasks),
++    ]
++    if extra_args:
++        argv.extend(str(a) for a in extra_args)
++    return argv
+diff --git a/src/polaris_graph/audit/source_necessity_disclosure.py b/src/polaris_graph/audit/source_necessity_disclosure.py
+new file mode 100644
+index 00000000..dfc37276
+--- /dev/null
++++ b/src/polaris_graph/audit/source_necessity_disclosure.py
+@@ -0,0 +1,108 @@
++"""WS-10 (I-deepfix-001) — Source Necessity SURFACING.
++
++The min-vertex-cover / sole-supporter algorithm is ALREADY built and tested in
++``scripts/dr_benchmark/deeptrace_scorer.py`` (``necessary_source_count`` /
++``compute_deeptrace_metrics``). This module does NOT re-implement it. It is a thin, PURE
++disclosure builder that SURFACES the source-necessity number (DeepTRACE metric VI) into the
++run manifest / disclosure block, so:
++
++  * the DeepTRACE metric #6 can be read back from a real run, and
++  * an audit can see which listed sources are NECESSARY (sole supporter of >=1 relevant
++    statement) versus REDUNDANT (their support for every relevant statement is corroborated
++    by at least one other source, or they support no relevant statement).
++
++§-1.3 (WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP): a "redundant" source is corroborated,
++not useless. This module DISCLOSES the necessary/redundant split; it NEVER drops, caps, thins,
++or filters a source. "Redundant" here means "removing it would leave no relevant statement
++un-supported" — it stays in the corpus at full weight; we merely report that fact.
++
++Kill switch: ``PG_SOURCE_NECESSITY_DISCLOSURE`` (default ON). When set to an OFF value the
++builder returns ``None`` so a caller reverts byte-identically (no disclosure key emitted).
++
++PURE / offline. The faithfulness engine is untouched.
++"""
++from __future__ import annotations
++
++import os
++from typing import Any, Optional, Sequence
++
++from scripts.dr_benchmark.deeptrace_scorer import necessary_source_count
++
++_ENV_FLAG = "PG_SOURCE_NECESSITY_DISCLOSURE"
++_OFF_VALUES = ("", "0", "false", "off", "no")
++
++
++def _disclosure_enabled() -> bool:
++    """Default-ON kill switch. OFF values: '', '0', 'false', 'off', 'no' (case-insensitive)."""
++    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
++
++
++def _cited_source_count(
++    citation_matrix: Sequence[Sequence[int]],
++    n_sources: int,
++) -> int:
++    """Number of distinct listed sources cited by at least one statement (audit context only —
++    never used to drop a source)."""
++    cited: set[int] = set()
++    for row in citation_matrix:
++        for j in range(min(len(row), n_sources)):
++            if row[j]:
++                cited.add(j)
++    return len(cited)
++
++
++def build_source_necessity_disclosure(
++    citation_matrix: Sequence[Sequence[int]],
++    support_matrix: Sequence[Sequence[int]],
++    relevant: Sequence[bool],
++    n_sources: int,
++) -> Optional[dict[str, Any]]:
++    """Build the source-necessity disclosure for a rendered run.
++
++    Reuses ``necessary_source_count`` from the WS-14 DeepTRACE scorer (the sole-supporter reading:
++    a source is NECESSARY iff it is the only supporter of at least one relevant, supported
++    statement). Redundant = listed - necessary (corroborated or non-supporting sources).
++
++    Args:
++        citation_matrix: ``C[i][j] == 1`` iff statement ``i`` cites source ``j``. Used only for
++            audit context (cited-source count) in the human-readable string; never to drop.
++        support_matrix: ``S[i][j] == 1`` iff source ``j`` supports statement ``i`` (per the judge).
++        relevant: ``relevant[i]`` is True iff statement ``i`` is relevant.
++        n_sources: number of listed sources in the report.
++
++    Returns:
++        A dict with ``necessary_sources``, ``listed_sources``, ``source_necessity_ratio``,
++        ``redundant_sources`` and a human-readable ``disclosure`` string — or ``None`` when the
++        ``PG_SOURCE_NECESSITY_DISCLOSURE`` kill switch is OFF (byte-identical revert).
++    """
++    if not _disclosure_enabled():
++        return None
++
++    n = int(n_sources) if n_sources else 0
++    if n < 0:
++        n = 0
++
++    # Sole-supporter count via the ALREADY-tested scorer. It bounds columns by min(len(row), n),
++    # so its result never exceeds n; redundant is therefore always non-negative.
++    necessary = necessary_source_count(support_matrix, relevant, n)
++    redundant = max(0, n - necessary)
++    ratio = (necessary / n) if n else 0.0
++    cited = _cited_source_count(citation_matrix, n)
++
++    disclosure = (
++        "Source necessity (DeepTRACE metric VI, sole-supporter reading): "
++        f"{necessary} of {n} listed sources are NECESSARY (each is the only supporter of at "
++        f"least one relevant statement); {redundant} are redundant (their support for every "
++        "relevant statement is corroborated by another source, or they support no relevant "
++        f"statement). {cited} of {n} listed sources are cited. Necessity ratio "
++        f"{ratio:.4f}. DISCLOSURE ONLY — redundant means corroborated, not dropped; every "
++        "source stays in the corpus at full weight (WEIGHT-and-CONSOLIDATE)."
++    )
++
++    return {
++        "necessary_sources": necessary,
++        "listed_sources": n,
++        "source_necessity_ratio": round(ratio, 4),
++        "redundant_sources": redundant,
++        "disclosure": disclosure,
++    }
+diff --git a/src/polaris_graph/generator/depth_synthesis.py b/src/polaris_graph/generator/depth_synthesis.py
+index 93586746..595c1bf0 100644
+--- a/src/polaris_graph/generator/depth_synthesis.py
++++ b/src/polaris_graph/generator/depth_synthesis.py
+@@ -232,6 +232,106 @@ def _scoped_pool(basket: Any, evidence_pool: dict) -> dict:
+         return {eid: row for eid, row in (evidence_pool or {}).items() if eid in own}
+ 
+ 
++# ── I-deepfix-001 WS-8 (D4) THIRD headline path — basket-level recency RE-RANK ────────────────────────
++# Codex found the depth cross-source SYNTHESIS pass orders/consumes ``credibility_analysis.baskets``
++# DIRECTLY (the ``for basket in baskets`` loop below), bypassing the recency-ordered unbound-supports
++# selection — so a very-old source can still anchor a TOP Analysis finding. This leg DEMOTES an older
++# basket in the SYNTHESIS ORDER so it does not headline: a WEIGHT on ordering ONLY — every basket is KEPT
++# and still synthesized (§-1.3 no-drop / no-cap / no-filter). It reuses the SAME env curve
++# (``PG_M2_RECENCY_*``: grace 5, decay 0.02, floor 0.25) as the bibliography + composition legs, is gated
++# on the SAME journal-class signal (``PG_DOCUMENT_TYPE_WEIGHT``) AND a new default-ON
++# ``PG_DEPTH_RECENCY_RERANK`` kill-switch; OFF / non-journal-class / no basket carries a parseable year =>
++# the basket order is returned UNCHANGED (byte-identical). The faithfulness engine is untouched.
++_DEPTH_RECENCY_RERANK_ENV = "PG_DEPTH_RECENCY_RERANK"
++_DS_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
++
++
++def _depth_recency_rerank_enabled() -> bool:
++    """Journal-class gate: the depth-synthesis recency re-rank fires only when ``PG_DOCUMENT_TYPE_WEIGHT``
++    is ON (the journal-class run signal, same gate as the bibliography + composition legs) AND
++    ``PG_DEPTH_RECENCY_RERANK`` is not disabled (default-ON kill-switch)."""
++    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
++    rerank = os.environ.get(_DEPTH_RECENCY_RERANK_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
++    return dtw and rerank
++
++
++def _ds_publication_year(entry: "dict | None") -> "int | None":
++    """Publication year of a member SOURCE dict (the evidence-pool row): an explicit year field, else the
++    first plausible 4-digit year in title/statement/url/doi. None when none found (=> neutral, no penalty).
++    Same parse shape as the other WS-8 legs (``weighted_enrichment._we_publication_year``)."""
++    if not isinstance(entry, dict):
++        return None
++    for k in ("year", "publication_year", "pub_year"):
++        v = entry.get(k)
++        if v is None:
++            continue
++        try:
++            y = int(str(v).strip()[:4])
++        except (TypeError, ValueError):
++            continue
++        if 1500 <= y <= 2100:
++            return y
++    for k in ("title", "statement", "url", "doi"):
++        m = _DS_YEAR_RE.search(str(entry.get(k) or ""))
++        if m:
++            y = int(m.group(0))
++            if 1500 <= y <= 2100:
++                return y
++    return None
++
++
++def _basket_newest_year(basket: Any, evidence_pool: dict) -> "int | None":
++    """A basket's recency = the NEWEST publication year among its distinct-origin SUPPORTS member sources
++    (each member's row looked up in ``evidence_pool`` by ``evidence_id``). None when NO member carries a
++    parseable year (=> the basket is neutral and keeps its order)."""
++    years: list[int] = []
++    for m in _distinct_origin_supports(basket):
++        eid = str(getattr(m, "evidence_id", "") or "")
++        y = _ds_publication_year((evidence_pool or {}).get(eid))
++        if y is not None:
++            years.append(y)
++    return max(years) if years else None
++
++
++def _depth_recency_factor(year: "int | None", reference_year: "int | None") -> float:
++    """A ``[floor, 1.0]`` ordering multiplier: 1.0 within ``grace`` years of the corpus-newest basket,
++    decaying linearly by ``decay`` per year older, FLOORED (an old basket is DEMOTED in the synthesis
++    order, never dropped). Same env curve as the bibliography + composition legs (``PG_M2_RECENCY_*``).
++    Missing year / missing reference / disabled => 1.0 (byte-identical)."""
++    if year is None or reference_year is None or not _depth_recency_rerank_enabled():
++        return 1.0
++    try:
++        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
++        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
++        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
++    except (TypeError, ValueError):
++        grace, decay, floor = 5, 0.02, 0.25
++    age = max(0, int(reference_year) - int(year) - grace)
++    return max(floor, 1.0 - decay * age)
++
++
++def _order_baskets_by_recency(baskets: Any, evidence_pool: dict) -> list:
++    """Re-order the baskets so an OLDER basket is DEMOTED below a NEWER one in the synthesis order (so a
++    very-old source does not anchor a top Analysis finding) — a STABLE WEIGHT on ordering ONLY: every
++    basket is KEPT (§-1.3 no-drop / no-cap / no-filter) and ties (including every basket when
++    disabled/unknown-year) preserve their original relative order => byte-identical. OFF /
++    non-journal-class / no basket carries a parseable year => the input order is returned UNCHANGED."""
++    baskets_list = list(baskets or [])
++    if not baskets_list or not _depth_recency_rerank_enabled():
++        return baskets_list
++    years = [_basket_newest_year(b, evidence_pool) for b in baskets_list]
++    parseable = [y for y in years if y is not None]
++    ref_year = max(parseable) if parseable else None
++    if ref_year is None:
++        return baskets_list  # no parseable year anywhere => byte-identical order
++    factors = [_depth_recency_factor(y, ref_year) for y in years]
++    # STABLE DESC sort by recency factor: an older basket (lower factor) sinks below a newer one; equal
++    # factors (the newest baskets + unknown-year neutral baskets, all 1.0) keep their original relative
++    # order (byte-identical). No basket is removed — this only permutes; the loop still visits them all.
++    order = sorted(range(len(baskets_list)), key=lambda i: -factors[i])
++    return [baskets_list[i] for i in order]
++
++
+ def synthesize_cross_source_findings(
+     baskets: Any,
+     evidence_pool: dict,
+@@ -283,7 +383,18 @@ def synthesize_cross_source_findings(
+ 
+     findings: list[dict] = []
+     seen: set[str] = set()
+-    for basket in baskets or []:
++    # WS-8 (D4) THIRD headline path: DEMOTE an older basket in the synthesis ORDER so a very-old source
++    # does not anchor a top Analysis finding — a WEIGHT on ordering ONLY (every basket kept + still
++    # synthesized; §-1.3). OFF / non-journal-class / unknown-year => byte-identical order.
++    # WS-8 P0 fix (Codex waveDE gate): reorder ONLY when there is NO synthesis cap (cap<=0, the default).
++    # With a POSITIVE cap the loop below drops baskets past the cap line, so reordering by recency BEFORE
++    # the cap would turn an old-basket demotion into an actual DROP (§-1.3 violation). When capped, keep
++    # the original weight order for INCLUSION (byte-identical which baskets survive the cap); recency
++    # reorders only in the uncapped case, where every basket is synthesized so nothing can be dropped.
++    ordered_baskets = (
++        _order_baskets_by_recency(baskets, evidence_pool) if cap <= 0 else list(baskets or [])
++    )
++    for basket in ordered_baskets:
+         if cap > 0 and len(findings) >= cap:
+             break
+         members = _distinct_origin_supports(basket)
+diff --git a/src/polaris_graph/retrieval/ttddr_loop.py b/src/polaris_graph/retrieval/ttddr_loop.py
+new file mode 100644
+index 00000000..0f465b8b
+--- /dev/null
++++ b/src/polaris_graph/retrieval/ttddr_loop.py
+@@ -0,0 +1,209 @@
++"""WS-15 — TTD-DR coverage loop (Test-Time Diffusion Deep Research). PURE decision logic.
++
++TTD-DR (arXiv:2507.16075, Han et al., Google, 2025 — "Deep Researcher with
++Test-Time Diffusion") conceptualises report writing as an iterative *diffusion*:
++start from a preliminary DRAFT (an updatable skeleton), then progressively
++"denoise" it by cycles of gap-finding -> targeted retrieval -> revision. It is
++the mechanism the current DRB-II SOTA uses to lift COVERAGE / recall.
++
++Paper Algorithm 1 (Denoising with Retrieval), verbatim shape:
++
++    R_0 = initial draft
++    for t in 1..N:
++        Q_t = M_Q(q, R_{t-1})        # next question / coverage gap from the draft
++        A_t = M_A(Q_t)               # retrieve an answer for that gap
++        R_t = M_R(q, R_{t-1}, Q, A)  # revise (denoise) the draft with A_t
++        if exit_loop: break
++
++This module implements that loop with the four model roles INJECTED as callables
++(`draft_fn` = the skeleton generator, `gap_fn` = M_Q made explicit as coverage-gap
++detection, `retrieve_fn` = M_A, `revise_fn` = M_R). Nothing here constructs an HTTP
++client, loads a model, or bills a token: the caller wires the real roles; the tests
++wire capture-only fakes. So it is fully OFFLINE-testable and touches no network at
++import or test time.
++
++BOUNDS (the paper leaves `exit_loop` implementation-defined; the WS-15 plan
++correction makes it a HARD triad so the loop can never run away):
++  * `max_rounds`  — bounds the revision-round count (the paper's fixed N). This is
++    the GUARANTEED termination backstop — always enforced.
++  * `wall_seconds`— wall-clock deadline (monotonic; the clock is injectable so wall
++    stops are deterministic offline). `None` disables only this early exit.
++  * `cost_budget` — spend gate; the cumulative-cost probe is injected (`cost_fn`),
++    so the caller wires the real cost ledger. `None` disables only this early exit.
++The loop STOPS on the first of: gap_fn returns no new gaps (converged — the ideal
++exit) OR any bound trips.
++
++§-1.3 (WEIGHT-and-CONSOLIDATE, never FILTER-and-DROP): this module ADDS retrieved
++evidence and REVISES the draft to widen coverage. It NEVER verifies, drops, caps,
++or thins anything. The FROZEN faithfulness engine (strict_verify / provenance /
++NLI / 4-role / span-grounding) still gates every revised claim DOWNSTREAM,
++unchanged — this orchestrator is upstream of it and touches none of it.
++
++`PG_TTDDR_ENABLED` is DEFAULT-OFF: TTD-DR is a NEW opt-in capability wired into no
++existing path, so the whole module stays dormant (never invokes a callable) until
++the coverage run explicitly turns it on. When off, `ttddr_refine` short-circuits
++and returns the initial draft untouched.
++"""
++from __future__ import annotations
++
++import logging
++import os
++import time
++from typing import Any, Callable, Optional, Sequence
++
++logger = logging.getLogger("polaris_graph.ttddr_loop")
++
++# ── stop reasons (module-level constants; allowed per CLAUDE.md §4.1) ──────────
++STOP_NO_GAPS = "no_gaps"          # gap_fn found nothing more to close — converged
++STOP_MAX_ROUNDS = "max_rounds"    # revision-round count bound hit
++STOP_WALL = "wall"                # wall-clock deadline hit
++STOP_COST = "cost"                # cumulative-cost budget hit
++STOP_DISABLED = "disabled"        # PG_TTDDR_ENABLED off — loop never ran
++
++# ── default-OFF flag idiom (NEW opt-in capability; ON only on an explicit token) ──
++_ENV_TTDDR_ENABLED = "PG_TTDDR_ENABLED"
++_ENABLE_ON_VALUES = ("1", "true", "yes", "on")
++
++
++def ttddr_enabled() -> bool:
++    """`PG_TTDDR_ENABLED` — DEFAULT-OFF. ON only on an explicit on token
++    ('1'/'true'/'yes'/'on'); unset / empty / anything else -> OFF.
++
++    Default-OFF is correct here: TTD-DR is a brand-new capability wired into no
++    existing path, so it must be opt-in for the coverage run and dormant elsewhere.
++    """
++    return os.environ.get(_ENV_TTDDR_ENABLED, "").strip().lower() in _ENABLE_ON_VALUES
++
++
++def _as_gap_list(gaps: Any) -> list[Any]:
++    """Materialise gap_fn's output to a list; None / falsy -> [] (converged)."""
++    if not gaps:
++        return []
++    return list(gaps)
++
++
++def ttddr_refine(
++    question: str,
++    initial_draft: Optional[Any] = None,
++    *,
++    draft_fn: Optional[Callable[[str], Any]] = None,
++    gap_fn: Callable[[str, Any], Sequence[Any]],
++    retrieve_fn: Callable[[str, Sequence[Any]], Any],
++    revise_fn: Callable[[str, Any, Sequence[Any], Any], Any],
++    max_rounds: int,
++    # WS-15 P1 fix (Codex waveDE gate): all THREE bounds must be active by DEFAULT. max_rounds is required;
++    # wall_seconds + cost_budget now default to real finite ceilings (NOT None), so the default loop is
++    # fully bounded on rounds AND wall-clock AND cost. Passing None still explicitly opts a single bound
++    # out for a caller that wires its own guard, but a default invocation can never run unbounded.
++    wall_seconds: Optional[float] = 1800.0,
++    cost_budget: Optional[float] = 50.0,
++    clock: Callable[[], float] = time.monotonic,
++    cost_fn: Callable[[], float] = lambda: 0.0,
++    log: Optional[Callable[[str], None]] = None,
++) -> dict:
++    """Run the bounded TTD-DR denoising-with-retrieval loop (paper Algorithm 1).
++
++    Injected role contracts (the caller wires real models; tests wire fakes):
++      * `draft_fn(question) -> draft`                       — the R_0 skeleton, used
++        ONLY when `initial_draft` is None.
++      * `gap_fn(question, draft) -> Sequence[gap]`          — M_Q as explicit
++        coverage-gap detection on the CURRENT draft; empty return == converged.
++      * `retrieve_fn(question, gaps) -> evidence`           — M_A, targeted retrieval
++        for the detected gaps.
++      * `revise_fn(question, draft, gaps, evidence) -> draft` — M_R, denoise/revise
++        the draft with the retrieved evidence.
++
++    Bounds (checked at the top of every round, in this priority order):
++        wall_seconds -> cost_budget -> max_rounds -> gap detection.
++    `max_rounds` is the guaranteed termination backstop and is always enforced;
++    `wall_seconds` / `cost_budget` are additional early exits (`None` disables the
++    corresponding early exit only).
++
++    Returns:
++        {
++          "final_draft": Any,      # the last revised draft (R_final)
++          "rounds": int,           # revision rounds actually executed
++          "gaps_closed": int,      # cumulative count of gaps addressed by a revision
++          "stop_reason": str,      # one of the STOP_* constants
++          "elapsed_seconds": float,
++          "cost_spent": float,
++          "gap_history": list[int],# len(gaps) closed per executed round
++        }
++
++    This module NEVER verifies: it only orchestrates draft/gap/retrieve/revise. The
++    frozen faithfulness engine gates every revised claim downstream, unchanged.
++    """
++    _log = log or (lambda _m: None)
++
++    # DEFAULT-OFF gate — when off, invoke NO callable and return the draft untouched.
++    if not ttddr_enabled():
++        _log("[ttddr] PG_TTDDR_ENABLED off — loop skipped")
++        return {
++            "final_draft": initial_draft,
++            "rounds": 0,
++            "gaps_closed": 0,
++            "stop_reason": STOP_DISABLED,
++            "elapsed_seconds": 0.0,
++            "cost_spent": 0.0,
++            "gap_history": [],
++        }
++
++    if initial_draft is None:
++        if draft_fn is None:
++            raise ValueError(
++                "ttddr_refine requires either initial_draft or draft_fn to seed R_0"
++            )
++        initial_draft = draft_fn(question)
++
++    draft: Any = initial_draft
++    rounds = 0
++    gaps_closed = 0
++    gap_history: list[int] = []
++    t0 = clock()
++    now = t0
++    spent = cost_fn()
++
++    def _finish(reason: str) -> dict:
++        return {
++            "final_draft": draft,
++            "rounds": rounds,
++            "gaps_closed": gaps_closed,
++            "stop_reason": reason,
++            "elapsed_seconds": max(0.0, now - t0),
++            "cost_spent": spent,
++            "gap_history": gap_history,
++        }
++
++    while True:
++        now = clock()
++        # 1) wall-clock deadline (early exit; None disables).
++        if wall_seconds is not None and (now - t0) >= wall_seconds:
++            _log(f"[ttddr] wall deadline hit at round={rounds} "
++                 f"(elapsed={now - t0:.3f}s >= {wall_seconds}s) -> STOP_WALL")
++            return _finish(STOP_WALL)
++        # 2) cost budget (early exit; None disables).
++        spent = cost_fn()
++        if cost_budget is not None and spent >= cost_budget:
++            _log(f"[ttddr] cost budget hit at round={rounds} "
++                 f"(spent={spent} >= {cost_budget}) -> STOP_COST")
++            return _finish(STOP_COST)
++        # 3) round-count backstop (always enforced -> guarantees termination).
++        if rounds >= max_rounds:
++            _log(f"[ttddr] max_rounds hit (rounds={rounds} >= {max_rounds}) "
++                 "-> STOP_MAX_ROUNDS")
++            return _finish(STOP_MAX_ROUNDS)
++
++        # 4) gap detection on the current draft (M_Q). Empty -> converged.
++        gaps = _as_gap_list(gap_fn(question, draft))
++        if not gaps:
++            _log(f"[ttddr] no residual gaps at round={rounds} -> STOP_NO_GAPS")
++            return _finish(STOP_NO_GAPS)
++
++        # Fire one denoising round: targeted retrieve (M_A) then revise (M_R).
++        evidence = retrieve_fn(question, gaps)
++        draft = revise_fn(question, draft, gaps, evidence)
++        rounds += 1
++        gaps_closed += len(gaps)
++        gap_history.append(len(gaps))
++        _log(f"[ttddr] round={rounds} closed {len(gaps)} gap(s) "
++             f"(cumulative gaps_closed={gaps_closed})")

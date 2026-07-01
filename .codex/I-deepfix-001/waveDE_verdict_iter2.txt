@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+ws8_p0_drop_closed: true
+ws15_bounded_and_default_off: true
+frozen_engine_untouched: true
+novel_p0: []
+p1: []
+convergence_call: accept_remaining
+```
