@@ -2,13 +2,16 @@
 
 This amends `BEATBOTH_MASTER_PLAN.md`. Where this file and the plan disagree, THIS file wins. Codex verdict: `root_cause_sound: true`, `s13_violations: []`, `faithfulness_engine_relaxed_by: []` — the strategy is sound; these are factual/wiring corrections.
 
-## OPERATOR DECISION (2026-07-01) — model-family policy
-**STAY ALL-GLM.** Generator = judge = GLM-5.2; two-family self-bias safeguard OFF (`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1`), DISCLOSED in the report + manifest (a §-1.3 disclosure, not a hidden relaxation). NOT kimi-k2.6, NOT two-family. Overrides the plan's WS-1 judge-swap.
+## OPERATOR DECISION (2026-07-01, SUPERSEDED same day)
+An earlier AskUserQuestion answer said "all-GLM (GLM-5.2 gen + judge, PERMIT=1)". The operator CORRECTED this same day: **the judge stays moonshotai/kimi-k2.6** — chosen deliberately for its high OpenRouter provider count (21 providers) which prevents the 429 trickle that caused the D8 false-negatives (per feedback_judge_model_provider_availability_render_blocker_2026_06_30). So the real policy is **TWO-FAMILY**:
+- Generator = GLM-5.2 (deepseek/glm family).
+- Judge = **moonshotai/kimi-k2.6** (distinct family) → the two-family self-bias safeguard is genuinely **ON** (`PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=0`), the correct §9.1.8 posture (NOT disclosed-off).
+- The kimi default in `openrouter_role_transport.py:211` is CORRECT — do NOT force it to GLM. (The drb_72 re-smoke ran all-GLM with a glm judge, which is why its D8 trickled/gave false-negatives; kimi fixes that.)
 
 ## CORRECTED WORKSTREAMS
 
-### WS-1 (REVISED) — GLM-5.2 D8 judge RELIABILITY (no model swap).
-Keep GLM-5.2 as the judge. Kill the trickle/false-negative class via the NON-model mechanisms only:
+### WS-1 (REVISED) — kimi-k2.6 D8 judge RELIABILITY (keep the kimi judge; do NOT swap to GLM).
+Keep moonshotai/kimi-k2.6 as the judge (stable provider count). Two-family (gen=GLM, judge=kimi, safeguard ON). Kill the residual trickle/false-negative class via the NON-model mechanisms:
 - (a) enforce the verdict enum via OpenRouter `response_format`/`json_schema` (not the vLLM-only `structured_outputs.choice` at `judge_adapter.py:229-231`) so `JudgeEnumError` cannot fire off-vLLM;
 - (b) bounded per-claim RETRY before the fail-closed degrade (`judge_adapter.py:284-298,311-325`) — a transient blank/429 re-asks, never convicts;
 - (c) verdict IDEMPOTENCY cache keyed on `(normalized_claim, span-identity)` so a byte-twin inherits a clean sibling's verdict — this removes the 02-001/02-007 split (the 3 false-negatives);
