@@ -122,7 +122,20 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
     the caller's bounded retry to reopen a fresh connection. Returns the ``httpx.Response`` on success.
     """
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+    try:
+        fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+    except RuntimeError as _shutdown_exc:
+        # I-deepfix-001 (#1344) shutdown-race: a straggler judge retry fired AFTER the run finalized and
+        # the interpreter began shutting down -> ThreadPoolExecutor.submit raises
+        # 'cannot schedule new futures after interpreter shutdown'. Per-claim verification is already
+        # complete, so map this to the existing bounded-retry TimeoutError path: the fail-closed
+        # ('ENTAILED','judge_error:…') sentinel fires (consumers DROP -> faithfulness-safe) instead of an
+        # UNHANDLED RuntimeError reaching the run driver as status=error_unexpected. Transport-only;
+        # verdict logic + the fail-closed contract UNCHANGED (faithfulness-neutral).
+        ex.shutdown(wait=False)
+        raise concurrent.futures.TimeoutError(
+            "interpreter_shutdown_cannot_schedule_judge_future"
+        ) from _shutdown_exc
     try:
         return fut.result(timeout=total_s)
     except concurrent.futures.TimeoutError:

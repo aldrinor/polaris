@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+faithfulness_neutral: true
+frozen_engine_untouched: true
+transport_only: true
+no_infinite_retry: true
+novel_p0: []
+p1: []
+```
