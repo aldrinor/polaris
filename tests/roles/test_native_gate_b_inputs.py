@@ -58,6 +58,9 @@ class FakeSentence:
 class FakeSection:
     title: str
     kept_sentences_pre_resolve: list = field(default_factory=list)
+    # I-deepfix-001 (Codex grpC iter2 P1): mirror SectionResult.is_gap_stub so the builder's
+    # gap-stub skip can be exercised. Default False -> every existing FakeSection is unchanged.
+    is_gap_stub: bool = False
 
 
 @dataclass
@@ -512,6 +515,72 @@ def test_zero_kept_sentences_raises():
 def test_no_sections_raises():
     with pytest.raises(ValueError):
         _build(FakeMulti(sections=[]))
+
+
+# --- I-deepfix-001 (Codex grpC iter2 P1): gap-stub sections contribute ZERO to D8 --------
+def test_gap_stub_section_contributes_no_claims_to_d8():
+    """A gap-stub section renders ONLY the marker-less gap-disclosure stub (a non-claim), so
+    it must contribute ZERO verified claims to the binding D8 four-role gate. Pre-fix, the
+    builder fed the gap-stub's kept_sentences_pre_resolve into D8 as verified claims — the
+    withheld numeric claims re-entered the binding gate (a faithfulness hole). The builder
+    now SKIPS gap-stub sections. Keying off is_gap_stub covers BOTH the U24-withheld path
+    AND the downstream fact-dedup re-resolve (multi_section_generator:8767), which sets
+    is_gap_stub=True while leaving kept_sentences_pre_resolve populated — so this fixture
+    deliberately carries verified kept SVs on the gap stub."""
+    multi = FakeMulti(
+        sections=[
+            FakeSection(
+                title="Withheld",
+                kept_sentences_pre_resolve=[
+                    FakeSentence("Value was 1.1 with no citation", [FakeToken("ev_doi")]),
+                    FakeSentence("Value was 2.2 with no citation", [FakeToken("ev_doi")]),
+                ],
+                is_gap_stub=True,
+            ),
+            FakeSection(
+                title="Efficacy",
+                kept_sentences_pre_resolve=[
+                    FakeSentence("The trial showed an effect", [FakeToken("ev_doi")]),
+                ],
+            ),
+        ]
+    )
+    claims = _build(multi).inputs.claims
+    # ONLY the normal section's single claim survives; the gap stub's 2 sentences are skipped.
+    assert len(claims) == 1
+    assert claims[0].claim_text == "The trial showed an effect"
+    # `continue` (not renumber) preserves section_index: the normal section stays index 1,
+    # and the skipped gap stub (index 0) never appears in any claim id.
+    assert claims[0].claim_id.startswith("01-")
+    assert all(not c.claim_id.startswith("00-") for c in claims)
+
+
+def test_gap_stub_fallback_when_flag_absent_but_empty_and_zero_verified():
+    """Defensive fallback for a section object predating the is_gap_stub flag: a gap stub
+    carries zero verified sentences AND an empty pre-resolve kept list — it contributes
+    nothing (the normal section's claim is still produced so the builder does not fail-close
+    on zero claims)."""
+
+    @dataclass
+    class _LegacySection:
+        title: str
+        kept_sentences_pre_resolve: list
+        sentences_verified: int
+
+    multi = FakeMulti(
+        sections=[
+            _LegacySection("EmptyGap", [], 0),
+            FakeSection(
+                title="Efficacy",
+                kept_sentences_pre_resolve=[
+                    FakeSentence("The trial showed an effect", [FakeToken("ev_doi")]),
+                ],
+            ),
+        ]
+    )
+    claims = _build(multi).inputs.claims
+    assert len(claims) == 1
+    assert claims[0].claim_text == "The trial showed an effect"
 
 
 # --- contamination guard: never reads outputs/dr_benchmark / the gold rubric -------------

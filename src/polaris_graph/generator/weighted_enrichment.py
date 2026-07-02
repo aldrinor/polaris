@@ -388,11 +388,114 @@ def _we_recency_factor(year: "int | None", reference_year: "int | None") -> floa
     return max(floor, 1.0 - decay * age)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (U9) — TOPICAL question-overlap ORDERING weight.
+#
+# THE BUG (drb_72 AI-labor cited logistics blogs; a PD-DBS run cited elder-abuse
+# sources): query-decomposition emits off-topic sub-queries and the ONLY per-row
+# relevance signal on the surfacing path is ``selection_relevance`` — a per-passage
+# SEMANTIC score. A semantically-fluent but topically-foreign passage (a
+# supply-chain article that reads coherently) can score a high ``selection_relevance``
+# and, being the PRIMARY sort key here, WRRF-fuse to the TOP of the cited breadth
+# surface — so an off-topic source LEADS the findings. The semantic score does not
+# capture whether the source is ABOUT the research question's topic.
+#
+# THE FIX — §-1.3 WEIGHT, DON'T FILTER: add a second, TOPICAL relevance signal —
+# the lexical overlap between the source text and the research-question topic terms —
+# as an ORDERING multiplier on the existing relevance sort key. An off-topic source
+# (near-zero question-term overlap) is DEMOTED in the order (its relevance key is
+# scaled toward ``PG_TOPICAL_RELEVANCE_FLOOR``) so it no longer top-fuses, while an
+# on-topic source keeps its full relevance key. This is a pure RE-ORDER over the
+# SAME kept set — NOTHING is dropped, capped, or thinned; conservation holds (the
+# returned ev_ids are the identical set, only re-ordered). It is the exact same class
+# as the WS-8 recency ordering leg above and the ``key_findings`` sentence-relevance
+# re-order weight, and it reuses the EXISTING grounding tokenizer
+# (``provenance_generator._content_words``) — no new model, no new word list, no spend.
+# The faithfulness engine (strict_verify / NLI / 4-role D8 / span-grounding /
+# provenance) is UNTOUCHED. Default-ON, gated by ``PG_TOPICAL_RELEVANCE_WEIGHT``; an
+# empty ``research_question`` (every legacy caller) or the gate OFF => factor 1.0 for
+# every row => byte-identical legacy ordering.
+_ENV_TOPICAL_RELEVANCE_WEIGHT = "PG_TOPICAL_RELEVANCE_WEIGHT"
+_ENV_TOPICAL_RELEVANCE_FLOOR = "PG_TOPICAL_RELEVANCE_FLOOR"
+# The row text fields scanned for question-term overlap (the same source-content
+# fields finding_dedup / provenance read). Read-only; order-insensitive.
+_TOPIC_TEXT_FIELDS = (
+    "title", "statement", "claim", "direct_quote", "snippet", "summary", "text", "body",
+)
+
+
+def topical_relevance_weight_enabled() -> bool:
+    """Kill-switch ``PG_TOPICAL_RELEVANCE_WEIGHT`` (default ON). OFF => every topical
+    factor is 1.0 => the surfacing ORDER is byte-identical to the legacy ordering."""
+    return os.environ.get(_ENV_TOPICAL_RELEVANCE_WEIGHT, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _topical_relevance_floor() -> float:
+    """The [floor, 1.0] ORDERING multiplier's lower bound for a zero-overlap (off-topic)
+    row. Default 0.25 (an off-topic row keeps at most 25% of its relevance sort value, so
+    it sinks below every on-topic row — a DEMOTION, never a drop). A garbage value is an
+    operator config error and raises ValueError (LAW VI: fail-loud, never swallowed)."""
+    raw = os.environ.get(_ENV_TOPICAL_RELEVANCE_FLOOR)
+    if raw is None or not str(raw).strip():
+        return 0.25
+    val = float(raw)  # ValueError on garbage: fail loud
+    if not (0.0 <= val <= 1.0):
+        raise ValueError(
+            f"{_ENV_TOPICAL_RELEVANCE_FLOOR} must be in [0.0, 1.0]; got {val!r}"
+        )
+    return val
+
+
+def _question_topic_terms(research_question: str) -> frozenset[str]:
+    """Content-word topic terms of the research question, or an empty set when the
+    question is blank / has no content words (=> topical factor 1.0 => byte-identical).
+    Reuses the EXISTING grounding tokenizer (alphabetic, >=3 chars, stopword-stripped);
+    imported LAZILY (mirrors ``key_findings``) so this module keeps its import-time
+    independence. PURE — no network, no GPU, no LLM."""
+    if not research_question or not research_question.strip():
+        return frozenset()
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _content_words,
+    )
+    return frozenset(_content_words(research_question))
+
+
+def _topical_overlap(row: Any, question_terms: frozenset[str]) -> float:
+    """Overlap coefficient of the row's source text against the question topic terms:
+    ``|row_terms & question_terms| / |question_terms|`` in [0.0, 1.0]. Returns 1.0
+    (keep-neutral) when there are no question terms; 0.0 when the row carries no usable
+    text. A missing row (not a dict) is keep-neutral (1.0) — pool membership already
+    implies the row passed the upstream retrieval relevance gate once. PURE."""
+    if not question_terms:
+        return 1.0
+    if not isinstance(row, dict):
+        return 1.0
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _content_words,
+    )
+    parts = [str(row.get(f) or "") for f in _TOPIC_TEXT_FIELDS]
+    row_terms = _content_words(" ".join(p for p in parts if p))
+    if not row_terms:
+        return 0.0
+    return len(row_terms & question_terms) / len(question_terms)
+
+
+def _topical_factor(overlap: float, floor: float) -> float:
+    """Map a question-topic overlap in [0.0, 1.0] to a [floor, 1.0] ORDERING multiplier:
+    overlap 1.0 => 1.0 (on-topic, full weight), overlap 0.0 => ``floor`` (off-topic,
+    demoted but KEPT). Linear so the demotion is monotone in topicality."""
+    ov = max(0.0, min(1.0, overlap))
+    return floor + (1.0 - floor) * ov
+
+
 def diagnose_unbound_supports_selection(
     *,
     evidence_pool: Any,
     credibility_analysis: Any,
     contract_plans: Any,
+    research_question: str = "",
 ) -> UnboundSupportsSelection:
     """``select_unbound_supports_by_weight`` + a diagnostic breakdown (the same selection logic).
 
@@ -537,13 +640,33 @@ def diagnose_unbound_supports_selection(
     _years = [y for y in _year_by_eid.values() if y is not None]
     _ref_year = max(_years) if _years else None
 
+    # I-deepfix-001 (U9): TOPICAL question-overlap ORDERING factor, computed once. Multiplies the
+    # relevance sort key (a WEIGHT on the order, never a filter): an off-topic row (near-zero question-
+    # term overlap) is DEMOTED toward the floor so it no longer top-fuses, while an on-topic row keeps
+    # its full relevance key. Gate OFF or empty ``research_question`` => empty term set => factor 1.0 for
+    # every row => byte-identical legacy ordering. The full kept set is preserved (nothing dropped).
+    _q_terms = (
+        _question_topic_terms(research_question)
+        if topical_relevance_weight_enabled()
+        else frozenset()
+    )
+    _topical_floor = _topical_relevance_floor()
+    _topical_factor_by_eid = {
+        eid: _topical_factor(_topical_overlap(pool.get(eid), _q_terms), _topical_floor)
+        for eid in best_weight
+    }
+
     ev_ids = [
         eid
         for eid, _ in sorted(
             best_weight.items(),
             key=lambda kv: (
                 _is_below_floor(kv[0]),                       # False (0) before True (1)
-                -_relevance_sort_key(relevance_by_eid.get(kv[0])),
+                # I-deepfix-001 (U9): relevance sort key scaled by the TOPICAL question-overlap factor
+                # (demotes an off-topic row within its bucket; factor 1.0 when the leg is off / no
+                # question / no question terms => byte-identical). §-1.3 WEIGHT, never a drop.
+                -(_relevance_sort_key(relevance_by_eid.get(kv[0]))
+                  * _topical_factor_by_eid.get(kv[0], 1.0)),
                 # WS-8 (D4): demote an OLD source in the weight_mass ordering (still kept — §-1.3); factor
                 # 1.0 when the recency leg is off / non-journal-class / year unknown => byte-identical.
                 -(kv[1] * _we_recency_factor(_year_by_eid.get(kv[0]), _ref_year)),
@@ -634,6 +757,7 @@ def select_unbound_supports_by_weight(
     evidence_pool: Any,
     credibility_analysis: Any,
     contract_plans: Any,
+    research_question: str = "",
 ) -> list[str]:
     """Ordered evidence_ids of unbound, isolated-verified SUPPORTS basket members.
 
@@ -672,6 +796,7 @@ def select_unbound_supports_by_weight(
         evidence_pool=evidence_pool,
         credibility_analysis=credibility_analysis,
         contract_plans=contract_plans,
+        research_question=research_question,
     ).ev_ids
 
 

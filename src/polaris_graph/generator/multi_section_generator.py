@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import difflib
 import json
 import logging
 import os
@@ -4095,6 +4096,104 @@ def _screen_fixk_render_chrome(raw_draft: str) -> str:
     return " ".join(kept)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 U24 — NUMERIC-CLAIM CITATION HYGIENE (PT11 enforce, not advisory).
+#
+# The drb autopsy found ~72% of in-prose decimals (92/128) rendered with NO adjacent
+# citation, while the PT11 numeric-citation rule was only an advisory report-card signal
+# (the whole evaluator gate is demoted to advisory in four-role-seam mode, so PT11 never
+# actually held anything). A decimal asserted in prose without a citation is exactly the
+# unsupported numeric claim the pipeline must not ship (§-1.1 clinical: a wrong dose /
+# percentage that survives to render is lethal).
+#
+# This is the ENFORCE arm PT11 was missing: a RENDER-ONLY screen on the already-resolved
+# per-section prose that DROPS any sentence stating an in-prose decimal with NO in-sentence
+# citation marker ([N] or [#ev:...]). It uses the SAME decimal + citation-marker detection
+# PT11 uses (external_evaluator.py rule PT11) so what the evaluator counts as "uncited" is
+# exactly what this removes — the enforce/advisory pair now agree.
+#
+# FAITHFULNESS-NEUTRAL / STRENGTHENING (never a relax): a sentence that already carries a
+# citation is byte-identically kept; only an UNCITED numeric claim is removed. The frozen
+# faithfulness engine (strict_verify / NLI / 4-role D8 / provenance span-grounding) is
+# UNTOUCHED — this runs AFTER strict_verify on the render surface and only WITHHOLDS an
+# uncited numeric sentence from the rendered prose; the source stays in evidence_pool +
+# disclosure. FAIL-SAFE (precision over recall on a drop path, per the sibling render
+# screens): a non-decimal sentence is always kept, and if every sentence would be dropped
+# the ORIGINAL text is returned unchanged (never blank a whole section on a splitter
+# disagreement). Kill-switch PG_NUMERIC_CITE_ENFORCE (LAW VI); default ON = enforce.
+_NUMERIC_CITE_ENFORCE_ENV = "PG_NUMERIC_CITE_ENFORCE"
+_NUMERIC_CITE_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
+# Same in-prose decimal pattern PT11 uses: a signed/unsigned decimal not glued to a
+# letter/digit/dot (so version strings + IDs are not misread as empirical claims).
+_NUMERIC_CITE_DECIMAL_RE = re.compile(r"(?<![A-Za-z0-9.])-?\d+\.\d+")
+# Same citation-marker pattern PT11 uses: a bracketed number [N] or a [#ev:...] token.
+_NUMERIC_CITE_MARKER_RE = re.compile(r"\[\d+\]|\[#ev:[^\]]+\]")
+
+
+def _numeric_cite_enforce_enabled() -> bool:
+    """Return True iff PG_NUMERIC_CITE_ENFORCE is not an off token (default ON = enforce)."""
+    raw = os.environ.get(_NUMERIC_CITE_ENFORCE_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _NUMERIC_CITE_OFF_TOKENS
+
+
+def _screen_uncited_numeric_sentences(verified_text: str) -> str:
+    """Drop rendered sentences that assert an in-prose decimal with NO in-sentence citation.
+
+    RENDER-ONLY + faithfulness-STRENGTHENING (see the module comment above). A sentence with
+    no in-prose decimal, or with a decimal AND a citation marker ([N] / [#ev:...]), is kept
+    unchanged; a sentence with a decimal and no marker is removed. FAIL-SAFE: empty/blank
+    input, the flag off, an unsplittable draft, or an all-dropped result all return the input
+    UNCHANGED so a real verified section is never blanked on a boundary disagreement."""
+    if not verified_text or not verified_text.strip():
+        return verified_text
+    if not _numeric_cite_enforce_enabled():
+        return verified_text
+    sentences = split_into_sentences(verified_text)
+    if not sentences:
+        return verified_text
+    kept: list[str] = []
+    dropped = 0
+    for sentence in sentences:
+        marker_free = _NUMERIC_CITE_MARKER_RE.sub(" ", sentence)
+        has_decimal = bool(_NUMERIC_CITE_DECIMAL_RE.search(marker_free))
+        has_citation = bool(_NUMERIC_CITE_MARKER_RE.search(sentence))
+        if has_decimal and not has_citation:
+            dropped += 1
+            continue
+        kept.append(sentence)
+    if not dropped:
+        return verified_text  # byte-identical: nothing was uncited-numeric
+    if not kept:
+        # I-deepfix-001 (Codex P1) — U24 ALL-UNCITED BYPASS CLOSED. The prior fail-safe
+        # returned ``verified_text`` UNCHANGED here, so a section whose EVERY sentence
+        # asserts an uncited in-prose decimal shipped ALL of its uncited numeric claims —
+        # exactly the clinical hazard §-1.1 forbids (a wrong dose / percentage that
+        # survives to render is lethal). ``kept`` is empty here ONLY when the splitter
+        # produced sentences AND every one carried an in-prose decimal with NO citation
+        # marker anywhere (a genuinely all-uncited section, NOT a splitter disagreement —
+        # any retained ``[N]`` / ``[#ev:...]`` token would have kept its sentence). So we
+        # WITHHOLD the whole body (return empty) instead of shipping the uncited numbers;
+        # the caller (_run_section) turns an emptied body into an explicit gap-disclosure
+        # stub (BB5-C07), so the section is DISCLOSED, never silently vanished, and never
+        # ships the uncited numeric claims. Faithfulness-STRENGTHENING; the FROZEN engine
+        # (strict_verify / NLI / 4-role D8 / provenance) is untouched — this only WITHHOLDS
+        # render prose the numeric-citation rule already flagged.
+        logger.warning(
+            "[multi_section] numeric-cite enforce: ALL %d sentence(s) asserted an "
+            "uncited in-prose decimal — withholding the whole section body (U24 "
+            "all-uncited bypass closed); the caller renders a disclosed gap stub.",
+            dropped,
+        )
+        return ""
+    logger.info(
+        "[multi_section] numeric-cite enforce dropped %d uncited-numeric sentence(s)",
+        dropped,
+    )
+    return " ".join(kept)
+
+
 def _repair_untokened_draft(
     raw: str,
     baskets: list,
@@ -4791,6 +4890,13 @@ async def _run_section(
     # IDs are byte-preserved (see _normalize_citation_punctuation).
     verified_text = _normalize_citation_punctuation(verified_text)
 
+    # I-deepfix-001 U24: ENFORCE numeric-claim citation hygiene on the rendered per-section
+    # prose (PT11 was advisory-only). Drop any sentence stating an in-prose decimal with no
+    # in-sentence citation marker. RENDER-ONLY + faithfulness-neutral (byte-identical for
+    # already-cited sentences); the frozen faithfulness engine is untouched. Kill-switch
+    # PG_NUMERIC_CITE_ENFORCE (default ON). See _screen_uncited_numeric_sentences.
+    verified_text = _screen_uncited_numeric_sentences(verified_text)
+
     # BB5-C07 (#1178): a section that produced ZERO verified sentences must NOT silently vanish.
     # Pre-fix, `dropped_due_to_failure=True` + empty `verified_text` caused the section to be
     # skipped at every render/assembly site (run_honest_sweep_r3.py:5232 + assembly:5363), so a
@@ -4807,10 +4913,37 @@ async def _run_section(
     # emits ZERO sentences — it must render the gap stub, not silently ship an
     # empty body as non-stub. `resolved_emitted == 0` extends the gap-stub trigger
     # from "strict_verify kept nothing" to "nothing actually shipped" (stricter).
-    is_gap_stub = resolved_emitted == 0
+    # I-deepfix-001 (Codex P1) — U24 all-uncited bypass close companion: if the
+    # numeric-cite screen WITHHELD the whole body (every sentence was an uncited
+    # in-prose decimal, _screen_uncited_numeric_sentences returned ""), the section
+    # must render an explicit gap-disclosure stub — NOT ship an empty non-stub body
+    # (the silent-vanish BB5-C07 exists to prevent). A normal non-empty verified_text
+    # leaves this False (byte-identical); only a screen-emptied (or resolver-emptied)
+    # body flips it. Faithfulness-neutral disclosure — no claim, no frozen-engine touch.
+    is_gap_stub = resolved_emitted == 0 or not (verified_text and verified_text.strip())
     if is_gap_stub:
         verified_text = _GAP_STUB_SENTENCE
     dropped_due_to_failure = False
+
+    # I-deepfix-001 (Codex grpC iter2 P1) — gap-stub verified-accounting must ship ZERO
+    # claims to the binding D8 four-role gate. A gap-stub section renders ONLY the
+    # marker-less gap-disclosure stub (a non-claim). When the U24 numeric-cite screen
+    # (or the resolver) EMPTIED the body, the pre-fix code still returned
+    # sentences_verified=resolved_emitted (non-zero) and
+    # kept_sentences_pre_resolve=list(report.kept_sentences) (the WITHHELD SVs). Those
+    # withheld sentences then re-entered the binding gate via build_native_gate_b_inputs
+    # (native_gate_b_inputs.py) as verified D8 claims — a faithfulness hole (the uncited
+    # numeric claims we deliberately withheld from the render were still judged as
+    # verified prose). Zero the verified-count and CLEAR the pre-resolve kept list for
+    # the gap-stub case, and account the withheld sentences as DROPPED (effective_verified
+    # drives the drop delta below, so max(0, total_kept - 0) == total_kept — every
+    # withheld sentence is counted as a drop, keeping the counter honest). A normal
+    # (non-gap-stub) section is byte-identical: effective_verified == resolved_emitted and
+    # kept_pre_resolve == list(report.kept_sentences). The frozen faithfulness engine
+    # (strict_verify / NLI / provenance / D8 four-role logic) is UNTOUCHED — this only
+    # EXCLUDES the withheld claims from what is FED to D8. It STRENGTHENS faithfulness.
+    effective_verified = 0 if is_gap_stub else resolved_emitted
+    kept_pre_resolve = [] if is_gap_stub else list(report.kept_sentences)
 
     # I-gen-005 Step 1.5 iter-2 (Codex P1 #2): include M-41c policy
     # drops in sentences_dropped so the section-level total matches
@@ -4829,7 +4962,9 @@ async def _run_section(
         # drops degenerate fragments + F31 bogus-only sentences, so total_kept
         # overstates what actually shipped. The dropped delta is reflected in
         # sentences_dropped below so verified + dropped stays consistent.
-        sentences_verified=resolved_emitted,
+        # I-deepfix-001 (Codex grpC iter2 P1): effective_verified == 0 for a gap stub so
+        # a withheld/emptied section contributes ZERO verified claims (see note above).
+        sentences_verified=effective_verified,
         # I-arch-011 #1269 B11: include the same-span dedup-collapsed restatements so the section
         # total stays honest (they were removed from report.total_kept above; without this they would
         # silently vanish from the dropped accounting). They are ALSO surfaced as the redundant SVs in
@@ -4837,7 +4972,7 @@ async def _run_section(
         sentences_dropped=(
             report.total_dropped
             + m41c_drop_count
-            + max(0, report.total_kept - resolved_emitted)
+            + max(0, report.total_kept - effective_verified)
             + len(_same_span_collapsed)
         ),
         regen_attempted=regen_attempted,
@@ -4849,7 +4984,9 @@ async def _run_section(
         # the dedup pass and the post-dedup re-resolve. fact_dedup
         # extracts .sentence for grouping; resolve_provenance_to_citations
         # consumes the full SV objects. Per Codex iter-2 P1 review.
-        kept_sentences_pre_resolve=list(report.kept_sentences),
+        # I-deepfix-001 (Codex grpC iter2 P1): cleared ([]) for a gap stub so the withheld
+        # sentences cannot leak into the D8 four-role gate input.
+        kept_sentences_pre_resolve=kept_pre_resolve,
         # I-gen-005 Step 1.5: persist the FINAL dropped SVs from
         # strict_verify so run_honest_sweep_r3 can serialize them
         # without re-running strict_verify on the rewritten_draft
@@ -5914,6 +6051,105 @@ def _remap_section_markers_to_global(
     return remapped
 
 
+# I-deepfix-001 U17 (#1335): NEAR-DUPLICATE section-body collapse.
+#
+# THE DUPLICATE: the "Corroborated Weighted Findings" section (weighted_enrichment.
+# build_verified_span_draft, joined-prose) and the numbered "Evidence base" section
+# (weighted_enrichment.build_evidence_base_section) are BUILT FROM THE SAME uncapped
+# unbound-SUPPORTS ``_wfe.ev_ids`` surface, with the same same-work consolidation, the same
+# ``spans_per_source()`` budget and the same verbatim ``_emit_unit`` — so both render the SAME
+# verified spans (measured 83-94% identical). Rendering BOTH is pure repetition.
+#
+# THE COLLAPSE: when the Evidence base body is near-identical to a section already assembled
+# (the earlier-ordered Corroborated Weighted Findings), skip the Evidence base append — keep ONE.
+# This is a DISPLAY de-duplication, NOT a cap/filter/thinner: the surviving section carries the
+# SAME verified spans + the SAME [N] citations (same sources, so breadth is preserved), and each
+# entry already passed the FROZEN faithfulness engine (strict_verify / NLI / 4-role D8 / provenance
+# / span-grounding) independently before this check ever runs. The frozen engine is UNTOUCHED.
+# §-1.3-safe: no source is dropped from evidence_pool or the bibliography; only a redundant SECOND
+# rendering of already-cited spans is suppressed. Kill-switch ``PG_SECTION_DEDUP_ENABLED`` (default
+# ON); OFF => both sections render => byte-identical legacy output. Threshold
+# ``PG_SECTION_DEDUP_SIMILARITY`` (default 0.80) is the difflib ratio over normalized bodies.
+_ENV_SECTION_DEDUP_ENABLED = "PG_SECTION_DEDUP_ENABLED"
+_ENV_SECTION_DEDUP_SIMILARITY = "PG_SECTION_DEDUP_SIMILARITY"
+_SECTION_DEDUP_SIMILARITY_DEFAULT = 0.80
+# Markdown scaffolding that carries NO evidence content — stripped before comparing bodies so a
+# numbered "1. " list and its joined-prose twin normalize to the SAME token stream.
+_SECTION_DEDUP_HEADER_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s.*$")
+_SECTION_DEDUP_ENUM_RE = re.compile(r"(?m)^\s*\d+[.)]\s+")
+_SECTION_DEDUP_CITATION_RE = re.compile(r"\[[^\[\]]*\]")
+_SECTION_DEDUP_WS_RE = re.compile(r"\s+")
+
+
+def section_dedup_enabled() -> bool:
+    """Kill-switch ``PG_SECTION_DEDUP_ENABLED`` (default ON). OFF => near-duplicate sections are
+    NOT collapsed => byte-identical legacy output (both sections render)."""
+    return os.environ.get(_ENV_SECTION_DEDUP_ENABLED, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _section_dedup_similarity_threshold() -> float:
+    """Configured difflib similarity threshold (default 0.80). A malformed value falls back to the
+    default (fail-safe: never collapses on a bad env value)."""
+    raw = os.environ.get(_ENV_SECTION_DEDUP_SIMILARITY, "")
+    if not raw.strip():
+        return _SECTION_DEDUP_SIMILARITY_DEFAULT
+    try:
+        val = float(raw.strip())
+    except (TypeError, ValueError):
+        return _SECTION_DEDUP_SIMILARITY_DEFAULT
+    if not (0.0 < val <= 1.0):
+        return _SECTION_DEDUP_SIMILARITY_DEFAULT
+    return val
+
+
+def _normalize_section_body_for_dedup(text: str) -> str:
+    """Reduce a rendered section body to its evidence-content token stream so a numbered list and
+    its joined-prose twin compare equal: drop markdown headers, leading "N. " enumeration, and
+    ``[N]``/``[ev_id]`` citation markers, then lowercase + collapse whitespace."""
+    if not text:
+        return ""
+    out = _SECTION_DEDUP_HEADER_RE.sub(" ", text)
+    out = _SECTION_DEDUP_ENUM_RE.sub("", out)
+    out = _SECTION_DEDUP_CITATION_RE.sub(" ", out)
+    return _SECTION_DEDUP_WS_RE.sub(" ", out).strip().lower()
+
+
+def _section_body_is_near_duplicate(
+    candidate_body: str,
+    section_results: "list[SectionResult]",
+) -> "Optional[str]":
+    """Return the TITLE of the first already-assembled, non-dropped section whose normalized body is
+    >= the configured similarity threshold to ``candidate_body`` (else ``None``).
+
+    Content-only comparison (normalized per ``_normalize_section_body_for_dedup``) so the numbered
+    "Evidence base" body matches its joined-prose "Corroborated Weighted Findings" twin despite the
+    different formatting. Returns ``None`` when the flag is OFF, the candidate normalizes empty, or
+    nothing crosses the threshold."""
+    if not section_dedup_enabled():
+        return None
+    cand_norm = _normalize_section_body_for_dedup(candidate_body)
+    if not cand_norm:
+        return None
+    threshold = _section_dedup_similarity_threshold()
+    matcher = difflib.SequenceMatcher()
+    matcher.set_seq2(cand_norm)
+    for sr in section_results:
+        if getattr(sr, "dropped_due_to_failure", False):
+            continue
+        existing_norm = _normalize_section_body_for_dedup(getattr(sr, "verified_text", "") or "")
+        if not existing_norm:
+            continue
+        matcher.set_seq1(existing_norm)
+        # Cheap length prefilter (difflib's own guard) before the O(n*m) ratio.
+        if matcher.real_quick_ratio() < threshold or matcher.quick_ratio() < threshold:
+            continue
+        if matcher.ratio() >= threshold:
+            return getattr(sr, "title", "") or "<untitled>"
+    return None
+
+
 # I-deepfix-001 WS-3 (#1344): the [ev_id] marker build_evidence_base_section emits — any bracketed
 # non-empty token. Membership in evidence_pool decides whether it is a real evidence marker to
 # resolve into a [N] (a stray literal bracket is left untouched). Single-pass so a freshly-produced
@@ -6023,6 +6259,24 @@ def _append_evidence_base_section(
 
     body = re.sub(r"\[(\d+)\]", _local_to_global_marker, local_text).strip()
     if not body:
+        return False
+
+    # I-deepfix-001 U17 (#1335): NEAR-DUPLICATE collapse. The Corroborated Weighted Findings
+    # section (built from the SAME uncapped unbound-SUPPORTS ev_ids surface) renders the same
+    # verified spans as this Evidence base body — measured 83-94% identical. If an already-assembled
+    # section is near-identical, DON'T append this second rendering (keep ONE). Faithfulness-neutral:
+    # every span here already passed the frozen strict_verify + 4-role D8 gate above, and the
+    # surviving section carries the SAME spans + SAME [N] citations (same sources => breadth kept).
+    # Kill-switch PG_SECTION_DEDUP_ENABLED (default ON) => OFF is byte-identical legacy (both render).
+    _dup_title = _section_body_is_near_duplicate(body, section_results)
+    if _dup_title is not None:
+        logger.info(
+            "[multi_section] I-deepfix-001 U17 near-duplicate collapse: Evidence base body is "
+            ">= %.2f similar to already-rendered section %r (same uncapped SUPPORTS surface) — "
+            "SKIPPING the redundant second rendering (breadth preserved: same spans + same [N] in "
+            "the kept section; frozen faithfulness engine untouched)",
+            _section_dedup_similarity_threshold(), _dup_title,
+        )
         return False
 
     section_results.append(SectionResult(
@@ -7990,6 +8244,10 @@ async def generate_multi_section_report(
             # B12 (#1356): empty list on the non-contract path => nothing wrongly excluded;
             # the bound set on the contract path is byte-identical to the prior behavior.
             contract_plans=list(v30_contract_plans or []),
+            # I-deepfix-001 (U9): thread the REAL research question so the TOPICAL question-overlap
+            # ordering weight demotes off-topic sources from the top of the cited breadth surface
+            # (WEIGHT, never a drop — §-1.3). Empty question => factor 1.0 => byte-identical order.
+            research_question=research_question,
         )
         # I-deepfix-001 WS-3 (#1344): carry the UNCAPPED ordered SUPPORTS surface to the assembly
         # stage for the numbered "Evidence base" section (§-1.3: SURFACE the keep-all set, no cap).

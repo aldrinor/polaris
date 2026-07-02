@@ -761,6 +761,25 @@ def _resolve_evidence(
     return documents, records
 
 
+def _section_is_gap_stub(section: Any) -> bool:
+    """I-deepfix-001 (Codex grpC iter2 P1): True when a section is a rendered gap
+    disclosure stub (the BB5-C07 / F10 / U24-withheld paths, and the fact-dedup
+    re-resolve at multi_section_generator.py that sets is_gap_stub=True while leaving
+    kept_sentences_pre_resolve populated). A gap stub renders ONLY the marker-less stub
+    sentence — a non-claim — so it must contribute ZERO verified claims to the binding
+    D8 four-role gate. Primary signal: the ``is_gap_stub`` flag (always set on gap stubs).
+    Fallback for any section object predating the flag: a gap stub carries zero verified
+    sentences AND an empty pre-resolve kept list, in which case it contributes nothing
+    regardless. This SKIP only EXCLUDES withheld claims from the D8 INPUT; the frozen D8
+    four-role verification logic is untouched.
+    """
+    if bool(getattr(section, "is_gap_stub", False)):
+        return True
+    kept = getattr(section, "kept_sentences_pre_resolve", None)
+    verified = getattr(section, "sentences_verified", None)
+    return verified == 0 and kept is not None and len(kept) == 0
+
+
 def build_native_gate_b_inputs(
     *,
     multi: Any,
@@ -792,6 +811,18 @@ def build_native_gate_b_inputs(
     claims: list[FourRoleClaim] = []
     audit_map: dict[str, dict] = {}
     for section_index, section in enumerate(multi.sections):
+        # I-deepfix-001 (Codex grpC iter2 P1): SKIP gap-stub sections. A gap stub renders
+        # only the marker-less gap-disclosure stub (a non-claim); feeding its (withheld)
+        # sentences into the binding D8 four-role gate would re-admit claims that never
+        # reached the render — a faithfulness hole. Defense-in-depth alongside the
+        # source-side zeroing in multi_section_generator._run_section (which clears
+        # kept_sentences_pre_resolve for the U24-withheld case); keying off is_gap_stub also
+        # covers the downstream fact-dedup re-resolve path (which sets is_gap_stub=True while
+        # leaving kept_sentences_pre_resolve populated). `continue` (not renumber) preserves
+        # section_index for the surviving sections. The frozen D8 engine is UNTOUCHED — this
+        # only EXCLUDES withheld claims from its INPUT (it strengthens faithfulness).
+        if _section_is_gap_stub(section):
+            continue
         kept = getattr(section, "kept_sentences_pre_resolve", []) or []
         sentence_index = -1
         for verification in kept:
