@@ -1257,6 +1257,56 @@ def _is_residual_chrome_furniture(text: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) chrome_canary_unblind — three chrome CLASSES the containment predicate was
+# BLIND to (the canary passed 0/226 while the report was saturated with chrome). Each rule is a
+# high-precision CONTAINMENT signal (fires even when the class is welded INTO otherwise-real prose),
+# structure/dual-signal-anchored so it can NEVER flag clean clinical prose:
+#   (a) AUTHOR-AFFILIATION / EMAIL block — an email address CO-OCCURRING with an institution keyword
+#       (a corresponding-author byline: "…, Department of Cardiology, Harvard University. Email:
+#       jsmith@harvard.edu"). A real clinical/research finding never carries a raw email address, and
+#       the email+institution DUAL signal never co-occurs in substantive prose (precision-first per
+#       §-1.3: recall is secondary, over-strip is worse). The email alone is NOT enough (a finding
+#       could conceivably quote one); both signals are required.
+#   (b) TABLE-OF-CONTENTS DOT-LEADERS — a run of 4+ leader dots (a normal ellipsis is exactly 3)
+#       followed by a page number ("Introduction ......... 12"). Consecutive-dot runs with a trailing
+#       page number are ToC furniture; a decimal table ("0.034 0.030") has digits BETWEEN the dots so
+#       it never matches.
+#   (c) COOKIE / CONSENT banner — the "By clicking/continuing … you accept/agree/consent" consent-CTA
+#       phrasing the legacy ``_COOKIE_CONSENT_RE`` alternation missed. Bounded gap (no ``.``/newline)
+#       between the two anchors keeps it from spanning unrelated sentences.
+# FLAG-not-drop / detector-only: a flagged unit is withheld from the rendered rollup and KEPT in
+# evidence; the faithfulness engine (strict_verify / NLI / 4-role / provenance / span-grounding) is
+# UNCHANGED. Gated by the caller under ``render_chrome_screen_enabled()`` (default ON).
+_AFFIL_EMAIL_ADDRESS_RE = re.compile(
+    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
+)
+_AFFIL_INSTITUTION_KEYWORD_RE = re.compile(
+    r"\b(?:Universit(?:y|ies|[àáäé]|e)|Universidad|Universit[àé]|Department|Departamento|"
+    r"Institut(?:e|o|ion)?|College|Hospital|Clinic|Laborator(?:y|ies)|Faculty|Facultad|"
+    r"Escuela|Polytechnic|Academy|Ministry)\b",
+    re.IGNORECASE,
+)
+_TOC_DOTLEADER_RE = re.compile(r"(?:\.[ \t]*){4,}\d{1,4}\b")
+_COOKIE_BY_CLICKING_RE = re.compile(
+    r"\bby\s+(?:clicking|continuing|using|browsing)\b[^.\n]{0,80}?"
+    r"\byou\s+(?:accept|agree|consent)\b",
+    re.IGNORECASE,
+)
+
+
+def _contains_missed_chrome_class(text: str) -> bool:
+    """I-deepfix-001 (#1344) chrome_canary_unblind: True iff ``text`` CONTAINS one of the three
+    high-precision chrome classes the legacy containment predicate was blind to — an author-
+    affiliation/email byline, a ToC dot-leader run, or a "By clicking … you accept" consent banner.
+    Detector-only (FLAG-not-drop); the faithfulness engine is UNCHANGED."""
+    if _AFFIL_EMAIL_ADDRESS_RE.search(text) and _AFFIL_INSTITUTION_KEYWORD_RE.search(text):
+        return True
+    if _TOC_DOTLEADER_RE.search(text):
+        return True
+    return bool(_COOKIE_BY_CLICKING_RE.search(text))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # I-wire-016 (#1338) gap-fill — precision-safe furniture rules the legacy categories miss (the OSS
 # survey confirmed no fetch-time HTML extractor fits the render seam; extend the deterministic
 # predicate). Codex iter-1/2/3 removed every rule whose surface form overlaps a real finding (biblio
@@ -1357,6 +1407,10 @@ def _contains_forensic_chrome(text: str) -> bool:
     # I-deepfix-001 (#1344) DEFER-4: residual furniture-dominated units — publisher paywall CTA ·
     # working-paper cover masthead/disclaimer · PDF footnote/citation-apparatus run.
     if _is_residual_chrome_furniture(s):
+        return True
+    # I-deepfix-001 (#1344) chrome_canary_unblind: author-affiliation/email byline · ToC dot-leaders ·
+    # "By clicking … you accept" consent banner (the three classes the canary was blind to).
+    if _contains_missed_chrome_class(s):
         return True
     if _SUBMISSION_META_RE.search(s) or _MASTHEAD_CHROME_RE.search(s) or _STATS_TABLE_RE.search(s):
         return True
