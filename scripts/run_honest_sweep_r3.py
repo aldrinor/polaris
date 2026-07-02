@@ -1017,6 +1017,20 @@ def _junk_ev_row_url(_row: Any) -> str:
     return str(getattr(_row, "source_url", "") or getattr(_row, "url", "") or "")
 
 
+def _junk_ev_row_direct_quote(_row: Any) -> str:
+    """U20 (I-deepfix-001): the row's ACTUAL fetched span (``direct_quote``) with NO
+    ``statement`` fallback.
+
+    ``_junk_ev_row_text`` deliberately falls back to ``statement`` so the error-shell
+    BODY screen has text to inspect. But an EMPTY ``direct_quote`` (a source that
+    contributed no grounding span) is itself junk that inflates breadth — and the
+    statement fallback would MASK it. So the empty-quote screen reads the raw
+    ``direct_quote`` field only. '' when absent."""
+    if isinstance(_row, dict):
+        return str(_row.get("direct_quote") or "")
+    return str(getattr(_row, "direct_quote", "") or "")
+
+
 def _junk_src_url(_src: Any) -> str:
     """URL of a classified source (dict OR CorpusSource object); '' when absent."""
     if isinstance(_src, dict):
@@ -1074,10 +1088,21 @@ def _screen_junk_evidence(
     if rows is not None:
         for _row in _rows_in:
             # Evidence rows carry the fetched body (direct_quote) AND the URL, so
-            # both signals apply (host junk + error-shell body).
+            # both signals apply (host junk + error-shell body + captcha/cookie
+            # interstitial span, U20).
             if _is_junk_source(_junk_ev_row_url(_row), _junk_ev_row_text(_row)):
                 _rows_excluded.append(
                     {"url": _junk_ev_row_url(_row)[:300], "reason": "junk_source"}
+                )
+            # U20 (I-deepfix-001): a row whose ACTUAL fetched span is empty/whitespace
+            # contributed no grounding and must not count toward breadth. Checked on the
+            # raw direct_quote (NOT the statement fallback that _junk_ev_row_text uses),
+            # so a phantom row with a model statement but no source span is dropped. This
+            # runs at corpus consumption AFTER all retrieval, so direct_quote is settled;
+            # faithfulness-neutral (an ungrounded row can never verify anyway).
+            elif not _junk_ev_row_direct_quote(_row).strip():
+                _rows_excluded.append(
+                    {"url": _junk_ev_row_url(_row)[:300], "reason": "empty_quote"}
                 )
             else:
                 _rows_kept.append(_row)
@@ -1999,6 +2024,28 @@ def cwf_header_prose_enabled() -> bool:
     return raw.strip() not in ("0", "false", "no", "off")
 
 
+_CORROBORATION_BLOCK_DEDUP_ENV = "PG_CORROBORATION_BLOCK_DEDUP"
+
+
+def corroboration_block_dedup_enabled() -> bool:
+    """I-deepfix-001 U18 (#1344): collapse BYTE-IDENTICAL rendered per-claim corroboration
+    blocks so the same claim-header + same single source + same count is not printed many times
+    (the drb_78 report rendered 39 redundant duplicate blocks — e.g. the identical "FDA
+    carbidopa-levodopa labeling …" block 8×, the same "managing-patients …" URL 6×). Default ON;
+    ``PG_CORROBORATION_BLOCK_DEDUP=0`` reverts to the legacy render (byte-identical).
+
+    RENDER-TEXT-ONLY / §-1.3-safe: a duplicate is skipped ONLY when its WHOLE rendered block
+    (header + every SUPPORT / GROUNDED-BUT-WEAK / CONTRADICTED sub-bullet) is byte-identical to
+    one already emitted. Two DISTINCT claims that share a source render DIFFERENT headers => two
+    different blocks => both kept (corroboration is preserved, never collapsed by URL). The
+    dropped copies carry ZERO additional information (identical text), every source still lives
+    in the numbered Bibliography, and NO count / strict_verify / NLI / 4-role D8 / span-grounding
+    / provenance is touched."""
+    return os.getenv(_CORROBORATION_BLOCK_DEDUP_ENV, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 def _complete_sentence_prefix(text: str, *, min_chars: int = 40, max_chars: int = 260) -> str:
     """Longest leading run of COMPLETE sentence(s) in ``text`` (a leading doc-label like
     'Abstract'/'Summary.' is stripped first), capped at ~``max_chars``. ``''`` when no complete
@@ -2630,6 +2677,11 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
         )
 
     seen_clusters: set[str] = set()
+    # U18 (#1344): distinct claim clusters can still render a BYTE-IDENTICAL block (same header,
+    # same single source, same count). We collapse those to one; genuinely-distinct claims render
+    # distinct headers => distinct blocks => all kept (§-1.3 corroboration preserved).
+    seen_blocks: set[str] = set()
+    _dedup_blocks = corroboration_block_dedup_enabled()
     blocks: list[str] = []
     for b in bibliography:
         for basket in (b.get("baskets") or []):
@@ -2803,7 +2855,14 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                     "  - CONTRADICTED: this claim has >=1 refuting cluster "
                     "(see contradiction/both-sides block)"
                 )
-            blocks.append("\n".join(lines))
+            _block = "\n".join(lines)
+            # U18 (#1344): skip a byte-identical duplicate block (render-text-only; §-1.3-safe —
+            # see corroboration_block_dedup_enabled). Sources still live in the Bibliography.
+            if _dedup_blocks:
+                if _block in seen_blocks:
+                    continue
+                seen_blocks.add(_block)
+            blocks.append(_block)
     if not blocks:
         return ""
     return (
@@ -9050,17 +9109,26 @@ async def run_one_query(
                 sufficient=_crag_sufficient, loops_done=_loops_done,
             ):
                 # I-deepfix-001 BUG-A (#1344) KEYSTONE: honor the SHARED per-question
-                # retrieval wall. FIX-2 short-circuits the `run_live_retrieval` INSIDE
-                # this loop, but the loop itself still derives NEW gap queries + fires
-                # a fresh `_run_crag_classifier()` LLM round + re-classify + re-grade
-                # each iteration — work FIX-2 does not cover, so it grinds tens of
-                # minutes past the wall and retrieval never HANDS OFF to generation
-                # (the run-level `asyncio.wait_for` wall then guillotines the whole
-                # question with no report). Once the wall passes, STOP ADDING rounds
-                # and hand off the corpus gathered so far — disclosed in the trace,
-                # never a silent cap. `None` (knob unset — default) => never trips =>
-                # byte-identical. §-1.3: drops ZERO gathered sources.
-                if _question_retrieval_deadline_passed(_question_retrieval_deadline):
+                # retrieval wall so the loop cannot grind unbounded past it (FIX-2 only
+                # short-circuits the inner run_live_retrieval, not this outer loop).
+                # `None` (knob unset — default) => never trips => byte-identical.
+                _wall_passed = _question_retrieval_deadline_passed(_question_retrieval_deadline)
+                # I-deepfix-001 U22 (#1344): but GUARANTEE the FIRST corrective round when
+                # the classifier graded the corpus NOT sufficient. On a wide question the
+                # upstream lanes (initial / STORM / deepener) can consume the WHOLE shared
+                # wall before adequacy is even graded, so a bare wall-break makes CRAG a
+                # no-op EXACTLY when it is needed (drb_72: classifier=insufficient,
+                # loops_fired=0, injected 0). Corrective-RAG's whole point is >= 1
+                # corrective round on an insufficient corpus, so the first round is not
+                # skipped by the wall; after it the wall is honored unchanged (BUG-A bound
+                # holds). Once the wall passes we hand off the corpus gathered so far —
+                # disclosed in the trace (stopped_reason), never a silent cap. §-1.3:
+                # drops ZERO gathered sources.
+                if _crag_adq.wall_should_break_corrective_loop(
+                    sufficient=_crag_sufficient,
+                    loops_done=_loops_done,
+                    wall_passed=_wall_passed,
+                ):
                     _crag_loop_trace["stopped_reason"] = "retrieval_wall"
                     _log(f"[crag-adequacy] per-question retrieval wall hit after "
                          f"{_loops_done} loop(s) — stopping corrective loop-back; "
@@ -9085,6 +9153,18 @@ async def run_one_query(
                     "gap_queries": _gap_queries,
                     "new_urls": [],
                 }
+                # I-deepfix-001 U22 (#1344): the deadline for this corrective fetch.
+                # Normally the SHARED per-question wall (FIX-2). But for the ONE
+                # guaranteed first round on an insufficient corpus whose shared wall was
+                # already consumed upstream, grant a bounded reserved budget so the
+                # round can actually fetch instead of short-circuiting on the exhausted
+                # wall (drb_72 no-op). None (wall unset — default) => unchanged.
+                _corrective_deadline = _crag_adq.corrective_iter_deadline(
+                    shared_deadline=_question_retrieval_deadline,
+                    now=time.monotonic(),
+                    loops_done=_loops_done,
+                    sufficient=_crag_sufficient,
+                )
                 try:
                     # PARALLEL fan-out across backends, already bounded inside
                     # run_live_retrieval — reused, not re-implemented.
@@ -9098,7 +9178,7 @@ async def run_one_query(
                         enable_openalex_enrich=True,
                         enable_prefetch_filter=False,
                         domain=q["domain"],
-                        retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (CRAG corrective loop-back)
+                        retrieval_deadline_monotonic=_corrective_deadline,  # I-deepfix-001 U22 (#1344): reserved budget for the guaranteed first corrective round (else SHARED per-question wall — FIX-2)
                     )
                     # Merge: add new sources / evidence not already present
                     # (same proven pattern as the R-6 expansion below).
@@ -17065,6 +17145,22 @@ async def run_one_query(
                             )
             except Exception as _db_exc:  # noqa: BLE001 — additive disclosure; never abort the run
                 _log(f"[d8-banner]   skipped (fail-open): {_db_exc}")
+
+        # U26 (I-deepfix-001): HONEST release-quality scorecard. release_quality_score was set
+        # verbatim to the coverage fraction, so it read GREEN (1.000) even when the evaluator
+        # rule-gate returned gate_class=abort (a PT11 uncited-numeric failure) or a required-entity
+        # slot was left empty. Re-derive the DISPLAYED score from those sibling manifest signals so
+        # a real deficiency pulls the scorecard below green. Runs AFTER all release_disclosure /
+        # A18-seam manipulation, so it reflects the final reconciled state. Faithfulness-NEUTRAL:
+        # presentation only — no gate / verdict / verified flag is changed (the score can only be
+        # lowered), and an unadjudicated outcome keeps its honest "N/A" display untouched.
+        try:
+            from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
+                apply_honest_scorecard_to_manifest,
+            )
+            apply_honest_scorecard_to_manifest(manifest)
+        except Exception as _sc_exc:  # noqa: BLE001 — additive display recompute; never abort the run
+            _log(f"[scorecard]   honest release-quality recompute skipped (fail-open): {_sc_exc}")
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",

@@ -83,6 +83,10 @@ _ON_VALUES: frozenset[str] = frozenset({"1", "true", "on", "yes"})
 FLAG_ENV: str = "PG_ADEQUACY_CRAG"
 MAX_LOOPS_ENV: str = "PG_ADEQUACY_CRAG_MAX_LOOPS"
 MAX_GAP_QUERIES_ENV: str = "PG_ADEQUACY_CRAG_MAX_GAP_QUERIES"
+# I-deepfix-001 U22 (#1344): bounded reserved retrieval budget (seconds) for the
+# GUARANTEED first corrective round when the SHARED per-question wall was already
+# consumed by upstream lanes. See :func:`corrective_reserve_seconds`.
+CORRECTIVE_RESERVE_ENV: str = "PG_ADEQUACY_CRAG_CORRECTIVE_RESERVE_SECONDS"
 # Classifier knobs.
 CRAG_MODEL_ENV: str = "PG_ADEQUACY_CRAG_MODEL"
 CRAG_MAX_TOKENS_ENV: str = "PG_ADEQUACY_CRAG_MAX_TOKENS"
@@ -91,6 +95,11 @@ CRAG_RENDER_CAP_ENV: str = "PG_ADEQUACY_CRAG_RENDER_CAP"
 # Conservative defaults: one corrective loop-back, up to four gap queries.
 _DEFAULT_MAX_LOOPS: int = 1
 _DEFAULT_MAX_GAP_QUERIES: int = 4
+# I-deepfix-001 U22 (#1344): bounded reserved retrieval budget (seconds) for the
+# ONE guaranteed corrective round. A positive default so an insufficient verdict
+# whose SHARED per-question wall was already exhausted upstream still gets one real
+# corrective fetch instead of a 0-iter no-op. A CAP, not a target (billed by usage).
+_DEFAULT_CORRECTIVE_RESERVE_SECONDS: float = 300.0
 # Per §9.1.8: the aux classifier is NOT one of the 4 locked roles -> mirror GLM.
 # z-ai/glm-5.2 is the bake-off backbone the winner was scored on.
 _DEFAULT_CRAG_MODEL: str = "z-ai/glm-5.2"
@@ -386,6 +395,118 @@ def should_loop_back(*, sufficient: bool, loops_done: int) -> bool:
     if sufficient:
         return False
     return loops_done < max_loops()
+
+
+def corrective_reserve_seconds() -> float:
+    """Bounded reserved retrieval budget (seconds) for the GUARANTEED first
+    corrective round. Reads `PG_ADEQUACY_CRAG_CORRECTIVE_RESERVE_SECONDS`.
+
+    Why this exists (I-deepfix-001 U22, #1344): the CRAG corrective loop shares the
+    per-question retrieval wall (`PG_RETRIEVAL_QUESTION_WALL_SECONDS`) with the
+    upstream lanes (initial / STORM / deepener). On a wide question those lanes can
+    consume the WHOLE wall before adequacy is even graded, so when CRAG grades the
+    corpus NOT sufficient the shared wall has already passed and the corrective
+    `run_live_retrieval` short-circuits immediately, fetching nothing — the drb_72
+    defect (classifier said insufficient, `loops_fired=0`, `stopped_reason=
+    retrieval_wall`, injected 0). Corrective-RAG's whole point is that a
+    not-sufficient corpus gets at least ONE real corrective round, so the guaranteed
+    first round is granted this small bounded budget when (and only when) the shared
+    wall is already exhausted.
+
+    A malformed / negative value falls back to the conservative default. This is an
+    ADDITIVE retrieval budget, never a breadth cap/thinner (§-1.3): it can only feed
+    the unchanged tier classifier + strict_verify engine MORE candidates.
+    """
+    raw = os.getenv(CORRECTIVE_RESERVE_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_CORRECTIVE_RESERVE_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_CORRECTIVE_RESERVE_SECONDS
+    if value < 0:
+        return _DEFAULT_CORRECTIVE_RESERVE_SECONDS
+    return value
+
+
+def wall_should_break_corrective_loop(
+    *, sufficient: bool, loops_done: int, wall_passed: bool
+) -> bool:
+    """Whether the CRAG corrective loop should BREAK on the shared retrieval wall.
+
+    Corrective-RAG guarantees that a NOT-sufficient corpus gets at least one
+    corrective retrieval round. The shared per-question retrieval wall is consumed by
+    the upstream lanes, so breaking the corrective loop the instant the wall has
+    passed makes CRAG a no-op EXACTLY when it is needed — the drb_72 defect: the
+    classifier graded the corpus insufficient but 0 corrective iterations ran because
+    the wall was already exhausted.
+
+    Rule: NEVER break before the FIRST corrective iteration has run when the corpus is
+    insufficient (``not sufficient`` and ``loops_done == 0``). After that one
+    guaranteed round, honor the wall exactly as before (stop adding rounds; hand off
+    the merged corpus). When the corpus is already sufficient, or a corrective round
+    has already fired, the wall is honored unchanged — so this preserves the BUG-A
+    bound (the loop still cannot grind unbounded past the wall).
+
+    Args:
+        sufficient: the CRAG classifier's latest sufficiency verdict.
+        loops_done: number of corrective loop-backs already fired this query.
+        wall_passed: whether the SHARED per-question retrieval wall has passed
+            (``_question_retrieval_deadline_passed(...)`` in the run-script).
+
+    Returns:
+        True to BREAK (hand off the corpus gathered so far); False to keep going.
+    """
+    if not sufficient and loops_done == 0:
+        # Guarantee the first corrective iteration — do NOT break on the wall yet.
+        return False
+    return wall_passed
+
+
+def corrective_iter_deadline(
+    *,
+    shared_deadline: float | None,
+    now: float,
+    loops_done: int,
+    sufficient: bool,
+) -> float | None:
+    """Absolute monotonic deadline for the corrective ``run_live_retrieval`` call.
+
+    Keeps the SHARED per-question wall as the deadline in the normal case, but grants
+    the ONE guaranteed first corrective round (see
+    :func:`wall_should_break_corrective_loop`) a bounded reserved budget when the
+    shared wall has ALREADY passed — otherwise that guaranteed round would run against
+    an exhausted deadline and fetch nothing (the drb_72 no-op).
+
+    Cases:
+      * ``shared_deadline is None`` (wall OFF — the default) => return ``None`` =>
+        the corrective retrieval is unbounded exactly as before (byte-identical).
+      * shared deadline still in the future => return it unchanged (spend the
+        remaining shared budget; no reserve needed).
+      * shared deadline already passed AND this is the guaranteed first corrective
+        round (``not sufficient`` and ``loops_done == 0``) => return
+        ``now + corrective_reserve_seconds()`` so the round can actually fetch.
+      * otherwise (wall passed, not the first round) => return the (passed) shared
+        deadline unchanged; the loop-break decision stops the loop anyway.
+
+    Args:
+        shared_deadline: the anchored per-question retrieval deadline, or ``None``.
+        now: the current ``time.monotonic()`` instant (injected for purity/testing).
+        loops_done: corrective loop-backs already fired this query.
+        sufficient: the CRAG classifier's latest sufficiency verdict.
+
+    Returns:
+        The absolute monotonic deadline to pass as ``retrieval_deadline_monotonic``.
+    """
+    if shared_deadline is None:
+        return None
+    if now <= shared_deadline:
+        # Shared budget not yet exhausted — use it as-is.
+        return shared_deadline
+    # Shared wall already passed.
+    if not sufficient and loops_done == 0:
+        return now + corrective_reserve_seconds()
+    return shared_deadline
 
 
 def derive_gap_queries(

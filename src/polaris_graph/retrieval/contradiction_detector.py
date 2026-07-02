@@ -1491,6 +1491,44 @@ PG_CONTRADICTION_ABS_THRESHOLD = float(
     os.getenv("PG_CONTRADICTION_ABS_THRESHOLD", "1.0")
 )
 
+# ── I-deepfix-001 U28 (#1344) — contradiction-noise guards ───────────────────
+# Three deterministic VALIDITY guards clean the user-visible contradiction noise the
+# cert run surfaced:
+#   (1) an ABSURD relative difference (a near-zero denominator, or an identifier /
+#       count lifted as a value) rendered as a benign "low"-severity signal — e.g. a
+#       772,700% rel_diff labelled "low";
+#   (2) a STOPWORD subject ("the" / "mean" / "rate" / ...) — a failed entity extraction
+#       that collapsed unrelated claims under a generic filler word;
+#   (3) a zero-spread "0.0%" cluster (every value identical) — no disagreement, never a
+#       contradiction.
+# They default ON with a LAW-VI escape hatch, mirroring the A17 commensurability guard
+# (``_a17_guard_enabled``); with the flag OFF the output is byte-identical to the pre-fix
+# tree. These are VALIDITY / WEIGHT checks only — NO faithfulness threshold
+# (strict_verify / NLI entailment / 4-role / provenance / span-grounding) is touched, and
+# a genuine same-metric contradiction with a REAL subject is never suppressed (a real
+# entity — drug / device / condition — is never a stopword, and a real disagreement has a
+# non-zero spread and a sane magnitude).
+PG_CONTRADICTION_ABSURD_REL = float(
+    # 5000% — far above any real same-metric ratio disagreement; above this the "gap" is a
+    # near-zero denominator or a lifted identifier/count, not a benign low-severity signal.
+    os.getenv("PG_CONTRADICTION_ABSURD_REL", "50.0")
+)
+_NOISE_GUARD_FLAG = "PG_CONTRADICTION_NOISE_GUARD"
+_NOISE_GUARD_OFF_VALUES = frozenset({"0", "false", "off", "no"})
+
+
+def _noise_guard_enabled() -> bool:
+    """True (default) unless ``PG_CONTRADICTION_NOISE_GUARD`` is set off.
+
+    Read at CALL time so tests can monkeypatch os.environ. Defaults ON because a
+    772,700%-labelled-"low" contradiction, a stopword-subject bucket, and a zero-spread
+    cluster are §-1.3-incorrect validity junk; the flag exists only as a LAW-VI escape
+    hatch / byte-identity audit lever. Pure, never raises."""
+    return (
+        os.environ.get(_NOISE_GUARD_FLAG, "").strip().lower()
+        not in _NOISE_GUARD_OFF_VALUES
+    )
+
 
 def _severity(rel: float, abs_: float) -> str:
     if rel >= 0.25 or abs_ >= 5.0:
@@ -1872,10 +1910,49 @@ def detect_contradictions(
         denom = max(abs(vmin), 1e-9)
         rel = abs(vmax - vmin) / denom
         abs_diff = abs(vmax - vmin)
+        # I-deepfix-001 U28: ignore a zero-spread "0.0%" cluster — when every value in the
+        # group is identical there is NO disagreement, so it can never be a contradiction (a
+        # degenerate cluster that only reaches the emit path when a caller passes a 0
+        # threshold). Guarded by the default-ON noise flag; OFF => byte-identical (with the
+        # default non-zero thresholds this branch is unreachable, so it is inert on real runs).
+        # No faithfulness threshold touched.
+        if _noise_guard_enabled() and (rel <= 0.0 or abs_diff <= 0.0):
+            continue
         if rel >= rel_threshold and abs_diff >= abs_threshold:
             predicate_display = predicate
             if dose:
                 predicate_display = f"{predicate} ({dose})"
+            # I-deepfix-001 U28: a STOPWORD subject ("the" / "mean" / "rate" / ...) is a
+            # failed entity extraction, not a real contradiction subject — the group collapsed
+            # unrelated claims under a generic filler word. Relabel not_comparable (disclosed,
+            # kept OUT of the headline count — §-1.3 never drop), never assert a contradiction
+            # on it. Runs FIRST because a non-entity subject invalidates the whole bucket
+            # regardless of units/scale. Default-ON noise guard; OFF => byte-identical. A real
+            # entity (drug / device / condition) is never a stopword, so no genuine
+            # contradiction is suppressed and clinical golden output is unchanged. No
+            # faithfulness threshold touched.
+            if _noise_guard_enabled() and subject in _GENERIC_SUBJECT_STOPWORDS:
+                records.append(ContradictionRecord(
+                    subject=subject,
+                    predicate=f"{predicate_display} [not_comparable]",
+                    claims=sorted(group, key=lambda c: c.value),
+                    relative_difference=0.0,
+                    absolute_difference=0.0,
+                    severity="low",
+                    recommended_action=(
+                        "Not comparable (stopword subject, U28): the group's subject is a "
+                        "generic filler/stopword, so unrelated claims collapsed under a "
+                        "non-entity key — a failed subject extraction, not a real "
+                        "contradiction. Disclose each value with its own context; do NOT "
+                        "assert a numeric contradiction on a stopword subject."
+                    ),
+                    not_comparable=True,
+                    incommensurable_reason=(
+                        f"stopword_subject: the grouping subject {subject!r} is a generic "
+                        "filler word, not a real entity — the numbers do not share a subject"
+                    ),
+                ))
+                continue
             # A17 (I-arch-006 #1262): commensurability guard runs FIRST, on EVERY
             # path (incl. the clinical real-drug path), because mixing divergent
             # PHYSICAL quantity kinds in one bucket is a stronger validity failure
@@ -2052,6 +2129,19 @@ def detect_contradictions(
                     continue
                 predicate_display = f"{predicate_display} {POSSIBLE_METRIC_MISMATCH_MARKER}"
                 severity = "low"
+                surfaced_rel = rel
+                # I-deepfix-001 U28: an ABSURD relative difference on an unconfirmed-shared-
+                # metric pairing is a data-quality red flag (a near-zero denominator, or an
+                # identifier / count lifted as a value), NEVER a benign "low" signal — the cert
+                # run rendered a 772,700% rel_diff as "low severity". CAP the surfaced magnitude
+                # so a junk value never leaks to a downstream consumer (contradictions.json /
+                # audit_ir), and escalate severity OUT of "low" so the data-quality problem is
+                # visible. Default-ON noise guard; OFF => byte-identical. No faithfulness
+                # threshold touched — a real same-metric contradiction (a genuine, confirmed-
+                # shared-scope disagreement) takes the ``else`` branch below and is unaffected.
+                if _noise_guard_enabled() and rel >= PG_CONTRADICTION_ABSURD_REL:
+                    severity = "high"
+                    surfaced_rel = PG_CONTRADICTION_ABSURD_REL
                 action = (
                     "Possible metric mismatch (B9): these numbers may not measure "
                     "the same quantity — comparator, population, or time-window "
@@ -2062,7 +2152,7 @@ def detect_contradictions(
                     subject=subject,
                     predicate=predicate_display,
                     claims=sorted(group, key=lambda c: c.value),
-                    relative_difference=round(rel, 4),
+                    relative_difference=round(surfaced_rel, 4),
                     absolute_difference=round(abs_diff, 4),
                     severity=severity,
                     recommended_action=action,

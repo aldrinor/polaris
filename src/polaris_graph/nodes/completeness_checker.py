@@ -81,6 +81,76 @@ _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
 # gut-microbiota question.
 _DRUG_DETECTOR_ENABLED_ENV = "PG_COMPLETENESS_DRUG_DETECTOR"
 
+# ── U23 (I-deepfix-001): corpus-fallback intervention recognition ─────────────
+# THE BUG: BUG-7 (#1262) deliberately recognised the intervention in the QUESTION
+# ONLY — so an incidental drug word in retrieved evidence could not flip a
+# pharmacology topic on for a genuinely non-intervention question. But that
+# under-recognises the real case where the QUESTION names a CONDITION (e.g. "metal
+# ions and cardiovascular disease") while the INTERVENTION under study (an EDTA
+# chelation-therapy RCT, a magnesium meta-analysis) is named only in the retrieved
+# CORPUS. On the drb_75 metal-ions/CVD run this produced a completeness report with
+# EVERY drug/intervention topic non-applicable and a vacuous "1/1 = 100% complete"
+# (autopsy U23) — the efficacy / safety / regulatory slots for the corpus
+# intervention were NEVER MEASURED, and "chelation" was not even a recognised
+# intervention term.
+#
+# THE FIX (two parts): (a) `chelation` / `chelation therapy` are added to the
+# scope-gate recognizer's `device_procedure_terms` so a metal-ion chelation study
+# is recognised as an intervention; (b) when the QUESTION yields no intervention (a
+# CONFIDENT negative, not ambiguity) and no class anchor, `_topic_applies` falls
+# back to recognising an intervention in the CORPUS via the SAME recognizer. A
+# corpus hit makes NON-CRITICAL drug topics applicable so their coverage is
+# MEASURED and any gap is surfaced (expand_queries / notes). This NEVER holds a run
+# (a non-critical uncovered topic is the advisory ok_incomplete_corpus). The
+# CRITICAL contraindications topic is DELIBERATELY left on the disclose path for a
+# corpus-only hit: corpus recognition is weaker than question recognition (the
+# BUG-7 rationale), so a corpus intervention is DISCLOSED for manual review rather
+# than force the topic applicable and risk reintroducing a spurious
+# abort_critical_topic_uncovered HOLD. Net effect: strictly MORE topics measured,
+# ZERO new hold path.
+#
+# FAITHFULNESS NOTE: this only refines WHICH topics count toward the completeness
+# DENOMINATOR (an applicability-precision / input-hygiene change). It NEVER touches
+# strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops or alters
+# a verified claim, adds no cap/floor, and adds no new hold. Measuring MORE topics
+# (surfacing gaps that were silently vacuous) STRENGTHENS the gate.
+_CORPUS_INTERVENTION_ENABLED_ENV = "PG_COMPLETENESS_CORPUS_INTERVENTION"
+
+
+def _corpus_intervention_enabled() -> bool:
+    """Return True iff the U23 corpus-fallback intervention gate is on.
+
+    Default ON (LAW VI: env-driven kill-switch, sane default). Set
+    ``PG_COMPLETENESS_CORPUS_INTERVENTION`` to a falsy token (0/false/no/off) to
+    fall back to the pre-U23 question-only recognition (byte-identical): with the
+    flag OFF, a confident question-negative never consults the corpus.
+    """
+    raw = os.getenv(_CORPUS_INTERVENTION_ENABLED_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
+def _corpus_intervention_present(evidence_blob: str) -> str:
+    """Return a recognised intervention token from the evidence corpus, or ``""``.
+
+    Uses the SAME scope-gate recognizer as the question path
+    (``scope_gate._intervention_present``), so corpus applicability and question
+    recognition cannot drift apart. Returns ``""`` on empty input or ANY recognizer
+    error — the question path (``_intervention_detected_or_ambiguous``) already
+    surfaced genuine recognizer-unavailability as ambiguity (fail-closed for
+    critical topics), so a corpus-recognizer failure here simply reverts to the
+    pre-U23 confident-negative behaviour rather than double-handling ambiguity.
+    """
+    if not evidence_blob:
+        return ""
+    try:
+        from src.polaris_graph.nodes.scope_gate import _intervention_present
+        token = _intervention_present(evidence_blob)
+        return token or ""
+    except Exception:  # recognizer unavailable -> no corpus fallback (see above)
+        return ""
+
 
 def _drug_detector_enabled() -> bool:
     """Return True iff the robust drug/intervention applicability gate is on.
@@ -434,9 +504,19 @@ def _topic_applies(
       * one of the topic's own `applies_if` CLASS anchors (e.g. "glp-1",
         "incretin") appearing in the QUESTION — these are intervention-class
         signals, not incidental evidence text.
-    The detector deliberately consults the QUESTION only: a drug word that merely
-    appears in retrieved EVIDENCE for a non-drug question must not flip a
-    pharmacology topic on (that was the false-positive path).
+    The question-detector deliberately consults the QUESTION only: a drug word that
+    merely appears in retrieved EVIDENCE for a non-drug question must not
+    QUESTION-flip a pharmacology topic on (the BUG-7 false-positive path).
+
+    U23 (I-deepfix-001) — CORPUS FALLBACK. When the question yields a CONFIDENT
+    negative (recognizer ran, no intervention, no class anchor) and
+    ``PG_COMPLETENESS_CORPUS_INTERVENTION`` is on (default), the same recognizer is
+    applied to the CORPUS. A corpus hit makes NON-critical drug topics applicable so
+    a study whose intervention is named only in evidence (e.g. an EDTA chelation RCT
+    for a metal-ions/CVD question) is MEASURED instead of vacuously all-non-applicable.
+    The CRITICAL contraindications topic is kept on the disclose path for a
+    corpus-only hit (weaker signal than the question) so no spurious
+    ``abort_critical_topic_uncovered`` HOLD is reintroduced.
 
     Once the question is confirmed to be about a drug/intervention, the topic's
     NORMAL `applies_if` filter still applies (so the GLP-1-class topic stays gated
@@ -480,38 +560,70 @@ def _topic_applies(
         return legacy, ""
 
     drug_or_intervention_present = detected or class_anchor_in_question
-    if not drug_or_intervention_present:
-        # Confident negative from the recognizer (+ no class anchor).
-        if topic.critical:
-            # Codex P1 (#1262): the recognizer (the SAME one the scope gate uses)
-            # has incomplete brand/trade-name coverage, so a "confident no-drug" can
-            # be a MISS on a real drug question — silently dropping a CRITICAL
-            # contraindications topic would disable `abort_critical_topic_uncovered`
-            # (a clinical-safety failure). A keyword "drug signal" heuristic to
-            # auto-fail-closed proved a false-positive MINEFIELD (negation:
-            # "non-pharmacological", "medication-free"; polysemy: "capsule endoscopy",
-            # "monoclonal gammopathy"), and over-firing it would SPURIOUSLY HOLD a
-            # non-drug report. Per Codex's explicit "fail-closed OR DISCLOSE" guidance
-            # AND the operator's disclose-don't-hold directive, we take the DISCLOSE
-            # path: keep applies=False (a non-drug report is NEVER spuriously held)
-            # but ALWAYS emit a disclosure note, so the decision is auditable and the
-            # skipped safety check is SURFACED FOR REVIEW rather than vanishing
-            # silently — if this is in fact a drug question whose brand the recognizer
-            # missed, the gap is disclosed in the report, not hidden.
-            return False, (
-                f"critical topic {topic.id!r}: marked non-applicable — the drug/"
-                f"intervention recognizer found no known intervention in the question. "
-                f"DISCLOSED (not silent): if this is a drug question with an "
-                f"unrecognized brand/trade name, verify contraindications coverage "
-                f"manually (Codex P1, #1262)."
-            )
-        # Non-critical confident negative: a drug-pharmacology topic does not apply
-        # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
-        return False, ""
 
-    # The question IS about a drug/intervention. Apply the topic's normal
-    # `applies_if` filter so class-specific topics stay gated to their class.
-    return legacy, ""
+    if drug_or_intervention_present:
+        # The question IS about a drug/intervention. Apply the topic's normal
+        # `applies_if` filter so class-specific topics stay gated to their class.
+        return legacy, ""
+
+    # U23 (I-deepfix-001): the QUESTION named no intervention (confident negative,
+    # not ambiguity). Fall back to recognising an intervention in the CORPUS via the
+    # SAME recognizer, so a study whose intervention is named only in retrieved
+    # evidence (e.g. an EDTA chelation RCT for a metal-ions/CVD question) still gets
+    # its drug/intervention topics MEASURED instead of a vacuous all-non-applicable.
+    corpus_token = (
+        _corpus_intervention_present(evidence_blob)
+        if _corpus_intervention_enabled()
+        else ""
+    )
+    if corpus_token:
+        if topic.critical:
+            # Corpus-only detection for the CRITICAL topic: DISCLOSE, do NOT force
+            # the topic applicable. Corpus recognition is weaker than question
+            # recognition (BUG-7), so surface the corpus intervention for manual
+            # contraindications review rather than risk a spurious
+            # abort_critical_topic_uncovered HOLD.
+            return False, (
+                f"critical topic {topic.id!r}: an intervention ({corpus_token!r}) is "
+                f"present in the retrieved corpus but not named in the question; "
+                f"contraindications coverage was NOT force-applied (disclose-not-hold "
+                f"per BUG-7). Verify contraindications coverage manually "
+                f"(U23, I-deepfix-001)."
+            )
+        # Non-critical drug topic: an intervention is present in the corpus, so
+        # measure this topic against it (normal `applies_if` filter still applies —
+        # a class-specific topic stays gated to its class terms).
+        return legacy, ""
+
+    # Confident negative: no intervention recognised in the question OR the corpus
+    # (and no class anchor). (Reached only when `drug_or_intervention_present` is
+    # False and the corpus fallback found nothing — both preceding branches returned.)
+    if topic.critical:
+        # Codex P1 (#1262): the recognizer (the SAME one the scope gate uses)
+        # has incomplete brand/trade-name coverage, so a "confident no-drug" can
+        # be a MISS on a real drug question — silently dropping a CRITICAL
+        # contraindications topic would disable `abort_critical_topic_uncovered`
+        # (a clinical-safety failure). A keyword "drug signal" heuristic to
+        # auto-fail-closed proved a false-positive MINEFIELD (negation:
+        # "non-pharmacological", "medication-free"; polysemy: "capsule endoscopy",
+        # "monoclonal gammopathy"), and over-firing it would SPURIOUSLY HOLD a
+        # non-drug report. Per Codex's explicit "fail-closed OR DISCLOSE" guidance
+        # AND the operator's disclose-don't-hold directive, we take the DISCLOSE
+        # path: keep applies=False (a non-drug report is NEVER spuriously held)
+        # but ALWAYS emit a disclosure note, so the decision is auditable and the
+        # skipped safety check is SURFACED FOR REVIEW rather than vanishing
+        # silently — if this is in fact a drug question whose brand the recognizer
+        # missed, the gap is disclosed in the report, not hidden.
+        return False, (
+            f"critical topic {topic.id!r}: marked non-applicable — the drug/"
+            f"intervention recognizer found no known intervention in the question. "
+            f"DISCLOSED (not silent): if this is a drug question with an "
+            f"unrecognized brand/trade name, verify contraindications coverage "
+            f"manually (Codex P1, #1262)."
+        )
+    # Non-critical confident negative: a drug-pharmacology topic does not apply
+    # (the BUG-7 fix); a clean "no drug" is not ambiguity, no disclosure noise.
+    return False, ""
 
 
 def _compile_keyword_re(keywords: list[str]) -> re.Pattern:

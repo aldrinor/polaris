@@ -28,6 +28,7 @@ Refused-in-place / residual gaps are always emitted as visible `Gap`s — never 
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -873,3 +874,127 @@ def assert_release_invariant(outcome: ReleaseOutcome) -> ReleaseOutcome:
         "withheld. A released report with no real judging and no proven-safe disposition is a silent "
         "un-judged release — refused fail-closed."
     )
+
+
+# ── U26 (I-deepfix-001): HONEST release-quality scorecard ────────────────────────────────────
+# The manifest ``release_disclosure.release_quality_score`` was set VERBATIM to the coverage
+# fraction. On the autopsy'd run that fraction was 1.0 while the evaluator rule-gate had returned
+# ``gate_class=abort`` (a PT11 uncited-numeric failure) — so the scorecard read GREEN (1.000)
+# while a real, disclosed deficiency existed. A required-entity slot that was left empty was
+# masked the same way. This block re-derives the DISPLAYED quality score so a genuine deficiency
+# pulls the scorecard BELOW green.
+#
+# FAITHFULNESS: presentation only. This changes NO gate, NO per-claim verdict, and NO verified
+# flag. strict_verify / NLI entailment / the four-role D8 judge / provenance / span-grounding are
+# all untouched — the score can only be LOWERED (never raised), and no un-adjudicated release is
+# ever made green (an unadjudicated outcome keeps its "N/A (D8 unadjudicated)" display).
+
+# The lowest release-quality score the scorecard still renders GREEN. A run with a disclosed
+# deficiency must land strictly below this. Env-overridable per LAW VI (zero hard-coding).
+_ENV_GREEN_QUALITY_FLOOR = "PG_RELEASE_QUALITY_GREEN_FLOOR"
+_DEFAULT_GREEN_QUALITY_FLOOR = 0.85
+# The ceiling a run's quality score is capped at when the evaluator rule-gate returned an abort
+# class (the strongest non-fatal deficiency signal). Well below the green floor.
+_ENV_ABORT_QUALITY_CEILING = "PG_RELEASE_QUALITY_ABORT_CEILING"
+_DEFAULT_ABORT_QUALITY_CEILING = 0.5
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float env override; fall back to ``default`` on unset/empty/non-numeric."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def green_quality_floor() -> float:
+    """The lowest release-quality score still rendered GREEN (env-overridable)."""
+    return _env_float(_ENV_GREEN_QUALITY_FLOOR, _DEFAULT_GREEN_QUALITY_FLOOR)
+
+
+def honest_release_quality_score(
+    coverage_fraction: float,
+    *,
+    eval_gate_aborted: bool = False,
+    empty_required_slots: int = 0,
+) -> float:
+    """Re-derive the displayed release-quality score so real deficiencies show (U26).
+
+    The base is the coverage fraction (clamped to ``[0, 1]``). Two deficiency signals pull it
+    below the green floor:
+
+      * ``eval_gate_aborted`` — the evaluator rule-gate returned ``gate_class=abort`` (e.g. a
+        PT11 uncited-numeric failure). Caps the score at the abort ceiling (default 0.5).
+      * ``empty_required_slots`` — one or more required-entity slots were left unverified. Caps
+        the score just below the green floor, and each additional empty slot lowers it further,
+        so more gaps read strictly worse.
+
+    A run with NO deficiency is returned unchanged (a genuinely-complete run stays green). The
+    score can only be lowered, never raised — this is a faithfulness-neutral display recompute.
+    """
+    green_floor = green_quality_floor()
+    abort_ceiling = _env_float(_ENV_ABORT_QUALITY_CEILING, _DEFAULT_ABORT_QUALITY_CEILING)
+    score = max(0.0, min(1.0, float(coverage_fraction)))
+    if empty_required_slots > 0:
+        # Below green, scaled by how many required slots are empty (bounded so the abort ceiling
+        # below can still bind lower). One empty slot alone already drops the run out of green.
+        below_green = max(0.0, green_floor - 0.01)
+        score = min(score, below_green / (1 + empty_required_slots))
+    if eval_gate_aborted:
+        score = min(score, abort_ceiling)
+    return round(score, 3)
+
+
+def apply_honest_scorecard_to_manifest(manifest: dict) -> dict:
+    """Re-derive ``release_disclosure.release_quality_score`` in-place to reflect deficiencies (U26).
+
+    Reads the sibling manifest signals — ``evaluator_gate_advisory.gate_class`` and
+    ``required_entity_coverage`` (total_required vs verified) — and lowers the displayed score
+    when a deficiency is present. A no-op (byte-identical) when there is no ``release_disclosure``
+    (the legacy always-release-OFF path), when the D8 judge did not adjudicate (the honest
+    "N/A (D8 unadjudicated)" display is preserved), or when no deficiency applies. Presentation
+    only: no gate / verdict / verified flag is changed. Returns the (mutated) manifest.
+    """
+    rd = manifest.get("release_disclosure")
+    if not isinstance(rd, dict) or "release_quality_score" not in rd:
+        return manifest
+    # Never re-green a run the judge never scored — its display is already the honest N/A string.
+    if not rd.get("adjudicated", False):
+        return manifest
+
+    eval_adv = manifest.get("evaluator_gate_advisory") or {}
+    eval_aborted = str(eval_adv.get("gate_class", "")).strip().lower() == "abort"
+
+    req_cov = manifest.get("required_entity_coverage") or {}
+    try:
+        total_required = int(req_cov.get("total_required", 0) or 0)
+        verified = int(req_cov.get("verified", 0) or 0)
+    except (TypeError, ValueError):
+        total_required = verified = 0
+    empty_required_slots = max(0, total_required - verified)
+
+    if not eval_aborted and empty_required_slots == 0:
+        return manifest  # no deficiency — leave the score untouched.
+
+    try:
+        base = float(rd.get("release_quality_score") or 0.0)
+    except (TypeError, ValueError):
+        base = 0.0
+    honest = honest_release_quality_score(
+        base,
+        eval_gate_aborted=eval_aborted,
+        empty_required_slots=empty_required_slots,
+    )
+    if honest < base:
+        rd["release_quality_score"] = honest
+        rd["release_quality_score_display"] = f"{honest:.3f}"
+        rd["release_quality_deficiency"] = {
+            "eval_gate_aborted": eval_aborted,
+            "empty_required_slots": empty_required_slots,
+            "base_coverage_fraction": round(base, 3),
+            "green_floor": green_quality_floor(),
+        }
+    return manifest

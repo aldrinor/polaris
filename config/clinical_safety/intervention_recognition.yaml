@@ -112,6 +112,8 @@ device_procedure_terms:
   - shunt
   # Procedures / therapies (stemless)
   - ablation
+  - chelation therapy       # U23 (I-deepfix-001): metal-ion chelation (EDTA/DMSA) —
+  - chelation               #   a real clinical intervention; longest phrase wins.
   - dialysis
   - hemodialysis
   - transplantation

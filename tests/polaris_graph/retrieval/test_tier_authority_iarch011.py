@@ -216,3 +216,39 @@ def test_disclosure_falls_back_to_tier_prior_when_no_url() -> None:
         research_question="q",
     )
     assert disclosure.per_source[0].weight_basis == "tier_prior"
+
+
+def test_non_journal_low_confidence_row_still_uses_tier_prior_not_authority_score() -> None:
+    """B11↔FIX-B reconcile guard: the B11 restoration of ``authority_score`` for recognized
+    peer-reviewed-journal hosts must NOT re-introduce the I-beatboth-010 (#1288) FIX-B
+    non-discrimination. A NON-scholarly host whose url+title-only authority_score is LOW confidence
+    (the flat, non-discriminating ~0.33 blend) still discloses the DISCRIMINATING per-tier
+    ``tier_prior`` — so a random blog does NOT get laundered onto the authority_score basis. A naive
+    'always use the computed score' revert (which would re-break FIX-B) fails this assertion.
+    """
+    # aer.org is the exact I-beatboth-010 (#1288) FIX-B replay case: a clean, non-junk, non-gov,
+    # NON-journal host whose url+title-only authority blend is the flat, non-discriminating 0.3315 at
+    # LOW confidence (Signal A scholarly=0.0, Signal B institutional=neutral). It is NOT on
+    # PEER_REVIEWED_JOURNAL_DOMAINS, so the B11 scholarly-host carve-out must NOT fire for it.
+    sources = [
+        CorpusSource(
+            url="https://www.aer.org/articles/x",
+            tier="T1",
+            domain="aer.org",
+            title="a study of tirzepatide efficacy",
+        ),
+    ]
+    disclosure = build_corpus_credibility_disclosure(
+        classified_sources=sources,
+        tier_counts={"T1": 1},
+        tier_fractions={"T1": 1.0},
+        total_sources=1,
+        had_material_deviation=False,
+        domain="clinical",
+        research_question="efficacy of incretin therapies",
+    )
+    assert len(disclosure.per_source) == 1
+    assert disclosure.per_source[0].weight_basis == "tier_prior", (
+        "a non-journal LOW-confidence row must keep the discriminating per-tier prior "
+        "(FIX-B); the B11 authority_score restoration is scoped to recognized journal hosts."
+    )

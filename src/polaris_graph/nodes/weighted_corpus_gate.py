@@ -71,6 +71,45 @@ def _tier_prior(tier: str) -> float:
     return _DEFAULT_TIER_CREDIBILITY_PRIOR.get(str(tier or "").strip().upper(), 0.20)
 
 
+def _is_recognized_scholarly_host(url: str) -> bool:
+    """I-arch-011 B11 reconcile: True when the url's host is a recognized peer-reviewed-journal
+    publisher (NEJM / Lancet / Nature / Cell / PLOS / ...), matched against the SAME
+    ``PEER_REVIEWED_JOURNAL_DOMAINS`` host list the tier classifier uses to assign T1/T2.
+
+    A recognized scholarly-publisher host is itself a genuine DOMAIN-AWARE authority signal — the
+    same knowledge that made the row a T1/T2 tier. So its deterministic ``authority_score`` is
+    disclosed as the ``authority_score`` basis rather than collapsed to the flat per-tier prior, even
+    on the thin-OpenAlex url+title-only path where ``score_source_authority`` reports LOW confidence
+    (the authority model is data-driven with ZERO host names in code by design, so it cannot itself
+    recognize the venue from url+title alone). This restores B11's intended primary basis for real
+    scholarly rows WITHOUT re-introducing the I-beatboth-010 (#1288) FIX-B non-discrimination: every
+    NON-journal LOW-confidence row still takes the discriminating per-tier prior below.
+
+    Parent-domain match (``www.thelancet.com`` -> ``thelancet.com``) mirrors the classifier's own
+    ``_domain_matches``; inlined so this module does not couple to a private classifier helper. Lazy
+    import keeps the no-import-time-coupling posture. Any failure returns False so the caller falls
+    back to the per-tier prior — never a raise, never a drop.
+    """
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+
+        from src.polaris_graph.retrieval.tier_classifier import (
+            PEER_REVIEWED_JOURNAL_DOMAINS,
+        )
+
+        host = (urlparse(url if "://" in url else f"https://{url}").hostname or "").lower().rstrip(".")
+        if not host:
+            return False
+        parts = host.split(".")
+        return any(
+            ".".join(parts[i:]) in PEER_REVIEWED_JOURNAL_DOMAINS for i in range(len(parts))
+        )
+    except Exception:
+        return False
+
+
 def _coerce_authority(value: Any) -> float | None:
     """Coerce a source's ``authority_score`` to a finite [0,1] float; None when absent/non-numeric."""
     try:
@@ -352,7 +391,17 @@ def build_corpus_credibility_disclosure(
                 _compute_authority_score_for_source(s) if url else (None, True)
             )
             computed_score = _coerce_authority(computed_score)
-            if computed_score is not None and not computed_is_low:
+            # I-arch-011 B11 reconcile: keep the computed authority_score as the disclosed basis when
+            # it is genuinely NOT low-confidence, OR when the row is on a recognized peer-reviewed-
+            # journal host (the venue host is itself a real domain-aware authority signal — the same
+            # host knowledge that assigned the T1/T2 tier; the ZERO-host authority model cannot see it
+            # from url+title alone). Every OTHER low-confidence row still takes the discriminating
+            # per-tier prior, preserving the I-beatboth-010 (#1288) FIX-B non-collapse (journal >
+            # YouTube/Scribd). WEIGHT-and-DISCLOSE only: no drop/cap/floor; strict_verify + the 4-role
+            # D8 release decision remain the only faithfulness gate.
+            if computed_score is not None and (
+                not computed_is_low or _is_recognized_scholarly_host(url)
+            ):
                 weight = computed_score
                 basis = "authority_score"
             else:
