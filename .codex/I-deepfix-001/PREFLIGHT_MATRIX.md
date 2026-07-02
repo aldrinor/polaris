@@ -72,5 +72,14 @@ Legend: **DONE** = committed + Codex APPROVE + test. **LIVE-CANARY** = committed
 6. [x] Fail-loud canaries armed: U5 (synthesis-fires abort), U8 (mineru-fires disclose).
 7. [x] git log + this matrix synced + credibility-test Codex APPROVE. GitHub #1344 comment pending this tick.
 
-## PREFLIGHT VERDICT: RESOLVED — cleared for the paid run
-All 32 fixes committed + Codex-gated; product-gate subset 374 passed / 0 failed / 0 markers; frozen engine untouched (exc U29); canaries armed; the 14 offline-suite failures were all stale tests (fixed + gated); the monolithic-dir hang + import-path collection errors are pre-existing test-infra debt orthogonal to the fixes and do not affect the paid run. Next: provision 5 dual-GPU boxes + launch drb_72/75/76/78/90 + forensic monitor + §-1.1 audit.
+## PREFLIGHT VERDICT (corrected 2026-07-02): OFFLINE stage passed — NOT yet cleared for the paid run
+
+**CORRECTION (operator 2026-07-02):** offline unit tests + the product gate prove the 32 fixes' LOGIC, not their LIVE WIRING. The mineru incident proved a fix can pass every offline check and still HANG the live pipeline. So this matrix is the OFFLINE stage only — necessary, not sufficient.
+
+**OFFLINE stage (this matrix) — PASSED:** all 32 fixes committed + Codex-gated; product-gate subset 374 passed / 0 failed / 0 markers; frozen engine untouched (exc U29); canaries armed; the 14 offline-suite failures were all stale tests (fixed + gated); the monolithic-dir hang + import-path collection errors are pre-existing test-infra debt.
+
+**REAL preflight gate (still OPEN) — the paid run is BLOCKED until BOTH pass:**
+- PHASE A: mineru proven in isolation (vLLM server extracts one real PDF, chars>500). Status: vLLM installing.
+- PHASE B: one SMALL-SCALE REAL run (`run_gate_b --only drb_72_ai_labor --smoke-scale`) whose real output proves EACH 32-fix EFFECT fired (32-row PROVEN/NOT table at scratchpad/smoke_32fix_verify.md). Status: OPEN.
+
+Only when Phase A + Phase B are green does PHASE C (the large 5-question run) start. See OVERNIGHT_RUN_PLAN.md v2 + GitHub #1344. Never silent-fallback; never victory-on-deficient.
