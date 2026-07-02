@@ -89,6 +89,111 @@ _FILLER_MIN_SOURCED_INPUTS = max(
 )
 
 
+# U27 (#1344) — Writer-shortlist curation (LAW VI kill-switch, default-ON).
+# The quantified-spec Writer (the ONLY billed step) previously received the FIRST
+# N extracted datapoints in raw evidence-pool iteration order (`sourced[:N]` in the
+# run_honest_sweep_r3.py `_q_spec_provider` closure). On real large clinical corpora
+# the LEADING datapoints are scrape chrome / binary garbage — PDF object offsets
+# ("%PDF- 13 0 obj"), base64 auth blobs, CDN image dimensions ("382x200px" parsed as
+# 204669%), and phone numbers ("tel:080 4669 4311") — so the Writer was handed an
+# incoherent, absurd-valued set and correctly returned {"model_id":"none"} (->
+# no_spec_returned), even though many clean modelable clinical numbers (2.5%
+# infections, carbidopa bioavailability 99%, levodopa AUC +55%, half-life 1.5h) sat
+# buried deeper in the list. This curates the shortlist so clean, well-labeled,
+# plausibly-valued datapoints reach the Writer instead of raw iteration-order junk.
+#
+# INPUT HYGIENE, NOT a faithfulness filter (faithfulness_risk: neutral): the FULL
+# extracted pool still flows to build_quantified_spec for datapoint matching, no
+# source is dropped, and every downstream gate (strict_verify / Regime C / provenance)
+# is untouched. Set PG_QUANTIFIED_SHORTLIST_CLEAN=0 to REVERT to byte-identical
+# ``sourced[:N]`` (no curation, no added telemetry).
+_SHORTLIST_CLEAN_ENABLED = os.environ.get(
+    "PG_QUANTIFIED_SHORTLIST_CLEAN", "1"
+).strip().lower() not in ("0", "false", "no", "off")
+
+# Absolute ceiling on a plausible percentage magnitude. Junk CDN dims / phone numbers
+# parse as 5-6 digit "percentages" (204669%, 82972%, 206921%); real clinical/economic
+# percentages sit far below this generous cap (the clean drb_78 max is 99%). LAW VI
+# env-tunable — a CAP, not a target; it only ever REMOVES a garbage candidate.
+_SHORTLIST_MAX_PCT = float(os.environ.get("PG_QUANTIFIED_SHORTLIST_MAX_PCT", "1000"))
+
+# Substrings whose presence in a datapoint's label OR context marks it as scrape
+# chrome / binary / markup garbage rather than a modelable clinical/economic number:
+# URL schemes, markdown link/image syntax, tel:/mailto: links, PDF-binary markers,
+# HTML entities, CDN crop params, and the Unicode replacement char (binary noise).
+_SHORTLIST_JUNK_MARKERS = (
+    "http://", "https://", "www.", "](", "![", "tel:", "mailto:",
+    "%pdf", " obj", "endobj", "stream", "/bbox", "/length", "xref",
+    "&amp;", "&#", "crop=fp", "fp_zoom", "cdn-assets", "�",
+)
+# A long unbroken alphanumeric run = base64 auth blob / hash / accession, never prose
+# (English words / clinical labels break well under this length).
+_SHORTLIST_BASE64_RE = re.compile(r"[A-Za-z0-9+/]{24,}")
+
+
+def is_junk_modelable_datapoint(datapoint: dict[str, Any]) -> bool:
+    """True iff ``datapoint`` is scrape-chrome / binary / markup garbage that must
+    NOT be offered to the quantified-spec Writer (U27, #1344).
+
+    Deterministic, offline, faithfulness-neutral: this only decides whether a
+    candidate NUMBER is coherent enough to put in front of the (billed) spec LLM. It
+    NEVER drops a source and NEVER touches a verification gate — the full extracted
+    pool still flows to ``build_quantified_spec`` for datapoint matching. When the
+    kill-switch is OFF it is never consulted (see ``select_writer_candidate_numbers``).
+
+    A datapoint is junk when ANY of: (1) it has no label (nothing to reason over);
+    (2) its label or context contains a URL / markdown-link / image / tel / PDF-binary
+    / HTML-entity / CDN chrome marker; (3) its label or context contains a long
+    unbroken alphanumeric run (base64 blob / hash / accession); (4) its unit is a
+    percentage but the value exceeds the plausible-percentage ceiling.
+    """
+    label = str(datapoint.get("label") or "")
+    context = str(datapoint.get("context") or "")
+    hay = f"{label}\n{context}".lower()
+
+    # (1) empty label — no describable quantity for the Writer.
+    if not label.strip():
+        return True
+    # (2) URL / markdown-link / image / tel / PDF-binary / HTML-entity / CDN chrome.
+    for marker in _SHORTLIST_JUNK_MARKERS:
+        if marker in hay:
+            return True
+    # (3) base64 auth blob / hash / accession (a long unbroken alphanumeric run).
+    if _SHORTLIST_BASE64_RE.search(label) or _SHORTLIST_BASE64_RE.search(context):
+        return True
+    # (4) an absurd percentage magnitude (CDN dims / phone numbers parsed as %); a
+    #     non-numeric "value" under a % unit is itself garbage.
+    unit = str(datapoint.get("unit") or "").strip()
+    if unit in ("%", "percent"):
+        try:
+            if abs(float(datapoint.get("value"))) > _SHORTLIST_MAX_PCT:
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
+def select_writer_candidate_numbers(
+    datapoints: list[dict[str, Any]], *, limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Curate the quantified-spec Writer shortlist (U27, #1344).
+
+    Returns the first ``limit`` CLEAN datapoints (junk dropped by
+    ``is_junk_modelable_datapoint``), preserving the input order so the result is
+    deterministic (same input -> same output, byte-for-byte). ``limit=None`` returns
+    every clean datapoint.
+
+    With ``PG_QUANTIFIED_SHORTLIST_CLEAN=0`` (kill-switch OFF) this is byte-identical
+    to ``datapoints[:limit]`` — the legacy unranked/unfiltered slice — so a revert is
+    a pure no-op. Faithfulness-neutral: this only orders/filters the LLM's INPUT
+    shortlist; the full pool is still used downstream for datapoint matching.
+    """
+    if not _SHORTLIST_CLEAN_ENABLED:
+        return datapoints[:limit] if limit is not None else list(datapoints)
+    clean = [dp for dp in datapoints if not is_junk_modelable_datapoint(dp)]
+    return clean[:limit] if limit is not None else clean
+
+
 def is_low_value_filler_output(field: dict[str, Any]) -> bool:
     """True iff ``field`` is a unit-free number/ratio scalar relating >=2 distinct
     sourced inputs — the invented-filler signature. Counts sourced INPUTS (not ev_ids),
@@ -456,6 +561,37 @@ async def run_quantified_section(
     sourced_numbers = extract_numbers_from_evidence(evidence_pool)
     telem["conflicts"] = detect_sourced_conflicts(sourced_numbers)
     telem["sourced_numbers_extracted"] = len(sourced_numbers)
+
+    # U27 (#1344): curate the Writer shortlist so clean, plausibly-valued datapoints
+    # reach the (billed) spec LLM instead of raw iteration-order chrome/binary junk.
+    # INPUT HYGIENE only — the FULL sourced pool still flows to build_quantified_spec
+    # for datapoint matching below, and every verification gate is untouched. The
+    # closure that actually shortlists to the Writer (run_honest_sweep_r3.py) applies
+    # the SAME deterministic select_writer_candidate_numbers, so this telemetry mirrors
+    # what the Writer will see. Kill-switch (PG_QUANTIFIED_SHORTLIST_CLEAN=0) => no
+    # curation, no added telem keys, no short-circuit => byte-identical to the pre-fix path.
+    if _SHORTLIST_CLEAN_ENABLED:
+        _writer_candidates = select_writer_candidate_numbers(sourced_numbers)
+        telem["writer_candidates"] = len(_writer_candidates)
+        telem["sourced_numbers_junk"] = len(sourced_numbers) - len(_writer_candidates)
+        # HONEST DISCLOSURE, not a silent no-op: if numbers WERE extracted but EVERY one
+        # is scrape-chrome/binary garbage, there is a genuine data-shape reason the Writer
+        # cannot model. Surface it as a DISTINCT status ("no_modelable_numbers") and skip
+        # the wasted billed call, rather than letting the Writer decline on junk into the
+        # ambiguous "no_spec_returned". Classed HONEST-EMPTY (declined_no_spec typed
+        # status) — the differentiator did not silently break; the corpus simply carried
+        # no clean modelable number. When at least one clean candidate survives, we DO
+        # proceed to the Writer (this is the U27 fix: clean numbers now reach the LLM).
+        if sourced_numbers and not _writer_candidates:
+            telem["firing_status"] = "no_modelable_numbers"
+            _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
+            logger.warning(
+                "[quantified_analysis] NO-OP (no_modelable_numbers): %d numbers were "
+                "extracted but ALL were scrape-chrome/binary junk after shortlist "
+                "curation (no clean modelable datapoint to offer the Writer)",
+                len(sourced_numbers),
+            )
+            return None, telem
 
     # I-pipe-012 (#1237): bounded retry on a TRANSIENT raised transport/parse fault
     # (kill-switch ON). With PG_QUANTIFIED_TYPED_STATUS=0 this is a single call (no

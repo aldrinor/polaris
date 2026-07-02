@@ -1639,6 +1639,10 @@ _QUANTIFIED_BROKE_STATUSES = frozenset({
 _QUANTIFIED_HONEST_EMPTY_STATUSES = frozenset({
     "declined_no_spec",                          # quantified_status (typed verdict)
     "no_spec_returned", "no_verified_sentences",  # firing_status
+    # U27 (#1344): every extracted number was scrape-chrome/binary junk after shortlist
+    # curation -> a genuine data-shape reason the Writer had nothing clean to model. This
+    # is disclosed (never a silent no-op) but is NOT a code/transport break -> honest-empty.
+    "no_modelable_numbers",                      # firing_status
 })
 
 
@@ -13132,6 +13136,7 @@ async def run_one_query(
 
                 from src.polaris_graph.generator.quantified_analysis import (
                     run_quantified_section,
+                    select_writer_candidate_numbers,
                 )
                 # I-meta-008 (#1030 PR-C): import PG_GENERATOR_MODEL HERE (mirrors the planner
                 # block ~L1802) so the _q_spec_provider closure below can bind it. Python makes
@@ -13153,11 +13158,22 @@ async def run_one_query(
                 async def _q_spec_provider(_question, _sourced):
                     # The ONLY billed step: ask the Writer for a JSON ModelSpec
                     # over the EXISTING extracted sourced numbers; parse defensively.
+                    # U27 (#1344): curate the shortlist with select_writer_candidate_numbers
+                    # instead of the raw `_sourced[:40]` iteration-order slice. On real large
+                    # clinical corpora the leading extracted datapoints are scrape chrome /
+                    # binary junk (PDF object offsets, base64 auth blobs, CDN image dims parsed
+                    # as 204669%, tel: phone numbers), which made the Writer decline
+                    # ({"model_id":"none"} -> no_spec_returned) even though clean modelable
+                    # clinical numbers sat buried deeper. Curation drops the junk so clean,
+                    # plausibly-valued datapoints reach the Writer. INPUT HYGIENE only: the FULL
+                    # `_sourced` pool still flows to build_quantified_spec for datapoint matching,
+                    # and every faithfulness gate is untouched. PG_QUANTIFIED_SHORTLIST_CLEAN=0
+                    # reverts to byte-identical `_sourced[:40]`.
                     _shortlist = [
                         {"evidence_id": d.get("evidence_id"), "label": d.get("label"),
                          "context": d.get("context"), "value": d.get("value"),
                          "unit": d.get("unit")}
-                        for d in _sourced[:40]
+                        for d in select_writer_candidate_numbers(_sourced, limit=40)
                     ]
                     _prompt = (
                         "You are modeling a quantified trade-off for a research "

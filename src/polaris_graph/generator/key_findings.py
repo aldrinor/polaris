@@ -348,11 +348,100 @@ def make_question_relevance_ranker(
     return _ranker
 
 
+# I-deepfix-001 U13 (representation faithfulness): a numeric-claim headline must carry a
+# SUBJECT/POPULATION anchor. Otherwise a bare quantity ("highest reduction of 99.4%") LEADS and
+# misrepresents its cited span — whose subject (e.g. an animal / in-vitro model) was stripped —
+# so a lab number reads as a human/clinical finding (strict_verify passes on decimal + content-word
+# overlap; it does not check subject faithfulness). This DEMOTES an unanchored numeric-claim
+# sentence BELOW subject-anchored / non-numeric verified sentences so it never occupies the lead
+# slot. SUPPRESS / STABLE-REORDER ONLY — it never rewrites a sentence and never drops a source
+# (§-1.3 WEIGHT-not-filter): the sentence still renders if it is the only verified candidate. The
+# frozen faithfulness engine is untouched. Default-ON; PG_KF_SUBJECT_ANCHOR=0 reverts byte-identical.
+_U13_SUBJECT_ANCHOR_ENV = "PG_KF_SUBJECT_ANCHOR"
+# Citation markers ("[12]") are stripped BEFORE the numeric test so a reference number is never
+# mistaken for a numeric claim. A numeric CLAIM = a decimal, a percentage, a fold/times multiplier,
+# any integer >=2 digits, or a small integer directly modifying a count noun (deaths/cases/...).
+# (I-deepfix-001 U13 iter5, Codex: whole-number fold/count claims like "2-fold"/"18-fold"/"17 deaths"
+# must be treated as numeric claims that need a subject anchor, not skipped as "non-numeric".)
+_CITATION_STRIP_RE = re.compile(r"\[\d+\]")
+_NUMERIC_CLAIM_RE = re.compile(
+    r"\d\.\d"
+    r"|\b\d+(?:\.\d+)?\s?%"
+    r"|\b\d+(?:\.\d+)?\s?-?\s?(?:fold|times|x)\b"
+    r"|\d+(?:\.\d+)?\s?[×✕]"  # Unicode multiplier ("2×"/"2 ×") — no trailing \b (× is non-word)
+    r"|\b\d{2,}\b"
+    r"|\b\d+\s+(?:deaths?|cases?|events?|fatalit\w+|patients?|participants?|subjects?|"
+    r"infections?|hospitali\w+|admissions?|responders?)\b",
+    re.I,
+)
+_SUBJECT_ANCHOR_RE = re.compile(
+    r"\b(patients?|adults?|children|participants?|subjects?|women|men|"
+    r"population|cohort|trial|studies|study|meta-?analysis|systematic review|"
+    r"mice|rats?|animals?|poultry|livestock|cells?|in ?vitro|in ?vivo|humans?|"
+    r"individuals?|cases?|infants?|neonat\w+|elderly|volunteers?|"
+    r"carriers?|genotypes?|alleles?|variants?|homozygous|heterozygous|"
+    r"mutations?|APOE\w*|BRCA\w*|receptors?|patients)\b",
+    re.I,
+)
+# I-deepfix-001 U13 iter2: capitalized CALENDAR / STRUCTURAL tokens are NOT subjects — "Week 12",
+# "Phase 2", "Table 3", "Figure 1", "Arm B", "Q3" must NOT anchor a bare numeric headline, else a
+# misrepresenting quantity ("reduction of 99.4% at Week 12") falsely reads as subject-anchored.
+_STRUCTURAL_NONSUBJECT = frozenset(
+    "week weeks phase phases table tables figure figures fig day days month months year years "
+    "group groups arm arms visit visits section sections chapter chapters baseline timepoint "
+    "timepoints panel appendix supplementary supplement q1 q2 q3 q4 h1 h2 no vol volume "
+    "part parts step steps stage stages level levels tier round rounds "
+    # metric / outcome nouns — a headline naming only a metric + a bare number (no population)
+    # is NOT subject-anchored ("Efficacy reached 88%" must not lead over a population-anchored finding)
+    "efficacy response responses mortality incidence survival prevalence sensitivity specificity "
+    "accuracy remission recurrence relapse adherence compliance tolerability safety uptake "
+    "reduction increase improvement decline decrease rate rates ratio ratios odds hazard".split()
+)
+
+
+def _subject_anchor_enabled() -> bool:
+    import os
+    return os.getenv(_U13_SUBJECT_ANCHOR_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+# Common sentence-initial function/determiner/framing words whose leading capital is grammatical,
+# NOT a proper-noun subject. A sentence-initial capitalized word NOT in this set (e.g. a drug /
+# organism / trial name like "Metformin") counts as a subject anchor.
+_COMMON_STARTERS = frozenset(
+    "the a an this that these those it its they their there we our overall results "
+    "result findings finding data evidence highest lowest mean median average approximately "
+    "about around nearly over under up to at in on of for by with among between across after "
+    "before during however moreover additionally notably importantly furthermore similarly "
+    "conversely subsequently significant significantly increased decreased reduced higher lower "
+    "when where while although though because since if compared relative".split()
+)
+
+
+def _is_subject_anchored_numeric(sentence: str) -> bool:
+    """True iff `sentence` is safe to LEAD a headline: either it is not a numeric claim (nothing to
+    misrepresent) OR its numeric claim is anchored to a subject/population/study noun-phrase or a
+    capitalized proper-noun subject (drug / organism / trial name), including a sentence-initial one
+    that is not a common function/framing word. A bare "quantity + metric" numeric fragment with no
+    such anchor returns False and is demoted (never dropped)."""
+    if not _NUMERIC_CLAIM_RE.search(_CITATION_STRIP_RE.sub(" ", sentence or "")):
+        return True
+    # ALLOWLIST-only anchoring (I-deepfix-001 U13 iter6, Codex): a numeric claim is safe to LEAD a
+    # headline ONLY if it carries a POSITIVE subject/population term from _SUBJECT_ANCHOR_RE
+    # (patients/adults/cohort/mice/in-vitro/carriers/APOE*/...). We do NOT try to guess a proper-noun
+    # subject from capitalization — that repeatedly false-anchored on capitalized NON-subjects
+    # (sentence-initial "Risk"/"Efficacy", and mid-sentence structural labels "Cycle 4"/"Dose 2"/
+    # "Grade 3"), an open-ended blocklist that never converges. A bare quantity that names only a
+    # drug/trial/structural label but no population is demoted (reorder-only, never dropped). This is
+    # convergent: an allowlist cannot false-anchor on an unknown capitalized token.
+    return bool(_SUBJECT_ANCHOR_RE.search(sentence or ""))
+
+
 def _first_verified_sentences(
     verified_text: str,
     n: int,
     *,
     sentence_relevance: "Callable[[str], float] | None" = None,
+    demote_unanchored: bool = False,
 ) -> list[str]:
     matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
     # A Key Finding is a span-verified CLAIM: it must carry a citation, must NOT be
@@ -380,9 +469,29 @@ def _first_verified_sentences(
     # wires a question-relevance ranker, STABLE-sort the ALREADY-verified candidates by descending
     # on-topicness so the most on-topic verified sentence leads. It NEVER drops a sentence — the
     # head-``n`` slice is the pre-existing summary cap, not a faithfulness gate. None => byte-identical.
+    # I-deepfix-001 U13: STABLE-partition subject-anchored / non-numeric verified sentences BEFORE
+    # unanchored bare-number claims so a misrepresenting bare quantity never LEADS. When a relevance
+    # ranker is wired the key is (anchor primary, relevance secondary); otherwise anchor-only stable
+    # partition. Reorder-only + STABLE — an unanchored claim still appears (and still leads if it is
+    # the ONLY candidate); nothing is dropped (§-1.3). PG_KF_SUBJECT_ANCHOR=0 => byte-identical.
+    # I-deepfix-001 U13 iter2 (Codex P1): the anchor demote is OPT-IN via demote_unanchored so it
+    # applies ONLY to the Key-Findings headline slot. `_first_verified_sentences` is SHARED — the
+    # Abstract/Conclusion harvester (abstract_conclusion.py) calls it for ALL verified sentences in
+    # DOCUMENT ORDER and picks ordered[-1] as the Conclusion; reordering there would push a demoted
+    # bare-number sentence to the end and PROMOTE it into the Conclusion. Default False => document
+    # order preserved for every non-KF caller (byte-identical).
+    anchor_on = _subject_anchor_enabled() and demote_unanchored
     if sentence_relevance is not None:
         verified = sorted(
-            verified, key=lambda s: -_relevance_weight(sentence_relevance, s)
+            verified,
+            key=lambda s: (
+                0 if (not anchor_on or _is_subject_anchored_numeric(s)) else 1,
+                -_relevance_weight(sentence_relevance, s),
+            ),
+        )
+    elif anchor_on:
+        verified = sorted(
+            verified, key=lambda s: 0 if _is_subject_anchored_numeric(s) else 1
         )
     return verified[:n]
 
@@ -482,7 +591,10 @@ def build_key_findings(
         title = humanize_section_title(getattr(sr, "title", "") or "")
         _marker_cap = _max_key_findings_markers()
         for sentence in _first_verified_sentences(
-            verified_text, _SENTENCES_PER_SECTION, sentence_relevance=sentence_relevance
+            verified_text,
+            _SENTENCES_PER_SECTION,
+            sentence_relevance=sentence_relevance,
+            demote_unanchored=True,  # U13: KF headline is the ONLY surface that demotes bare numbers
         ):
             # Weigh the ORIGINAL sentence (all `[N]` markers intact) BEFORE capping the display run.
             weight = (
