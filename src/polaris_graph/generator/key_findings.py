@@ -114,6 +114,28 @@ _SHORT_OK_BOUNDARY_TOKENS = frozenset({
     "eu", "gn", "io", "pp", "ed", "co", "re", "at", "if", "up", "my", "go", "he", "me", "ok",
 })
 
+# A2 (I-wire Wave-A) — trailing FUNCTION-WORD span cut. A grammatically COMPLETE declarative sentence
+# never ends on one of these (an article / possessive-determiner / coordinating-or-subordinating
+# conjunction / relative determiner), so a span cut that leaves one dangling before its ``[N]`` is a
+# truncation ("… the effect is defined by the.[5]"). PREPOSITIONS are DELIBERATELY EXCLUDED — a
+# stranded preposition IS a valid sentence ender ("the group it was compared with.", "the factor we
+# adjusted for.") — flagging one would over-strip a real finding (operator drop-path law: over-strip
+# is worse than a leak). Terminal-capable pronouns ("this", "these", "those", "it", "them") are
+# excluded for the same reason.
+_TRAILING_FUNCTION_WORD_CUT = frozenset({
+    "the", "a", "an",
+    "and", "or", "but", "nor",
+    "my", "your", "his", "her", "its", "our", "their",
+    "every", "each", "whose", "which",
+    "because", "although", "while", "whereas", "whilst",
+})
+# A dangling bibliographic "pp." (page abbreviation) with NO preceding number — distinct from a real
+# "rose 4 pp." percentage-points magnitude (a numeric preceding token => KEPT, never flagged).
+# Codex P1 (Wave-A iter-3): the page-abbreviation form is ALWAYS lowercase "pp."; a terminal ALL-CAPS
+# clinical acronym "PP" (per-protocol) is a valid sentence ender, so this is case-SENSITIVE (no
+# IGNORECASE) — "The analysis used PP.[5]" no longer collides with the lowercase page marker.
+_DANGLING_PP_RE = re.compile(r"(\S+)\s+pp\.?\s*$")
+
 
 def _boundary_last_word(text: str) -> str:
     """The trailing alphabetic word of ``text`` (a single artificial '.' a span-truncator appends,
@@ -211,13 +233,42 @@ def is_truncated_fragment(
          and is itself absent from the corpus — e.g. "… 1.2 Resea.[14]". The corpus allowlist is the
          false-positive guard (a real, complete word is known or has no longer completion).
 
-    BACKWARD-COMPATIBLE: ``known_words=None`` (the default for every legacy caller) → byte-identical
-    legacy behaviour (signal 1 only). PURE."""
+    BACKWARD-COMPATIBLE: ``known_words=None`` (the default for every legacy caller) skips ONLY the
+    corpus-allowlist span-cut leg (signal 2); the always-on truncation-marker leg (signal 1) AND the
+    corpus-INDEPENDENT trailing function-word / dangling-"pp." leg (I-wire Wave-A) still run. PURE."""
     if not text:
         return False
     core = _TRAILING_CITATION_RE.sub("", text.strip()).rstrip()
     if core and _TRUNCATION_MARKER_RE.search(core):
         return True
+    # A2 (I-wire Wave-A) — corpus-INDEPENDENT trailing function-word / dangling-"pp." span cut. High
+    # precision (a complete sentence never ends on these), so it runs for EVERY caller (no corpus
+    # needed) alongside the always-on marker leg above.
+    if core:
+        raw_last = _boundary_last_word(core)
+        # Codex P1 (Wave-A): an UPPERCASE clinical/statistical acronym or a single-CAPITAL label is a
+        # VALID sentence ender, never a dangling function word — do NOT lowercase-collide it into the
+        # article/conjunction set. "… an adjusted OR.[5]" ("or"), "… used ITS.[7]" ("its"), "… had
+        # type A.[3]" / "… vitamin C.[9]" ("a"/"c") must be KEPT (fail-open per §-1.3, over-strip is
+        # worse than a leak). ``str.isupper()`` is True only when every cased char is uppercase, so a
+        # genuinely dangling lowercase "the"/"and"/"its" (mixed/lower case) still flags.
+        if raw_last and not raw_last.isupper():
+            last_word = raw_last.lower()
+            # Codex P1 (Wave-A iter-3): defer to the EXISTING short-token keep-lists. "a"/"i"
+            # (_SINGLE_LETTER_KEEP_TOKENS) and "an"/"or"/"my" (_SHORT_OK_BOUNDARY_TOKENS) are
+            # legitimate short sentence enders already whitelisted by the iwire017 fix ("glucose
+            # a.", "vitamin a.", "hepatitis a."), so the function-word cut MUST NOT override them —
+            # over-strip is worse than a leak (§-1.3). Only a token that is a dangling function word
+            # AND is not an accepted short ender ("… defined by the.", "… driven by and.") flags.
+            if (
+                last_word in _TRAILING_FUNCTION_WORD_CUT
+                and last_word not in _SINGLE_LETTER_KEEP_TOKENS
+                and last_word not in _SHORT_OK_BOUNDARY_TOKENS
+            ):
+                return True
+        pp_match = _DANGLING_PP_RE.search(core)
+        if pp_match and not any(ch.isdigit() for ch in pp_match.group(1)):
+            return True
     if not known_words:
         return False
     if ends_before_marker and _boundary_token_is_span_cut(

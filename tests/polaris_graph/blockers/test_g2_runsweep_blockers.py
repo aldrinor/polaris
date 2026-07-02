@@ -398,31 +398,83 @@ def test_f27_inject_ledger_exception_flips_success_to_hold_only_under_strict():
 
 
 # ── #1242 tier-disclosure single source of truth ─────────────────────────────────
-def test_1242_tier_mix_summary_byte_identical_to_inline_builder():
-    # The helper must reproduce the prior inline ", ".join(f"{k}={v*100:.0f}%" ...) builder EXACTLY,
-    # so default-ON introduces no string change (the forensic Methods line read "T1=12%, ...").
-    fractions = {"T1": 0.123, "T2": 0.01, "T3": 0.03, "T4": 0.40, "UNKNOWN": 0.27}
-    expected_inline = ", ".join(
-        f"{k}={v * 100:.0f}%" for k, v in sorted(fractions.items())
-    )
-    assert sweep._tier_mix_disclosure_summary(fractions) == expected_inline
+# I-deepfix-001 A5 (#1344): default-ON PG_TIER_MIX_SUM_TO_100 — the integer percents sum to EXACTLY
+# 100 (largest-remainder) AND every canonical tier T1..T7 is disclosed (0% when absent), fixing the
+# drb_72 "101%"/omitted-tier defect. The flag-OFF path reverts to the prior present-keys-only,
+# independent-rounding builder byte-for-byte. LABEL/disclosure only — faithfulness-neutral.
+def test_1242_tier_mix_summary_sums_to_100_and_shows_all_canonical_tiers(monkeypatch):
+    monkeypatch.delenv("PG_TIER_MIX_SUM_TO_100", raising=False)  # default-ON
+    fractions = {"T1": 0.55, "T2": 0.20, "T4": 0.24, "UNKNOWN": 0.01}  # a normalized distribution
+    out = sweep._tier_mix_disclosure_summary(fractions)
+    segments = out.split(", ")
+    keys = [seg.split("=")[0] for seg in segments]
+    # every canonical tier is shown, in T1..T7 order, then any extra key (UNKNOWN) appended
+    assert keys[:7] == ["T1", "T2", "T3", "T4", "T5", "T6", "T7"]
+    assert keys[7:] == ["UNKNOWN"]
+    # absent tiers are disclosed at 0% (an omitted tier reads as "not assessed" — the drb_72 bug)
+    assert "T3=0%" in out and "T5=0%" in out and "T6=0%" in out and "T7=0%" in out
+    # the integer percents sum to EXACTLY 100 — never 101 (independent rounding) or 99
+    pcts = [int(seg.split("=")[1].rstrip("%")) for seg in segments]
+    assert sum(pcts) == 100
 
 
-def test_1242_tier_mix_summary_is_single_consistent_value():
-    # The SAME helper called twice yields the SAME percentage — so two disclosure strings that both
+def test_1242_tier_mix_summary_is_single_consistent_value(monkeypatch):
+    # The SAME helper called twice yields the SAME string — so two disclosure strings that both
     # reference it can never quote different denominators (the "11% vs 13%" self-contradiction).
-    fractions = {"T1": 0.13, "T4": 0.40}
+    monkeypatch.delenv("PG_TIER_MIX_SUM_TO_100", raising=False)  # default-ON
+    fractions = {"T1": 0.60, "T4": 0.40}  # normalized
     a = sweep._tier_mix_disclosure_summary(fractions)
     b = sweep._tier_mix_disclosure_summary(fractions)
     assert a == b
-    # T1 renders ONE way only — not 12% in one place and 13% in another.
-    assert "T1=13%" in a
-    assert "T1=12%" not in a
+    # T1 / T4 render ONE way only, and the whole line sums to 100.
+    assert "T1=60%" in a and "T4=40%" in a
+    assert sum(int(seg.split("=")[1].rstrip("%")) for seg in a.split(", ")) == 100
 
 
-def test_1242_tier_mix_summary_empty_and_none_safe():
+def test_1242_tier_mix_summary_empty_and_none_safe(monkeypatch):
+    # Default-ON: empty / None disclose ALL canonical tiers at 0% (no spurious 100 fabricated from an
+    # empty distribution) — an omitted tier must never silently vanish.
+    monkeypatch.delenv("PG_TIER_MIX_SUM_TO_100", raising=False)
+    all_zero = "T1=0%, T2=0%, T3=0%, T4=0%, T5=0%, T6=0%, T7=0%"
+    assert sweep._tier_mix_disclosure_summary({}) == all_zero
+    assert sweep._tier_mix_disclosure_summary(None) == all_zero
+
+
+def test_1242_tier_mix_summary_flag_off_reverts_to_legacy_builder(monkeypatch):
+    # PG_TIER_MIX_SUM_TO_100=0 reverts byte-for-byte to the prior present-keys-only, independent-
+    # rounding builder (the exact escape hatch), including "" for empty / None.
+    monkeypatch.setenv("PG_TIER_MIX_SUM_TO_100", "0")
+    fractions = {"T1": 0.123, "T2": 0.01, "T3": 0.03, "T4": 0.40, "UNKNOWN": 0.27}
+    expected_inline = ", ".join(f"{k}={v * 100:.0f}%" for k, v in sorted(fractions.items()))
+    assert sweep._tier_mix_disclosure_summary(fractions) == expected_inline
     assert sweep._tier_mix_disclosure_summary({}) == ""
     assert sweep._tier_mix_disclosure_summary(None) == ""
+
+
+# ── I-deepfix-001 A5 (#1344): journal DOI-prefix reaches the bibliography genre seam ─────────────
+def test_a5_journal_doi_only_row_resolves_to_journal_article():
+    # A DOI-only bibliography row (blank url) whose DOI is a known journal prefix must resolve to
+    # JOURNAL_ARTICLE through _m2_bib_genre (the bibliography/CWF genre seam) — proving the journal
+    # DOI-prefix allowlist actually reaches the render (Science 10.1126, JPE 10.1086, QJE 10.1093/qje).
+    # Before the A5 fix _m2_bib_genre did not pass the DOI, so these DOI-only rows rendered "unknown".
+    from src.polaris_graph.retrieval.document_type_classifier import DocumentType
+    for doi in ("10.1126/science.abc1234", "10.1086/705716", "10.1093/qje/qjab001"):
+        row = {"num": 1, "statement": "A finding sentence", "tier": "T1", "url": "", "doi": doi}
+        dt, _w = sweep._m2_bib_genre(row, protocol=None, document_type_by_url=None)
+        assert dt == DocumentType.JOURNAL_ARTICLE, f"{doi} should classify as JOURNAL_ARTICLE"
+
+
+def test_a5_journal_doi_fail_open_non_journal_doi_not_forced():
+    # Fail-open control: a book-capable bare-registrant DOI (10.1093/oxfordhb, OUP-wide incl. books)
+    # and a row with NO doi are NOT force-labeled JOURNAL_ARTICLE just because a DOI/allowlist exists.
+    from src.polaris_graph.retrieval.document_type_classifier import DocumentType
+    for row in (
+        {"num": 2, "statement": "An OUP handbook chapter", "tier": "T2", "url": "",
+         "doi": "10.1093/oxfordhb/9780199999999"},
+        {"num": 3, "statement": "A blog post about AI", "tier": "T6", "url": "", "doi": ""},
+    ):
+        dt, _w = sweep._m2_bib_genre(row, protocol=None, document_type_by_url=None)
+        assert dt != DocumentType.JOURNAL_ARTICLE
 
 
 # ── #1239 empty bibliography locator ─────────────────────────────────────────────

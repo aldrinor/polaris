@@ -1837,6 +1837,76 @@ def _is_predominantly_nonlatin(text: str) -> bool:
     return nonlatin >= _MIN_NONLATIN_RUN_CHARS and nonlatin >= latin
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# A1+A2 (I-wire Wave-A) — the render-seam chrome classes the drb_72 audit found the containment
+# predicate STILL blind to. At iter-3b the set is TWO high-precision / structure-anchored rules: a
+# title-page / monograph MASTHEAD and a BIBLIOGRAPHY-fragment. (A pure TABLE/FIGURE CAPTION-stub rule
+# was tried and REMOVED — a present-tense captioned finding could not be separated from a bare
+# caption without over-stripping; see the note where the class used to live below.) Each rule is
+# FLAG-not-drop (a flagged unit is withheld from the rendered rollup and KEPT in evidence_pool +
+# the disclosure); the faithfulness engine (strict_verify / NLI / 4-role / provenance) is UNCHANGED.
+#
+# (1) TITLE-PAGE / MONOGRAPH MASTHEAD — an ALL-CAPS "<MONTH> <YEAR> <DOC-TYPE>" cover header
+#     ("JUNE 2011 RESEARCH", "MARCH 2020 WORKING PAPER"). It fires ONLY on a PURE all-caps line: the
+#     trailing guard ``(?![^\n]*[a-z])`` requires NO lowercase letter anywhere after the doc type, so
+#     any running-prose sentence — which ALWAYS carries a lowercase letter, whether the continuation
+#     is lowercase ("… RESEARCH: employment rose …") OR title-case ("… RESEARCH: Employment rose …")
+#     — can NEVER match. ``(?m)^`` + an optional bounded leading ALL-CAPS institute/series run
+#     ("CENTRE FOR ECONOMIC POLICY JUNE 2011 …") anchor the genuine cover-header form. A masthead that
+#     carries "No. 8452" is LEAKED (its "o" trips the guard): the safe direction, since over-strip of
+#     a real finding is worse than a leaked masthead (§-1.3 drop-path law).
+_TITLE_PAGE_MASTHEAD_RE = re.compile(
+    r"(?m)^\W{0,4}"
+    r"(?:[A-Z][A-Z&.'/-]*\s+){0,6}"
+    r"\b(?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)"
+    r"\s+(?:19|20)\d{2}\s+"
+    r"(?:RESEARCH|REPORT|WORKING\s+PAPER|DISCUSSION\s+PAPER|WHITE\s+PAPER|POLICY\s+BRIEF|"
+    r"BRIEFING|BULLETIN|MONOGRAPH|PREPRINT)\b"
+    # Codex P1 (Wave-A iter-3b): fire ONLY on a pure ALL-CAPS masthead line. A real sentence ALWAYS
+    # carries a lowercase letter somewhere after the doc type — whether the continuation is lowercase
+    # ("JUNE 2011 RESEARCH: employment rose …") OR title-case ("… RESEARCH: Employment rose …") — so
+    # requiring NO lowercase letter to end-of-line rejects every running-prose sentence. A masthead
+    # that legitimately carries "No. 8452" is LEAKED (its "o" trips the guard), which is the safe
+    # direction: over-strip of a real finding is worse than a leaked masthead (§-1.3 drop-path law).
+    r"(?![^\n]*[a-z])"
+)
+# (2) BIBLIOGRAPHY fragment — a reference-list locator a real finding sentence never contains: a
+#     "pp. 45-67" page range, a "Retrieved from http…" / "Accessed <date>" retrieval line, or an
+#     "In: <Editor> (Ed(s).)" book-chapter opener. DELIBERATELY OMITTED: a bare "12(3): 45-67"
+#     volume(issue):pages locator — it collides with real clinical prose ("in arm 2 (3): 45-60
+#     patients responded"), and over-strip of a real finding is worse than a leak (§-1.3). An
+#     author-block-glued-to-"Abstract" byline is ALSO deliberately not screened here: it cannot be
+#     separated from real academic/clinical prose ("Patients at Massachusetts General Hospital showed
+#     improved Abstract Reasoning scores") without over-stripping — genuine title pages carry an
+#     ORCID / email / superscript-affiliation signal already caught by ``_contains_missed_chrome_class``
+#     and ``_contains_iwire016_gap_furniture``.
+_BIBLIOGRAPHY_FRAGMENT_RE = re.compile(
+    r"\bpp\.\s*\d+\s*[-–—]\s*\d+\b"
+    r"|\bRetrieved\s+from\s+https?://"
+    r"|\bAccessed\s+(?:on\s+)?\d{1,2}\s+[A-Za-z]+\s+\d{4}\b"
+    r"|\bIn:\s+[A-Z][A-Za-z.\s,&]+?\(Eds?\.\)",
+    re.IGNORECASE,
+)
+# (3) PURE TABLE / FIGURE CAPTION stub — REMOVED at Wave-A iter-3b (Codex P1). A caption-opening unit
+#     carries a real PRESENT-TENSE finding whose verb no finite whitelist can enumerate and which has
+#     no -ed/-ing morphology ("Table 1. Patients receive standard care after randomization.[1]",
+#     "Figure 2: The low-dose arms lack measurable benefit.[1]"), so any caption-stub screen
+#     over-withholds real findings. Per §-1.3 (over-strip is worse than a leak) the table/figure
+#     caption class is DEFERRED — it cannot be separated from real captioned findings without a real
+#     clause parser. Masthead + bibliography-fragment (high-precision, structure-anchored) remain.
+
+
+def _contains_missed_titlepage_biblio_caption(text: str) -> bool:
+    """A1+A2 (I-wire Wave-A): True iff ``text`` CONTAINS a still-missing render-seam chrome class — an
+    ALL-CAPS title-page/monograph masthead OR an unambiguous bibliography-fragment locator. (The
+    table/figure caption class was removed at iter-3b — it could not be separated from real captioned
+    findings without over-stripping.) High-precision / detector-only (FLAG-not-drop); the faithfulness
+    engine is UNCHANGED."""
+    if _TITLE_PAGE_MASTHEAD_RE.search(text):
+        return True
+    return bool(_BIBLIOGRAPHY_FRAGMENT_RE.search(text))
+
+
 def _contains_forensic_chrome(text: str) -> bool:
     """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
     unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
@@ -1882,6 +1952,11 @@ def _contains_forensic_chrome(text: str) -> bool:
     # SSRN/working-paper version-header cover · CAPTION/AXIS-ONLY figure apparatus (the classes that
     # leaked into cited claims + the Abstract/Conclusion sandwich; figure rule tightened per Codex P1).
     if _contains_drb72_apparatus_chrome(s):
+        return True
+    # A1+A2 (I-wire Wave-A): title-page/monograph masthead · author-block→Abstract byline ·
+    # bibliography-fragment locator · pure table/figure caption stub (the classes the drb_72 audit
+    # found the containment predicate STILL blind to). High-precision / fail-open on real prose.
+    if _contains_missed_titlepage_biblio_caption(s):
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)

@@ -22,14 +22,34 @@ Behaviour (high-precision, fail-open):
     kept copy lacks are MERGED into the kept copy's visible text, so NO source
     is ever lost (§-1.3 CONSOLIDATE, never a hard drop).
   * FRONT summary sections (Abstract, Key Findings, Executive Summary, ...) are
-    EXEMPT: their sentences are never registered and never dropped. The front
-    "## Key Findings" block extracts body sentences verbatim, so a keep-first
-    dedup that registered them would gut the body — exemption prevents that.
+    EXEMPT from the cross-section dedup: their sentences are never registered as
+    the global kept first occurrence and are never dropped for matching a body
+    sentence. The front "## Key Findings" block extracts body sentences verbatim,
+    so a keep-first dedup that registered them would gut the body — exemption
+    prevents that.
+  * BACK-TO-BACK collapse (I-deepfix-001 A3): a prose sentence that is a verbatim
+    duplicate of the IMMEDIATELY-PRECEDING eligible sentence in the SAME section
+    is dropped at its later occurrence — and this fires in EVERY section,
+    INCLUDING the exempt front summaries. This catches the same placeholder /
+    claim sentence emitted 2-3x in a row (e.g. a redaction-gap notice repeated
+    back-to-back inside "## Key Findings"), which the cross-section dedup cannot
+    touch there. Only an adjacent identical sentence collapses, so a summary's
+    single re-presentation of a body sentence is left intact. Citations are
+    merged into the kept copy exactly as in the cross-section path.
   * A section is NEVER emptied: if every eligible prose sentence in a section
     was dropped as a duplicate, its first such sentence is restored (fail-open).
   * Section headings (``#``..``######``), tables, code fences, block quotes,
     horizontal rules, blank lines and the References/Bibliography section are
-    passed through byte-identical.
+    passed through byte-identical. ``references_mode`` is PER-SECTION (I-deepfix-001
+    A3 P1): a References/Bibliography/Sources heading byte-preserves ONLY its own
+    section (so numbered ``[N]`` entries never collapse and orphan a body marker),
+    and the NEXT non-references heading — e.g. the appended "## Source corroboration
+    (per claim)" prose block — EXITS byte-preserve so the back-to-back collapse can
+    reach it. A ``back_matter`` latch (True from the first references heading onward)
+    keeps every back-matter section EXEMPT from the CROSS-SECTION dedup, exactly like
+    the front summaries: back matter intentionally re-presents body claim sentences
+    (the per-claim corroboration headers), so it must never be gutted — but the A3
+    back-to-back collapse still fires there.
   * Short / near-empty sentences are never deduped (fail-open precision guard).
 
 When the report contains no eligible duplicate, the input is returned
@@ -200,11 +220,21 @@ def dedup_rendered_report_markdown(report_md: str) -> str:
 
     lines = report_md.split("\n")
     items = []  # {"kind": "raw", "text"} | {"kind": "prose", "slots": [...]}
-    seen = {}  # normalized_key -> kept sentence slot
-    section_prose_slots = {}  # section_id -> [non-exempt eligible slots]
+    seen = {}  # normalized_key -> kept sentence slot (cross-section, non-exempt)
+    section_prose_slots = {}  # section_id -> [all prose slots]
+    # I-deepfix-001 A3: normalized_key of the most recent KEPT eligible sentence
+    # in the current section, plus its kept slot. Used for the back-to-back
+    # collapse that fires in EVERY section, incl. exempt front summaries.
+    section_last_eligible = {}  # section_id -> (normalized_key, kept_slot)
 
     in_code_fence = False
     references_mode = False
+    # I-deepfix-001 A3 P1: latched True from the FIRST references/bibliography/sources
+    # heading onward. Back matter (the numbered bibliography, the per-claim "Source
+    # corroboration" block, the disclosed-source lists) is EXEMPT from the cross-section
+    # dedup — it re-presents body claim sentences on purpose and must never be gutted —
+    # while STILL getting the A3 back-to-back collapse in its prose sub-blocks.
+    back_matter = False
     exempt_section = False
     section_id = 0
 
@@ -223,15 +253,32 @@ def dedup_rendered_report_markdown(report_md: str) -> str:
         # Headings define sections and set the exemption state.
         if _HEADER_RE.match(line):
             section_id += 1
-            if _REFERENCES_HEADER_RE.match(line):
-                references_mode = True
-            exempt_section = references_mode or _is_exempt_title(
-                _normalize_heading_title(line)
+            # I-deepfix-001 A3 P1: references_mode is now re-evaluated PER heading (not
+            # latched forever). A references/bibliography/sources heading byte-preserves
+            # its OWN section — protecting the numbered ``[N]`` entries — but the next
+            # non-references heading (e.g. "## Source corroboration (per claim)") exits
+            # byte-preserve so the A3 back-to-back collapse can reach that prose block.
+            is_references_heading = bool(_REFERENCES_HEADER_RE.match(line))
+            if is_references_heading:
+                back_matter = True
+            references_mode = is_references_heading
+            # A back-matter section (corroboration / disclosure lists) is EXEMPT from the
+            # cross-section dedup for the SAME reason a front summary is: it re-presents
+            # body claim sentences by design. references_mode is subsumed by back_matter
+            # here (a references section is always back matter); it is left in the OR only
+            # for clarity — a references line never reaches the prose path below anyway.
+            exempt_section = (
+                references_mode
+                or back_matter
+                or _is_exempt_title(_normalize_heading_title(line))
             )
             items.append({"kind": "raw", "text": line})
             continue
 
-        # Everything from the References/Bibliography heading onward is verbatim.
+        # A References/Bibliography/Sources section is byte-preserved verbatim (protects
+        # the numbered ``[N]`` entries). Non-references back-matter prose (the per-claim
+        # corroboration block) falls through to the dedup path below — exempt from the
+        # cross-section pass but still eligible for the A3 back-to-back collapse.
         if references_mode:
             items.append({"kind": "raw", "text": line})
             continue
@@ -251,12 +298,33 @@ def dedup_rendered_report_markdown(report_md: str) -> str:
         for sentence, separator in _split_sentences(line):
             slot = {"text": sentence, "sep": separator, "kept": True}
             key = _normalize_sentence(sentence)
-            if _dedup_eligible(key) and not exempt_section:
-                if key in seen:
+            if _dedup_eligible(key):
+                dropped = False
+                # (1) Cross-section verbatim dedup — non-exempt sections only. A
+                # later body sentence that repeats an EARLIER-rendered body
+                # sentence is dropped; front summaries are exempt so they may
+                # legitimately re-present a body sentence.
+                if not exempt_section and key in seen:
                     slot["contributed_merge"] = _merge_citations(seen[key], sentence)
                     slot["kept"] = False
-                else:
-                    seen[key] = slot
+                    dropped = True
+                # (2) I-deepfix-001 A3: back-to-back collapse WITHIN a section —
+                # fires in EVERY section, INCLUDING exempt front summaries. An
+                # eligible sentence identical to the immediately-preceding kept
+                # eligible sentence in the same section is dropped (its citations
+                # merged into that kept copy). Only an ADJACENT identical sentence
+                # collapses, so distinct sentences and a summary's single
+                # re-presentation of a body sentence are untouched.
+                elif section_id in section_last_eligible:
+                    prev_key, prev_slot = section_last_eligible[section_id]
+                    if prev_key == key:
+                        slot["contributed_merge"] = _merge_citations(prev_slot, sentence)
+                        slot["kept"] = False
+                        dropped = True
+                if not dropped:
+                    if not exempt_section:
+                        seen[key] = slot
+                    section_last_eligible[section_id] = (key, slot)
             # I-deepfix-001 i-fix: register EVERY prose sentence for the fail-open
             # guard, not only dedup-eligible ones. A short/ineligible sentence
             # (never dropped, always kept) keeps its section non-empty, so a

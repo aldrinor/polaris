@@ -1882,15 +1882,58 @@ def _apply_synthesis_fire_hold(
     return summary_status, unified_status
 
 
+# I-deepfix-001 A5 (#1344): canonical credibility tiers, ALWAYS disclosed in T1..T7 order so
+# the reader sees every band even at 0% (an OMITTED tier reads as "not assessed", and the drb_72
+# audit found the Methods "Actual distribution" line dropping absent tiers). Any extra key present
+# in the fractions (e.g. "UNKNOWN") is appended after, never dropped.
+_CANONICAL_TIER_ORDER = ("T1", "T2", "T3", "T4", "T5", "T6", "T7")
+_TIER_MIX_SUM_TO_100_ENV = "PG_TIER_MIX_SUM_TO_100"
+
+
+def _largest_remainder_percents(tier_fractions: "dict[str, float]") -> "dict[str, int]":
+    """Round each fraction to an INTEGER percent so the integers sum to EXACTLY 100 (Hamilton /
+    largest-remainder). Returns ``{}`` when the fractions do not form a positive distribution
+    (empty / all-zero) — the caller then discloses 0% for every tier WITHOUT fabricating a
+    spurious 100. PURE + deterministic (fractions are >= 0, so ``int(p)`` is the floor; ties in
+    the remainder pass are broken by tier key)."""
+    percents = {k: float(v) * 100.0 for k, v in (tier_fractions or {}).items()}
+    if sum(percents.values()) <= 0.0:
+        return {}
+    floors = {k: int(p) for k, p in percents.items()}  # p >= 0 => int() == floor()
+    remainder = 100 - sum(floors.values())
+    if remainder > 0:
+        # Hand the leftover points to the tiers with the largest fractional part (positive tiers
+        # only), ties broken deterministically by tier key. remainder < number-of-positive-tiers.
+        order = sorted(
+            (k for k, p in percents.items() if p > 0.0),
+            key=lambda k: (percents[k] - floors[k], k),
+            reverse=True,
+        )
+        for i in range(min(remainder, len(order))):
+            floors[order[i]] += 1
+    return floors
+
+
 def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
     """#1242: the SINGLE source of truth for the per-tier mix percentage string rendered in
-    the report (e.g. ``T1=12%, T2=1%, ...``). The run's Methods disclosure references THIS one
-    value so two disclosure strings can never quote different denominators/rounding. PURE +
-    deterministic (sorted keys, round-half-to-even-free integer percent). Byte-identical to
-    the prior inline ``", ".join(f"{k}={v*100:.0f}%" ...)`` builder."""
-    return ", ".join(
-        f"{k}={v * 100:.0f}%" for k, v in sorted((tier_fractions or {}).items())
-    )
+    the report (e.g. ``T1=12%, T2=1%, ...``). The run's Methods "Actual distribution" line AND
+    the LLM-authored Limitations quote reference THIS one value (via ``tier_disclosure_override``)
+    so two disclosure strings can never quote different denominators/rounding. PURE + deterministic.
+
+    I-deepfix-001 A5 (#1344): default-ON ``PG_TIER_MIX_SUM_TO_100`` — the integer percents sum to
+    EXACTLY 100 via largest-remainder AND every canonical tier T1..T7 is shown (0% when absent),
+    so the rendered line can never read e.g. ``101%`` (independent per-tier rounding) or silently
+    OMIT a tier. Set the flag to 0 to revert to the prior present-keys-only, independent-rounding
+    builder. LABEL/disclosure only — faithfulness-neutral (touches no strict_verify / NLI /
+    provenance path; changes no source's tier, drops nothing)."""
+    fractions = tier_fractions or {}
+    if not _env_flag(_TIER_MIX_SUM_TO_100_ENV, default=True):
+        return ", ".join(f"{k}={v * 100:.0f}%" for k, v in sorted(fractions.items()))
+    # Canonical T1..T7 always shown, then any extra keys (e.g. UNKNOWN) in sorted order.
+    extra = sorted(k for k in fractions if k not in _CANONICAL_TIER_ORDER)
+    ordered_keys = list(_CANONICAL_TIER_ORDER) + extra
+    rounded = _largest_remainder_percents(fractions)
+    return ", ".join(f"{k}={rounded.get(k, 0)}%" for k in ordered_keys)
 
 
 def _bib_entry_has_locator(entry: "dict") -> bool:
@@ -3182,7 +3225,16 @@ def _m2_bib_genre(
     if dt_str and dt_str in DocumentType._value2member_map_:
         dt = DocumentType(dt_str)
     else:
-        dt, _ = classify_document_type(url=url, title=str(b.get("statement") or ""))
+        # I-deepfix-001 A5 (#1344) Codex P1: pass the row's DOI so the journal DOI-prefix
+        # allowlist (10.1086 UChicago-Press journals, 10.1126/science… AAAS family, 10.1257
+        # AEA, 10.1093/qje…) actually reaches the bibliography/CWF render. Previously a DOI-only
+        # row (blank/non-journal url) classified as UNKNOWN → Science/JPE rendered "unknown".
+        # HIGH-PRECISION positive evidence only; fail-open (no DOI match => UNKNOWN, never dropped).
+        dt, _ = classify_document_type(
+            url=url,
+            title=str(b.get("statement") or ""),
+            doi=str(b.get("doi") or ""),
+        )
     w = resolve_document_type_weight(dt, protocol)
     return dt, _tier_prior(str(b.get("tier") or "")) * w * _m2_recency_factor(b, reference_year)
 
@@ -14487,6 +14539,13 @@ async def run_one_query(
                 )
         except Exception as _seam_exc:  # noqa: BLE001 — additive screen; never abort the report
             _log(f"[render-seam] skipped (fail-open): {_seam_exc}")
+        # A4 (I-deepfix-001) DESCOPED at Wave-A iter-3: the attribution-origin visible-text caveat was
+        # removed. Codex confirmed (iter-3 P1) that appending a bracketed caveat INTO the visible
+        # sentence leaks into report_claim_extractor (the meta-caveat is atomized as part of the
+        # factual claim) and actor names with periods can split under the shared sentence splitter —
+        # a faithfulness side-effect on a rewrite of already-verified prose. Mis-attribution stays
+        # DISCLOSED via the existing attribution-origin soft-warning telemetry (f, committed 29ad56d7),
+        # never rewritten in the reader-visible text. §-1.3: disclosure, not a risky prose edit.
         # I-deepfix-001 B18 (#1344): GFM-table normalize the ASSEMBLED report — insert the missing
         # `| --- |` separator row after a header and re-pad data rows to the header column count
         # WITHOUT dropping any cell (fixes the malformed summary table whose 6 data rows were column-

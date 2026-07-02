@@ -108,8 +108,13 @@ _JOURNAL_DOI_REGISTRANT_PREFIXES = (
 # Path-scoped journal DOIs — the bare registrant ALSO serves books/reference works, so a
 # journal-specific path segment is REQUIRED (bare 10.1093 is OUP-wide incl. books => NOT matched):
 _JOURNAL_DOI_PATH_PREFIXES = (
-    "10.1093/qje/",     # Quarterly Journal of Economics only (registrant 10.1093 also serves BOOKS)
-    "10.1126/science",  # Science / Science-family journals (registrant 10.1126, "science…" slug)
+    "10.1093/qje/",         # Quarterly Journal of Economics only (registrant 10.1093 also serves BOOKS)
+    "10.1126/science",      # Science (registrant 10.1126 = AAAS, journal-only, "science…" slug)
+    "10.1126/sciadv",       # Science Advances (AAAS peer-reviewed journal family)
+    "10.1126/scitranslmed", # Science Translational Medicine (AAAS peer-reviewed journal family)
+    "10.1126/sciimmunol",   # Science Immunology (AAAS peer-reviewed journal family)
+    "10.1126/scisignal",    # Science Signaling (AAAS peer-reviewed journal family)
+    "10.1126/scirobotics",  # Science Robotics (AAAS peer-reviewed journal family)
 )
 
 
@@ -174,8 +179,8 @@ def _positive_journal_basis(doi: str, host: str, low_url: str) -> "str | None":
         "/articles" in low_url or "/jep" in low_url or "/aer" in low_url or "/journals/" in low_url
     ):
         return "journal_host_path:aeaweb.org"
-    if _host_in(host, frozenset({"science.org"})) and "/doi/10.1126/science" in low_url:
-        return "journal_host_path:science.org"
+    if _host_in(host, frozenset({"science.org"})) and "/doi/10.1126/sci" in low_url:
+        return "journal_host_path:science.org"  # AAAS journal family (science/sciadv/scitranslmed/…)
     if _host_in(host, frozenset({"nature.com"})) and "/articles/s" in low_url:
         return "journal_host_path:nature.com"
     return None
