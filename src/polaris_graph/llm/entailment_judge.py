@@ -52,6 +52,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import random
 import threading
 import time
 
@@ -167,6 +168,44 @@ _ENV_ENTAILMENT_TOTAL_DEADLINE_RETRIES = "PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES"
 _DEFAULT_ENTAILMENT_TOTAL_DEADLINE_RETRIES = _DEFAULT_ENTAILMENT_RETRIES
 # Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
 _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
+# U16 (I-deepfix-001): rate-limit / connectivity hardening. A real HTTP 429/503/502/504, a DNS
+# "name resolution" ConnectError, or an OpenRouter 200-wrapped 429 error-envelope previously got the
+# SAME tiny fixed backoff (0.5s) + tiny retry budget (2) as a bad-verdict, so a transient account-QPS
+# 429 storm / DNS blip exhausted the ~3 attempts in ~1s and the claim fail-closed DROPPED — over ~178
+# claims/report x bounded-parallel verify workers this self-sustained the storm, tore the seam, and
+# blocked drb_75 checkpoint-resume. Fix (transport-only, faithfulness-NEUTRAL): a recoverable rate-
+# limit/connectivity fault gets (a) a LARGER bounded retry budget and (b) exponential backoff with
+# jitter honoring a rate-limit FLOOR + the server Retry-After header (mirrors openrouter_client.py's
+# 429 floor/backoff, the AWS exp-backoff-and-jitter pattern already in fetch_limiter/llm_throttle, and
+# OpenRouter's 2026 rate-limit guidance). The judge MODEL, the two-family/model lock, verdict parsing,
+# provider rotation (iwire008 #1322 host-capacity recovery — PRESERVED), and the fail-CLOSED
+# ('ENTAILED','judge_error:…') sentinel are ALL byte-unchanged; only the retry cadence recovers a REAL
+# verdict on a transient storm instead of over-dropping. LAW VI: every knob is env-driven.
+_ENV_ENTAILMENT_RATE_LIMIT_FLOOR_S = "PG_ENTAILMENT_RATE_LIMIT_FLOOR_S"
+_DEFAULT_ENTAILMENT_RATE_LIMIT_FLOOR_S = 15.0
+_ENV_ENTAILMENT_RATE_LIMIT_CAP_S = "PG_ENTAILMENT_RATE_LIMIT_CAP_S"
+_DEFAULT_ENTAILMENT_RATE_LIMIT_CAP_S = 60.0
+_ENV_ENTAILMENT_RATE_LIMIT_RETRIES = "PG_ENTAILMENT_RATE_LIMIT_RETRIES"
+_DEFAULT_ENTAILMENT_RATE_LIMIT_RETRIES = 5
+_ENTAILMENT_RATE_LIMIT_BACKOFF_BASE = 2.0
+# HTTP statuses that are recoverable transient rate-limit / upstream-unavailable faults (honor
+# Retry-After + back off, do not fail closed on the first hit). 429 = rate limited; 502/503/504 =
+# gateway/service transient. Matches openrouter_client's 429 handling class.
+_RATE_LIMIT_HTTP_STATUSES = frozenset({429, 502, 503, 504})
+# String markers for a rate-limit / connectivity fault surfaced as a bare exception or a carried
+# _RetryableJudgeError.reason (DNS name-resolution failures are host-agnostic; "too many requests" /
+# "rate_limit" cover 429 bodies whose type was flattened to a reason string). Lower-cased substring
+# match, mirroring the _TRANSPORT_POISON_SUBSTRINGS style.
+_RATE_LIMIT_CONNECTIVITY_MARKERS: tuple[str, ...] = (
+    "name resolution",
+    "getaddrinfo",
+    "temporary failure in name resolution",
+    "too many requests",
+    "rate_limit",
+    "rate limit",
+    "connecterror",
+    "connecttimeout",
+)
 # I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
 # the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
 # error -> fail-open, which the consumers DROP -> the drb_72-class COVERAGE COLLAPSE. Operator 2026-06-13:
@@ -252,6 +291,19 @@ def _no_choices_reason(data: object) -> str | None:
         return "non_dict_body"
     if data.get("error"):
         # OpenRouter sometimes returns its error envelope with HTTP 200 (e.g. a 429 payload).
+        # U16 (I-deepfix-001): when that envelope carries a rate-limit / upstream-unavailable code
+        # (429/502/503/504), thread a DISTINCT `rate_limit_200` reason so the retry loop treats it as
+        # a recoverable rate-limit fault (larger budget + floored/backoff) rather than a generic
+        # error-body. Non-rate-limit error envelopes keep the byte-identical `error_body_200` reason
+        # (iwire008 #1322 rotation path unchanged).
+        _err = data.get("error")
+        _code = _err.get("code") if isinstance(_err, dict) else None
+        try:
+            _code_int = int(_code) if _code is not None else None
+        except (TypeError, ValueError):
+            _code_int = None
+        if _code_int in _RATE_LIMIT_HTTP_STATUSES:
+            return "rate_limit_200"
         return "error_body_200"
     choices = data.get("choices")
     if not choices or not isinstance(choices, list):
@@ -321,6 +373,107 @@ def _is_transport_poison_reason(reason: str) -> bool:
         return any(marker in haystack for marker in markers)
     except Exception:  # noqa: BLE001
         return False
+
+
+def _is_rate_limit_or_connectivity_fault(exc: BaseException) -> bool:
+    """U16 (I-deepfix-001): True iff `exc` is a RECOVERABLE rate-limit / connectivity fault that a
+    backoff-and-retry (NOT an immediate fail-closed drop) should survive.
+
+    Recognises: an ``httpx.HTTPStatusError`` whose status is one of ``_RATE_LIMIT_HTTP_STATUSES``
+    (429/502/503/504 — the real 429 raised by ``response.raise_for_status()`` lands here), an
+    ``httpx.ConnectError`` / ``httpx.ConnectTimeout`` (DNS "name resolution" blips + connect failures),
+    and any exception whose type/string carries one of ``_RATE_LIMIT_CONNECTIVITY_MARKERS``. A parse /
+    bad-verdict / closed-client(-X509) fault is NOT rate-limit — those keep their existing fixed-backoff
+    + rotation/rebuild path byte-for-byte. Never raises (a predicate must not break the retry loop)."""
+    try:
+        import httpx  # local import: keep off-mode import cost zero
+
+        if isinstance(exc, httpx.HTTPStatusError):
+            resp = getattr(exc, "response", None)
+            if resp is not None and getattr(resp, "status_code", None) in _RATE_LIMIT_HTTP_STATUSES:
+                return True
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return True
+    except Exception:  # noqa: BLE001 — httpx import/type checks must never break the predicate
+        pass
+    try:
+        haystack = f"{type(exc).__name__}: {exc}".lower()
+        return any(marker in haystack for marker in _RATE_LIMIT_CONNECTIVITY_MARKERS)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_rate_limit_reason(reason: str) -> bool:
+    """U16: True iff a carried ``_RetryableJudgeError.reason`` names a rate-limit / connectivity fault
+    (e.g. the ``rate_limit_200`` threaded by ``_no_choices_reason`` for a 200-wrapped 429, or a DNS/
+    rate-limit marker). A ``bad_verdict=…`` / ``no_choices`` / generic parse reason returns False, so
+    those keep the byte-identical fixed-backoff + rotation path."""
+    try:
+        r = str(reason).lower()
+        if r.startswith("rate_limit"):
+            return True
+        return any(marker in r for marker in _RATE_LIMIT_CONNECTIVITY_MARKERS)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _extract_retry_after_s(exc: BaseException) -> float | None:
+    """U16: parse a ``Retry-After`` header off an ``httpx.HTTPStatusError`` response, in seconds.
+
+    OpenRouter's 2026 rate-limit guidance names ``Retry-After`` as the PRIMARY delay source on a 429/
+    503. Supports the two RFC-7231 forms — a non-negative integer number of seconds, or an HTTP-date
+    (delta from now, clamped at >= 0). Returns ``None`` when the exception is not an HTTP status error,
+    has no response, or the header is absent/unparseable (the caller then uses the exponential floor).
+    Never raises."""
+    try:
+        import httpx  # local import: off-mode zero cost
+
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return None
+        resp = getattr(exc, "response", None)
+        if resp is None:
+            return None
+        raw = (resp.headers.get("Retry-After") or "").strip()
+        if not raw:
+            return None
+        try:
+            return max(0.0, float(int(raw)))
+        except ValueError:
+            pass
+        import datetime as _dt
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(raw)
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        return max(0.0, (when - _dt.datetime.now(_dt.timezone.utc)).total_seconds())
+    except Exception:  # noqa: BLE001 — Retry-After parsing must never break the retry loop
+        return None
+
+
+def _rate_limit_backoff_s(
+    attempt: int,
+    retry_after: float | None,
+    floor: float,
+    cap: float,
+    base: float,
+) -> float:
+    """U16: the delay (seconds) before the next retry of a rate-limit / connectivity fault.
+
+    Honor a server ``Retry-After`` VERBATIM when present (clamped to ``cap``). Otherwise use
+    exponential backoff with FULL jitter bounded to ``[floor, cap]``: the deterministic exponential
+    ``max(floor, base**(attempt+1)) * (attempt+1)`` (mirrors openrouter_client.py's 429 formula),
+    capped at ``cap``, then jittered uniformly between ``floor`` and that capped value (AWS
+    exp-backoff-and-jitter). The result is always ``>= floor`` (a rate-limit window needs a real wait)
+    and ``<= cap`` (bounded worst-case wall). Deterministic when ``capped_exp == floor``."""
+    if retry_after is not None:
+        return max(0.0, min(cap, retry_after))
+    capped_exp = min(cap, max(floor, base ** (attempt + 1)) * (attempt + 1))
+    if capped_exp <= floor:
+        return floor
+    return random.uniform(floor, capped_exp)
 
 
 def _extract_first_json_object(content: object) -> dict:
@@ -710,10 +863,34 @@ class _EntailmentJudge:
                 "PG_ENTAILMENT_RETRY_BACKOFF_S", _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S
             )),
         )
+        # U16 (I-deepfix-001): a recoverable rate-limit / connectivity fault gets a LARGER bounded
+        # retry budget + floored/Retry-After exponential backoff (vs the tiny fixed backoff above), so
+        # a transient 429 storm / DNS blip recovers a REAL verdict instead of over-dropping. Env-driven
+        # (LAW VI); parse-safe fallbacks preserve the defaults on a bad env value.
+        try:
+            _rl_retries = max(0, int(os.environ.get(
+                _ENV_ENTAILMENT_RATE_LIMIT_RETRIES, _DEFAULT_ENTAILMENT_RATE_LIMIT_RETRIES,
+            ) or _DEFAULT_ENTAILMENT_RATE_LIMIT_RETRIES))
+        except (TypeError, ValueError):
+            _rl_retries = _DEFAULT_ENTAILMENT_RATE_LIMIT_RETRIES
+        try:
+            _rl_floor = max(0.0, float(os.environ.get(
+                _ENV_ENTAILMENT_RATE_LIMIT_FLOOR_S, _DEFAULT_ENTAILMENT_RATE_LIMIT_FLOOR_S,
+            ) or _DEFAULT_ENTAILMENT_RATE_LIMIT_FLOOR_S))
+        except (TypeError, ValueError):
+            _rl_floor = _DEFAULT_ENTAILMENT_RATE_LIMIT_FLOOR_S
+        try:
+            _rl_cap = max(_rl_floor, float(os.environ.get(
+                _ENV_ENTAILMENT_RATE_LIMIT_CAP_S, _DEFAULT_ENTAILMENT_RATE_LIMIT_CAP_S,
+            ) or _DEFAULT_ENTAILMENT_RATE_LIMIT_CAP_S))
+        except (TypeError, ValueError):
+            _rl_cap = max(_rl_floor, _DEFAULT_ENTAILMENT_RATE_LIMIT_CAP_S)
         data = None  # I-obs-001 #1141 AC3: bound before the loop so the terminal judge_error
         # capture can prefer the served response (post ok, parse/verdict failed) over the exc string.
         last_reason = ""
-        for attempt in range(_retries + 1):
+        # U16: the loop must reach the LARGER of the general and rate-limit budgets; the per-fault
+        # _eff_retries below still bounds a non-rate-limit fault to _retries (byte-identical break point).
+        for attempt in range(max(_retries, _rl_retries) + 1):
             data = None  # reset per attempt so a later attempt's terminal capture is not stale.
             try:
                 # I-arch-006 HANG-J3: HARD total wall-deadline around the POST so a trickled keep-alive
@@ -847,14 +1024,19 @@ class _EntailmentJudge:
                 raise
             except _RetryableJudgeError as exc:
                 last_reason = exc.reason
+                # U16 (I-deepfix-001): a rate-limit / connectivity fault surfaced as a reason (e.g. the
+                # `rate_limit_200` 200-wrapped 429) gets the LARGER _rl_retries budget so a transient
+                # storm recovers a REAL verdict instead of over-dropping.
+                _rl_fault = _is_rate_limit_reason(exc.reason)
                 # I-arch-007 A2: a trickle-hung socket re-hangs on retry, so a total_deadline_exceeded
                 # gets the tighter _total_deadline_retries budget; transient transport/parse/bad-verdict
                 # faults (which often DO recover on a fresh attempt) keep the full _retries budget.
-                _eff_retries = (
-                    _total_deadline_retries
-                    if exc.reason.startswith("total_deadline_exceeded")
-                    else _retries
-                )
+                if _rl_fault:
+                    _eff_retries = _rl_retries
+                elif exc.reason.startswith("total_deadline_exceeded"):
+                    _eff_retries = _total_deadline_retries
+                else:
+                    _eff_retries = _retries
                 if attempt < _eff_retries:
                     # I-arch-007 ITEM 2a: if the retryable reason reflects a CLOSED/poisoned transport,
                     # rebuild this thread's client BEFORE the retry (the total_deadline_exceeded path
@@ -863,21 +1045,38 @@ class _EntailmentJudge:
                     if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
                         self._client = self._build_client()
                     elif not exc.reason.startswith("total_deadline_exceeded"):
-                        # I-arch-011: a blank_200 / bad_verdict from THIS provider — rotate to the next
-                        # mirror host so the retry can get a REAL verdict (faithfulness-neutral: same
-                        # glm-5.1 model, next healthy host). No-op when rotation is disabled. A
+                        # I-arch-011 + iwire008 #1322: a blank_200 / bad_verdict / rate_limit_200 from
+                        # THIS provider — rotate to the next mirror host so the retry can get a REAL
+                        # verdict (faithfulness-neutral: same model, next healthy host; recovers a
+                        # per-host "no instances available" 429). No-op when rotation is disabled. A
                         # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
                         _rotate_provider_on_blank(exc.reason)
-                    logger.warning(
-                        "entailment judge retryable fault (attempt %d/%d): %s — retrying.",
-                        attempt + 1, _eff_retries + 1, exc.reason,
+                    # U16: a rate-limit fault backs off (exp+jitter, floor, cap; no Retry-After header on
+                    # the reason path); every other fault keeps the byte-identical tiny fixed backoff.
+                    _sleep_s = (
+                        _rate_limit_backoff_s(
+                            attempt, None, _rl_floor, _rl_cap, _ENTAILMENT_RATE_LIMIT_BACKOFF_BASE,
+                        )
+                        if _rl_fault else _backoff
                     )
-                    time.sleep(_backoff)
+                    logger.warning(
+                        "entailment judge retryable fault (attempt %d/%d): %s — %s %.1fs.",
+                        attempt + 1, _eff_retries + 1, exc.reason,
+                        "rate-limit backoff" if _rl_fault else "retrying after", _sleep_s,
+                    )
+                    time.sleep(_sleep_s)
                     continue
                 break
             except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
                 last_reason = type(exc).__name__
-                if attempt < _retries:
+                # U16 (I-deepfix-001): a REAL HTTP 429/503/502/504 (raised by response.raise_for_status)
+                # or a DNS "name resolution" ConnectError lands here — classify it as a recoverable
+                # rate-limit / connectivity fault so it gets the LARGER _rl_retries budget + a floored/
+                # Retry-After backoff, instead of exhausting the tiny _retries budget in ~1s and tearing
+                # the seam. Non-rate-limit faults keep the byte-identical _retries + fixed-backoff path.
+                _rl_fault = _is_rate_limit_or_connectivity_fault(exc)
+                _eff_retries = _rl_retries if _rl_fault else _retries
+                if attempt < _eff_retries:
                     # I-arch-007 ITEM 2a (the Q78 run-killer): the only rebuild sites before this fix
                     # were the ctor and the TimeoutError branch (:441), so a client closed/poisoned on
                     # this GENERIC path (httpx "Cannot send a request, as the client has been closed",
@@ -889,16 +1088,26 @@ class _EntailmentJudge:
                     if _is_transport_poison(exc):
                         self._client = self._build_client()
                     else:
-                        # I-arch-011: a non-poison transport/parse fault (a JSONDecodeError on a garbled
-                        # body, a KeyError on a malformed envelope, or an HTTP 4xx/5xx such as a provider
-                        # that 404s on this request shape) — rotate to the next mirror host before the
-                        # retry. No-op when rotation is disabled.
+                        # I-arch-011 + iwire008 #1322: a non-poison transport/parse fault (a
+                        # JSONDecodeError on a garbled body, a KeyError on a malformed envelope, or an
+                        # HTTP 429/5xx) — rotate to the next mirror host before the retry (recovers a
+                        # per-host capacity 429). No-op when rotation is disabled.
                         _rotate_provider_on_blank(type(exc).__name__)
-                    logger.warning(
-                        "entailment judge error (attempt %d/%d): %s — retrying.",
-                        attempt + 1, _retries + 1, exc,
+                    # U16: honor the server Retry-After on a real 429/503, else exp backoff+jitter with a
+                    # rate-limit floor (capped). Non-rate-limit faults keep the byte-identical fixed backoff.
+                    _sleep_s = (
+                        _rate_limit_backoff_s(
+                            attempt, _extract_retry_after_s(exc), _rl_floor, _rl_cap,
+                            _ENTAILMENT_RATE_LIMIT_BACKOFF_BASE,
+                        )
+                        if _rl_fault else _backoff
                     )
-                    time.sleep(_backoff)
+                    logger.warning(
+                        "entailment judge error (attempt %d/%d): %s — %s %.1fs.",
+                        attempt + 1, _eff_retries + 1, exc,
+                        "rate-limit backoff" if _rl_fault else "retrying after", _sleep_s,
+                    )
+                    time.sleep(_sleep_s)
                     continue
                 logger.warning("entailment judge error (final): %s", exc)
                 break

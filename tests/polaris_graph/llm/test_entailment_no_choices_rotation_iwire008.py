@@ -86,6 +86,11 @@ def _reset(monkeypatch):
     monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "1")
     monkeypatch.setenv("PG_ENTAILMENT_RETRIES", "3")
     monkeypatch.setenv("PG_ENTAILMENT_RETRY_BACKOFF_S", "0")  # keep the test fast
+    # U16 (I-deepfix-001): a 429 / error_body_200(429) is now classified as a rate-limit fault and
+    # uses the floored/exponential rate-limit backoff (default floor 15s), so stub the sleep to keep
+    # this hermetic suite fast. These tests assert rotation-order + billing + verdict, never a sleep
+    # duration, so a no-op sleep does not perturb any assertion.
+    monkeypatch.setattr(entailment_judge.time, "sleep", lambda *_a, **_k: None)
     monkeypatch.delenv("PG_JUDGE_UNHEALTHY_PROVIDERS", raising=False)
     yield
     entailment_judge._JUDGE_SINGLETON = None

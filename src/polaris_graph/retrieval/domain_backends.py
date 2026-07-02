@@ -168,7 +168,42 @@ def _run_backends_parallel(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _http_get_json(url: str, params: dict | None = None) -> dict | None:
+class OpenAlexHTTPError(RuntimeError):
+    """OpenAlex ``/works`` request failed at the HTTP layer.
+
+    U25 (I-deepfix-001): the 2026-02-13 OpenAlex policy makes anonymous ``search=``
+    requests credit-capped (~$0.10/day); under load they return HTTP 503 with an
+    "Anonymous search is temporarily rate-limited ..." body. The old fail-open
+    swallowed that 503 as an empty result, so a rate-limited backend that returned
+    ZERO candidates was still recorded as ``status='ok'`` and inflated discovery
+    ``success_rate`` to 1.0 — a silent downgrade (LAW II).
+
+    ``_http_get_json(strict=True)`` raises this on any non-200 / undecodable body /
+    transport fault so ``openalex_search`` can FAIL LOUD to its caller, which then
+    records the miss honestly (``status='fail'``) instead of masking it.
+    """
+
+    def __init__(
+        self, message: str, *, status_code: int | None = None, body: str = ""
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
+def _http_get_json(
+    url: str, params: dict | None = None, *, strict: bool = False
+) -> dict | None:
+    """Shared JSON GET.
+
+    ``strict=False`` (default) is byte-identical to the legacy fail-open helper:
+    a non-200, an undecodable body, or a transport fault all return ``None``.
+
+    ``strict=True`` FAILS LOUD (U25): a non-200 raises :class:`OpenAlexHTTPError`
+    carrying the status code + a body snippet, and an undecodable body / transport
+    fault re-raises as :class:`OpenAlexHTTPError`. This prevents a rate-limited
+    backend (HTTP 503) from ever being masked as a genuine 0-result.
+    """
     try:
         with httpx.Client(
             timeout=HTTP_TIMEOUT,
@@ -177,12 +212,28 @@ def _http_get_json(url: str, params: dict | None = None) -> dict | None:
         ) as c:
             r = c.get(url, params=params)
         if r.status_code != 200:
+            if strict:
+                raise OpenAlexHTTPError(
+                    f"HTTP {r.status_code} from {url}",
+                    status_code=r.status_code,
+                    body=(r.text or "")[:500],
+                )
             return None
         try:
             return r.json()
         except Exception:
+            if strict:
+                raise OpenAlexHTTPError(
+                    f"undecodable JSON body from {url}",
+                    status_code=r.status_code,
+                )
             return None
+    except OpenAlexHTTPError:
+        # strict-mode fail-loud signal — never re-mask it as None.
+        raise
     except Exception as exc:
+        if strict:
+            raise OpenAlexHTTPError(f"transport error for {url}: {exc}") from exc
         logger.debug("http_get_json %r failed: %s", url, exc)
         return None
 
@@ -649,6 +700,28 @@ _OPENALEX_WORKS_SEARCH = "https://api.openalex.org/works"
 _OPENALEX_PER_PAGE_MAX = 200
 
 
+def _openalex_auth_params() -> dict[str, str]:
+    """U25 (I-deepfix-001): config-driven OpenAlex auth/politeness query params.
+
+    Per developers.openalex.org/api-reference/authentication (2026-02-13 policy):
+    an API key is passed as the ``api_key`` QUERY param (NOT a header) and raises
+    the anonymous ~$0.10/day search budget ~10x; ``mailto`` joins the polite pool.
+    BOTH are read from the environment (LAW VI — no hard-coded credentials) and
+    OMITTED entirely when unset, so an unconfigured run sends the EXACT legacy
+    keyless params (byte-identical OFF). The key/contact are provisioned into the
+    process env (``.env`` / ``PG_OPENALEX_API_KEY`` / ``PG_OPENALEX_MAILTO``);
+    they are read at call time, never baked in.
+    """
+    params: dict[str, str] = {}
+    api_key = os.getenv("PG_OPENALEX_API_KEY", "").strip()
+    if api_key:
+        params["api_key"] = api_key
+    mailto = os.getenv("PG_OPENALEX_MAILTO", "").strip()
+    if mailto:
+        params["mailto"] = mailto
+    return params
+
+
 def _openalex_per_page(limit: int) -> int:
     """BB-003 (#1171): per-page size for the OpenAlex /works search.
 
@@ -691,7 +764,16 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
     chokepoint (env limit=100 reached the adapter but min(limit,25) capped it at
     25/query). DEFAULT (per_page 25, max_pages 1) = byte-identical single page,
     no cursor key in the request. Discovery-breadth only; faithfulness-neutral.
+
+    U25 (I-deepfix-001): merges the config-driven ``_openalex_auth_params`` (an
+    ``api_key`` / ``mailto`` when provisioned — empty = keyless byte-identical) so
+    the 2026-02-13 anonymous-search rate-limit is lifted, and uses the STRICT
+    fetch so a non-200 (the 503 rate-limit) raises :class:`OpenAlexHTTPError` and
+    is RE-RAISED to the caller instead of being swallowed as a 0-result. A genuine
+    200-empty (no matching works) still returns ``[]`` — the caller distinguishes
+    that honest zero from the rate-limited failure.
     """
+    auth_params = _openalex_auth_params()
     try:
         per_page = _openalex_per_page(limit)
         max_pages = _openalex_max_pages()
@@ -704,7 +786,12 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
             # (max_pages > 1). A single-page run sends the exact legacy params.
             if max_pages > 1:
                 params["cursor"] = cursor
-            data = _http_get_json(_OPENALEX_WORKS_SEARCH, params=params)
+            # U25: merge auth/politeness params LAST (never override search/per_page/
+            # cursor); empty dict when unset => exact legacy keyless request.
+            params.update(auth_params)
+            # U25: STRICT — a non-200 (e.g. the anonymous-search 503) raises
+            # OpenAlexHTTPError so a rate-limited backend can never be masked as [].
+            data = _http_get_json(_OPENALEX_WORKS_SEARCH, params=params, strict=True)
             if not data:
                 break
             results = data.get("results") or []
@@ -744,6 +831,12 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
             if max_pages == 1 or not cursor:
                 break
         return out
+    except OpenAlexHTTPError:
+        # U25: FAIL LOUD on an HTTP error (e.g. the 503 rate-limit) — do NOT
+        # swallow it as []. Every caller wraps this in a fail-open (log + 0 hits),
+        # but the failure is now VISIBLE so discovery success_rate reflects the
+        # miss instead of masking a rate-limited backend as status='ok'.
+        raise
     except Exception as exc:
         logger.warning("[domain_backends] openalex_search failed (fail-open): %s", exc)
         return []

@@ -1480,7 +1480,19 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
         cached = _authority_cache_get(enrich_cache_key)
         if isinstance(cached, dict) and cached:
             return cached
-        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+        # U25 (I-deepfix-001): merge the config-driven OpenAlex auth/politeness
+        # params (api_key / mailto) onto the ENRICH client too. httpx merges
+        # client-level params into every request, so the DOI lookup, the
+        # title-search fallback, AND the /sources fetch (which reuses this client)
+        # all ride the key. Empty when unset => byte-identical keyless enrich. This
+        # lifts the same 2026-02-13 anonymous 503 that was silently starving the
+        # authority-signal enrich (venue / retraction / peer-review) path.
+        from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+            _openalex_auth_params,
+        )
+        with httpx.Client(
+            timeout=DEFAULT_HTTP_TIMEOUT, params=_openalex_auth_params()
+        ) as c:
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
                 # both the bare DOI and the URL form; use bare DOI.
@@ -4655,11 +4667,21 @@ def run_live_retrieval(
                 # FX-20 (#1128): trace openalex as a first-class backend so the discovery_funnel reads
                 # its requested-vs-returned from the SAME tool_trace rows as serper/s2 (FX-18 wired the
                 # call but never traced it — a tracer-only funnel would silently OMIT openalex).
+                # U25 (I-deepfix-001): UN-MASK the 0-candidate case. Previously EVERY return
+                # (incl. a rate-limited 503 swallowed as []) recorded status='ok', so a backend
+                # that yielded nothing still counted toward discovery success_rate=1.0. Now a
+                # genuine 200-empty is recorded status='ok_zero' (zero_yield=True) — distinct from
+                # 'ok' (real hits) and from the 'fail' below (an HTTP error, which now RAISES from
+                # openalex_search instead of masking). ToolTracer counts only status=='ok' toward
+                # success_rate, so both the empty and the failure honestly drop it below 1.0.
+                _oa_zero = not _oa_hits
                 _trace_tool(
-                    "openalex_search", target=q, status="ok",
+                    "openalex_search", target=q,
+                    status="ok_zero" if _oa_zero else "ok",
                     latency_ms=(time.time() - _oa_t0) * 1000.0,
                     backend_used="openalex_works_api",
                     result_count=len(_oa_hits), num_requested=max_s2,
+                    zero_yield=_oa_zero,
                 )
                 # FX-18b (#1123): mirror serper/s2 -> emit an openalex retrieval_trace row so RERUN §-1.1 can verify it fired.
                 _trace_query("openalex_search", q, [getattr(c, "url", "") for c in _oa_hits])
@@ -4672,11 +4694,15 @@ def run_live_retrieval(
                     # I-wire-001 W3: route through _emit_candidate (OFF = byte-identical).
                     _emit_candidate("openalex_search", cand)
             except Exception as exc:
+                # U25: an HTTP error (the 503 anonymous-search rate-limit now RAISES
+                # OpenAlexHTTPError from openalex_search) is recorded as a real failure —
+                # zero_yield=True + the error text (carrying the 503) — never masked as 'ok'.
                 _trace_tool(
                     "openalex_search", target=q, status="fail",
                     latency_ms=(time.time() - _oa_t0) * 1000.0,
                     backend_used="openalex_works_api",
                     error=str(exc), result_count=0, num_requested=max_s2,
+                    zero_yield=True,
                 )
                 logger.warning(
                     "[live_retriever] openalex_search failed for %r (fail-open): %s",
