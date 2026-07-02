@@ -67,6 +67,51 @@ from src.polaris_graph.retrieval.tier_classifier import (
 logger = logging.getLogger("polaris_graph.honest_pipeline")
 
 
+# Canonical tier order for the "Actual distribution" disclosure. ALL seven
+# tiers are ALWAYS shown (including 0% ones) so the disclosure has no gap.
+_DISCLOSURE_TIER_ORDER = ("T1", "T2", "T3", "T4", "T5", "T6", "T7")
+
+
+def _tier_distribution_percentages(
+    tier_counts: dict[str, int],
+    total_sources: int,
+) -> list[tuple[str, int]]:
+    """Integer tier percentages that sum to EXACTLY 100 (largest-remainder).
+
+    Single source of truth = the raw ``tier_counts`` histogram over
+    ``total_sources``. Every canonical tier T1..T7 is present in the result
+    (0% when the corpus has none) plus any extra tier key found in
+    ``tier_counts`` (e.g. ``UNKNOWN``) so no source is silently dropped from the
+    denominator. Percentages are apportioned with the largest-remainder
+    (Hamilton) method: floor each tier's exact share, then hand the leftover
+    whole-percent points one-by-one to the tiers with the largest fractional
+    remainders (deterministic tie-break: larger remainder first, then canonical
+    order). This guarantees the printed percentages sum to 100 when
+    ``total_sources > 0`` — replacing the per-tier independent ``round`` that
+    could sum to 99 or 101 and silently omitted 0% tiers.
+
+    RENDER/DISCLOSURE TEXT ONLY — faithfulness-neutral. Touches no gate.
+    """
+    extra = sorted(k for k in tier_counts if k not in _DISCLOSURE_TIER_ORDER)
+    tiers = list(_DISCLOSURE_TIER_ORDER) + extra
+
+    if total_sources <= 0:
+        return [(t, 0) for t in tiers]
+
+    exact = {t: tier_counts.get(t, 0) * 100.0 / total_sources for t in tiers}
+    floors = {t: int(exact[t]) for t in tiers}
+    remainder_points = 100 - sum(floors.values())
+    # Deterministic ranking of tiers by fractional remainder (desc), then order.
+    ranked = sorted(
+        tiers,
+        key=lambda t: (-(exact[t] - floors[t]), tiers.index(t)),
+    )
+    result = dict(floors)
+    for i in range(max(0, remainder_points)):
+        result[ranked[i % len(ranked)]] += 1
+    return [(t, result[t]) for t in tiers]
+
+
 @dataclass
 class PipelineArtifacts:
     """Everything written to disk by a successful run."""
@@ -323,10 +368,17 @@ def run_honest_pipeline(
         f"Expected tier distribution per the clinical template: T1 "
         f"30-60%, T2 15-40%, T3 5-25%. Actual distribution: "
     )
-    # Append actual fractions summary
-    actual_parts: list[str] = []
-    for tier, frac in sorted(report.tier_fractions.items()):
-        actual_parts.append(f"{tier}={frac*100:.0f}%")
+    # Append actual tier distribution. Percentages are computed from the raw
+    # tier_counts (single source of truth) with largest-remainder rounding so
+    # they sum to EXACTLY 100%, and ALL tiers T1..T7 are shown (including 0%
+    # ones) so there is no gap. Any extra tier key (e.g. UNKNOWN) is appended so
+    # no source is dropped from the denominator.
+    actual_parts = [
+        f"{tier}={pct}%"
+        for tier, pct in _tier_distribution_percentages(
+            report.tier_counts, report.total_sources,
+        )
+    ]
     methods_section += ", ".join(actual_parts) + ".\n"
 
     # Contradiction disclosure paragraph

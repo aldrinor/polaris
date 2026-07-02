@@ -490,6 +490,210 @@ def _topical_factor(overlap: float, floor: float) -> float:
     return floor + (1.0 - floor) * ov
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344 SPAN-TOPICALITY) — HIGH-PRECISION, fail-OPEN per-SPAN
+# off-topic WITHHOLD (§-1.3 WITHHOLD-and-disclose per span; the SOURCE is NEVER
+# dropped — it stays in evidence_pool + the credibility disclosure, and every other
+# span it carries still cites; the frozen faithfulness engine strict_verify / NLI /
+# 4-role D8 / provenance / span-grounding is UNTOUCHED).
+#
+# PRIOR-FIX DEFECT (Codex P1): the first cut flagged a span off-topic whenever it
+# shared ZERO exact ``_content_words`` with ONLY the top-level research question. That
+# over-withheld genuinely on-topic spans that phrase the topic with SYNONYMS, ACRONYMS,
+# ENTITY NAMES, or lower-level terms (a "labor" question vs an on-topic span about
+# "automation exposure in clerical occupations"; a "GLP-1 obesity" question vs a
+# "semaglutide reduces BMI" span). If every one of a source's spans missed the exact
+# question vocabulary the whole source silently vanished from citation though on-topic.
+#
+# PRECISION-SAFE REWRITE: a span is CONFIDENTLY foreign ONLY when it shares nothing with
+# EITHER of TWO references — (1) the research-question topic terms AND (2) the source's
+# OWN rich local topic (its title/metadata fields UNIONED with every SIBLING span's
+# content words). A synonym/acronym/entity/lower-level on-topic span still shares
+# vocabulary with the rest of its OWN coherent document, so it clears reference (2) and
+# is KEPT. Only a paragraph foreign to the question AND to its own document — a Gaza-
+# ceasefire sentence embedded in an AI-labor report — is WITHHELD. Every ambiguity
+# fails OPEN (KEEP): empty question, a short span, a thin local reference, or ANY shared
+# term on EITHER reference. This never nukes an off-topic SOURCE (its spans share the
+# source's own dominant topic, so they are all KEPT — the source's fate is decided at
+# the basket/source level by ``_is_confirmed_offtopic``, not here). Gated default-ON;
+# ``PG_OFFTOPIC_SPAN_SUPPRESS=0`` restores the byte-identical legacy keep-all behaviour.
+_ENV_OFFTOPIC_SPAN_SUPPRESS = "PG_OFFTOPIC_SPAN_SUPPRESS"                    # default ON
+_ENV_OFFTOPIC_SPAN_MIN_CONTENT_WORDS = "PG_OFFTOPIC_SPAN_MIN_CONTENT_WORDS"  # LAW VI override
+_ENV_OFFTOPIC_SPAN_MIN_LOCAL_TERMS = "PG_OFFTOPIC_SPAN_MIN_LOCAL_TERMS"      # LAW VI override
+# A span shorter than this many content words is too terse to judge foreign confidently
+# => KEEP (fail-open). A local reference (title + siblings) thinner than the min-local
+# floor cannot attest the source's topic reliably => KEEP (fail-open).
+_DEFAULT_OFFTOPIC_SPAN_MIN_CONTENT_WORDS = 6
+_DEFAULT_OFFTOPIC_SPAN_MIN_LOCAL_TERMS = 8
+# The source's TITLE / METADATA fields that describe its dominant topic. DELIBERATELY
+# EXCLUDES the quote-body fields (``direct_quote`` / ``statement`` / ``text`` / ``body``
+# that ``_TOPIC_TEXT_FIELDS`` carries): the spans being judged ARE the quote body, so
+# folding it into the local reference would make every span trivially self-overlap and
+# silently NO-OP the gate. The source's OTHER spans are the SIBLING reference, added
+# separately in ``_withhold_offtopic_spans``.
+_SOURCE_TOPIC_TITLE_FIELDS = (
+    "source_title", "title", "page_title", "name", "section_title",
+    "topic", "subject", "keywords",
+)
+
+
+def offtopic_span_suppress_enabled() -> bool:
+    """Kill-switch ``PG_OFFTOPIC_SPAN_SUPPRESS`` (default ON). OFF => no span is ever
+    withheld on topicality => byte-identical to the legacy keep-all cite behaviour."""
+    return os.environ.get(_ENV_OFFTOPIC_SPAN_SUPPRESS, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Parse a positive-int env override (fail LOUD on garbage per LAW VI); unset => default."""
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        val = int(str(raw).strip())
+    except ValueError as e:
+        raise ValueError(f"{name} must be an int >= 1; got {raw!r}") from e
+    if val < 1:
+        raise ValueError(f"{name} must be >= 1: {val}")
+    return val
+
+
+def _offtopic_span_min_content_words() -> int:
+    return _env_positive_int(
+        _ENV_OFFTOPIC_SPAN_MIN_CONTENT_WORDS, _DEFAULT_OFFTOPIC_SPAN_MIN_CONTENT_WORDS
+    )
+
+
+def _offtopic_span_min_local_terms() -> int:
+    return _env_positive_int(
+        _ENV_OFFTOPIC_SPAN_MIN_LOCAL_TERMS, _DEFAULT_OFFTOPIC_SPAN_MIN_LOCAL_TERMS
+    )
+
+
+def _span_is_confidently_offtopic(
+    unit_terms: "frozenset[str] | set[str]",
+    question_terms: "frozenset[str] | set[str]",
+    local_topic_terms: "frozenset[str] | set[str]",
+    min_content_words: int,
+    min_local_terms: int,
+) -> bool:
+    """True ONLY when a span is CONFIDENTLY foreign to BOTH the research question AND its
+    OWN source's rich local topic. Every ambiguity fails OPEN (returns False => KEEP)."""
+    if not question_terms:
+        return False                        # no question topic => never judge => KEEP
+    if len(unit_terms) < min_content_words:
+        return False                        # span too terse to judge => KEEP
+    if unit_terms & question_terms:
+        return False                        # shares a QUESTION term => on-topic => KEEP
+    if len(local_topic_terms) < min_local_terms:
+        return False                        # local reference too thin to judge => KEEP
+    if unit_terms & local_topic_terms:
+        return False                        # coherent with its OWN document => KEEP
+    # Zero overlap with the question AND with the source's own dominant topic: a genuinely
+    # foreign paragraph (a Gaza-ceasefire sentence in an AI-labor report) => WITHHOLD.
+    return True
+
+
+def _corpus_topic_terms(pool: "dict[str, Any]") -> "dict[str, int]":
+    """Map each on-topic content word to the NUMBER OF DISTINCT SOURCES that contain it
+    (across every source's title/metadata fields + quote body). The per-span off-topic
+    gate treats a word as shared corpus vocabulary only when it appears in a source OTHER
+    than the one being judged (Codex iter-2 P1: a plain union self-overlaps because a
+    source's own quote is in it, which would keep every span incl a foreign one). Counting
+    distinct sources lets the gate subtract the current source's SOLE-authored words while
+    retaining genuinely shared on-topic vocabulary. Computed once per pass."""
+    from collections import Counter  # noqa: PLC0415
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _content_words,
+    )
+    counts: "Counter[str]" = Counter()
+    for ev in (pool or {}).values():
+        if not isinstance(ev, dict):
+            continue
+        source_terms = set(
+            _content_words(
+                " ".join(str(ev.get(f) or "") for f in _SOURCE_TOPIC_TITLE_FIELDS)
+            )
+        )
+        source_terms |= set(_content_words(str(_member_quote(ev) or "")))
+        for term in source_terms:
+            counts[term] += 1
+    return dict(counts)
+
+
+def _withhold_offtopic_spans(
+    units: "list[str]",
+    ev: "dict[str, Any]",
+    question_terms: "frozenset[str] | set[str]",
+    min_content_words: int,
+    min_local_terms: int,
+    corpus_topic_terms: "frozenset[str] | set[str] | None" = None,
+) -> "list[str]":
+    """Return ``units`` with CONFIDENTLY-foreign spans withheld from CITATION (fail-open).
+
+    Builds the source's RICH local topic reference ONCE — its title/metadata fields
+    (``_SOURCE_TOPIC_TITLE_FIELDS``, which EXCLUDE the quote body) UNIONED with the
+    content words of the source's OTHER spans — then keeps every span except those
+    foreign to BOTH the question and that reference. No question terms / no units =>
+    unchanged (byte-identical). The source is never dropped; the frozen faithfulness
+    engine is never touched (this only chooses which verbatim spans of an already-
+    verified source are surfaced as citations)."""
+    if not question_terms or not units:
+        return units
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _content_words,
+    )
+    title_terms = _content_words(
+        " ".join(str((ev or {}).get(f) or "") for f in _SOURCE_TOPIC_TITLE_FIELDS)
+    )
+    unit_terms = [set(_content_words(u or "")) for u in units]
+    # Codex-P1 (iter 2 -> iter 3) answer: a span is withheld only when it is foreign to the
+    # OTHER sources' established on-topic vocabulary. `corpus_topic_terms` maps each word to
+    # the number of DISTINCT sources containing it; the current source's OWN words (title +
+    # every unit) are excluded unless another source ALSO uses them. This KEEPS a lower-level
+    # / synonym / entity on-topic span ("clerical occupations": occupations/workers appear in
+    # OTHER sources -> retained) while a truly foreign span (a Gaza-ceasefire sentence whose
+    # gaza/ceasefire/hostages words appear in NO other source) is still WITHHELD. Without this
+    # subtraction the source's own quote self-overlaps and the gate keeps everything.
+    corpus_counts: "dict[str, int]" = dict(corpus_topic_terms or {})
+    own_terms: set = set(title_terms)
+    for terms in unit_terms:
+        own_terms |= terms
+    corpus_ref: set = {
+        w for w, c in corpus_counts.items()
+        if c > (1 if w in own_terms else 0)
+    }
+    kept: list[str] = []
+    for i, unit in enumerate(units):
+        # Local reference = title/metadata terms + EVERY OTHER span's terms (never this
+        # span's own words, which would self-overlap and defeat the foreign test). A
+        # synonym/acronym on-topic span shares vocabulary with a sibling span here.
+        sibling_terms: set[str] = set()
+        for j, terms in enumerate(unit_terms):
+            if j != i:
+                sibling_terms |= terms
+        local_ref = title_terms | sibling_terms | corpus_ref
+        if _span_is_confidently_offtopic(
+            unit_terms[i], question_terms, local_ref, min_content_words, min_local_terms
+        ):
+            logger.info(
+                "[weighted_enrichment] I-deepfix-001 SPAN-TOPICALITY: WITHHELD "
+                "confidently-foreign span from citation (source kept in evidence_pool + "
+                "disclosure; faithfulness engine untouched): %r",
+                (unit or "")[:160],
+            )
+            continue
+        kept.append(unit)
+    # FAIL-OPEN SAFETY (Codex-P1 answer): the span gate must NEVER empty a source. If
+    # every span was judged foreign (a pathological source of only-unrelated paragraphs),
+    # KEEP the source's spans unchanged — a source's fate is decided at the basket/source
+    # level (``_is_confirmed_offtopic``), never by this per-span citation gate.
+    if not kept:
+        return units
+    return kept
+
+
 def diagnose_unbound_supports_selection(
     *,
     evidence_pool: Any,
@@ -1497,6 +1701,123 @@ def _contains_iwire016_gap_furniture(s: str) -> bool:
     return bool(_AUTHOR_ATTRIB_PHRASE_RE.search(s) and _MASTHEAD_PORTAL_STATS_RE.search(s))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) drb72_apparatus_unblind — three chrome CLASSES that leaked into cited
+# CLAIMS (and into the Abstract + Conclusion sandwich) of the drb_72 report because no enumerated
+# rule covered them and chrome self-entails strict_verify (text == its own span) so the faithfulness
+# engine is structurally blind to furniture. All are high-precision CONTAINMENT / structure signals,
+# dual-signal / structure-anchored so they can NEVER flag a real economics / labor / clinical finding
+# (precision-first per §-1.3: fail-OPEN on ambiguity — over-strip is worse than a leak). FLAG-not-drop
+# / detector-only: a flagged unit is WITHHELD from the rendered rollup and from the abstract/conclusion
+# harvest, KEPT in evidence + the credibility disclosure; the faithfulness engine (strict_verify / NLI /
+# 4-role / provenance / span-grounding) is UNCHANGED. Gated by the caller under
+# ``render_chrome_screen_enabled()`` (default ON).
+#
+#   (1) CITATION-COUNTER / CITEDBY-PATH API blob — a scraped citation-metrics API response
+#       ("… includes the values 54719037, 1074, and 1837 … references path …"). The furniture
+#       markers are an API field/path token (``citedby`` / ``references path`` / a crossref-openalex
+#       API host). ``citedby`` and the API host are furniture on their own (a real finding never
+#       writes them). ``references path`` is dual-signal-guarded — it must co-occur with a BARE 5+
+#       digit integer (an unformatted entity/citation id like ``54719037``; a real finding writes a
+#       grouped number ``54,719,037`` or ``$54 million``, never a bare 8-digit id) within the clause.
+#   (2) VERSION-HEADER cover block — the SSRN / working-paper cover version furniture
+#       ("This version: March 18, 2026  First version: August 16, 2025  Please click here for the
+#       latest version."). ``This/First version:`` is dual-signal-guarded (must be followed by a
+#       month name or a digit — a DATE, not the prose "in this version, we …"); the "please click …
+#       for the latest version" CTA is unambiguous furniture on its own.
+#   (3) FIGURE-CAPTION / AXIS apparatus — CAPTION/AXIS-ONLY (Codex #1344 P1 tighten). The prior
+#       rule matched "Figure A2 replicates … Figure 12" / "for each quintile is as follows" ANYWHERE,
+#       so a hit ate real result prose and dropped its citation unit. The rule now matches ONLY a span
+#       whose WHOLE sentence is pure figure/axis furniture: a bare figure-to-figure caption cross-
+#       reference ("Figure A2 replicates the prior analysis in Figure 12.") or a table axis lead-in
+#       that ENDS at the descriptor colon with no data row ("… for each quintile is as follows:"). It
+#       is anchored ^…$ over a SINGLE sentence (``[^.]*`` never crosses a period), so a welded methods
+#       sentence that merely describes what a figure does is NOT eaten. A KEEP guard adds a second
+#       fail-open safety: if the span ALSO carries a result verb/qualifier (shows/finds/reports/remains/
+#       increase/decrease/negative/positive/significant/…) OR a numeric RESULT (a decimal, a percent, a
+#       p-value, a dollar/grouped magnitude — a bare figure id like "A2"/"12"/"[22]" is NOT a result
+#       number), the span is real finding prose and is KEPT. A real finding that merely CITES a figure
+#       ("As shown in Figure 12, employment rose across each quintile") carries neither anchor.
+_CITEDBY_API_RE = re.compile(
+    r"\bcitedby\b"
+    r"|\b(?:api\.crossref\.org|api\.openalex\.org)\b",
+    re.IGNORECASE,
+)
+_REFERENCES_PATH_RE = re.compile(r"\breferences[\s\-]?path\b", re.IGNORECASE)
+_BARE_ENTITY_ID_RE = re.compile(r"(?<![\d.])\d{5,}(?![\d.])")
+_VERSION_HEADER_RE = re.compile(
+    r"\b(?:this|first|current|previous|earlier)\s+version\s*:\s*"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d)"
+    r"|\bplease\s+click\s+here\s+for\s+the\s+(?:latest|most\s+recent)\s+version\b",
+    re.IGNORECASE,
+)
+# CAPTION/AXIS-ONLY figure apparatus (Codex #1344 P1 tighten): anchored ^…$ over a SINGLE
+# sentence so ONLY a pure caption/axis stub matches; ``[^.]*`` never crosses a sentence period,
+# so a welded methods sentence is structurally excluded.
+_FIGURE_APPARATUS_RE = re.compile(
+    # a bare figure-to-figure caption cross-reference stub (the whole sentence is the cross-ref)
+    # I-deepfix-001 c-fix (iter3): the second Figure ref must be effectively sentence-final —
+    # only whitespace / period / trailing cite may follow it. This fails OPEN on any substantive
+    # trailing result prose ("...and confirms the relationship is robust..."), which is real
+    # finding text, not caption furniture.
+    r"^\W*Figure\s+[A-Z]?\d+\s+replicates\b[^.]*?\bFigure\s+[A-Z]?\d+\b\s*\.?\s*(?:\[\d+\])?\s*$"
+    # a table axis lead-in that ENDS at the descriptor colon (no data row follows)
+    r"|^\W*[^.]*?\bfor\s+each\s+quintile\s+is\s+as\s+follows\s*:\s*(?:\[\d+\])?\s*$",
+    re.IGNORECASE,
+)
+# KEEP guard (fail-open, §-1.3): a result verb/qualifier marks real finding prose — never furniture.
+_FIGURE_RESULT_VERB_RE = re.compile(
+    r"\b(?:shows?|showed|finds?|found|reports?|reported|reveal(?:s|ed)?|remains?|remained|"
+    # I-deepfix-001 c-fix (iter3): result verbs Codex flagged as missing — a welded result
+    # sentence using any of these is KEPT (fail-open), never dropped as furniture.
+    r"confirms?|confirmed|demonstrat\w+|indicat\w+|establish\w+|suggest\w+|imply|implies|implied|"
+    r"robust|consistent|"
+    r"increas(?:e|es|ed|ing)|decreas(?:e|es|ed|ing)|rose|rise[sn]?|risen|fell|fall(?:s|en|ing)?|"
+    r"declin\w+|grew|grow(?:s|ing)?|widen\w+|narrow\w+|"
+    r"negative|positive|significant(?:ly)?|associat\w+|correlat\w+|"
+    r"higher|lower|greater|elevat\w+|reduc\w+|gradient|elasticity|coefficient)\b",
+    re.IGNORECASE,
+)
+# KEEP guard (fail-open, §-1.3): a numeric RESULT (decimal / percent / p-value / grouped or dollar
+# magnitude). A bare figure/table id ("A2", "12", "[22]") is NOT a result number.
+_FIGURE_RESULT_NUMBER_RE = re.compile(
+    r"\d\.\d"                                         # a decimal value (4.2, 0.05)
+    r"|\d\s?%|\bpercent\b|\bpercentage\s+points?\b"   # a percentage
+    r"|\bp\s?[<>=]\s?0?\.\d"                          # a p-value
+    r"|\$\s?\d"                                       # a dollar amount
+    r"|\d{1,3}(?:,\d{3})+",                           # a grouped thousands magnitude
+    re.IGNORECASE,
+)
+
+
+def _figure_apparatus_is_pure_furniture(text: str) -> bool:
+    """I-deepfix-001 (#1344): True iff ``text`` is a CAPTION/AXIS-ONLY figure-apparatus stub with no
+    real result content. Fail-open (§-1.3): a span that ALSO carries a result verb/qualifier or a
+    numeric result is real finding prose and is KEPT (returns False), never withheld — this is the
+    Codex-#1344-P1 tighten that stops the rule eating result prose and dropping its citation unit."""
+    if not _FIGURE_APPARATUS_RE.search(text):
+        return False
+    if _FIGURE_RESULT_VERB_RE.search(text) or _FIGURE_RESULT_NUMBER_RE.search(text):
+        return False  # KEEP: a real finding welded with a figure/axis reference
+    return True
+
+
+def _contains_drb72_apparatus_chrome(text: str) -> bool:
+    """I-deepfix-001 (#1344): True iff ``text`` CONTAINS one of the three drb_72 apparatus chrome
+    classes the enumerated denylist was blind to — a citation-counter/citedby-path API blob, an
+    SSRN/working-paper version-header cover block, or a CAPTION/AXIS-ONLY figure-apparatus stub.
+    High-precision / dual-signal-anchored (never flags a real finding). Detector-only
+    (FLAG-not-drop); the faithfulness engine is UNCHANGED."""
+    if _CITEDBY_API_RE.search(text):
+        return True
+    if _REFERENCES_PATH_RE.search(text) and _BARE_ENTITY_ID_RE.search(text):
+        return True
+    if _VERSION_HEADER_RE.search(text):
+        return True
+    return _figure_apparatus_is_pure_furniture(text)
+
+
 def _dotted_toc_hits(text: str) -> int:
     """Count dotted section-number tokens whose TitleCase word is NOT a magnitude unit (so a
     "3.2 Million / 4.5 Billion" magnitude pair contributes ZERO ToC hits)."""
@@ -1556,6 +1877,11 @@ def _contains_forensic_chrome(text: str) -> bool:
     # I-wire-016 #1338 gap-fill (affiliation-glued / title+affiliation / author-attribution-phrase) —
     # the precision-safe masthead classes that leaked past the legacy categories.
     if _contains_iwire016_gap_furniture(s):
+        return True
+    # I-deepfix-001 #1344 drb72_apparatus_unblind: citation-counter/citedby-path API blob ·
+    # SSRN/working-paper version-header cover · CAPTION/AXIS-ONLY figure apparatus (the classes that
+    # leaked into cited claims + the Abstract/Conclusion sandwich; figure rule tightened per Codex P1).
+    if _contains_drb72_apparatus_chrome(s):
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)
@@ -2535,7 +2861,9 @@ def _member_quote(ev: dict[str, Any]) -> str:
     return _strip_control_bytes(str(raw)).strip()
 
 
-def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
+def build_verified_span_draft(
+    ev_ids: Any, evidence_pool: Any, *, research_question: str = ""
+) -> str:
     """Deterministic verbatim-span draft for the enrichment section (FIX K).
 
     Emits, in the caller's relevance/weight order, up to ``spans_per_source()`` of each
@@ -2565,6 +2893,21 @@ def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
     pool = evidence_pool or {}
     is_junk = _make_junk_screen()
     budget = spans_per_source()
+    # I-deepfix-001 (#1344 SPAN-TOPICALITY): precision-safe per-span off-topic WITHHOLD
+    # inputs (empty question OR flag OFF => empty term set => no span ever withheld =>
+    # byte-identical). §-1.3 WITHHOLD-and-disclose per span; the source stays in the pool.
+    span_question_terms = (
+        _question_topic_terms(research_question)
+        if offtopic_span_suppress_enabled()
+        else frozenset()
+    )
+    span_min_content_words = _offtopic_span_min_content_words()
+    span_min_local_terms = _offtopic_span_min_local_terms()
+    # Corpus-wide on-topic vocabulary, computed ONCE (Codex-P1 iter-2 answer): the per-span
+    # off-topic gate KEEPS any span sharing vocabulary with the whole corpus, so lower-level /
+    # synonym / acronym on-topic spans are retained; only spans foreign to the ENTIRE corpus
+    # are withheld. Empty when the gate is disabled (byte-identical no-op).
+    span_corpus_terms = _corpus_topic_terms(pool) if span_question_terms else set()
 
     # Group ev_ids into same-work buckets, PRESERVING the caller's relevance/weight
     # order: a work's bucket is keyed by its FIRST-seen member, so the highest-ordered
@@ -2597,6 +2940,13 @@ def build_verified_span_draft(ev_ids: Any, evidence_pool: Any) -> str:
             continue
         rep_quote = _member_quote(rep_ev)
         units = _substantive_units(rep_quote, is_junk=is_junk)
+        # I-deepfix-001 (#1344 SPAN-TOPICALITY): WITHHOLD confidently-foreign spans of an
+        # otherwise-on-topic source from citation (fail-open; source never dropped).
+        units = _withhold_offtopic_spans(
+            units, rep_ev, span_question_terms,
+            span_min_content_words, span_min_local_terms,
+            corpus_topic_terms=span_corpus_terms,
+        )
         if not units:
             continue
         # Pre-compute each corroborator's sanitized quote ONCE for the contains-check.
@@ -2657,6 +3007,7 @@ def build_evidence_base_section(
     evidence_pool: Any,
     *,
     start_index: int = 1,
+    research_question: str = "",
 ) -> str:
     """Render the FULL ordered unbound-SUPPORTS surface as ONE numbered "Evidence base" markdown
     section so EVERY source with a surviving span gets a ``[N]`` citation.
@@ -2678,6 +3029,20 @@ def build_evidence_base_section(
     pool = evidence_pool or {}
     is_junk = _make_junk_screen()
     budget = spans_per_source()
+    # I-deepfix-001 (#1344 SPAN-TOPICALITY): precision-safe per-span off-topic WITHHOLD
+    # inputs (empty question OR flag OFF => empty term set => no span ever withheld).
+    span_question_terms = (
+        _question_topic_terms(research_question)
+        if offtopic_span_suppress_enabled()
+        else frozenset()
+    )
+    span_min_content_words = _offtopic_span_min_content_words()
+    span_min_local_terms = _offtopic_span_min_local_terms()
+    # Corpus-wide on-topic vocabulary, computed ONCE (Codex-P1 iter-2 answer): the per-span
+    # off-topic gate KEEPS any span sharing vocabulary with the whole corpus, so lower-level /
+    # synonym / acronym on-topic spans are retained; only spans foreign to the ENTIRE corpus
+    # are withheld. Empty when the gate is disabled (byte-identical no-op).
+    span_corpus_terms = _corpus_topic_terms(pool) if span_question_terms else set()
 
     # Same-work grouping, PRESERVING the caller's relevance/weight order (mirrors
     # ``build_verified_span_draft``: a work's bucket is keyed by its FIRST-seen member so the
@@ -2710,6 +3075,13 @@ def build_evidence_base_section(
             continue
         rep_quote = _member_quote(rep_ev)
         units = _substantive_units(rep_quote, is_junk=is_junk)
+        # I-deepfix-001 (#1344 SPAN-TOPICALITY): WITHHOLD confidently-foreign spans of an
+        # otherwise-on-topic source from the numbered breadth surface (fail-open).
+        units = _withhold_offtopic_spans(
+            units, rep_ev, span_question_terms,
+            span_min_content_words, span_min_local_terms,
+            corpus_topic_terms=span_corpus_terms,
+        )
         if not units:
             continue
         # Pre-compute each corroborator's sanitized quote ONCE for the contains-check (same-work URLs

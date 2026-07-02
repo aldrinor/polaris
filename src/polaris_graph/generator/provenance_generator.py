@@ -73,6 +73,18 @@ from src.polaris_graph.generator.overstatement_guard import (
     temporal_scope_reason as _temporal_scope_reason,
 )
 
+# Mis-attribution disclosure guard (I-deepfix-001): when a claim names an explicit
+# organizational finder ("<ORG> found/reported/estimated ...") but the cited
+# source's PUBLISHER DOMAIN is not that org (a re-reporting secondary source), a
+# provenance-quality DISCLOSURE soft-warning is surfaced. DISCLOSURE-ONLY per
+# §-1.3 (WITHHOLD-DISCLOSE, never a hard drop): it NEVER fails is_verified, NEVER
+# touches strict_verify / NLI / D8. Pure stdlib leaf, zero cost on the hot path,
+# env-flag gated (default ON); disabling reverts byte-identical.
+from src.polaris_graph.generator.attribution_origin_guard import (
+    attribution_origin_guard_enabled as _attribution_origin_guard_enabled,
+    attribution_origin_reason as _attribution_origin_reason,
+)
+
 logger = logging.getLogger("polaris_graph.provenance_generator")
 
 
@@ -2446,6 +2458,28 @@ def verify_sentence_provenance(
     if unhedged:
         soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
 
+    # Mis-attribution disclosure (I-deepfix-001): the claim names an explicit
+    # organizational finder ("<ORG> found/reported/estimated ...") but NONE of
+    # the cited sources' PUBLISHER DOMAINS is that org — i.e. the citation is a
+    # re-reporting SECONDARY source ("correctness is not faithfulness": the cited
+    # text supports the claim, but the citation is not the faithful ORIGIN of the
+    # assertion). DISCLOSURE-ONLY (§-1.3 WITHHOLD-DISCLOSE): appends a soft-warning
+    # so the render/evaluator layer can surface a provenance-quality label; it
+    # NEVER drops the sentence, NEVER fails is_verified, NEVER touches
+    # strict_verify / NLI / D8. HIGH-PRECISION + FAIL-OPEN: inert unless a
+    # recognizable org finder is named AND every cited source has a determinable
+    # publisher domain AND none matches the finder. Runs only when a valid cited
+    # span exists (an already-failed sentence has nothing to disclose against).
+    if valid_token_found and _attribution_origin_guard_enabled():
+        _attr_urls = [
+            str((evidence_pool.get(t.evidence_id) or {}).get("source_url", "") or "")
+            for t in tokens
+            if evidence_pool.get(t.evidence_id) is not None
+        ]
+        _attr_reason = _attribution_origin_reason(sentence_for_numbers, _attr_urls)
+        if _attr_reason:
+            soft_warnings.append(_attr_reason)
+
     # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the judge-error sentinel.
     # I-ready-002 (#1071) Codex iter-1 P1: key this on the ENTAILMENT mode (PG_STRICT_VERIFY_ENTAILMENT,
     # where judge_error_flag is SET), NOT PG_VERIFICATION_MODE. PG_VERIFICATION_MODE=enforce ALSO turns on
@@ -4048,6 +4082,16 @@ def resolve_provenance_to_citations_with_count(
                     if c in _basket_by_cluster
                 ]
                 row["baskets"] = _rows_baskets
+                # I-deepfix-001 g (#1344): additive same-work IDENTITY fields (DISPLAY/COUNT only —
+                # never read by any faithfulness gate) so the per-basket corroboration count layer
+                # (run_honest_sweep_r3._member_independence_token) can collapse two hosts of ONE
+                # paper via finding_dedup._same_work_key. ``doi`` already lives on the row above;
+                # add the folded-title-branch inputs. Emitted ONLY when baskets are carried, so the
+                # legacy OFF path (baskets is None) stays the byte-identical 5-key dict.
+                row["source_title"] = str(ev.get("source_title") or ev.get("title") or "")
+                row["year"] = ev.get("year")
+                row["authors"] = ev.get("authors") or ev.get("author") or ""
+                row["venue"] = ev.get("venue") or ev.get("journal") or ""
             biblio.append(row)
         return ev_to_num[ev_id]
 

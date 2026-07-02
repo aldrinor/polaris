@@ -4416,7 +4416,13 @@ async def _run_section(
         # Both are RENDER-ONLY and faithfulness-neutral; the source is never dropped from the
         # corpus. See the _compose_relevance_floored_ev_ids / _screen_fixk_render_chrome helpers.
         _compose_ev_ids = _compose_relevance_floored_ev_ids(section.ev_ids, evidence_pool)
-        raw = _build_verified_span_draft(_compose_ev_ids, evidence_pool)
+        # I-deepfix-001 (#1344 SPAN-TOPICALITY): thread the REAL research question so the
+        # precision-safe per-span off-topic WITHHOLD can hold a confidently-foreign
+        # paragraph inside an on-topic source OUT OF CITATION (§-1.3 WITHHOLD-and-disclose,
+        # never a source drop). Empty question => no span withheld => byte-identical.
+        raw = _build_verified_span_draft(
+            _compose_ev_ids, evidence_pool, research_question=research_question
+        )
         raw = _screen_fixk_render_chrome(raw)
         in_tok = out_tok = 0
         section_atom_catalog = {}
@@ -6162,6 +6168,7 @@ def _append_evidence_base_section(
     global_biblio: "list[dict[str, Any]]",
     ev_ids: "list[str]",
     evidence_pool: "dict[str, Any]",
+    research_question: str = "",
 ) -> bool:
     """I-deepfix-001 WS-3 (#1344) — append the numbered "Evidence base" breadth surface.
 
@@ -6190,7 +6197,12 @@ def _append_evidence_base_section(
         strict_verify,
     )
 
-    block = build_evidence_base_section(ev_ids, evidence_pool)  # flag-gated internally
+    # I-deepfix-001 (#1344 SPAN-TOPICALITY): thread the research question so a confidently-
+    # foreign SPAN inside an on-topic source is WITHHELD from the numbered breadth surface
+    # (§-1.3 WITHHOLD-and-disclose per span; the source stays in evidence_pool + disclosure).
+    block = build_evidence_base_section(
+        ev_ids, evidence_pool, research_question=research_question
+    )  # flag-gated internally
     if not block or not block.strip():
         return False
 
@@ -9192,6 +9204,7 @@ async def generate_multi_section_report(
     # (PG_BREADTH_EVIDENCE_BASE_SECTION); empty ev_ids / flag OFF => no-op => byte-identical.
     _append_evidence_base_section(
         section_results, global_biblio, _evidence_base_ev_ids, evidence_pool,
+        research_question=research_question,
     )
 
     # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3 + iter-2 P2.1):

@@ -568,6 +568,22 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
         off = quote.find(first)
         tok_start = start + (off if off >= 0 else 0)
         tok_end = tok_start + len(first)
+        # I-deepfix-001 FIX-D (extend-only SUPERSET span snap): the DEFAULT (non-abstractive) section
+        # producer uses THIS deterministic short writer as its primary writer_fn, so its verbatim output
+        # is emitted directly (the snapped K-span fallback in build_verified_span_draft never runs on
+        # this path). If the selected first sentence ends MID-CLAUSE (the extractor cut the quote, e.g.
+        # "...defined by the"), EXTEND it forward to the next sentence boundary IN THE SAME ROW so the
+        # emitted clause is not left dangling. Extend-ONLY -> the widened slice is a SUPERSET within the
+        # SAME row -> grounded by construction (the widened token covers exactly the emitted text), never
+        # fabricates. Fail-OPEN (span kept AS-IS) when no clean extension exists within the source row.
+        # Mirrors build_verified_span_draft; byte-identical when no snap applies. Default-ON.
+        if _snap_span_enabled():
+            row = (evidence_pool or {}).get(eid) or {}
+            haystack = str(row.get("direct_quote") or row.get("statement") or "")
+            snapped_end = _snap_span_end_to_sentence(haystack, tok_start, tok_end)
+            if snapped_end > tok_end and 0 <= tok_start < snapped_end <= len(haystack):
+                first = haystack[tok_start:snapped_end]
+                tok_end = snapped_end
         # I-beatboth-009 (#1287): emit the token BEFORE the terminal period so split_into_sentences
         # keeps it attached (the prior "first. [#ev:...]" orphaned the token -> no_provenance_token ->
         # verified=0). tok_start/tok_end are UNCHANGED (they still index the member's real global span),
@@ -729,7 +745,14 @@ def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional
     clean = [str(c).strip() for c in (clauses or []) if c and str(c).strip()]
     if len(clean) < 2:
         return None
-    parts = [clean[0].rstrip()]
+    # Terminal-strip the FIRST clause the SAME way as every continuation
+    # (``_strip_terminal_punct`` below) so a first clause ending in a sentence
+    # terminal (e.g. ``...wages.``) does not glue to the ``"; "`` connective as
+    # a ``".;"`` double-punctuation. A first clause ending in a provenance ``]``
+    # (or any non-terminal char) is returned unchanged by the helper, so the
+    # connective still lands right after the token. First clause keeps its
+    # leading capital (it opens the sentence) — only continuations are lowercased.
+    parts = [_strip_terminal_punct(clean[0])]
     for clause in clean[1:]:
         cont = _strip_terminal_punct(clause).lstrip()
         cont = _lowercase_first_alpha(cont)

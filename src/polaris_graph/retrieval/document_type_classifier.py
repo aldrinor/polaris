@@ -92,6 +92,26 @@ _ENCYCLOPEDIA_HOSTS = frozenset({
 # whole lowercased url, not just the host.
 _UNI_NEWS_MARKERS = (".edu/20", "/news/", "/blog/")
 
+# ── HIGH-PRECISION POSITIVE journal evidence (I-deepfix-001 fix h). Real peer-reviewed
+# journals whose OpenAlex genre signal is ABSENT were mislabeled UNKNOWN ("not a peer-reviewed
+# journal article"): JEP/AER (aeaweb.org, 10.1257), JPE (10.1086), QJE (10.1093/qje), Science
+# (10.1126/science, science.org). This is a POSITIVE-evidence allowlist — it fires ONLY on
+# affirmative journal evidence, NEVER on "not known-bad". §-1.3: LABEL/weight only; it never
+# drops a non-journal source. High precision, fail-open on ambiguity.
+#
+# Pure-journal DOI registrants — the WHOLE registrant serves ONLY journals, never books, so the
+# bare prefix is safe positive evidence:
+_JOURNAL_DOI_REGISTRANT_PREFIXES = (
+    "10.1257/",   # American Economic Association (AER, JEP, AEJ, AEA P&P) — journals only
+    "10.1086/",   # University of Chicago Press JOURNALS (JPE, …); Press BOOKS use 10.7208, not this
+)
+# Path-scoped journal DOIs — the bare registrant ALSO serves books/reference works, so a
+# journal-specific path segment is REQUIRED (bare 10.1093 is OUP-wide incl. books => NOT matched):
+_JOURNAL_DOI_PATH_PREFIXES = (
+    "10.1093/qje/",     # Quarterly Journal of Economics only (registrant 10.1093 also serves BOOKS)
+    "10.1126/science",  # Science / Science-family journals (registrant 10.1126, "science…" slug)
+)
+
 
 def _host(url: str) -> str:
     """Lowercased registrable host of ``url`` (empty on a blank/garbage url). Pure, offline."""
@@ -109,6 +129,56 @@ def _host(url: str) -> str:
 def _host_in(host: str, host_set: frozenset[str]) -> bool:
     """True iff ``host`` equals or is a sub-domain of any host in ``host_set``."""
     return any(host == h or host.endswith("." + h) for h in host_set)
+
+
+def _doi_candidate(doi: str, low_url: str) -> str:
+    """Best-effort lowercased bare DOI (``10.xxxx/…``) from the ``doi`` field or an embedded
+    ``doi.org`` url. Empty when none is parseable. Pure, offline."""
+    d = (doi or "").strip().lower()
+    for pre in ("https://", "http://"):
+        if d.startswith(pre):
+            d = d[len(pre):]
+    for pre in ("doi.org/", "dx.doi.org/"):
+        if d.startswith(pre):
+            d = d[len(pre):]
+    if d.startswith("10."):
+        return d
+    marker = "doi.org/"
+    idx = low_url.find(marker)
+    if idx != -1:
+        tail = low_url[idx + len(marker):]
+        if tail.startswith("10."):
+            return tail
+    return ""
+
+
+def _positive_journal_basis(doi: str, host: str, low_url: str) -> "str | None":
+    """HIGH-PRECISION positive journal evidence (fix h) — returns a basis string iff there is
+    AFFIRMATIVE evidence this is a peer-reviewed journal article, else ``None`` (fail-open).
+
+    Never "not known-bad": a match requires a pure-journal DOI registrant, a path-scoped
+    journal DOI, or a host+journal-path pattern. Registrants that ALSO serve books (bare
+    10.1093 OUP, wiley, etc.) are NOT matched — they need the journal-specific path segment.
+    """
+    d = _doi_candidate(doi, low_url)
+    if d:
+        for pre in _JOURNAL_DOI_REGISTRANT_PREFIXES:
+            if d.startswith(pre):
+                return f"journal_doi_registrant:{pre.rstrip('/')}"
+        for pre in _JOURNAL_DOI_PATH_PREFIXES:
+            if d.startswith(pre):
+                return f"journal_doi_path:{pre}"
+    # Host + REQUIRED journal path/pattern (url-only cases with no parseable DOI field). Each
+    # host also serves non-journal content, so a journal-specific path segment is mandatory.
+    if _host_in(host, frozenset({"aeaweb.org"})) and (
+        "/articles" in low_url or "/jep" in low_url or "/aer" in low_url or "/journals/" in low_url
+    ):
+        return "journal_host_path:aeaweb.org"
+    if _host_in(host, frozenset({"science.org"})) and "/doi/10.1126/science" in low_url:
+        return "journal_host_path:science.org"
+    if _host_in(host, frozenset({"nature.com"})) and "/articles/s" in low_url:
+        return "journal_host_path:nature.com"
+    return None
 
 
 def classify_document_type(
@@ -164,6 +234,14 @@ def classify_document_type(
 
     # 3) deterministic host/url fallback.
     low_url = (url or "").lower()
+    # 3a) HIGH-PRECISION positive journal evidence (fix h): a real peer-reviewed journal whose
+    # OpenAlex genre signal was ABSENT (otherwise step 1 already labeled it). Requires POSITIVE
+    # evidence (pure-journal DOI registrant / path-scoped journal DOI / host+journal-path),
+    # never "not known-bad". Runs AFTER the step-1 negative genre signals (book/preprint/
+    # conference/report), so an explicit book-chapter or preprint genre still wins over this.
+    positive_basis = _positive_journal_basis(doi, host, low_url)
+    if positive_basis is not None:
+        return DocumentType.JOURNAL_ARTICLE, positive_basis
     if _host_in(host, _PREPRINT_HOSTS):
         return DocumentType.PREPRINT, f"host_preprint:{host}"
     if _host_in(host, _BOOK_HOSTS):

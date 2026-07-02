@@ -2816,6 +2816,64 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             "1", "true", "on", "yes", "enabled",
         )
 
+    # I-deepfix-001 g (#1344): SAME-PAPER corroboration dedup — PER-BASKET COUNT LAYER.
+    # A single paper mirrored at two hosts (e.g. researchgate.net + a no-DOI mirror) was
+    # counted as TWO "verified independent source(s)" — a spurious "Multi-source corroborated"
+    # tally. WITHIN ONE basket only, collapse members that share a canonical paper identity so
+    # two hosts of ONE paper count as ONE independent source. Reuses the SINGLE source of truth
+    # ``finding_dedup._same_work_key`` (the normalized-DOI-first, else folded-title-PLUS-strict-
+    # discriminator ladder) fed by each source's biblio identity. This is LOCAL — no cross-basket
+    # transitivity and NO change to the global ``independence_collapse`` union-find — so it can
+    # NEVER merge two DISTINCT papers across the corpus (the transitive-hub over-merge the prior
+    # global-UF attempt was rejected for). §-1.3 no-drop: every member is STILL rendered as a
+    # basket bullet below AND still lives in the numbered Bibliography; ONLY the independent COUNT
+    # changes. High-precision + fail-OPEN: ``_same_work_key`` returns "" on any ambiguity (no DOI
+    # and no title-plus-discriminator), and those members each keep a UNIQUE per-origin token so
+    # ambiguous members NEVER collapse together. Default-ON kill-switch (LAW VI) => OFF is
+    # byte-identical (legacy distinct-origin count). Faithfulness engine (strict_verify / NLI /
+    # 4-role D8 / provenance / span-grounding) is UNTOUCHED — this only reduces an inflated count.
+    from src.polaris_graph.synthesis.finding_dedup import (  # noqa: PLC0415
+        _same_work_key as _same_work_identity_key,
+    )
+
+    def _same_work_dedup_enabled() -> bool:
+        return os.environ.get("PG_CORROBORATION_SAME_WORK_DEDUP", "1").strip().lower() in (
+            "1", "true", "on", "yes", "enabled",
+        )
+
+    # eid -> the source's numbered biblio row (carries the additive same-work identity fields:
+    # doi / source_title / year / authors / venue, projected by provenance_generator._num_for).
+    _eid_to_bib: dict[str, dict] = {}
+    for _brow in bibliography:
+        _brow_eid = str(_brow.get("evidence_id") or "")
+        if _brow_eid and _brow_eid not in _eid_to_bib:
+            _eid_to_bib[_brow_eid] = _brow
+
+    def _member_independence_token(m: dict) -> str:
+        """Per-member independence token for the DISTINCT-source count, collapsing same-paper
+        copies WITHIN one basket. Two members whose source resolves to the SAME non-empty
+        ``_same_work_key`` share that key (one bucket); every other member keeps a UNIQUE
+        ``solo::`` token (its own origin cluster / evidence id) so identity-less or ambiguous
+        members are NEVER pooled together (fail-open, high-precision)."""
+        _eid = str(m.get("evidence_id") or "")
+        if _same_work_dedup_enabled():
+            _bib = _eid_to_bib.get(_eid)
+            if _bib is not None:
+                # Build the identity row from the source's biblio metadata, but use THIS member's
+                # own fetched host (same-work copies live at different URLs) so the discriminator
+                # reflects the actual copy. Reuse the shared key verbatim — no local heuristic.
+                _row = dict(_bib)
+                _murl = str(m.get("source_url") or "")
+                if _murl:
+                    _row["source_url"] = _murl
+                try:
+                    _key = _same_work_identity_key(_row)
+                except Exception:  # noqa: BLE001 — identity is advisory; never break the render
+                    _key = ""
+                if _key:
+                    return _key
+        return "solo::" + (str(m.get("origin_cluster_id") or "") or _eid)
+
     seen_clusters: set[str] = set()
     # U18 (#1344): distinct claim clusters can still render a BYTE-IDENTICAL block (same header,
     # same single source, same count). We collapse those to one; genuinely-distinct claims render
@@ -2846,9 +2904,10 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             # weak, not contested) is skipped — its sources still live in the numbered Bibliography.
             if _biblio_present_enabled():
                 verified = [m for m in verified if _is_biblio_present(m)]
-                count = len(
-                    {str(m.get("origin_cluster_id") or m.get("evidence_id") or "") for m in verified}
-                )
+                # I-deepfix-001 g (#1344): count DISTINCT independent WORKS, collapsing same-paper
+                # copies (two hosts of one paper) within THIS basket via the shared
+                # ``_same_work_key`` (see _member_independence_token). Members stay rendered below.
+                count = len({_member_independence_token(m) for m in verified})
                 _contested_now = (
                     str(basket.get("basket_verdict") or "") == "contested"
                     or bool(basket.get("refuter_cluster_ids"))
@@ -17337,6 +17396,37 @@ async def run_one_query(
                             )
             except Exception as _db_exc:  # noqa: BLE001 — additive disclosure; never abort the run
                 _log(f"[d8-banner]   skipped (fail-open): {_db_exc}")
+
+        # I-deepfix-001 (#1344) repetition dedup: RENDER-ONLY cosmetic clean-up of the
+        # final on-disk report.md. Runs LAST — AFTER strict_verify / NLI / 4-role D8 /
+        # provenance / the redaction + A18 + chrome-canary + D8-banner seams — so every
+        # faithfulness verdict, count and carrier is already FINAL. It reads and rewrites
+        # ONLY the rendered markdown TEXT: it never touches SectionResult,
+        # kept_sentences_pre_resolve, verification.tokens or the evidence pool, so per
+        # CLAUDE.md §-1.3 (repetition is QUALITY, not faithfulness) it CANNOT change any
+        # verdict or count. It drops later VERBATIM-duplicate body sentences (merging their
+        # [N] citations into the kept copy — no source lost) while leaving headings, tables,
+        # the References section and the front summary blocks (Abstract / Key Findings)
+        # byte-identical. Default-ON kill-switch PG_RENDER_REPETITION_DEDUP; fail-open
+        # (never abort the run; a no-duplicate report round-trips byte-for-byte).
+        if _env_flag("PG_RENDER_REPETITION_DEDUP", default=True):
+            try:
+                from src.polaris_graph.generator.render_repetition_dedup import (
+                    dedup_rendered_report_markdown,
+                )
+                _dedup_report_path = run_dir / "report.md"
+                if _dedup_report_path.is_file():
+                    _dedup_before = _dedup_report_path.read_text(encoding="utf-8")
+                    _dedup_after = dedup_rendered_report_markdown(_dedup_before)
+                    if _dedup_after != _dedup_before:
+                        _dedup_report_path.write_text(_dedup_after, encoding="utf-8")
+                        _log(
+                            "[repeat-dedup] report.md deduped "
+                            f"({len(_dedup_before)} -> {len(_dedup_after)} chars); "
+                            "render-only, no faithfulness input touched."
+                        )
+            except Exception as _rd_exc:  # noqa: BLE001 — cosmetic; never abort the run
+                _log(f"[repeat-dedup] skipped (fail-open): {_rd_exc}")
 
         # U26 (I-deepfix-001): HONEST release-quality scorecard. release_quality_score was set
         # verbatim to the coverage fraction, so it read GREEN (1.000) even when the evaluator
