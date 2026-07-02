@@ -5044,19 +5044,25 @@ class AccessBypass:
             # extracted, the verbatim text, or any faithfulness gate. A 24 GB GPU
             # VLM at batch_size 8 is single-tenant regardless, so serialization is
             # ~free; it only removes the corruption.
-            # Codex gate P1 (#1336): hold the lock ONLY for the IN-PROCESS VLM backend — the
-            # PDFium + shared-model-singleton race is in-process. The remote "vlm-http-client"
-            # backend's concurrency is the API server's domain; locking it here would needlessly
-            # serialize concurrent PDF fetches (throughput cliff) without fixing any race.
-            _inproc_vlm = backend != "vlm-http-client"
+            # Codex gate P1 (#1336): originally held the lock ONLY for the in-process VLM backend,
+            # assuming the "vlm-http-client" backend's concurrency was the API server's domain.
+            # I-deepfix-001 U1 (#1344): that assumption is WRONG and caused a native SIGSEGV that
+            # killed drb_78 + drb_90. MinerU's VLM pipeline rasterizes PDF pages LOCALLY/in-process
+            # with pypdfium2 (load_images_from_pdf) for EVERY backend — including vlm-http-client,
+            # where only the model INFERENCE is remote, NOT the rasterization. pypdfium2 has
+            # process-global, non-thread-safe state (pypdfium2 #303), so two fetch-worker threads
+            # entering do_parse concurrently corrupt the heap -> whole process killed mid-fetch.
+            # The lock therefore MUST cover every backend. Serialize unconditionally — this is
+            # OUTPUT-PRESERVING (changes only timing; same PDFs, same verbatim text, no gate touched).
+            _inproc_vlm = True
             # I-deepfix-001 W09-mineru-gpu-lock-bound (#1344): a BOUNDED lock acquire. The
             # plain blocking `with _mineru25_gpu_lock:` had NO timeout — when the outer 90s
             # fetch deadline abandoned a worker mid-do_parse, that worker's executor thread
             # kept the GPU lock held, and the NEXT worker blocked here FOREVER (the convoy).
             # Acquire with a timeout; on failure emit a LOUD W4-CANARY and return "" to fall
-            # through to the disclosed docling path (no source dropped, §-1.3). The remote
-            # "vlm-http-client" backend takes the nullcontext (its concurrency is the API
-            # server's domain) — unchanged.
+            # through to the disclosed docling path (no source dropped, §-1.3). Per U1 above,
+            # ALL backends (including vlm-http-client) now acquire this lock, because pypdfium2
+            # rasterization runs client-side in every backend and is NOT thread-safe.
             _lock_held = False
             if _inproc_vlm:
                 _lock_wait = float(os.getenv("PG_MINERU25_LOCK_WAIT_S", "60"))
