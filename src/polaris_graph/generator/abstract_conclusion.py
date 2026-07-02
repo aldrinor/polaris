@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 # key_findings is the SIBLING extractive-summary module (same generator family). PR-d reuses its
 # PROVEN faithfulness filters so a gap-disclosure / leaked-header line is never lifted as a finding,
@@ -48,6 +48,7 @@ from src.polaris_graph.generator.key_findings import (
     _GAP_MARKER_RE,
     _SENTENCE_RE,
     _first_verified_sentences,
+    _relevance_weight,
     _strip_leading_markdown_headers,
     cap_citation_marker_runs,
 )
@@ -118,10 +119,21 @@ def _verified_sentences_in_order(verified_text: str) -> list[str]:
     return _first_verified_sentences(text, 10_000)
 
 
-def _harvest_abstract_sentences(sections: list[Any]) -> list[str]:
+def _harvest_abstract_sentences(
+    sections: list[Any],
+    *,
+    sentence_relevance: "Callable[[str], float] | None" = None,
+) -> list[str]:
     """The abstract leads with each section's HEADLINE verified finding (its first verified
-    sentence), verbatim with its citation, capped. Pure re-presentation — zero new claims."""
-    out: list[str] = []
+    sentence), verbatim with its citation, capped. Pure re-presentation — zero new claims.
+
+    ``sentence_relevance`` (headline_relevance, I-deepfix-001): OPTIONAL caller-wired question-
+    relevance ranker. WEIGHT never filter (§-1.3): within-section the most on-topic verified
+    sentence leads, and the harvested headlines are then GLOBALLY ordered by descending relevance so
+    an on-topic finding buried past the ``_ABSTRACT_MAX_SENTENCES`` cap is SURFACED — it NEVER drops
+    or re-verifies a sentence. ``None`` (every existing caller) => byte-identical document order (the
+    prior first-N-in-document-order harvest)."""
+    candidates: list[tuple[float, str]] = []
     for sr in sections or []:
         if not _section_is_verified(sr):
             continue
@@ -129,11 +141,18 @@ def _harvest_abstract_sentences(sections: list[Any]) -> list[str]:
         for sentence in _first_verified_sentences(
             _strip_leading_markdown_headers(verified_text),
             _ABSTRACT_SENTENCES_PER_SECTION,
+            sentence_relevance=sentence_relevance,
         ):
-            out.append(sentence)
-            if len(out) >= _ABSTRACT_MAX_SENTENCES:
-                return out
-    return out
+            weight = (
+                _relevance_weight(sentence_relevance, sentence)
+                if sentence_relevance is not None
+                else 0.0
+            )
+            candidates.append((weight, sentence))
+    if sentence_relevance is not None:
+        # STABLE descending-weight order: ties keep document order; off-topic sinks past the cap.
+        candidates = sorted(candidates, key=lambda c: -c[0])
+    return [s for _, s in candidates][:_ABSTRACT_MAX_SENTENCES]
 
 
 def _harvest_conclusion_sentences(sections: list[Any]) -> list[str]:
@@ -214,7 +233,13 @@ def _apply_unit_screen(sentences: list[str], unit_screen) -> list[str]:
     return [s for s in sentences if s in kept_set]
 
 
-def build_abstract(sections: list[Any], release_certified: bool = True, *, unit_screen=None) -> str:
+def build_abstract(
+    sections: list[Any],
+    release_certified: bool = True,
+    *,
+    unit_screen=None,
+    sentence_relevance: "Callable[[str], float] | None" = None,
+) -> str:
     """Return a markdown ``## Abstract`` block: verbatim span-grounded headline findings carried
     up from the body, drafted LAST. Returns "" when disabled (flag-OFF byte-identity). When the
     body has NO verified prose, renders the disclosed insufficient-evidence line (NEVER empty
@@ -226,11 +251,19 @@ def build_abstract(sections: list[Any], release_certified: bool = True, *, unit_
     WITHHELD from this Abstract surface BEFORE the join (§-1.3 FLAG-NOT-DROP: withheld from the summary
     only; untouched in the body). ``None`` = byte-identical legacy behaviour. The Abstract is the front
     sandwich, so it rides the SAME authoritative screen as Key-Findings, not the blind harvest filter
-    alone."""
+    alone.
+
+    ``sentence_relevance`` (headline_relevance, I-deepfix-001): OPTIONAL caller-wired question-
+    relevance ranker, mirroring ``key_findings.build_key_findings``. WEIGHT never filter (§-1.3): the
+    verbatim headline findings are ORDERED by descending on-topicness so the Abstract leads with the
+    most on-topic verified finding; nothing is dropped or re-verified. ``None`` (every existing
+    caller) => byte-identical document order."""
     if not synthesis_abstract_conclusion_enabled():
         return ""
     _caveat = "" if release_certified else _NOT_CERTIFIED_CAVEAT
-    sentences = _harvest_abstract_sentences(sections)
+    sentences = _harvest_abstract_sentences(
+        sections, sentence_relevance=sentence_relevance
+    )
     # KEYSTONE span-quality screen BEFORE the join (no rendered-prose splitting). When every sentence
     # is withheld the disclosed insufficient-evidence line renders (NEVER empty fabricated filler).
     sentences = _apply_unit_screen(sentences, unit_screen)
