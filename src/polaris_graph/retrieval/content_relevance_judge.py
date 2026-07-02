@@ -61,6 +61,17 @@ _DEFAULT_BAND_HIGH = 0.70
 # never zero — a demoted source still flows to composition at reduced weight).
 _DEFAULT_DEMOTE_WEIGHT = 0.25
 _DEFAULT_WORKERS = 12
+# I-deepfix-001 (wall/tiering-abort fix, #1344) P1 (Codex REQUEST_CHANGES): a conservative
+# SAFETY MARGIN (seconds) subtracted from the reserved-slice deadline at ENTRY. The Stage-1
+# reranker one-pass (model load + tokenize + forward over ALL windows) is UNINTERRUPTIBLE —
+# once started it runs to completion with NO mid-flight cancel and NO deadline check. So if
+# the remaining budget at entry is smaller than an estimated one-pass cost, a BARELY-FUTURE
+# deadline would still let the pass START and OVERRUN into the classify/W5 reserve the wall
+# fraction was built to protect. Skipping the pass and releasing every passage at FULL weight
+# (always-release) when remaining < margin closes that. Conservative default (cold model load
+# alone can be tens of seconds). Env PG_RETRIEVAL_W2_RERANKER_MARGIN_S; =0 disables the margin
+# (byte-identical to the base already-past guard). §-1.3 faithfulness-neutral (never a drop).
+_DEFAULT_RERANKER_MARGIN_S = 30.0
 # W5 graded-weight + window max-pool (I-deepfix-001 w5_graded_weight):
 # up to this many bounded windows of a body are scored by the reranker, then
 # max-pooled. >1 so a topical span buried after head CHROME (cookie/nav/license)
@@ -189,6 +200,33 @@ def _escalation_deadline_seconds() -> float:
     return value
 
 
+def _reranker_margin_seconds() -> float:
+    """I-deepfix-001 (wall/tiering-abort fix, #1344) P1 (Codex REQUEST_CHANGES): the entry
+    SAFETY MARGIN (seconds) for the UNINTERRUPTIBLE Stage-1 reranker one-pass. Read at CALL
+    time (LAW VI). Four outcomes:
+      * ``PG_RETRIEVAL_W2_RERANKER_MARGIN_S`` UNSET      -> ``30.0`` (conservative default).
+      * a finite value ``>= 0``                         -> that value (``0`` disables the
+        margin = byte-identical to the base already-past guard).
+      * ANY set-but-invalid value (non-numeric, NaN/inf, or negative)
+        -> ``30.0`` = fail-SAFE to the conservative default (protect the classify/W5 reserve
+        rather than let a garbage knob weaken the guard).
+
+    Pure (env-only); unit-testable. Faithfulness-neutral: a larger margin only makes W2 skip
+    EARLIER and release every passage at FULL weight (always-release, never demote / drop —
+    §-1.3); it never relaxes the faithfulness engine."""
+    raw = os.getenv("PG_RETRIEVAL_W2_RERANKER_MARGIN_S", "").strip()
+    if not raw:
+        return _DEFAULT_RERANKER_MARGIN_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_RERANKER_MARGIN_S
+    import math as _math
+    if not _math.isfinite(value) or value < 0.0:
+        return _DEFAULT_RERANKER_MARGIN_S
+    return value
+
+
 @dataclass
 class RelevanceVerdict:
     """Per-passage relevance outcome (a WEIGHT + a disclosed label, never a drop)."""
@@ -219,6 +257,14 @@ class RelevanceReport:
     # escalation deadline elapsed and the remaining ambiguous passages were emitted at
     # FULL weight (always-release, never demote-on-timeout) instead of escalated.
     escalation_wall_hit: bool = False
+    # I-deepfix-001 (wall/tiering-abort fix, #1344) P1: set True when the RESERVED W2 slice
+    # (PG_RETRIEVAL_W2_WALL_FRACTION) was already spent at ENTRY, OR the remaining budget was
+    # within the reranker SAFETY MARGIN (PG_RETRIEVAL_W2_RERANKER_MARGIN_S) — so the
+    # uninterruptible Stage-1 reranker one-pass was SKIPPED and EVERY passage released at FULL
+    # weight (always-release, never a demotion and never a drop — §-1.3). Distinct from
+    # escalation_wall_hit (which fires mid-scoring, on the GLM band). Default False =
+    # byte-identical (the guard fires only on a past/near-past reserved-slice deadline).
+    scoring_skipped_wall_hit: bool = False
 
     def by_idx(self) -> dict[int, RelevanceVerdict]:
         return {v.idx: v for v in self.verdicts}
@@ -232,6 +278,7 @@ class RelevanceReport:
             "reranker_device": self.reranker_device,
             "used_cpu_fallback": self.used_cpu_fallback,
             "escalation_wall_hit": self.escalation_wall_hit,
+            "scoring_skipped_wall_hit": self.scoring_skipped_wall_hit,
             "band_low": self.band_low,
             "band_high": self.band_high,
             # §-1.3: list the DEMOTED urls (kept at low weight) — never a drop list.
@@ -280,6 +327,42 @@ def score_passages(
     passage_chars = _passage_chars()
     report = RelevanceReport(band_low=low, band_high=high)
     if not passages:
+        return report
+
+    # I-deepfix-001 (wall/tiering-abort fix, #1344) P1: PRE-SCORING deadline guard WITH an
+    # entry SAFETY MARGIN. The caller threads a RESERVED-slice deadline
+    # (PG_RETRIEVAL_W2_WALL_FRACTION). The Stage-1 reranker one-pass below is a single batched
+    # op (model load + tokenize + forward over ALL windows) with NO mid-flight cancel and NO
+    # deadline check — once STARTED it runs to completion. So it is not enough to check that
+    # the slice is already SPENT at entry: a BARELY-FUTURE deadline (remaining budget < an
+    # estimated one-pass cost) would still let the uninterruptible pass START and OVERRUN into
+    # the classify/W5 reserve. So when the remaining budget at entry is less than the
+    # env-tunable margin (PG_RETRIEVAL_W2_RERANKER_MARGIN_S, conservative default), SKIP scoring
+    # entirely and release EVERY passage at FULL weight (always-release: skipping a WEIGHT is
+    # never a demotion and never a drop — §-1.3). Order-independent (sorted by idx).
+    # `_now_mono + margin >= deadline` with margin=0 is EXACTLY the base already-past guard, so
+    # PG_RETRIEVAL_W2_RERANKER_MARGIN_S=0 is byte-identical; deadline_monotonic=None never fires
+    # (byte-identical OFF path, PG_RETRIEVAL_W2_WALL_FRACTION=1.0 with a live wall is unaffected).
+    _now_mono = time.monotonic()
+    _reranker_margin = _reranker_margin_seconds()
+    if deadline_monotonic is not None and _now_mono + _reranker_margin >= deadline_monotonic:
+        for _idx, _url, _body in passages:
+            report.verdicts.append(RelevanceVerdict(
+                idx=_idx, url=_url, label=LABEL_RELEVANT, weight=1.0,
+                reranker_score=-1.0, escalated=False,
+                reason="W2 reserved slice spent or within reranker safety margin before "
+                       "scoring — full weight (always-release)",
+            ))
+        report.verdicts.sort(key=lambda v: v.idx)
+        report.n_scored = len(report.verdicts)
+        report.n_relevant = report.n_scored
+        report.scoring_skipped_wall_hit = True
+        logger.warning(
+            "[content_relevance] W2 reserved slice spent or within the %.1fs reranker "
+            "safety margin at entry over %d passages — SKIP scoring, release ALL at full "
+            "weight (always-release, NO drop).",
+            _reranker_margin, report.n_scored,
+        )
         return report
 
     # I-deepfix-001 (w5_graded_weight): score up to `_max_windows()` bounded windows of each body

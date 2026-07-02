@@ -336,6 +336,12 @@ class BasketMember:
     # is the seam I-arch-011 reads to distinguish grounded-but-weak (DETERMINISTIC_ONLY)
     # from deterministic garbage (UNVERIFIED). No TAIL consumer renders/counts it.
     member_tier: str = MEMBER_TIER_UNVERIFIED
+    # I-deepfix-001 Wave-3 PART 2 ARM B P1b (#1344): the DURABLE judge-outage signal. True iff this
+    # member is DETERMINISTIC_ONLY BECAUSE the entailment judge errored / timed out this run (NOT a
+    # clean NEUTRAL/CONTRADICTED). Default False so any legacy constructor that omits it is the safe
+    # (genuine-gap) value. Read ONLY by the ARM-B degraded-verify disclosure to separate a transient
+    # judge OUTAGE from a genuine evidence gap; never rendered, never counted as support.
+    entailment_judge_unavailable: bool = False
 
 
 @dataclass
@@ -435,26 +441,43 @@ _ENTAILMENT_FAILURE_PREFIXES = (
     "entailment_judge_error_fail_closed:",
 )
 
+# I-deepfix-001 Wave-3 PART 2 ARM B P1b (#1344): the SUBSET of entailment failure prefixes that mean the
+# judge was DURABLY UNAVAILABLE (errored / timed out / transport-hard-dropped) this run — as opposed to a
+# CLEAN NEUTRAL/CONTRADICTED verdict (``entailment_failed:``, where the judge RAN and answered). Only a
+# judge-UNAVAILABLE member may drive the ARM-B "entailment verification was unavailable" disclosure; a
+# clean non-entailment is a GENUINE evidence gap, not a transient outage (Codex Wave-3 P1b). Paired with
+# the durable ``result.judge_error`` boolean (the machine-readable marker per provenance_generator.py).
+_ENTAILMENT_JUDGE_ERROR_PREFIX = "entailment_judge_error_fail_closed:"
 
-def _classify_member_tier(result: Any) -> tuple[str, str]:
-    """Map a full ``SentenceVerification`` result onto ``(span_verdict, member_tier)``.
+
+def _classify_member_tier(result: Any) -> tuple[str, str, bool]:
+    """Map a full ``SentenceVerification`` result onto ``(span_verdict, member_tier, judge_unavailable)``.
 
     ``span_verdict`` stays STRICTLY BINARY (the binding invariant
     ``span_verdict == "SUPPORTS"`` iff ``member_tier == ENTAILMENT_VERIFIED``).
     Reads ONLY ``is_verified`` / ``judge_error`` / ``failure_reasons`` — all already on
     the object; the deterministic (a)-(e) engine and the entailment judge verdict logic
     are NEVER touched (FROZEN, §-1.4).
+
+    I-deepfix-001 Wave-3 PART 2 ARM B P1b (#1344): ``judge_unavailable`` is the DURABLE
+    third signal — ``True`` iff the member's entailment tier is DETERMINISTIC_ONLY BECAUSE the
+    judge errored / timed out / transport-hard-dropped this run (``result.judge_error`` OR an
+    ``entailment_judge_error_fail_closed:`` reason), ``False`` for a CLEAN NEUTRAL/CONTRADICTED
+    (``entailment_failed:``, judge ran) and for every non-DETERMINISTIC_ONLY tier. It NEVER
+    changes the span_verdict / member_tier (byte-identical to the pre-P1b 2-tuple for those two);
+    it only lets the ARM-B disclosure distinguish a transient judge OUTAGE from a genuine gap.
     """
     is_verified = bool(getattr(result, "is_verified", False))
     judge_error = bool(getattr(result, "judge_error", False))
     if is_verified and not judge_error:
         # genuine ENTAILED (judge ran, no error) — the ONLY counted/rendered tier.
-        return "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED
+        return "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED, False
     if is_verified and judge_error:
         # FIX-1 transport-keep: passed (a)-(e), entailment INCONCLUSIVE (judge errored).
         # NOT genuinely entailed → must NOT count/render as verified support (closes the
         # judge_error leak). Grounded-but-weak: an I-arch-011 keep-with-label candidate.
-        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY
+        # P1b: judge_error=True → the judge was UNAVAILABLE (durable outage signal).
+        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY, True
     # is_verified == False below.
     failure_reasons = list(getattr(result, "failure_reasons", None) or [])
     if failure_reasons and all(
@@ -464,10 +487,17 @@ def _classify_member_tier(result: Any) -> tuple[str, str]:
         # deterministic (a)-(e) PASS but entailment NEUTRAL/CONTRADICTED (or any
         # entailment failure when FIX-1 is off) — grounded-but-weak, same tier as the
         # row above for I-arch-011's purpose (it cleared the deterministic engine).
-        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY
+        # P1b: judge-UNAVAILABLE only when the DURABLE outage signal is present — the durable
+        # ``judge_error`` boolean OR an ``entailment_judge_error_fail_closed:`` reason. A CLEAN
+        # NEUTRAL/CONTRADICTED (only ``entailment_failed:`` reasons, judge ran) is judge_unavailable
+        # == False → a genuine gap, never disclosed as "verification unavailable".
+        judge_unavailable = judge_error or any(
+            str(r).startswith(_ENTAILMENT_JUDGE_ERROR_PREFIX) for r in failure_reasons
+        )
+        return "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY, judge_unavailable
     # the member's OWN span genuinely lacks the claim's number / content-overlap (or no
     # failure reasons at all) — deterministic garbage; NEVER surfaced.
-    return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
+    return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED, False
 
 
 def _verify_member_in_isolation(
@@ -475,7 +505,7 @@ def _verify_member_in_isolation(
     member_row: dict,
     *,
     verify_fn: Callable,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     """Verify ONE member against ITS OWN single span — never a union (design §5 FIX-3).
 
     Builds a single-provenance-token sentence (``<claim_text> [#ev:<eid>:0-<len>]``)
@@ -484,18 +514,19 @@ def _verify_member_in_isolation(
     laundering path; one token means no union, so a member whose own span lacks the
     claim's number/content fails ALONE — even if a multi-citation union would pass.
 
-    Returns the 2-tuple ``(span_verdict, member_tier)`` (I-arch-010 FIX-2 Step 0).
-    ``span_verdict`` is ``"SUPPORTS"`` iff the isolated sentence is genuinely
-    entailment-verified, else ``"UNSUPPORTED"``; ``member_tier`` is the additive
-    3-value classification (see ``_classify_member_tier``). The verifier is INJECTED
-    (production ``verify_sentence_provenance`` by default; a deterministic fake in tests)
-    and is NEVER re-run as a gate — this is advisory.
+    Returns the 3-tuple ``(span_verdict, member_tier, judge_unavailable)`` (I-arch-010 FIX-2
+    Step 0 + I-deepfix-001 Wave-3 P1b). ``span_verdict`` is ``"SUPPORTS"`` iff the isolated
+    sentence is genuinely entailment-verified, else ``"UNSUPPORTED"``; ``member_tier`` is the
+    additive 3-value classification; ``judge_unavailable`` is the DURABLE judge-outage signal
+    (see ``_classify_member_tier``). The verifier is INJECTED (production
+    ``verify_sentence_provenance`` by default; a deterministic fake in tests) and is NEVER
+    re-run as a gate — this is advisory.
     """
     eid = str((member_row or {}).get("evidence_id") or "")
     span = _row_span_text(member_row)
     if not eid or not span:
         # No evidence to verify against — the safest non-counted, never-surfaced tier.
-        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
+        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED, False
     # Defensive single-token guarantee (the anti-laundering invariant, design §5
     # FIX-3): strip ANY stray provenance / calc token already in the claim text so
     # the appended one is the ONLY token. With exactly one token the verifier's
@@ -515,8 +546,10 @@ def _verify_member_in_isolation(
     except Exception:
         # Advisory path: a verifier failure on one member is conservatively the safest
         # tier (never resurrects the member, never aborts the basket) — fail-closed for
-        # the strengthening count, which can only ever UNDERCOUNT, never inflate.
-        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED
+        # the strengthening count, which can only ever UNDERCOUNT, never inflate. A verifier
+        # crash is NOT a judge outage (judge_unavailable=False → a genuine gap, never disclosed
+        # as "verification unavailable").
+        return "UNSUPPORTED", MEMBER_TIER_UNVERIFIED, False
     return _classify_member_tier(result)
 
 
@@ -525,8 +558,13 @@ def _run_member_verifies(
     *,
     verify_fn: Callable,
     max_inflight: int,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, bool]]:
     """Run the per-member isolated verifies for ``tasks`` and return their verdicts IN ORDER.
+
+    Each verdict is the 3-tuple ``(span_verdict, member_tier, judge_unavailable)`` from
+    ``_verify_member_in_isolation`` (I-deepfix-001 Wave-3 P1b). The tuple is opaque here —
+    it is passed through unchanged, so the serial and bounded-parallel paths stay
+    verdict-identical.
 
     ``tasks`` is the FLAT, deterministically-ordered list of ``(claim_text, member_row)`` pairs
     (built in the ORIGINAL ``sorted(clusters)`` → member order). The returned verdict list is
@@ -570,15 +608,15 @@ def _run_member_verifies(
 
     def _verify_one(
         idx: int, claim_text: str, member_row: dict, ctx: contextvars.Context
-    ) -> tuple[int, tuple[str, str], float]:
-        def _run() -> tuple[tuple[str, str], float]:
+    ) -> tuple[int, tuple[str, str, bool], float]:
+        def _run() -> tuple[tuple[str, str, bool], float]:
             reset_run_cost()  # isolate THIS member's spend in the copied context (parent re-adds a clean delta)
             verdict = _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
             return verdict, current_run_cost()
         verdict, delta = ctx.run(_run)
         return idx, verdict, delta
 
-    results: list[tuple[str, str] | None] = [None] * n
+    results: list[tuple[str, str, bool] | None] = [None] * n
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_inflight)
     try:
         futures = [
@@ -893,7 +931,7 @@ def _assemble_baskets(
             # 2-tuple. span_verdict stays the BINARY gate for the strengthening count (only
             # SUPPORTS — i.e. genuine ENTAILMENT_VERIFIED — increments it); member_tier is the
             # additive seam stored on the member for the I-arch-011 keep-with-labels layer.
-            verdict, member_tier = verdicts[_verdict_cursor]
+            verdict, member_tier, judge_unavailable = verdicts[_verdict_cursor]
             _verdict_cursor += 1
             if verdict == "SUPPORTS":
                 # I-deepfix-001 F1-STRUCTURAL (#1344): screen the member's claim-local span AND the
@@ -951,6 +989,9 @@ def _assemble_baskets(
                 direct_quote=claim_local_span,
                 span_verdict=verdict,
                 member_tier=member_tier,
+                # I-deepfix-001 Wave-3 P1b (#1344): the durable judge-outage signal for this member
+                # (True only when DETERMINISTIC_ONLY BECAUSE the judge errored/timed out this run).
+                entailment_judge_unavailable=judge_unavailable,
             ))
 
         refuter_ids = tuple(sorted(refuters_by_cluster.get(cluster_id, set())))

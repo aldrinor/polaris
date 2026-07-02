@@ -31,6 +31,7 @@ a full resolved URL and thus fails closed (P2 #4). The URL pair is ASYMMETRIC: e
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import unicodedata
@@ -43,6 +44,8 @@ from src.polaris_graph.roles.sweep_integration import (
     FourRoleClaim,
     FourRoleEvaluationInputs,
 )
+
+logger = logging.getLogger(__name__)
 
 # --- severity vocabulary (mirrors release_policy / d8 config; never an Enum) -------------
 _SEVERITY_S0 = "S0"
@@ -116,6 +119,18 @@ class NativeGateBBundle:
 def _normalize_sentence(sentence: str) -> str:
     """Lowercase + collapse whitespace (the basis for the deterministic claim_id hash)."""
     return _WHITESPACE_RE.sub(" ", sentence.lower()).strip()
+
+
+def _depth_synthesis_d8_gate_enabled() -> bool:
+    """The depth-synthesis D8-gate flag (default ON; env ``PG_DEPTH_SYNTHESIS_D8_GATE``).
+
+    Mirrors ``generator.depth_synthesis.depth_synthesis_d8_gate_enabled`` — the SAME env var, so the
+    behavior is identical — read locally to keep this pure-roles module free of a generator import.
+    OFF => the DS-* second loop no-ops and this builder is byte-identical to legacy.
+    """
+    return os.getenv("PG_DEPTH_SYNTHESIS_D8_GATE", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
 
 
 def _row_text(row: Mapping[str, Any]) -> str:
@@ -943,6 +958,73 @@ def build_native_gate_b_inputs(
                 "severity": claim_severity,
                 "s0_categories": s0_categories,
             }
+
+    # I-deepfix-001 wave-3 (conclusion true-drop) — thread the grounded DEPTH cross-source findings
+    # into the SAME 4-role D8 gate the section claims pass. Each finding becomes ONE S3/observe-only
+    # DS-* claim so D8 JUDGES the synthesized sentence itself (Mirror/Sentinel/Judge); a non-VERIFIED
+    # depth finding is then DROPPED from report.md by the post-seam depth reconcile (TRUE drop-not-
+    # sink). RELEASE-NEUTRAL by construction: severity S3 (non-material — never latches / never gates),
+    # covered_element_ids=[] (the fixed required denominator + the coverage fraction are unchanged),
+    # s0_categories=[] (the S0 must-cover gate is untouched). The DS-* claim_id namespace never
+    # collides with the section ``NN-NNN`` ids. Gated on PG_DEPTH_SYNTHESIS_D8_GATE (default ON); OFF
+    # or no synthesized_findings => this block no-ops (claims/audit_map byte-identical to legacy). An
+    # audit_map row is written for EVERY rendered finding (even one whose evidence fails to resolve),
+    # so a finding that could not be JUDGED is caught fail-closed by the depth reconcile
+    # ("is_synthesized in audit_map but absent from final_verdicts => drop"). Honors the module
+    # contamination invariant: the finding text + tokens come from the generator's own report, and
+    # evidence is resolved against the SAME ``evidence_lookup`` the section loop uses — never the gold
+    # rubric. The >=2 distinct-origin floor + cross/single tier split live upstream and are untouched.
+    synthesized_findings = getattr(multi, "synthesized_findings", None) or []
+    if synthesized_findings and _depth_synthesis_d8_gate_enabled():
+        for ds_index, finding in enumerate(synthesized_findings):
+            if not isinstance(finding, Mapping):
+                continue
+            rendered_sentence = str(finding.get("sentence", "") or "").strip()
+            if not rendered_sentence:
+                continue  # nothing rendered in report.md -> nothing to gate / drop
+            audit_sentence = str(finding.get("audit_sentence", "") or "").strip()
+            tokens = list(finding.get("tokens", None) or [])
+            ds_evidence_ids = [token.evidence_id for token in tokens]
+            ds_normalized = _normalize_sentence(audit_sentence or rendered_sentence)
+            ds_digest = hashlib.sha256(ds_normalized.encode("utf-8")).hexdigest()[:_CLAIM_HASH_HEX_LEN]
+            ds_claim_id = f"DS-{ds_index:03d}-{ds_digest}"
+            # The audit_map row is ALWAYS written first (marks is_synthesized + the RENDERED [N]
+            # sentence that is in report.md) so the depth reconcile can LOCATE + DROP it. "sentence"
+            # is the rendered form (report.md has [N], not [#ev:...]); the D8 claim_text below is the
+            # PRE-resolve audit sentence (carries [#ev:...] tokens), mirroring the section claims.
+            audit_map[ds_claim_id] = {
+                "sentence": rendered_sentence,
+                "evidence_ids": ds_evidence_ids,
+                "severity": _DEFAULT_OBSERVE_ONLY_SEVERITY,
+                "is_synthesized": True,
+                "tier": finding.get("tier"),
+            }
+            # A finding missing its D8 inputs (audit sentence / tokens) cannot be JUDGED — leave it out
+            # of the claim set; the fail-closed depth reconcile (unjudged is_synthesized => drop)
+            # removes it from report.md so it never ships un-D8-gated.
+            if not audit_sentence or not tokens:
+                continue
+            try:
+                ds_documents, _ds_records = _resolve_evidence(tokens, evidence_lookup)
+            except Exception as ds_exc:  # noqa: BLE001 — evidence/lookup mismatch: drop the CLAIM, keep
+                # the audit row so the fail-closed depth reconcile removes the rendered finding. NEVER
+                # fabricate an unresolved-evidence claim; NEVER crash the whole builder for one finding.
+                logger.warning(
+                    "[native_gate_b] depth finding %s evidence resolution failed (%s); "
+                    "no D8 claim built -> fail-closed depth reconcile will drop it",
+                    ds_claim_id, ds_exc,
+                )
+                continue
+            claims.append(
+                FourRoleClaim(
+                    claim_id=ds_claim_id,
+                    claim_text=audit_sentence,
+                    evidence_documents=ds_documents,
+                    severity=_DEFAULT_OBSERVE_ONLY_SEVERITY,
+                    s0_categories=[],
+                    covered_element_ids=[],
+                )
+            )
 
     if not claims:
         raise ValueError(

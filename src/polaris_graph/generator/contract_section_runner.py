@@ -95,18 +95,33 @@ _NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
 # independent of this guard.)
 _GAP_DISCLOSURE_MARKER = "not extractable from available primary content"
 
+# I-deepfix-001 Wave-3 PART 2 ARM B (#1344): the DEGRADED-VERIFY honest disclosure
+# (``verified_compose._degraded_verify_disclosure`` — a judge-outage-emptied basket)
+# is ALSO a disclosure placeholder, NOT substantive verified prose. This sentinel
+# phrase is produced ONLY by that ARM-B-ON path, so recognizing it is inert when
+# PG_DEGRADED_VERIFY_DISCLOSURE is OFF (no text ever carries it). Recognizing it keeps
+# the frame_coverage honesty override from mis-scoring the disclosure as substantive
+# prose or as a numeric fabrication (the label carries a count digit).
+_DEGRADED_VERIFY_DISCLOSURE_MARKER = "entailment verification was unavailable this run"
+
 
 def _is_gap_disclosure_sentence(text: Any) -> bool:
     """Shared predicate (single source of truth): True iff a sentence is a
-    deterministic gap-disclosure placeholder ("<field>: not extractable from
-    available primary content") rather than SUBSTANTIVE verified prose.
+    disclosure placeholder rather than SUBSTANTIVE verified prose — either the
+    deterministic gap-disclosure ("<field>: not extractable from available primary
+    content") OR the I-deepfix-001 Wave-3 ARM B degraded-verify disclosure
+    ("verification incomplete: ... entailment verification was unavailable this run").
 
     I-ready-017 FX-07b leg-2 (#1111, root-cause design P2): centralizing this on
     `_GAP_DISCLOSURE_MARKER` so the marker cannot drift and silently let a
     placeholder count as substantive prose in the frame_coverage honesty
     override (the Class-B placeholder-kept escape).
     """
-    return _GAP_DISCLOSURE_MARKER in str(text or "").lower()
+    lowered = str(text or "").lower()
+    return (
+        _GAP_DISCLOSURE_MARKER in lowered
+        or _DEGRADED_VERIFY_DISCLOSURE_MARKER in lowered
+    )
 
 
 def _drop_is_numeric(sv: Any) -> bool:

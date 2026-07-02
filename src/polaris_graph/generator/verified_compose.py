@@ -478,6 +478,56 @@ def _snap_span_end_to_sentence(haystack: str, start: int, end: int) -> int:
     return end
 
 
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 Wave-3 PART 1 (#1344) — COMPANION-FIGURE COMPOSE
+#
+# THE OMISSION (drb_72 one-sidedness): the composed headline states ONE percent (e.g.
+# "1.8% of jobs") while the SAME SUPPORTS member's direct_quote also carries a materially-
+# different SAME-KIND companion percent (e.g. "46% of tasks") that the headline drops.
+# ``overstatement_guard.primacy_frame_reason`` already DETECTS exactly this pattern but only
+# APPENDS a soft advisory; it never surfaces the companion figure in prose. This pass surfaces
+# it — as a VERBATIM slice of that member's own direct_quote, tagged with the member's REAL
+# global offsets, and re-verified by the UNCHANGED ``strict_verify`` (``verify_fn``). It reuses
+# the SAME primacy gate constants (``_PRIMACY_MIN_ABS_GAP_PCT`` / ``_PRIMACY_MIN_RATIO`` /
+# shared measure-stem) so the surfaced companion and the advisory label ALWAYS agree.
+#
+# FAITHFULNESS (by construction): every surfaced sentence IS a real cited span (a substring of a
+# SUPPORTS member's direct_quote at that member's real offsets), carries NO connective / lead-in
+# / aggregate predicate (zero non-span words added — identical semantics to ``_member_verbatim_clause``),
+# and must PASS ``verify_fn`` AND land within the basket's own member regions (``_tokens_within_basket_regions``)
+# to be kept. It can only ever emit a number that literally appears in a real cited span; it never
+# fabricates a figure, never invents a frame, never asserts corroboration (each sentence is one
+# source's own words), and never touches the >=2 distinct-origin floor. Default-ON; OFF => the pass
+# never runs => byte-identical.
+_COMPANION_FIGURE_COMPOSE_ENV = "PG_COMPANION_FIGURE_COMPOSE"
+
+
+def _companion_figure_compose_enabled() -> bool:
+    """PG_COMPANION_FIGURE_COMPOSE gate (mirrors ``_snap_span_enabled``): default-ON; only an
+    explicit 0/false/off/no disables. An EMPTY string behaves like UNSET (stays ON), so a blank
+    env var cannot silently disable the companion-figure pass."""
+    return os.getenv(_COMPANION_FIGURE_COMPOSE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+# I-deepfix-001 Wave-3 PART 2 ARM B (#1344) — DEGRADED-VERIFY HONEST DISCLOSURE gate.
+# When a basket yields NO ENTAILMENT_VERIFIED span but carries >=1 member whose OWN span
+# DETERMINISTICALLY grounds the claim and whose entailment tier is DETERMINISTIC_ONLY (the judge
+# 429'd / timed out this run), the bare "insufficient verified evidence" gap reads as "no evidence"
+# — dishonest, because the evidence exists and grounds deterministically; only the judge was
+# unavailable. ARM B emits a DISTINCT "verification incomplete" label instead. It NEVER promotes
+# DETERMINISTIC_ONLY prose into verified text — only the gap LABEL changes; the hard
+# ENTAILMENT_VERIFIED gate is untouched. Default-ON; OFF => the bare gap for both causes =>
+# byte-identical.
+_DEGRADED_VERIFY_DISCLOSURE_ENV = "PG_DEGRADED_VERIFY_DISCLOSURE"
+
+
+def _degraded_verify_disclosure_enabled() -> bool:
+    """PG_DEGRADED_VERIFY_DISCLOSURE gate (mirrors ``_snap_span_enabled``): default-ON; only an
+    explicit 0/false/off/no disables. OFF => ``_no_verified_span_disclosure`` returns the bare
+    insufficient-evidence gap for both causes => byte-identical."""
+    return os.getenv(_DEGRADED_VERIFY_DISCLOSURE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
@@ -600,6 +650,163 @@ def _insufficient_evidence_disclosure(basket: Any) -> str:
     return f"[insufficient verified evidence to compose a sentence for: {subject[:160]}]"
 
 
+def _deterministic_only_member_count(basket: Any) -> int:
+    """The number of the basket's members whose entailment tier is DETERMINISTIC_ONLY — grounded on
+    their OWN span (passed the deterministic (a)-(e) engine) but NOT entailment-verified (the judge
+    returned NEUTRAL/CONTRADICTED OR errored/timed out this run). Read-only; NEVER a verdict, NEVER
+    surfaced as prose. The tier constant is imported lazily (with a literal fallback) to avoid a
+    synthesis<->generator cycle.
+
+    NOTE (Codex Wave-3 P1b): DETERMINISTIC_ONLY alone conflates a CLEAN NEUTRAL/CONTRADICTED (judge ran)
+    with a judge OUTAGE. It must NOT gate the ARM-B "verification unavailable" disclosure — use
+    ``_judge_unavailable_member_count`` for that. This count is retained as a diagnostic only."""
+    try:
+        from src.polaris_graph.synthesis.credibility_pass import (  # noqa: PLC0415
+            MEMBER_TIER_DETERMINISTIC_ONLY as _DET,
+        )
+    except Exception:  # pragma: no cover — credibility_pass is stable in-tree
+        _DET = "DETERMINISTIC_ONLY"
+    members = list(getattr(basket, "supporting_members", None) or [])
+    return sum(1 for m in members if str(getattr(m, "member_tier", "") or "") == _DET)
+
+
+def _judge_unavailable_member_count(basket: Any) -> int:
+    """I-deepfix-001 Wave-3 PART 2 ARM B P1b (#1344): the number of the basket's members that
+    DETERMINISTICALLY ground the claim (member_tier == DETERMINISTIC_ONLY) AND whose entailment judge
+    was DURABLY UNAVAILABLE this run (``entailment_judge_unavailable`` — a judge_error / timeout /
+    transport-hard-drop, NOT a clean NEUTRAL/CONTRADICTED verdict).
+
+    THIS is the ONLY count that may drive the degraded-verify disclosure: a clean non-entailment (the
+    judge ran and returned NEUTRAL/CONTRADICTED) is DETERMINISTIC_ONLY but NOT judge-unavailable, so it
+    stays a GENUINE evidence gap — never falsely disclosed as "entailment verification was unavailable"
+    (the Codex Wave-3 P1b bug). Read-only; NEVER a verdict, NEVER surfaced as prose."""
+    try:
+        from src.polaris_graph.synthesis.credibility_pass import (  # noqa: PLC0415
+            MEMBER_TIER_DETERMINISTIC_ONLY as _DET,
+        )
+    except Exception:  # pragma: no cover — credibility_pass is stable in-tree
+        _DET = "DETERMINISTIC_ONLY"
+    members = list(getattr(basket, "supporting_members", None) or [])
+    return sum(
+        1 for m in members
+        if str(getattr(m, "member_tier", "") or "") == _DET
+        and bool(getattr(m, "entailment_judge_unavailable", False))
+    )
+
+
+def _degraded_verify_disclosure(basket: Any, deterministic_only_count: int) -> str:
+    """I-deepfix-001 Wave-3 PART 2 ARM B (#1344) — the honest DEGRADED-VERIFY disclosure: the basket
+    yields no ENTAILMENT_VERIFIED span, but ``deterministic_only_count`` member(s) DETERMINISTICALLY
+    ground the claim on their OWN span and only entailment verification was unavailable this run. A
+    DISTINCT label (not the bare "insufficient verified evidence" gap) so a transient judge outage is
+    never reported as a genuine evidence gap. NEVER counted as verified support (carries no
+    ENTAILMENT_VERIFIED [#ev] token) — it is a disclosure placeholder, recognized by
+    ``contract_section_runner._is_gap_disclosure_sentence``."""
+    subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim").strip()
+    return (
+        f"[verification incomplete: {deterministic_only_count} source(s) deterministically ground "
+        f"this claim but entailment verification was unavailable this run — not counted as verified "
+        f"support: {subject[:160]}]"
+    )
+
+
+def _no_verified_span_disclosure(basket: Any) -> str:
+    """The honest disclosure a basket emits when it yields NO verified span. Default (and the OFF /
+    genuine-gap case): the bare ``_insufficient_evidence_disclosure``. ARM B
+    (PG_DEGRADED_VERIFY_DISCLOSURE, default-ON): when the basket carries >=1 DETERMINISTIC_ONLY member
+    (judge-outage, not a real evidence gap) the DISTINCT degraded-verify label is emitted instead —
+    only the LABEL changes; no DETERMINISTIC_ONLY prose is ever promoted into verified text and the
+    hard ENTAILMENT_VERIFIED gate is untouched. OFF => the bare gap for both causes => byte-identical.
+
+    Codex Wave-3 P1b: the degraded label fires ONLY on a DURABLE judge OUTAGE
+    (``_judge_unavailable_member_count`` > 0), never on a clean NEUTRAL/CONTRADICTED (which is a
+    genuine gap and keeps the bare insufficient-evidence disclosure)."""
+    if _degraded_verify_disclosure_enabled():
+        n = _judge_unavailable_member_count(basket)
+        if n > 0:
+            return _degraded_verify_disclosure(basket, n)
+    return _insufficient_evidence_disclosure(basket)
+
+
+# ── I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344) — degraded-disclosure PRODUCTION-PATH carrier ──────
+#
+# THE BUG (Codex Wave-3 P1a): the DISTINCT "[verification incomplete: ...]" label is emitted as TOKENLESS
+# raw text by ``_compose_one_basket``. The legacy "[insufficient verified evidence]" marker is SUPPRESSED
+# by ``_compose_section_per_basket`` (:1284) before it can leak, but the degraded label was NOT — so it
+# flowed into the strict_verify-bound draft where (a) ``_repair_untokened_draft`` could REBIND its
+# tokenless text to some other SUPPORTS basket (laundering an honest gap into a fabricated cited claim),
+# or (b) ``strict_verify`` dropped it ``no_provenance_token`` (the honest label never reached output).
+#
+# THE CARRIER: recognize BOTH no-verified-span disclosure placeholders, HOLD the degraded label ASIDE
+# before it enters the strict_verify-bound draft (``_run_section`` calls ``partition_composed_disclosures``),
+# and RENDER it back onto the section body AFTER strict_verify + the render screens (``_run_section`` calls
+# ``render_degraded_disclosures``). It never becomes verified prose (no ``[#ev]`` token, not in
+# ``kept_sentences``, ``sentences_verified`` unchanged), and ``repair_untokened_sentence`` refuses to
+# rebind it — so it is treated EXACTLY like the legacy insufficient-evidence disclosure by
+# ``_repair_untokened_draft`` / ``strict_verify`` (never rebound, never dropped as garbage). It is a
+# marker-less honest disclosure, the SAME faithfulness class as the section-level gap stub. Byte-identical
+# when PG_DEGRADED_VERIFY_DISCLOSURE is OFF (no such label is ever produced => the partition is a no-op).
+_INSUFFICIENT_EVIDENCE_DISCLOSURE_PREFIX = "[insufficient verified evidence"
+_DEGRADED_VERIFY_DISCLOSURE_PREFIX = "[verification incomplete:"
+
+
+def _is_degraded_verify_disclosure_unit(text: Any) -> bool:
+    """True iff a whole composed unit IS the degraded-verify disclosure placeholder (``[verification
+    incomplete: ...]``). ``_compose_one_basket`` returns the disclosure ALONE for a no-verified-span
+    basket (kept prose empty), so a pure-disclosure unit STARTS with the prefix; a mixed
+    ``verified prose. [verification incomplete: ...]`` unit does NOT (it starts with the prose) and
+    stays in the strict_verify-bound draft, preserving its verified prose."""
+    return str(text or "").strip().lower().startswith(_DEGRADED_VERIFY_DISCLOSURE_PREFIX)
+
+
+def _is_no_verified_span_disclosure(text: Any) -> bool:
+    """True iff ``text`` is EITHER no-verified-span disclosure placeholder — the legacy bare
+    ``[insufficient verified evidence ...]`` gap OR the ARM-B ``[verification incomplete: ...]``
+    degraded-verify label. Used by ``repair_untokened_sentence`` so NEITHER is ever rebound to a foreign
+    SUPPORTS basket (a disclosure placeholder is not a claim; rebinding it is the P1a laundering bug)."""
+    lowered = str(text or "").strip().lower()
+    return (
+        lowered.startswith(_INSUFFICIENT_EVIDENCE_DISCLOSURE_PREFIX)
+        or lowered.startswith(_DEGRADED_VERIFY_DISCLOSURE_PREFIX)
+    )
+
+
+def partition_composed_disclosures(units: list) -> "tuple[list[str], list[str]]":
+    """Split a ``_compose_section_per_basket`` result into ``(real_units, degraded_disclosures)``.
+
+    A pure degraded-verify disclosure unit (``[verification incomplete: ...]``) is HELD ASIDE so it
+    NEVER enters the strict_verify-bound draft (where ``_repair_untokened_draft`` could rebind it or
+    ``strict_verify`` would drop it). Every other unit passes through UNCHANGED, byte-for-byte (the
+    common case), so when PG_DEGRADED_VERIFY_DISCLOSURE is OFF — no such label is ever produced — this
+    is a pure no-op and the caller's ``raw`` is byte-identical. Order-stable."""
+    real: list[str] = []
+    disclosures: list[str] = []
+    for unit in (units or []):
+        if _is_degraded_verify_disclosure_unit(unit):
+            disclosures.append(str(unit).strip())
+        else:
+            real.append(unit)
+    return real, disclosures
+
+
+def render_degraded_disclosures(body: str, disclosures: list) -> str:
+    """Append the held-aside degraded-verify disclosure(s) to the section ``body`` (already produced by
+    strict_verify + the render screens). They are marker-less honest disclosures — NOT verified prose,
+    NOT counted as support, NEVER re-run through strict_verify — so this is a pure render-layer append
+    (the SAME faithfulness class as the section-level gap stub). When ``body`` is empty (the whole
+    section was degraded), the DISTINCT disclosure IS the body. Empty ``disclosures`` => ``body``
+    unchanged (byte-identical)."""
+    kept_disclosures = [str(d).strip() for d in (disclosures or []) if d and str(d).strip()]
+    if not kept_disclosures:
+        return body
+    parts: list[str] = []
+    body_str = str(body or "").rstrip()
+    if body_str:
+        parts.append(body_str)
+    parts.extend(kept_disclosures)
+    return "\n\n".join(parts)
+
+
 def _compose_one_basket(
     basket: Any,
     evidence_pool: dict,
@@ -638,8 +845,12 @@ def _compose_one_basket(
         # If some sentences were kept before the failure, keep them + the verbatim span (never lose
         # already-verified prose); else the span alone.
         return " ".join(kept + [fallback]) if kept else fallback
-    return " ".join(kept + [_insufficient_evidence_disclosure(basket)]) if kept \
-        else _insufficient_evidence_disclosure(basket)
+    # I-deepfix-001 Wave-3 PART 2 ARM B (#1344): no verified span. Default the honest gap, BUT when a
+    # transient judge outage left DETERMINISTIC_ONLY (grounded-but-unentailed) members, disclose THAT
+    # instead of "no evidence". Only the LABEL changes — no DETERMINISTIC_ONLY prose is ever promoted
+    # into verified text; the ENTAILMENT_VERIFIED gate is untouched. OFF => the bare gap => byte-identical.
+    disclosure = _no_verified_span_disclosure(basket)
+    return " ".join(kept + [disclosure]) if kept else disclosure
 
 
 # ── I-beatboth-002 Fix 1 (F1-1) — multi-cited verified synthesis ──────────────────────────────────
@@ -975,6 +1186,148 @@ def compose_basket_multicited_sentence(
     return build_verified_span_draft(basket, evidence_pool)
 
 
+# ── I-deepfix-001 Wave-3 PART 1 (#1344) — COMPANION-FIGURE COMPOSE producer ─────────────────────────
+
+
+def _member_sentence_units_with_percents(
+    member: Any,
+    evidence_pool: dict,
+    *,
+    known_words: "set[str] | None" = None,
+) -> list[tuple]:
+    """The member's direct_quote split into sentence UNITS that carry a percent figure, each as
+    ``(evidence_id, sentence_text, global_start, global_end, percents)`` — GLOBAL offsets into
+    ``evidence_pool[eid]`` (via ``_member_global_span``) so the emitted ``[#ev:eid:s-e]`` token
+    resolves against exactly the bytes ``strict_verify`` reads.
+
+    Each unit is a whole sentence lifted VERBATIM from the member's own quote (so ``(s, e)`` is
+    strictly WITHIN the member's verified region by construction — off >= 0, e <= quote end — and
+    always clears the basket-region gate). Chrome / truncated-fragment units are screened out
+    (``_compose_junk_screen`` with ``require_sentence_form=True``); units with no percent are dropped
+    (they can never be a companion figure). ``percents`` is ``overstatement_guard._primacy_percents``
+    output for that unit — the SAME detector the primacy advisory uses, so companion and label agree.
+    Pure read; no faithfulness state touched. Returns ``[]`` when the member has no resolvable span."""
+    from src.polaris_graph.generator import overstatement_guard as _osg  # noqa: PLC0415
+    out: list[tuple] = []
+    eid = str(getattr(member, "evidence_id", "") or "")
+    quote = str(getattr(member, "direct_quote", "") or "")
+    gspan = _member_global_span(member, evidence_pool)
+    if not eid or not quote or gspan is None:
+        return out
+    gstart = gspan[0]
+    # I-deepfix-001 Wave-3 PART 1 P2 (#1344): track a running search cursor so a REPEATED identical
+    # sentence resolves to its TRUE (iterated) offset, not always the first occurrence. The cursor
+    # advances past EVERY located unit (screened or kept) so later duplicates align correctly.
+    cursor = 0
+    for u in split_into_sentences(quote):
+        u = u.strip()
+        if not u:
+            continue
+        off = quote.find(u, cursor)
+        if off < 0:
+            # Fall back to a global search (splitter normalization edge) so a locatable unit is not
+            # silently lost; if still absent, skip it.
+            off = quote.find(u)
+            if off < 0:
+                continue
+        else:
+            cursor = off + len(u)  # advance past this occurrence for the next iteration
+        # Input hygiene: drop allowlist chrome AND subjectless / mid-word-truncated fragments (the
+        # K-span PRODUCER screen), so a companion is always a whole real source sentence.
+        if _compose_junk_screen(u, known_words, require_sentence_form=True):
+            continue
+        s = gstart + off
+        e = s + len(u)
+        pcts = _osg._primacy_percents(u)
+        if not pcts:
+            continue  # no percent figure -> can never be a same-kind companion
+        out.append((eid, u, s, e, pcts))
+    return out
+
+
+def compose_companion_figure_units(
+    basket: Any,
+    evidence_pool: dict,
+    composed_unit: str,
+    *,
+    verify_fn: Callable[..., Any],
+) -> list[str]:
+    """Surface the same-kind companion percent(s) a basket member's own span carries but the composed
+    headline OMITS — as VERBATIM span slices, re-verified by the UNCHANGED ``strict_verify``.
+
+    The gate is BYTE-FOR-BYTE ``overstatement_guard.primacy_frame_reason`` (shared constants
+    ``_PRIMACY_MIN_ABS_GAP_PCT`` / ``_PRIMACY_MIN_RATIO`` + the same measure-stem test), so a surfaced
+    companion and the primacy advisory label ALWAYS agree: a member-span percent is surfaced iff it
+    (a) is NOT already present in the headline, (b) shares a measure-context stem with a headline
+    percent, and (c) differs from it MATERIALLY (absolute percentage-point gap AND ratio). The
+    surfaced sentence is the member's OWN verbatim sentence tagged with its REAL global offsets, so it
+    re-passes ``verify_fn`` trivially and lands within the basket's own member regions
+    (``_tokens_within_basket_regions``) — kept ONLY if BOTH hold. NO connective / lead-in / aggregate
+    predicate is ever added (zero non-span words), so no unlicensed frame and no relational quantifier
+    can arise; each sentence is one source's own words (single-source attribution, exactly like the
+    headline — it asserts NO corroboration and never touches the >=2 distinct-origin floor).
+
+    Returns the kept companion sentences (each already ``[#ev:]``-tagged). Empty when the headline has
+    no percent, no member carries a qualifying companion, or every candidate fails verify/region."""
+    from src.polaris_graph.generator import overstatement_guard as _osg  # noqa: PLC0415
+    kept: list[str] = []
+    headline_bare = _EV_TOKEN_RE.sub(" ", composed_unit or "")
+    headline_pcts = _osg._primacy_percents(headline_bare)
+    if not headline_pcts:
+        return kept  # the headline states no percent -> nothing to be one-sided about
+    # already-present numbers (incl. the headline's own percents) are never re-surfaced.
+    already: set[str] = set(_number_tokens(composed_unit or ""))
+    scoped = _basket_scoped_pool(basket, evidence_pool)
+    regions = _basket_member_regions(basket, evidence_pool)
+    known_words = _known_words_for_compose(evidence_pool)
+    seen_span_keys: set[tuple] = set()
+    for member in _basket_supports_members(basket):
+        for (eid, text, s, e, pcts) in _member_sentence_units_with_percents(
+            member, evidence_pool, known_words=known_words,
+        ):
+            # Does this unit carry at least ONE qualifying companion percent (same-kind, materially
+            # different, not already in the headline)? Reuses the primacy gate verbatim.
+            qualifies = False
+            for (c_str, c_val, c_stems) in pcts:
+                if c_str in already:
+                    continue
+                for (_h_str, h_val, h_stems) in headline_pcts:
+                    if not (c_stems & h_stems):
+                        continue  # different measure kind (no shared context stem)
+                    gap = abs(c_val - h_val)
+                    hi_val, lo_val = max(c_val, h_val), min(c_val, h_val)
+                    if gap < _osg._PRIMACY_MIN_ABS_GAP_PCT:
+                        continue  # not a material absolute gap (rounding neighbour)
+                    if lo_val <= 0.0 or (hi_val / lo_val) < _osg._PRIMACY_MIN_RATIO:
+                        continue  # not a material ratio
+                    qualifies = True
+                    break
+                if qualifies:
+                    break
+            if not qualifies:
+                continue
+            span_key = (eid, s, e)
+            if span_key in seen_span_keys:
+                continue  # already surfaced this exact unit (another of its percents also qualified)
+            sentence = f"{_strip_terminal_punct(text)} [#ev:{eid}:{s}-{e}]."
+            res = verify_fn(sentence, scoped)
+            vtext = str(getattr(res, "sentence", "") or "").strip() or sentence
+            # Keep ONLY if the UNCHANGED strict_verify passes AND the cited token lands within this
+            # basket's OWN member regions (anti-cross-claim; True by construction for a within-quote
+            # slice, kept as a belt-and-suspenders check).
+            if not bool(getattr(res, "is_verified", False)):
+                continue
+            if not _tokens_within_basket_regions(vtext, regions):
+                continue
+            seen_span_keys.add(span_key)
+            # record ALL of this unit's percents so a sibling unit restating the same figure is not
+            # surfaced twice (the primacy "already presented" invariant).
+            for (c_str, _cv, _cs) in pcts:
+                already.add(c_str)
+            kept.append(vtext)
+    return kept
+
+
 def _compose_section_per_basket(
     section_baskets: list,
     evidence_pool: dict,
@@ -1077,6 +1430,36 @@ def _compose_section_per_basket(
         seen_spans |= spans
         seen_texts.add(norm)
         out.append(composed)
+
+        # I-deepfix-001 Wave-3 PART 1 (#1344): COMPANION-FIGURE COMPOSE. DEFAULT-ON (OFF => this block is
+        # skipped => byte-identical). Surface the same-kind companion percent(s) this basket's members
+        # carry but the headline OMITTED — each a VERBATIM span slice re-verified by the UNCHANGED
+        # strict_verify (verify_fn) + own-region gate. Route each surfaced unit through the SAME in-scope
+        # dedup as `composed` (seen_spans / seen_texts / seen_numbers_by_footprint) so a TRUE duplicate
+        # collapses but a genuinely-new figure is kept. The kept units are already [#ev:]-tokened, so they
+        # ride the _draft_directly_tokened path and re-pass the UNCHANGED _rewrite_draft_with_spans +
+        # strict_verify tail in multi_section_generator exactly like every other composed unit.
+        if _companion_figure_compose_enabled():
+            for companion in compose_companion_figure_units(
+                basket, evidence_pool, composed, verify_fn=verify_fn,
+            ):
+                if not companion or not companion.strip():
+                    continue
+                c_spans = _resolved_spans(companion)
+                c_norm = " ".join(companion.split())
+                c_footprint = frozenset(c_spans)
+                if c_footprint and c_footprint in seen_numbers_by_footprint:
+                    c_numbers = _number_tokens(companion)
+                    if not (c_numbers - seen_numbers_by_footprint[c_footprint]):
+                        continue
+                    seen_numbers_by_footprint[c_footprint] = seen_numbers_by_footprint[c_footprint] | c_numbers
+                if c_spans and c_spans <= seen_spans and c_norm in seen_texts:
+                    continue
+                if c_footprint and c_footprint not in seen_numbers_by_footprint:
+                    seen_numbers_by_footprint[c_footprint] = _number_tokens(companion)
+                seen_spans |= c_spans
+                seen_texts.add(c_norm)
+                out.append(companion)
 
     # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
     # no call). ON => append analytical sentences (two engine-licensed verified atoms) on top of the
@@ -1231,6 +1614,14 @@ def repair_untokened_sentence(
     """
     if not sentence or not sentence.strip():
         return None
+    # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): a no-verified-span DISCLOSURE placeholder (the
+    # legacy insufficient-evidence gap OR the ARM-B degraded-verify label) is NOT a repair candidate —
+    # it must NEVER be rebound to a foreign SUPPORTS basket (that would launder an honest gap disclosure
+    # into a fabricated cited claim). Return it UNCHANGED (exactly as a tokened sentence is), so
+    # ``_repair_untokened_draft`` counts it as "not repaired" and leaves it as-is. Faithfulness: a
+    # disclosure is not a claim; rebinding it is the bug.
+    if _is_no_verified_span_disclosure(sentence):
+        return sentence
     # A sentence that already cites a span is not this path's concern — return it untouched.
     if _EV_TOKEN_RE.search(sentence):
         return sentence

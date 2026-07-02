@@ -228,13 +228,17 @@ def test_shell_member_is_unsupported_in_isolated_verify(monkeypatch):
     )
 
     row = {"evidence_id": "ev_128", "direct_quote": RUN7_CAPTCHA_SPAN, "authority_score": None}
-    verdict, tier = _verify_member_in_isolation(
+    # I-deepfix-001 Wave-3 P1b (#1344): _verify_member_in_isolation now returns a 3-tuple
+    # (span_verdict, member_tier, judge_unavailable). A shell span deterministically FAILS -> not a
+    # judge outage, so judge_unavailable is False.
+    verdict, tier, judge_unavailable = _verify_member_in_isolation(
         "Performing security verification protect against malicious bots.",
         row,
         verify_fn=verify_sentence_provenance,
     )
     assert verdict == "UNSUPPORTED"
     assert tier == MEMBER_TIER_UNVERIFIED
+    assert judge_unavailable is False
 
 
 def test_shell_absent_from_corroborated_weighted_findings(monkeypatch):
@@ -254,7 +258,8 @@ def test_shell_absent_from_corroborated_weighted_findings(monkeypatch):
     )
 
     row = {"evidence_id": "ev_128", "direct_quote": RUN7_CAPTCHA_SPAN, "authority_score": None, "tier": "T7"}
-    verdict, tier = _verify_member_in_isolation(
+    # I-deepfix-001 Wave-3 P1b (#1344): 3-tuple return (judge_unavailable ignored here).
+    verdict, tier, _judge_unavailable = _verify_member_in_isolation(
         "Performing security verification protect against malicious bots.",
         row,
         verify_fn=verify_sentence_provenance,

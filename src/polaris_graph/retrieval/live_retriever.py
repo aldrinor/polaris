@@ -592,6 +592,20 @@ class LiveRetrievalResult:
     # (the W5 block never ran) => byte-identical OFF path. PURE telemetry: credibility stays a
     # WEIGHT (no drop, no abort — §-1.3); the faithfulness engine is untouched.
     credibility_tiering_status: dict[str, Any] = field(default_factory=dict)
+    # I-deepfix-001 (wall/tiering-abort fix, #1344) P1a: fetch-SUBWALL disclosure —
+    # DISTINCT from `retrieval_wall_hit`. True iff the content-fetch batch was bounded to a
+    # FRACTION of the remaining wall (PG_RETRIEVAL_FETCH_WALL_FRACTION < 1.0) AND that cutoff
+    # actually fired (some tasks timed out or were never dispatched before the fetch cutoff).
+    # Those candidates flow on as ordinary `fetch_failed` and are DISCLOSED here as a wall
+    # cutoff (§-1.3 disclose-don't-drop), never silently dropped. Kept SEPARATE from
+    # `retrieval_wall_hit` because the FULL retrieval wall did NOT trip — every planned
+    # sub-query fired and the classify/W5 loop kept its reserved slice — so flipping
+    # `retrieval_wall_hit` would emit a misleading "N sub-queries unfired" note. Defaults keep
+    # existing constructors byte-identical + the OFF path (fraction=1.0 => no subwall =>
+    # False/0). `*_count` mirror parallel_report.timeout_count / not_dispatched_count.
+    fetch_subwall_hit: bool = False
+    fetch_subwall_timeout_count: int = 0
+    fetch_subwall_not_dispatched_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1644,6 +1658,70 @@ def _retrieval_wall_seconds() -> float:
     fetch-timeout storm cannot grind for an hour. Pure (env-only); unit-testable.
     """
     return _env_float("PG_RETRIEVAL_WALL_SECONDS", 1800.0)
+
+
+def _retrieval_fetch_wall_fraction() -> float:
+    """I-deepfix-001 (wall/tiering-abort fix, #1344): the FRACTION of the REMAINING
+    retrieval wall the content-FETCH batch may consume, so slow web-fetch cannot eat the
+    ENTIRE ``PG_RETRIEVAL_WALL_SECONDS`` and starve the post-fetch classify loop (which
+    builds the corpus + defers W5 credibility-tiering). The remainder of the wall is
+    reserved for classification.
+
+    Read at CALL time (LAW VI — env-overridable per run). Exactly three outcomes:
+      * ``PG_RETRIEVAL_FETCH_WALL_FRACTION`` UNSET  -> ``0.75`` (the DEFAULT-ON cap).
+      * a valid finite float in ``(0.0, 1.0]``      -> that value.
+      * ANY set-but-invalid value (non-numeric, NaN/inf, zero, negative, or > 1.0)
+        -> ``1.0`` = LEGACY full-wall fetch budget, byte-for-byte.
+
+    P2 fix (Codex REQUEST_CHANGES): the prior body routed through ``_env_float`` which
+    COERCES a garbage / NaN / zero / negative override to the 0.75 default BEFORE the
+    range check ever sees it — so a bad env silently imposed a 0.75 recall cap the operator
+    never validly requested. Reading the raw value and fail-SAFING every invalid override to
+    the legacy 1.0 full-wall makes the docstring's contract TRUE (a garbage knob widens the
+    fetch budget, never hides a drop). ``math`` is already imported (used by ``_env_float``).
+    Pure (env-only); unit-testable. Faithfulness-neutral: a source not fetched before the cap
+    is DISCLOSED via ``fetch_subwall_hit`` / ``notes``, never silently dropped (§-1.3).
+    """
+    raw = os.getenv("PG_RETRIEVAL_FETCH_WALL_FRACTION")
+    if raw is None:
+        return 0.75
+    try:
+        frac = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(frac) or not (0.0 < frac <= 1.0):
+        return 1.0
+    return frac
+
+
+def _retrieval_w2_wall_fraction() -> float:
+    """I-deepfix-001 (wall/tiering-abort fix, #1344) P1b: the FRACTION of the REMAINING
+    retrieval wall the default-on W2 content-relevance batch (Stage-1 reranker one-pass +
+    GLM escalation) may consume, so W2 cannot eat the ENTIRE remaining wall and re-starve the
+    post-fetch classify/W5 loop it was supposed to protect. The remainder is reserved for
+    classification.
+
+    Mirrors :func:`_retrieval_fetch_wall_fraction`'s fail-safe parser exactly. Three outcomes:
+      * ``PG_RETRIEVAL_W2_WALL_FRACTION`` UNSET     -> ``0.5`` (DEFAULT-ON: W2 gets at most
+        half the remaining wall; classify/W5 keeps the other half).
+      * a valid finite float in ``(0.0, 1.0]``      -> that value.
+      * ANY set-but-invalid value                   -> ``1.0`` = pass the FULL retrieval
+        deadline unchanged = byte-identical to the pre-P1b threading.
+
+    Read at CALL time (LAW VI). Pure (env-only); unit-testable. Faithfulness-neutral: W2 only
+    STOPS earlier — content_relevance_judge's always-release keeps un-scored / un-escalated
+    passages at FULL weight (never demote-on-timeout, never drop — §-1.3).
+    """
+    raw = os.getenv("PG_RETRIEVAL_W2_WALL_FRACTION")
+    if raw is None:
+        return 0.5
+    try:
+        frac = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(frac) or not (0.0 < frac <= 1.0):
+        return 1.0
+    return frac
 
 
 class CorpusTruncationError(RuntimeError):
@@ -3330,7 +3408,17 @@ def _fetch_content(
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
-    content = _strip_html(result.content)[:max_chars]
+    # I-deepfix-001 wave-2 4IR (#1344): strip fetch chrome (Jina/Crawl4AI reader
+    # preamble + Cookiebot/Usercentrics consent-manager taxonomy) BEFORE the char
+    # cap — the same extract→clean→cap order already used at
+    # frame_fetcher.py:1216-1234. Gated DEFAULT-ON by PG_FETCH_COOKIE_CHROME_STRIP;
+    # flag OFF ("0") is byte-identical to the prior _strip_html(...)[:max_chars].
+    # Input hygiene only — strict_verify / NLI / 4-role / span-grounding untouched.
+    _stripped_body = _strip_html(result.content)
+    if os.getenv("PG_FETCH_COOKIE_CHROME_STRIP", "1") != "0":
+        from src.tools.access_bypass import clean_fetch_body
+        _stripped_body = clean_fetch_body(_stripped_body).cleaned_text
+    content = _stripped_body[:max_chars]
     # BB5-C05 (#1177): "fetched-200-but-empty-extract" — the backend fetched
     # real content (success + non-empty result.content) yet the extractor chain
     # (trafilatura → readability → regex) collapsed it below the usable floor.
@@ -5071,6 +5159,12 @@ def run_live_retrieval(
     _parallel_completion_rate: float | None = None
     _fetch_workers: int | None = None
     _distinct_hosts: int | None = None
+    # I-deepfix-001 (wall/tiering-abort fix, #1344) P1a: fetch-SUBWALL disclosure
+    # counters. Stay False/0 on the serial-fallback / no-candidate path so that path is
+    # byte-identical (the subwall only exists when the parallel fetch batch actually ran).
+    _fetch_subwall_hit = False
+    _fetch_subwall_timeout = 0
+    _fetch_subwall_not_dispatched = 0
 
     if use_parallel and candidates:
         from src.polaris_graph.audit_ir.parallel_fetch import (
@@ -5166,6 +5260,24 @@ def run_live_retrieval(
                 )
             )
         fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
+        # I-deepfix-001 (wall/tiering-abort fix, #1344): bound the fetch batch to a
+        # FRACTION of the remaining retrieval wall so slow web-fetch cannot consume the
+        # ENTIRE wall and leave the post-fetch classify loop (which builds the corpus and
+        # defers W5 credibility-tiering) zero time — the starvation that produced an
+        # all-rules-floor T4-skewed corpus and a FALSE abort_corpus_approval_denied. The
+        # remainder of the wall is reserved for classification. Still hard-capped by the
+        # wall itself (fraction <= 1.0); PG_RETRIEVAL_FETCH_WALL_FRACTION=1.0 reproduces
+        # the legacy full-wall budget byte-for-byte. Faithfulness-neutral (§-1.3): a source
+        # not fetched before the cap is DISCLOSED via retrieval_wall_hit/notes, never
+        # silently dropped.
+        _fetch_wall_fraction = _retrieval_fetch_wall_fraction()
+        _fetch_now_mono = time.monotonic()
+        _fetch_deadline = min(
+            _retrieval_deadline,
+            _fetch_now_mono
+            + _fetch_wall_fraction
+            * max(0.0, _retrieval_deadline - _fetch_now_mono),
+        )
         parallel_report = parallel_fetch(
             fetch_tasks, fetcher,
             max_workers=max_workers,
@@ -5177,7 +5289,9 @@ def run_live_retrieval(
             # deadline = min(its derived budget, the wall). Without this the derived
             # budget (per_task_timeout * waves ≈ 3960s at FETCH_CAP=740) dwarfs the
             # 1800s wall and the wall could not cap the fetch grind.
-            overall_deadline_monotonic=_retrieval_deadline,
+            # I-deepfix-001 (wall/tiering-abort fix): use the fraction-reserved
+            # `_fetch_deadline` (<= `_retrieval_deadline`) so a classify slice survives.
+            overall_deadline_monotonic=_fetch_deadline,
         )
         # Run-log evidence: persist the substrate's report into
         # api_calls so the manifest sees a non-zero invocation count.
@@ -5190,6 +5304,45 @@ def run_live_retrieval(
         api_calls["parallel_fetch_timeout_count"] = (
             parallel_report.timeout_count
         )
+        # I-deepfix-001 (wall/tiering-abort fix, #1344) P1a: DISCLOSE the fetch-SUBWALL
+        # cutoff. When the fetch batch was bounded to a fraction of the remaining wall
+        # (_fetch_deadline < _retrieval_deadline) AND that cutoff actually bit (tasks timed
+        # out or were never dispatched before it), those candidates land as ordinary
+        # `fetch_failed` (a NOT_DISPATCHED task has no fetched_side entry -> ok=False -> the
+        # `fetch_failed` drop-reason below) with NO wall attribution. Surface a SEPARATE
+        # `fetch_subwall_hit` signal (NOT `retrieval_wall_hit` — the full retrieval wall did
+        # not trip: all queries fired and the classify loop kept its reserved slice) so the
+        # cutoff is DISCLOSED (§-1.3 disclose-don't-drop), never a silent drop. The
+        # fraction=1.0 legacy path keeps `_fetch_deadline == _retrieval_deadline` =>
+        # `_fetch_subwall_active` False => no note, fields stay False/0 = byte-identical OFF
+        # (a real cutoff under fraction=1.0 is already disclosed by the existing
+        # `retrieval_wall_hit` path in the post-fetch classify loop).
+        # I-deepfix-001 (wall/tiering-abort fix, #1344) P2 (Codex REQUEST_CHANGES): only
+        # POPULATE the subwall counts when the subwall is ACTUALLY active (fraction < 1.0
+        # => `_fetch_deadline < _retrieval_deadline`). When fraction=1.0 the subwall is OFF,
+        # so the three counters keep their 0/0/False init above — GENUINELY byte-identical
+        # OFF, never leaking parallel_report.timeout_count / not_dispatched_count into a
+        # `fetch_subwall_*` field the subwall never bounded. A real cutoff under fraction=1.0
+        # is disclosed by the existing `retrieval_wall_hit` + api_calls[
+        # "parallel_fetch_timeout_count"] paths instead, not by fetch_subwall_*.
+        _fetch_subwall_active = _fetch_deadline < _retrieval_deadline
+        if _fetch_subwall_active:
+            _fetch_subwall_timeout = parallel_report.timeout_count
+            _fetch_subwall_not_dispatched = parallel_report.not_dispatched_count
+            _fetch_subwall_hit = (
+                _fetch_subwall_timeout > 0 or _fetch_subwall_not_dispatched > 0
+            )
+        if _fetch_subwall_hit:
+            _subwall_note = (
+                f"fetch_subwall_hit: fetch batch bounded to "
+                f"{_fetch_wall_fraction:.2f} of the remaining retrieval wall "
+                f"(PG_RETRIEVAL_FETCH_WALL_FRACTION) to reserve a classify/W5 slice; "
+                f"{_fetch_subwall_timeout} timed out and "
+                f"{_fetch_subwall_not_dispatched} never dispatched before the fetch "
+                f"cutoff — DISCLOSED (flow on as fetch_failed), NOT dropped (§-1.3)"
+            )
+            logger.warning("[live_retriever] %s", _subwall_note)
+            notes.append(_subwall_note)
         # BB5-S02 (#1177): surface the leaked-bypass-worker gauge (abandoned
         # in-flight workers that may hold orphan browser subprocesses) into the
         # manifest so the resource-leak signal is auditable, not log-only.
@@ -5328,13 +5481,27 @@ def run_live_retrieval(
         for _wi, _wcand in enumerate(candidates):
             _wcontent = fetched_side.get(_wcand.url, ("", False, "", "", ""))[0]
             _w2_passages.append((_wi, _wcand.url, _wcontent or ""))
-        # I-deepfix-001 W06 (#1344): thread the retrieval-phase deadline into the W2
-        # escalation pool so a mis-calibrated reranker that escalates the whole mid-band
-        # cannot run the GLM pool past the retrieval wall. On expiry the remaining
-        # ambiguous passages are kept at FULL weight (always-release, no drop).
+        # I-deepfix-001 (wall/tiering-abort fix, #1344) P1b: bound W2 to a RESERVED SLICE of
+        # the remaining wall (PG_RETRIEVAL_W2_WALL_FRACTION, default 0.5) instead of the FULL
+        # retrieval deadline. The prior full-wall threading let W2 — whose Stage-1 reranker
+        # one-pass is NOT deadline-checked and whose GLM escalation could grind to ~600s —
+        # consume the entire remaining wall, so the per-candidate classify loop then tripped
+        # `> _retrieval_deadline` near-immediately and handed off a near-empty corpus: exactly
+        # the classify/W5 starvation the fetch subwall was built to prevent. Reserving half
+        # the remaining wall for classification closes that. =1.0 => `_w2_deadline ==
+        # _retrieval_deadline` = byte-identical to the prior threading. On expiry the remaining
+        # ambiguous passages are kept at FULL weight (always-release, no drop — §-1.3); the new
+        # pre-scoring guard in score_passages closes the zero-budget-at-entry case.
+        _w2_now = time.monotonic()
+        _w2_deadline = min(
+            _retrieval_deadline,
+            _w2_now
+            + _retrieval_w2_wall_fraction()
+            * max(0.0, _retrieval_deadline - _w2_now),
+        )
         _w2_report = score_passages(
             research_question, _w2_passages,
-            deadline_monotonic=_retrieval_deadline,
+            deadline_monotonic=_w2_deadline,
         )
         _w2_by_idx = _w2_report.by_idx()
         # Highest-visibility console event (point 8): the W2 disposition.
@@ -6221,13 +6388,27 @@ def run_live_retrieval(
             "tiering over %d sources",
             len(_deferred_tier_signals),
         )
-        # I-deepfix-001 W07 (#1344): thread the retrieval-phase deadline into the W5
-        # LLM-tiering batch so a mirror blank-200/trickle storm cannot grind the post-loop
-        # batch past the retrieval wall (run_live_retrieval runs SYNC on the event loop, so
-        # the run-level wall cannot preempt it). Un-returned sources keep the rules-floor.
+        # I-deepfix-001 (wall/tiering-abort fix, #1344): give the post-fetch W5 tiering
+        # batch its OWN fetch-INDEPENDENT budget instead of the retrieval wall. When slow
+        # web-fetch consumed the retrieval wall, threading the already-EXPIRED
+        # `_retrieval_deadline` here made the batch trip its very FIRST futures_wait
+        # (deadline already in the past) -> llm_success=0 -> tiering_mode=rules_floor_degraded
+        # -> every source stuck at the T4-skewing deterministic rules-floor -> corpus_approval
+        # counted those placeholder tiers -> FALSE material_deviation -> abort. Credibility
+        # tiering is a WEIGHT that must COMPLETE over every fetched source BEFORE the
+        # approval decision (§-1.3); the fetch wall must not starve it. Passing
+        # `deadline_monotonic=None` lets `_run_llm_tiering_parallel` anchor a FRESH wall at
+        # `now + PG_TIER_LLM_BATCH_WALL_SECONDS` (default 600s) — a guaranteed budget AFTER
+        # the fetch wall tripped. This CANNOT hang: the batch is still self-bounded by the
+        # in-flight worker cap (PG_TIER_LLM_WORKERS), its own total wall
+        # (PG_TIER_LLM_BATCH_WALL_SECONDS), the consecutive-fallback circuit-breaker
+        # (PG_TIER_LLM_DEGRADE_AFTER — a blank-200/trickle storm short-circuits fast), and a
+        # non-blocking pool teardown, so the original "don't grind past the wall" goal is
+        # still met by the batch's OWN wall. No source is dropped: an un-returned straggler
+        # still keeps its deterministic rules-floor tier (a WEIGHT, §-1.3).
         _tier_results = classify_sources_llm_tiering(
             _deferred_tier_signals,
-            deadline_monotonic=_retrieval_deadline,
+            deadline_monotonic=None,
         )
         # I-deepfix-001 D5 (#1344): capture the honest machine-readable batch status off the
         # TieringBatchResult so it survives to the durable manifest credibility disclosure
@@ -6351,4 +6532,10 @@ def run_live_retrieval(
         # llm_success_count / rules_floor_count / ...) -> durable manifest disclosure. {} on
         # the OFF path (W5 never ran) => byte-identical.
         credibility_tiering_status=_credibility_tiering_status,
+        # I-deepfix-001 (wall/tiering-abort fix, #1344) P1a: fetch-SUBWALL disclosure —
+        # SEPARATE from retrieval_wall_hit. False/0 on the byte-identical OFF path
+        # (fraction=1.0 / serial fallback / no candidates).
+        fetch_subwall_hit=_fetch_subwall_hit,
+        fetch_subwall_timeout_count=_fetch_subwall_timeout,
+        fetch_subwall_not_dispatched_count=_fetch_subwall_not_dispatched,
     )

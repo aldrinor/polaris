@@ -69,6 +69,11 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     # no_provenance_token=34 leak) — an untokened abstractive sentence is REPAIRED to
     # the nearest supporting basket's verified clause BEFORE strict_verify drops it.
     no_token_sentence_repair_enabled,
+    # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): HOLD the degraded-verify disclosure ASIDE out of the
+    # strict_verify-bound draft, then RENDER it back onto the section body post-verify (so it is never
+    # rebound by _repair_untokened_draft nor dropped no_provenance_token by strict_verify).
+    partition_composed_disclosures,
+    render_degraded_disclosures,
     repair_untokened_sentence,
     split_into_sentences,
 )
@@ -1186,6 +1191,13 @@ class MultiSectionResult:
     # from this (run_honest_sweep_r3._cwf_disclosed_block). NOT a drop — a ROUTE; the faithfulness
     # engine is untouched.
     cwf_disclosed_sources: list[dict[str, Any]] = field(default_factory=list)
+    # I-deepfix-001 wave-3 (conclusion true-drop): the grounded DEPTH cross-source findings produced by
+    # depth_synthesis.synthesize_cross_source_findings, attached by the SWEEP lane (run_honest_sweep_r3)
+    # when PG_DEPTH_SYNTHESIS_D8_GATE is ON so the native Gate-B builder can thread each finding through
+    # the 4-role D8 seam as one S3/observe-only DS-* claim (a non-VERIFIED finding is DROPPED from
+    # report.md). Each item is {"sentence", "tier", "label", "audit_sentence", "tokens"}. Empty when the
+    # gate is OFF or the depth layer produced nothing (byte-identical: the builder no-ops on empty).
+    synthesized_findings: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -3697,11 +3709,12 @@ def _recover_via_sibling_basket(
             # INDEPENDENT FULL-CLAIM entailment on the sibling's OWN single span —
             # the EXACTLY-ONE-token isolation verify (no union laundering). The
             # injected verify_fn is the SAME production strict_verify gate.
-            # I-arch-010 FIX-2 Step 0: _verify_member_in_isolation now returns the
-            # (span_verdict, member_tier) 2-tuple — destructure so the guard still compares
-            # the BINARY span_verdict (not the whole tuple, which would always be != "SUPPORTS"
-            # and silently kill this sibling re-anchor leg).
-            verdict, member_tier = _verify_member_in_isolation(
+            # I-arch-010 FIX-2 Step 0 + I-deepfix-001 Wave-3 P1b (#1344): _verify_member_in_isolation
+            # now returns the (span_verdict, member_tier, judge_unavailable) 3-tuple — destructure so
+            # the guard still compares the BINARY span_verdict (not the whole tuple, which would always
+            # be != "SUPPORTS" and silently kill this sibling re-anchor leg). judge_unavailable is
+            # irrelevant to this SUPPORTS-only re-anchor gate, so it is ignored.
+            verdict, member_tier, _judge_unavailable = _verify_member_in_isolation(
                 safe_text, sibling_row, verify_fn=verify_sentence_provenance,
             )
             if verdict != "SUPPORTS":
@@ -4402,6 +4415,10 @@ async def _run_section(
     # They flow straight to the UNCHANGED _rewrite_draft_with_spans + strict_verify
     # tail instead (faithfulness gate untouched).
     _draft_directly_tokened = False
+    # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): degraded-verify disclosure(s) HELD ASIDE from the
+    # verified-compose PRIMARY draft (below). Empty for every other branch and when
+    # PG_DEGRADED_VERIFY_DISCLOSURE is OFF => the render append is a no-op => byte-identical.
+    _vc_degraded_disclosures: list[str] = []
     if _evsr:
         # FIX K: deterministic verbatim-span draft — NO LLM. Each source's own
         # sentence-units (legacy [ev_id]-tagged per unit) feed the UNCHANGED
@@ -4508,7 +4525,16 @@ async def _run_section(
         # section producer takes the unchanged single-basket K-span path). Each multi-cited clause still
         # passes the UNCHANGED strict_verify per-clause in the _rewrite_draft_with_spans + strict_verify
         # tail below; faithfulness is untouched (composition layer only).
-        raw = "\n".join(c for c in _vc_composed if c and c.strip())
+        # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): HOLD ASIDE any degraded-verify disclosure
+        # placeholder (`[verification incomplete: ...]`) so it NEVER enters the strict_verify-bound `raw`
+        # — where _repair_untokened_draft could rebind its tokenless text to a foreign SUPPORTS basket, or
+        # strict_verify would drop it no_provenance_token (the Codex P1a bug). The held-aside disclosures
+        # are re-appended to the section body AFTER strict_verify + the render screens (below), as
+        # marker-less honest disclosures (never verified prose, never counted as support). When
+        # PG_DEGRADED_VERIFY_DISCLOSURE is OFF no such label is ever produced => partition is a no-op =>
+        # byte-identical.
+        _vc_real_units, _vc_degraded_disclosures = partition_composed_disclosures(_vc_composed)
+        raw = "\n".join(c for c in _vc_real_units if c and c.strip())
         # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
         # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
         # dropped no_provenance_token — the drb_72 leak), rebind any untokened sentence to the nearest
@@ -4930,6 +4956,19 @@ async def _run_section(
     if is_gap_stub:
         verified_text = _GAP_STUB_SENTENCE
     dropped_due_to_failure = False
+
+    # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): RENDER the held-aside degraded-verify disclosure(s)
+    # onto the section body — WITHOUT feeding them through strict_verify (Codex P1a). They are marker-less
+    # honest disclosures (a transient judge OUTAGE is disclosed, never a fabricated claim): NOT in
+    # kept_sentences_pre_resolve and NOT counted in sentences_verified (is_gap_stub / effective_verified
+    # below are untouched), so they never reach the D8 four-role gate as verified prose. When the real
+    # prose was empty (is_gap_stub), the DISTINCT degraded disclosure REPLACES the generic gap stub (the
+    # honest, specific disclosure the operator wants) while is_gap_stub STAYS True so the section is still
+    # treated as non-verified prose. Empty when ARM B is OFF => byte-identical.
+    if _vc_degraded_disclosures:
+        verified_text = render_degraded_disclosures(
+            "" if is_gap_stub else verified_text, _vc_degraded_disclosures,
+        )
 
     # I-deepfix-001 (Codex grpC iter2 P1) — gap-stub verified-accounting must ship ZERO
     # claims to the binding D8 four-role gate. A gap-stub section renders ONLY the

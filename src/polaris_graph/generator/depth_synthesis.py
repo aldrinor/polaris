@@ -70,6 +70,16 @@ _DEFAULT_WALL_DEADLINE_S = 720.0
 _ENV_MAX_FINDINGS = "PG_DEPTH_SYNTHESIS_MAX_FINDINGS"
 _DEFAULT_MAX_FINDINGS = 0  # 0 => unbounded (let breadth emerge); >0 => operator verbosity bound
 
+# I-deepfix-001 wave-3 (conclusion true-drop): the master default-ON gate for threading the grounded
+# depth cross-source findings through the SAME 4-role D8 seam the body passes. ON => each finding dict
+# additionally carries its PRE-resolve ``audit_sentence`` (with ``[#ev:...]`` tokens) + its
+# ``ProvenanceToken`` list so the native Gate-B builder can emit one S3/observe-only ``DS-*`` claim per
+# finding; a NON-VERIFIED synthesized finding is then DROPPED from report.md (TRUE drop-not-sink). OFF
+# => the two extra keys are omitted (finding dict byte-identical: sentence/tier/label only), no DS-*
+# claim is built, and the depth layer ships strict_verify-only-gated exactly as before. LAW VI:
+# env-overridable. STRENGTHENS faithfulness (adds a D8 pass + a real drop); relaxes nothing.
+_ENV_D8_GATE = "PG_DEPTH_SYNTHESIS_D8_GATE"
+
 # I-wire-013 (#1327) iter-3c — TWO-TIER per-basket labels (§-1.3 "don't drop, label weak weak"). The
 # cross-source LABEL decision moved from per-SENTENCE (the iter-2 P1, structurally near-unsatisfiable
 # because strict_verify grounds each sentence to ONE span) to per-BASKET distinct surviving origins:
@@ -113,6 +123,16 @@ def _env_float(name: str, default: float) -> float:
 def min_corroboration() -> int:
     """The cross-source corroboration floor (DEFINITIONAL, floored at 2 — never a single source)."""
     return max(_DEFAULT_MIN_SOURCES, _env_int(_ENV_MIN_SOURCES, _DEFAULT_MIN_SOURCES))
+
+
+def depth_synthesis_d8_gate_enabled() -> bool:
+    """Default ON. When ON, each grounded cross-source finding carries its PRE-resolve audit sentence
+    + ``ProvenanceToken`` list so the runner can thread it through the SAME 4-role D8 seam the body
+    passes (a non-VERIFIED synthesized finding is DROPPED from report.md — TRUE drop-not-sink). OFF =>
+    the finding dict is byte-identical (sentence/tier/label only) and no ``DS-*`` claim is built. The
+    ``>=2`` distinct-origin floor + the cross/single two-tier split are UNCHANGED either way — this gate
+    only adds a D8 pass + a real drop; it never relaxes the faithfulness engine."""
+    return os.getenv(_ENV_D8_GATE, "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _resolve_model() -> str:
@@ -416,10 +436,18 @@ def synthesize_cross_source_findings(
             continue
         # Collect THIS basket's kept+resolved sentences AND its distinct surviving origins (the union
         # across all kept sentences). The two-tier label is decided ONCE per basket after this loop.
-        basket_sentences: list[str] = []
+        # I-deepfix-001 wave-3: each element is a TRIPLE (rendered_[N]_sentence, audit_sentence_pre-
+        # resolve, tokens). The audit sentence (carrying ``[#ev:...]`` tokens) + its ProvenanceToken
+        # list are captured BEFORE token->[N] resolution; the rendered sentence is the post-resolution
+        # [N] form that ships in report.md. They become the D8 seam inputs when the gate is ON.
+        basket_sentences: list[tuple[str, str, list]] = []
         basket_origins: set[str] = set()
         for sv in (getattr(report, "kept_sentences", None) or []):
-            sentence = str(getattr(sv, "sentence", "") or "").strip()
+            # PRE-resolve audit sentence + its provenance tokens (the D8 inputs), captured BEFORE the
+            # token->[N] resolution below mutates ``sentence`` into the rendered form.
+            audit_sentence = str(getattr(sv, "sentence", "") or "").strip()
+            toks = list(getattr(sv, "tokens", None) or [])
+            sentence = audit_sentence
             if not sentence:
                 continue
             # The DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS
@@ -450,7 +478,7 @@ def synthesize_cross_source_findings(
                 origin_keys = set(surviving_ids)
             if not sentence or screen(sentence):
                 continue
-            basket_sentences.append(sentence)
+            basket_sentences.append((sentence, audit_sentence, toks))
             basket_origins |= origin_keys
         if not basket_sentences:
             continue  # nothing re-grounded -> faithfulness drop (drop-not-fallback)
@@ -458,12 +486,21 @@ def synthesize_cross_source_findings(
         # collapse case (1 surviving origin) -> single_source-attributed (surfaced + labeled, §-1.3).
         tier = _TIER_CROSS_SOURCE if len(basket_origins) >= floor else _TIER_SINGLE_SOURCE
         label = "" if tier == _TIER_CROSS_SOURCE else _SINGLE_SOURCE_LABEL
-        for sentence in basket_sentences:
-            key = re.sub(r"\s+", " ", sentence).strip().lower()
+        carry_d8 = depth_synthesis_d8_gate_enabled()
+        for rendered, audit_sentence, toks in basket_sentences:
+            key = re.sub(r"\s+", " ", rendered).strip().lower()
             if key in seen:
                 continue
             seen.add(key)
-            findings.append({"sentence": sentence, "tier": tier, "label": label})
+            finding: dict = {"sentence": rendered, "tier": tier, "label": label}
+            if carry_d8:
+                # The PRE-resolve audit sentence (carries [#ev:...] tokens) + its ProvenanceToken list
+                # are the D8 seam inputs. ``build_depth_layer`` reads ONLY sentence/tier/label, so these
+                # two extra keys are inert to the render; the native Gate-B builder consumes them. Gate
+                # OFF => keys omitted => the dict is byte-identical to the pre-change shape.
+                finding["audit_sentence"] = audit_sentence
+                finding["tokens"] = toks
+            findings.append(finding)
             if cap > 0 and len(findings) >= cap:
                 break
     return findings

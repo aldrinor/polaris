@@ -438,6 +438,174 @@ def to_unified_status(summary_status: str) -> str:
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
 
 
+def _depth_d8_true_drop(
+    *,
+    report_path,
+    final_verdicts: dict,
+    audit_map: dict,
+    manifest: dict,
+    research_question: str,
+    log,
+) -> "tuple[dict, dict]":
+    """I-deepfix-001 wave-3 (conclusion) CHANGE 4 — TRUE drop-not-sink for the grounded DEPTH
+    cross-source findings.
+
+    The depth findings entered the 4-role gate as S3/observe-only ``DS-*`` claims
+    (native_gate_b_inputs). A NON-VERIFIED depth finding must be DROPPED from report.md (refuse-in-
+    place to the visible gap) — NOT kept+labeled — REGARDLESS of the always-release annotate path the
+    SECTION claims take. A rendered depth finding that was never JUDGED (its evidence failed to
+    resolve, so no DS-* claim was built => absent from ``final_verdicts``) is fail-closed dropped too.
+    VERIFIED depth findings SURVIVE verbatim (reconcile skips VERIFIED). The two-tier label on
+    survivors is untouched (this only DROPS, never relabels — cross/single stays honest).
+
+    Runs the depth reconcile FIRST (writes report.md), then returns the SECTION-ONLY
+    ``(final_verdicts, non_verified)`` with EVERY is_synthesized cid removed, so the caller's existing
+    annotate/reconcile then runs ONLY over the section claims, over the depth-reconciled text.
+    Faithfulness-STRENGTHENING: depth can only LOSE a finding here, never gain one; §-1.3 is honored
+    (dropping a synthesized DIGEST sentence removes no basket, no bibliography row, no body citation —
+    the underlying sources still weight + consolidate in the body); the section path + release
+    decision are byte-unchanged.
+    """
+    from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+        ReportRedactionError,
+        reconcile_report_against_verdicts,
+    )
+
+    def _is_synth(cid: str) -> bool:
+        return bool((audit_map.get(cid) or {}).get("is_synthesized"))
+
+    # DROP set: judged non-VERIFIED depth claims + any rendered-but-unjudged is_synthesized claim
+    # (present in audit_map, absent from final_verdicts) as a fail-closed UNSUPPORTED drop.
+    depth_drop = {
+        cid: v for cid, v in final_verdicts.items() if _is_synth(cid) and v != "VERIFIED"
+    }
+    for cid, meta in audit_map.items():
+        if bool((meta or {}).get("is_synthesized")) and cid not in final_verdicts:
+            depth_drop[cid] = "UNSUPPORTED"
+
+    # SECTION-only verdicts (strip EVERY is_synthesized cid) for the caller's existing path.
+    section_verdicts = {cid: v for cid, v in final_verdicts.items() if not _is_synth(cid)}
+    section_nonverified = {cid: v for cid, v in section_verdicts.items() if v != "VERIFIED"}
+    if not depth_drop:
+        return section_verdicts, section_nonverified
+
+    try:
+        _dd = reconcile_report_against_verdicts(
+            report_path.read_text(encoding="utf-8"), depth_drop, audit_map
+        )
+    except ReportRedactionError as _dd_exc:
+        # Essentially unreachable (a depth finding renders as a redactable "- ..." body line; the
+        # report_redactor TIER-4 section-fallback bounds it). Defensive fail-closed: WITHHOLD the
+        # findings body rather than ship an un-dropped depth leak (the established B16 pattern).
+        # Preserve the unredacted body for the curator. No depth OR section claim ships. Return EMPTY
+        # section verdicts so the caller's annotate/reconcile is a harmless no-op over the degraded body.
+        try:
+            (report_path.parent / "report_unredacted.md").write_text(
+                report_path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+        except OSError:
+            pass
+        _summary = "released_with_disclosed_gaps"
+        manifest["status"] = to_unified_status(_summary)
+        manifest["release_allowed"] = True
+        manifest["report_redaction_error"] = str(_dd_exc)
+        manifest.setdefault("disclosed_gaps", []).append(
+            "depth_synthesis_redaction_unpinnable: a non-VERIFIED cross-source depth finding could "
+            f"not be bounded for surgical removal ({_dd_exc}); the findings body was withheld and "
+            "replaced by this disclosure (unredacted body kept as report_unredacted.md). No "
+            "unverified claim ships."
+        )
+        report_path.write_text(
+            build_finalizer_artifact_body(
+                research_question=research_question,
+                status=_summary,
+                error=(
+                    "post-gate depth-synthesis redaction could not surgically quarantine a non-"
+                    f"VERIFIED cross-source finding ({_dd_exc}); the findings body was withheld."
+                ),
+            ),
+            encoding="utf-8",
+        )
+        log(f"[depth-drop]   FAIL-CLOSED (unpinnable depth finding): {_dd_exc} -> withheld body")
+        return {}, {}
+
+    report_path.write_text(_dd.report_text, encoding="utf-8")
+    if _dd.redacted:
+        # Polish only (never a faithfulness step): tidy a now-empty depth subhead so it does not
+        # render bare. No-op when nothing to tidy.
+        try:
+            from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+                refilter_key_findings_block,
+            )
+            _tidied = refilter_key_findings_block(_dd.report_text)
+            if _tidied != _dd.report_text:
+                report_path.write_text(_tidied, encoding="utf-8")
+        except Exception as _tidy_exc:  # noqa: BLE001 — polish only; never break the run
+            log(f"[depth-drop]   subhead tidy skipped (fail-open): {_tidy_exc}")
+    log(
+        "[depth-drop]   depth D8 true-drop: dropped="
+        f"{_dd.redacted_count} already_absent={len(_dd.already_absent)} "
+        f"depth_claims={len(depth_drop)} (section claims -> annotate/reconcile)"
+    )
+    return section_verdicts, section_nonverified
+
+
+def _depth_true_drop_when_all_verified(
+    *,
+    report_path,
+    audit_map_path,
+    final_verdicts: dict,
+    manifest: dict,
+    research_question: str,
+    log,
+) -> "tuple[dict, dict, bool]":
+    """I-deepfix-001 wave-3 (conclusion) CHANGE 4 — P1 CALLER fix.
+
+    The section reconcile chain in ``run_one_query`` short-circuits on ``if not
+    _nonverified_verdicts`` (every JUDGED 4-role verdict is VERIFIED). Both existing
+    ``_depth_d8_true_drop`` call sites live in the LATER ``elif`` branches, so that short-circuit
+    would SKIP the depth reconcile entirely — and a rendered synthesized ``DS-*`` bullet whose claim
+    was NEVER judged (an ``is_synthesized`` row present in the audit_map yet ABSENT from
+    ``final_verdicts`` — its evidence failed to resolve so no D8 claim was built) would then SHIP
+    un-adjudicated. Fail-closed: a synthesized cross-source claim that D8 never adjudicated cannot
+    ship. This runs the depth true-drop EVEN when there are zero non-VERIFIED verdicts, so the depth
+    reconcile is NOT gated on ``_nonverified_verdicts`` being non-empty (the Codex P1).
+
+    Returns ``(final_verdicts, nonverified_verdicts, ran)``. ``ran`` is True iff the depth gate is ON,
+    both artifacts exist on disk, AND at least one droppable synthesized row is present
+    (``is_synthesized`` AND either unjudged or judged non-VERIFIED) — in which case
+    ``_depth_d8_true_drop`` ran and rewrote ``report_path``. When ``ran`` is False this is a
+    byte-identical no-op and the caller keeps the legacy skip log: gate OFF, a missing artifact, or
+    no synthesized row to drop (every synthesized claim judged VERIFIED == the legacy all-verified
+    no-op). STRENGTHENS faithfulness (it can only DROP an un-adjudicated bullet to the visible gap;
+    it removes no basket, no bibliography row, no body citation, and touches no section claim);
+    relaxes nothing. The ``>=2`` distinct-origin floor lives upstream and is untouched.
+    """
+    section_nonverified = {cid: v for cid, v in final_verdicts.items() if v != "VERIFIED"}
+    from src.polaris_graph.generator.depth_synthesis import (  # noqa: PLC0415
+        depth_synthesis_d8_gate_enabled as _depth_d8_gate,
+    )
+    if not (_depth_d8_gate() and report_path.is_file() and audit_map_path.is_file()):
+        return final_verdicts, section_nonverified, False
+    audit_map = json.loads(audit_map_path.read_text(encoding="utf-8"))
+    droppable = any(
+        bool((meta or {}).get("is_synthesized"))
+        and (cid not in final_verdicts or final_verdicts.get(cid) != "VERIFIED")
+        for cid, meta in audit_map.items()
+    )
+    if not droppable:
+        return final_verdicts, section_nonverified, False
+    new_final, new_nonverified = _depth_d8_true_drop(
+        report_path=report_path,
+        final_verdicts=final_verdicts,
+        audit_map=audit_map,
+        manifest=manifest,
+        research_question=research_question,
+        log=log,
+    )
+    return new_final, new_nonverified, True
+
+
 def build_attempted_zero_emit_section_stub(
     title: str,
     dropped_due_to_failure: bool,
@@ -14215,6 +14383,7 @@ async def run_one_query(
                 try:
                     from src.polaris_graph.generator.depth_synthesis import (
                         bib_num_by_evidence_id,
+                        depth_synthesis_d8_gate_enabled,
                         depth_synthesis_pre_pass,
                         make_depth_synthesizer,
                         synthesize_cross_source_findings,
@@ -14234,6 +14403,25 @@ async def run_one_query(
                             ),
                         )
                         _log(f"[depth-synthesis] grounded cross-source findings: {len(_synth_findings)}")
+                        # I-deepfix-001 wave-3 CHANGE 2: thread the grounded depth findings into the
+                        # 4-role D8 seam. Attach them to ``multi`` so the native Gate-B builder (called
+                        # AFTER generation, inside the seam) emits one S3/observe-only DS-* claim per
+                        # finding; a NON-VERIFIED depth finding is then DROPPED from report.md by the
+                        # post-seam depth reconcile (TRUE drop-not-sink). Default-ON gate; OFF => not
+                        # attached => the builder no-ops on the getattr default [] (byte-identical).
+                        # The counter log makes any future depth=0 attributable in real output.
+                        if depth_synthesis_d8_gate_enabled():
+                            multi.synthesized_findings = _synth_findings
+                            _ds_cross = sum(
+                                1 for _f in _synth_findings
+                                if isinstance(_f, dict) and _f.get("tier") != "single_source"
+                            )
+                            _log(
+                                "[depth-synthesis] D8-thread: baskets_total="
+                                f"{len(_baskets)} drafted={len(_ds_precomputed)} "
+                                f"kept_findings={len(_synth_findings)} "
+                                f"(cross={_ds_cross} single={len(_synth_findings) - _ds_cross})"
+                            )
                 except Exception as _ds_exc:  # noqa: BLE001 — additive synthesis; never abort the report
                     _log(f"[depth-synthesis] skipped (fail-open): {_ds_exc}")
             _depth_layer = build_depth_layer(
@@ -16047,10 +16235,30 @@ async def run_one_query(
                     cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
                 }
                 if not _nonverified_verdicts:
-                    _log(
-                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
-                        "reconciliation skipped (no-op)"
+                    # I-deepfix-001 wave-3 CHANGE 4 P1: even with ZERO non-VERIFIED 4-role verdicts, a
+                    # rendered synthesized DS-* bullet whose claim was NEVER judged (is_synthesized in
+                    # the audit_map but ABSENT from final_verdicts — its evidence failed to resolve so
+                    # no D8 claim was built) must be fail-closed DROPPED. Both existing depth-drop call
+                    # sites live in the LATER elif branches, so this short-circuit would otherwise skip
+                    # the reconcile and SHIP the un-adjudicated bullet. The depth true-drop must NOT be
+                    # gated on _nonverified_verdicts being non-empty. Runs only when the gate is ON +
+                    # both artifacts exist + a droppable synthesized row is present; otherwise a
+                    # byte-identical no-op that keeps the legacy skip log below.
+                    _final_verdicts, _nonverified_verdicts, _depth_dropped = (
+                        _depth_true_drop_when_all_verified(
+                            report_path=_redact_report_path,
+                            audit_map_path=_audit_map_path,
+                            final_verdicts=_final_verdicts,
+                            manifest=manifest,
+                            research_question=q.get("question", ""),
+                            log=_log,
+                        )
                     )
+                    if not _depth_dropped:
+                        _log(
+                            "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                            "reconciliation skipped (no-op)"
+                        )
                 elif not _redact_report_path.is_file():
                     _log(
                         "[redact]      report.md absent; nothing to reconcile (no shipped "
@@ -16122,6 +16330,23 @@ async def run_one_query(
                     # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
                     # (a present-but-unpinnable claim aborts rather than ship unlabeled).
                     _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
+                    # I-deepfix-001 wave-3 CHANGE 4: TRUE-drop the non-VERIFIED / unjudged DEPTH
+                    # cross-source findings FIRST (refuse-in-place, REGARDLESS of always-release), then
+                    # let the section annotate below run ONLY over the section claims, over the depth-
+                    # reconciled text. Default-ON gate; OFF => no DS-* cids exist so this is a no-op and
+                    # the section path sees the full verdicts (byte-identical to legacy).
+                    from src.polaris_graph.generator.depth_synthesis import (  # noqa: PLC0415
+                        depth_synthesis_d8_gate_enabled as _depth_d8_gate,
+                    )
+                    if _depth_d8_gate():
+                        _final_verdicts, _nonverified_verdicts = _depth_d8_true_drop(
+                            report_path=_redact_report_path,
+                            final_verdicts=_final_verdicts,
+                            audit_map=_audit_map,
+                            manifest=manifest,
+                            research_question=q.get("question", ""),
+                            log=_log,
+                        )
                     from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
                         annotate_report_against_verdicts,
                     )
@@ -16339,6 +16564,22 @@ async def run_one_query(
                     _audit_map = json.loads(
                         _audit_map_path.read_text(encoding="utf-8")
                     )
+                    # I-deepfix-001 wave-3 CHANGE 4: TRUE-drop the non-VERIFIED / unjudged DEPTH
+                    # cross-source findings FIRST, then reconcile ONLY the section claims below over the
+                    # depth-reconciled text. Default-ON gate; OFF => no DS-* cids so this is a no-op
+                    # (byte-identical to legacy).
+                    from src.polaris_graph.generator.depth_synthesis import (  # noqa: PLC0415
+                        depth_synthesis_d8_gate_enabled as _depth_d8_gate,
+                    )
+                    if _depth_d8_gate():
+                        _final_verdicts, _nonverified_verdicts = _depth_d8_true_drop(
+                            report_path=_redact_report_path,
+                            final_verdicts=_final_verdicts,
+                            audit_map=_audit_map,
+                            manifest=manifest,
+                            research_question=q.get("question", ""),
+                            log=_log,
+                        )
                     try:
                         _redaction = reconcile_report_against_verdicts(
                             _redact_report_path.read_text(encoding="utf-8"),
