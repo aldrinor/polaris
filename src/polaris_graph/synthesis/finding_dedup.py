@@ -874,6 +874,9 @@ def _build_qualitative_groups(
         _polarity_signature,
         _prose_shingles,
     )
+    from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+        is_furniture_dominant,
+    )
 
     # Collect the qualitative candidates (no numeric finding, not dropped, long
     # enough to shingle) in ascending row order for deterministic greedy merge.
@@ -882,6 +885,10 @@ def _build_qualitative_groups(
         if ri in dropped or row_has_finding[ri]:
             continue
         body = _row_text(rows[ri])
+        # Chrome guard: a furniture-dominant body (cookie/byline/ToC back-matter) carries no real
+        # claim -> never seeds/joins a basket. Row still KEPT (keep-all); only excluded from clustering.
+        if is_furniture_dominant(body):
+            continue
         shingles = _prose_shingles(body)
         if shingles is _PROSE_NO_MATCH or not shingles:
             continue  # too short to cluster (false-positive guard) — safe singleton

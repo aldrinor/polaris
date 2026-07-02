@@ -646,15 +646,24 @@ def _regroup_graph_by_finding_dedup(
 
     # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
     # <=1/row); finding_dedup groups by the SAME numeric finding. Map evidence_id -> the NUMERIC claim
-    # index so a finding cluster's member rows resolve to the right atom to union. Non-numeric
-    # (qualitative/raw) claims are intentionally NOT in this map — they keep their legacy singleton id.
+    # index so a finding cluster's member rows resolve to the right atom to union.
+    #
+    # I-deepfix-001 (#1344) KEYSTONE gap: finding_dedup ALSO forms QUALITATIVE baskets
+    # (finding_key[0]=="__qual__"); numeric-only map resolved them to 0 members -> never merged
+    # -> 0 corroboration + composer span-dumped. ALSO map non-numeric (qualitative/raw) atoms.
+    # A row may carry MULTIPLE qualitative atoms per eid, so keep the FULL per-eid list and union
+    # only ONE representative per origin row (never all-to-all -> would falsely merge two distinct
+    # within-row claims). Merge-only; no member newly passes verify; edges remapped below.
     numeric_claim_idx_by_eid: dict[str, int] = {}
+    qual_claim_idx_by_eid: dict[str, list[int]] = {}
     for ci, claim in enumerate(claims):
-        if str(getattr(claim, "kind", "") or "") != "numeric":
-            continue
+        kind = str(getattr(claim, "kind", "") or "")
         eid = str(getattr(claim, "evidence_id", "") or "")
-        # First numeric atom per eid wins (deterministic; <=1 expected in practice).
-        numeric_claim_idx_by_eid.setdefault(eid, ci)
+        if kind == "numeric":
+            # First numeric atom per eid wins (deterministic; <=1 expected in practice).
+            numeric_claim_idx_by_eid.setdefault(eid, ci)
+        else:
+            qual_claim_idx_by_eid.setdefault(eid, []).append(ci)
 
     # finding_dedup member_indices are ROW indices into ``annotated`` -> resolve to evidence_id.
     eid_by_row_index = {
@@ -680,13 +689,45 @@ def _regroup_graph_by_finding_dedup(
             # across runs (claims are in a deterministic extraction order).
             parent[max(ra, rb)] = min(ra, rb)
 
+    # ── I-deepfix-001 P1#1 (MERGE-ONLY seed, FAITHFULNESS-CRITICAL): SEED the union-find from the
+    #    EXISTING claim_graph cluster partition BEFORE applying any finding-dedup union. Pre-fix the
+    #    parent[] started as pure singletons; if a finding-dedup group pulled only SOME members of an
+    #    existing cluster [i, j] into a lower-index merge, only i was relabeled while j kept the old id,
+    #    and the edge remap below then rewrote all old-id edges (incl. a contested/refuter edge) onto the
+    #    new id — the residual old basket holding j SILENTLY lost its contested state (a contradiction
+    #    misrouted; violates hard constraint 3 + MERGE-ONLY). Unioning each existing cluster's members
+    #    first makes a whole cluster move ATOMICALLY: no existing cluster is ever split.
+    for _existing_members in (getattr(graph, "clusters", None) or {}).values():
+        _seed_idxs = [int(m) for m in (_existing_members or []) if 0 <= int(m) < len(claims)]
+        for _m in _seed_idxs[1:]:
+            _union(_seed_idxs[0], _m)
+
     for fcluster in (getattr(dedup, "clusters", None) or []):
+        fkey = getattr(fcluster, "finding_key", None)
+        is_qualitative_cluster = (
+            isinstance(fkey, tuple) and bool(fkey) and str(fkey[0]) == "__qual__"
+        )
         member_claim_indices: list[int] = []
         for row_index in (getattr(fcluster, "member_indices", None) or []):
             eid = eid_by_row_index.get(int(row_index), "")
-            ci = numeric_claim_idx_by_eid.get(eid)
-            if ci is not None:
-                member_claim_indices.append(ci)
+            if is_qualitative_cluster:
+                qual_indices = qual_claim_idx_by_eid.get(eid)
+                # I-deepfix-001 P1#2 (qual representative disambiguation, FAITHFULNESS-CRITICAL):
+                # a single annotated row can carry MORE THAN ONE qualitative atom
+                # (qualitative_conflict_detector.py:493 emits multiple atoms per row). The FIRST atom
+                # is NOT guaranteed to be the atom that made this row match the qualitative finding
+                # group, so unioning qual_indices[0] could FALSE-MERGE two distinct within-row
+                # assertions and inflate verified_support_origin_count from separately-verified but
+                # DIFFERENT claims. Conservative (undercount-safe) choice: union ONLY rows that map to
+                # EXACTLY ONE qualitative atom (unambiguous); SKIP a multi-atom row entirely rather
+                # than guess. This can only UNDER-count corroboration, never false-merge different
+                # claims.
+                if qual_indices and len(qual_indices) == 1:
+                    member_claim_indices.append(qual_indices[0])  # unambiguous one-atom row
+            else:
+                ci = numeric_claim_idx_by_eid.get(eid)
+                if ci is not None:
+                    member_claim_indices.append(ci)
         # Union all members of this finding cluster into one component (merge-only).
         for ci in member_claim_indices[1:]:
             _union(member_claim_indices[0], ci)
@@ -773,6 +814,23 @@ def _assemble_baskets(
     refuters_by_cluster: dict[str, set] = {}
     for edge in (getattr(graph, "edges", None) or []):
         ids = [str(c) for c in (getattr(edge, "claim_cluster_ids", ()) or ()) if str(c)]
+        uniq = set(ids)
+        if len(uniq) == 1:
+            # I-deepfix-001 P1#1 (keystone contested-edge, FAITHFULNESS-CRITICAL): a CONTRADICTION
+            # edge (every ``graph.edges`` entry is a ContradictionEdge) whose two endpoints resolve to
+            # the SAME cluster id collapses to a SELF-LOOP (e.g. ``('clm_a',)``). This happens either
+            # natively (``_edge_cluster_pair`` returns a 1-element tuple when both contradicting rows
+            # sit in ONE cluster) OR after ``_regroup_graph_by_finding_dedup`` merges the two contested
+            # clusters into one. The ``other != cid`` loop below recorded NO refuter for such an edge,
+            # so the basket fell through to full/partial/unverified and STOPPED rendering ``contested``
+            # — a contradiction silently hidden by the merge (violates hard constraint 3). An
+            # intra-basket contradiction is the STRONGEST contested signal and is NEVER dropped: record
+            # the cluster as its OWN refuter so ``basket_verdict`` stays ``contested`` and every
+            # downstream consumer that keys on ``refuter_cluster_ids`` (the disclosure contested-count,
+            # the consensus-quantifier guard) stays consistent. Holds for numeric AND qualitative merges.
+            (self_cid,) = tuple(uniq)
+            refuters_by_cluster.setdefault(self_cid, set()).add(self_cid)
+            continue
         for cid in ids:
             for other in ids:
                 if other != cid:
