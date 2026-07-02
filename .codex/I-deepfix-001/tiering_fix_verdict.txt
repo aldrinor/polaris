@@ -1,0 +1,11 @@
+verdict: APPROVE
+
+p0: []
+
+p1: []
+
+p2:
+- [src/polaris_graph/retrieval/credibility_llm_tiering.py](C:/POLARIS/src/polaris_graph/retrieval/credibility_llm_tiering.py:524): comments/docstring still say “tighter wins” without the new qualifier. New behavior is “batch wall wins unless the caller deadline is still future.” Non-blocking, but worth updating to avoid future reversion.
+- No committed regression test for the exact expired-deadline case. Existing tests cover batch wall and future-deadline stragglers; add an offline test where `deadline_monotonic < now` and `PG_TIER_LLM_BATCH_WALL_SECONDS > 0` proves nonzero tiering and bounded elapsed.
+
+Answers: faithfulness-neutral, yes. It only changes tier completeness/weights and does not touch strict_verify/NLI/D8/provenance. Bounded, yes: default path gets `now + 600s`, and still-future retrieval walls tighten it. The disabled-wall `None` branch is acceptable as an explicit `PG_TIER_LLM_BATCH_WALL_SECONDS<=0` opt-out.
