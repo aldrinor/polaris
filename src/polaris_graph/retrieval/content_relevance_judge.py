@@ -61,6 +61,11 @@ _DEFAULT_BAND_HIGH = 0.70
 # never zero — a demoted source still flows to composition at reduced weight).
 _DEFAULT_DEMOTE_WEIGHT = 0.25
 _DEFAULT_WORKERS = 12
+# W5 graded-weight + window max-pool (I-deepfix-001 w5_graded_weight):
+# up to this many bounded windows of a body are scored by the reranker, then
+# max-pooled. >1 so a topical span buried after head CHROME (cookie/nav/license)
+# is not mis-demoted just because the raw first-`passage_chars` head is chrome.
+_DEFAULT_MAX_WINDOWS = 6
 
 # Relevance labels surfaced per passage (telemetry + the weight the loop applies).
 LABEL_RELEVANT = "relevant"      # full weight
@@ -128,6 +133,42 @@ def _passage_chars() -> int:
         return max(200, int(os.getenv("PG_CONTENT_RELEVANCE_PASSAGE_CHARS", "2000")))
     except ValueError:
         return 2000
+
+
+def _max_windows() -> int:
+    """Max number of bounded body windows scored by the reranker (LAW VI)."""
+    try:
+        return max(1, int(os.getenv("PG_CONTENT_RELEVANCE_MAX_WINDOWS", str(_DEFAULT_MAX_WINDOWS))))
+    except ValueError:
+        return _DEFAULT_MAX_WINDOWS
+
+
+def _body_windows(body: str, window_chars: int, max_windows: int) -> list[str]:
+    """Split a body into up to ``max_windows`` non-overlapping ``window_chars`` windows.
+    A body shorter than one window is returned as a single window (byte-identical to the old
+    raw head). PURE + order-independent (a deterministic function of the body)."""
+    text = body or ""
+    if len(text) <= window_chars:
+        return [text]
+    windows = [text[i:i + window_chars] for i in range(0, len(text), window_chars)]
+    return windows[:max_windows]
+
+
+def _graded_weight(score: float, low: float, high: float, demote_w: float) -> float:
+    """Clamped linear ramp: demote_w at/below low, monotone through the band, 1.0 at/above high."""
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return demote_w
+    if not (high > low):
+        return 1.0 if s >= high else demote_w
+    if s <= low:
+        return demote_w
+    if s >= high:
+        return 1.0
+    frac = (s - low) / (high - low)
+    w = demote_w + (1.0 - demote_w) * frac
+    return max(demote_w, min(1.0, w))
 
 
 def _escalation_deadline_seconds() -> float:
@@ -241,30 +282,50 @@ def score_passages(
     if not passages:
         return report
 
-    # Bounded prefix of each body (topicality, not full-body cost).
-    pairs = [
-        [research_question or "", (body or "")[:passage_chars]]
-        for _idx, _url, body in passages
-    ]
+    # I-deepfix-001 (w5_graded_weight): score up to `_max_windows()` bounded windows of each body
+    # and MAX-POOL the per-window scores back onto the passage, so a topical span buried after head
+    # CHROME (cookie/nav/license) is not mis-demoted just because the raw first-`passage_chars` head
+    # is chrome. A body shorter than one window yields a single window == the old raw head.
+    max_windows = _max_windows()
+    window_pairs: list[list[str]] = []
+    window_owner: list[int] = []
+    for _pos, (_idx, _url, body) in enumerate(passages):
+        for _win in _body_windows(body, passage_chars, max_windows):
+            window_pairs.append([research_question or "", _win])
+            window_owner.append(_pos)
 
     # ── Stage 1: Qwen3-Reranker-0.6B (batched, GPU-first) ──────────────
     # The reranker returns a RELEVANCE PROBABILITY in [0, 1] per pair (the yes/no
     # token softmax — see _predict_with_qwen3_reranker), so the band thresholds
     # operate on it directly (NO extra sigmoid).
     if reranker_predict_fn is not None:
-        scores = list(reranker_predict_fn(pairs))
+        win_scores = list(reranker_predict_fn(window_pairs))
         report.reranker_device = "injected"
     else:
-        scores = _predict_with_qwen3_reranker(pairs, report)
-    if len(scores) != len(passages):
+        win_scores = _predict_with_qwen3_reranker(window_pairs, report)
+    if len(win_scores) != len(window_pairs):
         # Defensive: a misbehaving reranker must NOT silently mis-weight. Fall
         # back LOUDLY to all-relevant (full weight) — never demote on a bug.
         logger.warning(
-            "[content_relevance] reranker returned %d scores for %d passages — "
+            "[content_relevance] reranker returned %d scores for %d windows — "
             "FALLING BACK to full weight for all (no demotion on a scorer bug).",
-            len(scores), len(passages),
+            len(win_scores), len(window_pairs),
         )
         scores = [high + 1.0] * len(passages)
+        best_window = ["" for _ in passages]
+    else:
+        # Max-pool: each passage takes the BEST-scoring of its bounded windows.
+        scores = [-1.0] * len(passages)
+        # I-deepfix-001 P1#3 (w5 ambiguous window): carry the WINNING window's TEXT alongside its
+        # score, so an ambiguous passage is GLM-judged on the span that actually scored (the topical
+        # window buried after a chrome head), NOT the raw first-`passage_chars` head. Without this a
+        # paper whose head is chrome and whose later window scores ~0.60 was demoted on the chrome
+        # head at _resolve_ambiguous. §-1.3 WEIGHT-only — the source is never dropped either way.
+        best_window = ["" for _ in passages]
+        for _wpos, _owner in enumerate(window_owner):
+            if win_scores[_wpos] > scores[_owner]:
+                scores[_owner] = win_scores[_wpos]
+                best_window[_owner] = window_pairs[_wpos][1]
 
     # ── Partition by band ──────────────────────────────────────────────
     ambiguous: list[int] = []   # positions into `passages` needing GLM
@@ -272,7 +333,8 @@ def score_passages(
         s = scores[pos]
         if s >= high:
             report.verdicts.append(RelevanceVerdict(
-                idx=idx, url=url, label=LABEL_RELEVANT, weight=1.0,
+                idx=idx, url=url, label=LABEL_RELEVANT,
+                weight=_graded_weight(s, low, high, demote_w),
                 reranker_score=s, escalated=False,
                 reason="reranker high-confidence relevant",
             ))
@@ -299,8 +361,8 @@ def score_passages(
                 _fb_instant if _eff_deadline is None else min(_eff_deadline, _fb_instant)
             )
         _resolve_ambiguous(
-            research_question, passages, scores, ambiguous,
-            demote_w, report, glm_judge_fn, _eff_deadline,
+            research_question, passages, scores, best_window, ambiguous,
+            demote_w, low, high, report, glm_judge_fn, _eff_deadline,
         )
 
     # Finalize counts.
@@ -534,8 +596,11 @@ def _resolve_ambiguous(
     research_question: str,
     passages: list[tuple[int, str, str]],
     scores: list[float],
+    best_window: list[str],
     ambiguous: list[int],
     demote_w: float,
+    low: float,
+    high: float,
     report: RelevanceReport,
     glm_judge_fn: Optional[Callable[[str, str], "tuple[str, str]"]],
     deadline_monotonic: "float | None" = None,
@@ -588,10 +653,16 @@ def _resolve_ambiguous(
                 LABEL_SUPPORTED,
             )
 
-            label, reason = judge_fn(research_question, (body or "")[:_passage_chars()])
+            # I-deepfix-001 P1#3: judge the WINNING max-pool window (the topical span that scored
+            # `s`), NOT the raw head — a chrome head must not GLM-demote a paper whose later window
+            # is on-topic. Fall back to the bounded head only when no window text was recorded.
+            _win = best_window[pos] if pos < len(best_window) else ""
+            _judge_span = _win or (body or "")[:_passage_chars()]
+            label, reason = judge_fn(research_question, _judge_span)
             if label == LABEL_SUPPORTED:
                 return RelevanceVerdict(
-                    idx=idx, url=url, label=LABEL_ESCALATED_KEEP, weight=1.0,
+                    idx=idx, url=url, label=LABEL_ESCALATED_KEEP,
+                    weight=_graded_weight(s, low, high, demote_w),
                     reranker_score=s, escalated=True,
                     reason=f"GLM SUPPORTED: {reason[:120]}",
                 )
