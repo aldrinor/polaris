@@ -660,6 +660,11 @@ _STATUS_TIERS: dict[str, int] = {
     # "Coverage gaps" disclosure (tier 2, no trustworthy report). MUST stay mirrored with
     # runner.UNIFIED_STATUS_VALUES (closes the last status-schema-parity drift entry).
     "abort_required_entity_ledger_failed": 2,
+    # I-deepfix-001 U5 (#1344): the U5 synthesis-fires canary aborted a would-be-success run because
+    # consolidation produced multi-source baskets but composition rendered ZERO multi-cited sentences
+    # (a pure span-dump regression) — no trustworthy report (tier 2). MUST stay mirrored with
+    # runner.UNIFIED_STATUS_VALUES (status-schema-parity gate).
+    "abort_synthesis_did_not_fire": 2,
     # error — unhandled exception
     "error_unexpected": 3,
     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a

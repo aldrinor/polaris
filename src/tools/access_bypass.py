@@ -1042,6 +1042,84 @@ def _mineru25_circuit_cooldown() -> float:
 
 
 # ---------------------------------------------------------------------------
+# I-deepfix-001 U8 (#1344): MINERU-FIRES LIVE-CANARY (fail-loud DISCLOSE).
+#
+# The W4 clinical-PDF winner is mineru25 (GPU VLM). ``_maybe_mineru25_extract``
+# already records, per PDF, a ground-truth ``pdf_extract`` tool-trace row — a WIN
+# (``selected_extractor == "mineru25"``; logged "[ACCESS] W4: mineru25 (GPU VLM)
+# extracted N chars") or a DEGRADE (``requested_extractor == "mineru25"`` +
+# ``fallback_reason``; logged "[W4-CANARY] clinical_pdf_winner_degraded=true ...").
+# ``tool_tracer.clinical_pdf_winner_status()`` aggregates those rows into
+# ``{requested, degraded, fallback_count, win_count, reasons, selected_extractors}``
+# and stamps it on ``manifest['clinical_pdf_winner_degraded']`` on EVERY manifest
+# path. That data is present but PASSIVE — nothing surfaces the specific "requested
+# but NEVER won" case LOUDLY. The belt check below turns that raw telemetry into a
+# clear disclosed flag + warning string: when mineru25 was REQUESTED yet produced
+# ZERO real GPU-VLM extractions (win_count == 0) while >=1 clinical PDF degraded to
+# a CPU fallback, the winner is DARK — a silent degrade. Disclose it, do not hard-
+# abort (the docling/PyMuPDF text still grounds strict_verify). A run that never
+# requested mineru25 (docling baseline) is ``requested`` False => silent_degrade
+# False (a legit baseline, NOT a degrade). Pure telemetry read — touches no
+# faithfulness gate and drops no source.
+# ---------------------------------------------------------------------------
+
+def mineru_fire_canary_enabled() -> bool:
+    """PG_MINERU_FIRE_CANARY kill-switch (default ON). OFF => the U8 mineru-fires belt check
+    is not surfaced (the raw ``clinical_pdf_winner_degraded`` telemetry is unaffected). Read at
+    CALL time (LAW VI) so a slate/operator override after import wins."""
+    return os.getenv("PG_MINERU_FIRE_CANARY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def mineru_silent_degrade_disclosure(
+    winner_status: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Belt check on the W4 mineru25 clinical-PDF winner telemetry.
+
+    ``winner_status`` is the dict produced by ``tool_tracer.clinical_pdf_winner_status()`` (the
+    SAME source stamped on ``manifest['clinical_pdf_winner_degraded']``). Returns a disclosure
+    dict; ``silent_degrade`` is True iff mineru25 was REQUESTED (``requested``) yet recorded ZERO
+    genuine GPU-VLM extractions (``win_count == 0``) while >=1 clinical PDF degraded to a CPU
+    fallback (``degraded``). Pure: no I/O, no mutation of the input.
+
+    Shape::
+
+        {"mineru_expected": bool, "gpu_vlm_extractions": int, "clinical_pdf_degrades": int,
+         "silent_degrade": bool, "disclosure": str | None}
+    """
+    ws = dict(winner_status or {})
+    requested = bool(ws.get("requested"))
+    try:
+        win_count = int(ws.get("win_count") or 0)
+    except (TypeError, ValueError):
+        win_count = 0
+    try:
+        fallback_count = int(ws.get("fallback_count") or 0)
+    except (TypeError, ValueError):
+        fallback_count = 0
+    degraded = bool(ws.get("degraded"))
+    silent_degrade = requested and win_count == 0 and degraded
+    disclosure = None
+    if silent_degrade:
+        selected = ws.get("selected_extractors") or []
+        selected_str = ", ".join(str(s) for s in selected) if selected else "docling"
+        disclosure = (
+            "clinical_pdf_extractor_all_degraded: mineru25 (W4 GPU-VLM clinical-PDF winner) was "
+            f"REQUESTED but produced ZERO real GPU-VLM extractions; all {fallback_count} clinical "
+            f"PDF(s) degraded to a CPU fallback ({selected_str}). The winner is DARK — degrade is "
+            f"DISCLOSED, not silent (reasons: {ws.get('reasons') or {}})."
+        )
+    return {
+        "mineru_expected": requested,
+        "gpu_vlm_extractions": win_count,
+        "clinical_pdf_degrades": fallback_count,
+        "silent_degrade": silent_degrade,
+        "disclosure": disclosure,
+    }
+
+
+# ---------------------------------------------------------------------------
 # I-deepfix-001 U8 (#1344): mineru25 vlm-http-client "Semaphore bound to a
 # different event loop" -> circuit trip -> silent degrade to Docling.
 #

@@ -62,6 +62,7 @@ PipelineStatus = Literal[
     "abort_credibility_coverage_gap",        # I-cred-008b (#1162): credibility-disclosure coverage gap
     "abort_conflict_judge_unavailable",      # I-arch-004 F07 (#1249/#1252): conflict-judge unavailable hold
     "abort_required_entity_ledger_failed",   # I-arch-004 F27 (#1213): RequiredEntityLedger raised under strict gates
+    "abort_synthesis_did_not_fire",          # I-deepfix-001 U5 (#1344): synthesis-fires canary — multi-source baskets existed but composition rendered zero multi-cited sentences (span-dump regression); mirrors runner.UNIFIED_STATUS_VALUES (status-schema-parity gate)
     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",
     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only fail-closed no-leak backstop

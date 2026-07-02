@@ -353,6 +353,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_role_transport_exhausted",  # I-beatboth-006 (#1283) Fix C.3: a force-closed role RoleTransportError reached the D8 seam with PG_ROLE_TRANSPORT_DEGRADE OFF -> sweep_integration raises the TYPED RoleTransportExhaustedError carrying THIS status + writes state/halt_*_role_transport_exhausted.md. The run-driver maps that typed exception to this DISCLOSED hard-halt manifest.status (NOT the generic released_with_disclosed_gaps / error_unexpected). MUST stay mirrored with PipelineStatus + KNOWN_STATUS_VALUES (status-schema-parity gate).
     "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
     "abort_required_entity_ledger_failed",  # I-arch-004 F27 (#1213/h3 forensic): under the strict-gate benchmark slate, the FORCE-ON RequiredEntityLedger raised (build/render/write) — the legacy fail-soft would silently DROP the honest "Coverage gaps" disclosure and ship as success, overstating completeness; HOLD instead (release-blocking). Only fires under PG_BENCHMARK_STRICT_GATES + PG_REQUIRED_ENTITY_LEDGER (both forced-on by Gate-B). Off => byte-identical fail-soft.
+    "abort_synthesis_did_not_fire",  # I-deepfix-001 U5 (#1344): the U5 synthesis-fires LIVE-CANARY. Consolidation produced >=1 multi-source basket (verified_support_origin_count>=2) but the verified-compose multi-cited path rendered ZERO multi-cited sentences (every kept sentence cites exactly ONE evidence id — a pure span-dump regression). Refuse to ship the deficient report as success. Only fires when the multi-cite compose path is ON (PG_VERIFIED_COMPOSE_MULTICITED) AND the canary is armed (PG_SYNTHESIS_FIRE_CANARY, default ON). A single-source corpus (0 multi-source baskets) NEVER trips it — synthesis is never FORCED (§-1.3). MUST stay mirrored with PipelineStatus + KNOWN_STATUS_VALUES (status-schema-parity gate).
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
     "error_unexpected",
@@ -405,6 +406,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # strict-gate benchmark slate — already a unified `abort_` name; identity map so
     # to_unified_status passes it through (NOT error_unexpected).
     "abort_required_entity_ledger_failed": "abort_required_entity_ledger_failed",
+    # I-deepfix-001 U5 (#1344): the U5 synthesis-fires canary abort — already a unified `abort_`
+    # name; identity map so to_unified_status passes it through (NOT error_unexpected).
+    "abort_synthesis_did_not_fire": "abort_synthesis_did_not_fire",
     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
     # clean budget abort, NOT error_unexpected.
     "abort_budget_exceeded": "abort_budget_exceeded",
@@ -1743,6 +1747,138 @@ def _apply_required_entity_ledger_hold(
     manifest["release_allowed"] = False
     manifest["strict_gate_required_entity_ledger_failed"] = True
     manifest["required_entity_ledger_error"] = error
+    return summary_status, unified_status
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 U5 (#1344): SYNTHESIS-FIRES LIVE-CANARY (fail-loud ABORT).
+#
+# U4 (the consolidation keystone) now unions qualitative baskets, so consolidation
+# produces multi-source baskets and the verified-compose multi-cited path
+# (verified_compose.compose_basket_multicited_sentence, gated by
+# PG_VERIFIED_COMPOSE_MULTICITED — FORCE-ON in the Gate-B slate) SHOULD render at
+# least one CORROBORATED (multi-cited) sentence: a sentence carrying >=2 DISTINCT
+# `[#ev:<id>:...]` provenance tokens. The residual U5 risk: if composition regresses
+# to a pure span-dump (every kept sentence collapses to exactly ONE evidence id),
+# the report is deficient yet still reads `success`. This canary FAILS LOUD instead.
+#
+# It aborts ONLY when consolidation genuinely produced >=1 multi-source basket
+# (verified_support_origin_count>=2) AND the whole composed report has ZERO
+# multi-cited sentences. A single-source corpus (0 multi-source baskets) NEVER trips
+# it — synthesis EMERGES from real corroboration, it is never FORCED (§-1.3). It is
+# armed only when the multi-cite compose path is ON (else single-cite is the expected,
+# byte-identical output — asserting on it would be a false abort). It reads only
+# POST-verify telemetry (the kept-sentence provenance tokens + the credibility-pass
+# basket counts); it touches NO faithfulness gate (strict_verify / NLI / 4-role D8 /
+# provenance / span-grounding are byte-unchanged) and drops NO source. It does NOT
+# re-enable the banned PG_SWEEP_ANALYST_SYNTHESIS path — it inspects the
+# verified-compose multi-source output, never analyst-synthesis.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def synthesis_fire_canary_enabled() -> bool:
+    """PG_SYNTHESIS_FIRE_CANARY kill-switch (default ON). OFF => the U5 synthesis-fires
+    canary never runs and the status decision is byte-identical to pre-fix. Read at CALL
+    time (LAW VI) so a slate/operator override after import wins."""
+    return os.getenv("PG_SYNTHESIS_FIRE_CANARY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _multicited_compose_on() -> bool:
+    """Mirror of verified_compose._multicited_compose_enabled (PG_VERIFIED_COMPOSE_MULTICITED,
+    DEFAULT-OFF). When OFF the compose path emits ONE `[#ev:]` token per sentence by design, so
+    zero multi-cited sentences is EXPECTED (not a defect) — the U5 canary must self-skip. Gate-B
+    force-ON's this flag, so the canary is armed on the paid benchmark run. Read at CALL time."""
+    return os.getenv("PG_VERIFIED_COMPOSE_MULTICITED", "0").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _distinct_evidence_ids_in_sentence(sentence: "Any") -> "set[str]":
+    """The set of DISTINCT non-blank provenance evidence ids carried by one composed sentence.
+
+    Reads the sentence's ``tokens`` (each a parsed `[#ev:<id>:<start>-<end>]` provenance token
+    with an ``evidence_id`` attribute) — the SAME per-sentence provenance the NLI annotator and
+    strict_verify consume. Pure; tolerant of a token-less or malformed sentence (empty set)."""
+    ids: set[str] = set()
+    for tok in (getattr(sentence, "tokens", None) or []):
+        eid = str(getattr(tok, "evidence_id", "") or "").strip()
+        if eid:
+            ids.add(eid)
+    return ids
+
+
+def count_multi_cited_sentences(sections: "Any") -> int:
+    """Number of KEPT (non-dropped) composed sentences that cite >=2 DISTINCT evidence ids
+    across the WHOLE report — i.e. the corroborated / "synthesized" sentences the multi-cite
+    compose path produces from a >=2-origin basket. A span-dump run (every sentence cites exactly
+    ONE evidence id) yields 0. Pure read of ``sections[].kept_sentences_pre_resolve[].tokens``;
+    skips sections flagged ``dropped_due_to_failure``. Tolerant of a None / attribute-less shape."""
+    n = 0
+    for section in (sections or []):
+        if getattr(section, "dropped_due_to_failure", False):
+            continue
+        for sentence in (getattr(section, "kept_sentences_pre_resolve", None) or []):
+            if len(_distinct_evidence_ids_in_sentence(sentence)) >= 2:
+                n += 1
+    return n
+
+
+def count_multi_source_baskets(credibility_analysis: "Any") -> int:
+    """Number of consolidation baskets carrying >=2 verified DISTINCT-origin SUPPORTS members
+    (``verified_support_origin_count`` >= 2) — exactly the baskets that SHOULD each surface a
+    multi-cited sentence via ``compose_basket_multicited_sentence``. This is the authoritative
+    CONSOLIDATE-leg count (I-arch-010 invariant: isolated-verified distinct origins only), NOT
+    ``len(members)``. Pure read of ``credibility_analysis.baskets``; 0 when the credibility pass
+    did not run (None) or produced no baskets — so a run with no multi-source corroboration can
+    never trip the canary."""
+    baskets = getattr(credibility_analysis, "baskets", None) or []
+    count = 0
+    for basket in baskets:
+        try:
+            origins = int(getattr(basket, "verified_support_origin_count", 0) or 0)
+        except (TypeError, ValueError):
+            origins = 0
+        if origins >= 2:
+            count += 1
+    return count
+
+
+def synthesis_did_not_fire(
+    *, multi_source_basket_count: int, multi_cited_sentence_count: int,
+) -> bool:
+    """PURE U5 decision: True iff consolidation produced >=1 multi-source basket but composition
+    rendered ZERO multi-cited sentences (the pure span-dump regression). A single-source corpus
+    (0 multi-source baskets) => False (synthesis is never FORCED; §-1.3). >=1 multi-cited sentence
+    anywhere in the report => False (synthesis fired). Mirrors the run-level M6 firing-canary
+    semantics: the WHOLE-run zero-count is the defect signal, not any single basket collapsing."""
+    return multi_source_basket_count > 0 and multi_cited_sentence_count == 0
+
+
+def _apply_synthesis_fire_hold(
+    manifest: dict, *, multi_source_basket_count: int, multi_cited_sentence_count: int,
+) -> "tuple[str, str]":
+    """Apply the U5 synthesis-fires ABORT to ``manifest`` in place and return the new
+    ``(summary_status, unified_status)``. Mirrors ``_apply_required_entity_ledger_hold``:
+
+      * manifest['status'] = 'abort_synthesis_did_not_fire' (release-blocking abort — deliberately
+        ABSENT from _B18_B19_CONVERTIBLE_HOLDS so always-release can never ship it as a disclosed
+        gap; a deficient span-dump report must not read releasable)
+      * manifest['release_allowed'] = False
+      * manifest['synthesis_fire_canary'] = auditable counts + aborted flag
+
+    PURE wrt faithfulness: converts a would-be success into a loud, auditable HOLD; touches no
+    faithfulness gate. The caller GUARDS this on synthesis_did_not_fire(...) AND
+    unified_status == 'success', so it only ever demotes a `success`."""
+    summary_status = "abort_synthesis_did_not_fire"
+    unified_status = to_unified_status(summary_status)
+    manifest["status"] = unified_status
+    manifest["release_allowed"] = False
+    manifest["synthesis_fire_canary"] = {
+        "multi_source_baskets": multi_source_basket_count,
+        "multi_cited_sentences": multi_cited_sentence_count,
+        "aborted": True,
+    }
     return summary_status, unified_status
 
 
@@ -4870,6 +5006,7 @@ _STATUS_ARTIFACT_KIND: dict[str, str] = {
     "abort_evaluator_critical": _ARTIFACT_KIND_DEGRADED,
     "abort_report_redaction_failed": _ARTIFACT_KIND_DEGRADED,
     "abort_required_entity_ledger_failed": _ARTIFACT_KIND_DEGRADED,
+    "abort_synthesis_did_not_fire": _ARTIFACT_KIND_DEGRADED,  # I-deepfix-001 U5 (#1344): composition regressed to a span-dump (multi-source baskets existed but zero multi-cited sentences rendered) — a run-level composition failure, still emits an artifact
     "abort_discovery_degraded": _ARTIFACT_KIND_DEGRADED,
     "abort_four_role_release_held": _ARTIFACT_KIND_DEGRADED,
     "abort_budget_exceeded": _ARTIFACT_KIND_DEGRADED,
@@ -16691,6 +16828,45 @@ async def run_one_query(
             summary_status, unified_status = _apply_required_entity_ledger_hold(
                 manifest, _re_ledger_error
             )
+
+        # I-deepfix-001 U5 (#1344): SYNTHESIS-FIRES LIVE-CANARY. Runs AFTER all status reconciliation
+        # (legacy gate, D8 seam, FL-05, the strict-gate backstops, the ledger hold) and BEFORE the
+        # B18/B19 always-release conversion — and only ever demotes a would-be `success`. When the
+        # multi-cite compose path is ON (PG_VERIFIED_COMPOSE_MULTICITED — force-ON by Gate-B) and
+        # consolidation produced >=1 multi-source basket (verified_support_origin_count>=2) yet the
+        # WHOLE composed report rendered ZERO multi-cited sentences (a pure span-dump regression),
+        # ABORT `abort_synthesis_did_not_fire` rather than ship the deficient report as success. A
+        # single-source corpus (0 multi-source baskets) NEVER trips it — synthesis is never FORCED
+        # (§-1.3). Kill-switch PG_SYNTHESIS_FIRE_CANARY (default ON) => byte-identical when OFF, and
+        # the multicite-off self-skip keeps a legacy single-cite run byte-identical too. Reads only
+        # POST-verify telemetry (kept-sentence provenance tokens + credibility-pass basket counts);
+        # touches NO faithfulness gate (strict_verify / NLI / 4-role D8 / provenance are byte-
+        # unchanged) and does NOT re-enable the banned PG_SWEEP_ANALYST_SYNTHESIS path.
+        if (
+            synthesis_fire_canary_enabled()
+            and _multicited_compose_on()
+            and unified_status == "success"
+        ):
+            _u5_baskets = count_multi_source_baskets(
+                getattr(multi, "credibility_analysis", None)
+            )
+            _u5_multicited = count_multi_cited_sentences(getattr(multi, "sections", None) or [])
+            if synthesis_did_not_fire(
+                multi_source_basket_count=_u5_baskets,
+                multi_cited_sentence_count=_u5_multicited,
+            ):
+                _log(
+                    "[synthesis-canary] ABORT (U5): consolidation produced "
+                    f"{_u5_baskets} multi-source basket(s) (>=2 verified origins) but composition "
+                    "rendered ZERO multi-cited sentences — a pure span-dump regression. Refusing to "
+                    "ship the deficient report as success; investigate verified_compose."
+                    "compose_basket_multicited_sentence / the U4 consolidation keystone."
+                )
+                summary_status, unified_status = _apply_synthesis_fire_hold(
+                    manifest,
+                    multi_source_basket_count=_u5_baskets,
+                    multi_cited_sentence_count=_u5_multicited,
+                )
 
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when

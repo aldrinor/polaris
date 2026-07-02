@@ -452,7 +452,29 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
         # winner to docling shows ``clinical_pdf_winner_degraded.degraded`` True with the reason
         # histogram, so the preflight / run-health backstop can fail LOUD instead of shipping a
         # silent W4 no-op. Additive + ON-only (no-op when OFF) so OFF-mode byte-identity holds.
-        manifest["clinical_pdf_winner_degraded"] = _tracer.clinical_pdf_winner_status()
+        _winner_status = _tracer.clinical_pdf_winner_status()
+        manifest["clinical_pdf_winner_degraded"] = _winner_status
+        # I-deepfix-001 U8 (#1344): MINERU-FIRES belt check. Turn the passive
+        # ``clinical_pdf_winner_degraded`` telemetry into a LOUD disclosed flag on the SINGLE
+        # manifest chokepoint: when mineru25 was REQUESTED but produced ZERO real GPU-VLM
+        # extractions (all clinical PDFs silently degraded to a CPU fallback), stamp
+        # ``manifest['mineru_firing']`` (the monitor + manifest can see it) AND emit a loud WARN so
+        # the degrade is DISCLOSED, not silent. Telemetry/disclosure only — never a hard abort, never
+        # a faithfulness-gate touch. Lazy import avoids an access_bypass<->tool_tracer import cycle.
+        try:
+            from src.tools.access_bypass import (
+                mineru_fire_canary_enabled,
+                mineru_silent_degrade_disclosure,
+            )
+            if mineru_fire_canary_enabled():
+                _mineru_firing = mineru_silent_degrade_disclosure(_winner_status)
+                manifest["mineru_firing"] = _mineru_firing
+                if _mineru_firing.get("silent_degrade"):
+                    logger.warning(
+                        "[W4-CANARY] %s", _mineru_firing.get("disclosure"),
+                    )
+        except Exception as _mineru_exc:  # noqa: BLE001 — disclosure must never abort the run
+            logger.warning("attach_tool_utilization: mineru-fires belt check skipped: %s", _mineru_exc)
     except Exception as exc:  # noqa: BLE001 — telemetry must never abort the run
         logger.warning("attach_tool_utilization: skipped: %s", exc)
     return manifest
