@@ -4146,6 +4146,56 @@ def _repair_untokened_draft(
     return "\n".join(repaired)
 
 
+def _repair_llm_draft_untokened(
+    rewritten: str,
+    section: Any,
+    credibility_analysis: Any,
+    evidence_pool: dict,
+) -> str:
+    """I-deepfix-001 WS-3 (#1344) — wire the SAME no-provenance-token leak repair into the LLM
+    ``_call_section`` ELSE-branch.
+
+    The primary verified-compose branch repairs its ``raw`` draft via ``_repair_untokened_draft``,
+    but that draft is ALREADY ``[#ev:]``-tokened there, so the repair is effectively a no-op on it.
+    The LLM ``_call_section`` else-branch is the path that actually emits untokened prose, and it
+    NEVER reached that helper — so any sentence the model wrote that ``_rewrite_draft_with_spans``
+    could not bind to a real ``[#ev:...]`` token fell straight into the drb_72 ``no_provenance_token``
+    leak (``strict_verify`` drops it -> empty safety sections).
+
+    This runs AFTER ``_rewrite_draft_with_spans`` (so every legit legacy ``[ev_XXX]`` marker has
+    already become a real ``[#ev:]`` token and is returned unchanged by the repair) and BEFORE
+    ``strict_verify``. Each STILL-untokened sentence is rebound to the nearest supporting basket's OWN
+    verified clause via the SAME production writer/verify fns the compose paths use.
+
+    Requires the section's consolidated baskets, so it no-ops (byte-identical, returns ``rewritten``
+    unchanged) when ``credibility_analysis`` is None, the section carries no baskets, or the
+    ``PG_NO_TOKEN_SENTENCE_REPAIR`` kill-switch is OFF — mirroring the primary verified-compose
+    activation condition.
+
+    FAITHFULNESS-NEUTRAL: the frozen faithfulness engine (strict_verify / NLI / provenance /
+    span-grounding) is UNTOUCHED. This is NOT a strict_verify relax — a repaired clause is the
+    basket's own strict_verify-PASSED span carrying a real ``[#ev]`` token (it re-passes the
+    UNCHANGED ``strict_verify`` per clause), and an untokened sentence with NO bindable supporting
+    span is left AS-IS so ``strict_verify`` still drops it (ungrounded prose never survives).
+    """
+    if not rewritten or credibility_analysis is None or not no_token_sentence_repair_enabled():
+        return rewritten
+    baskets = _section_baskets_for_compose(section, credibility_analysis)
+    if not baskets:
+        return rewritten
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        verify_sentence_provenance as _llm_repair_verify,
+    )
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        build_short_member_sentence as _llm_repair_short_writer,
+    )
+    return _repair_untokened_draft(
+        rewritten, baskets, evidence_pool,
+        writer_fn=lambda _b, _p: _llm_repair_short_writer(_b, evidence_pool),
+        verify_fn=_llm_repair_verify,
+    )
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -4404,6 +4454,22 @@ async def _run_section(
     # Rewrite provenance tokens
     rewritten, _converted, _unver = _rewrite_draft_with_spans(raw, evidence_pool)
 
+    # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR for the LLM _call_section
+    # ELSE-branch (the drb_72 no_provenance_token leak that emptied safety sections). The primary
+    # verified-compose branch repaired its already-tokened `raw` above; the LLM branch never
+    # reached that helper, so an untokened model sentence fell straight into strict_verify's
+    # no_provenance_token drop. Repair it here — AFTER _rewrite_draft_with_spans has bound every
+    # legit legacy marker to a real [#ev:] token (so only genuinely untokened sentences are repair
+    # candidates) and BEFORE strict_verify. Directly-tokened drafts (verified-compose PRIMARY /
+    # FIX-K) already ran the repair on `raw`, so they SKIP this pass (byte-identical no-op).
+    # Faithfulness-neutral — the frozen strict_verify / NLI / provenance engine is untouched; a
+    # repaired clause re-passes the UNCHANGED strict_verify per clause, and an unbindable untokened
+    # sentence is left AS-IS so strict_verify still drops it.
+    if not _draft_directly_tokened:
+        rewritten = _repair_llm_draft_untokened(
+            rewritten, section, credibility_analysis, evidence_pool,
+        )
+
     # Strict verify against full evidence_pool (not subset — the model
     # might cite an ev from outside the assigned subset; still valid).
     # I-deepfix-001 W03-strict-verify-offload (#1344): OFFLOAD the inline SYNC
@@ -4534,6 +4600,21 @@ async def _run_section(
         total_in_tok += in_tok2
         total_out_tok += out_tok2
         rewritten2, _c2, _u2 = _rewrite_draft_with_spans(raw2, evidence_pool)
+        # I-deepfix-001 P1#3 (retry-path repair gated by STALE first-pass flag, provenance): repair the
+        # retry draft UNCONDITIONALLY — AFTER _rewrite_draft_with_spans (so every legit legacy marker is
+        # already bound to a real [#ev:] token) and BEFORE the retry strict_verify. The retry ALWAYS
+        # produces LLM prose (it calls _call_section above) regardless of whether the FIRST pass was a
+        # direct-tokened verified-compose (which sets _draft_directly_tokened True). Pre-fix the retry
+        # repair was guarded by that STALE first-pass flag, so a verified-compose-primary -> LLM-retry
+        # path skipped _repair_llm_draft_untokened and went straight to strict_verify, dropping an
+        # untokened-but-groundable retry sentence as no_provenance_token (the drb_72 leak on the retry
+        # branch). Dropping the guard is safe: _repair_llm_draft_untokened is itself a NO-OP on
+        # already-tokened sentences. Faithfulness-neutral — the frozen strict_verify/NLI/provenance
+        # engine is untouched, a repaired clause re-passes the UNCHANGED strict_verify, and an
+        # unbindable untokened sentence is left AS-IS so strict_verify still drops it.
+        rewritten2 = _repair_llm_draft_untokened(
+            rewritten2, section, credibility_analysis, evidence_pool,
+        )
         # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
         # offloaded for the same reason as the primary verify above.
         report2 = await asyncio.to_thread(strict_verify, rewritten2, evidence_pool)
