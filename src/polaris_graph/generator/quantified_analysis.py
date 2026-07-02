@@ -123,9 +123,15 @@ _SHORTLIST_MAX_PCT = float(os.environ.get("PG_QUANTIFIED_SHORTLIST_MAX_PCT", "10
 # HTML entities, CDN crop params, and the Unicode replacement char (binary noise).
 _SHORTLIST_JUNK_MARKERS = (
     "http://", "https://", "www.", "](", "![", "tel:", "mailto:",
-    "%pdf", " obj", "endobj", "stream", "/bbox", "/length", "xref",
+    "%pdf", "endobj", "endstream", "/bbox", "/length", "xref",
     "&amp;", "&#", "crop=fp", "fp_zoom", "cdn-assets", "�",
 )
+# I-deepfix-001 U27 iter2 (Codex): the bare substrings " obj" and "stream" were REMOVED — they
+# false-positived on ordinary clinical prose (" objective", "bloodstream") and would wrongly drop
+# valid numbers, falsely triggering `no_modelable_numbers`. PDF binary junk is now caught by the
+# UNAMBIGUOUS keywords above (endobj/endstream/%pdf/xref//length//bbox) plus a PRECISE PDF
+# object-header regex ("13 0 obj") below — none of which occur in clinical/economic prose.
+_SHORTLIST_PDF_OBJ_RE = re.compile(r"\b\d+\s+\d+\s+obj\b")
 # A long unbroken alphanumeric run = base64 auth blob / hash / accession, never prose
 # (English words / clinical labels break well under this length).
 _SHORTLIST_BASE64_RE = re.compile(r"[A-Za-z0-9+/]{24,}")
@@ -158,6 +164,9 @@ def is_junk_modelable_datapoint(datapoint: dict[str, Any]) -> bool:
     for marker in _SHORTLIST_JUNK_MARKERS:
         if marker in hay:
             return True
+    # PDF object header ("13 0 obj") — precise, does not match "objective"/other prose.
+    if _SHORTLIST_PDF_OBJ_RE.search(hay):
+        return True
     # (3) base64 auth blob / hash / accession (a long unbroken alphanumeric run).
     if _SHORTLIST_BASE64_RE.search(label) or _SHORTLIST_BASE64_RE.search(context):
         return True

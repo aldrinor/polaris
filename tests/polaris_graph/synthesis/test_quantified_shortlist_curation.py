@@ -335,3 +335,16 @@ def test_behavioral_replay_drb78_curated_shortlist_is_clean():
         assert not any(s in blob for s in sigs), f"chrome survived curation: {d.get('label')!r}"
     # and at least one real clinical percentage/measurement is present
     assert any(d.get("unit") in ("%", "months", "hours") for d in curated)
+
+
+def test_junk_markers_do_not_false_positive_clinical_prose():
+    """I-deepfix-001 U27 iter2 (Codex): the removed over-broad substrings (' obj'/'stream') must not
+    flag ordinary clinical prose as junk, while real PDF binary junk is still caught."""
+    from src.polaris_graph.generator.quantified_analysis import is_junk_modelable_datapoint as j
+    # clinical prose that INCIDENTALLY contains 'obj'/'stream' substrings -> NOT junk
+    assert j({"label": "Objective: response rate", "context": "Objective: response rate was 42%", "value": 42, "unit": "%"}) is False
+    assert j({"label": "bloodstream infections", "context": "bloodstream infections occurred in 2.5%", "value": 2.5, "unit": "%"}) is False
+    assert j({"label": "income stream", "context": "a recurring income stream of 5%", "value": 5, "unit": "%"}) is False
+    # real PDF binary junk -> STILL junk (object header + stream keywords)
+    assert j({"label": "obj", "context": "13 0 obj << /Length 4096 >> stream", "value": 4096, "unit": None}) is True
+    assert j({"label": "x", "context": "endstream endobj", "value": 1, "unit": None}) is True
