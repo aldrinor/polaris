@@ -23,6 +23,13 @@ import uuid
 from typing import Callable
 
 from src.polaris_graph.llm import openrouter_client as _orc
+# I-deepfix-001 (KEYSTONE de-storm): SAME round-robin burst-spread helper as entailment_judge — the P2
+# credibility scoring / W5 tiering burst pins the SAME mirror chain, so it self-inflicts the identical
+# 429 storm. Shared leaf helper (stdlib-only) keeps ONE copy of the counter/mode logic. Transport-only.
+from src.polaris_graph.llm.judge_burst_spread import (
+    burst_spread_mode as _judge_burst_spread_mode,
+    next_burst_start_index as _next_burst_start_index,
+)
 
 _ENV_MODEL = "PG_CREDIBILITY_JUDGE_MODEL"
 _DEFAULT_MODEL = "z-ai/glm-5.2"                       # I-beatboth-008 #1285: mirror upgrade 5.1->5.2; open-weight (MIT), sovereign; override via env
@@ -278,10 +285,23 @@ def make_openrouter_credibility_caller(
         _rotate_chain = _mirror_provider_chain() if _rotate_on else []
         if len(_rotate_chain) <= 1:
             _rotate_chain = []  # nothing to rotate through -> single-host pin below
+        # I-deepfix-001 (KEYSTONE de-storm): SPREAD the P2/W5 tiering burst across the mirror chain's
+        # healthy hosts (round-robin START index) instead of priority-pinning host[0]. Same disease as the
+        # entailment judge: the pinned host takes the whole concurrent burst -> account-QPS 429 storm ->
+        # tiering starves to rules-floor. TRANSPORT-ONLY: same glm-5.2 model, next healthy host. Default-ON;
+        # PG_JUDGE_BURST_SPREAD=0 => cursor 0 + no-wrap ring stop => byte-identical single-host pin. LAW VI.
+        _burst_mode = _judge_burst_spread_mode()
         _provider_cursor = 0
-        if _rotate_chain:
+        if _rotate_chain and _burst_mode == "spread":
+            _provider_cursor = _next_burst_start_index(len(_rotate_chain))
+        _rotate_attempts = 0  # distinct hosts already tried (0 == the START host, not yet rotated)
+        if _rotate_chain and _burst_mode == "lb":
+            # Documented D8-Judge cure: drop the single-host `order` and let OpenRouter LOAD-BALANCE the
+            # burst across all glm-5.2 endpoints (require_parameters:True keeps reasoning-honoring hosts).
+            json_body["provider"] = {"allow_fallbacks": True, "require_parameters": True}
+        elif _rotate_chain:
             json_body["provider"] = {
-                "order": [_rotate_chain[0]], "allow_fallbacks": False, "require_parameters": True,
+                "order": [_rotate_chain[_provider_cursor]], "allow_fallbacks": False, "require_parameters": True,
             }
         elif gate_provider and not _free_route:
             json_body["provider"] = {
@@ -290,13 +310,19 @@ def make_openrouter_credibility_caller(
 
         def _rotate_provider() -> None:
             """Advance the pinned provider to the next mirror-chain host (no-op when rotation is disabled
-            or the chain is exhausted). Faithfulness-neutral: same glm-5.1 model, next healthy host."""
-            nonlocal _provider_cursor
+            or the ring is exhausted). Faithfulness-neutral: same glm-5.2 model, next healthy host."""
+            nonlocal _provider_cursor, _rotate_attempts
             if len(_rotate_chain) <= 1 or "provider" not in json_body:
                 return
-            if _provider_cursor >= len(_rotate_chain) - 1:
+            if "order" not in json_body["provider"]:
+                return  # lb mode: OpenRouter load-balances across endpoints -> nothing to pin
+            # I-deepfix-001: walk the FULL ring (wraparound) from wherever the burst-spread START landed;
+            # stop after every DISTINCT host tried once. OFF/no-spread keeps cursor 0 and stops after len-1
+            # advances (byte-identical to the pre-fix single-lead walk).
+            if _rotate_attempts >= len(_rotate_chain) - 1:
                 return
-            _provider_cursor += 1
+            _rotate_attempts += 1
+            _provider_cursor = (_provider_cursor + 1) % len(_rotate_chain)
             json_body["provider"]["order"] = [_rotate_chain[_provider_cursor]]
 
         # Bounded retry over the SYNC post: a transient transport fault OR an empty/truncated body is

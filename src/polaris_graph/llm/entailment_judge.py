@@ -74,6 +74,13 @@ import time
 # resolved at except-clause evaluation, which is a hot-path call).
 # The test asserts the runtime contract; cold-import cost is accepted.
 from src.polaris_graph.llm import openrouter_client as _orc
+# I-deepfix-001 (KEYSTONE de-storm): round-robin burst-spread of the per-claim judge START host across
+# the mirror chain (stdlib-only leaf helper -> zero off-mode import cost; shared with credibility_judge_caller
+# so both bursts spread over the SAME chain). Transport-only; verdict logic + fail-closed sentinel untouched.
+from src.polaris_graph.llm.judge_burst_spread import (
+    burst_spread_mode as _judge_burst_spread_mode,
+    next_burst_start_index as _next_burst_start_index,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -791,12 +798,36 @@ class _EntailmentJudge:
         _rotate_chain: list[str] = _mirror_provider_chain() if _rotate_on else []
         if len(_rotate_chain) <= 1:
             _rotate_chain = []  # nothing to rotate through -> fall back to the single-host pin below
+        # I-deepfix-001 (KEYSTONE de-storm): SPREAD the per-claim judge BURST across the mirror chain's
+        # healthy hosts instead of priority-pinning host[0]. Under the credibility pass's 20-way
+        # concurrency the old cursor-0 start POSTed every in-flight member to the SAME chain-lead host
+        # simultaneously -> account-QPS 429 storm on ONE host -> the pass blows its wall ->
+        # credibility_analysis=None (empty conclusion + W5 tiering starvation). Round-robin the START
+        # index so ~inflight/len(chain) members land on each host; a faulted call still walks the FULL
+        # ring (wraparound) from wherever it started. TRANSPORT-ONLY: same glm-5.2 model + prompt +
+        # verdict parsing + fail-closed sentinel — only WHICH healthy host answers changes. Default-ON;
+        # PG_JUDGE_BURST_SPREAD=0 => cursor 0 + no-wrap ring stop => byte-identical single-host pin. LAW VI.
+        _burst_mode = _judge_burst_spread_mode()
         _provider_cursor = 0
-        if _rotate_chain:
-            # Rotation ON: pin the chain LEAD from the YAML directly (independent of _gate_provider) so the
-            # chain is pinned + rotatable even where the pathB role map did not propagate to this thread.
+        if _rotate_chain and _burst_mode == "spread":
+            _provider_cursor = _next_burst_start_index(len(_rotate_chain))
+        _rotate_attempts = 0  # distinct hosts already tried (0 == the START host, not yet rotated)
+        if _rotate_chain and _burst_mode == "lb":
+            # Documented D8-Judge cure (openrouter_provider_routing.yaml:78-91): drop the single-host
+            # `order` and let OpenRouter LOAD-BALANCE the burst across all glm-5.2 endpoints. Keep
+            # require_parameters:True (reasoning-honoring hosts only, no token-cap 404). Opt-in fallback
+            # if round-robin start proves insufficient on the real snapshot; NOT the default.
             json_body["provider"] = {
-                "order": [_rotate_chain[0]],
+                "allow_fallbacks": True,
+                "require_parameters": True,
+            }
+        elif _rotate_chain:
+            # Rotation ON (spread default OR off): pin ONE host from the YAML chain (independent of
+            # _gate_provider so the chain is pinned + rotatable even where the pathB role map did not
+            # propagate to this thread). Spread seeds _provider_cursor round-robin above; OFF keeps it 0
+            # (== chain LEAD) so this branch is byte-identical to the pre-I-arch-011 single-host pin.
+            json_body["provider"] = {
+                "order": [_rotate_chain[_provider_cursor]],
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
@@ -812,17 +843,25 @@ class _EntailmentJudge:
             """Advance the pinned provider to the NEXT mirror-chain host on a blank/parse/bad-verdict
             fault (NOT a transport-poison — those rebuild THIS thread's client + retry the SAME host).
             Returns True iff it actually advanced (so the caller can log it). Faithfulness-neutral:
-            same glm-5.1 model, next healthy host; the verdict the next host returns is the real verdict."""
-            nonlocal _provider_cursor
+            same glm-5.2 model, next healthy host; the verdict the next host returns is the real verdict."""
+            nonlocal _provider_cursor, _rotate_attempts
             if len(_rotate_chain) <= 1 or "provider" not in json_body:
                 return False
-            if _provider_cursor >= len(_rotate_chain) - 1:
-                return False  # exhausted the chain — let the bounded retry fail closed
-            _provider_cursor += 1
+            if "order" not in json_body["provider"]:
+                return False  # lb mode: OpenRouter already load-balances across endpoints — nothing to pin
+            # I-deepfix-001: walk the FULL ring from wherever the burst-spread START landed. Stop after
+            # every DISTINCT host has been tried once (len-1 additional hosts), wrapping with modulo so a
+            # member that started mid-chain still reaches host[0..start-1]. OFF/no-spread keeps the cursor
+            # at 0 and the ring still terminates after len-1 advances (byte-identical stop point).
+            if _rotate_attempts >= len(_rotate_chain) - 1:
+                return False  # walked every host — let the bounded retry fail closed
+            _rotate_attempts += 1
+            _provider_cursor = (_provider_cursor + 1) % len(_rotate_chain)
             json_body["provider"]["order"] = [_rotate_chain[_provider_cursor]]
             logger.warning(
-                "[entailment] provider-rotate on %s: -> %s (chain pos %d/%d)",
-                reason, _rotate_chain[_provider_cursor], _provider_cursor + 1, len(_rotate_chain),
+                "[entailment] provider-rotate on %s: -> %s (ring pos %d, %d/%d hosts tried)",
+                reason, _rotate_chain[_provider_cursor], _provider_cursor,
+                _rotate_attempts + 1, len(_rotate_chain),
             )
             return True
 

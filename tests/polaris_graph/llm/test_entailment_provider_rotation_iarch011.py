@@ -20,6 +20,15 @@ from src.polaris_graph.benchmark import pathB_capture
 from src.polaris_graph.llm import entailment_judge
 
 
+@pytest.fixture(autouse=True)
+def _burst_spread_off(monkeypatch):
+    """I-deepfix-001: these I-arch-011 tests assert the single-lead ROTATION-WALK (start friendli ->
+    next host). The new default-ON round-robin burst-spread START host is validated separately in
+    test_judge_burst_spread_ideepfix001.py; pin it OFF here so the deterministic friendli-lead the
+    assertions below depend on is byte-identical to the pre-fix behavior."""
+    monkeypatch.setenv("PG_JUDGE_BURST_SPREAD", "0")
+
+
 class _FakeResp:
     def __init__(self, status_code: int, payload: dict):
         self.status_code = status_code

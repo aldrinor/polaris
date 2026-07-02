@@ -84,6 +84,11 @@ def _reset(monkeypatch):
     monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
     monkeypatch.setenv("PG_ENTAILMENT_MODEL", "z-ai/glm-5.2")
     monkeypatch.setenv("PG_JUDGE_PROVIDER_ROTATE", "1")
+    # I-deepfix-001: pin burst-spread OFF so these iwire008 tests assert the byte-identical single-lead
+    # ROTATION-WALK semantics (start friendli -> next mirror host). The new default-ON round-robin START
+    # host is validated in test_judge_burst_spread_ideepfix001.py; here the OFF flag preserves the
+    # deterministic friendli-lead the pre-fix assertions below depend on.
+    monkeypatch.setenv("PG_JUDGE_BURST_SPREAD", "0")
     monkeypatch.setenv("PG_ENTAILMENT_RETRIES", "3")
     monkeypatch.setenv("PG_ENTAILMENT_RETRY_BACKOFF_S", "0")  # keep the test fast
     # U16 (I-deepfix-001): a 429 / error_body_200(429) is now classified as a rate-limit fault and
