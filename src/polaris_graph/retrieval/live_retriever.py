@@ -59,6 +59,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     TierLevel,
     _classify_source_tier_rules,
+    _m2_dt,
     classify_source_tier,
 )
 
@@ -5543,6 +5544,20 @@ def run_live_retrieval(
             # tier (the surface the generator actually reads).
             _w5_loop_idx = len(_deferred_tier_signals)
             tier_result = _classify_source_tier_rules(signals)
+            # I-deepfix-001 (journal_genre_stamp): the W5 deferred path calls
+            # `_classify_source_tier_rules` DIRECTLY, bypassing the `classify_source_tier`
+            # dispatcher — so it skipped the dispatcher's per-citation document-GENRE stamp
+            # (`_m2_dt` at tier_classifier.py:1278). Result: `tier_result.document_type` /
+            # `is_journal_article` stayed None on the W5 winner path, so the groundable
+            # evidence row below never set `document_type` and every journal article
+            # (JEP/QJE/Science/Nature) was mislabeled non-journal downstream. Stamp the genre
+            # here, IDENTICALLY to the dispatcher's OFF-path (~L5565 `classify_source_tier`)
+            # so both paths carry the same disclosure. `_m2_dt` is PURE (no network/LLM),
+            # gated by PG_DOCUMENT_TYPE_WEIGHT (no-op / byte-identical when OFF), fail-open,
+            # and touches NO faithfulness surface (strict_verify / NLI / 4-role / provenance
+            # are FROZEN) — it only sets the advisory genre label the credibility disclosure
+            # reads (§-1.3 WEIGHT-and-DISCLOSE).
+            _m2_dt(tier_result, signals)
             _deferred_tier_signals.append(signals)
             _deferred_tier_row_idx.append(len(classified_sources))
             classified_sources.append(CorpusSource(
