@@ -4773,6 +4773,15 @@ _ARTIFACT_KIND_DEGRADED = "degraded"
 _ARTIFACT_KIND_DISCLOSED_GAPS = "disclosed-gaps"
 _ARTIFACT_KIND_TIMEOUT = "timeout"
 
+# I-wire-001 (Codex iter-2 P1): the machine-stable verdict marker EVERY finalizer BACKSTOP body
+# carries (``build_finalizer_artifact_body`` emits it unconditionally) and NO genuine findings
+# ``report.md`` ever contains (a real render is ``_reliability_md + final_report``). The wall-clock
+# preserve check (``timeout_should_preserve_rendered_report``) uses it to tell the inner
+# finalizer's OWN timeout-backstop report.md apart from a genuinely-rendered report, so a genuine
+# no-prior-report hang still gets its labeled error/timeout manifest instead of being mistaken for
+# "already rendered". Kept as ONE named constant so the emitter and the detector cannot drift.
+_FINALIZER_VERDICT_MARKER = "**Artifact kind:**"
+
 # status -> artifact kind. Keys are UNIFIED statuses (manifest.status), plus the
 # legacy summary labels that can reach the finalizer before unification.
 _STATUS_ARTIFACT_KIND: dict[str, str] = {
@@ -4853,7 +4862,7 @@ def build_finalizer_artifact_body(
         "",
         "## Pipeline verdict",
         "",
-        f"**Artifact kind:** {kind}",
+        f"{_FINALIZER_VERDICT_MARKER} {kind}",
         f"**Terminal status:** `{status or 'unknown'}`",
     ]
     if timed_out and wall_clock_seconds is not None:
@@ -5550,6 +5559,22 @@ def timeout_should_preserve_rendered_report(run_dir, timeout_summary) -> bool:
     except OSError:
         rendered = False
     if not rendered:
+        return False
+    # ORDERING FIX (Codex iter-2 P1): a NON-EMPTY report.md is NOT proof of a GENUINE render.
+    # run_one_query's inner ``finally`` runs finalize_run_artifact BEFORE this outer preserve
+    # check, so on a genuine no-prior-report hang the inner finalizer's OWN non-empty TIMEOUT
+    # BACKSTOP report.md already sits on disk. That backstop (build_finalizer_artifact_body)
+    # stamps the machine-stable ``_FINALIZER_VERDICT_MARKER`` that a real findings report
+    # (``_reliability_md + final_report``) NEVER carries. If the on-disk report.md is that
+    # finalizer backstop, it is NOT a genuine render -> do NOT preserve, so the caller writes the
+    # labeled error/timeout manifest (a real hang is never silently mislabeled "already
+    # rendered"). Self-correcting on --resume: a later real render overwrites report.md and the
+    # marker is gone. Faithfulness-neutral (reads report.md text; writes nothing to any gate).
+    try:
+        _head = report_path.read_text(encoding="utf-8", errors="replace")[:8192]
+    except OSError:
+        _head = ""
+    if _FINALIZER_VERDICT_MARKER in _head:
         return False
     try:
         existing = json.loads((Path(run_dir) / "manifest.json").read_text(encoding="utf-8"))

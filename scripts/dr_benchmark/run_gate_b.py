@@ -633,7 +633,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # real sections per the #1248 forensic + the real 86-min run, so the slate KEEPS the large per-call
     # values and fixes ONLY the missing run-level guard + the inverted run-wall ordering). A legit single-
     # query run is ~86 min, so 10800 (3h) clears it with margin yet still catches a total hang.
-    "PG_RUN_WALL_CLOCK_SEC": "10800",
+    # I-deepfix-001 (wallclock_guard): a REAL clinical back-half measured 10992s — over the old
+    # 10800 wall, so a fully-rendered run got guillotined. Raise to 14400 (4h) so a healthy clinical
+    # run clears with margin; still catches a true total hang. Cap, not target (billed by actual
+    # usage). retrieval 5400 < section 9000 < seam 7200 < run-wall 14400 hierarchy holds.
+    "PG_RUN_WALL_CLOCK_SEC": "14400",
     # I-deepfix-001 W02-retrieval-wall-activate (#1344): the SHARED per-question retrieval
     # wall. This is the ACTIVATION SWITCH for the entire staged retrieval-deadline class
     # (FIX-2 search-site deadline, BUG-A 5-outer-loop gates, the WALL-03 FS-Researcher qgen
@@ -2398,9 +2402,11 @@ _BENCHMARK_EXTRA_ENV_FLOORS = {
     # I-arch-005 B20 PREFLIGHT FIX (#1257): the RUN-LEVEL wall-clock floor. The default
     # run_wall_clock_seconds (7200) is BELOW the 9000 section backstop = inverted ordering (a hang could
     # not be caught above the section level). Floor it ABOVE the section backstop so the hierarchy stays
-    # per-call 6500 < section 9000 < run-wall 10800; the explicit ordering assertion in
+    # per-call 6500 < section 9000 < run-wall 14400; the explicit ordering assertion in
     # preflight_full_capability fails closed if a future value inverts the hierarchy.
-    "PG_RUN_WALL_CLOCK_SEC": 10800,
+    # I-deepfix-001 (wallclock_guard): raised 10800 -> 14400 to match the slate (a real clinical
+    # back-half measured 10992s > 10800). Floor stays strictly above section 9000.
+    "PG_RUN_WALL_CLOCK_SEC": 14400,
 }
 
 
@@ -3745,8 +3751,7 @@ async def run_gate_b_query(
     from scripts.run_honest_sweep_r3 import (
         _RUN_WALL_CLOCK_DEADLINE_CTX,
         _RUN_WALL_CLOCK_ENV,
-        _base_manifest_envelope,
-        finalize_run_artifact,
+        finalize_timeout_run_and_maybe_write_error_manifest,
         run_wall_clock_seconds,
     )
     # I-deepfix-001 (Codex e2e gate P1): the paid Gate-B path must ALSO install the
@@ -3803,28 +3808,12 @@ async def run_gate_b_query(
             "run_dir": str(_run_dir),
             "run_id": "timeout",
         }
-        try:
-            finalize_run_artifact(
-                _run_dir, _timeout_summary, q, timed_out=True, wall_clock_seconds=_wall,
-            )
-        except Exception as _fin_exc:  # noqa: BLE001 — never let the backstop break the run
-            print(f"[finalizer]   gate-b timeout-artifact write failed: {_fin_exc}")
-        try:
-            _to_manifest = _base_manifest_envelope(
-                run_id="timeout", q=q, retrieval=None, run_cost=0.0,
-            )
-            _to_manifest["status"] = "error_unexpected"
-            _to_manifest["release_allowed"] = False
-            _to_manifest["run_wall_clock_timeout"] = True
-            _to_manifest["run_wall_clock_seconds"] = _wall
-            _to_manifest["error"] = _timeout_summary["error"]
-            (_run_dir / "manifest.json").write_text(
-                json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-            _timeout_summary["manifest"] = _to_manifest
-        except Exception as _man_exc:  # noqa: BLE001 — manifest best-effort; artifact already shipped
-            print(f"[finalizer]   gate-b timeout-manifest write failed: {_man_exc}")
+        # WALLCLOCK-GUARD (I-deepfix-001 ordering fix): one shared seam captures the PRESERVE
+        # decision BEFORE the finalizer writes its backstop report.md, then finalizes and (only
+        # for a genuine no-report hang) stamps the labeled error manifest. See the helper docstring.
+        finalize_timeout_run_and_maybe_write_error_manifest(
+            _run_dir, _timeout_summary, q, wall_clock_seconds=_wall,
+        )
         return _timeout_summary
     finally:
         try:
