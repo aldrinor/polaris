@@ -125,17 +125,28 @@ def test_m18b_reddit_post_also_social() -> None:
     assert "RP1_social_platform_early" in r.matched_rules
 
 
-def test_m18b_legitimate_journal_stub_still_t7() -> None:
-    """Sanity: a real journal URL with stub-sized content must still
-    be T7 (M-18b only short-circuits social platforms, not journals)."""
+def test_m18b_legitimate_journal_stub_keeps_venue_authority_labeled_degraded() -> None:
+    """I-arch-011 B17/B11 KEYSTONE + §-1.3 weight-not-drop: a real scholarly-venue
+    URL fetched as a stub KEEPS its venue-authority tier (WEIGHT) and is LABELED
+    fetch_degraded=True so the downstream adequacy lane EXCLUDES it from grounded-
+    content counts — rather than being demoted to the T7 length floor. This
+    SUPERSEDES the pre-keystone 'stub journal -> T7' assertion (which was the
+    I-bug-775 regression the keystone fixed: it dropped Lancet/Brain/Movement
+    Disorders to T7 on short fetches). The carve-out was introduced by 71c5b759d
+    (2026-06-19), predating I-deepfix-001 U10 (dc6ad6a8) — the classifier already
+    returned T1 at U10's parent. No laundering: the stub keeps its venue WEIGHT but
+    the fetch_degraded label makes the adequacy gate exclude it from grounded content,
+    and the faithfulness engine independently blocks a contentless stub from grounding
+    any claim (§-1.3: the ONLY hard gate is faithfulness)."""
     r = classify_source_tier(ClassificationSignals(
         url="https://www.nejm.org/doi/full/10.1056/NEJMoa1234",
         title="Primary trial of tirzepatide",
         publisher="",
         fetched_content_length=500,  # stub
     ))
-    assert r.tier.value == "T7"
-    assert "R1_stub_content_length" in r.matched_rules
+    assert r.tier.value == "T1"                        # venue authority kept (was T7 pre-keystone)
+    assert r.fetch_degraded is True                    # labeled degraded -> excluded from adequacy
+    assert "R1_stub_content_length" not in r.matched_rules
 
 
 def test_m18b_non_social_non_stub_url_unaffected() -> None:
