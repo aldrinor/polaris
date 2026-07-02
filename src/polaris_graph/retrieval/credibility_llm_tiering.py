@@ -536,11 +536,31 @@ def _run_llm_tiering_parallel(
     # consecutive-fallback circuit-breaker. The TIGHTER (earlier) of the threaded
     # `deadline_monotonic` (the caller's retrieval wall) and the env fallback wins.
     _batch_wall = _tier_llm_batch_wall_seconds()
-    _eff_deadline = deadline_monotonic
+    _now_monotonic = time.monotonic()
+    # I-deepfix-001 (#1344 followup — tiering-starvation fix, Run A 2026-07-02): credibility
+    # tiering is a CHEAP WEIGHT (T1-T7) whose INCOMPLETENESS silently fabricates a false
+    # material-deviation corpus — every un-tiered source defaults to the deterministic
+    # rules-floor, which the downstream corpus_approval gate reads as a T4-dominant skew and
+    # ABORTS. Run A proved the failure: the retrieval wall had ALREADY been consumed by a slow
+    # fetch, so ``deadline_monotonic`` arrived here already in the PAST; the old
+    # ``min(expired, now + batch_wall)`` == the expired instant, so the loop broke on the first
+    # iteration and tiered ZERO of 20 sources -> false T4-dominant -> abort_corpus_approval_denied.
+    # Tiering therefore gets its OWN budget from NOW (``_batch_wall``, default 600s), and only
+    # tightens to the caller's retrieval wall when that wall is STILL IN THE FUTURE. This is
+    # faithfulness-NEUTRAL: it only changes how many sources receive a real GLM tier vs the
+    # deterministic rules-floor (a WEIGHT, never a drop — every source is kept either way, §-1.3);
+    # it never touches strict_verify / NLI / D8 / provenance.
     if _batch_wall > 0:
-        _wall_instant = time.monotonic() + _batch_wall
+        _eff_deadline = _now_monotonic + _batch_wall
+        if deadline_monotonic is not None and deadline_monotonic > _now_monotonic:
+            _eff_deadline = min(_eff_deadline, deadline_monotonic)
+    else:
+        # Batch wall disabled (``PG_TIER_LLM_BATCH_WALL_SECONDS <= 0``): only a STILL-FUTURE
+        # retrieval wall bounds the batch; an already-expired one is ignored (never zero-tier).
         _eff_deadline = (
-            _wall_instant if _eff_deadline is None else min(_eff_deadline, _wall_instant)
+            deadline_monotonic
+            if (deadline_monotonic is not None and deadline_monotonic > _now_monotonic)
+            else None
         )
     _degrade_after = _tier_llm_degrade_after()
     _consecutive_fallbacks = 0
