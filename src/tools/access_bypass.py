@@ -621,16 +621,60 @@ def is_error_shell_text(text: str) -> bool:
     )
 
 
+def _is_interstitial_shell_span(text: str) -> bool:
+    """U20 (I-deepfix-001): LAW V delegation to the canonical shell detector
+    (``shell_detector.is_cited_span_shell``) for CAPTCHA / cookie-consent /
+    bot-challenge interstitial spans that the length-gated ``is_error_shell_text``
+    misses.
+
+    ``is_error_shell_text`` only fires on a SHORT (<=400-char) body with a WAF
+    co-token / signature-dominance, so an enrichment-concatenated CAPTCHA span or a
+    cookie-consent banner slips through it (verified on drb_75: the junk screen
+    dropped only YouTube hosts, so captcha/cookie spans inflated breadth
+    ~730 -> 893). ``is_cited_span_shell`` is the Codex-hardened single source of
+    truth: any-length CAPTCHA/challenge co-occurrence signatures + short-body
+    cookie/consent/citation-UI chrome, with the ambiguous-phrase corroboration and
+    short-body ceilings that keep a real clinical body (even a long one carrying an
+    incidental cookie footer) from being false-dropped.
+
+    Reusing a pure detector is faithfulness-NEUTRAL: strict_verify / NLI / 4-role /
+    span-grounding are untouched (this is a SOURCE-hygiene predicate, not a verify
+    verdict). Lazy import + fail-OPEN (an import/detector fault KEEPS the source —
+    §-1.3: never over-drop). Pure, no network.
+    """
+    if not text:
+        return False
+    try:
+        from src.polaris_graph.retrieval.shell_detector import (  # noqa: PLC0415
+            is_cited_span_shell,
+        )
+    except Exception:  # noqa: BLE001 — fail-open: an import fault must never drop a real source
+        return False
+    try:
+        return bool(is_cited_span_shell(text))
+    except Exception:  # noqa: BLE001 — fail-open on any detector fault
+        return False
+
+
 def is_junk_source(url: str = "", text: str = "") -> bool:
     """True iff a source is a non-citable JUNK page (host OR error-shell body).
 
     Faithfulness-NEUTRAL SOURCE screen (§-1.3): drops ONLY confirmed junk
-    (homework-help/Q&A host, or a fetch-error shell body), never a real
-    journal/repository/gov/news source. Either signal alone is sufficient; both
-    are high-precision. Never a verify verdict — applied at corpus consumption so
-    junk never enters the basket / bibliography / corroboration / citation.
+    (homework-help/Q&A host, a fetch-error shell body, or a CAPTCHA / cookie-consent
+    / bot-challenge interstitial span), never a real journal/repository/gov/news
+    source. Each signal is high-precision. Never a verify verdict — applied at
+    corpus consumption so junk never enters the basket / bibliography /
+    corroboration / citation.
+
+    U20 (I-deepfix-001): the third signal (``_is_interstitial_shell_span``) closes
+    the gap where the length-gated ``is_error_shell_text`` missed captcha/cookie
+    spans — only YouTube hosts were being dropped before.
     """
-    return is_junk_source_host(url) or is_error_shell_text(text)
+    return (
+        is_junk_source_host(url)
+        or is_error_shell_text(text)
+        or _is_interstitial_shell_span(text)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -995,6 +1039,111 @@ def _mineru25_circuit_cooldown() -> float:
     except ValueError:
         return _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
     return value if value > 0 else _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
+
+
+# ---------------------------------------------------------------------------
+# I-deepfix-001 U8 (#1344): mineru25 vlm-http-client "Semaphore bound to a
+# different event loop" -> circuit trip -> silent degrade to Docling.
+#
+# The third-party ``mineru_vl_utils`` HttpVlmClient caches ONE process-wide
+# async client whose ``asyncio.Semaphore(1)`` binds to the FIRST event loop it
+# runs under. Our ``_mineru25_extract`` runs on a fetch-worker thread via
+# ``run_in_executor`` (NO running loop), so MinerU falls back to
+# ``asyncio.run()`` — a FRESH loop — for EVERY extraction. The 2nd call then
+# trips ``<Semaphore ...> is bound to a different event loop`` (observed live:
+# drb_78 `Semaphore object ... is bound to a different event loop`), which the
+# W4 circuit counts as a genuine failure and, after 3, OPENS the breaker so
+# every clinical PDF degrades to Docling — AND removes the U1 rasterization
+# throttle behind it. Same failure class as the crawl4ai loop-keyed cache
+# (#1227).
+#
+# FIX: before each ``do_parse`` on the vlm-http-client path, swap the cached
+# client's loop-bound ``asyncio.Semaphore(1)`` for a fresh one and clear its
+# per-loop client cache, so every extraction sees clean, unbound loop state.
+#
+# §-1.3 / faithfulness: this touches only the EXTRACTOR's async-plumbing state
+# inside a THIRD-PARTY client — it changes NOTHING about which PDFs are
+# extracted, the verbatim text, or any faithfulness gate (strict_verify / NLI /
+# 4-role / provenance are all downstream and untouched). It only stops a
+# spurious degrade so the disclosed W4 winner keeps winning.
+#
+# Fully defensive: absent package / unexpected object shape => quiet no-op (the
+# caller's Docling fallback still runs); a genuinely unexpected AttributeError
+# on a present attribute is surfaced LOUDLY (W4-CANARY) but NEVER raised.
+# ---------------------------------------------------------------------------
+def _reset_loop_bound_client(holder: object) -> bool:
+    """PL: reset one HttpVlmClient-shaped object's loop-bound async state.
+
+    Given ``holder`` that may carry ``_aio_client_sem`` (an ``asyncio.Semaphore``
+    bound to a stale event loop) and/or ``_aio_client_cache`` (a per-loop client
+    cache), swap the semaphore for a fresh ``asyncio.Semaphore(1)`` and clear the
+    cache. Returns ``True`` iff at least one field was reset.
+
+    Pure + fully guarded: every attribute read/write is behind ``hasattr`` and a
+    try/except so an unexpected object shape is a no-op, never a crash. An
+    unexpected ``AttributeError`` on an attribute that ``hasattr`` reported
+    present (e.g. a read-only property / ``__slots__`` without setter) is logged
+    LOUDLY and swallowed."""
+    if holder is None:
+        return False
+    reset = False
+    if hasattr(holder, "_aio_client_sem"):
+        try:
+            setattr(holder, "_aio_client_sem", asyncio.Semaphore(1))
+            reset = True
+        except AttributeError as exc:  # noqa: PERF203 — loud, not fatal
+            logger.warning(
+                "[ACCESS] W4-CANARY: mineru25 vlm-http-client _aio_client_sem "
+                "present but not settable (%s) — cannot reset loop-bound "
+                "semaphore; U8 degrade may persist.", str(exc)[:120],
+            )
+    if hasattr(holder, "_aio_client_cache"):
+        try:
+            cache = getattr(holder, "_aio_client_cache")
+            if isinstance(cache, dict):
+                cache.clear()
+            else:
+                setattr(holder, "_aio_client_cache", None)
+            reset = True
+        except AttributeError as exc:  # noqa: PERF203 — loud, not fatal
+            logger.warning(
+                "[ACCESS] W4-CANARY: mineru25 vlm-http-client _aio_client_cache "
+                "present but not resettable (%s) — cannot clear per-loop client "
+                "cache; U8 degrade may persist.", str(exc)[:120],
+            )
+    return reset
+
+
+def _reset_mineru_http_client_loop_state() -> None:
+    """PL: clear the mineru_vl_utils HttpVlmClient's stale-loop async state.
+
+    Walks the MinerU VLM ``ModelSingleton`` model cache and, for each cached
+    predictor, resets the loop-bound async state on its ``.client`` (or the
+    predictor itself). Call ONLY on the vlm-http-client path, immediately before
+    ``do_parse``.
+
+    Absent package / internal layout drift => quiet no-op: there is simply
+    nothing to reset and the caller's disclosed Docling fallback still runs. This
+    is intentional (not a silent capability downgrade): the reset is a
+    best-effort de-wedging of a third-party client whose shape we do not own."""
+    try:
+        from mineru.backend.vlm.vlm_analyze import ModelSingleton  # type: ignore
+    except Exception:  # noqa: BLE001 — package absent / layout drift => nothing to reset
+        return
+    try:
+        singleton = ModelSingleton()  # singleton __new__ returns the shared instance
+    except Exception:  # noqa: BLE001 — cannot obtain singleton => nothing to reset
+        return
+    models = getattr(singleton, "_models", None)
+    if not isinstance(models, dict):
+        return
+    for predictor in list(models.values()):
+        # The HttpVlmClient carrying the loop-bound semaphore may hang off
+        # ``predictor.client`` OR be the predictor object itself. Try the client
+        # first; stop at the first holder that actually reset something.
+        for holder in (getattr(predictor, "client", None), predictor):
+            if _reset_loop_bound_client(holder):
+                break
 
 
 # ---------------------------------------------------------------------------
@@ -3637,7 +3786,6 @@ class AccessBypass:
         extraction if PyMuPDF is not available.
         """
         import aiohttp
-        import tempfile
 
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -3647,6 +3795,52 @@ class AccessBypass:
                 pdf_bytes = await resp.read()
                 if len(pdf_bytes) < 1000:
                     return ""
+
+        return await self._extract_pdf_text_from_bytes(url, pdf_bytes)
+
+    async def _extract_pdf_text_from_bytes(self, url: str, pdf_bytes: bytes) -> str:
+        """Extract text from already-fetched PDF bytes (offline-testable).
+
+        Split out of :meth:`_extract_pdf_text` (which owns the network fetch)
+        so the extractor SELECTOR + docling-OOM gate + docling/PyMuPDF routing
+        can be unit-tested without a network round-trip (I-deepfix-001 U19).
+
+        Faithfulness-neutral: this only decides WHICH extractor produces the
+        verbatim text that strict_verify later grounds — no faithfulness gate
+        (strict_verify / NLI / 4-role / provenance) is touched.
+        """
+        import tempfile
+
+        def _trace_extractor(
+            backend: str, status: str, latency_ms: float, **meta: object
+        ) -> None:
+            """U19: authoritative record of which PDF extractor ACTUALLY ran.
+
+            The mineru25 wrapper logs a ``selected_extractor=docling`` DEGRADE
+            row when it falls through, but the TRUE final extractor (docling
+            vs PyMuPDF) is only known here — so a run whose docling-OOM gate
+            skipped docling and used PyMuPDF was mislabeled ``docling`` in the
+            manifest. Emit the ground-truth extractor. Fail-safe: a tracer
+            error can never break extraction (observability only)."""
+            try:
+                from src.polaris_graph.telemetry.tool_tracer import (
+                    get_tool_tracer,
+                    tool_tracker_enabled,
+                )
+                if not tool_tracker_enabled():
+                    return
+                get_tool_tracer().record(
+                    tool_name="pdf_extract",
+                    target=url,
+                    status=status,
+                    latency_ms=latency_ms,
+                    backend_used=backend,
+                    bytes_received=len(pdf_bytes),
+                    selected_extractor=backend,
+                    **meta,
+                )
+            except Exception as _exc:  # noqa: BLE001 — observability must not abort
+                logger.debug("[ACCESS] U19: extractor trace skipped: %s", str(_exc)[:80])
 
         # I-wire-001/W4 (#1313): clinical-PDF extractor SELECTOR.
         #
@@ -3680,9 +3874,9 @@ class AccessBypass:
         # dense-text PDF wouldn't trip a bytes-only guard but would still OOM
         # docling. PyMuPDF page count costs ~50ms and is memory-safe.
         #
-        # Env overrides:
-        #   PG_MAX_DOCLING_PDF_BYTES (default 5MB)
-        #   PG_MAX_DOCLING_PDF_PAGES (default 40 pages)
+        # Env overrides (a threshold of <= 0 DISABLES that guard — see U19):
+        #   PG_MAX_DOCLING_PDF_BYTES (default 5MB; <=0 = unlimited)
+        #   PG_MAX_DOCLING_PDF_PAGES (default 40 pages; <=0 = unlimited)
         max_docling_bytes = int(
             os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024))
         )
@@ -3690,10 +3884,18 @@ class AccessBypass:
             os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40")
         )
 
+        # I-deepfix-001 U19 (#1344): a threshold of <= 0 means "no limit"
+        # (the standard escape-hatch idiom already used by the mineru25 circuit
+        # breaker at PG_MINERU25_CIRCUIT_THRESHOLD <= 0). The prior code treated
+        # 0 as a LITERAL cap, so PG_MAX_DOCLING_PDF_BYTES=0 made
+        # `len(pdf_bytes) > 0` true for EVERY non-empty PDF -> docling was ALWAYS
+        # skipped and every clinical PDF silently fell to flat PyMuPDF text
+        # (which mangles tables). Guarding each check on `> 0` lets a 0/negative
+        # threshold mean unlimited so docling actually runs when intended.
         _skip_docling_reason = None
-        if len(pdf_bytes) > max_docling_bytes:
+        if max_docling_bytes > 0 and len(pdf_bytes) > max_docling_bytes:
             _skip_docling_reason = f"bytes={len(pdf_bytes)}>{max_docling_bytes}"
-        else:
+        elif max_docling_pages > 0:
             # Cheap page count via PyMuPDF before committing to docling.
             try:
                 import fitz as _fitz
@@ -3742,6 +3944,8 @@ class AccessBypass:
                 )
                 if docling_text and len(docling_text) > 500:
                     logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
+                    # U19: record the REAL extractor that produced the text.
+                    _trace_extractor("docling", "ok", 0.0, chars=len(docling_text))
                     return docling_text
             except _aio.TimeoutError:
                 logger.warning(
@@ -3768,12 +3972,20 @@ class AccessBypass:
             _os.unlink(tmp_path)
 
             full_text = "\n\n".join(pages_text)
-            return full_text.strip()
+            _stripped = full_text.strip()
+            # U19: PyMuPDF actually ran — record it as the REAL extractor so the
+            # manifest no longer mislabels a PyMuPDF fallback as "docling".
+            _trace_extractor(
+                "pymupdf", "ok" if _stripped else "fail", 0.0, chars=len(_stripped)
+            )
+            return _stripped
         except ImportError:
             logger.warning("[ACCESS] FIX-GAP4: PyMuPDF not installed, PDF extraction unavailable")
+            _trace_extractor("pymupdf", "fail", 0.0, error="pymupdf_not_installed")
             return ""
         except Exception as exc:
             logger.warning("[ACCESS] FIX-GAP4: PDF extraction error: %s", str(exc)[:100])
+            _trace_extractor("pymupdf", "fail", 0.0, error=str(exc)[:120])
             return ""
 
     async def _try_trafilatura(self, url: str) -> Optional[AccessResult]:
@@ -5075,6 +5287,19 @@ class AccessBypass:
                     return ""
                 _lock_held = True
             try:
+                # I-deepfix-001 U8 (#1344): the vlm-http-client path drives the
+                # third-party mineru_vl_utils HttpVlmClient, which caches ONE
+                # process-wide async client whose asyncio.Semaphore(1) binds to
+                # the FIRST event loop. We run on a fetch-worker thread with no
+                # loop, so MinerU calls asyncio.run() (a fresh loop) per call;
+                # the 2nd call then trips "Semaphore ... bound to a different
+                # event loop" and opens the W4 circuit -> silent Docling degrade.
+                # Reset the loop-bound async state before each call so every
+                # do_parse sees clean state. Fully defensive (no-op if the
+                # package/shape is unexpected); faithfulness-neutral (only the
+                # extractor's async plumbing, never the verbatim text or a gate).
+                if backend == "vlm-http-client":
+                    _reset_mineru_http_client_loop_state()
                 do_parse(
                     output_dir=_out_dir,
                     pdf_file_names=[name],
