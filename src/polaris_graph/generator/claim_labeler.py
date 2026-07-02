@@ -90,6 +90,10 @@ _SOFT_FLAG_MARKER_TEXT = {
     "metadata_quality_blank_bibliography_title": (
         "metadata gap — a cited source has a blank/degenerate bibliography title"
     ),
+    "primacy_frame_companion_omitted": (
+        "one-sided figure — the cited basket also reports a materially different "
+        "companion figure of the same measure that this statement omits"
+    ),
 }
 
 

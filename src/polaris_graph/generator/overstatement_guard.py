@@ -398,6 +398,158 @@ def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# One-sidedness PRIMACY advisory (I-deepfix-001 Wave-2, one-sidedness framing).
+#
+# A claim can headline ONE figure as the sentence's lead number while the SAME
+# cited basket ALSO carries a materially-different COMPANION figure of the SAME
+# measure kind that the claim omits — a primacy / one-sidedness frame. Example (the
+# Eloundou exposure span): the claim leads with "1.8% of jobs exposed" while the
+# basket also reports "just over 46% of tasks exposed" (the same "% of jobs/tasks
+# exposed" measure). Surfacing only the small headline while the basket carries a
+# far-larger same-kind companion under-states the picture.
+#
+# ADVISORY-ONLY (§-1.3): returns a reason so the caller APPENDS a soft-warning; it
+# NEVER drops a sentence, NEVER fails is_verified, NEVER widens a span, NEVER
+# changes a verdict, and NEVER drops / rewrites / alters any verified number. NOT
+# wired into any drop path. Gated by PG_PRIMACY_FRAME_ANNOTATE (default ON); OFF ->
+# inert (byte-identical). Pure, stdlib-only, network-free (mirrors the
+# effect_size_conditional_reason leg above).
+#
+# HIGH-PRECISION + FAIL-OPEN. Two gates keep it inert on the ambiguous majority of
+# basket numbers (sample sizes, years, CI bounds, page numbers):
+#   (1) SAME UNIT — both the headline and the companion must be PERCENT figures
+#       ("46%", "46 percent"); a bare digit carries no "%" so it can never be a
+#       companion, and a claim with no headline percent is inert immediately.
+#   (2) SAME CONTEXT — the headline's local measure context and the companion's
+#       local measure context must share a content-word stem (jobs / tasks /
+#       exposed), so two unrelated percentages (e.g. "46% of tasks" vs "95% CI")
+#       never pair.
+# PLUS a MATERIAL magnitude gap (absolute AND ratio), so rounding neighbours
+# ("1.8%" vs "1.9%") never fire. A percent whose context is a confidence-interval /
+# significance level is skipped outright.
+# ─────────────────────────────────────────────────────────────────────────────
+def primacy_frame_annotate_enabled() -> bool:
+    """Whether the one-sidedness primacy annotate leg is active (default ON)."""
+    return os.getenv("PG_PRIMACY_FRAME_ANNOTATE", "1").strip().lower() in _TRUE_TOKENS
+
+
+# A PERCENT figure: a numeric token (the SAME ``\d+(?:\.\d+)?`` shape as
+# ``_NUMERIC_TOKEN_RE``) immediately carrying a percent unit. Group 1 is the number
+# string, so a headline/companion value is compared and reported in the same format
+# ``_NUMERIC_TOKEN_RE`` yields (the omission check against the claim's numeric tokens
+# is therefore exact).
+_PRIMACY_PERCENT_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?\b|per\s*cent\b)",
+    re.IGNORECASE,
+)
+# A percent sitting in a confidence-interval / significance context is a precision /
+# uncertainty figure, NOT a headline measure — skip it (never a companion).
+_PRIMACY_CI_CONTEXT_RE = re.compile(
+    r"\bC\.?I\.?\b|confidence\s+interval|\bp\s*[<=>]|significan",
+    re.IGNORECASE,
+)
+# Function words dropped when comparing the MEASURE CONTEXT of two percents, so the
+# same-kind test keys on salient content words (jobs, tasks, exposed), not on glue.
+_PRIMACY_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "that", "this", "these", "those",
+    "was", "were", "are", "has", "have", "had", "its", "their", "they", "them",
+    "just", "over", "under", "about", "than", "then", "which", "could", "would",
+    "may", "might", "into", "onto", "per", "cent", "percent", "percentage",
+    "points", "point", "roughly", "around", "approximately", "some", "more",
+    "most", "such", "when", "while", "also", "only", "but", "not",
+})
+# Alphabetic content word (>=4 letters) inside a percent's local context window.
+_PRIMACY_WORD_RE = re.compile(r"[A-Za-z]{4,}")
+# Light stem length + the local context window (chars each side of the percent).
+_PRIMACY_STEM_LEN = 5
+_PRIMACY_CONTEXT_WINDOW = 48
+# A companion fires only on a MATERIAL magnitude gap: both an absolute
+# percentage-point gap AND a ratio, so rounding neighbours never trip it.
+_PRIMACY_MIN_ABS_GAP_PCT = 5.0
+_PRIMACY_MIN_RATIO = 1.5
+
+
+def _primacy_percents(text: str) -> list[tuple[str, float, frozenset]]:
+    """Percent figures in `text` as (number_str, value, context-stems).
+
+    Skips a percent whose local window is a confidence-interval / significance
+    context (a precision figure, not a headline measure). Context-stems are the
+    5-char prefixes of content words (>=4 letters, non-stopword) within
+    ``_PRIMACY_CONTEXT_WINDOW`` chars of the percent, CLAMPED to the percent's own
+    sentence — so a measure noun in a DIFFERENT sentence never leaks into this
+    percent's context (mirrors the per-sentence scoping of the effect-size leg via
+    ``_SPAN_SENTENCE_SPLIT_RE``). This is the 'same measure kind' signal.
+    """
+    out: list[tuple[str, float, frozenset]] = []
+    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(text or ""):
+        for m in _PRIMACY_PERCENT_RE.finditer(sentence):
+            lo = max(0, m.start() - _PRIMACY_CONTEXT_WINDOW)
+            hi = min(len(sentence), m.end() + _PRIMACY_CONTEXT_WINDOW)
+            window = sentence[lo:hi]
+            if _PRIMACY_CI_CONTEXT_RE.search(window):
+                continue
+            try:
+                val = float(m.group(1))
+            except ValueError:
+                continue
+            stems = frozenset(
+                w.lower()[:_PRIMACY_STEM_LEN]
+                for w in _PRIMACY_WORD_RE.findall(window)
+                if w.lower() not in _PRIMACY_STOPWORDS
+            )
+            out.append((m.group(1), val, stems))
+    return out
+
+
+def primacy_frame_reason(claim: str, basket_span_text: str) -> str | None:
+    """Return an ANNOTATE reason if the claim headlines one percent figure while the
+    cited basket also holds a materially-different SAME-KIND companion percent the
+    claim omits (a one-sidedness / primacy frame).
+
+    Fires only when ALL hold:
+      - the leg is enabled (PG_PRIMACY_FRAME_ANNOTATE, default ON),
+      - the claim asserts at least one PERCENT headline figure,
+      - the basket holds a PERCENT companion whose value the claim OMITS,
+      - that companion shares a measure-context stem with a claim headline (same
+        unit AND same context — e.g. both "% of jobs/tasks exposed"), and
+      - the headline<->companion magnitudes differ MATERIALLY (absolute AND ratio).
+    Otherwise returns None (inert — bare digits: sample sizes, years, CI bounds,
+    page numbers carry no "%", so they can never fire). ADVISORY-only: the caller
+    APPENDS a soft-warning; this NEVER drops, widens a span, changes a verdict, or
+    alters any verified number (§-1.3).
+    """
+    if not primacy_frame_annotate_enabled():
+        return None
+    if not claim or not basket_span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    claim_pcts = _primacy_percents(claim_bare)
+    if not claim_pcts:
+        return None  # no headline percent — nothing to be one-sided about
+    basket_pcts = _primacy_percents(basket_span_text)
+    if not basket_pcts:
+        return None  # basket carries no same-unit companion (bare digits) — inert
+    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
+    for c_str, c_val, c_stems in basket_pcts:
+        if c_str in claim_numbers:
+            continue  # the claim already presents this figure — not omitted
+        for h_str, h_val, h_stems in claim_pcts:
+            if not (c_stems & h_stems):
+                continue  # different measure kind (no shared context stem)
+            gap = abs(c_val - h_val)
+            hi_val, lo_val = max(c_val, h_val), min(c_val, h_val)
+            if gap < _PRIMACY_MIN_ABS_GAP_PCT:
+                continue  # not a material absolute gap (rounding neighbour)
+            if lo_val <= 0.0 or (hi_val / lo_val) < _PRIMACY_MIN_RATIO:
+                continue  # not a material ratio
+            return (
+                "primacy_frame_companion_omitted:headline="
+                + h_str + "%:companion=" + c_str + "%"
+            )
+    return None
+
+
 def temporal_scope_reason(claim: str, span_text: str) -> str | None:
     """Return a drop reason if the claim's time-horizon is not in the cited span.
 

@@ -71,6 +71,8 @@ from src.polaris_graph.generator.overstatement_guard import (
     epistemic_overstatement_reason as _epistemic_overstatement_reason,
     temporal_scope_guard_enabled as _temporal_scope_guard_enabled,
     temporal_scope_reason as _temporal_scope_reason,
+    primacy_frame_annotate_enabled as _primacy_frame_annotate_enabled,
+    primacy_frame_reason as _primacy_frame_reason,
 )
 
 # Mis-attribution disclosure guard (I-deepfix-001): when a claim names an explicit
@@ -1008,6 +1010,37 @@ def _numbers_in(text: str) -> set[str]:
 def _decimals_in(text: str) -> set[str]:
     text = _normalize_unicode_minus(text or "")
     return {m.group(0) for m in _DECIMAL_NUMBER_RE.finditer(text)}
+
+
+def _percents_in(text: str) -> set[str]:
+    """I-deepfix-001 (Wave-2 numeric percent-role): the set of PERCENT VALUES
+    printed in ``text`` — the number immediately before ``%`` or ``percent``
+    (``_INTEGER_PERCENT_RE`` group 1). "15%" and "15 percent" both yield "15";
+    a bare "15" (e.g. "p. 15", "in 2015") yields NOTHING. This is deliberately
+    a PERCENT-role extractor, NOT the bare-number union (``_numbers_in``): it lets
+    a claim's printed percent be compared PERCENT-vs-PERCENT against a cited span,
+    so "rose 15%" cannot be grounded by a span that merely contains the digit 15
+    without the "%"/"percent" role. Representation-agnostic on both sides because
+    the SAME regex reads both (e.g. "15 percent" in a span matches "15%" in the
+    claim); a probability like "0.15" is not a printed percent and yields nothing.
+    """
+    text = _normalize_unicode_minus(text or "")
+    return {m.group(1) for m in _INTEGER_PERCENT_RE.finditer(text)}
+
+
+def _percent_role_match_enabled() -> bool:
+    """I-deepfix-001 (Wave-2). True (DEFAULT) => in ``verify_sentence_provenance``
+    and ``corroborator_span_grounds_sentence`` every PERCENT value printed in the
+    claim must ALSO appear AS A PERCENT in at least one cited span; a claim percent
+    matched only by a bare in-span digit (never as "N%"/"N percent") drops the
+    sentence / detaches the corroborator. Strictly faithfulness-TIGHTENING and
+    strictly ADDITIVE — it can only ADD a drop condition, never rescue/relax/remove
+    an existing check, so nothing that verifies today via a genuine in-span percent
+    is newly dropped. Kill-switch PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts the
+    behavior BYTE-IDENTICAL. Read at call time so tests toggle without re-import.
+    """
+    v = os.getenv("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
 
 
 def _find_local_support_window(
@@ -2107,6 +2140,42 @@ def verify_sentence_provenance(
                     f"missing={sorted(missing_int_in_span)}"
                 )
 
+        # I-deepfix-001 (Wave-2) PERCENT-ROLE re-check. A printed percent figure
+        # ("15%", "15 percent") is a PERCENT claim: it must be grounded by a cited
+        # span that carries that SAME value AS A PERCENT — not merely as a bare
+        # digit somewhere in the span ("p. 15", "in 2015"). The bare-number checks
+        # above pass "rose 15%" against a span containing "... p. 15" because "15"
+        # is in the number union; that is a role confusion (a page number / a year
+        # grounding a percentage claim). Compare PERCENT-vs-PERCENT (``_percents_in``,
+        # which reads the SAME ``_INTEGER_PERCENT_RE`` on both sides so "15 percent"
+        # in a span still matches "15%" in the claim) between the sentence's stripped
+        # printed percents and the union of EACH cited token's OWN-slice percents
+        # (NOT the bare-number union). STRICTLY ADDITIVE: this only APPENDS a NEW
+        # failure — it never removes/relaxes the numeric or overlap checks above, so
+        # nothing that verifies today via a genuine in-span percent is newly dropped.
+        # Default-ON; PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts byte-identical.
+        if _percent_role_match_enabled():
+            printed_pcts = _percents_in(sentence_stripped)
+            if printed_pcts:
+                cited_span_percents: set[str] = set()
+                for tok in tokens:
+                    ev = evidence_pool.get(tok.evidence_id)
+                    if ev is None:
+                        continue
+                    direct_quote = (
+                        ev.get("direct_quote") or ev.get("statement") or ""
+                    )
+                    span_text = direct_quote[tok.start:tok.end]
+                    cited_span_percents |= _percents_in(
+                        _strip_dose_patterns(span_text)
+                    )
+                missing_pct = printed_pcts - cited_span_percents
+                if missing_pct:
+                    failures.append(
+                        f"percent_not_in_cited_span:{ev_ids}:"
+                        f"missing={sorted(missing_pct)}"
+                    )
+
         # Codex round 1 B-1: semantic grounding for non-numeric claims.
         # A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]"
         # used to pass verification because it had no numbers — only the
@@ -2479,6 +2548,23 @@ def verify_sentence_provenance(
         _attr_reason = _attribution_origin_reason(sentence_for_numbers, _attr_urls)
         if _attr_reason:
             soft_warnings.append(_attr_reason)
+
+    # One-sidedness PRIMACY advisory (I-deepfix-001 Wave-2): the claim headlines ONE
+    # figure while the SAME cited basket also carries a materially-different companion
+    # figure of the SAME measure kind (same unit/context) that the claim omits — e.g.
+    # "1.8% of jobs exposed" leads while the basket also holds "46% of tasks exposed".
+    # ADVISORY-ONLY (§-1.3): appends a soft-warning so the render/evaluator layer can
+    # surface a one-sidedness [note]; it NEVER drops the sentence, NEVER fails
+    # is_verified, NEVER touches strict_verify / NLI / D8, and NEVER drops / rewrites /
+    # alters any verified number. HIGH-PRECISION + FAIL-OPEN: fires only on a same-unit
+    # (percent), same-context, materially-different companion the claim omits; bare
+    # digits (sample sizes, years, CI bounds, page numbers) never fire. Fed the SAME
+    # per-sentence cited-span basket (_b16_span) the numeric/content legs use. Runs
+    # only when a valid cited span exists (bound with _b16_claim under this guard).
+    if valid_token_found and _primacy_frame_annotate_enabled():
+        _primacy_reason = _primacy_frame_reason(_b16_claim, _b16_span)
+        if _primacy_reason:
+            soft_warnings.append(_primacy_reason)
 
     # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the judge-error sentinel.
     # I-ready-002 (#1071) Codex iter-1 P1: key this on the ENTAILMENT mode (PG_STRICT_VERIFY_ENTAILMENT,
@@ -3602,6 +3688,19 @@ def corroborator_span_grounds_sentence(
     _overlap = len(_claim_words & _span_words)
     if _overlap >= min_content_overlap:
         return True  # lexical corroboration (qualitative claim)
+    # I-deepfix-001 (Wave-2) PERCENT-ROLE gate on the NUMERIC corroboration paths below.
+    # A corroborator that grounds a claim on FIGURE-subset alone (< min_content_overlap shared
+    # words) must carry every PERCENT the claim prints AS A PERCENT — not merely as a bare digit
+    # (a page number / year / plain count) that happens to equal the percent value. Compare
+    # PERCENT-vs-PERCENT via ``_percents_in`` (same ``_INTEGER_PERCENT_RE`` on both sides). This
+    # runs ONLY after the lexical path has already returned (a >=2-word qualitative corroborator
+    # is untouched), so it is STRICTLY ADDITIVE: it can only DETACH a numeric-only corroborator
+    # whose span lacks the claim's printed percent, never keep one it drops today. Default-ON;
+    # PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts byte-identical.
+    if _percent_role_match_enabled():
+        _claim_pcts = _percents_in(sentence_claim)
+        if _claim_pcts and not _claim_pcts.issubset(_percents_in(corroborator_span)):
+            return False
     # Numeric corroboration: the span independently carries every figure the claim asserts AND
     # shares at least one distinctive content word (so it is the SAME claim, not a coincidental
     # number match — the >=1 guard blocks "50% of X" matching any span that merely contains

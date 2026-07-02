@@ -85,6 +85,11 @@ _STOPWORDS: frozenset[str] = frozenset({
 
 _DECIMAL_RE = re.compile(r"\d+(?:\.\d+)?")
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
+# I-deepfix-001 (Wave-2) — PERCENT-role regex mirroring
+# ``provenance_generator._INTEGER_PERCENT_RE``: capture the number immediately
+# before "%" or "percent" so a claim's printed percent can be compared
+# PERCENT-vs-PERCENT against a cited span (never the bare-number union).
+_PERCENT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:%|percent\b)", re.IGNORECASE)
 
 
 def _min_overlap_threshold() -> int:
@@ -107,6 +112,26 @@ def _content_words(text: str) -> set[str]:
 def _decimals(text: str) -> set[str]:
     """Numeric tokens (integers + decimals) from `text`."""
     return {m.group(0) for m in _DECIMAL_RE.finditer(text)}
+
+
+def _percents(text: str) -> set[str]:
+    """I-deepfix-001 (Wave-2): PERCENT VALUES printed in `text` — the number
+    immediately before "%"/"percent" (`_PERCENT_RE` group 1). "15%" and
+    "15 percent" both yield "15"; a bare "15" (page number / year / count)
+    yields nothing. Used to require a claim's printed percent to appear AS A
+    PERCENT in a cited span, not merely as a coincidental bare digit."""
+    return {m.group(1) for m in _PERCENT_RE.finditer(text)}
+
+
+def _percent_role_match_enabled() -> bool:
+    """I-deepfix-001 (Wave-2). True (DEFAULT) => every PERCENT value printed in
+    the sentence must also appear AS A PERCENT in at least one cited span;
+    otherwise the sentence drops (`numeric_mismatch`-class `percent_not_in_cited_span`).
+    Strictly faithfulness-TIGHTENING and strictly ADDITIVE — it can only ADD a
+    drop, never relax the decimal/overlap/entailment checks. Kill-switch
+    PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts BYTE-IDENTICAL. Read at call time."""
+    v = os.environ.get("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +289,26 @@ def verify_sentence(
     span_decimals = _decimals(combined_span)
     if not sentence_decimals.issubset(span_decimals):
         return False, "numeric_mismatch"
+
+    # I-deepfix-001 (Wave-2) PERCENT-ROLE re-check (parity with
+    # provenance_generator.verify_sentence_provenance). A printed percent
+    # ("15%", "15 percent") is a PERCENT claim: it must be carried by a cited
+    # span AS A PERCENT, not merely as a bare digit that coincidentally equals
+    # the value (a page number / year / count). The decimal check above passes a
+    # bare "15" via the number union; this compares PERCENT-vs-PERCENT
+    # (`_percents`, same regex both sides). Span percents are read PER cited span
+    # text (not the joined string) so a "15" ending one span and a "%" starting
+    # the next can never be glued into a spurious percent. STRICTLY ADDITIVE:
+    # only ADDS a drop; nothing grounded by a genuine in-span percent is newly
+    # dropped. Default-ON; PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts byte-identical.
+    if _percent_role_match_enabled():
+        sentence_percents = _percents(sentence_clean)
+        if sentence_percents:
+            span_percents: set[str] = set()
+            for _span in span_texts:
+                span_percents |= _percents(_span)
+            if not sentence_percents.issubset(span_percents):
+                return False, "percent_not_in_cited_span"
 
     # Content-word overlap
     sentence_words = _content_words(sentence_clean)
