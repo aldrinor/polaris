@@ -593,7 +593,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
     "PG_ENABLE_TOOL_TRACKER": "1",
     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
-    "PG_LIVE_CONTENT_MAX": "50000",
+    # I-deepfix-001 U31 (Codex P1): the slate previously pinned 50000, which ACTIVELY
+    # TRUNCATED below the U31 code default (live_retriever.DEFAULT_CONTENT_MAX_CHARS =
+    # getenv('PG_LIVE_CONTENT_MAX', '300000')) — so 100k-190k clinical papers were cut to
+    # 50k on the paid run and the U31 fix was DARK. Match the code default (300000). FLOOR
+    # entry: max(existing, 300000), so a memory-constrained operator cannot lower Gate-B
+    # below the U31 cap, and a higher operator value is kept. Faithfulness-neutral (a fetch
+    # length cap; strict_verify re-checks every claim regardless of body length).
+    "PG_LIVE_CONTENT_MAX": "300000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
     "PG_LIVE_RETRIEVER_MAX_WORKERS": "24",
     # I-beatboth-008 (#1285) commit-2 build A: per-HOST politeness concurrency for the parallel
@@ -1393,6 +1400,38 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # FLOOR: a stray HIGHER operator/.env value (a scratchpad launcher exports 8) would re-open the one-pass
     # OOM, so pin EXACTLY 2. Numeric => the SLATE-PURITY gate skips it (infra config, not a feature-enable).
     "PG_CONTENT_RELEVANCE_SCORE_CHUNK": "2",  # WS-0: bound the W5 reranker forward pass (avoid one-pass co-resident OOM)
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-deepfix-001 U11 (Codex P1) — CLINICAL RECALL LIFT. These three were DARK on the paid run: the
+    # evidence-type expansion is default-OFF in code, the S2 hit cap defaulted to 20, and WRRF (W3, force-
+    # ON above) ran with NO academic-engine weights — so the claimed high-tier (RCT / SR-MA / guideline)
+    # recall lift never fired. Activate them in the slate. FAITHFULNESS-NEUTRAL / §-1.3 WEIGHT-not-FILTER:
+    # each is purely ADDITIVE discovery (more queries, higher hit caps, an engine-ranking weight) — no
+    # source is dropped/capped/thinned, and every added candidate flows through the UNCHANGED fetch ->
+    # tier -> strict_verify / NLI / provenance chokepoint. The FROZEN faithfulness engine is untouched.
+    #
+    # PG_EVIDENCE_TYPE_QUERY_EXPANSION (evidence_type_query_expansion.py:51) — float-parseable "1", so it
+    # takes the numeric-FLOOR path (max(existing,1) => forces ON even past a stray operator "0") and
+    # SLATE-PURITY skips it (float-parseable => infra, not a winner-checked feature-enable). Read at CALL
+    # time by the live retriever, so the env-set lands without an import-time freeze.
+    "PG_EVIDENCE_TYPE_QUERY_EXPANSION": "1",  # U11: activate high-tier evidence-type query expansion
+    # Raise the primary-literature hit caps so the RCT/SR-MA/guideline results SURFACE above generic web.
+    # PG_LIVE_MAX_S2 => live_retriever.DEFAULT_MAX_S2 (was default 20); PG_DOMAIN_MAX_HITS => the
+    # europe_pmc / openalex / arxiv / s2 backend per-engine cap (was default 10). Numeric FLOOR entries
+    # (max(existing, slate)): an operator may raise them but never silently drop below the U11 floor.
+    "PG_LIVE_MAX_S2": "50",       # U11: S2 hit cap 20 -> 50 (the "DEFAULT_MAX_S2 stays 20" Codex flagged)
+    "PG_DOMAIN_MAX_HITS": "50",   # U11: academic-backend per-engine hit cap 10 -> 50
+    # WRRF engine weights (search_fusion_wrrf.py:104). WRRF is force-ON (W3) but had no weights, so every
+    # engine used the default weight and a NEJM/OpenAlex #1 could be outranked by a marketing-page serper
+    # #1. Lift the academic / clinical registries (openalex / europe_pmc / semantic_scholar / pubmed)
+    # ABOVE generic web (serper). A NON-NUMERIC STRING => it MUST be force-EXACT (the numeric-FLOOR path
+    # crashes on float("serper:...")) and, being a non-numeric string pin, is allowlisted in
+    # _WINNER_FLAG_ALLOWLIST as the config for the W3 WRRF winner. The live retriever namespaces backends
+    # as domain:<name>/need:<name> and the weights lookup falls back to the part after the namespace, so
+    # "europe_pmc:1.3" matches the "domain:europe_pmc" engine.
+    "PG_SEARCH_FUSION_WRRF_WEIGHTS": (
+        "serper:1.0,openalex:1.3,europe_pmc:1.3,semantic_scholar:1.2,s2:1.2,pubmed:1.3,arxiv:1.1"
+    ),
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
     # WINNERS ALREADY COVERED by EXISTING slate entries (kept intact, NOT re-added):
     #   W12 compose=floor_abstractive  -> PG_ABSTRACTIVE_WRITER (force-ON + preflight-required above)
     #   W13 verify=keep-floor          -> PG_STRICT_VERIFY_ENTAILMENT=enforce + the FROZEN faithfulness engine
@@ -1867,6 +1906,11 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # dark). SLATE-PURITY skips it (float-parseable => infra, not a feature-enable). Faithfulness-neutral
     # (chunked reranker scores are byte-identical to one-pass).
     "PG_CONTENT_RELEVANCE_SCORE_CHUNK",
+    # I-deepfix-001 U11 (Codex P1): the WRRF engine-weight map is a NON-NUMERIC STRING, so it MUST ride
+    # force-EXACT — the numeric-FLOOR path in apply_full_capability_benchmark_slate would crash on
+    # float("serper:1.0,..."). Force-EXACT pins the exact weight string so a stray operator/.env value
+    # cannot silently drop the academic-engine lift. Allowlisted in _WINNER_FLAG_ALLOWLIST (W3 config).
+    "PG_SEARCH_FUSION_WRRF_WEIGHTS",
     # I-deepfix-001 (#1344) PURITY — force-EXACT the LOSER kill-switches to "0" so a stray operator/.env
     # value can NEVER re-arm a killed loser past the slate. Each is also in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
     # (the NO-LOSER gate fails CLOSED if any resolves truthy). STORM core + its ingest seed-lane are STORM's
@@ -2341,6 +2385,11 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_ENTAILMENT_PROMPT_VARIANT",          # widening-aware entailment prompt (widen_c)
     "PG_SCOPE_SIM_MEASURE",                  # scope similarity measure (containment)
     "PG_UNPAYWALL_EMAIL",                    # real OA resolver contact email
+    # I-deepfix-001 U11 (Codex P1): the WRRF engine-weight map is a non-numeric string force-EXACT pin
+    # (so SLATE-PURITY demands it be allowlisted). It is the CONFIG for the W3 WRRF fusion winner —
+    # weighting academic/clinical registries above generic web — NOT a new feature-enable. Allowlisted
+    # deliberately (the conscious 'winner or infra?' decision the gate exists to force): it is W3 config.
+    "PG_SEARCH_FUSION_WRRF_WEIGHTS",         # W3 WRRF engine-weight map (academic-lift config)
     # I-deepfix-001 (#1344) PURITY (Codex P2-slate-purity-skips-string-force-exact): the ONE non-model
     # STRING force-exact infra pin. PG_FOUR_ROLE_REASONING_EFFORT='medium' (the D8 GLM-5.2 xhigh-blanks
     # fix) is non-falsy, non-numeric, and not an ON-token, so the SLATE-PURITY string-pin check below
@@ -2376,7 +2425,11 @@ _BENCHMARK_FULLTEXT_ENTITY_TYPES = ",".join((
 # owning module was imported (env-only validation would miss a too-late slate). The preflight reads the
 # LIVE constant and fails closed if it is below the floor. (module_path, attr, floor)
 _BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS = (
-    ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_CONTENT_MAX_CHARS", 50000),
+    # I-deepfix-001 U31 (Codex P1): raise the fail-closed floor from 50000 to 300000 so the
+    # preflight actually ENFORCES the U31 cap on the paid run (a too-late slate that left the
+    # live constant below 300000 is now caught pre-spend, not false-passed). The slate FLOOR
+    # already forces PG_LIVE_CONTENT_MAX >= 300000, so a correctly-applied run always clears.
+    ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_CONTENT_MAX_CHARS", 300000),
     ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_HTTP_TIMEOUT", 30),
     ("src.polaris_graph.state", "PG_AGENTIC_WEB_PER_ROUND", 10),
     # I-arch-004 A2 (#1248): GENERATOR_TIMEOUT_SECONDS is read at openrouter_client IMPORT (before the

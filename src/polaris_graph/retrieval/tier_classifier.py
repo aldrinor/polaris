@@ -1266,6 +1266,91 @@ def _detect_primary_study_signal(title: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 U10 (scam / commercial demote leg) — detectors used to
+#   (a) EXCLUDE an explicitly retracted / withdrawn paper by its title marker
+#       even when ``openalex_is_retracted`` is unset (e.g. a retracted paper
+#       re-deposited on a preprint host that would otherwise earn R7 T4), and
+#   (b) DEMOTE a commercial medical-tourism / clinic-marketing page to the
+#       low-weight commercial tier so an OpenAlex article+journal MISLABEL
+#       cannot promote it to an authoritative tier and into the Abstract.
+# Both are per-citation WEIGHT decisions surfaced in ``reasons`` (CLAUDE.md
+# §-1.3): retraction exclusion mirrors the pre-existing ``openalex_is_retracted``
+# R0 behaviour, and commercial demotion parks the source at T6 (low weight,
+# never dropped). The faithfulness engine is untouched. These detectors do NOT
+# touch ``_is_known_scholarly_venue`` / the U10 venue-authority exemption.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Explicit retraction / withdrawal / expression-of-concern markers as journals
+# and Crossref / PubMed stamp them onto the TITLE (usually a leading prefix).
+# Matched ONLY as a LEADING marker so a paper *about* retractions (e.g. a
+# meta-research review "Retraction of COVID-19 papers: a review") is not excluded.
+_RETRACTION_TITLE_PREFIX_MARKERS = (
+    "retracted:",
+    "retracted article:",
+    "retraction:",
+    "retraction note",
+    "retraction notice",
+    "withdrawn:",
+    "withdrawal:",
+    "expression of concern:",
+    "editorial expression of concern",
+)
+
+
+def _detect_retraction_marker(title: str) -> bool:
+    """Return True when the title carries an explicit retraction / withdrawal /
+    expression-of-concern marker at its START.
+
+    Matched only as a LEADING prefix (after stripping surrounding punctuation and
+    whitespace) so a legitimate paper whose SUBJECT is retraction is not excluded.
+    Complements ``openalex_is_retracted`` for the common case where the retraction
+    is recorded in the title but the OpenAlex flag is unset (e.g. a retracted
+    paper re-deposited on a preprint host).
+    """
+    if not title:
+        return False
+    t = title.strip().lstrip("[](){}\"'* \t").lower()
+    return any(t.startswith(m) for m in _RETRACTION_TITLE_PREFIX_MARKERS)
+
+
+# Commercial medical-tourism / clinic-marketing CALL-TO-ACTION markers. These
+# appear in the URL path or title of a page selling a treatment or clinic visit
+# and never in a peer-reviewed article. Deliberately restricted to unambiguous
+# sales CTAs (NOT the neutral research topic phrase "medical tourism") so a
+# genuine study ABOUT medical tourism keeps its earned tier.
+_COMMERCIAL_MARKETING_URL_MARKERS = (
+    "/book-appointment", "/book-now", "book-an-appointment",
+    "/get-a-quote", "/get-quote", "/request-a-quote", "request-a-quote",
+    "/free-consultation", "free-consultation",
+    "/treatment-packages", "treatment-packages",
+    "/patient-testimonials",
+)
+_COMMERCIAL_MARKETING_TITLE_MARKERS = (
+    "book now", "book an appointment", "book your appointment",
+    "free consultation", "get a quote", "request a quote", "request a free quote",
+    "treatment packages", "treatment package price",
+    "affordable treatment abroad", "contact us today", "enquire now",
+)
+
+
+def _detect_commercial_marketing(url: str, title: str) -> bool:
+    """Return True when a URL or title carries an unambiguous commercial
+    clinic-marketing / medical-tourism call-to-action.
+
+    Used to demote a marketing page to the low-weight commercial tier so an
+    OpenAlex article+journal MISLABEL cannot promote it to an authoritative tier
+    and surface it in the Abstract. Restricted to sales CTAs (book / quote /
+    consultation / treatment-package / testimonials) — the neutral research topic
+    "medical tourism" alone is NOT matched, so a study about the topic is safe.
+    """
+    u = (url or "").lower()
+    t = (title or "").lower()
+    if any(m in u for m in _COMMERCIAL_MARKETING_URL_MARKERS):
+        return True
+    return any(m in t for m in _COMMERCIAL_MARKETING_TITLE_MARKERS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The classifier
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1378,14 +1463,27 @@ def _classify_source_tier_rules(
         "content_length": signals.fetched_content_length,
     }
 
-    # ── Rule 0 (BLOCKED): Retracted papers are never classified positively
-    if signals.openalex_is_retracted:
+    # ── Rule 0 (BLOCKED): Retracted / withdrawn papers are never classified
+    # positively. Fires on the OpenAlex retraction flag OR an explicit
+    # retraction / withdrawal / expression-of-concern marker at the START of the
+    # title (I-deepfix-001 U10). The title leg catches a retracted paper whose
+    # OpenAlex flag is unset because it was re-deposited on a preprint host (it
+    # would otherwise earn R7 T4). Excluded (UNKNOWN) — the same treatment the
+    # OpenAlex flag already gets; strictly below (worse than) any T-tier.
+    _retraction_title = _detect_retraction_marker(signals.title)
+    if signals.openalex_is_retracted or _retraction_title:
         result.tier = TierLevel.UNKNOWN  # caller should exclude; not T1-T7
         result.confidence = 1.0
         result.matched_rules.append("R0_retracted")
+        _retraction_src = (
+            "OpenAlex retraction flag"
+            if signals.openalex_is_retracted
+            else "explicit retraction / withdrawal marker in the title"
+        )
         result.reasons.append(
-            "Paper flagged retracted by OpenAlex; excluded from tier scoring. "
-            "Caller should filter retracted sources before composition."
+            f"Paper flagged retracted / withdrawn ({_retraction_src}); excluded "
+            f"from tier scoring. Caller should filter retracted sources before "
+            f"composition."
         )
         return result
 
@@ -1912,6 +2010,26 @@ def _classify_source_tier_rules(
                     "/ editorial signal. T4 regardless of title."
                 )
             return result
+
+    # ── Rule 8d (T6, I-deepfix-001 U10): commercial clinic-marketing /
+    # medical-tourism call-to-action page. Fires BEFORE R9/R10 so an OpenAlex
+    # article+journal MISLABEL (or the journal-domain heuristic) cannot promote a
+    # sales page to an authoritative tier and into the Abstract. Restricted to
+    # unambiguous CTAs (book / quote / consultation / treatment-packages /
+    # testimonials), so a genuine study ABOUT medical tourism is not affected.
+    # T6 = low commercial weight — never dropped (CLAUDE.md §-1.3).
+    if _detect_commercial_marketing(signals.url, signals.title):
+        result.tier = TierLevel.T6
+        result.confidence = 0.9
+        result.matched_rules.append("R8d_commercial_marketing")
+        result.reasons.append(
+            f"URL or title carries a commercial clinic-marketing / medical-"
+            f"tourism call-to-action (book / quote / consultation / treatment "
+            f"package / testimonials). Sales page, not peer-reviewed research — "
+            f"T6 low commercial weight regardless of OpenAlex metadata, so it "
+            f"cannot be promoted to an authoritative tier or the Abstract."
+        )
+        return result
 
     # ── Rule 9: OpenAlex-indexed peer-reviewed journal article
     # Needs: publication_type in {article, review} AND source_type=journal

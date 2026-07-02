@@ -113,7 +113,19 @@ DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
 # overrides this default on run_live_retrieval's main lane). A CAP, not a target —
 # billed by actual fetches, so a generous cap is free insurance.
 DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "200"))
-DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
+# I-deepfix-001 U31 fetch-fidelity (2026-07-01): the legacy per-source extract
+# cap of 25000 chars cut 75-87% of long clinical papers mid-body (a full
+# systematic review / guideline PDF is ~100K-190K chars; at 25K only the
+# abstract + intro survived, so downstream chunk/embed/retrieval never saw the
+# methods/results/discussion that carry the dosing, contraindication and
+# population claims). Raised to a generous 300000 (12x) so long papers are
+# retained whole. This is the FETCH/extract fidelity cap (what is stored per
+# source for chunking), NOT a single-prompt cap — the prompt-facing cap lives
+# separately in frame_fetcher (`_M66_CONTENT_CAP`). A CAP, not a target: sources
+# are stored at their real length, so a generous cap only helps the rare long
+# doc and costs nothing on the common short one. Still env-overridable (LAW VI)
+# via PG_LIVE_CONTENT_MAX — a memory-constrained box can lower it.
+DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "300000"))
 DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
 
 # I-fetch-003 (#1175 / BB5-C02): parallel-fetch worker-pool sizing. When
@@ -446,6 +458,35 @@ def _row_degraded_flags(tier_result: Any, *, recovered: bool = False) -> dict[st
     if getattr(tier_result, "fetch_degraded", False):
         return {"fetch_degraded": True}
     return {}
+
+
+# I-deepfix-001 U10 (Codex P1): the rule name the tier classifier fires for BOTH the
+# OpenAlex retraction flag AND a title-only retraction / withdrawal marker
+# (tier_classifier._detect_retraction_marker -> matched_rules "R0_retracted").
+_TIER_RETRACTION_RULE = "R0_retracted"
+
+
+def _row_is_retracted(oa: Any, tier_result: Any) -> bool:
+    """True iff the grounded evidence row must carry ``is_retracted=True`` for the
+    generator retraction grounding gate (``retraction_gate.partition_pool`` keys on
+    exactly this row flag).
+
+    Fires when EITHER:
+      * the OpenAlex enrichment flags the paper retracted (the legacy leg), OR
+      * the tier classifier fired its ``R0_retracted`` rule — which ALSO catches a
+        TITLE-ONLY retraction / withdrawal marker whose OpenAlex flag was UNSET
+        (I-deepfix-001 U10: a retracted paper re-deposited on a preprint host). Before
+        this fix the row was flagged only from the OpenAlex leg, so a title-marker
+        retracted paper entered the grounding pool with a non-empty ``direct_quote``.
+
+    Placement / credibility metadata only. The FROZEN faithfulness engine (strict_verify /
+    NLI / 4-role D8 / provenance span-grounding) is UNTOUCHED — this feeds the SEPARATE
+    clinical-safety retraction gate, not any faithfulness check. Fail-open: on any missing
+    signal the row is NOT flagged (a source with no retraction info grounds normally)."""
+    if _retraction_is_truthy(oa, "is_retracted"):
+        return True
+    matched = getattr(tier_result, "matched_rules", None) or ()
+    return _TIER_RETRACTION_RULE in matched
 
 
 @dataclass
@@ -4398,6 +4439,35 @@ def run_live_retrieval(
     else:
         effective_queries = list(all_queries)
 
+    # ── U11 (I-deepfix-001): clinical evidence-type query expansion ──────
+    # Clinical T1/T2 (RCT / systematic-review / meta-analysis / guideline)
+    # starvation is an upstream RECALL gap: the sub-queries fired at the search
+    # backends are plain NL with NO evidence-type targeting, so the pool is
+    # dominated by generic web. ADD a bounded set of evidence-type-targeted
+    # variants of the anchor query so the high-tier literature SURFACES. §-1.3
+    # WEIGHT-not-filter: expansion only ADDS discovery queries (they flow through
+    # the SAME fetch -> tier -> strict_verify chokepoint); it never drops / caps /
+    # filters a source and never touches the faithfulness engine. Flag-gated
+    # (PG_EVIDENCE_TYPE_QUERY_EXPANSION), default OFF => byte-identical. Fires ONLY
+    # on clinical-domain runs (domain=='clinical') so non-clinical runs are
+    # untouched. seed_only passes fetch exactly the injected seeds (no fan-out),
+    # so it is excluded.
+    if not seed_only:
+        from src.polaris_graph.retrieval.evidence_type_query_expansion import (
+            expand_evidence_type_queries,
+        )
+        _pre_expand_n = len(effective_queries)
+        effective_queries = expand_evidence_type_queries(
+            effective_queries,
+            clinical=(isinstance(domain, str) and domain.strip().lower() == "clinical"),
+        )
+        _n_expanded = len(effective_queries) - _pre_expand_n
+        if _n_expanded:
+            notes.append(
+                f"evidence_type_query_expansion: +{_n_expanded} clinical "
+                f"evidence-type sub-queries"
+            )
+
     # ── I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall-deadline ──────
     # Anchor the per-question retrieval deadline. When the caller passes an
     # absolute monotonic instant (multi-round run_one_query sharing ONE
@@ -5646,6 +5716,51 @@ def run_live_retrieval(
                 venue=oa.get("openalex_venue", "") or "",
             )
 
+        # I-deepfix-001 U21 (T1 fetch-repair): a source whose FIRST fetch returned
+        # EMPTY content (ok=False, no body — the doi.org-timeout / anti-bot / paywall
+        # total-failure case) never reaches the in-``if content:`` BUG-B02/B04
+        # degraded re-fetch, so its ONLY disposition was the disclosed ZERO-weight
+        # retention in the ``elif (not ok)`` branch below — RETAINED but with
+        # ``direct_quote=""`` so it can NEVER be cited (the autopsy's "8 T1 lost at
+        # citation time": AJCN / Food&Function / Br J Derm). REPAIR it with the SAME
+        # forced-Zyte re-fetch already used for non-empty degraded rows: on a usable,
+        # non-error recovery ADOPT the full text so the row flows through the normal
+        # full-text path below and becomes a citable, full-weight source. On a miss it
+        # falls through UNCHANGED to the disclosed zero-weight retention (never a
+        # silent drop). Gated by the EXISTING default-OFF PG_REFETCH_DEGRADED_VIA_ZYTE
+        # flag => byte-identical when OFF. Faithfulness-NEUTRAL: the recovered text is
+        # judged by the SAME is_content_starved / _recovered_content_error_class
+        # screens the BUG-B02/B04 path uses and then flows through the UNCHANGED
+        # strict_verify / NLI / 4-role / provenance engine like any other full-text
+        # row (nothing relaxed; ``_u21_repaired`` clears the stale classification-time
+        # degraded flag exactly like the BUG-B02/B04 recovered case).
+        _u21_repaired = False
+        if (not content) and (not ok) and _refetch_degraded_enabled():
+            _u21_recovered = _try_refetch_degraded_row(
+                cand.url, DEFAULT_CONTENT_MAX_CHARS,
+            )
+            if (
+                _u21_recovered
+                and not is_content_starved(_u21_recovered)
+                and not _recovered_content_error_class(_u21_recovered)
+            ):
+                logger.info(
+                    "[live_retriever] U21 EMPTY-FETCH REPAIRED %r (tier=%s "
+                    "zyte_len=%d) — failed-fetch source recovered to full text via "
+                    "forced Zyte; now a citable full-weight row, NOT retained at "
+                    "zero weight.",
+                    cand.url, tier_result.tier.value, len(_u21_recovered),
+                )
+                content = _u21_recovered
+                ok = True
+                _u21_repaired = True
+            else:
+                logger.info(
+                    "[live_retriever] U21 EMPTY-FETCH REPAIR MISS %r (tier=%s) — "
+                    "forced Zyte yielded no usable full text; row stays on the "
+                    "disclosed zero-weight retention path (NOT dropped).",
+                    cand.url, tier_result.tier.value,
+                )
         # Build direct_quote: head-window (first 1500 chars) PLUS 500-char
         # windows around every decimal in the full content. This way the
         # Phase-4 provenance verifier can find numeric claims that live
@@ -5665,8 +5780,11 @@ def run_live_retrieval(
             # I-deepfix-001 (Codex P1 #2): tracks whether the forced re-fetch below upgraded a
             # degraded stub to full text. A recovered row is a NORMAL full-text row, so the stale
             # classification-time ``tier_result.fetch_degraded`` must NOT be propagated onto it
-            # (see ``_row_degraded_flags``). Default False => a non-recovered stub keeps its label.
-            _refetch_recovered = False
+            # (see ``_row_degraded_flags``). Seeded from ``_u21_repaired`` so the U21 empty-fetch
+            # REPAIR above (which recovered this now-non-empty body) is likewise treated as a
+            # recovered full-text row — the stale degraded flag from its empty-content
+            # classification is cleared. Default False => a non-recovered stub keeps its label.
+            _refetch_recovered = _u21_repaired
             # BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch. When this row
             # is about to be flagged degraded (content-less stub / landing-page
             # shell — e.g. the NEJM 489-char / FDA P960009 266-char anti-bot
@@ -5890,7 +6008,13 @@ def run_live_retrieval(
                 # retracted). Placement/credibility metadata; never enters a verified
                 # claim, never relaxes strict_verify / NLI / 4-role (§-1.3: the one hard
                 # exclusion is the faithfulness/credibility-safety gate, not a breadth cap).
-                if _retraction_is_truthy(oa, "is_retracted"):
+                # I-deepfix-001 U10 (Codex P1): forward BOTH legs — the OpenAlex flag AND
+                # the tier classifier's R0_retracted rule (which also catches a TITLE-ONLY
+                # retraction/withdrawal marker whose OpenAlex flag was unset, e.g. a
+                # retracted paper re-deposited on a preprint host). Keying on the OpenAlex
+                # flag alone let a title-marker retracted paper ground prose; see
+                # _row_is_retracted.
+                if _row_is_retracted(oa, tier_result):
                     _row["is_retracted"] = True
                 # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
                 # the generator/dedup can avoid reasoning about a mis-stitched source
