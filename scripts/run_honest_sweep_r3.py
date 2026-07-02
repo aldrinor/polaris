@@ -5537,6 +5537,97 @@ def finalize_run_artifact(
         return None
 
 
+def timeout_should_preserve_rendered_report(run_dir, timeout_summary) -> bool:
+    """WALLCLOCK-GUARD (I-deepfix-001): return True iff ``run_dir`` already holds a non-empty
+    report.md (mirror finalize_run_artifact's report.md guard). When True, recover the on-disk
+    manifest's truthful status into ``timeout_summary`` and the caller must NOT clobber manifest.json
+    with an error_unexpected timeout stamp. Pure/offline/never-raises. Faithfulness-neutral (outer
+    orchestration only — it reads report.md size + the existing manifest, writes nothing to the
+    faithfulness path)."""
+    try:
+        report_path = Path(run_dir) / "report.md"
+        rendered = report_path.is_file() and report_path.stat().st_size > 0
+    except OSError:
+        rendered = False
+    if not rendered:
+        return False
+    try:
+        existing = json.loads((Path(run_dir) / "manifest.json").read_text(encoding="utf-8"))
+        if isinstance(existing, dict) and isinstance(timeout_summary, dict):
+            existing_status = existing.get("status")
+            if existing_status is not None:
+                timeout_summary["status"] = existing_status
+            timeout_summary["manifest"] = existing
+    except Exception:  # noqa: BLE001 — a missing/unreadable manifest still preserves the report
+        pass
+    return True
+
+
+def finalize_timeout_run_and_maybe_write_error_manifest(
+    run_dir, timeout_summary, q, *, wall_clock_seconds,
+) -> bool:
+    """B20 wall-clock TIMEOUT terminal-artifact writer (I-deepfix-001 ordering fix).
+
+    ONE seam shared by BOTH wall-clock handlers (the run_honest_sweep_r3 main sweep +
+    the run_gate_b paid path) so the finalize / preserve / error-manifest ORDERING lives
+    in a single unit-testable place. On a run-level wall-clock ``TimeoutError``:
+
+      1. Capture PRESERVE = a non-empty ``report.md`` ALREADY EXISTED (recovering its
+         on-disk manifest status into ``timeout_summary``) -- computed BEFORE the finalizer
+         runs.
+      2. ``finalize_run_artifact`` writes the NON-EMPTY timeout backstop ``report.md`` when
+         none existed, so a genuine hang STILL ships a human artifact (never silent).
+      3. PRESERVE True  -> a real ``report.md`` pre-existed; keep the truthful terminal
+                           manifest (do NOT clobber it with an ``error_unexpected`` stamp).
+         PRESERVE False -> a genuine no-report hang; write the labeled ``error_unexpected``
+                           timeout ``manifest.json``.
+
+    The ORDER is the fix: asking the preserve helper AFTER the finalizer would let the
+    finalizer's OWN backstop ``report.md`` fool it into returning True, suppressing the error
+    manifest for a real hang. Returns True iff a prior render was preserved.
+
+    Faithfulness-neutral -- outer orchestration only. Asserts no claim, emits no findings,
+    never touches strict_verify / NLI / 4-role D8 / provenance / span-grounding. Offline;
+    never raises into the caller."""
+    # ORDERING FIX (Codex P1): capture the PRESERVE decision from whether a non-empty report.md
+    # ALREADY EXISTED, BEFORE finalize_run_artifact writes its own non-empty backstop report.md.
+    # Deciding after the finalizer would let that backstop fool the helper into returning True,
+    # suppressing the error manifest for a genuine no-report hang.
+    _preserve = timeout_should_preserve_rendered_report(run_dir, timeout_summary)
+    try:
+        finalize_run_artifact(
+            run_dir, timeout_summary, q, timed_out=True, wall_clock_seconds=wall_clock_seconds,
+        )
+    except Exception as _fin_exc:  # noqa: BLE001 — never let the backstop break the run
+        print(f"[finalizer]   timeout-artifact write failed: {_fin_exc}")
+    if _preserve:
+        print(
+            "[finalizer]   wall-clock fired AFTER report.md rendered — preserving "
+            "terminal manifest (no error_unexpected clobber)"
+        )
+        return True
+    try:
+        _to_manifest = _base_manifest_envelope(
+            run_id="timeout", q=q, retrieval=None, run_cost=0.0,
+        )
+        _to_manifest["status"] = "error_unexpected"
+        _to_manifest["release_allowed"] = False
+        _to_manifest["run_wall_clock_timeout"] = True
+        _to_manifest["run_wall_clock_seconds"] = wall_clock_seconds
+        _to_manifest["error"] = (
+            timeout_summary.get("error") if isinstance(timeout_summary, dict) else None
+        )
+        (Path(run_dir) / "manifest.json").write_text(
+            json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        if isinstance(timeout_summary, dict):
+            timeout_summary["manifest"] = _to_manifest
+    except Exception as _man_exc:  # noqa: BLE001 — manifest best-effort; artifact already shipped
+        print(f"[finalizer]   timeout-manifest write failed: {_man_exc}")
+    return False
+
+
 # Attribute / dict-key names the JUDGES lane (B12 credibility-side + B13 conflict-side) attaches
 # its PER-SOURCE / PER-PAIR labeled returns under. The JUDGES lane is NOT in this base (8002392e),
 # so the run-side glue detects these by NAME and tolerates their total absence. Listed as constants
@@ -13715,9 +13806,27 @@ async def run_one_query(
         # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
         _key_findings = ""
         _depth_layer = ""
+        # I-deepfix-001 headline_relevance (Codex P1 #1): a WEIGHT-only question-relevance ranker
+        # (§-1.3 Principle 1 — WEIGHT, never FILTER). It RE-ORDERS the ALREADY-verified headline /
+        # Abstract findings by content-word overlap with the research question so the most on-topic
+        # verified finding leads; it NEVER drops, filters, or re-verifies a claim. Reuses the existing
+        # grounding tokenizer (no new model / spend). ``None`` when the question has no content words
+        # => the call sites thread None => byte-identical document order. Built once, reused by both
+        # the Key-Findings and the Abstract render seams. Fail-open (document order on any fault).
+        _headline_relevance_ranker = None
+        try:
+            from src.polaris_graph.generator.key_findings import (
+                make_question_relevance_ranker,
+            )
+            _headline_relevance_ranker = make_question_relevance_ranker(_clean_question)
+        except Exception as _hr_exc:  # noqa: BLE001 — additive weight; never abort the report
+            _log(f"[headline-relevance] ranker unavailable (fail-open, document order): {_hr_exc}")
         try:
             from src.polaris_graph.generator.key_findings import build_key_findings
-            _key_findings = build_key_findings(getattr(multi, "sections", []))
+            _key_findings = build_key_findings(
+                getattr(multi, "sections", []),
+                sentence_relevance=_headline_relevance_ranker,
+            )
         except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
             _log(f"[key-findings] skipped (fail-open): {_exc}")
         # I-wire-011 (#1325) fix 6 + I-wire-013 (#1327): the analytical-depth layer. The per-section
@@ -13909,7 +14018,11 @@ async def run_one_query(
                         if not getattr(v, "is_junk", False)
                     ]
             _abstract_md = build_abstract(
-                _sections_for_synthesis, unit_screen=_abstract_unit_screen
+                _sections_for_synthesis,
+                unit_screen=_abstract_unit_screen,
+                # I-deepfix-001 headline_relevance (Codex P1 #1): the Abstract front-sandwich orders
+                # its verbatim headline findings by question-relevance too (WEIGHT-only, never a drop).
+                sentence_relevance=_headline_relevance_ranker,
             )
             _conclusion_md = build_conclusion(
                 _sections_for_synthesis, unit_screen=_abstract_unit_screen
@@ -17635,32 +17748,13 @@ async def main_async() -> int:
                     f"<<< status={_to_status} (TIMEOUT after {_wall:.0f}s; "
                     f"{_RUN_WALL_CLOCK_ENV}) — B11 timeout artifact emitted\n"
                 )
-                try:
-                    finalize_run_artifact(
-                        _to_run_dir,
-                        _timeout_summary,
-                        q,
-                        timed_out=True,
-                        wall_clock_seconds=_wall,
-                    )
-                except Exception as _fin_exc:  # noqa: BLE001 — never let the backstop break the sweep
-                    print(f"[finalizer]   timeout-artifact write failed: {_fin_exc}")
-                try:
-                    _to_manifest = _base_manifest_envelope(
-                        run_id="timeout", q=q, retrieval=None, run_cost=0.0,
-                    )
-                    _to_manifest["status"] = _to_status
-                    _to_manifest["release_allowed"] = False
-                    _to_manifest["run_wall_clock_timeout"] = True
-                    _to_manifest["run_wall_clock_seconds"] = _wall
-                    _to_manifest["error"] = _timeout_summary["error"]
-                    (_to_run_dir / "manifest.json").write_text(
-                        json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
-                        encoding="utf-8",
-                    )
-                    _timeout_summary["manifest"] = _to_manifest
-                except Exception as _man_exc:  # noqa: BLE001 — manifest is best-effort; artifact already shipped
-                    print(f"[finalizer]   timeout-manifest write failed: {_man_exc}")
+                # WALLCLOCK-GUARD (I-deepfix-001 ordering fix): one shared seam captures the
+                # PRESERVE decision BEFORE the finalizer writes its backstop report.md, then
+                # finalizes and (only for a genuine no-report hang) stamps the labeled error
+                # manifest. See finalize_timeout_run_and_maybe_write_error_manifest.
+                finalize_timeout_run_and_maybe_write_error_manifest(
+                    _to_run_dir, _timeout_summary, q, wall_clock_seconds=_wall,
+                )
                 all_summaries.append(_timeout_summary)
                 # B20 P1-1: reset the run-scoped deadline so it never leaks into the next query.
                 try:

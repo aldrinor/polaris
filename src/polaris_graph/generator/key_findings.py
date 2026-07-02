@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 # One sentence = minimal run up to end punctuation, PLUS any trailing `[N]` citation marker(s), where the
 # end punctuation must be a real sentence boundary: followed by whitespace+capital/bracket/digit OR end of
@@ -302,7 +302,58 @@ def _strip_leading_markdown_headers(text: str) -> str:
     return "\n".join(lines[i:])
 
 
-def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
+def _relevance_weight(
+    sentence_relevance: "Callable[[str], float]", sentence: str
+) -> float:
+    """The caller-supplied question-relevance weight for ``sentence``, fail-CONSERVATIVE.
+
+    A higher value means more on-topic. The ranker is caller-owned (the render seam wires the
+    already-computed cross-encoder question-relevance); on ANY exception we return a NEUTRAL 0.0
+    so a ranker bug can never crash the report NOR silently drop a finding — it only falls back to
+    document order for that sentence. PURE."""
+    try:
+        return float(sentence_relevance(sentence))
+    except Exception:  # pragma: no cover - the ranker is caller-owned; neutral on failure
+        return 0.0
+
+
+def make_question_relevance_ranker(
+    question_text: str,
+) -> "Callable[[str], float] | None":
+    """Build a WEIGHT-only question-relevance ranker for the headline / Abstract render seam.
+
+    Returns a PURE callable ``ranker(sentence) -> float`` = the count of content words the sentence
+    shares with ``question_text`` (higher = more on-topic). It is a RE-ORDER WEIGHT over sentences
+    that ALREADY passed the frozen faithfulness engine (§-1.3 Principle 1 — WEIGHT, never FILTER): it
+    can only change bullet / abstract ORDER, never drop, filter, or re-verify a claim. Reuses the
+    EXISTING grounding tokenizer (``provenance_generator._content_words``: alphabetic, ≥3 chars,
+    stopword-stripped) — no new model, no new magic word list, no spend. The tokenizer is imported
+    LAZILY (mirrors ``plan_sufficiency_gate._content_words``) so this light no-spend module keeps its
+    import-time independence from the generator stack.
+
+    Returns ``None`` when ``question_text`` has NO content words, so the caller threads
+    ``sentence_relevance=None`` and gets byte-identical document order (never a degenerate all-zero
+    ranker). PURE; no network, no GPU, no LLM."""
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _content_words,
+    )
+    question_words = _content_words(question_text or "")
+    if not question_words:
+        return None
+
+    def _ranker(sentence: str) -> float:
+        # Overlap COUNT is a monotone on-topicness weight; it never drops or re-verifies a sentence.
+        return float(len(_content_words(sentence or "") & question_words))
+
+    return _ranker
+
+
+def _first_verified_sentences(
+    verified_text: str,
+    n: int,
+    *,
+    sentence_relevance: "Callable[[str], float] | None" = None,
+) -> list[str]:
     matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
     # A Key Finding is a span-verified CLAIM: it must carry a citation, must NOT be
     # gap-disclosure boilerplate (whose 2nd sentence is cited to the gap-task sidecar, not
@@ -316,7 +367,7 @@ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
     # per THE ONE shared predicate (masthead/ISSN/ResearchGate/ToC/CC-license/ORCID/doc-label/
     # mid-word-start/incomplete) — so a chrome span never LEADS a Key-Findings / Abstract /
     # Conclusion / depth finding. Default-ON (PG_RENDER_CHROME_SCREEN=0 reverts to byte-identical).
-    return [
+    verified = [
         s for s in matches
         if s
         and not _ATX_HEADER_RE.match(s.lstrip())
@@ -324,7 +375,16 @@ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
         and not _GAP_MARKER_RE.search(s)
         and not is_truncated_fragment(s)
         and not _is_render_chrome_claim(s)
-    ][:n]
+    ]
+    # headline_relevance (I-deepfix-001): WEIGHT, not filter (§-1.3 Principle 1). When the caller
+    # wires a question-relevance ranker, STABLE-sort the ALREADY-verified candidates by descending
+    # on-topicness so the most on-topic verified sentence leads. It NEVER drops a sentence — the
+    # head-``n`` slice is the pre-existing summary cap, not a faithfulness gate. None => byte-identical.
+    if sentence_relevance is not None:
+        verified = sorted(
+            verified, key=lambda s: -_relevance_weight(sentence_relevance, s)
+        )
+    return verified[:n]
 
 
 def refilter_key_findings_block(report_text: str) -> str:
@@ -389,13 +449,22 @@ def humanize_section_title(title: str) -> str:
     return t
 
 
-def build_key_findings(sections: list[Any]) -> str:
+def build_key_findings(
+    sections: list[Any],
+    *,
+    sentence_relevance: "Callable[[str], float] | None" = None,
+) -> str:
     """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
     from each non-dropped section with verified_text. Verified-only + extractive — never a new claim.
-    Returns "" when disabled or when no section has verified prose (no empty heading)."""
+    Returns "" when disabled or when no section has verified prose (no empty heading).
+
+    ``sentence_relevance`` (headline_relevance, I-deepfix-001): OPTIONAL caller-wired question-
+    relevance ranker. WEIGHT never filter (§-1.3): within-section the most on-topic verified sentence
+    leads and bullets are GLOBALLY ordered by descending relevance; off-topic sinks past
+    ``_MAX_BULLETS``. ``None`` (every existing caller) => byte-identical document order."""
     if not key_findings_enabled():
         return ""
-    bullets: list[str] = []
+    candidates: list[tuple[float, str]] = []
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):
             continue
@@ -412,16 +481,24 @@ def build_key_findings(sections: list[Any]) -> str:
             continue
         title = humanize_section_title(getattr(sr, "title", "") or "")
         _marker_cap = _max_key_findings_markers()
-        for sentence in _first_verified_sentences(verified_text, _SENTENCES_PER_SECTION):
+        for sentence in _first_verified_sentences(
+            verified_text, _SENTENCES_PER_SECTION, sentence_relevance=sentence_relevance
+        ):
+            # Weigh the ORIGINAL sentence (all `[N]` markers intact) BEFORE capping the display run.
+            weight = (
+                _relevance_weight(sentence_relevance, sentence)
+                if sentence_relevance is not None
+                else 0.0
+            )
             # I-wire-011 (#1325) fix 2: cap each adjacent citation-marker RUN to the most-relevant
             # few (document order). Render-only; the body + bibliography keep every reference.
             sentence = cap_citation_marker_runs(sentence, _marker_cap)
             label = f"**{title}.** " if title else ""
-            bullets.append(f"- {label}{sentence}")
-            if len(bullets) >= _MAX_BULLETS:
-                break
-        if len(bullets) >= _MAX_BULLETS:
-            break
+            candidates.append((weight, f"- {label}{sentence}"))
+    if sentence_relevance is not None:
+        # STABLE descending-weight order: ties keep document order; off-topic sinks past _MAX_BULLETS.
+        candidates = sorted(candidates, key=lambda c: -c[0])
+    bullets = [bullet for _, bullet in candidates][:_MAX_BULLETS]
     if not bullets:
         return ""
     # I-beatboth-011 §3.2 (#1289): HONEST self-cert label (was the over-claiming absolute
