@@ -2088,6 +2088,38 @@ _WEB_BOILERPLATE_LINE_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# I-deepfix-001 wave-2 4IR (#1344): Cookiebot / Usercentrics consent-manager
+# chrome taxonomy. A CMP (consent-management platform) renders each control on
+# its OWN line, so these strings leak into the fetched body as whole lines that
+# the existing cookie patterns (2051-2055) do not cover. Applied inside
+# ``strip_web_boilerplate`` gated DEFAULT-ON by ``PG_FETCH_COOKIE_CHROME_STRIP``
+# — flag OFF ("0") is byte-identical to the pre-fix behaviour (this regex is
+# simply never applied). EVERY pattern is WHOLE-LINE + MULTI-TOKEN anchored:
+# NONE matches a bare single word, and the category-tab row requires >=2 of the
+# four category words IN CANONICAL ORDER (the leading lookahead guarantees a
+# second whitespace-separated token on the line), so a real sentence that merely
+# CONTAINS "Marketing" / "Statistics" / "Necessary" — or STARTS with one before
+# prose — survives byte-for-byte (the §-1.3 no-real-claim-dropped invariant).
+# Input hygiene only; strict_verify / NLI / 4-role / span-grounding untouched.
+_COOKIE_CONSENT_CHROME_RE = re.compile(
+    r"|".join([
+        r"^[ \t]*Consent Selection[ \t]*$",                                  # Cookiebot dialog header
+        # Category-tab strip: an ORDERED subset of the four Cookiebot categories,
+        # whole-line, >=2 tokens REQUIRED. The leading lookahead demands a second
+        # whitespace-separated token, so a bare "Marketing"/"Statistics" line — or
+        # a real sentence that only begins with a category word — is NEVER matched.
+        r"^(?=[ \t]*\S+[ \t]+\S)[ \t]*(?:Necessary\b[ \t]*)?(?:Preferences\b[ \t]*)?(?:Statistics\b[ \t]*)?(?:Marketing\b[ \t]*)?$",
+        r"^[ \t]*(?:Show/Hide|Show|Hide)[ \t]+details[ \t]*$",               # "Show details" / "Show/Hide details" toggle
+        r"^[ \t]*(?:Powered by Cookiebot(?:[ \t]+by[ \t]+Usercentrics)?|Cookiebot by Usercentrics)[ \t]*$",  # CMP attribution line
+        r"^[ \t]*About cookies[ \t]*$",                                      # Cookiebot "About cookies" link/header
+        # Button trio: a WHOLE line that is >=2 of the Allow all / Allow selection
+        # / Deny / Customize buttons. The {2,} means a bare single "Deny" /
+        # "Customize" line — or those words inside real prose — is NEVER matched.
+        r"^[ \t]*(?:(?:Allow all|Allow selection|Deny|Customize)\b[ \t]*){2,}$",
+    ]),
+    re.MULTILINE | re.IGNORECASE,
+)
+
 # Allowlist of literal error-page / "no content" tokens. A UNIT (sentence or
 # short body) that is essentially ONLY one of these is a failed fetch, not a
 # finding. Matched case-insensitively as a whole-unit signal.
@@ -2147,6 +2179,13 @@ def strip_web_boilerplate(text: str) -> str:
     if not text:
         return text
     cleaned = _WEB_BOILERPLATE_LINE_RE.sub("", text)
+    # I-deepfix-001 wave-2 4IR (#1344): additionally strip the Cookiebot /
+    # Usercentrics consent-manager chrome taxonomy. Gated DEFAULT-ON by
+    # PG_FETCH_COOKIE_CHROME_STRIP; flag OFF ("0") is byte-identical to the
+    # pre-fix behaviour (the cookie regex is simply not applied). Whole-line +
+    # multi-token anchored, so real prose is preserved byte-for-byte.
+    if os.getenv("PG_FETCH_COOKIE_CHROME_STRIP", "1") != "0":
+        cleaned = _COOKIE_CONSENT_CHROME_RE.sub("", cleaned)
     # Collapse blank-line runs left by stripping; preserve paragraph breaks.
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
