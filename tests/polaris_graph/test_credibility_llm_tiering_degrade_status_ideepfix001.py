@@ -131,9 +131,18 @@ def test_all_error_reports_rules_floor_degraded_zero_dropped(monkeypatch, caplog
 
 def test_all_success_reports_tiered_via_glm(monkeypatch):
     """When every GLM call returns a valid tier, the mode is ``tiered_via_glm`` and every
-    result is a GLM result — the honest positive case the degraded case must be distinct from."""
+    result is a GLM result — the honest positive case the degraded case must be distinct from.
+
+    Isolates the degrade/STATUS logic under test from the ORTHOGONAL B2 venue-corroboration
+    cap (I-deepfix-002 a3333536, default-ON): these fixtures are bare ``example.com`` URLs with
+    NO recognized peer-reviewed venue, so the intended B2 cap would legitimately floor an
+    uncorroborated GLM T1 to the rules-floor (WEIGHT-only, §-1.3, never a drop) — that is a
+    correct, separately-tested behavior (tests/polaris_graph/test_bare_doi_venue_corroboration_cap.py).
+    This test is about the tiered_via_glm/degraded status mapping, not venue corroboration, so the
+    cap is disabled here to keep the two concerns independent. NOT a faithfulness relaxation."""
     monkeypatch.setenv("PG_TIER_LLM_DEGRADE_AFTER", "0")
     monkeypatch.setenv("PG_TIER_LLM_BATCH_WALL_SECONDS", "0")
+    monkeypatch.setenv("PG_TIER_REQUIRE_VENUE_CORROBORATION", "0")
 
     signals = _signals(4)
     out = classify_sources_llm_tiering(signals, call_llm=_all_ok_call_llm)
