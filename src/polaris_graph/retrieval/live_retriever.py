@@ -419,6 +419,35 @@ def _down_weight_retrieval() -> float:
         return _DOWN_WEIGHT_RETRIEVAL_DEFAULT
 
 
+def _row_degraded_flags(tier_result: Any, *, recovered: bool = False) -> dict[str, Any]:
+    """I-deepfix-001 (Codex P1 #2 — no-laundering): the degraded-flag keys to merge onto a
+    grounded evidence row so the corpus-adequacy grounded-content count
+    (``corpus_adequacy_gate.count_grounded_rows``) EXCLUDES a source the tier layer already
+    flagged ``tier_result.fetch_degraded`` (a short KNOWN-scholarly-venue / DOI stub — it keeps
+    its venue-authority TIER weight but must not count as grounded content, so venue authority can
+    never launder a contentless stub into "adequate"; see ``tier_classifier`` B17).
+
+    The tier classifier sets ``fetch_degraded`` but the live row previously copied only
+    ``tier_result.tier.value``, so a stub that is NOT otherwise ``content_starved`` /
+    ``landing_page`` / ``fetch_failed`` still counted as grounded. Returns ``{'fetch_degraded':
+    True}`` only when the tier layer flagged it; ``{}`` otherwise, so a normal (non-degraded) row is
+    BYTE-IDENTICAL.
+
+    ``recovered`` (BUG-B02/B04 forced-refetch): the tier ``fetch_degraded`` is a
+    CLASSIFICATION-TIME signal computed on the ORIGINAL stub body. When a forced Zyte re-fetch later
+    UPGRADED the stub to full text, the row proceeds as a NORMAL full-text row and that stale flag
+    MUST NOT be propagated (the existing design contract — "recovered rows have degraded flags never
+    set"). Returns ``{}`` when ``recovered`` regardless of the stale tier flag.
+
+    Faithfulness-NEUTRAL: adds a LABEL only — never a claim/span/citation, never the faithfulness
+    engine, and the row keeps its tier WEIGHT (§-1.3 WEIGHT-AND-LABEL, never a drop)."""
+    if recovered:
+        return {}
+    if getattr(tier_result, "fetch_degraded", False):
+        return {"fetch_degraded": True}
+    return {}
+
+
 @dataclass
 class LiveRetrievalResult:
     classified_sources: list[CorpusSource]
@@ -5633,6 +5662,11 @@ def run_live_retrieval(
             # when it is NOT already starved (avoid double-counting) so the two
             # signals are disjoint in the telemetry.
             _is_landing = (not _starved) and _is_landing_or_abstract_page(content)
+            # I-deepfix-001 (Codex P1 #2): tracks whether the forced re-fetch below upgraded a
+            # degraded stub to full text. A recovered row is a NORMAL full-text row, so the stale
+            # classification-time ``tier_result.fetch_degraded`` must NOT be propagated onto it
+            # (see ``_row_degraded_flags``). Default False => a non-recovered stub keeps its label.
+            _refetch_recovered = False
             # BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch. When this row
             # is about to be flagged degraded (content-less stub / landing-page
             # shell — e.g. the NEJM 489-char / FDA P960009 266-char anti-bot
@@ -5686,6 +5720,9 @@ def run_live_retrieval(
                     content = _refetched
                     _starved = False
                     _is_landing = False
+                    # I-deepfix-001 (Codex P1 #2): full text adopted — the row is no longer
+                    # degraded, so the stale tier ``fetch_degraded`` is NOT propagated below.
+                    _refetch_recovered = True
                 elif _refetched and _recovered_error:
                     # The forced Zyte fetch returned a REGISTRY/ERROR/BLOCK page, not the
                     # article — refuse to adopt it (F4). Mark the row degraded so the
@@ -5795,6 +5832,19 @@ def run_live_retrieval(
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
                 }
+                # I-deepfix-001 (Codex P1 #2 — no-laundering): propagate the tier layer's
+                # ``fetch_degraded`` label onto the grounded evidence row. A short KNOWN-scholarly-
+                # venue / DOI stub keeps its venue-authority TIER (set above) but the tier classifier
+                # flagged it ``fetch_degraded=True`` so the adequacy lane must EXCLUDE it from
+                # grounded-content counts (``count_grounded_rows``). Previously only ``.tier.value``
+                # was copied, so such a stub — not otherwise content_starved/landing_page/fetch_failed
+                # — laundered into "adequate" grounded content. Additive-only: absent (byte-identical)
+                # when the tier is not degraded. Faithfulness-NEUTRAL (a LABEL, never a claim/span).
+                # ``recovered`` guards the BUG-B02/B04 case: a forced re-fetch that upgraded this
+                # stub to full text must NOT inherit the stale classification-time degraded flag.
+                _row.update(
+                    _row_degraded_flags(tier_result, recovered=_refetch_recovered)
+                )
                 # I-deepfix-001 M2: carry the per-citation document GENRE forward onto the
                 # groundable evidence row (mirror of ``.tier``/``.authority_score``) so the
                 # weighted-corpus credibility disclosure can build its url->document_type join.

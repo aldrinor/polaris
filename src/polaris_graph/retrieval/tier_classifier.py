@@ -810,6 +810,55 @@ def _is_known_scholarly_venue(signals: "ClassificationSignals") -> bool:
         return True
     if _is_doi_org_journal_with_venue(signals):
         return True
+    # I-deepfix-001 (U10 tier_venue_exemption, #1344): two gold venue-authority
+    # signals ALREADY on the classifier input were ignored, so a real peer-reviewed
+    # journal fetched from a BARE-PDF URL (no peer-reviewed venue domain, no doi.org
+    # host, no OpenAlex journal source_type stamped on the PDF row) was over-demoted
+    # to the T7/UNKNOWN length floor. Both signals are ones a signal-less, merely
+    # scholarly-TITLED scam page cannot present: OpenAlex independently resolved the
+    # work as peer-reviewed, OR a resolved canonical DOI (registrant prefix "10.").
+    # WEIGHT-not-drop (§-1.3): only RESTORES the venue weight the length-floor was
+    # clobbering — the caller still sets fetch_degraded=True so the stub is excluded
+    # from grounded-content adequacy (no laundering). No cap/floor; engine untouched.
+    if signals.openalex_is_peer_reviewed is True:
+        return True
+    if (signals.doi or "").strip().lower().startswith("10."):
+        return True
+    src_type = (signals.openalex_source_type or "").strip().lower()
+    venue = (signals.openalex_venue or "").strip()
+    return src_type == "journal" and bool(venue)
+
+
+def _is_corroborated_scholarly_venue(signals: "ClassificationSignals") -> bool:
+    """I-wire-001 (Codex iter-2 P1): STRICTER venue-only predicate for the B2 LLM-tiering
+    venue-corroboration cap ONLY. It is deliberately NARROWER than ``_is_known_scholarly_venue``:
+    it requires a genuinely RECOGNIZED peer-reviewed VENUE and EXCLUDES both a bare ``doi`` "10."
+    prefix and a lone ``openalex_is_peer_reviewed`` flag.
+
+    Why split from ``_is_known_scholarly_venue``: the U10 length-floor widening added a bare-DOI
+    ("10.") and a lone peer-reviewed-flag branch so a real journal fetched from a BARE-PDF URL
+    keeps its venue WEIGHT at the T7 length floor (a WEIGHT restoration, §-1.3). But that same
+    helper is ALSO the B2 corroboration predicate whose entire job is to CAP an uncorroborated
+    top-tier (T1/T2) LLM verdict that rests on nothing but a bare DOI + a scholarly-sounding title
+    (the off-topic Russian-cosmetics ev_061 mis-tiered T1/0.95 was exactly this). Reusing the
+    widened helper there re-opened the cap: a bare-DOI-only row would satisfy corroboration and
+    slip its T1/T2 verdict past the cap. So the B2 path uses THIS strict predicate — corroboration
+    requires an actual venue signal a signal-less, merely scholarly-TITLED page cannot present:
+      * host on PEER_REVIEWED_JOURNAL_DOMAINS (parent-domain match);
+      * a doi.org canonical DOI whose registrant prefix is a known peer-reviewed publisher;
+      * a doi.org canonical DOI resolved to a real OpenAlex JOURNAL venue;
+      * OpenAlex resolved the work to a JOURNAL source_type WITH a non-empty venue name.
+    A bare ``doi`` "10." and a lone ``openalex_is_peer_reviewed`` are NOT venues, so they do NOT
+    corroborate. WEIGHT-only (§-1.3): the cap this predicate guards can ONLY lower an
+    uncorroborated top tier to the deterministic rules-floor — it never raises a tier, never drops
+    a source, never gates release. The faithfulness engine is untouched."""
+    domain = _normalize_domain(signals.url)
+    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS):
+        return True
+    if _has_peer_reviewed_doi_prefix(signals.url):
+        return True
+    if _is_doi_org_journal_with_venue(signals):
+        return True
     src_type = (signals.openalex_source_type or "").strip().lower()
     venue = (signals.openalex_venue or "").strip()
     return src_type == "journal" and bool(venue)

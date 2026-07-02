@@ -47,7 +47,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
     TierLevel,
     _classify_source_tier_rules,
     _domain_matches,
-    _is_known_scholarly_venue,
+    _is_corroborated_scholarly_venue,
     _normalize_domain,
 )
 
@@ -268,8 +268,13 @@ def _cap_uncorroborated_top_tier(
     if (
         llm_res is not None
         and _venue_corroboration_required()
+        # Codex iter-2 P1: the corroboration test uses the STRICT venue-only predicate
+        # (``_is_corroborated_scholarly_venue``), NOT the widened length-floor helper
+        # (``_is_known_scholarly_venue``). A bare DOI ("10.") or a lone peer-reviewed flag is
+        # NOT a recognized venue, so it can no longer slip an uncorroborated T1/T2 LLM verdict
+        # past this cap (the ev_061 bare-DOI + scholarly-title mis-tier).
         and llm_res.tier in _UNCORROBORATED_TOP_TIERS
-        and not _is_known_scholarly_venue(signals)
+        and not _is_corroborated_scholarly_venue(signals)
     ):
         return floor_res
     return llm_res
