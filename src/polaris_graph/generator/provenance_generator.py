@@ -2233,7 +2233,9 @@ def verify_sentence_provenance(
                 # (pre-0b fail-open preserved — filed as a separate gated issue).
                 if verdict == "ENTAILED" and reason.startswith("judge_error:"):
                     judge_error_flag = True
-                if verdict in ("NEUTRAL", "CONTRADICTED") and not allow_local_window_fallback:
+                if verdict in ("NEUTRAL", "CONTRADICTED") and (
+                    verdict == "CONTRADICTED" or not allow_local_window_fallback
+                ):
                     # I-complete-003 iter-2 (#1189) P1: the re-anchor accept gate
                     # passes allow_local_window_fallback=False so the BOUND SPAN
                     # ITSELF must directly entail. A NEUTRAL/CONTRADICTED on the
@@ -2241,13 +2243,23 @@ def verify_sentence_provenance(
                     # different in-row window may rescue a non-supporting candidate
                     # span. Mirrors the existing no-window branch (warn = log-only,
                     # off = unchanged); the rescue search below is skipped entirely.
+                    #
+                    # I-deepfix-001 U29 (span-imprecision leniency): a CONTRADICTED
+                    # narrow cited span now ALWAYS fails closed here — regardless of
+                    # allow_local_window_fallback — so a WIDER local window that
+                    # ENTAILS can never rescue (mask) a narrow-span CONTRADICTION.
+                    # The cited span actively REFUTES the claim; a different in-row
+                    # window entailing is exactly the clinical-frame risk that must
+                    # fail. Only NEUTRAL (imprecise/incomplete, NOT refuting) remains
+                    # eligible for the bounded-window rescue below. This TIGHTENS the
+                    # gate (removes a rescue path); it never relaxes one.
                     if mode == "enforce":
                         ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
                         failures.append(
                             f"entailment_failed:{ev_ids}:"
                             f"verdict={verdict}:reason={reason[:80]}"
                         )
-                elif verdict in ("NEUTRAL", "CONTRADICTED"):
+                elif verdict == "NEUTRAL":
                     # I-gen-005 Step 1 (Codex iter 1 P1 #3): localize
                     # entailment fallback. Codex iter 1 caught that
                     # passing whole `direct_quote` to the judge is the
