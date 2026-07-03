@@ -791,6 +791,12 @@ _QUAL_JACCARD_ENV = "PG_FINDING_DEDUP_QUALITATIVE_JACCARD"
 _QUAL_JACCARD_DEFAULT = "0.82"
 # Cap the readable signature-token word count (deterministic, bounded key string).
 _QUAL_KEY_MAX_WORDS = 16
+# I-deepfix-001 P4 recall rung-1 (#1344): the qualitative-NLI union SUB-flag. The lexical
+# greedy pass (_build_qualitative_groups) is the cheap near-verbatim CANDIDATE stage; when
+# this sub-flag AND the master PG_CONSOLIDATION_NLI gate are BOTH ON, a SECOND semantic-recall
+# pass unions candidate clusters whose representatives BIDIRECTIONALLY entail (the SAME strict
+# NLI the numeric path uses). OFF (either flag) => byte-identical lexical-only behavior.
+_QUAL_NLI_ENV = "PG_CONSOLIDATION_NLI_QUALITATIVE"
 
 
 def _qualitative_enabled() -> bool:
@@ -801,6 +807,24 @@ def _qualitative_enabled() -> bool:
     (``credibility_redesign_enabled``) by the caller, so a legacy (drop) run never
     sees a qualitative basket."""
     return os.getenv(_QUAL_BASKET_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _qualitative_nli_enabled() -> bool:
+    """I-deepfix-001 P4 recall rung-1 (#1344): the qualitative-NLI union sub-gate. The
+    SECOND semantic-recall pass runs ONLY when BOTH the master ``PG_CONSOLIDATION_NLI``
+    gate (single source of truth in ``consolidation_nli.consolidation_nli_enabled``) AND
+    this ``PG_CONSOLIDATION_NLI_QUALITATIVE`` sub-flag are ON.
+
+    DEFAULT-ON for the sub-flag, but the union is INERT by default: the master gate is
+    default-OFF, so a default run never activates the union and the qualitative pass stays
+    byte-identical lexical-only. The benchmark slate sets the master ON (run_gate_b) and
+    inherits this union without extra config. Set ``PG_CONSOLIDATION_NLI_QUALITATIVE=0`` to
+    keep the numeric-NLI path but revert the qualitative pass to lexical-only."""
+    if not _consolidation_nli_enabled():
+        return False
+    return os.getenv(_QUAL_NLI_ENV, "1").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -846,6 +870,116 @@ def _qual_key_token(text: str) -> str:
     low = _CITATION_TOKEN_RE.sub(" ", (text or "").lower())
     words = [w for w in _WORD_RE.findall(low) if w not in _STOPWORDS]
     return " ".join(sorted(set(words))[:_QUAL_KEY_MAX_WORDS])
+
+
+def _apply_qualitative_nli_union(
+    rows: list[dict[str, Any]],
+    clusters: list[list[Any]],
+    *,
+    predict_fn=None,
+) -> list[list[Any]]:
+    """SECOND semantic-recall pass (I-deepfix-001 P4 recall rung-1, #1344): UNION lexical
+    candidate clusters whose REPRESENTATIVE claim texts BIDIRECTIONALLY entail, reusing the
+    SAME strict bidirectional-NLI machinery the NUMERIC path uses
+    (``consolidation_nli.score_pairs``). The lexical greedy pass above is the cheap
+    near-verbatim CANDIDATE stage (shingle-Jaccard 0.82); this is the NLI CONFIRM stage that
+    RECALLS the same-claim paraphrases lexical Jaccard leaves as singletons — exactly the
+    qualitative-corroboration blind spot most DRB-II rubric facts fall into (a non-numeric
+    claim two independent sources assert in NON-overlapping wording, e.g. a Brynjolfsson-family
+    and an OECD/WEF-family source both stating 'AI adoption is concentrated among large firms').
+
+    ``clusters`` is the greedy list of ``[rep_shingles, rep_polarity, [member_ris]]`` triples
+    (INCLUDING lexical singletons — a lexical singleton is exactly a claim in unique wording that
+    the NLI can still recall onto a paraphrase). Returns the SAME triple shape with the merged
+    member lists; the caller then emits only clusters with >= 2 members.
+
+    REQUIRED HARD OVER-MERGE BLOCKERS (§-1.1 clinical-lethal if a false 'corroborated' renders;
+    NONE optional — an NLI union raises verified_support_origin_count which P3 renders as a
+    per-item 'corroborated' label, so a wrong union is a misstated-corroboration statement):
+      (i)  bidirectional entailment stays STRICT — ``score_pairs`` emits an edge ONLY when
+           A entails B AND B entails A (entailment the argmax in BOTH directions, no relaxed
+           threshold). This structurally blocks three of the four over-merge canaries:
+           HEDGED-vs-FLAT ('reduces' entails 'may reduce' but 'may reduce' does NOT entail
+           'reduces' => one-directional => no union — merging them is itself a certainty
+           distortion, From-May-to-Is 2606.07951), and SCOPE (manufacturing-vs-services) /
+           CAUSAL-DIRECTION (A->B vs B->A) / TEMPORALITY (2020 vs 2026), where NEITHER
+           direction entails.
+      (ii) the ``_polarity_signature`` antonym/negation guard HARD-BLOCKS any opposite-polarity
+           union even if the cross-encoder scored the pair entailing — an 'increased' vs
+           'decreased' antonym can never corroborate (defense-in-depth: a model-independent
+           deterministic block, not left to the NLI verdict alone).
+      (iii) DIRECT-EDGE grouping, NOT transitive union-find (I-deepfix-001 P4 Codex fix, #1344):
+           a redundant cluster joins a PRIMARY cluster ONLY when it DIRECTLY bidirectionally-
+           entails THAT primary. Transitive union-find over NLI edges over-merges — A::B and
+           B::C bidirectional edges would fold A/B/C into ONE basket even when A and C do NOT
+           directly entail, inflating a basket head's corroboration_count with a claim that
+           verifies only against a sibling span (the false-'corroborated' render chain §-1.1
+           calls clinical-lethal). This mirrors the VALIDATED-SAFE direct-to-primary pattern the
+           prose path already uses (``fact_dedup.py`` FIX-D, #1335), which replaced the same
+           unsafe transitive merge. The numeric sibling path bounds this with value-bucketing;
+           this is the qualitative path's equivalent precision guard.
+
+    KEEP-ALL / WEIGHT-ONLY (§-1.3): ONLY member-index lists are unioned (corroboration_count /
+    independent_hosts rise); NO row is dropped, NO verify gate (strict_verify / the NLI
+    entailment verifier / 4-role D8 / provenance / span-grounding) is touched. Deterministic +
+    order-independent: ``score_pairs`` sorts its edges and the keep-first grouping attaches every
+    redundant to the LOWEST-INDEX primary it DIRECTLY entails, so the merged grouping is identical
+    for any worker count. ``predict_fn`` is the deterministic test-injection seam; production
+    passes None => the real lazy cross-encoder.
+    """
+    from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+        score_pairs,
+    )
+
+    n = len(clusters)
+    if n < 2:
+        return clusters
+
+    # Representative CLAIM TEXT of each candidate cluster (lowest-row-index member — the same
+    # representative the emission step re-derives, so the key is stable). Polarity signature is
+    # carried on the cluster from the candidate stage (index 1).
+    rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
+    rep_polarity = [cluster[1] for cluster in clusters]
+
+    edges = score_pairs(rep_texts, predict_fn=predict_fn)
+    # (ii) polarity HARD-BLOCK: drop any bidirectional-entailment edge whose two
+    # representatives carry mismatched polarity signatures (antonym / negation flip).
+    edges = [(i, j) for (i, j) in edges if rep_polarity[i] == rep_polarity[j]]
+    if not edges:
+        return clusters
+
+    # DIRECT-EDGE adjacency (NOT transitive union-find). I-deepfix-001 P4 Codex fix (#1344):
+    # build the direct bidirectional-entailment neighbour set of each cluster, then group
+    # KEEP-FIRST — a redundant cluster joins a primary ONLY when it carries a DIRECT edge to
+    # THAT primary. This is the exact direct-to-primary safe pattern ``fact_dedup.py`` FIX-D
+    # (#1335) uses; it structurally blocks the A::B + B::C => {A,B,C} transitive over-merge
+    # (C never joins A's basket unless C DIRECTLY entails A), so a basket head's
+    # corroboration_count can never be inflated by a claim that only entails a sibling.
+    entails: dict[int, set[int]] = {}
+    for i, j in edges:
+        entails.setdefault(i, set()).add(j)
+        entails.setdefault(j, set()).add(i)
+
+    # Keep-first over ascending cluster index => every basket's representative is its
+    # lowest-index member (deterministic, order-independent for any worker count). A cluster
+    # already consumed into an earlier primary is neither re-scanned nor re-emitted.
+    out: list[list[Any]] = []
+    consumed = [False] * n
+    for i in range(n):
+        if consumed[i]:
+            continue
+        merged_ris: list[int] = list(clusters[i][2])
+        direct = entails.get(i, set())
+        for j in range(i + 1, n):
+            if consumed[j] or j not in direct:
+                continue  # require a DIRECT mutual-entailment edge with THIS primary
+            merged_ris.extend(clusters[j][2])
+            consumed[j] = True
+        consumed[i] = True
+        # Primary keeps its own shingles/polarity as the representative signature; it now
+        # carries every directly-entailing redundant cluster's row indices (keep-all).
+        out.append([clusters[i][0], clusters[i][1], sorted(set(merged_ris))])
+    return out
 
 
 def _build_qualitative_groups(
@@ -907,6 +1041,19 @@ def _build_qualitative_groups(
                 break
         if not placed:
             clusters.append([shingles, polarity, [ri]])
+
+    # SECOND semantic-recall pass (I-deepfix-001 P4 recall rung-1, #1344). The greedy pass
+    # above is the cheap near-verbatim CANDIDATE stage; when BOTH the master
+    # ``PG_CONSOLIDATION_NLI`` gate and the ``PG_CONSOLIDATION_NLI_QUALITATIVE`` sub-flag are
+    # ON, union candidate clusters (INCLUDING lexical singletons) whose representatives
+    # BIDIRECTIONALLY entail — the SAME strict NLI the numeric baskets get, extended to the
+    # qualitative path (the §-1.3 CONSOLIDATE-qualitative-too climb). OFF (either flag) =>
+    # byte-identical lexical-only behavior. The union only GROWS member lists (keep-all,
+    # weight-only); the four over-merge canaries (SCOPE / CAUSAL-DIRECTION / TEMPORALITY /
+    # HEDGED-vs-FLAT) are hard-blocked by the strict bidirectional requirement + the polarity
+    # guard inside ``_apply_qualitative_nli_union``.
+    if _qualitative_nli_enabled():
+        clusters = _apply_qualitative_nli_union(rows, clusters)
 
     out: dict[tuple, list[int]] = {}
     for cluster in clusters:
