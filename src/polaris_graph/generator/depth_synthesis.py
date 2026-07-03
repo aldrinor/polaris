@@ -11,9 +11,15 @@ overlap) every other composer passes, against a BASKET-ID-BOUND verify pool (a t
 basket's source is absent from the scoped pool and fails CLOSED).
 
 FAITHFULNESS (FROZEN engine — nothing here relaxes it):
-  * The generator only ORGANIZES + PHRASES already-isolated-verified spans; a fabrication fails
-    ``strict_verify`` and is DROPPED (NOT replaced by a verbatim fallback — drop-not-fallback is the
-    feature: a cross-source finding that cannot re-ground is simply absent).
+  * The generator only ORGANIZES + PHRASES already-isolated-verified spans; a fabricated LLM draft
+    sentence fails ``strict_verify`` and is DROPPED. I-deepfix-001 P3_dead_synthesis FIX-1 (#1344): when
+    the LLM draft re-grounds to ZERO survivors, the basket does NOT vanish — it falls back to the
+    DETERMINISTIC verbatim multi-cite span-join the BODY composer already emits
+    (``verified_compose.compose_basket_multicited_sentence`` with a NULL writer, verbatim K-span clauses
+    only). That fallback re-passes the SAME frozen ``strict_verify`` by construction (each clause IS a
+    verified span) — so it adds ZERO new fabrication path; it only revives breadth the free-redraft path
+    was silently dropping. Default-ON kill-switch ``PG_DEPTH_SYNTHESIS_SPANJOIN_FALLBACK`` (OFF =>
+    drop-not-fallback, byte-identical).
   * The verify pool is the basket's own isolated-``SUPPORTS`` members ONLY (``_basket_scoped_pool``),
     so a sentence citing a DIFFERENT basket's source fails closed (the anti-cross-claim contract).
   * Each surviving sentence's ``[#ev:<id>:<a>-<b>]`` token is resolved to the report's EXISTING ``[N]``
@@ -96,6 +102,80 @@ _TIER_SINGLE_SOURCE = "single_source"
 # synthesis (eligibility) or mislabeled below the cross-source tier. Hard-clamped here.
 _CROSS_SOURCE_MIN_ORIGINS = 2
 _SINGLE_SOURCE_LABEL = "(single source)"
+
+# ── I-deepfix-001 P3_dead_synthesis FIX-1 (#1344) ────────────────────────────────────────────────────
+# THE DEFECT: the ~11 eligible multi-source baskets are synthesized by a LIVE LLM FREE RE-DRAFT whose
+# paraphrase is then re-grounded by the FROZEN strict_verify, which drops every sentence that reformats a
+# number / moves a [#ev:] token / loses >=2-word overlap — so all ~11 fail and this layer returns [].
+# THE FIX: at the point a basket's LLM draft yields ZERO strict_verify survivors (the drop-branch), DO
+# NOT drop — fall back to the DETERMINISTIC verified multi-cite span-join the BODY composer already emits
+# (``verified_compose.compose_basket_multicited_sentence`` with a NULL writer, so only the verbatim K-span
+# clauses fire). That span-join re-passes the SAME frozen ``verify_fn`` by construction (each clause IS a
+# verified span), resolves to the report's EXISTING [N], and carries the honest per-basket
+# cross_source/single_source label. Default-ON kill-switch; OFF => the pre-fix drop-not-fallback path
+# EXACTLY (byte-identical). FAITHFULNESS: STRENGTHENS breadth with zero new fabrication path — the fallback
+# is re-grounded by the UNCHANGED engine, never trusted prose; the LLM stays an OPTIONAL smoother.
+_ENV_SPANJOIN_FALLBACK = "PG_DEPTH_SYNTHESIS_SPANJOIN_FALLBACK"
+
+# #1335 (open-repetition class): the FIX-1 deterministic span-join reuses the SAME
+# ``compose_basket_multicited_sentence`` the BODY composer runs on the SAME baskets, so a DS-* digest can
+# be TEXT-IDENTICAL (modulo whitespace/citation markers) to a body line. On collision the DS-* line is
+# DROPPED (the body line is KEPT) so the finding is not rendered twice. Production default => silent
+# dedup-drop + a WARNING log; the default-OFF hard-assert switch turns the collision into a loud
+# RuntimeError for the offline behavioral test / a fresh-run canary.
+_ENV_BODY_DUP_HARD_ASSERT = "PG_DEPTH_SYNTHESIS_BODY_DUP_HARD_ASSERT"
+_CITATION_MARKER_RE = re.compile(r"\[[^\]]*\]")
+
+
+def _spanjoin_fallback_enabled() -> bool:
+    """Default ON. When ON, a basket whose LLM synthesis draft re-grounds to ZERO strict_verify
+    survivors falls back to the deterministic verbatim multi-cite span-join instead of being dropped.
+    OFF (``PG_DEPTH_SYNTHESIS_SPANJOIN_FALLBACK=0``) => the pre-fix drop-not-fallback path, byte-identical."""
+    return os.getenv(_ENV_SPANJOIN_FALLBACK, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _body_dup_hard_assert_enabled() -> bool:
+    """Default OFF. When ON (``PG_DEPTH_SYNTHESIS_BODY_DUP_HARD_ASSERT=1``), a DS-*/body duplicate raises a
+    loud RuntimeError (the offline behavioral test + fresh-run canary). OFF => silent dedup-drop + WARNING."""
+    return os.getenv(_ENV_BODY_DUP_HARD_ASSERT, "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _normalize_for_body_dedup(sentence: str) -> str:
+    """The #1335 dedup key: strip EVERY bracketed citation marker (``[N]`` and ``[#ev:...]``), then collapse
+    whitespace + lowercase — so a DS-* span-join and a body composer line built from the SAME basket spans
+    compare equal regardless of citation-number rendering."""
+    bare = _CITATION_MARKER_RE.sub(" ", sentence or "")
+    return re.sub(r"\s+", " ", bare).strip().lower()
+
+
+def _deterministic_spanjoin_fallback(
+    basket: Any, scoped_pool: dict, *, verify_fn: Callable[..., Any]
+) -> str:
+    """FIX-1: the deterministic verbatim multi-cite span-join the BODY composer already emits, driven with
+    a NULL writer so ONLY the faithful-by-construction verbatim K-span clauses fire (no model call —
+    offline-deterministic). Returns "" on any import/compose failure (=> the basket keeps the pre-fix drop)."""
+    try:
+        from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+            compose_basket_multicited_sentence,
+        )
+    except Exception:  # pragma: no cover - verified_compose is stable in-tree
+        return ""
+
+    def _null_writer(*_a: Any, **_k: Any) -> str:
+        return ""  # force the verbatim K-span path (the relational guard never touches a verbatim span)
+
+    try:
+        return str(
+            compose_basket_multicited_sentence(
+                basket, scoped_pool, writer_fn=_null_writer, verify_fn=verify_fn,
+            )
+            or ""
+        )
+    except Exception:  # noqa: BLE001 — a compose failure keeps the pre-fix drop, never crashes the layer
+        logger.warning(
+            "[depth_synthesis] deterministic span-join fallback raised -> basket dropped", exc_info=True
+        )
+        return ""
 
 
 def _env_int(name: str, default: int) -> int:
@@ -362,6 +442,7 @@ def synthesize_cross_source_findings(
     min_sources: Optional[int] = None,
     max_findings: Optional[int] = None,
     chrome_screen: Optional[Callable[[str], bool]] = None,
+    body_sentences: Optional[Any] = None,
 ) -> list[dict]:
     """The grounded cross-source synthesis CORE (deterministic given ``synthesizer`` + ``verify_fn``).
 
@@ -371,7 +452,10 @@ def synthesize_cross_source_findings(
          fake in tests).
       2. ``verify_fn(draft, scoped_pool)`` (= ``strict_verify``) RE-GROUNDS each sentence against the
          basket's OWN members and DROPS any that fail (numeric mismatch / overlap / no provenance /
-         cross-claim) — drop-not-fallback. ``scoped_pool`` is basket-id-bound so a cross-basket
+         cross-claim). FIX-1 (#1344): when the LLM draft re-grounds to ZERO survivors the basket falls
+         back to the DETERMINISTIC verbatim span-join (``_deterministic_spanjoin_fallback``) re-verified
+         by the SAME ``verify_fn`` — no drop-to-empty (default-ON ``PG_DEPTH_SYNTHESIS_SPANJOIN_FALLBACK``;
+         OFF => drop-not-fallback). ``scoped_pool`` is basket-id-bound so a cross-basket
          citation fails CLOSED. Each surviving sentence still carries ``>= 1`` grounding span (the
          UNCHANGED faithfulness floor); its ``[#ev:...]`` tokens resolve to the report's EXISTING
          ``[N]`` (never a renumber) — a raw / unmappable / unresolved token drops the WHOLE sentence;
@@ -401,6 +485,61 @@ def synthesize_cross_source_findings(
     cap = _env_int(_ENV_MAX_FINDINGS, _DEFAULT_MAX_FINDINGS) if max_findings is None else int(max_findings)
     screen = _default_chrome_screen if chrome_screen is None else chrome_screen
 
+    # #1335: the BODY composer's already-rendered sentences, normalized for duplicate detection so a FIX-1
+    # span-join digest that is text-identical to a body line is dropped (the body line is kept). None /
+    # empty => no dedup (byte-identical to the pre-fix render — the guard is a no-op).
+    body_norm: set[str] = {
+        _normalize_for_body_dedup(str(s)) for s in (body_sentences or []) if str(s or "").strip()
+    }
+    body_norm.discard("")
+
+    def _collect(report: Any) -> "tuple[list[tuple[str, str, list]], set[str]]":
+        """Process a verify report's ``kept_sentences`` into (rendered/audit/token triples, distinct
+        surviving report-``[N]`` origins). SHARED per-sentence resolution + chrome screen used for BOTH
+        the LLM draft AND the FIX-1 deterministic span-join fallback, so the fallback re-grounds through
+        the EXACT same faithfulness path (token->[N] resolution, origin identity, chrome screen)."""
+        out_sentences: list[tuple[str, str, list]] = []
+        out_origins: set[str] = set()
+        for sv in (getattr(report, "kept_sentences", None) or []):
+            # PRE-resolve audit sentence + its provenance tokens (the D8 inputs), captured BEFORE the
+            # token->[N] resolution below mutates ``sentence`` into the rendered form.
+            audit_sentence = str(getattr(sv, "sentence", "") or "").strip()
+            toks = list(getattr(sv, "tokens", None) or [])
+            sentence = audit_sentence
+            if not sentence:
+                continue
+            # The DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS sentence
+            # (a kept sentence carries >=1 grounding span — the UNCHANGED faithfulness floor; a sentence
+            # with zero surviving provenance tokens is not grounded and is skipped).
+            surviving_ids = {m.group(1) for m in _EV_TOKEN_FULL_RE.finditer(sentence)}
+            if not surviving_ids:
+                continue
+            if bib_num_by_evidence_id is not None:
+                # Every surviving token must resolve to the report's EXISTING [N]; a raw / unmatched /
+                # unresolved token returns None here -> DROP the whole sentence (no dangling [N]).
+                resolved = _resolve_tokens_to_citations(sentence, bib_num_by_evidence_id)
+                if resolved is None:
+                    continue
+                sentence = resolved.strip()
+                # Defence-in-depth: no raw ``[#ev:...]`` token may survive resolution.
+                if _EV_TOKEN_FULL_RE.search(sentence) or "[#ev:" in sentence:
+                    continue
+                # Origin identity = the report bibliography NUMBER (distinct SOURCES, not raw evidence
+                # rows — two rows for the same source share one [N] and count as ONE origin). This is what
+                # keeps the cross-source label honest (§-1.1 misstated corroboration is lethal).
+                sentence_origins = {bib_num_by_evidence_id.get(eid) for eid in surviving_ids}
+                sentence_origins.discard(None)
+                if not sentence_origins:
+                    continue
+                origin_keys = {str(n) for n in sentence_origins}
+            else:
+                origin_keys = set(surviving_ids)
+            if not sentence or screen(sentence):
+                continue
+            out_sentences.append((sentence, audit_sentence, toks))
+            out_origins |= origin_keys
+        return out_sentences, out_origins
+
     findings: list[dict] = []
     seen: set[str] = set()
     # WS-8 (D4) THIRD headline path: DEMOTE an older basket in the synthesis ORDER so a very-old source
@@ -420,74 +559,65 @@ def synthesize_cross_source_findings(
         members = _distinct_origin_supports(basket)
         if len(members) < floor:
             continue  # not a CROSS-source CANDIDATE basket (definitional, not a filter of corpus sources)
+        scoped_pool = _scoped_pool(basket, evidence_pool)
+        # (1) LLM draft -> re-ground through the UNCHANGED verify_fn. Each collected element is a TRIPLE
+        # (rendered_[N]_sentence, audit_sentence_pre-resolve, tokens): the audit sentence carries the
+        # ``[#ev:...]`` tokens for the D8 seam; the rendered sentence is the post-resolution [N] form.
+        basket_sentences: list[tuple[str, str, list]] = []
+        basket_origins: set[str] = set()
         draft = ""
         try:
             draft = str(synthesizer(basket, evidence_pool) or "")
         except Exception:  # noqa: BLE001 — a per-basket synthesizer failure never aborts the layer
-            logger.warning("[depth_synthesis] synthesizer raised for a basket -> skipped", exc_info=True)
-            continue
-        if not draft.strip():
-            continue
-        scoped_pool = _scoped_pool(basket, evidence_pool)
-        try:
-            report = verify_fn(draft, scoped_pool)
-        except Exception:  # noqa: BLE001 — a verify failure drops the basket, never ships unverified
-            logger.warning("[depth_synthesis] verify_fn raised for a basket -> skipped", exc_info=True)
-            continue
-        # Collect THIS basket's kept+resolved sentences AND its distinct surviving origins (the union
-        # across all kept sentences). The two-tier label is decided ONCE per basket after this loop.
-        # I-deepfix-001 wave-3: each element is a TRIPLE (rendered_[N]_sentence, audit_sentence_pre-
-        # resolve, tokens). The audit sentence (carrying ``[#ev:...]`` tokens) + its ProvenanceToken
-        # list are captured BEFORE token->[N] resolution; the rendered sentence is the post-resolution
-        # [N] form that ships in report.md. They become the D8 seam inputs when the gate is ON.
-        basket_sentences: list[tuple[str, str, list]] = []
-        basket_origins: set[str] = set()
-        for sv in (getattr(report, "kept_sentences", None) or []):
-            # PRE-resolve audit sentence + its provenance tokens (the D8 inputs), captured BEFORE the
-            # token->[N] resolution below mutates ``sentence`` into the rendered form.
-            audit_sentence = str(getattr(sv, "sentence", "") or "").strip()
-            toks = list(getattr(sv, "tokens", None) or [])
-            sentence = audit_sentence
-            if not sentence:
-                continue
-            # The DISTINCT evidence_ids whose ``[#ev:...]`` token SURVIVED strict_verify on THIS
-            # sentence (a kept sentence carries >=1 grounding span — the UNCHANGED faithfulness floor;
-            # a sentence with zero surviving provenance tokens is not grounded and is skipped).
-            surviving_ids = {m.group(1) for m in _EV_TOKEN_FULL_RE.finditer(sentence)}
-            if not surviving_ids:
-                continue
-            if bib_num_by_evidence_id is not None:
-                # Every surviving token must resolve to the report's EXISTING [N]; a raw / unmatched /
-                # unresolved token returns None here -> DROP the whole sentence (no dangling [N]).
-                resolved = _resolve_tokens_to_citations(sentence, bib_num_by_evidence_id)
-                if resolved is None:
-                    continue
-                sentence = resolved.strip()
-                # Defence-in-depth: no raw ``[#ev:...]`` token may survive resolution.
-                if _EV_TOKEN_FULL_RE.search(sentence) or "[#ev:" in sentence:
-                    continue
-                # Origin identity = the report bibliography NUMBER (distinct SOURCES, not raw evidence
-                # rows — two rows for the same source share one [N] and count as ONE origin). This is
-                # what keeps the cross-source label honest (§-1.1 misstated corroboration is lethal).
-                sentence_origins = {bib_num_by_evidence_id.get(eid) for eid in surviving_ids}
-                sentence_origins.discard(None)
-                if not sentence_origins:
-                    continue
-                origin_keys = {str(n) for n in sentence_origins}
-            else:
-                origin_keys = set(surviving_ids)
-            if not sentence or screen(sentence):
-                continue
-            basket_sentences.append((sentence, audit_sentence, toks))
-            basket_origins |= origin_keys
+            logger.warning("[depth_synthesis] synthesizer raised for a basket", exc_info=True)
+        if draft.strip():
+            try:
+                basket_sentences, basket_origins = _collect(verify_fn(draft, scoped_pool))
+            except Exception:  # noqa: BLE001 — a verify failure drops the LLM draft, never ships unverified
+                logger.warning("[depth_synthesis] verify_fn raised on the LLM draft", exc_info=True)
+        # (2) I-deepfix-001 P3_dead_synthesis FIX-1 (#1344): the LLM draft re-grounded to ZERO
+        # strict_verify survivors -> DO NOT drop the basket. Fall back to the DETERMINISTIC verified
+        # multi-cite span-join the BODY composer already emits (verbatim K-span clauses, NULL writer),
+        # re-grounded by the SAME verify_fn. This revives the ~11 eligible multi-source baskets the
+        # free-redraft-then-verify path drops to []. Default-ON kill-switch; OFF => the pre-fix
+        # drop-not-fallback path (byte-identical: the fallback never runs).
+        if not basket_sentences and _spanjoin_fallback_enabled():
+            fallback = _deterministic_spanjoin_fallback(basket, scoped_pool, verify_fn=verify_fn)
+            if fallback.strip():
+                try:
+                    basket_sentences, basket_origins = _collect(verify_fn(fallback, scoped_pool))
+                except Exception:  # noqa: BLE001 — a verify failure on the fallback keeps the drop
+                    logger.warning(
+                        "[depth_synthesis] verify_fn raised on the span-join fallback", exc_info=True
+                    )
         if not basket_sentences:
-            continue  # nothing re-grounded -> faithfulness drop (drop-not-fallback)
-        # PER-BASKET two-tier decision: >=floor distinct surviving origins -> cross_source; the
-        # collapse case (1 surviving origin) -> single_source-attributed (surfaced + labeled, §-1.3).
+            continue  # neither the LLM draft NOR the deterministic fallback re-grounded -> true drop
+        # PER-BASKET two-tier decision: >=floor distinct surviving origins -> cross_source; the collapse
+        # case (1 surviving origin) -> single_source-attributed (surfaced + labeled, §-1.3). The FIX-1
+        # fallback flows through the SAME decision, so a fallback that re-grounds to ONE origin is
+        # honestly labeled "(single source)", never a blanket "corroborated" (§-1.1 lethal-if-misstated).
         tier = _TIER_CROSS_SOURCE if len(basket_origins) >= floor else _TIER_SINGLE_SOURCE
         label = "" if tier == _TIER_CROSS_SOURCE else _SINGLE_SOURCE_LABEL
         carry_d8 = depth_synthesis_d8_gate_enabled()
         for rendered, audit_sentence, toks in basket_sentences:
+            # #1335 body-vs-DS duplicate guard: the FIX-1 deterministic span-join reuses the SAME
+            # compose_basket_multicited_sentence the BODY composer runs on the SAME basket, so a DS-*
+            # digest can be text-identical (modulo citation markers) to a body line. Drop the DS-*
+            # duplicate (keep the body line) so the finding is not rendered twice; fail LOUD when the
+            # hard-assert canary is on.
+            if body_norm:
+                bkey = _normalize_for_body_dedup(rendered)
+                if bkey and bkey in body_norm:
+                    if _body_dup_hard_assert_enabled():
+                        raise RuntimeError(
+                            "[depth_synthesis] #1335 DS-*/body duplicate: a synthesized digest is "
+                            f"text-identical to a body composer sentence: {rendered!r}"
+                        )
+                    logger.warning(
+                        "[depth_synthesis] #1335 DS-*/body duplicate dropped (kept body line): %.160s",
+                        rendered,
+                    )
+                    continue
             key = re.sub(r"\s+", " ", rendered).strip().lower()
             if key in seen:
                 continue

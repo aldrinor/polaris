@@ -14394,6 +14394,24 @@ async def run_one_query(
                     if _baskets:
                         _ds_ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
                         _ds_precomputed = await depth_synthesis_pre_pass(_baskets, _ds_ev_pool)
+                        # I-deepfix-001 P3_dead_synthesis FIX-1 #1335: collect the BODY composer's
+                        # already-rendered section sentences so a deterministic span-join digest that is
+                        # text-identical to a body line is de-duplicated (the DS-* duplicate is dropped,
+                        # the body line kept). Fail-open: on any error the dedup is simply a no-op.
+                        _ds_body_sentences: list = []
+                        try:
+                            from src.polaris_graph.generator.provenance_generator import (
+                                split_into_sentences as _ds_split_sents,
+                            )
+                            for _ds_sec in (getattr(multi, "sections", []) or []):
+                                _ds_vt = str(getattr(_ds_sec, "verified_text", "") or "")
+                                if _ds_vt.strip():
+                                    _ds_body_sentences.extend(
+                                        _u for _u in _ds_split_sents(_ds_vt) if _u.strip()
+                                    )
+                        except Exception as _ds_body_exc:  # noqa: BLE001 — dedup is defensive
+                            _log(f"[depth-synthesis] body-sentence collection skipped: {_ds_body_exc}")
+                            _ds_body_sentences = []
                         _synth_findings = synthesize_cross_source_findings(
                             _baskets, _ds_ev_pool,
                             synthesizer=make_depth_synthesizer(_ds_precomputed),
@@ -14401,6 +14419,7 @@ async def run_one_query(
                             bib_num_by_evidence_id=bib_num_by_evidence_id(
                                 getattr(multi, "bibliography", []) or []
                             ),
+                            body_sentences=_ds_body_sentences,
                         )
                         _log(f"[depth-synthesis] grounded cross-source findings: {len(_synth_findings)}")
                         # I-deepfix-001 wave-3 CHANGE 2: thread the grounded depth findings into the
