@@ -11539,6 +11539,7 @@ async def run_one_query(
             # resume (that row stays flagged).
             try:
                 from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
+                    _recovered_content_error_class as _a15_error_class,
                     is_content_starved as _a15_is_starved,
                     refetch_for_extraction_with_diagnostics as _a15_refetch,
                 )
@@ -11580,6 +11581,10 @@ async def run_one_query(
                             _a15_degraded_dicts,
                             refetch_fn=_a15_refetch,
                             is_content_starved_fn=_a15_is_starved,
+                            # Apply the SAME registry/error/block-page screen the live forced-Zyte
+                            # adoption path uses, so a non-starved DOI-registry "not found" page is
+                            # never adopted as grounding and never clears the degraded flags (Codex P1).
+                            recovered_error_class_fn=_a15_error_class,
                             log=_log,
                         )
                         _log(
@@ -11587,28 +11592,28 @@ async def run_one_query(
                             f"attempted={_a15_result['attempted']} "
                             f"recovered={len(_a15_result['recovered'])} "
                             f"still_shell={len(_a15_result['still_shell'])} "
+                            f"error_page={len(_a15_result.get('error_page', []))} "
                             f"no_url={len(_a15_result['no_url'])} "
                             f"errors={len(_a15_result['errors'])} "
                             "(recovered rows re-grounded; residual shells stay disclosed + drop at "
                             "the UNCHANGED strict_verify — NO fabrication, NO gate relaxed)"
                         )
-                        # Codex P1 (choke-fix iter2) — KNOWN INCOMPLETENESS, disclosed not silent:
-                        # this re-fetch repopulates the evidence_for_gen ROW dicts (so strict_verify and
-                        # the legacy/enrichment sections see real spans), but the V30 CONTRACT slot
-                        # generator reads its span from the FrameRow (`frame_row.direct_quote`,
-                        # contract_section_runner.py:504), a SEPARATE object built at :7345 from
-                        # `_frame_rows` — which this path does NOT update. So a RESUMED contract run can
-                        # still render a HOLLOW contract anchor even after recovery. Tracked as the
-                        # A15+P1-2 follow-up (propagate recovered spans into _frame_rows by entity_id).
-                        # UNTIL that lands, recover contract anchors with a FRESH run (full re-retrieval),
-                        # never `--resume` on a degraded contract run.
+                        # I-deepfix-001 P6 (#1344) — the A15+P1-2 follow-up NOW LANDS: this re-fetch
+                        # repopulates the evidence_for_gen ROW dicts (so strict_verify + the
+                        # legacy/enrichment sections see real spans), AND the recovered spans are
+                        # propagated into the V30 CONTRACT FrameRows at the frame-build below
+                        # (`propagate_recovered_spans_to_frame_rows`, ~:11865, matched by
+                        # v30_entity_id) so the resumed contract run renders the real anchor instead
+                        # of a hollow gap. A row still a shell after the cascade stays disclosed and
+                        # the UNCHANGED strict_verify honestly drops any ungrounded claim (NO
+                        # fabrication).
                         if _a15_result["recovered"]:
                             _log(
-                                "[resume]      A15 NOTE (P1-2 follow-up): recovered spans reach "
-                                "strict_verify + legacy/enrichment sections but NOT the V30 contract "
-                                "slot generator (FrameRow span is separate) — a resumed CONTRACT run "
-                                "may still render hollow contract anchors; use a FRESH run for "
-                                "contract-anchor recovery until the frame-row propagation fix lands."
+                                "[resume]      A15 NOTE (P6 landed): recovered spans reach "
+                                "strict_verify + legacy/enrichment sections AND propagate into the "
+                                "V30 contract FrameRows at the frame-build (hollow-only, matched by "
+                                "v30_entity_id) — a resumed contract run now renders the real anchor, "
+                                "not a hollow gap."
                             )
                     else:
                         _log(
@@ -11862,6 +11867,60 @@ async def run_one_query(
                         f"[V30-P2]      fetched {len(_frame_rows)} "
                         f"frame rows"
                     )
+                    # I-deepfix-001 P6 (#1344) — A15 resume-recovery propagation to the V30 contract
+                    # slot generator. On a --resume the A15 re-fetch (above, ~:11578) re-grounds a
+                    # degraded reloaded evidence_for_gen ROW's direct_quote in place, but the V30
+                    # contract slot generator reads FrameRow.direct_quote — a SEPARATE object just
+                    # re-fetched FRESH here by fetch_compiled_frame, which on a --resume can come back
+                    # a SHELL again (same paywall/block). So a recovered anchor still rendered HOLLOW
+                    # (the disclosed P1-2 follow-up at ~:11595). Propagate the recovered span from the
+                    # reloaded contract row (v30_frame_row, matched by v30_entity_id == FrameRow
+                    # entity_id) into any HOLLOW FrameRow so the resumed contract run renders the real
+                    # anchor. FAITHFULNESS-NEUTRAL: copies REAL recovered fetched content onto the
+                    # frame row's INPUT span; register_frame_rows_into_evidence_pool + slot-fill still
+                    # flow through the UNCHANGED strict_verify. RESUME-ONLY + HOLLOW-ONLY => a fresh
+                    # run is byte-identical (contract rows are not in evidence_for_gen yet at this
+                    # point) and a non-hollow fresh frame row is never overwritten.
+                    if _resume_active:
+                        from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+                            propagate_recovered_spans_to_frame_rows as _p6_propagate,
+                            recovered_spans_from_reloaded_rows as _p6_recovered_map,
+                        )
+                        from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
+                            _recovered_content_error_class as _p6_error_class,
+                        )
+                        # Build the propagation map through the GUARDED builder: it admits ONLY
+                        # genuinely-recovered reloaded rows (non-empty span AND every A15 degraded flag
+                        # cleared). A still-degraded shell whose leftover span merely clears the length
+                        # floor is EXCLUDED (loudly), so it can never relabel a hollow FrameRow to
+                        # OPEN_ACCESS — faithfulness-STRENGTHENING, no source dropped.
+                        #
+                        # Codex P6 BLOCKER FIX: also pass the SAME live-path error-page screen
+                        # (_recovered_content_error_class) so the builder RE-SCREENS each candidate span
+                        # CONTENT regardless of flag-state. The resume degraded-detector (~:11559) only
+                        # flags starved/failed/landing rows, so an UNFLAGGED, non-starved fetch-FAILURE
+                        # registry/error page (e.g. a doi.org "DOI Not Found" reloaded from the snapshot)
+                        # is never flagged, never re-fetched, and would otherwise pass the flag-only
+                        # guard and fill a hollow contract anchor. Re-screening rejects it here.
+                        _p6_recovered = _p6_recovered_map(
+                            evidence_for_gen,
+                            recovered_error_class_fn=_p6_error_class,
+                            log=_log,
+                        )
+                        if _p6_recovered:
+                            _frame_rows, _p6_tele = _p6_propagate(
+                                _frame_rows,
+                                recovered_span_by_entity=_p6_recovered,
+                                log=_log,
+                            )
+                            if _p6_tele["propagated"]:
+                                _log(
+                                    "[resume]      A15 P6: propagated recovered spans into "
+                                    f"{len(_p6_tele['propagated'])} hollow V30 contract frame "
+                                    f"row(s): {_p6_tele['propagated'][:10]} "
+                                    "(resumed contract run renders the real anchor, not hollow; "
+                                    "flows through UNCHANGED strict_verify)"
+                                )
                     # I-complete-004 (#1190): targeted required-entity
                     # retrieval lane. ENV-GATED (PG_REQUIRED_ENTITY_RETRIEVAL,
                     # default OFF => byte-identical: no search, no fetch, corpus
