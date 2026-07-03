@@ -1907,6 +1907,262 @@ def _contains_missed_titlepage_biblio_caption(text: str) -> bool:
     return bool(_BIBLIOGRAPHY_FRAGMENT_RE.search(text))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 P1_chrome_gate (#1344) — the SEVEN box1 render-seam chrome CLASSES the containment
+# predicate was empirically proven blind to (all 8 shipped box1 chrome strings returned False; all
+# three nets that route through ``_contains_forensic_chrome`` — the render-seam sanitize pass, the
+# chrome canary, and the verified-compose K-span junk screen — failed together). Each rule is a
+# high-precision, label/structure-anchored CONTAINMENT signal (fires even when the class is welded
+# INTO otherwise-real prose) that can NEVER flag a real economics / labor / clinical finding
+# (precision-first per §-1.3: over-strip of a real finding is worse than a leaked furniture unit).
+# FLAG-not-drop / suppress-only: a flagged unit is WITHHELD from the rendered rollup and KEPT in
+# evidence_pool + the disclosure; the faithfulness engine (strict_verify / NLI / 4-role / provenance
+# / span-grounding) is UNCHANGED. Gated by the caller under ``render_chrome_screen_enabled()``.
+# Frontier basis: trafilatura 2.1 / jusText stopword-density boilerplate SIGNALS ported as a
+# text-level predicate (the tools need raw HTML the render seam no longer has).
+#
+#   (1) PUBLISHER PAYWALL / PURCHASE CTA — "Add to cart", "Purchase this article", "Subscribe for
+#       unlimited", "Rent this article", "printable version". Distinct from the legacy
+#       ``_PAYWALL_ACCESS_RE`` (Sage/Atypon "get full access to this article") — this covers the
+#       cart/subscription CTA form. Multi-word, CTA-specific; a finding never carries these.
+#   (2) MULTILINGUAL LICENSE / REPOSITORY furniture — German repository boilerplate
+#       ("Standard-Nutzungsbedingungen", "EconStor", "Die Dokumente auf …", "zu eigenen
+#       wissenschaftlichen Zwecken"). Distinctive repository tokens a real English finding never
+#       contains. ("Terms of Use" alone is deliberately NOT screened — too generic.)
+#   (3) GLUED AUTHOR-STATS-TABLE — either a Stata summary-table header run ("Variable Obs Mean
+#       Std. Dev. Min Max") OR >=2 glued "Surname<digit>" author-superscript tokens
+#       ("Kanbach1 Heiduk2 Kraus3"). The surname-digit rule is the RISKY one (a clinical
+#       "Group1 … Group2" could collide), so it is GUARDED by ``_stopword_density`` < the floor:
+#       a pure author list has near-zero stopwords while real prose does not.
+#   (4) ASTERISKED-AUTHOR STREET + ZIP affiliation block — a US "City, ST 02142" postal block
+#       (unambiguous), or a corresponding-author marker co-occurring with a street address. A real
+#       finding never carries a full postal address.
+#   (5) EXEC / PROMO BIO — a job-title ("Chief Executive Officer", "CEO", "Founder", "Managing
+#       Director") WELDED to a promo predicate ("visionary", "thought leader", "award-winning",
+#       "driving digital transformation"). DUAL-signal: a real finding that merely names a CEO
+#       ("the CEO announced layoffs") carries no promo predicate and is KEPT.
+#   (6) STITCHED METADATA-RECITAL citation — a reference recital ("… journal article, volume 42,
+#       article 7, authored by …"). The "journal article" + "volume N" + ("article N" | "authored
+#       by") co-occurrence is a stitched biblio recital a finding never writes.
+#   (7) SHORT NAV / TOPIC-LIST item — the RISKY short-nav rule, guarded on FOUR ANDed conditions:
+#       word-count <= 6 AND ends with a bare ordinal ("Labor Market Trends 3.2") AND no finite verb
+#       AND ``_stopword_density`` < the floor. All four together isolate a scraped ToC/nav entry
+#       from a real short sentence (which carries a verb and stopwords).
+_PAYWALL_CTA_BOX1_RE = re.compile(
+    r"\badd\s+to\s+cart\b"
+    r"|\bpurchase\s+(?:this\s+)?(?:article|pdf|access|subscription)\b"
+    r"|\brent\s+(?:this\s+)?article\b"
+    r"|\bbuy\s+(?:now|this\s+article|the\s+pdf)\b"
+    r"|\bsubscribe\s+(?:for|to\s+get)\s+(?:unlimited|full|instant)\b"
+    r"|\bstart\s+your\s+free\s+trial\b"
+    r"|\bprintable\s+version\b",
+    re.IGNORECASE,
+)
+_REPO_LICENSE_FURNITURE_RE = re.compile(
+    r"\bStandard-?Nutzungsbedingungen\b"
+    r"|\bNutzungsbedingungen\b"
+    r"|\bEconStor\b"
+    r"|\bLeibniz[- ]Informationszentrum\b"
+    r"|\bzu\s+eigenen\s+wissenschaftlichen\s+Zwecken\b"
+    r"|\bDie\s+Dokumente\s+auf\b",
+    re.IGNORECASE,
+)
+_STATS_SUMMARY_HEADER_RE = re.compile(
+    r"\bObs\.?\s+Mean\b"
+    r"|\bMean\s+Std\.?\s*Dev\.?\b"
+    r"|\bVariable\s+Obs\b"
+    r"|\bStd\.?\s*Dev\.?\s+Min\s+Max\b",
+    re.IGNORECASE,
+)
+# A glued author-superscript token: a name-like stem (>=3 letters, any case, so an OCR-mangled
+# "bALACHANDER2" byline surname counts while "Q1" does not) welded — OR joined by ONE space — to a
+# 1-2 digit affiliation superscript that is NOT part of a decimal / percent / longer number
+# (``(?![\w.%])``). The finite finding-label allowlist (Group / Stage / Type / ...) is DROPPED: it was
+# open-ended and could never enumerate every real TWO-CATEGORY label ("High School1 Low College2",
+# "Blue Collar1 White Collar2" — School / College / Collar are not authorable in any finite list), so
+# it still over-stripped real labor / economic findings (Codex blocker). Instead rule 3b is anchored to
+# the STRONGER author-LIST structure a real finding never carries: >=3 such surname-digit pairs, OR
+# exactly 2 pairs PLUS an author/affiliation CO-SIGNAL in the same unit (see ``_AUTHOR_COSIGNAL_RE``).
+# Two bare category-labels (exactly 2 pairs, no co-signal) therefore NEVER trip it, while a genuine
+# glued byline (5 welded names, or a spaced "Surname 2, Surname 1, First Last 2" OCR list, or 2 names +
+# an affiliation) still fires. Precision-first per §-1.3: over-stripping a real finding is the harm.
+_SURNAME_DIGIT_PAIR_RE = re.compile(r"\b([A-Za-z]{3,})[ ]?(\d{1,2})(?![\w.%])")
+# An author/affiliation co-signal that upgrades EXACTLY 2 surname-digit pairs to an author byline: an
+# affiliation keyword (University / Institute / College / Department as a WHOLE word — "\bCollege\b"
+# never matches the welded "College2" in a labelled finding), an "et al." marker, or an email address.
+# A finite, high-precision set; still ANDed under the stopword-density guard so real prose that merely
+# names an institution ("Researchers at Stanford University found Group1 and Group2 differed" — density
+# above the floor) is NOT upgraded. Precision-first per §-1.3.
+#
+# The superscript author ASTERISK is deliberately NOT an author co-signal at ALL — not even the
+# ">=2 starred pairs" form the iter-1 fix used. A "*" welded to a "Surname<digit>" token is byte-
+# identical whether it is an author corresponding-author marker ("Jane Smith1* John Doe2*") OR a
+# statistical / footnote SIGNIFICANCE STAR on a category label ("High School1* Low College2*
+# earnings differed" — TWO starred category labels, no independent author signal). The iter-1
+# ">=2 starred pairs" heuristic could not tell these apart and over-stripped the real two-category /
+# table finding (Codex iter-2 P1 blocker). So the asterisk path now requires an INDEPENDENT author
+# signal (``_AUTHOR_COSIGNAL_RE``): the exactly-2-pair upgrade fires ONLY on an affiliation keyword /
+# "et al." / email. Precision-first per §-1.3: a genuine bare-stars-only two-author byline that
+# carries no affiliation/email/et-al ("Jane Smith1* John Doe2*") is now an ACCEPTED LEAK (leaked page
+# furniture is far lower harm than deleting a real clinical / labor / economic finding); the >=3-pair
+# path still catches any real glued author LIST, and 2 names + a real affiliation still fires.
+_AUTHOR_COSIGNAL_RE = re.compile(
+    r"\b(?:University|Institute|College|Department)\b"
+    r"|\bet\s+al\b"
+    r"|[\w.+-]+@[\w-]+\.[A-Za-z]{2,}",
+    re.IGNORECASE,
+)
+
+
+def _surname_digit_pair_count(text: str) -> int:
+    """Count "Surname<digit>" author-superscript pairs (welded ``Kanbach1`` or single-space ``Archbold
+    2``), with NO finding-label allowlist — the pair COUNT plus an author/affiliation co-signal (not a
+    per-word allowlist) is what separates a genuine glued byline from a real two-category finding. See
+    ``_SURNAME_DIGIT_PAIR_RE`` and the rule-3b call site for the >=3 / 2+co-signal structure."""
+    return len(_SURNAME_DIGIT_PAIR_RE.findall(text))
+# A US "City, ST 02142" postal block. On its OWN this over-strips a real finding that merely cites a
+# place (Codex P1 iter 1); it is chrome ONLY with an affiliation CO-SIGNAL (a street address or a
+# corresponding-author marker), so rule 4 ANDs it below.
+_US_CITY_STATE_ZIP_RE = re.compile(r"\b[A-Z][A-Za-z.\-]+,\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
+_CORRESP_AUTHOR_RE = re.compile(
+    r"\*\s*correspond|\bcorrespond(?:ing|ence)\s+(?:author|to)\b", re.IGNORECASE
+)
+_STREET_ADDRESS_RE = re.compile(
+    r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,4}"
+    r"(?:Street|St\.|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Boulevard|Blvd\.?|Lane|Ln\.?|"
+    r"Way|Square|Sq\.?|Court|Ct\.?)\b"
+)
+_EXEC_TITLE_RE = re.compile(
+    r"\bchief\s+\w+\s+officer\b|\bC[EFOT]O\b|\b(?:co-)?founder\b|\bmanaging\s+director\b|"
+    r"\bpresident\s+and\s+ceo\b|\bvice\s+president\b|\bexecutive\s+director\b|\bpartner\s+at\b",
+    re.IGNORECASE,
+)
+_PROMO_PREDICATE_RE = re.compile(
+    r"\bvisionary\b|\bthought\s+leader(?:ship)?\b|\bpassionate\s+about\b|\baward[- ]winning\b|"
+    r"\bworld[- ]class\b|\bleading\s+expert\b|\bdriving\s+(?:digital\s+)?transformation\b|"
+    r"\brenowned\b|\bseasoned\s+(?:leader|executive|professional)\b|\btrusted\s+advisor\b|"
+    r"\bproven\s+track\s+record\b|\bindustry\s+veteran\b",
+    re.IGNORECASE,
+)
+_METADATA_RECITAL_RE = re.compile(
+    r"\bjournal\s+article\b[^.]{0,80}\bvolume\s+\d+\b[^.]{0,60}\b(?:article\s+\d+|authored\s+by)\b"
+    r"|\bvolume\s+\d+\b[^.]{0,30}\bissue\s+\d+\b[^.]{0,30}\bauthored\s+by\b",
+    re.IGNORECASE,
+)
+# Rule 7 helpers: a trailing bare ordinal (a standalone 1-3 digit / dotted section number at the
+# very end, e.g. "3.2" / "5"; a trailing "0.42%" carries a % so it never matches), and the small
+# finite-verb / copula lexicon whose ABSENCE (with the other three guards) marks a nav/topic stub.
+_TRAILING_CITE_STRIP_RE = re.compile(r"(?:\s*\[\d+\])+\s*$")
+_ENDS_WITH_BARE_ORDINAL_RE = re.compile(r"(?:^|\s)\d{1,3}(?:\.\d{1,2})?\s*$")
+_CHROME_STOPWORD_DENSITY_FLOOR = 0.10
+_NAV_ITEM_MAX_WORDS = 6
+_CHROME_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "with", "by",
+    "from", "as", "is", "are", "was", "were", "be", "been", "being", "am", "that", "this",
+    "these", "those", "it", "its", "their", "his", "her", "they", "we", "our", "you", "your",
+    "which", "who", "whom", "whose", "than", "then", "into", "over", "under", "about", "between",
+    "among", "per", "via", "not", "no", "nor", "so", "if", "while", "during", "after", "before",
+    "above", "below", "up", "down", "out", "off", "how", "when", "where", "what", "why", "all",
+    "each", "more", "most", "some", "such", "also", "may", "can", "will", "would", "should",
+    "could", "has", "have", "had", "do", "does", "did", "versus", "vs", "both", "either",
+})
+def _stopword_density(text: str) -> float:
+    """The fraction of ALPHABETIC tokens in ``text`` that are common English stopwords (PURE). A
+    scraped author list / ToC-nav stub has near-zero stopword density; real running prose does not.
+    The precision guard for the risky surname-digit (rule 3b) and short-nav (rule 7) chrome rules."""
+    words = re.findall(r"[A-Za-z]+", text.lower())
+    if not words:
+        return 0.0
+    return sum(1 for w in words if w in _CHROME_STOPWORDS) / len(words)
+
+
+def _is_titlecase_heading(text: str) -> bool:
+    """True iff EVERY content word (>=3 letters and not a stopword) starts uppercase — the Title-Case
+    shape of a scraped ToC / nav / section heading ("Labor Market Trends 3.2"). This REPLACES the old
+    finite-verb-absence heuristic (Codex P1 iter 1: a small verb lexicon mislabels real short claims
+    whose verb is outside it — "doubled", "worsened", "adopted", "differed" — as nav stubs). A real
+    short sentence carries at least one LOWERCASE content word (its verb / object), so it is not
+    Title-Case and is kept. Requires >=2 content words so a one-word label is not a "heading"."""
+    content_words = [
+        w for w in re.findall(r"[A-Za-z]+", text)
+        if len(w) >= 3 and w.lower() not in _CHROME_STOPWORDS
+    ]
+    if len(content_words) < 2:
+        return False
+    return all(w[0].isupper() for w in content_words)
+
+
+def _is_short_nav_topic_item(text: str) -> bool:
+    """Rule 7 (the risky short-nav rule): True iff ``text`` is a scraped ToC / nav / topic-list stub
+    under ALL FOUR guards — <= 6 words AND ends with a bare ordinal AND stopword-density below the
+    floor AND Title-Case heading shape (every content word capitalized). Any one guard failing keeps
+    a real short sentence (precision-first per §-1.3)."""
+    core = _TRAILING_CITE_STRIP_RE.sub("", text.strip()).strip()
+    words = core.split()
+    if not (1 <= len(words) <= _NAV_ITEM_MAX_WORDS):
+        return False
+    if not _ENDS_WITH_BARE_ORDINAL_RE.search(core):
+        return False
+    if _stopword_density(core) >= _CHROME_STOPWORD_DENSITY_FLOOR:
+        return False
+    return _is_titlecase_heading(core)
+
+
+def _contains_p1_box1_chrome(text: str) -> bool:
+    """I-deepfix-001 P1_chrome_gate (#1344): True iff ``text`` CONTAINS one of the seven box1
+    render-seam chrome CLASSES the containment predicate was blind to (paywall/purchase CTA;
+    multilingual license/repository furniture; glued author-stats-table; asterisked-author
+    street+ZIP affiliation; exec/promo bio; stitched metadata-recital citation; short nav/topic-list
+    stub). High-precision / label-anchored; detector-only (FLAG-not-drop); the faithfulness engine
+    is UNCHANGED."""
+    s = text
+    # (1) publisher paywall / purchase CTA
+    if _PAYWALL_CTA_BOX1_RE.search(s):
+        return True
+    # (2) multilingual license / repository furniture
+    if _REPO_LICENSE_FURNITURE_RE.search(s):
+        return True
+    # (3a) Stata summary-table header run
+    if _STATS_SUMMARY_HEADER_RE.search(s):
+        return True
+    # (3b) glued author byline, anchored to author-LIST STRUCTURE (NOT a per-word label allowlist —
+    #      that was open-ended and still over-stripped real TWO-CATEGORY findings like "High School1
+    #      Low College2 earnings differed" / "Blue Collar1 White Collar2 wages diverged", Codex
+    #      blocker). Fire ONLY on >=3 surname-digit pairs, OR exactly 2 pairs PLUS an INDEPENDENT
+    #      author/affiliation co-signal in the SAME unit — all still under the stopword-density guard.
+    #      The co-signal is an affiliation keyword (University|Institute|College|Department) / "et al."
+    #      / email ONLY. The superscript author asterisk is NOT a co-signal (not even ">=2 starred
+    #      pairs"): two starred CATEGORY labels ("High School1* Low College2* earnings differed") are
+    #      byte-identical to a two-author starred byline, so the iter-1 starred-pair heuristic
+    #      over-stripped that real finding (Codex iter-2 P1 blocker). A genuine bare-stars-only byline
+    #      ("Jane Smith1* John Doe2*", no affiliation/email/et-al) is now an ACCEPTED LEAK — leaked
+    #      furniture is far lower harm than deleting a real finding (§-1.3 precision-first).
+    _pairs = _surname_digit_pair_count(s)
+    _cosignal = bool(_AUTHOR_COSIGNAL_RE.search(s))
+    if (
+        (_pairs >= 3 or (_pairs == 2 and _cosignal))
+        and _stopword_density(s) < _CHROME_STOPWORD_DENSITY_FLOOR
+    ):
+        return True
+    # (4) asterisked-author street + ZIP affiliation block. A City,ST ZIP is chrome ONLY with an
+    #     affiliation CO-SIGNAL (a street address or a corresponding-author marker); a bare City,ST
+    #     ZIP in a real finding ("... in Cambridge, MA 02142 ...") is KEPT — Codex P1 iter 1.
+    if _US_CITY_STATE_ZIP_RE.search(s) and (
+        _STREET_ADDRESS_RE.search(s) or _CORRESP_AUTHOR_RE.search(s)
+    ):
+        return True
+    if _CORRESP_AUTHOR_RE.search(s) and _STREET_ADDRESS_RE.search(s):
+        return True
+    # (5) exec / promo bio (dual-signal: job title WELDED to a promo predicate)
+    if _EXEC_TITLE_RE.search(s) and _PROMO_PREDICATE_RE.search(s):
+        return True
+    # (6) stitched metadata-recital citation
+    if _METADATA_RECITAL_RE.search(s):
+        return True
+    # (7) short nav / topic-list stub (four-guarded)
+    return _is_short_nav_topic_item(s)
+
+
 def _contains_forensic_chrome(text: str) -> bool:
     """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
     unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
@@ -1957,6 +2213,12 @@ def _contains_forensic_chrome(text: str) -> bool:
     # bibliography-fragment locator · pure table/figure caption stub (the classes the drb_72 audit
     # found the containment predicate STILL blind to). High-precision / fail-open on real prose.
     if _contains_missed_titlepage_biblio_caption(s):
+        return True
+    # I-deepfix-001 P1_chrome_gate (#1344): the SEVEN box1 render-seam chrome classes the containment
+    # predicate was proven blind to (paywall/purchase CTA · multilingual license/repository furniture ·
+    # glued author-stats-table · asterisked-author street+ZIP affiliation · exec/promo bio · stitched
+    # metadata-recital citation · short nav/topic-list stub). High-precision / label-anchored.
+    if _contains_p1_box1_chrome(s):
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)
@@ -2607,8 +2869,15 @@ def sanitize_rendered_report(
             in_scaffolding = _is_scaffolding_section_title(title)
             in_corroboration = _is_corroboration_section_title(title)
             # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
-            # scaffolding header — dropping a real header would orphan its body.
-            if not in_scaffolding and _contains_forensic_chrome(title):
+            # scaffolding header — dropping a real header would orphan its body. Gated by
+            # ``render_chrome_screen_enabled()`` so this header path honours the same
+            # ``PG_RENDER_CHROME_SCREEN=0`` kill-switch as ``is_render_chrome_or_unrenderable``
+            # (Codex P1 iter 1: the direct ``_contains_forensic_chrome`` call otherwise bypassed it).
+            if (
+                not in_scaffolding
+                and render_chrome_screen_enabled()
+                and _contains_forensic_chrome(title)
+            ):
                 removed += 1
                 continue
             out_lines.append(line)

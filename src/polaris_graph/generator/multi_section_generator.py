@@ -626,7 +626,10 @@ PG_NARRATIVE_PROSE_SYSTEM_MESSAGE: str = os.getenv(
     "the user prompt provides, weaving them into connected sentences. Do NOT "
     "emit JSON, bullet lists, headings, code fences, or any preamble — output "
     "the prose paragraph only. Introduce no number, metric, concept, or claim "
-    "that is not present verbatim in the provided fields.",
+    "that is not present verbatim in the provided fields. Keep every epistemic or "
+    "scope qualifier bound to a number (a hedge, non-factive verb, source "
+    "attribution, or conditional / scenario restrictor); never restate a hedged or "
+    "conditional figure as a settled fact.",
 )
 
 # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).

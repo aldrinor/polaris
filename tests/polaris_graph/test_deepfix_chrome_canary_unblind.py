@@ -68,10 +68,15 @@ def test_email_alone_is_not_enough():
 
 
 def test_predicate_was_blind_pre_fix(monkeypatch):
-    """RED-before proof: with the new rule neutralized, the three chrome inputs fall through
-    _contains_forensic_chrome UNFLAGGED — confirming the containment predicate was blind to them
-    before this fix (no other rule catches them)."""
+    """RED-before proof: with the ``_contains_missed_chrome_class`` rule neutralized, the three
+    chrome inputs fall through ``_contains_forensic_chrome`` UNFLAGGED — confirming the containment
+    predicate was blind to them before THIS (deepfix chrome_canary_unblind) fix. The LATER
+    P1_chrome_gate rule (``_contains_p1_box1_chrome``) is ALSO neutralized here: its rule-7 short-nav
+    class independently and correctly catches the ToC dot-leader entry, so it must be silenced for
+    this test to isolate the deepfix rule's own contribution (a second correct catcher does not
+    weaken this fix's necessity)."""
     monkeypatch.setattr(we, "_contains_missed_chrome_class", lambda text: False)
+    monkeypatch.setattr(we, "_contains_p1_box1_chrome", lambda text: False)
     assert we._contains_forensic_chrome(_BYLINE) is False
     assert we._contains_forensic_chrome(_TOC) is False
     assert we._contains_forensic_chrome(_COOKIE) is False

@@ -106,6 +106,160 @@ _SHORT_OK = {
     "eu", "gn", "io", "pp", "ed", "co", "re", "at", "if", "up", "my", "go", "he", "me", "ok",
 }
 
+# ---------------------------------------------------------------------------
+# I-deepfix-001 P1_chrome_gate (#1344) — CLEAN-ROOM detector mirror of the SEVEN box1 chrome
+# CLASSES. INDEPENDENT by construction: these regexes/heuristics are authored SEPARATELY here and
+# import NOTHING from weighted_enrichment (the module's line-4 zero-production-predicate contract).
+# The whole point of the I-wire-013 clean-room yardstick is that shared code = shared blind spot;
+# the detector must catch the SAME classes by its OWN path, and any divergence from the production
+# predicate on a fresh class is a FEATURE (it surfaces production blindness), never a bug to be
+# resolved by unifying the two implementations. Each rule targets the same class as the production
+# rule but keys on a distinct set of signals.
+#   (1) paywall / purchase CTA        (2) multilingual license / repository furniture
+#   (3) glued author-stats-table      (4) asterisked-author street + ZIP affiliation
+#   (5) exec / promo bio              (6) stitched metadata-recital citation
+#   (7) short nav / topic-list stub (four-guarded, own stopword-density precision guard)
+_DET_PAYWALL_CTA_RE = re.compile(
+    r"add to (?:cart|basket)"
+    r"|purchase (?:this |the )?(?:article|full[- ]text|pdf|access)"
+    r"|buy (?:this )?(?:article|pdf|now)"
+    r"|subscribe (?:for|to get) (?:unlimited|full|instant|immediate)"
+    r"|rent (?:this )?article"
+    r"|free trial"
+    r"|printable version",
+    re.IGNORECASE,
+)
+_DET_REPO_LICENSE_RE = re.compile(
+    r"standard-?nutzungsbedingungen|nutzungsbedingungen|econstor|"
+    r"leibniz-informationszentrum|die dokumente auf|"
+    r"zu eigenen wissenschaftlichen zwecken",
+    re.IGNORECASE,
+)
+_DET_STATS_TABLE_RE = re.compile(
+    r"\bobs\.?\s+mean\b|\bmean\s+std\.?\s*dev\b|\bvariable\s+obs\b|\bstd\.?\s*dev\.?\s+min\s+max\b",
+    re.IGNORECASE,
+)
+# Detector-owned surname-digit pair regex (authored separately from the production
+# _SURNAME_DIGIT_PAIR_RE; equivalent semantics, own source): a >=3-letter name-like stem welded — or
+# joined by ONE space — to a 1-2 digit superscript not part of a decimal / percent / longer number.
+_DET_SURNAME_DIGIT_PAIR_RE = re.compile(r"\b([A-Za-z]{3,})[ ]?(\d{1,2})(?![\w.%])")
+# Detector-owned author/affiliation co-signal (mirrors production _AUTHOR_COSIGNAL_RE, own regex):
+# an affiliation keyword as a WHOLE word ("\bCollege\b" never matches the welded "College2"), an
+# "et al." marker, or an email address. The superscript author asterisk is NOT a co-signal at all —
+# not even the ">=2 starred pairs" form: two starred CATEGORY labels ("High School1* Low College2*
+# earnings differed") are byte-identical to a two-author starred byline, so the iter-1 starred-pair
+# heuristic over-stripped that real finding (Codex iter-2 P1 blocker). The exactly-2-pair upgrade now
+# requires an INDEPENDENT author signal (affiliation keyword / "et al." / email); a bare-stars-only
+# byline is an accepted leak (leaked furniture << deleting a real finding, §-1.3 precision-first).
+_DET_AUTHOR_COSIGNAL_RE = re.compile(
+    r"\b(?:university|institute|college|department)\b"
+    r"|\bet\s+al\b"
+    r"|[\w.+-]+@[\w-]+\.[a-z]{2,}",
+    re.IGNORECASE,
+)
+_DET_POSTAL_BLOCK_RE = re.compile(r"\b[A-Z][A-Za-z.\-]+,\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
+_DET_CORRESPONDENCE_RE = re.compile(r"\*\s*correspond|correspond(?:ing|ence)\s+(?:author|to)", re.IGNORECASE)
+_DET_STREET_RE = re.compile(
+    r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,4}"
+    r"(?:street|st\.|avenue|ave\.?|road|rd\.?|drive|dr\.?|boulevard|blvd\.?|lane|way|square|court)\b",
+    re.IGNORECASE,
+)
+_DET_EXEC_TITLE_RE = re.compile(
+    r"chief\s+\w+\s+officer|\bc[efot]o\b|(?:co-)?founder|managing director|"
+    r"president and ceo|vice president|executive director|partner at",
+    re.IGNORECASE,
+)
+_DET_PROMO_RE = re.compile(
+    r"visionary|thought leader|passionate about|award[- ]winning|world[- ]class|leading expert|"
+    r"driving (?:digital )?transformation|renowned|seasoned (?:leader|executive|professional)|"
+    r"trusted advisor|proven track record|industry veteran",
+    re.IGNORECASE,
+)
+_DET_METADATA_RECITAL_RE = re.compile(
+    r"journal article[^.]{0,80}volume\s+\d+[^.]{0,60}(?:article\s+\d+|authored by)"
+    r"|volume\s+\d+[^.]{0,30}issue\s+\d+[^.]{0,30}authored by",
+    re.IGNORECASE,
+)
+_DET_TRAILING_CITE_RE = re.compile(r"(?:\s*\[\d+\])+\s*$")
+_DET_TRAILING_NUMBER_RE = re.compile(r"(?:^|\s)\d{1,3}(?:\.\d{1,2})?\s*$")
+# Independent (detector-owned) stopword set — authored separately from the production
+# _CHROME_STOPWORDS so the two yardsticks never share source.
+_DET_STOPWORDS = frozenset(
+    "the a an and or of to in on at for with by from as is are was were be been that this it its "
+    "they we our you your which who than into over under about between among per not no so if while "
+    "during after before up down out all each more most some such also may can will has have had "
+    "do does did versus vs both".split()
+)
+
+
+def _det_stopword_density(text: str) -> float:
+    """Detector-owned stopword density (fraction of alphabetic tokens that are stopwords)."""
+    toks = re.findall(r"[A-Za-z]+", text.lower())
+    return (sum(1 for t in toks if t in _DET_STOPWORDS) / len(toks)) if toks else 0.0
+
+
+def _det_surname_digit_pairs(text: str) -> int:
+    """Detector rule 3b: count "Surname<digit>" author-superscript pairs (welded 'Kanbach1' or single-
+    space 'Archbold 2') by the detector-owned _DET_SURNAME_DIGIT_PAIR_RE. NO finding-label allowlist —
+    the pair COUNT plus an author/affiliation co-signal (see the call site) separates a genuine byline
+    from a real two-category finding, so 'High School1 Low College2 earnings differed' (2 pairs, no
+    co-signal) is KEPT while a >=3-name (or 2-name + affiliation) byline still fires."""
+    return len(_DET_SURNAME_DIGIT_PAIR_RE.findall(text))
+
+
+def _det_is_titlecase_heading(text: str) -> bool:
+    """Detector rule 7 helper: every content word (>=3 letters, not a stopword) starts uppercase — the
+    Title-Case shape of a ToC / nav heading. Detector-owned; REPLACES the old finite-verb-absence
+    heuristic (a real short claim carries a lowercase verb, so it is not Title-Case and is kept)."""
+    content = [w for w in re.findall(r"[A-Za-z]+", text) if len(w) >= 3 and w.lower() not in _DET_STOPWORDS]
+    return len(content) >= 2 and all(w[0].isupper() for w in content)
+
+
+def _det_is_short_nav_item(text: str) -> bool:
+    """Detector rule 7: a short ToC/nav/topic stub — <=6 words AND a bare trailing number AND stopword
+    density below 0.10 AND Title-Case heading shape. Own precision guard, independent of production."""
+    core = _DET_TRAILING_CITE_RE.sub("", text.strip()).strip()
+    toks = core.split()
+    if not (1 <= len(toks) <= 6):
+        return False
+    if not _DET_TRAILING_NUMBER_RE.search(core):
+        return False
+    if _det_stopword_density(core) >= 0.10:
+        return False
+    return _det_is_titlecase_heading(core)
+
+
+def _det_box1_chrome_flags(text: str) -> list[str]:
+    """Detector-owned flags for the seven box1 chrome classes (clean-room; imports no production
+    predicate). Returns the list of class labels that fire."""
+    out: list[str] = []
+    if _DET_PAYWALL_CTA_RE.search(text):
+        out.append("paywall_cta")
+    if _DET_REPO_LICENSE_RE.search(text):
+        out.append("repo_license")
+    _det_pairs = _det_surname_digit_pairs(text)
+    # Asterisk is NOT a co-signal (see _DET_AUTHOR_COSIGNAL_RE note): two starred category labels are
+    # byte-identical to a starred byline, so the exactly-2-pair upgrade requires an INDEPENDENT author
+    # signal only (Codex iter-2 P1 blocker). Precision-first per §-1.3.
+    _det_cosignal = bool(_DET_AUTHOR_COSIGNAL_RE.search(text))
+    if _DET_STATS_TABLE_RE.search(text) or (
+        (_det_pairs >= 3 or (_det_pairs == 2 and _det_cosignal))
+        and _det_stopword_density(text) < 0.10
+    ):
+        out.append("author_stats_table")
+    if (
+        _DET_POSTAL_BLOCK_RE.search(text)
+        and (_DET_STREET_RE.search(text) or _DET_CORRESPONDENCE_RE.search(text))
+    ) or (_DET_CORRESPONDENCE_RE.search(text) and _DET_STREET_RE.search(text)):
+        out.append("affiliation_address")
+    if _DET_EXEC_TITLE_RE.search(text) and _DET_PROMO_RE.search(text):
+        out.append("exec_promo_bio")
+    if _DET_METADATA_RECITAL_RE.search(text):
+        out.append("metadata_recital")
+    if _det_is_short_nav_item(text):
+        out.append("short_nav_item")
+    return out
+
 
 @dataclass
 class _Unit:
@@ -358,6 +512,10 @@ def chrome_flags(text: str) -> list[str]:
     # non-Latin / foreign-page scrape
     if _NONLATIN_RE.search(s):
         flags.append("nonlatin_scrape")
+
+    # I-deepfix-001 P1_chrome_gate (#1344): the seven box1 render-seam chrome classes, caught by the
+    # detector's OWN independent path (clean-room mirror of the production predicate).
+    flags.extend(_det_box1_chrome_flags(s))
 
     return flags
 

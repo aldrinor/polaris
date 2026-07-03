@@ -26,9 +26,12 @@ FAITHFULNESS (by construction, the crown-jewel rules are untouched):
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 # The section heading the verified-compose body renders under when it is the PRIMARY producer.
 # (Re-exported from multi_section_generator so the harness + callers share one constant.)
@@ -541,6 +544,12 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
     previously the screen ran without these, so those legs were inert and the render seam was the
     only net. Suppress-only: faithfulness verdicts are untouched."""
     known_words = _known_words_for_compose(evidence_pool)
+    # I-deepfix-001 P1_chrome_gate (#1344): make the ALL-CHROME-basket drop LOUD. When a member
+    # resolves a verified span but EVERY one of its sentence units is screened out as chrome, the
+    # basket silently falls through to the insufficient-evidence disclosure. Count those events and
+    # emit a run-log canary if the whole draft returns None so an all-chrome basket dropping to a
+    # disclosure is VISIBLE, not silent. MEASUREMENT-ONLY — never promotes a unit, never a verdict.
+    all_chrome_member_drops = 0
     for m in _basket_supports_members(basket):
         eid = str(getattr(m, "evidence_id", "") or "")
         quote = str(getattr(m, "direct_quote", "") or "").strip()
@@ -573,10 +582,14 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); keep all
         # real content incl. short real sentences. If EVERY unit is chrome, fall through to the next
         # SUPPORTS member (then K-span / insufficient-evidence). Faithfulness-safe, never a verdict.
+        units_before = len(units)
         units = [
             u for u in units
             if not _compose_junk_screen(u, known_words, require_sentence_form=True)
         ]
+        if units_before and not units:
+            # every sentence unit of this member's verified span was screened as chrome.
+            all_chrome_member_drops += 1
         out = []
         for u in units:
             # I-beatboth-009 (#1287): the provenance token must sit BEFORE the terminal period so the
@@ -587,6 +600,17 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
             out.append(f"{u_core} [#ev:{eid}:{start}-{snap_end}].")
         if out:
             return " ".join(out)
+    if all_chrome_member_drops:
+        subject = str(
+            getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim"
+        ).strip()
+        logger.warning(
+            "[verified_compose] P1_chrome_gate canary: all-chrome-basket drop — "
+            "%d member(s) resolved a verified span but ALL its sentence units screened as chrome; "
+            "basket falls through to the insufficient-evidence disclosure: %.160s",
+            all_chrome_member_drops,
+            subject,
+        )
     return None
 
 
