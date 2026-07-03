@@ -52,6 +52,24 @@ def _max_rounds() -> int:
     return int(os.getenv("PG_QGEN_FS_RESEARCHER_MAX_ROUNDS", "6"))
 
 
+def _scope_anchored() -> bool:
+    """I-deepfix-001 (#1344): True iff sub-query generation anchors each derived query to the
+    ORIGINAL research question's scope. Default ON.
+
+    Fixes the observed drift (drb_72 v2): a bare sub-topic like 'manufacturing and supply chain
+    automation' was searched WITHOUT the question's 'AI + labor market' framing, so the search
+    generalised into the sub-topic's broad field (industrial-automation engineering) and pulled
+    ~500 off-topic + predatory-journal results into the corpus. Carrying the research question
+    into both the TOC-deconstruction and the per-todo query-derivation keeps every sub-query
+    on-subject.
+
+    Faithfulness-neutral: this changes ONLY which sources are SEARCHED (more on-topic); it does
+    not touch tiering, verification, citation, or any faithfulness gate, and drops ZERO fetched
+    sources (§-1.3 — this is retrieval SCOPING of the query, not a filter/cap on results).
+    OFF (``0``/``false``) => byte-identical legacy prompts."""
+    return os.getenv("PG_FS_RESEARCHER_SCOPE_ANCHOR", "1").strip() not in ("0", "false", "False")
+
+
 def _lines(text: str, cap: int = 12) -> list[str]:
     """Parse an LLM reply into clean sub-topic / query line items (strip numbering/bullets)."""
     out: list[str] = []
@@ -140,13 +158,21 @@ def plan_fs_researcher_queries(
         return queries, results
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
-    todos = _lines(
-        llm(
+    # I-deepfix-001 (#1344): keep every sub-topic scoped to the topic so it does not generalise
+    # into its broad field (the drb_72 v2 drift). Default-ON; OFF => the legacy bare prompt.
+    if _scope_anchored():
+        _toc_prompt = (
+            "Deconstruct this research topic into sub-topics (the index.md table of contents). "
+            "Every sub-topic MUST stay within the scope of the topic — carry its subject, domain "
+            "and key entities; do NOT generalise a sub-topic into its broad field. "
+            "One sub-topic per line.\n\n" + question
+        )
+    else:
+        _toc_prompt = (
             "Deconstruct this research topic into sub-topics (the index.md table of contents). "
             "One sub-topic per line.\n\n" + question
-        ),
-        cap=10,
-    ) or [question]
+        )
+    todos = _lines(llm(_toc_prompt), cap=10) or [question]
 
     for _ in range(max_rounds):
         if len(queries) >= max_queries or not todos:
@@ -162,7 +188,18 @@ def plan_fs_researcher_queries(
             # whole todo list.
             if _retrieval_deadline_passed(retrieval_deadline_monotonic):
                 break
-            raw = llm("Write ONE search query for this sub-topic. Query only.\n\n" + todo)
+            # I-deepfix-001 (#1344): carry the RESEARCH QUESTION into the query so a bare sub-topic
+            # (e.g. 'manufacturing and supply chain automation') keeps the question's subject and
+            # does not drift into its generic field. Default-ON; OFF => the legacy bare prompt.
+            if _scope_anchored():
+                raw = llm(
+                    "Write ONE web-search query for the SUB-TOPIC below, kept STRICTLY within the "
+                    "scope of the RESEARCH QUESTION (carry its subject, domain and key entities; do "
+                    "NOT broaden the query into the sub-topic's generic field). Query only.\n\n"
+                    f"RESEARCH QUESTION:\n{question}\n\nSUB-TOPIC:\n{todo}"
+                )
+            else:
+                raw = llm("Write ONE search query for this sub-topic. Query only.\n\n" + todo)
             query = ""
             if raw and raw.strip():
                 query = raw.strip().splitlines()[0].strip().strip('"').strip()
