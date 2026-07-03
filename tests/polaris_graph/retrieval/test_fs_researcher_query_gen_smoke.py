@@ -33,8 +33,10 @@ def _make_llm(call_log):
         p = prompt.lower()
         if "index.md table of contents" in p or "deconstruct this research topic" in p:
             return "Sub-topic alpha\nSub-topic beta\nSub-topic gamma"
-        if "write one search query" in p:
-            # echo the sub-topic into a distinct query string
+        if "search query" in p:
+            # per-todo query derivation. Matches BOTH the legacy prompt ("Write ONE search query
+            # for this sub-topic") AND the I-deepfix-001 #1344 scope-anchored prompt ("Write ONE
+            # web-search query for the SUB-TOPIC ...") — in both, the sub-topic is the LAST line.
             tail = prompt.strip().splitlines()[-1].strip()
             return f"query for {tail}"
         if "self-review" in p:
