@@ -63,6 +63,7 @@ DropReason = Literal[
     "entailment_failed",   # I-bug-092: span does not entail sentence (semantic check)
     "empty_or_contentless_sentence",  # BUG-03/FX-02 (#1106): no content words AND no decimals
     "percent_not_in_cited_span",  # I-deepfix-001 Wave-2: a printed percent (N%) not carried AS A PERCENT by any cited span
+    "binding_qualifier_dropped",  # I-deepfix-001 P5: span binds an epistemic/scope marker to a shared numeral but the sentence dropped every marker (certainty distortion)
 ]
 
 

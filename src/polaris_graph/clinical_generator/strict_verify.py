@@ -41,6 +41,7 @@ Tunables (read at call time so tests can override):
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -132,6 +133,147 @@ def _percent_role_match_enabled() -> bool:
     PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts BYTE-IDENTICAL. Read at call time."""
     v = os.environ.get("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
+
+
+# ---------------------------------------------------------------------------
+# P5 (I-deepfix-001) — epistemic-QUALIFIER RETENTION gate
+# ---------------------------------------------------------------------------
+#
+# Mirrors the Wave-2 PERCENT-role machinery: a strictly ADDITIVE, default-ON gate
+# with a byte-identical-OFF kill-switch (PG_STRICT_VERIFY_QUALIFIER_RETENTION=0).
+# It can only ADD a ``binding_qualifier_dropped`` drop — it never relaxes an
+# existing check, so it stacks ON TOP of the I-faith-001 incumbent engine (that
+# freeze covered engine REPLACEMENT, not an additive strengthening gate).
+#
+# WHY: the composer copies a numeral's VALUE but can silently drop the epistemic /
+# scope qualifier bound to it in the cited span ("some estimates suggest 46% of
+# jobs ... under a complementary-software scenario" restated as a flat "46% of
+# jobs"). That is a certainty distortion (From-May-to-Is, arXiv:2606.07951): a
+# hedged / conditional figure re-stated as a settled fact. The decimal / percent /
+# overlap legs all PASS the stripped restatement, and the NLI leg is systematically
+# lenient to hedge-dropping (a "more general" statement is still entailed), so the
+# defect needs its OWN completeness gate — exactly as the P1-3 numeric-completeness
+# guard mirrors the numeric leg.
+#
+# CALIBRATION (the over-fire guard): the gate anchors on a SUBSTANTIVE numeral
+# (a decimal with a fractional part, or a percent-expressed value) that is SHARED
+# between the span and the sentence, and only fires when an epistemic marker sits
+# within a proximity window of that numeral IN THE SPAN while the sentence carries
+# NO marker at all. Bare integers (page numbers, years, sample counts like the
+# box1 negative ``N=1879``) are NOT substantive, so a plain short finding such as
+# ``HbA1c reduced 2.3 points`` — whose span carries the SAME flat value with no
+# nearby marker — never fires. The window bounds a marker to the numeral it
+# actually qualifies; the broad SENTENCE-side marker set means any surviving hedge
+# lets the sentence pass (the safe under-drop direction).
+
+DEFAULT_QUALIFIER_PROXIMITY_TOKENS = 12
+
+# The four From-May-to-Is (arXiv:2606.07951) epistemic-marker families, curated
+# for PRECISION (plain factual verbs like "reported"/"indicated"/"expected" are
+# deliberately excluded from the default so the gate does not over-fire on flat
+# clinical spans). LAW VI: fully overridable via PG_STRICT_VERIFY_QUALIFIER_LEXICON
+# (comma-separated). Multi-word phrases are matched whitespace-flexibly.
+_DEFAULT_QUALIFIER_LEXICON: tuple[str, ...] = (
+    # family 1 — hedges / approximators
+    "may", "might", "could", "would", "likely", "unlikely", "probably",
+    "possibly", "possible", "potentially", "perhaps", "approximately",
+    "about", "around", "roughly", "nearly", "almost", "some", "certain",
+    "up to", "as many as", "as much as", "at least", "at most",
+    "no more than", "no fewer than",
+    # family 2 — non-factive / projection verbs
+    "estimate", "estimates", "estimated", "suggest", "suggests", "suggested",
+    "propose", "proposed", "hypothesize", "hypothesized", "predict",
+    "predicted", "project", "projected", "forecast", "forecasts", "forecasted",
+    "model", "modeled", "modelled", "assume", "assumed", "believe", "believed",
+    "claim", "claimed", "appear", "appears", "seem", "seems",
+    # family 3 — source attribution
+    "according to", "reportedly", "allegedly", "purportedly", "so-called",
+    # family 4 — scope / conditional restrictors
+    "if", "when", "assuming", "provided", "conditional", "scenario",
+    "hypothetically", "theoretically", "in theory",
+)
+
+
+def _qualifier_retention_enabled() -> bool:
+    """I-deepfix-001 (P5). True (DEFAULT) => run the epistemic-qualifier RETENTION
+    gate; False => skip it. Strictly faithfulness-TIGHTENING and strictly ADDITIVE
+    (it can only ADD a ``binding_qualifier_dropped`` drop). Kill-switch
+    PG_STRICT_VERIFY_QUALIFIER_RETENTION=0 reverts BYTE-IDENTICAL. Read at call
+    time so tests can override."""
+    v = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_RETENTION", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+def _qualifier_proximity_tokens() -> int:
+    """Proximity window (in whitespace tokens) within which a span marker is bound
+    to a numeral. PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS (default 12). An
+    unset / non-integer value falls back to the default; a negative value clamps to
+    0 (the tightest window). 0 = same-token only."""
+    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS", "").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_QUALIFIER_PROXIMITY_TOKENS
+
+
+def _qualifier_lexicon() -> tuple[str, ...]:
+    """The active epistemic-marker lexicon. LAW VI: PG_STRICT_VERIFY_QUALIFIER_LEXICON
+    (comma-separated) overrides the curated default; an empty / all-blank override
+    falls back to the default rather than disabling the gate silently."""
+    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_LEXICON", "").strip()
+    if not raw:
+        return _DEFAULT_QUALIFIER_LEXICON
+    items = tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+    return items or _DEFAULT_QUALIFIER_LEXICON
+
+
+@functools.lru_cache(maxsize=8)
+def _qualifier_marker_re(lexicon: tuple[str, ...]) -> "re.Pattern[str]":
+    """A word-boundary-anchored alternation over `lexicon`, longest phrase first so
+    a multi-word marker ("up to") wins over its prefix. Internal spaces match any
+    run of whitespace. Cached per distinct lexicon tuple."""
+    parts = sorted({m for m in lexicon if m}, key=len, reverse=True)
+    if not parts:
+        # An all-blank lexicon can never match — a pattern that matches nothing.
+        return re.compile(r"(?!x)x")
+    alts = [re.escape(p).replace(r"\ ", r"\s+").replace(" ", r"\s+") for p in parts]
+    return re.compile(r"\b(?:" + "|".join(alts) + r")\b", re.IGNORECASE)
+
+
+def _has_epistemic_marker(text: str, marker_re: "re.Pattern[str]") -> bool:
+    """True iff any epistemic marker appears in `text`."""
+    return marker_re.search(text) is not None
+
+
+def _substantive_numerals(text: str) -> set[str]:
+    """Numerals carrying a CLAIMED magnitude: decimals with a fractional part, plus
+    percent-expressed values (`_percents`). Bare integers — page numbers, years,
+    sample counts ("N=1879") — are EXCLUDED: they are not the epistemically-hedged
+    magnitudes the gate protects, and including them would over-fire on plain
+    findings (the box1 calibration negatives)."""
+    decimals_with_fraction = {n for n in _decimals(text) if "." in n}
+    return decimals_with_fraction | _percents(text)
+
+
+def _marker_binds_numeral_in_span(
+    span_text: str,
+    numeral: str,
+    window: int,
+    marker_re: "re.Pattern[str]",
+) -> bool:
+    """True iff an epistemic marker sits within `window` whitespace tokens of an
+    occurrence of `numeral` inside `span_text`. The numeral is matched as a WHOLE
+    number within a token ("46" matches "46%," / "46" but not "460" / "46.5"), so a
+    coincidental substring never binds a marker."""
+    tokens = span_text.split()
+    for i, tok in enumerate(tokens):
+        if numeral not in _decimals(tok):
+            continue
+        lo = max(0, i - window)
+        hi = min(len(tokens), i + window + 1)
+        if _has_epistemic_marker(" ".join(tokens[lo:hi]), marker_re):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +451,33 @@ def verify_sentence(
                 span_percents |= _percents(_span)
             if not sentence_percents.issubset(span_percents):
                 return False, "percent_not_in_cited_span"
+
+    # I-deepfix-001 (P5) EPISTEMIC-QUALIFIER RETENTION re-check. The composer can
+    # copy a numeral's VALUE but drop the hedge / scope qualifier the cited span
+    # binds to it ("some estimates suggest 46% ... under a complementary-software
+    # scenario" -> a flat "46%"). For each cited span, if a SUBSTANTIVE numeral in
+    # the span (decimal / percent — never a bare count / year) also appears in the
+    # sentence AND an epistemic marker sits within
+    # PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS of THAT numeral IN THE SPAN, the
+    # sentence must itself carry a marker; else it dropped a binding qualifier ->
+    # (False, "binding_qualifier_dropped"). Span percents/decimals are read PER
+    # cited span (not the joined string) so a marker in one span can never bind a
+    # numeral in another. STRICTLY ADDITIVE: only ADDS a drop; the verbatim K-span
+    # fallback retains the qualifier by construction, so a genuine hedged finding
+    # still ships. Default-ON; PG_STRICT_VERIFY_QUALIFIER_RETENTION=0 reverts
+    # byte-identical. Read at call time.
+    if _qualifier_retention_enabled():
+        marker_re = _qualifier_marker_re(_qualifier_lexicon())
+        if not _has_epistemic_marker(sentence_clean, marker_re):
+            window = _qualifier_proximity_tokens()
+            sentence_numbers = _decimals(sentence_clean)
+            for _span in span_texts:
+                shared = _substantive_numerals(_span) & sentence_numbers
+                for numeral in shared:
+                    if _marker_binds_numeral_in_span(
+                        _span, numeral, window, marker_re
+                    ):
+                        return False, "binding_qualifier_dropped"
 
     # Content-word overlap
     sentence_words = _content_words(sentence_clean)

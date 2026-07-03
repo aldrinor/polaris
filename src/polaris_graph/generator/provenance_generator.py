@@ -2176,6 +2176,62 @@ def verify_sentence_provenance(
                         f"missing={sorted(missing_pct)}"
                     )
 
+        # I-deepfix-001 (P5) EPISTEMIC-QUALIFIER RETENTION re-check (parity with
+        # clinical_generator.strict_verify.verify_sentence). Codex P5 diff-gate P1:
+        # the BeatBoth composer / abstractive-writer path (verified_compose ->
+        # multi_section_generator) runs THIS verifier, NOT the clinical strict_verify,
+        # so the qualifier gate must live here too or hedge-stripped sentences on the
+        # real fresh-run path escape it. The composer can copy a numeral's VALUE but
+        # drop the hedge / scope qualifier the cited span binds to it ("some estimates
+        # suggest 46% ... under a complementary-software scenario" -> a flat "46%").
+        # Every mechanical leg above (decimal / integer / percent-role) PASSES the
+        # stripped restatement and the NLI leg is systematically lenient to hedge
+        # dropping, so this needs its OWN completeness gate. For EACH cited span, if a
+        # SUBSTANTIVE numeral in the span (decimal-with-fraction / percent — never a
+        # bare count / year) also appears in the sentence AND an epistemic marker sits
+        # within PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS of THAT numeral IN THE SPAN
+        # while the sentence carries NO marker at all, the sentence dropped a binding
+        # qualifier -> failure "binding_qualifier_dropped". Spans are read PER cited
+        # span (aggregated_span_text) so a marker in one span can never bind a numeral
+        # in another. STRICTLY ADDITIVE: only APPENDS a drop; the verbatim K-span
+        # fallback retains the qualifier by construction, so a genuine hedged finding
+        # still ships. Default-ON; PG_STRICT_VERIFY_QUALIFIER_RETENTION=0 reverts
+        # byte-identical. The gate LOGIC + helpers are the single source of truth in
+        # clinical_generator.strict_verify (lazy import — that module never imports
+        # from polaris_graph.generator, so no cycle; reusing its SAME _decimals /
+        # _substantive_numerals extractors on both the sentence and span sides keeps
+        # the numeral set-intersection consistent). Runs on the token-cleaned sentence
+        # prose (sentence_for_numbers), mirroring the clinical sentence_clean.
+        from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+            _decimals as _qualifier_decimals,
+            _has_epistemic_marker,
+            _marker_binds_numeral_in_span,
+            _qualifier_lexicon,
+            _qualifier_marker_re,
+            _qualifier_proximity_tokens,
+            _qualifier_retention_enabled,
+            _substantive_numerals,
+        )
+
+        if _qualifier_retention_enabled():
+            marker_re = _qualifier_marker_re(_qualifier_lexicon())
+            if not _has_epistemic_marker(sentence_for_numbers, marker_re):
+                window = _qualifier_proximity_tokens()
+                sentence_numbers = _qualifier_decimals(sentence_for_numbers)
+                _binding_qualifier_dropped = False
+                for _span in aggregated_span_text:
+                    shared = _substantive_numerals(_span) & sentence_numbers
+                    for _numeral in shared:
+                        if _marker_binds_numeral_in_span(
+                            _span, _numeral, window, marker_re
+                        ):
+                            _binding_qualifier_dropped = True
+                            break
+                    if _binding_qualifier_dropped:
+                        break
+                if _binding_qualifier_dropped:
+                    failures.append(f"binding_qualifier_dropped:{ev_ids}")
+
         # Codex round 1 B-1: semantic grounding for non-numeric claims.
         # A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]"
         # used to pass verification because it had no numbers — only the
