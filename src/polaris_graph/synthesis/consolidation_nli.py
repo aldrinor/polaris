@@ -82,7 +82,13 @@ _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
 _DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
 _DEFAULT_MAX_PAIRS = "20000"
-_DEFAULT_WALL_SECONDS = "90"   # I-deepfix-001 W04: per-call score_pairs total wall (s)
+# I-deepfix-001 C2 (#1344): raised 90 -> 180. The prose path runs score_pairs ONCE PER
+# SECTION; on a large corpus (890+ sources) with a CPU-degraded cross-encoder the 90s wall
+# STARVED the consolidation — it truncated mid-scoring and UNDER-merged, dropping real
+# corroboration weight (a §-1.3 loss of keep-all corroborators from the basket). A more
+# generous default lets a large section's paraphrase clusters fully union before the wall.
+# Still a WEIGHT, not a faithfulness gate; still fully env-overridable (LAW VI); <=0 disables.
+_DEFAULT_WALL_SECONDS = "180"   # I-deepfix-001 C2: per-call score_pairs total wall (s)
 _DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
@@ -143,7 +149,8 @@ def _predict_chunk() -> int:
 def _wall_seconds() -> float:
     """I-deepfix-001 W04 (#1344): the total score_pairs wall in seconds. ``<= 0`` (or a
     non-finite value) disables the wall => the loop blocks unbounded exactly as before
-    (the escape hatch). Default 90s."""
+    (the escape hatch). Default 180s (C2 raised it from 90 to stop starving large
+    sections mid-scoring)."""
     raw = os.environ.get(ENV_WALL_SECONDS, "").strip() or _DEFAULT_WALL_SECONDS
     try:
         value = float(raw)

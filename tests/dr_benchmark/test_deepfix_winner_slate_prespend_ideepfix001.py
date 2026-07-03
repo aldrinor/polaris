@@ -108,6 +108,30 @@ def test_prespend_assertion_kill_switch_default_on_and_disable_off():
     assert_full_capability_slate_applied()  # disabled => no raise
 
 
+@pytest.mark.parametrize(
+    "winner_flag",
+    [
+        "PG_CONSOLIDATION_NLI",         # W10 consolidate=NLI (same-claim multi-source baskets)
+        "PG_CROSS_SOURCE_SYNTHESIS",    # M6 cross-source analytical layer (the analysis yield)
+        "PG_BREADTH_ENRICHMENT_ENABLED",  # I-arch-007 weighted breadth surface (485->~13 funnel fix)
+    ],
+)
+def test_prespend_assertion_raises_when_a_named_breadth_synthesis_winner_is_dark(winner_flag):
+    """I1 (I-deepfix-001 #1344 WS-2) EFFECT: each of the THREE named breadth/synthesis winners the paid
+    run must NOT launch with OFF triggers the pre-spend fail-loud RuntimeError when it goes dark after the
+    slate. This is the exact I1 contract: 'a run with the winner slate OFF CANNOT launch.' Faithfulness is
+    untouched (env-only string check); the assertion names the offending flag before any spend."""
+    apply_full_capability_benchmark_slate()
+    # sanity: the slate actually turned this winner ON, so clobbering it is a real regression
+    assert os.environ.get(winner_flag) == "1"
+    os.environ[winner_flag] = "0"  # simulate the winner silently going dark on the run process
+    with pytest.raises(RuntimeError) as exc:
+        assert_full_capability_slate_applied()
+    msg = str(exc.value)
+    assert "WINNER-SLATE-DARK" in msg
+    assert winner_flag in msg
+
+
 def test_every_force_flag_is_a_slate_key_so_the_assertion_governs_it():
     """Sanity invariant the assertion relies on: every force-on / force-exact flag is a key in the slate
     dict (so apply_full_capability_benchmark_slate genuinely force-sets it and the pre-spend assertion has

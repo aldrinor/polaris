@@ -394,11 +394,130 @@ PG_AUTHORIZED_SWEEP_APPROVAL_ENV = "PG_AUTHORIZED_SWEEP_APPROVAL"
 # Optional: who/what to record as the authorizing identity (audit only).
 PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV = "PG_AUTHORIZED_SWEEP_APPROVED_BY"
 
+# W2 (I-deepfix-001 #1344): the tier-deviation ABORT -> DISCLOSURE kill-switch.
+# When truthy, a material tier deviation is NO LONGER a whole-run abort: the run
+# PROCEEDS carrying the corpus credibility PROFILE (per-tier counts + fractions +
+# signed deviation), surfaced to the user. Default OFF -> the legacy structured-
+# authorization abort is byte-identical.
+#
+# §-1.3 DNA: this DELETES a banned corpus-level filter-and-cap (the >=15pp
+# tier-mix TARGET that scored an off-template-but-faithful corpus at ZERO / whole-
+# run abort). The faithfulness engine (strict_verify / NLI / 4-role D8 / provenance
+# / span-grounding) stays the ONLY hard gate; a T5/T6-heavy claim carries a low
+# DISCLOSED weight + certainty_label, so clinical safety is unchanged.
+#
+# Anti-degradation (CLAUDE.md §6.2): flipping this ON changes the canonical-pinned
+# §9.1 invariant #5 ("corpus approval enforcement") + the §9.2 gate row, so it is
+# OPT-IN pending the operator-signed approval logged before merge. Default OFF means
+# nothing is silently degraded.
+PG_CORPUS_TIER_DISCLOSURE_MODE_ENV = "PG_CORPUS_TIER_DISCLOSURE_MODE"
+
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _is_truthy(value: Optional[str]) -> bool:
     return (value or "").strip().lower() in _TRUTHY
+
+
+def corpus_tier_disclosure_mode_enabled() -> bool:
+    """W2: True iff the tier-deviation ABORT is converted to a non-blocking
+    DISCLOSURE (``PG_CORPUS_TIER_DISCLOSURE_MODE`` truthy). LAW VI: the switch
+    comes exclusively from configuration, never hard-coded. Default OFF."""
+    return _is_truthy(os.getenv(PG_CORPUS_TIER_DISCLOSURE_MODE_ENV))
+
+
+def build_corpus_credibility_profile(
+    report: CorpusDistributionReport,
+) -> dict[str, Any]:
+    """W2: surface the corpus tier mix as a credibility PROFILE (non-blocking).
+
+    This is the WEIGHT the user sees when the tier-deviation ABORT is converted to
+    a DISCLOSURE: per-tier count + fraction + the signed deviation vs the pre-
+    registered protocol range + whether each deviation is material. It NEVER drops
+    a source — ``total_sources`` equals the full corpus size (WEIGHT-not-FILTER).
+    Attach it to the approval decision / manifest so a tier-skewed but faithful
+    corpus proceeds with its skew fully disclosed, not hidden."""
+    return {
+        "total_sources": report.total_sources,
+        "tier_counts": dict(report.tier_counts),
+        "tier_fractions": dict(report.tier_fractions),
+        "tier_deviations": [
+            {
+                "tier": d.tier,
+                "actual_fraction": d.actual_fraction,
+                "expected_min": d.expected_min,
+                "expected_max": d.expected_max,
+                "deviation_pp": d.deviation_pp,
+                "is_material": d.is_material,
+            }
+            for d in report.deviations
+        ],
+        "material_deviation_present": report.has_material_deviation,
+        "disclosure_mode": True,
+    }
+
+
+def format_tier_deviation_disclosure(report: CorpusDistributionReport) -> str:
+    """W2: a plain-English one-line disclosure of the material tier skew that the
+    run PROCEEDED on (recorded as the approval note when disclosure mode fires).
+
+    Names each materially-deviating tier + its actual fraction so the skew is
+    surfaced to the operator, never silently accepted. The corpus is ACCEPTED
+    (disclosed-and-proceeded); the faithfulness engine remains the only hard gate."""
+    material = [d for d in report.deviations if d.is_material]
+    if material:
+        parts = ", ".join(
+            f"{d.tier} at {d.actual_fraction * 100:.1f}% "
+            f"(protocol {d.expected_min * 100:.0f}-{d.expected_max * 100:.0f}%, "
+            f"{d.deviation_pp * 100:+.1f}pp)"
+            for d in material
+        )
+    else:
+        parts = "no single tier materially deviates"
+    return (
+        "DISCLOSURE (PG_CORPUS_TIER_DISCLOSURE_MODE): material tier deviation from "
+        f"the pre-registered protocol surfaced and PROCEEDED on ({report.total_sources} "
+        f"sources; {parts}). The corpus tier mix is a DISCLOSED credibility weight, "
+        "not a whole-run abort; the faithfulness engine (strict_verify / NLI / 4-role "
+        "D8 / provenance) stays the only hard gate."
+    )
+
+
+def tier_disclosure_artifacts(
+    report: CorpusDistributionReport,
+    *,
+    approved: bool,
+    disclosure_mode: Optional[bool] = None,
+) -> tuple[str, Optional[dict[str, Any]]]:
+    """W2 production-wiring helper: durable disclosure artifacts for the paid path.
+
+    The paid launcher (``run_honest_sweep_r3.py``) previously kept the disclosure
+    message ``check_auto_approve_allowed`` returns only in a local variable that is
+    read on the ABORT branch — so on a W2-approved run the tier skew the run PROCEEDED
+    on was NOT persisted (the decision note read "no structured authorization" and the
+    credibility profile was never built outside a unit test). This helper is the single
+    source the launcher calls to persist the skew into the approval artifacts.
+
+    Returns ``(disclosure_note, credibility_profile)`` when the W2 tier-deviation
+    DISCLOSURE path fired — i.e. the corpus has a MATERIAL deviation, disclosure mode
+    is ON, and the run was APPROVED (proceeded). ``disclosure_note`` is the plain-
+    English skew surface for the persisted approval note; ``credibility_profile`` is
+    the keep-ALL per-tier profile (WEIGHT-not-FILTER) for a durable sidecar / manifest.
+
+    Returns ``("", None)`` when the path did NOT fire (no material deviation,
+    disclosure mode OFF, or the run was denied), so a W2-OFF run attaches nothing and
+    the persisted artifacts are byte-identical to base. LAW VI: ``disclosure_mode``
+    defaults to the env kill-switch when the caller passes ``None``.
+    """
+    if disclosure_mode is None:
+        disclosure_mode = corpus_tier_disclosure_mode_enabled()
+    fired = bool(report.has_material_deviation and disclosure_mode and approved)
+    if not fired:
+        return "", None
+    return (
+        format_tier_deviation_disclosure(report),
+        build_corpus_credibility_profile(report),
+    )
 
 
 def authorization_from_env() -> Optional[AuthorizedSweep]:
@@ -426,8 +545,11 @@ def authorization_from_env() -> Optional[AuthorizedSweep]:
 def check_auto_approve_allowed(
     report: CorpusDistributionReport,
     authorization: Optional[AuthorizedSweep] = None,
+    *,
+    disclosure_mode: Optional[bool] = None,
 ) -> tuple[bool, str]:
-    """Structured-authorization gate (FX-05 / I-ready-017).
+    """Structured-authorization gate (FX-05 / I-ready-017), with the W2
+    tier-deviation ABORT -> DISCLOSURE conversion.
 
     Replaces the defeatable free-text-note heuristic (any prose >=30 chars not
     in a small denylist auto-approved — the R-3 sweep's own canned note slipped
@@ -435,13 +557,27 @@ def check_auto_approve_allowed(
 
     Returns ``(ok, error_message)``.
     - No material deviation → auto-approve is fine; no authorization needed.
-    - Material deviation → auto-approve ONLY with a complete structured
-      :class:`AuthorizedSweep`. A ``None`` authorization, or ANY non-
-      ``AuthorizedSweep`` value (e.g. a legacy free-text note), is rejected
-      fail-closed. Default-deny gates generator spend (§9.1 #5).
+    - Material deviation + DISCLOSURE mode ON (W2, ``PG_CORPUS_TIER_DISCLOSURE_MODE``
+      or the explicit ``disclosure_mode=True`` arg) → the run PROCEEDS carrying the
+      corpus credibility profile; ``ok=True`` and the message is the surfaced
+      tier-skew disclosure (never a silent accept). This DELETES the banned
+      corpus-level tier-mix abort; the faithfulness engine stays the only hard gate.
+    - Material deviation + DISCLOSURE mode OFF (default) → auto-approve ONLY with a
+      complete structured :class:`AuthorizedSweep`. A ``None`` authorization, or ANY
+      non-``AuthorizedSweep`` value (e.g. a legacy free-text note), is rejected
+      fail-closed. Default-deny gates generator spend (§9.1 #5) — byte-identical to
+      the pre-W2 behavior.
     """
     if not report.has_material_deviation:
         return True, ""
+
+    # W2 (I-deepfix-001 #1344): a material tier deviation is a DISCLOSURE, not an
+    # abort, when the kill-switch is ON. Read the env only when the caller did not
+    # pass an explicit override (keeps the function pure/testable).
+    if disclosure_mode is None:
+        disclosure_mode = corpus_tier_disclosure_mode_enabled()
+    if disclosure_mode:
+        return True, format_tier_deviation_disclosure(report)
 
     if authorization is None:
         return False, (

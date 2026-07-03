@@ -26,19 +26,26 @@ arm/endpoint) is identical across all members by construction, and all
 (manifest + conflict surfacing). A future phase may add a population/comparator
 extractor to tighten the key.
 
-DOCUMENTED RESIDUAL 2 (extraction coverage — clinical-tuned): the reused
-``extract_numeric_claims`` is clinical-pattern-tuned. Empirically it (a) emits AT
-MOST ONE claim per row, and (b) returns NOTHING for non-clinical numerics (GDP,
-emissions, model-accuracy, etc.). Consequently a non-clinical numeric row yields
-ZERO findings and is kept as a SAFE SINGLETON — never falsely merged, never
-dropped — but its finding is NOT clustered and earns NO corroboration_count. So
-dedup + corroboration are EFFECTIVE for clinical corpora and INERT-but-SAFE for
-non-clinical ones. This is a coverage limitation, not a correctness bug: it can
-never cause unique-claim loss or a wrong merge. Gap D's domain-general
-corroboration ambition requires a field-agnostic numeric-finding extractor, which
-is deliberately deferred to a follow-up rather than risking an over-merging
-heuristic here. (The multi-claim-per-row retention logic below is therefore
-defensive/future-proof against an extractor that later emits >1 claim per row.)
+RESIDUAL 2 — NOW CLOSED (I-deepfix-001 C1, #1344; supersedes the stale
+"deferred to a follow-up" note): the field-agnostic numeric-finding extractor
+that this docstring once deferred is LIVE. ``extract_numeric_claims`` routes a
+NON-clinical row (deterministic ``is_clinical_domain`` signal) to the
+DOMAIN-AGNOSTIC extractor (B9, commit ac039560), so a GDP / emissions /
+model-accuracy numeric now yields a REAL claim key instead of nothing. But the
+merged run still measured ``collapsed=0`` on non-clinical corpora — the traced
+non-firing seam was the MERGE KEY, not the extractor: ``_finding_key`` keyed the
+subject on the RAW surface string, so two sources paraphrasing the SAME subject
+with a different surface form ("e-commerce" vs "ecommerce" vs "E-Commerce") got
+DISTINCT keys and never consolidated. C1 STRENGTHENS the non-clinical key to a
+folded subject SIGNATURE (``_fold_nonclinical_subject`` — case/punctuation-folded,
+so surface variants of one subject collapse) while keeping predicate + value +
+unit as hard discriminators, so two DISTINCT facts that merely share a number
+NEVER collapse. The CLINICAL key is kept VERBATIM (the conservative-singleton
+subject/predicate/value/unit/dose/arm/endpoint guard) — a clinical row is routed
+by its own ``is_clinical_domain`` probe and takes the byte-identical strict key,
+so a dose/population can never wrongly merge. (The multi-claim-per-row retention
+logic below is still defensive/future-proof against an extractor that emits >1
+claim per row.)
 
 Pure: constructs no client, no network, no LLM. snake_case; explicit imports.
 """
@@ -64,6 +71,42 @@ logger = logging.getLogger("polaris_graph.finding_dedup")
 # The fallback subject `extract_numeric_claims` returns when it cannot identify
 # the entity nearest the numeric value. Such claims are NEVER mergeable.
 _UNKNOWN_SUBJECT = "unknown"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Non-clinical subject-signature fold — I-deepfix-001 C1 (#1344)
+# ─────────────────────────────────────────────────────────────────────────
+# §-1.3 CONSOLIDATE, don't DROP: the B9 domain-agnostic extractor is live, but the
+# numeric merge key keyed the subject on the RAW surface string, so two NON-clinical
+# sources paraphrasing the SAME subject in a different surface form never clustered
+# (the measured `collapsed=0`). C1 folds ONLY the NON-clinical subject slot into a
+# case/punctuation-normalized SIGNATURE so surface variants of one subject collapse,
+# while predicate + value + unit stay hard discriminators (two DISTINCT facts that
+# merely share a number never merge). CLINICAL rows keep the VERBATIM strict key.
+# FAITHFULNESS-NEUTRAL: this only groups more same-claim corroborators into one
+# basket (corroboration_count is a Signal-D WEIGHT, never a verify gate); it drops
+# no row and touches no faithfulness engine. LAW VI kill-switch (default ON).
+_NONCLINICAL_SUBJECT_FOLD_ENV = "PG_FINDING_DEDUP_NONCLINICAL_SUBJECT_FOLD"
+_NONALNUM_FOLD_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _nonclinical_fold_enabled() -> bool:
+    """``PG_FINDING_DEDUP_NONCLINICAL_SUBJECT_FOLD`` kill switch (LAW VI). DEFAULT-ON:
+    the C1 non-clinical subject signature. Set to ``0`` to restore the byte-identical
+    raw-surface-subject key (no folding — the pre-C1 behavior). Clinical rows are
+    unaffected either way (they never fold)."""
+    return os.getenv(_NONCLINICAL_SUBJECT_FOLD_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _fold_nonclinical_subject(subject: str) -> str:
+    """The folded NON-clinical subject signature: lowercased, every non-alphanumeric
+    run stripped. Collapses surface variants of ONE subject ("e-commerce" / "ecommerce"
+    / "E-Commerce" -> "ecommerce") WITHOUT merging genuinely different subjects ("gdp"
+    stays distinct from "gnp"). Returns ``""`` for a subject that folds to nothing
+    (pure punctuation) — the caller then treats it as the UNKNOWN sentinel (safe
+    singleton, never a false merge)."""
+    return _NONALNUM_FOLD_RE.sub("", (subject or "").strip().lower())
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -388,6 +431,7 @@ def _finding_key(
     claim_index: int,
     *,
     exact_value: bool = False,
+    clinical: bool = True,
 ) -> tuple:
     """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
     sentinel (evidence_id + claim_index) so it can never collide — even two
@@ -399,8 +443,22 @@ def _finding_key(
     so basket clustering keys agree across the two consolidators (a shared
     type-consistency requirement of the design). OFF keeps ``round(value, 3)``
     byte-for-byte (the legacy survivor-selection key).
+
+    ``clinical`` (I-deepfix-001 C1, #1344) — DEFAULT True keeps the byte-identical
+    strict subject key (the conservative-singleton clinical guard). When the row is
+    NON-clinical (routed by ``is_clinical_domain`` exactly as the extractor routes)
+    AND the C1 fold is enabled, the subject slot is a case/punctuation-folded
+    SIGNATURE (``_fold_nonclinical_subject``) so surface variants of ONE subject
+    consolidate while predicate + value + unit still keep two DISTINCT facts apart.
+    A subject that folds to nothing collapses to the UNKNOWN sentinel (safe
+    singleton). NO other slot changes, so the tuple shape / downstream consumers
+    (``_cluster_value_bucket``, basket routing) are unaffected.
     """
     subject = getattr(claim, "subject", "") or ""
+    if not clinical and _nonclinical_fold_enabled():
+        # Fold ONLY the non-clinical subject to a surface-invariant signature.
+        # An empty fold (pure-punctuation subject) becomes the UNKNOWN sentinel.
+        subject = _fold_nonclinical_subject(subject) or _UNKNOWN_SUBJECT
     if not subject or subject == _UNKNOWN_SUBJECT:
         return ("__unknown__", evidence_id, claim_index)
     raw_value = float(getattr(claim, "value", 0.0) or 0.0)
@@ -919,6 +977,19 @@ def _apply_qualitative_nli_union(
            unsafe transitive merge. The numeric sibling path bounds this with value-bucketing;
            this is the qualitative path's equivalent precision guard.
 
+    (iv) ALL-MEMBER SCORING (I-deepfix-001 C2, #1344 — "score ALL in-section member pairs,
+         not just representatives"): the greedy candidate stage groups near-verbatim members
+         into clusters, but two clusters that carry the SAME claim can have REPRESENTATIVES
+         whose surface wording does not entail while a NON-representative member of one DOES
+         entail a member of the other (a large paraphrase cluster only PARTIALLY unions on the
+         rep alone). C2 links two clusters when ANY cross-cluster member pair bidirectionally
+         entails (with matching per-member polarity), so a large paraphrase cluster FULLY
+         unions. The representative-level edges are ALWAYS included as a floor, so this can
+         NEVER union LESS than the pre-C2 rep-only behavior (monotone recall). All-member
+         scoring is bounded by ``score_pairs``'s ``PG_CONSOLIDATION_NLI_MAX_PAIRS`` cap: over
+         the cap it returns NO edges (safe UNDER-merge) and the rep-edge floor still applies,
+         so a huge corpus degrades to rep-only, never regresses, never over-merges.
+
     KEEP-ALL / WEIGHT-ONLY (§-1.3): ONLY member-index lists are unioned (corroboration_count /
     independent_hosts rise); NO row is dropped, NO verify gate (strict_verify / the NLI
     entailment verifier / 4-role D8 / provenance / span-grounding) is touched. Deterministic +
@@ -930,33 +1001,64 @@ def _apply_qualitative_nli_union(
     from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
         score_pairs,
     )
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _polarity_signature,
+    )
 
     n = len(clusters)
     if n < 2:
         return clusters
 
-    # Representative CLAIM TEXT of each candidate cluster (lowest-row-index member — the same
-    # representative the emission step re-derives, so the key is stable). Polarity signature is
-    # carried on the cluster from the candidate stage (index 1).
+    # Cross-cluster DIRECT bidirectional-entailment links, in cluster-index space. Built from
+    # TWO edge sets whose union is monotone over the pre-C2 rep-only behavior:
+    #   (1) REP floor — representatives (lowest-row-index member of each cluster), always scored.
+    #   (2) ALL-MEMBER (C2) — every member of every cluster, bounded by MAX_PAIRS.
+    cluster_links: set[tuple[int, int]] = set()
+
+    def _add_link(a: int, b: int) -> None:
+        if a != b:
+            cluster_links.add((a, b) if a < b else (b, a))
+
+    # (1) Representative floor. Polarity carried on the cluster from the candidate stage (index 1).
     rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
     rep_polarity = [cluster[1] for cluster in clusters]
+    for i, j in score_pairs(rep_texts, predict_fn=predict_fn):
+        # (ii) polarity HARD-BLOCK: never link two mismatched-polarity representatives.
+        if rep_polarity[i] == rep_polarity[j]:
+            _add_link(i, j)
 
-    edges = score_pairs(rep_texts, predict_fn=predict_fn)
-    # (ii) polarity HARD-BLOCK: drop any bidirectional-entailment edge whose two
-    # representatives carry mismatched polarity signatures (antonym / negation flip).
-    edges = [(i, j) for (i, j) in edges if rep_polarity[i] == rep_polarity[j]]
-    if not edges:
+    # (2) ALL-MEMBER scoring (C2). Flatten every member of every cluster; score all member
+    # pairs (bounded by MAX_PAIRS — over the cap score_pairs returns [] => rep floor only).
+    member_texts: list[str] = []
+    member_owner: list[int] = []
+    member_polarity: list[tuple] = []
+    for ci, cluster in enumerate(clusters):
+        for ri in cluster[2]:
+            body = _row_text(rows[ri])
+            member_texts.append(body)
+            member_owner.append(ci)
+            member_polarity.append(_polarity_signature(body))
+    for a, b in score_pairs(member_texts, predict_fn=predict_fn):
+        ca, cb = member_owner[a], member_owner[b]
+        if ca == cb:
+            continue  # same cluster — already grouped by the candidate stage
+        # (ii) polarity HARD-BLOCK at the MEMBER level (antonym / negation flip never links).
+        if member_polarity[a] != member_polarity[b]:
+            continue
+        _add_link(ca, cb)
+
+    if not cluster_links:
         return clusters
 
     # DIRECT-EDGE adjacency (NOT transitive union-find). I-deepfix-001 P4 Codex fix (#1344):
     # build the direct bidirectional-entailment neighbour set of each cluster, then group
-    # KEEP-FIRST — a redundant cluster joins a primary ONLY when it carries a DIRECT edge to
+    # KEEP-FIRST — a redundant cluster joins a primary ONLY when it carries a DIRECT link to
     # THAT primary. This is the exact direct-to-primary safe pattern ``fact_dedup.py`` FIX-D
     # (#1335) uses; it structurally blocks the A::B + B::C => {A,B,C} transitive over-merge
-    # (C never joins A's basket unless C DIRECTLY entails A), so a basket head's
+    # (C never joins A's basket unless C DIRECTLY links A), so a basket head's
     # corroboration_count can never be inflated by a claim that only entails a sibling.
     entails: dict[int, set[int]] = {}
-    for i, j in edges:
+    for i, j in cluster_links:
         entails.setdefault(i, set()).add(j)
         entails.setdefault(j, set()).add(i)
 
@@ -1166,6 +1268,12 @@ def dedup_by_finding(
     # extractor and is byte-identical. A caller MAY pass the run-level `domain`
     # to pin the whole pass. The conservative-singleton + unknown-subject guards
     # below are UNCHANGED in both modes — no merge predicate is relaxed.
+    # I-deepfix-001 C1 (#1344): route the finding KEY the SAME way the extractor
+    # routes — a row is CLINICAL iff ``is_clinical_domain`` says so (per-row probe,
+    # identical to the extract_numeric_claims routing). A clinical row keeps the
+    # verbatim strict subject key (byte-identical); a NON-clinical row folds its
+    # subject to a surface-invariant signature so paraphrases consolidate.
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain
     groups: dict[tuple, list[int]] = {}
     row_has_finding: list[bool] = [False] * len(rows)
     for ri, row in enumerate(rows):
@@ -1177,11 +1285,14 @@ def dedup_by_finding(
             extract_numeric_claims([row], domain=domain)
             if domain is not None else extract_numeric_claims([row])
         )
+        row_clinical = is_clinical_domain(domain, [row])
         if claims:
             row_has_finding[ri] = True
         ev_id = str(row.get("evidence_id", ri))
         for cj, claim in enumerate(claims):
-            key = _finding_key(claim, ev_id, cj, exact_value=redesign_on)
+            key = _finding_key(
+                claim, ev_id, cj, exact_value=redesign_on, clinical=row_clinical,
+            )
             groups.setdefault(key, []).append(ri)
 
     def _rank(ri: int) -> tuple:

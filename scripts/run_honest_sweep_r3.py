@@ -167,6 +167,9 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     # I-wire-001 W2 (#1311) P1-1: byte-identical (W2-OFF) CorpusSource serializer.
     corpus_asdict,
     save_approval_decision,
+    # I-deepfix-001 W2 (#1344): durable tier-deviation DISCLOSURE artifacts (the
+    # disclosure note + keep-ALL credibility profile) persisted on the approved path.
+    tier_disclosure_artifacts,
 )
 from src.polaris_graph.nodes.weighted_corpus_gate import (  # noqa: E402
     # I-cred-006b (#1170): replace the tier-COUNT/material-deviation corpus REFUSAL with
@@ -10603,6 +10606,10 @@ async def run_one_query(
         # decision (the per-claim faithfulness floor) are UNTOUCHED. Default-OFF byte-identical.
         _weighted_corpus_on = weighted_corpus_gate_enabled()
         _wc_disclosure_dict: dict | None = None  # set on the weighted-gate proceed path (manifest field)
+        # I-deepfix-001 W2 (#1344): the durable tier-deviation DISCLOSURE profile. Set (non-None)
+        # ONLY when the W2 disclosure path fires (material deviation + PG_CORPUS_TIER_DISCLOSURE_MODE
+        # ON + run approved); None otherwise => no sidecar, no manifest key => byte-identical W2-OFF.
+        _w2_tier_disclosure_profile: dict | None = None
         if adequacy.decision == "abort" and (
             not _use_research_planner or _jo_force_inadequate
         ) and not (
@@ -10813,6 +10820,19 @@ async def run_one_query(
                       if authorization is not None else "no structured authorization")
             )
         )
+        # I-deepfix-001 W2 (#1344): PERSIST the tier-deviation DISCLOSURE the run PROCEEDED on.
+        # check_auto_approve_allowed returns ok=True + a disclosure message when disclosure mode
+        # fired on a material deviation, but that message was only ever read on the ABORT branch —
+        # on an APPROVED run it was discarded, so the durable note falsely read "no structured
+        # authorization" and no credibility profile was persisted. tier_disclosure_artifacts is the
+        # single source that rebuilds (note, profile) for the approved+disclosure path; it returns
+        # ("", None) otherwise, so a W2-OFF run appends nothing (note byte-identical) and writes no
+        # sidecar/manifest key. WEIGHT-not-FILTER: the profile keeps ALL sources, drops none.
+        _w2_disclosure_note, _w2_tier_disclosure_profile = tier_disclosure_artifacts(
+            dist, approved=approved
+        )
+        if _w2_disclosure_note:
+            note = note + " | " + _w2_disclosure_note
         decision = CorpusApprovalDecision(
             run_id=run_id,
             decision_at_unix=time.time(),
@@ -10824,6 +10844,18 @@ async def run_one_query(
             report=dist, protocol_sha256=scope.protocol_sha256,
         )
         save_approval_decision(decision, run_dir)
+
+        # I-deepfix-001 W2 (#1344): persist the keep-ALL corpus credibility PROFILE as a durable
+        # sidecar whenever the tier-deviation DISCLOSURE path fired (material deviation + disclosure
+        # mode ON + approved). None => path did not fire => no file => byte-identical W2-OFF. This is
+        # the persisted-artifact half the launcher previously dropped (the profile was built only in
+        # the unit test). WEIGHT-not-FILTER: total_sources equals the full corpus; nothing is dropped.
+        if _w2_tier_disclosure_profile is not None:
+            (run_dir / "corpus_tier_disclosure_profile.json").write_text(
+                json.dumps(_w2_tier_disclosure_profile, indent=2, sort_keys=True,
+                           default=str) + "\n",
+                encoding="utf-8",
+            )
 
         # I-cred-006b (#1170): when the weighted-corpus gate is ON, attach the deterministic,
         # domain-aware credibility-weighting disclosure (the corpus is ACCEPTED + DISCLOSED, not refused
@@ -15682,6 +15714,13 @@ async def run_one_query(
         # downstream audit sees the corpus was ACCEPTED + credibility-disclosed (not tier-refused).
         if _wc_disclosure_dict is not None:
             manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict
+        # I-deepfix-001 W2 (#1344): surface the keep-ALL tier-deviation credibility PROFILE on the
+        # SUCCESS manifest when the disclosure path fired. None => key ABSENT => manifest shape
+        # byte-identical when W2 is OFF (matches the ON-mode-only key convention above). The durable
+        # per-tier breakdown also lives in corpus_tier_disclosure_profile.json; the manifest carries
+        # the summary so a downstream audit sees the corpus PROCEEDED on a DISCLOSED skew, not aborted.
+        if _w2_tier_disclosure_profile is not None:
+            manifest["corpus_tier_disclosure_profile"] = _w2_tier_disclosure_profile
 
         # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
         # in the manifest (gap #19 extension). ON-mode only — the key is absent
