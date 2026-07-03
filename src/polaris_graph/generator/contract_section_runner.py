@@ -507,20 +507,54 @@ def contract_sentence_citation_nums(
         verified_corroborators_with_clusters_for_tokens,
         corroborator_grounds_sentence_via_basket,
         _verifier_cleaned_text,
+        _citation_nli_purity_enabled,
+        _own_token_span_reasserts,
     )
 
     _demoted_eids = (
         (getattr(sv, "relevance_demoted_eids", None) or frozenset())
         | (getattr(sv, "relevance_refuted_eids", None) or frozenset())
     )
+    _corro_claim_text = _verifier_cleaned_text(getattr(sv, "sentence", "") or "")
     used_nums: list[int] = []
+    # I-deepfix-001 P2 (#1344): OWN-TOKEN bounds+overlap re-assert on the V30 contract regroup.
+    # Gate-B forces THIS path (not the flat resolver body), so the render-time own-token purity
+    # re-assert MUST also run here — a withheld bad own token is still registered in
+    # ev_to_num / biblio_slice by the resolver (line ~1615), so without this it would be
+    # reattached into the SHIPPED slot body and the render-time purity fix would be a no-op on
+    # the benchmark path. Mirror the resolver's own-token pass/withhold + minimum-retention guard
+    # EXACTLY (``resolve_provenance_to_citations_with_count``): re-assert each own token's stored
+    # (start,end) against the CURRENT ``direct_quote`` via the SAME predicate, WITHHOLD its inline
+    # [N] on failure (the source STAYS in the bibliography), and never let a sentence go
+    # cited->uncited. The withhold DECISION here is deterministic and identical to the resolver's
+    # on the same tokens, and the resolver already recorded the purity telemetry on that decision
+    # (its discarded flat body) — so we ACT here WITHOUT a second telemetry increment, which also
+    # keeps the withheld_own_token count from being inflated by the two paths. OFF (=0) =>
+    # ``_own_token_span_reasserts`` skipped => byte-identical legacy own-token regroup.
+    _purity_on = _citation_nli_purity_enabled()
+    _own_pass: list[int] = []
+    _own_withheld: list[int] = []
     for tok in tokens:
         if tok.evidence_id in _demoted_eids:
             continue
         n = ev_to_num.get(tok.evidence_id)
-        if n is not None and n not in used_nums:
+        if n is None:
+            continue
+        if _purity_on and not _own_token_span_reasserts(
+            tok, evidence_pool, _corro_claim_text
+        ):
+            if n not in _own_withheld:
+                _own_withheld.append(n)
+        elif n not in _own_pass:
+            _own_pass.append(n)
+    # MINIMUM-RETENTION GUARD (same as the resolver): never strand a sentence's own support —
+    # if EVERY surviving own token would be withheld, KEEP them all (never cited->uncited).
+    if _purity_on and _own_withheld and not _own_pass:
+        _own_pass = list(_own_withheld)
+        _own_withheld = []
+    for n in _own_pass:
+        if n not in used_nums:
             used_nums.append(n)
-    _corro_claim_text = _verifier_cleaned_text(getattr(sv, "sentence", "") or "")
     for _corro_eid, _corro_ccid in verified_corroborators_with_clusters_for_tokens(
         [tok.evidence_id for tok in tokens],
         basket_supports_by_cluster=basket_supports_by_cluster,

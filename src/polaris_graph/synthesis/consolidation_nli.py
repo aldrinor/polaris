@@ -278,6 +278,76 @@ def _entails(logits: Any, margin: float) -> bool:
     return ent > con + margin and ent > neu + margin
 
 
+def entails_directional(
+    premise: str,
+    hypothesis: str,
+    *,
+    margin: Optional[float] = None,
+    predict_fn: Optional[Callable[[list[tuple[str, str]]], Any]] = None,
+) -> Optional[bool]:
+    """DIRECTIONAL single-pair entailment: does ``premise`` entail ``hypothesis``?
+
+    I-deepfix-001 P2 citation-purity (#1344): the ALCE / DeepTRACE citation direction —
+    ``premise`` = the corroborator's claim-local cited span, ``hypothesis`` = the rendered
+    claim (or one of its claim-local clauses). This is the ONE-directional counterpart to the
+    bidirectional ``score_pairs`` used for basket consolidation: a citation is a
+    span->claim SUPPORT relation (the span must entail the claim), which is asymmetric, so we
+    read ONLY the forward logits — NOT both directions.
+
+    Returns three states so the caller can distinguish a real NON-entailment from an
+    infra fault:
+      * ``True``  — ``premise`` entails ``hypothesis`` (entailment is the strict argmax by
+        ``margin``, the SAME threshold ``_entails`` applies in consolidation);
+      * ``False`` — a CONFIDENT non-entailment (the detach signal — the cited span does not
+        carry this claim);
+      * ``None``  — the verdict is UNAVAILABLE (empty text, or the cross-encoder could not be
+        loaded / scored for a NON-OOM reason). None is the DEGRADE sentinel: the caller keeps
+        the citation on its already-passed lexical/numeric grounding rather than detaching on
+        a model outage (never fights §-1.3 breadth on infra failure).
+
+    Reuses ``_load_model`` + ``_entails`` on ONE forward pair, with the SAME CUDA-OOM -> CPU
+    degrade as ``score_pairs`` (an OOM re-scores on CPU, never dies). ``predict_fn`` is the
+    deterministic test-injection seam (no GPU / model download); production passes None => the
+    lazy cross-encoder. No new model is loaded — it is the SAME resident cross-encoder the
+    consolidation leg already loads, so P2 adds ZERO OpenRouter / GPU spend.
+    """
+    if not premise or not premise.strip() or not hypothesis or not hypothesis.strip():
+        return None
+    margin = _margin() if margin is None else margin
+    _injected = predict_fn is not None
+    if predict_fn is None:
+        try:
+            model = _load_model()
+        except Exception as exc:  # noqa: BLE001 — infra fault => UNKNOWN (caller keeps)
+            logger.warning(
+                "[consolidation_nli] entails_directional: cross-encoder unavailable (%s); "
+                "returning None (caller keeps the citation on lexical/numeric grounding).",
+                exc,
+            )
+            return None
+        predict_fn = model.predict  # type: ignore[assignment]
+    batch: list[tuple[str, str]] = [(premise, hypothesis)]
+    try:
+        logits = predict_fn(batch)
+    except Exception as exc:  # noqa: BLE001 — only a CUDA OOM degrades; else UNKNOWN
+        if not _is_cuda_oom(exc) or _injected:
+            logger.warning(
+                "[consolidation_nli] entails_directional: predict failed (%s); returning "
+                "None (caller keeps the citation).", exc,
+            )
+            return None
+        try:
+            cpu_model = _reload_model_on_cpu()
+            logits = cpu_model.predict(batch)
+        except Exception as exc2:  # noqa: BLE001 — CPU degrade also failed => UNKNOWN
+            logger.warning(
+                "[consolidation_nli] entails_directional: CPU re-score failed (%s); "
+                "returning None.", exc2,
+            )
+            return None
+    return _entails(logits[0], margin)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Union-find (deterministic, order-independent post-step)
 # ─────────────────────────────────────────────────────────────────────────

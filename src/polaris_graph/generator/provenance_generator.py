@@ -3631,6 +3631,125 @@ def verified_corroborators_for_tokens(
     ]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 P2 (#1344) — CITATION-PURITY directional-NLI co-support gate.
+#
+# The lexical/numeric grounding predicate (``corroborator_span_grounds_sentence``) can still
+# clear a corroborator whose span shares only GENERIC vocabulary with the claim (the residual
+# noted in that function's docstring: a wrong automation source sharing
+# "change"/"employment"/"occupations"). P2 STACKS a directional NLI check BENEATH that floor —
+# an AND, so it can ONLY ever TIGHTEN (detach an off-topic [N]); it never keeps a corroborator
+# the lexical/numeric floor already dropped. The direction is ALCE / DeepTRACE: the cited SPAN
+# (premise) must entail the CLAIM (hypothesis). The hypothesis is CLAIM-LOCAL — decomposed into
+# clause spans — so a genuine corroborator of ONE clause in a multi-clause sentence is NOT
+# stripped because ANOTHER clause is about a different figure (ALCE per-statement precision,
+# 2305.14627). Reuses the ALREADY-LOADED consolidation cross-encoder => ZERO extra spend.
+#
+# DNA (§-1.3): this is a WEIGHT/PURITY DETACH — the source STAYS in the bibliography; only its
+# INLINE [N] is withheld for a sentence its span does not entail. Never a source-type drop
+# (WEF / OECD / gov keep full weight); the ONLY thing removed is a citation number that does
+# not fit THIS claim. Env-gated ``PG_CITATION_NLI_PURITY``; the DEFAULT is OFF (=byte-identical
+# legacy render, no cross-encoder call) and the run slate turns it ON (=1) for the paid run.
+#
+# WHY DEFAULT-OFF (not the fix-card's "default-ON"): the SAME master plan STEP-7 requires the
+# nli_detached RATE + withheld_own_token COUNT to be calibrated on a FRESH scored run BEFORE
+# default-ON is TRUSTED ("If ... anomalously high, HOLD default-ON and recalibrate"). Empirically
+# the cross-encoder over-detaches on SHORT synthetic spans (it stripped legitimate corroborators
+# from the existing render fixtures when this shipped default-ON), so shipping OFF-by-default is
+# the faithful, §8.4-safe (no cross-encoder in every CI render) reading — the flag is flipped ON
+# in the run slate and calibration-gated per STEP-7, exactly how PG_CONSOLIDATION_NLI /
+# PG_RELEVANCE_GATE ship. ``=1`` = the P2 gate active; unset/``=0`` = byte-identical revert.
+#
+# ORDERING vs PG_RELEVANCE_GATE: the NLI purity runs INSIDE the shared grounding predicate
+# (``corroborator_grounds_sentence_via_basket``), so it is applied UPSTREAM of the SURE-RAG
+# relevance gate — a corroborator must pass lexical/numeric AND NLI-purity to be GROUNDED, and
+# only THEN is it (separately) exposed to any PG_RELEVANCE_GATE demotion. The two layers
+# compose (both can only tighten); neither depends on the other's flag.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A single constant so the operator can flip the ship default without touching call sites.
+# Read at call time (so a harness / the run slate can toggle per-case). LAW VI: env-driven.
+_CITATION_NLI_PURITY_DEFAULT = "0"
+
+
+def _citation_nli_purity_enabled() -> bool:
+    """``PG_CITATION_NLI_PURITY`` gate (default-OFF; the run slate sets =1). OFF => the NLI
+    co-support AND-stack and the render-time own-token bounds re-assert are BOTH skipped =>
+    byte-identical legacy render (no cross-encoder call)."""
+    return os.getenv("PG_CITATION_NLI_PURITY", _CITATION_NLI_PURITY_DEFAULT).strip().lower() \
+        not in ("", "0", "false", "off", "no")
+
+
+# Telemetry: per-process counters so a run can PROVE the purity gate FIRED (and how much it
+# detached / withheld) in the output — the §-1.4 fired-not-configured assertion, and the
+# STEP-7 fresh-run calibration rows (nli_detached RATE, withheld_own_token count).
+_PURITY_TELEMETRY: dict[str, int] = {
+    "nli_detached": 0,               # corroborator [N] detached by the NLI co-support gate
+    "nli_kept": 0,                   # corroborator kept on a CONFIRMED clause entailment
+    "nli_unknown_kept": 0,           # corroborator kept because the NLI verdict was UNAVAILABLE
+    "withheld_own_token": 0,         # own-token [N] withheld by the render-time bounds re-assert
+    "own_token_retention_kept": 0,   # own-token withhold BLOCKED by the min-retention guard
+}
+
+
+def get_purity_telemetry() -> dict[str, int]:
+    """Snapshot of the P2 citation-purity counters (for the §-1.4 fired-in-output assertion
+    and the STEP-7 fresh-run calibration acceptance rows)."""
+    return dict(_PURITY_TELEMETRY)
+
+
+def reset_purity_telemetry() -> None:
+    for _k in _PURITY_TELEMETRY:
+        _PURITY_TELEMETRY[_k] = 0
+
+
+# Clause-boundary splitter for the CLAIM-LOCAL hypothesis (ALCE per-statement, 2305.14627).
+# Splits on clause punctuation + coordinating/subordinating connectors so each clause of a
+# compound sentence becomes its own hypothesis. Conservative: over-splitting only makes the
+# gate KEEP more (an easier hypothesis to entail), never manufactures a false detach.
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(
+    r"[;,]|\b(?:and|or|but|while|whereas|although|though|however|which|that)\b",
+    re.IGNORECASE,
+)
+
+
+def _claim_local_hypotheses(claim: str) -> list[str]:
+    """Decompose ``claim`` into claim-local clause hypotheses. A corroborator counts as
+    supporting if its span entails ANY clause (partial-support). Full-sentence entailment is
+    the FALLBACK only when no clause decomposition is available (a single-clause sentence)."""
+    if not claim or not claim.strip():
+        return []
+    parts = [p.strip() for p in _CLAIM_CLAUSE_SPLIT_RE.split(claim) if p and p.strip()]
+    # Keep only clauses with real content (>=1 content word) so a bare connector fragment
+    # cannot become a trivially-entailed hypothesis.
+    clauses = [c for c in parts if _content_words(c)]
+    return clauses if clauses else [claim.strip()]
+
+
+def _corroborator_nli_co_supports(claim: str, span: str) -> Optional[bool]:
+    """Directional NLI co-support: does the corroborator ``span`` (premise) entail ANY
+    claim-local clause of ``claim`` (hypothesis)? ALCE / DeepTRACE direction.
+
+    Returns ``True`` (a clause is entailed => keep), ``False`` (a CONFIDENT non-entailment on
+    EVERY clause => detach), or ``None`` (verdict unavailable on at least one clause and none
+    entailed => keep on the already-passed lexical/numeric grounding). We detach ONLY on a
+    confident all-clauses-non-entail verdict, so an infra fault (model down) can never strip a
+    real corroborator (§-1.3 breadth-safe)."""
+    from src.polaris_graph.synthesis import consolidation_nli  # noqa: PLC0415
+
+    hyps = _claim_local_hypotheses(claim)
+    if not span or not span.strip() or not hyps:
+        return None
+    saw_unknown = False
+    for _hyp in hyps:
+        _v = consolidation_nli.entails_directional(span, _hyp)
+        if _v is True:
+            return True
+        if _v is None:
+            saw_unknown = True
+    return None if saw_unknown else False
+
+
 def corroborator_span_grounds_sentence(
     sentence_claim: str,
     corroborator_span: str,
@@ -3828,7 +3947,59 @@ def corroborator_grounds_sentence_via_basket(
     )
     if not _span:
         return False
-    return corroborator_span_grounds_sentence(sentence_claim, _span)
+    if not corroborator_span_grounds_sentence(sentence_claim, _span):
+        return False
+    # I-deepfix-001 P2 (#1344): NLI co-support stacked BENEATH the lexical/numeric predicate
+    # (an AND, so it can ONLY tighten). Detach ONLY on a CONFIDENT all-clauses-non-entail
+    # verdict; a confirmed clause entailment keeps, an unavailable verdict keeps (degrade,
+    # never fights §-1.3 breadth on a model outage). Because all three corroborator sites
+    # (append loop, retention guard, contract slot-regroup) route through THIS function, the
+    # purity gate lands at a single source of truth. OFF (=0) => byte-identical.
+    if _citation_nli_purity_enabled():
+        _co = _corroborator_nli_co_supports(sentence_claim, _span)
+        if _co is False:
+            _PURITY_TELEMETRY["nli_detached"] += 1
+            return False
+        _PURITY_TELEMETRY["nli_kept" if _co is True else "nli_unknown_kept"] += 1
+    return True
+
+
+def _own_token_cited_span(
+    tok: "ProvenanceToken", evidence_pool: dict[str, dict[str, Any]]
+) -> str:
+    """The OWN token's cited sub-span of its evidence row's CURRENT ``direct_quote`` (falling
+    back to ``statement``). Empty when the row is missing or the (start,end) is out of bounds
+    on the current text — the I-deepfix-001 P2 (#1344) biblio-shows-cited-span input."""
+    ev = evidence_pool.get(tok.evidence_id)
+    if not ev:
+        return ""
+    dq = ev.get("direct_quote") or ev.get("statement") or ""
+    if tok.start < 0 or tok.end > len(dq) or tok.start >= tok.end:
+        return ""
+    return dq[tok.start:tok.end]
+
+
+def _own_token_span_reasserts(
+    tok: "ProvenanceToken",
+    evidence_pool: dict[str, dict[str, Any]],
+    sentence_claim: str,
+) -> bool:
+    """I-deepfix-001 P2 (#1344): render-time DETERMINISTIC re-assert of an OWN cited token
+    against the CURRENT ``evidence_pool[eid].direct_quote`` — (a) the stored (start,end) is
+    still in bounds on the current span text, AND (b) the cited span still grounds the sentence
+    via the SAME lexical/numeric predicate strict_verify uses
+    (``corroborator_span_grounds_sentence``). This guards the I-wire-014 class where a
+    ``direct_quote`` was truncated / replaced between verify and render so the stored offsets no
+    longer point at grounding text. No model — pure bounds + overlap. Fail => withhold the
+    inline [N] (fail-closed), but the source STAYS in the bibliography and the min-retention
+    guard never lets the sentence go cited->uncited."""
+    ev = evidence_pool.get(tok.evidence_id)
+    if not ev:
+        return False
+    dq = ev.get("direct_quote") or ev.get("statement") or ""
+    if tok.start < 0 or tok.end > len(dq) or tok.start >= tok.end:
+        return False
+    return corroborator_span_grounds_sentence(sentence_claim, dq[tok.start:tok.end])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4148,10 +4319,19 @@ def resolve_provenance_to_citations_with_count(
             evidence_pool=evidence_pool,
         )
 
-    def _num_for(ev_id: str) -> int:
+    def _num_for(ev_id: str, *, cited_span: str | None = None) -> int:
         if ev_id not in ev_to_num:
             ev_to_num[ev_id] = len(ev_to_num) + 1
             ev = evidence_pool.get(ev_id, {})
+            # I-deepfix-001 P2 (#1344): biblio-shows-cited-span. When an OWN token's cited
+            # span is supplied AND purity is ON, the bibliography row's ``statement`` shows the
+            # ACTUAL cited span (``direct_quote[start:end]``) instead of the broad
+            # ``statement[:300]`` — so the reader sees the exact text the [N] attributes, not a
+            # 300-char row prefix that may not contain the cited claim. OFF / no-span callers
+            # (every corroborator) keep the legacy ``statement[:300]`` => byte-identical.
+            _biblio_statement = (ev.get("statement") or "")[:300]
+            if cited_span and _citation_nli_purity_enabled():
+                _biblio_statement = cited_span[:300]
             row: dict[str, Any] = {
                 "num": ev_to_num[ev_id],
                 "evidence_id": ev_id,
@@ -4168,7 +4348,7 @@ def resolve_provenance_to_citations_with_count(
                 "doi": ev.get("doi", ""),
                 "pmid": ev.get("pmid", ""),
                 "tier": ev.get("tier", ""),
-                "statement": (ev.get("statement") or "")[:300],
+                "statement": _biblio_statement,
             }
             # Enrich with the basket(s) this source backs — ONLY when basket data
             # was supplied. The legacy 5-key dict above is emitted UNCHANGED when
@@ -4394,10 +4574,42 @@ def resolve_provenance_to_citations_with_count(
         # bearing; Refuted => contradiction flag). On the OFF path both sets are empty so every
         # token is included exactly as before (byte-identical).
         used_nums: list[int] = []
+        # I-deepfix-001 P2 (#1344): render-time OWN-TOKEN bounds+overlap re-assert. Each own
+        # token already passed strict_verify UPSTREAM, but a ``direct_quote`` can be
+        # truncated / replaced between verify and render (I-wire-014), leaving the stored
+        # (start,end) pointing at non-grounding text. Re-assert against the CURRENT
+        # ``direct_quote``; a token that no longer grounds has its inline [N] WITHHELD
+        # (fail-closed) — but the source STAYS in the bibliography and the min-retention guard
+        # below never lets the sentence go cited->uncited. OFF (=0) => every token passes the
+        # (skipped) re-assert => byte-identical legacy render.
+        _purity_on = _citation_nli_purity_enabled()
+        _own_reassert_claim = _verifier_cleaned_text(sv.sentence)
+        _own_pass: list[ProvenanceToken] = []
+        _own_withheld: list[ProvenanceToken] = []
         for tok in sv.tokens:
             if tok.evidence_id in _demote_eids or tok.evidence_id in _refute_eids:
                 continue
-            n = _num_for(tok.evidence_id)
+            if _purity_on and not _own_token_span_reasserts(
+                tok, evidence_pool, _own_reassert_claim
+            ):
+                _own_withheld.append(tok)
+            else:
+                _own_pass.append(tok)
+        # MINIMUM-RETENTION GUARD: never strand a sentence's own support. If EVERY surviving
+        # own token would be withheld by the re-assert, KEEP them all (the sentence keeps its
+        # own citations) — fail toward retention, consistent with the FORBIDDEN cited->uncited
+        # invariant. The withhold only fires when at least one own token still grounds.
+        if _purity_on and _own_withheld and not _own_pass:
+            _PURITY_TELEMETRY["own_token_retention_kept"] += len(_own_withheld)
+            _own_pass, _own_withheld = _own_withheld, []
+        for tok in _own_withheld:
+            _PURITY_TELEMETRY["withheld_own_token"] += 1
+            # Register the biblio row (source STAYS in the bibliography) but do NOT append the
+            # inline [N] for THIS sentence.
+            _num_for(tok.evidence_id, cited_span=_own_token_cited_span(tok, evidence_pool))
+        for tok in _own_pass:
+            _cs = _own_token_cited_span(tok, evidence_pool) if _purity_on else None
+            n = _num_for(tok.evidence_id, cited_span=_cs)
             if n not in used_nums:
                 used_nums.append(n)
         # I-arch-005 B6/B8 (#1257): INLINE multi-citation basket render. Append the
