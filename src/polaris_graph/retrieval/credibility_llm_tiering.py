@@ -395,6 +395,28 @@ def _tier_llm_batch_wall_seconds() -> float:
     return value
 
 
+def _tier_llm_per_call_seconds() -> float:
+    """I-fetch-005 (fetch-speed, #1344) FIX 4: a PER-CALL wall (seconds) bounding how long the
+    bounded-parallel batch waits for the NEXT source to finish before giving up on the remaining
+    in-flight stragglers. Without it, a SINGLE hung tiering call pins the batch for the WHOLE
+    batch wall (``PG_TIER_LLM_BATCH_WALL_SECONDS``, default 600s ≈ the ~9min stall observed live).
+    With it, once no source has completed for this many seconds the remaining pending sources fall
+    to the deterministic rules-floor (a WEIGHT, never a drop — §-1.3). Default 150s — just ABOVE
+    the credibility caller's own per-call timeout (``PG_CREDIBILITY_JUDGE_TIMEOUT_S``, default
+    120s) so a call that hits ITS timeout still resolves before this cutoff, and only a call hung
+    BEYOND its own timeout (or burning retries) is cut; far below the batch wall. ``<= 0`` disables
+    it (only the batch wall bounds the tail, legacy behavior)."""
+    raw = os.getenv("PG_TIER_LLM_PER_CALL_SECONDS", "150").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 150.0
+    import math as _math
+    if not _math.isfinite(value) or value <= 0:
+        return 0.0
+    return value
+
+
 def _tier_llm_degrade_after() -> int:
     """I-deepfix-001 W07 (#1344): a consecutive-fallback circuit-breaker count. Once this
     many tiering calls in a row fall back (blank/trickle storm), short-circuit the REMAINING
@@ -674,18 +696,41 @@ def _run_llm_tiering_parallel(
         }
         pending = set(future_to_idx)
         _stop = False
+        # I-fetch-005 (#1344) FIX 4: per-call (per-next-completion) timeout so a SINGLE hung
+        # tiering call cannot pin the batch for the whole batch wall (~9min observed live). Each
+        # wait slice is capped at min(remaining batch wall, per-call timeout); a slice that
+        # elapses with NO completion means the remaining in-flight calls are hung — stop waiting
+        # and let them fall to the deterministic rules-floor (a WEIGHT, never a drop — §-1.3).
+        _per_call = _tier_llm_per_call_seconds()
+        _stall_cutoff = False
         while pending and not _stop:
-            _remaining = (
+            _wall_remaining = (
                 None if _eff_deadline is None
                 else max(0.0, _eff_deadline - time.monotonic())
             )
-            if _remaining is not None and _remaining <= 0:
+            if _wall_remaining is not None and _wall_remaining <= 0:
                 break
+            # Cap each wait slice at the per-call timeout (when enabled) so the tail is bounded by
+            # the per-call budget, not the full batch wall.
+            if _per_call > 0:
+                _slice = (
+                    _per_call if _wall_remaining is None
+                    else min(_wall_remaining, _per_call)
+                )
+            else:
+                _slice = _wall_remaining
             done, pending = futures_wait(
-                pending, timeout=_remaining, return_when=FIRST_COMPLETED,
+                pending, timeout=_slice, return_when=FIRST_COMPLETED,
             )
             if not done:
-                break  # the wall elapsed mid-flight
+                # No source completed within this slice. If the slice was the PER-CALL cap (there
+                # was still batch-wall budget left), the remaining pending are hung stragglers —
+                # cut them off (they keep the rules-floor). Otherwise the batch wall elapsed.
+                if _per_call > 0 and (
+                    _wall_remaining is None or _wall_remaining > _slice
+                ):
+                    _stall_cutoff = True
+                break  # batch wall elapsed mid-flight, OR the per-call stall cutoff fired
             for fut in done:
                 idx, res, status = fut.result()
                 llm_by_idx[idx] = res
@@ -728,9 +773,12 @@ def _run_llm_tiering_parallel(
         if _short_circuited or _wall_unreturned:
             logger.warning(
                 "[credibility_llm_tiering] W07: batch bounded — %d short-circuited "
-                "(>=%d consecutive fallbacks), %d un-returned at wall; ALL kept at the "
+                "(>=%d consecutive fallbacks), %d un-returned at %s; ALL kept at the "
                 "deterministic rules-floor (no drop, §-1.3).",
                 _short_circuited, _degrade_after, _wall_unreturned,
+                # I-fetch-005 (#1344) FIX 4: distinguish the per-call stall cutoff (a single hung
+                # call bounded by PG_TIER_LLM_PER_CALL_SECONDS) from the whole-batch wall.
+                "per-call stall cutoff" if _stall_cutoff else "wall",
             )
     finally:
         # NON-BLOCKING teardown: a wedged tiering worker must not delay the return (the

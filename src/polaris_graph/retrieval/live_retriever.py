@@ -4110,6 +4110,22 @@ def _relevance_gate_threshold() -> float:
     return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
 
 
+def _relevance_fetch_all_relevant_enabled() -> bool:
+    """Kill-switch `PG_RELEVANCE_FETCH_ALL_RELEVANT` (default ON).
+
+    I-fetch-005 iter-2 P0 (§-1.3, Codex HIGHEST): a RELEVANT (above-floor) source must
+    NEVER be stranded unfetched by the fetch BUDGET. Recording an above-floor source as an
+    ``unfetched_relevant_tail`` is STILL a §-1.3 DROP — an unfetched source has no content,
+    so it can carry no weight into composition. With this ON (the fix), EVERY above-floor
+    source is fetched and the fetch BUDGET bounds ONLY the below-floor (truly-off-topic)
+    demoted fill. Set it to 0/off/false/no to revert to the pre-fix behaviour where the
+    budget bounds the WHOLE ordered list (above-floor beyond the budget lands in the
+    recorded-but-unfetched relevant tail) — an EMERGENCY rollback only; that path drops
+    credible relevant sources pre-fetch and must not be used in production."""
+    raw = os.environ.get("PG_RELEVANCE_FETCH_ALL_RELEVANT", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "disabled", "")
+
+
 @dataclass
 class RelevanceGateResult:
     """B4 telemetry for the relevance-ORDER + fetch-budget selection.
@@ -4257,12 +4273,16 @@ def _relevance_threshold_select(
          first, below-floor DEMOTED to the tail (in relevance order). The floor
          (`score >= floor`) decides ORDER + disclosure only; it NEVER removes a
          candidate. Credibility/tier is NEVER consulted.
-      4. BUDGET: keep the top `fetch_cap` of that ordered list (a pure COST budget).
-         If there are fewer above-floor than the budget, the most-relevant below-floor
-         candidates FILL the remaining budget (`demoted_fetched_to_fill`) instead of
-         the budget going unused while relevant-ish sources are hard-dropped. The
-         beyond-budget tail (above-floor + demoted) is RECORDED in
-         `RelevanceGateResult` (counts + score band), not silently discarded.
+      4. BUDGET (I-fetch-005 iter-2 P0, §-1.3 WEIGHT-not-FILTER): EVERY above-floor
+         (RELEVANT) source is fetched UNCONDITIONALLY — the budget must never strand a
+         relevant source unfetched (an unfetched source has no content and can carry no
+         weight into composition, so recording it as a tail is STILL a §-1.3 drop). The
+         fetch `fetch_cap` bounds ONLY the below-floor (truly-off-topic) demoted fill: if
+         the budget has room beyond the WHOLE above-floor set, the most-relevant below-floor
+         candidates FILL it (`demoted_fetched_to_fill`); the rest are the below-floor cost
+         tail (`demoted_tail`), RECORDED in `RelevanceGateResult`, not silently discarded.
+         `unfetched_relevant_tail` is therefore structurally 0 (proof no relevant source is
+         stranded). `PG_RELEVANCE_FETCH_ALL_RELEVANT=0` reverts to the pre-fix budget bound.
       5. Carry each kept candidate's relevance score forward as a WEIGHT
          (`relevance_weight` on the returned score map, keyed by url).
 
@@ -4305,14 +4325,26 @@ def _relevance_threshold_select(
     below_floor = sorted((t for t in scored if t[0] < threshold), key=lambda t: (-t[0], t[1]))
     ranked = above_floor + below_floor
 
-    # BUDGET (the §-1.3 disclosed bound): the top `budget` of the demote-ordered list
-    # are fetched; the rest are the unfetched tail (a COST bound). Because below-floor
-    # is demoted to the tail of `ranked`, the budget fetches above-floor FIRST and only
-    # reaches the below-floor demoted candidates when it has room beyond the above-floor
-    # set — exactly the fill-the-budget behaviour §-1.3 wants (no unused budget while
-    # relevant-ish sources are hard-dropped).
-    fetched = ranked[:budget]
-    tail = ranked[budget:]
+    # BUDGET. I-fetch-005 iter-2 P0 (§-1.3 WEIGHT-not-FILTER, Codex HIGHEST): the fetch
+    # BUDGET must NEVER strand a RELEVANT (above-floor) source unfetched. Recording an
+    # above-floor source as the "unfetched relevant tail" is STILL a §-1.3 DROP — an
+    # unfetched source has no content and cannot carry weight into composition. So EVERY
+    # above-floor source is fetched UNCONDITIONALLY; the budget bounds ONLY the below-floor
+    # (truly-off-topic) demoted fill. If the budget has room beyond the WHOLE above-floor
+    # set, the most-relevant below-floor candidates FILL the remainder
+    # (`demoted_fetched_to_fill`); the rest sit in the cost-bound below-floor tail (a
+    # genuine cost cap on genuinely-off-topic content, never on a relevant source). The
+    # kill-switch `PG_RELEVANCE_FETCH_ALL_RELEVANT=0` reverts to the pre-fix budget bound
+    # (emergency rollback only — that path drops relevant sources pre-fetch).
+    if _relevance_fetch_all_relevant_enabled():
+        _demoted_budget = max(0, budget - len(above_floor))
+        fetched = above_floor + below_floor[:_demoted_budget]
+        tail = below_floor[_demoted_budget:]
+    else:
+        # Pre-fix behaviour: the budget bounds the whole demote-ordered list; above-floor
+        # beyond the budget lands in the (recorded, unfetched) relevant tail.
+        fetched = ranked[:budget]
+        tail = ranked[budget:]
 
     selected_idx = {t[1] for t in fetched}
     # Stable corpus: emit fetched non-seeds in ARRIVAL order among the selected set.
@@ -4458,6 +4490,16 @@ def run_live_retrieval(
     # poisoned, and so the per-URL cap is per-run (not per-process). Cheap, no
     # network.
     reset_refetch_cache()
+    # I-fetch-005 (#1344) FIX 2: also clear the AccessBypass per-URL terminal-block cache (hard
+    # WAF access-denied / akamai) at run start so a blocked url from a prior vector does not leak
+    # across runs in a long-lived process. Fail-open: a reset error never breaks retrieval.
+    try:
+        from src.tools.access_bypass import (  # noqa: PLC0415
+            reset_terminal_block_cache as _reset_terminal_block_cache,
+        )
+        _reset_terminal_block_cache()
+    except Exception:  # noqa: BLE001 — best-effort cache reset, never breaks retrieval
+        pass
     # I-deepfix-001 B2 (#1346): install this run's operator do-not-view deny-list so the
     # FETCH seam (`_fetch_content`) skips any prohibited URL BEFORE its HTTP call. Built from
     # THIS run's `research_question` and overwritten fresh each run (per-run reset, like

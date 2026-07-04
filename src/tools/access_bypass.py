@@ -945,6 +945,79 @@ def reset_block_page_canary() -> None:
         _BLOCK_PAGE_CANARY["re_fetched"] = 0
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-fetch-005 (fetch-speed, #1344) FIX 2 — per-URL TERMINAL-block negative cache.
+#
+# A hard WAF access-denied (block class ``akamai_access_denied``: "Access Denied /
+# you don't have permission to access", ``errors.edgesuite.net``) is DETERMINISTIC
+# per URL — the same URL hard-blocks again no matter which backend tries it. Re-walking
+# the full AccessBypass cascade (crawl4ai/jina/firecrawl/direct/archive/proxy/zyte,
+# ~60s+ of stacked timeouts) on a LATER request for the SAME url is pure wasted
+# wall-clock. On the FIRST terminal-class detection the url is cached; a subsequent
+# ``fetch_with_bypass`` for that url short-circuits with NO network call.
+#
+# §-1.3-SAFE (weight-not-filter): this is a PERFORMANCE de-dup, NOT a faithfulness gate.
+# The source is NOT dropped — a url that ultimately cannot be fetched is RETAINED
+# downstream at ZERO weight (an unfetched source), exactly like any other fetch-miss.
+# ONLY the hardest, deterministically-terminal class is cached (a challenge/JS wall is
+# NOT terminal — a browser-rendering backend can still pass it). Populated ONLY when the
+# block-page detector is ON (its sole populator => OFF path byte-identical) and gated by
+# its own default-ON kill-switch.
+# ─────────────────────────────────────────────────────────────────────────────
+_TERMINAL_BLOCK_CLASSES = frozenset({"akamai_access_denied"})
+_terminal_block_urls: "set[str]" = set()
+_terminal_block_lock = threading.Lock()
+_ENV_TERMINAL_BLOCK_FASTSKIP = "PG_TERMINAL_BLOCK_FASTSKIP"
+
+
+def terminal_block_fastskip_enabled() -> bool:
+    """FIX 2 kill-switch (default-ON). Only ever active when the block-page detector is ALSO
+    ON (the detector is the sole populator); OFF here reverts to re-walking the cascade for a
+    terminally-blocked url (byte-identical to the pre-fix behavior)."""
+    return os.getenv(_ENV_TERMINAL_BLOCK_FASTSKIP, "1").strip().lower() in (
+        "1", "true", "yes", "on", "enabled",
+    )
+
+
+def _record_terminal_block(url: str) -> None:
+    """FIX 2: cache ``url`` as terminally blocked (hard WAF access-denied). Thread-safe."""
+    if not url:
+        return
+    with _terminal_block_lock:
+        _terminal_block_urls.add(url)
+
+
+def is_terminal_blocked(url: str) -> bool:
+    """FIX 2: True iff ``url`` previously hit a TERMINAL hard-block class. Thread-safe."""
+    if not url:
+        return False
+    with _terminal_block_lock:
+        return url in _terminal_block_urls
+
+
+def _discard_terminal_block(url: str) -> None:
+    """I-fetch-005 iter-2 (Fable): drop ``url`` from the terminal-block cache on a CLEAN fetch
+    success. ``_is_block_page`` can flag a url TERMINAL mid-cascade (e.g. the direct hop hit
+    ``akamai_access_denied`` and populated the cache) and THEN a LATER hop in the SAME cascade
+    (archive.org / institutional proxy / Zyte) fetches it cleanly — which makes the cached
+    terminal entry STALE: a later ``fetch_with_bypass`` for this provably-fetchable url would
+    otherwise fast-skip straight to failure. Discarding the url on any clean success keeps the
+    fast-skip firing ONLY for a url that has NEVER been fetched cleanly. §-1.3-safe (it can only
+    RESTORE a fetch path, never suppress one); thread-safe; idempotent (no-op if not present)."""
+    if not url:
+        return
+    with _terminal_block_lock:
+        _terminal_block_urls.discard(url)
+
+
+def reset_terminal_block_cache() -> None:
+    """FIX 2: clear the per-URL terminal-block cache at the START of each run (mirrors
+    ``live_retriever.reset_refetch_cache``) so a blocked url from a prior run/vector does not
+    leak across runs in a long-lived process. Cheap, no network."""
+    with _terminal_block_lock:
+        _terminal_block_urls.clear()
+
+
 # ---------------------------------------------------------------------------
 # I-wire-014 ISSUE B (#1313 W4): PROCESS-WIDE mineru25 GPU-VLM serialization lock.
 #
@@ -1239,14 +1312,40 @@ _crawl4ai_available: "bool | None" = None
 # ---------------------------------------------------------------------------
 _crawl4ai_consecutive_failures: int = 0
 _crawl4ai_circuit_open_until: float = 0.0
+# I-fetch-005 (fetch-speed, #1344) FIX 1: HALF-OPEN recovery state. When the breaker is OPEN
+# and the cooldown has elapsed, EXACTLY ONE caller becomes the single-flight PROBE
+# (`_crawl4ai_half_open_probe_active`); every other caller keeps using the fallback chain. A
+# probe that survives the browser region CLOSES the breaker; a probe that fails RE-opens it
+# with EXPONENTIAL backoff keyed by `_crawl4ai_open_generation` (capped). This stops a
+# TRANSIENT browser hiccup from disabling crawl4ai for the WHOLE run, and stops the
+# post-cooldown SWARM of concurrent failures from re-inflating the failure counter (the
+# observed "circuit breaker OPENED after 16 consecutive failures" latch).
+_crawl4ai_half_open_probe_active: bool = False
+_crawl4ai_open_generation: int = 0
+# Guards EVERY read/write of the breaker state above. Fetches run on separate worker threads
+# (each with its own event loop), so the single-flight probe REQUIRES an atomic check-and-set.
+_crawl4ai_breaker_lock = threading.Lock()
 # I-fetch-002 (#1168): raise 3->6 so a couple of TRANSIENT subprocess crashes (EPIPE under concurrent
 # load) do not trip the breaker and disable crawl4ai for the whole run. Pairs with the new concurrency
 # semaphore below — fewer concurrent browsers means fewer crashes in the first place.
 _CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD = int(
     os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD", "6")
 )
+# I-fetch-005 (fetch-speed, #1344) FIX 1: the BASE cooldown default is SHORTENED 120->60 so a
+# TRANSIENT browser hiccup recovers within ~60s via the half-open probe (was: crawl4ai dead for
+# the whole ~48min run). A GENUINELY-dead browser (e.g. missing OS libs — the confirmed Box B
+# root cause) does NOT hot-loop: the exponential backoff grows the cooldown 60->120->240...->MAX
+# on each failed probe, so at most ONE cheap browser-launch attempt is paid per (growing)
+# cooldown, and the fallback chain (jina/trafilatura/Zyte) is the honestly-disclosed fetch path.
+# All env-overridable (LAW VI); BACKOFF<=1.0 => constant BASE cooldown (legacy shape).
 _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
-    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN", "120.0")
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN", "60.0")
+)
+_CRAWL4AI_CIRCUIT_BREAKER_BACKOFF = float(
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_BACKOFF", "2.0")
+)
+_CRAWL4AI_CIRCUIT_BREAKER_MAX_COOLDOWN = float(
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_MAX_COOLDOWN", "600.0")
 )
 
 # I-fetch-002 (#1168): crawl4ai launches a Playwright browser subprocess PER URL; under the ~1000-URL
@@ -2733,22 +2832,146 @@ def _crawl4ai_failure_result(url: str, error: str) -> AccessResult:
     )
 
 
-def _crawl4ai_track_failure() -> None:
-    """FIX-EPIPE: Increment crawl4ai failure counter and open circuit breaker
-    if threshold is reached. Extracted to avoid duplicating the circuit
-    breaker logic in every except branch."""
+def _crawl4ai_backed_off_cooldown(generation: int) -> float:
+    """I-fetch-005 (#1344) FIX 1: exponential-backoff cooldown for the crawl4ai breaker.
+
+    generation 1 -> BASE, 2 -> BASE*BACKOFF, 3 -> BASE*BACKOFF^2, ... capped at MAX_COOLDOWN.
+    A genuinely-dead browser (missing OS libs on the box) therefore backs OFF geometrically
+    instead of being re-probed every BASE seconds forever; a transient hiccup still recovers
+    at BASE (the generation resets to 0 on the first successful probe). BACKOFF<=1 =>
+    constant BASE cooldown (legacy shape)."""
+    base = _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN
+    backoff = _CRAWL4AI_CIRCUIT_BREAKER_BACKOFF
+    if backoff <= 1.0 or generation <= 1:
+        cooldown = base
+    else:
+        cooldown = base * (backoff ** (generation - 1))
+    return min(cooldown, _CRAWL4AI_CIRCUIT_BREAKER_MAX_COOLDOWN)
+
+
+def _crawl4ai_breaker_admit() -> "tuple[str, float]":
+    """I-fetch-005 (#1344) FIX 1: breaker admission decision, computed ATOMICALLY under the lock.
+
+    Returns ``(decision, remaining_seconds)`` where decision is:
+      * ``"closed"`` — breaker not open (never opened, or a prior probe closed it). Proceed
+        as a NORMAL fetch.
+      * ``"probe"``  — breaker WAS open and the cooldown has elapsed; THIS caller is the
+        single-flight HALF-OPEN probe. Proceed and try ONE real browser fetch.
+      * ``"open"``   — breaker still cooling down, OR another caller already holds the probe
+        slot. Skip crawl4ai (use the fallback chain). ``remaining_seconds`` is for logging.
+    Only ONE caller ever gets ``"probe"`` per cooldown window (atomic check-and-set of
+    ``_crawl4ai_half_open_probe_active``), so a genuinely-dead browser costs at most ONE
+    wasted browser-launch attempt per (backed-off) cooldown — never a per-URL storm."""
+    global _crawl4ai_half_open_probe_active
+    now = _time_module.time()
+    with _crawl4ai_breaker_lock:
+        if _crawl4ai_circuit_open_until <= 0.0:
+            return "closed", 0.0
+        if _crawl4ai_circuit_open_until > now:
+            return "open", _crawl4ai_circuit_open_until - now
+        # Cooldown elapsed -> HALF-OPEN. Grant the single probe slot to the first caller.
+        if _crawl4ai_half_open_probe_active:
+            return "open", 0.0
+        _crawl4ai_half_open_probe_active = True
+        return "probe", 0.0
+
+
+def _crawl4ai_breaker_on_success() -> None:
+    """I-fetch-005 (#1344) FIX 1: a crawl4ai fetch reached the browser-survived point — the
+    browser is HEALTHY. Fully CLOSE the breaker: zero the failure counter, clear the open
+    window, release the probe slot, and reset the backoff generation."""
     global _crawl4ai_consecutive_failures, _crawl4ai_circuit_open_until
-    _crawl4ai_consecutive_failures += 1
-    if _crawl4ai_consecutive_failures >= _CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD:
-        _crawl4ai_circuit_open_until = (
-            _time_module.time() + _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN
-        )
-        logger.warning(
-            "[polaris graph] CRAWL4AI: FIX-EPIPE circuit breaker OPENED "
-            "after %d consecutive failures (cooldown %.0fs)",
-            _crawl4ai_consecutive_failures,
-            _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN,
-        )
+    global _crawl4ai_half_open_probe_active, _crawl4ai_open_generation
+    with _crawl4ai_breaker_lock:
+        _crawl4ai_consecutive_failures = 0
+        _crawl4ai_circuit_open_until = 0.0
+        _crawl4ai_half_open_probe_active = False
+        _crawl4ai_open_generation = 0
+
+
+def _crawl4ai_track_failure() -> None:
+    """FIX-EPIPE + I-fetch-005 (#1344) FIX 1: record a crawl4ai subprocess/browser failure.
+
+    Increments the consecutive-failure counter and, on the OPEN TRANSITION only, arms the
+    (exponentially backed-off) cooldown. Guarded so a SWARM of concurrent in-flight failures
+    that arrive AFTER the breaker is already open cannot re-inflate the generation or reset
+    the cooldown — the single transition already armed it. A failed HALF-OPEN probe reaches
+    this from the elapsed-open window (``_circuit_open_until <= now``) and RE-opens with the
+    NEXT backoff generation."""
+    global _crawl4ai_consecutive_failures, _crawl4ai_circuit_open_until
+    global _crawl4ai_open_generation
+    with _crawl4ai_breaker_lock:
+        now = _time_module.time()
+        _crawl4ai_consecutive_failures += 1
+        # Already OPEN (still cooling down) -> a concurrent in-flight failure. Do NOT bump the
+        # generation or reset the cooldown; the single open transition already armed it.
+        if _crawl4ai_circuit_open_until > now:
+            return
+        if _crawl4ai_consecutive_failures >= _CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD:
+            _crawl4ai_open_generation += 1
+            cooldown = _crawl4ai_backed_off_cooldown(_crawl4ai_open_generation)
+            _crawl4ai_circuit_open_until = now + cooldown
+            logger.warning(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE circuit breaker OPENED "
+                "after %d consecutive failures (gen %d, cooldown %.0fs) — a HALF-OPEN "
+                "probe will retry ONE browser fetch after the cooldown",
+                _crawl4ai_consecutive_failures,
+                _crawl4ai_open_generation,
+                cooldown,
+            )
+
+
+def _crawl4ai_breaker_finalize_probe() -> None:
+    """I-fetch-005 (#1344) FIX 1: backstop that ALWAYS runs in ``_try_crawl4ai``'s finally when
+    THIS call was the half-open probe. Releases the single-flight slot no matter which exit path
+    ran (success, tracked failure, OR a NEUTRAL path that recorded neither — e.g. RuntimeError /
+    crawl-returned-False / timeout) so a probe can never wedge the breaker OPEN forever. If the
+    probe resolved via neither success (breaker CLOSED) nor a tracked failure (breaker RE-opened)
+    — i.e. the breaker is still sitting in the elapsed-open window — re-open it with backoff so
+    callers never hot-loop re-probing a browser of unproven health. Idempotent: a no-op when
+    success/failure already resolved it."""
+    global _crawl4ai_half_open_probe_active, _crawl4ai_circuit_open_until
+    global _crawl4ai_open_generation
+    with _crawl4ai_breaker_lock:
+        _crawl4ai_half_open_probe_active = False
+        now = _time_module.time()
+        if 0.0 < _crawl4ai_circuit_open_until <= now:
+            _crawl4ai_open_generation += 1
+            _crawl4ai_circuit_open_until = now + _crawl4ai_backed_off_cooldown(
+                _crawl4ai_open_generation
+            )
+
+
+def _crawl4ai_timeout_seconds() -> int:
+    """I-fetch-005 iter-2 P1: parse ``PG_CRAWL4AI_TIMEOUT`` DEFENSIVELY (never raises).
+
+    A malformed / non-integer value falls back to 30s (and a non-positive value clamps to 30,
+    since a zero/negative page timeout is nonsensical). This MUST NOT raise, and MUST be
+    evaluated BEFORE ``_crawl4ai_breaker_admit`` grants the single-flight half-open probe slot:
+    the prior code parsed the env with a bare ``int(...)`` AFTER the admit but BEFORE the
+    try/finally backstop, so a bad env raised ``ValueError`` in the gap and left
+    ``_crawl4ai_half_open_probe_active`` wedged ``True`` forever — the breaker could then never
+    admit another probe and never recover. Parsing here can never raise, so no probe slot can
+    leak on a malformed timeout."""
+    raw = os.getenv("PG_CRAWL4AI_TIMEOUT", "30")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return 30
+    return value if value > 0 else 30
+
+
+def reset_crawl4ai_breaker_state() -> None:
+    """I-fetch-005 (#1344) FIX 1: reset ALL crawl4ai breaker state (test isolation + per-run).
+    Not required on the production hot path (the breaker self-recovers via the half-open probe),
+    but keeps the state per-run so a prior run's open window never carries over."""
+    global _crawl4ai_consecutive_failures, _crawl4ai_circuit_open_until
+    global _crawl4ai_half_open_probe_active, _crawl4ai_open_generation
+    with _crawl4ai_breaker_lock:
+        _crawl4ai_consecutive_failures = 0
+        _crawl4ai_circuit_open_until = 0.0
+        _crawl4ai_half_open_probe_active = False
+        _crawl4ai_open_generation = 0
 
 
 async def _safe_close_crawler(crawler: Any, url: str) -> None:
@@ -3131,6 +3354,31 @@ class AccessBypass:
                 url=url, content="", access_method="skipped_s2_landing",
                 legal_alternative=None, success=False,
                 metadata={"reason": "S2 landing pages have no content"},
+            )
+
+        # I-fetch-005 (#1344) FIX 2: TERMINAL-block fast-skip. A url that previously hit a hard
+        # WAF access-denied (akamai_access_denied) will hard-block again on EVERY backend —
+        # short-circuit the whole cascade (no network, no 60s+ timeout re-walk). Gated by the
+        # block-page detector (the sole populator, so OFF => never populated => byte-identical)
+        # + PG_TERMINAL_BLOCK_FASTSKIP. §-1.3-SAFE: NOT a drop — the caller records an unfetched
+        # source that is RETAINED downstream at ZERO weight (same as any fetch-miss).
+        if (
+            block_page_detector_enabled()
+            and terminal_block_fastskip_enabled()
+            and is_terminal_blocked(url)
+        ):
+            logger.info(
+                "[ACCESS] I-fetch-005 FIX 2: terminal-block fast-skip for %s (prior "
+                "akamai_access_denied) — cascade short-circuited, source kept at zero "
+                "weight downstream (§-1.3)", url[:80],
+            )
+            return AccessResult(
+                url=url, content="", access_method="terminal_block_skipped",
+                legal_alternative=None, success=False,
+                metadata={
+                    "error": "terminal_block_fast_skip",
+                    "reason": "akamai_access_denied",
+                },
             )
 
         # PL: Resolve ScienceDirect PIIs and extract DOIs for Sci-Hub fallback.
@@ -3528,29 +3776,19 @@ class AccessBypass:
         Controlled by env vars:
           - PG_CRAWL4AI_ENABLED (default "1")
           - PG_CRAWL4AI_TIMEOUT (default 30, in seconds)
-          - PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD (default "3")
-          - PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN (default "120.0")
+          - PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD (default "6")
+          - PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN (default "60.0", BASE; I-fetch-005 FIX 1)
+          - PG_CRAWL4AI_CIRCUIT_BREAKER_BACKOFF (default "2.0", exponential per re-open)
+          - PG_CRAWL4AI_CIRCUIT_BREAKER_MAX_COOLDOWN (default "600.0")
 
         Returns AccessResult. NEVER raises -- all exceptions are caught
         and converted to failure results.
         """
         global _crawl4ai_available
-        global _crawl4ai_consecutive_failures, _crawl4ai_circuit_open_until
 
-        # FIX-EPIPE: Circuit breaker -- skip after repeated subprocess crashes
-        now = _time_module.time()
-        if _crawl4ai_circuit_open_until > now:
-            remaining = _crawl4ai_circuit_open_until - now
-            logger.debug(
-                "[polaris graph] CRAWL4AI: FIX-EPIPE circuit breaker OPEN "
-                "(%.0fs remaining) -- skipping %s",
-                remaining, _safe_log_str(url, 60),
-            )
-            return _crawl4ai_failure_result(
-                url, f"circuit_breaker_open ({remaining:.0f}s remaining)"
-            )
-
-        # Fast-path: already know crawl4ai is not installed
+        # Fast-path: already know crawl4ai is not installed (a PERMANENT availability gate,
+        # separate from the browser-health circuit breaker below — an un-importable package
+        # is never a "browser hiccup" and must not consume a half-open probe slot).
         if _crawl4ai_available is False:
             return _crawl4ai_failure_result(url, "crawl4ai not installed")
 
@@ -3587,8 +3825,41 @@ class AccessBypass:
                 f"import failed: {type(import_err).__name__}: {str(import_err)}",
             )
 
-        timeout_seconds = int(os.getenv("PG_CRAWL4AI_TIMEOUT", "30"))
+        # I-fetch-005 iter-2 P1: parse the timeout DEFENSIVELY and BEFORE the breaker admit
+        # below. A malformed PG_CRAWL4AI_TIMEOUT must NOT (a) raise out of this "NEVER raises"
+        # method, nor (b) leak the single-flight half-open probe slot — a raise-capable
+        # statement BETWEEN _crawl4ai_breaker_admit() (which sets the probe slot) and the
+        # try/finally backstop that releases it would wedge the breaker OPEN forever. Keeping
+        # the (now non-raising) parse ABOVE the admit removes that gap entirely.
+        timeout_seconds = _crawl4ai_timeout_seconds()
         page_timeout_ms = timeout_seconds * 1000
+
+        # FIX-EPIPE + I-fetch-005 (#1344) FIX 1: circuit breaker with HALF-OPEN recovery.
+        # Evaluated AFTER the import (browser health, not package availability) and BEFORE the
+        # main try/finally so a granted probe is ALWAYS released by the finally backstop below.
+        #   "open"   -> skip crawl4ai, use the fallback chain (jina/trafilatura/Zyte);
+        #   "probe"  -> THIS caller is the single-flight half-open trial (one real browser fetch);
+        #   "closed" -> normal fetch.
+        # A probe that survives the browser region CLOSES the breaker (on_success); a probe that
+        # fails RE-opens it with exponential backoff (track_failure / the finally backstop).
+        # NOTHING between this admit and the try/finally below may raise (the timeout parse that
+        # used to sit here is hoisted above — see I-fetch-005 iter-2 P1).
+        _breaker_decision, _breaker_remaining = _crawl4ai_breaker_admit()
+        _is_probe = _breaker_decision == "probe"
+        if _breaker_decision == "open":
+            logger.debug(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE circuit breaker OPEN "
+                "(%.0fs remaining) -- skipping %s",
+                _breaker_remaining, _safe_log_str(url, 60),
+            )
+            return _crawl4ai_failure_result(
+                url, f"circuit_breaker_open ({_breaker_remaining:.0f}s remaining)"
+            )
+        if _is_probe:
+            logger.info(
+                "[polaris graph] CRAWL4AI: FIX-EPIPE half-open probe — trying ONE browser "
+                "fetch to test recovery for %s", _safe_log_str(url, 60),
+            )
 
         # FIX-UNICODE: Crawl4AI/Playwright write Unicode to stdout/stderr.
         # Windows console uses cp1252 which cannot encode many chars.
@@ -3692,8 +3963,10 @@ class AccessBypass:
                     crawler = None  # Prevent double-close in outer finally
 
             # Step 4: Process the crawl result.
-            # If we reached here, the subprocess survived (reset breaker).
-            _crawl4ai_consecutive_failures = 0
+            # If we reached here, the subprocess survived — the browser is HEALTHY, so fully
+            # CLOSE the breaker (and, if this was a half-open probe, release the probe slot and
+            # reset the backoff generation). I-fetch-005 (#1344) FIX 1.
+            _crawl4ai_breaker_on_success()
 
             if not result.success:
                 error_msg = result.error_message or "Crawl returned success=False"
@@ -3894,6 +4167,13 @@ class AccessBypass:
             # (e.g., exception during __aenter__ after partial init).
             if crawler is not None:
                 await _safe_close_crawler(crawler, url)
+            # I-fetch-005 (#1344) FIX 1: if THIS call was the single-flight half-open probe,
+            # ALWAYS release the probe slot here — even on exit paths that recorded neither
+            # success nor a tracked failure (RuntimeError / crawl-returned-False / timeout) — so
+            # a probe can never wedge the breaker OPEN forever. Idempotent (no-op if
+            # success/failure already resolved it).
+            if _is_probe:
+                _crawl4ai_breaker_finalize_probe()
             # FIX-UNICODE: Do NOT restore original encoding. Multiple
             # concurrent Crawl4AI calls race: one call's restore undoes
             # another call's reconfigure. utf-8 is strictly superior.
@@ -5712,6 +5992,13 @@ class AccessBypass:
             return False
         total = _record_block_page_detection()
         block_state["seen"] = True
+        # I-fetch-005 (#1344) FIX 2: a TERMINAL hard-block class (akamai_access_denied) is
+        # DETERMINISTIC per url — cache it so a LATER fetch of the SAME url short-circuits the
+        # whole cascade (no 60s+ re-walk of dead backends). §-1.3: the source is NOT dropped —
+        # an unfetched source is retained downstream at ZERO weight. Only the hardest class is
+        # cached (a JS/challenge wall is NOT terminal — a browser backend can still pass it).
+        if klass in _TERMINAL_BLOCK_CLASSES and terminal_block_fastskip_enabled():
+            _record_terminal_block(url)
         logger.warning(
             "[ACCESS] block_page_detector: %s flagged for %s — re-route/re-fetch "
             "(detected=%d)",
@@ -5726,6 +6013,13 @@ class AccessBypass:
         result is about to be returned for a URL that had >=1 prior block-page
         detection on this fetch. No-op when the detector is OFF or no block was
         seen. Returns `result` unchanged (pure telemetry, faithfulness-neutral)."""
+        # I-fetch-005 iter-2 (Fable): this cascade reached a CLEAN winner for `result.url`, so
+        # the url is provably fetchable. If a mid-cascade hop flagged it terminal
+        # (akamai_access_denied) and populated the terminal-block cache, that entry is now
+        # STALE — discard it so a LATER fetch of this same url is not wrongly fast-skipped to
+        # failure. All fetch helpers preserve the original requested url on `result.url`, so
+        # this clears exactly the key `_is_block_page`/`_record_terminal_block` cached.
+        _discard_terminal_block(getattr(result, "url", "") or "")
         if block_page_detector_enabled() and block_state.get("seen"):
             total = _record_block_page_refetch()
             logger.info(

@@ -130,11 +130,13 @@ def test_threshold_fails_loud_on_garbage_floor(monkeypatch):
 
 # ── (a) a relevant LOW-TIER source is NOT dropped — gating is topical-only ─────
 def test_low_tier_relevant_source_not_dropped_by_count_cut(monkeypatch):
-    """P2.2 (Codex iter-1): the count cut must ACTUALLY BIND for this to prove the
-    regression it claims. Two candidates, `fetch_cap=1` => the legacy lexical
-    count-cut keeps exactly ONE and DROPS the other; B4 keeps BOTH on-topic
-    survivors at the SAME cap (its fetch BUDGET drops one, but RECORDS it as the
-    unfetched-relevant tail, not as a topical/credibility drop).
+    """P2.2 (Codex iter-1) + I-fetch-005 iter-2 P0 (§-1.3): the count cut must ACTUALLY
+    BIND for this to prove the regression it claims. Two candidates, `fetch_cap=1` => the
+    legacy lexical count-cut keeps exactly ONE and DROPS the other; B4 keeps BOTH on-topic
+    survivors at the SAME cap. Under iter-2 P0 the two above-floor sources are BOTH FETCHED
+    (a RELEVANT source is never stranded by the budget — recording it as an unfetched tail
+    is itself a §-1.3 drop): the budget bounds ONLY the below-floor (off-topic) fill, of
+    which there is none here.
 
     The low-tier source's domain vocabulary ("butyrate Fusobacterium ...") has
     near-zero LEXICAL overlap with the long question's exact words, while the
@@ -161,21 +163,23 @@ def test_low_tier_relevant_source_not_dropped_by_count_cut(monkeypatch):
     assert legacy_urls == {"https://journal/a"}      # low-tier on-topic CUT by count
     assert "https://blog/b" not in legacy_urls
 
-    # B4 at the SAME cap keeps BOTH on-topic (one fetched, one in the recorded tail);
-    # neither is gated out on topical relevance, and tier is never consulted.
+    # B4 at the SAME cap keeps BOTH on-topic and (iter-2 P0) FETCHES both — the fetch
+    # budget never strands a RELEVANT (above-floor) source; tier is never consulted.
     out, weights, gate = _relevance_threshold_select(
         [high_tier, low_tier], research_question=_LONG_QUESTION,
         sub_queries=[], fetch_cap=cap, n_seed_injected=0,
     )
     out_urls = {c.url for c in out}
     assert "https://journal/a" in out_urls           # highest-cosine fetched
-    # The low-tier on-topic source is NOT off-topic-dropped — it clears the gate
-    # and lands in the recorded unfetched-relevant tail (a COST bound, not a tier
-    # or relevance drop). kept_on_topic counts BOTH; demoted (below-floor) is zero.
+    # I-fetch-005 iter-2 P0 (§-1.3): the low-tier on-topic source is FETCHED, not left in
+    # an unfetched tail — no relevant source is dropped pre-fetch. kept_on_topic counts
+    # BOTH; both are fetched; the relevant tail is structurally 0.
+    assert "https://blog/b" in out_urls              # relevant, FETCHED (not stranded)
     assert gate.kept_on_topic == 2 and gate.demoted_below_floor == 0
-    assert gate.fetched_budget == 1 and gate.unfetched_relevant_tail == 1
-    # The fetched survivor carries its cosine forward as a weight.
+    assert gate.fetched_budget == 2 and gate.unfetched_relevant_tail == 0
+    # Both fetched survivors carry their cosine forward as a weight.
     assert weights["https://journal/a"] == pytest.approx(0.80)
+    assert weights["https://blog/b"] == pytest.approx(0.55)
 
 
 # ── (a') topical gate ignores tier even when budget fits ALL survivors ─────────
@@ -257,11 +261,60 @@ def test_threshold_keeps_more_on_topic_than_fixed_n_at_equal_cap(monkeypatch):
     assert b4_kept_on > legacy_kept_on                       # B4 keeps MORE on-topic at EQUAL cap
 
 
-# ── (c) the unfetched-but-relevant tail is RECORDED, not dropped-and-forgotten ──
-def test_unfetched_relevant_tail_is_recorded(monkeypatch):
-    """Four on-topic candidates, budget=2: two are fetched, the other two are the
-    unfetched-but-relevant tail. The gate telemetry records the tail count + score
-    band; the tail is NOT counted as off-topic (it is a COST drop, above threshold)."""
+# ── (c) I-fetch-005 iter-2 P0: RELEVANT sources are never stranded; only the ──────
+#        below-floor COST tail is recorded (with its score band). ─────────────────
+def test_above_floor_relevant_never_stranded_only_below_floor_tail_recorded(monkeypatch):
+    """Four ABOVE-floor candidates + two BELOW-floor, budget=2. Iter-2 P0 (§-1.3): the fetch
+    budget must NOT strand a RELEVANT (above-floor) source — all 4 above-floor are FETCHED
+    even though the budget (2) is smaller than the above-floor count, so
+    `unfetched_relevant_tail` is structurally 0. The ONLY recorded tail is the below-floor
+    (off-topic) cost tail; the gate telemetry records its count + score band."""
+    cands = [
+        _cand("https://c/0", title="aaa", origin="q1"),
+        _cand("https://c/1", title="bbb", origin="q1"),
+        _cand("https://c/2", title="ccc", origin="q1"),
+        _cand("https://c/3", title="ddd", origin="q1"),
+        _cand("https://d/0", title="eee", origin="q1"),  # below floor (off-topic)
+        _cand("https://d/1", title="fff", origin="q1"),  # below floor (off-topic)
+    ]
+    monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
+    _patch_semantic(monkeypatch, {
+        cands[0].snippet_text: 0.90,
+        cands[1].snippet_text: 0.80,
+        cands[2].snippet_text: 0.50,
+        cands[3].snippet_text: 0.40,
+        cands[4].snippet_text: 0.20,  # below floor -> cost tail
+        cands[5].snippet_text: 0.10,  # below floor -> cost tail
+    })
+    out, weights, gate = _relevance_threshold_select(
+        cands, research_question=_LONG_QUESTION, sub_queries=[],
+        fetch_cap=2, n_seed_injected=0,
+    )
+    out_urls = {c.url for c in out}
+    # P0: ALL four above-floor RELEVANT sources are fetched despite budget=2 < 4.
+    assert out_urls == {"https://c/0", "https://c/1", "https://c/2", "https://c/3"}
+    assert gate.kept_on_topic == 4            # all 4 above threshold
+    assert gate.demoted_below_floor == 2      # the two below-floor sources (demoted)
+    assert gate.fetched_budget == 4           # all above-floor fetched (budget did not strand)
+    assert gate.unfetched_relevant_tail == 0  # §-1.3: NO relevant source stranded
+    assert gate.demoted_fetched_to_fill == 0  # budget already spent on above-floor
+    assert gate.demoted_tail == 2             # both below-floor in the cost tail
+    # The recorded tail band is the BELOW-floor score band (the only tail now).
+    assert gate.tail_score_max == pytest.approx(0.20)
+    assert gate.tail_score_min == pytest.approx(0.10)
+    # Every fetched above-floor survivor carries its cosine forward as a weight.
+    assert set(weights.keys()) == {"https://c/0", "https://c/1", "https://c/2", "https://c/3"}
+    # The gate dict is JSON-serializable telemetry.
+    d = gate.to_dict()
+    assert d["unfetched_relevant_tail"] == 0 and d["scorer"] == "semantic_v2"
+
+
+def test_fetch_all_relevant_killswitch_off_reverts_to_budget_bound(monkeypatch):
+    """I-fetch-005 iter-2 P0 rollback: `PG_RELEVANCE_FETCH_ALL_RELEVANT=0` restores the
+    pre-fix behaviour — the budget bounds the WHOLE ordered list, so above-floor sources
+    beyond the budget land in the recorded-but-unfetched relevant tail. Proves the switch
+    is a clean revert (emergency use only; that path drops relevant sources pre-fetch)."""
+    monkeypatch.setenv("PG_RELEVANCE_FETCH_ALL_RELEVANT", "0")
     cands = [
         _cand("https://c/0", title="aaa", origin="q1"),
         _cand("https://c/1", title="bbb", origin="q1"),
@@ -272,24 +325,17 @@ def test_unfetched_relevant_tail_is_recorded(monkeypatch):
     _patch_semantic(monkeypatch, {
         cands[0].snippet_text: 0.90,
         cands[1].snippet_text: 0.80,
-        cands[2].snippet_text: 0.50,  # tail
-        cands[3].snippet_text: 0.40,  # tail
+        cands[2].snippet_text: 0.50,
+        cands[3].snippet_text: 0.40,
     })
     out, weights, gate = _relevance_threshold_select(
         cands, research_question=_LONG_QUESTION, sub_queries=[],
         fetch_cap=2, n_seed_injected=0,
     )
-    assert gate.kept_on_topic == 4            # all 4 above threshold
-    assert gate.demoted_below_floor == 0      # none below floor (none demoted)
-    assert gate.fetched_budget == 2           # budget bounds the fetch
-    assert gate.unfetched_relevant_tail == 2  # the tail is RECORDED
-    assert gate.tail_score_max == pytest.approx(0.50)
-    assert gate.tail_score_min == pytest.approx(0.40)
-    # Only the budget-fetched survivors carry a weight (top-2 by score).
+    # Pre-fix: only the top-2 fetched; the other two above-floor are the recorded tail.
+    assert gate.fetched_budget == 2
+    assert gate.unfetched_relevant_tail == 2   # the pre-fix §-1.3 drop (rollback path only)
     assert set(weights.keys()) == {"https://c/0", "https://c/1"}
-    # The gate dict is JSON-serializable telemetry.
-    d = gate.to_dict()
-    assert d["unfetched_relevant_tail"] == 2 and d["scorer"] == "semantic_v2"
 
 
 # ── seed lane preserved: seeds never scored, never dropped, prepended first ─────
@@ -409,15 +455,28 @@ def test_edges_no_raise(monkeypatch):
     )
     assert [c.url for c in out] == ["https://doi.org/seed"]
     assert gate.total_scored == 0
-    # zero budget with non-seeds present (scorer patched): all become tail.
+    # zero budget with an ABOVE-floor non-seed present (scorer patched). I-fetch-005 iter-2
+    # P0 (§-1.3): the budget bounds ONLY the below-floor fill, so a RELEVANT (above-floor)
+    # source is fetched even at budget 0 — it is NEVER stranded.
     cand = _cand("https://n/0", title="x", origin="q1")
     _patch_semantic(monkeypatch, {cand.snippet_text: 0.9})
     out2, w2, gate2 = _relevance_threshold_select(
         [cand], research_question=_LONG_QUESTION, sub_queries=[], fetch_cap=0, n_seed_injected=0,
     )
-    assert out2 == []                       # budget 0 fetches nothing
-    assert gate2.unfetched_relevant_tail == 1  # the on-topic candidate is the tail
-    assert w2 == {}
+    assert [c.url for c in out2] == ["https://n/0"]  # above-floor fetched despite budget 0
+    assert gate2.fetched_budget == 1
+    assert gate2.unfetched_relevant_tail == 0        # no relevant source stranded
+    assert w2["https://n/0"] == pytest.approx(0.9)
+    # A BELOW-floor non-seed at budget 0 IS bounded (it is off-topic fill, not relevant).
+    below = _cand("https://n/below", title="y", origin="q1")
+    _patch_semantic(monkeypatch, {below.snippet_text: 0.1})
+    out3, w3, gate3 = _relevance_threshold_select(
+        [below], research_question=_LONG_QUESTION, sub_queries=[], fetch_cap=0, n_seed_injected=0,
+    )
+    assert out3 == []                       # budget 0 fetches no below-floor fill
+    assert gate3.demoted_tail == 1          # the below-floor source is the cost tail
+    assert gate3.unfetched_relevant_tail == 0
+    assert w3 == {}
 
 
 # ── infra all-zero: handled by B1's scorer (no B4-private canary) ───────────────
@@ -577,8 +636,9 @@ def test_integrated_run_live_retrieval_emits_weight_and_gate_telemetry(monkeypat
 
     monkeypatch.setenv("PG_RETRIEVAL_RELEVANCE_GATE", "1")
     monkeypatch.setenv("PG_RELEVANCE_FLOOR", "0.30")
-    # fetch_cap=1 so the BUDGET binds: top on-topic fetched, second on-topic is the
-    # recorded unfetched-relevant tail; the off-topic is gated out below threshold.
+    # fetch_cap=1. I-fetch-005 iter-2 P0 (§-1.3): the budget bounds ONLY the below-floor
+    # (off-topic) fill, so BOTH above-floor on-topic sources are FETCHED even at cap=1 — a
+    # relevant source is never stranded. The off-topic below-floor source is the cost tail.
     res = lr.run_live_retrieval(
         research_question=_LONG_QUESTION,
         fetch_cap=1,
@@ -589,27 +649,32 @@ def test_integrated_run_live_retrieval_emits_weight_and_gate_telemetry(monkeypat
     # (1) the relevance-gate telemetry is populated on the result.
     assert res.relevance_gate is not None
     assert res.relevance_gate["scorer"] == "semantic_v2"
-    # §-1.3 DEMOTE-NOT-DROP: the off-topic (below-floor) source is DEMOTED, not dropped.
-    # At cap=1 the highest-cosine above-floor source fills the budget, so the demoted
-    # below-floor source lands in the cost tail (fetched_to_fill=0).
+    # §-1.3 DEMOTE-NOT-DROP: the off-topic (below-floor) source is DEMOTED, not dropped, and
+    # sits in the cost tail. I-fetch-005 iter-2 P0: both above-floor on-topic sources are
+    # FETCHED (the budget did not strand the second one), so the relevant tail is 0.
     assert res.relevance_gate["demoted_below_floor"] == 1     # the below-floor source DEMOTED
-    assert res.relevance_gate["demoted_fetched_to_fill"] == 0 # budget filled by above-floor
-    assert res.relevance_gate["demoted_tail"] == 1            # demoted to the cost tail
+    assert res.relevance_gate["demoted_fetched_to_fill"] == 0 # budget spent on above-floor
+    assert res.relevance_gate["demoted_tail"] == 1            # off-topic demoted to the cost tail
     assert res.relevance_gate["kept_on_topic"] == 2           # both above-floor
-    assert res.relevance_gate["fetched_budget"] == 1          # cap=1 binds
-    assert res.relevance_gate["unfetched_relevant_tail"] == 1 # 2nd above-floor recorded
+    assert res.relevance_gate["fetched_budget"] == 2          # BOTH above-floor fetched (P0)
+    assert res.relevance_gate["unfetched_relevant_tail"] == 0 # no relevant source stranded
 
-    # (2) the fetched evidence row carries the carried-forward relevance_weight.
+    # (2) the fetched evidence row carries the carried-forward relevance_weight. (The
+    # second above-floor source is also FETCHED — proven robustly by fetched_budget==2 +
+    # unfetched_relevant_tail==0 on the pre-dedup gate telemetry above; an evidence-row
+    # assertion for it would be fragile since the two on-topic stubs share identical body
+    # text and consolidate into one basket.)
     fetched_rows = [r for r in res.evidence_rows if r["source_url"] == on_url]
     assert fetched_rows, "the highest-cosine on-topic source must produce a row"
     assert fetched_rows[0]["relevance_weight"] == pytest.approx(0.80)
 
     # (3) the relevance-gate drop_reasons keys are emitted on the result. The
     # below-floor source is now disclosed as a COST tail (relevance_below_floor_tail),
-    # NOT as a hard-drop (the old offtopic_below_threshold drop reason is GONE).
+    # NOT as a hard-drop (the old offtopic_below_threshold drop reason is GONE). The
+    # relevant budget tail is 0 (no above-floor source left unfetched — iter-2 P0).
     assert "offtopic_below_threshold" not in res.drop_reasons   # no hard pre-fetch drop
     assert res.drop_reasons.get("relevance_below_floor_tail") == 1
-    assert res.drop_reasons.get("relevance_budget_tail") == 1
+    assert res.drop_reasons.get("relevance_budget_tail") == 0
 
 
 def test_integrated_below_floor_demoted_survives_to_budget_consumer_path(monkeypatch):
