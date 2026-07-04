@@ -518,6 +518,24 @@ def _serper_search_sync(
         # Add any additional kwargs
         payload.update(kwargs)
 
+        # I-deepfix-001 (#1344) L5 fix: Serper's `q` field has a hard ~2048-char
+        # limit; an over-limit query returns HTTP 400 "query too long" and the
+        # caller silently gets zero results (the drb_72 coverage-l5 0-row bug).
+        # Clip the FINAL query (after any site: expansion) to the limit as a
+        # last-line defence. Env-overridable (LAW VI). Bounds a QUERY STRING
+        # length only -- never drops a source.
+        try:
+            _serper_q_limit = int(os.environ.get("SERPER_QUERY_MAX_CHARS", "2048"))
+        except ValueError:
+            _serper_q_limit = 2048
+        _final_q = payload.get("q")
+        if _serper_q_limit > 0 and isinstance(_final_q, str) and len(_final_q) > _serper_q_limit:
+            logger.warning(
+                "[serper] query length %d exceeds %d-char limit; clipping to avoid HTTP 400",
+                len(_final_q), _serper_q_limit,
+            )
+            payload["q"] = _final_q[:_serper_q_limit].rstrip()
+
         headers = {
             "X-API-KEY": api_key,
             "Content-Type": "application/json"

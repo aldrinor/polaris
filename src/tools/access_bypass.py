@@ -3270,6 +3270,128 @@ async def _bounded_backend(label: str, coro: Any, url: str) -> AccessResult:
     return _backend_failure(label, url, f"backend_timeout_{timeout:.0f}s")
 
 
+# ---------------------------------------------------------------------------
+# I-deepfix-001 (#1344): FIX-QM2 concurrent-fetch late-racer double-resolution
+# guard.
+#
+# THE BUG (observed 5x in the drb_78/drb_90 autopsy runs): the FIX-QM2 concurrent
+# fetch races Crawl4AI (a Playwright browser subprocess) + Jina + Trafilatura
+# (a thread-pool executor) + the clinical-PDF mineru CLI (an asyncio subprocess).
+# A slow racer `_bounded_backend`-cancelled at its wall-clock (e.g. an
+# ansys.com / gspublishing read-timeout at ~30s) keeps its underlying subprocess
+# / executor thread alive. When that abandoned worker FINALLY completes — long
+# after a faster racer already won and the gather returned (drb_90: gather
+# returns 00:08:58, the error fires 00:09:59), and even during `asyncio.run`
+# teardown where `shutdown_default_executor` joins the still-running executor —
+# the library / asyncio transport internals schedule a
+# `loop.call_soon(future.set_result, None)` on a future that is ALREADY done.
+# `Future.set_result` on a done future raises `asyncio.InvalidStateError`, which
+# asyncio's Handle runner routes to `loop.call_exception_handler`; the DEFAULT
+# handler logs it as a scary "asyncio ERROR Exception in callback
+# Future.set_result(None)".
+#
+# It is logged-only (never crashes the run) but pollutes the forensic log and
+# hides that the slow racer was abandoned. The double `set_result` lives in
+# asyncio / Playwright / mineru INTERNALS — there is NO `set_result` in our code
+# to wrap with a `not future.done()` guard. The faithful orchestration-level fix
+# is a NARROW custom loop exception handler that swallows EXACTLY this benign
+# late-racer `InvalidStateError`-from-`set_result` / `set_exception` case and
+# DELEGATES every other exception to the previously-installed handler.
+#
+# Installed idempotently at the top of `fetch_with_bypass` (the FIX-QM2
+# orchestration entry) and NOT restored, so it stays active through the late
+# completion AND the loop-teardown window where the error actually fires. Pure
+# reliability (log hygiene) — it touches NO fetched content, NO verification
+# gate, NO backend selection. Kill-switch: PG_FETCH_LATE_RACER_RACE_GUARD=0.
+# ---------------------------------------------------------------------------
+
+PG_FETCH_LATE_RACER_RACE_GUARD_ENV = "PG_FETCH_LATE_RACER_RACE_GUARD"
+
+# Loops that already carry the guard — keyed by the loop OBJECT. A WeakSet auto-
+# evicts a GC'd per-thread bypass loop (no leak over ~1000 URLs) and cannot alias
+# a recycled loop address. A threading.Lock guards it (each bypass fetch runs on
+# its own thread; WeakSet is not safe under concurrent inserts + weakref-removal
+# callbacks).
+_late_racer_guarded_loops: "weakref.WeakSet[Any]" = weakref.WeakSet()
+_late_racer_guard_lock = threading.Lock()
+
+
+def _late_racer_guard_enabled() -> bool:
+    """Guard is ON unless PG_FETCH_LATE_RACER_RACE_GUARD=0 (default-ON correct
+    fix; '0' reverts to the noisy default handler that logs the benign error)."""
+    return os.getenv(PG_FETCH_LATE_RACER_RACE_GUARD_ENV, "1").strip() != "0"
+
+
+def _is_late_racer_double_resolution(context: Dict[str, Any]) -> bool:
+    """True iff `context` is the benign late-racer double-resolution: an
+    `asyncio.InvalidStateError` raised by a `set_result` / `set_exception`
+    callback on an already-done future.
+
+    NARROW by design — an InvalidStateError with no set_result / set_exception
+    provenance (e.g. a genuine `task.result()`-before-done bug) is NOT swallowed;
+    it falls through to the delegate so real bugs stay visible."""
+    exc = context.get("exception")
+    if not isinstance(exc, asyncio.InvalidStateError):
+        return False
+    parts: List[str] = []
+    handle = context.get("handle")
+    if handle is not None:
+        try:
+            parts.append(repr(handle))
+        except Exception:  # noqa: BLE001 — repr must never break the handler
+            pass
+    message = context.get("message")
+    if message:
+        parts.append(str(message))
+    blob = " ".join(parts)
+    return "set_result" in blob or "set_exception" in blob
+
+
+def _install_late_racer_double_resolve_guard(
+    loop: "asyncio.AbstractEventLoop",
+) -> None:
+    """Install the narrow late-racer double-resolution exception handler on
+    `loop` — idempotently (once per loop) and NON-restoring, so it outlives the
+    gather to catch the late completion + teardown-time error. Delegates every
+    non-matching exception to the handler set BEFORE us (the default handler when
+    None). Safe on a long-lived loop (pipeline B): idempotent-install + delegate
+    never clobbers a foreign handler's behavior."""
+    if not _late_racer_guard_enabled():
+        return
+    with _late_racer_guard_lock:
+        if loop in _late_racer_guarded_loops:
+            return
+        previous_handler = loop.get_exception_handler()
+
+        def _guard(
+            guarded_loop: "asyncio.AbstractEventLoop",
+            context: Dict[str, Any],
+            _previous=previous_handler,
+        ) -> None:
+            if _is_late_racer_double_resolution(context):
+                logger.debug(
+                    "[ACCESS] late-racer double-resolution swallowed "
+                    "(benign %s from an abandoned slow racer): %s",
+                    type(context.get("exception")).__name__,
+                    str(context.get("message", ""))[:120],
+                )
+                return
+            if _previous is None:
+                guarded_loop.default_exception_handler(context)
+            else:
+                _previous(guarded_loop, context)
+
+        loop.set_exception_handler(_guard)
+        _late_racer_guarded_loops.add(loop)
+
+
+def reset_late_racer_guard_state() -> None:
+    """Test-isolation ONLY: forget which loops carry the guard (mirrors
+    `reset_crawl4ai_semaphore_state`). Not called on the production path."""
+    with _late_racer_guard_lock:
+        _late_racer_guarded_loops.clear()
+
+
 class AccessBypass:
     """
     Research access manager.
@@ -3338,6 +3460,20 @@ class AccessBypass:
         4. Institutional proxy
         5. Sci-Hub (last resort for academic papers)
         """
+        # I-deepfix-001 (#1344): install the narrow late-racer double-resolution
+        # guard on THIS loop BEFORE any backend races — it must already be active
+        # when a slow abandoned racer (Crawl4AI/mineru subprocess, Trafilatura
+        # executor) completes late and the transport internals double-resolve an
+        # already-done future (see `_install_late_racer_double_resolve_guard`).
+        # Best-effort: guard install must never break a fetch.
+        try:
+            _install_late_racer_double_resolve_guard(asyncio.get_running_loop())
+        except Exception as _guard_err:  # noqa: BLE001 — log-hygiene guard only
+            logger.debug(
+                "[ACCESS] late-racer guard install skipped: %s",
+                str(_guard_err)[:120],
+            )
+
         # D (I-extract-001 #1327): per-fetch block-page/stub state. `seen` flips
         # True on the first block-page detection across any backend so a later
         # clean fetch on this URL is counted as a successful re-fetch (canary

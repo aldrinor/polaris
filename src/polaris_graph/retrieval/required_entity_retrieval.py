@@ -100,6 +100,24 @@ _DEFAULT_MAX_RESULTS_PER_QUERY = 5
 _MAX_SEED_URLS_PER_ENTITY_ENV = "PG_REQUIRED_ENTITY_MAX_SEED_URLS_PER_ENTITY"
 _DEFAULT_MAX_SEED_URLS_PER_ENTITY = 3
 
+# --- query-length safety bounds (I-deepfix-001 #1344, L5 fix) -----------------
+# The research-question-anchored gap / coverage queries prepend the WHOLE
+# question to each entity. On drb_72 the raw question was 2116 chars, so the
+# built ``<question> <entity>`` query blew past Serper's 2048-char ``q`` hard
+# limit -> HTTP 400 "query too long" -> the lane merged 0 rows and every derived
+# entity stayed a gap. Two env-overridable (LAW VI) bounds fix it:
+#   * the ANCHOR is clipped to its first N chars (mirrors the _intervention_anchor
+#     ``[:120]`` fallback) so the question can never dominate the query, and
+#   * the FINAL built query string is hard-clipped to the Serper ceiling as a
+#     last-line defence for a pathologically long entity term.
+# This bounds a QUERY STRING length only — it NEVER drops a source
+# (§-1.3 WEIGHT-AND-CONSOLIDATE, not FILTER): a length-bounded query makes the
+# coverage lane actually reach Serper instead of 400-ing to zero rows.
+_QUERY_ANCHOR_MAX_CHARS_ENV = "PG_REQUIRED_ENTITY_QUERY_ANCHOR_MAX_CHARS"
+_DEFAULT_QUERY_ANCHOR_MAX_CHARS = 120
+_SERPER_QUERY_MAX_CHARS_ENV = "PG_SERPER_QUERY_MAX_CHARS"
+_DEFAULT_SERPER_QUERY_MAX_CHARS = 2048
+
 # --- minimum verifiable span (mirrors contract_section_runner default) --------
 # A METADATA_ONLY row whose direct_quote is shorter than this has no verifiable
 # span to cite — it is treated as UNSATISFIED (the same floor the gap-routing in
@@ -163,6 +181,47 @@ def _bounded_int_env(name: str, default: int) -> int:
     except ValueError:
         return default
     return max(0, value)
+
+
+def _query_anchor_max_chars() -> int:
+    return _bounded_int_env(
+        _QUERY_ANCHOR_MAX_CHARS_ENV, _DEFAULT_QUERY_ANCHOR_MAX_CHARS
+    )
+
+
+def _serper_query_max_chars() -> int:
+    return _bounded_int_env(
+        _SERPER_QUERY_MAX_CHARS_ENV, _DEFAULT_SERPER_QUERY_MAX_CHARS
+    )
+
+
+def _bounded_anchor(research_question: str) -> str:
+    """Whitespace-collapsed research question clipped to the query-anchor char
+    ceiling (mirrors :func:`_intervention_anchor`'s ``[:120]`` fallback).
+
+    Bounding the anchor length keeps the built ``<anchor> <entity>`` query inside
+    Serper's 2048-char ``q`` limit so a long question no longer 400s the coverage
+    lane. It bounds a QUERY STRING length only — no source is dropped (§-1.3).
+    A ``0`` ceiling (explicit operator override) disables the anchor clip.
+    """
+    collapsed = " ".join((research_question or "").split()).strip()
+    limit = _query_anchor_max_chars()
+    return collapsed[:limit] if limit > 0 else collapsed
+
+
+def _bounded_gap_query(anchor: str, entity: str) -> str:
+    """Build ``<anchor> <entity>`` and hard-clip to the Serper query ceiling.
+
+    The anchor is already length-bounded by :func:`_bounded_anchor`; this final
+    clip is the belt-and-suspenders guarantee that NO built query can exceed the
+    Serper ``q`` limit even for a pathologically long entity term. A ``0``
+    ceiling (explicit operator override) disables the final clip.
+    """
+    query = f"{anchor} {entity}".strip() if anchor else (entity or "").strip()
+    limit = _serper_query_max_chars()
+    if limit > 0 and len(query) > limit:
+        query = query[:limit].rstrip()
+    return query
 
 
 def required_entity_domains() -> tuple[str, ...]:
@@ -342,7 +401,7 @@ def missing_entity_gap_queries(
         if max_queries is None
         else max(0, max_queries)
     )
-    anchor = " ".join((research_question or "").split()).strip()
+    anchor = _bounded_anchor(research_question)
     queries: list[str] = []
     seen: set[str] = set()
     for raw_entity in required_entities or ():
@@ -351,7 +410,7 @@ def missing_entity_gap_queries(
             continue
         if entity_covered_in_corpus(entity, corpus_texts):
             continue
-        query = f"{anchor} {entity}".strip() if anchor else entity
+        query = _bounded_gap_query(anchor, entity)
         key = query.lower()
         if key in seen:
             continue
@@ -858,7 +917,7 @@ def run_l5_required_entity_coverage(
         _MAX_SEED_URLS_PER_ENTITY_ENV, _DEFAULT_MAX_SEED_URLS_PER_ENTITY
     )
     bias = list(domains or [])
-    anchor = " ".join((research_question or "").split()).strip()
+    anchor = _bounded_anchor(research_question)
 
     queries_by_entity: dict[str, str] = {}
     seed_urls: list[str] = []
@@ -866,7 +925,7 @@ def run_l5_required_entity_coverage(
     gap_entities: list[str] = []
 
     for entity in missing:
-        query = f"{anchor} {entity}".strip() if anchor else entity
+        query = _bounded_gap_query(anchor, entity)
         queries_by_entity[entity] = query
         try:
             hits = search_fn(query, domains=bias, max_results=max_results)
