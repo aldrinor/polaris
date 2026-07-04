@@ -2306,6 +2306,27 @@ def _judge_verdict_idempotency_enabled() -> bool:
     )
 
 
+def _benchmark_official_question_enabled() -> bool:
+    """PG_BENCHMARK_OFFICIAL_QUESTION kill-switch (default OFF, opt-in). Read at CALL time (LAW VI).
+
+    The wrong-question fix for the benchmark path. ``run_gate_b`` calls ``run_one_query`` DIRECTLY,
+    bypassing ``run_honest_sweep_r3.main_async`` — where the GATE0 canonical override
+    (run_honest_sweep_r3.py:19099) rewrites each benchmark ``q["question"]`` to the CANONICAL gold-file
+    question by idx. So a benchmark launched through ``run_gate_b`` runs on the ``SWEEP_QUERIES`` prompt
+    verbatim, which for ``drb_72_ai_labor`` is the I-safety-002b program's FIR/safety prompt (a different
+    program shares the slug) — NOT the official DRB-II idx-56 GenAI question. When this flag is truthy,
+    ``run_gate_b_query`` replaces ``q["question"]`` with ``gate0_lineage.canonical_question_for_slug(slug)``
+    BEFORE retrieval/generation, so protocol.json ``research_question``, retrieval, generation, and the
+    report title all use the official idx question.
+
+    Default OFF is byte-identical (the safety program keeps its locked FIR prompt; the locked file
+    ``.codex/I-safety-002b/golden_questions_locked.md`` is never touched). FAITHFULNESS-NEUTRAL: this
+    changes ONLY the input question text — no verify threshold, gate, span-grounding, or NLI rule."""
+    return os.getenv("PG_BENCHMARK_OFFICIAL_QUESTION", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 # ── FIX 3 (I-deepfix-001 Codex gate P1, M6 firing-canary wiring) ─────────────────────────────────────
 # The M6 producer (``cross_source_synthesis.compose_cross_source_analytical_units``) logs its fire /
 # silent-no-op markers via its MODULE logger, which streams to STDOUT — NOT to ``run_dir/run_log.txt``
@@ -3816,6 +3837,45 @@ async def run_gate_b_query(
     # PG_WINNER_SLATE_PRESPEND_ASSERT kill-switch; faithfulness-neutral (reads env + slate constants only).
     assert_coverage_levers_armed()
 
+    # OFFICIAL-QUESTION OVERRIDE (wrong-question fix). ``run_gate_b`` bypasses
+    # ``run_honest_sweep_r3.main_async``, where the GATE0 canonical override
+    # (run_honest_sweep_r3.py:19099) rewrites each benchmark ``q["question"]`` to the CANONICAL
+    # gold-file question by idx. So a benchmark launched HERE runs on the raw ``SWEEP_QUERIES``
+    # prompt — for ``drb_72_ai_labor`` that is the I-safety-002b FIR/safety prompt (a different
+    # program shares the slug), NOT the official DRB-II idx-56 GenAI question. When
+    # ``PG_BENCHMARK_OFFICIAL_QUESTION`` is truthy, replace ``q["question"]`` with the canonical
+    # question (by gold-file idx, via gate0_lineage) BEFORE ``run_one_query`` runs, so protocol.json
+    # ``research_question``, retrieval, generation, and the report title all use the official idx
+    # question. Copies the dict so the shared ``SWEEP_QUERIES`` entry is never mutated (the loader
+    # returns the live registry dict). Default OFF => byte-identical (the safety program keeps its
+    # locked prompt). FAITHFULNESS-NEUTRAL: only the INPUT question text changes; no verify/gate/NLI
+    # rule is touched. Import + gold-file read are lazy + gated so the module's NO-SPEND-at-import
+    # invariant and off-path (no third_party gold file) both hold.
+    if _benchmark_official_question_enabled():
+        _official_slug = q.get("slug")
+        from scripts.dr_benchmark.gate0_lineage import (
+            SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
+            canonical_question_for_slug as _gate0_canonical_q,
+            sha256_text as _gate0_sha,
+        )
+        if _official_slug not in _GATE0_SLUG_TO_IDX:
+            # FAIL LOUD (LAW II): the operator asked for the official question but this slug has no
+            # canonical DRB-II idx binding — never silently run the wrong (locked) prompt.
+            raise ValueError(
+                f"PG_BENCHMARK_OFFICIAL_QUESTION set but slug {_official_slug!r} has no canonical "
+                f"DRB-II idx in gate0_lineage.SLUG_TO_IDX — cannot resolve the official question "
+                f"(would silently run the wrong prompt). Register the slug's gold idx or unset the "
+                f"override."
+            )
+        _official_question = _gate0_canonical_q(_official_slug)
+        if _gate0_sha(q.get("question", "")) != _gate0_sha(_official_question):
+            print(
+                f"[OFFICIAL-QUESTION] slug {_official_slug}: launched question OVERRIDDEN with "
+                f"canonical DRB-II idx {_GATE0_SLUG_TO_IDX[_official_slug]} (was the locked program "
+                f"prompt); protocol.json + retrieval + generation now use the official question."
+            )
+        q = {**q, "question": _official_question}
+
     from scripts.run_honest_sweep_r3 import run_one_query
 
     enable_four_role_mode()
@@ -4454,7 +4514,25 @@ def main(argv: list[str] | None = None) -> int:
             "BEFORE the full-scale beat-both run."
         ),
     )
+    parser.add_argument(
+        "--official-question", action="store_true", default=False,
+        help=(
+            "Wrong-question fix: run the OFFICIAL DeepResearch-Bench-II question for each benchmark "
+            "slug (resolved by gold-file idx via gate0_lineage) instead of the SWEEP_QUERIES prompt. "
+            "The benchmark path bypasses run_honest_sweep_r3.main_async's GATE0 canonical override, so "
+            "drb_72_ai_labor otherwise generates on the I-safety-002b FIR prompt (a different program "
+            "shares the slug). Sets PG_BENCHMARK_OFFICIAL_QUESTION=1. Default OFF = byte-identical "
+            "(the safety program keeps its locked prompt). Faithfulness-neutral (input question only). "
+            "Requires the third_party gold file present (fails loud otherwise)."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # --official-question is operator sugar for the PG_BENCHMARK_OFFICIAL_QUESTION env override that
+    # run_gate_b_query reads at call time (single override implementation). Set it BEFORE the per-query
+    # loop so both --only and --all pick it up; a pre-existing env value already truthy also stands.
+    if args.official_question:
+        os.environ["PG_BENCHMARK_OFFICIAL_QUESTION"] = "1"
 
     # --only validates against the locked slug set BEFORE any env-touching import (fail loud).
     if args.only is not None and args.only not in LOCKED_BENCHMARK_SLUGS:
