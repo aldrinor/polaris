@@ -970,6 +970,22 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # operator =0 cannot survive the setdefault slate and silently restore the tier-count refusal on the
     # paid beat-both run (the I-cap-005 P1-1 force-on pattern).
     "PG_SWEEP_WEIGHTED_CORPUS_GATE": "1",
+    # drb_72 / I-deepfix-001 (#1344): the corpus_approval REFUSAL fix. run_gate_b force-sets
+    # PG_BENCHMARK_STRICT_GATES=1 (below), which RE-IMPOSES the #1235 hard tier-COUNT refusal on a
+    # MATERIAL tier deviation EVEN WHEN the weighted-corpus gate is ON — so an ADEQUATE workforce corpus
+    # whose credible NON-JOURNAL think-tank sources (NBER/Brookings/HBS/McKinsey/OECD = tier T4) push T4
+    # above the workforce-protocol expected-max is REFUSED (abort_corpus_approval_denied) with ZERO
+    # generator tokens. That refusal is the §-1.3-banned FILTER-not-WEIGHT (it verifies NO individual
+    # claim; the credible non-journals are legitimate primary sources at their real weight). The
+    # purpose-built kill-switch PG_WEIGHTED_GATE_PROCEED_ON_SKEW (run_honest_sweep_r3.py:1518) relaxes
+    # ONLY that hard tier-COUNT refusal into DISCLOSE-and-PROCEED via the credibility-weighted path, and
+    # ONLY when the weighted gate is ON AND the corpus-ZERO floor passes (non-empty). The adequacy gate
+    # (real insufficiency STILL aborts — §9.1.5), the corpus-ZERO floor (has_usable_corpus — an EMPTY
+    # corpus STILL refuses), and the per-claim faithfulness engine (strict_verify / NLI / 4-role D8 /
+    # provenance) are ALL untouched. Force-on + required + allowlisted below so a stray operator =0 cannot
+    # silently re-impose the refusal on the paid run (I-cap-005 P1-1 force-on pattern; the exact slate
+    # discipline PG_SWEEP_WEIGHTED_CORPUS_GATE itself carries above).
+    "PG_WEIGHTED_GATE_PROCEED_ON_SKEW": "1",
     # I-perm-000 permanent-fix activation (#1194). Each fix is DEFAULT OFF (byte-identical) and is
     # INERT in production unless the slate turns it on — the exact "fix built but not live" trap.
     # Force-on + required below so a stray operator =0 cannot survive the setdefault slate and
@@ -1623,6 +1639,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
     # is not active so a tier-mix refusal can never silently reach the paid run.
     "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    # drb_72 / I-deepfix-001 (#1344): PG_WEIGHTED_GATE_PROCEED_ON_SKEW must be ON for the beat-both run —
+    # OFF lets PG_BENCHMARK_STRICT_GATES=1 re-impose the #1235 tier-COUNT corpus REFUSAL that aborted the
+    # drb_72 official-question smoke (abort_corpus_approval_denied) on an ADEQUATE-but-tier-skewed corpus.
+    # Fail CLOSED if a stray operator =0 left it off so the §-1.3 filter-not-weight refusal can never reach
+    # the paid run. Disclose-and-proceed keeps the adequacy gate + corpus-ZERO floor + faithfulness engine.
+    "PG_WEIGHTED_GATE_PROCEED_ON_SKEW",
     # I-perm-000 permanent-fix (#1194): the keystone always-release + the numeric sanitizer + the
     # are DEFAULT OFF; required here so the preflight FAILS CLOSED if either is off, i.e. the paid
     # run can NEVER silently revert to the pre-fix withhold / DOI-cruft / literal-token behaviour.
@@ -1801,6 +1823,12 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # PG_SWEEP_WEIGHTED_CORPUS_GATE=0 cannot survive the setdefault slate and silently restore the
     # §-1.1-banned tier-count corpus REFUSAL on the paid beat-both run (the I-cap-005 P1-1 pattern).
     "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    # drb_72 / I-deepfix-001 (#1344): force-on the proceed-on-skew kill-switch so an explicit operator
+    # PG_WEIGHTED_GATE_PROCEED_ON_SKEW=0 cannot survive the setdefault slate and silently restore the
+    # benchmark strict-gate tier-COUNT corpus REFUSAL on the paid run (the drb_72 official-question
+    # smoke abort). FAITHFULNESS-NEUTRAL (pre-generation CORPUS gate only; disclose-and-proceed via the
+    # credibility-weighted path, NEVER a source drop). Allowlisted for SLATE-PURITY below.
+    "PG_WEIGHTED_GATE_PROCEED_ON_SKEW",
     # I-beatboth-fix-000 (#1171): force-on the two breadth feature flags so an explicit operator =0
     # cannot survive the setdefault slate and silently restore the breadth-collapse behaviour.
     # BB-002: keep Serper offset-paging past short pages (else the de-facto 10/query ceiling returns).
@@ -2465,6 +2493,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_ALWAYS_RELEASE",                     # always-release (labeler-not-blocker)
     "PG_SECTION_DISTILL",                    # map-reduce evidence distiller
     "PG_SWEEP_WEIGHTED_CORPUS_GATE",         # weighted-corpus gate (no tier-count refusal)
+    "PG_WEIGHTED_GATE_PROCEED_ON_SKEW",      # drb_72 proceed-on-skew: relax strict tier-COUNT refusal -> disclose+proceed (gate-adjacent infra; weight-not-filter, faithfulness-neutral)
     "PG_VERIFIED_COMPOSE_MULTICITED",        # keystone multi-citation synthesis
     "PG_SWEEP_DEPTH_LAYER",                  # grounded DEPTH cross-source synthesis
     "PG_CROSS_SOURCE_SYNTHESIS",             # M6 cross-source analytical layer (I-deepfix-001 #1344 WS-2)
