@@ -9986,6 +9986,19 @@ async def run_one_query(
             # Resume runs replay a banked corpus and MUST NOT fire live
             # retrieval; on resume the loop-back is skipped (loops_fired=0).
             _crag_loop_enabled = not _resume_active and not _resume_from_fetch
+            # I-deepfix-001 #1367 (retrieval convergence): corrective-loop state.
+            #   * `_crag_prev_round_rows` / `_crag_last_round_rows` feed the yield-
+            #     saturation novelty metric (the corpus BEFORE the last corrective
+            #     round vs the rows that round fetched).
+            #   * `_crag_tried_queries` is the novelty/dedup guard: every corrective
+            #     query already issued (normalized) — seeded with the raw question so a
+            #     round can never regurgitate it — so a round cannot re-emit a near-
+            #     duplicate / already-tried query (the drb_72 non-convergence).
+            _crag_prev_round_rows: list = []
+            _crag_last_round_rows: list = []
+            _crag_tried_queries: set[str] = {
+                _crag_adq.normalize_query_key(_clean_question)
+            }
             while _crag_loop_enabled and _crag_adq.should_loop_back(
                 sufficient=_crag_sufficient, loops_done=_loops_done,
             ):
@@ -10017,14 +10030,74 @@ async def run_one_query(
                          f"sources gathered so far "
                          f"(PG_RETRIEVAL_QUESTION_WALL_SECONDS)")
                     break
+                # I-deepfix-001 #1367 (retrieval convergence): yield-saturation
+                # arbitration. Once >= 1 corrective round has fired and it stopped
+                # surfacing NEW sources (yield saturated) or the outer compute bound
+                # is hit, STOP EARLY (before the fixed max_loops budget) and proceed
+                # to composition — ACCEPT-with-disclosed-gap — instead of grading the
+                # corpus INCORRECT and spinning another empty corrective round (the
+                # drb_72 non-convergence: malformed corrective queries fetch ~nothing,
+                # the grader can never reach CORRECT, and the loop burns its whole
+                # budget). §-1.3: drops ZERO gathered sources; the faithfulness engine
+                # is untouched; the count-floor's `proceed` selects the disclosure
+                # label. This only ever stops EARLIER than the outer `should_loop_back`
+                # ceiling, so `loops_fired <= max_loops` still holds.
+                _cf_proceed = getattr(adequacy, "decision", "") == "proceed"
+                _arb = _crag_adq.crag_loop_arbitration(
+                    sufficient=_crag_sufficient,
+                    count_floor_proceed=_cf_proceed,
+                    loops_done=_loops_done,
+                    prev_corpus_rows=_crag_prev_round_rows,
+                    last_round_rows=_crag_last_round_rows,
+                )
+                if _arb != _crag_adq.ARBITRATION_LOOP_BACK:
+                    _crag_loop_trace["stopped_reason"] = _arb
+                    if _arb in _crag_adq.ARBITRATION_ACCEPT_DISCLOSED_GAP_REASONS:
+                        _crag_loop_trace["disclosed_gap_dimensions"] = list(
+                            _crag_verdict.get("gap_dimensions") or []
+                        )
+                    _log(f"[crag-adequacy] arbitration={_arb} after {_loops_done} "
+                         f"corrective round(s) — accept-with-disclosed-gap; proceeding "
+                         f"to composition with the "
+                         f"{len(retrieval.classified_sources)} sources gathered so far "
+                         f"(count_floor_proceed={_cf_proceed})")
+                    break
                 _gap_queries = _crag_adq.derive_gap_queries(
                     research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                     findings=adequacy.findings,
                     gap_dimensions=_crag_verdict.get("gap_dimensions") or [],
+                    # I-deepfix-001 #1367: novelty/dedup guard — never re-emit a near-
+                    # duplicate / already-tried corrective query (queries are also
+                    # boilerplate-stripped + length-capped inside derive_gap_queries so
+                    # openalex_search accepts them).
+                    already_tried=_crag_tried_queries,
                 )
                 if not _gap_queries:
-                    # No specific gap dimension to target — re-issue the question.
-                    _gap_queries = [_clean_question]  # I-deepfix-001 B3 P1-B: clean query
+                    # I-deepfix-001 #1367: no NEW gap query to issue — the corrective
+                    # frontier is exhausted. Emitting nothing correctly trips yield-
+                    # saturation: ACCEPT-with-disclosed-gap (proceed to composition
+                    # disclosing the residual gap) rather than regurgitate the raw
+                    # question (which the drb_72 corrective rounds looped on, fetching
+                    # ~nothing and never converging). §-1.3: drops ZERO sources; the
+                    # faithfulness engine is untouched.
+                    _stop_reason = (
+                        _crag_adq.ARBITRATION_ACCEPT_DISCLOSED_GAP
+                        if _cf_proceed
+                        else _crag_adq.ARBITRATION_ACCEPT_SATURATED_BELOW_FLOOR
+                    )
+                    _crag_loop_trace["stopped_reason"] = _stop_reason
+                    _crag_loop_trace["corrective_frontier_exhausted"] = True
+                    _crag_loop_trace["disclosed_gap_dimensions"] = list(
+                        _crag_verdict.get("gap_dimensions") or []
+                    )
+                    _log("[crag-adequacy] no NEW gap query to issue — corrective "
+                         f"frontier exhausted; accept-with-disclosed-gap ({_stop_reason}), "
+                         "proceeding to composition")
+                    break
+                # I-deepfix-001 #1367: record the issued queries in the novelty/dedup
+                # guard so the NEXT round cannot re-emit them.
+                for _gq in _gap_queries:
+                    _crag_tried_queries.add(_crag_adq.normalize_query_key(_gq))
                 _log(f"[crag-adequacy] loop {_loops_done + 1}/"
                      f"{_crag_adq.max_loops()}  verdict={_crag_verdict['verdict']}  "
                      f"gap_queries={len(_gap_queries)}")
@@ -10046,6 +10119,11 @@ async def run_one_query(
                     loops_done=_loops_done,
                     sufficient=_crag_sufficient,
                 )
+                # I-deepfix-001 #1367: snapshot the corpus BEFORE this round merges
+                # (the yield-saturation novelty baseline read by the next iteration's
+                # arbitration). Must be taken pre-merge — a post-merge snapshot would
+                # read novelty ~0 every round and false-saturate at round 1.
+                _crag_prev_round_rows = list(retrieval.evidence_rows)
                 try:
                     # PARALLEL fan-out across backends, already bounded inside
                     # run_live_retrieval — reused, not re-implemented.
@@ -10072,6 +10150,13 @@ async def run_one_query(
                         enable_prefetch_filter=False,
                         domain=q["domain"],
                         retrieval_deadline_monotonic=_corrective_deadline,  # I-deepfix-001 U22 (#1344): reserved budget for the guaranteed first corrective round (else SHARED per-question wall — FIX-2)
+                    )
+                    # I-deepfix-001 #1367: record the rows THIS round fetched (the
+                    # yield-saturation novelty numerator the next iteration's arbitration
+                    # compares against `_crag_prev_round_rows`). A round that fetched
+                    # nothing new -> saturated -> accept-with-disclosed-gap next pass.
+                    _crag_last_round_rows = list(
+                        getattr(crag_retrieval, "evidence_rows", None) or []
                     )
                     # Merge: add new sources / evidence not already present
                     # (same proven pattern as the R-6 expansion below).

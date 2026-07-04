@@ -377,9 +377,16 @@ def test_b3_clean_question_threaded_to_backend_retrieval_seeds():
     # CRAG gap-derivation + CRAG loop-back retrieval + R6 expansion + primary retrieval all fire clean.
     # (primary 1 + FS/Iter scope-context 1 + CRAG derive 1 + CRAG loop-back 1 + R6 expansion 1 = 5)
     assert src.count("research_question=_clean_question,") >= 5
-    # the CRAG no-gap fallback re-issues the CLEAN question, never the raw one.
-    assert "_gap_queries = [_clean_question]" in src
+    # I-deepfix-001 #1367 (retrieval convergence): the CRAG no-gap path NO LONGER
+    # re-issues ANY question as a corrective query — that raw/clean-question
+    # regurgitation was the drb_72 non-convergence (openalex rejected the malformed
+    # echo, the grader never reached CORRECT, the loop burned its budget). The no-gap
+    # path now emits nothing and accept-with-disclosed-gap, and the corrective gap
+    # derivation carries the clean question through a novelty/dedup guard. The raw
+    # q["question"] must still never seed the corrective retrieval.
     assert '_gap_queries = [q["question"]]' not in src
+    assert "_gap_queries = [_clean_question]" not in src
+    assert "already_tried=_crag_tried_queries" in src
 
 
 # ---------------------------------------------------------------------------

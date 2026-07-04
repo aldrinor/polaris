@@ -69,6 +69,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable
 from typing import Any
 
 logger = logging.getLogger("polaris_graph.crag_adequacy_loop")
@@ -543,6 +544,80 @@ def should_loop_back_saturating(
     return True
 
 
+# ── I-deepfix-001 #1367: corrective-loop arbitration (accept-with-disclosed-gap) ─
+# Outcome labels for :func:`crag_loop_arbitration`. Any ``accept_*`` outcome STOPS the
+# corrective loop and hands the gathered corpus off to composition; ``loop_back`` fires
+# one more corrective round.
+ARBITRATION_ACCEPT_SUFFICIENT: str = "accept_sufficient"
+ARBITRATION_ACCEPT_DISCLOSED_GAP: str = "accept_disclosed_gap"
+ARBITRATION_ACCEPT_SATURATED_BELOW_FLOOR: str = "accept_saturated_below_floor"
+ARBITRATION_LOOP_BACK: str = "loop_back"
+# Both disclosed-gap variants proceed to composition DISCLOSING a residual coverage gap
+# (never an abort / source drop — §-1.3); the run-script treats them alike.
+ARBITRATION_ACCEPT_DISCLOSED_GAP_REASONS: frozenset[str] = frozenset(
+    {ARBITRATION_ACCEPT_DISCLOSED_GAP, ARBITRATION_ACCEPT_SATURATED_BELOW_FLOOR}
+)
+
+
+def crag_loop_arbitration(
+    *,
+    sufficient: bool,
+    count_floor_proceed: bool,
+    loops_done: int,
+    prev_corpus_rows: list[Any],
+    last_round_rows: list[Any],
+    yield_eps: float | None = None,
+    max_saturation_loops: int | None = None,
+) -> str:
+    """Arbitrate the corrective loop: fire another round, or ACCEPT-with-disclosed-gap.
+
+    I-deepfix-001 #1367 — the honest §-1.3 answer to the drb_72 non-convergence. When a
+    corrective round stopped surfacing NEW sources (yield saturated) OR the outer
+    compute bound is hit, and the corpus is NOT graded sufficient, do NOT keep grading it
+    INCORRECT and spin another empty corrective round. Proceed to composition, DISCLOSING
+    the residual coverage gap. This NEVER drops a source and never relaxes a faithfulness
+    gate — it only decides WHEN to stop widening the corpus. The CRAG/adequacy loop is
+    thereby never a hard non-convergence driver (the drb_72 defect: malformed corrective
+    queries fetch ~nothing, the grader can never reach CORRECT, and the loop burns its
+    whole budget every cycle).
+
+    Decision ladder:
+      1. ``sufficient`` -> ``accept_sufficient`` (the CRAG grader is confident).
+      2. ``loops_done <= 0`` -> ``loop_back`` (Corrective-RAG guarantees the FIRST
+         corrective round on an insufficient corpus; no yield history yet).
+      3. the yield-saturation stop (:func:`should_loop_back_saturating`) still says keep
+         going (last round surfaced new sources AND under the compute bound) ->
+         ``loop_back``.
+      4. otherwise the loop must stop WITHOUT sufficiency:
+         * ``count_floor_proceed`` True  -> ``accept_disclosed_gap`` (the deterministic
+           count-floor already judged the corpus adequate; only the CRAG grader wanted
+           more — proceed and disclose the residual gap).
+         * ``count_floor_proceed`` False -> ``accept_saturated_below_floor`` (the corpus
+           is below the count-floor AND the corrective retrieval cannot surface anything
+           new; still proceed + disclose — adequacy is never a hard abort, the
+           faithfulness engine is the only hard gate — but flag the stronger gap).
+
+    Args mirror :func:`should_loop_back_saturating`; ``count_floor_proceed`` is the
+    deterministic count-floor's proceed decision (``adequacy.decision == "proceed"``).
+    """
+    if sufficient:
+        return ARBITRATION_ACCEPT_SUFFICIENT
+    if loops_done <= 0:
+        return ARBITRATION_LOOP_BACK
+    if should_loop_back_saturating(
+        sufficient=sufficient,
+        loops_done=loops_done,
+        prev_corpus_rows=prev_corpus_rows,
+        last_round_rows=last_round_rows,
+        yield_eps=yield_eps,
+        max_saturation_loops=max_saturation_loops,
+    ):
+        return ARBITRATION_LOOP_BACK
+    if count_floor_proceed:
+        return ARBITRATION_ACCEPT_DISCLOSED_GAP
+    return ARBITRATION_ACCEPT_SATURATED_BELOW_FLOOR
+
+
 def corrective_reserve_seconds() -> float:
     """Bounded reserved retrieval budget (seconds) for the GUARANTEED first
     corrective round. Reads `PG_ADEQUACY_CRAG_CORRECTIVE_RESERVE_SECONDS`.
@@ -655,12 +730,90 @@ def corrective_iter_deadline(
     return shared_deadline
 
 
+# ── I-deepfix-001 #1367: corrective-query hygiene ────────────────────────────
+# The drb_72 non-convergence: the corrective query generator ran dry and echoed
+# near-verbatim question fragments (e.g. "researching impact generative future labor
+# market please help"). openalex_search (/works?search=<q>) returns ~nothing on those
+# malformed / boilerplate-laden long queries, so the corrective rounds fetched almost
+# nothing, the CRAG grader could never reach CORRECT, and the loop burned its whole
+# budget. These pure helpers CLEAN each derived query (strip search-noise boilerplate,
+# cap length) and provide the normalized dedup key the novelty guard keys on. §-1.3:
+# they only clean the QUERY STRING that is searched — no source is ever filtered or
+# dropped and the faithfulness engine is untouched.
+QUERY_MAX_WORDS_ENV: str = "PG_ADEQUACY_CRAG_QUERY_MAX_WORDS"
+_DEFAULT_QUERY_MAX_WORDS: int = 24
+# Words reserved for the gap-bias phrase so capping the question STEM never drops it.
+_QUERY_PHRASE_RESERVE_WORDS: int = 8
+# Conversational / imperative filler that is search NOISE for a keyword backend but
+# never a subject term. Multi-word phrases FIRST so a subset ("please") cannot strip a
+# fragment of an already-removed phrase ("please help"). Stripped case-insensitively as
+# whole tokens only (never inside a word) so subject terms are byte-preserved.
+_QUERY_BOILERPLATE_PHRASES: tuple[str, ...] = (
+    "please help me", "please help", "help me please", "can you help me",
+    "can you help", "could you help me", "could you help",
+    "i am researching", "i'm researching", "i am looking for", "i'm looking for",
+    "tell me about", "thanks in advance", "thank you",
+    "researching", "please", "kindly", "thanks",
+)
+
+
+def _query_max_words() -> int:
+    """Word cap for a derived corrective query (>= 1). Reads
+    `PG_ADEQUACY_CRAG_QUERY_MAX_WORDS`.
+
+    A CAP so an over-long regurgitated question is not sent verbatim to a keyword
+    backend that returns nothing on it — never a breadth target (§-1.3). Malformed /
+    non-positive values fall back to the conservative default.
+    """
+    raw = os.getenv(QUERY_MAX_WORDS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_QUERY_MAX_WORDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_QUERY_MAX_WORDS
+    return max(1, value)
+
+
+def normalize_query_key(text: str) -> str:
+    """Normalized dedup identity for a query: lowercased, whitespace-collapsed,
+    surrounding punctuation trimmed. Two queries with the same key are treated as the
+    SAME query by the corrective novelty guard, so a round cannot re-emit an
+    already-tried query.
+    """
+    return " ".join((text or "").split()).strip().strip("\"'.,;:?! ").lower()
+
+
+def sanitize_query(text: str, *, max_words: int | None = None) -> str:
+    """Clean a derived query so a keyword backend (openalex /works?search) accepts it.
+
+    Removes conversational / imperative filler (``please help``, ``researching`` …) and
+    caps the word count. §-1.3: this cleans ONLY the query STRING that is searched — it
+    filters / drops NO source and touches no faithfulness gate. Returns ``""`` when the
+    query is empty after cleaning (the caller then skips it).
+    """
+    s = " ".join((text or "").split())
+    if not s:
+        return ""
+    for phrase in _QUERY_BOILERPLATE_PHRASES:
+        s = re.sub(
+            rf"(?<![\w-]){re.escape(phrase)}(?![\w-])", " ", s, flags=re.IGNORECASE
+        )
+    s = " ".join(s.split())
+    cap = _query_max_words() if max_words is None else max(1, int(max_words))
+    words = s.split()
+    if len(words) > cap:
+        s = " ".join(words[:cap])
+    return s.strip()
+
+
 def derive_gap_queries(
     *,
     research_question: str,
     findings: list[Any],
     gap_dimensions: list[str] | None = None,
     extra_terms: list[str] | None = None,
+    already_tried: "Iterable[str] | None" = None,
 ) -> list[str]:
     """Derive corrective re-search queries targeted at the adequacy gap.
 
@@ -679,13 +832,26 @@ def derive_gap_queries(
             `.ok`). Failing findings drive secondary gap queries.
         gap_dimensions: gap axes named by the CRAG classifier (primary signal).
         extra_terms: optional additional gap terms.
+        already_tried: I-deepfix-001 #1367 novelty/dedup guard — queries already
+            issued (prior corrective rounds + the raw question). A derived query
+            whose normalized key matches one of these is DROPPED, so a corrective
+            round never re-emits a near-duplicate / already-tried query (the drb_72
+            regurgitation). When every derived query is already tried the result is
+            EMPTY — the caller then correctly trips yield-saturation instead of
+            re-issuing the raw question.
 
     Returns:
-        An ordered, de-duplicated, capped list of gap queries. Empty iff there
-        is no gap to target (the caller then falls back to re-issuing the
-        research question).
+        An ordered, de-duplicated, boilerplate-stripped, length-capped list of NEW
+        gap queries. Empty iff there is no NEW gap to target.
     """
     question = (research_question or "").strip()
+    # I-deepfix-001 #1367: build queries from a CLEANED, length-capped question STEM so
+    # a long / boilerplate-laden question is not echoed verbatim into a query the keyword
+    # backend rejects. Reserve room for the gap-bias phrase so capping the stem never
+    # drops it.
+    _stem = sanitize_query(
+        question, max_words=max(1, _query_max_words() - _QUERY_PHRASE_RESERVE_WORDS)
+    )
     # Map each adequacy dimension to a corrective retrieval bias phrase.
     gap_phrase: dict[str, str] = {
         "total_sources": "additional independent sources",
@@ -700,13 +866,25 @@ def derive_gap_queries(
 
     queries: list[str] = []
     seen: set[str] = set()
+    # I-deepfix-001 #1367: seed the seen-set with every query already tried (prior
+    # corrective rounds + the raw question) so a round cannot re-emit an already-issued
+    # query. Normalized identity match.
+    for _prev in already_tried or []:
+        _k = normalize_query_key(_prev)
+        if _k:
+            seen.add(_k)
 
     def _add(text: str) -> None:
-        cleaned = " ".join(text.split())
-        key = cleaned.lower()
-        if cleaned and key not in seen:
-            seen.add(key)
-            queries.append(cleaned)
+        # I-deepfix-001 #1367: strip search-noise boilerplate + cap length so the query
+        # is one a keyword backend accepts, then dedup on the normalized key.
+        cleaned = sanitize_query(text)
+        if not cleaned:
+            return
+        key = normalize_query_key(cleaned)
+        if key in seen:
+            return
+        seen.add(key)
+        queries.append(cleaned)
 
     # PRIMARY: gap dimensions named by the CRAG classifier (free-text axes).
     for dim in gap_dimensions or []:
@@ -716,7 +894,7 @@ def derive_gap_queries(
         # If the dimension matches a known count-floor finding name, use its
         # curated bias phrase; otherwise use the free-text gap axis directly.
         phrase = gap_phrase.get(dim.lower().replace(" ", "_"), dim)
-        _add(f"{question} {phrase}" if question else phrase)
+        _add(f"{_stem} {phrase}" if _stem else phrase)
 
     # SECONDARY: failing count-floor findings (advisory) for the gap axis.
     for finding in findings or []:
@@ -727,11 +905,11 @@ def derive_gap_queries(
         phrase = gap_phrase.get(name)
         if phrase is None:
             continue
-        _add(f"{question} {phrase}" if question else phrase)
+        _add(f"{_stem} {phrase}" if _stem else phrase)
 
     for term in extra_terms or []:
         term = (term or "").strip()
         if term:
-            _add(f"{question} {term}" if question else term)
+            _add(f"{_stem} {term}" if _stem else term)
 
     return queries[: max_gap_queries()]
