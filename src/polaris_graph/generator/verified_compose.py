@@ -2243,6 +2243,30 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
 _NO_TOKEN_REPAIR_ENV = "PG_NO_TOKEN_SENTENCE_REPAIR"
 _DEFAULT_REPAIR_MIN_OVERLAP = 2
 
+# I-deepfix-001 V3 (#1344) — DIRECT EVIDENCE-SPAN GROUNDING fallback for the no-provenance-token leak.
+# The basket path above REPLACES an untokened sentence with the nearest basket's clause; it recovers a
+# sentence only when a CONSOLIDATED basket carries a matching isolated-SUPPORTS claim. The drb_72 leak
+# left ~15 GROUNDABLE quantitative findings untokened that NO basket bound (the composer wrote them
+# straight from a source span, but the consolidation produced no matching basket) — so the basket path
+# returns None and strict_verify drops them ``no_provenance_token`` despite the number + prose living
+# verbatim in a real evidence row. This fallback FINISHES the repair: for an untokened QUANTITATIVE
+# sentence, it finds the real evidence element_id + the char span the finding was written from, attaches
+# the correct ``[#ev:<id>:<start>-<end>]`` to the ORIGINAL sentence (PRESERVING the finding), and re-runs
+# the UNCHANGED ``verify_fn`` (the same per-clause strict_verify the compose paths use). The sentence is
+# kept ONLY IF that unchanged gate PASSES; else it stays dropped (never a fabricated binding). Default-ON;
+# ``PG_NO_TOKEN_SPAN_GROUNDING=0`` => the fallback no-ops => byte-identical to the basket-only path.
+_NO_TOKEN_SPAN_GROUNDING_ENV = "PG_NO_TOKEN_SPAN_GROUNDING"
+# Bounds (LAW VI, overridable) so a large pool can never blow up the entailment-judge spend: at most
+# MAX_SOURCES rows that pass the cheap decimal+overlap prefilter are searched, and at most MAX_CANDIDATES
+# decimal-containing candidate spans per row are verified.
+_SPAN_GROUNDING_MAX_SOURCES_ENV = "PG_NO_TOKEN_SPAN_GROUNDING_MAX_SOURCES"
+_SPAN_GROUNDING_MAX_CANDIDATES_ENV = "PG_NO_TOKEN_SPAN_GROUNDING_MAX_CANDIDATES"
+_DEFAULT_SPAN_GROUNDING_MAX_SOURCES = 500
+_DEFAULT_SPAN_GROUNDING_MAX_CANDIDATES = 24
+# Numeric tokens (integers + decimals) — the same shape strict_verify's decimal check uses, so a
+# candidate span this fallback accepts also clears the frozen gate's decimal leg by construction.
+_DECIMAL_RE_REPAIR = re.compile(r"\d+(?:\.\d+)?")
+
 # Content-word extractor for the nearest-basket selection: alphabetic-led tokens >= 3 chars, minus a
 # small closed stopword set. Provenance tokens are stripped first so span offsets never count as content.
 _CONTENT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
@@ -2283,6 +2307,166 @@ def _basket_repair_content_words(basket: Any) -> set:
     for m in _basket_supports_members(basket):
         parts.append(str(getattr(m, "direct_quote", "") or ""))
     return _repair_content_words(" ".join(parts))
+
+
+def no_token_span_grounding_enabled() -> bool:
+    """Kill-switch ``PG_NO_TOKEN_SPAN_GROUNDING`` (default ON). OFF => the direct evidence-span
+    grounding FALLBACK in ``repair_untokened_sentence`` no-ops (the basket-only path is byte-identical
+    to before this fix)."""
+    return os.getenv(_NO_TOKEN_SPAN_GROUNDING_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _span_grounding_max_sources() -> int:
+    """Bound on the number of prefilter-passing rows searched (``PG_NO_TOKEN_SPAN_GROUNDING_MAX_SOURCES``,
+    default 500). Non-integer / negative => the default (never unbounded)."""
+    try:
+        v = int(os.getenv(_SPAN_GROUNDING_MAX_SOURCES_ENV, "").strip())
+        return v if v > 0 else _DEFAULT_SPAN_GROUNDING_MAX_SOURCES
+    except ValueError:
+        return _DEFAULT_SPAN_GROUNDING_MAX_SOURCES
+
+
+def _span_grounding_max_candidates() -> int:
+    """Bound on decimal-containing candidate spans verified PER row
+    (``PG_NO_TOKEN_SPAN_GROUNDING_MAX_CANDIDATES``, default 24). Non-integer / negative => the default."""
+    try:
+        v = int(os.getenv(_SPAN_GROUNDING_MAX_CANDIDATES_ENV, "").strip())
+        return v if v > 0 else _DEFAULT_SPAN_GROUNDING_MAX_CANDIDATES
+    except ValueError:
+        return _DEFAULT_SPAN_GROUNDING_MAX_CANDIDATES
+
+
+def _entailment_enforce_active() -> bool:
+    """True iff the strict_verify entailment judge runs in ``enforce`` mode. The span-grounding
+    fallback is a SEARCH-FOR-A-MATCH shape (it scans the pool for a row whose span carries the
+    sentence's numbers + words); without the enforce-mode entailment leg, a COINCIDENTAL decimal +
+    2-content-word overlap on a NON-entailing span would launder a drop into a pass. Mirrors the HARD
+    enforce-only accept gate in ``provenance_generator._try_reanchor``. Read at call time; a lazy
+    import keeps the module load order independent of clinical_generator."""
+    try:
+        from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+            _entailment_mode as _emode,
+        )
+        return _emode() == "enforce"
+    except Exception:  # pragma: no cover — defensive: never fabricate a pass on an import error
+        return False
+
+
+def _repair_decimals(text: str) -> set:
+    """Numeric tokens (integers + decimals) in ``text`` — the strict_verify decimal shape."""
+    return {m.group(0) for m in _DECIMAL_RE_REPAIR.finditer(text or "")}
+
+
+def ground_untokened_sentence_to_span(
+    sentence: str,
+    evidence_pool: dict,
+    *,
+    verify_fn: Callable[..., Any],
+    min_overlap: int = _DEFAULT_REPAIR_MIN_OVERLAP,
+) -> Optional[str]:
+    """I-deepfix-001 V3 (#1344) — DIRECT evidence-span grounding for an untokened QUANTITATIVE finding.
+
+    The FINISH of the no-provenance-token repair (the drb_72 ``no_provenance_token`` leak on the ~15
+    groundable quantitative findings the basket path could not bind). For an untokened sentence carrying
+    a NUMBER, search the evidence pool for the real source row + the char span (inside that row's
+    ``direct_quote`` / ``statement``) that the finding was written from: a span that (a) contains ALL the
+    sentence's decimals and (b) shares >= ``min_overlap`` content words. Attach the correct
+    ``[#ev:<id>:<start>-<end>]`` token to the ORIGINAL sentence (preserving the finding, never rewording
+    it) and re-run the UNCHANGED ``verify_fn`` per clause with ``allow_local_window_fallback=False`` so the
+    BOUND span must ITSELF entail. Return the tokened sentence ONLY IF that gate PASSES (decimal-in-span +
+    percent-role + qualifier + >=2 overlap + BOUND-SPAN-ONLY ENTAILMENT-enforce); else ``None`` (the
+    finding stays dropped — never a fabricated binding).
+
+    Returns ``None`` (no grounding) when: the fallback flag is OFF; the sentence already carries a token;
+    entailment is not in ``enforce`` mode (the search-for-a-match laundering guard); the sentence carries
+    no decimal (no numeric anchor -> not this fallback's scope); the sentence has < ``min_overlap``
+    content words; or NO span in any row verifies.
+
+    §-1.3 / FAITHFULNESS: the frozen faithfulness engine (strict_verify / NLI / provenance / span-
+    grounding) is UNTOUCHED. This attaches a token to the sentence's OWN real span and keeps it ONLY when
+    the UNCHANGED gate confirms it — it can only recover a finding that already clears the full bar. A
+    genuinely ungroundable sentence is STILL dropped. Enforce-only + numeric-anchor bound the search so a
+    coincidental match can never launder a drop into an unverified pass.
+    """
+    if not no_token_span_grounding_enabled():
+        return None
+    if not sentence or _EV_TOKEN_RE.search(sentence):
+        return None
+    # Enforce-only accept gate (faithfulness-critical; mirrors _try_reanchor). Off/warn => no grounding.
+    if not _entailment_enforce_active():
+        return None
+    sentence_decimals = _repair_decimals(sentence)
+    if not sentence_decimals:
+        return None  # numeric-anchor scope: a sentence with no number is left to the basket path
+    sentence_words = _repair_content_words(sentence)
+    if len(sentence_words) < min_overlap:
+        return None
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _reanchor_candidate_spans,
+    )
+    max_sources = _span_grounding_max_sources()
+    max_candidates = _span_grounding_max_candidates()
+    # Place the token INLINE — before any trailing terminal punctuation — so the downstream
+    # ``strict_verify`` sentence splitter (terminal ``.!?]`` + whitespace) keeps the token WITH its
+    # sentence instead of splitting it into a tokenless fragment (which would re-drop it
+    # no_provenance_token). ``stem`` + ``terminal`` reassemble around the emitted token.
+    base = sentence.rstrip()
+    _term_match = re.search(r"[.!?]+$", base)
+    if _term_match:
+        stem = base[: _term_match.start()].rstrip()
+        terminal = _term_match.group(0)
+    else:
+        stem = base
+        terminal = ""
+    searched = 0
+    for evidence_id, ev in (evidence_pool or {}).items():
+        if not isinstance(ev, dict):
+            continue
+        direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+        if not direct_quote:
+            continue
+        # Cheap prefilter (no judge call): the row must carry EVERY sentence decimal and >= min_overlap
+        # shared content words, else no tight span in it can ground the finding.
+        if not sentence_decimals.issubset(_repair_decimals(direct_quote)):
+            continue
+        if len(sentence_words & _repair_content_words(direct_quote)) < min_overlap:
+            continue
+        searched += 1
+        if searched > max_sources:
+            break
+        # Only verify TIGHT candidate spans that themselves carry all the sentence's decimals (so the
+        # bound span — not a distant part of the row — supports the number). Bounded per row.
+        verified_candidates = 0
+        for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+            if verified_candidates >= max_candidates:
+                break
+            if not sentence_decimals.issubset(_repair_decimals(direct_quote[cand_start:cand_end])):
+                continue
+            verified_candidates += 1
+            candidate = f"{stem} [#ev:{evidence_id}:{cand_start}-{cand_end}]{terminal}"
+            # I-deepfix-001 V3 iter-2 (#1344) — Codex P1 laundering-leak fix: force
+            # ``allow_local_window_fallback=False`` so the BOUND span ``[#ev:id:start-end]`` must
+            # ITSELF entail. Without it, ``verify_sentence_provenance`` defaults the flag ``True``
+            # (provenance_generator.py:2049) and a candidate whose bound span is NEUTRAL can still
+            # PASS via a DIFFERENT in-row local window — laundering an unverified binding through with
+            # its token pointing at a non-entailing span. Mirrors the enforce-only accept gate in
+            # ``provenance_generator._try_reanchor`` (:1573/:1625/:1663). Every production ``verify_fn``
+            # on this path accepts the kwarg: the bare ``verify_sentence_provenance`` takes it directly;
+            # the abstractive ``make_writer_verify_fn`` wrapper takes ``**kwargs`` and already
+            # ``setdefault``s it False. A ``verify_fn`` that REJECTS the kwarg raises ``TypeError`` ->
+            # caught below -> candidate SKIPPED (fail-closed; never a laundered default-True pass).
+            try:
+                res = verify_fn(candidate, evidence_pool, allow_local_window_fallback=False)
+            except Exception:  # pragma: no cover — a verify error / signature mismatch is a non-recovery, never a pass
+                continue
+            if bool(getattr(res, "is_verified", False)):
+                logger.info(
+                    "[verified_compose] V3 span-grounding: bound untokened quantitative finding to "
+                    "%s[%d-%d] (re-verified by the UNCHANGED strict_verify)",
+                    evidence_id, cand_start, cand_end,
+                )
+                return candidate
+    return None
 
 
 def repair_untokened_sentence(
@@ -2346,6 +2530,18 @@ def repair_untokened_sentence(
         )
         if clause:  # carries a real [#ev] token + passed strict_verify per clause
             return clause
+    # I-deepfix-001 V3 (#1344): FALLBACK — direct evidence-span grounding. The basket path above binds
+    # a sentence only when a consolidated basket carries a matching isolated-SUPPORTS claim; the ~15
+    # drb_72 groundable quantitative findings had NO such basket, so they fell straight into the
+    # ``no_provenance_token`` drop despite living verbatim (number + prose) in a real evidence row.
+    # FINISH the repair by grounding the ORIGINAL sentence to the real span it was written from and
+    # re-running the UNCHANGED verify_fn. Preserves the finding; keeps it ONLY when the frozen gate
+    # passes; returns None (still dropped) otherwise. Enforce-gated + numeric-anchored (never launders).
+    grounded = ground_untokened_sentence_to_span(
+        sentence, evidence_pool, verify_fn=verify_fn, min_overlap=min_overlap,
+    )
+    if grounded is not None:
+        return grounded
     return None  # no real SUPPORTS span could be bound -> still dropped (never fabricated)
 
 
