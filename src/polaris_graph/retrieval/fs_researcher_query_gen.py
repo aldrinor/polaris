@@ -369,6 +369,43 @@ def _plan_expert_facet_queries(
                 list(seed_queries), _native_adds, max_queries
             )
 
+    # R2 entity-qgen (I-deepfix-001, #1344): STORM-style sub-entity + perspective query expansion.
+    # The abstract facet frontier names sub-TOPICS x analytical angles but never the concrete NICHE
+    # sub-entities a DRB-II rubric names (specific occupations / sectors / demographic groups), so
+    # their profession-specific primaries are never fetched and the corpus stays canonical-only. This
+    # AUGMENTS (does not replace) the frontier: ONE bounded LLM call enumerates the named sub-entities
+    # + deterministic STORM-style disciplinary perspective lenses, each scope-anchored to the question
+    # so it cannot drift off-subject, and the bounded sub-entity slice is ADDED ON TOP of the FULL
+    # baseline frontier — the effective query budget is RAISED by the added slice so the sub-entity
+    # queries never SWAP OUT a baseline query (the Codex/Fable iter-1 REVISE). Every discovered source
+    # flows through the UNCHANGED per_query_retrieve + frozen faithfulness engine — NEVER auto-trusted.
+    # Default OFF (PG_SUBENTITY_QUERY_EXPANSION) => byte-identical. §-1.3: adds on-topic queries only,
+    # drops ZERO sources, touches no faithfulness gate.
+    #
+    # Placed AFTER the R5 block (Codex/Fable iter-2 P1 fix). When R2 ran BEFORE R5 it lengthened
+    # `seed_queries` first, and `language_profile.expand_queries_for_profile` caps its native-language
+    # additions at max(PG_MULTILINGUAL_MAX_QUERIES, len(base)); once the R2 slice pushed `base` over
+    # that cap the native-language queries a flag-OFF run WOULD issue were DROPPED — breaking the §-1.3
+    # strict-superset on non-English (e.g. zh) tasks. Running R5 first means R5 expands the PRE-R2
+    # baseline — the IDENTICAL input the flag-OFF path expands — into `seed_queries` (English + reserved
+    # native). `widen_with_sub_entities` then keeps that whole R5-expanded window at the front and only
+    # RAISES the budget by the sub-entity slice, so the flag-ON issued set is a strict SUPERSET of the
+    # flag-OFF set: every native-language query is STILL issued (zero dropped) AND the sub-entity queries
+    # are added. The sub-entity queries are English scope-anchored and route through the unchanged fetch
+    # un-translated — option-(b): R5 native widening + R2 sub-entity widening both land on the budget;
+    # translating the sub-entity slice is deliberately NOT done (it would complicate the superset for no
+    # required gain). Dedup is against the CURRENT (R5-expanded) frontier so no query is issued twice.
+    from src.polaris_graph.retrieval import sub_entity_query_expander as _sqe
+    if _sqe.sub_entity_expansion_enabled() and not _wall_passed():
+        _sub_qs = _sqe.plan_sub_entity_queries(question, llm)
+        if _sub_qs:
+            _seed_keys = {(q or "").strip().lower() for q in seed_queries}
+            _new_sub = [q for q in _sub_qs if (q or "").strip().lower() not in _seed_keys]
+            if _new_sub:
+                seed_queries, max_queries = _sqe.widen_with_sub_entities(
+                    list(seed_queries), _new_sub, max_queries
+                )
+
     # Issue the seed frontier directly (facet-angle queries are already full queries — no
     # per-todo llm() derivation needed). Record ONLY the queries ACTUALLY issued in the
     # shared seen-set: a budget-truncated seed stays eligible for the R2 loop, and the
