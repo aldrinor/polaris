@@ -51,6 +51,8 @@ import os
 import time
 from typing import Any, Callable, Optional, Sequence
 
+from src.polaris_graph.retrieval.saturation import marginal_novelty
+
 logger = logging.getLogger("polaris_graph.ttddr_loop")
 
 # ── stop reasons (module-level constants; allowed per CLAUDE.md §4.1) ──────────
@@ -58,11 +60,23 @@ STOP_NO_GAPS = "no_gaps"          # gap_fn found nothing more to close — conve
 STOP_MAX_ROUNDS = "max_rounds"    # revision-round count bound hit
 STOP_WALL = "wall"                # wall-clock deadline hit
 STOP_COST = "cost"                # cumulative-cost budget hit
+STOP_SATURATION = "saturation"    # source-yield saturated (marginal novelty < eps)
 STOP_DISABLED = "disabled"        # PG_TTDDR_ENABLED off — loop never ran
 
 # ── default-OFF flag idiom (NEW opt-in capability; ON only on an explicit token) ──
 _ENV_TTDDR_ENABLED = "PG_TTDDR_ENABLED"
 _ENABLE_ON_VALUES = ("1", "true", "yes", "on")
+
+# I4 — source-yield saturation bound. `PG_TTDDR_SATURATION_EPS` is the marginal-
+# novelty floor: once a revision round's TARGETED retrieval yields a NEW-source
+# fraction below this floor, firing further rounds only re-fetches sources the
+# draft already carries, so the loop stops SPENDING on rounds that add no new
+# evidence. This is a COMPUTE bound keyed to source yield — it never drops, caps,
+# or thins any retrieved source (every retrieved row this round is still folded
+# into the draft and still gates through the frozen faithfulness engine
+# downstream). It bounds how many MORE rounds run, not how much evidence renders.
+_ENV_TTDDR_SATURATION_EPS = "PG_TTDDR_SATURATION_EPS"
+_DEFAULT_SATURATION_EPS = 0.05
 
 
 def ttddr_enabled() -> bool:
@@ -73,6 +87,31 @@ def ttddr_enabled() -> bool:
     existing path, so it must be opt-in for the coverage run and dormant elsewhere.
     """
     return os.environ.get(_ENV_TTDDR_ENABLED, "").strip().lower() in _ENABLE_ON_VALUES
+
+
+def ttddr_saturation_eps() -> float:
+    """`PG_TTDDR_SATURATION_EPS` — the marginal-novelty floor for the source-yield
+    saturation bound (I4). Unset / invalid -> `_DEFAULT_SATURATION_EPS` (0.05).
+
+    The value is a FRACTION in [0, 1]: a round whose targeted retrieval brings a
+    novel-source fraction below this floor is treated as saturated. A caller wires
+    this (with a `rows_of` extractor) so the default TTD-DR run is bounded by
+    source yield in addition to rounds/wall/cost. It is a spend bound, never a
+    breadth cap — see the module-level note.
+    """
+    raw = os.environ.get(_ENV_TTDDR_SATURATION_EPS, "").strip()
+    if not raw:
+        return _DEFAULT_SATURATION_EPS
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_SATURATION_EPS
+    # Clamp to a sane fraction; a nonsensical value must not disable the bound.
+    if val < 0.0:
+        return 0.0
+    if val > 1.0:
+        return 1.0
+    return val
 
 
 def _as_gap_list(gaps: Any) -> list[Any]:
@@ -97,6 +136,15 @@ def ttddr_refine(
     # out for a caller that wires its own guard, but a default invocation can never run unbounded.
     wall_seconds: Optional[float] = 1800.0,
     cost_budget: Optional[float] = 50.0,
+    # I4 — source-yield saturation bound (a COMPUTE bound, never a breadth cap).
+    # `saturation_eps` is the marginal-novelty floor; `rows_of` maps a round's
+    # retrieved evidence to its source rows (each row carrying `source_url`, the
+    # live-retriever field). BOTH must be wired for the bound to act — the loop
+    # cannot measure source yield without knowing how to read rows out of the
+    # injected retrieve_fn's return. When either is None the bound is inert and
+    # the loop keeps its rounds/wall/cost/no-gap behaviour unchanged.
+    saturation_eps: Optional[float] = None,
+    rows_of: Optional[Callable[[Any], Sequence[Any]]] = None,
     clock: Callable[[], float] = time.monotonic,
     cost_fn: Callable[[], float] = lambda: 0.0,
     log: Optional[Callable[[str], None]] = None,
@@ -159,6 +207,13 @@ def ttddr_refine(
     rounds = 0
     gaps_closed = 0
     gap_history: list[int] = []
+    # I4 — source-yield saturation state. `cumulative_rows` is the running set of
+    # source rows seen across all prior rounds (the novelty baseline); it only
+    # ACCUMULATES — no row is ever removed, capped, or thinned. `novelty_history`
+    # records the per-round novel-source fraction for observability.
+    saturation_active = saturation_eps is not None and rows_of is not None
+    cumulative_rows: list[Any] = []
+    novelty_history: list[float] = []
     t0 = clock()
     now = t0
     spent = cost_fn()
@@ -172,6 +227,7 @@ def ttddr_refine(
             "elapsed_seconds": max(0.0, now - t0),
             "cost_spent": spent,
             "gap_history": gap_history,
+            "novelty_history": novelty_history,
         }
 
     while True:
@@ -201,9 +257,40 @@ def ttddr_refine(
 
         # Fire one denoising round: targeted retrieve (M_A) then revise (M_R).
         evidence = retrieve_fn(question, gaps)
+
+        # I4 — measure this round's source yield BEFORE folding its rows into the
+        # running baseline: novelty = fraction of THIS round's retrieved sources
+        # not already seen in prior rounds. `marginal_novelty` reuses the shared
+        # canonical-URL identity (saturation.py -> run_diff), so re-fetched
+        # sources collapse and only genuinely-new sources count.
+        round_novelty: Optional[float] = None
+        if saturation_active:
+            this_rows = list(rows_of(evidence) or [])
+            round_novelty = marginal_novelty(cumulative_rows, this_rows)
+            novelty_history.append(round_novelty)
+            # ACCUMULATE only — never drop/cap. Every retrieved row stays in the
+            # baseline and is still folded into the draft below.
+            cumulative_rows.extend(this_rows)
+
+        # Always fold the retrieved evidence into the draft (consolidate, never
+        # drop): even a saturating round's evidence widens the draft's coverage.
         draft = revise_fn(question, draft, gaps, evidence)
         rounds += 1
         gaps_closed += len(gaps)
         gap_history.append(len(gaps))
         _log(f"[ttddr] round={rounds} closed {len(gaps)} gap(s) "
-             f"(cumulative gaps_closed={gaps_closed})")
+             f"(cumulative gaps_closed={gaps_closed}"
+             + (f", novelty={round_novelty:.3f}" if round_novelty is not None else "")
+             + ")")
+
+        # I4 — source-yield saturation early exit. Requires a PRIOR round to
+        # compare against (rounds >= 2), so the first retrieval never trips it.
+        # Once a round's novel-source fraction falls below the floor, further
+        # rounds only re-fetch known sources: STOP spending. This bounds compute,
+        # not breadth — this round's evidence is already folded in above.
+        if saturation_active and rounds >= 2 and round_novelty is not None \
+                and round_novelty < saturation_eps:
+            _log(f"[ttddr] source yield saturated at round={rounds} "
+                 f"(novelty={round_novelty:.3f} < eps={saturation_eps}) "
+                 "-> STOP_SATURATION")
+            return _finish(STOP_SATURATION)

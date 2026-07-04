@@ -40,12 +40,43 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+# ── T4 (I-deepfix-001 #1344) literal_span faithfulness invariant (DeepTRACE #7 citation-accuracy) ──
+# LAW VI env kill-switch (default ON). An emitted ``[literal_start, literal_end]`` MUST slice its
+# evidence text back to EXACTLY ``raw_literal``. A frame-drifted offset that lands inside an
+# unrelated token (the F2 defect: span [40,43]='lfs' inside 'Brynjolfsson') is a citation-accuracy
+# defect — the rendered span no longer contains the number it claims to cite. This is a fail-closed
+# POST-condition on span derivation: faithfulness-STRENGTHENING (it can only REJECT a bad span,
+# never admit one), never relaxes strict_verify / NLI / the 4-role engine.
+_LITERAL_SPAN_ENFORCE_ENV = "PG_LITERAL_SPAN_ENFORCE"
+
+
+def _literal_span_enforce_enabled() -> bool:
+    """T4 kill-switch. Default ON; OFF => the invariant is a no-op (pre-fix behaviour)."""
+    return os.getenv(_LITERAL_SPAN_ENFORCE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def literal_span_is_faithful(ev_text: str, literal: str, start: int, end: int) -> bool:
+    """True iff ``ev_text[start:end]`` equals ``literal`` exactly (the emitted span slices back to the
+    number it cites). PURE. Bounds-safe: an out-of-range / inverted offset is unfaithful, not a crash.
+    This is the load-bearing T4 invariant — a citation whose span does not contain its literal is a
+    DeepTRACE #7 accuracy failure regardless of how the offset was computed."""
+    if literal is None or ev_text is None:
+        return False
+    if not isinstance(start, int) or not isinstance(end, int):
+        return False
+    if start < 0 or end > len(ev_text) or start >= end:
+        return False
+    return ev_text[start:end] == literal
 
 # ── tolerances (named, Law VI) ───────────────────────────────────────────────
 # Literal<->datapoint normalized-value agreement (same extractor normalization
@@ -827,6 +858,16 @@ def build_quantified_spec(
         if located is None:
             return _reject(f"no_unique_literal_span:{name}:{ev_id}")
         literal, lstart, lend = located
+        # T4 (#1344): fail-closed literal_span invariant. The derived [lstart, lend] MUST slice
+        # ev_text back to exactly ``literal``; a frame-drifted offset (span landing inside an
+        # unrelated token, e.g. a surname) is a citation-accuracy defect. Reject rather than emit a
+        # span that does not contain its own literal. Faithfulness-STRENGTHENING; the SAME ev_text
+        # frame every consumer reads (_evidence_text) is checked here, so the on-disk literal_span
+        # is provably faithful. Kill-switch keeps it enforceable/disable-able (LAW VI).
+        if _literal_span_enforce_enabled() and not literal_span_is_faithful(
+            ev_text, literal, lstart, lend
+        ):
+            return _reject(f"literal_span_frame_drift:{name}:{ev_id}")
         sourced.append(SourcedInput(
             name=name, value=value, unit=unit, ev_id=ev_id,
             label=str(dp.get("label", "")), context=str(dp.get("context", "")),

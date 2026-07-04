@@ -52,6 +52,173 @@ def _max_rounds() -> int:
     return int(os.getenv("PG_QGEN_FS_RESEARCHER_MAX_ROUNDS", "6"))
 
 
+def _seed_angles_per_facet() -> int:
+    """R2 (I-deepfix-001, #1344): how many PRIMARY angle queries per facet the SEED pass
+    issues when the R2 facet-completeness expansion loop is ON.
+
+    The seed pass issues the first ``_seed_angles_per_facet()`` angle(s) of every facet
+    (breadth-first across ALL facets) and RESERVES each facet's remaining angle queries for
+    the R2 completeness loop to fire ONLY on the facets the seed corpus leaves UNCOVERED.
+    This is what makes the expansion loop non-vacuous: the prior code registered EVERY angle
+    query as a seed, so :func:`facet_completeness.run_facet_expansion` (which draws from the
+    SAME ``facet.queries``) always read "frontier exhausted" and issued zero expansion
+    queries (the Codex/Fable P1).
+
+    A compute-safety split (seed breadth first, then deepen only the gaps) — never a breadth
+    target (§-1.3). Default 2. When R2 is OFF the full angle frontier is seeded (no reserve
+    carve), so the R1-only path is unchanged in query count."""
+    try:
+        return max(1, int(os.getenv("PG_EXPERT_FACET_SEED_ANGLES", "2")))
+    except ValueError:
+        return 2
+
+
+def _breadth_first_seeds(facets: list[Any], angle_limit: "int | None") -> list[str]:
+    """Order the facets' angle queries BREADTH-FIRST (angle-major): every facet's angle-0
+    before any facet's angle-1, and so on.
+
+    Spreads the seed query budget across ALL facets first — fixing the measured "only 7 of
+    35 facets seeded" starvation where a facet-major seed drained the whole budget on the
+    first few facets and later facets were never queried. When ``angle_limit`` is set (R2
+    on), only the first ``angle_limit`` angle(s) per facet are seeded so each facet's
+    remaining angles stay a RESERVE for the R2 expansion loop; ``angle_limit=None`` (R2 off)
+    seeds the full angle frontier so the R1-only path is unchanged in count. De-duplicates
+    case-insensitively, order-preserving. Drops ZERO facets (§-1.3 — this only orders and
+    splits the same query set)."""
+    max_a = max((len(getattr(f, "queries", []) or []) for f in facets), default=0)
+    if max_a <= 0:
+        return []
+    # Leave >= 1 reserve angle per facet when R2 is on (clamp so a small angle count can
+    # never accidentally seed every angle and re-starve the expansion loop).
+    if angle_limit is None:
+        limit = max_a
+    else:
+        limit = min(max(1, angle_limit), max(1, max_a - 1))
+    seeds: list[str] = []
+    seen: set[str] = set()
+    for a in range(min(limit, max_a)):
+        for f in facets:
+            qs = getattr(f, "queries", []) or []
+            if a < len(qs):
+                q = qs[a]
+                k = q.lower()
+                if k not in seen:
+                    seen.add(k)
+                    seeds.append(q)
+    return seeds
+
+
+# R5 (I-deepfix-001, #1344): display names for the target languages, for the
+# production translator prompt. Code -> human name so the LLM translates reliably.
+_LANG_DISPLAY: dict[str, str] = {
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ru": "Russian",
+    "ar": "Arabic", "fr": "French", "de": "German", "es": "Spanish",
+}
+
+
+def _multilingual_native_reserve() -> int:
+    """R5 (I-deepfix-001, #1344): the minimum number of native-language queries
+    GUARANTEED a slot within the FS-Researcher query budget on a multilingual task.
+
+    Without this, the multilingual additions are appended AFTER every English seed,
+    so a wide English R1 frontier (e.g. 12 facets x 5 angles = 60 seeds) fills the
+    whole ``PG_QGEN_FS_RESEARCHER_MAX_QUERIES`` budget and NO native-language query
+    is ever issued — the corpus stays English-only on a zh task (the Codex/Fable P1).
+
+    This is a language-ROUTING guarantee (ensure the task's OWN language is actually
+    queried), NOT a breadth target (§-1.3): it reorders the SAME query set so a
+    bounded slice of native queries lands inside the budget; it adds no query and
+    drops none. It is clamped so it can never displace more than half the English
+    breadth. Env-driven `PG_MULTILINGUAL_QUERY_RESERVE` (default 6)."""
+    try:
+        return max(0, int(os.getenv("PG_MULTILINGUAL_QUERY_RESERVE", "6")))
+    except ValueError:
+        return 6
+
+
+def _make_multilingual_translate_fn(
+    llm: LlmFn,
+    base_queries: list[str],
+    non_english_langs: tuple[str, ...],
+) -> "Callable[[str, str], str] | None":
+    """Build a bounded, memoized ``(english_query, lang) -> translated_query`` using
+    the injected GLM policy, so an EXPLICIT-language task ('Answer in Chinese') with
+    an all-ASCII English body actually emits native-language queries on the production
+    path (the Codex P1). The question carries no native script there, so a true
+    translation is the ONLY source of a native query.
+
+    Cost is bounded to ONE ``llm`` call per target language (the whole seed batch is
+    translated in a single call, not one call per query), memoized. Best-effort: any
+    exception or empty / echo reply yields no translation for that query, and the
+    module simply skips it — the faithfulness engine is never touched (this only
+    decides WHICH queries are searched). Returns ``None`` when translation is
+    unavailable (no ``llm`` / no seed queries / no target language)."""
+    if llm is None or not base_queries or not non_english_langs:
+        return None
+    _cache: dict[str, dict[str, str]] = {}
+
+    def _batch(lang: str) -> dict[str, str]:
+        if lang in _cache:
+            return _cache[lang]
+        mapping: dict[str, str] = {}
+        try:
+            numbered = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(base_queries))
+            lang_name = _LANG_DISPLAY.get(lang, lang)
+            prompt = (
+                f"Translate each of these web-search queries into {lang_name}. "
+                "Output ONE translation per line, numbered to match the input, "
+                "the translation only with no commentary or transliteration.\n\n"
+                f"{numbered}"
+            )
+            reply = llm(prompt) or ""
+            lines = _lines(reply, cap=len(base_queries) + 2)
+            for eng, translated in zip(base_queries, lines):
+                t = " ".join((translated or "").split()).strip()
+                if t and t.lower() != (eng or "").strip().lower():
+                    mapping[(eng or "").strip().lower()] = t
+        except Exception:  # noqa: BLE001 — translation is best-effort, never fatal
+            mapping = {}
+        _cache[lang] = mapping
+        return mapping
+
+    def _translate(query: str, lang: str) -> str:
+        return _batch(lang).get((query or "").strip().lower(), "")
+
+    return _translate
+
+
+def _reserve_native_within_budget(
+    english_seeds: list[str],
+    native_additions: list[str],
+    max_queries: int,
+) -> list[str]:
+    """Reorder the seed queries so a bounded slice of native-language queries is
+    GUARANTEED to fall inside the first ``max_queries`` issued positions.
+
+    The R5 expansion appends native queries after every English seed; the seed issue
+    loop stops at ``max_queries``; so a wide English frontier starves the native
+    queries out entirely (Codex/Fable P1). This reorders — never drops — the SAME
+    query set: it keeps an English-breadth head, then the reserved native queries
+    (so they issue within budget), then the English tail and any leftover native
+    queries (issued only if budget remains). English-only tasks (empty
+    ``native_additions``) are byte-identical (returns ``english_seeds`` unchanged).
+
+    §-1.3: a language-routing reorder, not a cap/target — every query is preserved;
+    only issue ORDER changes so the task's own language is actually queried."""
+    if not native_additions:
+        return list(english_seeds)
+    # Never displace more than half the English breadth (both dimensions survive).
+    reserve = min(len(native_additions), _multilingual_native_reserve(), max(1, max_queries // 2))
+    if reserve <= 0:
+        return list(english_seeds) + list(native_additions)
+    reserved_native = native_additions[:reserve]
+    leftover_native = native_additions[reserve:]
+    head_len = max(0, max_queries - reserve)
+    english_head = english_seeds[:head_len]
+    english_tail = english_seeds[head_len:]
+    return english_head + reserved_native + english_tail + leftover_native
+
+
 def _scope_anchored() -> bool:
     """I-deepfix-001 (#1344): True iff sub-query generation anchors each derived query to the
     ORIGINAL research question's scope. Default ON.
@@ -114,6 +281,129 @@ def _obs_digest(rows: list[dict], n: int = 3, chars: int = 160) -> str:
     return " | ".join(parts)
 
 
+def _plan_expert_facet_queries(
+    question: str,
+    llm: LlmFn,
+    per_query_retrieve: PerQueryRetrieveFn,
+    *,
+    max_queries: int | None = None,
+    retrieve_kwargs: dict | None = None,
+    retrieval_deadline_monotonic: "float | None" = None,
+) -> tuple[list[str], list[Any]]:
+    """R1+R2 (I-deepfix-001, #1344) facet-driven frontier: seed queries from the expert-facet tree,
+    issue them directly, then (when R2 is enabled) run the facet-completeness expansion loop over the
+    UNCOVERED facets until the source yield saturates. Returns (queries_issued, per_query_results),
+    the SAME contract as ``plan_fs_researcher_queries``.
+
+    R1 widens the frontier (facet x angle, scope-anchored) — the largest single DRB-II recall lever.
+    R2 keys the completeness/expansion loop to the TASK's own facets so a general (non-clinical) task
+    no longer reads a vacuous "0 of 0" and fires real gap-closing retrieval. Both ADD on-topic queries
+    only and DROP ZERO sources; the FS-Researcher ``max_queries`` cap (compute-safety) still bounds
+    cost; the R2 saturation stop is yield-keyed, never a breadth count (§-1.3).
+    """
+    from src.polaris_graph.retrieval import expert_facet_planner as _efp
+    from src.polaris_graph.retrieval import facet_completeness as _fc
+
+    max_queries = max_queries or _max_queries()
+    retrieve_kwargs = dict(retrieve_kwargs or {})
+
+    queries: list[str] = []
+    results: list[Any] = []
+    seen_q: set[str] = set()
+    corpus_rows: list[dict] = []
+
+    _deadline = retrieval_deadline_monotonic
+
+    def _wall_passed() -> bool:
+        return _retrieval_deadline_passed(_deadline)
+
+    if _wall_passed():
+        return queries, results
+
+    # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
+    facets = _efp.plan_expert_facets(question, llm)
+
+    # R1+R2 seed/reserve split (I-deepfix-001, #1344). Seed BREADTH-FIRST (every facet's
+    # primary angle before any facet's deeper angle) so the query budget spreads across ALL
+    # facets — fixing the measured "only 7 of 35 facets seeded" starvation. When the R2
+    # completeness loop is ON, seed only the first `_seed_angles_per_facet()` angle(s) per
+    # facet and RESERVE each facet's remaining angles for the R2 expansion loop to fire on
+    # the facets the seed corpus leaves UNCOVERED. The prior code registered EVERY angle as a
+    # seed, so `run_facet_expansion` (drawing from the SAME `facet.queries`) always read
+    # "frontier exhausted" and issued ZERO expansion queries — the Codex/Fable P1. When R2 is
+    # OFF the full angle frontier is seeded (the R1-only path is unchanged in count).
+    _r2_on = _fc.facet_completeness_enabled()
+    _seed_angle_limit = _seed_angles_per_facet() if _r2_on else None
+    seed_queries = _breadth_first_seeds(facets, _seed_angle_limit)
+
+    # R5 (I-deepfix-001, #1344): multilingual / cross-lingual frontier. On a
+    # non-English (e.g. zh) DRB-II task the English facet queries never reach the
+    # native-language primaries; detect the task's language profile and ADD
+    # on-language queries (English stays first + unchanged) so a native-language
+    # source and its English paraphrase land in the SAME multi-backend retrieval,
+    # cross-lingually reranked into one consolidation basket. English-only tasks
+    # are byte-identical (the expansion returns the seeds unchanged); default-ON,
+    # OFF via PG_MULTILINGUAL_RETRIEVAL. §-1.3: adds on-language queries only,
+    # drops ZERO sources, touches no faithfulness gate.
+    from src.polaris_graph.retrieval import language_profile as _lp
+    if _lp.multilingual_enabled():
+        _profile = _lp.detect_language_profile(question)
+        if _profile.is_multilingual:
+            # Inject a production translator wrapping the GLM policy so an EXPLICIT
+            # -language task (all-ASCII English body + "Answer in Chinese") — which has
+            # no native script to carry — still emits real native-language queries.
+            _translate_fn = _make_multilingual_translate_fn(
+                llm, list(seed_queries), _profile.non_english
+            )
+            _expanded = _lp.expand_queries_for_profile(
+                seed_queries, _profile, question, translate_fn=_translate_fn
+            )
+            # Separate the native additions from the English seeds, then RESERVE a
+            # bounded slice of native queries inside the query budget so a wide English
+            # R1 frontier cannot starve the task's own language out of the issued set.
+            _eng_keys = {(q or "").strip().lower() for q in seed_queries}
+            _native_adds = [
+                q for q in _expanded if (q or "").strip().lower() not in _eng_keys
+            ]
+            seed_queries = _reserve_native_within_budget(
+                list(seed_queries), _native_adds, max_queries
+            )
+
+    # Issue the seed frontier directly (facet-angle queries are already full queries — no
+    # per-todo llm() derivation needed). Record ONLY the queries ACTUALLY issued in the
+    # shared seen-set: a budget-truncated seed stays eligible for the R2 loop, and the
+    # RESERVE angles (deliberately never placed in `seed_queries`) stay OUT of `seen_q` so
+    # the expansion loop below can fire them for still-uncovered facets. Bounded by the
+    # compute-safety query budget + the retrieval wall.
+    for q in seed_queries:
+        if len(queries) >= max_queries or _wall_passed():
+            break
+        k = q.lower()
+        if k in seen_q:
+            continue
+        seen_q.add(k)
+        queries.append(q)
+        result = per_query_retrieve(research_question=q, **retrieve_kwargs)
+        results.append(result)
+        corpus_rows.extend(list(getattr(result, "evidence_rows", None) or []))
+
+    # R2: the facet-completeness expansion loop closes gaps on UNCOVERED facets until yield saturates.
+    if _fc.facet_completeness_enabled() and facets and len(queries) < max_queries and not _wall_passed():
+        expansion = _fc.run_facet_expansion(
+            facets,
+            corpus_rows,
+            per_query_retrieve,
+            retrieve_kwargs=retrieve_kwargs,
+            max_queries=max_queries - len(queries),
+            already_issued=seen_q,
+            retrieval_deadline_passed=_wall_passed,
+        )
+        queries.extend(expansion.expansion_queries)
+        results.extend(expansion.results)
+
+    return queries, results
+
+
 def plan_fs_researcher_queries(
     question: str,
     llm: LlmFn,
@@ -156,6 +446,19 @@ def plan_fs_researcher_queries(
     # spine merges the corpus gathered upstream rather than grinding the GLM TOC call.
     if _retrieval_deadline_passed(retrieval_deadline_monotonic):
         return queries, results
+
+    # R1 (I-deepfix-001, #1344): when the LLM expert-facet planner is flag-enabled, seed the frontier
+    # from the facet tree (sub-topics x mechanism/stakeholder/counter/temporal/geographic angles,
+    # each scope-anchored) instead of the single one-query-per-sub-topic TOC. Default OFF => this
+    # branch never runs and the legacy loop below is byte-identical (the tested path). Isolated in a
+    # helper so the legacy body is untouched.
+    from src.polaris_graph.retrieval import expert_facet_planner as _efp
+    if _efp.expert_facet_enabled():
+        return _plan_expert_facet_queries(
+            question, llm, per_query_retrieve,
+            max_queries=max_queries, retrieve_kwargs=retrieve_kwargs,
+            retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+        )
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
     # I-deepfix-001 (#1344): keep every sub-topic scoped to the topic so it does not generalise

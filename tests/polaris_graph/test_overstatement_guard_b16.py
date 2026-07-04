@@ -28,6 +28,27 @@ from src.polaris_graph.generator.provenance_generator import (
 def _entailment_off(monkeypatch: pytest.MonkeyPatch) -> None:
     # Isolate the B16 legs: no network entailment call in these offline tests.
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+    # Isolate the B16 epistemic + temporal legs from the LATER w4-SL drop legs
+    # (S5/L1/L2/L3, added default-ON in group w4-SL). Those legs are strictly
+    # additive too, so with the B16 flag OFF a B16 test that expects "reverts to
+    # pass" must not be re-dropped by a sibling w4-SL leg firing on the same
+    # overstatement (e.g. S5 also drops the "we assumed 60%" -> "the data show 60%"
+    # shape as defense-in-depth). Disabling them here keeps each B16 additive-proof
+    # test a clean single-leg isolation; their own coverage lives in
+    # test_deepfix_w4sl_s5_l1_l2_l3.py.
+    monkeypatch.setenv("PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION", "0")
+    monkeypatch.setenv("PG_PROVENANCE_NUMERIC_ROLE_MATCH", "0")
+    monkeypatch.setenv("PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT", "0")
+    monkeypatch.setenv("PG_STRICT_VERIFY_CLINICAL_POLARITY", "0")
+    # Also hold OFF the deployed P5 epistemic-qualifier gate
+    # (``binding_qualifier_dropped`` in provenance_generator / clinical strict_verify).
+    # P5 is the SAME overstatement family as the B16 epistemic leg and, being an
+    # independent additive drop, also drops "we assumed 60%" -> "the data show 60%".
+    # In production all legs stay ON (defense-in-depth); to prove the B16 leg is
+    # additive in ISOLATION its "reverts-to-pass" test must hold every sibling
+    # epistemic gate off. P5's own coverage lives in
+    # test_deepfix_p5_qualifier_retention_production.py.
+    monkeypatch.setenv("PG_STRICT_VERIFY_QUALIFIER_RETENTION", "0")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

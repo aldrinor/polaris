@@ -357,6 +357,19 @@ def check_d1_flags(
         # slate-OFF (or --pathB-gate) launch RED-gates -> NO-GO.
         "PG_CONSOLIDATION_NLI": "W10 consolidate=NLI (same-claim paraphrase baskets -> multi-source corroboration)",
         "PG_CROSS_SOURCE_SYNTHESIS": "M6 cross-source analytical layer (the Comparative-Assessment analysis yield)",
+        # I-deepfix-001 (#1344) DRB-II COVERAGE LEVERS: the 8 weight-and-consolidate breadth levers the Gate-B
+        # slate now force-ON-pins + preflight-requires. RED-gate a launch that leaves any one OFF (a lever
+        # running DARK ships a NARROWER report). The real slate governs all 8 (force_on + required + in_slate),
+        # so a slate-applied run is GREEN; a slate-OFF launch RED-gates -> NO-GO. §-1.3 DNA-ALIGNED (arms the
+        # existing default; NO forced number); FAITHFULNESS-NEUTRAL (surfaced/routed sources re-pass strict_verify).
+        "PG_FACET_OUTLINE": "O1 facet outline (section count emerges from evidence clusters)",
+        "PG_ROUTE_ALL_BASKETS": "F1 route-every-verified-basket (consolidate-don't-drop the stranded baskets)",
+        "PG_EV_BUDGET_TRACKS_PAYLOAD": "F2 per-section evidence budget tracks full matched payload (ceiling removed)",
+        "PG_WORD_BUDGET_TRACKS_PAYLOAD": "F5 per-section word budget tracks full routed payload (clamp removed)",
+        "PG_EXPERT_FACET_PLANNER": "R1 expert facet planner (widen retrieval breadth)",
+        "PG_FACET_COMPLETENESS": "R2 facet completeness (retrieval-breadth completeness pass)",
+        "PG_QUALIFIER_ELABORATION": "D1 within-basket verbatim qualifier elaboration (keep-all; was Gate-B-dark)",
+        "PG_ENRICHMENT_FACET_ROUTE": "D4 facet-routed enrichment placement (keep-all; was Gate-B-dark)",
         "PG_FOUR_ROLE_MODE": "the native 4-role D8 verification seam",
     }
     for flag, why in pinned.items():
@@ -467,11 +480,11 @@ def check_d1_launch_path(rg) -> list[CheckResult]:
 # --------------------------------------------------------------------------------------------
 # D-1 PAID PATH — the winner slate on run_honest_sweep_r3.py (I-deepfix-001 #1344 WS-2)
 # --------------------------------------------------------------------------------------------
-# The paid ``run_honest_sweep_r3.py`` launch now applies the four winner flags ITSELF
+# The paid ``run_honest_sweep_r3.py`` launch now applies the winner flags ITSELF
 # (``apply_winner_slate_on_paid_path``, default-ON kill-switch ``PG_APPLY_WINNER_SLATE_ON_PAID_PATH``),
 # so a direct paid launch no longer needs the run_gate_b.py wrapper to avoid a NARROW report. This
 # check RED-gates a paid launch whose EFFECTIVE winner-flag config is not fully ON: when the
-# kill-switch is ON the launcher force-sets the four flags ``"1"`` (GREEN); when the operator DISABLES
+# kill-switch is ON the launcher force-sets every winner flag ``"1"`` (GREEN); when the operator DISABLES
 # the kill-switch, the flags keep their raw env, so a paid run with any winner flag OFF cannot launch.
 # Flag names mirror ``run_honest_sweep_r3._PAID_PATH_WINNER_FLAGS`` (the source of truth).
 _PAID_PATH_WINNER_SLATE_ENV = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
@@ -480,6 +493,9 @@ _PAID_PATH_WINNER_FLAGS: tuple[tuple[str, str], ...] = (
     ("PG_CONSOLIDATION_NLI_PROSE", "NLI prose consolidation (keep-all corroboration in prose)"),
     ("PG_CROSS_SOURCE_SYNTHESIS", "M6 cross-source analytical layer (the Comparative-Assessment yield)"),
     ("PG_BREADTH_ENRICHMENT_ENABLED", "breadth weighted-enrichment surface (the 485->~13 funnel fix)"),
+    # I-deepfix-001 Wave-2 DEPTH (D1/D4): ADDITIVE keep-all surface/placement, faithfulness-neutral.
+    ("PG_QUALIFIER_ELABORATION", "D1 within-basket verbatim qualifier elaboration (re-verified, keep-all)"),
+    ("PG_ENRICHMENT_FACET_ROUTE", "D4 facet-routed enrichment placement (unbound-but-verified members)"),
 )
 # The paid launcher whose main_async must call apply_winner_slate_on_paid_path (read READ-ONLY via
 # AST; NEVER imported — the module is heavy and runs load_dotenv at import).

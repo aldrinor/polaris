@@ -29,8 +29,10 @@ FAIL-CLOSED (the §-1.3 + brief boundary contract, "under-relax is safe; over-re
     juxtaposition — a wrong "in contrast" / "consistent with this" can NEVER render;
   * when either clause fails to build / re-verify, the analytical unit is DROPPED and the two atoms
     survive as independent single-source sentences (the existing per-basket path emits them) — KEEP-ALL;
-  * "extension" is in the closed vocabulary but the increment-1 ``license_relation`` NEVER returns it
-    (a future producer with a directional-entailment engine may), so it is unreachable here by design.
+  * "extension" (D2, I-deepfix-001) is now licensed — but ONLY by a CERTIFIED DIRECTIONAL-entailment
+    verdict from ``consolidation_nli.entails_directional`` (clause B entails-and-extends clause A). It
+    FAILS CLOSED to ``neutral`` on any absent/negative/error signal, is gated by ``PG_CROSS_SOURCE_EXTENSION``
+    (default-ON), and NEVER outranks a real ``conflict``. No free-form judge, no LLM guess for the word.
 
 LAW VI: gated by ``PG_CROSS_SOURCE_SYNTHESIS`` (read by the caller in ``verified_compose``); when the
 flag is off this module is never invoked and the section producer is byte-identical. PURE: no network,
@@ -39,6 +41,7 @@ no model, no faithfulness-file import, no input mutation. snake_case.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Callable, Optional
 
@@ -52,7 +55,7 @@ logger = logging.getLogger(__name__)
 LICENSED_CONNECTIVES: dict[str, str] = {
     "agreement": "; consistent with this, ",
     "conflict": "; in contrast, ",
-    "extension": "; extending this, ",  # reserved: license_relation never returns this in increment 1
+    "extension": "; extending this, ",  # D2: licensed by a certified directional-entailment verdict
     "neutral": "; separately, ",
 }
 
@@ -153,27 +156,157 @@ def license_relation(
     edges: Any = None,
     equiv_clusters: Any = None,
     agree_map: Any = None,
+    directional_entails: Optional[bool] = None,
 ) -> str:
     """Decide the LICENSED relation between two claim clusters from the EXISTING certified engines.
 
-    Returns one of ``conflict`` / ``agreement`` / ``neutral`` (NEVER ``extension`` in increment 1):
+    Returns one of ``conflict`` / ``agreement`` / ``extension`` / ``neutral``:
       * ``conflict``   iff a ContradictionEdge joins the pair (the certified semantic/qualitative/rule
         contradiction detectors) — surfaces the disagreement ("in contrast"), the DeepTRACE
         one-sidedness win, ONLY ever from a real verified edge;
-      * ``agreement``  iff the consolidation/equivalence engine says A entails/equiv B;
+      * ``agreement``  iff the consolidation/equivalence engine says A entails/equiv B (the BIDIRECTIONAL
+        ``consolidation_nli`` merge / equivalence map) — the two clauses are the SAME claim corroborated;
+      * ``extension``  iff a CERTIFIED DIRECTIONAL-entailment signal positively confirms that clause B
+        (the SECOND, continuation clause the "; extending this, " connective points at) entails-and-adds
+        to clause A — i.e. B is a proper superset/elaboration of A, so "A; extending this, B" is faithful.
+        The signal is ``directional_entails`` (computed by the caller from the certified engine
+        ``consolidation_nli.entails_directional``, the ONE-directional NLI counterpart to the bidirectional
+        consolidation merge). The caller sets it ``True`` ONLY on a PROPER one-way entailment — B entails A
+        AND A does NOT entail B (a confident reverse non-entailment), so a bidirectional PARAPHRASE
+        (equivalence) is excluded at the signal and can never reach the extension branch here even when the
+        agreement-precedence inputs (``agree_map`` / ``equiv_clusters``) are absent on the live edges-only
+        path. It licenses ``extension`` ONLY when EXACTLY ``True``; ``None`` / ``False``
+        (no signal, a confident non-entailment, an equivalence, or an infra fault) FAIL-CLOSED to neutral.
+        This is a NEW RELATION WORD between two already strict_verify-PASSED atoms; a WRONG "extension" is
+        a relation fabrication, so it is gated by the engine and NEVER by a free-form / LLM guess;
       * ``neutral``    otherwise — pure juxtaposition. NEVER fabricate a relation the engines did not
-        license (over-relax is the lethal direction). Conflict takes precedence over agreement (a
-        contested pair is reported as a conflict, never smoothed into agreement)."""
+        license (over-relax is the lethal direction).
+
+    Precedence (most-specific-faithful first): ``conflict`` ALWAYS wins (a contested pair is reported as a
+    conflict, never smoothed into agreement/extension). Then ``agreement`` (a bidirectional equivalence is
+    "consistent with", not an "extension" — a truly equivalent B adds no information). Then ``extension``
+    (a PROPER one-way directional entailment, which a bidirectional-only agreement map never contains).
+    Then ``neutral``. ``directional_entails`` is a WEIGHTED signal surfaced as a connective word; it is
+    never a DROP / CAP / FILTER (§-1.3)."""
     if _edge_between(edges, cluster_a_id, cluster_b_id):
         return "conflict"
     if _agree(agree_map, equiv_clusters, cluster_a_id, cluster_b_id):
         return "agreement"
+    if directional_entails is True:
+        return "extension"
     return "neutral"
 
 
 def _distinct_ev_ids(text: str) -> set[str]:
     """The distinct evidence_ids cited by the provenance tokens in ``text``."""
     return {m.group("ev_id") for m in _EV_SPAN_RE.finditer(text or "")}
+
+
+# LAW VI — the fine flag for the D2 "extension" relation. DEFAULT-ON (the whole cross-source path is
+# gated by ``PG_CROSS_SOURCE_SYNTHESIS`` upstream in ``verified_compose``; this only lets an operator
+# switch OFF the directional-extension word without disabling conflict/agreement). Even when ON,
+# ``extension`` is FAIL-CLOSED: it renders ONLY on a positive certified directional-entailment verdict.
+_ENV_EXTENSION_FLAG = "PG_CROSS_SOURCE_EXTENSION"
+
+
+def cross_source_extension_enabled() -> bool:
+    """``PG_CROSS_SOURCE_EXTENSION`` — the D2 extension-relation switch. DEFAULT-ON. OFF => the composer
+    never asks the directional engine and ``license_relation`` never sees ``directional_entails=True``,
+    so the connective can only ever be conflict / agreement / neutral (the pre-D2 behavior). This is a
+    WEIGHT switch, never a hard cap on breadth (§-1.3)."""
+    return os.getenv(_ENV_EXTENSION_FLAG, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _strip_ev_tokens(clause: str) -> str:
+    """The clause prose with its ``[#ev:...]`` provenance tokens removed and whitespace collapsed — the
+    CLEAN natural-language text handed to the NLI cross-encoder. The rendered clause KEEPS its token
+    (this only affects the signal input, never the emitted sentence)."""
+    return re.sub(r"\s+", " ", _EV_TOKEN_RE.sub(" ", clause or "")).strip()
+
+
+def _default_entail_fn() -> Optional[Callable[[str, str], Optional[bool]]]:
+    """The CERTIFIED directional-entailment engine — ``consolidation_nli.entails_directional`` (the
+    one-directional NLI counterpart to the bidirectional consolidation merge, reading ONLY the forward
+    logits at the SAME entailment-argmax threshold ``_entails`` the consolidation leg uses). It reuses
+    the RESIDENT cross-encoder the consolidation leg already loads (zero extra OpenRouter/GPU spend) and
+    FAIL-CLOSES to ``None`` on any infra fault. Returns None only if the module cannot be imported at
+    all (then the extension signal is unavailable -> fail-closed to no-extension)."""
+    try:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+    except Exception as exc:  # noqa: BLE001 — signal unavailable => fail-closed (no extension)
+        logger.warning(
+            "[cross_source_synthesis] certified directional-entailment engine unavailable (%s); "
+            "extension relation fail-closed to neutral", exc,
+        )
+        return None
+    return entails_directional
+
+
+def _directional_extension_signal(
+    clause_a: str,
+    clause_b: str,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]],
+) -> Optional[bool]:
+    """Compute the CERTIFIED directional-entailment verdict that licenses ``extension`` for the ordered
+    pair ``(clause_a, clause_b)``.
+
+    The rendered sentence is ``[clause_a]; extending this, [clause_b]`` — the "; extending this, "
+    connective points BACK at clause_a, so clause_b is the clause that EXTENDS/elaborates it. For that to
+    be faithful, clause_b must be a PROPER superset of clause_a: clause_b must ADD information, not merely
+    restate it. A mere bidirectional PARAPHRASE (clause_b entails clause_a AND clause_a entails clause_b)
+    adds NOTHING — the faithful word there is "consistent with" (agreement), not "extending this". So we
+    ask the certified engine BOTH directions and license ``extension`` ONLY on a PROPER one-way entailment:
+
+      * FORWARD  ``fn(clause_b, clause_a)`` must be ``True``  — clause_b entails clause_a (the SUPPORT
+        direction the engine was built for);
+      * REVERSE  ``fn(clause_a, clause_b)`` must be ``False`` — a CONFIDENT non-entailment, i.e. clause_a
+        does NOT entail clause_b, proving clause_b carries strictly MORE than clause_a (a proper superset,
+        not an equivalence).
+
+    Returns:
+      * ``True``  only when FORWARD is ``True`` AND REVERSE is ``False`` (a proper directional extension);
+      * ``None`` (the FAIL-CLOSED sentinel — ``license_relation`` treats anything but ``True`` as "no
+        extension") when the feature is OFF, no engine is available, the FORWARD direction is not a
+        positive entailment, OR the REVERSE direction is anything other than a confident ``False``
+        (``True`` = equivalence, ``None`` = unavailable, or an engine fault). We never guess the relation
+        and never call an LLM here; the equivalence guard fails CLOSED to neutral, never open to a wrong
+        relation word between two verified facts."""
+    if not cross_source_extension_enabled():
+        return None
+    fn = entail_fn if entail_fn is not None else _default_entail_fn()
+    if fn is None:
+        return None
+    clause_b_text = _strip_ev_tokens(clause_b)   # the elaborating (second) clause must entail...
+    clause_a_text = _strip_ev_tokens(clause_a)   # ...the first clause it extends
+    if not clause_b_text or not clause_a_text:
+        return None
+    try:
+        forward = fn(clause_b_text, clause_a_text)   # does clause_b entail clause_a? (support direction)
+    except Exception as exc:  # noqa: BLE001 — an engine fault FAIL-CLOSES to neutral (never extension)
+        logger.warning(
+            "[cross_source_synthesis] directional-entailment engine raised on forward pass (%s); "
+            "extension fail-closed to neutral", exc,
+        )
+        return None
+    if forward is not True:
+        return None  # no forward entailment -> not an extension (a confident False / None / other)
+    # EQUIVALENCE GUARD (Fable I-deepfix-001 P1): a bidirectional paraphrase adds nothing, so the reverse
+    # direction MUST be a CONFIDENT non-entailment. clause_a must NOT entail clause_b. A reverse verdict of
+    # ``True`` (equivalence), ``None`` (unavailable), or an engine fault FAILS CLOSED to neutral — we only
+    # render "extending this" on a PROVEN proper superset.
+    try:
+        reverse = fn(clause_a_text, clause_b_text)   # does clause_a entail clause_b?
+    except Exception as exc:  # noqa: BLE001 — an engine fault FAIL-CLOSES to neutral (never extension)
+        logger.warning(
+            "[cross_source_synthesis] directional-entailment engine raised on reverse pass (%s); "
+            "extension fail-closed to neutral", exc,
+        )
+        return None
+    if reverse is not False:
+        return None  # equivalence (True) / unavailable (None) / other -> fail-closed, not an extension
+    return True
 
 
 def _first_verified_clause(
@@ -220,6 +353,7 @@ def compose_cross_source_analytical_units(
     edges: Any = None,
     equiv_clusters: Any = None,
     agree_map: Any = None,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
 ) -> list[str]:
     """Produce verified cross-source ANALYTICAL sentences for a section.
 
@@ -280,8 +414,13 @@ def compose_cross_source_analytical_units(
                 # The two clauses MUST cite DISTINCT origins (a real cross-SOURCE relation).
                 if not (_distinct_ev_ids(clause_a) - _distinct_ev_ids(clause_b)):
                     continue
+                # D2 extension (fail-closed): ask the CERTIFIED directional-entailment engine whether
+                # clause_b entails-and-extends clause_a. Anything but a positive verdict -> None ->
+                # license_relation falls through to conflict/agreement/neutral (never a fabricated word).
+                directional_entails = _directional_extension_signal(clause_a, clause_b, entail_fn)
                 rel = license_relation(
                     ca, cb, edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+                    directional_entails=directional_entails,
                 )
                 connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
                 # Strip clause_A's terminal so the join reads as one flowing sentence

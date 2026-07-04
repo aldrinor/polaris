@@ -988,7 +988,11 @@ def test_reliability_header_prepended_to_artifact_not_evaluated_text():
     # the render is read defensively via getattr (absent at base) and prepended at the write
     assert 'render_reliability_header_md(' in src
     assert 'getattr(multi, "reliability_header", None)' in src
-    assert '_reliability_md + final_report' in src
+    # T5 (#1344): the reliability/audit MACHINERY is composed into the report.md ARTIFACT via
+    # compose_report_with_reliability (a trailing typed appendix by default), NOT a bare
+    # `_reliability_md + final_report` prepend — but it is STILL only in the report.md bytes, never
+    # spliced into the evaluated `final_report` (asserted below).
+    assert 'compose_report_with_reliability(final_report, _reliability_md)' in src
     # `final_report` (NOT the prepended bytes) is what the evaluator + judge read — verify the
     # render var name never enters those call args.
     assert "report_text=final_report" in src  # evaluator + judge both read final_report

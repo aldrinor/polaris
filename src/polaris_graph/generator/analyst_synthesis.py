@@ -442,6 +442,103 @@ def _format_prior_verified_context(prior_verified_context: list[dict[str, Any]] 
     return "\n".join(lines) + "\n\n"
 
 
+def _promote_mode_active() -> bool:
+    """True iff the D3 fail-closed PROMOTE gate is active. Probes the deviation-check module's own
+    ``promote_grounded_enabled`` (which requires the deviation check ON AND the promote flag ON); if
+    that probe itself raises (e.g. the module failed to import — the very fault that trips the caller's
+    fail-closed path), fall back to the RAW promote flag. Fail-closed is the safe direction whenever the
+    promote gate was requested, so a probe failure must not silently choose the legacy keep path."""
+    try:
+        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
+            promote_grounded_enabled as _pge,
+        )
+        return bool(_pge())
+    except Exception:
+        _off_values = {"", "0", "false", "off", "no", "disabled"}
+        return (
+            os.environ.get("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", "0").strip().lower()
+            not in _off_values
+        )
+
+
+def _apply_synthesis_deviation_screen(
+    cleaned: str,
+    bibliography: list[dict[str, Any]],
+    evidence_rows: list[dict[str, Any]],
+    deviation_judge_fn: "Callable[[str, str], bool] | None",
+) -> str:
+    """Run the B13/D3 deviation screen over the composed synthesis prose and return the screened text.
+
+    A synthesis sentence whose cited ``[N]`` span does NOT support it is labeled (legacy advisory mode)
+    or DROPPED (D3 promote mode). ``strict_verify`` is NOT touched — this is an additive gate on top of
+    the frozen engine. Default-ON (``PG_ANALYST_SYNTHESIS_DEVIATION_CHECK``) + shares the coarse
+    ``PG_SWEEP_ANALYST_SYNTHESIS`` kill-switch.
+
+    I-deepfix-001 D3 P0 (#1344) FAIL-CLOSED: if the screen itself RAISES (wiring / import / checker
+    fault) the synthesis was NEVER gated. Under promote mode returning the ungated ``cleaned`` would
+    render UNGATED synthesis into the scored body — the fail-OPEN hole. So under promote mode a screen
+    exception DROPS the whole synthesis block (returns ""); in legacy advisory mode the text ships
+    UNLABELED (as before) with a fail-loud DISTINCT telemetry counter."""
+    try:
+        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
+            screen_synthesis_against_baskets,
+        )
+        cleaned, _dev_tel = screen_synthesis_against_baskets(
+            cleaned, bibliography, evidence_rows, judge_fn=deviation_judge_fn,
+        )
+        for _k, _v in _dev_tel.items():
+            if _v:
+                _SYNTHESIS_TELEMETRY[_k] = _SYNTHESIS_TELEMETRY.get(_k, 0) + _v
+        if _dev_tel.get("synthesis_deviation_dropped_count"):
+            # I-deepfix-001 D3 (#1344): fail-closed mode DROPPED ungrounded/no-source synthesis
+            # sentences from the scored body (the module already fail-loud-logs the exact sentences).
+            logger.warning(
+                "[analyst_synthesis] D3 fail-closed: %d ungrounded/no-source synthesis sentence(s) "
+                "DROPPED from the scored body (never rendered as a body claim); %d promoted grounded",
+                _dev_tel.get("synthesis_deviation_dropped_count", 0),
+                _dev_tel.get("synthesis_deviation_promoted_count", 0),
+            )
+        if _dev_tel.get("synthesis_deviation_labeled_count") or _dev_tel.get(
+            "synthesis_deviation_unresolved_count"
+        ):
+            logger.info(
+                "[analyst_synthesis] B13 deviation check labeled %d unsupported + %d unresolved "
+                "synthesis sentence(s) (advisory KEEP-and-LABEL)",
+                _dev_tel.get("synthesis_deviation_labeled_count", 0),
+                _dev_tel.get("synthesis_deviation_unresolved_count", 0),
+            )
+        return cleaned
+    except Exception as _dev_exc:  # the deviation check is ADDITIVE — never abort the report on it
+        # A checker/wiring exception (distinct from an in-checker judge fault, which is already handled
+        # LOW/DROP per-sentence) means the analyst layer was NOT screened. Fail-LOUD with a DISTINCT
+        # telemetry counter so a wiring break is visible in the manifest, never mistaken for a clean run.
+        _SYNTHESIS_TELEMETRY["synthesis_deviation_check_error_count"] = (
+            _SYNTHESIS_TELEMETRY.get("synthesis_deviation_check_error_count", 0) + 1
+        )
+        if _promote_mode_active():
+            # I-deepfix-001 D3 P0: under PROMOTE mode the synthesis is only admissible if it PASSED the
+            # gate. It was never gated -> DROP the whole block (never render ungated synthesis).
+            _SYNTHESIS_TELEMETRY["synthesis_deviation_promote_failclosed_drop_count"] = (
+                _SYNTHESIS_TELEMETRY.get("synthesis_deviation_promote_failclosed_drop_count", 0) + 1
+            )
+            logger.error(
+                "[analyst_synthesis] D3 PROMOTE fail-CLOSED: the deviation screen raised (%s) so the "
+                "analyst synthesis was NEVER gated — DROPPING the whole synthesis block from the scored "
+                "body (never render ungated synthesis under promote mode)",
+                _dev_exc,
+                exc_info=True,
+            )
+            return ""
+        logger.error(
+            "[analyst_synthesis] B13 deviation check FAILED (wiring/checker error — analyst layer "
+            "ships UNLABELED in legacy advisory mode, faithfulness labels lost for this section; "
+            "fail-loud telemetry emitted): %s",
+            _dev_exc,
+            exc_info=True,
+        )
+        return cleaned
+
+
 async def generate_analyst_synthesis(
     *,
     verified_prose: str,
@@ -568,47 +665,11 @@ async def generate_analyst_synthesis(
             "[analyst_synthesis] synthesis_negation_dropped: %d unverified qualitative-negation "
             "safety sentence(s) removed from the analyst layer (fail-closed)", n_neg_dropped
         )
-    # I-deepfix-001 B13 (#1357): bring the analyst layer UNDER the faithfulness engine via the
-    # deviation check (KEEP-and-LABEL, never delete). Runs AFTER the regex scrubs and the negation
-    # screen, BEFORE return, so it fires regardless of caller mode. A synthesis sentence whose cited
-    # [N] span does NOT support it gets an inline low-confidence marker; an uncited / unresolvable
-    # sentence gets a no-source marker. strict_verify is NOT touched (the span-verified core above is
-    # untouched). Default-ON (PG_ANALYST_SYNTHESIS_DEVIATION_CHECK) + shares the coarse
-    # PG_SWEEP_ANALYST_SYNTHESIS kill-switch; fail-closed to a low marker on any judge fault.
-    try:
-        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
-            screen_synthesis_against_baskets,
-        )
-        cleaned, _dev_tel = screen_synthesis_against_baskets(
-            cleaned, bibliography, evidence_rows, judge_fn=deviation_judge_fn,
-        )
-        for _k, _v in _dev_tel.items():
-            if _v:
-                _SYNTHESIS_TELEMETRY[_k] = _SYNTHESIS_TELEMETRY.get(_k, 0) + _v
-        if _dev_tel.get("synthesis_deviation_labeled_count") or _dev_tel.get(
-            "synthesis_deviation_unresolved_count"
-        ):
-            logger.info(
-                "[analyst_synthesis] B13 deviation check labeled %d unsupported + %d unresolved "
-                "synthesis sentence(s) (KEEP-and-LABEL, never dropped)",
-                _dev_tel.get("synthesis_deviation_labeled_count", 0),
-                _dev_tel.get("synthesis_deviation_unresolved_count", 0),
-            )
-    except Exception as _dev_exc:  # the deviation check is ADDITIVE — never abort the report on it
-        # Codex wave-2 P2: a checker/wiring exception (distinct from an in-checker
-        # judge fault, which is already handled LOW per-sentence) means the analyst
-        # layer ships UNLABELED. That is a real loss of faithfulness labels, so
-        # fail-LOUD with a DISTINCT telemetry counter (not the silent "skipped"
-        # path) so a wiring break is visible in the manifest, not mistaken for a
-        # clean no-deviation run.
-        _SYNTHESIS_TELEMETRY["synthesis_deviation_check_error_count"] = (
-            _SYNTHESIS_TELEMETRY.get("synthesis_deviation_check_error_count", 0) + 1
-        )
-        logger.error(
-            "[analyst_synthesis] B13 deviation check FAILED (wiring/checker error — "
-            "analyst layer ships UNLABELED, faithfulness labels lost for this "
-            "section; fail-loud telemetry emitted): %s",
-            _dev_exc,
-            exc_info=True,
-        )
+    # I-deepfix-001 B13 (#1357) + D3 (#1344): bring the analyst layer UNDER the faithfulness engine via
+    # the deviation check. Extracted into a synchronous, testable helper (the fail-closed-on-exception
+    # path is behavioral, not an untested branch). Runs AFTER the regex scrubs + negation screen,
+    # BEFORE return.
+    cleaned = _apply_synthesis_deviation_screen(
+        cleaned, bibliography, evidence_rows, deviation_judge_fn,
+    )
     return cleaned, in_tok, out_tok

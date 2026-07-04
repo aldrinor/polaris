@@ -48,6 +48,14 @@ import os
 import time
 from typing import Callable, Optional
 
+# I-deepfix-001 (§9.1.8 anti-starvation, Codex diff-gate iter1 P0): this is the FOURTH live glm side
+# judge (the W2 content-relevance escalation is DEFAULT-ON and run_gate_b force-enables it). GLM ignores
+# reasoning.effort, so a provider that runs reasoning long can eat the whole max_tokens budget and blank
+# the verdict. The shared leaf helper puts the PROVEN D8-Mirror NUMERIC reasoning cap
+# (reasoning_cap << max_tokens) on a glm judge body; a non-glm model (e.g. a PG_RELEVANCE_MODEL=kimi
+# override) keeps its byte-identical {effort} shape. Stdlib-light leaf import.
+from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_block as _build_reasoning_block
+
 logger = logging.getLogger("polaris_graph.relevance_judge")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +91,18 @@ _ENV_ALLOW_SAME_FAMILY = "PG_RELEVANCE_ALLOW_SAME_FAMILY"
 # before any LIVE run; the harness mocks the judge so the slug is not load-bearing here.
 _DEFAULT_MODEL = "z-ai/glm-5.2"
 _DEFAULT_REASONING_EFFORT = "high"
-_DEFAULT_MAX_TOKENS = 256
+# I-deepfix-001 (§9.1.8 anti-starvation, Codex diff-gate iter1 P0): the OLD default 256 STARVED the
+# glm-5.2 reasoning judge — the reasoning burst ate the whole 256-token budget so message.content came
+# back EMPTY (finish_reason=length). This judge fires by default via the W2 content-relevance escalation
+# (PG_CONTENT_RELEVANCE_JUDGE default-ON, force-enabled at run_gate_b.py:1364), so the starvation hit
+# every paid run. §9.1.8 "max_tokens ALWAYS go to the model REAL max": glm-5.2's mirror-chain MIN
+# completion cap is 131072 — the SAME real cap the credibility / entailment / semantic-conflict side
+# judges resolved from a LIVE OpenRouter read 2026-06-14 (_CREDIBILITY_MAX_TOKENS_CHAIN_MIN). max_tokens
+# is a CAP billed by ACTUAL usage (~a few hundred tokens for a relevance verdict), so a generous cap is
+# free insurance, never a pre-allocated spend. Env-overridable per LAW VI (PG_RELEVANCE_MAX_TOKENS). The
+# numeric reasoning cap (build_judge_reasoning_block) then keeps the reasoning burst strictly below this
+# so the JSON verdict always lands.
+_DEFAULT_MAX_TOKENS = 131072
 _DEFAULT_TIMEOUT_S = 30.0
 
 
@@ -282,7 +301,10 @@ class _RelevanceJudge:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": max_tokens,
-            "reasoning": {"effort": effort},
+            # I-deepfix-001 (§9.1.8): a glm judge gets a NUMERIC reasoning cap (reasoning_cap << max_tokens)
+            # so a provider that runs reasoning long cannot blank the verdict; a non-glm model (e.g. a
+            # PG_RELEVANCE_MODEL=kimi override) keeps the {effort} shape. Reasoning stays ON either way.
+            "reasoning": _build_reasoning_block(self._model, effort, max_tokens),
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",

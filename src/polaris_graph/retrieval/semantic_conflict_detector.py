@@ -48,6 +48,12 @@ import re
 import time
 from dataclasses import asdict, dataclass, field
 
+# I-deepfix-001 (§9.1.8 anti-starvation): GLM ignores reasoning.effort, so a provider running reasoning
+# long can eat the whole max_tokens budget and blank the verdict (a silently-missed contradiction). The
+# shared leaf helper puts a NUMERIC reasoning cap (reasoning_cap << max_tokens, the proven D8-Mirror bound)
+# on a glm judge body; a non-glm model keeps its byte-identical {effort} shape. Stdlib-light leaf import.
+from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_block as _build_reasoning_block
+
 logger = logging.getLogger(__name__)
 
 # --- configuration (LAW VI: all knobs are env-overridable) -------------------
@@ -740,7 +746,10 @@ class _SemanticContradictionJudge:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": _sc_maxtok,
-            "reasoning": {"effort": _sc_effort},
+            # I-deepfix-001 (§9.1.8): a glm judge gets a NUMERIC reasoning cap (reasoning_cap << _sc_maxtok)
+            # so a provider that runs reasoning long cannot blank the verdict; a non-glm model keeps the
+            # effort shape. Operator 2026-06-13: reasoning stays ON either way (never disabled).
+            "reasoning": _build_reasoning_block(self._model, _sc_effort, _sc_maxtok),
             # I-arch-011 (B14): no `response_format: {type: json_object}`. That structured-output
             # flag makes the novita and gmicloud mirror hosts return 404, collapsing the 4-host
             # mirror chain to 2. The brace-aware _extract_first_json_object parser (below) recovers

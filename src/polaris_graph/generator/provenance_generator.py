@@ -61,6 +61,18 @@ from src.polaris_graph.retrieval.shell_detector import (
     is_cited_span_shell as _is_cited_span_shell,
 )
 
+# I-deepfix-001 L4 (#1344): CJK / multilingual-aware content tokenization for the
+# strict_verify grounding floor. extra_script_tokens UNIONS non-Latin tokens (CJK
+# bigrams + space-delimited non-Latin words) into _content_words so the overlap
+# floor counts correctly on non-Latin claims; has_unsegmentable_content flags
+# scripts we cannot segment (Thai/Lao/Khmer/Myanmar/Tibetan) so the caller FAILS
+# CLOSED. Engine-TIGHTENING only; reverts byte-identical under
+# PG_STRICT_VERIFY_SCRIPT_AWARE=0.
+from src.polaris_graph.generator.script_aware_grounding import (
+    extra_script_tokens,
+    has_unsegmentable_content,
+)
+
 # I-deepfix B16 (#1360): additive overstatement guards (epistemic-marker
 # preservation + temporal-scope match). Pure stdlib leaf module, zero-cost on the
 # hot per-sentence path. These ONLY add drops/flags on top of strict_verify;
@@ -73,6 +85,15 @@ from src.polaris_graph.generator.overstatement_guard import (
     temporal_scope_reason as _temporal_scope_reason,
     primacy_frame_annotate_enabled as _primacy_frame_annotate_enabled,
     primacy_frame_reason as _primacy_frame_reason,
+    # I-deepfix-001 group w4-SL — four additive faithfulness-TIGHTENING drop legs.
+    numeric_qualifier_retention_enabled as _numeric_qualifier_retention_enabled,
+    numeric_qualifier_retention_reason as _numeric_qualifier_retention_reason,
+    numeric_role_match_enabled as _numeric_role_match_enabled,
+    numeric_role_match_reason as _numeric_role_match_reason,
+    clinical_qualifier_unit_enabled as _clinical_qualifier_unit_enabled,
+    clinical_qualifier_unit_reason as _clinical_qualifier_unit_reason,
+    clinical_polarity_guard_enabled as _clinical_polarity_guard_enabled,
+    clinical_polarity_reason as _clinical_polarity_reason,
 )
 
 # Mis-attribution disclosure guard (I-deepfix-001): when a claim names an explicit
@@ -1235,12 +1256,20 @@ _STOPWORDS_FOR_GROUNDING = frozenset({
 
 def _content_words(text: str) -> set[str]:
     """Extract lowercased content words (alphabetic, length >=3) minus
-    stopwords. Used by the B-1 semantic-grounding check."""
+    stopwords. Used by the B-1 semantic-grounding check.
+
+    I-deepfix-001 L4 (#1344): the Latin path below is byte-identical to the
+    pre-L4 engine (English unchanged). It is UNIONED with script-aware tokens
+    (CJK character bigrams + space-delimited non-Latin words) so the overlap
+    floor counts correctly on non-Latin claims instead of silently returning
+    the empty set. Reverts byte-identical under PG_STRICT_VERIFY_SCRIPT_AWARE=0.
+    """
     if not text:
         return set()
     # Find alphabetic tokens, ignore numbers and punctuation
     tokens = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", text.lower())
-    return {t for t in tokens if t not in _STOPWORDS_FOR_GROUNDING}
+    latin = {t for t in tokens if t not in _STOPWORDS_FOR_GROUNDING}
+    return latin | extra_script_tokens(text)
 
 
 # Minimum content-word overlap between a sentence and any of its cited
@@ -2241,7 +2270,27 @@ def verify_sentence_provenance(
         # unsupported claim, sentence dropped.
         sentence_content = _content_words(sentence_stripped)
         span_content = _content_words(" ".join(aggregated_span_text))
-        if sentence_content:
+        # I-deepfix-001 L4 (#1344): FAIL-CLOSED on unsegmentable script content —
+        # UNCONDITIONAL (matches clinical_generator.strict_verify:505-506, which
+        # drops on has_unsegmentable_content BEFORE the overlap floor). A sentence
+        # that carries a run of letters in a script we cannot segment
+        # (Thai/Lao/Khmer/Myanmar/Tibetan) has an ungrounded unsegmentable claim
+        # we cannot lexically verify. The earlier version only dropped when
+        # sentence_content was EMPTY (`not sentence_content and ...`) — but a
+        # MIXED sentence (Thai + Latin/CJK) has non-empty sentence_content from
+        # its segmentable tokens, so it fell to the `elif` and could PASS the
+        # overlap floor on the Latin/CJK words while the Thai claim rode through
+        # UNGROUNDED — the lethal weakened-positive hole (Codex iter-3 P1). We now
+        # fail closed on ANY unsegmentable run regardless of the segmentable
+        # tokens: we cannot establish grounding for the unsegmentable portion, so
+        # we drop the whole sentence (never guess a pass). CJK / Arabic / Cyrillic
+        # etc. are handled correctly by _content_words above and never carry an
+        # unsegmentable run, so they do NOT hit this branch. Reverts byte-identical
+        # under PG_STRICT_VERIFY_SCRIPT_AWARE=0 (has_unsegmentable_content => False).
+        if has_unsegmentable_content(sentence_stripped):
+            ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+            failures.append(f"unsegmentable_script_no_grounding:{ev_ids}")
+        elif sentence_content:
             overlap = sentence_content & span_content
             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
@@ -2574,6 +2623,37 @@ def verify_sentence_provenance(
             _temp_reason = _temporal_scope_reason(_b16_claim, _b16_span)
             if _temp_reason:
                 failures.append(_temp_reason)
+        # I-deepfix-001 group w4-SL — four additive faithfulness-TIGHTENING drop
+        # legs (S5 / L2 / L1 / L3), each env-gated DEFAULT-ON and compared against
+        # the SAME cited-span aggregate (_b16_span). Each only ever APPENDS a drop;
+        # OFF reverts byte-identical.
+        #   S5 — headline numeric re-lifted while its span-bound conditional/
+        #        threshold antecedent is dropped -> the composer falls back to the
+        #        qualifier-carrying verbatim K-span.
+        if _numeric_qualifier_retention_enabled():
+            _s5_reason = _numeric_qualifier_retention_reason(_b16_claim, _b16_span)
+            if _s5_reason:
+                failures.append(_s5_reason)
+        #   L2 — a printed CURRENCY / MULTIPLIER figure not grounded by the SAME
+        #        value+role in the cited span (value-and-role, extends percent-role).
+        if _numeric_role_match_enabled():
+            _l2_reason = _numeric_role_match_reason(_b16_claim, _b16_span)
+            if _l2_reason:
+                failures.append(_l2_reason)
+        #   L1 — a shared number bound in the span to a clinical population/
+        #        indication the claim drops or contradicts (clinical qualifier as a
+        #        UNIT, not the number alone).
+        if _clinical_qualifier_unit_enabled():
+            _l1_reason = _clinical_qualifier_unit_reason(_b16_claim, _b16_span)
+            if _l1_reason:
+                failures.append(_l1_reason)
+        #   L3 — a clinical relation stem whose polarity in the claim (negated vs
+        #        asserted) disagrees with the cited span (a "not contraindicated"
+        #        rendered from a "contraindicated" span, or vice-versa).
+        if _clinical_polarity_guard_enabled():
+            _l3_reason = _clinical_polarity_reason(_b16_claim, _b16_span)
+            if _l3_reason:
+                failures.append(_l3_reason)
 
     # Gap-2 soft check: detect unhedged superlatives. This does NOT
     # drop the sentence — it emits a warning that the evaluator (PT13)

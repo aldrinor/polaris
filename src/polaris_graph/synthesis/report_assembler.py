@@ -30,6 +30,121 @@ logger = logging.getLogger(__name__)
 _segmenter = pysbd.Segmenter(language="en", clean=False)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# W3 (I-deepfix-001) — surface the ALREADY-COMPUTED per-citation credibility WEIGHT
+# in the render, and reconcile the legacy GOLD/SILVER quality-tier vocabulary onto
+# the T1-T7 credibility scheme so ONE credibility language shows.
+#
+# DNA (CLAUDE.md §-1.3): pure render-surfacing of state that credibility_pass /
+# tier_classifier / document_type_classifier ALREADY computed (tier T1-T7,
+# authority_score, source_class, document_type genre). NO source is dropped, NO
+# gate reads these — advisory disclosure only, the SAME class as the existing
+# credibility_weight. The faithfulness engine (strict_verify / NLI / 4-role D8 /
+# provenance / span-grounding) is untouched.
+#
+# Default-OFF byte-identical revert (LAW VI): PG_RENDER_CITATION_CREDIBILITY gates
+# the per-reference annotation; an evidence row with NO credibility signal yields
+# an empty annotation (fail-open — a weight is never fabricated).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_RENDER_CREDIBILITY_FLAG = "PG_RENDER_CITATION_CREDIBILITY"
+
+# Legacy GOLD/SILVER/BRONZE -> T1-T7 band reconciliation. The legacy 3-tier
+# vocabulary predates the T1-T7 authority scheme; when ONLY the legacy tier is
+# present we map it to the closest T1-T7 band so the render + metrics speak ONE
+# credibility language. GOLD = peer-reviewed / regulatory (T1-T3 band ->
+# representative T2); SILVER = review / secondary (T4); BRONZE = news / blog (T6).
+_LEGACY_TIER_TO_T = {
+    "GOLD": "T2",
+    "SILVER": "T4",
+    "BRONZE": "T6",
+}
+_T_TIER_RE = re.compile(r"^T[1-7]$")
+
+
+def _render_citation_credibility_active() -> bool:
+    """The PG_RENDER_CITATION_CREDIBILITY leg (default OFF => byte-identical)."""
+    return os.getenv(_RENDER_CREDIBILITY_FLAG, "0").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def resolve_credibility_tier(evidence: dict) -> "tuple[str | None, str]":
+    """Resolve a source's T1-T7 credibility tier from an evidence row.
+
+    Prefers the tier_classifier output (``source_tier`` / ``tier`` when it is a
+    real ``T1``..``T7`` label). Falls back to reconciling the legacy
+    GOLD/SILVER/BRONZE ``quality_tier`` onto the closest T1-T7 band so a report
+    that only carries legacy tiers still speaks ONE credibility language. Returns
+    ``(tier_label, basis)``; ``(None, "unresolved")`` when nothing credible is
+    present — never fabricated (§-1.3 / LAW II fail-loud-not-guess).
+    """
+    for key in ("source_tier", "tier"):
+        raw = str(evidence.get(key) or "").strip().upper()
+        if _T_TIER_RE.match(raw):
+            return raw, f"tier_classifier:{key}"
+    for key in ("quality_tier", "tier"):
+        raw = str(evidence.get(key) or "").strip().upper()
+        if raw in _LEGACY_TIER_TO_T:
+            return _LEGACY_TIER_TO_T[raw], f"legacy_reconcile:{raw}"
+    return None, "unresolved"
+
+
+def format_citation_credibility_annotation(evidence: dict) -> str:
+    """A one-line per-citation credibility+genre disclosure appended to a
+    reference in the rendered ``## References`` block.
+
+    Surfaces the ALREADY-COMPUTED per-source signals — tier (T1-T7),
+    authority_score, source_class, and document_type genre. It is per-SOURCE
+    (not per-claim), so it deliberately does NOT assert basket corroboration
+    (that is a claim-level signal surfaced by disclosure_population). Returns ""
+    when no credibility signal is present (fail-open — a weight is never
+    invented, so an unclassified source renders exactly as before).
+    """
+    bits: list[str] = []
+    tier, _ = resolve_credibility_tier(evidence)
+    if tier:
+        bits.append(f"tier {tier}")
+    authority = evidence.get("authority_score")
+    if isinstance(authority, (int, float)) and not isinstance(authority, bool):
+        bits.append(f"authority {float(authority):.2f}")
+    source_class = str(evidence.get("source_class") or "").strip()
+    if source_class:
+        bits.append(f"class {source_class}")
+    document_type = str(evidence.get("document_type") or "").strip()
+    if document_type:
+        bits.append(f"genre {document_type}")
+    if not bits:
+        return ""
+    return "[credibility: " + "; ".join(bits) + "]"
+
+
+def _reference_lines(
+    bibliography: list, ev_by_id: dict, render_cred: bool,
+) -> list[str]:
+    """Formatted ``## References`` lines, optionally annotated with the W3
+    per-citation credibility WEIGHT. ``assemble_report`` rebuilds the References
+    block at several post-processing stages; this single helper is used at EVERY
+    such site so the annotation renders regardless of which rebuild produces the
+    final ``report.md``. The annotation is derived FRESH from the evidence row
+    each time (never stored in ``formatted``), so citation renumber/cleanup can
+    never orphan or double it. ``render_cred=False`` => the legacy bare line."""
+    lines: list[str] = []
+    for entry in bibliography:
+        line = entry["formatted"]
+        if render_cred:
+            _rep_ev: dict = {}
+            for _eid in entry.get("evidence_ids", []):
+                if _eid in ev_by_id:
+                    _rep_ev = ev_by_id[_eid]
+                    break
+            _annot = format_citation_credibility_annotation(_rep_ev)
+            if _annot:
+                line = f"{line} {_annot}"
+        lines.append(line)
+    return lines
+
+
 def _split_sentences(text: str, min_len: int = 0) -> list[str]:
     """FIX-047C: Split text into sentences using PySBD.
 
@@ -1065,6 +1180,13 @@ def assemble_report(
 
     evidence_ids = {e.get("evidence_id", "") for e in evidence}
 
+    # W3 (I-deepfix-001): per-citation credibility render context, computed once and
+    # reused at EVERY References-rebuild site below (default-OFF => byte-identical).
+    _render_cred = _render_citation_credibility_active()
+    _ev_by_id = (
+        {e.get("evidence_id", ""): e for e in evidence} if _render_cred else {}
+    )
+
     # Clean ungrounded citations first
     clean_sections = strip_ungrounded_citations(sections, evidence_ids)
 
@@ -1206,8 +1328,9 @@ def assemble_report(
 
     parts.append("## References")
     parts.append("")
-    for entry in bibliography:
-        parts.append(entry["formatted"])
+    # W3 (I-deepfix-001): surface the already-computed per-citation credibility
+    # WEIGHT alongside each reference (default-OFF => byte-identical).
+    parts.extend(_reference_lines(bibliography, _ev_by_id, _render_cred))
     parts.append("")
 
     full_report = "\n".join(parts)
@@ -1422,8 +1545,7 @@ def assemble_report(
         rebuilt_parts.append("")
     rebuilt_parts.append("## References")
     rebuilt_parts.append("")
-    for entry in bibliography:
-        rebuilt_parts.append(entry["formatted"])
+    rebuilt_parts.extend(_reference_lines(bibliography, _ev_by_id, _render_cred))
     rebuilt_parts.append("")
     full_report = "\n".join(rebuilt_parts)
 
@@ -1580,8 +1702,7 @@ def assemble_report(
         _final_parts.append("")
     _final_parts.append("## References")
     _final_parts.append("")
-    for entry in bibliography:
-        _final_parts.append(entry["formatted"])
+    _final_parts.extend(_reference_lines(bibliography, _ev_by_id, _render_cred))
     _final_parts.append("")
     full_report = "\n".join(_final_parts)
 
@@ -1613,8 +1734,7 @@ def assemble_report(
                 _abs_parts.append("")
             _abs_parts.append("## References")
             _abs_parts.append("")
-            for entry in bibliography:
-                _abs_parts.append(entry["formatted"])
+            _abs_parts.extend(_reference_lines(bibliography, _ev_by_id, _render_cred))
             _abs_parts.append("")
             full_report = "\n".join(_abs_parts)
             total_words = len(full_report.split())
@@ -1902,6 +2022,17 @@ def compute_quality_metrics(
         1 for e in evidence if e.get("quality_tier") == "SILVER"
     )
 
+    # W3 (I-deepfix-001): reconcile the credibility vocabulary onto ONE T1-T7
+    # language. Build a T1-T7 distribution from the tier_classifier output
+    # (source_tier/tier), falling back to the legacy GOLD/SILVER/BRONZE reconcile
+    # so a report that only carries legacy tiers still reports ONE credibility
+    # language. Advisory metric only — no gate reads it (§-1.3 WEIGHT-not-DROP).
+    tier_distribution: dict[str, int] = {}
+    for e in evidence:
+        _t, _ = resolve_credibility_tier(e)
+        if _t:
+            tier_distribution[_t] = tier_distribution.get(_t, 0) + 1
+
     # BUG-7 FIX: Exclude api_error claims from both numerator and denominator.
     # api_error = verification failed (timeout/network), not unfaithful.
     scorable_claims = [
@@ -2105,6 +2236,10 @@ def compute_quality_metrics(
         "total_evidence": len(evidence),
         "gold_evidence": gold_count,
         "silver_evidence": silver_count,
+        # W3 (I-deepfix-001): ONE credibility language — the T1-T7 distribution
+        # reconciled from tier_classifier output + the legacy GOLD/SILVER/BRONZE
+        # vocabulary. Advisory disclosure; no gate reads it.
+        "tier_distribution": tier_distribution,
         "total_claims": total_claims,
         "verified_claims": verified_claims,
         "faithfulness_score": faithfulness_score,

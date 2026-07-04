@@ -702,6 +702,16 @@ def _resolve_ambiguous(
         wait as futures_wait,
     )
 
+    # I-deepfix-001 (Codex diff-gate iter2 P1): resolve BudgetExceededError ONCE so this DEFAULT-ON
+    # W2 escalation FAILS-CLOSED on a PG_MAX_COST_PER_RUN breach. relevance_judge.py books the judge
+    # spend then re-raises BudgetExceededError on a cap breach; the escalation worker below must let
+    # it PROPAGATE (abort the run), NEVER mask a cap breach as an always-release full-weight keep.
+    # §-1.3 (weight-not-filter) is preserved for EVERY other transport/parse fault. Lazy import
+    # avoids a module-load cycle (mirrors relevance_judge.py's lazy BudgetExceededError import).
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        BudgetExceededError as _BudgetExceededError,
+    )
+
     # Resolve the GLM judge callable (real OpenRouter GLM-5.2 unless injected).
     judge_fn = glm_judge_fn
     if judge_fn is None:
@@ -755,6 +765,14 @@ def _resolve_ambiguous(
                 reranker_score=s, escalated=True,
                 reason=f"GLM {label}: {reason[:120]} (demoted, NOT dropped)",
             )
+        except _BudgetExceededError:
+            # I-deepfix-001 (Codex diff-gate iter2 P1): a PG_MAX_COST_PER_RUN breach on this
+            # DEFAULT-ON W2 escalation path is FAIL-CLOSED — abort the run, NEVER swallow the cap
+            # breach into an always-release keep. relevance_judge.py re-raises BudgetExceededError
+            # after booking the judge spend; let it PROPAGATE up through the future so
+            # score_passages -> run_live_retrieval aborts cleanly (mirrors the entailment/side-judge
+            # budget contract). Every OTHER transport/parse fault below still keeps the passage.
+            raise
         except Exception as exc:
             return RelevanceVerdict(
                 idx=idx, url=url, label=LABEL_ESCALATED_KEEP, weight=1.0,
@@ -809,6 +827,10 @@ def _resolve_ambiguous(
                     try:
                         report.verdicts.append(fut.result())
                         continue
+                    except _BudgetExceededError:
+                        # Fail-closed even on the wall-hit drain: a cap breach in an
+                        # already-completed future must abort, never fall through to a keep.
+                        raise
                     except Exception:  # noqa: BLE001 — a late failure falls through to keep
                         pass
                 report.verdicts.append(_full_weight_keep(_pos))

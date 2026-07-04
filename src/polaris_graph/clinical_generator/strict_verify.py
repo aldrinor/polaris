@@ -54,6 +54,12 @@ from src.polaris_graph.clinical_generator.provenance import (
     strip_tokens,
     validate_token_against_pool,
 )
+# I-deepfix-001 L4 (#1344): CJK / multilingual-aware content tokenization + the
+# unsegmentable-script fail-closed guard for the strict_verify overlap floor.
+from src.polaris_graph.generator.script_aware_grounding import (
+    extra_script_tokens,
+    has_unsegmentable_content,
+)
 from src.polaris_graph.clinical_generator.verified_report import (
     DropReason,
     VerifiedSentence,
@@ -102,12 +108,21 @@ def _min_overlap_threshold() -> int:
 
 
 def _content_words(text: str) -> set[str]:
-    """Lowercase content words (>=3 chars, not stopwords) from `text`."""
-    return {
+    """Lowercase content words (>=3 chars, not stopwords) from `text`.
+
+    I-deepfix-001 L4 (#1344): the Latin path below is byte-identical to the
+    pre-L4 engine (English unchanged). It is UNIONED with script-aware tokens
+    (CJK character bigrams + space-delimited non-Latin words) so the
+    ``overlap_too_low`` floor counts real shared content on non-Latin claims
+    instead of mis-counting ZERO. Reverts byte-identical under
+    PG_STRICT_VERIFY_SCRIPT_AWARE=0.
+    """
+    latin = {
         m.group(0).lower()
         for m in _WORD_RE.finditer(text)
         if len(m.group(0)) >= 3 and m.group(0).lower() not in _STOPWORDS
     }
+    return latin | extra_script_tokens(text)
 
 
 def _decimals(text: str) -> set[str]:
@@ -478,6 +493,17 @@ def verify_sentence(
                         _span, numeral, window, marker_re
                     ):
                         return False, "binding_qualifier_dropped"
+
+    # I-deepfix-001 L4 (#1344): FAIL-CLOSED on unsegmentable script content. A
+    # claim carrying a run of letters in a script we cannot segment
+    # (Thai/Lao/Khmer/Myanmar/Tibetan) yields no content tokens; rather than let
+    # it slip past the overlap floor on a coincidental decimal match, we drop it
+    # — we cannot establish lexical grounding and MUST NOT guess a pass (the
+    # lethal weakened-positive). CJK / Arabic / Cyrillic etc. tokenize correctly
+    # via _content_words and never reach here. Reverts byte-identical under
+    # PG_STRICT_VERIFY_SCRIPT_AWARE=0.
+    if has_unsegmentable_content(sentence_clean):
+        return False, "unsegmentable_script"
 
     # Content-word overlap
     sentence_words = _content_words(sentence_clean)

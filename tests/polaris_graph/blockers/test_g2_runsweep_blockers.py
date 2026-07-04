@@ -682,8 +682,11 @@ def test_iarch011_prb_on_renders_count_weights_support_labels():
     # COUNT = verified_support_origin_count (2), never the 4 raw members.
     assert "2 verified independent source(s)" in out
     # Each ENTAILMENT_VERIFIED member is a SUPPORT line carrying its weight + tier.
-    assert "SUPPORT: https://nejm.org/a (tier T1, weight 0.95)" in out
-    assert "SUPPORT: https://lancet.com/b (tier T1, weight 0.88)" in out
+    # I-deepfix-001 S6 (#1344): the DISPLAYED weight is now the single authority_score source of
+    # truth (ev_a authority_score=0.9, ev_b=0.85) — NOT the divergent credibility_weight — so a tier
+    # label can never sit on a mismatched weight and every disclosure surface shows one weight.
+    assert "SUPPORT: https://nejm.org/a (tier T1, weight 0.90)" in out
+    assert "SUPPORT: https://lancet.com/b (tier T1, weight 0.85)" in out
 
 
 def test_iarch011_prb_deterministic_only_labeled_weak_never_counted_as_support():

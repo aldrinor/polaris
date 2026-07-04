@@ -3,20 +3,21 @@
 BEHAVIORAL, fixture-driven, OFFLINE (no model / GPU / network / spend). Two surfaces under test:
 
   1. ``scripts/run_honest_sweep_r3.py`` — the paid launcher's flag-resolution function
-     ``apply_winner_slate_on_paid_path`` must force the four confirmed default-OFF WINNER flags
+     ``apply_winner_slate_on_paid_path`` must force every confirmed default-OFF WINNER flag
      ``"1"`` under the default-ON kill-switch, and be a BYTE-IDENTICAL no-op when the kill-switch is
      OFF. We do NOT import run_honest_sweep_r3 (it pulls torch / sentence-transformers / live_retriever
      at module import). Instead we AST-extract ONLY the WS-2 constants + two functions from the real
      source and exec them in an isolated namespace with just ``os`` — a real test of the real code.
 
   2. ``scripts/operational_readiness_preflight.py`` — ``check_d1_paid_path_winner_slate`` must RED-fail
-     a paid launch whose EFFECTIVE winner slate is not fully ON, and PASS when all four are ``"1"``.
+     a paid launch whose EFFECTIVE winner slate is not fully ON, and PASS when every flag is ``"1"``.
      The preflight module is stdlib-only at import (its heavy ``run_gate_b`` import lives inside
      functions), so it imports safely offline.
 
-§-1.3: the four flags are WEIGHT / CONSOLIDATE knobs (merge-only consolidation, additive cross-source
-synthesis, uncapped breadth surface through the UNCHANGED strict_verify). None drops a source or adds a
-cap. The frozen faithfulness engine is not touched by this workstream.
+§-1.3: every flag is a WEIGHT / CONSOLIDATE knob (merge-only consolidation, additive cross-source
+synthesis, within-basket qualifier elaboration, facet-routed enrichment placement, uncapped breadth
+surface through the UNCHANGED strict_verify). None drops a source or adds a cap. The frozen
+faithfulness engine is not touched by this workstream.
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ _EXPECTED_FLAGS = (
     "PG_CONSOLIDATION_NLI_PROSE",
     "PG_CROSS_SOURCE_SYNTHESIS",
     "PG_BREADTH_ENRICHMENT_ENABLED",
+    # I-deepfix-001 Wave-2 DEPTH (D1/D4) additions to the paid slate.
+    "PG_QUALIFIER_ELABORATION",
+    "PG_ENRICHMENT_FACET_ROUTE",
 )
 _KILL_SWITCH = "PG_APPLY_WINNER_SLATE_ON_PAID_PATH"
 
@@ -104,22 +108,22 @@ def _isolated_env(**overrides: str):
 # 1. Launcher-side: apply_winner_slate_on_paid_path
 # ---------------------------------------------------------------------------------------------
 
-def test_launcher_slate_names_are_the_four_winners() -> None:
+def test_launcher_slate_names_are_the_winners() -> None:
     ns = _load_winner_slate_ns()
     assert tuple(ns["_PAID_PATH_WINNER_FLAGS"]) == _EXPECTED_FLAGS
     assert ns["_WINNER_SLATE_ON_PAID_PATH_ENV"] == _KILL_SWITCH
 
 
-def test_apply_sets_all_four_flags_when_killswitch_default() -> None:
+def test_apply_sets_all_flags_when_killswitch_default() -> None:
     ns = _load_winner_slate_ns()
-    with _isolated_env():  # kill-switch unset -> default ON; the four flags unset
+    with _isolated_env():  # kill-switch unset -> default ON; all winner flags unset
         applied = ns["apply_winner_slate_on_paid_path"]()
         assert applied == {f: "1" for f in _EXPECTED_FLAGS}
         for f in _EXPECTED_FLAGS:
             assert os.environ[f] == "1", f"{f} not force-set to '1'"
 
 
-def test_apply_sets_all_four_flags_when_killswitch_explicit_on() -> None:
+def test_apply_sets_all_flags_when_killswitch_explicit_on() -> None:
     ns = _load_winner_slate_ns()
     with _isolated_env(**{_KILL_SWITCH: "1"}):
         applied = ns["apply_winner_slate_on_paid_path"]()
@@ -160,38 +164,30 @@ def _flag_checks(results) -> list:
 
 
 def test_preflight_red_when_all_winner_flags_off() -> None:
-    # kill-switch OFF (auto-apply disabled) + the four flags unset -> the paid run would ship the
+    # kill-switch OFF (auto-apply disabled) + all winner flags unset -> the paid run would ship the
     # slate OFF. Every winner-flag check RED-fails.
     env = {_KILL_SWITCH: "0"}
     results = op.check_d1_paid_path_winner_slate(env)
     flag_checks = _flag_checks(results)
-    assert len(flag_checks) == 4
+    assert len(flag_checks) == len(_EXPECTED_FLAGS)
     assert all(r.is_red for r in flag_checks)
     assert [r.check_id for r in flag_checks] == [f"D-1.paid_path.{f}" for f in _EXPECTED_FLAGS]
 
 
 def test_preflight_red_on_single_winner_flag_off() -> None:
-    env = {
-        _KILL_SWITCH: "0",
-        "PG_CONSOLIDATION_NLI": "1",
-        "PG_CONSOLIDATION_NLI_PROSE": "1",
-        "PG_CROSS_SOURCE_SYNTHESIS": "1",
-        "PG_BREADTH_ENRICHMENT_ENABLED": "0",  # the one that is OFF
-    }
+    # Hand-set every winner flag ON except BREADTH, kill-switch OFF -> only BREADTH RED-fails.
+    env = {_KILL_SWITCH: "0"}
+    env.update({f: "1" for f in _EXPECTED_FLAGS})
+    env["PG_BREADTH_ENRICHMENT_ENABLED"] = "0"  # the one that is OFF
     results = op.check_d1_paid_path_winner_slate(env)
     reds = [r for r in results if r.is_red and r.check_id.startswith("D-1.paid_path.PG_")]
     assert [r.check_id for r in reds] == ["D-1.paid_path.PG_BREADTH_ENRICHMENT_ENABLED"]
 
 
-def test_preflight_green_when_all_four_flags_on() -> None:
+def test_preflight_green_when_all_flags_on() -> None:
     # Even with the auto-apply kill-switch OFF, a hand-set full slate PASSES.
-    env = {
-        _KILL_SWITCH: "0",
-        "PG_CONSOLIDATION_NLI": "1",
-        "PG_CONSOLIDATION_NLI_PROSE": "1",
-        "PG_CROSS_SOURCE_SYNTHESIS": "1",
-        "PG_BREADTH_ENRICHMENT_ENABLED": "1",
-    }
+    env = {_KILL_SWITCH: "0"}
+    env.update({f: "1" for f in _EXPECTED_FLAGS})
     results = op.check_d1_paid_path_winner_slate(env)
     assert all(r.status == op.GREEN for r in _flag_checks(results))
     assert not any(r.is_red for r in results)  # incl. the launcher-applies gate

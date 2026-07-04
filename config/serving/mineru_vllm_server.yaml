@@ -1,0 +1,42 @@
+# X2 — mineru PDF extraction as a dedicated-GPU vLLM http-server.
+# Versioned DATA (LAW VI). Consumed by
+# src/polaris_graph/scale/mineru_vllm_config.py.
+#
+# WHY: mineru's vLLM engine reserves ~72GB up front and does not reap crashed
+# worker subprocs. Run IN-PROCESS on the shared card it fills the GPU and the
+# embedder/reranker then hit CUBLAS_STATUS_ALLOC_FAILED, hanging the live
+# pipeline on the first real PDF (corpora are ~72% PDFs). The W4 clinical-PDF
+# winner (mineru25) is KEPT — this is an INFRA fix, not a model swap.
+#
+# FIX: run mineru as a supervised vLLM http-server pinned to a DEDICATED card;
+# the pipeline talks to it as an http client. The embedder/reranker keep card 0.
+# Needs a 2-GPU box.
+
+# Backend mode. Overridable via env PG_MINERU25_BACKEND.
+#   in-process        legacy default — mineru runs inside the pipeline process
+#                     (single-GPU boxes only; risks the CUBLAS OOM above).
+#   vlm-http-client   the FIX — mineru runs as a separate supervised server and
+#                     the pipeline is a thin http client.
+backend: in-process
+
+# The http endpoint the pipeline client calls when backend=vlm-http-client.
+# Overridable via env PG_MINERU25_SERVER_URL. REQUIRED (fail-loud) when the
+# vlm-http-client backend is selected — an empty URL there would silently fall
+# back to in-process and re-trigger the OOM this fix exists to prevent.
+server_url: ""
+
+# Supervised-server launch parameters (used to build the launch command that a
+# process supervisor runs OUTSIDE the pipeline process, on the dedicated card).
+server:
+  # Dedicated card for the mineru vLLM engine (CUDA_VISIBLE_DEVICES value).
+  # The embedder/reranker/NLI live on card 0; mineru gets card 1.
+  cuda_visible_devices: "1"
+  # Bound the up-front reservation so the card is not fully consumed.
+  gpu_memory_utilization: 0.4
+  # Bounded request concurrency into the server (runtime-parallelism mandate,
+  # bounded to avoid re-creating the OOM).
+  max_concurrency: 20
+  host: "127.0.0.1"
+  port: 30024
+  # The MinerU vLLM server entrypoint (data-driven; no code literal).
+  command: "mineru-vllm-server"

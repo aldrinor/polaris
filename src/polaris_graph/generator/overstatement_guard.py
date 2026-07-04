@@ -599,3 +599,417 @@ def temporal_scope_reason(claim: str, span_text: str) -> str | None:
             "ranges=" + ",".join(f"{a}-{b}" for a, b in sorted(missing_ranges))
         )
     return "temporal_scope_mismatch:" + ":".join(parts)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# I-deepfix-001 group w4-SL — four ADDITIVE, faithfulness-TIGHTENING drop legs
+# (S5 / L1 / L2 / L3). Every one is pure, stdlib-only, network-free, env-gated
+# DEFAULT-ON, and STRICTLY ADDITIVE: it can only APPEND a drop reason. None ever
+# clears an existing failure, relaxes an existing check, widens a span, or changes
+# a verdict — so setting its kill-switch to a falsy value reverts the leg
+# BYTE-IDENTICAL. They are wired into ``verify_sentence_provenance`` (the BeatBoth
+# composer / abstractive-writer strict-verify path) against the SAME cited-span
+# aggregate the numeric/content legs use. DNA (§-1.3): the faithfulness engine is
+# the only hard gate; these TIGHTEN it, they never relax it. UNDER-DROP IS SAFE;
+# OVER-DROP hurts only breadth (the composer's verbatim K-span fallback still
+# ships the faithful, qualifier-carrying source text). Each leg is HIGH-PRECISION
+# + FAIL-OPEN — inert on the ambiguous majority, firing only on a clear defect.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# ── S5 — span-faithful qualifier retention on HEADLINE numerics ───────────────
+#
+# A headline figure ("just over 46% of jobs are exposed", "up to 46 million jobs
+# could be automated") whose cited span binds the number to a governing
+# CONDITIONAL / THRESHOLD antecedent ("when accounting for current and likely
+# future software developments", "if adoption accelerates", "up to") but whose
+# CLAIM drops that antecedent asserts UNCONDITIONALLY what the source stated only
+# under the condition. This is the render-layer ``effect_size_conditional_reason``
+# ANNOTATE leg promoted to a strict-verify DROP: the composer then falls back to
+# the member's verbatim K-span, which retains the condition by construction. It is
+# distinct from the P5 epistemic-qualifier gate (which keys on HEDGE markers and
+# EXCLUDES bare integers): S5 keys on CONDITIONAL/THRESHOLD clauses and covers
+# unit-bearing INTEGER headline numerics the P5 substantive-numeral set skips.
+def numeric_qualifier_retention_enabled() -> bool:
+    """Whether the S5 headline-numeric conditional-retention DROP leg is active
+    (default ON). Kill-switch PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION=0
+    reverts byte-identical."""
+    return (
+        os.getenv("PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION", "1").strip().lower()
+        in _TRUE_TOKENS
+    )
+
+
+# S5 CLAIM-CARRIED antecedent set (I-deepfix-001 Codex P1, iter 1). The render-layer
+# ``effect_size_conditional_reason`` treats a bare epistemic modal ("could"/"may"/
+# "might"/"would") as a carried antecedent — appropriate there because that leg only
+# APPENDS a soft caveat, never drops. But for the S5 DROP leg a bare modal is NOT a
+# threshold ("up to") and NOT a conditional ("if ..."/"when accounting for ..."): a
+# claim that keeps only "could" while dropping the span's governing "up to N ... if
+# ..." antecedent asserts the number MORE strongly than the source stated it. So
+# "46 million jobs could be automated", derived from "Up to 46 million jobs could be
+# automated if firms accelerate adoption", must DROP — the "up to" ceiling and the
+# "if" precondition both vanished and a modal does not carry either. This set is the
+# shared ``_CLAIM_ANTECEDENT_CARRIED_RE`` MINUS the bare-modal alternation, so S5
+# fires on the modal-only case without changing the annotate leg's behaviour.
+_S5_CLAIM_ANTECEDENT_CARRIED_RE = re.compile(
+    r"(?:"
+    r"account(?:ing|s|ed)?\s+for"
+    r"|\bup\s+to\b|\bas\s+(?:much|many)\s+as\b|\bover\s+half\b"
+    r"|\bif\b|\bassum(?:e|es|ed|ing)\b|\bprovided\b"
+    r"|\bscenario\b|\bhypothetical(?:ly)?\b"
+    r"|\bwhen\b"
+    r"|future\s+(?:software|developments|technolog)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def numeric_qualifier_retention_reason(claim: str, span_text: str) -> str | None:
+    """Return a DROP reason when the claim re-lifts a span number while dropping
+    the conditional/threshold antecedent that governs it in the cited span.
+
+    Fires only when ALL hold: the leg is enabled; the claim carries NO governing
+    conditional/threshold of its own (a bare assertion); the cited span has a
+    sentence whose governing conditional/threshold token PRECEDES a number; and the
+    claim reproduces that governed number. Otherwise returns None (inert — no false
+    drop). DROP-severity (unlike ``effect_size_conditional_reason`` which annotates)
+    so the composer falls back to the qualifier-carrying verbatim K-span (§-1.3
+    faithfulness tightening; under-drop is the safe direction)."""
+    if not numeric_qualifier_retention_enabled():
+        return None
+    if not claim or not span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
+    if not claim_numbers:
+        return None  # no figure re-lifted — nothing to over-assert
+    if _S5_CLAIM_ANTECEDENT_CARRIED_RE.search(claim_bare):
+        return None  # the claim carries a real threshold/conditional antecedent — faithful
+    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
+        cond = _SPAN_EFFECT_CONDITION_RE.search(sentence)
+        if not cond:
+            continue
+        governed = set(_NUMERIC_TOKEN_RE.findall(sentence[cond.start():]))
+        shared = claim_numbers & governed
+        if shared:
+            return "headline_numeric_qualifier_dropped:num=" + ",".join(sorted(shared))
+    return None
+
+
+# ── L2 — numeric-fidelity span re-check: VALUE AND ROLE (currency + multiplier) ─
+#
+# Extends the percent-role match (``PG_PROVENANCE_PERCENT_ROLE_MATCH``) to two more
+# measure ROLES so a printed number must appear in its cited span in the SAME role,
+# not merely as a bare digit (a page number / a year / a reference index):
+#   * CURRENCY   — "$14 billion" must be grounded by a currency figure of the same
+#                  value (and, when BOTH sides name a scale, the same scale — so
+#                  "$14 billion" is NOT grounded by "$14 million").
+#   * MULTIPLIER — "14-fold" / "14× higher" must be grounded by a same-value
+#                  multiplier, not by a bare "14" elsewhere in the span.
+# FAIL-OPEN: a claim value with NO scale is satisfied by ANY same-value currency in
+# the span (a scale conflict fires ONLY when both sides carry a differing, non-empty
+# scale) — so an abbreviation the extractor does not recognize can never false-drop.
+_L2_SCALE_WORD = r"(?:thousand|million|billion|trillion)"
+_L2_CUR_SYMBOL = r"[$€£¥₹]"
+_L2_CUR_CODE = r"(?:USD|EUR|GBP|JPY|CAD|AUD|CHF|CNY|INR)"
+_L2_CUR_WORD = r"(?:dollars?|euros?|pounds?|yen|francs?|yuan|rupees?)"
+# symbol / ISO-code BEFORE the number, optional scale word after ("$14", "$14 billion",
+# "USD 14 million").
+_L2_CURRENCY_PRE_RE = re.compile(
+    r"(?:" + _L2_CUR_SYMBOL + r"|\b" + _L2_CUR_CODE + r"\b\s?)"
+    r"(\d+(?:[.,]\d+)?)\s*(" + _L2_SCALE_WORD + r")?",
+    re.IGNORECASE,
+)
+# number then optional scale then currency WORD ("14 billion dollars", "14 euros").
+_L2_CURRENCY_POST_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(" + _L2_SCALE_WORD + r")?\s*" + _L2_CUR_WORD + r"\b",
+    re.IGNORECASE,
+)
+# A MULTIPLIER: N-fold / N× / N x / "N times <comparative>" (bare "N times" without a
+# comparative is frequency, not a magnitude — deliberately excluded for precision).
+_L2_MULTIPLIER_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:"
+    r"-?\s*fold\b"
+    r"|×"
+    r"|x(?=[\s.,;:)]|$)"
+    r"|\s*times\s+(?:higher|greater|lower|smaller|larger|more|less|faster|slower|"
+    r"as\s+(?:many|much|likely))"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _l2_currency_entries(text: str) -> "set[tuple[str, str]]":
+    """Currency figures in `text` as a set of (value, scale) — value comma-stripped,
+    scale lower-cased or "" when none. Reads both symbol/code-before and word-after
+    forms so "$14 billion" and "14 billion dollars" canonicalize identically."""
+    out: set[tuple[str, str]] = set()
+    for rx in (_L2_CURRENCY_PRE_RE, _L2_CURRENCY_POST_RE):
+        for m in rx.finditer(text or ""):
+            val = (m.group(1) or "").replace(",", "")
+            scale = (m.group(2) or "").lower()
+            if val:
+                out.add((val, scale))
+    return out
+
+
+def _l2_multiplier_values(text: str) -> "set[str]":
+    """Multiplier magnitudes in `text` ("14-fold", "14×", "14 times higher") as the
+    set of value strings."""
+    return {m.group(1) for m in _L2_MULTIPLIER_RE.finditer(text or "")}
+
+
+def numeric_role_match_enabled() -> bool:
+    """Whether the L2 currency/multiplier VALUE-AND-ROLE DROP leg is active (default
+    ON). Kill-switch PG_PROVENANCE_NUMERIC_ROLE_MATCH=0 reverts byte-identical."""
+    return (
+        os.getenv("PG_PROVENANCE_NUMERIC_ROLE_MATCH", "1").strip().lower()
+        in _TRUE_TOKENS
+    )
+
+
+def numeric_role_match_reason(claim: str, span_text: str) -> str | None:
+    """Return a DROP reason when the claim prints a CURRENCY or MULTIPLIER figure
+    whose value+role is not grounded by the SAME role in the cited span.
+
+    High-precision + fail-open. Currency: a claim value missing from the span's
+    currency figures drops; a claim value present but with a CONFLICTING non-empty
+    scale (billion vs million) drops; a claim value with no scale, or a span figure
+    with no recognized scale, never conflicts. Multiplier: a claim multiplier value
+    absent from the span's multipliers drops. A claim carrying no currency/multiplier
+    figure is inert (the percent-role + numeric legs already govern bare digits)."""
+    if not numeric_role_match_enabled():
+        return None
+    if not claim or not span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    parts: list[str] = []
+
+    claim_cur = _l2_currency_entries(claim_bare)
+    if claim_cur:
+        span_cur = _l2_currency_entries(span_text)
+        span_scales_by_val: dict[str, set[str]] = {}
+        for val, scale in span_cur:
+            span_scales_by_val.setdefault(val, set()).add(scale)
+        missing_cur: set[str] = set()
+        for val, scale in claim_cur:
+            if val not in span_scales_by_val:
+                missing_cur.add(f"{val}:{scale or '-'}")  # value never appears AS currency
+            elif scale and all(
+                s and s != scale for s in span_scales_by_val[val]
+            ):
+                missing_cur.add(f"{val}:{scale}")  # value present but every span scale conflicts
+        if missing_cur:
+            parts.append("currency=" + ",".join(sorted(missing_cur)))
+
+    claim_mul = _l2_multiplier_values(claim_bare)
+    if claim_mul:
+        missing_mul = claim_mul - _l2_multiplier_values(span_text)
+        if missing_mul:
+            parts.append("multiplier=" + ",".join(sorted(missing_mul)))
+
+    if parts:
+        return "numeric_role_mismatch:" + ":".join(parts)
+    return None
+
+
+# ── L1 — judge the clinical qualifier as a UNIT (number + population/indication) ─
+#
+# A span-faithful number can be bound to the WRONG population / indication and still
+# pass span-grounding — the exact failure that hurts patients. This leg judges the
+# number together with the governing clinical POPULATION/INDICATION antecedent the
+# span binds to it (the effect-size-conditional pattern extended to clinical
+# qualifiers): if the span binds a shared number to a population token within a
+# proximity window and the CLAIM carries neither that population nor a synonym of it
+# (dropped OR conflicting population), DROP. High-precision curated population
+# lexicon; population tokens are stem-matched so plural/singular never false-drops.
+_L1_POPULATION_RE = re.compile(
+    r"\b(?:"
+    r"immunocompromised|immunosuppressed|immunodeficient"
+    r"|pregnan(?:t|cy)|breastfeed\w*|lactating|neonat\w*|infants?|newborns?"
+    r"|children|child|paediatric|pediatric|adolescents?|elderly|geriatric|adults?"
+    r"|renal(?:\s+impair\w+)?|hepatic(?:\s+impair\w+)?|dialysis"
+    r"|diabetic|diabetes|hypertensive|cirrho\w+|immunonaive"
+    r"|treatment-naive|treatment-experienced|opioid-naive"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _l1_pop_stem(token: str) -> str:
+    """A short case-folded stem for a population token so plural/singular and light
+    inflection ("adults"/"adult", "infants"/"infant") match; keeps precision by
+    stripping only a trailing 's'."""
+    t = re.sub(r"s$", "", token.lower())
+    return t[:6]
+
+
+def _l1_pop_stems(text: str) -> "set[str]":
+    return {_l1_pop_stem(m.group(0)) for m in _L1_POPULATION_RE.finditer(text or "")}
+
+
+def _l1_span_populations_near(sentence: str, number: str, window: int) -> "set[str]":
+    """Population stems within `window` whitespace tokens of an occurrence of
+    `number` (whole-number match) inside `sentence`."""
+    toks = sentence.split()
+    pops: set[str] = set()
+    for i, tok in enumerate(toks):
+        if number not in _NUMERIC_TOKEN_RE.findall(tok):
+            continue
+        lo = max(0, i - window)
+        hi = min(len(toks), i + window + 1)
+        pops |= _l1_pop_stems(" ".join(toks[lo:hi]))
+    return pops
+
+
+def clinical_qualifier_unit_enabled() -> bool:
+    """Whether the L1 clinical population/indication-unit DROP leg is active
+    (default ON). Kill-switch PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT=0 reverts
+    byte-identical."""
+    return (
+        os.getenv("PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT", "1").strip().lower()
+        in _TRUE_TOKENS
+    )
+
+
+# Proximity window (whitespace tokens) binding a population token to a number.
+_L1_PROXIMITY_TOKENS = 12
+
+
+def clinical_qualifier_unit_reason(claim: str, span_text: str) -> str | None:
+    """Return a DROP reason when the span binds a shared number to a clinical
+    population/indication the claim fails to carry.
+
+    Fires only when a span SENTENCE co-locates a shared number and a curated
+    population token within the proximity window AND none of that sentence's
+    bound-population stems appears in the claim. Otherwise inert (no population
+    binding in the span, or the claim carries the population -> the qualifier
+    travelled with the number). DROP so the composer falls back to the K-span that
+    keeps the number bound to its population (§-1.3 clinical-safety tightening —
+    over-crediting a mis-populated number is lethal; under-drop is safe)."""
+    if not clinical_qualifier_unit_enabled():
+        return None
+    if not claim or not span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
+    if not claim_numbers:
+        return None  # no number to mis-bind
+    claim_pops = _l1_pop_stems(claim_bare)
+    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
+        shared = claim_numbers & set(_NUMERIC_TOKEN_RE.findall(sentence))
+        for number in sorted(shared):
+            span_pops = _l1_span_populations_near(
+                sentence, number, _L1_PROXIMITY_TOKENS
+            )
+            if span_pops and not (span_pops & claim_pops):
+                return (
+                    "clinical_qualifier_unit_dropped:num=" + number
+                    + ":span_pop=" + ",".join(sorted(span_pops))
+                )
+    return None
+
+
+# ── L3 — negation / contraindication semantic polarity guard ──────────────────
+#
+# "not contraindicated" must never render from a "contraindicated" span (and
+# vice-versa). For a curated set of CLINICAL RELATION stems, if the claim's polarity
+# toward the stem (negated vs asserted) DISAGREES with the cited span's polarity for
+# the SAME stem, DROP. Deterministic pre-stem negation window + expanded negative
+# contractions; a mention is treated as negated if ANY occurrence is negated
+# (conservative — a report that inverts a contraindication is §-1.1-lethal).
+_L3_RELATION_STEMS: tuple[str, ...] = (
+    "contraindicat",
+    "recommend",
+    "indicated",
+    "approv",
+    "efficac",
+    "effective",
+    "superior",
+    "toler",         # tolerated / tolerability
+    "benefici",
+    "associat",
+    "respons",       # responsive / response
+    "eligib",
+    "safe",
+)
+# Negative contractions -> "X not" so the pre-stem negator fires on contraction spelling.
+_L3_NEG_CONTRACTIONS = {
+    "aren't": "are not", "isn't": "is not", "wasn't": "was not", "weren't": "were not",
+    "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+    "don't": "do not", "doesn't": "does not", "didn't": "did not",
+    "won't": "will not", "wouldn't": "would not", "can't": "can not", "couldn't": "could not",
+    "shouldn't": "should not", "mustn't": "must not", "needn't": "need not",
+    "cannot": "can not",
+}
+# A negation cue that, appearing shortly BEFORE the stem (<=30 interposed chars),
+# inverts it: "not contraindicated", "no known contraindication", "never
+# recommended", "fails to be effective", "not associated with".
+_L3_NEG_BEFORE_RE = re.compile(
+    r"\b(?:no|not|never|without|none|neither|nor|lacks?|lacking|absent|"
+    r"absence\s+of|no\s+evidence\s+of|fails?\s+to|failed\s+to|"
+    r"free\s+of|devoid\s+of|unlikely\s+to\s+be|ruled?\s+out|rules?\s+out)\b"
+    r"[\w\s,'()/-]{0,30}?$",
+    re.IGNORECASE,
+)
+
+
+def _l3_expand(text: str) -> str:
+    text = text.replace("’", "'").lower()
+    for contraction, expanded in _L3_NEG_CONTRACTIONS.items():
+        text = text.replace(contraction, expanded)
+    return text
+
+
+def _l3_relation_polarity(text: str, stem: str) -> "bool | None":
+    """None if `stem` is absent; True if any occurrence is negated by a pre-stem
+    cue; False if the stem is present and no occurrence is negated."""
+    negated = False
+    found = False
+    for m in re.finditer(stem, text):
+        found = True
+        pre = text[max(0, m.start() - 40):m.start()]
+        if _L3_NEG_BEFORE_RE.search(pre):
+            negated = True
+            break
+    if not found:
+        return None
+    return negated
+
+
+def clinical_polarity_guard_enabled() -> bool:
+    """Whether the L3 clinical negation/contraindication polarity DROP leg is active
+    (default ON). Kill-switch PG_STRICT_VERIFY_CLINICAL_POLARITY=0 reverts
+    byte-identical."""
+    return (
+        os.getenv("PG_STRICT_VERIFY_CLINICAL_POLARITY", "1").strip().lower()
+        in _TRUE_TOKENS
+    )
+
+
+def clinical_polarity_reason(claim: str, span_text: str) -> str | None:
+    """Return a DROP reason when a clinical relation stem shared by the claim and its
+    cited span carries OPPOSITE polarity (one negated, one asserted). Inert when no
+    shared stem, or both polarities agree. DROP — a negated clinical relation
+    rendered from a non-negated span (or vice-versa) is a lethal inversion (§-1.3)."""
+    if not clinical_polarity_guard_enabled():
+        return None
+    if not claim or not span_text:
+        return None
+    claim_norm = _l3_expand(_CLAIM_CITATION_STRIP_RE.sub("", claim))
+    span_norm = _l3_expand(span_text)
+    for stem in _L3_RELATION_STEMS:
+        pc = _l3_relation_polarity(claim_norm, stem)
+        if pc is None:
+            continue
+        ps = _l3_relation_polarity(span_norm, stem)
+        if ps is None:
+            continue
+        if pc != ps:
+            return (
+                "clinical_polarity_mismatch:stem=" + stem
+                + ":claim=" + ("neg" if pc else "pos")
+                + ":span=" + ("neg" if ps else "pos")
+            )
+    return None

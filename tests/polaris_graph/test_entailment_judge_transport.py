@@ -64,6 +64,21 @@ def _reset_judge_singleton():
 
 
 @pytest.fixture(autouse=True)
+def _reset_verdict_cache():
+    """I-deepfix-001 fix I3 (Fable gate iter1, P1-1): the entailment judge's public ``judge()`` is now
+    wrapped by the default-ON process-local verdict idempotency cache (``judge_verdict_cache``). Its
+    module-level ``_STORE`` persists across tests, so without a reset the FIRST test that judges a given
+    ``(model, sentence, span, variant)`` caches its verdict and every later test that judges the SAME
+    input is served from the cache — its fake transport (retry / rebuild / sentinel byte-exact) is never
+    exercised and the transport regression contract silently rots. Reset before AND after each test so
+    every case runs its own fresh transport path (the cache stays default-ON, matching production)."""
+    from src.polaris_graph.llm import judge_verdict_cache
+    judge_verdict_cache.reset_cache()
+    yield
+    judge_verdict_cache.reset_cache()
+
+
+@pytest.fixture(autouse=True)
 def _no_real_sleep(monkeypatch):
     monkeypatch.setattr(entailment_judge.time, "sleep", lambda *_a, **_k: None)
     yield

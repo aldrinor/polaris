@@ -41,6 +41,24 @@ logger = logging.getLogger("polaris_graph")
 # Fix R3-#5: Words-per-evidence-chunk for dynamic word budget
 WORDS_PER_EVIDENCE_CHUNK = int(os.getenv("PG_WORDS_PER_EVIDENCE_CHUNK", "120"))
 
+
+# I-deepfix-001 F5 (#1344): per-section WORD budget tracks the FULL routed basket payload.
+#
+# ``effective_target_words`` clamps the budget to ``min(outline_target, evidence_count * 120)``. The
+# ``min(outline_target, ..)`` CEILING throttles a rich facet: once F1 routes 40 verified baskets to a
+# section, the writer should develop one verified sentence per basket, but the ceiling caps the budget
+# at the generic outline target (e.g. 800), truncating the payload. When this flag is ON the ceiling
+# is dropped so the word budget tracks the full evidence payload (a 40-basket facet develops fully; a
+# thin section still stays short via the evidence_count term). Read at CALL time (monkeypatch-testable).
+# Default-OFF => the exact legacy ``min(target, evidence_budget)`` clamp (byte-identical).
+def _word_budget_tracks_payload() -> bool:
+    """True iff PG_WORD_BUDGET_TRACKS_PAYLOAD removes the ``min(target_words, ..)`` CEILING from
+    ``effective_target_words`` so the per-section word budget tracks the full routed basket payload
+    (F5). Default-OFF => the legacy clamp (byte-identical)."""
+    return os.getenv("PG_WORD_BUDGET_TRACKS_PAYLOAD", "0").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
 # Fix R3-#2: Placeholder for sections with zero evidence
 EMPTY_SECTION_PLACEHOLDER = (
     "> [!NOTE]\n"
@@ -80,6 +98,11 @@ class SectionSpec:
         if self.evidence_count == 0:
             return 0
         evidence_budget = self.evidence_count * WORDS_PER_EVIDENCE_CHUNK
+        # I-deepfix-001 F5 (#1344): when payload-tracking is ON the min(target_words, ..) CEILING is
+        # dropped so a facet with many routed baskets develops fully (one verified sentence per basket).
+        # Default-OFF => the exact legacy min(target, evidence_budget) clamp (byte-identical).
+        if _word_budget_tracks_payload():
+            return max(150, evidence_budget)
         return max(150, min(self.target_words, evidence_budget))
 
     @property

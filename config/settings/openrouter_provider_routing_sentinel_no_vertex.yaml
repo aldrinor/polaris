@@ -1,0 +1,90 @@
+roles:
+  generator:
+    model: z-ai/glm-5.2
+    order:
+    - friendli
+    - novita
+    - z-ai
+    - phala
+    ignore:
+    - deepinfra
+    - fireworks
+    - cloudflare
+    - atlas-cloud
+    - baidu
+    - gmicloud
+    - wandb
+    - siliconflow
+    - streamlake
+  mirror:
+    model: z-ai/glm-5.2
+    order:
+    - friendli
+    - novita
+    - z-ai
+    - phala
+    ignore:
+    - chutes
+    - baseten
+    - together
+    - ambient
+    - parasail
+    - siliconflow
+    - deepinfra
+    - fireworks
+    - atlas-cloud
+    - baidu
+    - gmicloud
+    notes: 'I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED
+      (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN
+      max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call);
+      z-ai/baidu/novita/gmicloud fp8 chain.'
+  sentinel:
+    model: minimax/minimax-m2
+    order:
+    - novita
+    - atlas-cloud
+    - minimax
+    ignore:
+    - google-vertex
+    notes: 'some providers have NULL uptime (ranked last) | I-wire-006 TEST: google-vertex
+      DROPPED up front (measured slow, hangs to deadline); novita-led. Faithfulness-neutral
+      routing, no model change.'
+  judge:
+    model: qwen/qwen3.6-35b-a3b
+    order:
+    - wandb
+    - io-net
+    ignore:
+    - ambient
+    - parasail
+    - akashml
+    - siliconflow
+    - atlas-cloud
+provider_aliases:
+  AkashML: akashml
+  Alibaba: alibaba
+  Ambient: ambient
+  AtlasCloud: atlas-cloud
+  Baidu: baidu
+  BaseTen: baseten
+  Chutes: chutes
+  DeepInfra: deepinfra
+  DeepSeek: deepseek
+  DigitalOcean: digitalocean
+  Fireworks: fireworks
+  Friendli: friendli
+  GMICloud: gmicloud
+  Google: google-vertex
+  Inceptron: inceptron
+  Io Net: io-net
+  Minimax: minimax
+  Novita: novita
+  Parasail: parasail
+  Phala: phala
+  SiliconFlow: siliconflow
+  StreamLake: streamlake
+  Together: together
+  Venice: venice
+  WandB: wandb
+  Z.AI: z-ai

@@ -47,7 +47,7 @@ import logging
 import os
 import re
 from collections import Counter
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -1019,6 +1019,152 @@ def build_weighted_enrichment_plan(ev_ids: Any, *, section_plan_cls: Any):
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 D4 (#1344) — FACET-CLUSTER THE WEIGHTED-ENRICHMENT BREADTH SURFACE.
+#
+# Gap: the "Corroborated Weighted Findings" section keeps ALL unbound-but-verified members (correct,
+# §-1.3 keep-all) but lands them as ONE flat list of single-source one-liners — it reads as a link
+# dump, not facet-organized coverage (DRB-II presentation + analysis; DR-original readability).
+#
+# Fix (PURE PLACEMENT — nothing dropped, faithfulness engine untouched): route each unbound member
+# under the FACET/section its subject matches (reusing the report's own facet section TITLES), so it
+# becomes part of that topical section. Members matching no facet stay in a residual "Additional
+# corroborated findings" block (keep-all). This changes ONLY which section a member is composed under;
+# every member still flows through the UNCHANGED strict_verify + section floor exactly as before.
+#
+# DEFAULT-OFF (LAW VI): ``enrichment_facet_route_enabled()`` False => the caller builds the single flat
+# plan (byte-identical). No facet titles => also the single flat plan (no facets to route under).
+_ENV_ENRICHMENT_FACET_ROUTE = "PG_ENRICHMENT_FACET_ROUTE"
+
+# The residual bucket TITLE for members matching no facet (kept + surfaced, never dropped).
+_ENRICHMENT_RESIDUAL_TITLE = "Additional Corroborated Findings"
+# Prefix for a per-facet routed enrichment section title.
+_ENRICHMENT_FACET_TITLE_PREFIX = "Corroborated Findings: "
+
+# Minimal English stopword set for the facet content-word overlap. Small on purpose: a bigger list
+# risks dropping a real topical token. Purely a MATCH heuristic — a miss routes a member to residual
+# (kept), never drops it, so faithfulness is unaffected by the stoplist's exact contents.
+_FACET_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "in", "on", "for", "to", "with", "by", "at", "from",
+    "as", "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those",
+    "it", "its", "their", "his", "her", "our", "your", "we", "they", "he", "she", "you", "i",
+    "not", "no", "but", "if", "then", "than", "so", "such", "into", "over", "under", "about",
+    "key", "findings", "analysis", "assessment", "overview", "summary", "evidence", "corroborated",
+    "weighted", "additional", "section", "results", "study", "studies", "report",
+})
+
+
+def enrichment_facet_route_enabled() -> bool:
+    """PG_ENRICHMENT_FACET_ROUTE gate (D4). DEFAULT-OFF => byte-identical single flat plan; an explicit
+    1/true/on/yes turns the facet-clustered enrichment routing ON."""
+    return os.environ.get(_ENV_ENRICHMENT_FACET_ROUTE, "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _facet_content_tokens(text: Any) -> set[str]:
+    """Lower-cased content tokens of ``text`` (>=3 chars, not a stopword). Pure. Used to match a
+    member's subject/quote text against a facet section title by token overlap."""
+    out: set[str] = set()
+    for tok in re.findall(r"[a-z0-9]+", str(text or "").lower()):
+        if len(tok) >= 3 and tok not in _FACET_STOPWORDS:
+            out.add(tok)
+    return out
+
+
+def route_enrichment_members_by_facet(
+    ev_ids: Any,
+    facet_titles: Any,
+    *,
+    text_of: Callable[[str], str],
+    min_overlap: int = 1,
+) -> "tuple[list[tuple[str, list[str]]], list[str]]":
+    """Partition enrichment members into per-facet buckets by subject/topic overlap. PURE, keep-all.
+
+    Each ev_id is routed under the FIRST facet whose title content-words overlap the member's text
+    (``text_of(ev_id)`` — the member's subject / quote / title) by ``>= min_overlap`` tokens. A member
+    matching NO facet lands in the residual list. Order-stable: facet buckets follow ``facet_titles``
+    order; within a bucket, members follow ``ev_ids`` order; the residual follows ``ev_ids`` order.
+
+    Returns ``(routed, residual)`` where ``routed`` is ``[(facet_title, [ev_id, ...]), ...]`` for the
+    facets that received >=1 member (empty facets are omitted), and ``residual`` is the unmatched
+    ev_ids. KEEP-ALL INVARIANT (asserted by the caller's test): the disjoint union of every routed
+    bucket and the residual EQUALS the de-duplicated input ev_ids — no member is dropped, none appears
+    twice. Nothing here touches the faithfulness engine; this is pure section placement."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for e in (ev_ids or []):
+        e = str(e or "")
+        if e and e not in seen:
+            seen.add(e)
+            ids.append(e)
+    titles = [str(t or "").strip() for t in (facet_titles or []) if str(t or "").strip()]
+    if not ids or not titles:
+        return ([], list(ids))
+    title_tokens = [(t, _facet_content_tokens(t)) for t in titles]
+    buckets: dict[str, list[str]] = {t: [] for t in titles}
+    residual: list[str] = []
+    for e in ids:
+        member_tokens = _facet_content_tokens(text_of(e))
+        placed = False
+        if member_tokens:
+            best_title = ""
+            best_overlap = 0
+            for (t, toks) in title_tokens:
+                overlap = len(member_tokens & toks)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_title = t
+            if best_overlap >= max(1, int(min_overlap)):
+                buckets[best_title].append(e)
+                placed = True
+        if not placed:
+            residual.append(e)
+    routed = [(t, buckets[t]) for t in titles if buckets[t]]
+    return (routed, residual)
+
+
+def build_weighted_enrichment_plans_by_facet(
+    ev_ids: Any,
+    facet_titles: Any,
+    *,
+    section_plan_cls: Any,
+    text_of: Callable[[str], str],
+    min_overlap: int = 1,
+) -> list:
+    """Build the FACET-CLUSTERED enrichment SectionPlan LIST (D4), or ``[]`` when empty.
+
+    Returns one SectionPlan per facet that received >=1 routed member (titled
+    ``"Corroborated Findings: <facet>"``) IN ``facet_titles`` ORDER, followed by a single residual
+    ``"Additional Corroborated Findings"`` plan for the members matching no facet. Every plan carries
+    the SAME ``_ENRICHMENT_FOCUS`` so each still routes through the field-agnostic ``_run_section`` ->
+    strict_verify path exactly as the flat plan did. KEEP-ALL: the concatenation of all returned plans'
+    ``ev_ids`` equals the de-duplicated input (nothing dropped). ``[]`` on empty input => caller
+    appends nothing => byte-identical to the OFF path. When NO member matches any facet, the sole
+    returned plan is the residual, titled the SAME as the legacy flat section so a zero-facet corpus is
+    presentation-identical to today."""
+    routed, residual = route_enrichment_members_by_facet(
+        ev_ids, facet_titles, text_of=text_of, min_overlap=min_overlap,
+    )
+    plans: list = []
+    for (title, members) in routed:
+        if not members:
+            continue
+        plans.append(section_plan_cls(
+            title=f"{_ENRICHMENT_FACET_TITLE_PREFIX}{title}",
+            focus=_ENRICHMENT_FOCUS,
+            ev_ids=list(members),
+        ))
+    if residual:
+        # When nothing routed to a facet, keep the legacy flat title so a zero-match corpus renders
+        # identically to today's single "Corroborated Weighted Findings" section.
+        residual_title = _ENRICHMENT_TITLE if not plans else _ENRICHMENT_RESIDUAL_TITLE
+        plans.append(section_plan_cls(
+            title=residual_title,
+            focus=_ENRICHMENT_FOCUS,
+            ev_ids=list(residual),
+        ))
+    return plans
+
+
 # ---------------------------------------------------------------------------
 # I-arch-008 (#1265) FIX K — DETERMINISTIC VERIFIED-SPAN RENDER for the
 # enrichment section (the 590-in / 0-cited collapse).
@@ -1286,13 +1432,27 @@ def _is_captcha_stub(text: str) -> bool:
 
 
 def is_enrichment_section(section: Any) -> bool:
-    """True iff ``section`` is THIS module's weighted-enrichment section.
+    """True iff ``section`` is one of THIS module's weighted-enrichment section plans.
 
-    Matches on the exact ``_ENRICHMENT_TITLE`` so the deterministic render is
-    scoped to the one section this module builds — every contract / body section
-    is byte-identical. Robust to a duck-typed plan (missing ``title`` => False).
-    """
-    return str(getattr(section, "title", "") or "") == _ENRICHMENT_TITLE
+    Scopes the FIX-K deterministic verified-span render to the sections this module builds — every
+    contract / body section stays byte-identical.
+
+    I-deepfix-001 D4 (#1344, Fable P1): when ``PG_ENRICHMENT_FACET_ROUTE`` is ON the enrichment payload
+    is split into per-facet plans (title ``"Corroborated Findings: <facet>"``) plus a residual plan
+    (``"Additional Corroborated Findings"``), NOT the single flat ``_ENRICHMENT_TITLE`` section. Every
+    such plan carries the SAME ``_ENRICHMENT_FOCUS`` (``build_weighted_enrichment_plans_by_facet``), so
+    matching on the shared ``focus`` recognizes flat, facet, AND residual plans — otherwise the paid
+    Gate-B slate (which force-ONs BOTH facet-route and the verified-span render) would drop every
+    facet-titled plan back to the distill+LLM 590-in/0-cited collapse path FIX-K exists to bypass. The
+    title checks are kept as a defensive fallback for a plan built without the focus string.
+    Robust to a duck-typed plan (missing attrs => False)."""
+    focus = str(getattr(section, "focus", "") or "")
+    if focus and focus == _ENRICHMENT_FOCUS:
+        return True
+    title = str(getattr(section, "title", "") or "")
+    if title in (_ENRICHMENT_TITLE, _ENRICHMENT_RESIDUAL_TITLE):
+        return True
+    return bool(title.startswith(_ENRICHMENT_FACET_TITLE_PREFIX))
 
 
 def _is_web_chrome(text: str) -> bool:
@@ -2598,6 +2758,130 @@ _CORROBORATION_HEADER_RE = re.compile(r"^-\s+\*\*(?P<claim>.+?)\*\*(?P<suffix>\s
 # corroboration; only the unrenderable page-furniture claim string is withheld.
 _CORROBORATION_CHROME_PLACEHOLDER = "(claim text withheld — source page-furniture, not a finding)"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 H1 (#1344) — SOURCE-INTERNAL inline reference-marker STRIP (REPAIR-first).
+#
+# THE GAP: a fetched source's OWN in-text citation apparatus ("... productivity rose (1, 2).",
+# "... as shown (1; 3; 5).") is lifted verbatim into a verified span and rendered as a claim,
+# leaving a bare "(1, 2)" numeral group in the body that is NOT one of the report's OWN ``[N]``
+# provenance markers — it points at the SOURCE'S bibliography, not ours (dangling mis-attribution).
+# This REPAIRS the sentence in place (removes only the leaked marker; the claim text survives) at
+# the single render chokepoint, over every claim unit. High-precision: only a parenthetical whose
+# WHOLE content is >=2 short integers separated by comma/semicolon is stripped, so a real
+# parenthetical ("(1, 2, or 3 doses were compared)") is never touched (it has non-numeric words) and
+# a solitary "(3)" is left alone (too ambiguous). The report's OWN citations use SQUARE brackets
+# ``[N]`` / ``[#ev:...]`` and are never matched by this parenthesis rule. Faithfulness-NEUTRAL:
+# render text only — no source, count, provenance token, or verdict is touched. LAW VI kill-switch
+# ``PG_RENDER_SEAM_REF_STRIP=0`` => byte-identical (no strip).
+_RENDER_SEAM_REF_STRIP_ENV = "PG_RENDER_SEAM_REF_STRIP"
+# A leaked source-internal in-text citation: a parenthetical containing ONLY a comma/semicolon-
+# separated run of >=2 integers (1-3 digits each), optional surrounding spaces. Matches "(1, 2)",
+# "(1,2,3)", "(1; 2)", "( 10, 11 )". Does NOT match "(3)" (single), "(2020)" (4-digit year),
+# "(1, 2 arms)" (has a word), or the report's square-bracket ``[N]`` markers.
+_SOURCE_INTERNAL_REF_RE = re.compile(r"\(\s*\d{1,3}(?:\s*[,;]\s*\d{1,3})+\s*\)")
+# A dangling space before sentence-final punctuation left by a stripped marker ("rose  .") is closed.
+_PRE_PUNCT_SPACE_RE = re.compile(r"\s+([.!?,;:])")
+_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 H2 (#1344) — SPLIT the glued "Corroborated Weighted Findings" enrichment blob.
+#
+# THE GAP: the enrichment section body is composed by ``build_verified_span_draft`` (one verbatim
+# span-unit per source-work, each already carrying ONLY its OWN work's ``[ev_id]`` markers) but
+# ``_rewrite_draft_with_spans`` re-joins every unit with a SPACE, so the whole section renders as ONE
+# thousands-of-character paragraph — many unrelated source findings concatenated, unreadable, and the
+# reader cannot tell which ``[N]`` binds which finding. This splits that glued paragraph into ONE
+# bullet per finding (sentence) at the render seam. Each finding keeps its OWN trailing ``[N]`` marker
+# (the sentence splitter preserves ``.[N]``), so NO citation is re-attributed — the composer already
+# guaranteed each unit carries only its own work's markers. Faithfulness-NEUTRAL: pure render reflow —
+# no text, marker, source, or verdict is added/removed/re-bound. LAW VI kill-switch
+# ``PG_CWF_SPLIT_FINDINGS=0`` => byte-identical (the glued paragraph is left as one line).
+_CWF_SPLIT_FINDINGS_ENV = "PG_CWF_SPLIT_FINDINGS"
+# The enrichment section TITLES (lower-cased prefixes) whose glued body is split into per-finding
+# bullets. Mirrors ``_ENRICHMENT_TITLE`` / ``_ENRICHMENT_RESIDUAL_TITLE``.
+_ENRICHMENT_SECTION_PREFIXES = (
+    _ENRICHMENT_TITLE.lower(),
+    _ENRICHMENT_RESIDUAL_TITLE.lower(),
+)
+
+
+def render_seam_ref_strip_enabled() -> bool:
+    """True iff the default-ON H1 source-internal ref-marker strip is active (LAW VI kill-switch
+    ``PG_RENDER_SEAM_REF_STRIP=0`` => no strip)."""
+    return os.environ.get(_RENDER_SEAM_REF_STRIP_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def cwf_split_findings_enabled() -> bool:
+    """True iff the default-ON H2 CWF blob-split is active (LAW VI kill-switch
+    ``PG_CWF_SPLIT_FINDINGS=0`` => the glued enrichment paragraph is left as one line)."""
+    return os.environ.get(_CWF_SPLIT_FINDINGS_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def strip_source_internal_refs(text: str) -> str:
+    """H1 REPAIR: remove leaked source-internal in-text citation markers (bare "(1, 2)" numeral
+    groups) from ``text`` and close the whitespace they leave, keeping the claim prose intact. PURE;
+    faithfulness-neutral (the report's OWN ``[N]`` / ``[#ev:...]`` square-bracket markers are never
+    matched). Returns ``text`` unchanged when the kill-switch is OFF or no marker is present."""
+    if not text or not render_seam_ref_strip_enabled():
+        return text
+    if not _SOURCE_INTERNAL_REF_RE.search(text):
+        return text
+    # Preserve the line's ORIGINAL leading indentation (a nested markdown bullet that happens to
+    # carry a leaked ref must not be de-indented into a top-level bullet).
+    lead = text[: len(text) - len(text.lstrip())]
+    out = _SOURCE_INTERNAL_REF_RE.sub("", text)
+    out = _PRE_PUNCT_SPACE_RE.sub(r"\1", out)
+    out = _MULTISPACE_RE.sub(" ", out)
+    return lead + out.strip()
+
+
+def _is_enrichment_section_title(title: str) -> bool:
+    """True iff a header title names the flat/residual "Corroborated Weighted Findings" enrichment
+    section whose glued body H2 splits into per-finding bullets. PURE."""
+    low = title.strip().lower().lstrip("# ").strip()
+    return any(low.startswith(p) for p in _ENRICHMENT_SECTION_PREFIXES)
+
+
+def _split_enrichment_blob_line(
+    line: str, known_words: "set[str] | frozenset[str] | None"
+) -> "tuple[list[str], int]":
+    """H2: split ONE glued enrichment body line (a space-joined run of ``sentence.[N]`` findings)
+    into one Markdown bullet per finding, sanitizing each finding through the SAME per-line screen
+    (``_sanitize_report_line``) so a chrome/truncated finding still drops. Returns
+    ``(bullet_lines, dropped)``. A line that is a header, blank, already a bullet, or splits to a
+    single sentence is returned as ``([sanitized_line], dropped)`` (no spurious bulletisation).
+    PURE except the lazy sentence-splitter import; faithfulness-neutral."""
+    stripped = line.strip()
+    # Only split real glued prose. A blank / heading / existing bullet / short single clause is
+    # sanitized-in-place, never bulletised (over-split is worse than a leak for a real single line).
+    if not stripped or stripped.startswith(("#", "-", "*", "|", ">")):
+        clean, dropped = _sanitize_report_line(line, known_words)
+        return ([clean] if clean.strip() or not dropped else []), dropped
+    try:
+        from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+            split_into_sentences,
+        )
+        sentences = split_into_sentences(stripped)
+    except Exception:  # pragma: no cover - provenance_generator is stable in-tree
+        clean, dropped = _sanitize_report_line(line, known_words)
+        return ([clean] if clean.strip() or not dropped else []), dropped
+    if len(sentences) <= 1:
+        clean, dropped = _sanitize_report_line(line, known_words)
+        return ([clean] if clean.strip() or not dropped else []), dropped
+    bullets: list[str] = []
+    dropped = 0
+    for sent in sentences:
+        clean, drop = _sanitize_report_line(sent, known_words)
+        dropped += drop
+        clean = clean.strip()
+        if clean:
+            bullets.append(f"- {clean}")
+    return bullets, dropped
+
 
 def render_seam_sanitize_enabled() -> bool:
     """True iff the default-ON render-seam chokepoint is active (LAW VI kill-switch
@@ -2757,7 +3041,11 @@ def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | N
             continue  # whole chrome unit + its marker dropped
         kept.append(seg_text + seg_marker)
         suppress_trailing_markers = False
-    return "".join(kept), dropped
+    # I-deepfix-001 H1 (#1344): REPAIR-first strip of leaked source-internal in-text ref markers
+    # ("(1, 2)") on the kept prose. No-op (byte-identical) when the kill-switch is OFF or the line
+    # carries no such marker; never touches the report's OWN ``[N]`` / ``[#ev:...]`` square-bracket
+    # markers (they are seg_marker parts, and the rule matches PARENTHESES only). Faithfulness-neutral.
+    return strip_source_internal_refs("".join(kept)), dropped
 
 
 def _is_scaffolding_section_title(title: str) -> bool:
@@ -2862,12 +3150,17 @@ def sanitize_rendered_report(
     # screen is enabled, header bullets are screened; sub-bullets stay byte-preserved (KEEP-ONLY).
     in_corroboration = False
     corroboration_screen = corroboration_sanitize_enabled()
+    # I-deepfix-001 H2 (#1344): tracked separately — inside the flat/residual "Corroborated Weighted
+    # Findings" enrichment section, split the glued single-paragraph body into one bullet per finding.
+    in_enrichment = False
+    cwf_split = cwf_split_findings_enabled()
     for line in report_md.split("\n"):
         header = _SECTION_HEADER_RE.match(line)
         if header:
             title = header.group(2)
             in_scaffolding = _is_scaffolding_section_title(title)
             in_corroboration = _is_corroboration_section_title(title)
+            in_enrichment = _is_enrichment_section_title(title)
             # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
             # scaffolding header — dropping a real header would orphan its body. Gated by
             # ``render_chrome_screen_enabled()`` so this header path honours the same
@@ -2891,6 +3184,14 @@ def sanitize_rendered_report(
             continue
         if in_scaffolding or not line.strip():
             out_lines.append(line)
+            continue
+        if in_enrichment and cwf_split:
+            # H2: de-blob the enrichment section — split the glued ``sentence.[N] sentence.[N] ...``
+            # paragraph into one bullet per finding, each sanitized through the SAME per-line screen
+            # and keeping ONLY its own trailing ``[N]`` marker. Faithfulness-neutral render reflow.
+            bullet_lines, dropped = _split_enrichment_blob_line(line, known_words)
+            removed += dropped
+            out_lines.extend(bullet_lines)
             continue
         clean_line, dropped = _sanitize_report_line(line, known_words)
         removed += dropped

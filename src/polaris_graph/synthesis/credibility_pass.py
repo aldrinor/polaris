@@ -122,9 +122,16 @@ def _pass_max_inflight() -> int:
 # is gated default-ON by PG_CREDIBILITY_TIER_AUTHORITY_JOIN.
 _ENV_TIER_AUTHORITY_JOIN = "PG_CREDIBILITY_TIER_AUTHORITY_JOIN"
 _ENV_TIER_AUTHORITY_PRIOR = "PG_CREDIBILITY_TIER_AUTHORITY_PRIOR"
+# I-deepfix-001 (#1344) W1: the UNKNOWN/no-match prior is RAISED off 0.20 to a neutral 0.45
+# ("unclassified", disclosed) — a credible NON-journal institution that the tier classifier does
+# not recognize (WEF/OECD/most IGOs are absent from every tier set) was being pinned to the SAME
+# 0.20 band as an anonymous blog, a de-facto SOFT FILTER (weight_mass = authority_score, so it
+# sank and lost slots). 0.45 is a CALIBRATED credibility weight on the continuous scale, not a
+# floor forcing a coverage number — it is the honest "unclassified" position; predatory/junk still
+# lands low via the authority model's junk_detection. LAW VI: fully overridable via the env JSON.
 _DEFAULT_TIER_AUTHORITY_PRIOR: dict[str, float] = {
     "T1": 0.95, "T2": 0.85, "T3": 0.75, "T4": 0.60,
-    "T5": 0.40, "T6": 0.30, "T7": 0.15, "UNKNOWN": 0.20,
+    "T5": 0.40, "T6": 0.30, "T7": 0.15, "UNKNOWN": 0.45,
 }
 # B9(a) fail-loud canary: with the master redesign ON, an all-zero authority_score across rows is a
 # WIRING BREAK (the join no-oped), not a legitimate zero. Default ON => the LOUD warning always fires;
@@ -165,23 +172,63 @@ def _tier_of_row(row: dict) -> str:
     return tier if tier in _DEFAULT_TIER_AUTHORITY_PRIOR else "UNKNOWN"
 
 
+def _row_url(row: dict) -> str:
+    """The row's source URL for the W1 institutional lookup (first non-empty of the usual keys)."""
+    for key in ("source_url", "url", "canonical_url", "final_url"):
+        val = row.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
 def _join_tier_authority_prior(rows: list[dict]) -> list[dict]:
     """B9(a): return COPIES of ``rows`` with a deterministic tier-derived ``authority_score`` joined
     onto any row that lacks one (None / missing / non-numeric). A row that ALREADY carries a numeric
     authority_score is preserved verbatim (the real computed weight wins; the tier prior is only a
     fallback). Never mutates the caller's rows; never drops a row. Returns the rows unchanged when the
-    join is disabled. PURE-ish (reads env via the prior map)."""
+    join is disabled. PURE-ish (reads env via the prior map).
+
+    I-deepfix-001 (#1344) W1 — POSITIVE institutional-authority WEIGHT: after the base
+    authority_score is resolved (real computed weight OR tier prior), a recognized credible
+    institution (WEF/OECD/IGO, national statistical agency, major think-tank, reputable news
+    masthead — the LAW-VI ``institutional_authority`` registry) has its authority_score RAISED to
+    its calibrated institutional band. This is a RAISE-ONLY floor (``max`` with the base): a real
+    computed weight ABOVE the band is never lowered, and a freak-low weight can never demote a real
+    institution. Nothing is dropped, no tier is changed, faithfulness is untouched — a pure
+    credibility WEIGHT correcting the de-facto soft-filter (``weight_mass = authority_score``, so a
+    mis-low institution sank and lost slots). Disclosed via ``authority_score_source``."""
     if not tier_authority_join_enabled():
         return rows
+    from src.polaris_graph.synthesis.institutional_authority import (  # noqa: PLC0415
+        institutional_authority_for_url,
+    )
+
     prior = _tier_authority_prior_map()
     out: list[dict] = []
     for row in rows:
         existing = row.get("authority_score")
-        if isinstance(existing, (int, float)) and not isinstance(existing, bool):
-            out.append(row)  # real computed weight already present — keep verbatim
+        has_existing = (
+            isinstance(existing, (int, float)) and not isinstance(existing, bool)
+        )
+        base = (
+            float(existing)
+            if has_existing
+            else float(prior.get(_tier_of_row(row), prior["UNKNOWN"]))
+        )
+        inst_band = institutional_authority_for_url(_row_url(row))
+        # W1 RAISE-ONLY institutional weight: only act when it strictly RAISES the base weight.
+        if inst_band is not None and inst_band > base:
+            new_row = dict(row)  # COPY — never mutate the caller's row
+            new_row["authority_score"] = float(inst_band)
+            new_row["authority_score_source"] = "institutional_registry"  # disclosed
+            new_row["institutional_authority_band"] = float(inst_band)
+            out.append(new_row)
+            continue
+        if has_existing:
+            out.append(row)  # real computed weight already present (>= any band) — keep verbatim
             continue
         new_row = dict(row)  # COPY — never mutate the caller's row
-        new_row["authority_score"] = float(prior.get(_tier_of_row(row), prior["UNKNOWN"]))
+        new_row["authority_score"] = base
         new_row["authority_score_source"] = "tier_prior"  # disclosed: this is a deterministic fallback
         out.append(new_row)
     return out

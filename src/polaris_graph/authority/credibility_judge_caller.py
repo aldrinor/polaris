@@ -30,6 +30,11 @@ from src.polaris_graph.llm.judge_burst_spread import (
     burst_spread_mode as _judge_burst_spread_mode,
     next_burst_start_index as _next_burst_start_index,
 )
+# I-deepfix-001 (§9.1.8 anti-starvation): a GLM judge IGNORES reasoning.effort, so a provider that runs
+# reasoning long can eat the whole max_tokens budget and return EMPTY content. The shared leaf helper puts
+# the PROVEN D8-Mirror NUMERIC reasoning cap (reasoning_cap << max_tokens) on the glm reasoning block so the
+# verdict JSON always keeps content headroom; a non-glm model (kimi override) keeps its effort shape.
+from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_block as _build_reasoning_block
 
 _ENV_MODEL = "PG_CREDIBILITY_JUDGE_MODEL"
 _DEFAULT_MODEL = "z-ai/glm-5.2"                       # I-beatboth-008 #1285: mirror upgrade 5.1->5.2; open-weight (MIT), sovereign; override via env
@@ -247,9 +252,12 @@ def make_openrouter_credibility_caller(
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": cap_tokens,
-            # Operator 2026-06-13: reasoning effort stays MAX. With an un-starved max_tokens the
-            # high-effort reasoning completes AND emits the JSON (measured: finish=stop, valid output).
-            "reasoning": {"effort": reasoning_effort},
+            # Operator 2026-06-13: reasoning stays MAX (never disabled). I-deepfix-001 (§9.1.8): a GLM
+            # judge IGNORES the effort tier, so a provider that runs reasoning long can consume the whole
+            # cap_tokens budget and return EMPTY content (the operator's 20->None probe). The shared helper
+            # gives a glm slug a NUMERIC reasoning ceiling (reasoning_cap << cap_tokens, the proven Mirror
+            # bound) so the JSON verdict always keeps content headroom; a non-glm override keeps {effort}.
+            "reasoning": _build_reasoning_block(chosen_model, reasoning_effort, cap_tokens),
         }
         # PROVIDER PINNING (mirror entailment_judge): pin to the preflight-resolved MIRROR provider,
         # allow_fallbacks=False — never silently fail over to a non-sovereign/untested provider.

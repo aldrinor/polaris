@@ -152,8 +152,13 @@ def test_credibility_max_tokens_defaults_to_mirror_chain_model_max(monkeypatch):
     monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
     make_openrouter_credibility_caller()("hi")
     assert captured["body"]["max_tokens"] == _cjc._CREDIBILITY_MAX_TOKENS_CHAIN_MIN == 131072
-    # Reasoning effort stays "high" (NOT xhigh — the GLM bake-off proved xhigh blanks). Never starved.
-    assert captured["body"]["reasoning"] == {"effort": "high"}
+    # I-deepfix-001 (§9.1.8): the glm credibility judge now carries a NUMERIC reasoning cap (the proven
+    # D8-Mirror bound), NOT an ignored effort tier, so a provider that runs reasoning long can never eat the
+    # whole budget and blank the verdict. Reasoning STAYS ON (bounded), and the cap is strictly below the
+    # total so the JSON verdict always keeps content headroom.
+    from src.polaris_graph.llm.judge_reasoning_block import reasoning_cap_for
+    assert captured["body"]["reasoning"] == {"max_tokens": reasoning_cap_for(131072)}
+    assert captured["body"]["reasoning"]["max_tokens"] < captured["body"]["max_tokens"]
 
 
 def test_credibility_max_tokens_env_override_clamped_to_chain_ceiling(monkeypatch):

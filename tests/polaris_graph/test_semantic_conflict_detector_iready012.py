@@ -303,8 +303,13 @@ def test_conflict_judge_max_tokens_defaults_to_mirror_chain_model_max(monkeypatc
     judge._client = _CaptureClient()
     judge.judge("claim a", "claim b")
     assert judge._client.body["max_tokens"] == scd._CONFLICT_MAX_TOKENS_CHAIN_MIN == 131072
-    # Reasoning effort stays "high" (NOT xhigh — the GLM bake-off proved xhigh blanks). Never starved.
-    assert judge._client.body["reasoning"] == {"effort": "high"}
+    # I-deepfix-001 (§9.1.8): the glm NLI-conflict judge now carries a NUMERIC reasoning cap (the proven
+    # D8-Mirror bound), NOT an ignored effort tier, so a provider that runs reasoning long can never eat the
+    # whole budget and blank the verdict (which would silently MISS a real cross-document contradiction).
+    # Reasoning STAYS ON (bounded); the cap is strictly below the total so the JSON verdict keeps headroom.
+    from src.polaris_graph.llm.judge_reasoning_block import reasoning_cap_for
+    assert judge._client.body["reasoning"] == {"max_tokens": reasoning_cap_for(131072)}
+    assert judge._client.body["reasoning"]["max_tokens"] < judge._client.body["max_tokens"]
 
 
 def test_conflict_judge_max_tokens_env_override_clamped_to_chain_ceiling(monkeypatch):

@@ -48,6 +48,16 @@ _DEFAULT_SNIPPET_CHARS = 1200
 # forces the byte-identical sequential path (off-mode / single source / tests).
 _ENV_JUDGE_CONCURRENCY = "PG_CREDIBILITY_JUDGE_CONCURRENCY"
 _DEFAULT_JUDGE_CONCURRENCY = 12
+# I-deepfix-001 (credibility-pass HANG backstop): a HARD wall on the pool-JOIN so a stalled / provider-
+# pinned judge worker can NEVER freeze the run. Each worker already carries a ~300s per-call total-
+# deadline, but the ``as_completed()`` join had NO outer bound — under a 429 / empty-provider-window storm
+# every worker re-enters retry+backoff and the whole pass grinds past the sweep wall (the live faulthandler
+# tonight: credibility_skill as_completed blocked, main asyncio loop parked). On the wall we STOP joining,
+# fill every un-scored source with its deterministic priors (judge_error=True), and RETURN. Generous
+# default so a HEALTHY pass (completes in minutes) NEVER trips it — it only bounds a true multi-hour stall;
+# the run slate may lower it to coordinate with PG_CREDIBILITY_PASS_WALL_S. LAW VI: env-driven.
+_ENV_JUDGE_POOL_WALL_S = "PG_CREDIBILITY_JUDGE_POOL_WALL_S"
+_DEFAULT_JUDGE_POOL_WALL_S = 3600.0
 
 # The deterministic prior-signal names the judge may cite (anti-hallucination: a
 # ``signals_cited`` entry that is not one of these AND present on the row is dropped).
@@ -286,6 +296,7 @@ def score_source_credibility(
     import contextvars
     from src.polaris_graph.llm.openrouter_client import (
         reset_run_cost, current_run_cost, _add_run_cost, check_run_budget,
+        BudgetExceededError,
     )
 
     def _score_one(
@@ -298,23 +309,70 @@ def score_source_credibility(
         result, delta = ctx.run(_run)
         return idx, result, delta
 
+    # I-deepfix-001 (HANG backstop): the pool JOIN wall — see the _DEFAULT_JUDGE_POOL_WALL_S note above.
+    pool_wall = _float_env(_ENV_JUDGE_POOL_WALL_S, _DEFAULT_JUDGE_POOL_WALL_S)
+
     results: list[Optional[CredibilityJudgment]] = [None] * n
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    timed_out = False
     try:
         futures = [
             pool.submit(_score_one, i, row, contextvars.copy_context())
             for i, row in enumerate(rows)
         ]
-        for future in concurrent.futures.as_completed(futures):
-            idx, judgment, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
-            results[idx] = judgment
-            _add_run_cost(delta)            # thread the per-source spend into the single run counter
-            check_run_budget(0)             # raises BudgetExceededError -> bounded overspend (~workers in flight)
+        try:
+            # HARD wall on the join: a stalled worker can never freeze the run. as_completed raises
+            # concurrent.futures.TimeoutError when pool_wall elapses before every worker joins.
+            for future in concurrent.futures.as_completed(futures, timeout=pool_wall):
+                idx, judgment, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+                results[idx] = judgment
+                _add_run_cost(delta)            # thread the per-source spend into the single run counter
+                check_run_budget(0)             # raises BudgetExceededError -> bounded overspend (~workers in flight)
+        except concurrent.futures.TimeoutError:
+            # The wall fired before every worker joined. Drain any future that DID finish (so a real
+            # verdict or a real BudgetExceededError is never lost); the rest are filled with priors below.
+            timed_out = True
+            for future, idx in ((f, i) for i, f in enumerate(futures)):
+                if results[idx] is not None or not future.done():
+                    continue
+                try:
+                    _d_idx, judgment, delta = future.result()
+                except BudgetExceededError:
+                    raise  # a real cap breach MUST still abort the sweep, even on the wall path
+                except Exception:  # noqa: BLE001 — a genuinely-failed worker degrades to priors below
+                    continue
+                results[idx] = judgment
+                _add_run_cost(delta)
+                # Codex diff-gate iter1 P0: the wall-drain path MUST enforce the aggregate budget just
+                # like the healthy join (which does _add_run_cost THEN check_run_budget(0)). Without this
+                # a burst of drained futures could push the run past PG_MAX_COST_PER_RUN without ever
+                # raising BudgetExceededError. It is OUTSIDE the per-future try above, so the breach
+                # propagates to the outer BaseException handler -> non-blocking shutdown + re-raise
+                # (fail-closed cap abort), never swallowed by the drain's `except Exception: continue`.
+                check_run_budget(0)
     except BaseException:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     else:
-        pool.shutdown(wait=True)
+        # Timed-out: don't block on the still-running stalled workers (wait=False) and cancel the queued
+        # ones; the healthy path joins normally (wait=True).
+        pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
+
+    if timed_out:
+        stalled = [i for i, j in enumerate(results) if j is None]
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility] judge pool wall-deadline (PG_CREDIBILITY_JUDGE_POOL_WALL_S=%.0fs) fired with "
+            "%d/%d source(s) still unscored; filling them with DETERMINISTIC priors (judge_error=True -> "
+            "credibility_pass LABELS them credibility_unscored) and returning — the run NEVER hangs. The "
+            "advisory pass degrades; strict_verify / NLI / 4-role D8 / span-grounding are untouched.",
+            pool_wall, len(stalled), n,
+        )
+        for i in stalled:
+            fallback = _priors_only_judgment(rows[i])
+            fallback.judge_error = True  # fail-closed: LABEL as credibility_unscored, never a silent drop
+            results[i] = fallback
+
     for i, judgment in enumerate(results):
         if judgment is None:
             raise RuntimeError(

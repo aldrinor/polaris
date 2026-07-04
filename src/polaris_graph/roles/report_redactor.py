@@ -127,6 +127,15 @@ _FIGURE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?")
 # set as the resolver (provenance_generator).
 _INTERIOR_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.!?,;])")
 
+# A4 (I-deepfix-001) — the inline attribution-origin caveat marker appended to a
+# mis-attributed sentence in the VISIBLE report (see ``annotate_report_attribution_origin``
+# below). It is a bracketed disclosure with no terminal period (so a sentence splitter never
+# treats it as a new sentence), form: ``[attribution unverified — the cited source does not
+# appear to be <ACTOR>; ...]``. Stripped inside ``_normalize`` so a caveated sentence still
+# matches its own claim stem at the coverage floor for the redactor / annotator, both of which
+# run AFTER the render-seam caveat pass. Additive: a sentence WITHOUT the caveat is byte-unchanged.
+_ATTRIBUTION_CAVEAT_RE = re.compile(r"\s*\[attribution unverified[^\]]*\]")
+
 
 class ReportRedactionError(RuntimeError):
     """Raised when a material non-VERIFIED claim is present-but-unlocatable for a discrete
@@ -213,6 +222,11 @@ def _normalize(text: str) -> str:
     match is consistent and idempotent; it never relaxes a match, only adds one.
     """
     text = _prose_stem(text)
+    # A4 (I-deepfix-001): also strip the inline attribution-origin caveat so a sentence that
+    # received the visible caveat still matches its claim stem at the coverage floor for the
+    # redactor / annotator (both run AFTER the render-seam caveat pass). Additive — a sentence
+    # without the caveat is byte-unchanged; nothing else in the pipeline emits this marker.
+    text = _ATTRIBUTION_CAVEAT_RE.sub("", text)
     text = _WHITESPACE_RE.sub(" ", text)
     text = _INTERIOR_SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
     return text.strip().rstrip(".").strip()
@@ -436,11 +450,21 @@ def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
 # A decimal like "0.457" or "No. 157" or "U.S." is never a boundary: ARM 1/2 require whitespace
 # before the next char and ARM 2 requires an intervening [N] marker; "U.S. products" splits only
 # if "products" were uppercase (it is not), and "No. 157" has no marker so ARM 2 cannot fire.
+# A4 (I-deepfix-001) boundary-safety (Codex P1): the inline attribution-origin caveat
+# (``annotate_report_attribution_origin`` below) is appended AFTER a sentence's terminator +
+# citation markers and carries NO terminator of its own. Without help the splitter could not find
+# the boundary AFTER the caveat, so the caveated sentence and the NEXT grounded sentence would fuse
+# into one span and a later D8 redaction could over-remove the grounded neighbor. Each arm therefore
+# consumes an OPTIONAL trailing attribution caveat as attached material of the PRECEDING sentence, so
+# the split lands AFTER the caveat and the next sentence stays a clean, separate span. Purely
+# additive: the optional group matches empty for caveat-free text, so a report that carries no
+# attribution caveat segments byte-identically to before.
+_ATTRIBUTION_CAVEAT_TRAILER = r"(?:\s*\[attribution unverified[^\]]*\])?"
 _SENTENCE_BOUNDARY_RE = re.compile(
     r"(?:"
-    r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
-    r"|[.!?](?:\s*\[\d+\])+\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
-    r"|(?<=\w)(?:\[\d+\])+\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
+    r"[.!?](?:\s*\[\d+\])*" + _ATTRIBUTION_CAVEAT_TRAILER + r"\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
+    r"|[.!?](?:\s*\[\d+\])+" + _ATTRIBUTION_CAVEAT_TRAILER + r"\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
+    r"|(?<=\w)(?:\[\d+\])+" + _ATTRIBUTION_CAVEAT_TRAILER + r"\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
     r")"
 )
 
@@ -934,3 +958,208 @@ def _collect_figure_consistency_claims(
 # A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
 # (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
 _DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A4 (I-deepfix-001) — ATTRIBUTION-ORIGIN visible-text caveat (render layer)
+# ─────────────────────────────────────────────────────────────────────────────
+# The attribution-origin guard (``attribution_origin_guard.attribution_origin_reason``) flags a
+# claim that NAMES an organizational finder ("<ORG> found that Y") whose identity is NOT the
+# publisher of ANY cited source — a re-reporting SECONDARY citation ("correctness is not
+# faithfulness": the cited span supports the number, but the citation is not the faithful ORIGIN of
+# the assertion). During verification that fires as DISCLOSURE-ONLY telemetry; the VISIBLE sentence
+# still names the unsupported actor. This render pass APPENDS an inline caveat to that sentence so
+# the mis-attribution is corrected in the text the reader sees.
+#
+# Codex P1 fixes (this rewrites VERIFIED visible prose — highest risk, conservative by construction):
+#   * P1 #1 (boundary): the caveat marker is consumed as trailing material by
+#     ``_SENTENCE_BOUNDARY_RE`` (see ``_ATTRIBUTION_CAVEAT_TRAILER``), so it can NEVER fuse the
+#     caveated sentence with the next grounded sentence and cause a later D8 over-redaction. And
+#     ``_normalize`` strips the caveat, so a caveated sentence still matches its own stem at the
+#     redactor / annotator coverage floor.
+#   * P1 #2 (citation-SPECIFIC, not citation-insensitive): the decision is RE-DERIVED per rendered
+#     occurrence from that sentence's OWN resolved ``[N]`` citation domains via the guard — so a
+#     legitimately primary-cited occurrence of the same claim is NEVER caveated, and a deduped-away
+#     secondary occurrence cannot cause a sibling to be wrongly caveated.
+#   * P1 #3 (ALL rendered claim units): the pass scans the ASSEMBLED report.md body directly, so it
+#     covers EVERY rendered unit (CWF, quantified-analysis, every section) — not just
+#     ``multi.sections``.
+#
+# §-1.3 WITHHOLD-DISCLOSE (never a hard drop): it NEVER drops the sentence, NEVER removes the
+# grounded number, NEVER removes the ``[N]`` citation — it ONLY ADDS a caveat. HIGH-PRECISION +
+# FAIL-OPEN: a sentence with no citations, or whose ``[N]`` citations cannot be FULLY resolved to
+# URLs, is skipped (never caveated on incomplete evidence). The faithfulness engine (strict_verify /
+# NLI / 4-role D8 / provenance) is untouched — this pass runs entirely at the render layer on
+# already-verified prose.
+_ATTRIBUTION_SOFT_WARNING_PREFIX = "attribution_origin_unverified:"
+_ATTRIBUTION_ACTORS_RE = re.compile(r"actors=(.*?):cited_domains=")
+# A bare numbered citation marker ``[12]`` — used to read a rendered sentence's OWN visible
+# citations so the guard can be re-run against THAT occurrence's actual cited domains (P1 #2).
+_NUMBERED_CITATION_RE = re.compile(r"\[(\d+)\]")
+# A4 (I-deepfix-001) Codex P1: a rendered body line can BEGIN with wrapped trailing citations that
+# belong to the PREVIOUS sentence ("[71][5][7][6] Further analysis found …"). A LEADING run of bare
+# ``[N]`` markers (before any word character) is NOT this sentence's own citation — reading it would
+# resolve a neighbor's source domains and could caveat this sentence on evidence it does not carry.
+# Stripped before the sentence's OWN markers are read, so only citations attached to this sentence's
+# words / trailing its own terminator survive.
+_LEADING_WRAPPED_CITATIONS_RE = re.compile(r"^\s*(?:\[\d+\]\s*)+")
+
+
+def attribution_actor_from_soft_warning(soft_warning: str) -> str | None:
+    """Extract a human-readable actor label from an attribution-origin soft_warning.
+
+    Soft-warning form (``attribution_origin_guard.attribution_origin_reason``):
+      ``attribution_origin_unverified:actors=<run>|<run2>:cited_domains=<d1>,<d2>``
+    Returns the ``actors=`` payload with the internal ``|`` separator rendered as ``/`` (e.g.
+    "The International Labour Organization / Poland's National Research Institute"), or None when
+    the string is not an attribution-origin warning / carries no actors (defensive — never raises).
+    """
+    if not soft_warning or not soft_warning.startswith(_ATTRIBUTION_SOFT_WARNING_PREFIX):
+        return None
+    m = _ATTRIBUTION_ACTORS_RE.search(soft_warning)
+    if not m:
+        return None
+    actors = m.group(1).strip()
+    if not actors:
+        return None
+    return actors.replace("|", " / ")
+
+
+def _attribution_caveat_marker(actor: str) -> str:
+    """The inline caveat appended to a mis-attributed sentence (plain declarative English)."""
+    # Codex P1 (A4): NO semicolon — ``report_claim_extractor._default_atomizer`` splits atoms on
+    # ``;``, so a semicolon here would spawn a spurious "…supported by the cited source]" claim atom.
+    # An em-dash carries the same reading without creating a new atom.
+    return (
+        f"[attribution unverified — the cited source does not appear to be {actor} — "
+        "the finding itself is supported by the cited source]"
+    )
+
+
+@dataclass
+class AttributionCaveat:
+    """One sentence that received an inline attribution-origin caveat in the visible report."""
+
+    actor: str
+    sentence: str  # the matched rendered sentence (pre-caveat)
+
+
+@dataclass
+class AttributionCorrectionResult:
+    """Outcome of appending attribution-origin caveats to the rendered report."""
+
+    report_text: str
+    caveated: list[AttributionCaveat] = field(default_factory=list)
+    # Sentences the guard would flag but whose visible ``[N]`` citations could not be fully resolved
+    # to URLs (so we conservatively did NOT caveat) — recorded for the audit trail, never a leak.
+    skipped_unresolved: list[str] = field(default_factory=list)
+
+    @property
+    def caveated_count(self) -> int:
+        return len(self.caveated)
+
+
+def _rendered_sentence_attribution_actor(
+    sentence: str,
+    citation_urls: "dict[str, str]",
+    attribution_origin_reason,
+) -> "tuple[str | None, bool]":
+    """Decide whether ONE rendered sentence is a mis-attribution, citation-SPECIFICally (P1 #2).
+
+    Returns ``(actor_label, resolved_ok)``:
+      * ``actor_label`` is the finder to name in the caveat, or None when the sentence is not a
+        mis-attribution (or cannot be judged).
+      * ``resolved_ok`` is False when the sentence NAMES cited markers we could not fully resolve to
+        URLs — the caller records that (audit trail) and conservatively skips it.
+
+    The decision RE-RUNS the attribution-origin guard against THIS occurrence's OWN visible ``[N]``
+    citations resolved to source URLs, so a legitimately primary-cited occurrence of the same claim
+    never fires. FAIL-OPEN: a sentence with no citations, or any unresolved citation, is not
+    caveated. Never raises.
+    """
+    # Idempotence: a sentence already carrying an attribution caveat is left alone (``_normalize``
+    # strips the caveat, so the redactor / annotator still match its stem).
+    if _ATTRIBUTION_CAVEAT_RE.search(sentence):
+        return None, True
+    # Codex P1 (A4): read only the citations this sentence OWNS. Strip a leading run of wrapped
+    # markers that belong to the previous sentence (report_redactor documents this shape) so we never
+    # resolve a neighbor's domains onto this sentence. If nothing remains after the strip, the
+    # sentence carries no citation of its own -> cannot judge origin -> skip (fail-open).
+    own = _LEADING_WRAPPED_CITATIONS_RE.sub("", sentence)
+    nums = _NUMBERED_CITATION_RE.findall(own)
+    if not nums:
+        return None, True  # no citation the sentence OWNS -> cannot judge origin -> skip (fail-open)
+    urls: list[str] = []
+    for n in nums:
+        url = citation_urls.get(str(n))
+        if not url:
+            # A cited marker we cannot resolve -> we cannot rule out a matching primary source ->
+            # do NOT caveat (never caveat on incomplete evidence).
+            return None, False
+        urls.append(url)
+    # Strip provenance tokens + numbered markers, keeping case + punctuation for the guard's
+    # proper-noun + attribution-verb matcher.
+    prose = _prose_stem(sentence).strip()
+    if not prose:
+        return None, True
+    reason = attribution_origin_reason(prose, urls)
+    if not reason:
+        return None, True  # guard inert -> attribution is fine (or ambiguous) -> no caveat
+    return attribution_actor_from_soft_warning(reason), True
+
+
+def annotate_report_attribution_origin(
+    report_text: str,
+    citation_urls: "dict[str, str]",
+) -> AttributionCorrectionResult:
+    """APPEND an inline attribution caveat to every mis-attributed body sentence in ``report_text``.
+
+    Args:
+      report_text: the assembled report.md content.
+      citation_urls: ``{citation_number(str): source_url}`` built from the rendered bibliography
+        (each row's ``num`` -> ``url``). Used to resolve a sentence's OWN visible ``[N]`` markers to
+        the domains the guard checks — this is what makes the caveat citation-SPECIFIC (P1 #2).
+
+    For each body sentence, the attribution-origin guard is RE-RUN against that occurrence's own
+    resolved citation domains (``_rendered_sentence_attribution_actor``); only a sentence that STILL
+    fires gets the caveat appended once. Covers EVERY rendered claim unit because it walks report.md
+    directly (P1 #3). IDEMPOTENT: a sentence already carrying an attribution caveat is byte-identical.
+    NEVER raises — a sentence with unresolved citations is recorded in ``skipped_unresolved`` and
+    left unchanged (FAIL-OPEN). Only body sentences are touched; headings and bibliography rows
+    (``_is_redactable_body_line``) are byte-preserved.
+    """
+    from src.polaris_graph.generator.attribution_origin_guard import (  # noqa: PLC0415
+        attribution_origin_reason,
+    )
+
+    caveated: list[AttributionCaveat] = []
+    skipped_unresolved: list[str] = []
+    new_lines: list[str] = []
+    for line in report_text.split("\n"):
+        if not _is_redactable_body_line(line):
+            new_lines.append(line)  # heading / bibliography / blank — byte-identical
+            continue
+        out: list[str] = []
+        cursor = 0
+        for (start, end) in _sentence_spans(line):
+            out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+            sentence = line[start:end]
+            actor, resolved_ok = _rendered_sentence_attribution_actor(
+                sentence, citation_urls, attribution_origin_reason
+            )
+            if not resolved_ok:
+                skipped_unresolved.append(sentence)
+            if actor is None:
+                out.append(sentence)  # byte-identical — not a mis-attribution / already caveated
+            else:
+                out.append(f"{sentence} {_attribution_caveat_marker(actor)}")
+                caveated.append(AttributionCaveat(actor=actor, sentence=sentence))
+            cursor = end
+        out.append(line[cursor:])
+        new_lines.append("".join(out))
+
+    return AttributionCorrectionResult(
+        report_text="\n".join(new_lines),
+        caveated=caveated,
+        skipped_unresolved=skipped_unresolved,
+    )

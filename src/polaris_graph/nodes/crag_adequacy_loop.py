@@ -91,6 +91,16 @@ CORRECTIVE_RESERVE_ENV: str = "PG_ADEQUACY_CRAG_CORRECTIVE_RESERVE_SECONDS"
 CRAG_MODEL_ENV: str = "PG_ADEQUACY_CRAG_MODEL"
 CRAG_MAX_TOKENS_ENV: str = "PG_ADEQUACY_CRAG_MAX_TOKENS"
 CRAG_RENDER_CAP_ENV: str = "PG_ADEQUACY_CRAG_RENDER_CAP"
+# I-deepfix-001 R3 (#1344): source-yield-SATURATION widening of the corrective loop.
+# The legacy loop bound was a FIXED pass count (`PG_ADEQUACY_CRAG_MAX_LOOPS` default 1)
+# — a chained/2nd-order recall rubric (A -> find entity -> fact B) frequently needs more
+# than one corrective round, but a fixed "1" stops before the chain closes. R3 widens the
+# loop bounded by SOURCE-YIELD SATURATION (keep correcting while each round still surfaces
+# NEW sources; stop when the yield flattens) instead of a fixed count. The MAX-loops env
+# stays as an outer COMPUTE-SAFETY bound (never a breadth target — §-1.3). YIELD_EPS is the
+# novel-source fraction below which the loop is judged saturated.
+CRAG_YIELD_EPS_ENV: str = "PG_ADEQUACY_CRAG_YIELD_EPS"
+CRAG_MAX_SATURATION_LOOPS_ENV: str = "PG_ADEQUACY_CRAG_MAX_SATURATION_LOOPS"
 
 # Conservative defaults: one corrective loop-back, up to four gap queries.
 _DEFAULT_MAX_LOOPS: int = 1
@@ -395,6 +405,142 @@ def should_loop_back(*, sufficient: bool, loops_done: int) -> bool:
     if sufficient:
         return False
     return loops_done < max_loops()
+
+
+# I-deepfix-001 R3 (#1344): source-yield-saturation defaults. YIELD_EPS is the
+# novel-source fraction below which a corrective round is judged saturated (the
+# same novelty metric the Phase-4 saturation loop uses). MAX_SATURATION_LOOPS is
+# the OUTER compute-safety bound so the widened loop can never grind unbounded.
+_DEFAULT_YIELD_EPS: float = 0.10
+_DEFAULT_MAX_SATURATION_LOOPS: int = 4
+
+
+def crag_yield_eps() -> float:
+    """Novel-source-fraction epsilon for the R3 saturation stop (>= 0.0).
+
+    Reads `PG_ADEQUACY_CRAG_YIELD_EPS`. A corrective round whose fraction of NEW
+    (canonical-URL-novel) sources is < this value is treated as saturated — the
+    corpus stopped growing, so widening further would spend compute for no new
+    evidence. A malformed / negative value falls back to the conservative default.
+    """
+    raw = os.getenv(CRAG_YIELD_EPS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_YIELD_EPS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_YIELD_EPS
+    return value if value >= 0.0 else _DEFAULT_YIELD_EPS
+
+
+def crag_max_saturation_loops() -> int:
+    """Outer COMPUTE-SAFETY bound on total corrective rounds for the R3 widened
+    loop (>= 1). Reads `PG_ADEQUACY_CRAG_MAX_SATURATION_LOOPS`.
+
+    This is a compute bound, NOT a breadth target (§-1.3): the loop stops EARLIER
+    on source-yield saturation (:func:`corrective_yield_saturated`) or on a
+    sufficient verdict; this cap only guarantees the widened loop terminates even
+    if the grader keeps saying insufficient while sources keep trickling in.
+    """
+    raw = os.getenv(CRAG_MAX_SATURATION_LOOPS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_MAX_SATURATION_LOOPS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_SATURATION_LOOPS
+    return max(1, value)
+
+
+def corrective_yield_saturated(
+    *,
+    prev_corpus_rows: list[Any],
+    last_round_rows: list[Any],
+    eps: float | None = None,
+) -> bool:
+    """True iff the LAST corrective round's source yield has SATURATED.
+
+    Uses the SAME novelty metric as the Phase-4 saturation loop
+    (:func:`src.polaris_graph.retrieval.saturation.marginal_novelty`): the
+    fraction of ``last_round_rows`` whose canonical source URL was NOT already in
+    ``prev_corpus_rows``. When that fraction is < ``eps`` the round barely added
+    any new source — the corrective retrieval has flattened and the loop should
+    stop (a yield saturation stop, never a breadth count — §-1.3).
+
+    An EMPTY ``last_round_rows`` (the round fetched nothing) is saturated by
+    definition (novelty of an empty round is 0.0). Returns False when the round
+    surfaced enough new sources to be worth another pass.
+    """
+    threshold = crag_yield_eps() if eps is None else eps
+    if not last_round_rows:
+        return True
+    # Local import keeps the heavy saturation import off this module's import path.
+    from src.polaris_graph.retrieval.saturation import marginal_novelty
+
+    novelty = marginal_novelty(prev_corpus_rows or [], last_round_rows or [])
+    return novelty < threshold
+
+
+def should_loop_back_saturating(
+    *,
+    sufficient: bool,
+    loops_done: int,
+    prev_corpus_rows: list[Any],
+    last_round_rows: list[Any],
+    yield_eps: float | None = None,
+    max_saturation_loops: int | None = None,
+) -> bool:
+    """R3 (#1344): decide whether to fire one more corrective round, bounded by
+    SOURCE-YIELD SATURATION rather than the legacy fixed pass count.
+
+    This REPLACES the fixed ``loops_done < max_loops()`` bound (default 1) with a
+    yield-keyed loop so chained / 2nd-order recall rubrics (A -> find entity ->
+    fact B) get as many corrective rounds as keep surfacing NEW sources — while
+    still terminating. The decision ladder:
+
+    1. ``sufficient`` -> stop (the CRAG grader is confident; corpus is enough).
+    2. First corrective round (``loops_done == 0``) on a NOT-sufficient corpus ->
+       ALWAYS loop back once (Corrective-RAG's guarantee — mirrors
+       :func:`wall_should_break_corrective_loop`). No yield history yet.
+    3. ``loops_done >= max_saturation_loops`` -> stop (outer compute-safety bound).
+    4. Last round's source yield SATURATED (:func:`corrective_yield_saturated`) ->
+       stop (widening no longer produces new evidence).
+    5. Otherwise -> loop back (not sufficient, still within the compute bound, and
+       the last round is still surfacing new sources).
+
+    Args:
+        sufficient: the CRAG classifier's latest sufficiency verdict.
+        loops_done: corrective rounds already fired this query.
+        prev_corpus_rows: the corpus BEFORE the last corrective round (novelty
+            baseline).
+        last_round_rows: the RAW rows the last corrective round retrieved (the
+            novelty denominator).
+        yield_eps: override for `PG_ADEQUACY_CRAG_YIELD_EPS` (tests).
+        max_saturation_loops: override for the outer compute bound (tests).
+
+    Returns:
+        True to fire another corrective round; False to stop and hand off the
+        corpus gathered so far.
+    """
+    if sufficient:
+        return False
+    if loops_done <= 0:
+        # Guarantee the first corrective round on an insufficient corpus.
+        return True
+    cap = (
+        crag_max_saturation_loops()
+        if max_saturation_loops is None
+        else max(1, int(max_saturation_loops))
+    )
+    if loops_done >= cap:
+        return False
+    if corrective_yield_saturated(
+        prev_corpus_rows=prev_corpus_rows,
+        last_round_rows=last_round_rows,
+        eps=yield_eps,
+    ):
+        return False
+    return True
 
 
 def corrective_reserve_seconds() -> float:

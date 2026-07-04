@@ -1149,6 +1149,31 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # synthesis is RE-GROUNDED through the UNCHANGED strict_verify (a synthesized sentence with no
     # grounding span is DROPPED — drop-not-fallback), so it is faithfulness-SAFE: zero new fabrication.
     "PG_SWEEP_DEPTH_LAYER": "1",
+    # I-deepfix-001 (#1344) COVERAGE LEVERS (DRB-II) — ARM the 8 weight-and-consolidate breadth levers that
+    # were BUILT + triple-gated but sat DARK (default-OFF, absent from the paid slate). §-1.3 DNA-ALIGNED:
+    # each makes breadth EMERGE from honest weighted multi-attribution — NOT a hardcoded cap/target/thinner/
+    # canary (BANNED). O1 facet outline: section count emerges from evidence clusters (non-clinical only;
+    # clinical/unknown byte-identical). F1 route-all-baskets: consolidate-do-not-drop the ~600 stranded
+    # verified baskets into section plans (nothing capped). F2/F5: the per-section evidence + word budgets
+    # TRACK the full matched payload (remove the row/word CEILING — a cap removal, not a new floor). R1/R2:
+    # expert facet planner + facet completeness widen retrieval breadth (the FS-Researcher path; compute-
+    # safety bounds keyed to source YIELD, never a breadth number). D1/D4: within-basket verbatim qualifier
+    # elaboration + facet-routed enrichment placement (both ADDITIVE keep-all, faithfulness-neutral). D1/D4
+    # were previously armed ONLY by run_honest_sweep_r3.apply_winner_slate_on_paid_path (called in main_async,
+    # which the Gate-B launcher never invokes) -> DARK on the Gate-B path; slate-pinning them here arms them
+    # on the Gate-B launcher too. Each is DEFAULT-OFF in code (flag-OFF byte-identical); slate-pinned "1" so
+    # apply_full_capability_benchmark_slate FORCE-sets it (each is in _BENCHMARK_FORCE_ON_FLAGS below) + each
+    # is _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed pre-spend) + _WINNER_FLAG_ALLOWLIST (SLATE-PURITY) +
+    # asserted by assert_coverage_levers_armed() before spend. FAITHFULNESS-NEUTRAL: every surfaced/routed
+    # source re-passes the UNCHANGED strict_verify / NLI / 4-role / provenance / span-grounding per claim.
+    "PG_FACET_OUTLINE": "1",              # O1 facet outline (section count emerges from clusters)
+    "PG_ROUTE_ALL_BASKETS": "1",          # F1 route-every-verified-basket (consolidate-don't-drop the stranded baskets)
+    "PG_EV_BUDGET_TRACKS_PAYLOAD": "1",   # F2 per-section evidence budget tracks full matched payload (ceiling removed)
+    "PG_WORD_BUDGET_TRACKS_PAYLOAD": "1", # F5 per-section word budget tracks full routed payload (clamp removed)
+    "PG_EXPERT_FACET_PLANNER": "1",       # R1 expert facet planner (widen retrieval breadth; yield-keyed safety bounds)
+    "PG_FACET_COMPLETENESS": "1",         # R2 facet completeness (retrieval-breadth completeness pass)
+    "PG_QUALIFIER_ELABORATION": "1",      # D1 within-basket verbatim qualifier elaboration (keep-all, re-verified)
+    "PG_ENRICHMENT_FACET_ROUTE": "1",     # D4 facet-routed enrichment placement (unbound-but-verified members)
     # I-beatboth-011 keystone-F1 (#1284, Codex gate P0): the multi-citation synthesis flag MUST ride the
     # slate (force-ON + preflight-required) or the keystone is WIRED-BUT-DEAD on the paid run — the exact
     # false-done the gate caught. ON => a >=2-DISTINCT-origin basket renders as ONE multi-cited sentence
@@ -1622,6 +1647,20 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # slate above; fail the run CLOSED here if a stray operator =0 left it off. FAITHFULNESS-NEUTRAL
     # (advisory routing context only; run_scope_gate stays the single binding gate).
     "PG_SCOPE_INTENT_FRAME",
+    # I-deepfix-001 (#1344) COVERAGE LEVERS (DRB-II): fail-CLOSED before spend if any of the 8 weight-and-
+    # consolidate breadth levers is off — a paid run with a coverage lever OFF silently ships a NARROWER
+    # report (fewer facet sections / stranded verified baskets dropped / budgets clamped / thinner retrieval
+    # / no qualifier elaboration / no facet-routed enrichment). Force-ON above, so a stray operator =0 fails
+    # the run CLOSED here. §-1.3 DNA-ALIGNED (arm the existing default; NO new forced number introduced);
+    # FAITHFULNESS-NEUTRAL (each surfaced/routed source re-passes the UNCHANGED strict_verify per claim).
+    "PG_FACET_OUTLINE",              # O1 facet outline
+    "PG_ROUTE_ALL_BASKETS",          # F1 route-every-verified-basket
+    "PG_EV_BUDGET_TRACKS_PAYLOAD",   # F2 evidence budget tracks payload
+    "PG_WORD_BUDGET_TRACKS_PAYLOAD", # F5 word budget tracks payload
+    "PG_EXPERT_FACET_PLANNER",       # R1 expert facet planner
+    "PG_FACET_COMPLETENESS",         # R2 facet completeness
+    "PG_QUALIFIER_ELABORATION",      # D1 within-basket qualifier elaboration
+    "PG_ENRICHMENT_FACET_ROUTE",     # D4 facet-routed enrichment placement
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -1791,6 +1830,22 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_CONSOLIDATION_NLI",
     "PG_ADEQUACY_CRAG",
     "PG_SCOPE_INTENT_FRAME",
+    # I-deepfix-001 (#1344) COVERAGE LEVERS (DRB-II): force-ON the 8 weight-and-consolidate breadth levers
+    # so a stray operator/.env =0 cannot survive the setdefault slate and silently leave a coverage lever
+    # DARK on the paid run (the drb_72 dark-winner class). Each is DEFAULT-OFF in code (flag-OFF byte-
+    # identical); force-ON here + preflight-required below + allowlisted (SLATE-PURITY). §-1.3 DNA-ALIGNED
+    # (breadth EMERGES from honest weighted multi-attribution — NO forced cap/target/thinner/canary);
+    # FAITHFULNESS-NEUTRAL (every surfaced/routed source re-passes the UNCHANGED strict_verify per claim).
+    # D1/D4 are the two that were dark on the Gate-B path (armed only by run_honest_sweep_r3.main_async's
+    # apply_winner_slate_on_paid_path, which the Gate-B launcher never calls) — slate-pinning arms them here.
+    "PG_FACET_OUTLINE",              # O1 facet outline
+    "PG_ROUTE_ALL_BASKETS",          # F1 route-every-verified-basket
+    "PG_EV_BUDGET_TRACKS_PAYLOAD",   # F2 evidence budget tracks payload (ceiling removed)
+    "PG_WORD_BUDGET_TRACKS_PAYLOAD", # F5 word budget tracks payload (clamp removed)
+    "PG_EXPERT_FACET_PLANNER",       # R1 expert facet planner
+    "PG_FACET_COMPLETENESS",         # R2 facet completeness
+    "PG_QUALIFIER_ELABORATION",      # D1 within-basket qualifier elaboration (Gate-B-dark; now armed)
+    "PG_ENRICHMENT_FACET_ROUTE",     # D4 facet-routed enrichment placement (Gate-B-dark; now armed)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2397,6 +2452,20 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # pin reaching set_four_role_reasoning_effort), NOT a winner-value selection — allowlisted explicitly
     # so the clean slate PASSES while a future BOGUS string force-exact (not here) still fails CLOSED.
     "PG_FOUR_ROLE_REASONING_EFFORT",         # D8 4-role reasoning-effort pin (medium; latency config)
+    # ── I-deepfix-001 (#1344) DRB-II COVERAGE LEVERS — weight-and-consolidate breadth surfaces (NOT losers) ──
+    # The 8 built-and-gated breadth levers armed on the paid slate. §-1.3 DNA-ALIGNED: breadth EMERGES from
+    # honest weighted multi-attribution (facet outline = section count from clusters; route-all = consolidate-
+    # don't-drop stranded baskets; budgets track payload = ceiling removed; facet planner/completeness = wider
+    # retrieval; D1/D4 = additive keep-all placement) — NONE is a forced cap/target/thinner/canary. Each is a
+    # conscious 'winner or infra?' decision: they are the DRB-II COVERAGE machinery, allowlisted deliberately.
+    "PG_FACET_OUTLINE",                      # O1 facet outline (section count emerges from clusters)
+    "PG_ROUTE_ALL_BASKETS",                  # F1 route-every-verified-basket (consolidate-don't-drop)
+    "PG_EV_BUDGET_TRACKS_PAYLOAD",           # F2 evidence budget tracks payload (ceiling removed)
+    "PG_WORD_BUDGET_TRACKS_PAYLOAD",         # F5 word budget tracks payload (clamp removed)
+    "PG_EXPERT_FACET_PLANNER",               # R1 expert facet planner (retrieval breadth)
+    "PG_FACET_COMPLETENESS",                 # R2 facet completeness (retrieval-breadth completeness)
+    "PG_QUALIFIER_ELABORATION",              # D1 within-basket verbatim qualifier elaboration (keep-all)
+    "PG_ENRICHMENT_FACET_ROUTE",             # D4 facet-routed enrichment placement (keep-all)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
@@ -2671,6 +2740,52 @@ def assert_full_capability_slate_applied(smoke_scale: bool = False) -> None:
             "apply_full_capability_benchmark_slate() must run immediately before this assertion (its "
             "force-set semantics are the fix); set PG_WINNER_SLATE_PRESPEND_ASSERT=0 ONLY for a deliberate "
             "operator experiment."
+        )
+
+
+# I-deepfix-001 (#1344) DRB-II COVERAGE LEVERS — the 8 weight-and-consolidate breadth levers that the paid
+# slate now ARMS (built + triple-gated, previously DARK). This is the single source of truth the pre-spend
+# assert + the coverage-wiring test both read. Each is DEFAULT-OFF in code; the slate force-ON-pins + preflight-
+# requires + allowlists each. §-1.3 DNA-ALIGNED (breadth EMERGES; NO forced cap/target/thinner/canary).
+_COVERAGE_LEVER_FLAGS: tuple[tuple[str, str], ...] = (
+    ("PG_FACET_OUTLINE", "O1 facet outline (section count emerges from evidence clusters)"),
+    ("PG_ROUTE_ALL_BASKETS", "F1 route-every-verified-basket (consolidate-don't-drop the stranded baskets)"),
+    ("PG_EV_BUDGET_TRACKS_PAYLOAD", "F2 per-section evidence budget tracks full matched payload (ceiling removed)"),
+    ("PG_WORD_BUDGET_TRACKS_PAYLOAD", "F5 per-section word budget tracks full routed payload (clamp removed)"),
+    ("PG_EXPERT_FACET_PLANNER", "R1 expert facet planner (widen retrieval breadth)"),
+    ("PG_FACET_COMPLETENESS", "R2 facet completeness (retrieval-breadth completeness pass)"),
+    ("PG_QUALIFIER_ELABORATION", "D1 within-basket verbatim qualifier elaboration (keep-all; Gate-B-dark)"),
+    ("PG_ENRICHMENT_FACET_ROUTE", "D4 facet-routed enrichment placement (keep-all; Gate-B-dark)"),
+)
+
+
+def assert_coverage_levers_armed() -> None:
+    """FAIL CLOSED (pre-spend, BEFORE the sweep import) if any DRB-II COVERAGE LEVER is not truthy in the
+    EFFECTIVE env — i.e. a breadth lever would run silently DARK because the slate did not land it (a stray
+    operator/.env =0 survived, or a force-on pin was dropped). Mirrors the WINNER-SLATE-DARK / REQUIRED-OFF
+    assert style: reads ``os.environ`` + the ``_COVERAGE_LEVER_FLAGS`` constants only; touches no gate, no
+    evidence, no verdict (FAITHFULNESS-NEUTRAL). Called immediately after ``assert_full_capability_slate_applied``
+    in ``run_gate_b_query`` so the env reflects exactly the slate's force values.
+
+    §-1.3 DNA-ALIGNED: it asserts the existing breadth levers are ARMED — it introduces NO cap/target/thinner/
+    canary and NO forced breadth number. Shares the default-ON ``PG_WINNER_SLATE_PRESPEND_ASSERT`` kill-switch
+    (LAW VI) with the winner-slate assertion (a deliberate operator experiment disables both together)."""
+    if not _winner_slate_prespend_assert_enabled():
+        return
+    dark = [
+        (flag, why) for flag, why in _COVERAGE_LEVER_FLAGS
+        if os.getenv(flag, "0").strip().lower() not in ("1", "true", "yes", "on")
+    ]
+    if dark:
+        _detail = "; ".join(f"{_f} ({_w}) = {os.getenv(_f)!r}" for _f, _w in dark)
+        raise RuntimeError(
+            "benchmark preflight FAILED [COVERAGE-LEVER-DARK] (pre-spend, pre-import): "
+            f"{len(dark)} DRB-II coverage lever(s) did not take effect — the paid run would ship a NARROWER "
+            "report (fewer facet sections / stranded verified baskets dropped / budgets clamped / thinner "
+            "retrieval / no qualifier elaboration / no facet-routed enrichment). "
+            f"Dark: {_detail}. apply_full_capability_benchmark_slate() must run immediately before this "
+            "assertion (it force-ON-pins each lever); set PG_WINNER_SLATE_PRESPEND_ASSERT=0 ONLY for a "
+            "deliberate operator experiment."
         )
 
 
@@ -3601,6 +3716,13 @@ async def run_gate_b_query(
     # import below and long before preflight_full_capability at the token boundary. Env kill-switch
     # (PG_WINNER_SLATE_PRESPEND_ASSERT) default-ON; faithfulness-neutral (reads env + slate constants only).
     assert_full_capability_slate_applied(smoke_scale=smoke_scale)
+    # I-deepfix-001 (#1344) DRB-II COVERAGE LEVERS — PRE-SPEND assertion (pre-import, pre-spend). Fail CLOSED
+    # HERE if any of the 8 weight-and-consolidate breadth levers (facet outline / route-all-baskets / evidence
+    # + word budget tracks payload / expert facet planner / facet completeness / qualifier elaboration / facet-
+    # routed enrichment) did not land truthy — a coverage lever running DARK silently ships a NARROWER report.
+    # The slate force-ON-pins each; this is the earliest tripwire (before the heavy sweep import). Shares the
+    # PG_WINNER_SLATE_PRESPEND_ASSERT kill-switch; faithfulness-neutral (reads env + slate constants only).
+    assert_coverage_levers_armed()
 
     from scripts.run_honest_sweep_r3 import run_one_query
 

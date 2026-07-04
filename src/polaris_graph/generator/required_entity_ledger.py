@@ -134,16 +134,80 @@ def _canonical_ids(entity: dict) -> dict:
     return {k: entity[k] for k in _CANONICAL_KEYS if entity.get(k) not in (None, "")}
 
 
+def _norm_id(value: "str | None") -> str:
+    """Lowercase + strip a canonical identifier for comparison. PURE."""
+    return str(value or "").strip().lower()
+
+
+def citation_covered_entity_ids(
+    required_entities: list[dict],
+    cited_evidence_records: "list[dict] | tuple[dict, ...] | None",
+) -> set[str]:
+    """I-deepfix-001 S2 (#1213/#1344): the set of required-entity ids covered by the CITED evidence
+    of the report's VERIFIED claims. The four-role ``covered_element_ids`` path under-credits a
+    required entity when the D8 builder never bound the entity to a claim's element ids even though
+    the BODY renders a verified, span-grounded claim CITING exactly that entity (drb_72:
+    coverage_fraction 0.571 = 4/7). This credits an entity as covered when ANY cited-evidence record
+    (a bibliography row / basket SUPPORTS member of a final-VERIFIED claim) matches the entity's
+    canonical id: DOI or PMID (exact OR appearing as a substring of the record URL, so a
+    doi.org/<doi> locator counts) or the entity's ``url_pattern`` (substring of the record URL).
+
+    §-1.1 SAFETY: this ADDS coverage credit ONLY from evidence the report actually cited — it never
+    fabricates a citation, never touches strict_verify / the 4-role evaluator / D8, and is UNIONED
+    with (never replaces) the existing ``covered_element_ids`` path. cited_evidence_records must be
+    the evidence of VERIFIED claims (the caller passes the report's cited bibliography, which is
+    built from verified composed sentences). PURE."""
+    doi_index: dict[str, str] = {}
+    pmid_index: dict[str, str] = {}
+    url_patterns: list[tuple[str, str]] = []
+    for entity in required_entities or []:
+        entity_id = entity.get(_KEY_ID)
+        if entity_id in (None, ""):
+            continue
+        entity_id = str(entity_id)
+        cids = _canonical_ids(entity)
+        if cids.get("doi"):
+            doi_index[_norm_id(cids["doi"])] = entity_id
+        if cids.get("pmid"):
+            pmid_index[_norm_id(cids["pmid"])] = entity_id
+        if cids.get("url_pattern"):
+            url_patterns.append((_norm_id(cids["url_pattern"]), entity_id))
+    covered: set[str] = set()
+    for rec in cited_evidence_records or ():
+        if not isinstance(rec, dict):
+            continue
+        r_doi = _norm_id(rec.get("doi"))
+        r_pmid = _norm_id(rec.get("pmid"))
+        r_url = _norm_id(rec.get("url") or rec.get("source_url"))
+        for doi, ent_id in doi_index.items():
+            if doi and (doi == r_doi or (r_url and doi in r_url)):
+                covered.add(ent_id)
+        for pmid, ent_id in pmid_index.items():
+            if pmid and (pmid == r_pmid or (r_url and pmid in r_url)):
+                covered.add(ent_id)
+        if r_url:
+            for pat, ent_id in url_patterns:
+                if pat and pat in r_url:
+                    covered.add(ent_id)
+    return covered
+
+
 def build_ledger(
     required_entities: list[dict],
     covered_entity_ids: set[str] | frozenset[str] | list[str],
+    extra_covered_ids: "set[str] | frozenset[str] | list[str] | None" = None,
 ) -> RequiredEntityLedger:
     """Phase B: build the report-level ledger from the native required entities + the
     VERIFIED-binding set (``⋃ verified_claim.covered_element_ids``, computed by
     ``native_gate_b_inputs``). A required entity is VERIFIED iff its id is in
     ``covered_entity_ids`` (the exact existing coverage authority), else GAP_DISCLOSED.
-    Assigns NO new credit; this is pure accounting + disclosure over an already-decided set."""
-    covered = set(covered_entity_ids)
+    Assigns NO new credit; this is pure accounting + disclosure over an already-decided set.
+
+    I-deepfix-001 S2 (#1344): ``extra_covered_ids`` UNIONS an additional covered set (the
+    citation→entity credit from ``citation_covered_entity_ids``) so an entity cited by a VERIFIED
+    body claim is not falsely disclosed as a gap. Only ADDS coverage from cited evidence; it never
+    removes a covered id and never touches the faithfulness engine."""
+    covered = set(covered_entity_ids) | set(extra_covered_ids or ())
     slots: list[RequiredSlot] = []
     for entity in required_entities:
         entity_id = entity.get(_KEY_ID)

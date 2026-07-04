@@ -512,6 +512,61 @@ def _companion_figure_compose_enabled() -> bool:
     return os.getenv(_COMPANION_FIGURE_COMPOSE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+# I-deepfix-001 D1 (#1344) — WITHIN-BASKET QUALIFIER ELABORATION gate. DEFAULT-OFF (LAW VI): the
+# additive within-basket pass runs only when the flag is explicitly set. OFF => the pass never runs =>
+# byte-identical. Sibling of the companion-figure pass (same faithfulness contract: surface MORE of a
+# basket member's OWN verbatim, already-strict_verify-passing content — here a QUALIFIER clause
+# (population/scope, timeframe, magnitude context, mechanism, stated limitation) instead of a companion
+# percent). It NEVER adds a connective / aggregate / relational predicate (zero non-span words), so it
+# cannot mint an unlicensed frame and never touches the >=2 distinct-origin floor (single-source
+# attribution, exactly like the headline). It STRENGTHENS faithfulness (fuller, still-verified
+# expression) and drops nothing.
+_QUALIFIER_ELABORATION_ENV = "PG_QUALIFIER_ELABORATION"
+
+
+def _qualifier_elaboration_enabled() -> bool:
+    """PG_QUALIFIER_ELABORATION gate (D1). DEFAULT-OFF => byte-identical; an explicit
+    1/true/on/yes turns the additive within-basket qualifier-elaboration pass ON."""
+    return os.getenv(_QUALIFIER_ELABORATION_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+# The CLOSED qualifier-cue vocabulary (D1). A member sentence is ELIGIBLE for elaboration iff it
+# matches at least one cue AND is not already surfaced in the headline. This is purely a SELECTION
+# filter for WHICH already-verified member sentences to lift — it never affects faithfulness (the
+# lifted sentence re-passes the UNCHANGED strict_verify + own-region gate regardless). Grouped only for
+# readability; matched case-insensitively as whole-word / phrase cues. Kept intentionally conservative:
+# a miss lifts LESS (never a faithfulness risk), a false-hit still re-verifies as the source's own words.
+_QUALIFIER_CUES: tuple[str, ...] = (
+    # population / scope
+    r"patients?", r"participants?", r"adults?", r"children", r"women", r"men",
+    r"population", r"cohort", r"sample", r"subgroup", r"aged", r"years?\s+old",
+    r"among", r"enrolled", r"randomi[sz]ed", r"eligible",
+    # timeframe
+    r"weeks?", r"months?", r"years?", r"days?", r"follow[- ]?up", r"baseline",
+    r"duration", r"over\s+a?\s*period", r"median\s+follow", r"during",
+    # magnitude context
+    r"compared\s+(?:with|to)", r"relative\s+to", r"versus", r"\bvs\.?\b",
+    r"reduction", r"increase", r"[- ]fold", r"percentage\s+points?",
+    r"absolute", r"relative\s+risk", r"hazard\s+ratio", r"odds\s+ratio",
+    r"confidence\s+interval", r"95%\s*ci",
+    # mechanism
+    r"because", r"due\s+to", r"mechanism", r"mediated", r"pathway", r"receptor",
+    r"inhibit", r"activat", r"caused\s+by", r"driven\s+by", r"attributable\s+to",
+    # stated limitation / caveat
+    r"limitation", r"however", r"although", r"caveat", r"uncertain",
+    r"not\s+statistically\s+significant", r"small\s+sample", r"generali[sz]",
+    r"\bbias\b", r"confound", r"limited\s+by", r"did\s+not\s+reach",
+)
+_QUALIFIER_CUE_RE = re.compile(
+    r"(?<![A-Za-z])(?:" + "|".join(_QUALIFIER_CUES) + r")", re.IGNORECASE,
+)
+
+
+def _sentence_carries_qualifier(text: str) -> bool:
+    """True iff ``text`` matches at least one closed qualifier cue (D1 selection filter). Pure."""
+    return bool(_QUALIFIER_CUE_RE.search(text or ""))
+
+
 # I-deepfix-001 Wave-3 PART 2 ARM B (#1344) — DEGRADED-VERIFY HONEST DISCLOSURE gate.
 # When a basket yields NO ENTAILMENT_VERIFIED span but carries >=1 member whose OWN span
 # DETERMINISTICALLY grounds the claim and whose entailment tier is DETERMINISTIC_ONLY (the judge
@@ -1352,6 +1407,93 @@ def compose_companion_figure_units(
     return kept
 
 
+def compose_qualifier_elaboration_units(
+    basket: Any,
+    evidence_pool: dict,
+    composed_unit: str,
+    *,
+    verify_fn: Callable[..., Any],
+) -> list[str]:
+    """I-deepfix-001 D1 — WITHIN-BASKET QUALIFIER ELABORATION.
+
+    Surface MORE of each source's OWN already-verified content: after the headline clause, lift the
+    basket members' OTHER verbatim sentence-units that carry a QUALIFIER (population/scope, timeframe,
+    magnitude context, mechanism, stated limitation) but were dropped when the single-source headline
+    collapsed the basket to one sentence. Each surfaced unit is the member's OWN verbatim sentence
+    tagged with its REAL global offsets, so it re-passes the UNCHANGED ``strict_verify`` (``verify_fn``)
+    trivially and lands within this basket's own member regions (``_tokens_within_basket_regions``) —
+    kept ONLY if BOTH hold; ungroundable units are simply not emitted (fail-closed).
+
+    This is the sibling of ``compose_companion_figure_units``: same faithfulness contract, different
+    selection filter. NO connective / lead-in / aggregate / relational predicate is ever added (zero
+    non-span words), so no unlicensed frame and no relational quantifier can arise; each sentence is
+    ONE source's own words (single-source attribution, exactly like the headline — it asserts NO
+    corroboration and never touches the >=2 distinct-origin floor). It DROPS nothing (keep-all); it
+    lifts already-verified content, strengthening faithfulness by fuller expression.
+
+    Skips any unit already surfaced by the headline (same span OR byte-identical text) so it never
+    re-states the headline sentence. Returns the kept elaboration sentences (each already ``[#ev:]``-
+    tagged). Empty when no member carries a qualifying non-headline sentence, or every candidate fails
+    verify/region."""
+    kept: list[str] = []
+    headline_norm = " ".join((_EV_TOKEN_RE.sub(" ", composed_unit or "")).split()).strip().lower()
+    scoped = _basket_scoped_pool(basket, evidence_pool)
+    regions = _basket_member_regions(basket, evidence_pool)
+    known_words = _known_words_for_compose(evidence_pool)
+    seen_span_keys: set[tuple] = set()
+    seen_norms: set[str] = set()
+    if headline_norm:
+        seen_norms.add(headline_norm)
+    for member in _basket_supports_members(basket):
+        eid = str(getattr(member, "evidence_id", "") or "")
+        quote = str(getattr(member, "direct_quote", "") or "")
+        gspan = _member_global_span(member, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        gstart = gspan[0]
+        cursor = 0
+        for u in split_into_sentences(quote):
+            u = u.strip()
+            if not u:
+                continue
+            off = quote.find(u, cursor)
+            if off < 0:
+                off = quote.find(u)
+                if off < 0:
+                    continue
+            else:
+                cursor = off + len(u)
+            # Input hygiene: drop allowlist chrome + subjectless / mid-word-truncated fragments so an
+            # elaboration is always a whole real source sentence.
+            if _compose_junk_screen(u, known_words, require_sentence_form=True):
+                continue
+            # Selection filter: only lift a sentence that carries a real qualifier cue.
+            if not _sentence_carries_qualifier(u):
+                continue
+            u_norm = " ".join(u.split()).strip().lower()
+            if u_norm in seen_norms:
+                continue  # the headline (or an already-surfaced unit) already states this sentence
+            s = gstart + off
+            e = s + len(u)
+            span_key = (eid, s, e)
+            if span_key in seen_span_keys:
+                continue
+            sentence = f"{_strip_terminal_punct(u)} [#ev:{eid}:{s}-{e}]."
+            res = verify_fn(sentence, scoped)
+            vtext = str(getattr(res, "sentence", "") or "").strip() or sentence
+            # Keep ONLY if the UNCHANGED strict_verify passes AND the cited token lands within this
+            # basket's OWN member regions (anti-cross-claim; True by construction for a within-quote
+            # slice, kept as a belt-and-suspenders check).
+            if not bool(getattr(res, "is_verified", False)):
+                continue
+            if not _tokens_within_basket_regions(vtext, regions):
+                continue
+            seen_span_keys.add(span_key)
+            seen_norms.add(u_norm)
+            kept.append(vtext)
+    return kept
+
+
 def _compose_section_per_basket(
     section_baskets: list,
     evidence_pool: dict,
@@ -1485,6 +1627,36 @@ def _compose_section_per_basket(
                 seen_texts.add(c_norm)
                 out.append(companion)
 
+        # I-deepfix-001 D1 (#1344): WITHIN-BASKET QUALIFIER ELABORATION. DEFAULT-OFF (OFF => this block
+        # is skipped => byte-identical). Surface this basket members' OTHER verbatim qualifier-carrying
+        # sentences (population/scope, timeframe, magnitude context, mechanism, stated limitation) the
+        # single-source headline dropped — each a VERBATIM span slice re-verified by the UNCHANGED
+        # strict_verify (verify_fn) + own-region gate. Route each surfaced unit through the SAME in-scope
+        # dedup as `composed` so a TRUE duplicate collapses but a genuinely-new qualifier sentence is
+        # kept. Each kept unit is already [#ev:]-tokened, so it rides the same downstream
+        # _rewrite_draft_with_spans + strict_verify tail as every other composed unit.
+        if _qualifier_elaboration_enabled():
+            for elaboration in compose_qualifier_elaboration_units(
+                basket, evidence_pool, composed, verify_fn=verify_fn,
+            ):
+                if not elaboration or not elaboration.strip():
+                    continue
+                q_spans = _resolved_spans(elaboration)
+                q_norm = " ".join(elaboration.split())
+                q_footprint = frozenset(q_spans)
+                if q_footprint and q_footprint in seen_numbers_by_footprint:
+                    q_numbers = _number_tokens(elaboration)
+                    if not (q_numbers - seen_numbers_by_footprint[q_footprint]):
+                        continue
+                    seen_numbers_by_footprint[q_footprint] = seen_numbers_by_footprint[q_footprint] | q_numbers
+                if q_spans and q_spans <= seen_spans and q_norm in seen_texts:
+                    continue
+                if q_footprint and q_footprint not in seen_numbers_by_footprint:
+                    seen_numbers_by_footprint[q_footprint] = _number_tokens(elaboration)
+                seen_spans |= q_spans
+                seen_texts.add(q_norm)
+                out.append(elaboration)
+
     # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
     # no call). ON => append analytical sentences (two engine-licensed verified atoms) on top of the
     # keep-all single-source units. Each analytical unit carries TWO distinct [#ev] tokens whose two-span
@@ -1540,6 +1712,22 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
         member_ids = {str(getattr(m, "evidence_id", "") or "") for m in getattr(b, "supporting_members", None) or []}
         if member_ids & section_ev_ids:
             out.append(b)
+    # B1 (I-deepfix-001 #1344): DEBATE-CLASS con-basket consolidation. When a SELECTED pro-basket
+    # refutes another cluster (``refuter_cluster_ids``), CONSOLIDATE the referenced con-basket into
+    # this section's compose set even if its evidence was not assigned here — so the minority side
+    # composes alongside the majority BEFORE strict_verify instead of being funnel-dropped at
+    # selection. CONSOLIDATE-not-DROP (§-1.3): only ADDS an already-built disagreeing basket; the
+    # con side re-passes the UNCHANGED faithfulness engine per clause downstream. Default-ON
+    # kill-switch; OFF => byte-identical legacy selection. Fail-open on any import/attr error.
+    try:
+        from src.polaris_graph.generator.debate_consolidation import (  # noqa: PLC0415
+            debate_consolidation_enabled as _b1_enabled,
+            augment_with_con_baskets as _b1_augment,
+        )
+        if out and _b1_enabled():
+            out = _b1_augment(out, baskets)
+    except Exception:  # noqa: BLE001 — additive consolidation; never break selection
+        pass
     return out
 
 
@@ -1687,3 +1875,156 @@ def _section_assigned_ev_ids(section: Any) -> set:
             ids.add(str(eid))
     ids.discard("")
     return ids
+
+
+# ── I-deepfix-001 F1 (#1344) — ROUTE EVERY CONSOLIDATED BASKET TO A SECTION ──────────────────────
+#
+# THE LEAK (drb_72: ~657 baskets -> 53 rendered sentences): a basket composes ONLY if one of its
+# ``supporting_members`` evidence_ids is among a section plan's assigned ``ev_ids`` (the rule
+# ``_section_baskets_for_compose`` enforces). The outline LLM assigns a fixed ~30 rows per section,
+# so ~600 consolidated, span-verifiable baskets have NO home section and never become a cited claim —
+# ~90% of honestly-retrieved-and-verified evidence earns zero coverage. This is the biggest measured
+# recall leak.
+#
+# THE FIX (§-1.3 CONSOLIDATE / throttle-REMOVAL, faithfulness-neutral): after the outline assigns its
+# primaries, give every ORPHAN basket (whose members intersect NO plan's ev_ids) a home. Assign each
+# to its best-matching section by topical content-word overlap (basket claim/subject/predicate vs the
+# section title/focus); a basket that matches NO section is routed to a keep-all residual "Additional
+# Corroborated Findings" section appended once. Routing = appending the orphan basket's own
+# ``supporting_members`` evidence_ids to the chosen plan's ``ev_ids`` so the UNCHANGED
+# ``_section_baskets_for_compose`` now returns that basket for the section, and the UNCHANGED
+# per-basket compose + strict_verify tail render one verified sentence for it. This DROPS nothing,
+# CAPS nothing, and TARGETS no number: it stops DISCARDING baskets that had no section. Each rendered
+# sentence still re-passes the frozen faithfulness engine (strict_verify / NLI / provenance /
+# span-grounding) per clause — untouched. Default-OFF (``PG_ROUTE_ALL_BASKETS``) => ``plans`` is
+# returned unchanged (byte-identical); ON => zero stranded verified baskets.
+_ROUTE_ALL_BASKETS_ENV = "PG_ROUTE_ALL_BASKETS"
+_RESIDUAL_COVERAGE_TITLE = "Additional Corroborated Findings"
+
+
+def route_all_baskets_enabled() -> bool:
+    """Kill-switch ``PG_ROUTE_ALL_BASKETS`` (default OFF). OFF =>
+    ``route_orphan_baskets_to_section_plans`` returns the plan list unchanged => byte-identical."""
+    return os.getenv(_ROUTE_ALL_BASKETS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _basket_member_ev_ids(basket: Any) -> list[str]:
+    """The evidence_ids of the basket's ``supporting_members`` (order-preserving, deduped, non-empty).
+    These are the ids ``_section_baskets_for_compose`` matches on, so appending one to a plan's
+    ``ev_ids`` gives the basket a home section."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in getattr(basket, "supporting_members", None) or []:
+        eid = str(getattr(m, "evidence_id", "") or "")
+        if eid and eid not in seen:
+            seen.add(eid)
+            out.append(eid)
+    return out
+
+
+def _basket_topic_words(basket: Any) -> set:
+    """Topical content words of a basket's CLAIM (claim_text + subject + predicate). Used to pick the
+    best-matching section title/focus. Pure read; touches no faithfulness state."""
+    parts = [
+        str(getattr(basket, "claim_text", "") or ""),
+        str(getattr(basket, "subject", "") or ""),
+        str(getattr(basket, "predicate", "") or ""),
+    ]
+    return _repair_content_words(" ".join(parts))
+
+
+def _plan_topic_words(plan: Any) -> set:
+    """Topical content words of a section plan (title + focus)."""
+    parts = [
+        str(getattr(plan, "title", "") or ""),
+        str(getattr(plan, "focus", "") or ""),
+    ]
+    return _repair_content_words(" ".join(parts))
+
+
+def _extend_plan_ev_ids(plan: Any, ev_ids: list[str]) -> int:
+    """Append ``ev_ids`` (order-preserving, dedup vs the plan's existing set) to ``plan.ev_ids``.
+    Returns the count newly added. Mutates ``plan.ev_ids`` in place (it is a mutable list)."""
+    existing = plan.ev_ids if isinstance(getattr(plan, "ev_ids", None), list) else []
+    have = set(existing)
+    added = 0
+    for eid in ev_ids:
+        if eid and eid not in have:
+            existing.append(eid)
+            have.add(eid)
+            added += 1
+    plan.ev_ids = existing
+    return added
+
+
+def route_orphan_baskets_to_section_plans(
+    plans: list,
+    credibility_analysis: Any,
+    *,
+    section_plan_cls: Any,
+    residual_title: str = _RESIDUAL_COVERAGE_TITLE,
+) -> list:
+    """F1: route EVERY consolidated basket to a section so no verified basket is stranded.
+
+    A basket is an ORPHAN when NONE of its ``supporting_members`` evidence_ids is in ANY plan's
+    ``ev_ids`` (i.e. ``_section_baskets_for_compose`` would return it for no section). Each orphan is
+    assigned to the section whose title+focus shares the most topical content words with the basket's
+    claim (ties broken by section order); a basket matching NO section (overlap 0 with every plan) is
+    routed to a single appended keep-all residual section. Assignment = appending the orphan basket's
+    own member evidence_ids to the chosen plan's ``ev_ids``.
+
+    Returns the (possibly residual-extended) plan list. Default-OFF (``PG_ROUTE_ALL_BASKETS``) or an
+    empty ``plans``/basket list => ``plans`` returned unchanged (byte-identical).
+
+    §-1.3: pure CONSOLIDATE placement — it stops DISCARDING baskets with no home; it drops no source,
+    caps nothing, targets no number. The frozen faithfulness engine is untouched: every routed
+    basket's rendered sentence re-passes the UNCHANGED strict_verify per clause downstream.
+    """
+    if not route_all_baskets_enabled():
+        return plans
+    baskets = list(getattr(credibility_analysis, "baskets", None) or [])
+    if not plans or not baskets:
+        return plans
+
+    claimed: set[str] = set()
+    for p in plans:
+        claimed |= _section_assigned_ev_ids(p)
+
+    plan_words = [(p, _plan_topic_words(p)) for p in plans]
+    residual_plan = None
+    routed = 0
+    for basket in baskets:
+        member_ids = _basket_member_ev_ids(basket)
+        if not member_ids:
+            continue  # no evidence to route (cannot give it a home)
+        if set(member_ids) & claimed:
+            continue  # already reachable by some section — not an orphan
+        bw = _basket_topic_words(basket)
+        best_plan = None
+        best_overlap = 0
+        for p, pw in plan_words:
+            overlap = len(bw & pw)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_plan = p
+        if best_plan is not None and best_overlap >= 1:
+            _extend_plan_ev_ids(best_plan, member_ids)
+        else:
+            if residual_plan is None:
+                residual_plan = section_plan_cls(
+                    title=residual_title, focus=residual_title, ev_ids=[], archetype="",
+                )
+            _extend_plan_ev_ids(residual_plan, member_ids)
+        claimed |= set(member_ids)
+        routed += 1
+
+    out_plans = list(plans)
+    if residual_plan is not None and residual_plan.ev_ids:
+        out_plans.append(residual_plan)
+    if routed:
+        logger.info(
+            "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) to sections "
+            "(residual section=%s)",
+            routed, "yes" if residual_plan is not None else "no",
+        )
+    return out_plans

@@ -60,7 +60,7 @@ def _load(name: str):
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. classify_document_type truth table on the real drb_72 offenders.
 # ─────────────────────────────────────────────────────────────────────────────
-def test_classify_truth_table() -> list[str]:
+def _check_classify_truth_table() -> list[str]:
     fails: list[str] = []
     cases = [
         # (kwargs, expected DocumentType, expected is_journal_article)
@@ -143,7 +143,7 @@ def _build(srcs, banked, *, protocol=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. build_corpus_credibility_disclosure replay over the real 64-row per_source.
 # ─────────────────────────────────────────────────────────────────────────────
-def test_disclosure_replay() -> list[str]:
+def _check_disclosure_replay() -> list[str]:
     fails: list[str] = []
     banked = _load("corpus_credibility_disclosure.json")
     ps = banked["per_source"]
@@ -165,12 +165,14 @@ def test_disclosure_replay() -> list[str]:
     for k in ("document_type_adjusted_mean", "document_type_preference_active"):
         if k in off:
             fails.append(f"OFF disclosure leaked top-level M2 key {k!r}")
-    # OFF credibility_weight/weight_basis byte-identical to the banked file
-    for orig, new in zip(ps, off["per_source"]):
-        if abs(orig["credibility_weight"] - new["credibility_weight"]) > 1e-9:
-            fails.append(f"OFF credibility_weight drift {orig['url'][:40]}")
-        if orig["weight_basis"] != new["weight_basis"]:
-            fails.append(f"OFF weight_basis drift {orig['url'][:40]}")
+    # NOTE (I-deepfix-001 core-w5): the M2-neutrality invariant is "M2 does not touch the
+    # credibility axis" — proven DIRECTLY as OFF-credibility-axis == ON-credibility-axis in the
+    # ON block below (the axis the M2 flag toggles against). We deliberately do NOT anchor the
+    # raw credibility_weight/weight_basis to the banked drb_72 snapshot: that snapshot predates
+    # the sibling credibility-axis change (e0421fac low-confidence authority_score -> tier_prior;
+    # d6aae7bf weight_basis) which the offline _StubSource cannot reproduce (it carries no
+    # authority-confidence signal), so a banked-anchor here false-fails on a legitimate cross-track
+    # evolution this M2/W5 track does not own. OFF is the baseline the ON run is diffed against.
 
     # --- ON (flag + active protocol) ---
     os.environ["PG_DOCUMENT_TYPE_WEIGHT"] = "1"
@@ -186,15 +188,25 @@ def test_disclosure_replay() -> list[str]:
         fails.append(f"ON len(per_source)={len(on['per_source'])} != 64 (DROP!)")
     if {r["url"] for r in on["per_source"]} != {r["url"] for r in ps}:
         fails.append("ON url set changed (a source vanished)")
-    # (d) raw credibility axis BYTE-IDENTICAL to the banked file (M2 does not touch it)
-    for orig, new in zip(ps, on["per_source"]):
-        if abs(orig["credibility_weight"] - new["credibility_weight"]) > 1e-9:
-            fails.append(f"ON credibility_weight drift {orig['url'][:40]}: "
-                         f"{orig['credibility_weight']} -> {new['credibility_weight']}")
-        if orig["weight_basis"] != new["weight_basis"]:
-            fails.append(f"ON weight_basis drift {orig['url'][:40]}")
-    if abs(on["weighted_credibility_mean"] - banked["weighted_credibility_mean"]) > 1e-9:
-        fails.append("ON weighted_credibility_mean changed (M2 must NOT touch it)")
+    # (d) raw credibility axis UNTOUCHED BY M2 — proven directly: turning the M2 flag ON must
+    #     leave every row's credibility_weight/weight_basis byte-identical to the M2-OFF baseline
+    #     (off), and the corpus weighted_credibility_mean unchanged. This is the exact meaning of
+    #     "M2 does not touch the credibility axis" and does not couple to the stale banked snapshot.
+    off_rows = off["per_source"]
+    on_rows = on["per_source"]
+    if len(off_rows) != len(on_rows):
+        fails.append(f"OFF/ON per_source length mismatch {len(off_rows)} vs {len(on_rows)}")
+    for base, new in zip(off_rows, on_rows):
+        if base["url"] != new["url"]:
+            fails.append(f"OFF/ON row order diverged {base['url'][:40]} vs {new['url'][:40]}")
+            continue
+        if abs(base["credibility_weight"] - new["credibility_weight"]) > 1e-9:
+            fails.append(f"ON credibility_weight drift vs OFF {new['url'][:40]}: "
+                         f"{base['credibility_weight']} -> {new['credibility_weight']} (M2 touched the axis)")
+        if base["weight_basis"] != new["weight_basis"]:
+            fails.append(f"ON weight_basis drift vs OFF {new['url'][:40]} (M2 touched the axis)")
+    if abs(on["weighted_credibility_mean"] - off["weighted_credibility_mean"]) > 1e-9:
+        fails.append("ON weighted_credibility_mean changed vs OFF (M2 must NOT touch it)")
     # (b) every ON row gained the 4 new fields
     for r in on["per_source"]:
         for k in ("document_type", "is_journal_article",
@@ -263,7 +275,7 @@ def _adjusted(b: dict) -> float:
     return _tier_prior(str(b.get("tier") or "")) * resolve_document_type_weight(dt, _PROTOCOL)
 
 
-def test_corroboration_rerank() -> list[str]:
+def _check_corroboration_rerank() -> list[str]:
     """The predatory ``ewadirect`` venue is a basket MEMBER, not a numbered bibliography row,
     so its demotion is asserted at the disclosure layer (test_disclosure_replay). Here we prove
     the bibliography re-rank itself: KEEP-not-DROP conservation + a real non-journal-below-journal
@@ -290,7 +302,7 @@ def test_corroboration_rerank() -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. resolve_document_type_weight override handling.
 # ─────────────────────────────────────────────────────────────────────────────
-def test_resolve_weight() -> list[str]:
+def _check_resolve_weight() -> list[str]:
     fails: list[str] = []
     # lower-case YAML override keys must resolve against upper-case DocumentType.value
     proto = {"document_type_weights": {"preprint": 0.42, "journal_article": 0.9}}
@@ -310,10 +322,36 @@ def test_resolve_weight() -> list[str]:
     return fails
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fail-loud pytest wrappers. Each collected ``test_*`` runs its ``_check_*``
+# effect-collector and RAISES via ``assert not fails`` so pytest reports FAIL the
+# moment any real effect check appends a failure (Codex iter-4 P1: the prior
+# ``return fails`` form let pytest pass a populated failure list silently).
+# ─────────────────────────────────────────────────────────────────────────────
+def test_classify_truth_table() -> None:
+    fails = _check_classify_truth_table()
+    assert not fails, "classify truth-table failures:\n  - " + "\n  - ".join(fails)
+
+
+def test_disclosure_replay() -> None:
+    fails = _check_disclosure_replay()
+    assert not fails, "disclosure replay failures:\n  - " + "\n  - ".join(fails)
+
+
+def test_corroboration_rerank() -> None:
+    fails = _check_corroboration_rerank()
+    assert not fails, "corroboration re-rank failures:\n  - " + "\n  - ".join(fails)
+
+
+def test_resolve_weight() -> None:
+    fails = _check_resolve_weight()
+    assert not fails, "resolve-weight failures:\n  - " + "\n  - ".join(fails)
+
+
 def main() -> int:
     all_fails: dict[str, list[str]] = {}
-    for fn in (test_classify_truth_table, test_disclosure_replay,
-               test_corroboration_rerank, test_resolve_weight):
+    for fn in (_check_classify_truth_table, _check_disclosure_replay,
+               _check_corroboration_rerank, _check_resolve_weight):
         f = fn()
         all_fails[fn.__name__] = f
         status = "PASS" if not f else "FAIL"

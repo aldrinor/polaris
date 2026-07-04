@@ -71,8 +71,17 @@ _GAP_STUB_RE = re.compile(
     r"this slot is a [a-z-]*\s*gap"
 )
 # The answer-body boundary: the appendix sections that are NOT rubric-scored answer content.
+# I-deepfix-001 (#1344): ALSO match the T5 audit-machinery appendix header the render emits
+# (run_honest_sweep_r3._AUDIT_MACHINERY_APPENDIX_BOUNDARY: "## Appendix: audit, disclosure, and
+# weighting (not scored as report claims)"). It carries a trailing parenthetical, so its branch
+# allows any trailing content after "weighting" (the anchored `\s*$` on the other three stays).
+# Without this branch the reliability/audit-counts block (moved to a TYPED trailing appendix so the
+# scored body opens on a real claim) would fall INSIDE the scored answer, diluting recall / risking
+# scorer truncation of real body content. Boundary/segmentation only — never drops any report bytes.
 _APPENDIX_BOUNDARY_RE = re.compile(
-    r"^##\s+(Bibliography|Evidence-support disclosure|References)\s*$", re.IGNORECASE
+    r"^##\s+(?:Bibliography|Evidence-support disclosure|References)\s*$"
+    r"|^##\s+Appendix:\s*audit,\s*disclosure,\s*and\s*weighting\b.*$",
+    re.IGNORECASE,
 )
 
 

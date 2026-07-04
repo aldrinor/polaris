@@ -271,6 +271,96 @@ def build_targeted_queries(
     return tuple(queries)
 
 
+# --- R3 (#1344): field-agnostic still-missing-entity gap-detect ---------------
+# Max targeted gap queries the general still-missing-entity detector emits per run
+# (compute-safety bound; each query still flows the unchanged weight-and-consolidate
+# path + frozen verify — §-1.3, never a breadth target).
+_MISSING_ENTITY_MAX_QUERIES_ENV = "PG_MISSING_ENTITY_GAP_MAX_QUERIES"
+_DEFAULT_MISSING_ENTITY_MAX_QUERIES = 12
+
+
+def entity_covered_in_corpus(entity_term: str, corpus_texts: Sequence[str]) -> bool:
+    """True iff ``entity_term`` appears (case-insensitive substring) in ANY of the
+    corpus texts (titles / quotes / statements the caller supplies).
+
+    This is a DETECT-only signal for the R3 gap-detect: a required entity whose
+    name never appears in the gathered corpus is a candidate for a targeted
+    corrective retrieval. It is deliberately lenient (substring, case-folded) so a
+    present-but-differently-cased mention still counts as covered — the detector
+    must never over-fire a corrective round for an entity the corpus already has.
+    """
+    needle = " ".join((entity_term or "").split()).strip().lower()
+    if not needle:
+        return True  # empty term is vacuously "covered" — never fire a query for it
+    for text in corpus_texts or ():
+        if needle in (text or "").lower():
+            return True
+    return False
+
+
+def missing_entity_gap_queries(
+    *,
+    required_entities: Sequence[str],
+    corpus_texts: Sequence[str],
+    research_question: str,
+    max_queries: Optional[int] = None,
+) -> list[str]:
+    """R3 (#1344): derive targeted corrective queries for STILL-MISSING required
+    entities — field-agnostic (no clinical-safety literal).
+
+    DRB-II 2nd-order recall rubrics need a chained fact: A -> find entity -> fact
+    B. The up-front decomposition fans out once and the single-pass CRAG loop can
+    stop before the chain closes, so entities the task requires but the corpus
+    never surfaced stay uncovered. This detector compares the REQUIRED entities
+    against what the corpus actually mentions (:func:`entity_covered_in_corpus`)
+    and emits ONE research-question-anchored targeted query per STILL-MISSING
+    entity. Each query flows the SAME weight-and-consolidate retrieval + the
+    UNCHANGED frozen verify — this only decides WHAT to search next, never drops
+    a source or relaxes a gate (§-1.3).
+
+    Anchoring to the research question keeps the corrective query on-subject (the
+    same drift fix FS-Researcher's scope-anchor applies) so a bare entity name
+    does not generalise into its broad field.
+
+    Args:
+        required_entities: entity names/labels the task requires covered.
+        corpus_texts: the text the corpus currently carries (titles, direct
+            quotes, statements) used to decide coverage.
+        research_question: the retrieval anchor prepended to each gap query.
+        max_queries: override for `PG_MISSING_ENTITY_GAP_MAX_QUERIES` (tests).
+
+    Returns:
+        An ordered, de-duplicated, capped list of targeted gap queries — one per
+        still-missing entity. Empty iff every required entity is already covered
+        (the caller then fires no corrective round).
+    """
+    cap = (
+        _bounded_int_env(
+            _MISSING_ENTITY_MAX_QUERIES_ENV, _DEFAULT_MISSING_ENTITY_MAX_QUERIES
+        )
+        if max_queries is None
+        else max(0, max_queries)
+    )
+    anchor = " ".join((research_question or "").split()).strip()
+    queries: list[str] = []
+    seen: set[str] = set()
+    for raw_entity in required_entities or ():
+        entity = " ".join((raw_entity or "").split()).strip()
+        if not entity:
+            continue
+        if entity_covered_in_corpus(entity, corpus_texts):
+            continue
+        query = f"{anchor} {entity}".strip() if anchor else entity
+        key = query.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append(query)
+        if len(queries) >= cap:
+            break
+    return queries
+
+
 def _domains_for_entity(entity: Mapping[str, Any]) -> list[str]:
     """Authoritative domains UNION the entity's own ``url_pattern`` host."""
     domains = list(required_entity_domains())

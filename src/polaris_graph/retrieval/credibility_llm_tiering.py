@@ -32,6 +32,7 @@ set to a truthy value; otherwise the legacy rule body runs byte-identical.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -42,10 +43,12 @@ from typing import Callable
 
 from src.polaris_graph.retrieval.tier_classifier import (
     STATISTICAL_AGENCY_DOMAINS,
+    T7_STUB_CONTENT_CHARS,
     ClassificationResult,
     ClassificationSignals,
     TierLevel,
     _classify_source_tier_rules,
+    _detect_retraction_marker,
     _domain_matches,
     _is_corroborated_scholarly_venue,
     _normalize_domain,
@@ -197,9 +200,34 @@ def llm_tier_one(
     NEVER raises into the caller (LAW II fail-honest): any exception from the injected
     ``call_llm`` is captured and degrades to ``None`` (rules-floor fallback).
     """
-    # Rule 0 parity: a retracted source is never positively tiered by the LLM either;
-    # let the deterministic floor handle the exclusion semantics.
-    if signals.openalex_is_retracted:
+    # Rule 0 + Rule 1 parity: a source the deterministic rules-floor EXCLUDES or
+    # DEGRADES per-row must NEVER be positively re-tiered by the LLM — return
+    # None so the caller keeps the deterministic floor result (its tier AND its
+    # exclusion/degradation reasons + ``fetch_degraded`` flag). This covers BOTH:
+    #   * Rule 0 (retraction, tier_classifier R0_retracted => UNKNOWN): the
+    #     OpenAlex retraction flag OR an explicit leading retraction / withdrawal
+    #     marker in the title (the case where the flag is unset because the paper
+    #     was re-deposited on a preprint host). Without the title leg the LLM
+    #     could positively tier a title-retracted source.
+    #   * Rule 1 (T7-stub / ``fetch_degraded``, tier_classifier R1_stub_content_
+    #     length): a source whose fetched body came back too short. If the LLM
+    #     re-tiered it, the fresh ``ClassificationResult`` would carry
+    #     ``fetch_degraded=False`` — LAUNDERING a body-we-could-not-read into a
+    #     clean positive tier and DROPPING the floor's T7/fetch_degraded signal
+    #     the adequacy lane relies on to exclude the stub from grounded-content
+    #     counts. This is the hole the W4 ``__excluded__`` cache key only
+    #     HALF-closed: the key stops a stub from POOLING into a clean domain, but
+    #     the excluded stub — as its OWN domain-cache representative, and on the
+    #     legacy per-row + single-source paths — still ran this LLM override and
+    #     lost its floor signal. Guarding here closes all three paths at once.
+    # Keyed on the SAME observable signals the deterministic floor uses
+    # (``_has_per_row_exclusion_signal``) so the LLM path and the floor can never
+    # disagree. Faithfulness tightening only (never a positive tier for an
+    # excluded/degraded source, source still KEPT at its floor WEIGHT — no drop,
+    # §-1.3); never a relaxation. NOTE: ``content_length == 0`` (metadata-only, no
+    # body fetched yet) is NOT a stub signal (see ``_has_per_row_exclusion_signal``)
+    # so not-yet-fetched rows still LLM-tier — breadth preserved.
+    if _has_per_row_exclusion_signal(signals):
         return None
     prompt = build_tier_prompt(signals)
     try:
@@ -403,6 +431,75 @@ def _default_caller() -> Callable[[str], str]:
     )
 
     return make_openrouter_credibility_caller()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W4 (I-deepfix-001) — per-DOMAIN authority-weight cache. On a LARGE corpus the
+# SAME domain/venue recurs many times; tiering each row with its own GLM call
+# blows the bounded-parallel wall (PG_TIER_LLM_BATCH_WALL_SECONDS) + the
+# consecutive-fallback breaker (PG_TIER_LLM_DEGRADE_AFTER), so most rows degrade
+# to the deterministic rules-floor deny-list precisely on the biggest corpora
+# (``tiering_mode=rules_floor_degraded``). This cache tiers ONE representative per
+# (normalized domain + genre signature) via GLM and PROPAGATES that domain-level
+# authority WEIGHT to every row sharing the signature — the LLM is paid at most
+# once per domain-genre. Every source still flows through (no drop, §-1.3); the
+# faithfulness engine is untouched. Default-OFF => byte-identical (LAW VI).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_DOMAIN_AUTHORITY_CACHE = "PG_TIER_DOMAIN_AUTHORITY_CACHE"
+
+
+def _domain_authority_cache_enabled() -> bool:
+    """The PG_TIER_DOMAIN_AUTHORITY_CACHE leg (default OFF => byte-identical)."""
+    return os.getenv(_ENV_DOMAIN_AUTHORITY_CACHE, "0").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _domain_signature(signals: "ClassificationSignals") -> "str | None":
+    """Cache key for the per-DOMAIN authority weight: normalized domain PLUS the
+    observable genre signature (publication_type + source_type).
+
+    Genre is PART of the key on purpose: two genuinely-different genres on the
+    SAME host (e.g. a ``nature.com`` peer-reviewed article vs a ``nature.com``
+    news blog) must still escalate SEPARATELY — the cache only pools rows that
+    share BOTH domain AND observable genre, so it never launders a blog into a
+    journal's authority. Returns ``None`` when the url has no resolvable domain;
+    those rows always escalate individually (never pooled under a blank key)."""
+    domain = _normalize_domain(signals.url or "")
+    if not domain:
+        return None
+    pt = (signals.openalex_publication_type or "").strip().lower()
+    st = (signals.openalex_source_type or "").strip().lower()
+    return f"{domain}|{pt}|{st}"
+
+
+def _has_per_row_exclusion_signal(signals: "ClassificationSignals") -> bool:
+    """True iff this row carries a per-SOURCE exclusion/degradation signal that the
+    deterministic rules-floor keys on INDIVIDUALLY: retraction (Rule 0 =>
+    ``R0_retracted`` UNKNOWN, priority-first) or a too-short body (Rule 1 => T7
+    stub / ``fetch_degraded``).
+
+    Such a row must NEVER share the per-domain authority-cache key with clean
+    same-domain rows. If it were pooled it could (a) INHERIT a clean
+    representative's positive tier — laundering a retracted or stub source into a
+    journal's authority, bypassing the Rule-0 parity guard whose whole job is to
+    keep a retracted source out of any positive tier — or (b), as the
+    representative, launder its OWN excluded/degraded result onto the whole clean
+    domain (representative = first row, so a retracted/stub FIRST row is
+    especially dangerous). Keyed on the SAME observable signals the floor uses, so
+    the cache decision and the floor decision can never disagree.
+    """
+    if signals.openalex_is_retracted:
+        return True
+    if _detect_retraction_marker(signals.title or ""):
+        return True
+    content_length = signals.fetched_content_length or 0
+    # 0 == "no body fetched yet" (metadata-only) is NOT a stub signal here; only a
+    # genuinely short fetched body trips the T7-stub floor.
+    if 0 < content_length < T7_STUB_CONTENT_CHARS:
+        return True
+    return False
 
 
 class TieringBatchResult(list):
@@ -650,6 +747,7 @@ def classify_sources_llm_tiering(
     max_workers: int | None = None,
     deadline_monotonic: "float | None" = None,
     status_out: dict | None = None,
+    _bypass_domain_cache: bool = False,
 ) -> "TieringBatchResult":
     """Bounded-parallel per-SOURCE LLM tiering over a batch of sources.
 
@@ -679,6 +777,20 @@ def classify_sources_llm_tiering(
         if status_out is not None:
             status_out.update(empty.tiering_status)
         return empty
+    # W4 (I-deepfix-001): per-DOMAIN authority-weight cache. When enabled, tier ONE
+    # representative per (domain + genre signature) via GLM and propagate the
+    # domain-level authority WEIGHT to the rest, so a large corpus with repeated
+    # domains pays the LLM at most once per domain-genre (never blowing the wall on
+    # the biggest corpora). No source is dropped (§-1.3). Default-OFF => this branch
+    # is skipped entirely and the legacy per-row fan-out below runs byte-identical.
+    if _domain_authority_cache_enabled() and not _bypass_domain_cache:
+        return _classify_with_domain_authority_cache(
+            signals_list,
+            call_llm=call_llm,
+            max_workers=max_workers,
+            deadline_monotonic=deadline_monotonic,
+            status_out=status_out,
+        )
     # Deterministic floor for every source first — the instant fallback (no network).
     floor_results: list[ClassificationResult] = [
         _classify_source_tier_rules(s) for s in signals_list
@@ -783,6 +895,105 @@ def classify_sources_llm_tiering(
     result.tiering_status = status
     if status_out is not None:
         status_out.update(status)
+    return result
+
+
+def _classify_with_domain_authority_cache(
+    signals_list: list[ClassificationSignals],
+    *,
+    call_llm: Callable[[str], str] | None,
+    max_workers: int | None,
+    deadline_monotonic: "float | None",
+    status_out: dict | None,
+) -> "TieringBatchResult":
+    """W4 (I-deepfix-001): tier ONE representative per (domain + genre signature)
+    via GLM and PROPAGATE the domain-level authority WEIGHT to every row sharing
+    the signature.
+
+    Contract preserved from ``classify_sources_llm_tiering``:
+      * ``len(result) == len(signals_list)`` ALWAYS — no source is ever dropped
+        (§-1.3 weight-not-filter).
+      * order-PRESERVING: ``result[i]`` is the tier for ``signals_list[i]``.
+      * rows with no resolvable domain (signature ``None``) are given a UNIQUE key
+        so they are NEVER pooled — each escalates individually.
+      * rows carrying a per-SOURCE exclusion/degradation signal (retracted, or a
+        T7-stub short body — see ``_has_per_row_exclusion_signal``) are ALSO given
+        a unique key so they escalate individually: a retracted/stub source can
+        never inherit a clean domain's tier, and can never (as a representative)
+        launder its excluded result onto the clean rows of that domain.
+    A propagated (non-representative) row carries a ``domain_authority_cache_
+    propagated:<domain>`` reason so the audit trail shows the WEIGHT came from the
+    domain cache (never a silent copy). The returned ``tiering_status`` is the
+    representative batch's honest status, annotated with the cache counts.
+    """
+    n = len(signals_list)
+    # Group by domain-genre signature; rows with no domain — OR carrying a per-row
+    # exclusion/degradation signal (retracted / T7-stub) — get a unique per-index
+    # key so they escalate individually and are never pooled (Fable P1: a retracted
+    # or stub source must never inherit a clean domain's tier, and must never
+    # launder its own excluded result onto the clean domain as representative).
+    sig_of: list[str] = []
+    first_index_of_sig: dict[str, int] = {}
+    for i, s in enumerate(signals_list):
+        sig = _domain_signature(s)
+        if sig is None:
+            sig = f"__nodomain__{i}"
+        elif _has_per_row_exclusion_signal(s):
+            sig = f"__excluded__{i}"
+        sig_of.append(sig)
+        if sig not in first_index_of_sig:
+            first_index_of_sig[sig] = i
+
+    rep_indices = list(first_index_of_sig.values())
+    rep_signals = [signals_list[i] for i in rep_indices]
+
+    # Tier ONLY the representatives (bypass the cache to avoid infinite recursion).
+    # This reuses the FULL legacy path — rules-floor, B2 venue-corroboration cap,
+    # statistical-agency floor, wall + breaker — for the representative batch.
+    rep_result = classify_sources_llm_tiering(
+        rep_signals,
+        call_llm=call_llm,
+        max_workers=max_workers,
+        deadline_monotonic=deadline_monotonic,
+        _bypass_domain_cache=True,
+    )
+    rep_by_sig: dict[str, ClassificationResult] = {}
+    for local_idx, global_idx in enumerate(rep_indices):
+        rep_by_sig[sig_of[global_idx]] = rep_result[local_idx]
+
+    out: list[ClassificationResult] = []
+    for i in range(n):
+        sig = sig_of[i]
+        rep = rep_by_sig[sig]
+        if i == first_index_of_sig[sig]:
+            out.append(rep)  # the representative itself
+        else:
+            domain = sig.split("|", 1)[0]
+            out.append(
+                dataclasses.replace(
+                    rep,
+                    reasons=list(rep.reasons)
+                    + [f"domain_authority_cache_propagated:{domain}"],
+                )
+            )
+
+    result = TieringBatchResult(out)
+    status = dict(getattr(rep_result, "tiering_status", None) or {})
+    # Honest cache disclosure: how many rows were served from how many GLM-tiered
+    # domain signatures. ``rep_status`` counts are over the representative batch;
+    # these extra fields expose the fan-out so a preflight/operator can read it.
+    status["domain_authority_cache"] = True
+    status["unique_domain_signatures"] = len(first_index_of_sig)
+    status["total_rows"] = n
+    result.tiering_status = status
+    if status_out is not None:
+        status_out.update(status)
+    logger.info(
+        "[credibility_llm_tiering] W4 domain-authority cache: %d rows served from "
+        "%d unique domain-genre signatures (GLM paid once per signature; WEIGHT "
+        "propagated, no drop, §-1.3).",
+        n, len(first_index_of_sig),
+    )
     return result
 
 

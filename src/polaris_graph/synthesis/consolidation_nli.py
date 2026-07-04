@@ -93,9 +93,62 @@ _DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.pre
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
-# test): index 0 = contradiction, 1 = entailment, 2 = neutral.
-_ENTAILMENT_IDX = 1
-_CONTRADICTION_IDX = 0
+# test): index 0 = contradiction, 1 = entailment, 2 = neutral. These are the
+# FALLBACK indices when a model exposes no id2label; the real indices are RESOLVED
+# from the loaded model's config by ``_resolve_label_indices`` (I-deepfix-001 L4).
+_DEFAULT_ENTAILMENT_IDX = 1
+_DEFAULT_CONTRADICTION_IDX = 0
+_ENTAILMENT_IDX = _DEFAULT_ENTAILMENT_IDX
+_CONTRADICTION_IDX = _DEFAULT_CONTRADICTION_IDX
+
+# I-deepfix-001 L4 (#1344): MULTILINGUAL NLI.
+#
+# The consolidation entailment leg is a WEIGHT (it only merges paraphrase baskets;
+# it never drops a source or touches the faithfulness gate), so the model is fully
+# env-overridable via ``PG_CONSOLIDATION_NLI_MODEL`` (LAW VI). The English default
+# above under-entails a cross-lingual paraphrase — a native-language claim and its
+# supporting span in another language would NOT be recognised as corroborating, so
+# their baskets stay split and the corroboration weight is lost.
+#
+# To retrieve/consolidate in the task language, point ``PG_CONSOLIDATION_NLI_MODEL``
+# at a MULTILINGUAL cross-encoder — recommended:
+#     MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
+# whose 3-way label order differs from the English default. The old code hardcoded
+# index 0=contradiction / 1=entailment, so swapping the model would have SILENTLY
+# mis-read the logits (a correctness bug). ``_resolve_label_indices`` now reads the
+# entailment / contradiction indices from the LOADED model's ``config.id2label`` so
+# ANY 3-way NLI model plugs in correctly. Engine-neutral for basket weighting; it
+# only makes the multilingual model usable, never relaxes a gate.
+
+
+def _resolve_label_indices(model: Any) -> None:
+    """Set ``_ENTAILMENT_IDX`` / ``_CONTRADICTION_IDX`` from ``model``'s label map.
+
+    Reads a 3-way ``id2label`` (via ``model.config`` or ``model.model.config``) and
+    finds the index whose label contains "entail" and the one containing
+    "contradict". Only overrides the module defaults when BOTH are found, distinct,
+    and the map is exactly 3-way; otherwise the defaults stand (fail-safe: an
+    unreadable config keeps the verified nli-deberta order). Idempotent — safe to
+    call on every load."""
+    global _ENTAILMENT_IDX, _CONTRADICTION_IDX
+    try:
+        config = getattr(model, "config", None) or getattr(
+            getattr(model, "model", None), "config", None
+        )
+        id2label = getattr(config, "id2label", None)
+        if not id2label:
+            return
+        norm = {int(k): str(v).strip().lower() for k, v in id2label.items()}
+        if len(norm) != 3:
+            return
+        ent = next((i for i, lab in norm.items() if "entail" in lab), None)
+        con = next((i for i, lab in norm.items() if "contradict" in lab), None)
+        if ent is None or con is None or ent == con:
+            return
+        _ENTAILMENT_IDX = ent
+        _CONTRADICTION_IDX = con
+    except Exception:  # noqa: BLE001 — a bad config never breaks scoring; keep defaults
+        return
 
 
 def consolidation_nli_enabled() -> bool:
@@ -253,6 +306,10 @@ def _load_model(device: Optional[str] = None) -> Any:
             )
             _MODEL = _construct_cross_encoder(model_id, _CPU_DEVICE)
             _MODEL_DEVICE = _CPU_DEVICE
+        # I-deepfix-001 L4 (#1344): resolve entailment/contradiction indices from the
+        # loaded model so a MULTILINGUAL cross-encoder with a different label order is
+        # read correctly (never mis-mapped to the English default).
+        _resolve_label_indices(_MODEL)
         return _MODEL
 
 
@@ -270,6 +327,7 @@ def _reload_model_on_cpu() -> Any:
         )
         _MODEL = _construct_cross_encoder(model_id, _CPU_DEVICE)
         _MODEL_DEVICE = _CPU_DEVICE
+        _resolve_label_indices(_MODEL)  # I-deepfix-001 L4 (#1344)
         return _MODEL
 
 

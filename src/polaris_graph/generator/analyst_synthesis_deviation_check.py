@@ -39,12 +39,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
 from typing import Any, Callable
 
 from src.polaris_graph.generator import claim_labeler
-from src.polaris_graph.generator.provenance_generator import split_into_sentences
+from src.polaris_graph.generator.provenance_generator import (
+    split_into_sentences,
+    verify_sentence_provenance,
+)
 from src.polaris_graph.benchmark.report_claim_extractor import _NUMBERED_RE
 
 logger = logging.getLogger(__name__)
@@ -64,13 +68,88 @@ _DEFAULT_DEADLINE_S = 60.0
 
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no", "disabled"})
 
-# I-deepfix-001 M6 (Layer 2) — PROMOTE mode. Default-OFF (LAW VI): a synthesis sentence the groundedness
-# judge says IS grounded against its cited [N] span is positively labeled (KEEP-and-PROMOTE = a
-# BUCKET_MODERATE "verified against the cited source" marker) instead of passing bare. Ungrounded /
-# no-source sentences keep their existing hedge/label. This NEVER deletes a sentence and NEVER touches
-# strict_verify — it is a pure label CHANGE, the inverse of the existing KEEP-and-LABEL on the grounded
-# side. OFF (default) => grounded sentences pass through bare, byte-identical to the legacy leg.
+# I-deepfix-001 D3 (#1344) — FAIL-CLOSED PROMOTE gate. Default-OFF (LAW VI). This is the gate that lets
+# the analyst-synthesis layer turn ON safely (the layer is REQUIRED_OFF today precisely because it was
+# not span-verified). When this flag is ON:
+#   * a synthesis sentence renders in the SCORED BODY only if it passes ALL THREE legs of the frozen
+#     engine — the same gate every body claim clears (Codex iter-4 P0):
+#       (1) the REAL verify_sentence_provenance re-pass (_frozen_engine_verifies_sentence): a genuine
+#           [#ev:id:start-end] provenance token is rebuilt per cited source and the UNCHANGED
+#           strict_verify + NLI-entailment engine must return is_verified — so a [N]-cited synthesis
+#           sentence now carries and clears real [#ev] provenance exactly like a verified body claim;
+#       (2) the deterministic span-grounding pre-check (strict_verify §9.1.3 principle — every decimal
+#           in the sentence appears in the cited span AND >= _MIN_CONTENT_OVERLAP shared content words); and
+#       (3) the D8/NLI groundedness judge (judge_fn / the certified Sentinel).
+#     A passing sentence is KEEP-and-PROMOTE'd (BUCKET_MODERATE "verified against the cited source");
+#   * a sentence that FAILS either leg — ungrounded, no-source, or judge-fault — is DROPPED from the
+#     body (fail-closed) and surfaced in the returned drop telemetry + a fail-LOUD log line, NEVER
+#     rendered as a hedged body claim. Over-drop is the safe direction; no source is deleted (the drop
+#     removes a model-generated sentence, not an evidence row), strict_verify / NLI / 4-role are NOT
+#     touched — this gate is ADDED on top of the frozen engine.
+# OFF (default) => the legacy advisory KEEP-and-LABEL leg runs, byte-identical: grounded sentences pass
+# bare, ungrounded/no-source sentences are LABELED (never dropped).
 _ENV_PROMOTE_GROUNDED = "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED"
+
+# Deterministic span-grounding leg (the strict_verify §9.1.3 principle, reused faithfully at the
+# synthesis seam so the D3 gate is the FROZEN ENGINE, not a lone judge). PURE, no I/O.
+_MIN_CONTENT_OVERLAP = 2
+_MARKER_RE = re.compile(r"\[[^\]]*\]")          # [N] citation + [confidence:...] markers
+# I-deepfix-001 D3 P1 (#1344): a pre-labeled sentence (already carrying a [confidence:...] marker —
+# model-injected, or a defensive double-call) must be STRIPPED of that marker so the promote gate
+# re-screens the bare prose through BOTH frozen-engine legs. Without this a hedged, ungrounded claim
+# could carry its own [confidence: low] tag past the gate and survive in the scored body.
+_CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+_DECIMAL_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+# A tiny stoplist so the >=2 content-word overlap is genuinely topical (not "the"/"is" agreement).
+_GROUND_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "in", "on", "for", "to", "with", "by", "at", "from",
+    "as", "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those",
+    "it", "its", "their", "his", "her", "our", "your", "we", "they", "he", "she", "you",
+    "not", "no", "but", "if", "then", "than", "so", "such", "into", "over", "under", "about",
+    "which", "who", "whom", "whose", "what", "when", "where", "while", "also", "may", "can",
+    "will", "would", "could", "should", "has", "have", "had", "more", "most", "some", "any",
+})
+
+
+def _strip_markers(text: str) -> str:
+    """Remove bracketed ``[N]`` / ``[confidence:...]`` markers so number/word extraction reads the
+    prose, not the citation index (``[1]`` must never be counted as the decimal ``1``)."""
+    return _MARKER_RE.sub(" ", text or "")
+
+
+def _strip_confidence_markers(text: str) -> str:
+    """Remove any ``[confidence:...]`` marker(s) from ``text`` (leaving ``[N]`` citations intact) so a
+    pre-labeled sentence is re-screened on its bare prose in PROMOTE mode. PURE."""
+    return _CONFIDENCE_MARKER_RE.sub("", text or "").strip()
+
+
+def _decimals(text: str) -> "set[str]":
+    """The distinct decimal number tokens in ``text`` (comma thousands-separators normalized out)."""
+    return {d.replace(",", "") for d in _DECIMAL_RE.findall(text or "")}
+
+
+def _content_tokens(text: str) -> "set[str]":
+    """Lower-cased content tokens (>=3 chars, not a stopword)."""
+    return {w for w in _WORD_RE.findall(str(text or "").lower())
+            if len(w) >= 3 and w not in _GROUND_STOPWORDS}
+
+
+def _span_grounds_sentence(sentence: str, span: str) -> bool:
+    """Deterministic span-grounding leg of the D3 frozen-engine gate (strict_verify §9.1.3 principle).
+
+    True iff the sentence's prose is anchored in the cited span: (a) EVERY decimal in the sentence
+    appears in the span (a synthesis sentence must not invent or alter a number the cited source did
+    not state), AND (b) the sentence and the span share >= ``_MIN_CONTENT_OVERLAP`` content words. A
+    blank span never grounds. PURE. This is a CONSERVATIVE gate — it can only REFUSE to promote (drop
+    to the fail-closed audit tail); it never admits a sentence the judge rejected."""
+    if not span or not span.strip():
+        return False
+    core = _strip_markers(sentence)
+    sent_nums = _decimals(core)
+    if sent_nums and not sent_nums.issubset(_decimals(span)):
+        return False
+    return len(_content_tokens(core) & _content_tokens(span)) >= _MIN_CONTENT_OVERLAP
 
 
 def promote_grounded_enabled() -> bool:
@@ -148,6 +227,92 @@ def _resolve_sentence_span(
     return "\n".join(spans)
 
 
+def _resolve_sentence_ev_rows(
+    sentence: str,
+    bibliography: list[dict[str, Any]],
+    evidence_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve the EVIDENCE ROW dict for every ``[N]`` marker in ``sentence``. ``N`` indexes the
+    bibliography 1-based -> ``bibliography[N-1].evidence_id`` -> the matching evidence row. Returns the
+    list of cited rows (deduped by evidence_id, order-preserving) so the D3 frozen-engine re-pass can
+    build a real ``[#ev:id:start-end]`` provenance token per cited source. Rows with no span text are
+    skipped. PURE (no I/O)."""
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for m in _NUMBERED_RE.finditer(sentence):
+        try:
+            n = int(m.group(1))
+        except (TypeError, ValueError):
+            continue
+        if n < 1 or n > len(bibliography or []):
+            continue
+        eid = str((bibliography[n - 1] or {}).get("evidence_id") or "")
+        if not eid or eid in seen:
+            continue
+        for row in evidence_rows or []:
+            rid = str(row.get("evidence_id") or row.get("id") or "")
+            if rid and rid == eid:
+                if str(row.get("direct_quote") or row.get("statement") or "").strip():
+                    seen.add(eid)
+                    rows.append(row)
+                break
+    return rows
+
+
+def _frozen_engine_verifies_sentence(
+    base_sentence: str, cited_rows: list[dict[str, Any]]
+) -> bool:
+    """D3 P0 (#1344) — re-pass a promoted synthesis sentence through the FROZEN faithfulness engine.
+
+    Codex iter-4 P0: the analyst-synthesis writer cites by ``[N]`` bibliography markers, so the
+    per-sentence ``strict_verify`` / NLI entailment gate never saw it — promoted synthesis prose entered
+    the scored body without the same provenance gate every body claim clears. This function CLOSES that
+    hole: it deterministically rebuilds a real ``[#ev:<key>:<start>-<end>]`` provenance token for EACH
+    cited source (the full cited span) and calls the UNCHANGED ``verify_sentence_provenance`` — the exact
+    strict_verify (numeric-in-span + >=2 content-word overlap + percent-role + trial-name +
+    overstatement) AND NLI-entailment engine every body claim passes. The sentence is admissible to the
+    body ONLY if the frozen engine returns ``is_verified``.
+
+    Synthetic token-safe keys (``s0``, ``s1`` ...) are used because a real evidence_id may contain
+    characters ``_PROVENANCE_TOKEN_RE`` ([A-Za-z0-9_]+) rejects; the key identity is irrelevant to the
+    engine (it grounds against the SPAN TEXT, keyed by the token's id in the pool). The full evidence row
+    is carried into the pool (so the engine's shell / trial-name / attribution legs read real fields);
+    only ``direct_quote`` is pinned to the resolved span text so the span offsets are exact.
+
+    The engine is NOT modified — this is an ADDITIVE re-pass on top of the frozen gate. FAIL-CLOSED: any
+    resolution / engine fault returns ``False`` (the sentence drops from the body), never a silent True."""
+    if not cited_rows:
+        return False
+    try:
+        evidence_pool: dict[str, dict[str, Any]] = {}
+        token_parts: list[str] = []
+        for idx, row in enumerate(cited_rows):
+            span = str(row.get("direct_quote") or row.get("statement") or "")
+            if not span.strip():
+                continue
+            key = f"s{idx}"
+            pool_row = dict(row)
+            pool_row["direct_quote"] = span
+            evidence_pool[key] = pool_row
+            token_parts.append(f"[#ev:{key}:0-{len(span)}]")
+        if not evidence_pool:
+            return False
+        # Strip the writer's [N] / [confidence:] brackets from the prose BEFORE appending the real
+        # provenance tokens, so the engine reads the claim prose (never a bracket digit as a claim
+        # number) plus exactly the reconstructed [#ev] tokens.
+        prose = _strip_markers(base_sentence).strip()
+        if not prose:
+            return False
+        converted = f"{prose} {' '.join(token_parts)}"
+        result = verify_sentence_provenance(converted, evidence_pool)
+        return bool(getattr(result, "is_verified", False))
+    except Exception as exc:  # fail-closed: an engine/wiring fault DROPS the sentence, never admits it
+        logger.warning(
+            "[analyst_deviation] D3 frozen-engine re-pass faulted (fail-closed DROP): %s", exc,
+        )
+        return False
+
+
 def _default_sentinel_judge() -> "Callable[[str, str], bool]":
     """Build the real groundedness judge: the certified MiniMax-M2 Sentinel decomposition (a SECOND
     family vs the GLM/DeepSeek writer, so two-family holds). Returns a ``judge_fn(claim, span) -> bool``
@@ -199,24 +364,32 @@ def screen_synthesis_against_baskets(
     *,
     judge_fn: "Callable[[str, str], bool] | None" = None,
 ) -> "tuple[str, dict[str, int]]":
-    """B13 deviation check: LABEL (never delete) analyst-synthesis sentences whose cited span does
-    NOT support them. Returns ``(labeled_text, telemetry)``.
+    """Bring the analyst-synthesis layer UNDER the faithfulness engine. Returns ``(body_text, telemetry)``.
 
-    For each synthesis sentence:
-      * resolve its ``[N]`` markers -> cited evidence spans;
-      * a sentence with NO resolvable cited span -> append ``BUCKET_NO_SOURCE`` marker (uncited /
-        unresolvable claim, shown unverified);
-      * a sentence whose judge says the span does NOT support it -> append ``BUCKET_LOW`` marker;
-      * a supported sentence -> UNCHANGED.
+    Two modes, one gate flag (``PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED``):
 
-    ``judge_fn`` (``(claim, span) -> bool``, True == supported) is INJECTABLE for offline tests; the
-    default lazily builds the certified-Sentinel judge. FAIL-CLOSED: a judge that raises / times out
-    LABELS the sentence BUCKET_LOW (over-label = safe). NEVER deletes a sentence; NEVER touches
-    ``strict_verify``. Returns the input unchanged (telemetry zeroed) when the leg is disabled."""
+    * D3 FAIL-CLOSED (promote flag ON) — the gate that lets the analyst layer turn ON safely. A
+      synthesis sentence renders in ``body_text`` ONLY if it passes BOTH legs of the frozen engine —
+      the deterministic span-grounding leg (``_span_grounds_sentence``: numbers + >=2 content-word
+      overlap vs the cited span) AND the D8/NLI groundedness judge. A passing sentence is
+      KEEP-and-PROMOTE'd (BUCKET_MODERATE). A sentence that FAILS either leg — ungrounded, no-source,
+      or judge-fault — is DROPPED from ``body_text`` (fail-closed) and surfaced only in the drop
+      telemetry + a fail-LOUD log, NEVER rendered as a hedged body claim.
+
+    * LEGACY ADVISORY (promote flag OFF, default) — byte-identical KEEP-and-LABEL: no-source sentences
+      get a BUCKET_NO_SOURCE marker, judge-unsupported sentences a BUCKET_LOW marker, supported
+      sentences pass bare. Nothing is dropped.
+
+    For each synthesis sentence the ``[N]`` markers resolve to cited evidence spans. ``judge_fn``
+    (``(claim, span) -> bool``, True == supported) is INJECTABLE for offline tests; the default lazily
+    builds the certified-Sentinel judge. FAIL-CLOSED on any judge fault (LABEL LOW in legacy mode; DROP
+    in D3 mode — both the safe direction). NEVER touches ``strict_verify`` / NLI / 4-role (this gate is
+    ADDED on top of the frozen engine). Returns the input unchanged (telemetry zeroed) when disabled."""
     telemetry = {
         "synthesis_deviation_labeled_count": 0,
         "synthesis_deviation_unresolved_count": 0,
         "synthesis_deviation_promoted_count": 0,
+        "synthesis_deviation_dropped_count": 0,
     }
     if not text or not text.strip() or not deviation_check_enabled():
         return text, telemetry
@@ -233,8 +406,22 @@ def screen_synthesis_against_baskets(
         return text, telemetry
 
     # Resolve each sentence's cited span ONCE (pure). A sentence with no resolvable span never calls
-    # the judge (it is a BUCKET_NO_SOURCE label, not an UNSUPPORTED verdict).
+    # the judge (it is a BUCKET_NO_SOURCE label, not an UNSUPPORTED verdict). Span resolution reads the
+    # ``[N]`` markers, which are untouched by the confidence-marker strip below.
     spans = [_resolve_sentence_span(s, bibliography, evidence_rows) for s in sentences]
+    # D3 P0 (#1344): the cited EVIDENCE ROWS per sentence, for the frozen-engine re-pass in PROMOTE
+    # mode (a real [#ev:id:start-end] token is rebuilt per cited row -> verify_sentence_provenance).
+    # Resolved once (pure); used only in the promote branch below.
+    cited_rows_per_sentence = [
+        _resolve_sentence_ev_rows(s, bibliography, evidence_rows) for s in sentences
+    ]
+
+    # I-deepfix-001 D3 P1 (#1344): screen the BARE prose. A pre-labeled sentence (already carrying a
+    # ``[confidence:...]`` marker) has that marker stripped so the judge + span-grounding legs see the
+    # claim itself, never a self-asserted confidence tag. For an un-labeled sentence this is a no-op
+    # (byte-identical). In PROMOTE mode the stripped form is what re-enters the gate and is re-labeled;
+    # the legacy path still short-circuits on the ORIGINAL sentence (idempotent keep-unchanged).
+    screen_sentences = [_strip_confidence_markers(s) for s in sentences]
 
     # BOUNDED-PARALLEL groundedness for the sentences that DO resolve a span (never a serial unbounded
     # loop). A per-future deadline fail-CLOSES to "not supported" (=> BUCKET_LOW).
@@ -252,7 +439,7 @@ def screen_synthesis_against_baskets(
         pool = ThreadPoolExecutor(max_workers=_max_inflight())
         try:
             futures = {
-                pool.submit(judge_fn, sentences[i], spans[i]): i for i in judge_indices
+                pool.submit(judge_fn, screen_sentences[i], spans[i]): i for i in judge_indices
             }
             _end = time.monotonic() + deadline
             for fut, i in futures.items():
@@ -275,31 +462,75 @@ def screen_synthesis_against_baskets(
             supported.setdefault(i, False)
 
     out_sentences: list[str] = []
+    dropped: list[str] = []
     for i, sentence in enumerate(sentences):
-        # Idempotent: never double-label an already-labeled sentence.
+        has_span = bool(spans[i].strip())
+
+        if promote:
+            # ── D3 FAIL-CLOSED gate ──────────────────────────────────────────────────────────────
+            # A synthesis sentence enters the SCORED BODY only if it passes ALL THREE legs of the
+            # FROZEN faithfulness engine (Codex iter-4 P0 — the promoted sentence must clear the SAME
+            # gate every body claim clears, not a lone Sentinel judge):
+            #   (1) the REAL ``verify_sentence_provenance`` re-pass (_frozen_engine_verifies_sentence):
+            #       a genuine ``[#ev:id:start-end]`` provenance token is rebuilt for each cited source
+            #       and the UNCHANGED strict_verify (numeric-in-span + >=2 content-word overlap +
+            #       percent-role + trial-name + overstatement) AND NLI-entailment engine must return
+            #       is_verified. THIS is the leg that was missing — a [N]-cited synthesis sentence now
+            #       carries and clears real [#ev] provenance exactly like a body claim;
+            #   (2) the deterministic span-grounding pre-check (_span_grounds_sentence — a conservative
+            #       superset guard, kept so a sentence can never be promoted on the judge alone), AND
+            #   (3) the D8/NLI groundedness judge (supported[i], the 4-role Sentinel leg).
+            # Anything else — no cited span, engine says unverified, judge says unsupported, or a
+            # judge/engine fault (fail-closed to False) — is DROPPED from the body and collected for the
+            # fail-loud audit.
+            #
+            # P1 (#1344): a PRE-LABELED sentence does NOT get an idempotent free pass here — it is
+            # re-screened on its bare prose (``base`` = confidence-marker stripped). An ungrounded
+            # sentence that arrived already carrying a ``[confidence: low]`` tag is therefore DROPPED,
+            # not admitted as a hedged body claim. A grounded one is re-promoted with a fresh moderate
+            # marker on the stripped base (never a double marker).
+            base = screen_sentences[i]
+            grounded = (
+                has_span
+                and supported.get(i, False)
+                and _span_grounds_sentence(base, spans[i])
+                and _frozen_engine_verifies_sentence(base, cited_rows_per_sentence[i])
+            )
+            if grounded:
+                marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
+                out_sentences.append(f"{base} {marker}")
+                telemetry["synthesis_deviation_promoted_count"] += 1
+            else:
+                dropped.append(sentence)
+                telemetry["synthesis_deviation_dropped_count"] += 1
+            continue
+
+        # ── LEGACY ADVISORY KEEP-and-LABEL (promote OFF, default) — byte-identical ────────────────
+        # Idempotent: never double-label an already-labeled sentence (advisory mode only; the promote
+        # gate above deliberately re-screens pre-labeled sentences rather than pass them through).
         if _ALREADY_LABELED_MARKER in sentence:
             out_sentences.append(sentence)
             continue
-        if not spans[i].strip():
+        if not has_span:
             # No resolvable cited [N] span at all -> a genuinely uncited / unresolvable claim.
             marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_NO_SOURCE)
             out_sentences.append(f"{sentence} {marker}")
             telemetry["synthesis_deviation_unresolved_count"] += 1
             continue
         if supported.get(i, False):
-            # Cited span SUPPORTS the sentence. PROMOTE mode (default-OFF): append a positive
-            # BUCKET_MODERATE marker (KEEP-and-PROMOTE — the grounded sentence loses its ambiguity);
-            # OFF => pass through bare (byte-identical legacy). NEVER deletes, NEVER touches strict_verify.
-            if promote:
-                marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
-                out_sentences.append(f"{sentence} {marker}")
-                telemetry["synthesis_deviation_promoted_count"] += 1
-            else:
-                out_sentences.append(sentence)  # KEEP unchanged
+            out_sentences.append(sentence)  # supported -> KEEP unchanged
             continue
         # Cited span does NOT support the sentence (or the judge fail-closed) -> LABEL low, KEEP.
         marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_LOW)
         out_sentences.append(f"{sentence} {marker}")
         telemetry["synthesis_deviation_labeled_count"] += 1
 
+    if dropped:
+        # Fail-LOUD: the dropped sentences never reach the scored body — surface them so a D3 drop is
+        # visible in the run log (the typed non-answer audit trail), never a silent deletion.
+        logger.warning(
+            "[analyst_deviation] D3 fail-closed: DROPPED %d ungrounded/no-source synthesis sentence(s) "
+            "from the scored body (retained only in this audit log, never rendered as a body claim): %s",
+            len(dropped), dropped,
+        )
     return " ".join(out_sentences), telemetry

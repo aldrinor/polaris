@@ -81,6 +81,15 @@ from src.polaris_graph.llm.judge_burst_spread import (
     burst_spread_mode as _judge_burst_spread_mode,
     next_burst_start_index as _next_burst_start_index,
 )
+# I-deepfix-001 fix I3 (judge stability): a process-local per-(model, normalized-claim, normalized-span)
+# verdict idempotency cache. The SAME (claim, span) recurs across sections (~178 judge calls/report, many
+# identical), and every repeat is a fresh OpenRouter call that costs money + adds the provider-pool
+# pressure that 429s the judge and over-drops grounded claims. Caching the FIRST real verdict and serving
+# identical later calls from it removes the redundant calls WITHOUT changing any verdict (temperature=0.0
+# => idempotent input). Fail-CLOSED sentinels are never cached (a transient fault stays retryable). Leaf
+# helper, stdlib-only => zero off-mode import cost. Default-ON; PG_JUDGE_VERDICT_CACHE=0 => byte-identical
+# pre-I3 path. Faithfulness-NEUTRAL (returns the judge's own verdict for that exact input). LAW VI.
+from src.polaris_graph.llm import judge_verdict_cache as _verdict_cache
 
 logger = logging.getLogger(__name__)
 
@@ -575,6 +584,16 @@ SENTENCE:
 JSON:"""
 
 
+def _active_prompt_variant() -> str:
+    """The active entailment-prompt variant id (``PG_ENTAILMENT_PROMPT_VARIANT``, normalized).
+
+    Read at call time (NOT import time) so the widening bakeoff / tests can switch variants within one
+    process. Single source of truth shared by ``_select_entailment_prompt`` (which template) AND the I3
+    verdict-cache key (so a same-process bakeoff never serves one variant's verdict for another variant's
+    prompt — the I3 P1 fix, Fable gate iter1)."""
+    return os.environ.get("PG_ENTAILMENT_PROMPT_VARIANT", "baseline").strip().lower()
+
+
 def _select_entailment_prompt() -> str:
     """I-faith-006 (#1180): return the active entailment-prompt template.
 
@@ -584,7 +603,7 @@ def _select_entailment_prompt() -> str:
     (`scripts/dr_benchmark/widening_prompt_bakeoff.py`) scores the candidates against the labeled set
     and the empirical winner is wired by setting this env in the run slate. Read at call time so the
     bakeoff/tests can switch variants without re-import."""
-    variant = os.environ.get("PG_ENTAILMENT_PROMPT_VARIANT", "baseline").strip().lower()
+    variant = _active_prompt_variant()
     if variant in ("", "baseline"):
         return _ENTAILMENT_PROMPT
     # Lazy import keeps this leaf module free of the candidates dependency in the default path.
@@ -703,7 +722,32 @@ class _EntailmentJudge:
         )
 
     def judge(self, sentence: str, span: str) -> tuple[str, str]:
-        """Return (verdict, reason).
+        """Return (verdict, reason) — the public entry, with the I3 verdict idempotency cache.
+
+        I-deepfix-001 fix I3: a process-local cache keyed on (model, normalized sentence, normalized
+        span). On a hit the cached (verdict, reason) is returned WITHOUT a network call — the SAME tuple
+        the judge already produced for this exact input (temperature=0.0 => idempotent), so every
+        downstream strict_verify / provenance decision + telemetry is byte-identical. On a miss the real
+        judge (`_judge_uncached`) runs and its verdict is cached — EXCEPT the fail-CLOSED
+        ('ENTAILED','judge_error:…') sentinel, which is never cached so a transient fault stays retryable.
+        Default-ON; ``PG_JUDGE_VERDICT_CACHE=0`` makes this wrapper a pass-through (byte-identical pre-I3).
+        Faithfulness-NEUTRAL: the cache can only echo a verdict the judge itself returned; it can never
+        manufacture, relax, or flip one. The two-family/model lock + fail-closed contract are untouched."""
+        # I3 P1 (Fable gate iter1): the verdict is a function of the RESOLVED entailment prompt, which is a
+        # call-time variable (PG_ENTAILMENT_PROMPT_VARIANT). Include the active variant in the cache key so
+        # a same-process bakeoff can never be served one variant's verdict for another variant's prompt.
+        variant = _active_prompt_variant()
+        cached = _verdict_cache.get(self._model, sentence, span, variant)
+        if cached is not None:
+            return cached
+        verdict, reason = self._judge_uncached(sentence, span)
+        # `put` refuses the fail-closed sentinel itself (defensive), so a transient judge_error is never
+        # memoized — a later identical call re-issues a fresh attempt at a real verdict.
+        _verdict_cache.put(self._model, sentence, span, verdict, reason, variant)
+        return verdict, reason
+
+    def _judge_uncached(self, sentence: str, span: str) -> tuple[str, str]:
+        """Return (verdict, reason) — the UNCACHED judge call (the I3 cache wraps this in `judge`).
 
         verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
 
