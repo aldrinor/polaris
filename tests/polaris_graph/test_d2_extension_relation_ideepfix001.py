@@ -252,25 +252,36 @@ def test_d2_agreement_beats_extension():
     ) == "agreement"
 
 
-# ── (f) EQUIVALENCE GUARD (Fable P1): a bidirectional paraphrase is NEUTRAL, never "extending this". ──
-def test_f_equivalence_reverse_also_entails_is_neutral_never_extends():
-    """A pair where B entails A AND A entails B (an equivalent paraphrase) adds NOTHING — the faithful
-    word is agreement/neutral, never "extending this". The equivalence guard requires the REVERSE
-    direction to be a CONFIDENT non-entailment; a reverse also-True must fail-closed to neutral. This is
-    the exact fabrication class the gate exists for: a wrong relation word between two verified facts."""
-    from src.polaris_graph.generator.cross_source_synthesis import _directional_extension_signal
-    # Signal level: both directions True (equivalence) MUST NOT license extension.
+# ── (f) EQUIVALENCE: a bidirectional paraphrase is AGREEMENT (L3), never "extending this". ────────────
+def test_f_equivalence_reverse_also_entails_is_agreement_never_extends():
+    """A pair where B entails A AND A entails B (an equivalent paraphrase) adds NOTHING NEW — the faithful
+    word is AGREEMENT ("consistent with this"), never "extending this". The extension equivalence guard
+    still requires the REVERSE direction to be a CONFIDENT non-entailment, so a reverse also-True must NOT
+    license extension. Before L3 the composer had no live bidirectional-agreement signal, so an equivalence
+    fell to neutral; L3 (COVERAGE) wires the explicit both-directions-entail signal, so the SAME equivalence
+    now renders AGREEMENT. This is the exact fabrication class the gate exists for: a wrong relation word
+    between two verified facts is never rendered — the equivalence is surfaced as the faithful agreement."""
+    from src.polaris_graph.generator.cross_source_synthesis import (
+        _directional_extension_signal,
+        _bidirectional_agreement_signal,
+    )
+    # Signal level: both directions True (equivalence) MUST NOT license extension...
     sig = _directional_extension_signal(_QUOTE_A, _QUOTE_B, _entail_equivalent)
     assert sig is not True, "equivalence (reverse also entails) must not license extension"
-    # Composer level: an equivalence engine renders neutral, never "extending this".
+    # ...but it DOES license the L3 bidirectional-equivalence agreement.
+    agr = _bidirectional_agreement_signal(_QUOTE_A, _QUOTE_B, _entail_equivalent)
+    assert agr is True, "equivalence (both directions entail) must license agreement"
+    # Composer level: an equivalence engine renders AGREEMENT, never "extending this", never neutral.
     units = _compose(_section(), entail_fn=_entail_equivalent)
-    assert units, "the pair still yields a (neutral) unit"
+    assert units, "the pair still yields an (agreement) unit"
     assert _EXTENSION_PHRASE not in units[0]
-    assert _NEUTRAL_PHRASE in units[0]
-    # Contrast: the PROPER one-way signal DOES license extension on the SAME pair (guard is not a blanket
-    # off — it excludes only the equivalence case).
+    assert _AGREEMENT_PHRASE in units[0]
+    assert _NEUTRAL_PHRASE not in units[0]
+    # Contrast: the PROPER one-way signal DOES license extension on the SAME pair (the signals are mutually
+    # exclusive — extension excludes the equivalence case, agreement excludes the proper-superset case).
     proper = _compose(_section(), entail_fn=_entail_superset)
     assert proper and _EXTENSION_PHRASE in proper[0]
+    assert _AGREEMENT_PHRASE not in proper[0]
 
 
 # ── (e) FAITHFULNESS + KEEP-ALL: both atoms strict_verify-PASS, keep [#ev], both baskets cited. ───────

@@ -602,7 +602,21 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # length cap; strict_verify re-checks every claim regardless of body length).
     "PG_LIVE_CONTENT_MAX": "300000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
-    "PG_LIVE_RETRIEVER_MAX_WORKERS": "24",
+    # SPEED LEVER L1 (dual-gated speed decision — both review gates APPROVE, with guards): raise the
+    # global fetch-pool worker FLOOR 24 -> 48 to cut fetch wall-clock on the ~1000-URL corpus. This is a
+    # FLOOR value (apply_full_capability_benchmark_slate: max(existing, slate)), NOT force-exact, so a
+    # higher operator/.env value is still kept and never silently lowered. The per-HOST politeness cap
+    # (PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT below) STAYS 6, so same-host crawl rate is unchanged — only
+    # cross-host fetch breadth widens. FAITHFULNESS-NEUTRAL: fetch concurrency only; strict_verify / NLI /
+    # 4-role D8 / provenance re-check every claim regardless of worker count.
+    # 429/BREADTH STEP-DOWN GUARD (correction 7 — now REAL, not a comment): the forensic monitor steps
+    # 48 -> 36 -> 24 by setting PG_LIVE_RETRIEVER_MAX_WORKERS_STEPDOWN=<n> (no code edit) if run telemetry
+    # shows a 429-rate rise or a cited-source breadth regression vs the 24-worker baseline. The
+    # apply_full_capability_benchmark_slate() step-down block honors it as min(48, override) AFTER this
+    # FLOOR (so the floor cannot raise a step-down back to 48). The per-host cap is the politeness
+    # invariant (never raise it to compensate); the worker floor here is the ceiling the monitor steps DOWN
+    # from. This "48" is the CEILING the step-down block reads via _FULL_CAPABILITY_BENCHMARK_SLATE.
+    "PG_LIVE_RETRIEVER_MAX_WORKERS": "48",
     # I-beatboth-008 (#1285) commit-2 build A: per-HOST politeness concurrency for the parallel
     # fetch pool (live_retriever:4093 _env_int, CALL-time). 6 lets distinct hosts fetch wider while
     # same-host stays capped — concurrency only, faithfulness-neutral. Read at call time inside the
@@ -1174,6 +1188,23 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_FACET_COMPLETENESS": "1",         # R2 facet completeness (retrieval-breadth completeness pass)
     "PG_QUALIFIER_ELABORATION": "1",      # D1 within-basket verbatim qualifier elaboration (keep-all, re-verified)
     "PG_ENRICHMENT_FACET_ROUTE": "1",     # D4 facet-routed enrichment placement (unbound-but-verified members)
+    # I-deepfix-001 (#1344) Box C L2 — SUB-TOPIC DECOMPOSITION (the highest-value DRB-II Recall lever):
+    # each per-basket producer emits ONE verified verbatim-span sentence PER DISTINCT atomic fact the
+    # basket already grounds (deduped, keep-all consolidation) instead of a single headline — more Recall
+    # from the corpus already fetched, ZERO new fetching. Faithfulness-neutral (each unit re-passes the
+    # UNCHANGED strict_verify — it IS a verbatim span). DEFAULT-OFF in code (flag-OFF byte-identical);
+    # slate-pinned "1" (force-ON + preflight-required + allowlisted + assert_coverage_levers_armed).
+    "PG_SUBTOPIC_DECOMPOSITION": "1",     # L2 sub-topic decomposition (one verbatim-span sentence per distinct atomic fact)
+    # I-deepfix-001 (#1344) Box C L5 — QUESTION/FACET-DERIVED REQUIRED-ENTITY COVERAGE lane: derives the
+    # must-cover entity set from the question + R1 planner facets OFFLINE and fetches ONLY the still-missing
+    # ones through the SAME live-retrieval chokepoint (seed-only). DEFAULT-ON in code (a byte-identical no-op
+    # only if PG_COVERAGE_L5_REQUIRED_ENTITY is explicitly 0); slate-pinned "1" here as belt-and-suspenders so
+    # a stray operator/.env =0 cannot leave the lane DARK on the paid run (the drb_72 dark-winner class).
+    # DISTINCT force-ON slate flag (slate "1" + _BENCHMARK_FORCE_ON_FLAGS force-set + _WINNER_FLAG_ALLOWLIST),
+    # NOT folded into the _COVERAGE_LEVER_FLAGS 8-dark assertion (force-ON already pins it to "1"). §-1.3
+    # DNA-ALIGNED (breadth EMERGES from honest weighted multi-attribution — NO cap/target/thinner); every
+    # fetched source re-passes the UNCHANGED strict_verify / NLI / 4-role / provenance / span-grounding.
+    "PG_COVERAGE_L5_REQUIRED_ENTITY": "1", # L5 question/facet-derived required-entity coverage lane
     # I-beatboth-011 keystone-F1 (#1284, Codex gate P0): the multi-citation synthesis flag MUST ride the
     # slate (force-ON + preflight-required) or the keystone is WIRED-BUT-DEAD on the paid run — the exact
     # false-done the gate caught. ON => a >=2-DISTINCT-origin basket renders as ONE multi-cited sentence
@@ -1301,8 +1332,8 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # NO verification logic touched). FAITHFULNESS-NEUTRAL throughout: every knob below changes only how
     # many units run concurrently, never which units pass/drop. The 5 EXISTING slate values raised above
     # (PG_PARALLEL_VERIFY 16->24, PG_CREDIBILITY_PASS_MAX_INFLIGHT 16->20, PG_DISTILL_MAX_PARALLEL 8->12,
-    # PG_LIVE_RETRIEVER_MAX_WORKERS 16->24, PG_MAX_CONCURRENT_LLM 5->8) live at their original sites; the
-    # NEW knobs that have no prior slate home are added here.
+    # PG_LIVE_RETRIEVER_MAX_WORKERS 16->24->48 [L1 dual-gated speed lever], PG_MAX_CONCURRENT_LLM 5->8)
+    # live at their original sites; the NEW knobs that have no prior slate home are added here.
     #
     # PG_FOUR_ROLE_CLAIM_WORKERS: per-claim Mirror->Sentinel->Judge compute parallelism in the D8 seam.
     # CRITICAL import-timing (#1285 comment): sweep_integration.py:155 reads this AT IMPORT into the
@@ -1846,6 +1877,8 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_FACET_COMPLETENESS",         # R2 facet completeness
     "PG_QUALIFIER_ELABORATION",      # D1 within-basket qualifier elaboration (Gate-B-dark; now armed)
     "PG_ENRICHMENT_FACET_ROUTE",     # D4 facet-routed enrichment placement (Gate-B-dark; now armed)
+    "PG_SUBTOPIC_DECOMPOSITION",     # L2 sub-topic decomposition (one verbatim-span sentence per distinct atomic fact)
+    "PG_COVERAGE_L5_REQUIRED_ENTITY", # L5 question/facet-derived required-entity coverage lane (default-ON; belt force-ON)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2466,6 +2499,8 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_FACET_COMPLETENESS",                 # R2 facet completeness (retrieval-breadth completeness)
     "PG_QUALIFIER_ELABORATION",              # D1 within-basket verbatim qualifier elaboration (keep-all)
     "PG_ENRICHMENT_FACET_ROUTE",             # D4 facet-routed enrichment placement (keep-all)
+    "PG_SUBTOPIC_DECOMPOSITION",             # L2 sub-topic decomposition (verbatim-span sentence per distinct atomic fact; keep-all)
+    "PG_COVERAGE_L5_REQUIRED_ENTITY",        # L5 question/facet-derived required-entity coverage lane (winners-only purity)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
@@ -2643,6 +2678,27 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
         except (TypeError, ValueError):
             current = float(value)
         os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+    # Correction 7 (Codex+Fable gate) — SPEED LEVER L1 429/BREADTH STEP-DOWN, made REAL (was a comment).
+    # PG_LIVE_RETRIEVER_MAX_WORKERS is a FLOOR entry (max(existing, 48)), so the forensic monitor CANNOT
+    # lower it via the plain env — the floor raises it right back to 48. Honor a DEDICATED step-down
+    # override HERE, AFTER the floor loop: the monitor sets PG_LIVE_RETRIEVER_MAX_WORKERS_STEPDOWN=36 (or
+    # 24) WITHOUT a code edit when telemetry shows a 429-rate rise or a cited-source breadth regression vs
+    # the 24-worker baseline. The effective value is min(<slate ceiling 48>, override) so the monitor can
+    # only step DOWN from the ceiling (never silently RAISE fetch concurrency; the per-host politeness cap
+    # PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT stays the invariant). An absent/invalid/<=0 override leaves the
+    # floored ceiling unchanged. Placed BEFORE the smoke-scale block so a --smoke-scale run's own override
+    # still wins for smoke. FAITHFULNESS-NEUTRAL: fetch concurrency only; strict_verify / NLI / 4-role D8 /
+    # provenance re-check every claim regardless of worker count. This is a monitor-set input, NOT a runtime
+    # auto-step-down (the loop reads the override each run; a live auto-decrementer is out of scope).
+    _workers_ceiling = int(_FULL_CAPABILITY_BENCHMARK_SLATE["PG_LIVE_RETRIEVER_MAX_WORKERS"])
+    _stepdown_raw = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS_STEPDOWN", "").strip()
+    if _stepdown_raw:
+        try:
+            _stepdown = int(float(_stepdown_raw))
+        except (TypeError, ValueError):
+            _stepdown = 0
+        if _stepdown > 0:
+            os.environ["PG_LIVE_RETRIEVER_MAX_WORKERS"] = str(min(_workers_ceiling, _stepdown))
     # I-arch-007 SMOKE: AFTER the full-capability floor, FORCE-SET the small-scale overrides (bypassing
     # the FLOOR's max()) so a --smoke-scale plumbing run is ~25-35 min. INPUT BREADTH + timeout BACKSTOPS
     # ONLY — no faithfulness gate / A20 funnel / 4-role seam touched. Placed BEFORE the two live-module
@@ -2756,6 +2812,10 @@ _COVERAGE_LEVER_FLAGS: tuple[tuple[str, str], ...] = (
     ("PG_FACET_COMPLETENESS", "R2 facet completeness (retrieval-breadth completeness pass)"),
     ("PG_QUALIFIER_ELABORATION", "D1 within-basket verbatim qualifier elaboration (keep-all; Gate-B-dark)"),
     ("PG_ENRICHMENT_FACET_ROUTE", "D4 facet-routed enrichment placement (keep-all; Gate-B-dark)"),
+    # The Box C L2 lever (PG_SUBTOPIC_DECOMPOSITION) is a DISTINCT force-ON slate flag (slate "1" +
+    # _BENCHMARK_FORCE_ON_FLAGS force-set + _WINNER_FLAG_ALLOWLIST), NOT folded into THIS "8 previously-dark
+    # levers" assertion tuple: force-ON already force-sets it to "1" on every Gate-B run (a stray .env =0
+    # cannot survive), so the pre-spend assertion membership is redundant for it.
 )
 
 
@@ -3581,7 +3641,15 @@ def assert_breadth_enrichment_rendered(
     quality gate, never a report hold). Reads ONLY the shipped artifacts; mutates nothing;
     faithfulness-neutral.
     """
-    from src.polaris_graph.generator.weighted_enrichment import _ENRICHMENT_TITLE
+    # Correction 8 (Codex+Fable gate): recognize ALL THREE enrichment heading forms — the flat title,
+    # the per-facet prefix ("Corroborated Findings: <facet>"), and the residual ("Additional Corroborated
+    # Findings"). Under the facet route the flat title never renders, so the prior flat-only check false-
+    # alarmed. Import all three constants (read-only; faithfulness-neutral).
+    from src.polaris_graph.generator.weighted_enrichment import (
+        _ENRICHMENT_FACET_TITLE_PREFIX,
+        _ENRICHMENT_RESIDUAL_TITLE,
+        _ENRICHMENT_TITLE,
+    )
 
     status = str(summary.get("status", "") or "")
     if status not in _BREADTH_CANARY_RELEASED_STATUSES:
@@ -3644,30 +3712,54 @@ def assert_breadth_enrichment_rendered(
         return "skip:no_report"
     body = report_path.read_text(encoding="utf-8", errors="replace")
 
-    if _ENRICHMENT_TITLE not in body:
+    import re as _re
+
+    # Correction 8: collect EVERY offset where an enrichment title (flat / facet-prefix / residual)
+    # appears in the report body. The facet route renders one "Corroborated Findings: <facet>" heading
+    # per facet plus a residual "Additional Corroborated Findings"; the legacy route renders the single
+    # flat title. Recognizing all three stops the false alarm the flat-only check raised under the facet
+    # route. (The facet prefix and the residual title are distinct substrings — neither is contained in
+    # the other nor in the flat title — so no double-count matters for the presence/citation checks.)
+    _enrichment_markers = (
+        _ENRICHMENT_TITLE,
+        _ENRICHMENT_RESIDUAL_TITLE,
+        _ENRICHMENT_FACET_TITLE_PREFIX,
+    )
+    _marker_starts: list[int] = []
+    for _marker in _enrichment_markers:
+        _from = 0
+        while True:
+            _hit = body.find(_marker, _from)
+            if _hit < 0:
+                break
+            _marker_starts.append(_hit)
+            _from = _hit + len(_marker)
+
+    if not _marker_starts:
         raise BreadthEnrichmentCanaryError(
             f"breadth-enrichment canary FAILED for run_dir={run_dir}: the released report.md does "
-            f"NOT contain the weighted-enrichment section ('{_ENRICHMENT_TITLE}'). The §-1.3 breadth "
-            "funnel silently reasserted (the unbound-SUPPORTS basket was never surfaced). "
+            f"NOT contain ANY weighted-enrichment section (none of '{_ENRICHMENT_TITLE}', "
+            f"'{_ENRICHMENT_FACET_TITLE_PREFIX}<facet>', '{_ENRICHMENT_RESIDUAL_TITLE}'). The §-1.3 "
+            "breadth funnel silently reasserted (the unbound-SUPPORTS basket was never surfaced). "
             "PG_BREADTH_ENRICHMENT_ENABLED is force-required for the benchmark; investigate the "
             f"[multi_section] I-arch-007 breadth log line for the empty-exit reason.{_degrade_hint}"
         )
 
-    # The section is present — assert it carries >=1 cited source (a `[N]` numeric marker) WITHIN the
-    # enrichment SECTION body. Codex P1 (choke-fix iter2): the prior heading-to-EOF scan let a HOLLOW
-    # enrichment heading pass on the strength of a downstream References/Bibliography section's `[N]`
-    # markers. Bound the slice at the NEXT markdown heading after the enrichment title (or EOF) so only
-    # citations the section ITSELF renders satisfy the gate.
-    import re as _re
-    _idx = body.find(_ENRICHMENT_TITLE)
-    _after_title = body[_idx + len(_ENRICHMENT_TITLE):]
-    _next_heading = _re.search(r"(?m)^\s*#{1,6}\s", _after_title)
-    _section_body = _after_title[: _next_heading.start()] if _next_heading else _after_title
+    # For each enrichment heading occurrence, slice from the title to the NEXT markdown heading (or EOF)
+    # so a downstream References/Bibliography `[N]` cannot satisfy the gate (Codex P1 choke-fix iter2);
+    # UNION the section bodies and assert >=1 `[N]` citation marker across the union. FAIL CLOSED when
+    # the enrichment renders heading-only (no in-section cite) — the silent breadth funnel.
+    _union_bodies: list[str] = []
+    for _start in _marker_starts:
+        _rest = body[_start:]
+        _next_heading = _re.search(r"(?m)^\s*#{1,6}\s", _rest)
+        _union_bodies.append(_rest[: _next_heading.start()] if _next_heading else _rest)
+    _section_body = "\n".join(_union_bodies)
     if not _re.search(r"\[\d+\]", _section_body):
         raise BreadthEnrichmentCanaryError(
-            f"breadth-enrichment canary FAILED for run_dir={run_dir}: the weighted-enrichment "
-            f"section ('{_ENRICHMENT_TITLE}') rendered but its SECTION BODY carries NO citation "
-            "marker (a heading-only enrichment; a trailing bibliography no longer counts) — no "
+            f"breadth-enrichment canary FAILED for run_dir={run_dir}: {len(_marker_starts)} weighted-"
+            f"enrichment section(s) rendered (flat / facet / residual) but NO section body carries a "
+            "citation marker (a heading-only enrichment; a trailing bibliography no longer counts) — no "
             "unbound SUPPORTS source survived strict_verify into a cited slot. On a released "
             "full-contract run with a healthy credibility pass this is the silent breadth funnel; "
             f"investigate the [multi_section] I-arch-007 breadth log line "

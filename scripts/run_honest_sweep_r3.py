@@ -9875,6 +9875,21 @@ async def run_one_query(
         if os.getenv("PG_ADEQUACY_CRAG", "").strip().lower() in {
             "1", "true", "on", "yes",
         }:
+            # I-deepfix-001 L7/L8 COVERAGE (#1344): raise the CRAG corrective
+            # loop-back CEILING module-default from 1 -> 3 so chained / 2nd-order
+            # recall (A -> find entity -> fact B) gets more than one corrective
+            # round to close the gap. The getenv default (1) lives in
+            # crag_adequacy_loop.max_loops() (a module this run-script does not
+            # edit), so the run-script raises the EFFECTIVE module default here
+            # via setdefault — which respects an explicit operator/slate override
+            # (LAW VI). This is a compute-safety CEILING, NOT a breadth target
+            # (§-1.3): the SEMANTIC stop is unchanged (the CRAG "sufficient"
+            # verdict stops the loop), and every corrective round is bounded by
+            # the SHARED per-question retrieval wall
+            # (PG_RETRIEVAL_QUESTION_WALL_SECONDS=5400 in the Gate-B slate) plus
+            # the per-round fetch_cap below, so the operator ~1000-URL/question
+            # envelope holds (main 740 + R6 40 + CRAG <=3x40 = 900 worst-case).
+            os.environ.setdefault("PG_ADEQUACY_CRAG_MAX_LOOPS", "3")
             from src.polaris_graph.nodes import crag_adequacy_loop as _crag_adq
             from src.polaris_graph.llm.openrouter_client import (
                 OpenRouterClient as _CragOpenRouterClient,
@@ -10038,9 +10053,21 @@ async def run_one_query(
                         research_question=_clean_question,  # I-deepfix-001 B3 P1-B: clean query
                         amplified_queries=_gap_queries,
                         protocol=protocol,
-                        max_serper=int(os.getenv("PG_ADEQUACY_CRAG_MAX_SERPER", "8")),
-                        max_s2=int(os.getenv("PG_ADEQUACY_CRAG_MAX_S2", "8")),
-                        fetch_cap=int(os.getenv("PG_ADEQUACY_CRAG_FETCH_CAP", "20")),
+                        # I-deepfix-001 L7/L8 COVERAGE (#1344): raise the CRAG
+                        # corrective-round CEILING module-defaults. Discovery
+                        # breadth 8->12 (serper/s2 are per-query SEARCH result
+                        # caps, not fetches -> zero URL-envelope cost, richer
+                        # candidate pool for the gap-targeted rerank). Fetch
+                        # budget 20->40 (a CAP billed by ACTUAL fetches, not a
+                        # target): each corrective round is bounded by the SHARED
+                        # per-question retrieval wall + this cap, so with
+                        # MAX_LOOPS<=3 the CRAG lane adds <=120 URLs on top of
+                        # main 740 + R6 40 = 900 worst-case (respects the ~1000/
+                        # question envelope). Env-overridable (LAW VI); the
+                        # semantic stop (CRAG "sufficient" verdict) is unchanged.
+                        max_serper=int(os.getenv("PG_ADEQUACY_CRAG_MAX_SERPER", "12")),
+                        max_s2=int(os.getenv("PG_ADEQUACY_CRAG_MAX_S2", "12")),
+                        fetch_cap=int(os.getenv("PG_ADEQUACY_CRAG_FETCH_CAP", "40")),
                         enable_openalex_enrich=True,
                         enable_prefetch_filter=False,
                         domain=q["domain"],
@@ -12509,6 +12536,115 @@ async def run_one_query(
                             f", fetched {len(_req_result.seed_urls)} seed url(s), "
                             f"merged {len(_req_new_rows)} new corpus row(s)"
                         )
+                    # I-deepfix-001 (#1344) COVERAGE lever L5 — question/facet-
+                    # derived required-entity retrieval lane. Runs RIGHT AFTER the
+                    # I-complete-004 clinical required-entity lane so it sees the
+                    # post-merge corpus. DEFAULT-ON kill-switch
+                    # (PG_COVERAGE_L5_REQUIRED_ENTITY); SAME resume + journal_only
+                    # skips as the clinical lane (rows already in the snapshot on
+                    # resume; journal_only prunes non-journal rows / would trip the
+                    # pre-generator no-leak assert). DERIVES the must-cover entity
+                    # set from the QUESTION + the R1 planner facets OFFLINE (no
+                    # rubric needed), targets ONLY the derived entities the corpus
+                    # does not yet mention, and fetches candidates through the SAME
+                    # run_live_retrieval chokepoint (seed-only, no Serper/S2 fan-out
+                    # — identical contract to the clinical lane). FAITHFULNESS-SAFE:
+                    # fetched rows carry their REAL urls, are NEVER keyed to an
+                    # entity, and re-pass the UNCHANGED strict_verify per claim; a
+                    # derived entity with no evidence STAYS a gap disclosure
+                    # (nothing injected, no fabrication, no forced coverage). §-1.3
+                    # WEIGHT-AND-CONSOLIDATE: this only decides WHAT to search next.
+                    from src.polaris_graph.retrieval.required_entity_retrieval import (
+                        coverage_l5_enabled as _l5_enabled,
+                        run_l5_required_entity_coverage as _run_l5_coverage,
+                    )
+                    if (not _resume_active) and _l5_enabled() and not _jo_active:
+                        from src.agents.search_agent import (
+                            _serper_search_sync as _l5_search_fn,
+                        )
+                        from src.polaris_graph.retrieval.saturation import (
+                            canonical_source_url as _l5_canon_url,
+                        )
+                        # R1 planner facets (sub-query phrases) widen L5's derived
+                        # entity set beyond the bare question. None-safe: when the
+                        # planner is OFF (`_research_plan` is None), question-only
+                        # derivation still fires.
+                        _l5_facets = (
+                            list(_research_plan.sub_queries)
+                            if (
+                                _research_plan is not None
+                                and getattr(_research_plan, "sub_queries", None)
+                            )
+                            else None
+                        )
+                        # Coverage signal = the text ALREADY in the corpus (titles /
+                        # quotes / statements). An entity already mentioned is not
+                        # re-queried (the lenient substring signal never over-fires).
+                        _l5_corpus_texts = [
+                            " ".join(
+                                str(_r.get(_k) or "")
+                                for _k in (
+                                    "title",
+                                    "source_title",
+                                    "direct_quote",
+                                    "statement",
+                                    "text",
+                                )
+                            )
+                            for _r in retrieval.evidence_rows
+                        ]
+                        _l5_result = _run_l5_coverage(
+                            research_question=q["question"],
+                            facets=_l5_facets,
+                            corpus_texts=_l5_corpus_texts,
+                            search_fn=_l5_search_fn,
+                            retrieval_fn=run_live_retrieval,
+                        )
+                        # Screen junk BEFORE the dedup/append loop — identical to the
+                        # clinical lane (the L5 fetch runs the same run_live_retrieval
+                        # chain, so it can surface Chegg / JS-error-shell junk).
+                        _l5_screened_rows, _, _ = _screen_junk_evidence(
+                            _l5_result.evidence_rows,
+                            None,
+                            log=_log,
+                            run_dir=run_dir,
+                            label="coverage_l5",
+                        )
+                        # Merge with the SAME canonical-URL dedup + global
+                        # evidence_id renumber the clinical lane / saturation
+                        # gap-round use; PREPEND onto evidence_for_gen so the
+                        # I-meta-005 money-gate suffix-diff invariant holds
+                        # (_selection_base_rows stays the contiguous SUFFIX).
+                        _l5_existing_canon = {
+                            _l5_canon_url(
+                                _r.get("source_url") or _r.get("url") or ""
+                            )
+                            for _r in retrieval.evidence_rows
+                        }
+                        _l5_new_rows: list[dict[str, Any]] = []
+                        for _ev in _l5_screened_rows:
+                            _canon = _l5_canon_url(
+                                _ev.get("source_url") or _ev.get("url") or ""
+                            )
+                            if _canon and _canon in _l5_existing_canon:
+                                continue
+                            _l5_existing_canon.add(_canon)
+                            _ev["evidence_id"] = (
+                                f"ev_{len(retrieval.evidence_rows):03d}"
+                            )
+                            retrieval.evidence_rows.append(_ev)
+                            _l5_new_rows.append(_ev)
+                        if _l5_new_rows:
+                            evidence_for_gen = _l5_new_rows + list(evidence_for_gen)
+                        _log(
+                            f"[coverage-l5] lane: derived "
+                            f"{len(_l5_result.derived_entities)} "
+                            f"entit{'y' if len(_l5_result.derived_entities) == 1 else 'ies'}"
+                            f", {len(_l5_result.missing_entities)} missing, "
+                            f"{len(_l5_result.gap_entities)} stayed gap, "
+                            f"fetched {len(_l5_result.seed_urls)} seed url(s), "
+                            f"merged {len(_l5_new_rows)} new corpus row(s)"
+                        )
                     _outline_v30 = compose_outline_from_contract(
                         _cf, _frame_rows,
                     )
@@ -12818,7 +12954,18 @@ async def run_one_query(
             _sat_max_rounds = int(
                 os.getenv(
                     "PG_PLAN_SUFFICIENCY_MAX_ROUNDS",
-                    os.getenv("PG_SATURATION_MAX_ROUNDS", "3"),
+                    # I-deepfix-001 L7/L8 COVERAGE (#1344): raise the saturation
+                    # ROUND CEILING 3 -> 5. This is the OUTER compute-safety bound
+                    # on the research-planner saturation loop (currently OFF —
+                    # PG_USE_RESEARCH_PLANNER=0 in the Gate-B slate). The SEMANTIC
+                    # stops stay authoritative and fire first: STOP_SUFFICIENT
+                    # (gap closed) and STOP_NOVELTY (novelty-flatten). Each gap
+                    # round is bounded by the SHARED per-question retrieval wall
+                    # (passed as retrieval_deadline_monotonic; a round short-
+                    # circuits to a zero-novelty no-op once the wall passes), so
+                    # the ceiling only bites when there is real budget headroom.
+                    # A CAP billed by use, never a breadth target (§-1.3).
+                    os.getenv("PG_SATURATION_MAX_ROUNDS", "5"),
                 )
             )
             _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
@@ -12866,8 +13013,17 @@ async def run_one_query(
                     route_needs_to_adapters,
                 )
                 _sat_eps = float(os.getenv("PG_SATURATION_NOVELTY_EPS", "0.10"))
+                # I-deepfix-001 L7/L8 COVERAGE (#1344): raise the saturation
+                # discovery-CALL budget CEILING 120 -> 240. This bounds Serper /
+                # S2 / adapter SEARCH calls (checked BEFORE novelty in
+                # run_saturation_loop), NOT URL fetches -> ENVELOPE-NEUTRAL (URL
+                # fetches remain bounded by fetch_cap x rounds + the shared
+                # per-question wall). Raised so the call budget is never the
+                # premature stop as the round ceiling (above) and adapter fan-out
+                # grow. A CAP billed by use; the semantic STOP_SUFFICIENT /
+                # STOP_NOVELTY stops stay authoritative. Env-overridable (LAW VI).
                 _sat_max_calls = int(
-                    os.getenv("PG_SATURATION_MAX_RETRIEVAL_CALLS", "120")
+                    os.getenv("PG_SATURATION_MAX_RETRIEVAL_CALLS", "240")
                 )
                 # Worst-case per-gap-query DISCOVERY cost: core Serper + core S2
                 # (2) PLUS one call per routed need-type adapter (the dispatcher

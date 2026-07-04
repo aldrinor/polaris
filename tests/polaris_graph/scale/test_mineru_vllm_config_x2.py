@@ -63,9 +63,48 @@ def test_dedicated_card_and_bounded_gpu_util():
     # Bounded up-front reservation (prevents filling the card).
     assert 0.0 < cfg.gpu_memory_utilization <= 0.5
     argv = cfg.server_launch_argv()
+    # The launch command MUST be the PROVEN vLLM inference server. "mineru-vllm-
+    # server" IS a real MinerU console script (it wraps `vllm serve` and returns
+    # /health 200 on the box) and natively accepts the engine flags below.
+    # "mineru-api" is a DIFFERENT script (serves /file_parse, rejects these flags).
+    assert argv[0] == "mineru-vllm-server"
+    assert cfg.command == "mineru-vllm-server"
     assert "--gpu-memory-utilization" in argv
     assert str(cfg.gpu_memory_utilization) in argv
-    assert "--max-concurrency" in argv
+    # Real vLLM engine flag (the prior --max-concurrency was not a real flag and
+    # would abort the launch).
+    assert "--max-num-seqs" in argv
+    assert "--max-concurrency" not in argv
+
+
+def test_client_cli_argv_is_the_proven_vlm_http_client_protocol():
+    # The shipped client reaches the proven server via the vlm-http-client CLI —
+    # NOT an httpx POST to /file_parse (a server that was never launched/proven).
+    env = {
+        "PG_MINERU25_BACKEND": "vlm-http-client",
+        "PG_MINERU25_SERVER_URL": "http://127.0.0.1:30024",
+        "PG_MINERU25_CLI_PATH": "/root/mineru_svc/bin/mineru",
+    }
+    cfg = resolve_mineru_backend(config_path=_CONFIG, env=env)
+    assert cfg.client_cli == "/root/mineru_svc/bin/mineru"
+    argv = cfg.client_cli_argv("/tmp/doc.pdf", "/tmp/out", "en")
+    # Exact proven transport: mineru -p <pdf> -o <out> -b vlm-http-client -u <url> -l <lang>
+    assert argv[0] == "/root/mineru_svc/bin/mineru"
+    assert argv[1:3] == ["-p", "/tmp/doc.pdf"]
+    assert argv[3:5] == ["-o", "/tmp/out"]
+    assert "-b" in argv and argv[argv.index("-b") + 1] == "vlm-http-client"
+    assert "-u" in argv and argv[argv.index("-u") + 1] == "http://127.0.0.1:30024"
+    assert "-l" in argv and argv[argv.index("-l") + 1] == "en"
+
+
+def test_client_cli_defaults_to_path_lookup_when_unset():
+    # No env / yaml override -> "mineru" (resolved on PATH by the caller).
+    env = {
+        "PG_MINERU25_BACKEND": "vlm-http-client",
+        "PG_MINERU25_SERVER_URL": "http://127.0.0.1:30024",
+    }
+    cfg = resolve_mineru_backend(config_path=_CONFIG, env=env)
+    assert cfg.client_cli == "mineru"
 
 
 def test_env_overrides_gpu_util_and_bad_value_fails_loud():

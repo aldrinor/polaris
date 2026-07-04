@@ -42,6 +42,7 @@ os.environ.pop("PG_STRICT_VERIFY_ENTAILMENT", None)
 from src.polaris_graph.generator.cross_source_synthesis import (  # noqa: E402
     LICENSED_CONNECTIVES,
     compose_cross_source_analytical_units,
+    cross_source_agreement_enabled,
     license_relation,
 )
 from src.polaris_graph.generator.verified_compose import (  # noqa: E402
@@ -183,11 +184,23 @@ def _check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + (f" -- {detail}" if detail else ""))
 
 
+# Deterministic OFFLINE NLI stubs (the ``entail_fn`` injection seam the composer exposes) so NO cross-encoder
+# ever loads — the test stays $0 / no-GPU exactly as its docstring promises. ``_entail_none`` is the
+# fail-closed sentinel (no signal); ``_entail_equiv`` is a BIDIRECTIONAL equivalence (True in BOTH
+# directions) that licenses the L3 agreement relation.
+def _entail_none(_premise, _hypothesis):
+    return None   # no signal -> extension AND agreement both fail-closed to neutral
+
+
+def _entail_equiv(_premise, _hypothesis):
+    return True    # both directions entail -> a bidirectional equivalence -> agreement (L3)
+
+
 # ── ASSERTION 1 + 3 (neutral): no-edge pair -> neutral connective; sentence carries 2 distinct tokens.
 _units_neutral = compose_cross_source_analytical_units(
     _SECTION, _evidence_pool_global,
     writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
-    edges=None, equiv_clusters=None, agree_map=None,
+    edges=None, equiv_clusters=None, agree_map=None, entail_fn=_entail_none,
 )
 _check("A1_neutral_unit_produced", len(_units_neutral) >= 1,
        f"{len(_units_neutral)} analytical unit(s)")
@@ -242,7 +255,7 @@ _check("A3_license_conflict",
 _units_conflict = compose_cross_source_analytical_units(
     _SECTION, _evidence_pool_global,
     writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
-    edges=[_make_edge(_CID_A, _CID_B)],
+    edges=[_make_edge(_CID_A, _CID_B)], entail_fn=_entail_none,
 )
 _check("A3_conflict_connective_renders",
        bool(_units_conflict) and LICENSED_CONNECTIVES["conflict"].strip() in _units_conflict[0],
@@ -255,7 +268,7 @@ _check("A3_license_agreement",
 _units_agree = compose_cross_source_analytical_units(
     _SECTION, _evidence_pool_global,
     writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
-    edges=None, agree_map={_CID_A: {_CID_B}},
+    edges=None, agree_map={_CID_A: {_CID_B}}, entail_fn=_entail_none,
 )
 _check("A3_agreement_connective_renders",
        bool(_units_agree) and LICENSED_CONNECTIVES["agreement"].strip() in _units_agree[0],
@@ -266,6 +279,85 @@ _check("A3_conflict_precedence",
        license_relation(_CID_A, _CID_B, edges=[_make_edge(_CID_A, _CID_B)],
                         agree_map={_CID_A: {_CID_B}}) == "conflict",
        "edge + agree_map -> conflict wins")
+
+# ── L3 COVERAGE: EXPLICIT bidirectional-equivalence NLI verdict -> the M6 "agreement" connective. ─────
+# The LIVE composer passes only ``edges`` (no ``agree_map``/``equiv_clusters``), so before L3 agreement
+# could NEVER fire live. L3 wires the explicit both-directions-entail signal: two clauses that
+# BIDIRECTIONALLY entail (the SAME claim corroborated) render "; consistent with this,". Engine-licensed
+# (the certified NLI, both directions), never LLM-guessed; fail-closed to neutral; conflict still wins.
+
+# (1) Unit level: ``bidirectional_entails=True`` -> agreement; False/None fail-closed to neutral.
+_check("L3_license_bidirectional_agreement",
+       license_relation(_CID_A, _CID_B, bidirectional_entails=True) == "agreement",
+       "both-directions-entail -> agreement")
+_check("L3_bidirectional_false_fail_closed",
+       license_relation(_CID_A, _CID_B, bidirectional_entails=False) == "neutral"
+       and license_relation(_CID_A, _CID_B, bidirectional_entails=None) == "neutral",
+       "False/None bidirectional signal -> neutral (never a fabricated 'consistent with this')")
+
+# (2) Composer level: a BIDIRECTIONAL-equivalence engine (True both ways) renders the agreement connective
+# on the LIVE edges-only shape (edges=None, NO agree_map) — the exact path that was neutral pre-L3.
+_units_bidir = compose_cross_source_analytical_units(
+    _SECTION, _evidence_pool_global,
+    writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
+    edges=None, equiv_clusters=None, agree_map=None, entail_fn=_entail_equiv,
+)
+_check("L3_bidirectional_agreement_connective_renders",
+       bool(_units_bidir) and LICENSED_CONNECTIVES["agreement"].strip() in _units_bidir[0]
+       and LICENSED_CONNECTIVES["extension"].strip() not in _units_bidir[0]
+       and LICENSED_CONNECTIVES["neutral"].strip() not in _units_bidir[0],
+       (_units_bidir[0] if _units_bidir else "no unit"))
+
+# (3) Conflict precedence: a ContradictionEdge beats the bidirectional-agreement signal.
+_check("L3_conflict_beats_bidirectional_agreement",
+       license_relation(_CID_A, _CID_B, edges=[_make_edge(_CID_A, _CID_B)],
+                        bidirectional_entails=True) == "conflict",
+       "edge + bidirectional -> conflict wins")
+_units_bidir_conflict = compose_cross_source_analytical_units(
+    _SECTION, _evidence_pool_global,
+    writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
+    edges=[_make_edge(_CID_A, _CID_B)], entail_fn=_entail_equiv,
+)
+_check("L3_conflict_over_bidirectional_renders",
+       bool(_units_bidir_conflict)
+       and LICENSED_CONNECTIVES["conflict"].strip() in _units_bidir_conflict[0]
+       and LICENSED_CONNECTIVES["agreement"].strip() not in _units_bidir_conflict[0],
+       (_units_bidir_conflict[0] if _units_bidir_conflict else "no unit"))
+
+# (4) DEFAULT-ON flag + engine-gated proof: agreement is default-ON; flipping PG_CROSS_SOURCE_AGREEMENT off
+# downgrades the SAME bidirectional pair to neutral (proving the word is engine/flag-licensed, not baked in).
+_check("L3_agreement_default_on", cross_source_agreement_enabled() is True,
+       "PG_CROSS_SOURCE_AGREEMENT default-ON")
+_prev_agr = os.environ.get("PG_CROSS_SOURCE_AGREEMENT")
+os.environ["PG_CROSS_SOURCE_AGREEMENT"] = "0"
+try:
+    _flag_off = cross_source_agreement_enabled() is False
+    _units_flag_off = compose_cross_source_analytical_units(
+        _SECTION, _evidence_pool_global,
+        writer_fn=_short_writer, verify_fn=verify_sentence_provenance,
+        edges=None, equiv_clusters=None, agree_map=None, entail_fn=_entail_equiv,
+    )
+finally:
+    if _prev_agr is None:
+        os.environ.pop("PG_CROSS_SOURCE_AGREEMENT", None)
+    else:
+        os.environ["PG_CROSS_SOURCE_AGREEMENT"] = _prev_agr
+_check("L3_flag_off_downgrades_to_neutral",
+       _flag_off and bool(_units_flag_off)
+       and LICENSED_CONNECTIVES["agreement"].strip() not in _units_flag_off[0]
+       and LICENSED_CONNECTIVES["neutral"].strip() in _units_flag_off[0],
+       (_units_flag_off[0] if _units_flag_off else "no unit"))
+_check("L3_agreement_flag_restored", cross_source_agreement_enabled() is True,
+       "flag back ON by default after the off-window")
+
+# (5) KEEP-ALL on the agreement unit: it cites a member of BOTH baskets (nothing dropped to render it).
+if _units_bidir:
+    _evids_bidir = {t[0] for t in _resolved_spans(_units_bidir[0])}
+    _a_mem = {m.evidence_id for m in _A.supporting_members if str(m.span_verdict).upper() == "SUPPORTS"}
+    _b_mem = {m.evidence_id for m in _B.supporting_members if str(m.span_verdict).upper() == "SUPPORTS"}
+    _check("L3_agreement_keep_all_both_baskets",
+           bool(_evids_bidir & _a_mem) and bool(_evids_bidir & _b_mem),
+           f"agreement unit cites BOTH baskets (A={_evids_bidir & _a_mem}, B={_evids_bidir & _b_mem})")
 
 # ── ASSERTION 4: KEEP-ALL — every source/basket cited pre-change is present post-change. ─────────────
 # The analytical unit is ADDITIVE: its two cited ev_ids are exactly the two baskets' members; nothing
@@ -289,6 +381,7 @@ for b in _unanchored:
 _units_none = compose_cross_source_analytical_units(
     _unanchored, _evidence_pool_global,
     writer_fn=_short_writer, verify_fn=verify_sentence_provenance, edges=None,
+    entail_fn=_entail_none,
 )
 _check("A5_no_anchor_no_units", _units_none == [],
        f"{len(_units_none)} units from unanchored baskets (must be 0 — no random juxtaposition)")

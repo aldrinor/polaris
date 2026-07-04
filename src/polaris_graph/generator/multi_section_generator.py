@@ -4502,6 +4502,115 @@ def _screen_uncited_numeric_sentences(verified_text: str) -> str:
     return " ".join(kept)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Box C QUALITY fix (workflow wioabua6u) — WHOLE-UNIT render-chrome PROSE screen at the render
+# seam, over ALL compose branches (FIX-K enrichment, verified-compose PRIMARY, LLM). It runs on the
+# FINAL resolved [N]-cited prose, right after _screen_uncited_numeric_sentences.
+#
+# The live Box A/C breadth section leaked page-furniture UNITS (author/date-welded bylines, nav-menu
+# glyph runs, file-asset size inventories, bibliographic recitals, ToC trailing-page headings,
+# heading-glued-to-prose, a Vietnamese heading) into the shipped prose. The per-sentence
+# strict_verify + numeric-cite screens do not catch a whole chrome UNIT that self-entails its own
+# span. This screen WITHHOLDS a whole sentence unit that the UNBLINDED render-chrome predicate
+# (is_render_chrome_or_unrenderable) OR the whole-unit furniture screen (is_furniture_dominant)
+# flags.
+#
+# FAITHFULNESS-NEUTRAL / STRENGTHENING (constraint 1, never a relax): the screen runs RENDER-ONLY,
+# AFTER the frozen faithfulness engine (strict_verify / NLI / 4-role D8 / provenance / span-
+# grounding) and AFTER the numeric-cite screen; it only WITHHOLDS a chrome UNIT from prose — the
+# SOURCE stays in evidence_pool + its credibility disclosure. FAIL-SAFE + PRECISION-FIRST
+# (constraint 2): is_furniture_dominant preserves a real claim carrying a welded chrome fragment; a
+# LOSSY segmentation returns the text UNCHANGED; nothing-dropped returns the input byte-identically;
+# an ALL-dropped section returns "" so the caller (_run_section) renders an explicit disclosed gap
+# stub (BB5-C07) — never a blanked verified section. Kill-switch PG_RENDER_CHROME_PROSE_SCREEN
+# (LAW VI / constraint 3); default ON.
+_RENDER_CHROME_PROSE_SCREEN_ENV = "PG_RENDER_CHROME_PROSE_SCREEN"
+_RENDER_CHROME_PROSE_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
+
+
+def _render_chrome_prose_screen_enabled() -> bool:
+    """Return True iff PG_RENDER_CHROME_PROSE_SCREEN is not an off token (default ON = screen)."""
+    raw = os.environ.get(_RENDER_CHROME_PROSE_SCREEN_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _RENDER_CHROME_PROSE_OFF_TOKENS
+
+
+def _unit_is_render_chrome(unit: str) -> bool:
+    """True iff a single sentence UNIT is render chrome: the UNBLINDED shared predicate
+    (is_render_chrome_or_unrenderable) OR the whole-unit furniture screen (is_furniture_dominant).
+    Import-safe: a helper import/predicate error fails OPEN (returns False) so the screen never blanks
+    a real section on an error (precision-first drop-path law)."""
+    try:
+        from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+            is_furniture_dominant,
+        )
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+    except Exception:  # pragma: no cover - both modules are stable in-tree
+        return False
+    try:
+        # Correction 5 (Codex+Fable gate): the structure-anchored predicate is the primary drop. If it
+        # fires, drop. Otherwise use is_furniture_dominant ONLY as a whole-unit-furniture CONFIRM — it
+        # already encodes the precision guard (a furniture token was removed AND the residue is near-
+        # empty), so a real claim carrying a welded furniture fragment keeps its residue and is NEVER
+        # dropped here. is_furniture_dominant is thus a PRECISION GUARD, never an independent broad-
+        # containment OR-drop.
+        if is_render_chrome_or_unrenderable(unit):
+            return True
+        return bool(is_furniture_dominant(unit))
+    except Exception:  # pragma: no cover - both predicates are pure in-tree
+        return False
+
+
+def _screen_render_chrome_prose(verified_text: str) -> str:
+    """Drop whole page-furniture chrome UNITS from the FINAL resolved per-section prose.
+
+    RENDER-ONLY + faithfulness-STRENGTHENING (see the module comment above). Segments into sentence
+    units; WITHHOLDS a unit the UNBLINDED render-chrome predicate OR is_furniture_dominant flags;
+    keeps every real claim unchanged. FAIL-SAFE (constraint 2): empty/blank input or the flag off
+    returns the input UNCHANGED; a LOSSY segmentation (segments do not round-trip to the whitespace-
+    normalized input) returns the input UNCHANGED (never risk corrupting real prose on a splitter
+    miss); nothing-dropped returns the input byte-identically; an ALL-dropped section returns "" so
+    the caller (_run_section) renders an explicit disclosed gap stub (BB5-C07), never a blanked
+    verified section."""
+    if not verified_text or not verified_text.strip():
+        return verified_text
+    if not _render_chrome_prose_screen_enabled():
+        return verified_text
+    sentences = split_into_sentences(verified_text)
+    if not sentences:
+        return verified_text
+    # FAIL-SAFE: the whitespace-normalized re-join of the segments must reconstruct the whitespace-
+    # normalized input. A mismatch means the splitter lost/altered content for this text -> keep the
+    # input rather than risk dropping or corrupting a real unit.
+    _norm_in = " ".join(verified_text.split())
+    _norm_seg = " ".join(" ".join(s.split()) for s in sentences)
+    if _norm_seg != _norm_in:
+        return verified_text
+    kept: list[str] = []
+    dropped = 0
+    for sentence in sentences:
+        if _unit_is_render_chrome(sentence):
+            dropped += 1
+            continue
+        kept.append(sentence)
+    if not dropped:
+        return verified_text  # byte-identical: no chrome unit present
+    if not kept:
+        logger.warning(
+            "[multi_section] render-chrome prose screen: ALL %d unit(s) were page-furniture "
+            "chrome — withholding the whole section body; the caller renders a disclosed gap stub.",
+            dropped,
+        )
+        return ""
+    logger.info(
+        "[multi_section] render-chrome prose screen dropped %d chrome unit(s)", dropped,
+    )
+    return " ".join(kept)
+
+
 def _repair_untokened_draft(
     raw: str,
     baskets: list,
@@ -4762,7 +4871,9 @@ async def _run_section(
             verify_sentence_provenance as _vc_verify,
         )
         from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+            build_multi_member_sentences as _vc_multi_writer,
             build_short_member_sentence as _vc_short_writer,
+            _subtopic_decomposition_enabled as _vc_subtopic_enabled,
         )
         # I-beatboth-005 (#1282): the FAITHFUL ABSTRACTIVE WRITER. Default-OFF
         # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
@@ -4805,7 +4916,19 @@ async def _run_section(
             # to the pre-#1282 behavior; replaced by the LLM writer when PG_ABSTRACTIVE_WRITER is ON.
             # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
             # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
-            _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool)  # noqa: E731
+            # L2 sub-topic decomposition (I-deepfix-001 #1344): the DETERMINISTIC per-basket producer
+            # emits ONE verbatim-span sentence per DISTINCT atomic fact the basket grounds (deduped,
+            # keep-all) instead of just the first member's headline — more DRB-II Recall from the corpus
+            # already fetched, zero new fetching. Each unit is a verbatim span carrying its member's own
+            # provenance token -> re-passes the UNCHANGED strict_verify + P1-1 region gate below trivially
+            # (faithfulness-neutral). Region-safe (tight per-unit offsets, no snap-past-region). Default-ON
+            # kill-switch PG_SUBTOPIC_DECOMPOSITION; OFF => the single-headline short writer (byte-identical).
+            # (Dark on the paid ABSTRACTIVE path — that path's L2 lands via _compose_one_basket's
+            # build_verified_span_draft_multi fallback — but LIVE on smoke / non-abstractive runs.)
+            if _vc_subtopic_enabled():
+                _vc_writer_fn = lambda _b, _p: _vc_multi_writer(_b, evidence_pool)  # noqa: E731
+            else:
+                _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool)  # noqa: E731
             _vc_verify_fn = _vc_verify
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
@@ -5226,6 +5349,16 @@ async def _run_section(
     # already-cited sentences); the frozen faithfulness engine is untouched. Kill-switch
     # PG_NUMERIC_CITE_ENFORCE (default ON). See _screen_uncited_numeric_sentences.
     verified_text = _screen_uncited_numeric_sentences(verified_text)
+
+    # Box C QUALITY fix (workflow wioabua6u): WITHHOLD whole page-furniture chrome UNITS from the
+    # FINAL resolved [N]-cited prose (author/date-welded bylines · nav-menu glyphs · file-asset size
+    # inventories · bibliographic recitals · ToC trailing-page headings · heading-glued-to-prose · a
+    # non-English heading) that the per-sentence strict_verify + numeric-cite screens do not catch (a
+    # whole chrome UNIT self-entails its own span). RENDER-ONLY + faithfulness-neutral; the SOURCE
+    # stays in evidence_pool + disclosure. FAIL-SAFE: an all-chrome body returns "" -> the gap-stub
+    # path below discloses it (never a blank section). Kill-switch PG_RENDER_CHROME_PROSE_SCREEN
+    # (default ON). See _screen_render_chrome_prose.
+    verified_text = _screen_render_chrome_prose(verified_text)
 
     # BB5-C07 (#1178): a section that produced ZERO verified sentences must NOT silently vanish.
     # Pre-fix, `dropped_due_to_failure=True` + empty `verified_text` caused the section to be

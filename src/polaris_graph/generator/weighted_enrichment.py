@@ -2323,6 +2323,193 @@ def _contains_p1_box1_chrome(text: str) -> bool:
     return _is_short_nav_topic_item(s)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Box C QUALITY fix (workflow wioabua6u) — the render-seam chrome CLASSES the containment
+# predicate above was STILL PROVEN BLIND to on the live Box A/C breadth section. Each rule is
+# high-precision + STRUCTURE-ANCHORED to furniture a real finding never carries (constraint 2,
+# precision-first): an author affiliation-byline / a date WELDED onto a section header, website
+# nav-menu glyph furniture, a file-asset size inventory, a bibliographic recital, an IMF/ToC
+# trailing-page heading, a heading glued to prose, a pipeline repetition marker, and a
+# predominantly non-English (Vietnamese Latin-extended) heading. FLAG-not-drop / detector-only: a
+# flagged UNIT is withheld from the rendered rollup, the SOURCE stays in evidence_pool + its
+# credibility disclosure; the faithfulness engine (strict_verify / NLI / 4-role D8 / provenance /
+# span-grounding) is UNCHANGED. Gated by the caller under render_chrome_screen_enabled() (default ON).
+
+# author affiliation-byline furniture (bio line / masthead author block).
+_BOXC_AFFIL_BYLINE_RE = re.compile(
+    r"\bis\s+(?:a\s+)?(?:Non-?Resident\s+)?Senior\s+Fellow\b"
+    r"|\bAuthors?\s+and\s+[Cc]ontributors\b"
+    r"|\bAbout\s+(?:CSIS|Brookings|the\s+Author)\b"
+    r"|\bEDITORS\b[\s\S]{0,80}?\bAUTHORS\b"
+)
+# a calendar date WELDED directly onto a section header word (author-date + "Abstract"/etc.).
+_BOXC_DATE_WELDED_HEADER_RE = re.compile(
+    r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s+"
+    r"(?:Abstract|Introduction|Conclusion|Executive\s+Summary)\b"
+)
+# website nav-menu furniture -- glyphs / bracketed nav labels a real finding never carries, plus a
+# markdown nav-link run ("](https://...) * [").
+# Correction 6 (Codex+Fable gate): written with EXPLICIT \uXXXX unicode escapes so the SOURCE stays
+# pure-ASCII and no file-encoding / mojibake ambiguity can silently break a glyph class. NON-raw
+# string: \uXXXX expands to the literal char in the compiled pattern; \\ escapes the regex
+# metacharacters. Glyphs: \u2794 = heavy rightwards arrow, \u2261 = triple-bar, \u2718 = ballot-X,
+# \u00fc = u-umlaut, \u00b7 = middle-dot, \u2022 = bullet. Same classes as before.
+_BOXC_NAV_MENU_RE = re.compile(
+    "\u2794"                                             # heavy round-tipped rightwards arrow
+    "|\u2261\\s*Menu"                                    # triple-bar [ws]* Menu
+    "|\u2718"                                             # heavy ballot X
+    "|\\[Zur(?:\u00fc|ue)ck\\]"                          # [Zurueck] with u-umlaut or ue
+    "|\\[Startseite"                                     # [Startseite
+    "|\\]\\(https?://[^)]+\\)\\s*[*\u00b7\u2022]\\s*\\["  # ](url) [ws]* {* mid-dot bullet} [ws]* [
+)
+# file-asset-metadata inventory — >=2 size tokens WELDED to a file-asset noun ("paper PDF of 6 MB",
+# "text file of 213.59 KB", "study brief PDF of 1.08 MB"): a download-widget size inventory.
+# Correction 1 (Codex+Fable gate): the prior ">=2 BARE size tokens" trigger over-dropped real
+# quantitative claims that merely carry two data sizes — "grew from 570 GB in 2020 to 45 TB by 2023
+# [7]" / "Each A100 card provides 80 GB ... consumer cards offer 24 GB [12]". Anchor the token to a
+# preceding FILE-ASSET noun (PDF / file / download / attachment / document / text file / brief) so a
+# bare data-magnitude claim is KEPT and only a file-download size inventory is flagged (precision-
+# first, constraint 2). Still requires >=2 such WELDED matches (one incidental file size is fine).
+_BOXC_FILE_SIZE_TOKEN_RE = re.compile(
+    r"(?:PDF|file|download|attachment|document|text\s+file|brief)"
+    r"\s+(?:of\s+)?\d+(?:\.\d+)?\s?(?:MB|KB|GB|TB)\b",
+    re.IGNORECASE,
+)
+_BOXC_MIN_FILE_SIZE_TOKENS = 2
+# bibliographic-recital-as-prose ("published volume 13, article 569", "with an ISSN date of").
+_BOXC_BIBLIO_RECITAL_RE = re.compile(
+    r"published\s+volume\s+\d+\s*,\s*article\s+\d+"
+    r"|with\s+an\s+ISSN\s+date\s+of",
+    re.IGNORECASE,
+)
+# IMF/ToC trailing-page heading — a Title-Case heading run ending in a bare page number with NO
+# verb. The shape admits ONLY Capitalized words + a small connective allowlist + a trailing 1-3
+# digit page number, so any lowercase content word (a real sentence's verb/object) breaks the match.
+_BOXC_TOC_PAGE_RE = re.compile(
+    r"^(?:(?:[A-Z][\w’'.&/-]*|and|of|the|for|to|in|on|at|a|an|with|from|by|[-–—&])[:,]?\s+)+"
+    r"\d{1,3}$"
+)
+# heading-glued-to-prose — an ALL-CAPS multiword run of 5+ words embedded anywhere, and a leading
+# standalone policy-brief heading token followed by unrelated prose.
+_BOXC_ALLCAPS_RUN_RE = re.compile(r"\b(?:[A-Z][A-Z0-9]*[A-Z]\s+){4,}[A-Z][A-Z0-9]*[A-Z]\b")
+_BOXC_HEADING_OPENER_RE = re.compile(
+    r"^\s*(?:Elevator\s+pitch|Key\s+findings|One[- ]page\s+summary|Executive\s+summary)\b\s+[A-Z]"
+)
+# a pipeline-internal "(also mirrored)" duplicate/repetition annotation (never in a real finding).
+_BOXC_REPETITION_MARKER_RE = re.compile(r"\(also\s+mirrored\)", re.IGNORECASE)
+# predominantly non-English heading in an English-contract run — a run of Vietnamese Latin-extended
+# tone-marked characters (Latin Extended Additional U+1E00–U+1EFF + the Vietnamese-specific
+# precomposed letters Ă/ă/Đ/đ/Ơ/ơ/Ư/ư) a real English finding never carries at this density.
+_BOXC_VIET_DIACRITIC_RE = re.compile(
+    r"[Ḁ-ỿĂăĐđƠơƯư]"
+)
+_BOXC_MIN_VIET_DIACRITIC_CHARS = 3
+# Correction 2 (Codex+Fable gate): any alphabetic (unicode) character, for the DENSITY denominator.
+_BOXC_ALPHA_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+# tone-marked chars must be at least this SHARE of the alphabetic characters for the density leg to
+# fire (a predominantly-Vietnamese heading; an English sentence naming a Vietnamese entity is well
+# below it and is KEPT). ~18% chosen so the leaked full-Vietnamese title (~0.22) drops while the two
+# entity-naming English claims (~0.06-0.07) are preserved.
+_BOXC_VIET_DENSITY = 0.18
+# OR the mostly-UPPERCASE heading shape: uppercase-dominant AND carrying the >=floor tone-mark run.
+_BOXC_UPPER_HEADING_RATIO = 0.6
+
+
+def _is_boxc_toc_trailing_page(text: str) -> bool:
+    """True iff ``text`` is an IMF/ToC trailing-page heading — a multi-word Title-Case heading run
+    ending in a bare 1-3 digit page number with no finite verb. High-precision: the shape admits only
+    Capitalized words + a small connective allowlist, so any lowercase content word keeps a real
+    sentence; requires >=4 tokens and >=2 Capitalized content words so a short "Table 3" stub is out
+    of this rule's lane."""
+    core = _TRAILING_CITE_STRIP_RE.sub("", text.strip()).strip()
+    if not _BOXC_TOC_PAGE_RE.match(core):
+        return False
+    tokens = core.split()
+    if len(tokens) < 4:
+        return False
+    caps = [t for t in tokens[:-1] if t[:1].isupper() and len(re.sub(r"[^A-Za-z]", "", t)) >= 2]
+    return len(caps) >= 2
+
+
+def _is_boxc_non_english(text: str) -> bool:
+    """True iff ``text`` is a predominantly non-English (Vietnamese) heading in an English-contract run
+    (e.g. "CACH MANG CONG NGHIEP 4.0 TAI VIET NAM ...").
+
+    Correction 2 (Codex+Fable gate): the prior ABSOLUTE ``count >= 3`` over-dropped real English claims
+    that merely NAME one or two Vietnamese entities — "Vietnam Ministry of Labour (Bo Lao dong ...)
+    projects 3 million displaced workers by 2030 [9]", "Prime Minister Pham Minh Chinh and Nguyen Thi
+    Hong announced the strategy in 2024 [2]". This uses a DENSITY test instead: the tone-marked chars
+    must be at least ``_BOXC_VIET_DENSITY`` of the ALPHABETIC characters (a SHARE, not an absolute
+    count), OR the text must be the mostly-UPPERCASE heading shape carrying the tone-mark run. A
+    one-or-two-proper-noun English sentence stays below both bars and is KEPT (§-1.3 multilingual
+    preservation); the full-Vietnamese heading crosses either bar and is DROPPED. A small floor
+    (``_BOXC_MIN_VIET_DIACRITIC_CHARS``) still gates out incidental 1-2 accented characters."""
+    diac = len(_BOXC_VIET_DIACRITIC_RE.findall(text))
+    if diac < _BOXC_MIN_VIET_DIACRITIC_CHARS:
+        return False
+    alpha = _BOXC_ALPHA_RE.findall(text)
+    if not alpha:
+        return False
+    # DENSITY leg: tone-marked chars as a SHARE of alphabetic chars.
+    if diac / len(alpha) >= _BOXC_VIET_DENSITY:
+        return True
+    # OR the mostly-UPPERCASE heading shape (uppercase-dominant AND >=floor tone marks, already true).
+    upper = sum(1 for c in alpha if c.isupper())
+    return (upper / len(alpha)) >= _BOXC_UPPER_HEADING_RATIO
+
+
+# Correction 3 (Codex+Fable gate): the affiliation-byline class must flag ONLY a PURE masthead (names +
+# affiliations, no attributed result). A real finding that MENTIONS an author's affiliation in passing —
+# "Landry Signé, who is a Senior Fellow at Brookings, projects that AI will shift 30 percent of tasks
+# [4]." — carries BOTH a bracketed [N] citation AND a finite finding/report verb, so it is KEPT.
+_BOXC_BRACKET_CITE_RE = re.compile(r"\[\d{1,3}\]")
+_BOXC_FINDING_VERB_RE = re.compile(
+    r"\b(?:project(?:s|ed|ing)?|estimat(?:e|es|ed|ing)|forecast(?:s|ed|ing)?|predict(?:s|ed|ing)?|"
+    r"find(?:s)?|found|report(?:s|ed|ing)?|show(?:s|ed|ing|n)?|suggest(?:s|ed|ing)?|"
+    r"indicat(?:e|es|ed|ing)|warn(?:s|ed|ing)?|conclud(?:e|es|ed|ing)|reduc(?:e|es|ed|ing)|"
+    r"increas(?:e|es|ed|ing)|shift(?:s|ed|ing)?|displac(?:e|es|ed|ing)|rais(?:e|es|ed|ing)|"
+    r"grow(?:s|ing)?|grew|reach(?:es|ed|ing)?|account(?:s|ed|ing)?\s+for|will\s+\w+)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_attributed_cited_finding(text: str) -> bool:
+    """True iff ``text`` carries BOTH a bracketed [N] citation AND a finite finding/report verb — a real
+    attributed finding that merely names an author affiliation in passing (KEEP). The pure masthead
+    byline class (names + affiliations, NO [N] citation, NO finding verb) has neither and stays FLAGGED.
+    Precision-first (constraint 2): the guard only ever RELAXES a drop; it never adds one."""
+    return bool(_BOXC_BRACKET_CITE_RE.search(text) and _BOXC_FINDING_VERB_RE.search(text))
+
+
+def _contains_boxc_render_chrome(text: str) -> bool:
+    """Box C QUALITY fix (workflow wioabua6u): True iff ``text`` CONTAINS one of the render-seam
+    chrome CLASSES the containment predicate was still proven blind to on the live Box A/C breadth
+    section (author/date-welded byline · nav-menu glyph furniture · file-asset size inventory ·
+    bibliographic recital · ToC trailing-page heading · heading-glued-to-prose · repetition marker ·
+    predominantly non-English heading). High-precision / structure-anchored; detector-only
+    (FLAG-not-drop); the faithfulness engine is UNCHANGED."""
+    s = text
+    # date-welded section header always flags; the affiliation byline flags ONLY when the unit has NO
+    # surviving attributed cited finding (correction 3 — keep "…Senior Fellow…, projects … [4]").
+    if _BOXC_DATE_WELDED_HEADER_RE.search(s):
+        return True
+    if _BOXC_AFFIL_BYLINE_RE.search(s) and not _has_attributed_cited_finding(s):
+        return True
+    if _BOXC_NAV_MENU_RE.search(s):
+        return True
+    if len(_BOXC_FILE_SIZE_TOKEN_RE.findall(s)) >= _BOXC_MIN_FILE_SIZE_TOKENS:
+        return True
+    if _BOXC_BIBLIO_RECITAL_RE.search(s):
+        return True
+    if _is_boxc_toc_trailing_page(s):
+        return True
+    if _BOXC_ALLCAPS_RUN_RE.search(s) or _BOXC_HEADING_OPENER_RE.search(s):
+        return True
+    if _BOXC_REPETITION_MARKER_RE.search(s):
+        return True
+    return _is_boxc_non_english(s)
+
+
 def _contains_forensic_chrome(text: str) -> bool:
     """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
     unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
@@ -2379,6 +2566,12 @@ def _contains_forensic_chrome(text: str) -> bool:
     # glued author-stats-table · asterisked-author street+ZIP affiliation · exec/promo bio · stitched
     # metadata-recital citation · short nav/topic-list stub). High-precision / label-anchored.
     if _contains_p1_box1_chrome(s):
+        return True
+    # Box C QUALITY fix (workflow wioabua6u): the render-seam chrome classes proven STILL blind on
+    # the live Box A/C breadth section — author/date-welded byline · nav-menu glyphs · file-asset
+    # size inventory · bibliographic recital · ToC trailing-page heading · heading-glued-to-prose ·
+    # repetition marker · predominantly non-English (Vietnamese) heading. High-precision / anchored.
+    if _contains_boxc_render_chrome(s):
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)

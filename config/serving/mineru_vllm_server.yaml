@@ -19,11 +19,21 @@
 #                     the pipeline is a thin http client.
 backend: in-process
 
-# The http endpoint the pipeline client calls when backend=vlm-http-client.
-# Overridable via env PG_MINERU25_SERVER_URL. REQUIRED (fail-loud) when the
-# vlm-http-client backend is selected — an empty URL there would silently fall
-# back to in-process and re-trigger the OOM this fix exists to prevent.
+# The vLLM inference server endpoint the pipeline reaches via the PROVEN
+# vlm-http-client protocol (the OpenAI-compatible API that mineru-vllm-server
+# serves, e.g. http://127.0.0.1:30024). Overridable via env
+# PG_MINERU25_SERVER_URL. REQUIRED (fail-loud) when the vlm-http-client backend
+# is selected — an empty URL there would silently fall back to in-process and
+# re-trigger the OOM this fix exists to prevent.
 server_url: ""
+
+# The isolated-venv `mineru` CLI binary the pipeline shells out to for the
+# vlm-http-client protocol. The prod venv does NOT ship mineru (it lives in its
+# own venv), so this MUST be the absolute path to that venv's mineru on the box,
+# e.g. /root/mineru_svc/bin/mineru. Overridable via env PG_MINERU25_CLI_PATH.
+# Empty here = resolve "mineru" on PATH (works only where the CLI is on PATH);
+# set the absolute path on a prod box so the shipped client can find it.
+client_cli: ""
 
 # Supervised-server launch parameters (used to build the launch command that a
 # process supervisor runs OUTSIDE the pipeline process, on the dedicated card).
@@ -34,9 +44,20 @@ server:
   # Bound the up-front reservation so the card is not fully consumed.
   gpu_memory_utilization: 0.4
   # Bounded request concurrency into the server (runtime-parallelism mandate,
-  # bounded to avoid re-creating the OOM).
+  # bounded to avoid re-creating the OOM). Emitted as the vLLM engine flag
+  # --max-num-seqs on the server launch command.
   max_concurrency: 20
   host: "127.0.0.1"
   port: 30024
-  # The MinerU vLLM server entrypoint (data-driven; no code literal).
+  # The GPU vLLM inference server launched by the supervisor (data-driven; no code
+  # literal). "mineru-vllm-server" IS a real MinerU console script: it wraps
+  # `vllm serve <MinerU2.5 model>` and so accepts the vLLM engine flags natively
+  # (--host/--port/--gpu-memory-utilization/--max-num-seqs). Verified on the box:
+  # the launch logs `start vllm server: [... '--gpu-memory-utilization', '0.4',
+  # '--max-num-seqs', '20']` and /health returns 200. The pipeline reaches it via
+  # the PROVEN vlm-http-client protocol (see `client_cli` above) — the transport
+  # that gave the real Box-A extraction (13/13 pages, 6 reconstructed tables).
+  # NOTE: "mineru-api" is a DIFFERENT console script (serves POST /file_parse,
+  # accepts ONLY --host/--port/--reload — NOT the engine flags above); it is not
+  # the proven server, so it is not used here.
   command: "mineru-vllm-server"

@@ -978,9 +978,11 @@ def reset_block_page_canary() -> None:
 # serialization costs nothing the GPU was not already forcing; it only removes
 # the corruption. The disclosed Docling -> PyMuPDF fallback + W4-CANARY remain
 # the honest path for a genuine per-PDF mineru failure. The lock does NOT apply
-# to the ``vlm-http-client`` backend (a remote mineru-api server is the server's
-# concurrency domain) — only the in-process ``vlm-transformers`` GPU path needs
-# it, but holding the lock for either is correct and cheap.
+# to the ``vlm-http-client`` backend: each PDF is parsed by a separate ``mineru``
+# CLI child process (its own venv, its own pypdfium2 state) talking to the
+# resident ``mineru-vllm-server`` (which owns request batching via --max-num-seqs)
+# — the child-process boundary already serializes/isolates the per-PDF state, so
+# no in-process mutex is needed. Only the legacy in-process GPU path needs it.
 # ---------------------------------------------------------------------------
 _mineru25_gpu_lock = threading.Lock()
 
@@ -5306,155 +5308,156 @@ class AccessBypass:
 
     @staticmethod
     def _mineru25_extract(pdf_bytes: bytes) -> str:
-        """W4 winner: MinerU 2.5 VLM PDF -> markdown (GPU, sovereign OSS).
+        """W4 winner: MinerU 2.5 VLM PDF -> markdown via the PROVEN dedicated-GPU
+        ``mineru-vllm-server`` + the ``vlm-http-client`` subprocess protocol.
 
-        Uses the offline in-process ``do_parse`` entry point of the MinerU
-        package (opendatalab/MinerU2.5-2509-1.2B, custom-Apache, self-hosted).
-        Runs on the CALLER's GPU-gated thread; this static method assumes a GPU
-        is present (the async wrapper enforces that). Returns the markdown
-        string (tables + sections preserved), or ``""`` on any failure so the
-        async wrapper degrades LOUDLY to Docling.
+        REWRITE (I-deepfix-001 Box-C S1b): the pipeline no longer imports MinerU or
+        runs ``do_parse`` in the pipeline process. It shells out to the isolated-
+        venv ``mineru`` CLI in ``vlm-http-client`` mode — the EXACT transport that
+        produced the real Box-A extraction (13/13 pages, ~36s, 6 reconstructed
+        HTML ``<table>`` cells Docling loses):
 
-        Zero hard-code (LAW VI): model lang, backend, source, and server URL are
-        env knobs. The backend defaults to ``vlm-transformers`` — the verified
-        in-process, no-separate-server, GPU-local VLM backend (MinerU 2.5 README
-        + arXiv 2509.22186). ``vlm-vllm-engine`` / ``vlm-vllm-async-engine`` are
-        the higher-throughput vLLM modes (more CUDA-setup-sensitive) and
-        ``vlm-http-client`` targets a remote mineru-api server via
-        PG_MINERU25_SERVER_URL.
+            mineru -p <pdf> -o <out> -b vlm-http-client -u <server_url> -l <lang>
 
-        Model pin (point-16, §9.1.8 "model must be RIGHT"): the validated winner
-        is opendatalab/MinerU2.5-2509-1.2B. do_parse has NO model-name parameter
-        — MinerU resolves the VLM model from MINERU_MODEL_SOURCE + its bundled
-        default. We surface MINERU_MODEL_SOURCE + MINERU_DEVICE_MODE as knobs and
-        export them before the call so the run uses the pinned source, never a
-        silently-drifted default.
+        The CLI runs in its OWN venv (the prod venv does NOT ship mineru) and its
+        OWN process, so pypdfium2 page rasterization (process-global, non-thread-
+        safe: the SIGSEGV that killed drb_78/drb_90) and the process-singleton VLM
+        client are isolated in the CHILD process. The heavy VLM inference runs on
+        the resident ``mineru-vllm-server`` (bounded on the dedicated GPU card);
+        this process loads no model and holds no GPU lock. A child crash is a
+        non-zero exit that degrades LOUDLY to Docling (never a pipeline crash).
+
+        (The earlier httpx POST to ``mineru-api`` ``/file_parse`` targeted a server
+        that was never launched or proven; the install proof launched
+        ``mineru-vllm-server``, which serves the OpenAI-compatible API — NOT
+        ``/file_parse`` — so that client 404'd every PDF. This aligns the client to
+        the server that was actually proven.)
+
+        TRANSPORT-ONLY / faithfulness-neutral: the returned markdown is the CLI's
+        verbatim output — byte-for-byte what ``strict_verify`` later grounds. No
+        faithfulness gate (strict_verify / NLI / 4-role / provenance) is touched;
+        only HOW the text is obtained changes.
+
+        FAIL LOUD (LAW II / LAW VI): the backend + server URL + CLI path come from
+        ``resolve_mineru_backend`` (env > YAML), which RAISES when ``vlm-http-
+        client`` is selected without a server URL. A missing URL, a missing CLI, a
+        non-zero exit, or no markdown output RAISES so the async wrapper degrades
+        LOUDLY to Docling and the circuit breaker counts the health failure —
+        never a silent in-process fall-back (that re-creates the CUBLAS OOM this
+        fix removes).
+
+        Returns the markdown string (tables + sections preserved), or ``""`` when
+        the CLI produced no markdown (a per-PDF content outcome the async wrapper
+        treats as a disclosed thin-output Docling fallback).
         """
+        import shutil
+        import subprocess
         import tempfile
-        import os as _os
         from pathlib import Path as _Path
 
-        backend = os.getenv("PG_MINERU25_BACKEND", "vlm-transformers").strip()
-        lang = os.getenv("PG_MINERU25_LANG", "en").strip()
-        server_url = os.getenv("PG_MINERU25_SERVER_URL", "").strip() or None
+        from src.polaris_graph.scale.mineru_vllm_config import resolve_mineru_backend
 
-        # Pin model source + device mode for MinerU (it reads these from the
-        # environment). Defaults: huggingface source, CUDA (GPU-first point-2).
-        # Only SET when not already provided by the operator (no clobber).
-        _os.environ.setdefault(
-            "MINERU_MODEL_SOURCE", os.getenv("PG_MINERU25_MODEL_SOURCE", "huggingface")
-        )
-        _os.environ.setdefault(
-            "MINERU_DEVICE_MODE", os.getenv("PG_MINERU25_DEVICE_MODE", "cuda")
+        # Resolve transport config (env > YAML). Fail-loud contract: selecting
+        # ``vlm-http-client`` without a server URL raises MineruBackendConfigError
+        # here (the operator-locked no-silent-fallback rule); it propagates to the
+        # async wrapper's LOUD Docling degrade.
+        cfg = resolve_mineru_backend()
+        server_url = (cfg.server_url or "").strip().rstrip("/")
+        if not server_url:
+            # No server URL: the in-process path is RETIRED, so there is nothing
+            # to fall back to in-process. Raise so the wrapper degrades LOUDLY to
+            # Docling (disclosed, never a silent capability downgrade).
+            raise RuntimeError(
+                "mineru25 vlm-http-client: no server URL configured "
+                "(PG_MINERU25_SERVER_URL or server_url in "
+                "config/serving/mineru_vllm_server.yaml). The in-process mineru "
+                "path is retired (pypdfium2 / GPU-lock crash class); refusing to "
+                "silently fall back to in-process — degrade LOUDLY to Docling."
+            )
+
+        # Resolve the isolated-venv mineru CLI (env > YAML > PATH). The prod venv
+        # does NOT ship mineru; the CLI must be reachable, else degrade LOUD (no
+        # silent capability downgrade to a lesser extractor).
+        cli = (cfg.client_cli or "").strip() or "mineru"
+        cli_path = cli if os.path.isabs(cli) else (shutil.which(cli) or "")
+        if not cli_path or not os.path.exists(cli_path):
+            raise RuntimeError(
+                f"mineru25 vlm-http-client: mineru CLI not found (resolved "
+                f"{cli!r} -> {cli_path!r}). Set PG_MINERU25_CLI_PATH (or "
+                f"client_cli in config/serving/mineru_vllm_server.yaml) to the "
+                f"isolated-venv mineru binary (e.g. /root/mineru_svc/bin/mineru). "
+                f"Refusing to silently degrade — degrade LOUDLY to Docling."
+            )
+
+        lang = os.getenv("PG_MINERU25_LANG", "en").strip() or "en"
+        # Finite-generous subprocess timeout — never infinite (a hung CLI/server
+        # must not pin the fetch-worker thread). The outer async wait_for already
+        # bounds this to the per-URL fetch deadline; this is the inner belt.
+        timeout_s = float(
+            os.getenv(
+                "PG_MINERU25_HTTP_TIMEOUT_S",
+                os.getenv("PG_MINERU25_TIMEOUT_S", "300"),
+            )
         )
 
-        # do_parse writes artifacts to disk under output_dir/<name>/vlm/<name>.md.
-        with tempfile.TemporaryDirectory(prefix="mineru25_") as _out_dir:
-            name = "doc"
-            try:
-                from mineru.cli.common import do_parse  # type: ignore
-            except Exception as exc:  # noqa: BLE001 — package absent => caller falls back
+        with tempfile.TemporaryDirectory(prefix="mineru25_") as _td:
+            tdp = _Path(_td)
+            stem = "doc"
+            pdf_path = tdp / f"{stem}.pdf"
+            pdf_path.write_bytes(pdf_bytes)
+            out_dir = tdp / "out"
+            out_dir.mkdir()
+
+            argv = cfg.client_cli_argv(str(pdf_path), str(out_dir), lang)
+
+            # Child env: strip PYTHONPATH / VIRTUAL_ENV so the prod venv can never
+            # shadow the isolated mineru venv (the CLI shebang pins its own
+            # interpreter). The CLI rasterizes on CPU and sends images to the
+            # remote GPU server, so it needs no local card — but we leave
+            # CUDA_VISIBLE_DEVICES untouched (the proven Box-A run inherited it and
+            # the http-client backend loads no local model).
+            child_env = {
+                k: v
+                for k, v in os.environ.items()
+                if k not in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME")
+            }
+
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                env=child_env,
+                cwd=str(tdp),
+            )
+            if proc.returncode != 0:
+                # Non-zero exit = a genuine mineru HEALTH failure (CLI/server
+                # error, child crash). Raise so the async wrapper degrades LOUDLY
+                # to Docling and the circuit breaker counts it.
+                _tail = (proc.stderr or proc.stdout or "")[-600:]
                 raise RuntimeError(
-                    f"mineru not installed (pip install 'mineru[core]' / "
-                    f"'mineru-vl-utils[transformers]' from "
-                    f"github.com/opendatalab/MinerU; winner model "
-                    f"opendatalab/MinerU2.5-2509-1.2B): {exc!r}"
-                ) from exc
-
-            # I-wire-014 ISSUE B (#1313 W4): SERIALIZE the in-process VLM
-            # extraction under the process-wide ``_mineru25_gpu_lock``. ``do_parse``
-            # drives PDFium (non-thread-safe, process-global state) AND the shared
-            # MinerU model singleton; calling it concurrently from two fetch worker
-            # threads corrupts both (proven on the VM: PdfiumError / tensor-shape
-            # crash when concurrent, both succeed when serialized). The lock is
-            # held ONLY around ``do_parse`` — the temp-dir setup above and the
-            # per-call markdown read below are thread-local and stay parallel. This
-            # is OUTPUT-PRESERVING: it changes only timing, never which PDFs are
-            # extracted, the verbatim text, or any faithfulness gate. A 24 GB GPU
-            # VLM at batch_size 8 is single-tenant regardless, so serialization is
-            # ~free; it only removes the corruption.
-            # Codex gate P1 (#1336): originally held the lock ONLY for the in-process VLM backend,
-            # assuming the "vlm-http-client" backend's concurrency was the API server's domain.
-            # I-deepfix-001 U1 (#1344): that assumption is WRONG and caused a native SIGSEGV that
-            # killed drb_78 + drb_90. MinerU's VLM pipeline rasterizes PDF pages LOCALLY/in-process
-            # with pypdfium2 (load_images_from_pdf) for EVERY backend — including vlm-http-client,
-            # where only the model INFERENCE is remote, NOT the rasterization. pypdfium2 has
-            # process-global, non-thread-safe state (pypdfium2 #303), so two fetch-worker threads
-            # entering do_parse concurrently corrupt the heap -> whole process killed mid-fetch.
-            # The lock therefore MUST cover every backend. Serialize unconditionally — this is
-            # OUTPUT-PRESERVING (changes only timing; same PDFs, same verbatim text, no gate touched).
-            _inproc_vlm = True
-            # I-deepfix-001 W09-mineru-gpu-lock-bound (#1344): a BOUNDED lock acquire. The
-            # plain blocking `with _mineru25_gpu_lock:` had NO timeout — when the outer 90s
-            # fetch deadline abandoned a worker mid-do_parse, that worker's executor thread
-            # kept the GPU lock held, and the NEXT worker blocked here FOREVER (the convoy).
-            # Acquire with a timeout; on failure emit a LOUD W4-CANARY and return "" to fall
-            # through to the disclosed docling path (no source dropped, §-1.3). Per U1 above,
-            # ALL backends (including vlm-http-client) now acquire this lock, because pypdfium2
-            # rasterization runs client-side in every backend and is NOT thread-safe.
-            _lock_held = False
-            if _inproc_vlm:
-                _lock_wait = float(os.getenv("PG_MINERU25_LOCK_WAIT_S", "60"))
-                if not _mineru25_gpu_lock.acquire(timeout=_lock_wait):
-                    logger.warning(
-                        "[ACCESS] W4-CANARY: mineru25 GPU lock not acquired within %.0fs "
-                        "(a prior abandoned do_parse still holds it) -> DISCLOSED docling "
-                        "fallback (PG_MINERU25_LOCK_WAIT_S)", _lock_wait,
-                    )
-                    return ""
-                _lock_held = True
-            try:
-                # I-deepfix-001 U8 (#1344): the vlm-http-client path drives the
-                # third-party mineru_vl_utils HttpVlmClient, which caches ONE
-                # process-wide async client whose asyncio.Semaphore(1) binds to
-                # the FIRST event loop. We run on a fetch-worker thread with no
-                # loop, so MinerU calls asyncio.run() (a fresh loop) per call;
-                # the 2nd call then trips "Semaphore ... bound to a different
-                # event loop" and opens the W4 circuit -> silent Docling degrade.
-                # Reset the loop-bound async state before each call so every
-                # do_parse sees clean state. Fully defensive (no-op if the
-                # package/shape is unexpected); faithfulness-neutral (only the
-                # extractor's async plumbing, never the verbatim text or a gate).
-                if backend == "vlm-http-client":
-                    _reset_mineru_http_client_loop_state()
-                do_parse(
-                    output_dir=_out_dir,
-                    pdf_file_names=[name],
-                    pdf_bytes_list=[pdf_bytes],
-                    p_lang_list=[lang],
-                    backend=backend,
-                    server_url=server_url,
-                    # Tables + formulas ON (the clinical-PDF table-fidelity lane).
-                    formula_enable=True,
-                    table_enable=True,
-                    # We only need the markdown; skip bbox/pdf/json dumps for speed.
-                    f_dump_md=True,
-                    f_draw_layout_bbox=False,
-                    f_draw_span_bbox=False,
-                    f_dump_middle_json=False,
-                    f_dump_model_output=False,
-                    f_dump_orig_pdf=False,
-                    f_dump_content_list=False,
+                    f"mineru vlm-http-client CLI exited {proc.returncode} "
+                    f"(server {server_url}): {_tail}"
                 )
-            finally:
-                # I-deepfix-001 W09 (#1344): ALWAYS release the bounded GPU lock, even if
-                # do_parse raised — otherwise an exception inside do_parse would leak the lock
-                # and re-create the convoy this fix removes.
-                if _lock_held:
-                    _mineru25_gpu_lock.release()
 
-            # Locate the produced markdown. VLM backend lands it at
-            # <out>/<name>/vlm/<name>.md; be tolerant of layout drift.
-            md_path = _Path(_out_dir) / name / "vlm" / f"{name}.md"
-            if not md_path.exists():
-                hits = sorted(_Path(_out_dir).rglob(f"{name}.md"))
-                if not hits:
-                    hits = sorted(_Path(_out_dir).rglob("*.md"))
-                if hits:
-                    md_path = hits[0]
-            if md_path.exists():
-                return md_path.read_text(encoding="utf-8").strip()
-            return ""
+            # MinerU writes the markdown to <out>/<stem>/vlm/<stem>.md. Prefer the
+            # stem-matched file; fall back to the largest .md anywhere under out.
+            md_files = sorted(out_dir.rglob("*.md"))
+            if not md_files:
+                # A clean exit with no markdown is a per-PDF CONTENT outcome (e.g.
+                # a landing stub) — the async wrapper treats "" as a disclosed
+                # thin-output Docling fallback (NOT a health failure).
+                return ""
+            chosen = None
+            for f in md_files:
+                if f.stem == stem:
+                    chosen = f
+                    break
+            if chosen is None:
+                chosen = max(md_files, key=lambda f: f.stat().st_size)
+            md = chosen.read_text(encoding="utf-8", errors="replace")
+            # VERBATIM pass-through — the CLI's markdown is returned unchanged.
+            return md.strip() if isinstance(md, str) else ""
 
     async def _resolve_academic_url(self, url: str) -> tuple[str, str]:
         """PL: Resolve academic metadata URLs to actual paper URLs + DOIs.

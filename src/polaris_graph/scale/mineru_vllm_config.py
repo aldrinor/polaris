@@ -61,7 +61,28 @@ class MineruVllmConfig:
     max_concurrency: int = 20
     host: str = "127.0.0.1"
     port: int = 30024
+    # The GPU vLLM inference server the pipeline talks to via the PROVEN
+    # ``vlm-http-client`` protocol. ``mineru-vllm-server`` IS a real MinerU
+    # console script: it wraps ``vllm serve <MinerU2.5 model>`` and therefore
+    # natively accepts the vLLM engine flags (``--gpu-memory-utilization`` /
+    # ``--max-num-seqs`` / ``--host`` / ``--port``). It serves the OpenAI-
+    # compatible inference API on ``server_url``; the pipeline reaches it through
+    # the ``mineru`` CLI in ``vlm-http-client`` mode (``client_cli`` below) — the
+    # exact transport that produced the real Box-A extraction (13/13 pages, 6
+    # reconstructed tables that Docling loses).
+    # NOTE: ``mineru-api`` is a SEPARATE console script that serves POST
+    # /file_parse and hosts the engine in-process; it accepts ONLY
+    # ``--host``/``--port``/``--reload`` (NOT the engine flags above) and was not
+    # the proven server, so it is not the default here.
     command: str = "mineru-vllm-server"
+    # The isolated-venv ``mineru`` CLI binary the pipeline shells out to for the
+    # ``vlm-http-client`` protocol. The prod venv does NOT ship mineru (it lives
+    # in its own venv, e.g. ``/root/mineru_svc/bin/mineru``); running it as a
+    # subprocess also process-isolates pypdfium2 page rasterization (a SIGSEGV in
+    # the child kills the child, degrades LOUD to Docling — it can never crash the
+    # pipeline process). Data-driven (LAW VI): env ``PG_MINERU25_CLI_PATH`` > yaml
+    # ``client_cli`` > this default.
+    client_cli: str = "mineru"
     source: str = "default"  # provenance: env / yaml / default
 
     @property
@@ -69,12 +90,22 @@ class MineruVllmConfig:
         return self.backend == _BACKEND_HTTP_CLIENT
 
     def server_launch_argv(self) -> list[str]:
-        """The argv a process supervisor uses to launch the dedicated server.
+        """The argv a process supervisor uses to launch the dedicated GPU server.
 
         The command runs OUTSIDE the pipeline process; the caller sets
         ``CUDA_VISIBLE_DEVICES=<cuda_visible_devices>`` in the child env so the
         server is pinned to the dedicated card and the embedder/reranker keep
         card 0.
+
+        ``mineru-vllm-server`` wraps ``vllm serve``, so it accepts these vLLM
+        engine flags NATIVELY: ``--host`` / ``--port`` bind the OpenAI-compatible
+        endpoint, ``--gpu-memory-utilization`` bounds the up-front KV-cache
+        reservation (the §8.4 0.4 bound that keeps the card from filling), and
+        ``--max-num-seqs`` bounds concurrent request batching. (The prior
+        ``--max-concurrency`` was NOT a real flag; ``--max-num-seqs`` is the real
+        vLLM ``EngineArgs`` name.) Verified on the box: the server logs
+        ``start vllm server: [... '--gpu-memory-utilization', '0.4',
+        '--max-num-seqs', '20']`` and returns ``/health`` 200.
         """
         return [
             self.command,
@@ -84,8 +115,42 @@ class MineruVllmConfig:
             str(self.port),
             "--gpu-memory-utilization",
             str(self.gpu_memory_utilization),
-            "--max-concurrency",
+            "--max-num-seqs",
             str(self.max_concurrency),
+        ]
+
+    def client_cli_argv(
+        self,
+        pdf_path: str,
+        out_dir: str,
+        lang: str,
+    ) -> list[str]:
+        """The PROVEN ``vlm-http-client`` CLI argv the pipeline shells out to.
+
+        This is the exact transport that produced the real Box-A extraction:
+        ``mineru -p <pdf> -o <out_dir> -b vlm-http-client -u <server_url> -l <lang>``.
+        The ``mineru`` CLI (isolated venv, ``client_cli``) rasterizes the PDF in
+        the CHILD process and sends page images to the resident VLM engine on the
+        ``mineru-vllm-server`` at ``server_url`` for inference, then assembles the
+        markdown (HTML ``<table>`` cells preserved) under
+        ``<out_dir>/<pdf-stem>/vlm/<pdf-stem>.md``.
+
+        Requires the http-client backend + a non-empty ``server_url`` — callers
+        resolve the config through ``resolve_mineru_backend`` (which FAILS LOUD on
+        a missing URL) before building this argv.
+        """
+        return [
+            self.client_cli,
+            "-p",
+            pdf_path,
+            "-o",
+            out_dir,
+            "-b",
+            _BACKEND_HTTP_CLIENT,
+            "-u",
+            (self.server_url or "").strip().rstrip("/"),
+            "-l",
+            lang,
         ]
 
     def server_launch_env(self, base_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -172,6 +237,13 @@ def resolve_mineru_backend(
         host=str(server_yaml.get("host", "127.0.0.1")),
         port=_num("PG_MINERU25_SERVER_PORT", "port", 30024, int),
         command=str(server_yaml.get("command", "mineru-vllm-server")),
+        # The isolated-venv mineru CLI binary (top-level yaml key, NOT under
+        # ``server``): env PG_MINERU25_CLI_PATH > yaml ``client_cli`` > "mineru".
+        client_cli=str(
+            env.get("PG_MINERU25_CLI_PATH", "").strip()
+            or (yaml_cfg.get("client_cli") or "").strip()
+            or "mineru"
+        ),
         source=source,
     )
 

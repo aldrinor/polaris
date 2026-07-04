@@ -722,6 +722,180 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
     return ""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# L2 — SUB-TOPIC DECOMPOSITION (I-deepfix-001 #1344, Box C coverage lever; DRB-II Recall).
+#
+# The per-basket producers above emit ~ONE headline (build_short_member_sentence = the FIRST unit of
+# the strongest member; build_verified_span_draft returns on the FIRST member that resolves a span).
+# When a basket ALREADY GROUNDS several DISTINCT atomic facts — a rich member span carrying multiple
+# sentences, or corroborators that each add a new fact — those extra facts never render. L2 surfaces
+# them: emit ONE verified verbatim-span sentence PER DISTINCT atomic fact the basket grounds, deduped
+# so a fact corroborated by many sources renders ONCE (the sources stay in the pool + multi-citation;
+# §-1.3 CONSOLIDATE-keep-all — L2 NEVER drops a source). More Recall from the corpus already fetched;
+# ZERO new fetching.
+#
+# FAITHFULNESS-NEUTRAL BY CONSTRUCTION (constraint 1, never a relax): every emitted sentence is a
+# VERBATIM span carrying its own member's real ``[#ev:<id>:<a>-<b>]`` provenance token, so it re-passes
+# the UNCHANGED strict_verify / NLI / 4-role D8 / provenance / span-grounding trivially (it IS the
+# verified span). L2 adds NO gate, relaxes none. Kill-switch PG_SUBTOPIC_DECOMPOSITION (LAW VI);
+# default ON => OFF is byte-identical to the single-headline producers above. The per-basket count is
+# bounded by a generous CEILING (PG_SUBTOPIC_MAX_FACTS, a runaway guard billed by ACTUAL distinct
+# facts, NOT a target — §-1.3 forbids a forced breadth number).
+_SUBTOPIC_DECOMP_ENV = "PG_SUBTOPIC_DECOMPOSITION"
+_SUBTOPIC_DECOMP_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
+_SUBTOPIC_MAX_FACTS_ENV = "PG_SUBTOPIC_MAX_FACTS"
+_SUBTOPIC_MAX_FACTS_DEFAULT = 40  # CEILING (runaway guard), NOT a target; billed by actual facts.
+_SUBTOPIC_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+
+
+def _subtopic_decomposition_enabled() -> bool:
+    """Return True iff PG_SUBTOPIC_DECOMPOSITION is not an off token (default ON = decompose)."""
+    raw = os.environ.get(_SUBTOPIC_DECOMP_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _SUBTOPIC_DECOMP_OFF_TOKENS
+
+
+def _subtopic_max_facts() -> int:
+    """Per-basket CEILING on emitted distinct atomic facts (runaway guard, billed by actual use)."""
+    raw = os.environ.get(_SUBTOPIC_MAX_FACTS_ENV, "")
+    try:
+        n = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        n = 0
+    return n if n > 0 else _SUBTOPIC_MAX_FACTS_DEFAULT
+
+
+def _atomic_fact_key(unit: str) -> str:
+    """Normalized dedup key for an atomic-fact sentence unit: strip any provenance token, drop
+    punctuation, collapse whitespace, lowercase. Two units with the same key are the SAME atomic fact
+    (the corroboration is preserved as multi-citation / pool membership elsewhere — L2 only avoids
+    repeating the SENTENCE, it never drops a source). Conservative (near-exact): only a genuine repeat
+    collapses, so a DISTINCT fact is never lost (precision-first)."""
+    core = _SUBTOPIC_EV_TOKEN_RE.sub("", unit or "")
+    core = re.sub(r"[^\w\s]", " ", core, flags=re.UNICODE)
+    return " ".join(core.split()).lower()
+
+
+def build_multi_member_sentences(basket: Any, evidence_pool: dict) -> str:
+    """L2 DETERMINISTIC multi-fact writer (region-safe ``writer_fn`` form). Emits one verbatim-span
+    sentence per DISTINCT atomic fact across ALL of the basket's isolated-``SUPPORTS`` members, deduped
+    by ``_atomic_fact_key``. Each unit carries TIGHT per-unit global offsets inside its member's quote
+    (NO forward snap), so every emitted token lands strictly WITHIN that member's own region — it passes
+    the UNCHANGED ``_compose_one_basket`` strict_verify + P1-1 region gate exactly like
+    ``build_short_member_sentence``. Cut-mid-word units are screened by ``_compose_junk_screen``
+    (require_sentence_form); if EVERY unit screens out this returns "" so ``_compose_one_basket`` falls
+    to the SNAP-preserving K-span fallback (``build_verified_span_draft_multi``), which recovers a cut
+    quote — so L2 never REGRESSES the single-headline recall. When PG_SUBTOPIC_DECOMPOSITION is OFF this
+    is byte-identical to ``build_short_member_sentence`` (single headline)."""
+    if not _subtopic_decomposition_enabled():
+        return build_short_member_sentence(basket, evidence_pool)
+    known_words = _known_words_for_compose(evidence_pool)
+    limit = _subtopic_max_facts()
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        quote = str(getattr(m, "direct_quote", "") or "").strip()
+        gspan = _member_global_span(m, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        start, _end = gspan
+        units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
+        # INPUT HYGIENE (P1-4): drop crawl/social/masthead chrome + truncated fragments; keep real
+        # short sentences. require_sentence_form drops a mid-word cut fragment (no forward snap here).
+        units = [
+            u for u in units
+            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+        ]
+        for u in units:
+            key = _atomic_fact_key(u)
+            if not key or key in seen:
+                continue
+            off = quote.find(u)
+            if off < 0:
+                continue
+            tok_start = start + off
+            tok_end = tok_start + len(u)
+            u_core = _strip_terminal_punct(u)
+            out.append(f"{u_core} [#ev:{eid}:{tok_start}-{tok_end}].")
+            seen.add(key)
+            if len(out) >= limit:
+                return " ".join(out)
+    return " ".join(out) if out else ""
+
+
+def build_verified_span_draft_multi(basket: Any, evidence_pool: dict) -> Optional[str]:
+    """L2 SNAP-preserving multi-fact K-span FALLBACK — the ``build_verified_span_draft`` sibling used by
+    ``_compose_one_basket`` when PG_SUBTOPIC_DECOMPOSITION is ON. Mirrors ``build_verified_span_draft``
+    EXACTLY (verbatim span + real global offsets + FIX-D extend-only sentence snap + chrome/junk screen)
+    but ACCUMULATES the DISTINCT atomic facts across ALL of the basket's SUPPORTS members (deduped by
+    ``_atomic_fact_key``) instead of returning on the first member. Returned DIRECTLY by the caller (not
+    re-region-checked), so the snap-recovered whole sentence is safe here. Returns None only when NO
+    member yields a real verified unit (caller emits the insufficient-evidence disclosure). Each unit is
+    a verbatim span carrying its member's own provenance token → re-passes strict_verify trivially
+    (faithfulness UNCHANGED). Bounded by the PG_SUBTOPIC_MAX_FACTS ceiling."""
+    known_words = _known_words_for_compose(evidence_pool)
+    limit = _subtopic_max_facts()
+    seen: set[str] = set()
+    out: list[str] = []
+    all_chrome_member_drops = 0
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        quote = str(getattr(m, "direct_quote", "") or "").strip()
+        gspan = _member_global_span(m, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        start, end = gspan
+        # FIX-D extend-only SUPERSET span snap (mirrors build_verified_span_draft): complete a
+        # mid-sentence cut forward to the next sentence boundary in the SAME row. Extend-only => the
+        # widened token covers exactly the emitted text => grounded by construction, never fabricates.
+        snap_end = end
+        span_text = quote
+        if _snap_span_enabled():
+            row = (evidence_pool or {}).get(eid) or {}
+            haystack = str(row.get("direct_quote") or row.get("statement") or "")
+            snap_end = _snap_span_end_to_sentence(haystack, start, end)
+            if snap_end > end and 0 <= start < snap_end <= len(haystack):
+                span_text = haystack[start:snap_end]
+        units = [u.strip() for u in (split_into_sentences(span_text) or [span_text]) if u.strip()]
+        units_before = len(units)
+        units = [
+            u for u in units
+            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+        ]
+        if units_before and not units:
+            all_chrome_member_drops += 1
+            continue
+        for u in units:
+            key = _atomic_fact_key(u)
+            if not key or key in seen:
+                continue
+            u_core = _strip_terminal_punct(u)
+            # Whole-member-span token (mirrors build_verified_span_draft): the verified span contains
+            # each of its sub-sentences, so every unit grounds against [start, snap_end].
+            out.append(f"{u_core} [#ev:{eid}:{start}-{snap_end}].")
+            seen.add(key)
+            if len(out) >= limit:
+                break
+        if len(out) >= limit:
+            break
+    if out:
+        return " ".join(out)
+    if all_chrome_member_drops:
+        subject = str(
+            getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim"
+        ).strip()
+        logger.warning(
+            "[verified_compose] L2 subtopic-decomp: all-chrome-basket drop — %d member(s) resolved a "
+            "verified span but ALL its sentence units screened as chrome; basket falls through to the "
+            "insufficient-evidence disclosure: %.160s",
+            all_chrome_member_drops,
+            subject,
+        )
+    return None
+
+
 def _insufficient_evidence_disclosure(basket: Any) -> str:
     """Honest NEVER-empty fallback when a basket has prose-fail AND no verified span: disclose the
     gap, never fabricate filler (§-1.3). Names the claim subject so the disclosure is specific."""
@@ -886,6 +1060,82 @@ def render_degraded_disclosures(body: str, disclosures: list) -> str:
     return "\n\n".join(parts)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Box C QUALITY fix (workflow wioabua6u) — compose-time render-chrome screen. A writer can
+# PARAPHRASE page furniture (author byline / masthead / ToC heading / nav run) into a sentence that
+# self-entails its own span and PASSES strict_verify; catch it HERE, at compose time, before it
+# reaches the render seam. WITHHOLD-only (never touches a faithfulness verdict): a flagged sentence
+# is not KEPT into the composed prose; the SOURCE stays in the pool. Kill-switch
+# PG_RENDER_CHROME_PROSE_SCREEN (LAW VI / constraint 3); default ON. Import-safe / fails OPEN so a
+# helper error never withholds a real verified sentence (precision-first drop-path law).
+_COMPOSE_CHROME_SCREEN_ENV = "PG_RENDER_CHROME_PROSE_SCREEN"
+_COMPOSE_CHROME_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
+
+
+def _compose_render_chrome_enabled() -> bool:
+    """Return True iff PG_RENDER_CHROME_PROSE_SCREEN is not an off token (default ON = screen)."""
+    raw = os.environ.get(_COMPOSE_CHROME_SCREEN_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _COMPOSE_CHROME_OFF_TOKENS
+
+
+def _sentence_is_render_chrome(sentence: str) -> bool:
+    """True iff a writer-paraphrased sentence is render chrome (the UNBLINDED shared predicate OR the
+    whole-unit furniture screen). Import-safe / fails OPEN so a helper import error never withholds a
+    real verified sentence. Used at compose time to catch writer-paraphrased chrome that self-entails
+    strict_verify."""
+    try:
+        from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+            is_furniture_dominant,
+        )
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+    except Exception:  # pragma: no cover - both modules are stable in-tree
+        return False
+    try:
+        # Correction 5 (Codex+Fable gate): the structure-anchored predicate is the primary drop. If it
+        # fires, drop. Otherwise use is_furniture_dominant ONLY as a whole-unit-furniture CONFIRM — it
+        # already encodes the precision guard (a furniture token was removed AND the residue is near-
+        # empty), so a real claim carrying a welded furniture fragment keeps its residue and is NEVER
+        # dropped here. is_furniture_dominant is thus a PRECISION GUARD, never an independent broad-
+        # containment OR-drop.
+        if is_render_chrome_or_unrenderable(sentence):
+            return True
+        return bool(is_furniture_dominant(sentence))
+    except Exception:  # pragma: no cover - both predicates are pure in-tree
+        return False
+
+
+def _screen_fallback_chrome(text: str) -> str:
+    """Correction 4 (Codex+Fable gate) — close the compose-time chrome LEAK. When ``_compose_one_basket``
+    WITHHOLDS a writer-paraphrased chrome sentence (the ``continue`` at the keep-loop), the K-span
+    fallback ``build_verified_span_draft`` RE-DERIVES prose from the SAME verified span, so the withheld
+    chrome unit can RE-ENTER via the fallback. Screen the fallback with the SAME unblinded predicate
+    (``_sentence_is_render_chrome``) used above so a withheld chrome unit cannot leak back in.
+
+    Per-sentence WITHHOLD, render-side, faithfulness-NEUTRAL (the SOURCE stays in the pool). FAIL-SAFE:
+    empty/blank returns the input unchanged; a LOSSY re-segmentation (the sentence segments do not round-
+    trip to the whitespace-normalized input) returns the input UNCHANGED (never corrupt real prose on a
+    splitter miss); nothing-withheld returns byte-identical; an ALL-units-chrome fallback returns "" so the
+    caller falls to the honest gap disclosure (never blanks a real section)."""
+    if not text or not text.strip():
+        return text
+    sentences = split_into_sentences(text)
+    if not sentences:
+        return text
+    # FAIL-SAFE round-trip guard: the whitespace-normalized re-join must reconstruct the input.
+    norm_in = " ".join(text.split())
+    norm_seg = " ".join(" ".join(s.split()) for s in sentences)
+    if norm_seg != norm_in:
+        return text
+    kept = [s for s in sentences if not _sentence_is_render_chrome(s)]
+    if len(kept) == len(sentences):
+        return text  # nothing withheld -> byte-identical
+    return " ".join(kept)  # "" when EVERY unit was chrome -> caller falls to the gap disclosure
+
+
 def _compose_one_basket(
     basket: Any,
     evidence_pool: dict,
@@ -912,6 +1162,13 @@ def _compose_one_basket(
         # OWN member span regions (Codex core-gate P1-1): a shared source's OTHER-claim span span-
         # grounds against the global row, but it is NOT this basket's claim -> reject -> own K-span.
         if bool(getattr(res, "is_verified", False)) and _tokens_within_basket_regions(verified_text, regions):
+            # Box C QUALITY fix (workflow wioabua6u): WITHHOLD a writer-paraphrased chrome sentence
+            # that passed strict_verify (self-entailing its own span) — render-side, faithfulness-
+            # neutral. The SOURCE stays in the pool; only the chrome UNIT is withheld. SKIP (do NOT
+            # fall back) so real sibling sentences are still kept. Kill-switch
+            # PG_RENDER_CHROME_PROSE_SCREEN (default ON).
+            if _compose_render_chrome_enabled() and _sentence_is_render_chrome(verified_text):
+                continue
             kept.append(verified_text)
         else:
             fell_back = True
@@ -919,11 +1176,28 @@ def _compose_one_basket(
     if kept and not fell_back:
         return " ".join(kept)
     # prose failed (or produced nothing): basket-id-bound verbatim fallback, else honest disclosure.
-    fallback = build_verified_span_draft(basket, evidence_pool)
+    # L2 sub-topic decomposition (I-deepfix-001 #1344): emit ONE verified verbatim-span sentence per
+    # DISTINCT atomic fact the basket grounds (deduped, keep-all consolidation) instead of the first
+    # member's single span. Covers BOTH the abstractive (paid) and deterministic paths — any writer
+    # sentence that fails the per-basket verify falls here. Faithfulness-neutral (each unit re-passes
+    # strict_verify trivially — it IS a verbatim span). OFF => build_verified_span_draft (byte-identical).
+    fallback = (
+        build_verified_span_draft_multi(basket, evidence_pool)
+        if _subtopic_decomposition_enabled()
+        else build_verified_span_draft(basket, evidence_pool)
+    )
     if fallback is not None:
-        # If some sentences were kept before the failure, keep them + the verbatim span (never lose
-        # already-verified prose); else the span alone.
-        return " ".join(kept + [fallback]) if kept else fallback
+        # Correction 4 (Codex+Fable gate): the K-span fallback RE-DERIVES from the SAME verified span, so
+        # a chrome unit withheld above (the keep-loop ``continue``) can RE-ENTER here. Screen the fallback
+        # with the SAME unblinded render-chrome predicate. Gated by the default-ON kill-switch. FAIL-SAFE:
+        # if screening empties the fallback, fall THROUGH to the honest gap disclosure below (never blank a
+        # real section). Faithfulness-neutral (render-side WITHHOLD; the source stays in the pool).
+        if _compose_render_chrome_enabled():
+            fallback = _screen_fallback_chrome(fallback)
+        if fallback and fallback.strip():
+            # If some sentences were kept before the failure, keep them + the verbatim span (never lose
+            # already-verified prose); else the span alone.
+            return " ".join(kept + [fallback]) if kept else fallback
     # I-deepfix-001 Wave-3 PART 2 ARM B (#1344): no verified span. Default the honest gap, BUT when a
     # transient judge outage left DETERMINISTIC_ONLY (grounded-but-unentailed) members, disclose THAT
     # instead of "no evidence". Only the LABEL changes — no DETERMINISTIC_ONLY prose is ever promoted

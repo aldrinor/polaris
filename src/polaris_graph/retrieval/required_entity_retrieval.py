@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
@@ -514,5 +515,420 @@ def run_required_entity_lane(
         evidence_rows=evidence_rows,
         attempted_entity_ids=tuple(attempted),
         queries_by_entity=queries_by_entity,
+        seed_urls=tuple(seed_urls),
+    )
+
+
+# ============================================================================
+# COVERAGE LEVER L5 — question/facet-derived required-entity retrieval lane
+# ============================================================================
+# I-deepfix-001 (#1344) DRB-II COVERAGE lever L5.
+#
+# The R3 gap-detect (:func:`missing_entity_gap_queries`) already turns a KNOWN
+# list of required entities into targeted corrective queries. L5 closes the
+# remaining gap: it DERIVES that required-entity set from the QUESTION and the
+# FACET tree (the R1 :mod:`expert_facet_planner` output) — deterministically and
+# OFFLINE — so the lane runs even when no external rubric hands us the list. It
+# then targets ONLY the derived entities the corpus does not yet mention and
+# fetches candidate sources for them through the SAME injected live-retrieval
+# chokepoint the clinical lane uses (seed-only, no Serper/S2 fan-out).
+#
+# FAITHFULNESS (§-1.1 / operator BINDING — LETHAL otherwise)
+# ----------------------------------------------------------
+# Identical contract to the clinical lane: fetched rows are ORDINARY corpus
+# evidence carrying their REAL fetched URLs; they are NEVER keyed to an entity
+# and NEVER relabeled. strict_verify / NLI entailment / 4-role D8 / provenance /
+# span-grounding are UNCHANGED. A derived required entity for which the lane
+# surfaces NO evidence STAYS exactly the gap disclosure it already was — it is
+# recorded in ``gap_entities`` and NOTHING is injected for it (no fabrication, no
+# forced coverage). Deriving an entity only decides WHAT to search next; it can
+# never credit coverage on its own (§-1.3 WEIGHT-AND-CONSOLIDATE, never
+# FILTER / FORCE). The per-entity + per-run bounds are compute-safety CEILINGS
+# billed by actual use — never a breadth target / cap / thinner / floor.
+#
+# DEFAULT-ON kill-switch (LAW VI): ``PG_COVERAGE_L5_REQUIRED_ENTITY`` defaults
+# ON; set it to 0/false/off for a byte-identical no-op.
+# ============================================================================
+
+# --- default-ON kill-switch (LAW VI) ------------------------------------------
+_COVERAGE_L5_ENABLED_ENV = "PG_COVERAGE_L5_REQUIRED_ENTITY"
+
+# --- compute-safety CEILING on derived entities (NOT a breadth target; §-1.3) -
+_COVERAGE_L5_MAX_ENTITIES_ENV = "PG_COVERAGE_L5_MAX_ENTITIES"
+_DEFAULT_COVERAGE_L5_MAX_ENTITIES = 24
+
+# Honest source/origin tags so merged L5 rows are attributed to THIS lane (never
+# mislabeled as clinical-lane seeds or primary-trial seeds).
+COVERAGE_L5_SEED_SOURCE_LABEL = "required_entity_coverage_l5"
+COVERAGE_L5_SEED_QUERY_ORIGIN = "required_entity_coverage_l5_targeted_search"
+
+# Question words / articles / conjunctions / pronouns / common lead verbs that
+# must NOT seed (or continue) a proper-noun run — a sentence-initial capital or a
+# Title-Cased function word is not a named entity. Compared case-folded, so a
+# capitalized "The"/"In" inside a Title-Case facet name still breaks the run.
+_ENTITY_STOPWORDS: frozenset = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "for", "to", "in", "on", "at",
+    "by", "with", "from", "as", "how", "what", "why", "when", "where", "which",
+    "who", "whom", "whose", "does", "do", "did", "is", "are", "was", "were",
+    "will", "would", "can", "could", "should", "shall", "may", "might", "must",
+    "has", "have", "had", "this", "that", "these", "those", "it", "its", "their",
+    "our", "your", "his", "her", "into", "about", "over", "under", "between",
+})
+# Lowercase name-internal connectives allowed to BRIDGE a proper-noun run, but
+# ONLY when the next token is itself a capitalized non-stopword ("Bank of
+# England", "University of Toronto"). "and"/"or" are deliberately EXCLUDED so a
+# list ("Ozempic and Mounjaro") splits into distinct entities instead of merging.
+_ENTITY_CONNECTIVES: frozenset = frozenset({
+    "of", "de", "von", "van", "der", "di", "da", "del", "du", "la", "le",
+    "dos", "das", "ter",
+})
+
+# One word-ish token: starts alnum, keeps internal &./'- (so "GLP-1", "U.S.",
+# "S&P" survive as single tokens). Surrounding punctuation/quotes are dropped.
+_ENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9&./'\-]*")
+# Explicitly quoted spans (straight + curly) are trusted entity phrases verbatim.
+_STRAIGHT_QUOTE_RE = re.compile(r'"([^"\n]{2,80})"')
+_CURLY_QUOTE_RE = re.compile("[“]([^”\n]{2,80})[”]")
+
+# Fetch-width bounds are SHARED with the clinical lane (same lane family, same
+# chokepoint): PG_REQUIRED_ENTITY_MAX_RESULTS_PER_QUERY / _MAX_SEED_URLS_PER_ENTITY.
+
+
+def coverage_l5_enabled() -> bool:
+    """True unless the L5 kill-switch is explicitly disabled (DEFAULT-ON, LAW VI).
+
+    ``PG_COVERAGE_L5_REQUIRED_ENTITY`` defaults ON; only an explicit
+    ``0``/``false``/``no``/``off`` (case-insensitive) disables the lane, after
+    which it is a byte-identical no-op. Blank/unset => ON.
+    """
+    return (os.getenv(_COVERAGE_L5_ENABLED_ENV, "1") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _coverage_l5_max_entities() -> int:
+    return _bounded_int_env(
+        _COVERAGE_L5_MAX_ENTITIES_ENV, _DEFAULT_COVERAGE_L5_MAX_ENTITIES
+    )
+
+
+def _entity_tokens(text: str) -> list[str]:
+    return _ENTITY_TOKEN_RE.findall(text or "")
+
+
+def _quoted_spans(text: str) -> list[str]:
+    """Return explicitly quoted spans (straight + curly). Trusted verbatim."""
+    out: list[str] = []
+    out.extend(_STRAIGHT_QUOTE_RE.findall(text or ""))
+    out.extend(_CURLY_QUOTE_RE.findall(text or ""))
+    return out
+
+
+def _proper_noun_phrases(text: str, *, max_run_tokens: int = 6) -> list[str]:
+    """Deterministic proper-noun phrase extraction (offline, no LLM).
+
+    A "run" is a maximal sequence of capitalized non-stopword tokens, bridged
+    only by a lowercase name-internal connective that is immediately followed by
+    another capitalized non-stopword token. Sentence-initial function words and
+    Title-Cased articles break the run (they are stopwords, compared case-folded)
+    so a question like "How does AI ..." yields "AI", not "How". Over-inclusion is
+    harmless here — an extra derived entity only fires ONE bounded targeted query
+    and can never credit coverage (verify is unchanged); under-merging (splitting
+    "Ozempic and Mounjaro") is preferred over wrongly welding two distinct names.
+    """
+    toks = _entity_tokens(text)
+    n = len(toks)
+    phrases: list[str] = []
+    i = 0
+    while i < n:
+        tok = toks[i]
+        low = tok.lower()
+        is_head = (
+            tok[:1].isupper()
+            and low not in _ENTITY_STOPWORDS
+            and any(c.isalpha() for c in tok)
+        )
+        if not is_head:
+            i += 1
+            continue
+        run = [tok]
+        j = i + 1
+        while j < n and len(run) < max_run_tokens:
+            t = toks[j]
+            tl = t.lower()
+            if (
+                t[:1].isupper()
+                and tl not in _ENTITY_STOPWORDS
+                and any(c.isalpha() for c in t)
+            ):
+                run.append(t)
+                j += 1
+                continue
+            # connective bridge: lowercase name-internal word flanked by a
+            # following capitalized non-stopword token (peek ahead).
+            if (
+                tl in _ENTITY_CONNECTIVES
+                and (j + 1) < n
+                and toks[j + 1][:1].isupper()
+                and toks[j + 1].lower() not in _ENTITY_STOPWORDS
+            ):
+                run.append(t)
+                j += 1
+                continue
+            break
+        # Trim any trailing connective (defensive — the lookahead prevents it).
+        while run and run[-1].lower() in _ENTITY_CONNECTIVES:
+            run.pop()
+        if run and any(len(r) >= 2 and any(c.isalpha() for c in r) for r in run):
+            phrases.append(" ".join(run))
+        i = j if j > i else i + 1
+    return phrases
+
+
+def _facet_text(facet: Any) -> str:
+    """Extract the display text of one facet (Mapping / Facet-like / str)."""
+    if isinstance(facet, Mapping):
+        for key in ("name", "facet", "title", "label", "text"):
+            value = facet.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        return ""
+    name = getattr(facet, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name
+    if isinstance(facet, str):
+        return facet
+    return ""
+
+
+def _explicit_facet_entities(facet: Any) -> list[str]:
+    """Curated entity names carried on a facet Mapping (trusted verbatim)."""
+    if not isinstance(facet, Mapping):
+        return []
+    out: list[str] = []
+    for key in ("entities", "required_entities"):
+        value = facet.get(key)
+        if not isinstance(value, (list, tuple)):
+            continue
+        for item in value:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, Mapping):
+                name = item.get("name") or item.get("label") or item.get("id")
+                if isinstance(name, str):
+                    out.append(name)
+    return out
+
+
+def extract_required_entities(
+    research_question: str,
+    facets: Optional[Sequence[Any]] = None,
+    *,
+    max_entities: Optional[int] = None,
+) -> tuple[str, ...]:
+    """Derive the required-entity set from the QUESTION and the FACET tree.
+
+    DETERMINISTIC / OFFLINE — no network, no LLM. The set is the union of:
+
+    1. Curated entity names carried explicitly on a facet Mapping
+       (``entities`` / ``required_entities``) — trusted verbatim, added first.
+    2. Proper-noun phrases + quoted spans in the research question.
+    3. Proper-noun phrases + quoted spans in each facet's display text.
+
+    De-duplicated case-insensitively (first-appearance order preserved) and
+    capped at ``max_entities`` (``PG_COVERAGE_L5_MAX_ENTITIES``, a compute-safety
+    CEILING — §-1.3, never a breadth target). ``facets`` accepts a heterogeneous
+    sequence of strings, :class:`~...expert_facet_planner.Facet` objects, or
+    Mappings; unknown shapes are skipped (fail-safe).
+    """
+    cap = _coverage_l5_max_entities() if max_entities is None else max(0, max_entities)
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _add(term: Any) -> None:
+        if not isinstance(term, str):
+            return
+        cleaned = " ".join(term.split()).strip().strip('"“”').strip()
+        if len(cleaned) < 2:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        ordered.append(cleaned)
+
+    # 1. explicit curated entity lists (highest confidence, added first)
+    for facet in facets or ():
+        for name in _explicit_facet_entities(facet):
+            _add(name)
+
+    # 2. proper nouns + quoted spans from the research question
+    for phrase in _proper_noun_phrases(research_question or ""):
+        _add(phrase)
+    for span in _quoted_spans(research_question or ""):
+        _add(span)
+
+    # 3. proper nouns + quoted spans from each facet's display text
+    for facet in facets or ():
+        text = _facet_text(facet)
+        if not text:
+            continue
+        for phrase in _proper_noun_phrases(text):
+            _add(phrase)
+        for span in _quoted_spans(text):
+            _add(span)
+
+    return tuple(ordered[:cap])
+
+
+@dataclass
+class CoverageL5Result:
+    """Outcome of one L5 lane invocation (for the manifest / audit trail).
+
+    ``evidence_rows`` are the NEWLY fetched corpus rows (real fetched URLs) the
+    caller merges into ``evidence_for_gen`` (same dedup + evidence_id renumber
+    the saturation gap-round + clinical lane use). ``gap_entities`` are the
+    derived required entities for which the lane surfaced NO candidate source —
+    they STAY gap disclosures (nothing injected, no fabrication). All counts are
+    deterministic and the lane NEVER mutates its inputs.
+    """
+
+    evidence_rows: list = field(default_factory=list)
+    derived_entities: tuple = ()
+    missing_entities: tuple = ()
+    queries_by_entity: Mapping = field(default_factory=dict)
+    gap_entities: tuple = ()
+    seed_urls: tuple = ()
+
+
+def run_l5_required_entity_coverage(
+    *,
+    research_question: str,
+    facets: Optional[Sequence[Any]],
+    corpus_texts: Sequence[str],
+    search_fn: Callable[..., Any],
+    retrieval_fn: Callable[..., Any],
+    domains: Optional[Sequence[str]] = None,
+) -> CoverageL5Result:
+    """Run the COVERAGE lever L5 lane (DEFAULT-ON, self-gated).
+
+    Pipeline:
+      1. DERIVE the required-entity set from ``research_question`` + ``facets``
+         (:func:`extract_required_entities`).
+      2. Keep ONLY the derived entities the corpus does not already mention
+         (:func:`entity_covered_in_corpus`) — the lenient substring coverage
+         signal that never over-fires for a present entity.
+      3. For each still-missing entity, fire ONE research-question-anchored
+         targeted ``search_fn`` query and COLLECT candidate URLs (bounded). An
+         entity that surfaces ZERO candidates is recorded in ``gap_entities`` and
+         STAYS a gap disclosure — nothing is injected for it.
+      4. FETCH the collected URLs through ``retrieval_fn`` seed-only (same Zyte
+         chokepoint, no Serper/S2 fan-out) and RETURN the fetched rows for the
+         caller to merge. Rows carry their REAL fetched URLs and are NEVER keyed
+         to an entity nor relabeled (provenance honesty — the operator-locked
+         exact-equality coverage gate cannot be tricked).
+
+    ``domains`` defaults to an EMPTY bias (field-agnostic — L5 spans economics,
+    technology, policy, ... so it must NOT bias to a clinical-authority set). The
+    caller may pass a bias set. DEPENDENCY-INJECTED ``search_fn`` / ``retrieval_fn``
+    keep this pure / offline-testable. Kill-switch OFF => empty no-op result.
+    """
+    if not coverage_l5_enabled():
+        return CoverageL5Result()
+
+    derived = extract_required_entities(research_question, facets)
+    if not derived:
+        return CoverageL5Result(derived_entities=derived)
+
+    missing = tuple(
+        entity
+        for entity in derived
+        if not entity_covered_in_corpus(entity, corpus_texts)
+    )
+    if not missing:
+        return CoverageL5Result(derived_entities=derived, missing_entities=())
+
+    max_results = _bounded_int_env(
+        _MAX_RESULTS_PER_QUERY_ENV, _DEFAULT_MAX_RESULTS_PER_QUERY
+    )
+    max_seed_urls = _bounded_int_env(
+        _MAX_SEED_URLS_PER_ENTITY_ENV, _DEFAULT_MAX_SEED_URLS_PER_ENTITY
+    )
+    bias = list(domains or [])
+    anchor = " ".join((research_question or "").split()).strip()
+
+    queries_by_entity: dict[str, str] = {}
+    seed_urls: list[str] = []
+    seen_seed: set[str] = set()
+    gap_entities: list[str] = []
+
+    for entity in missing:
+        query = f"{anchor} {entity}".strip() if anchor else entity
+        queries_by_entity[entity] = query
+        try:
+            hits = search_fn(query, domains=bias, max_results=max_results)
+        except Exception:  # noqa: BLE001 — discovery is best-effort
+            logger.warning("coverage_l5: search failed for entity=%r", entity)
+            hits = None
+        entity_urls: list[str] = []
+        for hit in hits or []:
+            url = _result_url(hit)
+            if not url or url in seen_seed:
+                continue
+            seen_seed.add(url)
+            entity_urls.append(url)
+            if len(entity_urls) >= max_seed_urls:
+                break
+        if not entity_urls:
+            # No candidate authoritative source surfaced -> the entity STAYS a
+            # gap disclosure (never fabricated, never forced-covered).
+            gap_entities.append(entity)
+        seed_urls.extend(entity_urls)
+
+    if not seed_urls:
+        return CoverageL5Result(
+            evidence_rows=[],
+            derived_entities=derived,
+            missing_entities=missing,
+            queries_by_entity=queries_by_entity,
+            gap_entities=tuple(gap_entities),
+            seed_urls=(),
+        )
+
+    try:
+        result = retrieval_fn(
+            research_question=research_question,
+            amplified_queries=[],
+            seed_urls=list(seed_urls),
+            seed_only=True,
+            seed_source=COVERAGE_L5_SEED_SOURCE_LABEL,
+            seed_query_origin=COVERAGE_L5_SEED_QUERY_ORIGIN,
+            anchor_seed=False,
+        )
+    except Exception:  # noqa: BLE001 — a failed fetch leaves the corpus as-is
+        logger.warning(
+            "coverage_l5: live-retrieval fetch raised for %d seed urls; "
+            "leaving corpus unchanged",
+            len(seed_urls),
+        )
+        return CoverageL5Result(
+            evidence_rows=[],
+            derived_entities=derived,
+            missing_entities=missing,
+            queries_by_entity=queries_by_entity,
+            gap_entities=tuple(gap_entities),
+            seed_urls=tuple(seed_urls),
+        )
+
+    evidence_rows = list(getattr(result, "evidence_rows", []) or [])
+    return CoverageL5Result(
+        evidence_rows=evidence_rows,
+        derived_entities=derived,
+        missing_entities=missing,
+        queries_by_entity=queries_by_entity,
+        gap_entities=tuple(gap_entities),
         seed_urls=tuple(seed_urls),
     )
