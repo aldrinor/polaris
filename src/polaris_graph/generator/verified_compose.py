@@ -90,6 +90,39 @@ def _number_tokens(text: str) -> frozenset[str]:
     return frozenset(m.group(0) for m in _NUMBER_TOKEN_RE.finditer(stripped))
 
 
+def _canon_number(tok: str) -> str:
+    """Canonicalize a number token for the L2 distinct-fact novelty test — strip thousands-separator
+    commas so ``"400,000"`` and ``"400000"`` compare equal. Any residual collision under this
+    normalization can only make two DIFFERENT numbers look EQUAL, which can only cause the additive
+    pass to SKIP a candidate (under-emit) — never to falsely surface a duplicate. So the normalization
+    is duplication-safe by direction. Pure."""
+    return (tok or "").replace(",", "")
+
+
+def _bare_integer_numbers(text: str) -> set[str]:
+    """The comma-normalized BARE-INTEGER number tokens in ``text`` — number tokens that are NEITHER
+    decimals (contain a ``.``) NOR percent-expressed integers (immediately followed by ``%`` /
+    ``percent``). These are the absolute counts, currency amounts, year/date data, and multipliers that
+    the abstractive writer's numeric-completeness gate (``abstractive_writer.make_writer_verify_fn``
+    P1-3) does NOT force into the one-sentence paraphrase — so they are the numbers a headline can DROP
+    on the SUCCESS path, and thus the ONLY numbers the L2 additive pass triggers on. Decimals and
+    percent-integers are SUBSTANTIVE (P1-3 forces them into the headline) and are owned by the
+    companion-figure pass; excluding them here keeps this pass byte-identical on percent/decimal-only
+    content and non-overlapping with companion-figure. Provenance ``[#ev:...]`` tokens are stripped
+    first so span offsets never count as content numbers. Pure."""
+    stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    out: set[str] = set()
+    for m in _NUMBER_TOKEN_RE.finditer(stripped):
+        tok = m.group(0)
+        if "." in tok:
+            continue  # decimal -> substantive (headline-forced) -> not a droppable bare integer
+        tail = stripped[m.end():m.end() + 9].lstrip()
+        if tail.startswith("%") or tail[:7].lower().startswith("percent"):
+            continue  # percent-expressed integer -> substantive -> owned by the companion-figure pass
+        out.add(_canon_number(tok))
+    return out
+
+
 def dedup_same_span_sentences(sentences: list) -> tuple[list, list]:
     """I-arch-011 #1269 B11 — collapse degenerate same-span restatements to ONE rendering per
     distinct resolved-span FOOTPRINT (the (ev_id,start,end) SET a sentence cites), keep-FIRST.
@@ -510,6 +543,28 @@ def _companion_figure_compose_enabled() -> bool:
     explicit 0/false/off/no disables. An EMPTY string behaves like UNSET (stays ON), so a blank
     env var cannot silently disable the companion-figure pass."""
     return os.getenv(_COMPANION_FIGURE_COMPOSE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+# I-deepfix-001 #1344 — L2 ADDITIVE DISTINCT-FACT gate (the ADDITIVE arm of sub-topic decomposition,
+# Item 11). L2's multi-fact producer (``build_multi_member_sentences`` / ``build_verified_span_draft_multi``)
+# today only surfaces its extra distinct facts as a per-basket FALLBACK — it fires ONLY when the
+# abstractive winner's prose FAILS strict_verify. On the abstractive SUCCESS path those extra facts
+# never render. This pass makes L2 ADDITIVE: after the headline is kept, surface the DISTINCT bare-integer
+# facts a basket already grounds that the abstractive paraphrase DROPPED — each a VERBATIM span slice
+# re-verified by the UNCHANGED strict_verify, ADDITIVE to (never replacing) the headline.
+# DEFAULT-OFF (LAW VI): OFF ⇒ the pass never runs ⇒ byte-identical. Default-OFF (not ON) because this
+# pass surfaces general non-percent source sentences — the SAME content space as the qualifier-elaboration
+# sibling (also default-OFF), so it must be opted in per-run and its effect validated in a small real run
+# before the large paid run (operator preflight discipline). §-1.3 CONSOLIDATE-keep-all (lifts
+# already-verified content; drops nothing). Kill-switch PG_SUBTOPIC_ADDITIVE_FACTS.
+_SUBTOPIC_ADDITIVE_FACTS_ENV = "PG_SUBTOPIC_ADDITIVE_FACTS"
+
+
+def _subtopic_additive_facts_enabled() -> bool:
+    """PG_SUBTOPIC_ADDITIVE_FACTS gate (mirrors ``_qualifier_elaboration_enabled``): DEFAULT-OFF =>
+    byte-identical; an explicit 1/true/on/yes turns the L2 additive distinct-fact pass ON. An unset or
+    blank env var stays OFF (a new content-surfacing pass must be opted in, never silently on)."""
+    return os.getenv(_SUBTOPIC_ADDITIVE_FACTS_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
 
 
 # I-deepfix-001 D1 (#1344) — WITHIN-BASKET QUALIFIER ELABORATION gate. DEFAULT-OFF (LAW VI): the
@@ -1768,6 +1823,130 @@ def compose_qualifier_elaboration_units(
     return kept
 
 
+def compose_distinct_fact_units(
+    basket: Any,
+    evidence_pool: dict,
+    composed_unit: str,
+    *,
+    verify_fn: Callable[..., Any],
+) -> list[str]:
+    """I-deepfix-001 #1344 (Item 11) — L2 ADDITIVE DISTINCT-FACT surfacing (the additive arm of
+    sub-topic decomposition).
+
+    THE GAP (abstractive SUCCESS path). The abstractive writer emits ONE paraphrase sentence per
+    SUPPORTS member, tagged with that member's WHOLE-quote span token. Its numeric-completeness gate
+    (``abstractive_writer.make_writer_verify_fn`` P1-3) forces every SUBSTANTIVE numeric (decimal /
+    percent-integer) of the whole span into that one sentence — but a member quote can ALSO ground
+    DISTINCT atomic facts the paraphrase drops: absolute counts, currency amounts, year/date data,
+    multipliers — bare integers the completeness gate does NOT require. Those distinct facts never
+    render on the success path (the per-basket K-span fallback that would surface them fires ONLY when
+    the paraphrase FAILS strict_verify). This pass makes L2 ADDITIVE instead of fallback-only: it
+    surfaces each such MISSING distinct fact, ADDITIVE to (never replacing) the kept headline.
+
+    Each surfaced fact is a VERBATIM sentence-unit of a member's own ``direct_quote``, tagged with the
+    member's REAL global offsets, re-verified by the UNCHANGED ``strict_verify`` (``verify_fn``) and
+    gated to the basket's own member regions (``_tokens_within_basket_regions``) — kept ONLY if BOTH
+    hold. General sibling of ``compose_companion_figure_units`` (which surfaces same-stem material-gap
+    PERCENT companions): here the selection filter is a member sentence-unit that states a BARE-INTEGER
+    number (absolute count / currency / date / multiplier — ``_bare_integer_numbers``) absent from the
+    composed headline. Decimals and percent-integers are SUBSTANTIVE (P1-3 forces them into the
+    paraphrase, and the companion-figure pass owns dropped percents), so this pass never triggers on
+    them — which keeps it byte-identical on percent/decimal-only content and non-overlapping with the
+    companion-figure pass. The bare integers are exactly the numbers a headline CAN drop on the success
+    path (the drb_72 "400,000 jobs by 2030" shape).
+
+    DUPLICATION-SAFE BY CONSTRUCTION (the operator's hard "no duplication" constraint). A unit is
+    surfaced ONLY when it carries a bare-integer number (comma-normalized via ``_canon_number``) that
+    appears NOWHERE in the composed headline. Because the abstractive writer copies numbers verbatim, a
+    number absent from the headline means the headline did NOT state that figure — so the surfaced unit
+    is a genuinely NEW fact, never a reword of the headline. A unit whose bare integers are ALL already
+    in the headline is skipped: if the headline already covers every distinct numeric fact the basket
+    grounds, this pass adds NOTHING. Any number collision under comma-normalization can only cause a SKIP
+    (under-emit), never a false surface — so the failure direction is always toward emitting LESS, never
+    a duplicate.
+
+    FAITHFULNESS (never relaxes a gate). Each surfaced sentence IS a real cited span (the member's own
+    verbatim words at its real offsets), carries NO connective / lead-in / aggregate / relational
+    predicate (zero non-span words), asserts NO corroboration (single-source attribution, exactly like
+    the headline — it never touches the >=2 distinct-origin floor), and must PASS ``verify_fn`` AND land
+    within the basket's own member regions to be kept. It can only ever emit a number that literally
+    appears in a real cited span; it never fabricates a figure and never invents a frame. §-1.3
+    CONSOLIDATE-keep-all: it DROPS nothing — it lifts already-verified content the headline omitted.
+
+    Skips any unit already surfaced by the headline (byte-identical text) so it never re-states the
+    headline sentence. Returns the kept distinct-fact sentences (each already ``[#ev:]``-tagged). Empty
+    when the headline already covers every member's numbers, no member carries a distinct numeric
+    non-headline sentence, or every candidate fails verify/region."""
+    kept: list[str] = []
+    headline_norm = " ".join((_EV_TOKEN_RE.sub(" ", composed_unit or "")).split()).strip().lower()
+    # Numbers the headline already states (comma-normalized). Seeded from the headline; grown as this
+    # pass surfaces units so a second unit restating an already-surfaced figure is not surfaced twice.
+    surfaced_numbers: set[str] = {_canon_number(n) for n in _number_tokens(composed_unit or "")}
+    scoped = _basket_scoped_pool(basket, evidence_pool)
+    regions = _basket_member_regions(basket, evidence_pool)
+    known_words = _known_words_for_compose(evidence_pool)
+    seen_span_keys: set[tuple] = set()
+    seen_norms: set[str] = set()
+    if headline_norm:
+        seen_norms.add(headline_norm)
+    for member in _basket_supports_members(basket):
+        eid = str(getattr(member, "evidence_id", "") or "")
+        quote = str(getattr(member, "direct_quote", "") or "")
+        gspan = _member_global_span(member, evidence_pool)
+        if not eid or not quote or gspan is None:
+            continue
+        gstart = gspan[0]
+        cursor = 0
+        for u in split_into_sentences(quote):
+            u = u.strip()
+            if not u:
+                continue
+            off = quote.find(u, cursor)
+            if off < 0:
+                off = quote.find(u)
+                if off < 0:
+                    continue
+            else:
+                cursor = off + len(u)
+            # Input hygiene: drop allowlist chrome + subjectless / mid-word-truncated fragments so a
+            # surfaced fact is always a whole real source sentence.
+            if _compose_junk_screen(u, known_words, require_sentence_form=True):
+                continue
+            u_norm = " ".join(u.split()).strip().lower()
+            if u_norm in seen_norms:
+                continue  # the headline (or an already-surfaced unit) already states this sentence
+            # SELECTION (bare-integer-anchored, duplication-safe): surface only a unit that states at
+            # least one BARE-INTEGER number (count / currency / date / multiplier — the numbers P1-3
+            # does NOT force into the paraphrase) that the headline dropped. A unit whose bare integers
+            # are all already in the headline adds no missing fact -> skip (no duplication). Decimals /
+            # percent-integers never trigger (headline-forced + companion-figure-owned).
+            u_bare = _bare_integer_numbers(u)
+            if not (u_bare - surfaced_numbers):
+                continue
+            s = gstart + off
+            e = s + len(u)
+            span_key = (eid, s, e)
+            if span_key in seen_span_keys:
+                continue
+            sentence = f"{_strip_terminal_punct(u)} [#ev:{eid}:{s}-{e}]."
+            res = verify_fn(sentence, scoped)
+            vtext = str(getattr(res, "sentence", "") or "").strip() or sentence
+            # Keep ONLY if the UNCHANGED strict_verify passes AND the cited token lands within this
+            # basket's OWN member regions (anti-cross-claim; True by construction for a within-quote
+            # slice, kept as a belt-and-suspenders check — never relaxes the engine).
+            if not bool(getattr(res, "is_verified", False)):
+                continue
+            if not _tokens_within_basket_regions(vtext, regions):
+                continue
+            seen_span_keys.add(span_key)
+            seen_norms.add(u_norm)
+            # Grow the seen set with EVERY number this unit stated (bare + any percents/decimals it
+            # carries) so a later unit restating the same figure is not surfaced twice.
+            surfaced_numbers |= {_canon_number(n) for n in _number_tokens(u)}
+            kept.append(vtext)
+    return kept
+
+
 def _compose_section_per_basket(
     section_baskets: list,
     evidence_pool: dict,
@@ -1930,6 +2109,41 @@ def _compose_section_per_basket(
                 seen_spans |= q_spans
                 seen_texts.add(q_norm)
                 out.append(elaboration)
+
+        # I-deepfix-001 #1344 (Item 11): L2 ADDITIVE DISTINCT-FACT surfacing. DEFAULT-OFF (OFF => this
+        # block is skipped => byte-identical). This is the ADDITIVE arm of sub-topic decomposition: L2's
+        # extra distinct facts used to render ONLY as the per-basket fallback when the paraphrase FAILED
+        # verify; now, on the SUCCESS path, surface this basket members' OTHER verbatim sentence-units
+        # that state a substantive NUMBER the abstractive headline DROPPED (absolute counts, currency,
+        # dates, multipliers — the bare integers the writer's numeric-completeness gate does NOT force
+        # into the paraphrase). Each is a VERBATIM span slice re-verified by the UNCHANGED strict_verify
+        # (verify_fn) + own-region gate, ADDITIVE to (never replacing) `composed`. Route each surfaced
+        # unit through the SAME in-scope dedup as `composed` (seen_spans / seen_texts /
+        # seen_numbers_by_footprint) so a TRUE duplicate collapses (incl. a unit already surfaced by the
+        # companion / qualifier pass above — identical span + text) but a genuinely-new fact is kept.
+        # Each kept unit is already [#ev:]-tokened, so it rides the same downstream
+        # _rewrite_draft_with_spans + strict_verify tail as every other composed unit.
+        if _subtopic_additive_facts_enabled():
+            for extra in compose_distinct_fact_units(
+                basket, evidence_pool, composed, verify_fn=verify_fn,
+            ):
+                if not extra or not extra.strip():
+                    continue
+                x_spans = _resolved_spans(extra)
+                x_norm = " ".join(extra.split())
+                x_footprint = frozenset(x_spans)
+                if x_footprint and x_footprint in seen_numbers_by_footprint:
+                    x_numbers = _number_tokens(extra)
+                    if not (x_numbers - seen_numbers_by_footprint[x_footprint]):
+                        continue
+                    seen_numbers_by_footprint[x_footprint] = seen_numbers_by_footprint[x_footprint] | x_numbers
+                if x_spans and x_spans <= seen_spans and x_norm in seen_texts:
+                    continue
+                if x_footprint and x_footprint not in seen_numbers_by_footprint:
+                    seen_numbers_by_footprint[x_footprint] = _number_tokens(extra)
+                seen_spans |= x_spans
+                seen_texts.add(x_norm)
+                out.append(extra)
 
     # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
     # no call). ON => append analytical sentences (two engine-licensed verified atoms) on top of the

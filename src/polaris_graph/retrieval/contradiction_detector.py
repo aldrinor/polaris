@@ -1569,6 +1569,71 @@ def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
     return confirmed_shared
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (item 13a) — SCOPE-MISMATCH guard (numeric-contradiction mislabel).
+#
+# The CLINICAL real-drug path skips ``_shared_metric_axes`` entirely
+# (``apply_metric_guard`` is False when the group's subject is a recognised drug —
+# see ``detect_contradictions``), so two claims about the SAME drug / predicate /
+# unit / dose that were measured at DIFFERENT time-windows (e.g. weight loss 7% at
+# week 26 vs 20.9% at week 88) or in DIFFERENT populations were asserted as a HARD
+# numeric contradiction. That is a MISLABEL: the numbers measure the same metric
+# under a different scope — an expected time-course range / stratum, not a
+# cross-source disagreement. The cert / drb runs surfaced these as high-severity
+# "contradictions" with meaningless 198%/4025% rel_diff, which drags the score.
+#
+# This guard downgrades such a group from a hard contradiction to a
+# ``possible_metric_mismatch`` (disclosed, BOTH values + their sources kept — §-1.3;
+# routed OUT of the headline contradiction count, never dropped). It fires ONLY on
+# POSITIVE scope divergence (an axis carrying >1 distinct non-empty value — the SAME
+# first-branch test ``_shared_metric_axes`` uses), so a genuine same-scope
+# disagreement (2.7% vs 6.5% weight loss BOTH at 40 weeks, two different sources) is
+# UNAFFECTED and still surfaces as a real contradiction. Faithfulness is NEVER
+# relaxed: strict_verify / NLI / 4-role / provenance / span-grounding are untouched,
+# and the change only makes the detector MORE conservative (fewer fabricated
+# contradictions). Default-OFF (``PG_CONTRADICTION_SCOPE_MISMATCH_GUARD``) so the OFF
+# path is byte-identical to the pre-fix tree; the benchmark run enables it in
+# run_gate_b (the "MUST set" pattern for a default-OFF validity winner).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SCOPE_MISMATCH_GUARD_FLAG = "PG_CONTRADICTION_SCOPE_MISMATCH_GUARD"
+_SCOPE_MISMATCH_GUARD_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+
+
+def _scope_mismatch_guard_enabled() -> bool:
+    """True when ``PG_CONTRADICTION_SCOPE_MISMATCH_GUARD`` is on. OFF (default) =>
+    byte-identical. Read at CALL time so tests can monkeypatch os.environ. Pure."""
+    return (
+        os.environ.get(_SCOPE_MISMATCH_GUARD_FLAG, "").strip().lower()
+        not in _SCOPE_MISMATCH_GUARD_OFF_VALUES
+    )
+
+
+def _group_has_divergent_scope_axis(group: list["ExtractedNumericClaim"]) -> bool:
+    """True iff the group's claims POSITIVELY diverge on a SCOPE axis — the
+    comparator / population / endpoint_phrase (time-window) carries MORE THAN ONE
+    distinct non-empty value.
+
+    Such a group measures the SAME metric under a DIFFERENT scope (weight loss at
+    week 26 vs week 88; efficacy in two different populations) — an expected range,
+    NOT a cross-source contradiction. This is the CONSERVATIVE positive-divergence
+    signal: it reuses the exact first-branch test of ``_shared_metric_axes`` (an axis
+    with >1 distinct non-empty value == conflicting scope). It fires ONLY on positive
+    divergence, so a group whose scope axes are empty or shared (e.g. both claims at
+    "40 weeks") returns False and a genuine same-scope disagreement is UNAFFECTED —
+    never mis-suppressed. Only these clinical discriminator axes are populated on the
+    clinical extraction path; the generic (non-clinical) path leaves them empty (that
+    path already routes through ``_shared_metric_axes``), so this never double-handles
+    a non-clinical group. Pure, never raises.
+    """
+    for axis in ("comparator", "population", "endpoint_phrase"):
+        non_empty = {(getattr(c, axis, "") or "").strip().lower() for c in group}
+        non_empty.discard("")
+        if len(non_empty) > 1:
+            return True
+    return False
+
+
 def _is_unknown_subject(subject: str) -> bool:
     """True when a group's subject is the UNKNOWN sentinel (``"unknown"`` / blank).
 
@@ -2101,6 +2166,24 @@ def detect_contradictions(
             metric_mismatch = (
                 apply_metric_guard and not _shared_metric_axes(group)
             )
+            # I-deepfix-001 (item 13a) — SCOPE-MISMATCH guard. The clinical real-drug path
+            # above leaves ``apply_metric_guard`` False, so ``_shared_metric_axes`` never runs
+            # and two claims about the SAME drug/predicate/unit/dose measured at DIFFERENT
+            # time-windows (week 26 vs week 88 weight loss) or in DIFFERENT populations were
+            # asserted as a HARD contradiction — a mislabel (an expected range, not a
+            # disagreement). When the group POSITIVELY diverges on a scope axis
+            # (endpoint_phrase / population / comparator), downgrade it to
+            # possible_metric_mismatch (disclosed, both sides + sources kept — §-1.3; routed
+            # OUT of the headline count, never dropped) rather than assert a contradiction.
+            # Faithfulness-SAFE: fires ONLY on positive scope divergence, so a genuine
+            # same-scope disagreement (2.7% vs 6.5% weight loss BOTH at 40 weeks) is UNAFFECTED
+            # and still surfaces as a real contradiction. Default-OFF => OFF-path byte-identical.
+            if (
+                not metric_mismatch
+                and _scope_mismatch_guard_enabled()
+                and _group_has_divergent_scope_axis(group)
+            ):
+                metric_mismatch = True
             if metric_mismatch:
                 # I-wire-012 (#1326): a contradiction needs a real OPPOSING VALUE. When the
                 # disagreeing values are all bare integer YEARS (no unit), this is year-noise, not

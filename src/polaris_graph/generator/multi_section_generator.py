@@ -4923,8 +4923,14 @@ async def _run_section(
             # provenance token -> re-passes the UNCHANGED strict_verify + P1-1 region gate below trivially
             # (faithfulness-neutral). Region-safe (tight per-unit offsets, no snap-past-region). Default-ON
             # kill-switch PG_SUBTOPIC_DECOMPOSITION; OFF => the single-headline short writer (byte-identical).
-            # (Dark on the paid ABSTRACTIVE path — that path's L2 lands via _compose_one_basket's
-            # build_verified_span_draft_multi fallback — but LIVE on smoke / non-abstractive runs.)
+            # (Dark on the paid ABSTRACTIVE path AS A WRITER — that path's L2 lands via
+            # _compose_one_basket's build_verified_span_draft_multi fallback — but LIVE on smoke /
+            # non-abstractive runs.) Item 11 (#1344) ADDITIVE arm: on the abstractive SUCCESS path, L2's
+            # distinct BARE-INTEGER facts (counts / currency / dates / multipliers) the paraphrase
+            # DROPPED can be surfaced ADDITIVELY by _compose_section_per_basket's
+            # compose_distinct_fact_units pass (DEFAULT-OFF kill-switch PG_SUBTOPIC_ADDITIVE_FACTS; opt
+            # in per-run) — each a verbatim span re-verified by the UNCHANGED strict_verify, never
+            # replacing the abstractive winner's prose.
             if _vc_subtopic_enabled():
                 _vc_writer_fn = lambda _b, _p: _vc_multi_writer(_b, evidence_pool)  # noqa: E731
             else:

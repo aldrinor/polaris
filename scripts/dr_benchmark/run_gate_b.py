@@ -4039,6 +4039,7 @@ async def run_gate_b_query(
     os.environ["PG_REPAIR_MARKER_PRUNE_ENABLED"] = "1"          # B17: fail-CLOSED unsupported-marker prune in sentence repair
     os.environ["PG_RENDER_GFM_TABLE_NORMALIZE"] = "1"           # B18: structural GFM table fixer (never drops/reorders cells)
     os.environ["PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH"] = "1"  # B18b: route metric-mismatch out of headline count (all sources disclosed)
+    os.environ["PG_CONTRADICTION_SCOPE_MISMATCH_GUARD"] = "1"      # 13a: same-drug different time-window/population -> possible_metric_mismatch, not a hard contradiction (default-OFF — MUST set; both sides disclosed)
     os.environ["PG_REPORT_D8_BANNER"] = "1"                     # B8: top-of-report unadjudicated banner when 4-role D8 did not bind
     os.environ["PG_REPORT_FULL_DROP_DISCLOSURE"] = "1"          # B8: count ALL drop categories in the evidence-support disclosure
     # B11C1 PG_OPENROUTER_PROVIDER_SLO force-on REMOVED (#1344): it injected invalid OpenRouter
