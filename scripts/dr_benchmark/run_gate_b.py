@@ -551,13 +551,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # pages = up to 3 Serper pages/query.
     "PG_SERPER_TOTAL_PER_QUERY": "60",
     "PG_SERPER_MAX_PAGES": "3",
-    # I-deepfix-001 (#1344) PURITY BUILD: STORM + the evidence deepener are LOSERS — killed. STORM is the
-    # core loser the operator saw fire (interview/query-expansion engine); the deepener is a non-winner
-    # bolt-on (operator decision: breadth EMERGES from FS-Researcher + WRRF, not a snowball deepener).
-    # Slate "0" + removed from FORCE_ON + REQUIRED + added to FORCE_EXACT "0" + REQUIRED_OFF below so the
-    # preflight FAILS CLOSED if either is ever re-armed.
+    # I-deepfix-001 (#1344) PURITY BUILD: STORM is a LOSER — killed. STORM is the core loser the operator
+    # saw fire (interview/query-expansion engine). Slate "0" + removed from FORCE_ON + REQUIRED + added to
+    # FORCE_EXACT "0" + REQUIRED_OFF below so the preflight FAILS CLOSED if it is ever re-armed.
+    # R1_deepener_enable: the citation-snowball evidence deepener (PG_SWEEP_EVIDENCE_DEEPENER) is NO LONGER
+    # a killed loser — it is the recall lever for the blocked-reference / primary-starved corpus (task72:
+    # T1+T2=14/182, the primaries behind a blocked systematic review never fetched). It is setdefault-ON
+    # below (NOT force / NOT slate-dict floor — LAW VI: an operator PG_SWEEP_EVIDENCE_DEEPENER=0 still wins)
+    # and REMOVED from FORCE_EXACT / REQUIRED_OFF / the NO-LOSER gate. WIDEN-ONLY (§-1.3): every discovered
+    # URL routes through the UNCHANGED fetch->tier->strict_verify chokepoint, so the FROZEN faithfulness
+    # engine re-grounds every claim (see the setdefault + key-passthrough block in
+    # apply_full_capability_benchmark_slate).
     "PG_STORM_ENABLED_IN_BENCHMARK": "0",
-    "PG_SWEEP_EVIDENCE_DEEPENER": "0",
     # I-deepfix-001 (#1344) PURITY — the remaining LOSER kill-switches that the slate previously did NOT
     # carry. force-EXACT "0" here (each is in _BENCHMARK_FORCE_EXACT_FLAGS) so a stray operator/.env value
     # cannot re-arm them past the slate; each is also asserted in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
@@ -1559,9 +1564,13 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS": 8192,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
-# Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
-# explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
-# preflight still passes, letting the paid run go with the evidence deepener silently off.
+# R1_deepener_enable (operator-authorized reversal, AskUserQuestion 2026-07-04): the old I-cap-005 P1-1
+# note required PG_SWEEP_EVIDENCE_DEEPENER-truthy so an operator =0 could NOT survive the setdefault slate.
+# R1 DELIBERATELY REVERSES that: the deepener is the recall lever, setdefault-ON (below) but LAW VI
+# operator-override-wins — an explicit operator PG_SWEEP_EVIDENCE_DEEPENER=0 MUST now survive (the deepener
+# SPENDS; the operator may legitimately run it dark). It is therefore NOT in this required-truthy tuple, NOT
+# in FORCE_EXACT, and NOT in REQUIRED_OFF. When the deepener is ON but SEMANTIC_SCHOLAR_API_KEY is absent
+# the slate emits a LOUD warning (fail-loud, not silent) so a dark recall lever is never a silent no-op.
 _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # I-deepfix-001 (#1344) PURITY: PG_STORM_ENABLED_IN_BENCHMARK removed — STORM is a LOSER, no longer
     # required-truthy (a required-truthy flag set to "0" in the slate would itself fail the preflight).
@@ -2030,14 +2039,14 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # I-deepfix-001 (#1344) PURITY — force-EXACT the LOSER kill-switches to "0" so a stray operator/.env
     # value can NEVER re-arm a killed loser past the slate. Each is also in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
     # (the NO-LOSER gate fails CLOSED if any resolves truthy). STORM core + its ingest seed-lane are STORM's
-    # twin live-discovery losers; the evidence deepener is a non-winner snowball bolt-on (operator decision:
-    # breadth EMERGES from FS-Researcher + WRRF); agentic URL-discovery is STORM's code-confirmed analogue;
-    # legacy q1d decompose / IterResearch / research-planner are superseded query-gen modules (FS-Researcher
-    # is the sole adaptive qgen winner). Force-EXACT "0" is the de-arm; REQUIRED_OFF is the fail-closed assert.
+    # twin live-discovery losers; agentic URL-discovery is STORM's code-confirmed analogue; legacy q1d
+    # decompose / IterResearch / research-planner are superseded query-gen modules (FS-Researcher is the
+    # sole adaptive qgen winner). Force-EXACT "0" is the de-arm; REQUIRED_OFF is the fail-closed assert.
+    # R1_deepener_enable: PG_SWEEP_EVIDENCE_DEEPENER is REMOVED from this force-EXACT kill (it is the recall
+    # lever, setdefault-ON in apply_full_capability_benchmark_slate — LAW VI operator-override-wins).
     "PG_STORM_ENABLED_IN_BENCHMARK",      # K1 STORM core (the loser the operator saw fire)
     "PG_STORM_ENABLED",                   # K1 storm_interviews module flag (dual-arm kill)
     "PG_STORM_INGEST_WEB_RESULTS",        # K3 STORM seed-URL ingest lane
-    "PG_SWEEP_EVIDENCE_DEEPENER",         # K8 citation-snowball deepener (non-winner)
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",     # K7 agentic URL-discovery (STORM's twin)
     "PG_SWEEP_QUERY_DECOMPOSE",           # K9 legacy q1d query_decompose (default-ON; kill at source)
     "PG_QGEN_ITERRESEARCH",               # K10 IterResearch driver (superseded by FS-Researcher)
@@ -2072,17 +2081,18 @@ _BENCHMARK_SPAN_WINDOW_MAX_BYTES = 2000
 # I-deepfix-001 (#1344) PURITY — the WINNERS-ONLY NO-LOSER set: every boolean loser/legacy that the
 # kill-list de-armed MUST resolve OFF before spend. The REQUIRED_OFF loop in preflight_full_capability
 # fails CLOSED if ANY of these is truthy (a stray operator/.env value re-arming a killed loser). STORM
-# core + ingest + agentic + deepener are the live-discovery / breadth-snowball losers; the three query-gen
-# entries (legacy decompose / IterResearch / research-planner) are the superseded query-gen modules
-# (FS-Researcher W2 is the sole adaptive qgen winner). PG_SWEEP_ANALYST_SYNTHESIS stays (the un-span-verified
-# synthesis layer). Each is ALSO force-EXACT "0" (slate de-arm) — REQUIRED_OFF is the fail-closed assert.
+# core + ingest + agentic are the live-discovery losers; the three query-gen entries (legacy decompose /
+# IterResearch / research-planner) are the superseded query-gen modules (FS-Researcher W2 is the sole
+# adaptive qgen winner). PG_SWEEP_ANALYST_SYNTHESIS stays (the un-span-verified synthesis layer). Each is
+# ALSO force-EXACT "0" (slate de-arm) — REQUIRED_OFF is the fail-closed assert.
+# R1_deepener_enable: PG_SWEEP_EVIDENCE_DEEPENER is REMOVED from this REQUIRED_OFF set — the citation-
+# snowball deepener is now the recall lever (setdefault-ON, widen-only), NOT a killed loser.
 _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
     "PG_SWEEP_ANALYST_SYNTHESIS",
     "PG_STORM_ENABLED_IN_BENCHMARK",   # K1 STORM core (the loser the operator saw fire)
     "PG_STORM_ENABLED",                # K1 storm_interviews module flag (dual-arm kill)
     "PG_STORM_INGEST_WEB_RESULTS",     # K3 STORM seed-URL ingest lane
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",  # K7 agentic URL-discovery (STORM's twin)
-    "PG_SWEEP_EVIDENCE_DEEPENER",      # K8 citation-snowball deepener (non-winner)
     "PG_SWEEP_QUERY_DECOMPOSE",        # K9 legacy q1d query_decompose (default-ON consumer)
     "PG_QGEN_ITERRESEARCH",            # K10 IterResearch driver (superseded by FS-Researcher)
     "PG_USE_RESEARCH_PLANNER",         # K11 legacy facet query-gen
@@ -2748,6 +2758,33 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     os.environ.setdefault("PG_MINERU25_BACKEND", "vlm-http-client")
     os.environ.setdefault("PG_MINERU25_SERVER_URL", "http://127.0.0.1:30024")
     # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # R1_deepener_enable: ENABLE the citation-snowball evidence deepener — the recall lever for the
+    # blocked-reference / primary-starved corpus (task72: adequacy='proceed' + fully covered, but
+    # T1+T2=14/182 — the 14 primary studies behind a BLOCKED systematic review were never fetched; the
+    # deepener does backward+forward Semantic Scholar citation chase, the exact tool to pull a review's
+    # primaries). `setdefault` (NOT force / NOT a slate-dict FLOOR): LAW VI — an operator/.env
+    # PG_SWEEP_EVIDENCE_DEEPENER=0 still WINS (a slate-dict boolean is max()-floored, which would force a
+    # "0" up to "1"; the explicit setdefault here is true operator-override-wins). WIDEN-ONLY (§-1.3):
+    # every URL the deepener discovers is fed back through the UNCHANGED run_live_retrieval(seed_urls=…)
+    # -> fetch -> classify_source_tier -> is_content_starved -> strict_verify chokepoint
+    # (run_honest_sweep_r3.py), so a thin/abstract-only paper is DROPPED fail-closed and the FROZEN
+    # faithfulness engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) re-grounds every
+    # claim — no tier laundering, no auto-trust, faithfulness NEVER relaxed.
+    os.environ.setdefault("PG_SWEEP_EVIDENCE_DEEPENER", "1")
+    # SEMANTIC_SCHOLAR_API_KEY passthrough: the deepener reads the key via os.getenv and no-ops without it
+    # (evidence_deepener.py). The key is a SECRET, so it is NEVER setdefaulted to a literal (LAW VI); it
+    # passes through from the process env / .env (load_dotenv) automatically on the in-process run_one_query
+    # path. FAIL LOUD (LAW II) if the deepener is ON but the key is absent, so the recall lever is not
+    # silently dark on a paid run.
+    if os.environ.get("PG_SWEEP_EVIDENCE_DEEPENER", "").strip().lower() in ("1", "true", "yes", "on") \
+            and not os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip():
+        print(
+            "[gate-b][deepener] WARNING: PG_SWEEP_EVIDENCE_DEEPENER is ON but SEMANTIC_SCHOLAR_API_KEY is "
+            "not set — the citation-snowball deepener will NO-OP (recall lever dark). Export the key to "
+            "enable backward+forward primary-study chasing.",
+            flush=True,
+        )
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
     # Correction 7 (Codex+Fable gate) — SPEED LEVER L1 429/BREADTH STEP-DOWN, made REAL (was a comment).
     # PG_LIVE_RETRIEVER_MAX_WORKERS is a FLOOR entry (max(existing, 48)), so the forensic monitor CANNOT
     # lower it via the plain env — the floor raises it right back to 48. Honor a DEDICATED step-down
@@ -3379,9 +3416,11 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
 
     # ── GATE (A): NO-LOSER — assert every killed loser is provably dead ──────────────────────────────
     # The boolean losers are already wired through the _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS loop above
-    # (STORM core/ingest/agentic/deepener/decompose/iterresearch/research-planner — each raises if truthy).
+    # (STORM core/ingest/agentic/decompose/iterresearch/research-planner — each raises if truthy).
     # This gate adds the STRUCTURAL + STRING-valued + module-level loser assertions the truthy-off loop
     # cannot express, each fail-CLOSED with a clear message.
+    # R1_deepener_enable: PG_SWEEP_EVIDENCE_DEEPENER is REMOVED from the loser list — it is the recall lever
+    # (setdefault-ON, widen-only), NOT a killed loser; a value of "1" is now VALID, not a dropped-pin regression.
     #
     # A.1 — slate membership: a killed loser must NOT have crept back into FORCE_ON / REQUIRED-truthy (a
     # dropped-pin regression). The REQUIRED_OFF loop catches the env VALUE; this catches the slate STRUCTURE
@@ -3390,7 +3429,6 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
     for _loser in (
         "PG_STORM_ENABLED_IN_BENCHMARK", "PG_STORM_INGEST_WEB_RESULTS",
         "PG_STORM_OUTLINE_SECTIONS", "PG_AGENTIC_SEARCH_IN_BENCHMARK",
-        "PG_SWEEP_EVIDENCE_DEEPENER",
     ):
         if _loser in _BENCHMARK_FORCE_ON_FLAGS or _loser in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
             raise RuntimeError(

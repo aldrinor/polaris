@@ -73,12 +73,18 @@ from scripts.dr_benchmark.run_gate_b import (
 # losers (run_gate_b.py:518-539), the live-embedder hole (A.5, run_gate_b.py:2574), and the gemma
 # absence (A.6, run_gate_b.py:2585).
 _LOSER_NEGATIVE_CASES: tuple[tuple[str, str, str], ...] = (
-    # boolean STORM / agentic / deepener / decompose / iterresearch / research-planner losers —
+    # boolean STORM / agentic / decompose / iterresearch / research-planner losers —
     # caught by the REQUIRED_OFF loop (run_gate_b.py:2362) the NO-LOSER gate consolidates.
+    # R1_deepener_enable (operator-authorized reversal, AskUserQuestion 2026-07-04): the citation-
+    # snowball evidence deepener (PG_SWEEP_EVIDENCE_DEEPENER) is NO LONGER a killed loser — it is the
+    # recall lever, setdefault-ON + widen-only (every discovered URL re-passes the UNCHANGED
+    # fetch->tier->strict_verify chokepoint). It is therefore REMOVED from this negative-case list (a
+    # value of "1" is now VALID, not a re-armed loser). The unlock is STORM/F2-scoped: every OTHER loser
+    # below MUST STILL raise. The deepener's honored-not-forced-to-0 behaviour + the STORM/F2-still-raise
+    # purity are proven in tests/polaris_graph/test_deepener_autotrigger_r1.py.
     ("PG_STORM_ENABLED_IN_BENCHMARK", "1", "PG_STORM_ENABLED_IN_BENCHMARK"),
     ("PG_STORM_INGEST_WEB_RESULTS", "1", "PG_STORM_INGEST_WEB_RESULTS"),
     ("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1", "PG_AGENTIC_SEARCH_IN_BENCHMARK"),
-    ("PG_SWEEP_EVIDENCE_DEEPENER", "1", "PG_SWEEP_EVIDENCE_DEEPENER"),
     ("PG_SWEEP_QUERY_DECOMPOSE", "1", "PG_SWEEP_QUERY_DECOMPOSE"),
     ("PG_QGEN_ITERRESEARCH", "1", "PG_QGEN_ITERRESEARCH"),
     ("PG_USE_RESEARCH_PLANNER", "1", "PG_USE_RESEARCH_PLANNER"),
@@ -176,6 +182,12 @@ def test_no_loser_positive_clean_slate_passes():
     _apply_clean_winners_only_slate()
     # Must not raise — a clean slate is exactly the state a paid run must reach.
     _run_preflight_offline()
+    # R1_deepener_enable: the citation-snowball deepener is now an ALLOWED module — the slate setdefaults
+    # it ON (recall lever, widen-only) and the preflight above did NOT raise on it. This asserts the
+    # framework was WIDENED (deepener honored), NOT weakened: every OTHER loser still raises (the
+    # parametrized negative below) and the deepener stayed out of the kill structures.
+    assert os.environ.get("PG_SWEEP_EVIDENCE_DEEPENER") == "1"
+    assert "PG_SWEEP_EVIDENCE_DEEPENER" not in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
 
 
 @pytest.mark.parametrize(

@@ -127,11 +127,16 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "0"    # agentic URL-discovery KILLED loser (force-off)
     assert captured["PG_NLI_IN_BENCHMARK"] == "1"              # NLI entailment annotation ON for benchmark
     # I-cap-005 (#1068) KEYSTONE assertions: full-capability slate applied + preflight passed.
-    # I-deepfix-001 (#1344) PURITY: STORM core + the citation-snowball deepener are KILLED losers — the
-    # slate force-EXACTs both to "0" (was "1") and the NO-LOSER preflight gate fails closed if re-armed.
+    # I-deepfix-001 (#1344) PURITY: STORM core is a KILLED loser — the slate force-EXACTs it to "0" and
+    # the NO-LOSER preflight gate fails closed if it is re-armed.
     assert captured["PG_STORM_ENABLED_IN_BENCHMARK"] == "0"    # STORM KILLED loser (slate force-exact "0")
     assert captured["PG_ENABLE_TOOL_TRACKER"] == "1"           # tracker ON so feature firing is provable
-    assert captured["PG_SWEEP_EVIDENCE_DEEPENER"] == "0"       # citation-snowball deepener KILLED loser (force-exact "0")
+    # R1_deepener_enable (operator-authorized reversal, AskUserQuestion 2026-07-04): the citation-snowball
+    # deepener is NO LONGER a killed loser — it is the recall lever, setdefault-ON (widen-only, LAW VI
+    # operator-override-wins). run_gate_b_query -> apply_full_capability_benchmark_slate setdefaults it to
+    # "1" here (the STORM/F2 unlock is deepener-scoped; every other loser stays killed). Every URL the
+    # deepener discovers still re-passes the UNCHANGED fetch->tier->strict_verify chokepoint.
+    assert captured["PG_SWEEP_EVIDENCE_DEEPENER"] == "1"       # recall lever, setdefault-ON (was force-exact "0")
     assert int(captured["PG_SWEEP_FETCH_CAP"]) >= 500          # the REAL fetch knob, above the floor
     assert int(captured["PG_SWEEP_MAX_SERPER"]) >= 50          # not the dead PG_LIVE_* name
     assert int(captured["PG_SWEEP_MAX_S2"]) >= 50

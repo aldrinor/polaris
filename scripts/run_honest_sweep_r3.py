@@ -10429,6 +10429,7 @@ async def run_one_query(
         from src.polaris_graph.retrieval.deepener_sweep_adapter import (
             build_deepener_state,
             discovered_urls,
+            is_review_heavy_or_primary_starved,
             run_deepener_sync,
             should_trigger_deepener,
         )
@@ -10444,6 +10445,15 @@ async def run_one_query(
             has_seed_evidence=len(retrieval.evidence_rows) > 0,
             adequacy_decision=adequacy.decision,
             total_uncovered=completeness.total_uncovered,
+            # R1_deepener_enable: ALSO fire on the blocked-reference / primary-starved corpus the
+            # value-based borderline gate misses (task72: adequacy='proceed' + uncovered==0, but
+            # T1+T2=14/182 — the primaries behind a blocked systematic review were never fetched).
+            # WIDEN-ONLY (§-1.3): the discovered URLs still route through the UNCHANGED
+            # run_live_retrieval(seed_urls=...) fetch->tier->strict_verify chokepoint below.
+            corpus_review_heavy=is_review_heavy_or_primary_starved(
+                classified_sources=retrieval.classified_sources,
+                tier_counts=getattr(dist, "tier_counts", None),
+            ),
         )):
             _hb("deepener_started")  # GH #1258 PART 2: stage-tick bracketing the evidence deepener
             try:

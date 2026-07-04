@@ -34,19 +34,137 @@ def should_trigger_deepener(
     has_seed_evidence: bool,
     adequacy_decision: str,
     total_uncovered: int,
+    corpus_review_heavy: bool = False,
 ) -> bool:
     """Stop-RAG value-based trigger (Codex brief-gate iter-1 required predicate). The deepener fires
     ONLY when it is enabled AND there is something to chase from AND the corpus is BORDERLINE — i.e.
     NOT on an already-comfortably-adequate corpus with full coverage.
 
-    - `flag_on`: PG_SWEEP_EVIDENCE_DEEPENER truthy (default OFF — the deepener SPENDS).
+    - `flag_on`: PG_SWEEP_EVIDENCE_DEEPENER truthy (the deepener SPENDS).
     - `has_s2_key`: SEMANTIC_SCHOLAR_API_KEY present (the deepener no-ops without it).
     - `has_seed_evidence`: there is existing evidence to chase citations FROM (else "abort-impossible").
     - borderline := adequacy.decision != "proceed" (i.e. "expand"/"abort") OR post-R6 uncovered topics > 0.
+    - `corpus_review_heavy` (R1_deepener_enable): ALSO deepen a corpus that is comfortably adequate +
+      fully covered but REVIEW-HEAVY / PRIMARY-STARVED — the task72 blocked-reference miss (a systematic
+      review COVERS the topic so adequacy='proceed' + uncovered==0, but the primary studies behind it
+      were never fetched). Computed by is_review_heavy_or_primary_starved. Default False keeps the
+      pre-R1 behaviour byte-identical. This ONLY widens WHEN the snowball runs; every discovered URL
+      still earns its tier through the unchanged fetch/tier/strict_verify chokepoint (§-1.3 widen-only).
+
+    The flag / key / seed-evidence preconditions are HARD — corpus_review_heavy never bypasses them.
     """
     if not (flag_on and has_s2_key and has_seed_evidence):
         return False
-    return adequacy_decision != "proceed" or total_uncovered > 0
+    return adequacy_decision != "proceed" or total_uncovered > 0 or corpus_review_heavy
+
+
+# R1_deepener_enable: systematic-review / meta-analysis title markers. Mirrors the canonical
+# tier_classifier._detect_systematic_review_from_title keyword set, inlined so this pure-orchestration
+# adapter stays import-light + dependency-free (module docstring). Used ONLY to DECIDE whether to widen
+# retrieval — never to filter, demote, or re-tier a source (§-1.3 WEIGHT-don't-FILTER).
+_SR_MA_TITLE_MARKERS = (
+    "systematic review",
+    "meta-analysis",
+    "meta analysis",
+    "network meta-analysis",
+    "cochrane review",
+    "umbrella review",
+    "scoping review",
+    "pooled analysis",
+)
+
+
+def _title_is_systematic_review(title: str) -> bool:
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _SR_MA_TITLE_MARKERS)
+
+
+def is_review_heavy_or_primary_starved(
+    *,
+    classified_sources: list[Any] | None,
+    tier_counts: dict[str, int] | None,
+) -> bool:
+    """R1_deepener_enable AUTO-TRIGGER — fire the citation-snowball deepener on the blocked-reference /
+    primary-starved corpus the value-based borderline gate (should_trigger_deepener) misses.
+
+    task72 pathology (proven from the Box-B drb_72 corpus): a systematic review COVERS the topic so
+    corpus_adequacy='proceed' AND completeness.total_uncovered==0, yet T1+T2 = 14/182 (7.7%) — the
+    primary studies behind a (blocked) systematic review were never fetched.
+
+    WIDEN-ONLY (§-1.3): this predicate ONLY decides WHETHER to run the snowball. Every URL the deepener
+    discovers is still fed back through the UNCHANGED run_live_retrieval(seed_urls=...) -> fetch ->
+    classify_source_tier -> is_content_starved -> strict_verify chokepoint; a thin/abstract-only paper
+    is DROPPED fail-closed and the FROZEN faithfulness engine re-grounds every claim. Nothing here
+    filters, demotes, caps, or auto-trusts a source.
+
+    Two OR'd signals, both env-tunable (LAW VI):
+      (A) review-heavy-with-thin-primaries := (>= PG_DEEPENER_REVIEW_MIN_COUNT systematic reviews /
+          meta-analyses present — T2 tier OR title-detected SR/MA, catching a review mis-tiered off T2)
+          AND (T1 primary fraction < PG_DEEPENER_REVIEW_PRIMARY_CEIL). A review exists but the primaries
+          behind it are missing — the blocked-reference signature.
+      (B) primary-starved := (T1+T2) fraction of the corpus < PG_DEEPENER_PRIMARY_STARVED_FRAC — the
+          top peer-reviewed evidence is thin overall.
+    """
+    counts = dict(tier_counts or {})
+    total = 0
+    for v in counts.values():
+        try:
+            total += int(v)
+        except (TypeError, ValueError):
+            continue
+    sources = list(classified_sources or [])
+    if total <= 0:
+        total = len(sources)
+    if total <= 0:
+        return False
+
+    def _tier_count(key: str) -> int:
+        try:
+            return int(counts.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    t1 = _tier_count("T1")
+    t2 = _tier_count("T2")
+
+    # Title-detected SR/MA among sources NOT already counted as T2 — a review mis-tiered as T4/T6/T7
+    # (e.g. the blocked sciencedirect systematic review on task72). Additive to the T2 review count.
+    review_titles = 0
+    for s in sources:
+        if isinstance(s, dict):
+            tier = str(s.get("tier", "") or "")
+            title = str(s.get("title", "") or "")
+        else:
+            tier = str(getattr(s, "tier", "") or "")
+            title = str(getattr(s, "title", "") or "")
+        if tier.upper() != "T2" and _title_is_systematic_review(title):
+            review_titles += 1
+
+    review_count = t2 + review_titles
+    primary_frac = t1 / total
+    top_tier_frac = (t1 + t2) / total
+
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return int(os.getenv(name, str(default)))
+        except (TypeError, ValueError):
+            return default
+
+    def _env_float(name: str, default: float) -> float:
+        try:
+            return float(os.getenv(name, str(default)))
+        except (TypeError, ValueError):
+            return default
+
+    review_min = _env_int("PG_DEEPENER_REVIEW_MIN_COUNT", 1)
+    review_primary_ceil = _env_float("PG_DEEPENER_REVIEW_PRIMARY_CEIL", 0.40)
+    primary_starved_frac = _env_float("PG_DEEPENER_PRIMARY_STARVED_FRAC", 0.25)
+
+    review_heavy = (review_count >= review_min) and (primary_frac < review_primary_ceil)
+    primary_starved = top_tier_frac < primary_starved_frac
+    return review_heavy or primary_starved
 
 
 def build_deepener_state(evidence_rows: list[dict[str, Any]], question: str) -> dict[str, Any]:
