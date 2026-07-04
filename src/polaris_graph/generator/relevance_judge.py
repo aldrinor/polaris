@@ -105,6 +105,69 @@ _DEFAULT_REASONING_EFFORT = "high"
 _DEFAULT_MAX_TOKENS = 131072
 _DEFAULT_TIMEOUT_S = 30.0
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 Item-12 (DNS resilience). The W2 content-relevance escalation is DEFAULT-ON and
+# force-enabled by run_gate_b, so this per-citation judge fires on every paid run. A TRANSIENT DNS /
+# name-resolution blip (getaddrinfo "Temporary failure in name resolution" -> httpx.ConnectError)
+# previously fell straight through to the always-release SUPPORTED keep on the FIRST hit, silently
+# dropping the relevance dimension for that citation (Item-12: ~5x/run, ~25s wasted each). Add a
+# BOUNDED retry-with-backoff for DNS / transient-CONNECT faults ONLY. A parse / empty /
+# unparseable-verdict / HTTP-status fault keeps the byte-identical single-attempt always-release path;
+# a BudgetExceededError still propagates (never retried, never masked).
+#
+# FAITHFULNESS-NEUTRAL (§9.1 the faithfulness ENGINE is the only hard gate; §-1.3 weight-not-filter):
+# the relevance label is NEVER the faithfulness gate — it runs ALONGSIDE strict_verify on cites that
+# ALREADY cleared the hard gate, and its only downstream effect is to DEMOTE a citation's weight
+# (never DROP the source). On retry exhaustion the SAME always-release SUPPORTED keep fires (existing
+# behavior, unchanged). So the retry can only RECOVER a real verdict on a transient blip (which may
+# DEMOTE = strengthen) or be a no-op; it never relaxes faithfulness and never drops a credible source.
+# Env-driven per LAW VI (read at call time so the harness can toggle without re-import).
+# ─────────────────────────────────────────────────────────────────────────────
+_ENV_DNS_RETRY_ATTEMPTS = "PG_RELEVANCE_DNS_RETRY_ATTEMPTS"       # extra retries after the first attempt
+_ENV_DNS_RETRY_BACKOFF_S = "PG_RELEVANCE_DNS_RETRY_BACKOFF_S"     # base backoff seconds (exponential)
+_ENV_DNS_RETRY_BACKOFF_CAP_S = "PG_RELEVANCE_DNS_RETRY_BACKOFF_CAP_S"  # per-wait ceiling seconds
+_DEFAULT_DNS_RETRY_ATTEMPTS = 2       # -> up to 3 total attempts (the task's "2-3x")
+_DEFAULT_DNS_RETRY_BACKOFF_S = 1.0    # short backoff: 1s, 2s, ... (exponential, capped)
+_DEFAULT_DNS_RETRY_BACKOFF_CAP_S = 10.0
+
+# DNS / name-resolution / transient-connection markers (host-agnostic, lowercase substrings). Mirrors
+# the connectivity subset of entailment_judge._RATE_LIMIT_CONNECTIVITY_MARKERS. A getaddrinfo failure
+# surfaces as httpx.ConnectError wrapping socket.gaierror; the string markers catch the same fault when
+# it arrives inside a differently-typed exception (e.g. a wrapped/re-raised transport error).
+_DNS_CONNECT_MARKERS: tuple[str, ...] = (
+    "getaddrinfo",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "nodename nor servname",
+    "name resolution",
+    "failed to resolve",
+)
+
+
+def _is_dns_or_transient_connect_error(exc: BaseException) -> bool:
+    """True iff ``exc`` is a DNS / name-resolution / transient-CONNECT transport fault a bounded retry
+    can heal — ``httpx.ConnectError`` / ``httpx.ConnectTimeout`` (a getaddrinfo failure surfaces here), a
+    raw ``socket.gaierror``, or any exception whose type/string carries a DNS marker. A parse / empty /
+    HTTP-status / read-timeout / bad-verdict fault returns False, so the caller keeps its single-attempt
+    always-release path for those. Never raises (a predicate must never break the judge)."""
+    try:
+        import httpx  # local import: keep the OFF-path import cost zero
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return True
+    except Exception:  # noqa: BLE001 — httpx import/type checks must never break the predicate
+        pass
+    try:
+        import socket
+        if isinstance(exc, socket.gaierror):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        haystack = f"{type(exc).__name__}: {exc}".lower()
+        return any(marker in haystack for marker in _DNS_CONNECT_MARKERS)
+    except Exception:  # noqa: BLE001
+        return False
+
 
 def relevance_gate_enabled() -> bool:
     """True iff the SURE-RAG relevance gate is ON (``PG_RELEVANCE_GATE`` truthy).
@@ -279,6 +342,27 @@ class _RelevanceJudge:
             timeout=httpx.Timeout(self._timeout_s),
         )
 
+    def _dns_retry_attempts(self) -> int:
+        """I-deepfix-001 Item-12: extra retries after the first attempt on a DNS / transient-connect
+        fault (env-driven per LAW VI; read at call time). A bad value falls back to the default."""
+        try:
+            return max(0, int(os.environ.get(_ENV_DNS_RETRY_ATTEMPTS, _DEFAULT_DNS_RETRY_ATTEMPTS)))
+        except (TypeError, ValueError):
+            return _DEFAULT_DNS_RETRY_ATTEMPTS
+
+    def _dns_retry_wait_s(self, attempt: int) -> float:
+        """I-deepfix-001 Item-12: exponential short backoff (base * 2**attempt) capped at the ceiling
+        (env-driven per LAW VI). Returns >= 0.0; a bad env value falls back to the defaults."""
+        try:
+            base = float(os.environ.get(_ENV_DNS_RETRY_BACKOFF_S, _DEFAULT_DNS_RETRY_BACKOFF_S))
+        except (TypeError, ValueError):
+            base = _DEFAULT_DNS_RETRY_BACKOFF_S
+        try:
+            cap = float(os.environ.get(_ENV_DNS_RETRY_BACKOFF_CAP_S, _DEFAULT_DNS_RETRY_BACKOFF_CAP_S))
+        except (TypeError, ValueError):
+            cap = _DEFAULT_DNS_RETRY_BACKOFF_CAP_S
+        return max(0.0, min(base * (2 ** attempt), cap))
+
     def judge(self, claim: str, span: str) -> "tuple[str, str]":
         """Return (label, reason). label is one of SUPPORTED/INSUFFICIENT/REFUTED.
 
@@ -311,43 +395,76 @@ class _RelevanceJudge:
             "Content-Type": "application/json",
         }
         started = time.monotonic()
-        try:
-            response = self._client.post(self._endpoint, headers=headers, json=json_body)
-            response.raise_for_status()
-            data = response.json()
-            # Record judge spend against the per-run budget cap + cost ledger, mirroring the
-            # entailment judge. BudgetExceededError propagates (a cap breach aborts cleanly).
+        # I-deepfix-001 Item-12 (DNS resilience): a bounded SAME-endpoint retry-with-backoff around the
+        # POST+parse. ONLY a DNS / transient-connect fault is retried (a getaddrinfo blip that would
+        # otherwise waste ~25s and silently drop the relevance dimension); every OTHER fault keeps the
+        # byte-identical single-attempt always-release path, and BudgetExceededError propagates. On retry
+        # exhaustion the SAME always-release SUPPORTED keep fires — faithfulness-neutral (this label is
+        # never the hard gate; it only DEMOTES weight on an already-verified cite, never drops a source).
+        attempts = self._dns_retry_attempts()
+        last_exc: Optional[BaseException] = None
+        for attempt in range(attempts + 1):
             try:
-                from src.polaris_graph.llm import openrouter_client as _orc  # noqa: PLC0415
-                _usage = (data or {}).get("usage") or {}
-                _cost = _usage.get("cost")
-                if _cost is not None:
-                    _orc._add_run_cost(float(_cost))
-                    _orc.check_run_budget(0)
-            except ImportError:
-                pass
-            choices = (data or {}).get("choices") or []
-            content = ""
-            if choices:
-                content = ((choices[0] or {}).get("message") or {}).get("content") or ""
-            obj = _extract_first_json_object(content)
-            label = normalize_label(obj.get("label"))
-            reason = str(obj.get("reason") or "")[:200]
-            if label is None:
-                return (LABEL_SUPPORTED, f"judge_error: unparseable_verdict:{content[:80]!r}")
-            return (label, reason)
-        except Exception as exc:  # noqa: BLE001 — fail to SUPPORTED (keep cite), never hold
-            from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
-                BudgetExceededError,
-            )
-            if isinstance(exc, BudgetExceededError):
-                raise
-            dur_ms = int((time.monotonic() - started) * 1000)
-            logger.warning(
-                "[relevance] judge transport/parse fault (%dms) -> SUPPORTED keep: %s",
-                dur_ms, exc,
-            )
-            return (LABEL_SUPPORTED, f"judge_error: {type(exc).__name__}:{str(exc)[:120]}")
+                response = self._client.post(self._endpoint, headers=headers, json=json_body)
+                response.raise_for_status()
+                data = response.json()
+                # Record judge spend against the per-run budget cap + cost ledger, mirroring the
+                # entailment judge. BudgetExceededError propagates (a cap breach aborts cleanly).
+                try:
+                    from src.polaris_graph.llm import openrouter_client as _orc  # noqa: PLC0415
+                    _usage = (data or {}).get("usage") or {}
+                    _cost = _usage.get("cost")
+                    if _cost is not None:
+                        _orc._add_run_cost(float(_cost))
+                        _orc.check_run_budget(0)
+                except ImportError:
+                    pass
+                choices = (data or {}).get("choices") or []
+                content = ""
+                if choices:
+                    content = ((choices[0] or {}).get("message") or {}).get("content") or ""
+                obj = _extract_first_json_object(content)
+                label = normalize_label(obj.get("label"))
+                reason = str(obj.get("reason") or "")[:200]
+                if label is None:
+                    return (LABEL_SUPPORTED, f"judge_error: unparseable_verdict:{content[:80]!r}")
+                return (label, reason)
+            except Exception as exc:  # noqa: BLE001 — fail to SUPPORTED (keep cite), never hold
+                from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+                    BudgetExceededError,
+                )
+                if isinstance(exc, BudgetExceededError):
+                    raise
+                last_exc = exc
+                # Retry ONLY a DNS / transient-connect blip; a parse / empty / HTTP-status / bad-verdict
+                # fault keeps the single-attempt always-release path (byte-identical to pre-fix).
+                if attempt < attempts and _is_dns_or_transient_connect_error(exc):
+                    wait = self._dns_retry_wait_s(attempt)
+                    logger.warning(
+                        "[relevance] DNS/transient-connect fault -> retry %d/%d in %.1fs: %s",
+                        attempt + 1, attempts, wait, str(exc)[:120],
+                    )
+                    if wait > 0:
+                        time.sleep(wait)
+                    continue
+                dur_ms = int((time.monotonic() - started) * 1000)
+                logger.warning(
+                    "[relevance] judge transport/parse fault (%dms) -> SUPPORTED keep: %s",
+                    dur_ms, exc,
+                )
+                return (LABEL_SUPPORTED, f"judge_error: {type(exc).__name__}:{str(exc)[:120]}")
+        # Unreachable in the current flow (every loop iteration returns or continues, and the final
+        # attempt's except returns), but keep a fail-open-KEEP backstop so a future refactor can never
+        # strand the caller on a runtime fault. §-1.3 always-release preserved.
+        dur_ms = int((time.monotonic() - started) * 1000)
+        logger.warning(
+            "[relevance] judge retry loop exhausted (%dms) -> SUPPORTED keep: %s",
+            dur_ms, last_exc,
+        )
+        return (
+            LABEL_SUPPORTED,
+            f"judge_error: {type(last_exc).__name__ if last_exc else 'unknown'}:{str(last_exc)[:120]}",
+        )
 
 
 _JUDGE_SINGLETON: Optional[_RelevanceJudge] = None
