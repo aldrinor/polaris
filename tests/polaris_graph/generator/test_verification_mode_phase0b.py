@@ -116,8 +116,8 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)
     monkeypatch.delenv("PG_STRICT_VERIFY_ENTAILMENT", raising=False)
     monkeypatch.delenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", raising=False)
-    # I-arch-010 FIX-1: clear so the judge_error advisory default (ON) is deterministic
-    # regardless of ambient env; tests that need the legacy hard-drop set it to "0" explicitly.
+    # I-deepfix-001 item G: clear so the judge_error DEFAULT (FAIL CLOSED) is deterministic
+    # regardless of ambient env; the one test that needs the advisory soft-keep opts in with "1".
     monkeypatch.delenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", raising=False)
     yield
 
@@ -412,9 +412,9 @@ def test_s0b4_delta3_judge_error_legacy_hard_drop_with_advisory_off(monkeypatch)
     # (PG_STRICT_VERIFY_ENTAILMENT), DECOUPLED from PG_VERIFICATION_MODE (which ALSO enables the Phase 0b
     # rescue WIDENING). With entailment=enforce a judge_error fails closed REGARDLESS of
     # PG_VERIFICATION_MODE — previously off-verification-mode left the fail-open ENTAILED in place.
-    # I-arch-010 FIX-1: the judge_error hard-drop is now DEFAULT-advisory; this test pins the
-    # kill-switch PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0 to assert the byte-identical LEGACY hard-drop
-    # is preserved (the companion test below asserts the new default advisory-keep).
+    # I-deepfix-001 item G: judge_error now FAILS CLOSED by default; this test pins the explicit
+    # PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0 to assert that value also fails closed (identical to the
+    # default). The companion test above pins the unset default fail-closed; a third pins the "1" opt-in.
     monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)  # verification mode OFF (no rescue)
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     monkeypatch.setenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "0")  # legacy hard-drop
@@ -428,23 +428,51 @@ def test_s0b4_delta3_judge_error_legacy_hard_drop_with_advisory_off(monkeypatch)
     )
 
 
-def test_s0b4_delta3_judge_error_advisory_keep_is_default(monkeypatch):
-    # I-arch-010 FIX-1: by DEFAULT (PG_ENTAILMENT_JUDGE_ERROR_ADVISORY unset/=1) a TRANSPORT
-    # judge_error under entailment=enforce is demoted from a hard DROP to an ADVISORY soft-warning.
-    # The sentence is KEPT on the deterministic (a)-(e) checks (is_verified=True), carries the durable
+def test_s0b4_delta3_judge_error_fails_closed_by_default(monkeypatch):
+    # I-deepfix-001 item G (Codex P0): by DEFAULT (PG_ENTAILMENT_JUDGE_ERROR_ADVISORY unset) a
+    # TRANSPORT judge_error under entailment=enforce now FAILS CLOSED — the unverified sentence is
+    # DROPPED (is_verified=False, entailment_judge_error_fail_closed reason), never kept-as-advisory.
+    # This is the item-G FLIP: keeping an unverified claim on a judge fault (429/blank/transport) was a
+    # fail-OPEN on the faithfulness engine's only hard gate. Fail-closed aligns the entailment leg with
+    # strict_verify, which already fails closed on a judge_error by default. The durable judge_error=True
+    # marker still records that the fault occurred. RED before item G (the old default advisory-KEPT the
+    # sentence, is_verified=True); GREEN after (dropped).
+    monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)
+    monkeypatch.delenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", raising=False)  # DEFAULT = fail closed
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    _install_judge(monkeypatch, JudgeErrorSentinel())
+    res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
+    assert res.is_verified is False  # DEFAULT fail-closed: the unverifiable claim is dropped
+    assert res.judge_error is True  # the durable machine-readable marker stays set
+    assert any(
+        r.startswith("entailment_judge_error_fail_closed:")
+        for r in res.failure_reasons
+    )
+    # NOT advisory-kept: the default path emits no soft-warning keep label
+    assert not any(
+        str(w).startswith("entailment_unverified_judge_error")
+        for w in res.soft_warnings
+    )
+
+
+def test_s0b4_delta3_judge_error_advisory_keep_is_opt_in(monkeypatch):
+    # I-deepfix-001 item G: the advisory soft-KEEP survives ONLY behind the explicit opt-in
+    # PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=1 (never the default). With the opt-in, a TRANSPORT
+    # judge_error under entailment=enforce is demoted from a hard DROP to an ADVISORY soft-warning: the
+    # sentence is KEPT on the deterministic (a)-(e) checks (is_verified=True), carries the durable
     # judge_error=True marker, and is LABELLED entailment_unverified_judge_error in soft_warnings — so a
     # downstream count/render layer (the credibility-pass tier classifier) can refuse to treat it as
     # genuine entailment-verified support (the no-leak guarantee lives THERE, not here). This is NOT a
     # faithfulness relaxation of a genuine NEUTRAL/CONTRADICTED verdict — only the transport sentinel is
     # demoted; genuine entailment failures still DROP (asserted by the enforce-drop tests below).
     monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)
-    monkeypatch.delenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", raising=False)  # default (advisory ON)
+    monkeypatch.setenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "1")  # explicit opt-in to advisory-keep
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install_judge(monkeypatch, JudgeErrorSentinel())
     res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
-    assert res.is_verified is True  # advisory-keep: kept on the deterministic (a)-(e) checks
+    assert res.is_verified is True  # opt-in advisory-keep: kept on the deterministic (a)-(e) checks
     assert res.judge_error is True  # the durable machine-readable marker stays set
-    # NOT hard-dropped: no fail-closed failure reason
+    # NOT hard-dropped under the opt-in: no fail-closed failure reason
     assert not any(
         r.startswith("entailment_judge_error_fail_closed:")
         for r in res.failure_reasons
@@ -488,7 +516,7 @@ def test_s0b4_rescue_judge_error_after_genuine_neutral_fails_closed(monkeypatch)
     # default applies ONLY to a PURE transport error (the FIRST judge call, no genuine verdict before),
     # never to a rescue error that failed to overturn a genuine failure.
     monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)
-    monkeypatch.delenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", raising=False)  # default advisory ON
+    monkeypatch.delenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", raising=False)  # default (fail closed)
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     judge = _NeutralThenJudgeErrorJudge()
     _install_judge(monkeypatch, judge)

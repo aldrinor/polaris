@@ -447,24 +447,32 @@ def _token_honest_drop_enabled() -> bool:
 
 
 def _entailment_judge_error_advisory_enabled() -> bool:
-    """I-arch-010 FIX-1. True (default) => a TRANSPORT ``judge_error`` (the judge
-    timed out / hung / returned a blank, surfaced as ``(ENTAILED, "judge_error: ...")``)
-    is demoted from a HARD drop to an ADVISORY soft-warning: the sentence is KEPT on
-    the deterministic (a)-(e) checks and labelled ``entailment_unverified_judge_error``.
-    The result's ``judge_error=True`` field stays the durable machine-readable marker
-    so a downstream count/render layer (the credibility-pass tier classifier) can refuse
-    to treat it as genuine entailment-verified support.
+    """I-arch-010 FIX-1 / I-deepfix-001 item G. When True, a TRANSPORT ``judge_error``
+    (the judge timed out / hung / returned a blank, surfaced as ``(ENTAILED, "judge_error: ...")``)
+    is demoted from a HARD drop to an ADVISORY soft-warning: the sentence is KEPT on the
+    deterministic (a)-(e) checks and labelled ``entailment_unverified_judge_error``, while the
+    result's ``judge_error=True`` field stays the durable machine-readable marker so a downstream
+    count/render layer (the credibility-pass tier classifier) can refuse to treat it as genuine
+    entailment-verified support.
 
-    This is TRANSPORT-only: a genuine NEUTRAL / CONTRADICTED entailment verdict still
-    DROPS independently (that branch is untouched). Faithfulness is NOT relaxed — a
+    DEFAULT = False (FAIL CLOSED). I-deepfix-001 item G FLIPPED the default: a judge_error now
+    DROPS the sentence by default (treated like an unsupported claim). Keeping an unverified claim
+    on a judge fault is a fail-OPEN on the faithfulness engine's only hard gate — an unverified
+    claim admitted (Codex P0). Fail-closed aligns the entailment leg with strict_verify /
+    analyst-deviation, which already fail closed on a judge_error by default. Any unrecognized /
+    unset value resolves to fail-closed (the safe direction).
+
+    This is TRANSPORT-only: a genuine NEUTRAL / CONTRADICTED entailment verdict still DROPS
+    independently (that branch is untouched), and a rescue-call judge_error after a genuine
+    failure always fails closed regardless of this flag. Faithfulness is NOT relaxed — a
     judge_error never means "entailed", only "the judge could not be reached".
 
-    Kill-switch: PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0/off/false/no reverts to the
-    byte-identical legacy hard-drop. Read at call time so tests can toggle without
-    re-import.
+    Opt-in only: PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=1/true/yes/on/enabled restores the advisory
+    soft-keep (for the deterministic K-span path where a verbatim substring is grounded by
+    construction). It is NEVER the default. Read at call time so tests can toggle without re-import.
     """
-    v = os.getenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "1").strip().lower()
-    return v not in ("0", "off", "false", "no", "disabled")
+    v = os.getenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "0").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
 
 
 # ── I-deepfix-001 B9(c) (#1353): mirror-cite collapse + independent-origin render honesty ─────────
@@ -2717,16 +2725,18 @@ def verify_sentence_provenance(
         if _emode_j == "enforce":
             ev_ids = ",".join(sorted({t.evidence_id for t in tokens})) if tokens else ""
             if _entailment_judge_error_advisory_enabled():
-                # I-arch-010 FIX-1: TRANSPORT judge_error is demoted from a hard DROP
-                # to an advisory soft-warning. The sentence is KEPT on the deterministic
-                # (a)-(e) checks; ``judge_error=True`` (below) remains the durable marker
-                # so the credibility-pass tier classifier refuses to count/render it as
-                # genuine entailment-verified support (no leak). Genuine NEUTRAL/
+                # OPT-IN only (PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=1): TRANSPORT judge_error
+                # is demoted from a hard DROP to an advisory soft-warning. The sentence is KEPT
+                # on the deterministic (a)-(e) checks; ``judge_error=True`` (below) remains the
+                # durable marker so the credibility-pass tier classifier refuses to count/render
+                # it as genuine entailment-verified support (no leak). Genuine NEUTRAL/
                 # CONTRADICTED verdicts still DROP at :2076/:2182/:2216 (untouched).
                 soft_warnings.append(f"entailment_unverified_judge_error:{ev_ids}")
             else:
-                # Kill-switch (PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=0): byte-identical
-                # legacy hard-drop.
+                # DEFAULT (I-deepfix-001 item G): FAIL CLOSED. A judge_error means the entailment
+                # leg could not be checked, so the unverified sentence is DROPPED (treated like an
+                # unsupported claim) — never kept on a judge fault. Mirrors strict_verify's
+                # default-fail-closed on a judge_error.
                 failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
         elif _emode_j == "warn":
             logger.warning(

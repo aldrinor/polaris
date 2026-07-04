@@ -2728,6 +2728,26 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
         except (TypeError, ValueError):
             current = float(value)
         os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-deepfix-001 Item-10 (#1344): WIRE the W4 mineru25 clinical-PDF winner to its vlm-http-client
+    # backend as the DEFAULT for clinical Gate-B runs. The slate force-EXACTs PG_CLINICAL_PDF_EXTRACTOR=
+    # mineru25 (above), but historically left the mineru BACKEND unset — so resolve_mineru_backend fell to
+    # the YAML default `in-process`, _mineru25_extract raised "no server URL configured", every clinical
+    # PDF degraded to the Docling/PyMuPDF LOSER, and the circuit breaker OPENED after 3 — mineru NEVER
+    # genuinely ran (proven in the drb live log: repeated "mineru25 vlm-http-client: no server URL
+    # configured" -> DISCLOSED fallback, "circuit breaker OPEN ... after N consecutive failures"). Point
+    # the pipeline at the supervised dedicated-GPU mineru-vllm-server (127.0.0.1:30024, the host/port in
+    # config/serving/mineru_vllm_server.yaml, /health 200 on the box). `setdefault` (NOT force): a box that
+    # exports a different PG_MINERU25_BACKEND / PG_MINERU25_SERVER_URL WINS (LAW VI) — this is the
+    # standard-local default, not a hard pin. The isolated-venv CLI path is genuinely box-specific
+    # (/root/mineru_svc/bin/mineru), so it stays an operator env (PG_MINERU25_CLI_PATH) — the WINNER-FIRES
+    # W4 preflight below FAILS LOUD before spend if the CLI can't be resolved or the server is unreachable,
+    # so a mis-provisioned box can never silently ship the Docling loser. FAITHFULNESS-NEUTRAL: this only
+    # chooses HOW the clinical-PDF text is extracted; the FROZEN faithfulness engine (strict_verify / NLI /
+    # 4-role D8 / provenance / span-grounding) re-grounds every claim from the extracted text regardless.
+    os.environ.setdefault("PG_MINERU25_BACKEND", "vlm-http-client")
+    os.environ.setdefault("PG_MINERU25_SERVER_URL", "http://127.0.0.1:30024")
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
     # Correction 7 (Codex+Fable gate) — SPEED LEVER L1 429/BREADTH STEP-DOWN, made REAL (was a comment).
     # PG_LIVE_RETRIEVER_MAX_WORKERS is a FLOOR entry (max(existing, 48)), so the forensic monitor CANNOT
     # lower it via the plain env — the floor raises it right back to 48. Honor a DEDICATED step-down
@@ -2896,6 +2916,97 @@ def assert_coverage_levers_armed() -> None:
             f"Dark: {_detail}. apply_full_capability_benchmark_slate() must run immediately before this "
             "assertion (it force-ON-pins each lever); set PG_WINNER_SLATE_PRESPEND_ASSERT=0 ONLY for a "
             "deliberate operator experiment."
+        )
+
+
+def _assert_mineru25_http_backend_ready() -> None:
+    """I-deepfix-001 Item-10 (#1344): FAIL-LOUD pre-spend readiness probe for the W4 mineru25 clinical-PDF
+    winner — so a mis-provisioned GPU box can NEVER silently ship the Docling loser.
+
+    Called from the WINNER-FIRES W4 preflight branch (only when PG_CLINICAL_PDF_EXTRACTOR=mineru25 and
+    NOT offline). GPU-present (checked by the caller) is necessary but NOT sufficient: mineru25 now runs
+    via the supervised dedicated-GPU ``mineru-vllm-server`` reached through the isolated-venv ``mineru``
+    CLI. If the server is unreachable OR the CLI cannot be resolved, ``_mineru25_extract`` raises and
+    EVERY clinical PDF degrades to Docling/PyMuPDF (then the circuit breaker opens) — the exact
+    dark-winner failure this probe surfaces BEFORE a paid token instead of silently mid-retrieval.
+
+    Codex P1 (Item-10): probe the SAME checks ``_mineru25_extract`` runs at fetch time, REGARDLESS of the
+    resolved backend LABEL. ``_mineru25_extract`` no longer has an in-process path — it ALWAYS reads
+    ``cfg.server_url``, resolves the CLI, and shells out to the ``vlm-http-client`` CLI (the
+    ``-b vlm-http-client`` transport is hard-wired in ``client_cli_argv``). So a stale
+    ``PG_MINERU25_BACKEND=in-process`` export must NOT short-circuit this probe to a false-green: on such
+    a host (no server URL) the extractor raises "no server URL configured" and degrades every clinical
+    PDF to Docling. This probe therefore checks server-URL-present + CLI-resolvable + server-reachable for
+    ANY backend label, so a probe PASS genuinely predicts a fetch-time PASS.
+
+    Reuses ``resolve_mineru_backend`` (env > YAML) so the probe checks the SAME config
+    ``_mineru25_extract`` will resolve at fetch time. Raises RuntimeError with an actionable message on
+    any fault. FAITHFULNESS-NEUTRAL: extractor-provisioning only; the FROZEN faithfulness engine is
+    untouched.
+    """
+    import shutil as _shutil  # noqa: PLC0415
+    import urllib.request as _urlreq  # noqa: PLC0415
+
+    from src.polaris_graph.scale.mineru_vllm_config import (  # noqa: PLC0415
+        MineruBackendConfigError,
+        resolve_mineru_backend,
+    )
+
+    try:
+        _cfg = resolve_mineru_backend()
+    except MineruBackendConfigError as _exc:
+        raise RuntimeError(
+            "benchmark preflight FAILED [WINNER-FIRES W4]: PG_CLINICAL_PDF_EXTRACTOR=mineru25 but the "
+            f"mineru backend is misconfigured: {_exc}"
+        )
+    # (0) A non-empty server URL is the extractor's FIRST fail-loud (``_mineru25_extract`` raises "no
+    # server URL configured" for an empty URL — the in-process path is RETIRED). Check it REGARDLESS of
+    # the resolved backend label (Codex P1): a stale ``PG_MINERU25_BACKEND=in-process`` override with no
+    # URL would otherwise pass this probe on the old `if not is_http_client: return` early-out, yet the
+    # extractor (which ignores the label and hard-wires ``-b vlm-http-client``) degrades EVERY clinical
+    # PDF to Docling at fetch time. Failing here makes a probe PASS genuinely predict a fetch-time PASS.
+    _server_url = (_cfg.server_url or "").strip().rstrip("/")
+    if not _server_url:
+        raise RuntimeError(
+            "benchmark preflight FAILED [WINNER-FIRES W4]: PG_CLINICAL_PDF_EXTRACTOR=mineru25 but no "
+            f"mineru server URL is configured (resolved backend={_cfg.backend!r}). The in-process mineru "
+            "path is RETIRED — _mineru25_extract ALWAYS shells out to the vlm-http-client CLI + server "
+            "URL, so an empty URL (a stale PG_MINERU25_BACKEND=in-process export leaves it unset) degrades "
+            "EVERY clinical PDF to the Docling loser. Set PG_MINERU25_SERVER_URL (or "
+            "PG_MINERU25_BACKEND=vlm-http-client so the slate wires the standard-local URL), or set "
+            "PG_CLINICAL_PDF_EXTRACTOR=docling to skip the W4 winner. Refusing to silently degrade."
+        )
+
+    # (1) The isolated-venv mineru CLI must be resolvable (same logic _mineru25_extract uses). The prod
+    # venv does NOT ship mineru; the box must set PG_MINERU25_CLI_PATH (or have mineru on PATH).
+    _cli = (_cfg.client_cli or "").strip() or "mineru"
+    _cli_path = _cli if os.path.isabs(_cli) else (_shutil.which(_cli) or "")
+    if not _cli_path or not os.path.exists(_cli_path):
+        raise RuntimeError(
+            "benchmark preflight FAILED [WINNER-FIRES W4]: mineru25 vlm-http-client CLI not found "
+            f"(resolved {_cli!r} -> {_cli_path!r}). Set PG_MINERU25_CLI_PATH to the isolated-venv mineru "
+            "binary (e.g. /root/mineru_svc/bin/mineru) on the GPU box, or set "
+            "PG_CLINICAL_PDF_EXTRACTOR=docling to skip the W4 winner. Refusing to silently degrade every "
+            "clinical PDF to the Docling loser."
+        )
+
+    # (2) The supervised mineru-vllm-server must be reachable at the resolved server URL (from step 0) —
+    # probe /health (the vLLM server serves GET /health -> 200). A cheap one-shot GET with a short
+    # timeout; any failure (connection refused, timeout, non-200) FAILS the run before spend.
+    _health_url = f"{_server_url}/health"
+    _probe_timeout = float(os.getenv("PG_MINERU25_HEALTH_PROBE_TIMEOUT_S", "5") or "5")
+    try:
+        with _urlreq.urlopen(_health_url, timeout=_probe_timeout) as _resp:  # noqa: S310 — fixed local URL
+            _status = getattr(_resp, "status", None) or _resp.getcode()
+            if _status != 200:
+                raise RuntimeError(f"/health returned HTTP {_status}")
+    except Exception as _exc:  # noqa: BLE001 — any unreachable-server signal is a fail-loud
+        raise RuntimeError(
+            "benchmark preflight FAILED [WINNER-FIRES W4]: mineru25 vlm-http-client server NOT reachable "
+            f"at {_server_url} ({str(_exc)[:160]}). Launch the supervised dedicated-GPU mineru-vllm-server "
+            "(config/serving/mineru_vllm_server.yaml: CUDA_VISIBLE_DEVICES=1, --gpu-memory-utilization 0.4, "
+            "--max-num-seqs 20) on card 1 before the paid run, or set PG_CLINICAL_PDF_EXTRACTOR=docling to "
+            "skip the W4 winner. Refusing to silently degrade every clinical PDF to the Docling loser."
         )
 
 
@@ -3411,6 +3522,13 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
                 "is not importable — the GPU VLM extractor cannot load; it would fall through to the docling "
                 "LOSER. Install torch / run on the GPU VM."
             )
+        # I-deepfix-001 Item-10 (#1344): GPU-present is necessary but NOT sufficient — mineru25 now runs via
+        # the vlm-http-client backend (a supervised dedicated-GPU mineru-vllm-server reached through the
+        # isolated-venv mineru CLI). Probe the resolved server /health + the CLI path so a box that has a GPU
+        # but no running server / no CLI fails LOUD before spend instead of silently degrading every clinical
+        # PDF to the Docling loser (the exact failure in the drb live log). Runs REGARDLESS of the resolved
+        # backend label — the extractor has no in-process path, so a stale in-process override cannot skip it.
+        _assert_mineru25_http_backend_ready()
     # W6 — embed=Qwen3-Embedding-8B LOAD-IDENTITY (tractable: env-resolve, no model load). The live loader
     # prefetch_offtopic_filter._embed_model_name() must resolve to the 8B id (non-None, the winner). The
     # DEEPER probe (actually LOAD the 8B + assert a 4096-dim non-None cosine) is DEFERRED to the VM run (a

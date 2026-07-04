@@ -467,11 +467,16 @@ def _canonical_display(value: float, unit: str, display_kind: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Literal normalization + location (extractor-equivalent; no new extractor spans)
 # ─────────────────────────────────────────────────────────────────────────────
-_SCALE_MULTIPLIERS = {"billion": 1e9, "million": 1e6, "thousand": 1e3}
+# I-deepfix-001 defer-E (#1344): ``trillion`` MUST be in the scale set in lock-step with
+# ``evidence_extractor`` — a value scaled to 2.6e12 there can only be located back to its
+# source literal if BOTH the capture regex and the normalizer understand "trillion". Omitting
+# it dropped the magnitude word from the rendered literal ("$2.6 trillion" -> "$2.6") and made
+# _normalize_literal return None (fail-closed reject). Adding it keeps the unit attached.
+_SCALE_MULTIPLIERS = {"trillion": 1e12, "billion": 1e9, "million": 1e6, "thousand": 1e3}
 # A numeric literal, optionally $-prefixed, optionally followed by a scale word
 # or a percent sign. Mirrors evidence_extractor's scale handling.
 _LITERAL_RE = re.compile(
-    r"\$?\s*-?\d[\d,]*(?:\.\d+)?\s*(?:billion|million|thousand)?\s*%?",
+    r"\$?\s*-?\d[\d,]*(?:\.\d+)?\s*(?:trillion|billion|million|thousand)?\s*%?",
     re.IGNORECASE,
 )
 

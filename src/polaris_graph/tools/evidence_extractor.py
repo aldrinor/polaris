@@ -41,8 +41,12 @@ _EXTRACTION_PATTERNS = [
     # Must come BEFORE force/material to prevent "ppt" → "Pa" misclassification
     (r'(\d+[,\d]*\.?\d*)\s*(ng/[Ll]|ug/[Ll]|μg/[Ll]|mg/[Ll]|ppt|ppb|ppm)',
      "concentration", None, 0),
-    # Currency: "$15/m3", "$1.548 billion", "$45 million"
-    (r'\$\s*(\d+[,\d]*\.?\d*)\s*(billion|million|thousand|/m3|/ton|/kg)?',
+    # Currency: "$15/m3", "$1.548 billion", "$45 million", "$2.6 trillion"
+    # I-deepfix-001 defer-E (#1344), item 13b: ``trillion`` was absent from the scale
+    # alternation, so "$2.6 trillion" matched only "$2.6" with an EMPTY scale group and
+    # emitted a unit-stripped 2.6-USD cost datapoint. Listing all four scale words here
+    # lets the multiplier block below re-attach the magnitude (2.6 -> 2.6e12 USD).
+    (r'\$\s*(\d+[,\d]*\.?\d*)\s*(trillion|billion|million|thousand|/m3|/ton|/kg)?',
      "cost", "USD", 0),
     # Percentages: "95.2%", "67 percent"
     (r'(\d+\.?\d*)\s*(?:%|percent)',
@@ -156,11 +160,35 @@ def extract_numbers_from_evidence(
                 ):
                     continue
 
-                # Handle multipliers
-                if unit and unit.lower() in ("billion", "million", "thousand"):
-                    multipliers = {"billion": 1e9, "million": 1e6, "thousand": 1e3}
-                    value *= multipliers.get(unit.lower(), 1)
-                    unit = "USD" if "$" in text_to_scan[:match.start() + 20] else ""
+                # Handle scale-word multipliers (thousand/million/billion/trillion).
+                # I-deepfix-001 defer-E (#1344), item 13b — the unit-stripped
+                # quantified-attribution defect. The scale word reaches this block two ways:
+                #   (a) as the captured ``unit`` — the "Plain large numbers" pattern has
+                #       default_unit=None, so groups[1] ("trillion") flows into ``unit``; or
+                #   (b) as ``groups[1]`` on a pattern that ALSO sets a default_unit — the
+                #       "Currency" pattern keeps unit="USD", so the scale word never lands in
+                #       ``unit``. Before this fix path (b) skipped the multiplier entirely, so
+                #       "$2.6 trillion" emitted a UNIT-STRIPPED cost datapoint (value 2.6, USD)
+                #       and (base) even "$1.548 billion" cost-collapsed to 1.548.
+                # Both paths must scale the mantissa; ``trillion`` (1e12) was also missing from
+                # the multiplier set. Faithfulness-STRENGTHENING (a correct 2.6e12 with USD
+                # attached, never a truncated 2.6); no gate relaxed, no source dropped (§-1.3).
+                _scale_multipliers = {
+                    "trillion": 1e12, "billion": 1e9, "million": 1e6, "thousand": 1e3,
+                }
+                scale_word = None
+                if unit and unit.lower() in _scale_multipliers:
+                    scale_word = unit.lower()
+                elif len(groups) > 1 and groups[1] and groups[1].lower() in _scale_multipliers:
+                    scale_word = groups[1].lower()
+                if scale_word:
+                    value *= _scale_multipliers[scale_word]
+                    if unit is None or unit.lower() == scale_word:
+                        # The scale word WAS the captured unit (e.g. the "quantity" pattern) ->
+                        # resolve it: $-prefixed becomes USD, otherwise a bare magnitude.
+                        unit = "USD" if "$" in text_to_scan[:match.start() + 20] else ""
+                    # else: ``unit`` already carries a real unit (the cost pattern's USD) -> keep
+                    # it, so "$2.6 trillion" stays 2.6e12 USD (magnitude AND currency attached).
 
                 # Build context label from surrounding text
                 start = max(0, match.start() - 40)
