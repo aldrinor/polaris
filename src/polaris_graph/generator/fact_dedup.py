@@ -840,6 +840,88 @@ def _build_rewrite_prompt(
     return "\n".join(lines), flat
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 V6 (#1344): provenance-token carry-through for the rewrite.
+# ─────────────────────────────────────────────────────────────────────────
+# ROOT (grounded in drb_72_ai_labor/reasoning_trace.jsonl _fact_dedup call): the
+# anti-restatement rewrite LLM DELIBERATELY converts the span-bearing canonical
+# provenance token `[#ev:ev_109:839-961]` into a BARE `[ev_109]` marker — its own
+# reasoning: "the original uses [#ev:ev_109:839-961]. The rule says keep at least one
+# [ev_XXX] citation marker. Let me use ... [ev_X]." The re-verify strict_verify then
+# parses provenance tokens from the rewrite, finds NO valid `[#ev:id:start-end]` token,
+# and DROPS every rewrite with `no_provenance_token` (manifest fact_dedup:
+# n_rewrites_strict_verify_pass=0 / n_rewrites_strict_verify_drop=3).
+#
+# FIX: carry the ORIGINAL redundant sentence's REAL span-bearing tokens through the
+# rewrite so the UNCHANGED strict_verify can re-check it (shell / numeric / content /
+# entailment) instead of auto-failing on a stripped token. Faithfulness-NEUTRAL
+# (§-1.3): we only restore the sentence's OWN real grounding that the LLM stripped —
+# never fabricate a token, never relax a gate. A genuinely ungroundable rewrite (junk
+# shell span, no content overlap) STILL drops in strict_verify. LAW VI kill-switch:
+# PG_FACT_DEDUP_CARRY_PROVENANCE=0 restores the byte-identical pre-fix behaviour.
+_PROVENANCE_TOKEN_RE_FACTDEDUP = re.compile(
+    r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
+)
+
+
+def _carry_provenance_enabled() -> bool:
+    """PG_FACT_DEDUP_CARRY_PROVENANCE gate (default ON)."""
+    return os.getenv("PG_FACT_DEDUP_CARRY_PROVENANCE", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _restore_provenance_tokens(rewrite_text: str, original_sentence: str) -> str:
+    """Carry the ORIGINAL sentence's span-bearing `[#ev:id:start-end]` tokens onto the
+    LLM rewrite so strict_verify can re-verify it.
+
+    For each canonical token id present in ``original_sentence``: if the rewrite already
+    carries that exact canonical token, leave it; else, if the rewrite carries a BARE /
+    span-less marker for the SAME id (``[ev_id]`` / ``[#ev:id]`` / ``[ev_id:s-e]``),
+    replace it with the canonical token(s); else APPEND the canonical token(s)
+    (KEEP-ALL, §-1.3 — a corroborating source is never dropped). Ids never in the
+    original are left untouched (strict_verify still polices them). Deterministic,
+    stdlib-only; returns ``rewrite_text`` unchanged when the original carries no
+    canonical token."""
+    original_tokens = list(_PROVENANCE_TOKEN_RE_FACTDEDUP.finditer(original_sentence or ""))
+    if not original_tokens:
+        return rewrite_text
+    # ev_id -> ordered, de-duplicated list of its canonical span-bearing tokens.
+    canonical_by_id: dict[str, list[str]] = {}
+    for m in original_tokens:
+        toks = canonical_by_id.setdefault(m.group("ev_id"), [])
+        if m.group(0) not in toks:
+            toks.append(m.group(0))
+
+    text = rewrite_text
+    for ev_id, toks in canonical_by_id.items():
+        canonical = "".join(toks)  # all spans for this id (KEEP-ALL)
+        if canonical in text:
+            continue  # rewrite already carries the exact span-bearing grounding
+        # A bare / span-less marker for THIS specific id (matched literally, never a
+        # different id or a numeric `[12]` marker).
+        bare_re = re.compile(r"\[(?:#ev:)?" + re.escape(ev_id) + r"(?::\d+-\d+)?\]")
+        if bare_re.search(text):
+            _state = {"done": False}
+
+            def _sub(_m: "re.Match[str]") -> str:
+                if _state["done"]:
+                    return ""  # collapse duplicate bare markers for the same id
+                _state["done"] = True
+                return canonical
+
+            text = bare_re.sub(_sub, text)
+        else:
+            # No marker for this id at all -> append the canonical token(s) (KEEP-ALL),
+            # keeping any trailing sentence period after the citation.
+            stripped = text.rstrip()
+            if stripped.endswith("."):
+                text = stripped[:-1].rstrip() + " " + canonical + "."
+            else:
+                text = stripped + " " + canonical
+    return text
+
+
 async def rewrite_redundant_sentences(
     redundancy_groups: list[RedundancyGroup],
     llm_callable: Callable[[str, str], Any],
@@ -904,6 +986,14 @@ async def rewrite_redundant_sentences(
     for (_group, loc), rewrite in zip(flat, rewrites):
         if isinstance(rewrite, str) and rewrite.strip():
             rewrite_text = rewrite.strip()
+            # I-deepfix-001 V6 (#1344): carry the ORIGINAL sentence's span-bearing
+            # `[#ev:id:start-end]` provenance token(s) through the rewrite BEFORE the
+            # KEEP-ALL check + return, so the re-verify strict_verify can re-check the
+            # rewrite instead of auto-dropping it on the LLM-stripped bare `[ev_id]`
+            # marker (`no_provenance_token`). Faithfulness-NEUTRAL: restores the
+            # sentence's OWN real grounding; never fabricates, never relaxes a gate.
+            if _carry_provenance_enabled():
+                rewrite_text = _restore_provenance_tokens(rewrite_text, loc.sentence)
             # KEEP-ALL ENFORCEMENT (§-1.3; Codex #1289 iter-1 NOVEL-P0): a *successful* rewrite must NOT
             # silently DROP a corroborating source. Keep-all is a GROUP-GLOBAL invariant: the redundant
             # is cross-reffed to the PRIMARY (which is kept verbatim and carries ALL its own citations),

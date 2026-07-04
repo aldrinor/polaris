@@ -15528,6 +15528,30 @@ async def run_one_query(
                 )
         except Exception as _seam_exc:  # noqa: BLE001 — additive screen; never abort the report
             _log(f"[render-seam] skipped (fail-open): {_seam_exc}")
+        # I-deepfix-001 P8_chrome_leak (#1344): block-page / security-check / copyright-footer chrome
+        # STRIP. The shared render-chrome predicate (sanitize_rendered_report, above) catches the FULL
+        # block-page text but is BLIND to each SINGLE sentence once split_into_sentences fractures the
+        # page — proven on drb_72, where a ResearchGate/Cloudflare block page ([27], "Just a moment...")
+        # rendered two verified-looking body sentences ("To continue, complete the security check
+        # below.[27] Ray ID: a160331f... (c) 2008-2026 ResearchGate GmbH.[27]") via the self-citation
+        # hole. This sentence-granularity strip removes the bot-challenge / copyright-footer chrome
+        # sentence from the rendered prose while KEEPING the source (its bibliography row + disclosure
+        # stay) and every real finding welded in the same line. PRESENTATION-ONLY / faithfulness-neutral
+        # (§-1.3): runs AFTER the frozen faithfulness engine and sanitize_rendered_report; touches no
+        # strict_verify / NLI / 4-role / span verdict. Default-ON kill-switch PG_BLOCK_PAGE_CHROME_SCRUB;
+        # fail-open (never abort the report).
+        try:
+            from src.polaris_graph.generator.block_page_chrome_scrub import (  # noqa: PLC0415
+                scrub_block_page_chrome,
+            )
+            final_report, _bp_removed = scrub_block_page_chrome(final_report)
+            if _bp_removed:
+                _log(
+                    f"[block-page-scrub] stripped {_bp_removed} block-page/security-check/"
+                    "copyright-footer chrome sentence(s) from the assembled report"
+                )
+        except Exception as _bp_exc:  # noqa: BLE001 — additive screen; never abort the report
+            _log(f"[block-page-scrub] skipped (fail-open): {_bp_exc}")
         # A4 (I-deepfix-001) DESCOPED at Wave-A iter-3: the attribution-origin visible-text caveat was
         # removed. Codex confirmed (iter-3 P1) that appending a bracketed caveat INTO the visible
         # sentence leaks into report_claim_extractor (the meta-caveat is atomized as part of the

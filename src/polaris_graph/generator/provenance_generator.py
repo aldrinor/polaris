@@ -1938,6 +1938,108 @@ def verify_modeled_atom(
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 V6 (#1344): author-attribution metadata binding for the entailment leg.
+# ─────────────────────────────────────────────────────────────────────────────
+# ROOT (grounded in drb_72_ai_labor/verification_details.json): the entailment judge
+# NEUTRAL-dropped a genuinely-grounded finding —
+#   sentence: "Eloundou and colleagues propose a framework ... [#ev:eloundou_gpts_are_gpts:0-800]."
+#   reason:   "entailment_failed:...verdict=NEUTRAL:reason=The sentence adds the
+#              unsupported specificity of the authors' names (Eloundou and ...)"
+# The cited evidence row carries authors=['Eloundou T','Manning S','Mishkin P','Rock D']
+# as REAL bibliographic metadata, but the fetched `direct_quote` span omits the byline,
+# so the judge — which only sees the cited SPAN text — treats the author attribution as
+# unsupported specificity and the sentence drops.
+#
+# FIX: when the SENTENCE names an author who is genuinely in a cited source's `authors`
+# metadata, append that source's real author list to the SPAN TEXT PASSED TO THE
+# ENTAILMENT JUDGE ONLY, so a true attribution is groundable. §-1.3-safe / faithfulness-
+# TIGHTENING-not-relaxing: it binds ONLY REAL metadata from the evidence record (never a
+# claim, never a number, never a topic), and ONLY when the sentence actually names one of
+# the real authors — a fabricated attribution ("Smith found ...", no such author) never
+# matches, so it still NEUTRAL-drops. The mechanical numeric/content-overlap gates run
+# EARLIER against the span alone and are unaffected. LAW VI kill-switch:
+# PG_ENTAILMENT_AUTHOR_METADATA_BIND=0 reverts byte-identical (no annotation appended).
+_AUTHOR_METADATA_BIND_ENV = "PG_ENTAILMENT_AUTHOR_METADATA_BIND"
+# A surname must be at least this long to be matched as a whole word in the sentence
+# (guards against a 2-3 char initial/common-word false match, e.g. "Rock D" -> "Rock").
+_AUTHOR_SURNAME_MIN_LEN = 4
+_AUTHOR_NAME_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z'’\-]+")
+_AUTHOR_SPLIT_RE = re.compile(r"\s*(?:;|,| and | & )\s*")
+
+
+def _author_metadata_bind_enabled() -> bool:
+    """PG_ENTAILMENT_AUTHOR_METADATA_BIND gate (default ON)."""
+    return os.getenv(_AUTHOR_METADATA_BIND_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _author_entries(authors: Any) -> list[tuple[str, str]]:
+    """(surname, full_entry) pairs from an evidence row's ``authors`` metadata.
+
+    Accepts a list of author strings or a single delimited string. The surname is the
+    longest alphabetic token >= _AUTHOR_SURNAME_MIN_LEN in each entry ("Eloundou T" ->
+    "Eloundou"; "J. Satyadhar" -> "Satyadhar"). Entries with no long-enough token are
+    skipped (cannot be matched safely)."""
+    if not authors:
+        return []
+    if isinstance(authors, str):
+        entries = [a for a in _AUTHOR_SPLIT_RE.split(authors) if a and a.strip()]
+    elif isinstance(authors, (list, tuple)):
+        entries = [str(a) for a in authors if str(a).strip()]
+    else:
+        return []
+    out: list[tuple[str, str]] = []
+    for entry in entries:
+        entry = entry.strip()
+        toks = [t for t in _AUTHOR_NAME_TOKEN_RE.findall(entry) if len(t) >= _AUTHOR_SURNAME_MIN_LEN]
+        if not toks:
+            continue
+        surname = max(toks, key=len)
+        out.append((surname, entry))
+    return out
+
+
+def _author_metadata_annotation(
+    sentence: str,
+    tokens: list["ProvenanceToken"],
+    evidence_pool: dict[str, dict[str, Any]],
+) -> str:
+    """Bibliographic-metadata line binding the REAL authors of a cited source when the
+    SENTENCE names one of them, else "" (byte-identical / no augmentation).
+
+    Fires per cited source: if any of that source's author surnames appears as a whole
+    word in ``sentence``, the source's FULL author list is appended (so "Eloundou and
+    colleagues" is grounded by both Eloundou and the co-authors). Returns "" when the
+    leg is disabled, the sentence names no real author, or no cited source carries
+    author metadata."""
+    if not _author_metadata_bind_enabled() or not sentence or not tokens:
+        return ""
+    seen_ids: set[str] = set()
+    lists: list[str] = []
+    for tok in tokens:
+        ev = evidence_pool.get(tok.evidence_id)
+        if ev is None or tok.evidence_id in seen_ids:
+            continue
+        seen_ids.add(tok.evidence_id)
+        pairs = _author_entries(ev.get("authors") if isinstance(ev, dict) else None)
+        if not pairs:
+            continue
+        named = any(
+            re.search(rf"\b{re.escape(surname)}\b", sentence) for surname, _ in pairs
+        )
+        if named:
+            full_list = ", ".join(full for _, full in pairs)
+            if full_list:
+                lists.append(full_list)
+    if not lists:
+        return ""
+    # dedupe preserving order (two cited spans of the SAME paper -> one metadata line)
+    uniq = list(dict.fromkeys(lists))
+    return " Cited source authors: " + "; ".join(uniq) + "."
+
+
 def verify_sentence_provenance(
     sentence: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -2417,6 +2519,15 @@ def verify_sentence_provenance(
                 # false-NEUTRAL/CONTRADICTED valid atom-cited claims.
                 sentence_clean = _verifier_cleaned_text(sentence)
                 combined_span = " ".join(aggregated_span_text)
+                # I-deepfix-001 V6 (#1344): bind REAL cited-source author metadata into the
+                # span the entailment judge sees, so a genuine author attribution
+                # ("Eloundou and colleagues ...") is groundable and not NEUTRAL-dropped as
+                # "unsupported specificity of the authors' names" when the fetched span omits
+                # the byline. Author-name binding ONLY (never a claim/number/topic); the
+                # mechanical numeric/content gates above already ran on the span alone.
+                combined_span += _author_metadata_annotation(
+                    sentence_clean, tokens, evidence_pool,
+                )
                 verdict, reason = _get_judge().judge(
                     sentence_clean, combined_span,
                 )
@@ -2544,8 +2655,13 @@ def verify_sentence_provenance(
                             break
 
                     if local_window_text:
+                        # I-deepfix-001 V6 (#1344): same real-author-metadata binding on the
+                        # bounded rescue window, so an author attribution that first-NEUTRALs
+                        # is still groundable against the narrow re-judged window.
                         verdict2, reason2 = _get_judge().judge(
-                            sentence_clean, local_window_text,
+                            sentence_clean,
+                            local_window_text
+                            + _author_metadata_annotation(sentence_clean, tokens, evidence_pool),
                         )
                         _record_judge_outcome(verdict2, reason2)
                         if verdict2 == "ENTAILED" and reason2.startswith("judge_error:"):

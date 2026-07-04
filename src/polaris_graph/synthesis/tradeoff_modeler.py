@@ -78,6 +78,21 @@ def literal_span_is_faithful(ev_text: str, literal: str, start: int, end: int) -
         return False
     return ev_text[start:end] == literal
 
+
+# ── V5 (I-deepfix-001 #1344) dual-tag fail-soft kill-switch ───────────────────
+# A Writer input tagged BOTH ``modeled`` and ``datapoint_ref`` (the recurring GLM-5.2 /
+# deepseek over-tag; captured drb_72 where ONE such input zeroed a 1087-number section)
+# is RE-GROUNDED to its datapoint_ref instead of fail-closing the whole quantified
+# section. Default ON. OFF => pre-fix behaviour (return _reject at the dual-tag gate).
+_DUAL_TAG_FAILSOFT_ENV = "PG_QUANTIFIED_DUAL_TAG_FAILSOFT"
+
+
+def _dual_tag_failsoft_enabled() -> bool:
+    """V5 kill-switch. Default ON; OFF => a both-modeled-and-sourced input is a hard reject."""
+    return os.getenv(_DUAL_TAG_FAILSOFT_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
 # ── tolerances (named, Law VI) ───────────────────────────────────────────────
 # Literal<->datapoint normalized-value agreement (same extractor normalization
 # feeds both, so this is tight).
@@ -800,6 +815,10 @@ def build_quantified_spec(
     sourced: list[SourcedInput] = []
     modeled: list[ModeledInput] = []
     seen_names: set[str] = set()
+    # V5 (#1344): names re-grounded from a both-modeled-and-sourced over-tag to the
+    # SOURCED reading. A sweep the Writer declared over such a name is dropped (a
+    # measured citation is not a swept assumption), never a whole-spec reject.
+    reclassified_sourced: set[str] = set()
 
     for ri in raw_inputs:
         if not isinstance(ri, dict):
@@ -812,7 +831,30 @@ def build_quantified_spec(
         is_modeled = bool(ri.get("modeled"))
         has_ref = isinstance(ri.get("datapoint_ref"), dict)
         if is_modeled and has_ref:
-            return _reject(f"input_both_modeled_and_sourced:{name}")  # one category
+            # V5 (I-deepfix-001 #1344) fail-SOFT: the GLM-5.2 / deepseek Writer routinely
+            # over-tags ONE input as BOTH modeled AND sourced. Captured drb_72: a single
+            # ``programmer_wage_premium`` fail-closed a whole 1087-number quantified section
+            # (spec_validation_rejected -> silent no-op); productivity_gain /
+            # workforce_share_1900 hit the same gate on sibling runs. Pre-fix this rejected
+            # the ENTIRE spec on ONE over-tagged input. RE-GROUND to the SOURCED reading
+            # (§-1.3: prefer a REAL evidence span over the ungrounded modeled ``base``): drop
+            # the spurious ``modeled`` flag and route the datapoint_ref through the UNCHANGED
+            # sourced gates below (exact-one-match identity + numeric-verbatim literal+span).
+            # Faithfulness-NEUTRAL — the rendered value is still the evidence-grounded
+            # datapoint, re-checked by Regime C; a bad ref STILL fails its own sourced gate;
+            # a cited number that affects no output STAYS fatal (non_affecting_input). Keeping
+            # the name in the dependency graph avoids orphaning a sibling input's only output.
+            # A sweep declared over this now-sourced input is dropped below. LAW VI kill-switch.
+            if _dual_tag_failsoft_enabled():
+                is_modeled = False
+                reclassified_sourced.add(name)
+                logger.info(
+                    "[tradeoff_modeler] fail-soft: input %r tagged BOTH modeled and sourced "
+                    "-> re-grounded to its datapoint_ref (dropped spurious modeled flag); "
+                    "keeping the rest of the spec", name,
+                )
+            else:
+                return _reject(f"input_both_modeled_and_sourced:{name}")  # one category
         if not is_modeled and not has_ref:
             return _reject(f"input_neither_sourced_nor_modeled:{name}")  # (P7-9)
 
@@ -997,9 +1039,13 @@ def build_quantified_spec(
         sout = str(rs.get("output", ""))
         # I-fix-001: a sweep over a PRUNED unused modeled assumption is meaningless
         # (the variable is in no formula) — drop the sensitivity, do not reject.
-        if sin in pruned_modeled_names:
+        # V5 (#1344): a sweep over a RE-GROUNDED sourced input is equally meaningless
+        # (a measured citation is not a swept assumption) — drop it, do not reject.
+        if sin in pruned_modeled_names or sin in reclassified_sourced:
             logger.info(
-                "[tradeoff_modeler] drop sensitivity over pruned modeled input %r", sin,
+                "[tradeoff_modeler] drop sensitivity over %s input %r",
+                "pruned modeled" if sin in pruned_modeled_names else "re-grounded sourced",
+                sin,
             )
             continue
         if sin not in modeled_names or sout not in out_names:
@@ -1019,9 +1065,13 @@ def build_quantified_spec(
         out = str(rsolve.get("output", ""))
         # I-fix-001: a break-even solve over a PRUNED unused modeled assumption is
         # meaningless — drop the solve_for, do not reject the whole spec.
-        if var in pruned_modeled_names:
+        # V5 (#1344): a break-even solve over a RE-GROUNDED sourced input is likewise
+        # meaningless (you do not solve for a measured citation) — drop it, do not reject.
+        if var in pruned_modeled_names or var in reclassified_sourced:
             logger.info(
-                "[tradeoff_modeler] drop solve_for over pruned modeled input %r", var,
+                "[tradeoff_modeler] drop solve_for over %s input %r",
+                "pruned modeled" if var in pruned_modeled_names else "re-grounded sourced",
+                var,
             )
         elif var not in modeled_names or out not in out_names:
             return _reject(f"solve_for_bad_var_or_output:{var}:{out}")

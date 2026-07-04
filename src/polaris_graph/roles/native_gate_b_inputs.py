@@ -248,6 +248,12 @@ def normalize_evidence_pool_lookup(
         pmid = _extract_pmid(*pmid_candidates)
         if pmid is not None:
             record["pmid"] = pmid
+        # V4 (whole-basket): carry the source's declared IDENTITY (authors/year/venue/tier) so the
+        # D8 adjudication input can prepend a provenance header (§-1.3 basket faithfulness). Gated so
+        # an OFF run keeps the normalized record byte-identical to the pre-V4 {text, url?, doi?, pmid?}
+        # shape. Additive identity only — coverage functions ignore these keys (see helper docstring).
+        if _whole_basket_enabled():
+            _attach_provenance_metadata(record, row)
         lookup[evidence_id] = record
     return lookup
 
@@ -706,6 +712,115 @@ def _normalize_span_text(text: str) -> str:
     return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
 
 
+# --- V4 (I-deepfix-001): whole-basket D8 adjudication input (§-1.3 BASKET FAITHFULNESS) ---------
+# ROOT CAUSE (drb_72): the D8 four-role seam (Sentinel decomposition + Judge) adjudicates a claim
+# against ONLY the bare cited-span text of each cited source, stripped of that source's PROVENANCE
+# identity. A claim's ATTRIBUTION atom ("Frey and Osborne developed a novel methodology ...") is
+# then marked `unsupported` by the Sentinel because the abstract SPAN self-references in the first
+# person ("We examine ...") and never re-names its own authors -> the Sentinel returns UNGROUNDED
+# -> the LOCKED `_compose_final_verdict` step-2 override downgrades a Judge VERIFIED to UNSUPPORTED
+# (measured: claim 01-008 frey_osborne_computerisation). The source RECORD, however, literally
+# carries `authors: ['Frey C', 'Osborne M']` — the attribution IS grounded in the cited work's OWN
+# declared identity, part of its basket, that the bare span throws away.
+#
+# FIX (§-1.3 BASKET FAITHFULNESS — decide a claim against its WHOLE basket, never a single bare
+# span): the adjudication input for EACH cited source in the claim's basket carries that source's
+# DECLARED PROVENANCE IDENTITY (authors / year / venue / doi) as a bounded, clearly-labeled header
+# PREPENDED to its FX-03 cited-span window. An attribution / identity atom then grounds against the
+# source's real authorship, recovering the single-span false-negative. The verdict CARRIES the
+# basket corroboration (source count + tier weights) in the audit_map.
+#
+# STRENGTHENS, ADMITS NOTHING UNVERIFIED (the binding safety argument, faithfulness-CRITICAL):
+#   * The header carries ONLY bibliographic IDENTITY (WHO wrote it, WHEN, WHERE, its DOI) — NEVER
+#     the source TITLE and NEVER any body/abstract prose. It can therefore ground a WHO/WHEN/WHERE
+#     attribution atom, but it carries NO factual/effect assertion, so it can NEVER ground a WHAT
+#     (numeric / mechanism / effect) atom. A claim whose FACTS are unsupported by the cited span
+#     still fails — the body window is UNCHANGED (FX-03 / BUG-02 out-of-span defense preserved
+#     byte-for-byte; only an identity header is prepended, the window bytes are untouched).
+#   * The header shows the source's TRUE authors, so a MIS-attribution (a claim naming an author
+#     the source does not have) still fails closed — the header can only ground a TRUE attribution.
+#   * A source that declares NO provenance identity yields an EMPTY header -> the adjudication input
+#     is byte-identical to the bare span (no fabricated grounding, no vacuous credit).
+# Default-ON kill-switch `PG_GATE_B_WHOLE_BASKET`; OFF -> byte-identical to the pre-V4 bare-span seam.
+_GATE_B_WHOLE_BASKET_ENV = "PG_GATE_B_WHOLE_BASKET"
+_WHOLE_BASKET_OFF_TOKENS = ("0", "false", "no", "off")
+# Structured metadata keys carried from the raw evidence row into the normalized record so the header
+# builder can read them. IDENTITY ONLY (never `title`, never `direct_quote`/`statement` body). `tier`
+# is carried for the corroboration WEIGHT surfaced in the audit_map, NOT for the header text.
+_PROVENANCE_HEADER_LABEL = "cited source provenance"
+
+
+def _whole_basket_enabled() -> bool:
+    """``PG_GATE_B_WHOLE_BASKET`` — default ON (V4). OFF only on an EXPLICIT off token
+    ('0'/'false'/'no'/'off'); unset / empty / unrecognized -> ON. Read at CALL TIME (LAW VI) so a
+    slate/test override after import wins. OFF -> byte-identical to the pre-V4 bare-span seam."""
+    return os.getenv(_GATE_B_WHOLE_BASKET_ENV, "1").strip().lower() not in _WHOLE_BASKET_OFF_TOKENS
+
+
+def _format_authors(authors: Any) -> str:
+    """Render the record's `authors` field to a compact identity string, or '' if none.
+
+    Accepts a list/tuple of names (the evidence-pool shape, e.g. ['Frey C', 'Osborne M']) or a bare
+    string; drops blanks. This is a WHO identity string, never a factual assertion."""
+    if isinstance(authors, str):
+        return authors.strip()
+    if isinstance(authors, (list, tuple)):
+        return ", ".join(str(a).strip() for a in authors if str(a).strip())
+    return ""
+
+
+def _provenance_header(record: Mapping[str, Any]) -> str:
+    """Build the bounded, labeled source-IDENTITY header for the whole-basket adjudication input.
+
+    Carries WHO (authors) / WHEN (year) / WHERE (venue) / doi ONLY — NEVER the title, NEVER body
+    prose. Returns '' when the record declares no identity, so the adjudication input stays
+    byte-identical to the bare cited span (fail-safe: no fabricated grounding). See the module V4
+    note for the full faithfulness-CRITICAL safety argument: an identity-only header can ground a
+    WHO/WHEN/WHERE attribution atom but never a WHAT (numeric/mechanism/effect) atom."""
+    parts: list[str] = []
+    authors = _format_authors(record.get("authors"))
+    if authors:
+        parts.append(f"authors: {authors}")
+    year = record.get("year")
+    if year not in (None, "", []):
+        parts.append(f"year: {str(year).strip()}")
+    venue = record.get("journal")
+    if isinstance(venue, str) and venue.strip():
+        parts.append(f"venue: {venue.strip()}")
+    doi = record.get("doi")
+    if isinstance(doi, str) and doi.strip():
+        parts.append(f"doi: {doi.strip()}")
+    if not parts:
+        return ""
+    return f"[{_PROVENANCE_HEADER_LABEL} | " + " | ".join(parts) + "]"
+
+
+def _attach_provenance_metadata(record: dict, row: Mapping[str, Any]) -> None:
+    """Carry the source's declared IDENTITY (authors / year / venue / tier) from the raw row into the
+    normalized record so the whole-basket adjudication input can build a provenance header.
+
+    ADDITIVE IDENTITY ONLY — never body text, never the title. `doi` is already extracted upstream by
+    the existing regex/structured path (the header reads that same `record['doi']`). `tier` is carried
+    for the corroboration WEIGHT surfaced in the audit_map, not for the header. The coverage functions
+    (`_entity_canonical_match` / `_claim_covers_entity`) read only doi/pmid/url + text, so these extra
+    keys can NEVER affect entity coverage. Gated by the caller under `PG_GATE_B_WHOLE_BASKET` so an OFF
+    run keeps the normalized record byte-identical to the pre-V4 shape."""
+    authors = row.get("authors")
+    if isinstance(authors, (list, tuple)) and any(str(a).strip() for a in authors):
+        record["authors"] = [str(a).strip() for a in authors if str(a).strip()]
+    elif isinstance(authors, str) and authors.strip():
+        record["authors"] = authors.strip()
+    year = row.get("year")
+    if year not in (None, "", []):
+        record["year"] = year
+    journal = row.get("journal")
+    if isinstance(journal, str) and journal.strip():
+        record["journal"] = journal.strip()
+    tier = row.get("tier")
+    if isinstance(tier, str) and tier.strip():
+        record["tier"] = tier.strip()
+
+
 def _cited_window_text(full_text: str, token: Any) -> str:
     """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
 
@@ -766,12 +881,20 @@ def _resolve_evidence(
                 f"build_native_gate_b_inputs: evidence_id {evidence_id!r} has empty "
                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
             )
-        documents.append(
-            EvidenceDocument(
-                doc_id=evidence_id,
-                text=_normalize_span_text(_cited_window_text(text, token)),
-            )
-        )
+        # FX-03 body window (UNCHANGED — the out-of-span/BUG-02 defense is preserved byte-for-byte).
+        window_text = _normalize_span_text(_cited_window_text(text, token))
+        # V4 (whole-basket, §-1.3): PREPEND the cited source's declared PROVENANCE IDENTITY header so
+        # an attribution / identity atom grounds against the source's real authorship (recovering the
+        # single-span false-negative), while the WHAT (factual/effect) atoms still judge against the
+        # UNCHANGED body window. Empty header (record declares no identity) or flag OFF -> the text is
+        # byte-identical to the bare span. See the module V4 note for the faithfulness-CRITICAL safety
+        # argument (identity-only: never grounds a factual atom, shows the TRUE authors so a
+        # misattribution still fails).
+        if _whole_basket_enabled():
+            header = _provenance_header(record)
+            if header:
+                window_text = f"{header}\n{window_text}"
+        documents.append(EvidenceDocument(doc_id=evidence_id, text=window_text))
         records.append(record)
     return documents, records
 
@@ -958,6 +1081,17 @@ def build_native_gate_b_inputs(
                 "severity": claim_severity,
                 "s0_categories": s0_categories,
             }
+            # V4 (whole-basket, §-1.3): the verdict CARRIES the basket corroboration — how many
+            # distinct sources support the claim (count) and their credibility tier weights. This is
+            # a DISCLOSED side-output on the audit row only; it never gates and never relaxes the
+            # faithfulness engine. Gated by the flag so an OFF run's audit_map is byte-identical.
+            if _whole_basket_enabled():
+                audit_map[claim_id]["basket_source_count"] = len(evidence_ids)
+                audit_map[claim_id]["basket_weights"] = [
+                    str(rec.get("tier"))
+                    for rec in records
+                    if isinstance(rec, Mapping) and rec.get("tier")
+                ]
 
     # I-deepfix-001 wave-3 (conclusion true-drop) — thread the grounded DEPTH cross-source findings
     # into the SAME 4-role D8 gate the section claims pass. Each finding becomes ONE S3/observe-only

@@ -33,6 +33,7 @@ from src.polaris_graph.generator.quantified_analysis import (
 )
 from src.polaris_graph.tools.evidence_extractor import extract_numbers_from_evidence
 from src.polaris_graph.synthesis.tradeoff_modeler import (
+    _DUAL_TAG_FAILSOFT_ENV,
     _canonical_display,
     _locate_unique_literal,
     build_quantified_spec,
@@ -732,3 +733,125 @@ def test_ifix001_reject_reason_stamped_into_telemetry():
     assert section is None
     assert telem["firing_status"] == "spec_validation_rejected"
     assert telem.get("spec_reject_reason") == "outputs_empty"
+
+
+# ── V5 (I-deepfix-001 #1344): dual-tag (both modeled AND sourced) fail-SOFT ───
+# The recurring GLM-5.2 / deepseek Writer over-tag: ONE input carries BOTH
+# ``modeled: true`` AND a real ``datapoint_ref``. Pre-fix, ``build_quantified_spec``
+# fail-CLOSED the ENTIRE spec at ``input_both_modeled_and_sourced`` -> the Phase-7
+# section silently no-op'd (drb_72: a single ``programmer_wage_premium`` zeroed a
+# 1087-number quantified section). Post-fix, that input is RE-GROUNDED to its
+# datapoint_ref (§-1.3: prefer the real evidence span over the ungrounded modeled
+# ``base``) and the rest of the section renders. Faithfulness is UNCHANGED — the
+# rendered number is still the cited datapoint re-checked by Regime C.
+def _dual_tag_raw_spec(_q, _s):
+    # ``capex`` is OVER-TAGGED: a real datapoint_ref AND modeled=True AND a stray
+    # base/sweep. To reach the pre-fix reject gate it needs both flags set.
+    return {
+        "model_id": "tco", "title": "Total cost of ownership",
+        "inputs": [
+            {"name": "capex",
+             # base is a DELIBERATELY-WRONG sentinel: re-grounding must render the
+             # SOURCED datapoint value (1.548e9), never this ungrounded modeled base.
+             "base": 999.0, "unit": "USD", "sweep": [1.0e9, 2.0e9, 1.0e8],
+             "modeled": True,
+             "datapoint_ref": {
+                 "ev_id": "ev_017", "label": "program cost",
+                 "context": "program cost was $1.548 billion in fiscal",
+                 "value": "1548000000.0", "unit": "USD"}},
+            {"name": "opex", "datapoint_ref": {
+                "ev_id": "ev_021", "label": "annual maintenance",
+                "context": "Annual maintenance is $120 million per year",
+                "value": "120000000.0", "unit": "USD"}},
+            {"name": "years", "base": 5.0, "unit": "years",
+             "sweep": [1.0, 10.0, 1.0], "modeled": True},
+        ],
+        "outputs": [{"name": "tco", "unit": "USD", "display_kind": "currency",
+                     "formula": "capex + opex * years"}],
+        # a sweep / break-even solve over the OVER-TAGGED (now sourced) capex must be
+        # DROPPED, not fatal (a measured citation is not a swept assumption).
+        "sensitivity": [{"input": "years", "output": "tco"},
+                        {"input": "capex", "output": "tco"}],
+        "solve_for": {"var": "capex", "output": "tco"},
+    }
+
+
+def test_v5_dual_tag_regrounded_not_zeroed():
+    # GREEN (default kill-switch ON): the over-tagged capex is re-grounded to its
+    # datapoint_ref; the spec BUILDS instead of the whole section being zeroed. The
+    # sweep + solve_for over the now-sourced capex are dropped, NOT fatal.
+    reasons: list[str] = []
+    spec = build_quantified_spec(
+        "q", [_CAPEX, _OPEX], _evidence_rows(),
+        spec_llm=_dual_tag_raw_spec, on_reject=reasons.append,
+    )
+    assert spec is not None                                     # section NOT zeroed
+    assert reasons == []                                        # no reject fired
+    names = {s.name for s in spec.sourced_inputs}
+    assert "capex" in names and "opex" in names                 # capex is now SOURCED
+    assert all(m.name != "capex" for m in spec.modeled_inputs)  # not modeled
+    capex_si = next(s for s in spec.sourced_inputs if s.name == "capex")
+    assert capex_si.value == 1548000000.0                       # grounded value, not base
+    assert capex_si.ev_id == "ev_017"                           # grounded to evidence
+    assert all(sv.input != "capex" for sv in spec.sensitivity)  # sweep dropped
+    assert spec.solve_for is None or spec.solve_for.var != "capex"  # solve dropped
+
+
+def test_v5_dual_tag_killswitch_off_still_hard_rejects():
+    # RED (pre-fix parity): with the kill-switch OFF the dual-tag is a hard reject,
+    # naming the EXACT gate — proving the fix is the only thing recovering the section.
+    reasons: list[str] = []
+    os.environ[_DUAL_TAG_FAILSOFT_ENV] = "0"
+    try:
+        spec = build_quantified_spec(
+            "q", [_CAPEX, _OPEX], _evidence_rows(),
+            spec_llm=_dual_tag_raw_spec, on_reject=reasons.append,
+        )
+    finally:
+        os.environ.pop(_DUAL_TAG_FAILSOFT_ENV, None)
+    assert spec is None                                         # pre-fix: whole spec zeroed
+    assert reasons and reasons[-1] == "input_both_modeled_and_sourced:capex"
+
+
+def test_v5_dual_tag_end_to_end_section_renders():
+    # The task's core: ONE over-tagged input must NOT zero the whole quantified
+    # section. End-to-end through run_quantified_section: the section renders a verified
+    # number and the durable telemetry shows ``fired`` (not spec_validation_rejected).
+    rows = {
+        "ev_1": {
+            "statement": "The total program cost was $2.0 billion in fiscal 2024.",
+            "direct_quote": "The total program cost was $2.0 billion in fiscal 2024.",
+            "source_url": "https://example.org/x", "tier": "T1",
+        },
+    }
+
+    async def spec_provider(_q, sourced):
+        dp = next(d for d in sourced if abs(float(d["value"]) - 2_000_000_000.0) < 1)
+        return {
+            "model_id": "tco", "title": "TCO",
+            "inputs": [
+                # OVER-TAGGED: real datapoint_ref AND modeled=True (+ stray base/sweep).
+                {"name": "cost",
+                 "base": 2_000_000_000.0, "unit": "USD", "sweep": [1e9, 3e9, 5e8],
+                 "modeled": True,
+                 "datapoint_ref": {
+                     "ev_id": dp["evidence_id"], "label": dp["label"],
+                     "context": dp["context"], "value": dp["value"],
+                     "unit": dp["unit"]}},
+                {"name": "years", "base": 3.0, "unit": "years",
+                 "sweep": [1.0, 5.0, 1.0], "modeled": True},
+            ],
+            "outputs": [{"name": "tco", "unit": "USD", "display_kind": "currency",
+                         "formula": "cost * years"}],
+            "sensitivity": [{"input": "years", "output": "tco"},
+                            {"input": "cost", "output": "tco"}],
+        }
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert telem["spec_produced"] and telem["execution_success"]
+    assert telem["firing_status"] == "fired" and telem["verified_sentences"] >= 1
+    assert section is not None and "Quantified Trade-off" in section
+    assert "$6,000,000,000.00" in section                       # 2e9 * 3 (cost grounded)
+    assert "spec_reject_reason" not in telem                    # not the silent no-op
