@@ -9,6 +9,12 @@ Active mission: POLARIS **#1 on BOTH** DeepTRACE + DeepResearch-Bench-II. **THE 
 - **Decisions 2026-06-20:** all-GLM-5.2 (two-family §9.1.1 dropped — test single strong family); sovereignty dropped (US/China ok); all benchmark judges via OpenRouter; $300 banked.
 - **Discipline:** NEVER substitute a count for an audit or a packer for a benchmark (the overnight drift); faithfulness gates never relaxed; speed via PARALLELISM + RETRY-not-degrade; stop ONLY at #1-on-both / real halt / operator stop.
 
+## ★ VM-LAUNCH FORENSIC MONITORING — MILITARY ORDER (operator-locked 2026-07-04, BINDING) ★
+Full protocol: `docs/vm_launch_monitoring_protocol.md`. Applies to EVERY paid pipeline run on ANY VM box.
+- **Every 5 min:** Claude reads EVERY new line from ALL boxes (logs + reasoning + retrieved source + output) as a forensic §-1.1-quality CONTENT read, then consolidates to the operator.
+- **Red flag** (run diff/drift/stall/die/crazy — off the fix direction) → **immediately escalate to Codex + Fable 5**; they (not Claude) decide **hold→investigate→research→fix→test→relaunch-from-nearest-checkpoint** (existing or freshly rented box) **vs let-it-run**.
+- **Not cost-shy; time-shy + result-shy;** only a result that beats ALL boards is acceptable — no half-ass. Crash/OOM/hang/429 → **resume from nearest checkpoint, never fresh re-run**.
+
 ## LLM MODEL + TOKEN MAX GOVERNANCE (operator-locked 2026-06-13 — GH I-arch-003 #1253)
 
 These are land-mine rules. Every LLM call in this repo is subject to them.
