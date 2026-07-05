@@ -704,3 +704,11 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - NETWORK STRESS handled: ~25+ 429 backoff 48-53s + ConnectTimeout→K-span fallback + entailment provider-rotate (still 2/4, 0 host-exhaustion). Run slowed not broken.
 - ⚠️HONEST QUALITY NOTE (for §-1.1 audit, NOT a stop): game-rule scope-mask (81/182 grounding) + aggressive chrome-drops + network-K-span-fallbacks → THIS game-rule report likely THIN/extractive w/ several gap disclosures. Faithful (no fabrication, gaps disclosed) but modest depth on restricted smoke. Full-power boxes go wider. §-1.1 audit judges final quality.
 - NO red flag. Cursor=7760.
+
+## [2026-07-05 15:17:21] FORENSIC READ #11 (7760-8084) — still composing under SUSTAINED 429; 900s wall-retries appearing (handled)
+- Run ADVANCING (LAST_TS 22:15:47 vs NOW 22:16:34 = ~47s behind; not stalled). ~68min in, STILL composing (dragging from rate-limit). NOT red yet.
+- Sections real content: Challenges(Ethics/Bias/Skills) 11 baskets → 1150 then repair→1474 chars; another section 12/14 baskets drafted. repair_loop attempts=1 successes=0 re_verify_fail=1 → correctly did NOT add unverifiable sentence (§-1.3 faithful). B11 collapsed 1 repetition (6→5).
+- ⚠️NEW STRESS: [gen-wallclock] 2 sections exceeded 900s wall-clock (attempt 1/2) → retrying (transient provider stall from 429). Handled (1 retry). This = why run drags 68min vs 30min-smoke.
+- 429 count 31 (↑ from 25) but 4/4-hosts=0, attempt-6/6=0 (NO exhaustion). backoff-rotate absorbing all. Chrome-gate still dropping author-byline/arxiv-nav/preprint-header chrome consistently.
+- DECISION: NOT red-flag. corpus_snapshot(81 rows) safe. ESCALATE + RESUME-from-corpus_snapshot IF: section wall-clock attempt 2/2 fails OR entailment 4/4 OR log stall >10min OR PID dies w/o fresh report.md+manifest. Do NOT intervene while advancing. Tight 255s watch.
+- Cursor=8084.
