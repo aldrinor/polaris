@@ -695,3 +695,12 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - distill_map (map-reduce distillation) ran extensively. Positive-Views verified-compose PRIMARY 11 baskets → draft_chars=1138 (real content). M6 cross_source_synthesis: 1 anchored pair 0 survived per-clause re-verify (faithfulness-strict, analytical layer empty for that section).
 - DECISION: NOT red-flag. corpus_snapshot checkpoint saved (81 rows) → if a stage EXHAUSTS retries (entailment 4/4 OR 6/6) OR log stalls >10min → escalate Codex+Fable + RESUME from corpus_snapshot (0 re-fetch). Do NOT intervene now (would waste checkpointed progress). Tighten 429-trend watch.
 - Cursor=7332 (~22:06, ~58min in).
+
+## [2026-07-05 15:11:15] FORENSIC READ #10 (7332-7760, line-by-line) — sections composing honestly under network stress; chrome-gate aggressive
+- Run ADVANCING real-time (LAST_TS 22:09:45 ≈ NOW). ~62min in. Composing all 8 sections. NOT crashed, NOT stalled.
+- SECTIONS with real drafted content: Positive-Views 1138 chars, Negative-Views 10 baskets→1196 chars (NOT thin after all), Summary-Table (DRB-II contract) 12 baskets→447 chars. B11 same-span dedup collapsed 2 degenerate restatements (7→5) = repetition guard.
+- ★chrome-gate #13 firing HARD (correct)★: many all-chrome-basket drops → insufficient-evidence disclosure. Real chrome caught: author-byline+ORCID links (Sofia Morandini[](orcid...)), arxiv author-search links (Authors:[Gokul Yenduri](arxiv.org/search...)), markdown headers, single-word fragments (automation/aggregate/wp096/micro/economic). §-1.3 honest disclosure NOT fabricated.
+- writer pre-pass: 9/10, 7/12, 6/11 baskets drafted per section; 3-5 K-span-fallback per section (writer 180s-deadline timeouts from 429 backoff); abandoned=0 always.
+- NETWORK STRESS handled: ~25+ 429 backoff 48-53s + ConnectTimeout→K-span fallback + entailment provider-rotate (still 2/4, 0 host-exhaustion). Run slowed not broken.
+- ⚠️HONEST QUALITY NOTE (for §-1.1 audit, NOT a stop): game-rule scope-mask (81/182 grounding) + aggressive chrome-drops + network-K-span-fallbacks → THIS game-rule report likely THIN/extractive w/ several gap disclosures. Faithful (no fabrication, gaps disclosed) but modest depth on restricted smoke. Full-power boxes go wider. §-1.1 audit judges final quality.
+- NO red flag. Cursor=7760.
