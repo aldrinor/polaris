@@ -676,3 +676,13 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - L5 lane: derived 18 entities 8 missing 1 stayed-gap (honest), merged 11 rows; blocked-ref screen dropped 2 prohibited; Zyte RECOVERED doaj/semanticscholar/uhra to full-weight (U21 repair §-1.3). B14 empty-meta mismatches (Anthropic/ILO/HBS/MITSloan) = real sources missing title-meta, KEPT.
 - consolidation NLI on cuda:1 (GPU1 19GB), bounded-parallel batches. NO red flag. leaked_workers still 3.
 - NEXT: per-section prose drafts with [#ev] tokens (faithfulness core), strict_verify, render. Cursor=6751 (21:51, ~43min in).
+
+## [2026-07-05 14:59:35] FORENSIC READ #8 (6752-7092) — COMPOSITION+VERIFY: fix#5 fired + HONEST gaps + consolidate-keep-all
+- ★fix#5 DEFER-1 off-topic cite-suppression FIRED★: 40 SEMANTIC confirmed-off-topic src WITHHELD FROM CITATION (kept in evidence_pool+disclosure, NOT deleted, faithfulness untouched). Off-topic can't be cited.
+- M5 promotion: 22 promoted, 3 disclosed-only KEPT (single-origin low-weight non-journal, not standalone cited — §-1.3 basket-faithfulness). F1 route-all-baskets: 21 orphan baskets routed, nothing lost. D4 breadth: 5 facet-routed enrichment sections (baskets=65 members=70).
+- CONSOLIDATE-keep-all fired: fact_dedup consolidation-NLI prose dedup (e.g. 10→2 groups, redundant paraphrases merged, keep-all preserves EVERY citation) + I-wire-014 consolidate-keep-all (7→7). M-69 Fix#4 rescued 1 verbatim-verified strict_verify-dropped sentence.
+- ★HONEST GAP DISCLOSURE (not fabrication)★: slots 'theory_4ir_framing' + 'genai_productivity' strict_verify kept 0 sentences → rendered as GAP DISCLOSURE. Right behavior — disclose gap not fake prose.
+- provenance entailment working: acemoglu_restrepo narrow-span NEUTRAL but local-window ENTAILED → span_imprecise-but-locally-grounded passing (NLI per-claim).
+- Corroborated Findings verified-span render per section: Positive-Views 8/8, Opportunities 8/8, Challenges 3/3, GenAI-Evidence 3/2, Negative-Views 1/1(thin — scope-mask shrank in-scope negative pool), Additional 14/1.
+- ⚠️TRACK: entailment_judge provider-rotate on HTTPStatusError frequent (→friendli, "2/4 hosts tried") — RECOVERING via rotation (D8 transport #1283 resilience), NOT failing. Red only if "4/4 tried"+fail. leaked_workers still ~3.
+- NO red flag. Composition honest: off-topic blocked-from-cite, gaps disclosed, citations preserved, span-grounded. NEXT: strict_verify final %, render report.md, manifest. Cursor=7092 (21:58, ~50min in).
