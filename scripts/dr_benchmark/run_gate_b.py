@@ -606,6 +606,43 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_EXTRACT_SCOPE_CONSTRAINTS": "1",     # intake_constraint_extractor: parse the scope+timeline intent the enforcer consumes
     "PG_RELEVANCE_PRESERVE_ANCHORS": "1",    # evidence_selector: never cut a marquee/user-pinned anchor source
     "PG_CORPUS_TIER_DISCLOSURE_MODE": "1",   # corpus_approval_gate: material tier deviation PROCEEDS with a disclosed profile (not a §-1.3 refusal)
+    # ──────────────────────────────────────────────────────────────────────────────────────────────
+    # I-deepfix-001 pre-launch hardening (serious-check won't-go-dark gap) — 2026-07-05.
+    # 22 ALWAYS-ON faithfulness / render / validity fixes that were BUILT default-ON in their module
+    # (getenv default "1" / kill-switch OFF => byte-identical revert) but were NEVER pinned onto the paid
+    # DRB-II slate — so a stray operator/.env =0 could SILENTLY DARK the fix on a paid run with NO abort.
+    # QUAD-wired EXACTLY like the scope block above: slate "1" (this dict) + _BENCHMARK_FORCE_ON_FLAGS
+    # (force-exact "1") + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-CLOSED pre-spend) + _WINNER_FLAG_
+    # ALLOWLIST (SLATE-PURITY). CRITICAL: each MUST be a slate-dict KEY here so apply_full_capability_
+    # benchmark_slate's dict loop VISITS it and force-sets os.environ[name]="1" — a preflight-required
+    # flag NOT in the slate would read os.getenv(...,"0")=="0" and FALSE-ABORT the run. §-1.3: this ONLY
+    # PINS existing weight/disclose/render/validity fixes ON — NO cap/target/thinner introduced. The
+    # faithfulness ENGINE thresholds (strict_verify / NLI / 4-role D8 / provenance) are UNTOUCHED; these
+    # fixes only ADD render/disclosure/composition-time correctness on top, and every module keeps its own
+    # default-ON kill-switch in code (this overrides the kill-switch on the Gate-B path only, like scope).
+    "PG_RENDER_VERDICT_GATE": "1",                   # render: DROP a settled non-VERIFIED 4-role verdict (report_redactor)
+    "PG_RENDER_SUMMARY_TABLE": "1",                  # render: the required summary-table deliverable (summary_table)
+    "PG_SOURCE_NECESSITY_QUARANTINE": "1",           # render: #7 source-necessity audit ledger + disclosure (synthesis/source_necessity)
+    "PG_SNAP_MEMBER_BOUNDARY": "1",                  # faithfulness: cap forward span-snap at a sibling member boundary => correct [N] (finding #8)
+    "PG_S11_SEC8_DISCLOSURE_WEIGHT": "1",            # §8 contradiction disclosure carries the member credibility weight
+    "PG_S12_SEC8_D8_DEMOTE": "1",                    # §8 D8-unsettled contradiction demote (disclose, never drop)
+    "PG_S14_METHODS_TIER_FINAL": "1",                # methods-section final tier labelling honesty
+    "PG_S15_CORROBORATED_HONEST_LABEL": "1",         # corroborated-claim honest label (no over-claim)
+    "PG_S17_BIB_COHERENCE": "1",                     # bibliography coherence (numbering / entry integrity)
+    "PG_S18_LOWWEIGHT_RECONCILE": "1",               # low-weight source reconcile against its named credibility weight
+    "PG_QUANTIFIED_UNIT_COMPAT": "1",                # faithfulness: quantified-analysis unit-compatibility guard (quantified_analysis)
+    "PG_QUANTIFIED_FILLER_SUPPRESS": "1",            # render: quantified-analysis filler suppression (quantified_analysis)
+    "PG_ASPECT_OFFTOPIC_SLOT_GUARD": "1",            # off-topic row slot guard before section assignment (finding #5; keep-all)
+    "PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT": "1",   # coverage measured against the RENDERED output, not just corpus (finding #6b)
+    "PG_UNIT_CONFLATION_GUARD": "1",                 # faithfulness: unit-conflation overstatement guard (overstatement_guard)
+    "PG_BLOCK_PAGE_CHROME_SCRUB": "1",               # render: block-page / chrome scrub of the assembled report (block_page_chrome_scrub)
+    "PG_BLOCK_PAGE_CHROME_SCRUB_SHARED": "1",        # render: #13 shared-detector per-sentence chrome leg (block_page_chrome_scrub)
+    "PG_PT03_WAIVED_HONEST": "1",                    # PT03 two-family-waived HONEST disclosure (external_evaluator)
+    "PG_CONTRADICTION_RENDER_HONEST": "1",           # honest contradiction rendering (both sides disclosed)
+    "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH": "1",   # metric-mismatch out of headline contradiction count (also bare-set in run_gate_b_query; QUAD adds the pre-spend fail-closed)
+    "PG_FACT_DEDUP_EXACT_INTRASECTION": "1",         # exact-duplicate intra-section consolidation (keep-all; finding #10)
+    "PG_RUN_VALIDITY_GATE": "1",                     # validity: render-validity master gate — fail-closed do-not-ship on wrong-question / broken contract
+    # ──────────────────────────────────────────────────────────────────────────────────────────────
     # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
     "PG_ENABLE_TOOL_TRACKER": "1",
     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
@@ -1749,6 +1786,36 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # Force-set on the live run_gate_b_query path (before the override) so a benchmark run cannot answer
     # the wrong question; this required-flag makes a stray =0 fail the run CLOSED before any token spends.
     "PG_BENCHMARK_OFFICIAL_QUESTION",
+    # I-deepfix-001 pre-launch hardening (serious-check won't-go-dark gap) — 2026-07-05: fail-CLOSED
+    # before spend if any of the 22 ALWAYS-ON faithfulness / render / validity fixes is off — a paid run
+    # with one =0 silently ships a report missing that fix (dropped non-verified verdict admitted / no
+    # summary table / no source-necessity ledger / wrong citation boundary / §8 disclosure lost / methods
+    # tier mislabelled / unit conflation unguarded / chrome un-scrubbed / metric-mismatch inflating the
+    # contradiction count / exact-dups un-consolidated / render-validity gate disarmed). Force-ON + slate
+    # "1" above so a stray operator =0 fails the run CLOSED here. §-1.3 PIN-only; faithfulness engine
+    # thresholds UNTOUCHED. All booleans -> safe in this truthy-required tuple (os.getenv=="1").
+    "PG_RENDER_VERDICT_GATE",
+    "PG_RENDER_SUMMARY_TABLE",
+    "PG_SOURCE_NECESSITY_QUARANTINE",
+    "PG_SNAP_MEMBER_BOUNDARY",
+    "PG_S11_SEC8_DISCLOSURE_WEIGHT",
+    "PG_S12_SEC8_D8_DEMOTE",
+    "PG_S14_METHODS_TIER_FINAL",
+    "PG_S15_CORROBORATED_HONEST_LABEL",
+    "PG_S17_BIB_COHERENCE",
+    "PG_S18_LOWWEIGHT_RECONCILE",
+    "PG_QUANTIFIED_UNIT_COMPAT",
+    "PG_QUANTIFIED_FILLER_SUPPRESS",
+    "PG_ASPECT_OFFTOPIC_SLOT_GUARD",
+    "PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT",
+    "PG_UNIT_CONFLATION_GUARD",
+    "PG_BLOCK_PAGE_CHROME_SCRUB",
+    "PG_BLOCK_PAGE_CHROME_SCRUB_SHARED",
+    "PG_PT03_WAIVED_HONEST",
+    "PG_CONTRADICTION_RENDER_HONEST",
+    "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",
+    "PG_FACT_DEDUP_EXACT_INTRASECTION",
+    "PG_RUN_VALIDITY_GATE",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -1949,6 +2016,34 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_EXTRACT_SCOPE_CONSTRAINTS",
     "PG_RELEVANCE_PRESERVE_ANCHORS",
     "PG_CORPUS_TIER_DISCLOSURE_MODE",
+    # I-deepfix-001 pre-launch hardening (serious-check won't-go-dark gap) — 2026-07-05: force-ON the 22
+    # ALWAYS-ON faithfulness / render / validity fixes so a stray operator/.env =0 cannot survive the
+    # setdefault-free slate loop and silently dark the fix. Each is a slate-dict "1" member above (so
+    # apply_full_capability_benchmark_slate force-sets os.environ[name]="1"), preflight-required below
+    # (fail-CLOSED pre-spend), and allowlisted (SLATE-PURITY). §-1.3: PIN only, no cap/target/thinner;
+    # faithfulness engine thresholds UNTOUCHED; each module keeps its own default-ON kill-switch in code.
+    "PG_RENDER_VERDICT_GATE",
+    "PG_RENDER_SUMMARY_TABLE",
+    "PG_SOURCE_NECESSITY_QUARANTINE",
+    "PG_SNAP_MEMBER_BOUNDARY",
+    "PG_S11_SEC8_DISCLOSURE_WEIGHT",
+    "PG_S12_SEC8_D8_DEMOTE",
+    "PG_S14_METHODS_TIER_FINAL",
+    "PG_S15_CORROBORATED_HONEST_LABEL",
+    "PG_S17_BIB_COHERENCE",
+    "PG_S18_LOWWEIGHT_RECONCILE",
+    "PG_QUANTIFIED_UNIT_COMPAT",
+    "PG_QUANTIFIED_FILLER_SUPPRESS",
+    "PG_ASPECT_OFFTOPIC_SLOT_GUARD",
+    "PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT",
+    "PG_UNIT_CONFLATION_GUARD",
+    "PG_BLOCK_PAGE_CHROME_SCRUB",
+    "PG_BLOCK_PAGE_CHROME_SCRUB_SHARED",
+    "PG_PT03_WAIVED_HONEST",
+    "PG_CONTRADICTION_RENDER_HONEST",
+    "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",
+    "PG_FACT_DEDUP_EXACT_INTRASECTION",
+    "PG_RUN_VALIDITY_GATE",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2604,6 +2699,32 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_ENRICHMENT_FACET_ROUTE",             # D4 facet-routed enrichment placement (keep-all)
     "PG_SUBTOPIC_DECOMPOSITION",             # L2 sub-topic decomposition (verbatim-span sentence per distinct atomic fact; keep-all)
     "PG_COVERAGE_L5_REQUIRED_ENTITY",        # L5 question/facet-derived required-entity coverage lane (winners-only purity)
+    # ── I-deepfix-001 pre-launch hardening (serious-check won't-go-dark gap) — 2026-07-05 ────────────
+    # The 22 ALWAYS-ON faithfulness / render / validity fixes force-ON'd above. Each is render/disclosure/
+    # composition-time honesty infra (NOT a loser): a conscious 'winner or infra?' decision — allowlisted
+    # deliberately so the clean slate PASSES SLATE-PURITY while a future re-introduced loser still fails.
+    "PG_RENDER_VERDICT_GATE",                # render: drop settled non-VERIFIED 4-role verdict
+    "PG_RENDER_SUMMARY_TABLE",               # render: required summary-table deliverable
+    "PG_SOURCE_NECESSITY_QUARANTINE",        # render: #7 source-necessity ledger + disclosure
+    "PG_SNAP_MEMBER_BOUNDARY",               # faithfulness: sibling-member span-snap boundary (correct [N])
+    "PG_S11_SEC8_DISCLOSURE_WEIGHT",         # §8 disclosure carries member credibility weight
+    "PG_S12_SEC8_D8_DEMOTE",                 # §8 D8-unsettled contradiction demote (disclose)
+    "PG_S14_METHODS_TIER_FINAL",             # methods-section final tier labelling honesty
+    "PG_S15_CORROBORATED_HONEST_LABEL",      # corroborated-claim honest label
+    "PG_S17_BIB_COHERENCE",                  # bibliography coherence
+    "PG_S18_LOWWEIGHT_RECONCILE",            # low-weight source reconcile vs named weight
+    "PG_QUANTIFIED_UNIT_COMPAT",             # faithfulness: quantified unit-compatibility guard
+    "PG_QUANTIFIED_FILLER_SUPPRESS",         # render: quantified filler suppression
+    "PG_ASPECT_OFFTOPIC_SLOT_GUARD",         # off-topic row slot guard (keep-all)
+    "PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT",   # coverage against rendered output (finding #6b)
+    "PG_UNIT_CONFLATION_GUARD",              # faithfulness: unit-conflation overstatement guard
+    "PG_BLOCK_PAGE_CHROME_SCRUB",            # render: block-page/chrome scrub
+    "PG_BLOCK_PAGE_CHROME_SCRUB_SHARED",     # render: #13 shared-detector per-sentence chrome leg
+    "PG_PT03_WAIVED_HONEST",                 # PT03 two-family-waived honest disclosure
+    "PG_CONTRADICTION_RENDER_HONEST",        # honest contradiction rendering (both sides disclosed)
+    "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",   # metric-mismatch out of headline contradiction count
+    "PG_FACT_DEDUP_EXACT_INTRASECTION",      # exact-duplicate intra-section consolidation (keep-all)
+    "PG_RUN_VALIDITY_GATE",                  # validity: render-validity master gate (fail-closed do-not-ship)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.

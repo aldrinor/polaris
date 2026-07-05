@@ -1,5 +1,19 @@
 """WS-10 (I-deepfix-001) — Source Necessity SURFACING.
 
+SUPERSEDED by ``src/polaris_graph/synthesis/source_necessity.py`` (#7 quarantine module,
+kill-switch ``PG_SOURCE_NECESSITY_QUARANTINE``); retained for tests only (I-deepfix-001
+pre-launch hardening, 2026-07-05). The #7 module already RENDERS the DeepTRACE metric VI
+source-necessity disclosure into ``report.md`` — the same "N of M listed references are NECESSARY
+(minimum-vertex-cover reading); necessity ratio X.XXXX; non-load-bearing entries moved to the audit
+ledger, never dropped" block — computed over the pipeline's span-verified support-by-source with the
+four-role D8 reconciliation. This ``audit/`` builder produces the SAME metric-VI necessity disclosure
+(over the DeepTRACE scorer's statement×source matrices), so wiring it would emit a DUPLICATE
+disclosure in ``report.md``. It has ZERO production callers and is deliberately NOT wired; the
+``build_source_necessity_disclosure`` function stays importable so ``tests/polaris_graph/
+test_ws10_source_necessity.py`` keeps exercising the pure metric-VI math. Its kill-switch
+``PG_SOURCE_NECESSITY_DISCLOSURE`` is intentionally NOT pinned onto the benchmark slate (nothing to
+arm — no run-path consumer).
+
 The DeepTRACE metric VI algorithm is ALREADY built and tested in
 ``scripts/dr_benchmark/deeptrace_scorer.py`` (``minimum_source_cover_size`` /
 ``necessary_source_count`` / ``compute_deeptrace_metrics``). This module does NOT re-implement it.
