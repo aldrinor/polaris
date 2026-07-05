@@ -14,6 +14,15 @@
 - P0-2 render-verdict-drop (#2) — 48e0ee93
 - DeepTRACE source_necessity min-cover (scorer paper-faithful 8/8) — 5fd99879
 - (P7 summary table #6 committed earlier)
+- rank-19 contradiction non-quantity-number fix (#19) — 5e94e6f0 (Codex+Fable APPROVE, clean-committed via the safe recipe: staged==3 files verified)
+
+## ⚠️ CONTAMINATION FOUND 2026-07-05 ~02:58 — handle at scope-commit time
+- Commit **56c50838** (the RESUME anchor commit) ACCIDENTALLY baked in 6 scope-gate ITER-1 files that a build agent left staged in the index: config/scope_ontology/source_types.yaml, src/polaris_graph/retrieval/{constraint_enforcement,forbidden_identity_gate,scope_facet_classifier}.py, tests/polaris_graph/{test_forbidden_identity,test_scope_timeline_gate}.py. These are ITER-1 (have the include-boost P1) — NOT final.
+- Working tree is DIRTY (unstaged) with stale iter-1/2 edits to 5 scope existing files (run_honest_sweep_r3.py, scope_gate.py, blocked_reference_registry.py, evidence_selector.py, intake_constraint_extractor.py) + 2 rank19 files (contradiction_detector.py, live_deepseek_generator.py) + rank19 test. Index is CLEAN.
+- **ROOT CAUSE: build agents wrote edits directly into the MAIN tree AND left files staged. LESSON: before ANY commit, run `git diff --cached --name-only` and `git status`; stage ONLY the explicit fix files with `git add <exact paths>`; NEVER `git add -A`/`git commit -a`; verify the staged set == the fix's file set before commit.**
+- **CLEAN-COMMIT RECIPE for scope (when iter-3 BOTH-APPROVED):** authoritative content = the verified $SC/scope_gate_build.diff (final iter, against 5fd99879). To commit clean: (a) `git checkout 5fd99879 -- <5 existing scope files>` to revert dirty edits to pre-scope baseline; (b) `git rm -f <the 6 new scope files>` to drop the iter-1 committed versions; (c) `git apply $SC/scope_gate_build.diff` (against 5fd99879 → clean, recreates the 6 new + edits the 5); (d) run the scope tests to confirm green; (e) `git add <exactly the 11 scope files>`, verify `git diff --cached --name-only` == those 11, commit. This OVERWRITES the iter-1 files from 56c50838 with the final gated versions.
+- **rank19 commit:** materialize $SC/tail_rank19.diff final content for ONLY contradiction_detector.py + live_deepseek_generator.py + test_deepfix_rank19_non_quantity_contradiction.py; do NOT touch scope files.
+- Stashes intact incl wave1-iter3-wip (stash@{1}) — do NOT drop.
 
 ## Workflows in flight (check `$TD/<id>.output` items[].both_approve)
 - `wcll34qxh` — scope-gate build iter-2 (fix include-boost wiring + TWO-SIDED real-drb_72 extraction test + fail-closed redaction). both_approve → COMMIT `$SC/scope_gate_build.diff` (stage only scope-gate files; no judge-swap; push; disposition #1/#3/#23). REVISE → iterate ≤5.
@@ -41,3 +50,37 @@
 
 ## Guardrails (never trade)
 faithfulness engine NEVER relaxed; §-1.3 WEIGHT-not-FILTER (user-asked scope=honor; no-constraint=widest+deepest byte-identical); scope gate = selection/weight/disclose, never faithfulness-relax; deepener/R2/L2 WIDEN-ONLY; killed losers STORM/F2 OFF; do NOT commit unsigned sovereign-lock (judge-swap files: polaris_runtime_lock.yaml / canonical_pin.txt / openrouter_client.py / test_runtime_lock.py); mineru OWN venv NOT main; prove-internal-scorer-correct not official-harness-flag; heavy on VM not local; do NOT drop wave1-iter3-wip stash; PushNotification ONLY blocker / scored-result / needs_operator_decision / root-cause-proven / CLEAN-GREEN-RECAP-ready.
+
+## 4-BOX SAFE+AGGRESSIVE STRATEGY (operator 2026-07-05 ~09:50 — maximize DRB-II chance in ONE wave)
+Instead of safe-run → discover-short → second-cycle, run SAFE and AGGRESSIVE settings IN PARALLEL, score all, keep the winner per board.
+- 2 boxes SAFE: current fixes + standard settings (game-rule + full-power questions). Known-good high-faithfulness.
+- 2 boxes AGGRESSIVE: same 2 questions, breadth levers MAXED — widen-only wideners (deepener/R2/L2 armed hard), more query facets, more adequacy-loop passes. Faithfulness STILL fully gated (never relaxed).
+DEPENDENCY (resolved by the coverage audit wviar8c9x → $SC/drb2_coverage_audit.md): "aggressive" = Tier A (max EXISTING widen-only levers, runnable now, NO build) + Tier B (deep RC-E synthesis for the ~18% analysis component — may be a genuine BUILD not a flag). Aggressive boxes run Tier A for sure; add Tier B only if the audit says it's a flag (else Tier B = second-cycle build, gated first). §-1.3: breadth via WIDEN-ONLY, never a cap/target/thinner.
+BOXES: have Box A (ssh3.vast.ai:12228) + Box B (ssh6.vast.ai:34874). Provision 2 MORE once the audit defines the aggressive config (avoid rent-then-reconfigure). Cost not a limit (DNA fast+beat-both only params).
+EXECUTION: after all 23 fixes committed + preflight clean + Codex+Fable sign-off → provision+configure the 4 boxes (2 safe std-config, 2 aggressive Tier-A[+B if flag]) → launch all 4 in parallel → forensic monitor → §-1.1 audit each → score all 4 vs floor (DeepTRACE + DRB-II) → keep the winner per board → honest report.
+
+## ★ CURRENT AUTOMATED END-TO-END PLAN (2026-07-05 ~10:20 — SUPERSEDES the 7-step plan above; operator walked away, run UNATTENDED to scored results)
+Drive this fully automated; surface to operator ONLY: a genuine blocker, a needs-operator-decision, root-cause-proven, or SCORED RESULTS. No permission-asking. Tight 240s loop; no rm -rf variable paths.
+
+STATE: HEAD 403f79e8. 9/23 faithfulness findings committed. Branch bot/I-wire-001-integration.
+
+RUNNING PARALLEL (commit each on BOTH-approve via the clean rebase recipe; REVISE→fix→re-gate ≤5):
+- Faithfulness: B3-iter2 #4/#5/#6b (w2x1p9as7), B4 #9/#13/#16/#22 (wl8aedgtd), B2 #11/#12/#14/#15/#17/#18 (weym7qlvl).
+- COVERAGE build (co-equal): w7g7v04qa — C1 R2 query-expansion recall fix + engage wideners (WIDEN-ONLY), C2 activate M6 + depth_synthesis (analysis off zero), faithfulness re-passed per clause. diff $SC/drb2_coverage_build.diff.
+- read-only LOSS-RISK critic wwfohleig → $SC/lose_risk_register.md.
+
+THEN (automated, in order):
+1. Commit all built+gated fixes (faithfulness + coverage) via the safe recipe (grep '^+++ b/' the diff; git checkout HEAD -- those files; git apply --check; apply; run its tests in MAIN tree [artifact dir present]; git add EXACT; verify staged count==expected + no judge-swap/runtime_lock; commit+push; update disposition). Serial commits, rebase later batches onto new HEAD; on conflict rebuild vs new HEAD.
+2. LOSS-RISK register: for each CRITICAL/HIGH closeable-before-run → build+gate (same rigor). The single-task(drb_72)-vs-full-132-task-leaderboard question → PushNotification as needs_operator_decision (do NOT block the drb_72 4-box run on it — that is the agreed run). Any fix-flag-defaults-OFF (won't fire in the run) → enable in the run env config.
+3. Box prep: Box A (ssh3:12228) parity + Box B (ssh6:34874) pull to final HEAD; PROVISION 2 more boxes; config 2 SAFE (std) + 2 AGGRESSIVE (max wideners + synthesis on). Funds confirmed (not a gate).
+4. PREFLIGHT: small real run (safe config) on Box B → fresh §-1.1 audit WITH evidence_pool.json + PROVE each fix FIRES (P0-2 verdict-drop, scope gate two-sided, citation, composition, disclosure, render/chrome, AND coverage: effective_query_count>>15, R2 expansion rounds>0, cross-source connectives/DS->0, unfetched_relevant_tail=0, cited-breadth count) + Codex+Fable sign-off. Survivors → fix→gate→re-preflight. Never launch on deficient.
+5. GREEN GATE: preflight CLEAN → write recap + PushNotification 'runs LAUNCHING' → PROCEED (no waiting). Deficient/blocker/needs-operator-decision → PushNotification + wait.
+6. AUTO-LAUNCH 4 VM RUNS (the agreed originals + safe/aggressive split), all gate ON + faithfulness NEVER relaxed:
+   - Box1 SAFE game-rule (full drb_72: pre-June-2023 + forbidden Salari + required sections)
+   - Box2 SAFE full-power (same question, source/timeline clauses STRIPPED — extractor intelligence)
+   - Box3 AGGRESSIVE game-rule (max wideners + synthesis)
+   - Box4 AGGRESSIVE full-power
+7. Forensic 5-min monitor EVERY box: read every line (breadth + tier mix + extraction cleanliness + synthesis firing + effective_query_count, §-1.1 quality). ON BUG: escalate Codex+Fable → fix → test → gate → RELAUNCH from nearest checkpoint (corpus_snapshot) IMMEDIATELY, never fresh, keep monitoring. Only a faithfulness-relaxing / operator-locked-gate change pauses + notifies.
+8. After each run: §-1.1 serious line-by-line audit + score both boards (DeepTRACE our paper-faithful scorer + DRB-II official Gemini run_evaluation.py) vs floor (DeepTRACE 0.8636 / DRB-II 0.0571). Keep the WINNER per board across the 4. PushNotification the SCORED RESULTS — honest (top / competitive / short + the real numbers + the 2nd-cycle items).
+
+PAUSE-AND-NOTIFY conditions (only these): preflight cannot get clean after ≤5 gate iters; a fix would relax the faithfulness engine or override an operator-locked gate; funds insufficient; the full-132-task-leaderboard scope decision; a genuine unrecoverable blocker. Everything else = execute.
