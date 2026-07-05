@@ -641,6 +641,55 @@ def _degraded_verify_disclosure_enabled() -> bool:
     return os.getenv(_DEGRADED_VERIFY_DISCLOSURE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+_SNAP_MEMBER_BOUNDARY_ENV = "PG_SNAP_MEMBER_BOUNDARY"
+
+
+def _snap_member_boundary_enabled() -> bool:
+    """I-deepfix-001 tail-B1 (#1344, finding #8) kill-switch (default ON). OFF => the forward
+    span-snap is NOT capped against a sibling member's span => byte-identical to the pre-fix snap."""
+    return os.getenv(_SNAP_MEMBER_BOUNDARY_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _snap_cap_to_sibling_member(
+    basket: Any, member: Any, haystack: str, start: int, end: int, evidence_pool: dict
+) -> int:
+    """finding #8: the max ``snap_end`` that does NOT cross into ANOTHER basket ``SUPPORTS`` member's
+    OWN verified quote located within THIS member's row ``haystack``. PURE; shrink-only (>= ``end``).
+
+    THE BUG: a merged multi-source sentence inherited only the FIRST source's citation — the report
+    cited ev_036's Philippine text under ev_051's number [13] while it is correctly [14] elsewhere.
+    When two members' quotes co-occur in one fetched row (or a member carries two spans of the same
+    source), the FORWARD sentence-boundary snap of the first member's span can extend PAST the second
+    member's span start and emit that second span's text under the FIRST member's single ``[#ev]``
+    token — one source's content mis-attributed to another's citation. Capping the snap at the nearest
+    sibling-member span start keeps each carried-up span bound to its OWN evidence_id / ``[#ev]`` token
+    (its own ``[N]``), so a sibling's span never resolves under the wrong number. Faithfulness-neutral:
+    the cap can only SHRINK an over-extended snap; it never widens a span and never relaxes a verdict.
+    Returns ``len(haystack)`` when no sibling span sits after ``end``."""
+    this_eid = str(getattr(member, "evidence_id", "") or "")
+    boundary = len(haystack)
+    for other in _basket_supports_members(basket):
+        if other is member:
+            continue
+        o_eid = str(getattr(other, "evidence_id", "") or "")
+        if o_eid and o_eid == this_eid:
+            # Same-source sibling: cap at ITS span start (offsets index the same row) if it is after
+            # this member's verified span end.
+            o_span = _member_global_span(other, evidence_pool)
+            if o_span is not None and end <= o_span[0] < boundary:
+                boundary = o_span[0]
+            continue
+        # Different-source sibling whose quote physically co-occurs in THIS member's row text: cap at
+        # the first occurrence after `end` so the snap never swallows the sibling's span.
+        o_quote = str(getattr(other, "direct_quote", "") or "").strip()
+        if not o_quote:
+            continue
+        idx = haystack.find(o_quote, end)
+        if idx != -1 and idx < boundary:
+            boundary = idx
+    return boundary
+
+
 def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]:
     """The basket-id-bound VERBATIM K-span fallback: a sentence built from the basket's own
     strongest isolated-``SUPPORTS`` member's verbatim ``direct_quote`` (the span it was verified
@@ -678,6 +727,13 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
             row = (evidence_pool or {}).get(eid) or {}
             haystack = str(row.get("direct_quote") or row.get("statement") or "")
             snap_end = _snap_span_end_to_sentence(haystack, start, end)
+            # finding #8: never let the forward snap cross into a sibling member's span (which would
+            # emit that sibling's text under THIS member's single [#ev] token / [N]).
+            if _snap_member_boundary_enabled():
+                snap_end = min(
+                    snap_end,
+                    _snap_cap_to_sibling_member(basket, m, haystack, start, end, evidence_pool),
+                )
             if snap_end > end and 0 <= start < snap_end <= len(haystack):
                 # Rebuild the prose from the SAME-row slice the widened token cites, so the completed
                 # final sentence is whole; the earlier sentences are unchanged (they are a prefix of it).
@@ -911,6 +967,13 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict) -> Optiona
             row = (evidence_pool or {}).get(eid) or {}
             haystack = str(row.get("direct_quote") or row.get("statement") or "")
             snap_end = _snap_span_end_to_sentence(haystack, start, end)
+            # finding #8: cap the forward snap at the nearest sibling member's span so a merged
+            # multi-source sentence never emits one member's span under another's single [#ev] token.
+            if _snap_member_boundary_enabled():
+                snap_end = min(
+                    snap_end,
+                    _snap_cap_to_sibling_member(basket, m, haystack, start, end, evidence_pool),
+                )
             if snap_end > end and 0 <= start < snap_end <= len(haystack):
                 span_text = haystack[start:snap_end]
         units = [u.strip() for u in (split_into_sentences(span_text) or [span_text]) if u.strip()]

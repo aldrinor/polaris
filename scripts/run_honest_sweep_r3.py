@@ -3842,6 +3842,135 @@ def split_bibliography_section_by_citation(
     )
 
 
+def _extract_bibliography_block(report_text: str) -> "tuple[str, int, int] | None":
+    """Locate the rendered "## Bibliography" section in a finished report.md. PURE.
+
+    Returns ``(block_text, start_index, end_index)`` where ``report_text[start:end] == block_text``,
+    OR ``None`` when the report carries no "## Bibliography" heading. The block runs from the
+    heading line up to (but NOT including) the NEXT top-level markdown heading ("## " or "# " at
+    line start) — so any per-claim corroboration content appended under the heading is captured,
+    while the following section (e.g. the T2 corpus-ledger appendix or the Conclusion) is not.
+    Used by the post-gate source-necessity seam (finding #7) to re-type the bibliography against the
+    four-role D8 verdicts without re-parsing the whole report."""
+    if not report_text:
+        return None
+    marker = "## Bibliography"
+    start = report_text.find("\n" + marker)
+    if start >= 0:
+        start += 1  # step over the leading newline so the block starts at the heading
+    elif report_text.startswith(marker):
+        start = 0
+    else:
+        return None
+    # End = the next top-level heading line after the heading line, else EOF.
+    scan = report_text.find("\n", start)
+    end = len(report_text)
+    while scan != -1:
+        nxt = report_text.find("\n", scan + 1)
+        line_end = nxt if nxt != -1 else len(report_text)
+        line = report_text[scan + 1:line_end]
+        if line.startswith("## ") or line.startswith("# "):
+            end = scan + 1
+            break
+        scan = nxt
+    return report_text[start:end], start, end
+
+
+def _apply_source_necessity_post_gate(
+    report_path,
+    multi,
+    final_verdicts: "dict | None",
+    audit_map: "dict | None",
+    log,
+) -> None:
+    """I-deepfix-001 tail-B1 (#1344, finding #7): apply the DeepTRACE-#6 source-necessity re-type to
+    the FINISHED report.md, reconciled against the four-role D8 SETTLED verdicts.
+
+    Runs AFTER the four-role gate so a body-cited source that D8 settled VERIFIED is credited as
+    load-bearing even when its isolated-span basket is span-unverified — it is NEVER quarantined out
+    of the numbered bibliography (no dangling [N] marker) and it COUNTS toward the necessity ratio.
+    The D8-VERIFIED-cited allowlist is derived from ``final_verdicts`` (claim_id -> verdict) joined to
+    ``audit_map`` (claim_id -> evidence_ids) via the bibliography's evidence_id->num map. Faithfulness-
+    neutral (pure disclosure/render surgery; reads already-settled verdicts, never re-verifies). Fail-
+    open + kill-switch (``PG_SOURCE_NECESSITY_QUARANTINE``); any error leaves report.md untouched."""
+    try:
+        from src.polaris_graph.synthesis.source_necessity import (  # noqa: PLC0415
+            quarantine_enabled as _sn_enabled,
+            compute_source_necessity as _sn_compute,
+            zero_support_bib_nums as _sn_zero,
+            retype_bibliography_by_source_necessity as _sn_retype,
+        )
+        if not _sn_enabled():
+            return
+        if report_path is None or not report_path.is_file():
+            return
+        report_text = report_path.read_text(encoding="utf-8")
+        extracted = _extract_bibliography_block(report_text)
+        if extracted is None:
+            return  # no bibliography (e.g. a degraded/withheld body) — nothing to re-type
+        biblio_block, _b_start, _b_end = extracted
+        from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+            _basket_for_biblio as _sn_proj,
+            build_basket_supports_by_cluster as _sn_supports_by_cluster,
+        )
+        from src.polaris_graph.generator.depth_synthesis import (  # noqa: PLC0415
+            bib_num_by_evidence_id as _sn_eid_to_num,
+        )
+        _sn_cred = getattr(multi, "credibility_analysis", None)
+        _sn_baskets = getattr(_sn_cred, "baskets", None) or []
+        _sn_bib = getattr(multi, "bibliography", None) or []
+        _sn_num_by_eid = _sn_eid_to_num(_sn_bib)
+        _sn_cited_nums = cited_reference_numbers(report_text)
+        # num -> {claim_cluster_id (statement) it span-verified SUPPORTS} (isolated-span basket layer).
+        _sn_by_cluster = {}
+        for _sn_b in _sn_baskets:
+            _sn_ccid = str(getattr(_sn_b, "claim_cluster_id", "") or "")
+            if _sn_ccid:
+                _sn_by_cluster[_sn_ccid] = _sn_proj(_sn_b)
+        _sn_supports = _sn_supports_by_cluster(_sn_by_cluster)
+        _sn_support_by_num: dict = {}
+        for _sn_ccid, _sn_eids in _sn_supports.items():
+            for _sn_eid in _sn_eids:
+                _sn_n = _sn_num_by_eid.get(str(_sn_eid))
+                if isinstance(_sn_n, int):
+                    _sn_support_by_num.setdefault(_sn_n, set()).add(_sn_ccid)
+        # D8-VERIFIED-cited allowlist (finding #7): the numbers cited-in-body by a claim the four-role
+        # engine SETTLED VERIFIED. Join final_verdicts (claim_id -> verdict) to audit_map (claim_id ->
+        # evidence_ids), map each evidence_id to its bib num, keep those that are actually cited.
+        _sn_d8_cited: set = set()
+        _fv = final_verdicts or {}
+        _am = audit_map or {}
+        for _cid, _verdict in _fv.items():
+            if str(_verdict).strip().upper() != "VERIFIED":
+                continue
+            _row = _am.get(_cid) if isinstance(_am, dict) else None
+            if not isinstance(_row, dict):
+                continue
+            for _eid in _row.get("evidence_ids", []) or []:
+                _num = _sn_num_by_eid.get(str(_eid))
+                if isinstance(_num, int) and _num in _sn_cited_nums:
+                    _sn_d8_cited.add(_num)
+        _sn_listed = sorted(_sn_cited_nums)
+        _sn_support_by_src = {
+            n: sorted(_sn_support_by_num.get(n, set())) for n in _sn_listed
+        }
+        _sn_necessity = _sn_compute(_sn_support_by_src, _sn_listed, _sn_d8_cited)
+        _sn_zero_nums = _sn_zero(_sn_support_by_num, _sn_cited_nums, _sn_d8_cited)
+        _sn_retyped = _sn_retype(biblio_block, _sn_zero_nums, _sn_necessity, _sn_d8_cited)
+        if _sn_retyped != biblio_block:
+            new_report = report_text[:_b_start] + _sn_retyped + report_text[_b_end:]
+            report_path.write_text(new_report, encoding="utf-8")
+            log(
+                "[source-necessity] "
+                f"{_sn_necessity.necessary_sources}/{_sn_necessity.listed_sources} listed "
+                f"references necessary (ratio {_sn_necessity.necessity_ratio:.4f}); "
+                f"quarantined {len(_sn_zero_nums)} zero-support cited entries to audit ledger "
+                f"({len(_sn_d8_cited)} D8-VERIFIED cited refs protected; no source dropped)"
+            )
+    except Exception as _t3_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+        log(f"[source-necessity] post-gate seam skipped (fail-open): {_t3_exc}")
+
+
 def _cwf_disclosed_block(disclosed: "list[dict] | None") -> str:
     """I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only surface.
 
@@ -15814,63 +15943,17 @@ async def run_one_query(
         # T3 (#1344): SOURCE-NECESSITY min-vertex-cover (Hopcroft-Karp) over the LISTED-source
         # factual-support graph (DeepTRACE metric VI). Quarantine cited-but-ZERO-factual-support
         # entries out of the reference list into a typed source-necessity audit ledger, and disclose
-        # the necessity ratio. Runs BEFORE T2 so its render surgery composes cleanly (T2 then types
-        # the remaining cited-vs-uncited split). Faithfulness-neutral (reads already-verified support
-        # only); a quarantined source stays in the corpus at full weight. Fail-open + kill-switch.
-        try:
-            from src.polaris_graph.synthesis.source_necessity import (  # noqa: PLC0415
-                quarantine_enabled as _sn_enabled,
-                compute_source_necessity as _sn_compute,
-                zero_support_bib_nums as _sn_zero,
-                retype_bibliography_by_source_necessity as _sn_retype,
-            )
-            if _sn_enabled() and biblio_section and biblio_section in final_report:
-                from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
-                    _basket_for_biblio as _sn_proj,
-                    build_basket_supports_by_cluster as _sn_supports_by_cluster,
-                )
-                from src.polaris_graph.generator.depth_synthesis import (  # noqa: PLC0415
-                    bib_num_by_evidence_id as _sn_eid_to_num,
-                )
-                _sn_cred = getattr(multi, "credibility_analysis", None)
-                _sn_baskets = getattr(_sn_cred, "baskets", None) or []
-                _sn_bib = multi.bibliography or []
-                _sn_num_by_eid = _sn_eid_to_num(_sn_bib)
-                _sn_cited_nums = cited_reference_numbers(final_report)
-                # Build num -> {statement ids (claim_cluster_id) it span-verified SUPPORTS}.
-                _sn_by_cluster = {}
-                for _sn_b in _sn_baskets:
-                    _sn_ccid = str(getattr(_sn_b, "claim_cluster_id", "") or "")
-                    if _sn_ccid:
-                        _sn_by_cluster[_sn_ccid] = _sn_proj(_sn_b)
-                _sn_supports = _sn_supports_by_cluster(_sn_by_cluster)
-                _sn_support_by_num: dict[int, set[str]] = {}
-                for _sn_ccid, _sn_eids in _sn_supports.items():
-                    for _sn_eid in _sn_eids:
-                        _sn_n = _sn_num_by_eid.get(str(_sn_eid))
-                        if isinstance(_sn_n, int):
-                            _sn_support_by_num.setdefault(_sn_n, set()).add(_sn_ccid)
-                # Listed reference universe = the CITED numbers (the same set the reader sees +
-                # #8 thoroughness scores). Necessity over that universe.
-                _sn_listed = sorted(_sn_cited_nums)
-                _sn_support_by_src = {
-                    n: sorted(_sn_support_by_num.get(n, set())) for n in _sn_listed
-                }
-                _sn_necessity = _sn_compute(_sn_support_by_src, _sn_listed)
-                _sn_zero_nums = _sn_zero(_sn_support_by_num, _sn_cited_nums)
-                _sn_retyped = _sn_retype(biblio_section, _sn_zero_nums, _sn_necessity)
-                if _sn_retyped != biblio_section:
-                    final_report = final_report.replace(biblio_section, _sn_retyped, 1)
-                    biblio_section = _sn_retyped
-                    _log(
-                        "[source-necessity] "
-                        f"{_sn_necessity.necessary_sources}/{_sn_necessity.listed_sources} listed "
-                        f"references necessary (ratio {_sn_necessity.necessity_ratio:.4f}); "
-                        f"quarantined {len(_sn_zero_nums)} zero-support cited entries to audit ledger "
-                        "(no source dropped)"
-                    )
-        except Exception as _t3_exc:  # noqa: BLE001 — additive disclosure; never abort the report
-            _log(f"[source-necessity] skipped (fail-open): {_t3_exc}")
+        # the necessity ratio.
+        #
+        # I-deepfix-001 tail-B1 (#1344, finding #7): this seam is DEFERRED to AFTER the four-role D8
+        # gate (see `_apply_source_necessity_post_gate` below, invoked once `four_role_result` is
+        # settled). RATIONALE: the isolated-span basket layer can DISAGREE with the D8 settled verdict
+        # — a body-cited source can be D8-VERIFIED yet span-unverified in its isolated basket, so the
+        # pre-gate zero-support test would quarantine a genuinely load-bearing source out of the
+        # numbered bibliography and leave its in-text [N] dangling. The D8 verdicts are not known here
+        # (the gate runs downstream over the rendered report), so the quarantine decision must run
+        # after the gate with the D8-VERIFIED-cited allowlist threaded in. T2 (cited-vs-uncited split,
+        # below) still runs here — it is D8-independent (body citation is the only signal it needs).
         # T2 (#1344): TYPE the rendered bibliography — keep the CITED reference list under
         # "## Bibliography" and move every retrieved-but-uncited corpus row to a typed corpus-ledger
         # AUDIT APPENDIX. Cited set is computed from the FULL assembled report (body citations only),
@@ -17282,6 +17365,28 @@ async def run_one_query(
             # fail-closed HELD). The strict post-status guard below uses this to forbid a
             # would-be `success` that never went through D8.
             _d8_audit_ran = True
+
+            # I-deepfix-001 tail-B1 (#1344, finding #7): SOURCE-NECESSITY re-type, DEFERRED to here so
+            # it reconciles the quarantine against the four-role D8 SETTLED verdicts. A body-cited
+            # source D8 settled VERIFIED is load-bearing under the ONE hard gate (§-1.3) — it is kept
+            # in the numbered bibliography (its [N] never dangles) and counts toward necessity, even
+            # when its isolated-span basket is span-unverified. Runs BEFORE the body redaction below
+            # (which removes only non-VERIFIED body CLAIM sentences, never bibliography entries, so the
+            # necessity ledger survives). Fail-open; kill-switch PG_SOURCE_NECESSITY_QUARANTINE.
+            try:
+                _sn_audit_map = None
+                _sn_audit_path = run_dir / "four_role_claim_audit.json"
+                if _sn_audit_path.is_file():
+                    _sn_audit_map = json.loads(_sn_audit_path.read_text(encoding="utf-8"))
+                _apply_source_necessity_post_gate(
+                    run_dir / "report.md",
+                    multi,
+                    getattr(four_role_result, "final_verdicts", None),
+                    _sn_audit_map,
+                    _log,
+                )
+            except Exception as _sn_pg_exc:  # noqa: BLE001 — additive disclosure; never abort
+                _log(f"[source-necessity] post-gate invoke skipped (fail-open): {_sn_pg_exc}")
 
             # A2-SEAM (iarch006 epic-failure, shared A2 CONTRACT clause 2): if the standalone seam
             # fabrication screen demanded the body be WITHHELD (a cited identity not in the pool, or

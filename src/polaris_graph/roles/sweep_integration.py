@@ -54,6 +54,7 @@ from src.polaris_graph.llm.openrouter_client import (
     current_run_cost,
     reset_run_cost,
 )
+from src.polaris_graph.roles.contract_field_prefix import strip_contract_field_prefix
 from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
 from src.polaris_graph.roles.openrouter_role_transport import (
     judge_concurrency_limit,
@@ -511,8 +512,12 @@ def _compute_claim_results(
     _dedup_enabled = os.getenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1") != "0"
 
     def _dedup_key(c: FourRoleClaim) -> tuple:
+        # I-deepfix-001 tail-B1 (#1344, finding #10): normalize a leaked contract-field label prefix
+        # OUT of the dedup key so two claims that differ ONLY by an echoed "Effect estimate with
+        # uncertainty:" label (same (fact, source, span) triple) collapse to ONE representative and
+        # receive ONE consistent verdict — belt-and-braces alongside the strip at claim construction.
         return (
-            " ".join((c.claim_text or "").split()),
+            " ".join(strip_contract_field_prefix(c.claim_text or "").split()),
             tuple(sorted(
                 (d.doc_id, d.text) for d in (c.evidence_documents or [])
             )),

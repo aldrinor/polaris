@@ -38,6 +38,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from src.polaris_graph.roles.contract_field_prefix import strip_contract_field_prefix
 from src.polaris_graph.roles.release_policy import CoverageLedger, D8PolicyConfig
 from src.polaris_graph.roles.role_transport import EvidenceDocument
 from src.polaris_graph.roles.sweep_integration import (
@@ -117,8 +118,14 @@ class NativeGateBBundle:
 
 
 def _normalize_sentence(sentence: str) -> str:
-    """Lowercase + collapse whitespace (the basis for the deterministic claim_id hash)."""
-    return _WHITESPACE_RE.sub(" ", sentence.lower()).strip()
+    """Lowercase + collapse whitespace (the basis for the deterministic claim_id hash).
+
+    I-deepfix-001 tail-B1 (#1344, finding #10): strip a leaked contract-field label prefix FIRST
+    (e.g. an echoed ``Effect estimate with uncertainty:``) so a claim whose ONLY difference from its
+    twin is that non-claim label hashes to the SAME claim_id as the twin — the drb_72 01-002 vs 01-007
+    divergence. Faithfulness-neutral: only a recognized label at the very start is removed, never a
+    number / citation / claim content (see ``contract_field_prefix``)."""
+    return _WHITESPACE_RE.sub(" ", strip_contract_field_prefix(sentence).lower()).strip()
 
 
 def _depth_synthesis_d8_gate_enabled() -> bool:
@@ -1065,7 +1072,11 @@ def build_native_gate_b_inputs(
             claims.append(
                 FourRoleClaim(
                     claim_id=claim_id,
-                    claim_text=sentence,
+                    # finding #10: the D8 ENTAILMENT input is the claim with any leaked contract-field
+                    # label prefix stripped, so a prefixed twin and its clean twin are judged on the
+                    # SAME text and cannot settle to divergent verdicts. audit_map["sentence"] keeps the
+                    # RAW rendered form for report.md redaction location (below).
+                    claim_text=strip_contract_field_prefix(sentence),
                     evidence_documents=documents,
                     severity=claim_severity,
                     s0_categories=s0_categories,

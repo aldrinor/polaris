@@ -190,6 +190,7 @@ class SourceNecessity:
 def compute_source_necessity(
     support_by_source: Mapping[Any, Sequence[Any]],
     listed_sources: Sequence[Any],
+    d8_verified_cited_nums: "Sequence[Any] | frozenset | set | None" = None,
 ) -> SourceNecessity:
     """Compute DeepTRACE #6 source-necessity over the LISTED-source universe.
 
@@ -201,11 +202,25 @@ def compute_source_necessity(
     NECESSARY (present in every minimum vertex cover). Everything else that supports >=1 statement
     is REDUNDANT (corroborated — KEPT at full weight, never dropped).
 
+    I-deepfix-001 tail-B1 (#1344, finding #7 — necessity/D8 reconciliation): ``d8_verified_cited_nums``
+    is the set of LISTED sources that are cited in the body AND carry a VERIFIED four-role D8 settled
+    verdict. The isolated-span basket layer (``support_by_source``) can DISAGREE with the D8 settled
+    verdict — a body-cited source can be D8-VERIFIED yet have an isolated-span basket that is span-
+    unverified, so it lands in ``support_by_source`` with NO statement. Per CLAUSE §-1.3 the four-role
+    D8 engine is the ONE hard gate, so such a source IS load-bearing: it is credited as NECESSARY here
+    (it is the D8-verified support for a rendered claim) and can therefore NEVER be reported as
+    zero-support. This STRENGTHENS the necessity reading (a genuinely-load-bearing source counts); it
+    never relaxes any verification. Empty/None -> byte-identical to the pre-fix behaviour.
+
     PURE. Never mutates inputs. Faithfulness-neutral (reads already-verified support only).
     """
     listed = [str(s) for s in listed_sources]
     listed_set = set(listed)
     n = len(listed)
+    # The D8-VERIFIED body-cited allowlist, bounded to the listed universe (a num absent from the
+    # listed set is irrelevant here). Compared as strings so an int-keyed caller and a str-keyed
+    # support map reconcile on the SAME identity.
+    d8_allow = {str(x) for x in (d8_verified_cited_nums or ())} & listed_set
 
     # Build statement -> supporting listed sources (bounded to the listed universe).
     supporters_by_statement: dict[Any, set[str]] = {}
@@ -223,6 +238,14 @@ def compute_source_necessity(
     for _st, sups in supporters_by_statement.items():
         if len(sups) == 1:
             necessary.add(next(iter(sups)))
+
+    # D8 reconciliation: a body-cited D8-VERIFIED source with NO isolated-span support is STILL
+    # load-bearing (D8 settled its rendered claim VERIFIED). Credit it as NECESSARY and mark it
+    # supported, so it can never be reported as zero-support and it counts toward the necessity ratio.
+    for sid in d8_allow:
+        if sid not in supported_listed:
+            necessary.add(sid)
+            supported_listed.add(sid)
 
     zero_support = sorted(listed_set - supported_listed)
     redundant = sorted(supported_listed - necessary)
@@ -266,6 +289,7 @@ def retype_bibliography_by_source_necessity(
     biblio_section_text: str,
     zero_support_nums: set[int],
     necessity: SourceNecessity,
+    d8_verified_cited_nums: "Sequence[int] | frozenset | set | None" = None,
 ) -> str:
     """Move zero-factual-support cited entry lines out of "## Bibliography" into a typed
     source-necessity audit ledger, and append the necessity disclosure. PURE string surgery.
@@ -274,10 +298,21 @@ def retype_bibliography_by_source_necessity(
     ledger header; every other line stays. Nothing is re-rendered, invented, or deleted — a
     quarantined source still ships in report.md, typed as a non-load-bearing audit row. Returns the
     input UNCHANGED when there is nothing to quarantine (byte-identical) so the caller can no-op.
+
+    I-deepfix-001 tail-B1 (#1344, finding #7): ``d8_verified_cited_nums`` is a DEFENSIVE allowlist —
+    a number carrying a VERIFIED four-role D8 settled verdict is NEVER moved to the ledger even if it
+    was (wrongly) passed in ``zero_support_nums``, so a D8-VERIFIED body-cited source keeps its
+    numbered bibliography entry and its in-text ``[N]`` marker never dangles. Normally the caller has
+    already excluded the allowlist upstream (``zero_support_bib_nums``); this is the belt-and-braces
+    guard at the render seam.
     """
     if not biblio_section_text:
         return biblio_section_text
-    if not zero_support_nums:
+    # DEFENSIVE (finding #7): never quarantine a D8-VERIFIED cited number, even if a stale caller
+    # left it in `zero_support_nums`.
+    allow = {int(n) for n in (d8_verified_cited_nums or ())}
+    effective_zero = {int(n) for n in (zero_support_nums or set())} - allow
+    if not effective_zero:
         # Still surface the necessity number when there ARE listed sources; but keep byte-identity
         # when the disclosure would be vacuous (no listed sources).
         if necessity.listed_sources <= 0:
@@ -287,7 +322,7 @@ def retype_bibliography_by_source_necessity(
     ledger: list[str] = []
     for line in lines:
         m = _BIB_ENTRY_LINE_RE.match(line)
-        if m and int(m.group(1)) in zero_support_nums:
+        if m and int(m.group(1)) in effective_zero:
             ledger.append(line)
         else:
             kept.append(line)
@@ -315,16 +350,27 @@ def retype_bibliography_by_source_necessity(
 def zero_support_bib_nums(
     support_by_num: Mapping[int, Sequence[Any]],
     cited_nums: Sequence[int],
+    d8_verified_cited_nums: "Sequence[int] | frozenset | set | None" = None,
 ) -> set[int]:
     """The cited bibliography numbers that support NO statement (quarantine targets). PURE.
 
     ``support_by_num`` maps a bibliography number -> the statement ids it span-verified SUPPORTS.
     ``cited_nums`` is the set of numbers actually cited in the body. A cited number with an empty
     (or missing) support list is zero-support. Only CITED numbers are eligible (an uncited row is
-    already handled by the T2 corpus-ledger typing)."""
+    already handled by the T2 corpus-ledger typing).
+
+    I-deepfix-001 tail-B1 (#1344, finding #7): ``d8_verified_cited_nums`` is the allowlist of
+    body-cited numbers that carry a VERIFIED four-role D8 settled verdict. Such a number is
+    load-bearing under the ONE hard gate (§-1.3), so it is NEVER a quarantine target even when its
+    isolated-span basket is span-unverified — this prevents a D8-VERIFIED cited source from being
+    quarantined out of the numbered bibliography (which would leave its in-text ``[N]`` marker
+    dangling). Empty/None -> byte-identical to the pre-fix behaviour."""
     cited = {int(n) for n in cited_nums}
+    allow = {int(n) for n in (d8_verified_cited_nums or ())}
     out: set[int] = set()
     for n in cited:
+        if n in allow:
+            continue  # D8-VERIFIED cited source is load-bearing; never quarantine (finding #7).
         stmts = support_by_num.get(n)
         if not stmts:
             out.add(n)

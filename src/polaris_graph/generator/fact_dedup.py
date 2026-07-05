@@ -669,6 +669,33 @@ def _clusters_pairwise_compatible(
     return True
 
 
+_ENV_FACT_DEDUP_EXACT_INTRASECTION = "PG_FACT_DEDUP_EXACT_INTRASECTION"
+_EXACT_DUP_WS_RE = re.compile(r"\s+")
+
+
+def _fact_dedup_exact_intrasection_enabled() -> bool:
+    """I-deepfix-001 tail-B1 (#1344, finding #10): kill-switch for the EXACT-duplicate intra-section
+    consolidation (default ON). OFF => the pre-fix >=2-distinct-section gate is byte-identical."""
+    return os.environ.get(_ENV_FACT_DEDUP_EXACT_INTRASECTION, "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def _exact_dup_norm(sentence: str) -> str:
+    """Normalize a sentence for EXACT-duplicate detection: strip a leaked contract-field label
+    prefix (so a claim differing from its twin ONLY by an echoed "Effect estimate with uncertainty:"
+    label compares equal), then lowercase + collapse whitespace. PURE. The prefix stripper is
+    imported lazily to keep this generator module free of a top-level roles import."""
+    try:
+        from src.polaris_graph.roles.contract_field_prefix import (  # noqa: PLC0415
+            strip_contract_field_prefix,
+        )
+        base = strip_contract_field_prefix(sentence or "")
+    except Exception:  # noqa: BLE001 — normalization must never break dedup; fall back to raw text
+        base = sentence or ""
+    return _EXACT_DUP_WS_RE.sub(" ", base.lower()).strip()
+
+
 def build_groups(
     sections: dict[str, list[str]],
     section_order: Optional[list[str]] = None,
@@ -744,10 +771,31 @@ def build_groups(
             del clusters[j]
 
     groups: list[RedundancyGroup] = []
+    _exact_relax = _fact_dedup_exact_intrasection_enabled()
     for cluster in clusters:
         # Filter: at least 2 distinct sections must share this cluster
         distinct_sections = {loc.section for loc in cluster}
         if len(distinct_sections) < 2:
+            # I-deepfix-001 tail-B1 (#1344, finding #10): the >=2-distinct-section gate excludes an
+            # INTRA-section duplicate — the exact drb_72 case where the identical Acemoglu-Restrepo
+            # figure appears twice in ONE section (one twin carrying a leaked contract-field label
+            # prefix). Consolidate EXACT duplicates (identical text after prefix-strip + normalize)
+            # even within one section, so the twins collapse to one representative + cross-references.
+            # SCOPED to exact dups only (a mere overlap-signature match within a section is NOT
+            # consolidated — that would over-collapse distinct-but-related sentences). Kill-switch OFF
+            # => byte-identical to the pre-fix >=2-section gate.
+            if not _exact_relax:
+                continue
+            by_norm: dict[str, list[SentenceLocation]] = {}
+            for loc in cluster:
+                by_norm.setdefault(_exact_dup_norm(loc.sentence), []).append(loc)
+            for _norm, members in by_norm.items():
+                if _norm and len(members) >= 2:
+                    groups.append(RedundancyGroup(
+                        signature=members[0].signature,
+                        primary=members[0],
+                        redundants=members[1:],
+                    ))
             continue
         # Within the cluster, primary = first location in section_order;
         # redundants = all other locations (even same section as primary,
