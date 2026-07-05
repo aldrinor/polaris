@@ -53,6 +53,10 @@ from dataclasses import asdict, dataclass, field
 # shared leaf helper puts a NUMERIC reasoning cap (reasoning_cap << max_tokens, the proven D8-Mirror bound)
 # on a glm judge body; a non-glm model keeps its byte-identical {effort} shape. Stdlib-light leaf import.
 from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_block as _build_reasoning_block
+# I-deepfix-001 (de-storm): SAME shared, env-driven bounded-concurrency cap as entailment_judge — the
+# NLI conflict side-judge pins the SAME mirror chain, so it shares the ONE global slot pool that caps
+# TOTAL glm-5.2 mirror POSTs in flight. Transport-only; the (label, confidence) logic is unchanged. LAW VI.
+from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
 
 logger = logging.getLogger(__name__)
 
@@ -112,21 +116,27 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
     re-raised for the caller's force-close+rebuild+retry. Ports ``entailment_judge._post_with_total_
     deadline`` verbatim (the ``client.close()`` is guarded so a flaky close never masks the timeout).
     Returns the ``httpx.Response`` on success.
+
+    I-deepfix-001 (de-storm): the POST runs under the shared, env-driven bounded side-judge concurrency
+    cap (``acquire_judge_slot``) so at most ``PG_SIDE_JUDGE_MAX_CONCURRENCY`` provider POSTs (across all
+    three side judges) are in flight at once — the burst can no longer 429-storm the mirror-chain lead.
+    Transport-only; the (label, confidence) logic is unchanged.
     """
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
-    try:
-        return fut.result(timeout=total_s)
-    except concurrent.futures.TimeoutError:
+    with _acquire_judge_slot():
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
         try:
-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
-        except Exception:  # noqa: BLE001
-            pass
-        raise
-    finally:
-        # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
-        # client.post exception). wait=False so a still-unsticking worker never blocks us.
-        ex.shutdown(wait=False)
+            return fut.result(timeout=total_s)
+        except concurrent.futures.TimeoutError:
+            try:
+                client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        finally:
+            # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
+            # client.post exception). wait=False so a still-unsticking worker never blocks us.
+            ex.shutdown(wait=False)
 
 # I-arch-004 F19 (#1256, §9.1.8 "max_tokens ALWAYS go to the model REAL max — never starve; a generous cap is
 # free, billed by usage not pre-allocated"): the NLI conflict judge is the SAME GLM-5.1 model pinned to the

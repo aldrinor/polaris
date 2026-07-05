@@ -30,6 +30,10 @@ from src.polaris_graph.llm.judge_burst_spread import (
     burst_spread_mode as _judge_burst_spread_mode,
     next_burst_start_index as _next_burst_start_index,
 )
+# I-deepfix-001 (de-storm): SAME shared, env-driven bounded-concurrency cap as entailment_judge — the
+# credibility scoring / W5 tiering burst pins the SAME mirror chain, so it shares the ONE global slot
+# pool that caps TOTAL glm-5.2 mirror POSTs in flight. Transport-only; verdict logic unchanged. LAW VI.
+from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
 # I-deepfix-001 (§9.1.8 anti-starvation): a GLM judge IGNORES reasoning.effort, so a provider that runs
 # reasoning long can eat the whole max_tokens budget and return EMPTY content. The shared leaf helper puts
 # the PROVEN D8-Mirror NUMERIC reasoning cap (reasoning_cap << max_tokens) on the glm reasoning block so the
@@ -124,21 +128,27 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
 
     Ports ``entailment_judge._post_with_total_deadline`` verbatim. The ``client.close()`` is guarded so
     a transport without a ``close`` (e.g. an injected test double) can never break the timeout path.
+
+    I-deepfix-001 (de-storm): the POST runs under the shared, env-driven bounded side-judge concurrency
+    cap (``acquire_judge_slot``) so at most ``PG_SIDE_JUDGE_MAX_CONCURRENCY`` provider POSTs (across all
+    three side judges) are in flight at once — the burst can no longer 429-storm the mirror-chain lead.
+    Transport-only; the verdict logic is unchanged.
     """
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
-    try:
-        return fut.result(timeout=total_s)
-    except concurrent.futures.TimeoutError:
+    with _acquire_judge_slot():
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
         try:
-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
-        except Exception:  # noqa: BLE001 — a stub/closed client without .close() must not break the path
-            pass
-        raise
-    finally:
-        # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
-        # client.post exception). wait=False so a still-unsticking worker never blocks us.
-        ex.shutdown(wait=False)
+            return fut.result(timeout=total_s)
+        except concurrent.futures.TimeoutError:
+            try:
+                client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+            except Exception:  # noqa: BLE001 — a stub/closed client without .close() must not break the path
+                pass
+            raise
+        finally:
+            # Deterministic executor teardown on EVERY exit path (success, timeout, or a non-timeout
+            # client.post exception). wait=False so a still-unsticking worker never blocks us.
+            ex.shutdown(wait=False)
 
 
 def _int_env(name: str, default: int) -> int:

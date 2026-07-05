@@ -90,6 +90,13 @@ from src.polaris_graph.llm.judge_burst_spread import (
 # helper, stdlib-only => zero off-mode import cost. Default-ON; PG_JUDGE_VERDICT_CACHE=0 => byte-identical
 # pre-I3 path. Faithfulness-NEUTRAL (returns the judge's own verdict for that exact input). LAW VI.
 from src.polaris_graph.llm import judge_verdict_cache as _verdict_cache
+# I-deepfix-001 (de-storm): shared, env-driven bounded-concurrency cap for the per-claim mirror-chain
+# side-judge POST. Caps how many entailment/credibility/semantic_conflict provider POSTs are IN FLIGHT
+# at once so the per-claim burst cannot 429-storm the mirror-chain lead host (the friendli 32x-429 the
+# 2026-07-04 deepener preflight hit). Stdlib-only leaf helper -> zero off-mode import cost. Transport-
+# only; verdict logic + fail-closed sentinel untouched. Default-ON; PG_SIDE_JUDGE_MAX_CONCURRENCY=0 =>
+# byte-identical pre-fix (no-op) path. LAW VI.
+from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
 
 logger = logging.getLogger(__name__)
 
@@ -137,34 +144,43 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
     worker thread and waits at most ``total_s``. On timeout the client is force-closed (so the worker's
     hung read errors out and the thread exits) and ``concurrent.futures.TimeoutError`` is re-raised for
     the caller's bounded retry to reopen a fresh connection. Returns the ``httpx.Response`` on success.
+
+    I-deepfix-001 (de-storm): the POST runs under the shared, env-driven bounded side-judge concurrency
+    cap (``acquire_judge_slot``) so at most ``PG_SIDE_JUDGE_MAX_CONCURRENCY`` provider POSTs are in
+    flight at once — the per-claim burst can no longer 429-storm the mirror-chain lead host. The slot is
+    held only for the duration of THIS POST (not the caller's retry backoffs) and is released on every
+    exit path, so a timed-out call frees its slot when the total-deadline force-closes it. Transport-
+    only: the verdict logic + the fail-closed sentinel are unchanged.
     """
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
-    except RuntimeError as _shutdown_exc:
-        # I-deepfix-001 (#1344) shutdown-race: a straggler judge retry fired AFTER the run finalized and
-        # the interpreter began shutting down -> ThreadPoolExecutor.submit raises
-        # 'cannot schedule new futures after interpreter shutdown'. Per-claim verification is already
-        # complete, so map this to the existing bounded-retry TimeoutError path: the fail-closed
-        # ('ENTAILED','judge_error:…') sentinel fires (consumers DROP -> faithfulness-safe) instead of an
-        # UNHANDLED RuntimeError reaching the run driver as status=error_unexpected. Transport-only;
-        # verdict logic + the fail-closed contract UNCHANGED (faithfulness-neutral).
-        ex.shutdown(wait=False)
-        raise concurrent.futures.TimeoutError(
-            "interpreter_shutdown_cannot_schedule_judge_future"
-        ) from _shutdown_exc
-    try:
-        return fut.result(timeout=total_s)
-    except concurrent.futures.TimeoutError:
+    with _acquire_judge_slot():
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
-        except Exception:  # noqa: BLE001
-            pass
-        raise
-    finally:
-        # Codex P2 (HANG-J3 gate): deterministic executor teardown on EVERY exit path (success, timeout,
-        # or a non-timeout client.post exception). wait=False so a still-unsticking worker never blocks us.
-        ex.shutdown(wait=False)
+            fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+        except RuntimeError as _shutdown_exc:
+            # I-deepfix-001 (#1344) shutdown-race: a straggler judge retry fired AFTER the run finalized
+            # and the interpreter began shutting down -> ThreadPoolExecutor.submit raises
+            # 'cannot schedule new futures after interpreter shutdown'. Per-claim verification is already
+            # complete, so map this to the existing bounded-retry TimeoutError path: the fail-closed
+            # ('ENTAILED','judge_error:…') sentinel fires (consumers DROP -> faithfulness-safe) instead of
+            # an UNHANDLED RuntimeError reaching the run driver as status=error_unexpected. Transport-only;
+            # verdict logic + the fail-closed contract UNCHANGED (faithfulness-neutral).
+            ex.shutdown(wait=False)
+            raise concurrent.futures.TimeoutError(
+                "interpreter_shutdown_cannot_schedule_judge_future"
+            ) from _shutdown_exc
+        try:
+            return fut.result(timeout=total_s)
+        except concurrent.futures.TimeoutError:
+            try:
+                client.close()  # force the hung socket closed -> the worker's blocked read unblocks + exits
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        finally:
+            # Codex P2 (HANG-J3 gate): deterministic executor teardown on EVERY exit path (success,
+            # timeout, or a non-timeout client.post exception). wait=False so a still-unsticking worker
+            # never blocks us.
+            ex.shutdown(wait=False)
 # I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
 # for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
 # previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
