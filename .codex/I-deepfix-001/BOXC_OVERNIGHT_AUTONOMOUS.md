@@ -579,3 +579,11 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - COMMITTED-TREE CONFIRM: PG_SCOPE_CONSTRAINT_ENFORCE / _EXTRACT_SCOPE_CONSTRAINTS / _RELEVANCE_PRESERVE_ANCHORS / _CORPUS_TIER_DISCLOSURE_MODE / _BENCHMARK_OFFICIAL_QUESTION each 4 refs (slate + FORCE_ON + preflight-required + allowlist); preflight-required block contains them (fail-CLOSED); run_validity_gate.py + task_output_contracts.yaml present.
 - TRACKS: faithfulness 22/23 ✓ + coverage-safe 2/2 ✓ + aggressive-cov config ✓ + validity ✓ = ALL fixes committed, ZERO dark by static grep.
 - REMAINING: (a) serious 29-fix per-fix liveness check wwb2bc1kg (running, authoritative PROVEN table + dark-hunter) → act on any finding; (b) live preflight proves each fires; (c) 4-box launch + score.
+
+## [2026-07-05 12:39:07] SERIOUS 29-fix liveness check DONE (wwb2bc1kg) — dark-hunter CLEAN; hardening gap found
+- 37 rows: 27 LIVE / 1 DARK / 9 RISK. Adversarial DARK-HUNTER verdict = CLEAN (zero silent-no-op on the real run).
+- Completeness critic HOLD is a FALSE ALARM (its input JSON was truncated to 12/37 rows by my slice(0,12000); all 8 clusters returned rows covering all 3 tracks).
+- GOOD: scope/official flags QUAD-WIRED (slate+force-on+preflight-required+allowlist) fail-CLOSED, §-1.3 demote-not-drop confirmed.
+- GAP (operator's "won't go dark"): 24 default-ON faithfulness/render flags FIRE on the real run but are NOT-PINNED (not in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS) → a stray .env=0 could dark them uncaught. fire_manifest §5 FALSELY claimed they were pinned.
+- 1 DARK: PG_SOURCE_NECESSITY_DISCLOSURE builder orphaned (0 callers); the DeepTRACE-VI disclosure DOES render via #7 quarantine → redundant, retire/document.
+- ACTION before launch: HARDENING build = pin the ~21 always-on faithfulness flags via slate+FORCE_ON+preflight-required (same pattern as scope) + resolve orphaned module. Then live preflight proves fire. Durable table .codex/I-deepfix-001/PRELAUNCH_29FIX_LIVENESS.md.

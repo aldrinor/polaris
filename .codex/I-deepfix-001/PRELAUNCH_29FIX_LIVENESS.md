@@ -1,0 +1,60 @@
+# I-deepfix-001 — Pre-launch 29-fix LIVENESS proven table
+
+Verified against verify_wt (= committed HEAD + validity diff = final 29-fix state). Serious static check wwb2bc1kg.
+
+**Verdicts:** {'LIVE': 27, 'DARK': 1, 'RISK': 9}  |  **Fail-safety:** {'NOT-PINNED': 24, 'DEFAULT-ON-HARDENED': 3, 'DETERMINISTIC': 1, 'PREFLIGHT-REQUIRED': 9}
+**Adversarial dark-hunter verdict: CLEAN** (dark findings: NONE)
+
+NOTE: completeness critic reported HOLD only because its input JSON was truncated to 12 of 37 rows (harness slice bug); all 8 clusters returned rows covering all 3 tracks. Authoritative signal = the 37 rows + the CLEAN dark-hunter.
+
+| Fix | Flag | Live | Wired | Fail-safety | Verdict | Fire-signature |
+|---|---|---|---|---|---|---|
+| Render-verdict-drop gate (#2): DROP every non-VERIFIED settl | PG_RENDER_VERDICT_GATE | Y | DEFAULT-ON | NOT-PINNED | LIVE | run.log: outcome 'withhold_unpinnable' (report_redactor.py:1112/1143; runner 18387) OR rec |
+| DeepTRACE metric-VI source-necessity disclosure (WS-10 audit | PG_SOURCE_NECESSITY_DISCLOSURE | N | DARK | NOT-PINNED | DARK | audit-module string 'Source necessity (DeepTRACE metric VI, minimum source cover):' (sourc |
+| Verified-only summary table (#6): render a presentation tabl | PG_RENDER_SUMMARY_TABLE | Y | DEFAULT-ON | NOT-PINNED | LIVE | run.log: '[summary-table] ...' (run_honest_sweep_r3.py:16589) + report.md marker '<!-- pol |
+| Source-necessity quarantine + bibliography re-type (#7, tail | PG_SOURCE_NECESSITY_QUARANTINE | Y | DEFAULT-ON | NOT-PINNED | LIVE | run.log: '[source-necessity] N/M listed references necessary (ratio ...); quarantined K ze |
+| Snap-member-boundary citation fix (B1, finding #8): cap the  | PG_SNAP_MEMBER_BOUNDARY | Y | DEFAULT-ON | NOT-PINNED | LIVE | NO dedicated canary (faithfulness-neutral shrink-only). Indirect: correct per-member [N] a |
+| #11 §8 corroboration member weight = disclosure per-URL auth | PG_S11_SEC8_DISCLOSURE_WEIGHT | Y | DEFAULT-ON | NOT-PINNED | LIVE | report.md '## Source corroboration (per claim)' member weight matches corpus_credibility_d |
+| #12 post-D8 §8 demotion: propagate settled 4-role D8 FABRICA | PG_S12_SEC8_D8_DEMOTE | Y | DEFAULT-ON | NOT-PINNED | LIVE | run.log: '[sec8-d8-demote] propagated D8 non-VERIFIED verdicts into §8:' (emit line run_ho |
+| #14 Methods 'Actual distribution' recomputed from FINAL dist | PG_S14_METHODS_TIER_FINAL | Y | DEFAULT-ON | NOT-PINNED | LIVE | report.md: Methods 'Actual distribution:' tier percentages == Limitations tier_disclosure_ |
+| #15 relabel single-origin/empty 'Corroborated (Weighted) Fin | PG_S15_CORROBORATED_HONEST_LABEL | Y | DEFAULT-ON | NOT-PINNED | LIVE | report.md header line reading 'Single-source ... Findings' or 'Uncorroborated ... Findings |
+| #17 bibliography tier/peer-review coherence: genre tag recon | PG_S17_BIB_COHERENCE | Y | DEFAULT-ON | NOT-PINNED | LIVE | report.md bibliography: coherent genre tag e.g. '— [document type: journal article; tier T |
+| #18 §10 low-weight disclosure reconciled with §8: exclude al | PG_S18_LOWWEIGHT_RECONCILE | Y | DEFAULT-ON | NOT-PINNED | LIVE | report.md '## Disclosed single-origin low-weight sources' block whose prose reads 'The aut |
+| FINDING#4 fabricated-ratio unit-compat gate — composition-ti | PG_QUANTIFIED_UNIT_COMPAT | Y | DEFAULT-ON | NOT-PINNED | LIVE | [quantified_analysis] FINDING#4 withhold |
+| FINDING#5 aspect off-topic slot guard — drops SEMANTIC confi | PG_ASPECT_OFFTOPIC_SLOT_GUARD | Y | DEFAULT-ON | NOT-PINNED | LIVE | [multi_section] FINDING#5 aspect off-topic slot guard |
+| FINDING#6b completeness coverage-against-OUTPUT — a checklis | PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT | Y | DEFAULT-ON | NOT-PINNED | LIVE | [completeness] FINDING#6b output-coverage  (+ sidecar completeness_output_coverage.json wi |
+| #9 tasks-vs-jobs unit-conflation strict_verify drop leg (46% | PG_UNIT_CONFLATION_GUARD | Y | DEFAULT-ON | NOT-PINNED | RISK | grep run.log / strict_verify failure_reasons for 'unit_conflation_tasks_as_jobs' — emittin |
+| #13 block-page/chrome scrub — PARENT gate (whole sentence-sc | PG_BLOCK_PAGE_CHROME_SCRUB | Y | DEFAULT-ON | NOT-PINNED | RISK | [block-page-scrub] stripped N block-page/security-check/copyright-footer chrome sentence(s |
+| #13 block-page/chrome scrub — SHARED-detector sentence sub-l | PG_BLOCK_PAGE_CHROME_SCRUB_SHARED | Y | DEFAULT-ON | NOT-PINNED | RISK | contributes to the same '[block-page-scrub] stripped N ... chrome sentence(s)' count (run_ |
+| #16 PT03 honest same-family waiver (emit waived=True + WAIVE | PG_PT03_WAIVED_HONEST | Y | DEFAULT-ON (flag); trigger-dependency PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY is HAND-SET-FORCE '1' at run_gate_b.py:4302 | NOT-PINNED | RISK | 'WAIVED: generator and evaluator are the SAME family' detail + "waived": true in evaluator |
+| #19 contradiction metric-mismatch headline suppression (rout | PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH | Y | HAND-SET-FORCE | DEFAULT-ON-HARDENED | LIVE | 'possible_metric_mismatch' rendered as a dedicated disclosure, NOT a headline hard contrad |
+| #22 honest contradiction render (suppress the 0.0 semantic s | PG_CONTRADICTION_RENDER_HONEST | Y | DEFAULT-ON | NOT-PINNED | RISK | '- [SEMANTIC] {subject} / {predicate}' prose lines (run_honest_sweep_r3.py:4637-4642) + '( |
+| strip_contract_field_prefix (#8) — strip a leaked contract-f | (none — deterministic, no env flag) | Y | DETERMINISTIC | DETERMINISTIC | LIVE | No positive telemetry line exists (pure normalizer). Proven by ABSENCE: recognized contrac |
+| PG_FACT_DEDUP_EXACT_INTRASECTION (#10) — relax the >=2-disti | PG_FACT_DEDUP_EXACT_INTRASECTION | Y | DEFAULT-ON | NOT-PINNED | RISK | WEAK / data-conditional. No dedicated canary for the exact-intrasection branch (:787-798 e |
+| scope-gate enforcement master (#1/#3/#23; validity V1 wiring | PG_SCOPE_CONSTRAINT_ENFORCE | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | run.log: [select] I-scope-001: DEMOTED N out-of-scope source(s) (kept, sorted last — §-1.3 |
+| scope-facet extractor — deterministic no-network parse of th | PG_EXTRACT_SCOPE_CONSTRAINTS | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | run.log [scope_constraints] extraction line / populated scope-facet records in the intake  |
+| relevance anchor preservation — never cut a marquee / user-p | PG_RELEVANCE_PRESERVE_ANCHORS | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | run.log: relevance-floor telemetry showing marquee/anchor rows kept-only-by-preserve exemp |
+| corpus tier-deviation DISCLOSE-and-PROCEED — replaces the §- | PG_CORPUS_TIER_DISCLOSURE_MODE | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | report.md/run.log: 'DISCLOSURE (PG_CORPUS_TIER_DISCLOSURE_MODE): material tier deviation f |
+| NL user-constraint extractor (B10) — parses date/language/jo | PG_EXTRACT_USER_CONSTRAINTS | Y | HAND-SET FORCE-ON (run_gate_b.py:4280 direct os.environ["PG_EXTRACT_USER_CONSTRAINTS"]="1") | DEFAULT-ON-HARDENED | LIVE | run.log/intake record: extracted date/lang/journal constraint fields populated (is_extract |
+| C1 R1 — expert facet planner (widen retrieval breadth; yield | PG_EXPERT_FACET_PLANNER | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | manifest effective_query_count >> 15 (fed into FS-Researcher frontier); non-vacuous facet  |
+| C1 R2 — facet completeness (retrieval-breadth completeness p | PG_FACET_COMPLETENESS | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | ExpansionResult.rounds_run>0 + non-empty expansion_queries (facet_completeness.py:296/294) |
+| C1 W2 — qgen = FS-Researcher frontier engine | PG_QGEN_FS_RESEARCHER | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | _run_fs_researcher_retrieval invoked + manifest effective_query_count >> 15 (telemetry run |
+| C1 — sub-entity + STORM-perspective query expansion | PG_SUBENTITY_QUERY_EXPANSION | Y | SETDEFAULT | NOT-PINNED | RISK | widen_with_sub_entities fires → issued FS-Researcher frontier length grows vs flag-OFF bas |
+| C1 — citation-snowball evidence deepener (recall lever for b | PG_SWEEP_EVIDENCE_DEEPENER | Y | SETDEFAULT | NOT-PINNED | LIVE | should_trigger_deepener()=True → discovered URLs + run_live_retrieval seed pass (fires onl |
+| C2 M6 — cross-source analytical synthesis (compare/contrast/ | PG_CROSS_SOURCE_SYNTHESIS | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | '[cross_source_synthesis] composed N cross-source analytical unit(s)' (cross_source_synthe |
+| C2 — grounded DEPTH cross-source synthesis layer (## Analyti | PG_SWEEP_DEPTH_LAYER | Y | SLATE-FORCE | DEFAULT-ON-HARDENED | LIVE | key_findings count > 0; two-tier DEPTH digest '## Analytical synthesis' block in report.md |
+| V2 official-question override — binds the canonical DRB-II i | PG_BENCHMARK_OFFICIAL_QUESTION | Y | SLATE-FORCE | PREFLIGHT-REQUIRED | LIVE | run.log: '[OFFICIAL-QUESTION] slug <slug>: launched question OVERRIDDEN with canonical DRB |
+| V3 question-fidelity render gate — after render, assert repo | PG_RUN_VALIDITY_GATE | Y | DEFAULT-ON | NOT-PINNED | RISK | FAILURE-ONLY: run_dir/run_validity_gate.json ('gate':'run_validity_gate','verdict':'FAILED |
+| V4 contract-scaffold gate — assert the rendered report carri | PG_RUN_VALIDITY_GATE | Y | DEFAULT-ON | NOT-PINNED | RISK | FAILURE-ONLY: same run_validity_gate.json / manifest 'abort_run_validity_gate' / RunValidi |
+
+## ACTION ITEMS before launch
+1. **HARDENING (won't-go-dark):** add the 24 NOT-PINNED default-ON faithfulness/render flags + PG_RUN_VALIDITY_GATE master switch to `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS` (fail-closed) + belt exports in launch env. (Deliberate design exceptions kept as-is: PG_SWEEP_EVIDENCE_DEEPENER + PG_SUBENTITY_QUERY_EXPANSION setdefault per LAW-VI.)
+2. **Orphaned module:** PG_SOURCE_NECESSITY_DISCLOSURE builder has 0 callers; the DeepTRACE-VI disclosure renders via #7 quarantine module. Retire/document OR wire if it adds a distinct block.
+3. **#6b positive sidecar:** preflight fire-check asserts completeness_output_coverage.json basis=verified_rendered_prose (not just the flag; caller hunk is fail-open).
+
+## Dark-hunter risk notes
+- PROBE-(a)/(e) NEUTRALIZED, not by luck: apply_full_capability_benchmark_slate (scripts/dr_benchmark/run_gate_b.py:2775-2783) applies every non-force slate entry as a numeric FLOOR str(int(max(existing, slate))), so a stray .env=0 on a slate-dict boolean is RAISED to 1, never darkened. The only .env=0-vulnerable entries are the os.environ.setdefault(...) ones (PG_SWEEP_EVIDENCE_DEEPENER 2816, PG_SU
+- PROBE-(b) DATA-CONDITIONAL BY DESIGN, verify at render: FINDING#5 aspect-offtopic slot guard (src/polaris_graph/generator/multi_section_generator.py:1968-1995 via weighted_enrichment.py:131 _is_confirmed_offtopic) only removes rows carrying content_relevance_label in {demoted,escalated_demoted} or topic_offtopic_demoted=True; a missing label is keep-neutral (fail-open). Its producer (W2 content_re
+- PROBE-(b) #6b coverage-against-output (src/polaris_graph/nodes/completeness_checker.py:213-240, wired at scripts/run_honest_sweep_r3.py:15580-15584 with coverage_text=_verified_prose in a fail-open try/except): only recomputes the reader-facing completeness when getattr(completeness,'total_applicable',0)>0 AND verified prose is non-empty. On a DRB-II general-domain question whose domain checklist 
+- OUT-OF-SCOPE default-OFF switches that are UNARMED on the Gate-B path (NOT part of the 29 smoke-quality set, flagged for completeness): PG_ANTI_VERBOSITY (multi_section_generator.py:3057, default OFF, 0 hits in run_gate_b.py/run_honest_sweep_r3.py, absent from .env — superseded by PG_SECTION_DISTILL/abstractive writer which ARE armed) and PG_BASKET_REPAIR (multi_section_generator.py:3868, default 
+- METHOD CAVEAT: I could not locate a canonical numbered 1..29 fix manifest inside the worktree (the .codex/I-deepfix-002 dir is empty; the fix taxonomy lives in .codex/I-deepfix-001/MASTER_FIX_PLAN.md as FIX-1/2/3 + FINDING-#4/5/6b + the B-series + W-winners/coverage-levers). I verified arming by MECHANISM CLASS + an exhaustive default-ON kill-switch .env sweep rather than a 1:1 named checklist, so
