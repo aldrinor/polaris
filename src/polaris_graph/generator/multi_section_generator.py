@@ -1934,6 +1934,67 @@ def _spread_within_tier(
     return primary + overflow
 
 
+# ── FINDING #5 (I-deepfix-001 tail B3, #1344) — aspect off-topic slot guard ──────
+# THE DEFECT (drb_72 forensic rank 5): the four requested aspect sections (positive /
+# negative / challenges / opportunities) were BACKFILLED with off-topic material — a
+# Goldman GPT-difficulty example, copyright boilerplate, food-industry robotics — to
+# fill space, while real on-topic displacement evidence surfaced only in the
+# contradiction block. §-1.3: never pad/force — an honestly-thin (or gap) section beats
+# an off-topic-padded one.
+#
+# THE FIX: before a row is SLOTTED into any section, drop rows the pipeline has ALREADY
+# SEMANTICALLY CONFIRMED off-topic (the trusted DEFER-1 label `_is_confirmed_offtopic` —
+# `topic_offtopic_demoted` / `content_relevance_label`), NOT a lexical relevance floor
+# (the §-1.3-banned FILTER that scores real on-topic sources 0.0). A section left with no
+# on-topic evidence then falls through to the existing gap-statement path (BB5-C07
+# sibling-vanish) instead of an off-topic backfill.
+#
+# FAITHFULNESS (LAW §-1.3): the dropped rows STAY in `evidence_pool` + the disclosed pool
+# (demote-and-disclose, never a source drop) — identical to the F3 compose-time demotion,
+# only applied earlier so a section is never PADDED to a count with off-topic rows. No
+# faithfulness gate is touched; no on-topic corroborating source is dropped. Kill-switch
+# `PG_ASPECT_OFFTOPIC_SLOT_GUARD=0` (or no labeled rows) => byte-identical.
+_ASPECT_OFFTOPIC_SLOT_GUARD_ENV = "PG_ASPECT_OFFTOPIC_SLOT_GUARD"
+
+
+def _aspect_offtopic_slot_guard_enabled() -> bool:
+    """FINDING #5 kill-switch (default ON). OFF => off-topic rows are slotted exactly as
+    before (byte-identical)."""
+    return os.getenv(_ASPECT_OFFTOPIC_SLOT_GUARD_ENV, "1").strip().lower() not in (
+        "0", "", "false", "no", "off",
+    )
+
+
+def _drop_offtopic_rows_for_assignment(
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Remove SEMANTIC confirmed-off-topic rows before section assignment (FINDING #5).
+
+    Reuses the shared DEFER-1 semantic label (`weighted_enrichment._is_confirmed_offtopic`)
+    — never a lexical relevance floor. The removed rows are NOT deleted from the corpus:
+    they remain in `evidence_pool` and are surfaced in the off-topic-excluded disclosure
+    exactly as the compose-time F3 demotion already keeps them. Kill-switch OFF, an import
+    failure, or an evidence set with no labeled-off-topic rows all return the input
+    unchanged (byte-identical)."""
+    if not _aspect_offtopic_slot_guard_enabled():
+        return evidence
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            _is_confirmed_offtopic,
+        )
+    except Exception:  # recognizer unavailable -> no filtering (fail-open, never a crash)
+        return evidence
+    kept = [row for row in (evidence or []) if not _is_confirmed_offtopic(row)]
+    if len(kept) != len(evidence or []):
+        logger.info(
+            "[multi_section] FINDING#5 aspect off-topic slot guard: %d SEMANTIC "
+            "confirmed-off-topic row(s) held OUT OF section assignment (kept in the pool "
+            "+ disclosed; a section left with none falls to the gap-statement path)",
+            len(evidence or []) - len(kept),
+        )
+    return kept
+
+
 def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
@@ -1960,6 +2021,11 @@ def _assign_evidence_to_planned_outline(
     `sub_queries` is None (off-path / legacy callers), the byte-identical
     round-robin `ev_ids[i::n_sections]` slice is used.
     """
+    # FINDING #5 (#1344 tail B3): hold SEMANTIC confirmed-off-topic rows OUT OF section
+    # assignment so an aspect section is never backfilled with off-topic material (they
+    # stay in the pool + disclosed). Byte-identical when the flag is off / no row is
+    # labeled off-topic. Applies to BOTH the provenance-first and round-robin paths below.
+    evidence = _drop_offtopic_rows_for_assignment(evidence)
     n_sections = len(planned_outline)
     plans: list[SectionPlan] = []
 

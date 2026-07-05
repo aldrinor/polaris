@@ -15489,18 +15489,65 @@ async def run_one_query(
             f"{sum(1 for f in adequacy.findings if f.ok)}/"
             f"{len(adequacy.findings)} thresholds met."
         )
+        # FINDING #6b (#1344 tail B3): the reader-facing completeness disclosure must
+        # reflect ACTUAL report coverage, not corpus keyword presence. Recompute the
+        # measured checklist against the VERIFIED, RENDERED section prose so an aspect the
+        # report does not actually cover is disclosed as a GAP (uncovered) instead of a
+        # false "8/8 covered". Scoped to a MEASURED report (a checklist applied); the
+        # not_applicable/ON-mode neutral report already discloses honestly. Additive +
+        # kill-switched (PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT) + fully fail-open — any
+        # error falls back to the corpus-based `completeness`, never blocking the report.
+        _methods_completeness = completeness
+        try:
+            if getattr(completeness, "total_applicable", 0) > 0:
+                _verified_prose = "\n".join(
+                    (getattr(sr, "verified_text", "") or "") for sr in verified_sections
+                )
+                if _verified_prose.strip():
+                    _methods_completeness = check_completeness(
+                        domain=q["domain"],
+                        research_question=q["question"],
+                        evidence_rows=retrieval.evidence_rows,
+                        coverage_text=_verified_prose,
+                    )
+                    # Durable honest sidecar for the §-1.1 audit (additive artifact).
+                    (run_dir / "completeness_output_coverage.json").write_text(
+                        json.dumps(
+                            {
+                                "basis": "verified_rendered_prose",
+                                "total_applicable": _methods_completeness.total_applicable,
+                                "total_covered": _methods_completeness.total_covered,
+                                "total_uncovered": _methods_completeness.total_uncovered,
+                                "covered_fraction": _methods_completeness.covered_fraction,
+                                "uncovered_topic_ids": _methods_completeness.uncovered_topic_ids(),
+                                "corpus_based_total_covered": completeness.total_covered,
+                            },
+                            indent=2, sort_keys=True,
+                        ) + "\n",
+                        encoding="utf-8",
+                    )
+                    _log(
+                        f"[completeness] FINDING#6b output-coverage: "
+                        f"{_methods_completeness.total_covered}/"
+                        f"{_methods_completeness.total_applicable} covered in the RENDERED "
+                        f"report (corpus-based was {completeness.total_covered}/"
+                        f"{completeness.total_applicable})"
+                    )
+        except Exception as _cov_exc:
+            _log(f"[completeness] FINDING#6b output-coverage recompute skipped: {_cov_exc}")
+            _methods_completeness = completeness
         completeness_line = (
-            f"Completeness checklist: {completeness.total_covered}/"
-            f"{completeness.total_applicable} topics covered"
+            f"Completeness checklist: {_methods_completeness.total_covered}/"
+            f"{_methods_completeness.total_applicable} topics covered"
         )
-        if completeness.uncovered_topic_ids():
+        if _methods_completeness.uncovered_topic_ids():
             uncovered_labels = [
                 next(
-                    (tc.topic.label for tc in completeness.topics
+                    (tc.topic.label for tc in _methods_completeness.topics
                      if tc.topic.id == tid),
                     tid,
                 )
-                for tid in completeness.uncovered_topic_ids()
+                for tid in _methods_completeness.uncovered_topic_ids()
             ]
             completeness_line += f"; uncovered: {uncovered_labels}"
         completeness_line += "."

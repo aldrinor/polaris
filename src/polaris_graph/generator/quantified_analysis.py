@@ -21,6 +21,7 @@ SPEND-FREE: deterministic render + sandbox execution of FIXED Python; no network
 """
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -218,6 +219,348 @@ def is_low_value_filler_output(field: dict[str, Any]) -> bool:
         1 for t in (field.get("sourced_tokens") or []) if isinstance(t, dict)
     )
     return n_sourced >= _FILLER_MIN_SOURCED_INPUTS
+
+
+# ── FINDING #4 (I-deepfix-001 tail B3, #1344) — unit-compatibility + cited-operand
+#    gate for composed quantified quantities (LAW VI kill-switch, default ON) ──────
+# THE DEFECT (drb_72 forensic rank 4): the modeler emitted
+#   "The wage to employment impact ratio is 2.1.[4]"
+# — a pipeline division ``0.42% / 0.2 percentage-points`` rendered with a PRIMARY
+# citation as if the source stated it. Two independent faults:
+#   (b) it divides a PERCENT by a PERCENTAGE-POINT — incompatible units in the SAME
+#       dimension (both proportions) — so the resulting dimensionless "ratio" is
+#       dimensionally MEANINGLESS; and
+#   (a) it is a computed number attributed to a source that never states it.
+# The FIX-2 filler suppressor above only withholds unit-FREE scalars over >=2 sourced
+# inputs; it does NOT check unit COMPATIBILITY (a percent-/currency-typed output that
+# divides %/pp escapes it) and does not gate a ratio that mixes a cited number with an
+# uncited (modeled) assumption. This gate is the precise dimensional-validity +
+# cited-operand check the finding asks for.
+#
+# FAITHFULNESS (LAW §-1.3): a RENDER-ONLY withhold at the composition seam (same
+# category as FIX-2). A withheld output stays in the spec + quantified_model.json; NO
+# source, corpus row, basket, or verified claim is dropped; strict_verify / Regime C /
+# NLI / the 4-role D8 engine are untouched. It never adds a cap/target/thinner — it only
+# refuses to RENDER a dimensionally-invalid or non-cited computed number. Set
+# ``PG_QUANTIFIED_UNIT_COMPAT=0`` to REVERT byte-identically.
+_UNIT_COMPAT_ENABLED = os.environ.get(
+    "PG_QUANTIFIED_UNIT_COMPAT", "1"
+).strip().lower() not in ("0", "false", "no", "off")
+
+# A dimensionless output (empty unit) declared as one of these kinds is a "ratio" in the
+# plain sense — its operands' units are supposed to CANCEL. Dividing incompatible units
+# and calling the result dimensionless is exactly the finding's category error.
+_RATIO_DISPLAY_KINDS = frozenset({"number", "ratio"})
+
+# Unit classes that share a DIMENSION but must NOT be divided into a dimensionless ratio
+# (their ratio is semantically meaningless). Members of the SAME family divided by each
+# other are ratio-incompatible; DIFFERENT families divided (e.g. currency / time = a
+# legitimate rate) are ALLOWED. Extend via config, never a hardcoded per-run target.
+_UNIT_FAMILY = {"percent": "proportion", "percentage_point": "proportion"}
+
+
+def _unit_class(unit: Any) -> str | None:
+    """Normalize a raw unit string to a coarse unit CLASS, or ``None`` for a neutral /
+    dimensionless / unknown unit (an empty unit, or one we do not recognize — treated as
+    neutral so it never triggers a false incompatibility). PURE, offline."""
+    u = str(unit or "").strip().lower().rstrip(". ")
+    if not u:
+        return None
+    if u in {"%", "percent", "percentage", "percentages", "pct", "per cent"}:
+        return "percent"
+    if u in {
+        "pp", "ppt", "ppts", "pps", "pctpt", "pct pt", "pct pts",
+        "percentage point", "percentage points",
+        "percentage-point", "percentage-points",
+    }:
+        return "percentage_point"
+    if u in {"$", "usd", "us$", "dollar", "dollars"}:
+        return "currency_usd"
+    if u in {"€", "eur", "euro", "euros"}:
+        return "currency_eur"
+    if u in {"£", "gbp", "pound", "pounds"}:
+        return "currency_gbp"
+    return u
+
+
+def _ratio_incompatible(a: str | None, b: str | None) -> bool:
+    """True iff dividing a class-``a`` operand by a class-``b`` operand yields a
+    dimensionally-meaningless ratio: two DIFFERENT members of the SAME unit family
+    (e.g. percent / percentage-point). Neutral (None) operands never trigger it."""
+    if a is None or b is None or a == b:
+        return False
+    fam_a = _UNIT_FAMILY.get(a)
+    return fam_a is not None and fam_a == _UNIT_FAMILY.get(b)
+
+
+def formula_units_incompatible(formula: str, unit_class_by_name: dict[str, str | None]) -> bool:
+    """True iff ``formula`` combines incompatible units anywhere in its AST:
+
+    * an ``Add`` / ``Sub`` of two DIFFERENT non-neutral unit classes (adding across
+      classes is never valid — you cannot add dollars to years), OR
+    * a ``Div`` of two DIFFERENT members of the SAME unit family (a meaningless
+      same-dimension ratio, e.g. percent / percentage-point).
+
+    Multiplication and cross-family division (a legitimate rate, e.g. currency / time)
+    are ALLOWED. PURE + offline; an unparseable formula is treated as NOT-incompatible
+    (fail-open — never a false drop on a formula we cannot analyze)."""
+    try:
+        tree = ast.parse(str(formula or ""), mode="eval")
+    except SyntaxError:
+        return False
+    bad = False
+
+    def _classes(node: ast.AST) -> set[str]:
+        """Return the set of non-neutral unit classes among ``node``'s leaves; set the
+        enclosing ``bad`` flag on any incompatible combination."""
+        nonlocal bad
+        if isinstance(node, ast.Expression):
+            return _classes(node.body)
+        if isinstance(node, ast.Name):
+            c = unit_class_by_name.get(node.id)
+            return {c} if c is not None else set()
+        if isinstance(node, ast.Constant):
+            return set()
+        if isinstance(node, ast.UnaryOp):
+            return _classes(node.operand)
+        if isinstance(node, ast.BinOp):
+            left = _classes(node.left)
+            right = _classes(node.right)
+            op = node.op
+            if isinstance(op, (ast.Add, ast.Sub)):
+                combined = left | right
+                if len({c for c in combined if c is not None}) >= 2:
+                    bad = True
+                return combined
+            if isinstance(op, ast.Div):
+                if len(left) == 1 and len(right) == 1:
+                    (lc,) = tuple(left)
+                    (rc,) = tuple(right)
+                    if _ratio_incompatible(lc, rc):
+                        bad = True
+                    if lc == rc:
+                        return set()  # same class -> units cancel -> dimensionless
+                return left | right
+            # Mult / Pow / Mod / FloorDiv -> product/other; allowed to mix classes.
+            return left | right
+        if isinstance(node, ast.Call):
+            out: set[str] = set()
+            for a in node.args:
+                out |= _classes(a)
+            # abs/min/max/round preserve the operand class; other funcs (sqrt/log/exp/…)
+            # take a dimensionless argument -> a dimensionless result.
+            if getattr(node.func, "id", "") in {"abs", "min", "max", "round"}:
+                return out
+            return set()
+        return set()
+
+    _classes(tree)
+    return bad
+
+
+def _leaf_unit_classes(
+    node: ast.AST, unit_class_by_name: dict[str, str | None]
+) -> set[str]:
+    """Set of the NON-NEUTRAL unit classes among ``node``'s operand leaves (a neutral /
+    unknown / dimensionless leaf — an unrecognized unit or a bare constant — contributes
+    nothing). PURE + offline. Used to test whether a division's numerator and denominator
+    each resolve to one shared, cancelling unit class."""
+    if isinstance(node, ast.Expression):
+        return _leaf_unit_classes(node.body, unit_class_by_name)
+    if isinstance(node, ast.Name):
+        c = unit_class_by_name.get(node.id)
+        return {c} if c is not None else set()
+    if isinstance(node, ast.UnaryOp):
+        return _leaf_unit_classes(node.operand, unit_class_by_name)
+    if isinstance(node, ast.BinOp):
+        return (
+            _leaf_unit_classes(node.left, unit_class_by_name)
+            | _leaf_unit_classes(node.right, unit_class_by_name)
+        )
+    if isinstance(node, ast.Call):
+        out: set[str] = set()
+        for a in node.args:
+            out |= _leaf_unit_classes(a, unit_class_by_name)
+        return out
+    return set()
+
+
+def _dimension_preserving_only(node: ast.AST) -> bool:
+    """True iff ``node`` combines its leaves using ONLY dimension-PRESERVING operations
+    (Add / Sub / unary +/- / abs / round / min / max) — no Mult / Div / Pow / Mod /
+    FloorDiv, which would compound or cancel dimensions. So the node's overall dimension
+    equals its single leaf unit class, which is precisely what makes a division of two
+    such nodes a genuine units-cancel ratio. PURE + offline."""
+    if isinstance(node, ast.Expression):
+        return _dimension_preserving_only(node.body)
+    if isinstance(node, (ast.Name, ast.Constant)):
+        return True
+    if isinstance(node, ast.UnaryOp):
+        return _dimension_preserving_only(node.operand)
+    if isinstance(node, ast.BinOp):
+        if not isinstance(node.op, (ast.Add, ast.Sub)):
+            return False
+        return (
+            _dimension_preserving_only(node.left)
+            and _dimension_preserving_only(node.right)
+        )
+    if isinstance(node, ast.Call):
+        if getattr(node.func, "id", "") not in {"abs", "min", "max", "round"}:
+            return False
+        return all(_dimension_preserving_only(a) for a in node.args)
+    return False
+
+
+def formula_is_same_unit_cancelling_ratio(
+    formula: str, unit_class_by_name: dict[str, str | None]
+) -> bool:
+    """True iff ``formula``'s dimensionless value is PRODUCED by a genuine same-unit
+    cancelling division: the top-level operation is a ``Div`` whose numerator and
+    denominator EACH resolve to the SAME single NON-NEUTRAL unit class (so the units
+    cancel to dimensionless — e.g. ``a / b`` over two USD amounts).
+
+    A SUM / DIFFERENCE / PRODUCT (``a + b`` / ``a - b`` / ``a * b``), a division whose
+    two operands do NOT share exactly one non-neutral class (``percent / percentage-point``
+    or ``currency / years``), or a division whose operands themselves compound dimensions
+    (contain Mult / Div / Pow, e.g. ``a * b / c``) does NOT qualify. An unparseable
+    formula is NOT a cancelling ratio (fail-CLOSED for the exemption — defer to the FIX-2
+    filler suppressor). PURE + offline; mirrors ``formula_units_incompatible``'s AST view."""
+    try:
+        tree = ast.parse(str(formula or ""), mode="eval")
+    except SyntaxError:
+        return False
+    node: ast.AST = tree.body if isinstance(tree, ast.Expression) else tree
+    # Peel dimension-preserving unary/abs/round wrappers around the top division.
+    while True:
+        if isinstance(node, ast.UnaryOp):
+            node = node.operand
+            continue
+        if (
+            isinstance(node, ast.Call)
+            and getattr(node.func, "id", "") in {"abs", "round"}
+            and node.args
+        ):
+            node = node.args[0]
+            continue
+        break
+    if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+        return False
+    if not (
+        _dimension_preserving_only(node.left)
+        and _dimension_preserving_only(node.right)
+    ):
+        return False
+    left = _leaf_unit_classes(node.left, unit_class_by_name)
+    right = _leaf_unit_classes(node.right, unit_class_by_name)
+    if len(left) != 1 or len(right) != 1:
+        return False
+    (lc,) = tuple(left)
+    (rc,) = tuple(right)
+    return lc is not None and lc == rc
+
+
+def should_withhold_composed_output(output_field: Any, spec: Any) -> bool:
+    """FINDING #4 composition-time drop decision for a single declared ``OutputField``.
+
+    Returns True to WITHHOLD the output's rendered sentence when EITHER:
+      (b) its formula combines incompatible units (``formula_units_incompatible``), OR
+      (a) it is a dimensionless RATIO (empty unit, number/ratio kind) that MIXES a cited
+          (sourced) operand with an uncited (modeled/assumed) operand — presenting an
+          assumption-laden ratio as if the source stated it.
+
+    Kill-switch OFF (``PG_QUANTIFIED_UNIT_COMPAT=0``) => always False (byte-identical).
+    PURE except for the kill-switch read; no faithfulness gate is touched."""
+    if not _UNIT_COMPAT_ENABLED:
+        return False
+    unit_class_by_name: dict[str, str | None] = {}
+    kind_by_name: dict[str, str] = {}
+    for s in spec.sourced_inputs:
+        unit_class_by_name[s.name] = _unit_class(s.unit)
+        kind_by_name[s.name] = "sourced"
+    for m in spec.modeled_inputs:
+        unit_class_by_name[m.name] = _unit_class(m.unit)
+        kind_by_name[m.name] = "modeled"
+
+    # (b) unit-incompatibility anywhere in the formula.
+    if formula_units_incompatible(getattr(output_field, "formula", ""), unit_class_by_name):
+        logger.info(
+            "[quantified_analysis] FINDING#4 withhold %r: unit-incompatible formula %r",
+            getattr(output_field, "name", "?"), getattr(output_field, "formula", ""),
+        )
+        return True
+
+    # (a) a dimensionless ratio mixing a cited operand with an uncited (modeled) one.
+    is_dimensionless_ratio = (
+        not str(getattr(output_field, "unit", "") or "").strip()
+        and str(getattr(output_field, "display_kind", "number") or "number")
+        in _RATIO_DISPLAY_KINDS
+    )
+    if is_dimensionless_ratio:
+        refs = output_referenced_inputs(spec, getattr(output_field, "name", ""))
+        ref_kinds = {kind_by_name.get(r) for r in refs}
+        if "sourced" in ref_kinds and "modeled" in ref_kinds:
+            logger.info(
+                "[quantified_analysis] FINDING#4 withhold %r: dimensionless ratio mixes "
+                "a cited (sourced) operand with an uncited (modeled) assumption",
+                getattr(output_field, "name", "?"),
+            )
+            return True
+    return False
+
+
+def is_valid_cited_ratio(output_field: Any, spec: Any) -> bool:
+    """FINDING #4 iter-2 (#1344 tail B3): True iff ``output_field`` is a dimensionally-
+    VALID, fully-CITED dimensionless ratio that the unit-compat gate has AFFIRMATIVELY
+    cleared — a same-unit (units-cancel) ratio over sourced operands with NO modeled
+    (uncited) operand.
+
+    THE ITER-2 P1 FIX: such a quantity is legitimate and MUST render under production
+    defaults. The older coarse FIX-2 filler-suppressor (``is_low_value_filler_output``)
+    blanks EVERY unit-free number/ratio over >=2 sourced inputs and would wrongly blank a
+    valid same-unit (e.g. USD/USD) cited ratio; the caller uses this predicate to let the
+    unit-compat gate GOVERN that path so FIX-2 never blanks a valid cited ratio.
+
+    Returns False (defers entirely to the legacy FIX-2 behaviour — byte-identical) when:
+    the unit-compat gate is OFF; FINDING #4 would WITHHOLD the output (unit-mismatch or a
+    cited+modeled mix); the output is not a dimensionless number/ratio; it references no
+    cited (sourced) operand OR any modeled operand; OR — the ITER-3 P1 fix — its formula is
+    not a GENUINE same-unit cancelling division (a dimensionless-declared SUM / DIFFERENCE /
+    PRODUCT over cited operands is NOT a units-cancel ratio). PURE except for the kill-switch
+    read; touches no faithfulness gate."""
+    if not _UNIT_COMPAT_ENABLED:
+        return False
+    is_dimensionless_ratio = (
+        not str(getattr(output_field, "unit", "") or "").strip()
+        and str(getattr(output_field, "display_kind", "number") or "number")
+        in _RATIO_DISPLAY_KINDS
+    )
+    if not is_dimensionless_ratio:
+        return False
+    # The unit-compat gate must have CLEARED it (compatible units, not a cited+modeled mix).
+    if should_withhold_composed_output(output_field, spec):
+        return False
+    refs = output_referenced_inputs(spec, getattr(output_field, "name", ""))
+    sourced_names = {s.name for s in spec.sourced_inputs}
+    modeled_names = {m.name for m in spec.modeled_inputs}
+    refs_sourced = any(r in sourced_names for r in refs)
+    refs_modeled = any(r in modeled_names for r in refs)
+    if not (refs_sourced and not refs_modeled):
+        return False
+    # ITER-3 P1 (Codex): the exemption from the FIX-2 filler suppressor is ONLY for a
+    # GENUINE same-unit cancelling ratio — the formula's dimensionless value must arise
+    # from a Div of two operands sharing one non-neutral unit class (units cancel). Without
+    # this, ANY dimensionless-declared output over cited-only operands escaped FIX-2, so a
+    # plain SUM ``a + b`` of two cited USD amounts (empty unit, display_kind="number") was
+    # wrongly exempted and rendered — reopening the FIX-2 filler hole for non-ratio
+    # dimensionless multi-source fillers. A sum / difference / product does NOT qualify.
+    unit_class_by_name: dict[str, str | None] = {}
+    for s in spec.sourced_inputs:
+        unit_class_by_name[s.name] = _unit_class(s.unit)
+    for m in spec.modeled_inputs:
+        unit_class_by_name[m.name] = _unit_class(m.unit)
+    return formula_is_same_unit_cancelling_ratio(
+        getattr(output_field, "formula", ""), unit_class_by_name
+    )
 
 
 def detect_sourced_conflicts(
@@ -464,10 +807,23 @@ def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> s
     sents: list[str] = []
     for o in spec.outputs:
         if o.name in result.fields:
+            # FINDING #4 (#1344 tail B3) — the unit-compat gate is AUTHORITATIVE for the
+            # ratio path and runs FIRST: withhold a unit-incompatible ratio (e.g. a
+            # percent divided by a percentage-point) or a dimensionless ratio that mixes
+            # a cited operand with an uncited (modeled) assumption — a dimensionally-
+            # meaningless / non-cited computed number attributed to a source.
+            if should_withhold_composed_output(o, spec):
+                continue
             # FIX-2 (#1344): withhold unit-free scalar outputs that merely relate >=2
             # sourced inputs (invented "ratio"/"number" filler). Break-even / sensitivity
             # render on their own exempt branch below, so they are never suppressed here.
-            if is_low_value_filler_output(result.fields[o.name]):
+            # ITER-2 P1: a same-unit, fully-cited ratio that FINDING #4 has AFFIRMATIVELY
+            # cleared (``is_valid_cited_ratio``) is a valid quantity and MUST render — the
+            # coarse FIX-2 filler-suppressor must NOT blank it. Only outputs FINDING #4 did
+            # not clear as a valid cited ratio are still subject to the FIX-2 suppressor.
+            if not is_valid_cited_ratio(o, spec) and is_low_value_filler_output(
+                result.fields[o.name]
+            ):
                 continue
             human = o.name.replace("_", " ")
             sents.append(f"The {human} is {{{{calc:{o.name}}}}}{_label(o.name)}.")

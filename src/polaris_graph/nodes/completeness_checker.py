@@ -210,6 +210,36 @@ def _benchmark_strict_gates() -> bool:
     return raw.strip().lower() in _TRUE_TOKENS
 
 
+# ── FINDING #6b (I-deepfix-001 tail B3, #1344): coverage-against-OUTPUT honesty ───
+# THE DEFECT (drb_72 forensic rank 6, completeness-claim half): the report disclosed
+# "Completeness checklist: 8/8 topics covered" (covered_fraction=1.0) because each topic
+# had a keyword hit in the RETRIEVED CORPUS — even though the requested structured
+# deliverable / aspect never made it into the rendered report. Corpus keyword presence
+# is NOT report coverage, so the reader-facing completeness claim over-stated coverage.
+#
+# THE FIX: `check_completeness` accepts an optional `coverage_text` — the ACTUAL rendered
+# / verified report prose. When provided (and this gate is on), a topic is "covered" only
+# if its keywords appear IN THE PRESENTED REPORT, so an aspect the report does not
+# actually cover is honestly reported as a GAP (uncovered), never falsely complete. When
+# `coverage_text` is None (the retrieval-time gap-detection call), behaviour is
+# byte-identical (coverage is measured against the evidence corpus, as before).
+#
+# FAITHFULNESS: this only makes the DISCLOSED coverage number honest. It never touches
+# strict_verify / NLI / the 4-role D8 audit / span-grounding, never drops a source or a
+# verified claim, and adds no cap/floor. Measuring coverage against what was actually
+# presented STRENGTHENS honesty. Kill-switch `PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT=0`
+# ignores `coverage_text` (byte-identical corpus-based coverage).
+_COVERAGE_AGAINST_OUTPUT_ENV = "PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT"
+
+
+def _coverage_against_output_enabled() -> bool:
+    """Return True iff the FINDING #6b coverage-against-output gate is on (default ON)."""
+    raw = os.getenv(_COVERAGE_AGAINST_OUTPUT_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
 @dataclass
 class ChecklistTopic:
     id: str
@@ -640,6 +670,7 @@ def check_completeness(
     evidence_rows: list[dict[str, Any]],
     min_hits_to_cover: int = 1,
     drug_or_topic_hint: str = "",
+    coverage_text: str | None = None,
 ) -> CompletenessReport:
     """Check evidence rows against the domain's completeness checklist.
 
@@ -653,10 +684,25 @@ def check_completeness(
             least one keyword for a topic to be "covered" (default 1).
         drug_or_topic_hint: optional {drug} substitution for expand_queries
             (otherwise uses first significant noun from the question).
+        coverage_text: FINDING #6b (#1344). Optional ACTUAL rendered / verified
+            report prose. When provided (and PG_COMPLETENESS_COVERAGE_AGAINST_OUTPUT
+            is on, the default), a topic is "covered" only if its keywords appear IN
+            THE PRESENTED REPORT — so an aspect the report does not actually cover is
+            honestly reported as a GAP (uncovered), never falsely complete from a
+            corpus keyword hit. `applies_if` still uses `evidence_rows`. When None
+            (the retrieval-time gap-detection call) coverage is measured against the
+            evidence corpus exactly as before — byte-identical.
 
     Returns CompletenessReport with per-topic coverage + expand_queries
     for uncovered topics.
     """
+    # FINDING #6b: coverage measured against the OUTPUT (rendered/verified prose) when
+    # a `coverage_text` is supplied and the gate is on; else the legacy corpus-based
+    # per-evidence-row hit count. `applies_if` always uses the evidence corpus.
+    _use_output_coverage = (
+        coverage_text is not None and _coverage_against_output_enabled()
+    )
+    _coverage_blob = str(coverage_text or "") if _use_output_coverage else None
     # BUG-20 (I-arch-011): route to a question-matched sub-domain checklist
     # (e.g. a Parkinson's/DBS question -> clinical_neuro_device) instead of the
     # fixed drug-efficacy clinical template. No-match -> domain unchanged.
@@ -716,17 +762,28 @@ def check_completeness(
         kw_re = _compile_keyword_re(topic.keywords)
         hits = 0
         matched: list[str] = []
-        for ev in evidence_rows:
-            quote = (
-                (ev.get("direct_quote") or "")
-                + " "
-                + (ev.get("statement") or "")
-            )
-            m = kw_re.search(quote)
-            if m:
+        if _use_output_coverage:
+            # FINDING #6b (#1344): "covered" iff a topic keyword appears in the ACTUAL
+            # rendered/verified report prose, not merely somewhere in the retrieved
+            # corpus. A topic mentioned only in dropped/unrendered evidence is honestly
+            # reported UNCOVERED. Presence-based (one hit is enough at the default
+            # min_hits_to_cover=1); no source is dropped and no faithfulness gate moves.
+            for m in kw_re.finditer(_coverage_blob or ""):
                 hits += 1
                 if m.group(0).lower() not in matched:
                     matched.append(m.group(0).lower())
+        else:
+            for ev in evidence_rows:
+                quote = (
+                    (ev.get("direct_quote") or "")
+                    + " "
+                    + (ev.get("statement") or "")
+                )
+                m = kw_re.search(quote)
+                if m:
+                    hits += 1
+                    if m.group(0).lower() not in matched:
+                        matched.append(m.group(0).lower())
 
         covered = hits >= min_hits_to_cover
         coverages.append(TopicCoverage(
