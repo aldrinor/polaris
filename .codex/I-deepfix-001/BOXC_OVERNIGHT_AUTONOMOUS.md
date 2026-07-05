@@ -530,3 +530,14 @@ Honest DRB-II verdict: COMPETITIVE but SHORT of clear-#1 this cycle. Findings:
 - ROOT RECALL BOTTLENECK (HIGH): query-starved ~15 effective queries for a ~53-facet task. Facet-planner + deepener/sub-entity/additive wideners ARMED in HEAD but DARK on every prior run; + a real R2 vacuous-0-of-0 P1 issues ZERO expansion queries → completeness loop no-ops. THIS is the #1 DRB-II recall loss (recall=74% of score).
 - ANALYSIS (18%): live producer = 1 restating sentence/basket; the 3 cross-source producers (M6 PG_CROSS_SOURCE_SYNTHESIS default-OFF, depth_synthesis DS-* not injected on cert path, analyst_synthesis unverified/forbidden) are BUILT but DARK → analytical_depth passed=false last run. Shallow activation = config, faithfulness-safe, lifts off zero. DEEP analysis (mechanism/implication/reconcile) = 2nd-cycle build (span-grounding forbids free-form).
 COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDEN-ONLY, recall); C2 activate M6 + inject depth_synthesis (analysis off zero, each relation re-passes strict_verify, faithfulness NEVER relaxed). Preflight proves firing (effective_query_count>>15, R2 rounds>0, connectives/DS->0, unfetched_relevant_tail=0). Full audit $SC/drb2_coverage_audit.md. 2ND-CYCLE noted: deep generative analysis needs a new span-grounded analytic-claim contract.
+
+## [2026-07-05 11:13:16] FIRE-MANIFEST complete + B3 committed
+- HEAD=c91c2eb7. Faithfulness 18/23 committed (B3 #4/#5/#6b landed clean).
+- FIRE-MANIFEST (wgsuwmmxm) DONE, grep-verified, written to $SC/fire_manifest.md.
+  - **7 DARK fixes.** 5 env-wireable: D1 PG_SCOPE_CONSTRAINT_ENFORCE, D2 PG_EXTRACT_SCOPE_CONSTRAINTS, D3 PG_RELEVANCE_PRESERVE_ANCHORS, D4 PG_CORPUS_TIER_DISCLOSURE_MODE (= loss-risk H1, scope gate byte-identical no-op), D5 PG_BENCHMARK_OFFICIAL_QUESTION.
+  - 2 to-BUILD: V3 question-fidelity gate + V4 contract-scaffold gate (no code yet → validity build producing them).
+  - §-1.3 acceptance bar: D1-D4 must go in the run_gate_b SLATE + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-closed), NOT just env; Codex must confirm enforcement = DEMOTE/DISCLOSE (WEIGHT) not hard DROP.
+  - FIRE PRECONDITIONS: launch via run_gate_b (NOT direct run_honest_sweep — depth+facet levers dark there); SEMANTIC_SCHOLAR_API_KEY present (armed deepener fail-loud); apply all in-flight diffs incl the #6b caller hunk.
+- Coverage build (w7g7v04qa): Fable APPROVE / Codex REVISE on ONE test env-leak (test_cov_c2 mutates os.environ at import w/o restore) → iter-2 launched (w3f2k44xg). IMPORTANT honest fact: C1 recall + C2 synthesis were ALREADY armed on the paid run_gate_b path at this HEAD; the flips are belt-and-suspenders + proof tests → coverage is NOT dark on the run.
+- validity build (w2ptbe1dy): run_validity_gate.diff present (59KB), gating.
+- RUNNING: coverage-iter2 w3f2k44xg, B4-iter2 w4elr6fk7, validity w2ptbe1dy. RAM 26GB free, 4 procs. Healthy.
