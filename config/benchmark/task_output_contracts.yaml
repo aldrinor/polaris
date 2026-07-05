@@ -1,0 +1,48 @@
+# Per-benchmark-task OUTPUT CONTRACT — drives the render-time run-validity gates (I-deepfix-001).
+#
+# Consumed by scripts/dr_benchmark/run_validity_gate.py (FIX-2 question-fidelity + FIX-3 contract
+# scaffold). Keyed by the launchable SWEEP_QUERIES slug. A slug with NO entry here => the gates are
+# a documented NO-OP for it (the gate is general, never hardcoded to one task).
+#
+# LAW II: every value below is transcribed VERBATIM from the DeepResearch-Bench-II gold task prompt
+# (third_party/DeepResearch-Bench-II/tasks_and_rubrics.jsonl), never invented. Path override:
+# PG_TASK_OUTPUT_CONTRACT_PATH.
+
+drb_72_ai_labor:
+  drb_idx: 56            # SLUG_TO_IDX["drb_72_ai_labor"] (gate0_lineage)
+  gold_id: task72
+  # ── FIX-2 QUESTION-FIDELITY ────────────────────────────────────────────────────────────────
+  # Reformulation phrases that are a wrong-question tell ONLY when ABSENT from the bound question.
+  # The I-safety-002b program prompt (a different program that shares this slug) legitimately says
+  # "Fourth Industrial Revolution" and "English-language journal articles"; the canonical DRB-II
+  # idx-56 prompt (Generative AI on the labor market) says neither. So a report carrying these
+  # phrases while the bound (official) question does not = the drb_72 reformulation that zeroed
+  # info_recall.
+  forbidden_reformulations:
+    - "Fourth Industrial Revolution"
+    - "English-language journal articles"
+  # The bound question's core intent; each group needs >=1 hit in the report's H1/title, else the
+  # title is answering a different question. (Canonical idx-56: "impact of Generative AI on the
+  # future labor market".)
+  intent_anchors:
+    - ["generative ai", "generative artificial intelligence"]
+    - ["labor market", "labour market", "employment", "labor", "labour"]
+  # ── FIX-3 CONTRACT-SCAFFOLD (presentation rubric) ──────────────────────────────────────────
+  # The gold prompt: "discussing the above four aspects (positive, negative, challenges,
+  # opportunities) as separate sections". Each entry = accepted heading synonyms; a section is
+  # present iff SOME heading contains one synonym.
+  required_sections:
+    - ["positive"]
+    - ["negative"]
+    - ["challenge"]      # challenge / challenges
+    - ["opportunit"]     # opportunity / opportunities / future opportunities
+  # The gold prompt: "At the end of the report, please create a summary table ... The table column
+  # headers should be 'Research Literature', 'Country/Region', 'Application Area/Occupation',
+  # 'Specific Applications and Impacts', and 'Key Risks and Limitations'." VERBATIM 5-column header.
+  required_table:
+    columns:
+      - "Research Literature"
+      - "Country/Region"
+      - "Application Area/Occupation"
+      - "Specific Applications and Impacts"
+      - "Key Risks and Limitations"

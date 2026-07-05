@@ -595,6 +595,17 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_EMBED_MODEL": "Qwen/Qwen3-Embedding-8B",   # K12 live relevance embedder (else silent MiniLM)
     "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",         # gemma-pin: live NLI / semantic-conflict judge mirror
     "PG_EVALUATOR_MODEL": "z-ai/glm-5.2",          # gemma-pin: external evaluator mirror
+    # I-deepfix-001 loss-risk FIX-1 (H1 scope gate DARK): the SCOPE+TIMELINE ENFORCEMENT half of commit
+    # 64c10a49 defaults OFF and was set NOWHERE on the Gate-B path, so the scope gate produced ZERO effect
+    # on the paid benchmark run (selection byte-identical to pre-fix). Arm all four here (force-ON below +
+    # preflight-required below) so a stray operator/.env =0 cannot leave the scope gate dark. §-1.3 WIDEN-
+    # ONLY (arms an EXISTING weight/demote/disclose plan — no cap/target/thinner introduced); FAITHFULNESS-
+    # NEUTRAL (every surfaced/demoted source re-passes the UNCHANGED strict_verify per claim; the tier-
+    # deviation DISCLOSURE mode replaces a §-1.3-banned corpus REFUSAL with a disclosed-weight proceed).
+    "PG_SCOPE_CONSTRAINT_ENFORCE": "1",      # constraint_enforcement: out-of-scope demote / restrict-to mask / user-pin (else empty plan)
+    "PG_EXTRACT_SCOPE_CONSTRAINTS": "1",     # intake_constraint_extractor: parse the scope+timeline intent the enforcer consumes
+    "PG_RELEVANCE_PRESERVE_ANCHORS": "1",    # evidence_selector: never cut a marquee/user-pinned anchor source
+    "PG_CORPUS_TIER_DISCLOSURE_MODE": "1",   # corpus_approval_gate: material tier deviation PROCEEDS with a disclosed profile (not a §-1.3 refusal)
     # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
     "PG_ENABLE_TOOL_TRACKER": "1",
     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
@@ -1723,6 +1734,21 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_FACET_COMPLETENESS",         # R2 facet completeness
     "PG_QUALIFIER_ELABORATION",      # D1 within-basket qualifier elaboration
     "PG_ENRICHMENT_FACET_ROUTE",     # D4 facet-routed enrichment placement
+    # I-deepfix-001 loss-risk FIX-1 (H1 scope gate DARK): fail-CLOSED before spend if any of the four
+    # scope+timeline ENFORCEMENT flags is off — a paid run with the scope gate dark silently ships a
+    # selection byte-identical to the pre-fix (no out-of-scope demote / no anchor pin / no tier-deviation
+    # disclosure). Force-ON above (slate + FORCE_ON), so a stray operator =0 fails the run CLOSED here.
+    "PG_SCOPE_CONSTRAINT_ENFORCE",
+    "PG_EXTRACT_SCOPE_CONSTRAINTS",
+    "PG_RELEVANCE_PRESERVE_ANCHORS",
+    "PG_CORPUS_TIER_DISCLOSURE_MODE",
+    # I-deepfix-001 loss-risk FIX-2 (C2 wrong-question render): fail-CLOSED before spend if the official-
+    # question binding is off — OFF lets the run silently GENERATE against the raw SWEEP_QUERIES prompt
+    # (for drb_72 that is the I-safety-002b FIR/"English-language journal articles only" prompt, NOT the
+    # canonical DRB-II idx-56 GenAI-labor question) → the split-brain that zeroed info_recall (0/57).
+    # Force-set on the live run_gate_b_query path (before the override) so a benchmark run cannot answer
+    # the wrong question; this required-flag makes a stray =0 fail the run CLOSED before any token spends.
+    "PG_BENCHMARK_OFFICIAL_QUESTION",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -1916,6 +1942,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_ENRICHMENT_FACET_ROUTE",     # D4 facet-routed enrichment placement (Gate-B-dark; now armed)
     "PG_SUBTOPIC_DECOMPOSITION",     # L2 sub-topic decomposition (one verbatim-span sentence per distinct atomic fact)
     "PG_COVERAGE_L5_REQUIRED_ENTITY", # L5 question/facet-derived required-entity coverage lane (default-ON; belt force-ON)
+    # I-deepfix-001 loss-risk FIX-1 (H1 scope gate DARK): force-ON the four scope+timeline ENFORCEMENT
+    # flags so an explicit operator/.env =0 cannot survive the setdefault slate and silently leave the
+    # scope gate producing ZERO effect on the paid run. Slate-dict members above; preflight-required below.
+    "PG_SCOPE_CONSTRAINT_ENFORCE",
+    "PG_EXTRACT_SCOPE_CONSTRAINTS",
+    "PG_RELEVANCE_PRESERVE_ANCHORS",
+    "PG_CORPUS_TIER_DISCLOSURE_MODE",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2508,6 +2541,16 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_SWEEP_DEPTH_LAYER",                  # grounded DEPTH cross-source synthesis
     "PG_CROSS_SOURCE_SYNTHESIS",             # M6 cross-source analytical layer (I-deepfix-001 #1344 WS-2)
     "PG_RESUME_REFETCH_DEGRADED",            # A15 resume fetch-shell re-fetch
+    # ── I-deepfix-001 loss-risk FIX-1: scope+timeline ENFORCEMENT infra (winner-or-infra DECISION: INFRA) ─
+    # These are NOT losers. They ARM the scope gate (commit 64c10a49) whose enforcement half was dark on
+    # Gate-B: out-of-scope DEMOTE (a §-1.3 WEIGHT, never a hard drop), marquee/user anchor PIN, and the
+    # tier-deviation DISCLOSURE mode that REPLACES a §-1.3-banned corpus REFUSAL with a disclosed-weight
+    # proceed. Weight-not-filter + faithfulness-neutral (every surfaced/demoted source re-passes the
+    # UNCHANGED strict_verify per claim) -> allowlisted as selection/scope infra.
+    "PG_SCOPE_CONSTRAINT_ENFORCE",           # out-of-scope demote / restrict-to mask / user-pin plan
+    "PG_EXTRACT_SCOPE_CONSTRAINTS",          # intake scope+timeline intent extraction (feeds the enforcer)
+    "PG_RELEVANCE_PRESERVE_ANCHORS",         # never cut a marquee / user-pinned anchor source
+    "PG_CORPUS_TIER_DISCLOSURE_MODE",        # tier-deviation PROCEED-with-disclosed-profile (not a §-1.3 refusal)
     # ── transport / observability / honesty markers (NOT winners, NOT losers) ───────────────────────
     "PG_ENABLE_TOOL_TRACKER",                # tool-utilization tracker (firing observability)
     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",      # depth annotation (non-gating)
@@ -4066,30 +4109,54 @@ async def run_gate_b_query(
     # locked prompt). FAITHFULNESS-NEUTRAL: only the INPUT question text changes; no verify/gate/NLI
     # rule is touched. Import + gold-file read are lazy + gated so the module's NO-SPEND-at-import
     # invariant and off-path (no third_party gold file) both hold.
-    if _benchmark_official_question_enabled():
+    # I-deepfix-001 loss-risk FIX-2 (C2 wrong-question render): FORCE the official-question binding ON for
+    # the benchmark run. Default OFF => the run generates against the raw SWEEP_QUERIES prompt (for drb_72
+    # the I-safety-002b FIR/"English-language journal articles only" prompt, NOT the canonical DRB-II
+    # idx-56 GenAI-labor question) => the split-brain that zeroed info_recall (0/57). Set BEFORE the
+    # override below (which reads it) AND before preflight_full_capability (which fail-closes on it via
+    # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS). UNCONDITIONAL so the pre-spend required-flag check passes on
+    # BOTH the live and the offline seam-test path; the gold-file READ below is gated on the LIVE path
+    # (transport is None) so an offline test (fake transport, mocked run_one_query, no third_party gold
+    # file) never reads it. FAITHFULNESS-NEUTRAL (input question text only). setdefault is WRONG here — a
+    # stray operator/.env =0 must NOT survive (that is the exact wrong-question hole this fix closes).
+    os.environ["PG_BENCHMARK_OFFICIAL_QUESTION"] = "1"
+    if _benchmark_official_question_enabled() and transport is None:
         _official_slug = q.get("slug")
         from scripts.dr_benchmark.gate0_lineage import (
+            DRB_SLUGS_WITHOUT_CANONICAL_GOLD as _GATE0_NO_GOLD,
             SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
             canonical_question_for_slug as _gate0_canonical_q,
+            is_benchmark_slug as _gate0_is_benchmark_slug,
             sha256_text as _gate0_sha,
         )
-        if _official_slug not in _GATE0_SLUG_TO_IDX:
-            # FAIL LOUD (LAW II): the operator asked for the official question but this slug has no
-            # canonical DRB-II idx binding — never silently run the wrong (locked) prompt.
-            raise ValueError(
-                f"PG_BENCHMARK_OFFICIAL_QUESTION set but slug {_official_slug!r} has no canonical "
-                f"DRB-II idx in gate0_lineage.SLUG_TO_IDX — cannot resolve the official question "
-                f"(would silently run the wrong prompt). Register the slug's gold idx or unset the "
-                f"override."
-            )
-        _official_question = _gate0_canonical_q(_official_slug)
-        if _gate0_sha(q.get("question", "")) != _gate0_sha(_official_question):
+        if _official_slug in _GATE0_SLUG_TO_IDX:
+            _official_question = _gate0_canonical_q(_official_slug)
+            if _gate0_sha(q.get("question", "")) != _gate0_sha(_official_question):
+                print(
+                    f"[OFFICIAL-QUESTION] slug {_official_slug}: launched question OVERRIDDEN with "
+                    f"canonical DRB-II idx {_GATE0_SLUG_TO_IDX[_official_slug]} (was the locked program "
+                    f"prompt); protocol.json + retrieval + generation now use the official question."
+                )
+            q = {**q, "question": _official_question}
+        elif _official_slug in _GATE0_NO_GOLD or not _gate0_is_benchmark_slug(_official_slug):
+            # DOCUMENTED no-op (never a silent gap): a no-gold benchmark slug (drb_90) or a non-benchmark
+            # slug has NO canonical DRB-II question to bind to => keep the launched prompt. Now that the
+            # official-question binding is DEFAULT-ON for every benchmark run (FIX-2 above), a no-gold slug
+            # must skip gracefully, not the prior hard ValueError (which assumed explicit opt-in intent).
             print(
-                f"[OFFICIAL-QUESTION] slug {_official_slug}: launched question OVERRIDDEN with "
-                f"canonical DRB-II idx {_GATE0_SLUG_TO_IDX[_official_slug]} (was the locked program "
-                f"prompt); protocol.json + retrieval + generation now use the official question."
+                f"[OFFICIAL-QUESTION] slug {_official_slug}: no canonical DRB-II gold binding "
+                f"(no-gold / non-benchmark) => launched prompt kept (documented no-op)."
             )
-        q = {**q, "question": _official_question}
+        else:
+            # FAIL LOUD (LAW II): an UNREGISTERED benchmark slug (a future drb_NN neither gold-bound in
+            # SLUG_TO_IDX nor listed in DRB_SLUGS_WITHOUT_CANONICAL_GOLD) — never silently run an unbound
+            # benchmark prompt (the drb_72 wrong-question failure class).
+            raise ValueError(
+                f"PG_BENCHMARK_OFFICIAL_QUESTION set but benchmark slug {_official_slug!r} is "
+                f"UNREGISTERED in gate0_lineage (neither SLUG_TO_IDX nor DRB_SLUGS_WITHOUT_CANONICAL_"
+                f"GOLD) — cannot resolve the official question (would silently run the wrong prompt). "
+                f"Register the slug's gold idx or list it no-gold."
+            )
 
     from scripts.run_honest_sweep_r3 import run_one_query
 
@@ -4315,7 +4382,7 @@ async def run_gate_b_query(
     _msg_deadline_token = _msg_set_run_wall_deadline(_run_wall_deadline)
     try:
         try:
-            return await asyncio.wait_for(
+            _summary = await asyncio.wait_for(
                 run_one_query(
                     q,
                     out_root,
@@ -4334,6 +4401,21 @@ async def run_gate_b_query(
                 _msg_reset_run_wall_deadline(_msg_deadline_token)
             except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
                 pass
+        # I-deepfix-001 loss-risk FIX-2/FIX-3 — RENDER-TIME RUN-VALIDITY GATES. After the report is
+        # rendered but BEFORE it is returned (and long before the downstream scoring judge spends), assert
+        # the shipped report ANSWERS the bound question (no silent reformulation, FIX-2) and carries the
+        # task's stated output CONTRACT (named sections + required summary table, FIX-3). A violation
+        # RAISES RunValidityGateError (fail loud, do-not-ship) + writes a durable marker + flips the
+        # manifest to abort_run_validity_gate, so a wrong-question / contract-broken report can never be
+        # scored as a valid submission (the drb_72 info_recall-0 + presentation-1/5 loss class). Config-
+        # driven per slug (config/benchmark/task_output_contracts.yaml); a slug with no contract, a non-
+        # shipping status, or no rendered report.md is a documented NO-OP (offline seam tests that mock
+        # run_one_query write no report => skip). FAITHFULNESS-NEUTRAL: reads the shipped report + the
+        # bound question and decides ship / do-not-ship; touches no faithfulness gate. Kill-switch
+        # PG_RUN_VALIDITY_GATE (default ON — fail-closed armed for benchmark runs).
+        from scripts.dr_benchmark.run_validity_gate import enforce_render_validity
+        enforce_render_validity(_summary, q, _run_dir)
+        return _summary
     except (asyncio.TimeoutError, TimeoutError):
         # PERMANENT-SILENCE HANG caught (B20). Emit a labeled, non-empty timeout artifact + manifest so
         # the run is NEVER silent; RETURN the summary (the caller's F25 isolation records it + continues).
