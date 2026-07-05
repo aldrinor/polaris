@@ -645,7 +645,7 @@ def test_d2_cross_source_pass_is_wired_into_compose_section_per_basket(monkeypat
 
     section, pool = _d2_section()
 
-    monkeypatch.delenv("PG_CROSS_SOURCE_SYNTHESIS", raising=False)  # OFF
+    monkeypatch.setenv("PG_CROSS_SOURCE_SYNTHESIS", "0")  # OFF (explicit kill-switch; default is now ON per cov C2)
     off = _compose_section_per_basket(
         section, pool, writer_fn=_d2_writer, verify_fn=verify_sentence_provenance,
     )

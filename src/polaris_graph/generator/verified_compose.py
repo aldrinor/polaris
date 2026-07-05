@@ -201,10 +201,21 @@ def _multicited_compose_enabled() -> bool:
 
 
 def _cross_source_synthesis_enabled() -> bool:
-    """PG_CROSS_SOURCE_SYNTHESIS gate (I-deepfix-001 M6). DEFAULT-OFF => the cross-source analytical
-    producer is never invoked and the section producer is byte-identical; ON => after the per-basket
-    units are built, ADDITIVELY append engine-licensed analytical sentences (keep-all)."""
-    return os.getenv(_CROSS_SOURCE_SYNTHESIS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+    """PG_CROSS_SOURCE_SYNTHESIS gate (I-deepfix-001 M6; DEFAULT-ON per I-deepfix-001 cov C2).
+
+    ON (the new default) => after the per-basket units are built, ADDITIVELY append engine-LICENSED
+    cross-source analytical sentences (compare / contrast / agreement / extension) on top of the
+    keep-all single-source units, so the DRB-II analysis dimension fires on EVERY render path — not
+    only when the benchmark slate force-pins the flag. Each appended sentence joins TWO already
+    strict_verify-PASSED atoms with an engine-licensed connective and RE-PASSES the FROZEN
+    strict_verify per clause; an UNLICENSED pair stays neutral (never a fabricated relation word) and
+    a clause that fails re-verify is DROPPED — faithfulness NEVER relaxed.
+
+    Kill-switch (LAW VI): ``PG_CROSS_SOURCE_SYNTHESIS=0`` (or false/off/no) => the producer is never
+    invoked and the section producer is BYTE-IDENTICAL to the pre-cov legacy path. §-1.3: this is a
+    WEIGHT/CONSOLIDATE analysis lever (more synthesized relations = honest emergent depth), never a
+    cap / target / thinner."""
+    return os.getenv(_CROSS_SOURCE_SYNTHESIS_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def split_into_sentences(text: str) -> list[str]:

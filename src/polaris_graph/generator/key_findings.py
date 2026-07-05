@@ -708,8 +708,16 @@ _TENSION_CUE_RE = re.compile(
 
 
 def depth_layer_enabled() -> bool:
-    """Default OFF. ``PG_SWEEP_DEPTH_LAYER=1`` appends the per-section analytical-depth layer."""
-    return os.getenv(_DEPTH_LAYER_ENV, "0").strip().lower() not in _OFF_VALUES
+    """DEFAULT-ON (I-deepfix-001 cov C2). Appends the per-section analytical-depth layer AND injects
+    the depth_synthesis DS-* live synthesizer (``make_depth_synthesizer`` ->
+    ``synthesize_cross_source_findings``, each within-basket cross-source finding RE-GROUNDED through
+    the UNCHANGED strict_verify — a finding with no grounding span is DROPPED) on the cert render path
+    by default, not only when the benchmark cert slate force-pins the flag.
+
+    Kill-switch (LAW VI): ``PG_SWEEP_DEPTH_LAYER=0`` (or false/off/no) => the depth layer + DS-*
+    synthesis are skipped and the render is BYTE-IDENTICAL to the pre-cov legacy path. §-1.3: additive
+    keep-all analysis lever, never a cap; faithfulness untouched."""
+    return os.getenv(_DEPTH_LAYER_ENV, "1").strip().lower() not in _OFF_VALUES
 
 
 def build_depth_layer(
