@@ -556,3 +556,8 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 ## [2026-07-05 11:28:15] AGGRESSIVE-coverage config build launched (wfsay71l8) — operator asked to build coverage in parallel
 - Safe coverage (C1+C2) already committed 750baf74 (boxes 1/2). Aggressive coverage = same widen-only machinery pushed harder (more facets/angles/R2 rounds/top-k, deepener+sub-entity engaged) for boxes 3/4. §-1.3 WIDEN-ONLY, faithfulness NEVER relaxed, config-only env block, Codex+Fable gated → $SC/aggressive_coverage_env.txt.
 - Running in PARALLEL with validity (w2ptbe1dy). PARALLEL builds: validity + aggcov.
+
+## [2026-07-05 11:34:34] VALIDITY iter-1 Fable APPROVE / Codex REVISE (real P1) → iter-2 launched (wg283aijt)
+- Codex caught a genuine fail-open: contract-scaffold required_table used substring/subset match (rc==cell or rc in cell + order-independent all(any)) → a table with extra/reordered/substring-header columns would PASS → contract-broken report could reach the paid judge. Dual-gate value: Fable missed it, Codex caught it.
+- iter-2 fix: EXACT normalized header-row match (== length+order) + 3 RED tests (extra 6th col / reordered / substring header) + strip run_gate_b comment whitespace. run_validity_gate.diff applies clean onto HEAD ba513247. On both-approve → commit closes ALL 7 dark (D1-D5 + V3 fidelity + V4 contract).
+- PARALLEL: validity-iter2 wg283aijt + aggressive-coverage wfsay71l8.
