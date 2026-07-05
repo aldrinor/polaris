@@ -21,9 +21,13 @@ Exact formulas (paper section on metrics):
   VIII Citation Thoroughness = sum(C (x) S) / sum(S)
   I   One-Sided  (debate)   = 1 iff NOT (>=1 pro AND >=1 con) relevant statement
   II  Overconfident (debate)= 1 iff One-Sided AND answer confidence == 5
-  VI  Source Necessity      = necessary / listed, where a source is NECESSARY iff it is the SOLE supporting
-      source of at least one (relevant, supported) statement (the defensible min-vertex-cover-for-sources
-      reading: exactly the sources that lie in EVERY minimum cover). DISCLOSED interpretation.
+  VI  Source Necessity      = size_of_minimum_source_cover / listed, where the minimum source cover is the
+      FEWEST sources whose union still SUPPORTS every supported relevant statement (paper 2509.04499
+      "minimum vertex cover for source nodes"; the official answer-engine-eval reference uses greedy set
+      cover, which we match — no exact Hopcroft-Karp needed). A statement supported by 2 sources therefore
+      contributes cover-size 1 (necessity 0.5 of 2 listed), NOT 0. The old SOLE-supporter count (a source
+      that is the only supporter of some supported relevant statement) is retained as a SECONDARY
+      disclosure field ``n_sole_supporter`` — it is a lower bound on the cover size, nothing is lost.
 """
 from __future__ import annotations
 
@@ -57,10 +61,11 @@ def necessary_source_count(
     relevant: Sequence[bool],
     n_sources: int,
 ) -> int:
-    """Count sources that are the SOLE supporter of at least one relevant statement (= the sources present
-    in every minimum cover of the (statement, source) support bipartite graph). Redundantly-supported
-    statements contribute no necessary source; a statement supported by exactly one source makes that
-    source necessary."""
+    """SECONDARY disclosure (NOT the DeepTRACE VI numerator anymore): count sources that are the SOLE
+    supporter of at least one relevant statement. Such a source must appear in every cover, so this count
+    is a LOWER BOUND on the minimum source cover size (see ``minimum_source_cover_size``). Redundantly-
+    supported statements contribute no sole supporter; a statement supported by exactly one source makes
+    that source a sole supporter. Retained so nothing is lost after the min-cover fix."""
     necessary: set[int] = set()
     for i, row in enumerate(support_matrix):
         if i >= len(relevant) or not relevant[i]:
@@ -69,6 +74,49 @@ def necessary_source_count(
         if len(supporters) == 1:
             necessary.add(supporters[0])
     return len(necessary)
+
+
+def minimum_source_cover_size(
+    support_matrix: Sequence[Sequence[int]],
+    relevant: Sequence[bool],
+    n_sources: int,
+) -> int:
+    """DeepTRACE VI numerator: the size of the MINIMUM source cover over the supported relevant statements.
+
+    universe = indices of relevant statements that have >= 1 supporting source (i.e. supported).
+    sets     = for each listed source j, the set of supported relevant statements it supports (S[i][j]==1).
+    The cover = the fewest sources whose union covers the whole universe. Computed by greedy set cover
+    (repeatedly take the source covering the most still-uncovered statements), which is the standard
+    reference implementation used by the official answer-engine-eval code — exact Hopcroft-Karp is not
+    required. Deterministic tie-break: lowest source index. A statement supported by 2 sources yields a
+    cover of size 1 (not 0), fixing the sole-supporter divergence. Returns 0 for an empty universe."""
+    universe: set[int] = set()
+    source_sets: dict[int, set[int]] = {j: set() for j in range(n_sources)}
+    for i, row in enumerate(support_matrix):
+        if i >= len(relevant) or not relevant[i]:
+            continue
+        supporters = [j for j in range(min(len(row), n_sources)) if row[j]]
+        if not supporters:  # unsupported relevant statement is not in the cover universe
+            continue
+        universe.add(i)
+        for j in supporters:
+            source_sets[j].add(i)
+
+    uncovered = set(universe)
+    cover_size = 0
+    while uncovered:
+        best_j: Optional[int] = None
+        best_cov = 0
+        for j in range(n_sources):
+            cov = len(source_sets[j] & uncovered)
+            if cov > best_cov:
+                best_cov = cov
+                best_j = j
+        if best_j is None:  # no source covers a remaining statement (unreachable: each has a supporter)
+            break
+        uncovered -= source_sets[best_j]
+        cover_size += 1
+    return cover_size
 
 
 def _confidence_is_overconfident(
@@ -124,9 +172,11 @@ def compute_deeptrace_metrics(
     citation_accuracy = (cs / sum_c) if sum_c else 0.0
     citation_thoroughness = (cs / sum_s) if sum_s else 0.0
 
-    # VI Source Necessity
-    necessary = necessary_source_count(support_matrix, relevant, n_sources)
-    source_necessity = (necessary / n_sources) if n_sources else 0.0
+    # VI Source Necessity = min-source-cover size / listed (paper "minimum vertex cover for source nodes").
+    cover_size = minimum_source_cover_size(support_matrix, relevant, n_sources)
+    source_necessity = (cover_size / n_sources) if n_sources else 0.0
+    # SECONDARY disclosure retained so nothing is lost: the old sole-supporter count (lower bound on cover).
+    n_sole_supporter = necessary_source_count(support_matrix, relevant, n_sources)
 
     # I / II debate-only
     one_sided: Optional[int] = None
@@ -159,11 +209,16 @@ def compute_deeptrace_metrics(
         # higher-better
         "relevant_statements_ratio": round(relevant_ratio, 4),
         "source_necessity": round(source_necessity, 4),
+        "source_necessity_cover_size": cover_size,
+        "n_sole_supporter": n_sole_supporter,
         "citation_accuracy": round(citation_accuracy, 4),
         "citation_thoroughness": round(citation_thoroughness, 4),
         # provenance / honesty
         "scorer": "polaris-reimpl-of-deeptrace",
         "is_estimate": True,
         "judge_substitution": "kimi-k2.6 (paper uses GPT-5) — DISCLOSED",
-        "source_necessity_interpretation": "sole-supporter (sources in every minimum cover)",
+        "source_necessity_interpretation": (
+            "min-source-cover (greedy set cover over supported relevant statements) / n_listed_sources; "
+            "n_sole_supporter is the retained sole-supporter lower bound"
+        ),
     }

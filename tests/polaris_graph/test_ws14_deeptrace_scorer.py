@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from scripts.dr_benchmark.deeptrace_scorer import (  # noqa: E402
     compute_deeptrace_metrics,
+    minimum_source_cover_size,
     necessary_source_count,
 )
 
@@ -36,20 +37,45 @@ def test_relevant_unsupported_uncited():
     assert m["uncited_sources_fraction"] == 0.0, "both sources cited => 0 uncited"
 
 
-def test_source_necessity_sole_supporter():
+def test_source_necessity_min_cover():
     m = compute_deeptrace_metrics(citation_matrix=C, support_matrix=S, relevant=REL, n_sources=2)
-    # s0 sole-supported by src0 => src0 necessary; s2 has 2 supporters => none sole; s1 has none.
-    assert m["source_necessity"] == 0.5, "1 necessary of 2 listed"
+    # supported relevant statements = {s0 (src0 only), s2 (src0+src1)}; s1 has no supporter.
+    # min source cover = {src0} covers both => cover size 1 of 2 listed => necessity 0.5.
+    assert m["source_necessity"] == 0.5, "min-source-cover size 1 of 2 listed"
+    assert m["source_necessity_cover_size"] == 1
+    # SECONDARY sole-supporter disclosure preserved: src0 is the sole supporter of s0.
+    assert m["n_sole_supporter"] == 1
 
 
-def test_source_necessity_redundant_is_zero():
-    # one statement supported by BOTH sources => neither is strictly necessary.
+def test_source_necessity_redundant_min_cover_is_one():
+    # min-cover fix: one statement supported by BOTH sources => cover picks ONE source (size 1),
+    # NOT zero. This is the "minimum vertex cover for source nodes" reading (arXiv 2509.04499).
+    assert minimum_source_cover_size([[1, 1]], [True], 2) == 1
+    # the retained SECONDARY sole-supporter count is 0 here (neither source is a sole supporter).
     assert necessary_source_count([[1, 1]], [True], 2) == 0
 
 
+def test_source_necessity_one_stmt_two_sources_divergence_fixed():
+    # THE divergence this fix targets. HEAD (sole-supporter): 0 necessary => 0.0 (WRONG).
+    # FIXED (min-cover): cover size 1 / 2 listed => 0.5 (paper-correct).
+    m = compute_deeptrace_metrics(
+        citation_matrix=[[1, 1]], support_matrix=[[1, 1]], relevant=[True], n_sources=2
+    )
+    assert m["source_necessity"] == 0.5, "1 stmt / 2 sources => min-cover 1/2 = 0.5, not 0.0"
+    assert m["source_necessity_cover_size"] == 1
+    assert m["n_sole_supporter"] == 0
+
+
 def test_source_necessity_disjoint_all_necessary():
-    # two statements each solely supported by a distinct source => both necessary.
+    # two statements each solely supported by a distinct source => cover needs BOTH => size 2.
+    assert minimum_source_cover_size([[1, 0], [0, 1]], [True, True], 2) == 2
+    # both are also sole supporters, so the secondary count agrees here.
     assert necessary_source_count([[1, 0], [0, 1]], [True, True], 2) == 2
+    m = compute_deeptrace_metrics(
+        citation_matrix=[[1, 0], [0, 1]], support_matrix=[[1, 0], [0, 1]],
+        relevant=[True, True], n_sources=2,
+    )
+    assert m["source_necessity"] == 1.0, "2 of 2 listed sources required"
 
 
 def test_empty_answer_zero_denominators():
