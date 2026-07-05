@@ -17371,11 +17371,14 @@ async def run_one_query(
                             "verdicts -> abort_report_redaction_failed"
                         )
                 elif always_release_enabled():
-                    # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
-                    # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
-                    # deterministic from claim_labeler — a non-VERIFIED claim is `low` (has cited
-                    # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
-                    # (a present-but-unpinnable claim aborts rather than ship unlabeled).
+                    # P0-2 §-1.3 RENDER-SEAM FAITHFULNESS GATE (I-deepfix-001): the always-release
+                    # seam USED to KEEP + caveat every non-VERIFIED settled verdict (annotate) — a
+                    # claim the 4-role engine settled UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL
+                    # shipped as a "[confidence: low ...]" line in the section body. Per §-1.3 the
+                    # faithfulness engine is the ONE hard gate, so a non-VERIFIED settled verdict
+                    # reaching rendered prose is a LEAK. The gate below now DROPS every non-VERIFIED
+                    # settled verdict from prose (reconcile) instead of caveating it. Marker is still
+                    # deterministic from claim_labeler for the LABEL set (admit-partial / kill-switch).
                     _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
                     # I-deepfix-001 wave-3 CHANGE 4: TRUE-drop the non-VERIFIED / unjudged DEPTH
                     # cross-source findings FIRST (refuse-in-place, REGARDLESS of always-release), then
@@ -17395,7 +17398,9 @@ async def run_one_query(
                             log=_log,
                         )
                     from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
-                        annotate_report_against_verdicts,
+                        apply_render_verdict_gate,
+                        render_verdict_gate_admit_partial,
+                        render_verdict_gate_enabled,
                     )
                     from src.polaris_graph.generator.claim_labeler import (  # noqa: PLC0415
                         confidence_bucket,
@@ -17449,163 +17454,127 @@ async def run_one_query(
                     except Exception as _span_exc:  # noqa: BLE001 — inert on any failure (never break the run)
                         _log(f"[label]       FIX-b span-text map skipped ({_span_exc}); annotate proceeds")
                         _span_text_by_claim = {}
-                    try:
-                        _annotation = annotate_report_against_verdicts(
-                            _redact_report_path.read_text(encoding="utf-8"),
-                            _final_verdicts,
-                            _audit_map,
-                            _marker_by_claim,
-                            span_text_by_claim=_span_text_by_claim,
-                        )
-                    except ReportRedactionError as _annot_exc:
-                        # B16/B17 (I-arch-005 #1257, VERIFY=LABEL-NEVER-HOLD): annotate could not
-                        # TIER-1-pin one or more non-VERIFIED claims to label them in place. The
-                        # OLD behavior HELD (status=report_redaction_failed) — but the report.md at
-                        # L~7517 is STILL on disk WITH the unverified claim asserted as fact, and the
-                        # §-1.1 audit reads report.md not the manifest, so a HOLD here SHIPS the leak
-                        # under an abort label. That is the leak, not the safe state. The
-                        # faithfulness-safe move is to QUARANTINE the unpinnable claim: fall back to
-                        # reconcile, which over-redacts via TIER-2 (DELETE the smallest containing
-                        # unit, KEEP every verified neighbor) — strictly MORE conservative than
-                        # annotate's keep+label (it deletes rather than labels), so nothing is made
-                        # to pass and no span is widened. Ship the redacted body + disclosed gap.
-                        _log(
-                            f"[label]       annotate could not pin a claim ({_annot_exc}); "
-                            "falling back to reconcile (quarantine + ship the rest)"
-                        )
+                    # ── P0-2 §-1.3 RENDER-SEAM FAITHFULNESS GATE ──────────────────────────────────
+                    # DROP every non-VERIFIED settled verdict from prose (reconcile: remove the
+                    # sentence -> visible gap language, KEEP every VERIFIED neighbour byte-for-byte,
+                    # an emptied section falls to the existing TIER-4 section gap-stub — never blanked
+                    # while a VERIFIED claim remains). PARTIAL is configurable: default DROP;
+                    # PG_RENDER_VERDICT_GATE_ADMIT_PARTIAL=1 keeps+labels PARTIAL only. The kill-switch
+                    # PG_RENDER_VERDICT_GATE=0 reverts to the legacy keep+label annotate path byte-for-
+                    # byte (drop_nonverified=False). Faithfulness-STRENGTHENING: the default drops MORE
+                    # unfaithful text than the annotate path it replaces; it never relaxes a gate.
+                    _gate_result = apply_render_verdict_gate(
+                        _redact_report_path.read_text(encoding="utf-8"),
+                        _final_verdicts,
+                        _audit_map,
+                        _marker_by_claim,
+                        drop_nonverified=render_verdict_gate_enabled(),
+                        admit_partial=render_verdict_gate_admit_partial(),
+                        span_text_by_claim=_span_text_by_claim,
+                    )
+                    if _gate_result.outcome == "withhold_unpinnable":
+                        # A present non-VERIFIED claim could not be bounded to ANY redactable unit
+                        # (e.g. it lives only inside a heading/bib line). We must not ship the leaking
+                        # body: withhold it, preserve the unredacted body as a curator sidecar, and
+                        # ship a degraded disclosure (same B16/B17 pattern as the legacy annotate path).
                         try:
-                            _b16_redaction = reconcile_report_against_verdicts(
+                            (run_dir / "report_unredacted.md").write_text(
                                 _redact_report_path.read_text(encoding="utf-8"),
-                                _final_verdicts,
-                                _audit_map,
+                                encoding="utf-8",
                             )
-                        except ReportRedactionError as _b16_exc:
-                            # ABSOLUTE residue: a non-VERIFIED claim's prose is present but cannot be
-                            # bounded by ANY redactable unit (it straddles a heading/bib line, etc.).
-                            # We cannot surgically quarantine it, so we must not ship the leaking body.
-                            # Replace report.md with a degraded disclosure body (asserts NO claim) and
-                            # preserve the unredacted body as a curator sidecar (the 8631 affordance).
-                            # Over-conservative (drops verified content too) but FAITHFUL, and rare.
-                            try:
-                                (run_dir / "report_unredacted.md").write_text(
-                                    _redact_report_path.read_text(encoding="utf-8"),
-                                    encoding="utf-8",
-                                )
-                            except OSError:
-                                pass
-                            summary_status = "released_with_disclosed_gaps"
-                            unified_status = to_unified_status(summary_status)
-                            manifest["status"] = unified_status
-                            manifest["release_allowed"] = True
-                            manifest["report_redaction_error"] = str(_b16_exc)
-                            manifest.setdefault("disclosed_gaps", []).append(
-                                "report_redaction_unpinnable: one or more 4-role non-VERIFIED claims "
-                                "could not be bounded to any redactable unit for surgical "
-                                f"quarantine ({_b16_exc}); the leaking findings body was withheld and "
-                                "replaced by this disclosure (unredacted body kept as "
-                                "report_unredacted.md for the curator). No unverified claim ships."
-                            )
-                            _degraded_body = build_finalizer_artifact_body(
-                                research_question=q.get("question", ""),
-                                status="released_with_disclosed_gaps",
-                                error=(
-                                    "post-gate redaction could not surgically quarantine a non-"
-                                    f"VERIFIED claim ({_b16_exc}); the findings body was withheld."
-                                ),
-                            )
-                            _redact_report_path.write_text(_degraded_body, encoding="utf-8")
-                            _log(
-                                f"[label]       B16/B17 unpinnable residue ({_b16_exc}) -> "
-                                "withheld leaking body, shipped disclosed-gaps degraded artifact "
-                                "(unredacted body -> report_unredacted.md)"
-                            )
-                        else:
-                            _b16_reconciled = _b16_redaction.report_text
-                            if _b16_redaction.redacted:
-                                from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
-                                    refilter_key_findings_block,
-                                )
-                                _b16_reconciled = refilter_key_findings_block(_b16_reconciled)
-                                # I-arch-011 PR-d (#1268): tidy the verbatim Abstract/Conclusion
-                                # blocks after the quarantine fallback redaction (same contract as
-                                # the primary site). No-op when OFF / nothing redacted.
-                                from src.polaris_graph.generator.abstract_conclusion import (  # noqa: PLC0415
-                                    refilter_abstract_conclusion_block,
-                                )
-                                _b16_reconciled = refilter_abstract_conclusion_block(_b16_reconciled)
-                            _redact_report_path.write_text(_b16_reconciled, encoding="utf-8")
-                            summary_status = "released_with_disclosed_gaps"
-                            unified_status = to_unified_status(summary_status)
-                            manifest["status"] = unified_status
-                            manifest["release_allowed"] = True
-                            manifest["report_redaction"] = {
-                                "redacted_count": _b16_redaction.redacted_count,
-                                "redacted_claim_ids": [
-                                    rc.claim_id for rc in _b16_redaction.redacted
-                                ],
-                                "already_absent_claim_ids": _b16_redaction.already_absent,
-                                "fallback_from": "annotate_unpinnable",
-                            }
-                            manifest.setdefault("disclosed_gaps", []).append(
-                                "report_redaction_quarantine: one or more non-VERIFIED claims could "
-                                "not be labeled in place, so they were QUARANTINED (removed) from "
-                                f"report.md ({_b16_redaction.redacted_count} removed); the verified "
-                                "remainder ships. No unverified claim is asserted."
-                            )
-                            if _b16_redaction.redacted:
-                                _b16_gaps_path = run_dir / "gaps.json"
-                                _b16_existing_gaps: list = []
-                                if _b16_gaps_path.is_file():
-                                    try:
-                                        _b16_loaded = json.loads(
-                                            _b16_gaps_path.read_text(encoding="utf-8")
-                                        )
-                                        if isinstance(_b16_loaded, list):
-                                            _b16_existing_gaps = _b16_loaded
-                                    except Exception:  # noqa: BLE001 — corrupt sidecar must not lose gaps
-                                        _b16_existing_gaps = []
-                                _b16_existing_gaps.extend(_b16_redaction.gaps_json())
-                                _b16_gaps_path.write_text(
-                                    json.dumps(_b16_existing_gaps, indent=2, sort_keys=True) + "\n",
-                                    encoding="utf-8",
-                                )
-                            _log(
-                                "[label]       B16 quarantine fallback: reconcile removed "
-                                f"{_b16_redaction.redacted_count} unpinnable non-VERIFIED claim(s) + "
-                                "shipped the verified remainder (released_with_disclosed_gaps)"
-                            )
+                        except OSError:
+                            pass
+                        summary_status = "released_with_disclosed_gaps"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = True
+                        manifest["report_redaction_error"] = _gate_result.error
+                        manifest.setdefault("disclosed_gaps", []).append(
+                            "report_redaction_unpinnable: one or more 4-role non-VERIFIED claims "
+                            "could not be bounded to any redactable unit for surgical "
+                            f"quarantine ({_gate_result.error}); the leaking findings body was "
+                            "withheld and replaced by this disclosure (unredacted body kept as "
+                            "report_unredacted.md for the curator). No unverified claim ships."
+                        )
+                        _degraded_body = build_finalizer_artifact_body(
+                            research_question=q.get("question", ""),
+                            status="released_with_disclosed_gaps",
+                            error=(
+                                "post-gate render-verdict gate could not surgically quarantine a "
+                                f"non-VERIFIED claim ({_gate_result.error}); the findings body was "
+                                "withheld."
+                            ),
+                        )
+                        _redact_report_path.write_text(_degraded_body, encoding="utf-8")
+                        _log(
+                            f"[render-gate] unpinnable residue ({_gate_result.error}) -> withheld "
+                            "leaking body, shipped disclosed-gaps degraded artifact "
+                            "(unredacted body -> report_unredacted.md)"
+                        )
                     else:
                         _redact_report_path.write_text(
-                            _annotation.report_text, encoding="utf-8"
+                            _gate_result.report_text, encoding="utf-8"
                         )
-                        (run_dir / "claim_confidence.json").write_text(
-                            json.dumps(
-                                {
-                                    _ac.claim_id: {
-                                        "verdict": _ac.verdict,
-                                        "severity": _ac.severity,
-                                        "marker": _ac.marker,
-                                    }
-                                    for _ac in _annotation.annotated
-                                },
-                                indent=2,
-                                sort_keys=True,
+                        _gate_redaction = _gate_result.redaction
+                        _gate_annotation = _gate_result.annotation
+                        # DROP pass -> gaps.json (one redacted_unsupported gap per dropped claim) +
+                        # manifest["report_redaction"].
+                        if _gate_redaction is not None:
+                            if _gate_redaction.redacted:
+                                _gate_gaps_path = run_dir / "gaps.json"
+                                _gate_existing_gaps: list = []
+                                if _gate_gaps_path.is_file():
+                                    try:
+                                        _gate_loaded = json.loads(
+                                            _gate_gaps_path.read_text(encoding="utf-8")
+                                        )
+                                        if isinstance(_gate_loaded, list):
+                                            _gate_existing_gaps = _gate_loaded
+                                    except Exception:  # noqa: BLE001 — corrupt sidecar must not lose gaps
+                                        _gate_existing_gaps = []
+                                _gate_existing_gaps.extend(_gate_redaction.gaps_json())
+                                _gate_gaps_path.write_text(
+                                    json.dumps(_gate_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                    encoding="utf-8",
+                                )
+                            manifest["report_redaction"] = {
+                                "redacted_count": _gate_redaction.redacted_count,
+                                "redacted_claim_ids": [
+                                    rc.claim_id for rc in _gate_redaction.redacted
+                                ],
+                                "already_absent_claim_ids": _gate_redaction.already_absent,
+                            }
+                        # LABEL pass (admit_partial / kill-switch only) -> claim_confidence.json +
+                        # manifest["report_annotation"]. Absent under the default drop-all gate.
+                        if _gate_annotation is not None:
+                            (run_dir / "claim_confidence.json").write_text(
+                                json.dumps(
+                                    {
+                                        _ac.claim_id: {
+                                            "verdict": _ac.verdict,
+                                            "severity": _ac.severity,
+                                            "marker": _ac.marker,
+                                        }
+                                        for _ac in _gate_annotation.annotated
+                                    },
+                                    indent=2,
+                                    sort_keys=True,
+                                )
+                                + "\n",
+                                encoding="utf-8",
                             )
-                            + "\n",
-                            encoding="utf-8",
-                        )
-                        manifest["report_annotation"] = {
-                            "annotated_count": _annotation.annotated_count,
-                            "annotated_claim_ids": [
-                                _ac.claim_id for _ac in _annotation.annotated
-                            ],
-                            "already_absent_claim_ids": _annotation.already_absent,
-                        }
+                            manifest["report_annotation"] = {
+                                "annotated_count": _gate_annotation.annotated_count,
+                                "annotated_claim_ids": [
+                                    _ac.claim_id for _ac in _gate_annotation.annotated
+                                ],
+                                "already_absent_claim_ids": _gate_annotation.already_absent,
+                            }
                         _log(
-                            "[label]       keep+label report.md vs 4-role verdicts: "
-                            f"labeled={_annotation.annotated_count} "
-                            f"already_absent={len(_annotation.already_absent)} "
-                            "(always-release; non-VERIFIED kept + labeled, never deleted)"
+                            "[render-gate] dropped non-VERIFIED settled verdicts from report.md: "
+                            f"dropped={len(_gate_result.dropped_claim_ids)} "
+                            f"labeled={len(_gate_result.labeled_claim_ids)} "
+                            "(§-1.3 faithfulness gate; non-VERIFIED DROPPED, not caveated)"
                         )
                 else:
                     _audit_map = json.loads(

@@ -961,6 +961,201 @@ _DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; t
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# P0-2 (I-deepfix-001) — RENDER-SEAM FAITHFULNESS GATE (drop, don't caveat)
+# ─────────────────────────────────────────────────────────────────────────────
+# §-1.3: the faithfulness engine is the ONE hard gate, so a settled 4-role verdict that is NOT
+# VERIFIED reaching rendered prose is a LEAK. The always-release seam used to KEEP + caveat every
+# non-VERIFIED settled verdict (annotate) — a claim the engine settled UNSUPPORTED / FABRICATED /
+# UNREACHABLE / PARTIAL shipped as a "[confidence: low ...]" line in the section body. This gate
+# DROPS such a claim from prose instead (reconcile: remove the sentence, keep VERIFIED neighbours,
+# an emptied section falls to the existing TIER-4 section gap-stub). It is faithfulness-
+# STRENGTHENING (drops MORE unfaithful text than the annotate path it replaces) and never relaxes
+# a gate. PARTIAL is the ONLY configurable case: default DROP; the admit-partial flag keeps + labels
+# PARTIAL only. This is NOT a breadth cap/filter — VERIFIED prose is untouched (§-1.3 WEIGHT-not-
+# FILTER); it only removes claims the faithfulness engine already rejected.
+_ENV_RENDER_VERDICT_GATE = "PG_RENDER_VERDICT_GATE"
+_ENV_RENDER_VERDICT_GATE_ADMIT_PARTIAL = "PG_RENDER_VERDICT_GATE_ADMIT_PARTIAL"
+_VERDICT_PARTIAL = "PARTIAL"
+
+
+def render_verdict_gate_enabled() -> bool:
+    """PG_RENDER_VERDICT_GATE — DEFAULT-ON. ON => a settled non-VERIFIED 4-role verdict is DROPPED
+    from rendered prose (never caveated). OFF (explicit '0'/'false'/'off'/'no'/'') reverts the
+    always-release seam to the legacy keep+label annotate path byte-for-byte (a documented kill-
+    switch for offline-test isolation only; production leaves it ON)."""
+    return os.getenv(_ENV_RENDER_VERDICT_GATE, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def render_verdict_gate_admit_partial() -> bool:
+    """PG_RENDER_VERDICT_GATE_ADMIT_PARTIAL — DEFAULT-OFF. OFF => a PARTIAL settled verdict is
+    DROPPED like FABRICATED/UNSUPPORTED/UNREACHABLE. ON => a PARTIAL claim is KEPT + LABELED
+    (caveated) while every OTHER non-VERIFIED verdict is still dropped. FABRICATED / UNSUPPORTED /
+    UNREACHABLE are NEVER admitted — they always DROP (the render gate cannot be relaxed for them)."""
+    return os.getenv(_ENV_RENDER_VERDICT_GATE_ADMIT_PARTIAL, "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def partition_verdicts_for_render(
+    final_verdicts: dict[str, str],
+    *,
+    drop_nonverified: bool = True,
+    admit_partial: bool = False,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Split settled 4-role verdicts into (DROP, LABEL) maps for the render seam (P0-2, §-1.3).
+
+    THE render-seam faithfulness rule, as a pure deterministic function so the runner and the unit
+    test drive the SAME code (the ``_route_seam_worker_exception`` "production IS the test subject"
+    precedent). VERIFIED always survives (absent from BOTH maps). Every other SETTLED verdict is:
+      * a DROP by default (removed from prose -> ``reconcile_report_against_verdicts``);
+      * a LABEL only for a PARTIAL verdict when ``admit_partial`` is True (kept + caveated ->
+        ``annotate_report_against_verdicts``). FABRICATED / UNSUPPORTED / UNREACHABLE (and any other
+        non-VERIFIED verdict) are NEVER admitted — they always DROP.
+    ``drop_nonverified=False`` is the kill-switch (PG_RENDER_VERDICT_GATE=0): EVERY non-VERIFIED
+    verdict routes to LABEL, reproducing the legacy always-release keep+label behaviour byte-for-byte.
+    """
+    drop: dict[str, str] = {}
+    label: dict[str, str] = {}
+    for claim_id, verdict in final_verdicts.items():
+        normalized = str(verdict or "").strip().upper()
+        if normalized == _VERDICT_VERIFIED:
+            continue  # VERIFIED survives untouched (never dropped, never caveated)
+        if not drop_nonverified:
+            label[claim_id] = verdict          # gate OFF -> legacy keep+label for all non-VERIFIED
+        elif admit_partial and normalized == _VERDICT_PARTIAL:
+            label[claim_id] = verdict          # PARTIAL admitted -> keep + caveat
+        else:
+            drop[claim_id] = verdict           # DROP (default for every non-VERIFIED verdict)
+    return drop, label
+
+
+def _refilter_after_redaction(report_text: str) -> str:
+    """Tidy the Key-Findings + Abstract/Conclusion blocks after a redaction (drop gap-stub bullets /
+    an emptied block), matching the runner's existing post-reconcile cleanup. Local imports keep the
+    generator dependency lazy (no import cycle at module load); no-op when nothing needs tidying."""
+    from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+        refilter_key_findings_block,
+    )
+    from src.polaris_graph.generator.abstract_conclusion import (  # noqa: PLC0415
+        refilter_abstract_conclusion_block,
+    )
+    text = refilter_key_findings_block(report_text)
+    text = refilter_abstract_conclusion_block(text)
+    return text
+
+
+@dataclass
+class RenderGateResult:
+    """Outcome of the P0-2 render-seam faithfulness gate over one report body. Pure data — the
+    CALLER writes report.md / gaps.json / claim_confidence.json / manifest from these fields."""
+
+    report_text: str
+    redaction: "RedactionResult | None" = None      # the DROP pass (reconcile) result
+    annotation: "AnnotationResult | None" = None     # the LABEL pass (annotate) result, if it ran
+    outcome: str = "reconciled"                      # "reconciled" | "withhold_unpinnable"
+    error: str = ""
+
+    @property
+    def dropped_claim_ids(self) -> list[str]:
+        return [rc.claim_id for rc in self.redaction.redacted] if self.redaction else []
+
+    @property
+    def labeled_claim_ids(self) -> list[str]:
+        return [ac.claim_id for ac in self.annotation.annotated] if self.annotation else []
+
+
+def apply_render_verdict_gate(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+    marker_by_claim: dict[str, str],
+    *,
+    drop_nonverified: bool = True,
+    admit_partial: bool = False,
+    span_text_by_claim: dict[str, str] | None = None,
+) -> RenderGateResult:
+    """THE single deterministic render-seam faithfulness rule (P0-2, §-1.3): a settled 4-role verdict
+    that is NOT VERIFIED is DROPPED from rendered prose, never shown as a caveated low-confidence line.
+
+    Partitions ``final_verdicts`` (``partition_verdicts_for_render``), then:
+      1. DROP pass — ``reconcile_report_against_verdicts`` removes every DROP claim's verbatim
+         sentence (replaced with the visible gap language), KEEPING every VERIFIED neighbour byte-
+         for-byte; a section emptied by the drop falls to the existing TIER-4 section gap-stub
+         (never blanked when a VERIFIED claim remains).
+      2. LABEL pass — ``annotate_report_against_verdicts`` keeps + caveats every admitted claim (only
+         PARTIAL when ``admit_partial``; ALL non-VERIFIED when ``drop_nonverified`` is False — the
+         legacy keep+label kill-switch). The annotate input PRESERVES VERIFIED entries so the WS-5
+         figure-consistency twin re-key is byte-unchanged from the legacy annotate path.
+    FAITHFULNESS-STRENGTHENING: under the default (``drop_nonverified=True, admit_partial=False``)
+    the LABEL map is EMPTY, so NOTHING non-VERIFIED survives as prose. Pure (string ops only; no I/O)
+    — the CALLER writes report.md / gaps.json / manifest from the returned result.
+
+    Fail-safe: if the DROP reconcile cannot bound a PRESENT non-VERIFIED claim to any redactable unit
+    (``ReportRedactionError`` — e.g. it lives only inside a heading), the gate returns
+    ``outcome="withhold_unpinnable"`` with the ORIGINAL text so the caller withholds the body +
+    discloses the gap (never ships the leak). A LABEL-pass pin failure falls back to DROPPING the
+    label set (strictly safer than keep+label), matching the runner's legacy annotate->reconcile
+    quarantine fallback.
+    """
+    drop, label = partition_verdicts_for_render(
+        final_verdicts, drop_nonverified=drop_nonverified, admit_partial=admit_partial,
+    )
+
+    # ── DROP pass — remove every non-VERIFIED settled verdict from prose ──────────────────────────
+    try:
+        redaction = reconcile_report_against_verdicts(report_text, drop, audit_map)
+    except ReportRedactionError as drop_exc:
+        # A present non-VERIFIED claim could not be bounded to any redactable unit -> withhold-body.
+        return RenderGateResult(
+            report_text=report_text, outcome="withhold_unpinnable", error=str(drop_exc),
+        )
+    working = redaction.report_text
+    if redaction.redacted:
+        working = _refilter_after_redaction(working)
+
+    # ── LABEL pass — keep + caveat only the admitted (PARTIAL / kill-switch) claims ───────────────
+    # annotate sees VERIFIED (preserved so the WS-5 twin re-key is byte-unchanged) + the admitted
+    # label set, but NEVER a dropped claim (already removed above). Skipped when nothing is admitted.
+    annotate_input = {cid: v for cid, v in final_verdicts.items() if cid not in drop}
+    has_label = any(
+        str(v or "").strip().upper() != _VERDICT_VERIFIED for v in annotate_input.values()
+    )
+    annotation: "AnnotationResult | None" = None
+    if has_label:
+        try:
+            annotation = annotate_report_against_verdicts(
+                working,
+                annotate_input,
+                audit_map,
+                marker_by_claim,
+                span_text_by_claim=span_text_by_claim,
+            )
+            working = annotation.report_text
+        except ReportRedactionError:
+            # Legacy annotate->reconcile QUARANTINE fallback: a present-but-unpinnable label claim is
+            # DROPPED (strictly safer than keep+label) rather than shipped unlabeled.
+            try:
+                label_redaction = reconcile_report_against_verdicts(working, label, audit_map)
+            except ReportRedactionError as label_exc:
+                return RenderGateResult(
+                    report_text=report_text, outcome="withhold_unpinnable", error=str(label_exc),
+                )
+            working = label_redaction.report_text
+            if label_redaction.redacted:
+                working = _refilter_after_redaction(working)
+            # Fold the fallback drops into the DROP-pass record (single gaps.json / manifest source).
+            redaction.redacted.extend(label_redaction.redacted)
+            redaction.already_absent.extend(label_redaction.already_absent)
+            annotation = None
+
+    return RenderGateResult(
+        report_text=working, redaction=redaction, annotation=annotation, outcome="reconciled",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # A4 (I-deepfix-001) — ATTRIBUTION-ORIGIN visible-text caveat (render layer)
 # ─────────────────────────────────────────────────────────────────────────────
 # The attribution-origin guard (``attribution_origin_guard.attribution_origin_reason``) flags a
