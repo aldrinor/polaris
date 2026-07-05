@@ -734,3 +734,9 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - corpus_snapshot.json PRESERVED (1898952B=1.9MB) → box FREE + resume-resmoke available (resume from post-fetch corpus, 0 re-fetch).
 - OPERATOR LEFT DESK — full autonomous beat-both authorized: investigate→fix→Codex+Fable dual-gate→resmoke→score→iterate until beat-ALL-boards OR genuine blocker. Surface ONLY: genuine blocker / operator-decision / SCORED beat-both results. NEVER fake victory on deficient.
 - Investigation workflow wbpc2n0qb RUNNING (6 defect classes + synth) → will notify.
+
+## [2026-07-05 16:32:17] WAVE-1 BUILD+GATE DONE (wc0wcngqp) — 2 approved (held for forensic), 3 need rework
+- ★DUAL-GATE WORKING★: caught real issues in 3/5 (offline test alone would've missed the over-strips).
+- APPROVED (codex+fable): FF4-ASPECT (topic_relevance_gate.py), JUDGE-CAP (openrouter_role_transport.py — kimi reasoning capped 12380 < 16384, both call sites, fail-closed untouched). HELD per universal gate until forensic wjixpytfc confirms ON_TARGET.
+- REWORK: FF1-CHROME (codex REQUEST_CHANGES + fable REVISE: real P1 over-strip risk, detector drops legit content); FF2-TRUNC-DET (both: allowlists over-reach → over-strip); FF5-DATE-RESOLVE (codex REQUEST_CHANGES: _YM_SEPARATED_RE regex mis-matches month digits; fable APPROVE). Full gate reasons + diffs in $SC/wave1_gated.json + $SC/wave1_diffs/.
+- NEXT: wait for forensics (wp1mfgjvt coverage + wjixpytfc all-issues). Re-brief FF1/FF2/FF5 ONCE with gate-precision-feedback + forensic root-cause. Commit FF4+JUDGE-CAP once forensic clears ON_TARGET. NEVER commit on guess.
