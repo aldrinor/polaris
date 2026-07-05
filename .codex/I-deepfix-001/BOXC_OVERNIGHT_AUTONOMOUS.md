@@ -712,3 +712,12 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - 429 count 31 (↑ from 25) but 4/4-hosts=0, attempt-6/6=0 (NO exhaustion). backoff-rotate absorbing all. Chrome-gate still dropping author-byline/arxiv-nav/preprint-header chrome consistently.
 - DECISION: NOT red-flag. corpus_snapshot(81 rows) safe. ESCALATE + RESUME-from-corpus_snapshot IF: section wall-clock attempt 2/2 fails OR entailment 4/4 OR log stall >10min OR PID dies w/o fresh report.md+manifest. Do NOT intervene while advancing. Tight 255s watch.
 - Cursor=8084.
+
+## [2026-07-05 15:21:37] FORENSIC READ #12 (FULL line-by-line 7763-8084, operator re-pressed) — GENERATION COMPLETE + fix#4 + fix#6b FIRED
+- HONEST: read #11 I grep-skimmed again (caught). Re-read 7763-8084 FULL line-by-line → caught MAJOR content grep missed (fix#4, fix#6b — my grep pattern lacked FINDING#4/quantified_analysis).
+- ★GENERATION COMPLETE (line 8064)★: elapsed 2014.6s, outline=14 sections, words=1313, verified=40 dropped=55 (~42% verified, passes ≥40% floor), limitations_words=85. 3rd checkpoint postgen_checkpoint.json saved. THIN(1313w) but VERIFIED (55 unverified sentences DROPPED not published).
+- ★fix#4 fabricated-ratio FIRED (8071-73)★: withheld 'adjusted_wage_reduction' + 'wage_employment_tradeoff_ratio' — dimensionless ratio mixing cited operand + UNCITED modeled assumption → NO-OP suppressed. Refuses ungrounded computed ratios. LIVE PROOF.
+- ★fix#6b output-coverage FIRED (8075)★: 7/8 covered in RENDERED report (corpus was 8/8) — honest measure vs output not corpus. LIVE PROOF.
+- fact_dedup GH#423: 4 redundants, 4 rewrites proposed, ALL 4 dropped_by_strict_verify (faithful, unverified rewrites not published). consolidation-NLI prose dedup 26→0 keep-all-every-citation. Opportunities section 14 baskets→2266 chars (biggest), repair success 1/1. M-42b trial-table suppressed (no trial data, correct). evidence_extractor 470→367 data points.
+- ⚠️HONEST WEAKNESS (for §-1.1 audit): depth_synthesis 0/3 baskets drafted, D8-thread 65 baskets→1 kept-finding (cross=0 single=1). ANALYTICAL/cross-source DEPTH THIN → DRB-II analysis dim (18%) WEAK on this game-rule smoke. Faithful but shallow synthesis. Full-power boxes test depth.
+- 429 still handled (no 4/4, no att6). Run past generation → into final render/verify. Cursor=8084.
