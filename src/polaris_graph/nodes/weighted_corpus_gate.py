@@ -516,3 +516,60 @@ def disclosure_to_dict(disclosure: CorpusCredibilityDisclosure) -> dict[str, Any
             for _k in _M2_ROW_KEYS:
                 _row.pop(_k, None)
     return d
+
+
+def _normalize_disclosure_url(url: Any) -> str:
+    """Normalize a URL for a per-source disclosure JOIN key: lowercase host, drop a single
+    trailing slash, strip surrounding whitespace. PURE. Blank in -> blank out (never joined)."""
+    s = str(url or "").strip()
+    if not s:
+        return ""
+    # Trailing slash is a common host<->cited-URL mismatch (``.../PMC9278314`` vs ``.../PMC9278314/``);
+    # collapse exactly one so the two surfaces join. No scheme/host lowercasing beyond a light strip —
+    # keep it conservative so distinct paths never collide.
+    return s[:-1] if s.endswith("/") and len(s) > 1 else s
+
+
+def authority_weight_by_url(disclosure: Any) -> dict[str, dict[str, Any]]:
+    """I-deepfix-001 tail-B2 (#11/#18): build the single-source-of-truth per-URL authority-weight
+    map from an already-built corpus credibility disclosure — the SAME domain-aware ``authority_score``
+    (weight + basis + tier) the disclosure computed via ``_compute_authority_score_for_source``. The
+    §8 corroboration ledger and the §10 low-weight list read THIS map so the credibility WEIGHT they
+    surface is byte-for-byte the one the disclosure recorded, never a divergent tier-prior.
+
+    Accepts either a ``CorpusCredibilityDisclosure`` OR its serialized dict (both carry ``per_source``
+    rows with ``url`` / ``credibility_weight`` / ``weight_basis`` / ``tier``). Returns
+    ``{normalized_url: {"weight": float, "basis": str, "tier": str}}``. PURE, read-only; a row with a
+    blank url or non-numeric weight is skipped (never a fabricated weight). Empty map when the
+    disclosure is absent/malformed => callers fall back to their prior per-member weight (byte-identical).
+    """
+    out: dict[str, dict[str, Any]] = {}
+    if disclosure is None:
+        return out
+    if isinstance(disclosure, dict):
+        rows = disclosure.get("per_source") or []
+    else:
+        rows = getattr(disclosure, "per_source", None) or []
+    for row in rows:
+        if isinstance(row, dict):
+            url = row.get("url")
+            weight = row.get("credibility_weight")
+            basis = row.get("weight_basis")
+            tier = row.get("tier")
+        else:
+            url = getattr(row, "url", None)
+            weight = getattr(row, "credibility_weight", None)
+            basis = getattr(row, "weight_basis", None)
+            tier = getattr(row, "tier", None)
+        key = _normalize_disclosure_url(url)
+        if not key:
+            continue
+        if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+            continue
+        # First writer wins (disclosure per_source is already deduped per source); never overwrite.
+        out.setdefault(key, {
+            "weight": float(weight),
+            "basis": str(basis or ""),
+            "tier": str(tier or ""),
+        })
+    return out

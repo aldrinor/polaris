@@ -174,6 +174,8 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
 from src.polaris_graph.nodes.weighted_corpus_gate import (  # noqa: E402
     # I-cred-006b (#1170): replace the tier-COUNT/material-deviation corpus REFUSAL with
     # PROCEED + a credibility-weighted disclosure. Default-OFF byte-identical.
+    _normalize_disclosure_url,
+    authority_weight_by_url,
     build_corpus_credibility_disclosure,
     disclosure_to_dict,
     has_usable_corpus,
@@ -3053,7 +3055,18 @@ def s6_authority_single_source_enabled() -> bool:
     )
 
 
-def member_display_weight(m: dict, *, enabled: "bool | None" = None) -> str:
+def s11_sec8_disclosure_weight_enabled() -> bool:
+    """I-deepfix-001 tail-B2 (#11) kill-switch (LAW VI). Default ON; OFF => the §8 member weight
+    comes from the member's own ``authority_score`` (which, on the tier-prior fallback path, is the
+    flat T1->0.95 prior), byte-identical to HEAD."""
+    return os.environ.get("PG_S11_SEC8_DISCLOSURE_WEIGHT", "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def member_display_weight(
+    m: dict, *, enabled: "bool | None" = None, weight_by_url: "dict[str, dict] | None" = None,
+) -> str:
     """S6: the numeric weight to DISPLAY for a corroboration member, formatted 2-dp. Single
     source of truth = the member's ``authority_score`` (the canonical per-source credibility the
     disclosure surface also reads); falls back to ``credibility_weight`` ONLY when authority_score is
@@ -3062,9 +3075,26 @@ def member_display_weight(m: dict, *, enabled: "bool | None" = None) -> str:
     block and the corpus_credibility_disclosure (both single-source-of-truth on authority_score) show
     the SAME number and a tier label can never sit on a divergent credibility_weight. Codex diff-gate
     P1 (#1344): the prior ``> 0.0`` guard wrongly fell back to credibility_weight on a present 0.0,
-    re-introducing the two-surface divergence S6 exists to remove. PURE."""
+    re-introducing the two-surface divergence S6 exists to remove. PURE.
+
+    I-deepfix-001 tail-B2 (#11): when the caller threads ``weight_by_url`` (the disclosure per-URL
+    authority-weight map, ``PG_S11_SEC8_DISCLOSURE_WEIGHT`` default ON) and it carries the member's
+    source URL, that DISCLOSURE weight is the single source of truth — so §8 shows the SAME
+    domain-aware ``authority_score`` the ``corpus_credibility_disclosure`` recorded, never the flat
+    per-tier prior the credibility-pass fallback stamped on the member (drb_72: §8 showed T1->0.95
+    while the disclosure showed 0.4654 for the SAME PMC url). Falls back to the member's own
+    authority_score when the URL is absent from the map (byte-identical)."""
     if enabled is None:
         enabled = s6_authority_single_source_enabled()
+    # #11: the disclosure per-URL authority weight wins when present (one source of truth with §10 +
+    # the sidecar). Guarded so OFF / no-map / URL-not-in-map is byte-identical to the S6 render.
+    if weight_by_url and s11_sec8_disclosure_weight_enabled():
+        _url = _normalize_disclosure_url(m.get("source_url"))
+        if _url:
+            _hit = weight_by_url.get(_url)
+            if isinstance(_hit, dict) and isinstance(_hit.get("weight"), (int, float)) \
+                    and not isinstance(_hit.get("weight"), bool):
+                return f"{float(_hit['weight']):.2f}"
     if enabled:
         _a = m.get("authority_score")
         # Present + numeric (including 0.0) => authority_score is the single source of truth.
@@ -3074,7 +3104,150 @@ def member_display_weight(m: dict, *, enabled: "bool | None" = None) -> str:
     return f"{float(_w):.2f}" if isinstance(_w, (int, float)) else "n/a"
 
 
-def _basket_corroboration_block(bibliography: "list[dict]") -> str:
+def _corroboration_bib_order(
+    bibliography: "list[dict]", *, journal_preference_active: bool,
+    protocol: "dict | None", document_type_by_url: "dict | None",
+) -> "list[dict]":
+    """I-deepfix-001 M2 order helper (extracted so the live render AND the #12 post-D8 re-render
+    produce the SAME §8 basket order). When the journal-only document-type preference is active,
+    ORDER the corroboration block by display-only document-type-adjusted weight (a WEIGHT re-rank,
+    NOT a drop) so a predatory/non-journal venue falls below the journal articles but STAYS in the
+    list. Default-OFF => unsorted => byte-identical legacy ordering. PURE."""
+    if not journal_preference_active:
+        return bibliography
+    try:
+        # WS-8 (D4): corpus-relative reference year (newest source) drives the recency leg so a
+        # very-old source is demoted for headline ordering (still kept — §-1.3). Computed ONCE.
+        _ref_year = _m2_reference_year(bibliography)
+        return sorted(
+            bibliography,
+            key=lambda _b: -_m2_bib_genre(
+                _b, protocol=protocol, document_type_by_url=document_type_by_url,
+                reference_year=_ref_year,
+            )[1],
+        )
+    except Exception:  # noqa: BLE001 — additive re-rank; never break the render
+        return bibliography
+
+
+def s12_sec8_d8_demote_enabled() -> bool:
+    """I-deepfix-001 tail-B2 (#12) kill-switch (LAW VI). Default ON; OFF => §8 counts a basket
+    member as verified SUPPORT on its ISOLATED span self-verify alone, even when the binding 4-role
+    D8 release verdict settled the member's only claim FABRICATED/UNSUPPORTED (byte-identical HEAD)."""
+    return os.environ.get("PG_S12_SEC8_D8_DEMOTE", "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def _d8_demote_eids_from_verdicts(
+    final_verdicts: "dict | None", audit_map: "dict | None",
+) -> "set[str]":
+    """I-deepfix-001 tail-B2 (#12): the set of evidence_ids the 4-role D8 gate JUDGED and settled
+    non-VERIFIED in EVERY claim they support — i.e. their ONLY claim(s) were FABRICATED/UNSUPPORTED,
+    never VERIFIED in any claim. These are the members §8 must NOT count as verified support.
+
+    Join: ``final_verdicts`` (claim_id -> verdict) x ``audit_map`` (claim_id -> {evidence_ids}). An
+    evidence_id VERIFIED in ANY D8 claim is load-bearing and is NEVER demoted (fail-open toward
+    keeping support). An evidence_id present ONLY in non-VERIFIED D8 claims is demote-eligible. An
+    evidence_id the D8 gate never judged (absent from every claim's evidence_ids) is left untouched
+    (we demote only on an explicit D8 non-VERIFIED verdict, never on absence). PURE."""
+    fv = final_verdicts or {}
+    am = audit_map or {}
+    if not isinstance(fv, dict) or not isinstance(am, dict):
+        return set()
+    verified_eids: set[str] = set()
+    nonverified_eids: set[str] = set()
+    for cid, verdict in fv.items():
+        row = am.get(cid) if isinstance(am, dict) else None
+        if not isinstance(row, dict):
+            continue
+        eids = row.get("evidence_ids") or []
+        _is_verified = str(verdict).strip().upper() == "VERIFIED"
+        for e in eids:
+            es = str(e or "")
+            if not es:
+                continue
+            if _is_verified:
+                verified_eids.add(es)
+            else:
+                nonverified_eids.add(es)
+    return nonverified_eids - verified_eids
+
+
+_SEC8_HEADER = "## Source corroboration (per claim)"
+
+
+def _apply_corroboration_d8_demotion_post_gate(
+    report_path,
+    multi,
+    final_verdicts: "dict | None",
+    audit_map: "dict | None",
+    weight_by_url: "dict[str, dict] | None",
+    log,
+    *,
+    journal_preference_active: bool = False,
+    protocol: "dict | None" = None,
+    document_type_by_url: "dict | None" = None,
+) -> None:
+    """I-deepfix-001 tail-B2 (#12): AFTER the binding 4-role D8 gate settles, re-render the §8
+    "Source corroboration (per claim)" block with the D8 FABRICATED/UNSUPPORTED verdicts propagated,
+    and replace it in report.md. §8 is rendered upstream BEFORE D8 runs (the gate reads the finished
+    report), so a member whose only claim D8 settled FABRICATED could ship as clean verified SUPPORT;
+    this post-gate pass demotes those to GROUNDED-BUT-WEAK (never counted as support, never dropped —
+    the source still lives in the numbered Bibliography). Mirrors _apply_source_necessity_post_gate.
+
+    Faithfulness-STRENGTHENING (only demotes on an explicit D8 non-VERIFIED verdict) and no-drop.
+    Fail-open: when nothing is demote-eligible, or the §8 section is not located verbatim, report.md
+    is left byte-identical. Default-ON kill-switch (PG_S12_SEC8_D8_DEMOTE)."""
+    if not s12_sec8_d8_demote_enabled():
+        return
+    demote = _d8_demote_eids_from_verdicts(final_verdicts, audit_map)
+    if not demote:
+        return
+    try:
+        if report_path is None or not report_path.is_file():
+            return
+        text = report_path.read_text(encoding="utf-8")
+        start = text.find(_SEC8_HEADER)
+        if start < 0:
+            return
+        # Section runs from the header to the next "## " heading (or EOF).
+        nxt = text.find("\n## ", start + len(_SEC8_HEADER))
+        end = nxt if nxt >= 0 else len(text)
+        bib = getattr(multi, "bibliography", None) or []
+        ordered = _corroboration_bib_order(
+            bib,
+            journal_preference_active=journal_preference_active,
+            protocol=protocol,
+            document_type_by_url=document_type_by_url,
+        )
+        rerendered = _basket_corroboration_block(
+            ordered, weight_by_url=weight_by_url, d8_demote_eids=demote,
+        )
+        if not rerendered:
+            return
+        # _basket_corroboration_block returns "\n\n## Source corroboration ...". Strip the leading
+        # blank lines; the located span already begins at the header, and we preserve the exact
+        # inter-section spacing that preceded it.
+        new_section = rerendered.lstrip("\n")
+        new_text = text[:start] + new_section + text[end:]
+        if new_text != text:
+            report_path.write_text(new_text, encoding="utf-8")
+            log(
+                f"[sec8-d8-demote] propagated D8 non-VERIFIED verdicts into §8: "
+                f"{len(demote)} evidence_id(s) demoted from verified SUPPORT to grounded-but-weak "
+                "(no source dropped; still in the numbered Bibliography)"
+            )
+    except Exception as _exc:  # noqa: BLE001 — additive disclosure; never abort the report
+        log(f"[sec8-d8-demote] post-gate skipped (fail-open): {_exc}")
+
+
+def _basket_corroboration_block(
+    bibliography: "list[dict]",
+    *,
+    weight_by_url: "dict[str, dict] | None" = None,
+    d8_demote_eids: "set[str] | None" = None,
+) -> str:
     """I-arch-011 PR-b (#1268): render the Argus keep-all per-claim basket-corroboration
     block from the basket dicts ALREADY projected onto each bibliography row
     (``row["baskets"]`` from ``provenance_generator._basket_for_biblio`` — present only
@@ -3240,6 +3413,23 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                 m for m in members
                 if str(m.get("member_tier") or "") == "DETERMINISTIC_ONLY"
             ]
+            # I-deepfix-001 tail-B2 (#12): propagate the BINDING 4-role D8 release verdict into the
+            # §8 ledger. A member is ENTAILMENT_VERIFIED on its ISOLATED span self-verify, but chrome
+            # self-entails (text == its own span), so a source whose ONLY claim the D8 gate settled
+            # FABRICATED/UNSUPPORTED could still read as clean "verified independent SUPPORT" here
+            # (drb_72 [13]/ev_051, claim 05-000 FABRICATED). ``d8_demote_eids`` = evidence_ids the D8
+            # gate judged and settled non-VERIFIED in EVERY claim they support (never VERIFIED in any).
+            # Move such a member out of ``verified`` into GROUNDED-BUT-WEAK so it is DISCLOSED, never
+            # counted as support. Faithfulness-STRENGTHENING (only demotes; never promotes) and §-1.3
+            # no-drop: the member still renders as a weak bullet AND lives in the numbered Bibliography.
+            if d8_demote_eids and s12_sec8_d8_demote_enabled():
+                _d8_dem = {str(e) for e in d8_demote_eids if e}
+                _demoted = [m for m in verified if str(m.get("evidence_id") or "") in _d8_dem]
+                if _demoted:
+                    verified = [
+                        m for m in verified if str(m.get("evidence_id") or "") not in _d8_dem
+                    ]
+                    weak = weak + _demoted
             # I-deepfix-001 F1 (#1344): when the gate is ON, restrict verified support to members
             # the report actually cites (bibliography-present) and recompute the count from the
             # surviving distinct origins. A basket whose ONLY support is a phantom (not cited, not
@@ -3419,7 +3609,9 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
             for m in _render_members:
                 # S6 (#1344): the DISPLAYED weight comes from the single authority_score source of
                 # truth (not the divergent credibility_weight) so tier label + weight never disagree.
-                _ws = member_display_weight(m)
+                # #11: prefer the disclosure per-URL authority weight (weight_by_url) so §8 == the
+                # corpus_credibility_disclosure/§10 weight for the same source.
+                _ws = member_display_weight(m, weight_by_url=weight_by_url)
                 # T1: bind the member's numbered ``[N]`` citation AFTER the locator (preserves the
                 # legacy ``SUPPORT: <url>`` prefix while attributing the source to the claim).
                 _mk = _member_marker(m) if _layer2_cite_enabled() else ""
@@ -3430,7 +3622,8 @@ def _basket_corroboration_block(bibliography: "list[dict]") -> str:
                 )
             for m in weak:
                 # S6 (#1344): single authority_score source of truth for the displayed weight.
-                _ws = member_display_weight(m)
+                # #11: prefer the disclosure per-URL authority weight (weight_by_url).
+                _ws = member_display_weight(m, weight_by_url=weight_by_url)
                 lines.append(
                     f"  - GROUNDED-BUT-WEAK (entailment-unverified, NOT counted as support): "
                     f"{str(m.get('source_url') or m.get('evidence_id') or '')} "
@@ -3543,6 +3736,122 @@ def _m2_reference_year(bibliography: "list[dict]") -> "int | None":
     return max(years) if years else None
 
 
+# ── I-deepfix-001 tail-B2 (#17): bibliography tier/peer-review coherence + URL-slug title guard ───
+def _s17_bib_coherence_enabled() -> bool:
+    """#17 kill-switch (LAW VI). Default ON; OFF => the genre tag asserts peer-review from the
+    document-type classifier ALONE (contradicting the tier) and a URL-slug title renders raw,
+    byte-identical to HEAD."""
+    return os.environ.get("PG_S17_BIB_COHERENCE", "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+# POLARIS taxonomy: T1/T2 are the recognized peer-reviewed-journal tiers (the tier classifier
+# assigns them from the peer-reviewed-journal host list); T3+ are not peer-reviewed-journal tiers.
+_S17_PEER_REVIEWED_TIERS = frozenset({"T1", "T2"})
+
+
+def _s17_tier_is_peer_reviewed(tier: Any) -> bool:
+    """True iff ``tier`` is a POLARIS peer-reviewed-journal tier (T1/T2). PURE."""
+    return str(tier or "").strip().upper() in _S17_PEER_REVIEWED_TIERS
+
+
+_S17_URL_SLUG_RE = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+){2,}(?:\.[a-z0-9]+)?$")
+
+
+def _s17_looks_like_url_slug(text: Any) -> bool:
+    """True iff ``text`` is a raw URL slug (e.g. ``ai-and-the-future-of-work``) rather than a real
+    title: no whitespace AND 3+ lowercase-alnum tokens joined by '-'/'_'. Conservative — a real
+    title carries spaces, so this never clobbers one. PURE."""
+    s = str(text or "").strip()
+    if not s or " " in s or "\t" in s:
+        return False
+    return bool(_S17_URL_SLUG_RE.match(s))
+
+
+def _s17_reconciled_genre_tag(dt_is_peer: bool, dt_value: str, tier: Any) -> str:
+    """#17: a genre tag COHERENT with the tier. POLARIS T1/T2 == peer-reviewed-journal tiers. When
+    the document-type peer-review flag and the tier AGREE the tag is byte-identical to the pre-fix
+    text; when they DISAGREE the tag states BOTH signals honestly instead of a false absolute (a T4
+    'peer-reviewed journal article', or a T1 'not peer-reviewed'). PURE."""
+    _tier = str(tier or "").strip().upper() or "n/a"
+    _tier_peer = _s17_tier_is_peer_reviewed(tier)
+    _dt_label = (dt_value or "").lower().replace("_", " ") or "unknown"
+    if dt_is_peer and _tier_peer:
+        return " — [peer-reviewed journal article]"
+    if not dt_is_peer and not _tier_peer:
+        return f" — [document type: {_dt_label} — not a peer-reviewed journal article]"
+    if dt_is_peer and not _tier_peer:
+        # doc-type says journal but the tier is not a peer-reviewed-journal tier — do not assert an
+        # unqualified 'peer-reviewed journal article'.
+        return (
+            f" — [document type: journal article; tier {_tier} — "
+            "not classified as a peer-reviewed-journal tier]"
+        )
+    # not dt_is_peer and _tier_peer: the tier recognizes a peer-reviewed venue the doc-type classifier
+    # did not label a journal article.
+    return (
+        f" — [tier {_tier}: recognized peer-reviewed venue; "
+        f"document type: {_dt_label}]"
+    )
+
+
+# ── I-deepfix-001 tail-B2 (#15): honest "Corroborated" section label vs actual origin count ───────
+def _s15_corroborated_label_enabled() -> bool:
+    """#15 kill-switch (LAW VI). Default ON; OFF => a "Corroborated Findings" section header stays
+    even when its own body is single-origin (or empty), byte-identical to HEAD."""
+    return os.environ.get("PG_S15_CORROBORATED_HONEST_LABEL", "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+_S15_HEADER_RE = re.compile(
+    r"^(#{1,6})\s*((?:Additional\s+)?Corroborated(?:\s+Weighted)?\s+Findings)\b(.*)$"
+)
+_S15_CITE_RE = re.compile(r"\[(\d+)\]")
+_S15_ANY_HEADER_RE = re.compile(r"^(#{1,6})\s")
+
+
+def _relabel_uncorroborated_findings_headers(report_text: str) -> str:
+    """#15: relabel a "Corroborated (Weighted) Findings[: facet]" section header when the section's
+    own body cites FEWER than 2 distinct origins — the report's reliability header itself states 0
+    claims are multi-source corroborated, yet single-origin (or empty) enrichment sections were
+    titled "Corroborated". A section body citing 0 distinct ``[N]`` is relabeled "Uncorroborated";
+    1 distinct ``[N]`` -> "Single-source"; >=2 distinct -> left unchanged (genuinely multi-cited).
+    HEADER-TEXT-ONLY, faithfulness-neutral (no source/claim/verdict touched; every finding + its
+    citations stay). Section scope = the header down to the next header of the SAME-or-higher level,
+    so a multi-cited parent keeps its label while a single-origin subsection is relabeled. PURE;
+    fail-open (returns the input on any error). Default-ON kill-switch."""
+    if not _s15_corroborated_label_enabled() or not report_text:
+        return report_text
+    try:
+        lines = report_text.split("\n")
+        n = len(lines)
+        out = list(lines)
+        for i, line in enumerate(lines):
+            m = _S15_HEADER_RE.match(line)
+            if not m:
+                continue
+            level = len(m.group(1))
+            # Section body = i+1 .. next header of same-or-higher level (or EOF).
+            j = i + 1
+            while j < n:
+                hm = _S15_ANY_HEADER_RE.match(lines[j])
+                if hm and len(hm.group(1)) <= level:
+                    break
+                j += 1
+            body = "\n".join(lines[i + 1:j])
+            distinct = set(_S15_CITE_RE.findall(body))
+            if len(distinct) >= 2:
+                continue
+            honest = "Single-source" if len(distinct) == 1 else "Uncorroborated"
+            # Replace ONLY the leading "Corroborated" label word (keep "Weighted"/"Findings"/facet).
+            out[i] = line.replace("Corroborated", honest, 1)
+        return "\n".join(out)
+    except Exception:  # noqa: BLE001 — additive relabel; never break the render
+        return report_text
+
+
 def _m2_bib_genre(
     b: dict, *, protocol: "dict | None", document_type_by_url: "dict | None",
     reference_year: "int | None" = None,
@@ -3587,6 +3896,7 @@ def _render_bibliography_lines(
     bibliography: "list[dict]", *, require_locator: bool, corroboration_render: bool = False,
     journal_preference_active: bool = False, protocol: "dict | None" = None,
     document_type_by_url: "dict | None" = None,
+    weight_by_url: "dict[str, dict] | None" = None,
 ) -> str:
     """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
     to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
@@ -3640,11 +3950,17 @@ def _render_bibliography_lines(
             )
             if _destripped != _cleaned_statement:
                 _cleaned_statement = _WHITESPACE_RUN_RE.sub(" ", _destripped).strip()
-        if _cleaned_statement and not _title_has_named_chrome(_cleaned_statement):
+        # I-deepfix-001 tail-B2 (#17): a raw URL slug ("ai-and-the-future-of-work") is not a real
+        # title — fall back to the honest domain/DOI/`source N` label the same way a chrome title
+        # does. Default-ON kill-switch; a real title (which carries spaces) never matches so OFF and
+        # the common path are byte-identical.
+        _is_slug_title = _s17_bib_coherence_enabled() and _s17_looks_like_url_slug(_cleaned_statement)
+        if _cleaned_statement and not _title_has_named_chrome(_cleaned_statement) and not _is_slug_title:
             statement = _cleaned_statement[:200]
         else:
-            # Wholly-chrome (or empty) title: fall back to a non-chrome label so the entry never
-            # renders as a blank/chrome title. domain (human-readable) > DOI > `source <num>`.
+            # Wholly-chrome (or empty, or URL-slug) title: fall back to a non-chrome label so the
+            # entry never renders as a blank/chrome/slug title. domain (human-readable) > DOI >
+            # `source <num>`.
             _url_s = str(url or "").strip()
             _domain = urlsplit(_url_s).netloc.strip() if _url_s else ""
             _doi = str(b.get("doi") or "").strip()
@@ -3662,7 +3978,14 @@ def _render_bibliography_lines(
                 _dt, _ = _m2_bib_genre(
                     b, protocol=protocol, document_type_by_url=document_type_by_url
                 )
-                if is_peer_reviewed_journal_article(_dt):
+                _dt_peer = is_peer_reviewed_journal_article(_dt)
+                # I-deepfix-001 tail-B2 (#17): reconcile the peer-review assertion with the tier so
+                # the bibliography can't show a T4 "peer-reviewed journal article" or a T1 "not
+                # peer-reviewed". When tier + doc-type AGREE the tag is byte-identical to the pre-fix
+                # text; only the contradictory rows change. OFF => the pre-fix doc-type-only tag.
+                if _s17_bib_coherence_enabled():
+                    _genre_tag = _s17_reconciled_genre_tag(_dt_peer, _dt.value, tier)
+                elif _dt_peer:
                     _genre_tag = " — [peer-reviewed journal article]"
                 else:
                     _genre_tag = (
@@ -3708,27 +4031,15 @@ def _render_bibliography_lines(
     # Default-OFF keyword => this is skipped entirely => the bibliography render above is
     # byte-identical to the legacy output.
     if corroboration_render:
-        # I-deepfix-001 M2: when the journal-only document-type preference is active, ORDER the
-        # corroboration block by display-only document-type-adjusted weight (a WEIGHT re-rank, NOT
-        # a drop) so a predatory/non-journal venue falls below the journal articles but STAYS in the
-        # list (the block dedups baskets by claim_cluster_id, so the row order sets which basket
-        # renders first). Default-OFF keyword => unsorted => byte-identical legacy ordering.
-        _bib_for_corr = bibliography
-        if journal_preference_active:
-            try:
-                # WS-8 (D4): corpus-relative reference year (newest source) drives the recency leg so a
-                # very-old source is demoted for headline ordering (still kept — §-1.3). Computed ONCE.
-                _ref_year = _m2_reference_year(bibliography)
-                _bib_for_corr = sorted(
-                    bibliography,
-                    key=lambda _b: -_m2_bib_genre(
-                        _b, protocol=protocol, document_type_by_url=document_type_by_url,
-                        reference_year=_ref_year,
-                    )[1],
-                )
-            except Exception:  # noqa: BLE001 — additive re-rank; never break the render
-                _bib_for_corr = bibliography
-        out += _basket_corroboration_block(_bib_for_corr)
+        _bib_for_corr = _corroboration_bib_order(
+            bibliography,
+            journal_preference_active=journal_preference_active,
+            protocol=protocol,
+            document_type_by_url=document_type_by_url,
+        )
+        # #11: thread the disclosure per-URL authority-weight map so §8 shows the SAME weight the
+        # corpus_credibility_disclosure/§10 surface for each source (one source of truth).
+        out += _basket_corroboration_block(_bib_for_corr, weight_by_url=weight_by_url)
     return out
 
 
@@ -3971,12 +4282,26 @@ def _apply_source_necessity_post_gate(
         log(f"[source-necessity] post-gate seam skipped (fail-open): {_t3_exc}")
 
 
-def _cwf_disclosed_block(disclosed: "list[dict] | None") -> str:
+def _s18_lowweight_reconcile_enabled() -> bool:
+    """I-deepfix-001 tail-B2 (#18) kill-switch (LAW VI). Default ON; OFF => the legacy §10 block
+    (no cited-reference exclusion, credibility_weight column, 'near-zero credibility' prose)."""
+    return os.environ.get("PG_S18_LOWWEIGHT_RECONCILE", "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def _cwf_disclosed_block(
+    disclosed: "list[dict] | None",
+    *,
+    cited_urls: "set[str] | None" = None,
+    cited_eids: "set[str] | None" = None,
+    weight_by_url: "dict[str, dict] | None" = None,
+) -> str:
     """I-deepfix-001 (#1344 M5): render the PROMOTION-ELIGIBILITY disclosed-only surface.
 
     The unbound-SUPPORTS enrichment partitions its span-verified members into PROMOTED (each
     earns a standalone numbered finding) vs DISCLOSED-ONLY (kept + disclosed, never a standalone
-    cited claim) — a near-zero-weight, single-origin, non-journal source no longer anchors a
+    cited claim) — a low-weight, single-origin, non-journal source no longer anchors a
     top-level finding (drb_72's cognifit / inboundlogistics / procom / protolabs / wsu-blog /
     IZA-WP / predatory-DOI / off-topic-DOI). A demoted source still lives in ``evidence_pool`` AND
     ``corpus_credibility_disclosure.json``; it left the per-claim corroboration block only because
@@ -3984,24 +4309,68 @@ def _cwf_disclosed_block(disclosed: "list[dict] | None") -> str:
 
     §-1.3: this is keep-and-DISCLOSE, never a drop. Pure read of ``multi.cwf_disclosed_sources``
     (no LLM, no verdict, no faithfulness gate). Returns "" when nothing was demoted (the caller
-    appends nothing => byte-identical)."""
+    appends nothing => byte-identical).
+
+    I-deepfix-001 tail-B2 (#18): the §10 list CONTRADICTED §8 — it named sources that §8 cites as
+    numbered verified SUPPORT (stlouisfed [9], library.kab [8]) as "did not EARN a top-level cited
+    claim", AND it called T1/T3 sources "near-zero credibility" while showing a column that was not
+    the named credibility weight. When ``PG_S18_LOWWEIGHT_RECONCILE`` is ON (default) the caller
+    threads the CITED numbered-reference identities (``cited_urls`` / ``cited_eids``) so an
+    already-cited source is EXCLUDED from this low-weight list (it cannot be both "cited support"
+    and "did not earn a cited claim"), and the disclosure per-URL authority weight
+    (``weight_by_url``) so the shown column is the SAME authority weight §8/the sidecar surface,
+    labeled honestly. RENDER-TEXT-ONLY, faithfulness-neutral; no source is dropped from the
+    evidence pool or the corpus credibility disclosure — an EXCLUDED source is simply not
+    double-listed here because it already appears as a numbered reference. OFF => byte-identical."""
     rows = [d for d in (disclosed or []) if d.get("source_url") or d.get("evidence_id")]
+    _reconcile = _s18_lowweight_reconcile_enabled()
+    if _reconcile:
+        # Exclude any source that IS an already-cited numbered reference (§8/bibliography). A source
+        # cited as verified SUPPORT must NOT also read as "did not EARN a top-level cited claim".
+        _cu = {_normalize_disclosure_url(u) for u in (cited_urls or set()) if u}
+        _ce = {str(e) for e in (cited_eids or set()) if e}
+        rows = [
+            d for d in rows
+            if _normalize_disclosure_url(d.get("source_url")) not in _cu
+            and str(d.get("evidence_id") or "") not in _ce
+        ]
     if not rows:
         return ""
+    _wbu = weight_by_url or {}
     lines = []
     for d in rows:
-        w = d.get("credibility_weight")
-        ws = f"{float(w):.2f}" if isinstance(w, (int, float)) and not isinstance(w, bool) else "n/a"
+        # #18: prefer the disclosure per-URL authority weight (the single source of truth §8 + the
+        # sidecar surface) so the shown weight is the NAMED authority weight, not a divergent score.
+        _disc = _wbu.get(_normalize_disclosure_url(d.get("source_url"))) if _reconcile else None
+        if isinstance(_disc, dict) and isinstance(_disc.get("weight"), (int, float)):
+            ws = f"{float(_disc['weight']):.2f}"
+        else:
+            w = d.get("credibility_weight")
+            ws = f"{float(w):.2f}" if isinstance(w, (int, float)) and not isinstance(w, bool) else "n/a"
         tier = d.get("source_tier") or "n/a"
         label = d.get("source_url") or d.get("evidence_id")
-        lines.append(f"- {label} (tier {tier}, weight {ws})")
+        _wlabel = "authority weight" if _reconcile else "weight"
+        lines.append(f"- {label} (tier {tier}, {_wlabel} {ws})")
+    if _reconcile:
+        _prose = (
+            f"{len(rows)} on-topic source(s) were KEPT in the corpus and disclosure but NOT "
+            "promoted to a standalone numbered finding: each is single-origin (uncorroborated) and "
+            "was not promoted to a top-level cited claim. The authority weight shown is the same "
+            "per-source weight surfaced in the corpus credibility disclosure (its tier is shown "
+            "alongside). They remain in the evidence pool and the corpus credibility disclosure; "
+            "sources already cited as numbered references are listed there, not here.\n\n"
+        )
+    else:
+        _prose = (
+            f"{len(rows)} on-topic source(s) were KEPT in the corpus and disclosure but NOT "
+            "promoted to a standalone numbered finding: each is single-origin (uncorroborated), "
+            "carries near-zero credibility weight, and is not a recognized journal venue. They "
+            "remain in the evidence pool and the corpus credibility disclosure; they did not EARN "
+            "a top-level cited claim.\n\n"
+        )
     return (
         "\n\n## Disclosed single-origin low-weight sources\n\n"
-        f"{len(rows)} on-topic source(s) were KEPT in the corpus and disclosure but NOT promoted "
-        "to a standalone numbered finding: each is single-origin (uncorroborated), carries "
-        "near-zero credibility weight, and is not a recognized journal venue. They remain in the "
-        "evidence pool and the corpus credibility disclosure; they did not EARN a top-level cited "
-        "claim.\n\n"
+        + _prose
         + "\n".join(lines)
         + "\n"
     )
@@ -15160,6 +15529,22 @@ async def run_one_query(
             int(getattr(retrieval, "retrieval_queries_skipped", 0) or 0),
             int(getattr(retrieval, "retrieval_candidates_unclassified", 0) or 0),
         )
+        # I-deepfix-001 tail-B2 (#14): the Methods "Actual distribution" quoted a STALE
+        # ``tier_summary`` bound at the pre-expansion corpus (L9994/L10570), while the sidecar
+        # ``corpus_credibility_disclosure`` AND the Limitations ``tier_disclosure_override``
+        # (L14259) both quote the FINAL ``dist.tier_fractions`` — so Methods showed T4=65%/T1=15%
+        # while Limitations/sidecar showed T4=62%/T1=16% for the SAME corpus. Recompute the Methods
+        # string ONCE from the FINAL ``dist`` (the last corpus mutation is upstream of here) via the
+        # SAME single-source helper both other surfaces use, so all three agree. RENDER-TEXT-ONLY,
+        # faithfulness-neutral (no source/count/verdict change). Default-ON kill-switch (LAW VI);
+        # OFF => the stale value, byte-identical to HEAD.
+        if os.environ.get("PG_S14_METHODS_TIER_FINAL", "1").strip().lower() not in (
+            "", "0", "false", "no", "off",
+        ):
+            try:
+                tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
+            except Exception:  # noqa: BLE001 — additive coherence; never break the render
+                pass
         methods = (
             "\n\n## Methods\n"
             f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
@@ -15405,6 +15790,15 @@ async def run_one_query(
             # each row's genre deterministically from its url/title (host fallback).
             journal_preference_active=_m2_journal_pref_active(_jo_cfg),
             protocol=_jo_cfg,
+            # I-deepfix-001 tail-B2 (#11): the disclosure per-URL authority-weight map (one source
+            # of truth with §10 + the corpus_credibility_disclosure sidecar). None when the
+            # weighted-gate disclosure did not fire => §8 falls back to the member authority_score,
+            # byte-identical to HEAD. locals().get keeps it safe if the disclosure dict is unset.
+            weight_by_url=(
+                authority_weight_by_url(locals().get("_wc_disclosure_dict"))
+                if s11_sec8_disclosure_weight_enabled()
+                else None
+            ),
         )
 
         # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary
@@ -15752,8 +16146,30 @@ async def run_one_query(
         _cwf_disclosed_md = ""
         if _env_flag("PG_CWF_DISCLOSURE_BLOCK", default=True):
             try:
+                # I-deepfix-001 tail-B2 (#18): thread the CITED numbered-reference identities so an
+                # already-cited source is not double-listed as "did not EARN a cited claim", and the
+                # disclosure per-URL authority weight so the shown column is the SAME weight §8 uses.
+                # locals().get keeps this safe when the weighted-gate disclosure did not fire.
+                _s18_cited_urls: set[str] = set()
+                _s18_cited_eids: set[str] = set()
+                if _s18_lowweight_reconcile_enabled():
+                    for _br in (getattr(multi, "bibliography", None) or []):
+                        _bu = (_br.get("url") if isinstance(_br, dict)
+                               else getattr(_br, "url", "")) or ""
+                        _be = (_br.get("evidence_id") if isinstance(_br, dict)
+                               else getattr(_br, "evidence_id", "")) or ""
+                        if _bu:
+                            _s18_cited_urls.add(str(_bu))
+                        if _be:
+                            _s18_cited_eids.add(str(_be))
+                _s18_weight_map = authority_weight_by_url(
+                    locals().get("_wc_disclosure_dict")
+                ) if _s18_lowweight_reconcile_enabled() else None
                 _cwf_disclosed_md = _cwf_disclosed_block(
-                    getattr(multi, "cwf_disclosed_sources", None)
+                    getattr(multi, "cwf_disclosed_sources", None),
+                    cited_urls=_s18_cited_urls or None,
+                    cited_eids=_s18_cited_eids or None,
+                    weight_by_url=_s18_weight_map,
                 )
             except Exception as _cwf_exc:  # noqa: BLE001 — additive disclosure; never abort the report
                 _log(f"[cwf-disclosed-block] skipped (fail-open): {_cwf_exc}")
@@ -15793,6 +16209,14 @@ async def run_one_query(
                 final_report = _screen_garbled_headers(final_report)
             except Exception as _hs_exc:  # noqa: BLE001 — additive screen; never abort the report
                 _log(f"[header-sanity-screen] skipped (fail-open): {_hs_exc}")
+        # I-deepfix-001 tail-B2 (#15): relabel any single-origin/empty "Corroborated (Weighted)
+        # Findings" enrichment header honestly (the report's own reliability header reports 0
+        # multi-source-corroborated claims, so a "Corroborated" title over a single-[N] section
+        # overstates evidence strength). HEADER-TEXT-ONLY, faithfulness-neutral; fail-open.
+        try:
+            final_report = _relabel_uncorroborated_findings_headers(final_report)
+        except Exception as _s15_exc:  # noqa: BLE001 — additive relabel; never abort the report
+            _log(f"[corroborated-label] skipped (fail-open): {_s15_exc}")
         # I-wire-013 (#1327) iter-3a: RENDER-SEAM CHOKEPOINT — the SINGLE sanitization pass over
         # EVERY claim-bearing unit of the FULLY-ASSEMBLED report (Abstract, Key-Findings bullets,
         # every ### section body INCLUDING the unscreened multi_section_generator output, the
@@ -17387,6 +17811,26 @@ async def run_one_query(
                 )
             except Exception as _sn_pg_exc:  # noqa: BLE001 — additive disclosure; never abort
                 _log(f"[source-necessity] post-gate invoke skipped (fail-open): {_sn_pg_exc}")
+
+            # I-deepfix-001 tail-B2 (#12): propagate the SETTLED 4-role D8 FABRICATED/UNSUPPORTED
+            # verdicts into the §8 corroboration ledger. §8 rendered upstream (before D8), so a
+            # source whose only claim D8 settled FABRICATED could ship as clean verified SUPPORT;
+            # re-render §8 with those members demoted to grounded-but-weak (never counted as support,
+            # never dropped). Reuses the SAME D8 audit map the source-necessity pass just loaded.
+            try:
+                _apply_corroboration_d8_demotion_post_gate(
+                    run_dir / "report.md",
+                    multi,
+                    getattr(four_role_result, "final_verdicts", None),
+                    _sn_audit_map,
+                    (authority_weight_by_url(locals().get("_wc_disclosure_dict"))
+                     if s11_sec8_disclosure_weight_enabled() else None),
+                    _log,
+                    journal_preference_active=_m2_journal_pref_active(locals().get("_jo_cfg")),
+                    protocol=locals().get("_jo_cfg"),
+                )
+            except Exception as _s12_pg_exc:  # noqa: BLE001 — additive disclosure; never abort
+                _log(f"[sec8-d8-demote] post-gate invoke skipped (fail-open): {_s12_pg_exc}")
 
             # A2-SEAM (iarch006 epic-failure, shared A2 CONTRACT clause 2): if the standalone seam
             # fabrication screen demanded the body be WITHHELD (a cited identity not in the pool, or
