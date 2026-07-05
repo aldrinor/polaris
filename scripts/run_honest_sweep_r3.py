@@ -4608,11 +4608,31 @@ def render_semantic_disclosure(
         predicate = getattr(r, "predicate", "")
         if idx < inline_cap:
             claims = getattr(r, "claims", None) or []
-            summary = " VS ".join(
-                f"\"{_normalize_claim_summary(cl.get('text') or '', quote_trim=quote_trim)}\" "
-                f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
-                for cl in claims
-            )
+
+            def _sem_side(cl: dict) -> str:
+                # I-deepfix-001 B4-render #22 (#1344): quote the substantive sentence per side, but
+                # replace a chrome-only span (copyright/title/masthead) with a neutral pointer so the
+                # panel never renders furniture AS a conflicting claim. subject/predicate + ev/tier
+                # still render (PT08 + traceability intact); the record stays in the sidecar.
+                raw = cl.get("text") or ""
+                q = _normalize_claim_summary(raw, quote_trim=quote_trim)
+                loc = f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
+                # #22 iter-2 P1: run the chrome/furniture check on the UNTRIMMED normalized text
+                # (quote_trim=0), NOT on ``q``. Our own quote-trim appends a trailing "…" (and can end
+                # on a back-off word boundary), which trips the shared detector's TRUNCATION leg — so a
+                # real substantive quote longer than the cap was mislabeled "source furniture". Checking
+                # the pre-trim text keys the drop on genuine chrome only; a real long quote renders its
+                # trimmed "…" form. A genuinely chrome-only side still flags (its raw text IS chrome).
+                raw_norm = _normalize_claim_summary(raw, quote_trim=0)
+                if (
+                    _contradiction_render_honest_enabled()
+                    and raw_norm
+                    and _contradiction_side_text_is_chrome(raw_norm)
+                ):
+                    return f"(no substantive quote — source furniture; see sidecar) {loc}"
+                return f"\"{q}\" {loc}"
+
+            summary = " VS ".join(_sem_side(cl) for cl in claims)
             out += (
                 f"- [SEMANTIC] {subject} / {predicate} "
                 f"(NLI confidence {getattr(r, 'nli_confidence', 0.0):.2f}): {summary}\n"
@@ -4626,22 +4646,72 @@ def render_semantic_disclosure(
     return out
 
 
-def _contradict_side(claim: dict) -> str:
+# ── I-deepfix-001 B4-render #22 (#1344): honest contradiction render ──────────────────────────────
+# The drb_72 §5/§6 contradiction panel rendered a SEMANTIC (prose) contradiction as "0.0 [ev_042]
+# VS 0.0 [ev_051]" — a meaningless numeric pair, because a semantic NLI record carries the 0.0 value
+# SENTINEL on both sides (it has no shared number) — AND it quoted ev_051's copyright/title CHROME
+# ("© 2024 International Monetary Fund WP/24/65 … The Economic Impact") instead of the substantive
+# "empirical findings are inconclusive …" sentence, so the reader could not see WHY the two conflict.
+# This leg (a) suppresses the numeric "X VS Y" field for a semantic record (quote the prose instead),
+# and (b) excludes a chrome-only span from a contradiction side. RENDER-only / faithfulness-neutral:
+# it drops NO source (every record stays in the contradictions.json sidecar — §-1.3) and never
+# fabricates a conflict the detectors did not find. Default-ON LAW VI kill-switch
+# PG_CONTRADICTION_RENDER_HONEST; OFF reverts byte-identically.
+def _contradiction_render_honest_enabled() -> bool:
+    return os.environ.get("PG_CONTRADICTION_RENDER_HONEST", "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _contradiction_side_text_is_chrome(text: str) -> bool:
+    """True iff a contradiction-side quote is page-furniture chrome (copyright footer / bot-challenge
+    / masthead / editor-affiliation), so it must NOT be surfaced as one side of a conflict. Reuses
+    the B4 #13 ``is_block_page_chrome_sentence`` (copyright-footer rule + shared render-chrome
+    detector) — broader than the render-seam predicate alone, which is blind to a bare copyright
+    footer. Fail-safe: any import/detector error => False (never over-suppress a real side). PURE."""
+    if not text or not str(text).strip():
+        return False
+    try:
+        from src.polaris_graph.generator.block_page_chrome_scrub import (  # noqa: PLC0415
+            is_block_page_chrome_sentence,
+        )
+    except Exception:  # pragma: no cover — block_page_chrome_scrub is stable in-tree
+        return False
+    try:
+        return bool(is_block_page_chrome_sentence(str(text)))
+    except Exception:  # pragma: no cover — detector is pure in-tree
+        return False
+
+
+def _contradict_side(claim: dict, *, is_semantic: bool = False) -> str:
     """I-wire-011 (#1325) fix 4: one side of a contradiction — a short value / assertion-status /
-    prose summary plus its source ``[ev=…, tier=…]``. PURE. "" when the claim has no usable text."""
+    prose summary plus its source ``[ev=…, tier=…]``. PURE. "" when the claim has no usable text.
+
+    I-deepfix-001 B4-render #22 (#1344): with ``is_semantic=True`` under the honest-render flag, the
+    numeric ``value`` (the 0.0 semantic sentinel) is NOT rendered — the substantive quote is used
+    instead (no "0.0 VS 0.0"). A chrome-only quote returns "" so the caller drops that side."""
+    honest = _contradiction_render_honest_enabled()
+    _suppress_numeric = honest and is_semantic
     ev = str(claim.get("evidence_id") or "").strip()
     tier = str(claim.get("source_tier") or claim.get("tier") or "").strip()
     loc = f" [ev={ev}, tier={tier}]" if (ev or tier) else ""
-    if claim.get("value") is not None:
+    if claim.get("value") is not None and not _suppress_numeric:
         unit = str(claim.get("unit") or "").strip()
         return f"{claim.get('value')}{unit}{loc}"
     status = str(claim.get("assertion_status") or "").strip()
-    if status:
+    if status and not _suppress_numeric:
         return f"{status}{loc}"
-    text = _normalize_claim_summary(
-        str(claim.get("context_snippet") or claim.get("text") or claim.get("raw_text") or ""),
-        quote_trim=120,
-    )
+    _raw_src = str(claim.get("context_snippet") or claim.get("text") or claim.get("raw_text") or "")
+    text = _normalize_claim_summary(_raw_src, quote_trim=120)
+    # #22 iter-2 P1: check the UNTRIMMED normalized text (quote_trim=0), NOT the 120-char-trimmed
+    # ``text``. The trim appends a trailing "…" that trips the shared detector's TRUNCATION leg, which
+    # would mislabel a real substantive quote >120 chars as chrome and drop it — collapsing the caller
+    # to its generic "see sidecar" fallback. Keying the drop on the pre-trim text drops only genuine
+    # chrome-only sides; a real long quote renders its trimmed "…" form (the record stays in the sidecar).
+    if honest and text:
+        _raw_norm = _normalize_claim_summary(_raw_src, quote_trim=0)
+        if _raw_norm and _contradiction_side_text_is_chrome(_raw_norm):
+            return ""  # chrome-only side — drop it from the headline (record stays in the sidecar)
     return f"\"{text}\"{loc}" if text else ""
 
 
@@ -4830,10 +4900,13 @@ def _render_contradicts_block(contradictions_path: "str | None") -> str:
         # the wrong two sides on a >2-claim basket. ``_select_opposing_pair`` returns the
         # min-value vs max-value claim (numeric poles / PRESENT-vs-ABSENT stance poles / the
         # 2-claim semantic judge pair). Deterministic + faithfulness-neutral (render-only).
+        # I-deepfix-001 B4-render #22 (#1344): a semantic (cross-document NLI) record carries the 0.0
+        # value sentinel on both sides — render its prose, never "0.0 VS 0.0".
+        _is_semantic = str(e.get("type") or "").strip().lower() == "semantic"
         pair = _select_opposing_pair(claims)
         if pair is not None:
-            side_a = _contradict_side(pair[0])
-            side_b = _contradict_side(pair[1])
+            side_a = _contradict_side(pair[0], is_semantic=_is_semantic)
+            side_b = _contradict_side(pair[1], is_semantic=_is_semantic)
             if side_a and side_b:
                 lines.append(f"- CONTRADICTS: {head} — {side_a} VS {side_b}{rel_md}")
                 continue

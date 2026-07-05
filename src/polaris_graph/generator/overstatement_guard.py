@@ -361,6 +361,30 @@ _CLAIM_ANTECEDENT_CARRIED_RE = re.compile(
 _SPAN_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
+def _effect_size_conditional_core(claim: str, span_text: str) -> str | None:
+    """FLAG-FREE detection core (shared by the ANNOTATE leg and the #9 DROP leg): return
+    the shared-number reason iff the claim re-lifts a span number while dropping the
+    conditional/threshold antecedent that governs it in the cited span; else None. Pure."""
+    if not claim or not span_text:
+        return None
+    claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
+    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
+    if not claim_numbers:
+        return None  # no figure re-lifted — nothing to over-claim
+    if _CLAIM_ANTECEDENT_CARRIED_RE.search(claim_bare):
+        return None  # the claim carries the governing condition — antecedent travelled, faithful
+    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
+        cond = _SPAN_EFFECT_CONDITION_RE.search(sentence)
+        if not cond:
+            continue
+        # Numbers AFTER the conditional in this sentence are the ones it governs.
+        governed = set(_NUMERIC_TOKEN_RE.findall(sentence[cond.start():]))
+        shared = claim_numbers & governed
+        if shared:
+            return ",".join(sorted(shared))
+    return None
+
+
 def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
     """Return an ANNOTATE reason if the claim re-lifts a span number while dropping
     the conditional/threshold antecedent that governs it in the cited span.
@@ -378,23 +402,76 @@ def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
     """
     if not figure_consistency_annotate_enabled():
         return None
+    shared = _effect_size_conditional_core(claim, span_text)
+    return None if shared is None else "effect_size_conditional_stripped:num=" + shared
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 B4-render #9 (#1344): tasks-vs-jobs UNIT-CONFLATION guard.
+#
+# The drb_72 residual #9 headline "just over 46% of jobs" misstates a share of TASKS as a share of
+# JOBS. The existing S5 leg (``numeric_qualifier_retention_reason``) already DROPS the companion
+# defect — a headline number re-lifted while its span-bound conditional/threshold qualifier is
+# stripped — so the conditional-strip class is covered. This leg closes the ORTHOGONAL gap S5 does
+# NOT own: a claim that binds a percentage to a COUNTABLE-UNIT noun (jobs / workers / occupations /
+# positions) that the cited span binds the SAME percentage to a DIFFERENT unit (tasks / activities /
+# work), and the span does NOT also state that percentage for the claim's unit. That is a units
+# MISSTATEMENT ("46% of tasks" rendered as "46% of jobs"), not a number mismatch, so strict_verify's
+# numeric leg passes it. HIGH-PRECISION: it fires only on the exact-same percentage value attached
+# to genuinely different measure nouns, so a claim whose unit the span DOES support is inert.
+# ADDITIVE faithfulness-TIGHTENING: APPENDS a drop; never clears a failure, never widens a span,
+# drops NO source. LAW VI kill-switch ``PG_UNIT_CONFLATION_GUARD``; OFF reverts byte-identically.
+# ─────────────────────────────────────────────────────────────────────────────
+def unit_conflation_guard_enabled() -> bool:
+    """Whether the tasks-vs-jobs unit-conflation drop leg is active (default ON)."""
+    return os.getenv("PG_UNIT_CONFLATION_GUARD", "1").strip().lower() in _TRUE_TOKENS
+
+
+# The two measure-unit families that get conflated. A "job unit" counts positions/people; a "task
+# unit" counts activities. The same percentage attached to one in the claim and the OTHER in the
+# span (and never the claim's unit) is a units misstatement.
+_JOB_UNIT_RE = re.compile(
+    r"\b(?:jobs?|workers?|occupations?|positions?|employees?|roles?)\b", re.IGNORECASE,
+)
+_TASK_UNIT_RE = re.compile(
+    r"\b(?:tasks?|activit(?:y|ies)|work\s+activit(?:y|ies)|duties|duty)\b", re.IGNORECASE,
+)
+# A percentage immediately bound to a unit noun within a short window ("46% of jobs", "46 percent of
+# tasks"). Group 1 = the numeric string (same shape as ``_NUMERIC_TOKEN_RE``); group 2 = the unit.
+_PCT_OF_JOB_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?|per\s*cent)\s+of\s+(?:\w+\s+){0,3}?"
+    r"(jobs?|workers?|occupations?|positions?|employees?|roles?)\b",
+    re.IGNORECASE,
+)
+_PCT_OF_TASK_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?|per\s*cent)\s+of\s+(?:\w+\s+){0,3}?"
+    r"(tasks?|activit(?:y|ies)|duties|duty)\b",
+    re.IGNORECASE,
+)
+
+
+def unit_conflation_reason(claim: str, span_text: str) -> str | None:
+    """Return a DROP reason iff the leg is enabled AND the claim binds a percentage to a JOB unit
+    that the cited span binds to a TASK unit (same value) while the span never states that
+    percentage for a job unit — a tasks-vs-jobs units misstatement. Else None (inert). Pure,
+    stdlib-only, network-free (mirrors the other additive B16 legs)."""
+    if not unit_conflation_guard_enabled():
+        return None
     if not claim or not span_text:
         return None
     claim_bare = _CLAIM_CITATION_STRIP_RE.sub("", claim)
-    claim_numbers = set(_NUMERIC_TOKEN_RE.findall(claim_bare))
-    if not claim_numbers:
-        return None  # no figure re-lifted — nothing to over-claim
-    if _CLAIM_ANTECEDENT_CARRIED_RE.search(claim_bare):
-        return None  # the claim carries the governing condition — antecedent travelled, faithful
-    for sentence in _SPAN_SENTENCE_SPLIT_RE.split(span_text):
-        cond = _SPAN_EFFECT_CONDITION_RE.search(sentence)
-        if not cond:
-            continue
-        # Numbers AFTER the conditional in this sentence are the ones it governs.
-        governed = set(_NUMERIC_TOKEN_RE.findall(sentence[cond.start():]))
-        shared = claim_numbers & governed
-        if shared:
-            return "effect_size_conditional_stripped:num=" + ",".join(sorted(shared))
+    # Percentages the claim binds to a JOB unit.
+    claim_job_pcts = {m.group(1) for m in _PCT_OF_JOB_RE.finditer(claim_bare)}
+    if not claim_job_pcts:
+        return None
+    # Percentages the span binds to a TASK unit, and (separately) to a JOB unit.
+    span_task_pcts = {m.group(1) for m in _PCT_OF_TASK_RE.finditer(span_text)}
+    span_job_pcts = {m.group(1) for m in _PCT_OF_JOB_RE.finditer(span_text)}
+    # Fire only when the SAME value is a share-of-tasks in the span but a share-of-jobs in the claim,
+    # and the span does NOT also support that value as a share-of-jobs (then the claim's unit is OK).
+    conflated = sorted((claim_job_pcts & span_task_pcts) - span_job_pcts)
+    if conflated:
+        return "unit_conflation_tasks_as_jobs:num=" + ",".join(conflated)
     return None
 
 

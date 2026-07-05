@@ -59,6 +59,21 @@ import re
 _SCRUB_ENV = "PG_BLOCK_PAGE_CHROME_SCRUB"
 _OFF_TOKENS = frozenset({"0", "false", "off", "no"})
 
+# I-deepfix-001 B4-render #13 (#1344): a SECOND, independently-gated leg that reuses the shared
+# render-chrome detector (``weighted_enrichment.is_render_chrome_or_unrenderable``) at SENTENCE
+# granularity. The whole-report ``sanitize_rendered_report`` runs that same detector but per
+# CITATION UNIT — so a single chrome SENTENCE welded into a real-prose line (a masthead / editor-
+# affiliation / raw markdown-link / bibliographic-recital / DOI-only / source-internal "[N]" marker /
+# OCR title fragment) is invisible to it because the unit as a whole is not chrome. Running the
+# containment detector per partitioned sentence unblinds exactly that glued-mid-prose class, in the
+# report BODY and in the §8 basket labels (the scrub walks the whole assembled report, and §8 labels
+# render as ``-`` bullets, not structural lines). This REUSES the proven, precision-first detector
+# rather than re-enumerating chrome vocabulary here. LAW VI sub-kill-switch
+# ``PG_BLOCK_PAGE_CHROME_SCRUB_SHARED`` (default ON); OFF reverts to the pre-#13 hard-marker +
+# copyright-footer behaviour byte-identically. Fail-safe: any import/detector error => this leg is
+# inert (never drops on a fault), so the module stays isolated in practice.
+_SHARED_DETECTOR_ENV = "PG_BLOCK_PAGE_CHROME_SCRUB_SHARED"
+
 
 def block_page_chrome_scrub_enabled() -> bool:
     """Return True iff ``PG_BLOCK_PAGE_CHROME_SCRUB`` is not an off token (default ON = scrub)."""
@@ -66,6 +81,60 @@ def block_page_chrome_scrub_enabled() -> bool:
     if raw is None or not str(raw).strip():
         return True
     return str(raw).strip().lower() not in _OFF_TOKENS
+
+
+def shared_render_chrome_leg_enabled() -> bool:
+    """Return True iff the #13 shared-detector sentence leg is active (default ON). OFF token in
+    ``PG_BLOCK_PAGE_CHROME_SCRUB_SHARED`` reverts to the hard-marker + copyright-footer-only screen."""
+    raw = os.environ.get(_SHARED_DETECTOR_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _OFF_TOKENS
+
+
+# PRECISION ESCAPE (mirrors the copyright triple-gate's "a real claim that cites a license is KEPT"
+# posture): a sentence carrying a substantive QUANTITATIVE FINDING signal — a percent (digit or
+# spelled), a magnitude figure (N million/billion/…), or a currency amount — is a real claim that
+# may merely CITE page-furniture (a CC-license, a publisher) in passing. The shared containment
+# detector (built for whole-UNIT render-seam decisions) over-fires on such a claim per sentence, so
+# the escape defers to strict_verify's already-passed verdict. Page-furniture chrome (editor /
+# masthead / ORCID / bibliographic recital) never carries a quantitative finding, so the escape
+# never re-admits a real chrome leak. Over-strip of a real finding is the harm this guards against.
+_SUBSTANTIVE_CLAIM_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:%|percent(?:age)?\b|per\s*cent\b)"
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+    r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|"
+    r"eighty|ninety|hundred)\s+(?:percent|per\s*cent)\b"
+    r"|\b\d+(?:[.,]\d+)?\s*(?:million|billion|trillion|thousand)\b"
+    r"|[$€£¥]\s?\d",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_substantive_quant_claim(sentence: str) -> bool:
+    """True iff the sentence carries a substantive quantitative finding signal (percent / magnitude /
+    currency) — a real claim the precision escape keeps even if it cites chrome in passing. PURE."""
+    return bool(_SUBSTANTIVE_CLAIM_RE.search(sentence))
+
+
+def _is_shared_render_chrome(sentence: str) -> bool:
+    """True iff the shared render-chrome detector flags this SINGLE sentence as page-furniture
+    chrome AND the sentence is not a substantive quantitative claim (precision escape). Fail-safe:
+    returns False (never a drop) on ANY import/detection error, so a fault in the shared module can
+    only ever LEAK chrome, never over-strip a real finding. Gated by the caller under
+    ``shared_render_chrome_leg_enabled()``."""
+    if _looks_like_substantive_quant_claim(sentence):
+        return False  # a real quantitative finding — keep it even if it cites a license/publisher
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+    except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
+        return False
+    try:
+        return bool(is_render_chrome_or_unrenderable(sentence))
+    except Exception:  # pragma: no cover — detector is pure in-tree
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,15 +212,22 @@ def _is_dominant_copyright_footer(sentence: str) -> bool:
 
 def is_block_page_chrome_sentence(sentence: str) -> bool:
     """True iff a SINGLE sentence unit is block-page / security-check / copyright-footer chrome:
-    it contains a HARD bot-challenge marker, OR it is a DOMINANT copyright footer. High-precision:
-    a real labor / economics / clinical finding trips neither path (precision-first per §-1.3)."""
+    it contains a HARD bot-challenge marker, OR it is a DOMINANT copyright footer, OR — when the
+    #13 shared leg is enabled — the shared render-chrome detector flags it as glued page-furniture
+    (masthead / editor-affiliation / raw markdown-link / bibliographic-recital / DOI-only / OCR
+    title fragment). High-precision: a real labor / economics / clinical finding trips none of the
+    paths (precision-first per §-1.3)."""
     if not sentence or not sentence.strip():
         return False
     low = sentence.lower()
     for marker in _HARD_MARKERS:
         if marker in low:
             return True
-    return _is_dominant_copyright_footer(sentence)
+    if _is_dominant_copyright_footer(sentence):
+        return True
+    if shared_render_chrome_leg_enabled() and _is_shared_render_chrome(sentence):
+        return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────

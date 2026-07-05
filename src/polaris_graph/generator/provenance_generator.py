@@ -85,6 +85,9 @@ from src.polaris_graph.generator.overstatement_guard import (
     temporal_scope_reason as _temporal_scope_reason,
     primacy_frame_annotate_enabled as _primacy_frame_annotate_enabled,
     primacy_frame_reason as _primacy_frame_reason,
+    # I-deepfix-001 B4-render #9 (#1344) — tasks-vs-jobs unit-conflation drop leg (default ON).
+    unit_conflation_guard_enabled as _unit_conflation_guard_enabled,
+    unit_conflation_reason as _unit_conflation_reason,
     # I-deepfix-001 group w4-SL — four additive faithfulness-TIGHTENING drop legs.
     numeric_qualifier_retention_enabled as _numeric_qualifier_retention_enabled,
     numeric_qualifier_retention_reason as _numeric_qualifier_retention_reason,
@@ -2747,6 +2750,18 @@ def verify_sentence_provenance(
             _temp_reason = _temporal_scope_reason(_b16_claim, _b16_span)
             if _temp_reason:
                 failures.append(_temp_reason)
+        # I-deepfix-001 B4-render #9 (#1344) — tasks-vs-jobs UNIT-CONFLATION drop. A
+        # claim that binds a percentage to a JOB unit ("46% of jobs") that the cited
+        # span binds to a TASK unit ("46% of tasks") — same value, different measure
+        # noun, and the span never states that value for jobs — is a units MISSTATEMENT
+        # the numeric leg passes (the number matches). Orthogonal to the S5 leg (which
+        # already drops the companion conditional/threshold-STRIP class); this closes the
+        # unit-swap gap S5 does not own. APPENDS a drop only, drops NO source. Default-ON
+        # kill-switch PG_UNIT_CONFLATION_GUARD; OFF reverts byte-identically.
+        if _unit_conflation_guard_enabled():
+            _uc_reason = _unit_conflation_reason(_b16_claim, _b16_span)
+            if _uc_reason:
+                failures.append(_uc_reason)
         # I-deepfix-001 group w4-SL — four additive faithfulness-TIGHTENING drop
         # legs (S5 / L2 / L1 / L3), each env-gated DEFAULT-ON and compared against
         # the SAME cited-span aggregate (_b16_span). Each only ever APPENDS a drop;

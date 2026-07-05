@@ -417,6 +417,12 @@ class RuleCheckResult:
     name: str
     passed: bool
     details: str = ""
+    # I-deepfix-001 B4-render #16 (#1344): an HONEST WAIVER marker. A check that is not a genuine
+    # PASS but is allowed to proceed under an operator override (e.g. PT03 "(separate family)" on an
+    # all-GLM same-family run authorised by PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) is emitted
+    # ``passed=True, waived=True`` — never a SILENT pass that claims a real two-family segregation.
+    # Defaults False; serialization strips the key when False so a non-waived run stays byte-identical.
+    waived: bool = False
 
 
 @dataclass
@@ -443,7 +449,15 @@ class EvaluatorOutput:
     notes: list[str] = field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        # I-deepfix-001 B4-render #16 (#1344): keep byte-identity for a run with NO waived rule —
+        # emit the ``waived`` key ONLY on the rule(s) that positively carry a waiver (a same-family
+        # PT03 override). A rule at the inert default (waived=False) drops the key entirely, so the
+        # legacy evaluator_rule_checks.json (which never had this key) is byte-for-byte unchanged.
+        for _rc in d.get("rule_checks", []) or []:
+            if isinstance(_rc, dict) and not _rc.get("waived"):
+                _rc.pop("waived", None)
+        return d
 
     @property
     def rule_check_pass_count(self) -> int:
@@ -496,6 +510,16 @@ def _permit_same_family() -> bool:
     discloses the voided two-family safeguard in the Methods clause, and PT03 passes ONLY against
     that honest disclosure (never silently). LAW VI: env-driven."""
     return os.getenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def pt03_waived_honest_enabled() -> bool:
+    """I-deepfix-001 B4-render #16 (#1344): whether an operator-permitted SAME-FAMILY PT03 pass is
+    emitted as an HONEST WAIVER (``waived=True`` + a WAIVED detail) rather than a silent PASS that
+    still reads as a genuine "(separate family)" segregation (default ON). LAW VI kill-switch
+    ``PG_PT03_WAIVED_HONEST``; OFF reverts to the pre-#16 silent-pass behaviour byte-identically."""
+    return os.getenv("PG_PT03_WAIVED_HONEST", "1").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -576,6 +600,7 @@ def run_rule_checks(
     _gf = (generator_family or "").strip().lower()
     _ef = (evaluator_family or "").strip().lower()
     _families_known = bool(_gf) and bool(_ef)
+    _pt03_waived = False  # I-deepfix-001 B4-render #16 (#1344): set only on a same-family override pass
     if not _families_known:
         # I-deepfix-001 B4 P2-B (#1344): families were NOT threaded in (a legacy caller). Do NOT pass
         # PT03 on NAME DISCLOSURE ALONE — that is the old blind check that let a same-family self-
@@ -616,8 +641,21 @@ def run_rule_checks(
         pt03 = bool(
             _eval_name_disclosed and _permit_same_family() and _disclosed_nonsegregation
         )
+        # I-deepfix-001 B4-render #16 (#1344): a same-family pair is NOT a genuine two-family
+        # segregation even when the operator override lets the run proceed. Emit it as an HONEST
+        # WAIVER (waived=True + a WAIVED detail) so evaluator_rule_checks.json never claims a silent
+        # "(separate family)" pass under all-GLM. passed stays True (the override authorised the run,
+        # so the gate is not newly blocked); the honesty lives in the waived flag + detail.
+        if pt03 and pt03_waived_honest_enabled():
+            _pt03_waived = True
         if pt03:
-            _pt03_detail = ""
+            _pt03_detail = (
+                "WAIVED: generator and evaluator are the SAME family "
+                f"({_gf!r}) under operator override "
+                "(PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY) — the two-family self-bias safeguard is "
+                "VOIDED (disclosed in Methods), NOT a genuine separate-family pass."
+                if _pt03_waived else ""
+            )
         elif not _eval_name_disclosed:
             _pt03_detail = f"Expected evaluator_model={evaluator_model!r} in report text."
         elif not _permit_same_family():
@@ -634,6 +672,7 @@ def run_rule_checks(
             )
     results.append(RuleCheckResult(
         "PT03", "Evaluator model disclosed (separate family)", bool(pt03), _pt03_detail,
+        waived=_pt03_waived,
     ))
 
     # PT04 — retrieval date
