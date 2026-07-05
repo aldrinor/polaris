@@ -26,6 +26,17 @@ NO fix commits (form OR coverage) until BOTH: (a) its build-gate APPROVED (codex
 - Date undated-row policy: resolve_then_mask (mask only rows still undated after FF5). Every masked row stays in pool+disclosure.
 - Judge budget: cap kimi-k2.6 reasoning below the 16384 top-level (reuse reasoning_cap_for); do NOT raise max_tokens (re-opens 429/provider-filter). Keep the model (21 providers).
 
+## ★FORENSIC-CORRECTED PLAN (all 6 = NEEDS_ADJUSTMENT, direction right; full detail fixwave/FORENSIC_VERDICTS.md)★
+- ★RESUME-SKIP TRAP (critical, changes P3): topic gate + others are guarded `if not _resume_active` (run_honest_sweep_r3.py:12942); a corpus_snapshot replay SKIPS them. VALIDATE fixes on a FRESH front-half run OR a fetch_snapshot post-fetch resume — NEVER a corpus_snapshot replay (it would false-PASS). This invalidates the earlier "fast resume-from-corpus" validation plan for gate-fixes.★
+- FF1-CHROME: build-gate flagged over-strip BUT forensic says precision-clean+ship — RESOLVE the disagreement (read wave1_gated.json over-strip case; tighten only if real). Ship for render-clean. Follow-ups (durable issues, not this wave): independent canary (decouple evaluate_render_chrome_canary:2845 from the blind predicate) + close upstream junk_screen (dead-fetch "offline" ingested as tiered source [11]). Keep FF1 dual-signal on whole unit.
+- FF2-TRUNC: ship (catches a+b). FF3 must ship all 3 sub-parts together (extend span-screen SCOPE to body finding seam + change _apply_precision_narrowing demotion + update regression test) or case (c) stays uncatchable. DEEPER: producer-side bug CUTS complete sentences (banked evidence has full text) — investigate the composer/generator cut seam, not just detection.
+- FF4-ASPECT: build-gate APPROVED + forensic on-target. Validate FRESH front-half ONLY (resume-skip).
+- FF5-DATE: fix the _YM_SEPARATED_RE regex bug (build-gate) + the 2026-OpenAlex date-throw. Keep FF6 (resolve_then_mask at grounding seam run_honest_sweep_r3.py:13669-13699) + FF7 (Methods horizon). Date filter mostly WORKING (blocked ~95, few undated slipped) — do not overbuild.
+- JUDGE-CAP: build-gate APPROVED + forensic on-target. Cap=reasoning_cap_for(16384)~12384, KEEP max_tokens=16384 (don't raise → re-opens 429). Addition: apply cap at BOTH build seam AND retry seam (both _judge_reasoning_block call sites).
+- 4IR: NOT a gate bug — STALE CONFIG. Re-author config/scope_templates(?)/workforce.yaml: delete fourth_industrial_revolution_framing entity (:333-351) + theory_4ir_framing slot (:364-368) + old 4IR queries; re-audit every entity vs the OFFICIAL prompt. Gate stays strict.
+- COVERAGE: wait for coverage forensic (wp1mfgjvt) — Fable already flags inv_5 MISSED that chrome-fragment span-starvation is a CO-EQUAL cause killing depth/cross-source (chrome↔coverage linked). Build coverage corrected fixes with that.
+- CONVERGE: build ALL corrected fixes (form + coverage) in ONE wave once coverage forensic lands; dual-gate; validate FRESH front-half.
+
 ## GUARDRAILS
 faithfulness NEVER relaxed; §-1.3 WEIGHT-not-FILTER + WIDEN-only; dual-gate real-Codex+real-Fable5 EVERY fix; NEVER victory on deficient / NEVER fake a score; NO permission-asking; NO rm -rf variable paths (git worktree remove --force + prune); /root/polaris/.venv/bin/python; heavy on VM not local; ≤4 in flight; crash→resume-closest-checkpoint never fresh; read EVERY log line line-by-line (Read not grep).
 
