@@ -107,3 +107,10 @@ AUTONOMOUS MUST-FIX BUILD (gated) launching now: wire the 4 dark flags + PG_BENC
 3. C3 DeepTRACE self-graded / vs-GPT-5: DROPPED per operator standing rule (feedback_prove_internal_scorer_correct_not_official_harness_flag). Our scorer is PROVEN formula-correct → TRUST it, optimize against it. NO external-scorer spend at this stage, NO "not official harness" flagging. If our own number says short → fix the pipeline.
 4. C1 Chinese pipeline: SET ASIDE. Target = DRB-II ENGLISH subset (66 en tasks) FIRST. Clear English, THEN add other languages. Do NOT block on the 66 Chinese now. "Beat DRB-II" this phase = beat the ENGLISH set.
 NET: keep the validity build (scope flags ON for game-rule; official-question for full-power; question-fidelity gate applies to full-power/leaderboard run; contract-scaffold gate). Focus DRB-II English. Trust our proven scorer.
+
+## 🔒 HARD PRE-LAUNCH GATE (operator 2026-07-05 ~10:50): ALL 29 FIXES MUST BE WIRED + FIRE — NONE DARK
+29 fixes = 23 faithfulness + 2 coverage + 4 validity. Before ANY paid VM run:
+1. FIRE MANIFEST ($SC/fire_manifest.md, build wgsuwmmxm): every fix → its PG_* flag(s) → default (ON/OFF) → force-set-in-run? Any flag default-OFF and NOT force-enabled = a DARK fix = RED LINE.
+2. If the manifest lists ANY dark fix → BUILD+GATE the wiring (force-enable in run_gate_b slate + add to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS so the run FAILS CLOSED if off) before launch. Extends the validity build.
+3. PREFLIGHT SMOKE must PROVE each of the 29 fired (not just flag set — took effect): per-fix log-grep signature from the manifest (e.g. scope '[select] I-scope-001: DEMOTED/PINNED'; coverage effective_query_count>>15 + R2 rounds>0 + connectives/DS->0; P0-2 verdict-drop; B2 §8 authority-weight lines; etc.). If ANY fix's signature is ABSENT in the smoke run.log → that fix is DARK → DO NOT launch, fix the wiring, re-smoke.
+4. all_wired=true (zero dark) + every fire-signature present + preflight §-1.1 clean = the ONLY green-to-launch condition. Never launch with a dark fix.
