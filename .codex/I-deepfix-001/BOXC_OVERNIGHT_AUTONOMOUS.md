@@ -598,3 +598,8 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Cleaned: leftover hard_wt worktree + 5 stale completed-build worktrees (wt_b3/b4/b4render/base/rank19) via git worktree remove --force.
 - State intact: HEAD f466a21e; faithfulness 22/23 ✓ + coverage-safe 2/2 ✓ + aggressive config ✓ + validity ✓ (all 7 dark closed) + serious-check table ✓. Box B still prechecked-ready (2×A100 idle).
 - Relaunched hardening ws3ezy81h with BASE=f466a21e (current HEAD, run_gate_b identical to 770a1dd0). Same script. On both-approve → commit → confirm fail-closed → live preflight Box B → 4-box launch.
+
+## [2026-07-05 13:55:12] HARDENING committed (dddb7259) — ALL 29 FIXES LIVE+WIRED+FAIL-CLOSED
+- Codex+Fable APPROVE. 22 always-on faithfulness/render/validity flags QUAD-wired (slate+FORCE_ON+ALLOWLIST+PREFLIGHT_REQUIRED). Committed-tree confirm: 22/22 in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS ✓. Orphan PG_SOURCE_NECESSITY_DISCLOSURE retired (superseded by wired #7). 46 new + 69 preflight tests pass. Faithfulness untouched, §-1.3 pin-only.
+- STATIC pre-launch gate SATISFIED: dark-hunter CLEAN + all 29 fail-closed → a stray .env=0 now ABORTS before spend (can't silently dark a fix).
+- NEXT: DYNAMIC half = LIVE PREFLIGHT Box B (game-rule small real run, prove each fix's fire-grep signature in run.log + §-1.1 audit + Codex+Fable on OUR scorer). Then 4-box launch.
