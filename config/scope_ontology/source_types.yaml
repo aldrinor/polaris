@@ -1,0 +1,400 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# I-scope-001 — extensible SOURCE-TYPE / SCOPE facet ontology (Angle A).
+#
+# The flexible per-question scope+timeline compliance gate reads this file. Facet
+# vocabulary is CONFIG, not a Python enum (LAW VI, requirement A "extensible") —
+# adding a source-type is ONE YAML block, ZERO Python change.
+#
+# Each facet carries:
+#   id            — the ontology id surfaced in disclosure + the enforcement plan.
+#   dimension     — 'source_type' | 'jurisdiction' | 'geography' | 'language' (OPEN set).
+#   synonyms      — prompt phrases that resolve to it (the deterministic regex layer
+#                   matches these; the LLM fallback resolves unseen phrasings).
+#   matchers      — how a SOURCE (not the prompt) is classified into this facet:
+#                     hosts        — registrable host suffixes (equal or sub-domain).
+#                     url_patterns — lowercased-URL substrings.
+#                     doi_prefixes — DOI registrant prefixes (e.g. '10.2138/').
+#                     genre        — one of the document_type_classifier genres the
+#                                    facet maps to (reuses that classifier, no dup logic).
+#                     journal      — true iff the facet IS is_peer_reviewed_journal_article.
+#   default_out_of_scope_weight — the (0,1] multiplicative DEMOTE applied to a source
+#                                 that is NOT in this facet when the facet is 'prefer'-
+#                                 requested at 'weight' strictness. NEVER 0 (demote-not-drop).
+#
+# The strictness/op lexicons (deontic detection, Angle B) live at the bottom — tunable,
+# not hardcoded (§8.3.1 / LAW VI). Every value here is operator-reviewable.
+# ─────────────────────────────────────────────────────────────────────────────
+
+facets:
+  - id: peer_reviewed_journal
+    dimension: source_type
+    synonyms:
+      - "peer-reviewed journal"
+      - "peer reviewed journal"
+      - "peer-reviewed article"
+      - "journal article"
+      - "academic journal"
+      - "scholarly journal"
+      - "scholarly article"
+      - "published journal"
+      - "peer-reviewed"
+    matchers:
+      journal: true
+    default_out_of_scope_weight: 0.5
+
+  - id: law_legal
+    dimension: source_type
+    synonyms:
+      - "case law"
+      - "statute"
+      - "statutes"
+      - "legislation"
+      - "court decision"
+      - "court ruling"
+      - "judicial opinion"
+      - "legal filing"
+      - "legal filings"
+      - "regulation text"
+      - "legal code"
+    matchers:
+      hosts:
+        - "courtlistener.com"
+        - "justia.com"
+        - "law.cornell.edu"
+        - "supremecourt.gov"
+        - "canlii.org"
+        - "bailii.org"
+        - "eur-lex.europa.eu"
+        - "legislation.gov.uk"
+        - "laws-lois.justice.gc.ca"
+      url_patterns:
+        - "/statute"
+        - "/case-law"
+        - "/opinions/"
+    default_out_of_scope_weight: 0.4
+
+  - id: patent
+    dimension: source_type
+    synonyms:
+      - "patent filing"
+      - "patent filings"
+      - "patent application"
+      - "granted patent"
+      - "patents"
+      - "patent document"
+    matchers:
+      hosts:
+        - "patents.google.com"
+        - "patft.uspto.gov"
+        - "patentscope.wipo.int"
+        - "worldwide.espacenet.com"
+        - "espacenet.com"
+        - "freepatentsonline.com"
+      url_patterns:
+        - "/patent/"
+        - "patents.google"
+    default_out_of_scope_weight: 0.4
+
+  - id: government
+    dimension: source_type
+    synonyms:
+      - "government source"
+      - "government sources"
+      - "government publication"
+      - "government publications"
+      - "government report"
+      - "official government"
+      - "public sector data"
+    matchers:
+      hosts:
+        - "gov"
+        - "europa.eu"
+        - "who.int"
+        - "un.org"
+        - "canada.ca"
+        - "gov.uk"
+      url_patterns:
+        - ".gov/"
+        - ".gov."
+        - ".gc.ca"
+    default_out_of_scope_weight: 0.5
+
+  - id: central_bank_finance
+    dimension: source_type
+    synonyms:
+      - "central bank publication"
+      - "central bank publications"
+      - "central bank"
+      - "central banks"
+      - "monetary authority"
+      - "reserve bank"
+      - "federal reserve"
+      - "financial regulator"
+    matchers:
+      hosts:
+        - "federalreserve.gov"
+        - "ecb.europa.eu"
+        - "bankofengland.co.uk"
+        - "bankofcanada.ca"
+        - "bis.org"
+        - "imf.org"
+        - "worldbank.org"
+        - "oecd.org"
+        - "sec.gov"
+      url_patterns:
+        - "/monetarypolicy/"
+    default_out_of_scope_weight: 0.5
+
+  - id: standards_regulatory
+    dimension: source_type
+    synonyms:
+      - "regulatory filing"
+      - "regulatory filings"
+      - "sec filing"
+      - "sec filings"
+      - "edgar filing"
+      - "standards document"
+      - "regulatory guidance"
+    matchers:
+      hosts:
+        - "sec.gov"
+        - "edgar.sec.gov"
+        - "iso.org"
+        - "ieee.org"
+        - "fda.gov"
+        - "ema.europa.eu"
+      url_patterns:
+        - "/edgar/"
+        - "/cgi-bin/browse-edgar"
+    default_out_of_scope_weight: 0.5
+
+  - id: news_media
+    dimension: source_type
+    synonyms:
+      - "news coverage"
+      - "news article"
+      - "news articles"
+      - "news media"
+      - "press coverage"
+      - "media report"
+      - "journalism"
+    matchers:
+      genre: NEWS
+      hosts:
+        - "reuters.com"
+        - "bloomberg.com"
+        - "ft.com"
+        - "nytimes.com"
+        - "wsj.com"
+        - "bbc.com"
+        - "economist.com"
+        - "apnews.com"
+        - "theguardian.com"
+    default_out_of_scope_weight: 0.4
+
+  - id: social_web
+    dimension: source_type
+    synonyms:
+      - "social media"
+      - "social media discussion"
+      - "social media post"
+      - "social media posts"
+      - "twitter"
+      - "reddit"
+      - "online discussion"
+      - "forum post"
+      - "forum posts"
+      - "user-generated content"
+    matchers:
+      genre: UGC
+      hosts:
+        - "twitter.com"
+        - "x.com"
+        - "reddit.com"
+        - "facebook.com"
+        - "linkedin.com"
+        - "youtube.com"
+        - "tiktok.com"
+        - "quora.com"
+        - "medium.com"
+        - "substack.com"
+    default_out_of_scope_weight: 0.3
+
+  - id: clinical_medical
+    dimension: source_type
+    synonyms:
+      - "clinical trial"
+      - "clinical trials"
+      - "clinical guideline"
+      - "clinical guidelines"
+      - "medical guideline"
+      - "systematic review"
+      - "cochrane review"
+      - "randomized controlled trial"
+    matchers:
+      hosts:
+        - "clinicaltrials.gov"
+        - "cochranelibrary.com"
+        - "pubmed.ncbi.nlm.nih.gov"
+        - "ncbi.nlm.nih.gov"
+        - "nice.org.uk"
+        - "who.int"
+      doi_prefixes:
+        - "10.1056/"
+        - "10.1001/"
+        - "10.1136/"
+    default_out_of_scope_weight: 0.5
+
+  - id: analyst_report
+    dimension: source_type
+    synonyms:
+      - "analyst report"
+      - "analyst reports"
+      - "consulting report"
+      - "industry report"
+      - "market research report"
+      - "think tank report"
+    matchers:
+      genre: REPORT
+      hosts:
+        - "mckinsey.com"
+        - "bcg.com"
+        - "weforum.org"
+        - "gartner.com"
+        - "brookings.edu"
+        - "rand.org"
+        - "pewresearch.org"
+    default_out_of_scope_weight: 0.5
+
+  - id: preprint
+    dimension: source_type
+    synonyms:
+      - "preprint"
+      - "preprints"
+      - "working paper"
+      - "working papers"
+    matchers:
+      genre: PREPRINT
+      hosts:
+        - "arxiv.org"
+        - "ssrn.com"
+        - "biorxiv.org"
+        - "medrxiv.org"
+        - "osf.io"
+    default_out_of_scope_weight: 0.5
+
+  - id: book_encyclopedia
+    dimension: source_type
+    synonyms:
+      - "book"
+      - "monograph"
+      - "encyclopedia"
+      - "textbook"
+    matchers:
+      genre: BOOK
+      hosts:
+        - "books.google.com"
+        - "wikipedia.org"
+        - "britannica.com"
+    default_out_of_scope_weight: 0.4
+
+# Jurisdiction facets resolve a country ADJECTIVE (in the prompt) to an ISO code; a source
+# is matched by its host country TLD or an explicit country field. dimension='jurisdiction'.
+jurisdictions:
+  canadian: CA
+  american: US
+  "u.s.": US
+  us: US
+  british: GB
+  uk: GB
+  european: EU
+  australian: AU
+  german: DE
+  french: FR
+  japanese: JP
+  chinese: CN
+  indian: IN
+
+jurisdiction_synonym_suffixes:
+  - "sources"
+  - "source"
+  - "studies"
+  - "research"
+  - "publications"
+  - "data"
+
+jurisdiction_host_tlds:
+  ".ca": CA
+  ".gov.uk": GB
+  ".ac.uk": GB
+  ".co.uk": GB
+  ".gov.au": AU
+  ".edu.au": AU
+  ".de": DE
+  ".fr": FR
+  ".jp": JP
+  ".cn": CN
+  ".in": IN
+  ".europa.eu": EU
+  ".gov": US
+
+default_out_of_scope_weight: 0.5
+
+# ─── Deontic op + strictness lexicons (Angle B, requirement C) — tunable, not hardcoded ───
+# op resolution: which of include / prefer / exclude a trigger fires.
+#   include = ADDITIVE boost of the matching facet; does NOT demote non-matching.
+#   prefer  = boost matching + DEMOTE non-matching (kept).
+#   exclude = demote/exclude the matching facet itself.
+# strictness: 'weight' (default demote) vs 'hard' (grounding-exclude). HARD is opt-in.
+#
+# Plain `must` is DELIBERATELY absent from the HARD list — "must include government" is a
+# BOOST, not a hard exclusion; only the bigram `must not` is hard.
+op_lexicon:
+  # restrict-to: op=prefer + strictness=hard (non-matching EXCLUDED from grounding).
+  restrict_hard:
+    - "exclusively"
+    - "solely"
+    - "restricted to"
+    - "restrict to"
+    - "limited to"
+    - "strictly"
+    - "only"
+  # prohibition: op=exclude + strictness=hard (matching EXCLUDED from grounding).
+  exclude_hard:
+    - "do not use"
+    - "do not view"
+    - "do not quote"
+    - "do not cite"
+    - "do not include"
+    - "do-not"
+    - "do not"
+    - "don't use"
+    - "must not"
+    - "must-not"
+    - "exclude"
+  # op=include (additive boost, strictness=weight).
+  include_weight:
+    - "must include"
+    - "also include"
+    - "include"
+    - "incorporate"
+    - "add"
+  # op=prefer (demote non-matching, strictness=weight).
+  prefer_weight:
+    - "focus on"
+    - "focusing on"
+    - "prefer"
+    - "prioritize"
+    - "prioritise"
+    - "emphasize"
+    - "emphasise"
+    - "primarily"
+    - "mainly"
+    - "especially"
+    - "where possible"
+    - "ideally"
+  # op=exclude (strictness=weight).
+  exclude_weight:
+    - "avoid"
+    - "de-emphasize"
+    - "de-emphasise"
