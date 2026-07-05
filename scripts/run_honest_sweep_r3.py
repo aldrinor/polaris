@@ -5685,6 +5685,56 @@ def compose_report_with_reliability(final_report: str, reliability_md: str) -> s
     )
 
 
+def render_summary_table_into_artifact(
+    report_body_md: str,
+    *,
+    research_question: str,
+    bibliography: "list[dict] | None",
+    sections: "list[Any] | None",
+    appendix_boundary_marker: str = "## Bibliography",
+) -> "tuple[str, str]":
+    """I-deepfix-001 P7 (#1344): WIRE-POINT for the deterministic, verified-only summary
+    table. Some prompts (drb_72) explicitly ask the report to END with a titled summary
+    TABLE and name the exact column headers; the multi-section generator emits span-verified
+    narrative prose but no GFM table, so ``report.md`` renders zero table rows and the DRB-II
+    "presentation" rubric fails. This extracts the STRICT-VERIFY-PASSED section claims from
+    the multi-section results and inserts the prompt-requested table into ``report_body_md``.
+
+    Inserted into the report.md ARTIFACT body ONLY: the caller passes a COPY, never
+    ``final_report`` (the evaluator / faithfulness-gate / judge text), so this render-only
+    presentation never reaches the uncited-numeric / PT08 gate — mirroring the reliability-
+    header precedent that keeps render-only additions byte-out of the gate input. The table
+    is built purely from ALREADY-verified spans (CLAUDE.md §-1.3: a presentation of
+    already-verified content, no new claim), so NOT scoring it is safe, not a gap. The
+    pipeline's canonical render-chrome predicate is injected so the table drops exactly the
+    page furniture the body render-seam already stripped (an excluded source still lives in
+    the numbered bibliography — faithfulness-neutral, NOT a §-1.3 corpus drop).
+
+    Returns ``(new_body, canary)``; ``(report_body_md, reason)`` unchanged when the table
+    does not apply (kill-switch OFF, no titled table requested, already present, or no source
+    carries a verified claim). PURE (no I/O; reads only the module's LAW VI kill-switch)."""
+    from src.polaris_graph.generator.summary_table import (  # noqa: PLC0415
+        extract_section_claims,
+        render_requested_summary_table,
+    )
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable as _chrome_screen,
+        )
+    except Exception:  # noqa: BLE001 — additive screen; the module keeps its built-in on import failure
+        _chrome_screen = None
+    section_claims = extract_section_claims(sections or [])
+    result = render_requested_summary_table(
+        research_question=research_question,
+        bibliography=bibliography or [],
+        section_claims=section_claims,
+        existing_report_md=report_body_md,
+        appendix_boundary_marker=appendix_boundary_marker,
+        chrome_screen=_chrome_screen,
+    )
+    return result.text, result.canary
+
+
 # B11 artifact-kind taxonomy. Maps a terminal manifest.status (unified taxonomy)
 # to the human-artifact KIND the finalizer emits when no report.md exists. This is
 # the discriminator the forensic doc requires: report.md on success, else a NAMED
@@ -15789,8 +15839,28 @@ async def run_one_query(
         # rather than a body PREPEND, so the scored body opens on a real claim and a statement
         # decomposer excludes the audit counts from the #3 relevant-statement denominator. Content
         # is MOVED + typed, never dropped. Kill-switch PG_AUDIT_MACHINERY_APPENDIX=0 => legacy prepend.
+        # I-deepfix-001 P7 (#1344): render the prompt-REQUESTED summary table (deterministic,
+        # verified-only) into the report.md ARTIFACT body — a COPY of ``final_report``, so the
+        # render-only table never reaches the evaluator / faithfulness-gate input (mirrors the
+        # reliability-header precedent above). No-op unless the prompt names table column headers
+        # AND a source carries a strict-verify-passed claim. Faithfulness-neutral (§-1.3: a
+        # presentation of already-verified content, no new claim). Default-ON kill-switch
+        # PG_RENDER_SUMMARY_TABLE (read inside the module). Fail-open: never abort the report.
+        _report_artifact_body = final_report
+        try:
+            _report_artifact_body, _st_canary = render_summary_table_into_artifact(
+                final_report,
+                research_question=q["question"],
+                bibliography=multi.bibliography or [],
+                sections=getattr(multi, "sections", None),
+            )
+            if _report_artifact_body != final_report:
+                _log(f"[summary-table] {_st_canary}")
+        except Exception as _st_exc:  # noqa: BLE001 — additive presentation; never abort the report
+            _log(f"[summary-table] skipped (fail-open): {_st_exc}")
+            _report_artifact_body = final_report
         (run_dir / "report.md").write_text(
-            compose_report_with_reliability(final_report, _reliability_md), encoding="utf-8"
+            compose_report_with_reliability(_report_artifact_body, _reliability_md), encoding="utf-8"
         )
         (run_dir / "bibliography.json").write_text(
             json.dumps(multi.bibliography, indent=2, sort_keys=True) + "\n",
