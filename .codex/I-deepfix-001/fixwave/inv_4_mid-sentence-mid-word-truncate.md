@@ -1,0 +1,81 @@
+# Investigation: Mid-sentence / mid-word TRUNCATED extracted spans cited as findings (incomplete-thought fragments that survive every truncation gate). Three surviving sub-forms: (a) trailing lone CAPITAL letter that starts a cut noun after a preposition ("...within C"[22]); (b) trailing bare COPULA/auxiliary verb with its value cut off ("...pedicurists is"[20]); (c) period-terminated but SEMANTICALLY incomplete clause ("...over 90% of employees in China."[18]).
+
+## Root cause
+The body render-seam truncation gate is `is_truncated_fragment` (src/polaris_graph/generator/key_findings.py:217), reached via `is_render_chrome_or_unrenderable` inside `_sanitize_report_line` (weighted_enrichment.py:3222). It is a TRAILING-LEXICAL-TOKEN test with three legs, and each surviving form defeats a specific leg:
+
+LEG 1 — explicit marker (`_TRUNCATION_MARKER_RE`, key_findings.py:69, used at :242): fires only on a trailing ellipsis (…/...) or a trailing hyphen. None of the three strings carry one → no match.
+
+LEG 2 — dangling function-word cut (key_findings.py:255-268 over `_TRAILING_FUNCTION_WORD_CUT`, key_findings.py:125-131): a CLOSED hardcoded set of articles/determiners/conjunctions. It DELIBERATELY excludes prepositions, pronouns, and — the gap here — copulas/auxiliary verbs. So (b) "is" is invisible: "is" is not in the set, and it is additionally whitelisted in `_SHORT_OK_BOUNDARY_TOKENS` (key_findings.py:111-115). Worse, the whole leg is gated by `if raw_last and not raw_last.isupper():` — the vitamin-C protection — so (a) "C" (uppercase single letter) skips the ENTIRE leg before "within" is ever inspected.
+
+LEG 3 — corpus-grounded span-cut (`_boundary_token_is_span_cut`, key_findings.py:173-214): assumes a real cut fragment is an UNKNOWN token that is a strict prefix of a longer corpus word ("Resea"→"research"). It early-outs to False whenever the boundary token is itself a known corpus word — and "is", "china", and lowercased "c" are all ordinary corpus words (:207-211). The len-1 strong-cut branch (:200-206) additionally requires `token[:1].islower()`, so uppercase "C" is exempt there too.
+
+The unifying blindness: the predicate has NO notion of grammatical/semantic completeness. It asks "is the last word a marker / a listed function word / a corpus-prefix?" — never "does this fragment express a complete thought?" A copula demands a complement, a preposition+lone-letter is a chopped noun phrase, and a 'reports that <subject-NP with no predicate>.' clause is a hidden semantic gap — none are trailing-token lexical signals.
+
+WHY truncation_flagged=0: the second gate, `citation_truncation_normalizer._flag_truncation` (citation_truncation_normalizer.py:281-289) matches ONLY `MID_WORD_TRUNCATION_PATTERN` (:85-87), the literal `.; ` weld glue. None of the three strings contain `.;`, so its counter is correctly 0 — it was never designed for these shapes.
+
+WHY the LLM completeness judge did not save it: the incomplete-sentence detector that WOULD catch (a)+(b) — `_is_unrenderable_sentence_form` (weighted_enrichment.py:2643-2660), which flags any unit not ending in `.!?"')]` — is gated behind `require_sentence_form=True` (weighted_enrichment.py:2716), but the body seam `_sanitize_report_line` calls the predicate with the default `require_sentence_form=False`, so that leg is never reached on body prose. And the authoritative LLM span/completeness judge `screen_finding_units` (span_quality_gate.py:475) — explicitly built to catch "cut-word-before-[N]" and clause-cuts — is (i) default-OFF (`PG_SPAN_QUALITY_GATE`, span_quality_gate.py:61,159-161,504) and (ii) wired only on the rollup surfaces (run_honest_sweep_r3.py:16219-16220), not on the body. Even if it were ON, its deterministic precision-narrowing DEMOTES exactly form (c): `_apply_precision_narrowing`'s truncation branch (span_quality_gate.py:376-383) flips a judge 'truncation' verdict back to clean whenever `_ends_complete_sentence` is True (:328-334) — and (c) ends in a period — which directly contradicts that module's own docstring promise (:32-34) to leave clause-cuts "to the prompt + judge".
+
+## Code locations
+- src/polaris_graph/generator/key_findings.py:217 (is_truncated_fragment — THE body-seam truncation predicate)
+- src/polaris_graph/generator/key_findings.py:242 (marker leg — ellipsis/hyphen only)
+- src/polaris_graph/generator/key_findings.py:255-268 (function-word leg + the `not raw_last.isupper()` vitamin-C guard that skips form (a))
+- src/polaris_graph/generator/key_findings.py:125-131 (_TRAILING_FUNCTION_WORD_CUT — closed set, excludes copulas/aux/prepositions → blind to form (b))
+- src/polaris_graph/generator/key_findings.py:111-115 (_SHORT_OK_BOUNDARY_TOKENS includes 'is')
+- src/polaris_graph/generator/key_findings.py:173-214 (_boundary_token_is_span_cut — known-word early-out at :207-211; len-1 branch requires islower at :200-206)
+- src/polaris_graph/generator/citation_truncation_normalizer.py:85-87,281-289 (MID_WORD_TRUNCATION_PATTERN / _flag_truncation — only `.;` glue → truncation_flagged=0)
+- src/polaris_graph/generator/weighted_enrichment.py:2643-2660 (_is_unrenderable_sentence_form — incomplete-sentence leg that WOULD catch a+b)
+- src/polaris_graph/generator/weighted_enrichment.py:2716 (leg gated behind require_sentence_form)
+- src/polaris_graph/generator/weighted_enrichment.py:3188-3241 (_sanitize_report_line — body seam; calls is_render_chrome_or_unrenderable WITHOUT require_sentence_form=True at :3222)
+- src/polaris_graph/generator/weighted_enrichment.py:3323-3393 (sanitize_rendered_report — render-seam chokepoint)
+- scripts/run_honest_sweep_r3.py:16217-16238 (rollup span-gate + normalizer wiring)
+- scripts/run_honest_sweep_r3.py:2655-2710 (_screen_rollup_finding_units — rollup-only)
+- src/polaris_graph/generator/span_quality_gate.py:61,159-161,504 (screen_finding_units default OFF)
+- src/polaris_graph/generator/span_quality_gate.py:328-334,361-388 (_ends_complete_sentence + _apply_precision_narrowing truncation demotion that un-flags form (c))
+
+## Best practice 2025/2026
+The field consensus is a TWO-TIER completeness gate, because surface rules provably miss the semantic class. Puspitasari et al., "Efficient RAG with Intent-Aware Retrieval and Semantics-Preserving Chunking" (arXiv 2606.01240, 2026) states conventional chunk-integrity heuristics = "text ending with terminal punctuation, paired quotation/parentheses, and length exceeding a token threshold" and explicitly finds these "effectively filter clearly truncated text blocks but only focus on surface syntactic structures and cannot identify hidden semantic gaps" — exactly POLARIS's failure (a lexical trailing-token test). The recommended stack: (1) a cheap HIGH-PRECISION grammatical-completeness screen — terminal punctuation + balanced delimiters PLUS an "expects-continuation / dangling-connective" test (a fragment that ends on a coordinating/subordinating conjunction, a preposition, a copula/auxiliary verb, an article/determiner, or a value-introducing connective is grammatically incomplete). This is the classic sentence-fragment / dependent-clause detection (Quill.org NLP fragment detector; CSU Ohio / Daytona State "checking for sentence completeness": a complete sentence must express a complete thought with a subject and a finite verb; trailing prepositional/verbal phrases and stranded conjunctions are fragments). (2) an LLM-as-judge SEMANTIC-completeness verdict for the residual "hidden semantic gap" that surface rules cannot see — the '90% of employees in China.' case (period-terminated but predicate-missing). LLM-as-judge completeness scoring is now standard for extraction quality (EvidentlyAI LLM-as-a-judge guide 2025; SemEval-2025 Task 3 span-level hallucination detection, arXiv 2508.05179; Label Studio "Seven RAG Pitfalls" 2025 flags truncated/incomplete-context chunks). A complementary hardening is the TYPED/structured-answer contract (Towards Data Science, "Stop Returning Text from RAG: The Typed Answer Contract", 2025): a value-bearing finding must fill its value slot, so "the exposure score ... is <cut>" is a schema violation caught before render. Crucially, best practice is WITHHOLD-not-delete for grounding integrity (flag the incomplete span, keep the source) — identical to §-1.3.
+Sources: arXiv 2606.01240; arXiv 2508.05179; evidentlyai.com/llm-guide/llm-as-a-judge; labelstud.io/blog/seven-ways-your-rag-system-could-be-failing; towardsdatascience.com/stop-returning-text-from-rag-the-typed-answer-contract; incompletesentence.com; csuohio.edu/writing-center/checking-for-sentence-completeness.
+
+## Proposed fix
+TWO surgical, faithfulness-neutral parts. Both only decide whether a unit is WITHHELD from a render surface (drop-in-place / header swap); neither touches strict_verify/NLI/D8/provenance/evidence-pool/bibliography. No caps, targets, or thinners.
+
+PART 1 (deterministic — catches (a) and (b); corpus-independent, high precision). File: src/polaris_graph/generator/key_findings.py, function `is_truncated_fragment`. Add two module-level frozensets and one helper, then two new legs inside the existing `if core:` block:
+  a) New constants:
+     `_TRAILING_COPULA_AUX_CUT = frozenset({"is","are","was","were","be","been","being","am","has","have","had","having","do","does","did","will","would","shall","should","can","could","may","might","must"})`
+     `_PREP_ARTICLE_BEFORE_LONE_LETTER = frozenset({"within","in","of","the","a","an","to","for","by","with","on","at","from","into","than","between","and","or","as"})`
+     helper `_ends_with_terminal_punct(core: str) -> bool`: strip trailing quotes/closers, return True iff last char in ".!?".
+  b) COPULA/AUX leg (fixes (b)): inside `if raw_last and not raw_last.isupper():`, ADD — `if not _ends_with_terminal_punct(core) and raw_last.lower() in _TRAILING_COPULA_AUX_CUT: return True`. Gate on absent terminal punctuation so "...as strong as it is." (period) is untouched; only a BARE dangling copula ("...pedicurists is") flags. This overrides the _SHORT_OK_BOUNDARY_TOKENS whitelist for the no-terminal-punctuation case only.
+  c) LONE-LETTER-AFTER-CONNECTIVE leg (fixes (a)): add as its OWN block (must run even when raw_last.isupper(), so it cannot sit inside the `not isupper()` guard). Tokenize `core` (strip a single artificial trailing '.'), take the last two alphabetic tokens; `if not _ends_with_terminal_punct(core) and len(last_tok)==1 and prev_tok.lower() in _PREP_ARTICLE_BEFORE_LONE_LETTER: return True`. "within C" → prev "within"∈set → flag; "vitamin C"/"grade A"/"type A" → prev is a content noun ∉ set → preserved; the vitamin-C guard stays intact for the general case.
+This is the ONE predicate every caller shares (weighted_enrichment._sanitize_report_line body seam, provenance_generator.py:3473, run_honest_sweep_r3.py:2243/2501, the basket-header filter), so extending it fixes the body seam AND both rollup upstreams at once, and it fires even with known_words=None / require_sentence_form=False.
+
+PART 2 (semantic gap — catches (c); the class surface rules provably cannot). (c) is a period-terminated predicate-missing clause = a "hidden semantic gap"; deterministic separation from a legitimate one-clause finding is not reliable, so use the existing LLM completeness judge that was built for it. Two surgical edits: (i) enable + wire `screen_finding_units` on the finding seam (turn on PG_SPAN_QUALITY_GATE for the cert slate and extend the rollup wiring at run_honest_sweep_r3.py:16217-16220 to also screen the body finding units, still FLAG-NOT-DROP — withheld from the summary/finding surface, retained in body/evidence); (ii) fix the precision-narrowing contradiction in span_quality_gate.py `_apply_precision_narrowing` truncation branch (:376-383): today it demotes a judge 'truncation' verdict to clean whenever `_ends_complete_sentence` is True, which un-flags every period-terminated clause-cut including (c) and violates the module's own docstring. Change it to STOP demoting on the ends-complete signal alone — keep demoting ONLY the two deterministically-separable FP shapes (midword-glue absence is not sufficient; require a positive completeness signal such as a trailing multi-citation cluster on an otherwise-well-formed sentence) and otherwise DEFER to the judge verdict, exactly as the docstring promises.
+
+## RED/GREEN test plan
+RED (current, all pass the seam / return False):
+  assert is_truncated_fragment("...contributing 20% of GDP within C") is False   # (a) today
+  assert is_truncated_fragment("...manicurists and pedicurists is") is False      # (b) today
+  # (c) screen_finding_units(["...employees in China."]) → is_junk demoted to False by _apply_precision_narrowing today
+
+GREEN (after fix):
+  Part 1 deterministic:
+    assert is_truncated_fragment("...contributing 20% of GDP within C") is True    # lone-letter-after-connective leg ("within")
+    assert is_truncated_fragment("...manicurists and pedicurists is") is True       # copula/aux leg ("is", no terminal punct)
+  Part 2 LLM path:
+    with PG_SPAN_QUALITY_GATE on + stubbed judge returning truncation for "...employees in China.",
+    _apply_precision_narrowing(...) survives==True (no longer demoted on ends-complete) → verdict.is_junk True → unit WITHHELD from the finding surface; a body-retention assertion confirms the same text still present in sections_concat/bibliography.
+
+PRECISION-REGRESSION (must remain False / clean — over-strip is worse than a leak, §-1.3):
+  assert is_truncated_fragment("Patients received vitamin C") is False            # lone letter, prev "vitamin"∉connective set
+  assert is_truncated_fragment("...had type A") is False                          # prev "type"∉set
+  assert is_truncated_fragment("...the group it was compared with.") is False     # stranded preposition WITH terminal punct
+  assert is_truncated_fragment("The effect is as strong as it is.") is False      # copula but terminal punct present
+  assert is_truncated_fragment("Grade B disease was observed.") is False          # single cap not trailing
+  Run existing key_findings + weighted_enrichment + span_quality_gate unit suites to confirm no legacy truncation/keep-list case regresses.
+
+## Faithfulness-neutral: True
+Both parts are strictly WITHHOLD-from-render-surface (flag / drop-in-place / header-swap), never DELETE. The strict_verify / NLI entailment / 4-role D8 / provenance span-grounding engine is not touched — these predicates run downstream of it on already-verified rendered text. §-1.3 honored: no source, supporting_member, or citation count is dropped; the truncated span stays in the body/evidence-pool/bibliography and only its use as a headline/finding unit is suppressed. This STRENGTHENS faithful presentation (a broken span cannot lead as a finding) without relaxing any gate. No hard cap / target / thinner is introduced; the new legs are grammatical-completeness signals, not number-forcing knobs.
+
+## Risk
+1) The copula leg overrides the _SHORT_OK_BOUNDARY_TOKENS whitelist for "is"; the terminal-punctuation gate is what keeps it precise — a rare legit clause ending on a bare unpunctuated copula would be withheld from the finding surface only (still in body). Acceptable under over-strip-is-worse-than-leak because it is a summary-surface suppression, not a delete. 2) The lone-letter-after-connective set must NOT include nouns; keep it to prepositions/articles/conjunctions or it will start eating "vitamin C". 3) CONSIDERED AND REJECTED: simply flipping `_sanitize_report_line` to `require_sentence_form=True` — it would activate `_is_unrenderable_sentence_form` and catch (a)+(b), but that leg drops ANY unit lacking terminal punctuation, and `_sanitize_report_line` splits body prose into per-[N] segments where a legitimate mid-sentence segment routinely lacks terminal punctuation → mass over-drop of real body prose. The narrow copula/lone-letter legs avoid that. 4) Part 2 (c) trades some precision for recall on the clause-cut class; mitigate by keeping the judge's confidence floor and the narrowed prompt, and by leaving the two separable FP demotions intact. 5) Part 2 requires a paid fresh run to validate (per project memory, a banked replay cannot validate a fetch/extraction-side fix); Part 1 is deterministic and validates offline.
+
+Confidence: high
