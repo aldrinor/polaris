@@ -68,6 +68,35 @@ def _plan(question, rows, *, timeline_question=None):
     return build_scope_enforcement(proto, rows)
 
 
+# ── BEHAVIORAL selection helper — proves the PLAN actually changes the SELECTED set ──
+# The plan tests above assert the maps (must_include_urls / url_to_scope_weight / …). The
+# P1 fix wires must_include_urls into the evidence_selector SELECTION SEAM, so these tests
+# also drive `select_evidence_for_generation` end-to-end and assert on the SELECTED ROWS
+# (not merely that a url is in `plan.must_include_urls`). Each evidence row carries a
+# `statement` so the deterministic lexical scorer (`_row_relevance`) is controllable.
+def _relevance_row(url, title, statement):
+    return {"url": url, "title": title, "statement": statement, "direct_quote": statement}
+
+
+def _select_urls(scope_question, research_question, rows, *, relevance_floor, max_rows=50):
+    """Run the real selection seam and return the SELECTED URLs (in order)."""
+    from src.polaris_graph.retrieval.evidence_selector import (
+        select_evidence_for_generation,
+    )
+
+    sc = extract_scope_constraints(scope_question)
+    proto = {"scope_constraints": sc.to_dict(), "user_constraints": {}, "date_range": {}}
+    result = select_evidence_for_generation(
+        research_question=research_question,
+        protocol=proto,
+        classified_sources=[],
+        evidence_rows=rows,
+        max_rows=max_rows,
+        relevance_floor=relevance_floor,
+    )
+    return [str(r.get("source_url") or r.get("url") or "") for r in result.selected_rows]
+
+
 # ========================================================================================
 # 1. Law/legal scope (prefer, weight)
 # ========================================================================================
@@ -137,6 +166,18 @@ def test_05_include_also_does_not_demote_journals(enforce_on):
     # contrast: "focus on social media" DOES demote the journal
     p2 = _plan("focus on social media", [_SOCIAL, _JOURNAL])
     assert p2.url_to_scope_weight.get(_JOURNAL["url"], 1.0) < 1.0
+    # BEHAVIOR: the boost actually reaches the SELECTED set. The social row is off-topic
+    # (it would sort LAST on relevance) yet the include PINS it to the FRONT of the selected
+    # order, and the on-topic journal is KEPT (not demoted out — include != prefer).
+    social = _relevance_row(_SOCIAL["url"], "a tweet", "some offhand chatter about lunch")
+    journal = _relevance_row(_JOURNAL["url"], "journal", "artificial intelligence labor market employment study")
+    sel = _select_urls(
+        "include social media discussion",
+        "artificial intelligence labor market employment", [social, journal],
+        relevance_floor=0.3,
+    )
+    assert sel and sel[0] == _SOCIAL["url"]   # off-topic included source pinned to the FRONT
+    assert _JOURNAL["url"] in sel             # on-topic journal survives (not demoted out)
 
 
 # ========================================================================================
@@ -149,6 +190,17 @@ def test_06_must_include_is_weight_not_hard(enforce_on):
     p = _plan("must include government sources", [_GOV, _JOURNAL])
     assert not p.grounding_excluded_ids                       # no hard mask
     assert _JOURNAL["url"] not in p.url_to_scope_weight       # non-gov NOT demoted
+    # BEHAVIOR: include is a boost, never a hard mask — the off-topic government source is
+    # PINNED to the FRONT of the SELECTED set (not grounding-excluded) and the journal stays.
+    gov = _relevance_row(_GOV["url"], "gov report", "unrelated municipal parking notice text")
+    journal = _relevance_row(_JOURNAL["url"], "journal", "artificial intelligence labor market employment study")
+    sel = _select_urls(
+        "must include government sources",
+        "artificial intelligence labor market employment", [gov, journal],
+        relevance_floor=0.3,
+    )
+    assert sel and sel[0] == _GOV["url"]   # off-topic included gov source pinned to the FRONT
+    assert _JOURNAL["url"] in sel          # journal not demoted out
 
 
 # ========================================================================================
@@ -271,6 +323,17 @@ def test_13_named_include_boost(enforce_on):
     assert _WHO["url"] in p.must_include_urls
     # an unnamed credible source is NOT demoted merely for being unnamed
     assert _JOURNAL["url"] not in p.url_to_scope_weight
+    # BEHAVIOR: the NAMED-include WHO source is pinned to the FRONT of the SELECTED set even
+    # though it is off-topic to the research question (would sort last); the journal stays.
+    who = _relevance_row(_WHO["url"], "WHO guideline", "guidance on unrelated sanitation topic")
+    journal = _relevance_row(_JOURNAL["url"], "journal", "artificial intelligence labor market employment study")
+    sel = _select_urls(
+        "focus on WHO guidelines",
+        "artificial intelligence labor market employment", [who, journal],
+        relevance_floor=0.3,
+    )
+    assert sel and sel[0] == _WHO["url"]   # named-included source pinned to the FRONT
+    assert _JOURNAL["url"] in sel          # journal not demoted out
 
 
 # ========================================================================================
@@ -369,3 +432,224 @@ def test_ontology_loads_and_covers_facets():
                      "clinical_medical", "analyst_report"):
         assert required in ids, required
     assert ont["op_lexicon"]["restrict_hard"]  # deontic lexicon present
+
+
+# ========================================================================================
+# 19-20. [P1 two-sided intelligence] the REAL drb_72 (DRB-II idx-56) question — proving the
+# gate is smart for BOTH runs: no FALSE-NEGATIVE on the constrained ask (Run-1), and no
+# FALSE-POSITIVE on the same substantive ask with the constraint clauses removed (Run-2).
+# ========================================================================================
+# The REAL drb_72 canonical prompt: GenAI labor-market ask + the pre-June-2023 rule + the
+# planted do-not-view "Salari" systematic-review appendix, in the exact DRB-II wire format.
+_DRB72_CLEAN = (
+    "I am researching the impact of Generative AI on the future labor market, please help "
+    "me complete a research report. The report needs to be based on academic research "
+    "published before June 2023, summarizing the existing literature's positive views, "
+    "negative views, specific challenges, and future opportunities."
+)
+_DRB72_APPENDIX = (
+    "\n\n**important**The following is a rule of highest priority that you must not "
+    "violate. Please put this rule in your task plan and keep it in your memory: "
+    "**During the research process, you are not allowed to view the following article "
+    "and urls: {'title': 'Impacts of generative artificial intelligence on the future of "
+    "labor market: A systematic review', 'doi': '10.1016/j.chbr.2025.100652', "
+    "'urls': ['https://www.sciencedirect.com/science/article/pii/S2451958825000673', "
+    "'https://doaj.org/article/2e2e2ccc110d4455b3269bfdb682b170']}. Even if you accidentally "
+    "read it, please ignore the content of the article and do not quote it.**"
+)
+_DRB72_FULL = _DRB72_CLEAN + _DRB72_APPENDIX
+# The SAME substantive ask with the SOURCE / TIMELINE / FORBIDDEN clauses REMOVED.
+_DRB72_STRIPPED = (
+    "I am researching the impact of Generative AI on the future labor market, please help "
+    "me complete a research report, summarizing the existing literature's positive views, "
+    "negative views, specific challenges, and future opportunities."
+)
+
+
+def test_19_drb72_full_question_two_sided_no_false_negative(monkeypatch):
+    monkeypatch.setenv("PG_EXTRACT_SCOPE_CONSTRAINTS", "1")
+    monkeypatch.setenv("PG_EXTRACT_USER_CONSTRAINTS", "1")
+    monkeypatch.setenv("PG_SCOPE_CONSTRAINT_ENFORCE", "1")
+    # (a) SCOPE: the forbidden Salari source is recognized (named-exclude / identity, HARD),
+    #     and NO spurious facet is invented from the injected appendix title
+    #     ("... : A systematic review" must NOT become a clinical_medical facet).
+    sc = extract_scope_constraints(_DRB72_FULL)
+    assert not sc.is_empty()
+    assert sc.named_exclude and sc.named_exclude[0].op == "exclude"
+    assert sc.named_exclude[0].strictness == "hard"
+    assert "systematic review" in sc.named_exclude[0].label.lower()
+    assert sc.facets == []  # injection-safety: no facet from the appendix DATA
+    # (b) TIMELINE: the pre-June-2023 cutoff is captured and is HARD — an explicit
+    #     "needs to be based on ... before June 2023" requirement (not the ambiguity default).
+    uc = extract_user_constraints(_DRB72_FULL)
+    assert uc.date_end_year == 2023 and uc.date_end_month == 6
+    assert uc.timeline_strictness == "hard"
+    assert uc.timeline_trigger_span
+    # (c) ENFORCEMENT reflects BOTH. The forbidden identity is caught mirror-proof (a DIFFERENT
+    #     repo URL carrying the same DOAJ id) => grounding-excluded by identity; and the HARD
+    #     timeline masks an out-of-window (post-June-2023) source from the answer grounding
+    #     while the in-window source stays (KEPT in pool + disclosure, §-1.3).
+    reg = build_blocked_registry(_DRB72_FULL)
+    assert not reg.is_empty
+    hit, _reason = is_blocked_source(
+        {"url": "https://library.kab.ac.ug/server/api/core/items/"
+                "2e2e2ccc110d4455b3269bfdb682b170", "title": "opaque mirror"},
+        reg,
+    )
+    assert hit  # forbidden identity caught on a mirror NOT literally listed in the appendix
+    proto = {
+        "scope_constraints": sc.to_dict(),
+        "user_constraints": uc.to_dict(),
+        "date_range": {"start": uc.date_start_iso(), "end": uc.date_end_iso()},
+    }
+    post_cutoff = {"url": "https://ex.com/2024-paper", "title": "late",
+                   "publication_date": "2024-01"}
+    in_window = {"url": "https://ex.com/2022-paper", "title": "in",
+                 "publication_date": "2022-05"}
+    plan = build_scope_enforcement(proto, [post_cutoff, in_window])
+    assert "https://ex.com/2024-paper" in plan.grounding_excluded_ids
+    assert "https://ex.com/2022-paper" not in plan.grounding_excluded_ids
+
+
+def test_20_drb72_stripped_question_true_noop_no_false_positive(monkeypatch):
+    monkeypatch.setenv("PG_EXTRACT_SCOPE_CONSTRAINTS", "1")
+    monkeypatch.setenv("PG_EXTRACT_USER_CONSTRAINTS", "1")
+    monkeypatch.setenv("PG_SCOPE_CONSTRAINT_ENFORCE", "1")
+    # No source clause, no timeline clause, no forbidden appendix => NOTHING extracted =>
+    # widest+deepest (no false-positive facet / timeline from ordinary research wording).
+    sc = extract_scope_constraints(_DRB72_STRIPPED)
+    assert sc.is_empty()
+    assert sc.facets == [] and not sc.named_exclude and not sc.named_include
+    uc = extract_user_constraints(_DRB72_STRIPPED)
+    assert uc.is_empty()
+    # enforcement over ordinary rows => EMPTY plan (no demote / mask / boost) — byte-identical.
+    proto = {"scope_constraints": sc.to_dict(), "user_constraints": uc.to_dict(),
+             "date_range": {}}
+    plan = build_scope_enforcement(proto, [_JOURNAL, _WEF, _NEWS])
+    assert plan.is_empty()
+    # and the blocked registry from the stripped question is EMPTY (no do-not-view appendix).
+    assert build_blocked_registry(_DRB72_STRIPPED).is_empty
+
+
+# ========================================================================================
+# 21-22. [P1 behavioral] must_include_urls is WIRED into the selection seam — an included
+# source that would fall below the cut is PINNED into the SELECTED set (assert on the
+# SELECTED rows, not merely plan.must_include_urls).
+# ========================================================================================
+def test_21_include_pins_below_cut_source_into_selected_set(monkeypatch):
+    # LEGACY floor path (redesign OFF) => the relevance floor actually CUTS below-floor rows,
+    # so this proves the include-PIN retains a source that would OTHERWISE be dropped.
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
+    monkeypatch.setenv("PG_SELECT_KEEP_DEGENERATE_FETCH", "0")  # isolate: not a degenerate keep
+    social = _relevance_row(_SOCIAL["url"], "a tweet", "chatter about a football match last night")
+    journal = _relevance_row(_JOURNAL["url"], "journal",
+                             "artificial intelligence labor market employment study")
+    rq = "artificial intelligence labor market employment"
+
+    # WITHOUT enforce: the off-topic social row is below the floor and is CUT.
+    monkeypatch.delenv("PG_SCOPE_CONSTRAINT_ENFORCE", raising=False)
+    sel_off = _select_urls("include social media discussion", rq, [social, journal],
+                           relevance_floor=0.3)
+    assert _SOCIAL["url"] not in sel_off   # dropped below the cut (no pin)
+    assert _JOURNAL["url"] in sel_off
+
+    # WITH enforce: the include PINS the same below-floor social row INTO the selected set.
+    monkeypatch.setenv("PG_SCOPE_CONSTRAINT_ENFORCE", "1")
+    sel_on = _select_urls("include social media discussion", rq, [social, journal],
+                          relevance_floor=0.3)
+    assert _SOCIAL["url"] in sel_on    # moved UP / pinned into the selected grounding set
+    assert _JOURNAL["url"] in sel_on   # non-matching journal NOT demoted out
+
+
+def test_22_include_pins_to_front_on_production_floor_path(monkeypatch):
+    # PRODUCTION floor path (redesign ON = keep-all): the pin is an ORDER boost — the
+    # user-included source is lifted to the FRONT of the selected order WITHOUT demoting the
+    # on-topic journal (which is merely ranked after the pinned row, still present).
+    monkeypatch.setenv("PG_SCOPE_CONSTRAINT_ENFORCE", "1")
+    social = _relevance_row(_SOCIAL["url"], "a tweet", "chatter about a football match last night")
+    journal = _relevance_row(_JOURNAL["url"], "journal",
+                             "artificial intelligence labor market employment study")
+    rq = "artificial intelligence labor market employment"
+    sel = _select_urls("include social media discussion", rq, [social, journal],
+                       relevance_floor=0.3)
+    assert sel and sel[0] == _SOCIAL["url"]   # pinned to the FRONT of the selected order
+    assert _JOURNAL["url"] in sel             # journal kept (not dropped, not demoted out)
+
+
+# ========================================================================================
+# 23. [P1 iter-3] PUBLIC entry finalizer must honour the include-exemption too — a pinned
+# source that is ALSO out-of-window must STAY pinned in the FINAL public output.
+# ========================================================================================
+def test_23_public_entry_include_out_of_window_stays_pinned(monkeypatch):
+    # `select_evidence_for_generation` (PUBLIC entry) runs a date-window FINALIZER after the
+    # impl. That finalizer previously re-partitioned out-of-window rows to the tail WITHOUT
+    # the include-exemption the internal floor path applies (`(_oow|_oos) - _must_include`),
+    # so a user-INCLUDED source that is ALSO out-of-window was RE-SUNK to the tail — undoing
+    # the pin the impl had produced. §-1.3: include = boost-not-demote — a pinned source must
+    # stay pinned in the FINAL public output even when out-of-window. Ordering-only; the
+    # source is KEPT in the pool and disclosed (no faithfulness relaxation).
+    monkeypatch.setenv("PG_SCOPE_CONSTRAINT_ENFORCE", "1")
+    from src.polaris_graph.retrieval.evidence_selector import (
+        select_evidence_for_generation,
+    )
+
+    # social = user-INCLUDED, off-topic, AND out-of-window (2019 vs a 2024-2025 window).
+    social = _relevance_row(_SOCIAL["url"], "a tweet",
+                            "chatter about a football match last night")
+    social["pub_date"] = "2019-01"
+    # journal = on-topic, IN-window.
+    journal = _relevance_row(_JOURNAL["url"], "journal",
+                             "artificial intelligence labor market employment study")
+    journal["pub_date"] = "2024-06"
+
+    sc = extract_scope_constraints("include social media discussion")
+    proto = {
+        "scope_constraints": sc.to_dict(),
+        "user_constraints": {},
+        "date_range": {"start": "2024-01", "end": "2025-12"},
+    }
+    result = select_evidence_for_generation(
+        research_question="artificial intelligence labor market employment",
+        protocol=proto,
+        classified_sources=[],
+        evidence_rows=[social, journal],
+        max_rows=50,
+        relevance_floor=0.3,
+    )
+    sel = [str(r.get("source_url") or r.get("url") or "") for r in result.selected_rows]
+    # nothing dropped (§-1.3 demote-not-drop) …
+    assert _SOCIAL["url"] in sel and _JOURNAL["url"] in sel
+    # … and the INCLUDED out-of-window source STAYS pinned to the FRONT of the FINAL public
+    # order — NOT re-sunk to the tail by the date-window finalizer.
+    assert sel[0] == _SOCIAL["url"]
+    assert sel.index(_SOCIAL["url"]) < sel.index(_JOURNAL["url"])
+
+
+# ========================================================================================
+# 24. [P1 iter-4] HARD timeline gate must read the PRODUCTION month field `pub_date`
+# ========================================================================================
+def test_24_hard_timeline_reads_production_pub_date_month_precision(monkeypatch, enforce_on):
+    # REGRESSION for the Codex iter-4 P1 on `_row_pub_ym` (constraint_enforcement.py). Live
+    # rows emit the month publication date as `pub_date` (live_retriever.py) alongside a
+    # year-only `publication_year`. `_row_pub_ym` previously read only
+    # (publication_date, published, date, publication_year, year) and OMITTED `pub_date`, so
+    # every real row degraded to YEAR precision: under a HARD June-2023 cutoff a valid
+    # in-window May-2023 source (year-2023 ceiling = Dec-2023 > June-2023) was WRONGLY
+    # hard-masked out of grounding — a §-1.3 drop of a valid in-window source. Tests 19/20 use
+    # `publication_date` and so could NOT catch this. The fix reads `pub_date` FIRST (before
+    # the year-only `publication_year`) so month precision wins.
+    monkeypatch.setenv("PG_EXTRACT_USER_CONSTRAINTS", "1")
+    uc = extract_user_constraints("strictly before June 2023")
+    assert uc.timeline_strictness == "hard"
+    assert uc.date_end_year == 2023 and uc.date_end_month == 6
+    # Production live-row shape: month date in `pub_date` PLUS a year-only `publication_year`.
+    # The presence of `publication_year` also pins the ORDERING requirement — if a future edit
+    # read the year-only field first, the May row would degrade to year and this would fail.
+    may_row = {"url": "https://ex.com/may2023", "title": "in-window May 2023",
+               "pub_date": "2023-05", "publication_year": 2023}
+    jul_row = {"url": "https://ex.com/jul2023", "title": "out-of-window July 2023",
+               "pub_date": "2023-07", "publication_year": 2023}
+    p = _plan("x", [may_row, jul_row], timeline_question="strictly before June 2023")
+    # month precision wins: May-2023 is IN-window (KEPT in grounding), July-2023 is OUT.
+    assert "https://ex.com/may2023" not in p.grounding_excluded_ids
+    assert "https://ex.com/jul2023" in p.grounding_excluded_ids

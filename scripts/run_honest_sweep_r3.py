@@ -11227,6 +11227,11 @@ async def run_one_query(
         # decision (the per-claim faithfulness floor) are UNTOUCHED. Default-OFF byte-identical.
         _weighted_corpus_on = weighted_corpus_gate_enabled()
         _wc_disclosure_dict: dict | None = None  # set on the weighted-gate proceed path (manifest field)
+        # I-scope-001: the durable scope+timeline adherence DISCLOSURE dict. Set (non-None)
+        # ONLY when the user ACTUALLY stated a scope or timeline constraint AND enforcement is
+        # ON (the grounding-mask seam ~13070 fills it). None => no scope_timeline_disclosure.json,
+        # no manifest scope field, no banner => byte-identical no-constraint / flag-OFF run (§3/§4).
+        _scope_disclosure_dict: dict | None = None
         # I-deepfix-001 W2 (#1344): the durable tier-deviation DISCLOSURE profile. Set (non-None)
         # ONLY when the W2 disclosure path fires (material deviation + PG_CORPUS_TIER_DISCLOSURE_MODE
         # ON + run approved); None otherwise => no sidecar, no manifest key => byte-identical W2-OFF.
@@ -13076,6 +13081,99 @@ async def run_one_query(
                 label="selection",
             )
             evidence_for_gen = _efg_blk_kept
+
+        # I-scope-001 [FIX-2]: the SCOPE HARD-EXCLUDE grounding mask. `evidence_for_gen` is the
+        # exact set the generator will bill, so — right beside the blocked-reference hard drop
+        # — mask out any source the user's HARD scope (restrict-to / exclude-hard) or HARD
+        # timeline excludes from the ANSWER GROUNDING. Masking this single set propagates to
+        # multi_section_generator (grounding) + provenance/strict_verify (pool) + bibliography +
+        # render in ONE place. Disclosed-LOUD (scope_grounding_excluded_selection.json); the
+        # excluded rows are KEPT in the pool + disclosure (§-1.3 — NOT deleted). Gated
+        # PG_SCOPE_CONSTRAINT_ENFORCE inside build_scope_enforcement => empty plan => no-op =>
+        # byte-identical. The faithfulness engine (strict_verify / NLI / 4-role D8) is untouched.
+        try:
+            from src.polaris_graph.retrieval.constraint_enforcement import (  # noqa: PLC0415
+                build_scope_enforcement as _build_scope_enforcement_sel,
+            )
+            _scope_plan_sel = _build_scope_enforcement_sel(protocol, evidence_for_gen)
+            if _scope_plan_sel.grounding_excluded_ids:
+                _excl = _scope_plan_sel.grounding_excluded_ids
+
+                def _efg_url(_r: "Any") -> str:
+                    if isinstance(_r, dict):
+                        return str(_r.get("source_url") or _r.get("url") or "")
+                    return str(getattr(_r, "source_url", "") or getattr(_r, "url", "") or "")
+
+                _kept_efg = [_r for _r in evidence_for_gen if _efg_url(_r) not in _excl]
+                _masked_n = len(evidence_for_gen) - len(_kept_efg)
+                if _masked_n > 0:
+                    _log(
+                        f"[scope_grounding] I-scope-001: masked {_masked_n} out-of-scope/"
+                        f"out-of-window source(s) from the billed grounding set "
+                        f"({len(evidence_for_gen)} -> {len(_kept_efg)}) at the user's explicit "
+                        "HARD scope/timeline — KEPT in corpus + disclosure (§-1.3), withheld "
+                        "only from answer grounding. strict_verify + 4-role D8 unchanged."
+                    )
+                    try:
+                        (run_dir / "scope_grounding_excluded_selection.json").write_text(
+                            json.dumps(
+                                {"grounding_excluded": _scope_plan_sel.scope_excluded_records,
+                                 "disclosed_rows": _scope_plan_sel.scope_disclosed_rows},
+                                indent=2, sort_keys=True, default=str,
+                            ) + "\n",
+                            encoding="utf-8",
+                        )
+                    except Exception as _sx:  # noqa: BLE001 - telemetry best-effort
+                        _log(f"[scope_grounding] telemetry write skipped: {_sx}")
+                    evidence_for_gen = _kept_efg
+            # I-scope-001: build the durable adherence disclosure dict ONLY when the user
+            # ACTUALLY stated a scope or timeline constraint (§4 P1 conditional). Empty
+            # constraints => stays None => no json / manifest field / banner (byte-identical).
+            _sc_stated = bool((protocol.get("scope_constraints") or {}).get("facets")
+                              or (protocol.get("scope_constraints") or {}).get("named_include")
+                              or (protocol.get("scope_constraints") or {}).get("named_exclude"))
+            _uc_block = protocol.get("user_constraints") or {}
+            _tl_stated = bool(
+                _uc_block.get("date_start_iso") or _uc_block.get("date_end_iso")
+                or _uc_block.get("language")
+            )
+            if _sc_stated or _tl_stated:
+                _scope_disclosure_dict = {
+                    "scope_constraints_stated": _sc_stated,
+                    "timeline_constraint_stated": _tl_stated,
+                    "scope_constraints": protocol.get("scope_constraints") or {},
+                    "timeline": {
+                        "date_start_iso": _uc_block.get("date_start_iso"),
+                        "date_end_iso": _uc_block.get("date_end_iso"),
+                        "timeline_strictness": _uc_block.get("timeline_strictness", "weight"),
+                        "timeline_trigger_span": _uc_block.get("timeline_trigger_span", ""),
+                        "language": _uc_block.get("language"),
+                    },
+                    "enforcement": {
+                        "demoted_out_of_scope": len(_scope_plan_sel.url_to_scope_weight),
+                        "hard_masked_from_grounding": len(_scope_plan_sel.grounding_excluded_ids),
+                        "boost_included": len(_scope_plan_sel.must_include_urls),
+                        "records": _scope_plan_sel.scope_excluded_records,
+                        "disclosed_rows": _scope_plan_sel.scope_disclosed_rows,
+                    },
+                    "faithfulness_safe": True,
+                    "note": (
+                        "Scope/timeline is a SELECTION/WEIGHT/DISCLOSURE layer. HARD-excluded "
+                        "sources REMAIN in the corpus and this disclosure; they were withheld "
+                        "only from the answer grounding at the user's explicit instruction. The "
+                        "faithfulness engine (strict_verify / NLI / 4-role D8) is byte-untouched."
+                    ),
+                }
+                try:
+                    (run_dir / "scope_timeline_disclosure.json").write_text(
+                        json.dumps(_scope_disclosure_dict, indent=2, sort_keys=True,
+                                   default=str) + "\n",
+                        encoding="utf-8",
+                    )
+                except Exception as _sdx:  # noqa: BLE001 - telemetry best-effort
+                    _log(f"[scope_grounding] disclosure write skipped: {_sdx}")
+        except Exception as _scope_sel_exc:  # noqa: BLE001 - fail-open: scope never aborts
+            _log(f"[scope_grounding] I-scope-001 enforcement skipped ({_scope_sel_exc})")
 
         # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
         # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
@@ -16652,6 +16750,15 @@ async def run_one_query(
         if _w2_tier_disclosure_profile is not None:
             manifest["corpus_tier_disclosure_profile"] = _w2_tier_disclosure_profile
 
+        # I-scope-001: surface the scope+timeline adherence disclosure on the SUCCESS manifest
+        # ONLY when the user ACTUALLY stated a scope/timeline constraint (the grounding-mask
+        # seam set _scope_disclosure_dict). None => key ABSENT => byte-identical no-constraint /
+        # flag-OFF manifest (§4 P1). The full per-decision record lives in
+        # scope_timeline_disclosure.json; the manifest carries the summary. Advisory — read by
+        # NO abort/approval/release gate.
+        if _scope_disclosure_dict is not None:
+            manifest["scope_timeline_disclosure"] = _scope_disclosure_dict
+
         # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
         # in the manifest (gap #19 extension). ON-mode only — the key is absent
         # in OFF, preserving the legacy manifest shape byte-for-byte.
@@ -17262,6 +17369,145 @@ async def run_one_query(
             # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
             # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
             # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+            # I-scope-001 [P2] CLAIM-LEVEL named-exclude backstop (§2.6): the render-seam
+            # chokepoint that sees ALL claim units (section NN-NNN + depth DS-*) in ONE place.
+            # A blocked-mirror source that was span-verified and counted as VERIFIED support is
+            # redacted REGARDLESS of its D8 verdict — compliance is a prohibition, not a
+            # faithfulness call. This STRENGTHENS faithfulness (drops MORE non-compliant text);
+            # it never relaxes a gate. Empty registry (no do-not-view appendix / kill-switch OFF)
+            # => byte-identical no-op.
+            #
+            # FAIL-CLOSED (P1 fix): a blocked-source claim whose sentence cannot be pinned to a
+            # redactable unit MUST NOT survive in report.md. Prior code caught the redactor's
+            # ReportRedactionError under a broad `except` and skipped (fail-OPEN) — the blocked
+            # claim then stayed in report.md while scope_gate_redacted.json (written eagerly
+            # inside the gate) already claimed it was redacted: a disclosure LIE + game-rule
+            # leak. Now the redaction is FAIL-CLOSED (terminal report_redaction_failed abort,
+            # release forbidden — mirrors the held-unsupported path), the disclosure file is
+            # written ONLY AFTER a real reconcile and records ONLY the claims ACTUALLY redacted
+            # from report.md, and the outer `except` is narrowed to INFRA errors so it can never
+            # again swallow a redaction failure.
+            try:
+                from src.polaris_graph.retrieval.blocked_reference_registry import (  # noqa: PLC0415
+                    build_blocked_registry as _build_named_exclude_registry,
+                )
+                from src.polaris_graph.retrieval.forbidden_identity_gate import (  # noqa: PLC0415
+                    scope_gate_redact_claims as _scope_gate_redact_claims,
+                )
+                _named_reg = _build_named_exclude_registry(q.get("question", ""))
+                _audit_map_path_sc = run_dir / "four_role_claim_audit.json"
+                if (not _named_reg.is_empty) and _audit_map_path_sc.is_file():
+                    _audit_map_sc = json.loads(
+                        _audit_map_path_sc.read_text(encoding="utf-8")
+                    )
+                    # evidence_id -> source row (url/doi/title) from evidence_pool.json.
+                    _ev_row_by_id: dict[str, dict] = {}
+                    _ep_path_sc = run_dir / "evidence_pool.json"
+                    if _ep_path_sc.is_file():
+                        _ep_sc = json.loads(_ep_path_sc.read_text(encoding="utf-8"))
+                        _ep_items_sc = _ep_sc if isinstance(_ep_sc, list) else (
+                            _ep_sc.get("evidence") or _ep_sc.get("items") or []
+                        )
+                        for _it in _ep_items_sc:
+                            if isinstance(_it, dict):
+                                _eid = _it.get("evidence_id") or _it.get("id")
+                                if _eid:
+                                    _ev_row_by_id[str(_eid)] = _it
+                    # Build claim units carrying their supporting sources (resolved by id).
+                    _claim_units = []
+                    for _cid, _meta in _audit_map_sc.items():
+                        if not isinstance(_meta, dict):
+                            continue
+                        _srcs = [
+                            _ev_row_by_id[str(_e)]
+                            for _e in (_meta.get("evidence_ids") or [])
+                            if str(_e) in _ev_row_by_id
+                        ]
+                        _claim_units.append(
+                            {"claim_id": _cid, "supporting_sources": _srcs}
+                        )
+                    # Identify the blocked-source claims WITHOUT writing the disclosure file yet
+                    # (run_dir=None): scope_gate_redacted.json is written ONLY after the report is
+                    # ACTUALLY reconciled below, so it can never claim a redaction that didn't
+                    # happen (the fail-open disclosure lie this fixes).
+                    _kept_units, _redacted_units = _scope_gate_redact_claims(
+                        _claim_units, _named_reg, log=_log, run_dir=None,
+                    )
+                    if _redacted_units:
+                        _scope_blocked_verdicts = {
+                            _r["claim_id"]: "SCOPE_BLOCKED" for _r in _redacted_units
+                        }
+                        from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                            ReportRedactionError as _ScopeReportRedactionError,
+                            reconcile_report_against_verdicts as _reconcile_sc,
+                        )
+                        _rp_sc = run_dir / "report.md"
+                        if _rp_sc.is_file():
+                            try:
+                                _sc_res = _reconcile_sc(
+                                    _rp_sc.read_text(encoding="utf-8"),
+                                    _scope_blocked_verdicts,
+                                    _audit_map_sc,
+                                )
+                            except _ScopeReportRedactionError as _sc_redact_exc:
+                                # FAIL-CLOSED: a blocked-source claim IS present in report.md but
+                                # could not be pinned to a redactable unit. Refuse to ship it —
+                                # terminal report-redaction abort, release forbidden (mirrors the
+                                # held-unsupported ReportRedactionError handler). The unredacted
+                                # report.md stays on disk for the curator; it is NOT released, and
+                                # NO disclosure file is written (nothing was safely redacted, so
+                                # the disclosure stays honest).
+                                summary_status = "report_redaction_failed"
+                                unified_status = to_unified_status(summary_status)
+                                manifest["status"] = unified_status
+                                manifest["release_allowed"] = False
+                                manifest["report_redaction_error"] = (
+                                    f"scope named-exclude backstop: {_sc_redact_exc}"
+                                )
+                                _log(
+                                    f"[scope_redact]  FAIL-CLOSED: {_sc_redact_exc} -> "
+                                    "abort_report_redaction_failed (blocked-source claim could not "
+                                    "be pinned; report HELD, release_allowed=False, NOT shipped)"
+                                )
+                            else:
+                                _rp_sc.write_text(_sc_res.report_text, encoding="utf-8")
+                                # HONEST disclosure: record ONLY the claims ACTUALLY redacted from
+                                # report.md. A blocked claim whose prose was already absent is
+                                # compliant but was NOT redacted here — do not claim it was.
+                                _actually_redacted_ids = {
+                                    rc.claim_id for rc in _sc_res.redacted
+                                }
+                                _disclosed_redactions = [
+                                    _r for _r in _redacted_units
+                                    if _r["claim_id"] in _actually_redacted_ids
+                                ]
+                                if _disclosed_redactions:
+                                    try:
+                                        (run_dir / "scope_gate_redacted.json").write_text(
+                                            json.dumps(
+                                                _disclosed_redactions, indent=2,
+                                                sort_keys=True, default=str,
+                                            ) + "\n",
+                                            encoding="utf-8",
+                                        )
+                                    except OSError as _sgx:
+                                        _log(
+                                            f"[scope_redact] disclosure write skipped: {_sgx}"
+                                        )
+                                _log(
+                                    f"[scope_redact] I-scope-001: reconciled report.md — redacted "
+                                    f"{len(_actually_redacted_ids)} of {len(_redacted_units)} "
+                                    "blocked-source claim(s) REGARDLESS of D8 verdict "
+                                    f"(already_absent={len(_sc_res.already_absent)}; "
+                                    "scope_gate_redacted.json). Faithfulness STRENGTHENED."
+                                )
+            except (
+                ImportError, OSError, ValueError, KeyError, TypeError, AttributeError,
+            ) as _scope_claim_exc:  # noqa: BLE001 - fail-open on INFRA/setup errors ONLY; a
+                # ReportRedactionError is handled FAIL-CLOSED in the inner try above and never
+                # reaches here, so this narrowed handler can no longer swallow a redaction leak.
+                _log(f"[scope_redact] I-scope-001 claim backstop skipped ({_scope_claim_exc})")
+
             if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
                 "0", "false", "False",
             ):

@@ -235,6 +235,29 @@ def test_scope_gate_noop_when_registry_empty(tmp_path) -> None:
     assert not (tmp_path / "scope_gate_redacted_precompose.json").exists()
 
 
+def test_scope_gate_run_dir_none_identifies_without_writing_disclosure(
+    registry: BlockedRegistry, tmp_path
+) -> None:
+    """FAIL-CLOSED contract (run_honest_sweep_r3 claim backstop): identification is DECOUPLED
+    from disclosure. With run_dir=None the gate still IDENTIFIES + returns the blocked claim
+    but writes NO scope_gate_redacted.json — so the runner can write the disclosure ONLY after
+    a REAL reconcile, and never claim a redaction that a fail-closed abort prevented."""
+    from src.polaris_graph.retrieval.forbidden_identity_gate import (
+        scope_gate_redact_claims,
+    )
+
+    claims = [
+        {"claim_id": "c1", "supporting_sources": [{"url": _KAB_DOAJ_MIRROR,
+                                                   "title": "opaque"}]},
+        {"claim_id": "c2", "supporting_sources": [{"url": "https://nature.com/x"}]},
+    ]
+    kept, redacted = scope_gate_redact_claims(claims, registry, run_dir=None)
+    assert {c["claim_id"] for c in kept} == {"c2"}
+    assert [r["claim_id"] for r in redacted] == ["c1"]  # identified for the runner to reconcile
+    # NO premature disclosure file anywhere (the eager write that made the fail-open lie).
+    assert not (tmp_path / "scope_gate_redacted.json").exists()
+
+
 # =========================================================================================
 # (d) fail-loud when a forbidden id is detected in the pool
 # =========================================================================================

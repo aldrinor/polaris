@@ -1042,6 +1042,16 @@ def _partition_out_of_window_last(
     return in_w + out_w
 
 
+def _partition_out_of_scope_last(
+    rows: list[dict[str, Any]], out_urls: set[str],
+) -> list[dict[str, Any]]:
+    """I-scope-001 generalization of ``_partition_out_of_window_last`` to the UNION of
+    out-of-window (timeline) + out-of-scope (source-type/jurisdiction) urls. Same stable-
+    partition, keep-all contract; returns the SAME object when ``out_urls`` is empty
+    (byte-identical no-constraint path)."""
+    return _partition_out_of_window_last(rows, out_urls)
+
+
 def _recency_enabled() -> bool:
     """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
     byte-identical prior ordering AND no recency telemetry."""
@@ -2222,6 +2232,8 @@ def _relevance_floor_selection(
     semantic_fell_back: bool = False,
     url_to_content_relevance_weight: dict[str, float] | None = None,
     url_to_date_weight: dict[str, float] | None = None,
+    url_to_scope_weight: dict[str, float] | None = None,
+    url_to_must_include: set[str] | None = None,
 ) -> EvidenceSelection:
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
 
@@ -2321,6 +2333,50 @@ def _relevance_floor_selection(
         w = _date_map.get(str(url))
         return 1.0 if w is None else float(w)
 
+    # I-scope-001: per-row SCOPE weight, joined by URL. It multiplies the ranking score
+    # EXACTLY like `_date_window_weight` — an out-of-scope source (user asked to prefer a
+    # source-type/jurisdiction) sinks LAST in the SELECTED set while staying KEPT (the floor
+    # comparison uses the RAW relevance, never this weight — §-1.3 WEIGHT-not-FILTER). The
+    # map holds ONLY non-default (< 1.0) weights, so when no scope is set (or the enforce
+    # flag is OFF) it is empty, this returns 1.0 for every row, and the sort is BYTE-
+    # IDENTICAL. The faithfulness engine (strict_verify / NLI / 4-role) is downstream +
+    # untouched.
+    _scope_map = url_to_scope_weight or {}
+
+    def _scope_weight(row: dict[str, Any]) -> float:
+        if not _scope_map:
+            return 1.0
+        url = row.get("source_url") or row.get("url") or ""
+        w = _scope_map.get(str(url))
+        return 1.0 if w is None else float(w)
+
+    # I-scope-001 P1 fix: the set of URLs the user explicitly INCLUDED (op='include' /
+    # named-include). Unlike `_scope_map` (a DEMOTE of non-matching sources under
+    # 'prefer'), an INCLUDE is an ADDITIVE BOOST / PIN of the matching source that does
+    # NOT demote anyone else (spec §2.2/§2.4 — include != prefer). It is wired two ways
+    # below, both no-ops when the set is empty (default / enforce-OFF => byte-identical):
+    #   1. `_floor_exempt` — a pinned source below the relevance floor is KEPT (on the
+    #      legacy redesign-OFF path it would otherwise be cut; the redesign default keeps
+    #      all rows anyway, so this only matters when the floor actually filters).
+    #   2. `_include_rank` — a leading sort-priority (0 for pinned, 1 for everyone else)
+    #      that lifts a pinned source to the FRONT of the SELECTED order WITHOUT changing
+    #      any other row's product/score. When the set is empty every row ranks 1 (a
+    #      constant leading key) so the sort RESULT is byte-identical to the prior order.
+    # `selection_relevance` is stamped from the RAW relevance (never inflated) — the boost
+    # is ORDERING-only, faithfulness-neutral; the ONE hard gate stays downstream + untouched.
+    _must_include = url_to_must_include or set()
+
+    def _is_must_include(row: dict[str, Any]) -> bool:
+        if not _must_include:
+            return False
+        url = row.get("source_url") or row.get("url") or ""
+        return str(url) in _must_include
+
+    def _include_rank(row: dict[str, Any]) -> int:
+        # 0 = pinned to the front; 1 = everyone else (relative order preserved). Empty
+        # set => 1 for ALL rows => constant leading key => byte-identical sort order.
+        return 0 if _is_must_include(row) else 1
+
     # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
     # below-floor marquee / required-entity row is also floor-EXEMPT. OFF =>
     # `_preserve_marquee` is False => predicate is byte-identical to the prior
@@ -2331,6 +2387,12 @@ def _relevance_floor_selection(
         if _is_anchor(row):
             return True
         if _preserve_marquee and _row_is_marquee_anchor(row):
+            return True
+        # I-scope-001 P1 fix: a user-INCLUDED source is floor-EXEMPT — it is pinned into
+        # the SELECTED set even when its lexical relevance is below the floor (the legacy
+        # redesign-OFF path would otherwise cut it). Empty include set => never fires =>
+        # byte-identical `_floor_exempt`.
+        if _is_must_include(row):
             return True
         return False
 
@@ -2440,8 +2502,12 @@ def _relevance_floor_selection(
     if _redesign_on:
         kept.sort(
             key=lambda s: (
+                # I-scope-001 P1: pinned (user-included) sources sort FIRST; empty
+                # include set => 1 for all => constant => byte-identical order.
+                _include_rank(s[3]),
                 -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
-                  * _content_relevance_weight(s[3]) * _date_window_weight(s[3])),
+                  * _content_relevance_weight(s[3]) * _date_window_weight(s[3])
+                  * _scope_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2449,8 +2515,9 @@ def _relevance_floor_selection(
     else:
         kept.sort(
             key=lambda s: (
+                _include_rank(s[3]),
                 -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])
-                  * _date_window_weight(s[3])),
+                  * _date_window_weight(s[3]) * _scope_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2766,6 +2833,21 @@ def select_evidence_for_generation(
             if isinstance(r, dict) and _row_out_of_window_ym(r, _s_idx, _e_idx)
         }
         _oow.discard("")
+        # I-scope-001 P1 (iter-3): a user-INCLUDED (pinned) source that is ALSO out-of-window
+        # must STAY pinned in the FINAL public output — include wins over the date demote for
+        # the SAME source (include != prefer; §-1.3 include=boost-not-demote). The internal
+        # floor path already exempts the pins (`(_oow_urls | _oos_urls) - _must_include_urls`);
+        # this finalizer runs AFTER it, so it must apply the SAME exemption or it re-sinks the
+        # pinned source to the tail (un-pinning it). Derived from the SAME pure plan builder as
+        # the impl; fail-open (never breaks the date-window finalizer) + gated behind
+        # PG_SCOPE_CONSTRAINT_ENFORCE => empty set => byte-identical when OFF / no include facet.
+        try:
+            from src.polaris_graph.retrieval.constraint_enforcement import (  # noqa: PLC0415
+                build_scope_enforcement,
+            )
+            _oow -= set(build_scope_enforcement(protocol, evidence_rows).must_include_urls)
+        except Exception:  # noqa: BLE001 — pin-exemption is fail-open (falls back to no exemption)
+            pass
         if not _oow:
             return result
         _parted = _partition_out_of_window_last(result.selected_rows, _oow)
@@ -2916,6 +2998,46 @@ def _select_evidence_for_generation_impl(
                 _date_demote_weight(), _date_window_disable_recency,
             )
 
+    # I-scope-001: build the per-URL SCOPE-WEIGHT demotion map — the GENERALIZATION of the
+    # date-window WEIGHT seam above to arbitrary user-stated source-type / jurisdiction
+    # facets. Gated PG_SCOPE_CONSTRAINT_ENFORCE (default OFF) inside build_scope_enforcement
+    # => an empty plan => `url_to_scope_weight` empty + `_oos_urls` empty => the sort key +
+    # tail partition are BYTE-IDENTICAL. A prefer/weight-demoted out-of-scope source sinks
+    # LAST while staying KEPT (§-1.3 WEIGHT-not-FILTER). The HARD grounding mask lives at the
+    # billed-set seam (run_honest_sweep_r3 ~13063), NOT here.
+    url_to_scope_weight: dict[str, float] = {}
+    _oos_urls: set[str] = set()
+    _must_include_urls: set[str] = set()
+    try:
+        from src.polaris_graph.retrieval.constraint_enforcement import (  # noqa: PLC0415
+            build_scope_enforcement,
+        )
+        _scope_plan = build_scope_enforcement(protocol, evidence_rows)
+        url_to_scope_weight = dict(_scope_plan.url_to_scope_weight)
+        _oos_urls = set(_scope_plan.out_of_scope_urls)
+        # I-scope-001 P1 fix: the user-INCLUDED URLs (op='include' / named-include). These
+        # get an ADDITIVE PIN into the SELECTED set (front of the order, floor-exempt) —
+        # they NEVER demote a non-matching source (include != prefer). Empty when no
+        # include facet OR PG_SCOPE_CONSTRAINT_ENFORCE OFF => byte-identical selection.
+        _must_include_urls = set(_scope_plan.must_include_urls)
+        if url_to_scope_weight:
+            _LOGGER.info(
+                "[select] I-scope-001: DEMOTED %d out-of-scope source(s) "
+                "(kept, sorted last — §-1.3 disclose, NOT dropped)",
+                len(url_to_scope_weight),
+            )
+        if _must_include_urls:
+            _LOGGER.info(
+                "[select] I-scope-001: PINNED %d user-included source(s) into the "
+                "selected grounding set (additive boost — non-matching NOT demoted)",
+                len(_must_include_urls),
+            )
+    except Exception as _scope_exc:  # noqa: BLE001 - fail-open: scope never aborts selection
+        _LOGGER.warning("[select] scope enforcement skipped (%s)", _scope_exc)
+        url_to_scope_weight = {}
+        _oos_urls = set()
+        _must_include_urls = set()
+
     # Compute relevance tokens from research question + protocol anchors.
     question_tokens = _content_tokens(research_question or "")
     protocol_tokens: set[str] = set()
@@ -3002,6 +3124,43 @@ def _select_evidence_for_generation_impl(
             for (idx, score, tier, row) in scored
         ]
 
+    # I-scope-001 (capped-path scope demotion): mirror the date-window capped-path demotion
+    # so a capped slot prefers IN-SCOPE rows. Applied ONLY on the capped path (same reason as
+    # the date block above); the floor path carries `_scope_weight` in its sort instead. Rows
+    # are KEPT in `scored`; only their quota rank drops. Empty map => byte-identical.
+    if relevance_floor is None and url_to_scope_weight:
+        scored = [
+            (
+                idx,
+                (score * url_to_scope_weight.get(
+                    str(row.get("source_url") or row.get("url") or ""), 1.0)),
+                tier,
+                row,
+            )
+            for (idx, score, tier, row) in scored
+        ]
+
+    # I-scope-001 P1 (capped-path include PIN): the ADDITIVE mirror of the demote block
+    # above — a user-INCLUDED source is boosted ABOVE every non-included row so a capped
+    # quota slot keeps it (an included low-relevance source would otherwise be truncated).
+    # `score + _max + 1.0` PRESERVES the relative order AMONG included rows while pinning
+    # the whole included group ahead of everyone else; it never lowers a non-matching
+    # row's score (include != prefer — no demote). Empty set => byte-identical. The floor
+    # path carries `_include_rank` in its sort instead (mirrors the date/scope split).
+    if relevance_floor is None and _must_include_urls:
+        _incl_offset = max((s for (_, s, _, _) in scored), default=0.0) + 1.0
+        scored = [
+            (
+                idx,
+                (score + _incl_offset
+                 if str(row.get("source_url") or row.get("url") or "") in _must_include_urls
+                 else score),
+                tier,
+                row,
+            )
+            for (idx, score, tier, row) in scored
+        ]
+
     # Full tier counts (FROM evidence_rows, the selectable universe).
     full_counts: dict[str, int] = {}
     for _, _, tier, _ in scored:
@@ -3040,6 +3199,15 @@ def _select_evidence_for_generation_impl(
             # staying KEPT (§-1.3). This is the production path (Gate-B slate sets
             # PG_USE_FINDING_DEDUP=1 => relevance_floor non-None => this branch).
             url_to_date_weight=url_to_date_weight,
+            # I-scope-001: per-URL scope-weight demotion map (empty when no user scope OR
+            # PG_SCOPE_CONSTRAINT_ENFORCE OFF => byte-identical sort). Multiplied into the
+            # SAME floor-path SORT key so an out-of-scope source sinks LAST while staying
+            # KEPT (§-1.3 WEIGHT-not-FILTER).
+            url_to_scope_weight=url_to_scope_weight,
+            # I-scope-001 P1 fix: user-INCLUDED URLs get an ADDITIVE PIN (front of the
+            # sort + floor-exempt) into the SELECTED set — never demoting a non-matching
+            # source. Empty when no include facet OR enforce-OFF => byte-identical.
+            url_to_must_include=_must_include_urls,
         )
         # I-recency-001 (#1296) wiring fix: the production live call passes
         # `relevance_floor`, so it returns HERE — it never reaches the
@@ -3071,15 +3239,30 @@ def _select_evidence_for_generation_impl(
                     f"disabled={_date_window_disable_recency}"
                 ],
             )
+        # I-scope-001: disclose the scope demotion in the selection notes too (only when a
+        # scope demoted ≥1 row => no-scope run is byte-identical).
+        if url_to_scope_weight:
+            _floor_selection = replace(
+                _floor_selection,
+                notes=list(_floor_selection.notes) + [
+                    f"I-scope-001 scope: {len(url_to_scope_weight)} out-of-scope "
+                    f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
+                ],
+            )
         _floor_reranked = _maybe_rerank_selection(
             _floor_selection.selected_rows, research_question
         )
-        # GUARANTEED date-window ordering (Codex wave-2 P1): partition out-of-window
-        # rows to the TAIL as the LAST step — AFTER rerank — so a hard user date
-        # ceiling cannot be out-ranked by a high relevance score or washed out by
-        # the reranker. KEEPS every row (§-1.3 demote-not-drop). No-window run =>
-        # `_oow_urls` empty => same object => byte-identical.
-        _final_rows = _partition_out_of_window_last(_floor_reranked, _oow_urls)
+        # GUARANTEED date-window + scope ordering (Codex wave-2 P1 + I-scope-001):
+        # partition out-of-window AND out-of-scope rows to the TAIL as the LAST step —
+        # AFTER rerank — so a hard user date ceiling / a preferred source-type cannot be
+        # out-ranked by a high relevance score or washed out by the reranker. KEEPS every
+        # row (§-1.3 demote-not-drop). No-constraint run => union empty => same object =>
+        # byte-identical. I-scope-001 P1 fix: a user-INCLUDED (pinned) source is NEVER
+        # sunk to the tail even if it also matched an out-of-scope demote — include wins
+        # over demote for the SAME source (include != prefer), so subtract the pins.
+        _final_rows = _partition_out_of_scope_last(
+            _floor_reranked, (_oow_urls | _oos_urls) - _must_include_urls
+        )
         if _final_rows is _floor_selection.selected_rows:
             # OFF / single-row / loud-fallback + no date window → byte-identical.
             return _floor_selection

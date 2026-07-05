@@ -45,10 +45,12 @@ NEVER touched by this module.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 from src.polaris_graph.retrieval.injection_appendix import locate_injected_appendix
 
@@ -88,6 +90,178 @@ _ELSEVIER_PII_RE = re.compile(r"S\d{16}[\dX]?", re.IGNORECASE)
 _ARXIV_RE = re.compile(r"arxiv(?:\.org/abs/|\s*:\s*)(\d{4}\.\d{4,5}(?:v\d+)?)", re.IGNORECASE)
 # The labelled ``'title': '...'`` field of the appendix dict literal.
 _TITLE_FIELD_RE = re.compile(r"""['"]title['"]\s*:\s*['"]([^'"]+)['"]""", re.IGNORECASE)
+# The labelled ``'authors': [...]`` / ``'author': '...'`` field of the appendix dict literal.
+_AUTHORS_FIELD_RE = re.compile(
+    r"""['"]authors?['"]\s*:\s*(\[[^\]]*\]|['"][^'"]+['"])""", re.IGNORECASE
+)
+_QUOTED_STR_RE = re.compile(r"""['"]([^'"]+)['"]""")
+
+# --- DOAJ-id identity leg (I-deepfix-001 P0-1) ----------------------------------------
+# A DOAJ article id is a 32-hex token. It appears (a) inside a doaj.org/article/<id> URL,
+# (b) as an explicit ``'doaj_id'`` metadata field / ``DOAJ id: <id>`` mention, and (c) —
+# crucially — inside a MIRROR repository URL path (library.kab.ac.ug/.../items/<id>). The
+# BUILD side (registry construction) is CONSERVATIVE: it registers a 32-hex only from an
+# explicit doaj.org/article URL or a labelled doaj_id field, so a random hex token in the
+# appendix is never mistaken for a blocked id. The MATCH side (a candidate under test) is
+# PERMISSIVE: it grabs any 32-hex from the candidate URL/metadata, which is safe because a
+# hit only fires when that id is in the (conservatively-built) registry set.
+_DOAJ_ARTICLE_RE = re.compile(r"doaj\.org/article/([0-9a-f]{32})", re.IGNORECASE)
+_DOAJ_ID_FIELD_RE = re.compile(
+    r"""doaj[_\s]?id['"\s:]+([0-9a-f]{32})""", re.IGNORECASE
+)
+_HEX32_RE = re.compile(r"[0-9a-f]{32}", re.IGNORECASE)
+_BARE_HEX32_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+_SURNAME_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_doaj_id(value: str) -> str:
+    """Canonical (lowercased) DOAJ article id from a URL, a ``doaj.org/article/<id>``
+    link, or a bare 32-hex metadata value. Empty when none is parseable. Never raises."""
+    if not value:
+        return ""
+    v = str(value).strip().lower()
+    if not v:
+        return ""
+    m = _DOAJ_ARTICLE_RE.search(v)
+    if m:
+        return m.group(1).lower()
+    if _BARE_HEX32_RE.match(v):
+        return v
+    return ""
+
+
+def _extract_doaj_id_candidates(url: str) -> set[str]:
+    """MATCH-side DOAJ ids from a candidate URL: the explicit doaj.org/article id AND any
+    32-hex segment in the path (a mirror repository id). Permissive on purpose — a hit only
+    fires against the conservatively-built registry set. Never raises ('' on bad input)."""
+    out: set[str] = set()
+    if not url:
+        return out
+    low = str(url).strip().lower()
+    m = _DOAJ_ARTICLE_RE.search(low)
+    if m:
+        out.add(m.group(1).lower())
+    for tok in _HEX32_RE.findall(low):
+        out.add(tok.lower())
+    return out
+
+
+def _first_author_surname(authors: "Any") -> str:
+    """Order-robust surname of the FIRST author. Handles a list of author strings or a
+    single string, and both ``'Surname, Given'`` and ``'Given Surname'`` name orders.
+    Empty when no author is parseable. Never raises."""
+    first = ""
+    if isinstance(authors, (list, tuple)):
+        for a in authors:
+            if a is not None and str(a).strip():
+                first = str(a).strip()
+                break
+    elif authors is not None:
+        first = str(authors).strip()
+    if not first:
+        return ""
+    if "," in first:
+        surname = first.split(",", 1)[0]
+    else:
+        parts = first.split()
+        surname = parts[-1] if parts else ""
+    return _SURNAME_ALNUM_RE.sub("", surname.lower()).strip()
+
+
+def _title_author_hash(title: str, authors: "Any") -> str:
+    """Stable identity key from a normalized title + the first-author surname. Empty when
+    either component is missing (so the leg never over-blocks on title-only or author-only
+    input). Surname-based + order-robust so ``'Salari, Amirreza'`` and ``'Amirreza Salari'``
+    hash identically. Never raises."""
+    nt = _normalize_title(title)
+    sn = _first_author_surname(authors)
+    if not nt or not sn:
+        return ""
+    return hashlib.sha1(f"{nt}|{sn}".encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class SourceIdentity:
+    """The normalized identity legs of ONE candidate source, extracted once and reused by
+    the fetch / selection / claim-level seams. Every field is empty when absent (fail-open)."""
+
+    doi: str = ""
+    doaj_id: str = ""
+    title_author_hash: str = ""
+    host: str = ""
+
+
+def _candidate_field(candidate: "Any", *names: str) -> "Any":
+    """First present, non-None value across the given field names (dict OR object)."""
+    if isinstance(candidate, Mapping):
+        for n in names:
+            if n in candidate and candidate.get(n) is not None:
+                return candidate.get(n)
+        return None
+    for n in names:
+        v = getattr(candidate, n, None)
+        if v is not None:
+            return v
+    return None
+
+
+def extract_source_identity(candidate: "Any") -> SourceIdentity:
+    """Normalize a candidate source (dict OR object) to its identity legs.
+
+    Reuses the module normalizers (``_normalize_doi`` / ``_normalize_url``) plus the DOAJ +
+    title-author legs. The DOAJ id is recovered from an explicit ``doaj_id`` field, a
+    doaj.org URL, OR any 32-hex segment of the candidate URL path (so a mirror repository
+    URL that carries the id is caught). Pure / offline; never raises."""
+    url = str(_candidate_field(candidate, "url", "source_url") or "")
+    doi_raw = str(_candidate_field(candidate, "doi") or "")
+    title = str(_candidate_field(candidate, "title") or "")
+    authors = _candidate_field(candidate, "authors", "author")
+    doaj_field = str(_candidate_field(candidate, "doaj_id") or "")
+
+    doaj_id = _normalize_doaj_id(doaj_field)
+    if not doaj_id:
+        _cands = _extract_doaj_id_candidates(url)
+        doaj_id = next(iter(sorted(_cands)), "") if _cands else ""
+    return SourceIdentity(
+        doi=_normalize_doi(doi_raw) or next(iter(sorted(_extract_dois(url))), ""),
+        doaj_id=doaj_id,
+        title_author_hash=_title_author_hash(title, authors),
+        host=_host_of(url),
+    )
+
+
+def _host_of(url: str) -> str:
+    """Lowercased host of ``url`` (empty on blank/garbage). Local, no external dep."""
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlsplit  # noqa: PLC0415
+
+        netloc = urlsplit(str(url).strip()).netloc.lower()
+        return netloc.rsplit("@", 1)[-1].split(":", 1)[0]
+    except Exception:  # noqa: BLE001 - never raise on a garbage url
+        return ""
+
+
+def is_blocked_source(candidate: "Any", registry: "BlockedRegistry | None") -> tuple[bool, str]:
+    """Whole-candidate blocked check: extract every identity leg (url / doi / pii / doaj /
+    title+author) from ``candidate`` (dict OR object) and match it against ``registry``.
+
+    ``(False, "")`` on an empty/None registry (byte-identical no-op). Pure; never raises —
+    a bad candidate is treated as not-blocked (fail-open) so it can never abort a run."""
+    if registry is None or registry.is_empty:
+        return (False, "")
+    try:
+        url = str(_candidate_field(candidate, "url", "source_url") or "")
+        doi = str(_candidate_field(candidate, "doi") or "")
+        title = str(_candidate_field(candidate, "title") or "")
+        authors = _candidate_field(candidate, "authors", "author")
+        doaj_id = str(_candidate_field(candidate, "doaj_id") or "")
+        return registry.is_blocked(
+            url=url, doi=doi, title=title, doaj_id=doaj_id, authors=authors
+        )
+    except Exception:  # noqa: BLE001 - fail-open: a bad candidate is never blocked-by-error
+        return (False, "")
 
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 _WWW_RE = re.compile(r"^www\.", re.IGNORECASE)
@@ -165,6 +339,15 @@ def _extract_piis(text: str) -> set[str]:
     return out
 
 
+def _parse_appendix_authors(appendix: str) -> list[str]:
+    """Author strings from the appendix ``'authors': [...]`` / ``'author': '...'`` field
+    (build-side title+author leg). Empty when no author field is present. Never raises."""
+    m = _AUTHORS_FIELD_RE.search(appendix or "")
+    if not m:
+        return []
+    return _QUOTED_STR_RE.findall(m.group(1))
+
+
 def _normalize_title(title: str) -> str:
     """Lowercase, strip punctuation/whitespace to a single space-joined token string."""
     if not title:
@@ -186,12 +369,19 @@ def _title_ratio(a: str, b: str) -> float:
 
 @dataclass(frozen=True)
 class BlockedRegistry:
-    """Four OR'd normalized key-sets of operator-prohibited references for ONE work."""
+    """Six OR'd normalized key-sets of operator-prohibited references for ONE work.
+
+    The original FOUR legs (canonical url / DOI / publisher PII / fuzzy title) are joined by
+    the I-deepfix-001 P0-1 identity legs — DOAJ article id + title+first-author hash — so a
+    DOAJ MIRROR that carries the same article id (in its URL path or metadata) but NOT the
+    listed URL / DOI / PII / a matchable title is still caught."""
 
     canonical_urls: frozenset[str] = frozenset()
     dois: frozenset[str] = frozenset()
     publisher_piis: frozenset[str] = frozenset()
     title_keys: tuple[str, ...] = ()
+    doaj_ids: frozenset[str] = frozenset()
+    title_author_hashes: frozenset[str] = frozenset()
 
     @classmethod
     def empty(cls) -> "BlockedRegistry":
@@ -205,14 +395,21 @@ class BlockedRegistry:
             or self.dois
             or self.publisher_piis
             or self.title_keys
+            or self.doaj_ids
+            or self.title_author_hashes
         )
 
     def is_blocked(
-        self, url: str = "", doi: str = "", title: str = ""
+        self,
+        url: str = "",
+        doi: str = "",
+        title: str = "",
+        doaj_id: str = "",
+        authors: "Any" = None,
     ) -> tuple[bool, str]:
         """True + the matched key/reason iff ANY leg matches the blocked work; else
-        ``(False, "")``. The DOI + PII legs ALSO inspect identifiers embedded in ``url``
-        so a mirror that is not literally listed still matches. Pure; never raises."""
+        ``(False, "")``. The DOI + PII + DOAJ legs ALSO inspect identifiers embedded in
+        ``url`` so a mirror that is not literally listed still matches. Pure; never raises."""
         if self.is_empty:
             return (False, "")
         # 1) canonical-URL leg
@@ -232,7 +429,23 @@ class BlockedRegistry:
         for pii in _extract_piis(url) | _extract_piis(doi):
             if pii in self.publisher_piis:
                 return (True, f"pii:{pii}")
-        # 4) title fuzzy leg
+        # 4) DOAJ-id leg (I-deepfix-001 P0-1) — explicit doaj_id arg OR an id embedded in
+        # the candidate URL path (the mirror-repository case). Conservatively-built set, so
+        # a permissive candidate scan never over-blocks.
+        if self.doaj_ids:
+            _cand_doaj = _extract_doaj_id_candidates(url)
+            _ex_doaj = _normalize_doaj_id(doaj_id)
+            if _ex_doaj:
+                _cand_doaj.add(_ex_doaj)
+            for cdj in _cand_doaj:
+                if cdj in self.doaj_ids:
+                    return (True, f"doaj:{cdj}")
+        # 5) title+first-author hash leg — exact-match fallback when no id is available
+        if self.title_author_hashes:
+            tah = _title_author_hash(title, authors)
+            if tah and tah in self.title_author_hashes:
+                return (True, f"title_author:{tah[:16]}")
+        # 6) title fuzzy leg
         norm_title = _normalize_title(title)
         if norm_title and self.title_keys:
             for bt in self.title_keys:
@@ -263,22 +476,45 @@ def build_blocked_registry(question_text: str) -> BlockedRegistry:
         dois = _extract_dois(appendix)
         piis = _extract_piis(appendix)
         titles: list[str] = []
-        for raw_title in _TITLE_FIELD_RE.findall(appendix):
+        raw_titles = _TITLE_FIELD_RE.findall(appendix)
+        for raw_title in raw_titles:
             nt = _normalize_title(raw_title)
             if nt and nt not in titles:
                 titles.append(nt)
+        # I-deepfix-001 P0-1: DOAJ article ids — CONSERVATIVE build (explicit doaj.org/article
+        # URL or a labelled doaj_id field only, never a bare hex token) so a stray 32-hex in the
+        # appendix is not registered.
+        doaj_ids: set[str] = set()
+        for _m in _DOAJ_ARTICLE_RE.findall(appendix):
+            doaj_ids.add(_m.lower())
+        for _m in _DOAJ_ID_FIELD_RE.findall(appendix):
+            doaj_ids.add(_m.lower())
+        # I-deepfix-001 P0-1: title+first-author identity hash — pair the appendix title(s)
+        # with the appendix authors field (order-robust, surname-based).
+        title_author_hashes: set[str] = set()
+        appendix_authors = _parse_appendix_authors(appendix)
+        if appendix_authors and raw_titles:
+            for raw_title in raw_titles:
+                tah = _title_author_hash(raw_title, appendix_authors)
+                if tah:
+                    title_author_hashes.add(tah)
         registry = BlockedRegistry(
             canonical_urls=frozenset(urls),
             dois=frozenset(dois),
             publisher_piis=frozenset(piis),
             title_keys=tuple(titles),
+            doaj_ids=frozenset(doaj_ids),
+            title_author_hashes=frozenset(title_author_hashes),
         )
         logger.info(
-            "[blocked_registry] built per-work deny-list: urls=%d dois=%d piis=%d titles=%d",
+            "[blocked_registry] built per-work deny-list: urls=%d dois=%d piis=%d "
+            "titles=%d doaj_ids=%d title_author=%d",
             len(registry.canonical_urls),
             len(registry.dois),
             len(registry.publisher_piis),
             len(registry.title_keys),
+            len(registry.doaj_ids),
+            len(registry.title_author_hashes),
         )
         return registry
     except Exception as exc:  # noqa: BLE001 - FAIL-OPEN: a bad question never aborts a run

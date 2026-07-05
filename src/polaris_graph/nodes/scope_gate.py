@@ -171,6 +171,14 @@ class ProtocolDocument:
     # protocol shape for the populated fields.
     user_constraints: dict[str, Any] = field(default_factory=dict)
 
+    # I-scope-001: structured per-question SCOPE intent (source-type / jurisdiction facets +
+    # include/prefer/exclude op + weight/hard strictness + named include/exclude). Empty dict
+    # when the extractor is OFF or found nothing => the enforcer builds empty maps => byte-
+    # identical widest+deepest run. to_json_dict() serializes this via asdict() as an ADDITIVE
+    # key (`scope_constraints: {}` on the no-constraint path — the ONE inert protocol.json
+    # difference vs today). Read by the scope enforcer only; no abort/approval/release gate.
+    scope_constraints: dict[str, Any] = field(default_factory=dict)
+
     # Conflict-of-interest / funding-source filters
     excluded_sponsors: list[str] = field(default_factory=list)
 
@@ -1022,9 +1030,32 @@ def run_scope_gate(
                 date_range = (_start_s, _end_s)
                 logger.info(
                     "[scope_gate] B10 user-constraints extracted: date=[%s..%s] "
-                    "language=%s journal_only(dormant)=%s — date_range now %r",
+                    "language=%s journal_only(dormant)=%s timeline_strictness=%s "
+                    "— date_range now %r",
                     _uc.date_start_year, _uc.date_end_year, _uc.language,
-                    _uc.journal_only, date_range,
+                    _uc.journal_only, _uc.timeline_strictness, date_range,
+                )
+
+    # I-scope-001: parallel SCOPE-facet extraction (source-type / jurisdiction + op +
+    # strictness + named include/exclude). FILL-not-override + gated PG_EXTRACT_SCOPE_
+    # CONSTRAINTS (default OFF). OFF => scope_constraints={} => the enforcer builds empty
+    # maps => byte-identical selection (the only protocol.json difference on the OFF path is
+    # the inert additive `scope_constraints: {}` key). Deterministic + offline here (llm_fn
+    # is None); the LLM fallback runs only when explicitly wired downstream.
+    scope_constraints: dict[str, Any] = {}
+    if not scope_rejected:
+        from src.polaris_graph.retrieval.intake_constraint_extractor import (  # noqa: PLC0415
+            extract_scope_constraints,
+            extract_scope_constraints_enabled,
+        )
+        if extract_scope_constraints_enabled():
+            _sc = extract_scope_constraints(research_question)
+            if not _sc.is_empty():
+                scope_constraints = _sc.to_dict()
+                logger.info(
+                    "[scope_gate] I-scope-001 scope-constraints extracted: %d facet(s) "
+                    "named_include=%d named_exclude=%d",
+                    len(_sc.facets), len(_sc.named_include), len(_sc.named_exclude),
                 )
 
     geography = list(template.get("geography") or [])
@@ -1115,6 +1146,7 @@ def run_scope_gate(
         geography=geography,
         languages=languages,
         user_constraints=user_constraints,
+        scope_constraints=scope_constraints,
         excluded_sponsors=excluded_sponsors,
         template_used=template_path_rel,
         user_overrides=overrides,

@@ -89,8 +89,15 @@ def _row_url(row: "Any") -> str:
 
 def _row_pub_ym(row: "Any") -> "tuple[int, int | None] | None":
     """Best-effort (year, month|None) from a row's date fields. None when undated
-    (fail-open — an undated row is NEVER excluded by a timeline window)."""
-    for key in ("publication_date", "published", "date", "publication_year", "year"):
+    (fail-open — an undated row is NEVER excluded by a timeline window).
+
+    Month-precision keys (``pub_date`` is the production month field emitted by
+    live_retriever) are read BEFORE the year-only fallbacks (``publication_year`` /
+    ``year``) so month precision wins: a live row carrying ``pub_date``="2023-05"
+    plus a year-only ``publication_year``=2023 resolves to (2023, 5), not (2023, None).
+    Reading only the year would degrade every real row to YEAR precision and wrongly
+    hard-mask an in-window month source under a HARD month-precision cutoff (§-1.3)."""
+    for key in ("pub_date", "publication_date", "published", "date", "publication_year", "year"):
         v = _field(row, key)
         if v is None:
             continue
@@ -334,7 +341,13 @@ def build_scope_enforcement(
             w = min(w, _min_weight(matched_exclude_weight))
             demote_reason = "in de-emphasized facet"
             demote_facet = ",".join(matched_exclude_weight)
-        if 0.0 < w < 1.0:
+        # P1 fix (§2.2/§2.4 include != prefer): a source the user explicitly INCLUDED
+        # (op='include' / named-include) is NEVER also demoted — include is an ADDITIVE
+        # boost, so it must not sink its own pinned source. The include block above ran
+        # first this iteration, so ``must_include_urls`` already carries this url when it
+        # was included. Skipping the demote keeps the disclosure honest (a source is never
+        # recorded as both boosted and demoted) and matches the selector's include-pin.
+        if 0.0 < w < 1.0 and url not in plan.must_include_urls:
             plan.url_to_scope_weight[url] = w
             plan.out_of_scope_urls.add(url)
             plan.scope_excluded_records.append({
