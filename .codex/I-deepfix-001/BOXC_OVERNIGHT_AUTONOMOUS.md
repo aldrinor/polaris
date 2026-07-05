@@ -592,3 +592,9 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Box B ssh6.vast.ai:34874 UP: 2× A100-80GB both IDLE (0 MiB used), repo /root/polaris on bot/I-wire-001-integration (head 7771389f, needs pull to committed HEAD), /root/a100_complete_env.sh present, HF model cache present, 129G free disk. READY for preflight after Already up to date..
 - Box A ssh3.vast.ai:12228 (not yet re-probed). 2 more boxes PROVISION at step-6 (only AFTER preflight passes — no point spending before the fire-proof).
 - FULLY AUTOMATED sequence (no more asking): hardening commit (wxzjolu0g gating) → confirm ~21 flags fail-closed → live preflight Box B (game-rule small scale, proves each fix's fire-grep signature in run.log + §-1.1 audit + Codex+Fable sign-off on OUR scorer) → if CLEAN provision+launch 4 boxes (2 SAFE + 2 AGGRESSIVE, game-rule + full-power) → forensic 5-min monitor → score vs floor → PushNotification results. PAUSE only on genuine blocker/needs-operator-decision.
+
+## [2026-07-05 13:03:46] RESUME after session-limit — hardening build relaunched (ws3ezy81h)
+- Prior hardening (wxzjolu0g) FAILED mid-build on session limit (13m55s in; build agent errored, fix=null, NO diff written, NO commit). Nothing lost.
+- Cleaned: leftover hard_wt worktree + 5 stale completed-build worktrees (wt_b3/b4/b4render/base/rank19) via git worktree remove --force.
+- State intact: HEAD f466a21e; faithfulness 22/23 ✓ + coverage-safe 2/2 ✓ + aggressive config ✓ + validity ✓ (all 7 dark closed) + serious-check table ✓. Box B still prechecked-ready (2×A100 idle).
+- Relaunched hardening ws3ezy81h with BASE=f466a21e (current HEAD, run_gate_b identical to 770a1dd0). Same script. On both-approve → commit → confirm fail-closed → live preflight Box B → 4-box launch.
