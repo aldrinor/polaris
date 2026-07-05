@@ -52,7 +52,29 @@ def should_trigger_deepener(
       still earns its tier through the unchanged fetch/tier/strict_verify chokepoint (§-1.3 widen-only).
 
     The flag / key / seed-evidence preconditions are HARD — corpus_review_heavy never bypasses them.
+
+    FAIL-LOUD (LAW II, I-deepfix-001 #1344 wiring-gap iter-4, Codex REVISE): this predicate is THE single
+    chokepoint EVERY real paid sweep entry flows through — run_gate_b.main(), run_gate_b.run_gate_b_query(),
+    AND scripts/run_honest_sweep_r3.run_one_query() (the main_async/main path that bypasses run_gate_b) all
+    gate the citation-snowball deepener on this call. So when the deepener is EXPLICITLY enabled
+    (PG_SWEEP_EVIDENCE_DEEPENER truthy -> `flag_on`) but the Semantic Scholar key is missing/empty
+    (`has_s2_key` False), RAISE a clear RuntimeError naming SEMANTIC_SCHOLAR_API_KEY INSTEAD of silently
+    returning False. A silent False would leave the recall lever DARK on a paid run (the deepener no-ops
+    without the key — evidence_deepener returns {}); this one guard covers all entries. FAITHFULNESS-NEUTRAL:
+    an env-derived precondition check only — no strict_verify / NLI / 4-role D8 / provenance / span-grounding
+    logic is touched. The raise fires ONLY on flag-on + key-absent; EVERY other non-trigger reason (flag off,
+    no seed evidence, adequacy 'proceed' + fully covered + not review-heavy) still returns False WITHOUT
+    raising, and a hermetic / fake-transport sweep test that never calls this predicate (run_one_query mocked)
+    never trips it.
     """
+    if flag_on and not has_s2_key:
+        raise RuntimeError(
+            "PG_SWEEP_EVIDENCE_DEEPENER is ON but SEMANTIC_SCHOLAR_API_KEY is missing/empty — the "
+            "citation-snowball evidence deepener (the recall lever for blocked-reference / "
+            "primary-starved corpora) would silently NO-OP, leaving backward+forward primary-study "
+            "chasing DARK on a paid run (LAW II fail-loud). Export SEMANTIC_SCHOLAR_API_KEY to enable "
+            "the deepener, or set PG_SWEEP_EVIDENCE_DEEPENER=0 to disable it explicitly."
+        )
     if not (flag_on and has_s2_key and has_seed_evidence):
         return False
     return adequacy_decision != "proceed" or total_uncovered > 0 or corpus_review_heavy

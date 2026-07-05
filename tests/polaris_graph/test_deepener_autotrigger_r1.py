@@ -168,12 +168,20 @@ def test_should_trigger_catches_proceed_covered_when_review_heavy():
 
 
 def test_should_trigger_hard_preconditions_still_bind_with_autotrigger():
-    # corpus_review_heavy NEVER bypasses the flag / key / seed-evidence preconditions.
-    for missing in ("flag_on", "has_s2_key", "has_seed_evidence"):
+    # corpus_review_heavy NEVER bypasses the flag / seed-evidence preconditions (still return False).
+    for missing in ("flag_on", "has_seed_evidence"):
         kw = dict(flag_on=True, has_s2_key=True, has_seed_evidence=True,
                   adequacy_decision="proceed", total_uncovered=0, corpus_review_heavy=True)
         kw[missing] = False
         assert should_trigger_deepener(**kw) is False
+    # The KEY precondition is FAIL-LOUD (wiring-gap iter-4, Codex REVISE): flag-on + key-absent RAISES
+    # naming SEMANTIC_SCHOLAR_API_KEY (the recall lever would be dark), even with corpus_review_heavy=True —
+    # corpus_review_heavy still never bypasses the key precondition, but now it fails loud instead of False.
+    with pytest.raises(RuntimeError, match="SEMANTIC_SCHOLAR_API_KEY"):
+        should_trigger_deepener(
+            flag_on=True, has_s2_key=False, has_seed_evidence=True,
+            adequacy_decision="proceed", total_uncovered=0, corpus_review_heavy=True,
+        )
 
 
 def test_should_trigger_default_autotrigger_is_backward_compatible():
@@ -274,3 +282,66 @@ def test_b_other_losers_still_raise_when_armed(loser_env):
     assert loser_env.lower() in str(exc.value).lower(), (
         f"the NO-LOSER gate raised but did not name the armed loser {loser_env!r}: {str(exc.value)[:200]}"
     )
+
+
+# --- wiring-gap iter-5 (Codex REVISE P1): the run_one_query deepener FLAG PARSER -------------------
+# The evidence-deepener gate in scripts/run_honest_sweep_r3.run_one_query parses PG_SWEEP_EVIDENCE_DEEPENER
+# into the `flag_on` it feeds should_trigger_deepener(). Iter-4 shipped the fail-loud raise at that
+# chokepoint, but the flag was parsed inline with `.strip() in ("1", "true", "True")` — which does NOT accept
+# the case-insensitive on/yes the rest of the codebase honours (_TRUE_TOKENS). So PG_SWEEP_EVIDENCE_DEEPENER=on
+# (or =yes) + an absent SEMANTIC_SCHOLAR_API_KEY parsed flag_on=False and the chokepoint NEVER raised — the
+# recall lever stayed silently DARK on a paid run instead of failing loud (LAW II). Iter-5 normalises the
+# parse to the canonical _env_flag helper. These regressions are keyless (SEMANTIC_SCHOLAR_API_KEY unset) and
+# spend-free (no LLM, no net) and lock BOTH the parse convention AND the composed run_one_query-gate behaviour.
+def test_deepener_flag_parser_honours_on_yes_case_insensitively(monkeypatch):
+    from scripts.run_honest_sweep_r3 import _env_flag
+    # Values the OLD `.strip() in ("1", "true", "True")` parser WRONGLY rejected (on/yes and any casing), plus
+    # the ones it accepted — all must parse truthy through the canonical PG-truthy convention now.
+    for raw in ("on", "yes", "ON", "Yes", "On", "YES", "1", "true", "TRUE", "  on  "):
+        monkeypatch.setenv("PG_SWEEP_EVIDENCE_DEEPENER", raw)
+        assert _env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False) is True, raw
+    for raw in ("0", "false", "no", "off", ""):
+        monkeypatch.setenv("PG_SWEEP_EVIDENCE_DEEPENER", raw)
+        assert _env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False) is False, raw
+    monkeypatch.delenv("PG_SWEEP_EVIDENCE_DEEPENER", raising=False)
+    assert _env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False) is False   # unset -> off (byte-identical)
+
+
+def test_run_one_query_deepener_gate_raises_on_yes_flag_with_absent_key(monkeypatch):
+    # Reproduce the run_one_query deepener gate EXACTLY: flag_on via the same _env_flag call the fixed line
+    # 10493 uses; has_s2_key via the same bool(os.getenv(...).strip()) expression line 10494 uses; then the
+    # should_trigger_deepener() chokepoint. Keyless: SEMANTIC_SCHOLAR_API_KEY absent. Proves =on and =yes now
+    # reach the FAIL-LOUD raise naming SEMANTIC_SCHOLAR_API_KEY (before the fix they parsed flag_on=False ->
+    # silent no-raise -> dark recall lever on a paid run).
+    from scripts.run_honest_sweep_r3 import _env_flag
+    monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
+    for raw in ("on", "yes"):
+        monkeypatch.setenv("PG_SWEEP_EVIDENCE_DEEPENER", raw)
+        flag_on = _env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False)         # == run_one_query line 10493
+        has_s2_key = bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip())     # == run_one_query line 10494
+        assert flag_on is True and has_s2_key is False
+        with pytest.raises(RuntimeError, match="SEMANTIC_SCHOLAR_API_KEY"):
+            should_trigger_deepener(
+                flag_on=flag_on, has_s2_key=has_s2_key, has_seed_evidence=True,
+                adequacy_decision="proceed", total_uncovered=0, corpus_review_heavy=True,
+            )
+    # Flag OFF/unset + absent key must NOT raise (nothing enabled -> a missing key is not an error).
+    monkeypatch.delenv("PG_SWEEP_EVIDENCE_DEEPENER", raising=False)
+    flag_off = _env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False)
+    assert flag_off is False
+    assert should_trigger_deepener(
+        flag_on=flag_off, has_s2_key=False, has_seed_evidence=True,
+        adequacy_decision="expand", total_uncovered=2,
+    ) is False
+
+
+def test_run_one_query_deepener_flag_uses_convention_not_legacy_parse():
+    # Fail-before / pass-after GUARD on the exact call site Codex flagged (run_honest_sweep_r3.py:10493). The
+    # 2400-line async run_one_query cannot be unit-driven keyless/spend-free, so lock the parse at the source:
+    # the legacy `.strip() in ("1", "true", "True")` (which rejects on/yes) must be GONE from run_one_query,
+    # replaced by the canonical _env_flag(...) parse for PG_SWEEP_EVIDENCE_DEEPENER.
+    import inspect
+    from scripts.run_honest_sweep_r3 import run_one_query
+    src = inspect.getsource(run_one_query)
+    assert 'PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True")' not in src   # legacy parse gone
+    assert '_env_flag("PG_SWEEP_EVIDENCE_DEEPENER"' in src                                    # convention in

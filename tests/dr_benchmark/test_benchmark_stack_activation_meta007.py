@@ -30,6 +30,9 @@ def _clear_flags():
     for _k in (
         "PG_STORM_ENABLED_IN_BENCHMARK", "PG_ENABLE_TOOL_TRACKER", "PG_SWEEP_EVIDENCE_DEEPENER",
         "PG_SWEEP_FETCH_CAP", "PG_SWEEP_MAX_SERPER", "PG_SWEEP_MAX_S2", "PG_MAX_COST_PER_RUN",
+        # Wiring audit (Codex+Fable, 2026-07-04): the two default-OFF winners the benchmark force-block
+        # now ARMS. Clear so the test proves the force-block SETS them (not a leaked value).
+        "PG_SUBENTITY_QUERY_EXPANSION", "PG_SUBTOPIC_ADDITIVE_FACTS",
     ):
         os.environ.pop(_k, None)
 
@@ -78,6 +81,10 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     # register it with monkeypatch so it is RESTORED after this test (no leak into budget-cap tests).
     monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
     _clear_flags()
+    # Wiring-gap iter-4 (Codex REVISE): the deepener key fail-loud lives at the should_trigger_deepener()
+    # chokepoint (run via the REAL run_one_query), NOT in the slate — so this call, which mocks
+    # run_one_query, never reaches the predicate and needs NO Semantic Scholar key stub. The fail-loud path
+    # is proven in tests/polaris_graph/test_deepener_sweep_adapter.py::test_should_trigger_raises_when_*.
     captured = {}
 
     async def fake_run_one_query(q, out_root, **kwargs):
@@ -101,6 +108,10 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
         captured["PG_SWEEP_FETCH_CAP"] = os.environ.get("PG_SWEEP_FETCH_CAP")
         captured["PG_SWEEP_MAX_SERPER"] = os.environ.get("PG_SWEEP_MAX_SERPER")
         captured["PG_SWEEP_MAX_S2"] = os.environ.get("PG_SWEEP_MAX_S2")
+        # Wiring audit (Codex+Fable, 2026-07-04) #1 R2 + #2 L2: the two default-OFF winners the benchmark
+        # force-block now ARMS via setdefault (sub-entity query widener + additive distinct-fact pass).
+        captured["PG_SUBENTITY_QUERY_EXPANSION"] = os.environ.get("PG_SUBENTITY_QUERY_EXPANSION")
+        captured["PG_SUBTOPIC_ADDITIVE_FACTS"] = os.environ.get("PG_SUBTOPIC_ADDITIVE_FACTS")
         captured["transport"] = kwargs.get("four_role_transport")
         return {"status": "ok"}
 
@@ -140,6 +151,12 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     assert int(captured["PG_SWEEP_FETCH_CAP"]) >= 500          # the REAL fetch knob, above the floor
     assert int(captured["PG_SWEEP_MAX_SERPER"]) >= 50          # not the dead PG_LIVE_* name
     assert int(captured["PG_SWEEP_MAX_S2"]) >= 50
+    # Wiring audit (Codex+Fable, 2026-07-04) #1 R2 + #2 L2: both were DEAD (default-OFF, set nowhere) on
+    # the drb_72 run; the benchmark force-block now setdefault-ARMS both so the sub-entity query widener
+    # (fs_researcher_query_gen.py:398-405) and the additive distinct-fact pass (verified_compose.py:2126)
+    # genuinely fire. WIDEN-ONLY / faithfulness-neutral per §-1.3 (each re-passes the UNCHANGED chokepoints).
+    assert captured["PG_SUBENTITY_QUERY_EXPANSION"] == "1"      # R2 armed (was dead)
+    assert captured["PG_SUBTOPIC_ADDITIVE_FACTS"] == "1"        # L2 armed (was dead)
     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
     _clear_flags()
 
@@ -225,3 +242,58 @@ def test_double_judge_guard_condition():
     assert seam_will_run("1", None) is False                 # no transport -> seam inert (fail closed)
     assert seam_will_run("0", object()) is False             # flag off -> legacy runs (PG_FOUR_ROLE_MODE unset)
     assert seam_will_run(None, object()) is False
+
+
+def test_benchmark_slate_arms_subentity_and_additive_facts(monkeypatch):
+    """Wiring audit (Codex+Fable, 2026-07-04) #1 R2 + #2 L2: apply_full_capability_benchmark_slate must
+    ARM PG_SUBENTITY_QUERY_EXPANSION and PG_SUBTOPIC_ADDITIVE_FACTS — both default-OFF and set NOWHERE in
+    the effective run env before this fix, so the sub-entity + perspective query widener and the additive
+    distinct-fact pass were DEAD on the drb_72 run. Proves the force-block arms them AND that each gate
+    genuinely opens (the *_enabled() helper the run path calls returns True). WIDEN-ONLY / faithfulness-
+    neutral per §-1.3: each armed pass re-passes the UNCHANGED fetch->tier->strict_verify chokepoint.
+    SPEND-FREE — no LLM, no net."""
+    # I-cap-005: register the cost-cap global for restoration (the slate's set_max_cost_per_run mutates it).
+    monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
+    # Snapshot the WHOLE env: the slate mutates os.environ DIRECTLY (untracked by monkeypatch). Restore in
+    # finally so the winners-only baseline cannot leak into sibling dr_benchmark tests in the same process.
+    env_snapshot = dict(os.environ)
+    try:
+        # Simulate the effective run env: both flags UNSET (the bug the audit found), so setdefault ARMS them.
+        monkeypatch.delenv("PG_SUBENTITY_QUERY_EXPANSION", raising=False)
+        monkeypatch.delenv("PG_SUBTOPIC_ADDITIVE_FACTS", raising=False)
+        # Wiring-gap iter-4 (Codex REVISE) requirement (a): the slate must NOT raise on a MISSING
+        # Semantic Scholar key — the deepener key fail-loud lives at the should_trigger_deepener()
+        # chokepoint (run via the real run_one_query), NOT in slate configuration. Delete the key so this
+        # proves the slate applies CLEANLY (no RuntimeError) in a clean-CI env — exactly the hermetic-slate-
+        # test class Codex flagged. (The slate still setdefault-ARMS the deepener; the key check moved out.)
+        monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
+        g.apply_full_capability_benchmark_slate()  # requirement (a): must NOT raise with the key absent
+        assert os.environ["PG_SUBENTITY_QUERY_EXPANSION"] == "1"   # R2 armed (was dead)
+        assert os.environ["PG_SUBTOPIC_ADDITIVE_FACTS"] == "1"     # L2 armed (was dead)
+        # Call-site genuinely reached: the run path's gate helpers now return True, so
+        # widen_with_sub_entities (fs_researcher_query_gen.py:398-405) and compose_distinct_fact_units
+        # (verified_compose.py:2126) actually run. (Both modules import light — no torch at module top.)
+        from src.polaris_graph.retrieval.sub_entity_query_expander import sub_entity_expansion_enabled
+        from src.polaris_graph.generator.verified_compose import _subtopic_additive_facts_enabled
+        assert sub_entity_expansion_enabled() is True             # R2 gate opens
+        assert _subtopic_additive_facts_enabled() is True         # L2 gate opens
+        # setdefault (NOT force): an explicit operator/.env override still WINS (LAW VI).
+        os.environ["PG_SUBENTITY_QUERY_EXPANSION"] = "0"
+        g.apply_full_capability_benchmark_slate()
+        assert os.environ["PG_SUBENTITY_QUERY_EXPANSION"] == "0"   # operator override preserved
+    finally:
+        monkeypatch.undo()
+        os.environ.clear()
+        os.environ.update(env_snapshot)
+
+
+# NOTE (wiring-gap iter-4, Codex REVISE): the deepener key FAIL-LOUD (LAW II) moved OUT of run_gate_b
+# (the removed _assert_deepener_key_present_if_enabled + its main()/run_gate_b_query call sites) and INTO
+# the ONE chokepoint EVERY real paid entry flows through — should_trigger_deepener() in
+# src/polaris_graph/retrieval/deepener_sweep_adapter.py — because run_gate_b's local asserts did NOT cover
+# the scripts/run_honest_sweep_r3 main_async/main path (which calls run_one_query directly, bypassing
+# run_gate_b). The authoritative RED->GREEN raise/no-raise coverage now lives in
+# tests/polaris_graph/test_deepener_sweep_adapter.py::test_should_trigger_raises_* (flag-on + key-absent
+# raises; flag-off / not-review-heavy / no-seed-evidence return False without raising). The former
+# meta007 tests test_deepener_fail_loud_key_check / test_main_run_entry_fails_loud_on_deepener_key /
+# test_run_gate_b_query_fails_loud_on_deepener_key_absent_real_transport are deleted with those call sites.

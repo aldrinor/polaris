@@ -10490,7 +10490,13 @@ async def run_one_query(
         if ((not _resume_active) and (not _resume_from_fetch)
                 and not _question_retrieval_deadline_passed(_question_retrieval_deadline)
                 and should_trigger_deepener(
-            flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
+            # wiring-gap iter-5 (Codex REVISE P1): parse the deepener flag through the canonical _env_flag
+            # helper so the PG-truthy convention (.strip().lower() in _TRUE_TOKENS = "1"/"true"/"yes"/"on")
+            # is honored case-insensitively. The prior `.strip() in ("1", "true", "True")` REJECTED on/yes,
+            # so PG_SWEEP_EVIDENCE_DEEPENER=on|yes + an absent key parsed flag_on=False and the deepener gate
+            # never reached the should_trigger_deepener() fail-loud raise — the recall lever stayed silently
+            # dark on a paid run (LAW II). default=False keeps the unset case byte-identical to the old "0".
+            flag_on=_env_flag("PG_SWEEP_EVIDENCE_DEEPENER", default=False),
             has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
             has_seed_evidence=len(retrieval.evidence_rows) > 0,
             adequacy_decision=adequacy.decision,

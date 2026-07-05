@@ -2772,18 +2772,39 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     # claim — no tier laundering, no auto-trust, faithfulness NEVER relaxed.
     os.environ.setdefault("PG_SWEEP_EVIDENCE_DEEPENER", "1")
     # SEMANTIC_SCHOLAR_API_KEY passthrough: the deepener reads the key via os.getenv and no-ops without it
-    # (evidence_deepener.py). The key is a SECRET, so it is NEVER setdefaulted to a literal (LAW VI); it
-    # passes through from the process env / .env (load_dotenv) automatically on the in-process run_one_query
-    # path. FAIL LOUD (LAW II) if the deepener is ON but the key is absent, so the recall lever is not
-    # silently dark on a paid run.
-    if os.environ.get("PG_SWEEP_EVIDENCE_DEEPENER", "").strip().lower() in ("1", "true", "yes", "on") \
-            and not os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip():
-        print(
-            "[gate-b][deepener] WARNING: PG_SWEEP_EVIDENCE_DEEPENER is ON but SEMANTIC_SCHOLAR_API_KEY is "
-            "not set — the citation-snowball deepener will NO-OP (recall lever dark). Export the key to "
-            "enable backward+forward primary-study chasing.",
-            flush=True,
-        )
+    # (evidence_deepener.py:132-134). The key is a SECRET, so it is NEVER setdefaulted to a literal (LAW VI);
+    # it passes through from the process env / .env (load_dotenv) automatically on the in-process
+    # run_one_query path. The deepener-on + key-absent FAIL-LOUD (LAW II) is NOT asserted here: this slate is
+    # invoked by many hermetic slate-config tests that do not stub SEMANTIC_SCHOLAR_API_KEY, and asserting
+    # during mere configuration would RuntimeError them in clean CI. Instead the fail-loud lives at the ONE
+    # chokepoint EVERY real paid entry flows through — should_trigger_deepener() in
+    # src/polaris_graph/retrieval/deepener_sweep_adapter.py (wiring-gap iter-4, Codex REVISE): run_gate_b
+    # main(), run_gate_b_query(), AND scripts/run_honest_sweep_r3.run_one_query() (the main_async/main path
+    # that bypasses run_gate_b) all gate the deepener on that predicate, so it raises a RuntimeError naming
+    # SEMANTIC_SCHOLAR_API_KEY when the deepener is enabled + the key is absent, and returns False (no raise)
+    # for every other non-trigger reason. Config-only slate tests never call it, so they stay clean.
+    # FAITHFULNESS-NEUTRAL: no faithfulness logic.
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # ARM R2 (wiring audit — Codex+Fable, 2026-07-04): PG_SUBENTITY_QUERY_EXPANSION defaults "0"
+    # (sub_entity_query_expander.py:62) and was set NOWHERE in the effective run env, so the sub-entity +
+    # STORM-perspective query expansion was DEAD on the drb_72 run. Arm it here so
+    # sub_entity_expansion_enabled() -> True and widen_with_sub_entities fires
+    # (fs_researcher_query_gen.py:398-405). `setdefault` (NOT force) so an explicit operator/.env override
+    # still WINS (LAW VI). WIDEN-ONLY SUPERSET, FAITHFULNESS-NEUTRAL (§-1.3): it only ADDS scope-anchored
+    # queries to the frontier (a strict superset of the flag-OFF issued set) — no cap / target / thinner /
+    # drop; every added query routes through the UNCHANGED per_query_retrieve -> fetch ->
+    # classify_source_tier -> strict_verify chokepoint, and the FROZEN faithfulness engine is untouched.
+    os.environ.setdefault("PG_SUBENTITY_QUERY_EXPANSION", "1")
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # ARM L2 (wiring audit — Codex+Fable, 2026-07-04): PG_SUBTOPIC_ADDITIVE_FACTS defaults "0"
+    # (verified_compose.py:560-567) and was set NOWHERE, so the additive distinct-fact pass (commit
+    # 42692185 deferred-B) was DEAD. Arm it here so _subtopic_additive_facts_enabled() -> True and
+    # compose_distinct_fact_units fires (verified_compose.py:2126). `setdefault` (NOT force) so an explicit
+    # operator/.env override still WINS (LAW VI). ADDITIVE DISTINCT-FACT PASS, FAITHFULNESS-NEUTRAL (§-1.3):
+    # each surfaced unit is a VERBATIM span slice that RE-PASSES the UNCHANGED strict_verify (verify_fn) and
+    # is ADDITIVE to (never replaces) the headline — CONSOLIDATE-keep-all, drops nothing. No cap / target /
+    # thinner; the FROZEN faithfulness engine is untouched.
+    os.environ.setdefault("PG_SUBTOPIC_ADDITIVE_FACTS", "1")
     # ─────────────────────────────────────────────────────────────────────────────────────────────
     # Correction 7 (Codex+Fable gate) — SPEED LEVER L1 429/BREADTH STEP-DOWN, made REAL (was a comment).
     # PG_LIVE_RETRIEVER_MAX_WORKERS is a FLOOR entry (max(existing, 48)), so the forensic monitor CANNOT
@@ -4021,6 +4042,15 @@ async def run_gate_b_query(
     # The slate force-ON-pins each; this is the earliest tripwire (before the heavy sweep import). Shares the
     # PG_WINNER_SLATE_PRESPEND_ASSERT kill-switch; faithfulness-neutral (reads env + slate constants only).
     assert_coverage_levers_armed()
+    # I-deepfix-001 (#1344) wiring-gap iter-4 (Codex REVISE): the citation-snowball evidence deepener
+    # FAIL-LOUD (LAW II) is NOT asserted here — it lives at the ONE chokepoint EVERY real paid entry flows
+    # through, should_trigger_deepener() in deepener_sweep_adapter.py. This function reaches it via
+    # run_one_query (run_honest_sweep_r3.py:10492), so a keyless deepener-on run — CLI main(), the direct
+    # real-spend replay entry (iwire002_backhalf_replay_preflight.py), OR the run_honest_sweep_r3
+    # main_async/main path that bypasses run_gate_b entirely — all fail loud at that single guard. A local
+    # assertion here would NOT cover the bypass path and would only duplicate the chokepoint, so it is
+    # removed (Codex: prefer the single chokepoint). Hermetic seam/flag tests inject a fake transport and
+    # mock run_one_query, so they never reach the predicate and need no key.
 
     # OFFICIAL-QUESTION OVERRIDE (wrong-question fix). ``run_gate_b`` bypasses
     # ``run_honest_sweep_r3.main_async``, where the GATE0 canonical override
@@ -4762,6 +4792,14 @@ def main(argv: list[str] | None = None) -> int:
     # constants. Applying it after that import would leave those constants at the low .env/defaults.
     # run_gate_b_query re-applies it (idempotent) for the direct-call path + per-query.
     apply_full_capability_benchmark_slate(smoke_scale=args.smoke_scale)
+    # I-deepfix-001 (#1344) wiring-gap iter-4 (Codex REVISE): the citation-snowball evidence deepener
+    # FAIL-LOUD (LAW II) is NOT asserted here. It lives at the ONE chokepoint EVERY real paid entry flows
+    # through — should_trigger_deepener() in src/polaris_graph/retrieval/deepener_sweep_adapter.py — which
+    # main() reaches via run_gate_b_query -> run_one_query. That single guard also covers the
+    # run_honest_sweep_r3 main_async/main path that bypasses run_gate_b entirely (a main()-local assert here
+    # would NOT), so the local assertions in main() + run_gate_b_query are removed (Codex: prefer the single
+    # chokepoint, no duplication). A keyless deepener-on paid run still fails loud — at the predicate, before
+    # the snowball spends. FAITHFULNESS-NEUTRAL: no faithfulness logic.
     questions = load_locked_questions(requested_slugs)
     # Codex diff-gate iter-2 P1-2: load_locked_questions has now imported the sweep -> live_retriever ->
     # state WITH the slate applied above, so the import-time constants are at full capability. Validate in

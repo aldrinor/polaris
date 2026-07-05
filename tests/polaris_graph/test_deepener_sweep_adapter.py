@@ -23,8 +23,51 @@ def test_trigger_requires_flag_key_and_seed_evidence():
     base = dict(has_s2_key=True, has_seed_evidence=True, adequacy_decision="expand", total_uncovered=2)
     assert should_trigger_deepener(flag_on=True, **base) is True
     assert should_trigger_deepener(flag_on=False, **base) is False  # off by default
-    assert should_trigger_deepener(flag_on=True, **{**base, "has_s2_key": False}) is False
+    # flag_on + has_s2_key=False is the FAIL-LOUD case (see test_should_trigger_raises_* below), NOT False.
     assert should_trigger_deepener(flag_on=True, **{**base, "has_seed_evidence": False}) is False
+
+
+# --- FAIL-LOUD chokepoint (wiring-gap iter-4, Codex REVISE) ----------------------------------------
+# should_trigger_deepener is the ONE guard EVERY real paid sweep entry flows through — run_gate_b.main(),
+# run_gate_b.run_gate_b_query(), AND scripts/run_honest_sweep_r3.run_one_query() (the main_async/main path
+# that bypasses run_gate_b) all gate the citation-snowball deepener on this predicate. When the deepener is
+# EXPLICITLY enabled (flag_on) but the Semantic Scholar key is absent (has_s2_key False), it RAISES a clear
+# RuntimeError naming SEMANTIC_SCHOLAR_API_KEY (LAW II) instead of silently returning False and leaving the
+# recall lever dark on a paid run. It raises ONLY on flag-on + key-absent; every OTHER non-trigger reason
+# still returns False WITHOUT raising, and a hermetic test that never calls the predicate never trips it.
+def test_should_trigger_raises_when_flag_on_and_key_absent():
+    # flag ON + key ABSENT -> RuntimeError naming the env var, regardless of the corpus signals.
+    with pytest.raises(RuntimeError, match="SEMANTIC_SCHOLAR_API_KEY"):
+        should_trigger_deepener(
+            flag_on=True, has_s2_key=False, has_seed_evidence=True,
+            adequacy_decision="expand", total_uncovered=2,
+        )
+    # Still raises even when the OTHER signals would themselves be non-triggering (proceed + covered + no
+    # seed evidence + not review-heavy) — the key-absent guard is checked FIRST and is independent of them.
+    with pytest.raises(RuntimeError, match="SEMANTIC_SCHOLAR_API_KEY"):
+        should_trigger_deepener(
+            flag_on=True, has_s2_key=False, has_seed_evidence=False,
+            adequacy_decision="proceed", total_uncovered=0, corpus_review_heavy=False,
+        )
+
+
+def test_should_trigger_does_not_raise_when_flag_off_or_key_present():
+    # flag OFF + key ABSENT -> NO raise, returns False (nothing enabled, so a missing key is not an error).
+    assert should_trigger_deepener(
+        flag_on=False, has_s2_key=False, has_seed_evidence=True,
+        adequacy_decision="expand", total_uncovered=2,
+    ) is False
+    # flag ON + key PRESENT but proceed + fully covered + not review-heavy -> returns False WITHOUT raising
+    # (one of the "OTHER non-trigger reasons" the fail-loud guard must NOT swallow).
+    assert should_trigger_deepener(
+        flag_on=True, has_s2_key=True, has_seed_evidence=True,
+        adequacy_decision="proceed", total_uncovered=0, corpus_review_heavy=False,
+    ) is False
+    # flag ON + key PRESENT + no seed evidence -> returns False WITHOUT raising.
+    assert should_trigger_deepener(
+        flag_on=True, has_s2_key=True, has_seed_evidence=False,
+        adequacy_decision="expand", total_uncovered=2,
+    ) is False
 
 
 def test_trigger_only_on_borderline_corpus():
