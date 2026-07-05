@@ -541,3 +541,10 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Coverage build (w7g7v04qa): Fable APPROVE / Codex REVISE on ONE test env-leak (test_cov_c2 mutates os.environ at import w/o restore) → iter-2 launched (w3f2k44xg). IMPORTANT honest fact: C1 recall + C2 synthesis were ALREADY armed on the paid run_gate_b path at this HEAD; the flips are belt-and-suspenders + proof tests → coverage is NOT dark on the run.
 - validity build (w2ptbe1dy): run_validity_gate.diff present (59KB), gating.
 - RUNNING: coverage-iter2 w3f2k44xg, B4-iter2 w4elr6fk7, validity w2ptbe1dy. RAM 26GB free, 4 procs. Healthy.
+
+## [2026-07-05 11:15:51] B4 render tail committed (005c4f01)
+- #9/#13/#16/#22 both-approve (Codex+Fable), 40 tests pass, applied clean onto HEAD. Faithfulness = 22/23 (only #20 no-fix + #21 verify-in-preflight remain).
+- STILL GATING: coverage-iter2 w3f2k44xg, validity w2ptbe1dy. Then confirm 7 dark wired + preflight fire-proof + 4-box launch.
+
+## [2026-07-05 11:17:49] validity build main-tree leak reverted (kept tree pristine)
+- Build agent left run_gate_b.py (+session_log.md) dirty in MAIN tree while w2ptbe1dy still GATING. Confirmed run_validity_gate.diff (4 files: run_gate_b scope-wire D1-D5, run_validity_gate.py V3 fidelity gate, task_output_contracts.yaml V4 contract, tests) fully captures the content → reverted main tree to pristine HEAD 005c4f01. Validity commits via gated recipe on both-approve. No content lost.
