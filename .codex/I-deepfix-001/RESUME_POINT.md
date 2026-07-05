@@ -4,7 +4,20 @@
 Goal: rendered report that GENUINELY beats DeepTRACE + DRB-II, or surface a genuine blocker. NEVER fake victory on deficient. NO permission-asking (authorized). Full plan: `.codex/I-deepfix-001/AUTONOMOUS_BEATBOTH_PLAN.md`.
 
 ## CURRENT PHASE: P2c CORRECTED BUILD WAVE (in progress) — wf **wtkrxdrcn** (run wf_f05dcd87-075)
-Both forensics DONE (all-issues wjixpytfc + coverage wp1mfgjvt). Building 9 forensic-corrected fixes: FF1-CHROME-v2 (resolve over-strip), FF2-TRUNC-v2-FF3 (tighten + producer-cut), FF5-DATE-v2 (regex bug), FF4-ASPECT-v2 (adjustments), JUDGE-CAP-v2 (retry-seam), FF-4IR-CONFIG (delete stale workforce.yaml 4IR), COV-DECHROME-BASKETS (de-junk basket members — real depth killer), COV-C1-PAIR-v2 (pairing + chrome-harden clause-build), COV-SUBENTITY-LANDMARK (turn on sub_entity + in-window landmark expander). DROPPED per forensic: COV-FETCH-OA-RECOVER (misdirected — OA fetch worked), COV-C2 (deferred — over-merge safety risk). ON DONE: commit build-gate-APPROVED diffs (all forensic-ON_TARGET now); re-brief any REVISE; then P3 RESMOKE on a FRESH front-half run (NOT resume — skip trap). Superseded prior-phase notes below.
+Both forensics DONE (all-issues wjixpytfc + coverage wp1mfgjvt). Building 9 forensic-corrected fixes: FF1-CHROME-v2 (resolve over-strip), FF2-TRUNC-v2-FF3 (tighten + producer-cut), FF5-DATE-v2 (regex bug), FF4-ASPECT-v2 (adjustments), JUDGE-CAP-v2 (retry-seam), FF-4IR-CONFIG (delete stale workforce.yaml 4IR), COV-DECHROME-BASKETS (de-junk basket members — real depth killer), COV-C1-PAIR-v2 (pairing + chrome-harden clause-build), COV-SUBENTITY-LANDMARK (turn on sub_entity + in-window landmark expander). DROPPED per forensic: COV-FETCH-OA-RECOVER (misdirected — OA fetch worked), COV-C2 (deferred — over-merge safety risk). ON DONE: commit build-gate-APPROVED diffs (all forensic-ON_TARGET now); re-brief any REVISE.
+
+## ★P2d WON'T-GO-DARK LIVENESS CHECK (operator-mandated, Codex+Fable-gated) — MUST pass before relaunch★
+The epic failure was fixes going DARK (default-off flag / not-wired / resume-skipped / canary-blind). After committing, run a serious per-fix anti-dark check, and GATE it with real Codex CLI + real Fable5 (both must confirm "WILL FIRE, not dark"). For EACH committed fix verify against the REAL pipeline (not offline):
+  1. FLAG-ON: its PG_ flag defaults ON OR is force-set in the cert slate (run_gate_b.py _BENCHMARK_FORCE_ON_FLAGS / _FULL_CAPABILITY_BENCHMARK_SLATE / _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS). NO default-off dark flag. (sub_entity + landmark + span_quality_gate especially — were dark.)
+  2. WIRED: the fix code is actually CALLED on the real run spine (scripts/run_honest_sweep_r3.py), not an orphan.
+  3. FRESH-PATH: fires on the FRESH front-half path we will run (NOT guarded away by `if not _resume_active`); if resume-guarded, confirm fresh-run hits it.
+  4. FIRING-SIGNAL: a distinct log line PROVES it fired at run time (so post-run we verify, not assume). If missing → ADD a loud log line (this is a fix, Codex+Fable-gated).
+Build a 9-fix LIVENESS TABLE (fix → FLAG-ON/WIRED/FRESH-PATH/SIGNAL, with file:line + the exact expected log string). Codex+Fable gate the table: any fix that could go dark → fix flag/wiring/signal (gated) BEFORE relaunch. PushNotification the operator the N/9-will-fire result.
+
+## P3 RESMOKE (only after P2d passes)
+FRESH front-half run (NOT corpus_snapshot replay — resume-skip trap). During the run READ every new line line-by-line and tick each fix's FIRING-SIGNAL → a 9/9 FIRED table (the ultimate anti-dark proof). Any fix that did NOT fire in the real log = dark = fix wiring + re-check, do NOT proceed.
+
+Superseded prior-phase notes below.
 
 ## (superseded) CURRENT PHASE: P2 BUILD+DUAL-GATE (in progress)
 - P1 INVESTIGATE ✅ DONE — wf wbpc2n0qb. 6 root-cause briefs at `.codex/I-deepfix-001/fixwave/inv_*.md` + `fix_wave_plan.json` (7 faithfulness-form fixes + coverage track + judge fix).
