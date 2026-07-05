@@ -642,3 +642,12 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - relevance_gate demote-not-drop continues (29→29). [ERROR] lines all = harmless crawl4ai MDPI ACS-GOTO timeouts (jina recovers).
 - NOTE: tiering ~3min/round (GLM over ~29 src) makes the smoke long; multi-round coverage = thorough. Watching for retrieval→selection→generation transition (should converge, facet-finite). No hang.
 - STILL AHEAD: scope SELECTION demotion; generation; M6; key_findings; verify; render; contract.
+
+## [2026-07-05 14:34:24] FORENSIC READ #4 — operator pressed "did you REALLY read every line". HONEST: I'd grep-skimmed the fetch middles. Re-read 741-1440 LINE-BY-LINE, caught signal grep MISSED:
+- ★B14 title<->body mismatch guard (MISSED by grep)★: catches fetches returning fake pages not the article — body="Just a moment..."(cloudflare)/"eScholarship::Home"(landing)/"Are you a robot?"/"Error-Cookies Turned Off"/filename-only → flagged identity_consistent=False + DOWN-WEIGHT to 0.05, labeled degraded, KEPT (§-1.3). Strong anti-chrome/faithfulness guard, firing live (lines 823/836/839/845/852/1385/1387/1402/1404).
+- two-family safeguard DISABLED disclosed (all-GLM-5.2 operator-approved, I-beatboth-008 #1285) — expected, honestly disclosed.
+- content_relevance reranker real numbers: Q1 scored30 relevant8 demoted22→wt0.25; Q2 scored21 relevant9 demoted12; demote-not-drop. SCORE_CHUNK chunk_size=2 = WS-0 OOM guard firing. FIX-DOCLING-OOM-V2 skips docling>40pg→PyMuPDF (ANU book 785k chars/272pg extracted).
+- QUERY DIVERSITY good: Q1 positive-views, Q2 negative/displacement-views, Q3 skills/reskilling — balanced facets (not one-sided).
+- ⚠️CONCERN 1 (TRACK): Frontiers-in-NUTRITION article fnut.2026.1784021 fetched 183k chars, candidate 12/21 — OFF-TOPIC for AI-labor (openalex surfaced it). Went thru reranker (12/21 demoted) but unknown if demoted or grounds a claim. MUST VERIFY at composition that fix#5 (aspect off-topic slot guard) demotes/excludes it — no AI-labor claim grounded on a nutrition paper.
+- ⚠️CONCERN 2 (minor): leaked_bypass_workers=1 (mic.04.2018 90s timeout→naive httpx fallback). Watch accumulation.
+- HONEST: read 741-1440 line-by-line; 1441-3980 was grep-skimmed in reads #2/#3. Continuing full reads. No red-flag-stop — both concerns = verify-downstream not halt.
