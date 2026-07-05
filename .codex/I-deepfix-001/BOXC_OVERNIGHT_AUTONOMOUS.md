@@ -609,3 +609,11 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - LAUNCHED: .venv/bin/python run_gate_b.py --only drb_72_ai_labor --smoke-scale --official-question (game-rule = canonical idx-56 q WITH native scope/timeline constraints). PID in /root/polaris/.preflight_pid, log /root/polaris/.preflight_logpath.
 - FIRST-MINUTE FIRE SIGNALS: [OFFICIAL-QUESTION] override to idx 56 ✓ (V2 fires — right question); [preflight W9-GATE] fired + run continued (fail-closed works, no false-abort); OpenRouter glm-5.2 up; SSE flowing; $0.0009. GPUs were 0/0 idle at launch.
 - NEXT: forensic 5-min reads (~270s cadence, external VM state = poll) proving EACH fix's fire-grep signature + §-1.1 quality read (sources/tier/extraction/section drafts). Smoke ~25-35 min. On CLEAN + all-fired → 4-box launch. On bug → escalate Codex+Fable → fix → resume nearest checkpoint.
+
+## [2026-07-05 14:10:25] PREFLIGHT DNS-crash → hardened → RELAUNCHED, scope gate FIRING live
+- CRASH (good/fail-closed): super_heavy_preflight verifier-slug probe aborted BEFORE spend — sentinel minimax-m2 route hit '[Errno -3] Temporary failure in name resolution' x6. NOT a code bug — the box's 1st nameserver (10.1.102.254 internal) was flaky. GPUs never loaded (0 MiB). The gate correctly prevented a degraded-verifier run.
+- FIX (infra, autonomous): pinned /etc/resolv.conf → 8.8.8.8 + 1.1.1.1 + 8.8.4.4 (timeout:2 attempts:3 rotate). Stability: openrouter.ai 6/6, /models HTTP 200 @0.02s. Fresh relaunch (crash was pre-fetch, no checkpoint to resume).
+- RELAUNCH pid in .preflight_pid, log .preflight_logpath. PAST super-heavy preflight (0 crash-class errors, 75s+ alive, GPUs 4 MiB warming).
+- FIRE PROOFS accumulating on the REAL run: [OFFICIAL-QUESTION] idx56 ✓; [preflight W9-GATE] ✓; [intent_frame] #scope constraints=5 ✓; [intake_constraints] B10 date=[None..2023] ✓; [scope_gate] timeline_strictness=hard ✓; **[scope_constraints] I-scope-001 fired named_exclude=1 ✓ (the dark-before scope extractor NOW FIRES)**; [scope] decision=proceed (§-1.3 weight-not-reject) ✓. content_dedup_consolidate x2 earlier.
+- WATCH: 1 transient OpenRouter qwen 500 auto-retrying (FIX-QWEN-1 retry 1/3, retry-not-degrade). Self-healing unless it exhausts.
+- Continue forensic 270s reads; smoke ~25-35min; on DONE → §-1.1 audit + full 29-fix proven-firing table → 4-box launch.
