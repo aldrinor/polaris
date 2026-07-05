@@ -548,3 +548,7 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 
 ## [2026-07-05 11:17:49] validity build main-tree leak reverted (kept tree pristine)
 - Build agent left run_gate_b.py (+session_log.md) dirty in MAIN tree while w2ptbe1dy still GATING. Confirmed run_validity_gate.diff (4 files: run_gate_b scope-wire D1-D5, run_validity_gate.py V3 fidelity gate, task_output_contracts.yaml V4 contract, tests) fully captures the content → reverted main tree to pristine HEAD 005c4f01. Validity commits via gated recipe on both-approve. No content lost.
+
+## [2026-07-05 11:26:03] COVERAGE committed (750baf74)
+- C1 R2 recall + C2 cross-source synthesis default-ON, both-approve (Codex+Fable), 12 tests pass, applied clean.
+- TRACKS: faithfulness 22/23 ✓ + coverage 2/2 ✓. ONLY validity (w2ptbe1dy) remains → closes all 7 dark.
