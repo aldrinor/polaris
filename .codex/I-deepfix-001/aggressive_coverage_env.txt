@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# =====================================================================================================
+# I-deepfix-001 (#1344) — AGGRESSIVE-COVERAGE env block for DRB-II VM boxes 3/4.
+#
+# WHAT THIS IS: an env layer sourced ON TOP OF the committed run_gate_b slate + a100_complete_env.sh.
+# It ONLY raises breadth-widener knobs above the committed "safe" defaults so boxes 3/4 push coverage
+# harder than boxes 1/2 while running the IDENTICAL faithfulness engine. This is CONFIG-ONLY — no code
+# edit — and every value is a strict WIDEN (§-1.3 WEIGHT-AND-CONSOLIDATE, widen-only).
+#
+# HOW TO USE (source LAST, after a100_complete_env.sh, before launch):
+#     source .codex/I-deepfix-001/a100_complete_env.sh
+#     source aggressive_coverage_env.txt          # this file — widen-only deltas on top
+#     polaris_verify_device_pins || return 1       # (from a100_complete_env.sh — device split unchanged)
+#     python scripts/dr_benchmark/run_gate_b.py --only <drb_ii_slug>
+#
+# WHY IT DOES NOT OOM / 429 (see the headroom note at the bottom): the two rate governors
+# (PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT + PG_LIVE_RETRIEVER_MAX_WORKERS), the VRAM chunk guard
+# (PG_CONTENT_RELEVANCE_SCORE_CHUNK), the device split, and BOTH walls (retrieval 5400s / run 14400s)
+# are LEFT BYTE-IDENTICAL. Widening breadth costs sequential TIME (bounded by the walls) + API $ —
+# never peak VRAM and never per-host request rate.
+#
+# PRECONDITION: SEMANTIC_SCHOLAR_API_KEY MUST be exported (the citation-snowball deepener FAIL-LOUDs
+# when armed + key-absent — deepener_sweep_adapter.should_trigger_deepener). It already is on the paid box.
+# =====================================================================================================
+
+# ── DRIVER BELTS (already force-ON in the committed slate; re-asserted so the widener knobs are NEVER
+#    dead. These are NOT raises — they match the safe run; belted only against a stray .env=0 drift.) ──
+export PG_QGEN_FS_RESEARCHER=1           # W2 FS-Researcher qgen path (fs_researcher_query_gen.py:42; slate force-ON run_gate_b.py:1439)
+export PG_EXPERT_FACET_PLANNER=1         # R1 facet planner drives the facet-frontier (expert_facet_planner.py:56; slate run_gate_b.py:1208)
+export PG_FACET_COMPLETENESS=1           # R2 facet-completeness expansion loop (facet_completeness.py:56; slate run_gate_b.py:1209)
+export PG_SUBENTITY_QUERY_EXPANSION=1    # R2 sub-entity/STORM-perspective expansion (sub_entity_query_expander.py:62; slate setdefault run_gate_b.py:2797)
+export PG_SWEEP_EVIDENCE_DEEPENER=1      # citation-snowball deepener recall lever (slate setdefault run_gate_b.py:2773)
+
+# ── R1 — expert facet frontier (the single largest DRB-II recall lever) ──────────────────────────────
+# More expert facets = more distinct sub-topics/actors/mechanisms searched. Breadth-first seeding means
+# every facet's primary angle fires before any facet's deeper angle, so even under the retrieval wall a
+# 20-facet frontier covers MORE distinct facets than the 12-facet safe frontier in the same time.
+export PG_EXPERT_FACET_MAX_FACETS=20     # safe 12 -> 20  WIDENER: +8 expert facets kept from the facet tree (expert_facet_planner.py:62)
+# PG_EXPERT_FACET_ANGLES: default already = full 5-lens set (expert_facet_planner.py:68, hard-capped at
+# len(_ANGLE_LENSES)=5). Already maxed — CANNOT be widened by env; intentionally NOT set.
+
+# ── R2 — seed/reserve split + facet-completeness expansion loop ──────────────────────────────────────
+# Seed MORE angles per facet immediately (breadth-first) instead of parking them in reserve, and let the
+# completeness loop run more gap-closing rounds before it declares saturation.
+export PG_EXPERT_FACET_SEED_ANGLES=3     # safe 2 -> 3   WIDENER: 3 of 5 angles seeded per facet up-front (fs_researcher_query_gen.py:71); the loop still leaves >=1 reserve angle (breadth_first_seeds clamp), so R2 stays non-vacuous
+export PG_FACET_EXPANSION_MAX_ROUNDS=6   # safe 4 -> 6   LIMITER-CEILING RAISED: up to 6 gap-closing expansion rounds on uncovered facets (facet_completeness.py:78)
+export PG_FACET_SATURATION_MIN_NEW_FRACTION=0.05  # safe 0.10 -> 0.05  WIDENER-DIRECTION: LOWERS the yield-saturation STOP threshold so the expansion loop keeps going while a round still adds >=5% new sources (facet_completeness.py:69). This is NOT a cap on sources/queries — it lets the loop run LONGER = more coverage. No cap/target/thinner introduced.
+# PG_FACET_COVERAGE_MIN_HITS: LEFT at default 1 (facet_completeness.py:61). Raising it changes coverage
+# MEASUREMENT semantics (mixed effect), not a pure widen — deliberately untouched.
+
+# ── FS-Researcher query budget — UNCAP the widened frontier so the retrieval WALL (not an artificial
+#    35-cap) is the governor. Compute-safety cap raised; the per-question wall still bounds actual spend. ─
+export PG_QGEN_FS_RESEARCHER_MAX_QUERIES=80  # safe 35 -> 80  LIMITER-CEILING RAISED: lets the 20-facet x 3-seed-angle frontier (~60 seeds) + sub-entity slice + R2 expansion all remain eligible to issue (fs_researcher_query_gen.py:47). Actual issuance is still gated by PG_RETRIEVAL_QUESTION_WALL_SECONDS (UNCHANGED) -> disclosed partial handoff, never a 429 loop.
+
+# ── R2 — sub-entity + STORM-perspective expansion (niche occupations/sectors/demographics) ───────────
+export PG_SUBENTITY_MAX_ENTITIES=18      # safe 12 -> 18  WIDENER: +6 named niche sub-entities enumerated (sub_entity_query_expander.py:70)
+export PG_SUBENTITY_QUERY_RESERVE=16     # safe 10 -> 16  WIDENER: +6 sub-entity queries ADDED ON TOP of the budget (raises effective budget by the slice; strict superset, never a swap) (sub_entity_query_expander.py:96)
+# PG_SUBENTITY_MAX_PERSPECTIVES: default already = full 6-lens set (sub_entity_query_expander.py:79,
+# hard-capped at len(_PERSPECTIVE_LENSES)=6). Already maxed — intentionally NOT set.
+
+# ── Citation-snowball evidence deepener — the primary-starved / blocked-reference recall lever ───────
+# Chase more meta-analysis references + forward citations + recommendations + mechanism papers, keep
+# more of them, and fetch more full text. Each discovered URL still routes through the UNCHANGED
+# fetch -> tier -> is_content_starved -> strict_verify chokepoint (a thin paper is dropped fail-closed).
+export PG_SWEEP_DEEPENER_URL_CAP=100     # safe 60 -> 100  WIDENER: +40 discovered URLs injected back into run_live_retrieval(seed_urls=) (slate lane run_gate_b.py:535)
+export PG_DEEPENER_MAX_RESOLVE=32        # safe 20 -> 32  WIDENER: resolve more evidence URLs -> S2 paper IDs (evidence_deepener.py:52)
+export PG_DEEPENER_MAX_CHASE_SEEDS=16    # safe 10 -> 16  WIDENER: chase citations from more seed meta-analyses (evidence_deepener.py:55)
+export PG_DEEPENER_REFS_PER_SEED=15      # safe 10 -> 15  WIDENER: keep more references per seed paper (evidence_deepener.py:58)
+export PG_DEEPENER_RECOMMEND_SEEDS=8     # safe 5 -> 8    WIDENER: more seeds for the S2 recommendations call (evidence_deepener.py:61)
+export PG_DEEPENER_RECOMMEND_LIMIT=32    # safe 20 -> 32  WIDENER: keep more S2 recommendation results (evidence_deepener.py:64)
+export PG_DEEPENER_MECHANISM_QUERIES=8   # safe 5 -> 8    WIDENER: more mechanism/HOW-WHY keyword queries (evidence_deepener.py:67)
+export PG_DEEPENER_EVIDENCE_CAP=250      # safe 150 -> 250  LIMITER-CEILING RAISED: keep more new evidence rows from the deepening pass (evidence_deepener.py:70)
+export PG_DEEPENER_MAX_PDF_FETCH=16      # safe 10 -> 16  WIDENER: fetch full text for more open-access papers (evidence_deepener.py:949)
+export PG_DEEPENER_TIMEOUT=900           # safe 720 -> 900  LIMITER-CEILING RAISED: +180s deepening budget so the wider chase completes (evidence_deepener.py:73). Still comfortably inside the 5400s retrieval wall.
+
+# ── Retrieval fetch envelope — candidate breadth + per-query top-k + re-expansion lanes ──────────────
+# Raise the CANDIDATE pool per query (cheap: more search results considered) meaningfully, and the
+# per-query fetch top-k moderately (per-query -> compounds with query count, so kept modest).
+export PG_SWEEP_MAX_S2=150               # safe 100 -> 150  WIDENER: more Semantic Scholar candidates/query (run_gate_b.py:548)
+export PG_SWEEP_MAX_SERPER=150           # safe 100 -> 150  WIDENER: more Serper web candidates/query (run_gate_b.py:547)
+export PG_SERPER_TOTAL_PER_QUERY=90      # safe 60 -> 90   WIDENER: more paginated Serper results/query (run_gate_b.py:552)
+export PG_SERPER_MAX_PAGES=4             # safe 3 -> 4     WIDENER: +1 Serper page of breadth/query (run_gate_b.py:553)
+export PG_SWEEP_FETCH_CAP=850            # safe 740 -> 850  LIMITER-CEILING RAISED (top-k): +110 URLs fetched/classified per query (run_honest_sweep_r3.py:9561; slate floor run_gate_b.py:546). Kept modest because it is PER-QUERY and compounds with the widened query count.
+export PG_R6_EXPAND_FETCH_CAP=100        # safe 60 -> 100  WIDENER: deeper R-6 completeness re-expansion fetch (run_honest_sweep_r3.py:10980)
+export PG_ADEQUACY_CRAG_FETCH_CAP=64     # safe 40 -> 64   WIDENER: deeper CRAG adequacy-pass re-fetch (run_honest_sweep_r3.py:10769)
+
+# ── Multilingual coverage (non-English DRB-II tasks) ─────────────────────────────────────────────────
+export PG_MULTILINGUAL_QUERY_RESERVE=10  # safe 6 -> 10   WIDENER: guarantee more native-language queries a slot inside the budget on a non-English task (fs_researcher_query_gen.py:134). Inert / byte-identical on English-only tasks.
+
+# ── DELIBERATELY LEFT UNCHANGED (the 429 / OOM / faithfulness invariants — do NOT widen) ─────────────
+#   PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT (6)  — per-host politeness = the core 429 guard.
+#   PG_LIVE_RETRIEVER_MAX_WORKERS (48)         — cross-host fetch concurrency ceiling; the monitor STEPS
+#                                                DOWN from it under 429, so raising it would fight that guard.
+#   PG_MAX_CONCURRENT_LLM (8), PG_S2_RPS       — provider rate guards (raising -> 429 from S2/OpenRouter).
+#   PG_CONTENT_RELEVANCE_SCORE_CHUNK (2)       — the reranker per-forward VRAM cap = the OOM guard.
+#   PG_RETRIEVAL_QUESTION_WALL_SECONDS (5400), PG_RUN_WALL_CLOCK_SEC (14400), PG_SECTION_WALLCLOCK_SECONDS
+#     (9000) — the wall hierarchy + aggregate-fit preflight stay byte-identical (a raise would risk the
+#     retrieval+section > run-wall aggregate-fit abort). The wider frontier hands off DISCLOSED-partial
+#     at the existing wall instead.
+#   ALL cap/target/thinner knobs (PG_SPAN_PER_SOURCE_CITE_CAP / PG_LEGACY_SECTION_BREADTH_TARGET /
+#     PG_BREADTH_CANARY_MIN and kin) — stay deleted/unset. NONE re-introduced.
+
+# =====================================================================================================
+# KNOB TABLE  (name | file:line | safe default | aggressive value | widener/limiter | §-1.3 ok)
+# -----------------------------------------------------------------------------------------------------
+#  PG_EXPERT_FACET_MAX_FACETS          | expert_facet_planner.py:62      | 12   | 20   | WIDENER          | ok (more facets)
+#  PG_EXPERT_FACET_SEED_ANGLES         | fs_researcher_query_gen.py:71   | 2    | 3    | WIDENER          | ok (more seed angles fire now)
+#  PG_QGEN_FS_RESEARCHER_MAX_QUERIES   | fs_researcher_query_gen.py:47   | 35   | 80   | LIMITER (raised) | ok (uncaps frontier; wall governs)
+#  PG_FACET_EXPANSION_MAX_ROUNDS       | facet_completeness.py:78        | 4    | 6    | LIMITER (raised) | ok (more expansion rounds)
+#  PG_FACET_SATURATION_MIN_NEW_FRACTION| facet_completeness.py:69        | 0.10 | 0.05 | WIDENER-dir      | ok (stop later = more rounds; not a source cap)
+#  PG_SUBENTITY_MAX_ENTITIES           | sub_entity_query_expander.py:70 | 12   | 18   | WIDENER          | ok (more niche entities)
+#  PG_SUBENTITY_QUERY_RESERVE          | sub_entity_query_expander.py:96 | 10   | 16   | WIDENER          | ok (adds ON TOP of budget)
+#  PG_SWEEP_DEEPENER_URL_CAP           | run_gate_b.py:535 (lane)        | 60   | 100  | WIDENER          | ok (more snowball URLs injected)
+#  PG_DEEPENER_MAX_RESOLVE             | evidence_deepener.py:52         | 20   | 32   | WIDENER          | ok
+#  PG_DEEPENER_MAX_CHASE_SEEDS         | evidence_deepener.py:55         | 10   | 16   | WIDENER          | ok
+#  PG_DEEPENER_REFS_PER_SEED           | evidence_deepener.py:58         | 10   | 15   | WIDENER          | ok
+#  PG_DEEPENER_RECOMMEND_SEEDS         | evidence_deepener.py:61         | 5    | 8    | WIDENER          | ok
+#  PG_DEEPENER_RECOMMEND_LIMIT         | evidence_deepener.py:64         | 20   | 32   | WIDENER          | ok
+#  PG_DEEPENER_MECHANISM_QUERIES       | evidence_deepener.py:67         | 5    | 8    | WIDENER          | ok
+#  PG_DEEPENER_EVIDENCE_CAP            | evidence_deepener.py:70         | 150  | 250  | LIMITER (raised) | ok (keep more new evidence)
+#  PG_DEEPENER_MAX_PDF_FETCH           | evidence_deepener.py:949        | 10   | 16   | WIDENER          | ok
+#  PG_DEEPENER_TIMEOUT                 | evidence_deepener.py:73         | 720  | 900  | LIMITER (raised) | ok (more time, inside 5400 wall)
+#  PG_SWEEP_MAX_S2                     | run_gate_b.py:548               | 100  | 150  | WIDENER          | ok (more candidates/query)
+#  PG_SWEEP_MAX_SERPER                 | run_gate_b.py:547               | 100  | 150  | WIDENER          | ok
+#  PG_SERPER_TOTAL_PER_QUERY           | run_gate_b.py:552               | 60   | 90   | WIDENER          | ok
+#  PG_SERPER_MAX_PAGES                 | run_gate_b.py:553               | 3    | 4    | WIDENER          | ok
+#  PG_SWEEP_FETCH_CAP                  | run_honest_sweep_r3.py:9561     | 740  | 850  | LIMITER (raised) | ok (per-query top-k; kept modest)
+#  PG_R6_EXPAND_FETCH_CAP              | run_honest_sweep_r3.py:10980    | 60   | 100  | WIDENER          | ok
+#  PG_ADEQUACY_CRAG_FETCH_CAP          | run_honest_sweep_r3.py:10769    | 40   | 64   | WIDENER          | ok
+#  PG_MULTILINGUAL_QUERY_RESERVE       | fs_researcher_query_gen.py:134  | 6    | 10   | WIDENER          | ok (non-EN tasks; inert on EN)
+# -----------------------------------------------------------------------------------------------------
+#  25 widener deltas. Every row INCREASES breadth. No cap/target/thinner introduced; no limiter lowered.
+# =====================================================================================================
+
+# HEADROOM NOTE (why these will not OOM 2xRTX3090Ti or 429-storm):
+# Widening breadth here adds MORE sequential retrieval work, not bigger tensors. Peak GPU VRAM is set by
+# the per-forward-pass batch sizes and PG_CONTENT_RELEVANCE_SCORE_CHUNK=2 (the reranker one-pass OOM
+# guard) — ALL UNCHANGED — so more sources = more sequential embed/rerank passes = more TIME on the same
+# fixed-VRAM kernels, never a larger peak. The L3 device split (embedder + W5 on cuda:0; reranker + NLI +
+# consolidation-NLI on cuda:1) is untouched, and no clinical mineru-vLLM server contends on these
+# workforce/coverage boxes. On the network side, the per-host politeness cap (=6) and the cross-host
+# worker ceiling (=48) — the two 429 governors — are UNCHANGED, so per-host request RATE is identical to
+# the safe run; only cross-host breadth grows, and the per-question retrieval wall (5400s) plus run-wall
+# (14400s), both unchanged, bound total retrieval time so a wider frontier hands off a DISCLOSED partial
+# corpus (retrieval_wall_hit) rather than looping into 429s. S2 deepener calls stay gated by the existing
+# _S2_INTERVAL rate limiter. The only real cost is OpenRouter/S2 API spend + wall-clock, which the
+# operator DNA (FAST + BEAT-BOTH, cost-not-a-limit) explicitly treats as non-limiting for these boxes.
+
+# FAITHFULNESS UNCHANGED: NO strict_verify / NLI-entailment / D8 4-role / provenance / span-grounding
+# threshold or model is touched. PG_ENTAILMENT_MODEL, PG_EVALUATOR_MODEL, PG_CONTENT_RELEVANCE_SCORE_CHUNK,
+# and every verify threshold are byte-identical to the safe run. Every widened source re-passes the frozen
+# per-claim faithfulness engine exactly as on boxes 1/2 — this block only changes WHICH sources are
+# fetched/considered, never how a claim is verified.

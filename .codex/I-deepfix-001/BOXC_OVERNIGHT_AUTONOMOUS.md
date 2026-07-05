@@ -561,3 +561,10 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Codex caught a genuine fail-open: contract-scaffold required_table used substring/subset match (rc==cell or rc in cell + order-independent all(any)) → a table with extra/reordered/substring-header columns would PASS → contract-broken report could reach the paid judge. Dual-gate value: Fable missed it, Codex caught it.
 - iter-2 fix: EXACT normalized header-row match (== length+order) + 3 RED tests (extra 6th col / reordered / substring header) + strip run_gate_b comment whitespace. run_validity_gate.diff applies clean onto HEAD ba513247. On both-approve → commit closes ALL 7 dark (D1-D5 + V3 fidelity + V4 contract).
 - PARALLEL: validity-iter2 wg283aijt + aggressive-coverage wfsay71l8.
+
+## [2026-07-05 11:55:46] AGGRESSIVE-coverage config BOTH-APPROVE (Codex+Fable) — ready for boxes 3/4
+- 25 knobs widen-only (facets 12→20, seed-angles 2→3, FS-Researcher queries 35→80, expansion rounds 4→6, sub-entity 12→18/reserve 10→16, deepener url-cap 60→100 + resolve/chase/refs/mechanism raised, S2 100→150, serper 100→150, fetch-cap 740→850, R6 60→100, CRAG 40→64, multilingual reserve 6→10). One LOWERED = PG_FACET_SATURATION_MIN_NEW_FRACTION 0.10→0.05 = saturation STOP-threshold → runs LONGER = widen-direction (Codex+Fable confirmed NOT a cap/target/thinner).
+- Headroom SAFE: peak VRAM fixed (batch+chunk-guard unchanged), 429 governors (per-host 6/workers 48) unchanged, walls unchanged → wider = more TIME not bigger tensors. Cost = API+wall only (non-limiting per operator DNA).
+- PRECONDITION: SEMANTIC_SCHOLAR_API_KEY must be exported for boxes 3/4 (armed deepener fail-loud else).
+- Persisted durably: .codex/I-deepfix-001/aggressive_coverage_env.txt (+ /c/Users/msn/AppData/Local/Temp/claude/C--POLARIS/dde5b4ec-b98b-4784-a4d2-3b7fd5d3e391/scratchpad copy). Config artifact, not a code commit.
+- STATE: faithfulness 22/23 ✓ + coverage-safe 2/2 ✓ + aggcov config ✓. ONLY validity-iter2 (wg283aijt) remains → closes all 7 dark.
