@@ -634,3 +634,11 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - §-1.3 anti-drop recoveries continue: heliyon/wiley-1748/hrm.22268 all "upgraded from stub via OA resolver". MDPI crawl4ai ACS-GOTO timeouts ALL harmless (jina recovers 98-117k chars each). Zyte circuit-breaker opened (correct defensive, sources recovered via jina/OA anyway).
 - STILL AHEAD (watching): per-source scope DEMOTION at selection ([select] I-scope-001 DEMOTED N — timeline/journal-only enforcement on out-of-window sources); generation; M6 connectives; key_findings; verify drops; render; contract-scaffold.
 - Continue reading every new line from cursor 2620.
+
+## [2026-07-05 14:29:59] FORENSIC READ #3 (lines 2621-3980, content) — retrieval still multi-round, §-1.3 holding
+- ~20min in, STILL retrieval (5-6 query rounds; coverage wideners thorough). HEALTHY, timestamps advancing 21:22→21:28, GPU0 steady 16.6GB, 0 real error. Cursor=3980.
+- §-1.3 weight-not-drop CONTINUES: more failed-fetch RETAINED zero-weight+DISCLOSED (mckinsey T5, radm T1, pr-10 T4, techrxiv T4, wgtn T4, openalex W441 T7, mar.21619 T4). Tiering per round WEIGHT-no-drop (30/29/29 src).
+- NEW §-1.3-safe: content_relevance_judge W2 hit 30s reranker safety-margin → "release ALL at full weight (always-release, NO drop)" — faithfulness/coverage-safe fallback (reranker skipped that batch, nothing dropped). Not a problem.
+- relevance_gate demote-not-drop continues (29→29). [ERROR] lines all = harmless crawl4ai MDPI ACS-GOTO timeouts (jina recovers).
+- NOTE: tiering ~3min/round (GLM over ~29 src) makes the smoke long; multi-round coverage = thorough. Watching for retrieval→selection→generation transition (should converge, facet-finite). No hang.
+- STILL AHEAD: scope SELECTION demotion; generation; M6; key_findings; verify; render; contract.
