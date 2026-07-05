@@ -84,3 +84,10 @@ THEN (automated, in order):
 8. After each run: §-1.1 serious line-by-line audit + score both boards (DeepTRACE our paper-faithful scorer + DRB-II official Gemini run_evaluation.py) vs floor (DeepTRACE 0.8636 / DRB-II 0.0571). Keep the WINNER per board across the 4. PushNotification the SCORED RESULTS — honest (top / competitive / short + the real numbers + the 2nd-cycle items).
 
 PAUSE-AND-NOTIFY conditions (only these): preflight cannot get clean after ≤5 gate iters; a fix would relax the faithfulness engine or override an operator-locked gate; funds insufficient; the full-132-task-leaderboard scope decision; a genuine unrecoverable blocker. Everything else = execute.
+
+## ★ ALL BOARDS + ALL DIMENSIONS EQUAL (operator 2026-07-05 ~10:18 — "don't miss anything for all scoreboards, they are equally important")
+Weight EVERY board + EVERY scored dimension equally through fixes → preflight → scoring. Miss none:
+- DeepTRACE (faithfulness, all 8 metrics: citation-accuracy, thoroughness, relevant, unsupported, uncited, source-necessity, one-sided, overconfident) — served by the 23 faithfulness fixes + the paper-faithful scorer.
+- DRB-II, ALL 3 dimensions co-equal: RECALL ~74% (coverage build C1: R2 query-expansion + wideners), ANALYSIS ~18% (coverage build C2: M6 + depth_synthesis), PRESENTATION ~8% (chrome-scrub #13, 5-col table #6, citation cleanup #7/#8, honest labels — plus check report formatting/tables/readability in the preflight §-1.1 audit).
+- If POLARIS targets any OTHER board (e.g. DeepResearch-Bench RACE/FACT), score it too — do NOT assume only 2 boards; enumerate the target boards from the benchmark harness (scripts/dr_benchmark/) and score every one.
+PREFLIGHT must prove fixes fire for EVERY board/dimension (faithfulness metrics + recall breadth + analysis synthesis + presentation formatting). SCORING reports EVERY board honestly (no board omitted, no dimension unmeasured). The loss-risk critic (wwfohleig) covers both boards; extend if a third board exists. Equal effort, equal measurement, no board left behind.
