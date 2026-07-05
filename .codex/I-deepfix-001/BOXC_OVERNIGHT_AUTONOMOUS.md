@@ -660,3 +660,10 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - B14 body-mismatch guard STILL catching fake pages at scale (QJE "Just a moment...", sciencedirect "Are you a robot?", IMF "Let's confirm you are human", jalt "This Journal is offline") → down-weight 0.05 or zero-weight-retain. Strong.
 - HONEST: read 741-1440 + tail 5320-5664 line-by-line; middle 1441-5319 (~3880 lines) = same fetch/tier rounds (queries 3-6 building the 182-source corpus), sampled not every-line. Prioritized tail because GPU spike demanded it — and it held the critical selection proof.
 - NEXT: generation section drafts (§-1.1 claim-vs-cited-span), M6 connectives, key_findings, verify, render. Cursor=5662.
+
+## [2026-07-05 14:45:58] FORENSIC READ #6 (5663-6023) — ★OFF-TOPIC GUARD FIRED★ + GENERATION STARTED
+- ★fix#5 topic_gate FIRED★ (line 5704): [scope] topic_gate DEMOTED(kept,disclosed) 24 off-topic src incl "Goals in Nutrition Science 2025-2030" + TikTok-folk-music + ballet(Ballets Russes) + robot-self-defense + French-education. NUTRITION concern now TRIPLY resolved (relevance-floor 0.246 + date-2026 + topic-gate). §-1.3 kept+disclosed.
+- SELECTION done: [select] selected=164 of 164 dropped=0 floor_dropped=0; full tier disclosure T1=48/T4=81/T7=16/T2=11/T6=4/T3=3/T5=1. GENERATION STARTED: [generation] multi-section z-ai/glm-5.2 evidence=164; [V30-P2] contract entities=7.
+- ★L5 required-entity coverage★ injected 19 marquee sources: Anthropic labor-market, OECD, ILO, World Bank, Goldman Sachs, McKinsey, Yale Budget Lab — strong authoritative AI-labor coverage. QJE "Generative AI at Work" (Brynjolfsson) RECOVERED via Zyte after cloudflare (attempts=33 successes=4). Blocked-ref deny-list SKIPPED herts/doaj/prohibited. A1 rejected WEF 4IR nav page as link-density index (won't pass nav as content).
+- TRACK: leaked_bypass_workers 1→3 (McKinsey Akamai 90s timeouts). Minor, not a threat, watching.
+- NEXT (faithfulness-critical): section prose drafts with [#ev] provenance tokens; M6 connectives; key_findings; strict_verify per-section drop%; contract-scaffold; render. Cursor=6023 (=file 6026; 3 header lines).
