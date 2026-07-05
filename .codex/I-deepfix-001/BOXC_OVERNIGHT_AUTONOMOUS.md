@@ -552,3 +552,7 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 ## [2026-07-05 11:26:03] COVERAGE committed (750baf74)
 - C1 R2 recall + C2 cross-source synthesis default-ON, both-approve (Codex+Fable), 12 tests pass, applied clean.
 - TRACKS: faithfulness 22/23 ✓ + coverage 2/2 ✓. ONLY validity (w2ptbe1dy) remains → closes all 7 dark.
+
+## [2026-07-05 11:28:15] AGGRESSIVE-coverage config build launched (wfsay71l8) — operator asked to build coverage in parallel
+- Safe coverage (C1+C2) already committed 750baf74 (boxes 1/2). Aggressive coverage = same widen-only machinery pushed harder (more facets/angles/R2 rounds/top-k, deepener+sub-entity engaged) for boxes 3/4. §-1.3 WIDEN-ONLY, faithfulness NEVER relaxed, config-only env block, Codex+Fable gated → $SC/aggressive_coverage_env.txt.
+- Running in PARALLEL with validity (w2ptbe1dy). PARALLEL builds: validity + aggcov.
