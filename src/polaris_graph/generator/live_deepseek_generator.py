@@ -49,6 +49,15 @@ from src.polaris_graph.generator.provenance_generator import (
     split_into_sentences,
     wrap_evidence_for_prompt,
 )
+# I-deepfix-001 rank-19 (#1344): the possible_metric_mismatch marker + suppress flag live in the
+# detector so this Limitations-telemetry render path stays in lockstep with
+# ``format_contradictions_for_user`` / ``run_honest_sweep_r3._render_contradicts_block`` — a
+# marker-bearing record is an UNCONFIRMED-shared-metric pairing, never a confirmed magnitude
+# disagreement. contradiction_detector imports only stdlib at module load, so this is not circular.
+from src.polaris_graph.retrieval.contradiction_detector import (
+    POSSIBLE_METRIC_MISMATCH_MARKER,
+    _suppress_metric_mismatch_enabled,
+)
 
 logger = logging.getLogger("polaris_graph.live_deepseek_generator")
 
@@ -110,6 +119,16 @@ def _contradiction_not_comparable(c: dict[str, Any]) -> bool:
     return "[not_comparable]" in str(c.get("predicate", "") or "")
 
 
+def _contradiction_possible_metric_mismatch(c: dict[str, Any]) -> bool:
+    """True iff a serialized contradiction record is an UNCONFIRMED-shared-metric pairing — the
+    detector stamped the ``[possible_metric_mismatch]`` marker into its predicate because it could
+    NOT positively confirm the two numbers measure the same quantity (comparator / population /
+    time-window may differ). Such a pairing is a WITHHELD (fail-safe) pair, NOT a confirmed
+    magnitude disagreement, so the Limitations prose must not describe it as sources "disagreeing on
+    magnitude". A CONFIRMED contradiction (no marker) is unaffected and still counted. Pure."""
+    return POSSIBLE_METRIC_MISMATCH_MARKER in str(c.get("predicate", "") or "")
+
+
 def _format_telemetry_block(
     tier_fractions: dict[str, float] | None,
     contradictions: list[dict[str, Any]] | None,
@@ -165,8 +184,34 @@ def _format_telemetry_block(
         # headline ``contradictions_detected`` counts ONLY the comparable buckets; the screened
         # ones are disclosed separately as "no contradiction asserted". Faithfulness untouched —
         # disclosure count/wording consistency only.
-        comparable = [c for c in contradictions if not _contradiction_not_comparable(c)]
+        # I-deepfix-001 rank-19 (#1344): also partition out possible_metric_mismatch records so the
+        # Limitations paragraph never over-states a WITHHELD (fail-safe) pairing as sources
+        # "disagreeing on magnitude". A ``[possible_metric_mismatch]``-marked record is the detector
+        # declaring it could NOT confirm the numbers measure the same quantity (comparator /
+        # population / time-window may differ) — its ``relative_difference`` is the RAW gap across two
+        # numbers that may be non-comparable (the cert artifact rendered an age-range 64-vs-1 pair as
+        # a "5000% magnitude disagreement" and a journal-volume 16-vs-superscript-2 pair as "700%").
+        # It is routed OUT of the headline ``contradictions_detected`` count into a dedicated
+        # possible-mismatch disclosure with NO asserted magnitude, matching
+        # ``format_contradictions_for_user`` / the production render path. Default-ON via
+        # ``PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH``; OFF restores the pre-fix headline (the same
+        # kill-switch the detector uses). A CONFIRMED contradiction (no marker) is unaffected and
+        # still counted with its rel_diff. Faithfulness untouched — disclosure wording only.
+        suppress_mismatch = _suppress_metric_mismatch_enabled()
         not_comparable = [c for c in contradictions if _contradiction_not_comparable(c)]
+        possible_mismatch = [
+            c
+            for c in contradictions
+            if not _contradiction_not_comparable(c)
+            and suppress_mismatch
+            and _contradiction_possible_metric_mismatch(c)
+        ]
+        comparable = [
+            c
+            for c in contradictions
+            if not _contradiction_not_comparable(c)
+            and not (suppress_mismatch and _contradiction_possible_metric_mismatch(c))
+        ]
         lines.append(f"contradictions_detected: {len(comparable)}")
         for c in comparable[:5]:
             subj = c.get("subject", "") or ""
@@ -176,6 +221,20 @@ def _format_telemetry_block(
             lines.append(
                 f"  - {subj} / {pred}: rel_diff {rel:.1f}%, severity={sev}"
             )
+        if possible_mismatch:
+            lines.append(
+                f"possible_metric_mismatch: {len(possible_mismatch)} "
+                "(shared metric NOT confirmed — comparator/population/time-window may differ; "
+                "NO magnitude disagreement is asserted)"
+            )
+            for c in possible_mismatch[:5]:
+                subj = c.get("subject", "") or ""
+                pred = str(c.get("predicate", "") or "").replace(
+                    f" {POSSIBLE_METRIC_MISMATCH_MARKER}", ""
+                )
+                lines.append(
+                    f"  - {subj} / {pred}: possible mismatch (no asserted magnitude)"
+                )
         if not_comparable:
             lines.append(
                 f"not_comparable_pairings: {len(not_comparable)} "

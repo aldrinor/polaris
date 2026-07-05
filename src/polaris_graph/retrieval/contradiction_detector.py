@@ -101,6 +101,15 @@ _GENERIC_VALUE_RE = re.compile(
     r"(?P<value>-?\d+(?:,\d{3})*(?:\.\d+)?)\s*"
     r"(?P<unit>%|percent|percentage\s*points?|pp|bps|basis\s*points?|"
     r"trillion|billion|million|thousand|"
+    # I-deepfix-001 rank-19 (#1344): the UNAMBIGUOUS money-multiplier abbreviations
+    # ``bn`` (billion) / ``tn`` (trillion) / ``mn`` (million) — a magnitude suffix glued
+    # onto a currency amount ("$16bn", "£4tn", "€7mn") is a real metric value, so it must
+    # survive extraction (pre-fix "$16bn" returned None, suppressing a genuine numeric
+    # disagreement). These three are unambiguous magnitude suffixes and normalize to their
+    # long form so "$16bn" and "$16 billion" consolidate. BARE ``m``/``k``/``b`` are NOT
+    # added — they collide with meters / thousands / other tokens ("18m" = 18 metres) and
+    # would fabricate false magnitude reads.
+    r"bn|tn|mn|"
     r"usd|eur|gbp|cad|jpy|"
     r"gw|mw|kw|kwh|mwh|twh|tonnes?|tons?|"
     r"jobs?|workers?|people|users?|points?|x|×)?"
@@ -124,6 +133,15 @@ def _normalize_generic_unit(unit: str) -> str:
         return "percentage_points"
     if u in ("bps", "basis point", "basis points"):
         return "basis_points"
+    # I-deepfix-001 rank-19 (#1344): fold the unambiguous money-multiplier abbreviations
+    # onto their long form so "$16bn" consolidates with "$16 billion" (same value, same
+    # canonical unit) rather than splitting into a "bn" vs "billion" pseudo-mismatch.
+    if u == "bn":
+        return "billion"
+    if u == "tn":
+        return "trillion"
+    if u == "mn":
+        return "million"
     return u
 
 
@@ -349,6 +367,122 @@ def _in_bibliographic_region(num_pos: int, regions: list[tuple[int, int]]) -> bo
     return any(lo <= num_pos < hi for lo, hi in regions)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 rank-19 (#1344) — NON-QUANTITY number screen.
+#
+# The generic extractor lifts ANY number from prose, so a UNIT-LESS number that is
+# actually a NON-QUANTITY token becomes a claim value and then, grouped with an
+# unrelated unit-less number under the same generic metric cue, fabricates a
+# possible_metric_mismatch "magnitude disagreement" that the Limitations prose
+# over-states as "sources disagree on magnitude". The cert artifact surfaced exactly
+# this (finding #19): subject "aggregate" compared 64.0 (from ``ages 18-64``) vs 1.0
+# (rel_diff rendered as a 5000% disagreement); subject "firm-" compared 16.0 (the
+# volume of ``Sustainability 2024, 16, 8881``) vs 2.0 (an author affiliation
+# superscript) at a 700% "disagreement". NONE of these are measured quantities.
+#
+# The classes screened (all NON-QUANTITY):
+#   * age-range bounds — ``ages 18-64`` / ``aged 18 to 64`` / ``18-64 years``
+#   * journal volume / issue / article numbers — ``Sustainability 2024, 16, 8881`` /
+#     ``Vol. 16`` / ``issue 3`` / ``16(3):100``
+#   * author affiliation superscripts — a digit glued directly onto a preceding
+#     letter (``Smith2`` / ``Chen1,3`` / ``Lee1-3``), handled by the
+#     ``_is_superscript_chain_member`` check (rejects EVERY member of a chain, so the
+#     trailing ``3`` of ``Chen1,3`` is rejected too, not only the letter-glued head)
+#   * bracketed reference markers — ``[16]`` / ``[2]``
+#   * single page numbers — ``p. 47`` / ``page 47`` (page RANGES are already handled
+#     by ``_BIBLIOGRAPHIC_ID_RE``)
+#
+# ONLY UNIT-LESS numbers are screened — a unit-bearing value (``16%``, ``$16bn``,
+# ``47 percent``) is always a real metric, never a catalogue / age / superscript
+# token, so a genuine numeric disagreement (14% vs 41%) is UNAFFECTED. This is a
+# VALIDITY screen at the extraction seam, exactly like the sibling bibliographic-id /
+# leading-dash / year-or-count rejects that surround it; faithfulness is unchanged
+# (span-grounding / strict_verify remain the hard gate). Deterministic, never raises.
+# ─────────────────────────────────────────────────────────────────────────────
+_NON_QUANTITY_RE = re.compile(
+    r"""
+    # ── Age ranges ───────────────────────────────────────────────────────────
+    # The dash class uses EXPLICIT codepoint escapes (hyphen-minus U+002D, figure
+    # dash U+2012, en dash U+2013, em dash U+2014, horizontal bar U+2015 — the same
+    # convention as _BIBLIOGRAPHIC_ID_RE) so a non-ASCII-dashed range ("18–64")
+    # is screened too — the exact form that slipped past the leading-dash reject
+    # (which only matches ASCII '-'), and so the class can never render ambiguously
+    # under a non-UTF-8 read.
+      \bages?\s+\d{1,3}\s*(?:[\-‒–—―]|to|and|through)\s*\d{1,3}
+    | \baged\s+\d{1,3}\s*(?:[\-‒–—―]|to|and|through)\s*\d{1,3}
+    | \bbetween\s+\d{1,3}\s+and\s+\d{1,3}\s+years?\b
+    | \b\d{1,3}\s*[\-‒–—―]\s*\d{1,3}\s+years?(?:\s+of\s+age|\s+old)?\b
+    # ── Journal citation volume / issue / article number ─────────────────────
+    | \b(?:19|20)\d{2}\s*,\s*\d{1,4}\s*,\s*\d{1,6}     # "Journal 2024, 16, 8881"
+    | \bvol(?:ume)?\.?\s*\d{1,4}                        # Vol. 16 / volume 16
+    | \b(?:issue|no)\.?\s*\d{1,4}                       # issue 3 / no. 3
+    | \b\d{1,4}\s*\(\s*\d{1,4}\s*\)\s*:?\s*\d{0,6}      # 16(3):100 volume(issue):page
+    # ── Bracketed reference markers ──────────────────────────────────────────
+    | \[\s*\d{1,4}\s*\]                                 # [16] / [2]
+    # ── Single page numbers (page RANGES: see _BIBLIOGRAPHIC_ID_RE) ──────────
+    | \bpp?\.\s*\d{1,6}\b                               # p. 47 / pp. 47
+    | \bpages?\s+\d{1,6}\b                              # page 47
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _non_quantity_regions(text: str) -> list[tuple[int, int]]:
+    """Char spans covering NON-QUANTITY numbers (age range / journal volume-issue /
+    reference marker / single page number).
+
+    A UNIT-LESS number inside one of these spans is not a measured metric value
+    (I-deepfix-001 rank-19). Author affiliation superscripts are handled separately by
+    ``_is_superscript_chain_member`` in ``_find_value_generic`` (they have no surrounding
+    cue token). Pure, never raises."""
+    return [(m.start(), m.end()) for m in _NON_QUANTITY_RE.finditer(text or "")]
+
+
+def _in_non_quantity_region(num_pos: int, regions: list[tuple[int, int]]) -> bool:
+    """True iff ``num_pos`` falls inside any non-quantity span. Pure."""
+    return any(lo <= num_pos < hi for lo, hi in regions)
+
+
+# I-deepfix-001 rank-19 (#1344): author-affiliation / reference SUPERSCRIPT CHAIN separators —
+# comma plus the dash family (hyphen-minus U+002D, figure dash U+2012, en dash U+2013, em dash
+# U+2014, horizontal bar U+2015), the same dash convention as ``_NON_QUANTITY_RE``.
+_SUPERSCRIPT_CHAIN_SEPS = ",-‒–—―"
+
+
+def _is_superscript_chain_member(text: str, num_start: int) -> bool:
+    """True iff the UNIT-LESS number starting at ``num_start`` is a member of an author
+    affiliation / reference SUPERSCRIPT CHAIN — a digit glued directly onto a preceding
+    LETTER, optionally continued as comma / hyphen / dash-separated further digits
+    (``Smith2`` / ``Chen1,3`` / ``Smith2,4,6`` / ``Lee1-3``).
+
+    The pre-fix inline check only rejected the letter-glued HEAD (the ``1`` of ``Chen1,3``),
+    so a trailing index (the ``3``, whose immediate predecessor is a comma, not a letter)
+    still leaked as a fabricated claim value. This walks the chain back across any run of
+    digits and chain separators: if it roots at a letter directly glued to a digit, EVERY
+    member of the chain is a citation superscript, never a measured quantity, and is rejected.
+    A number preceded by whitespace or any non-chain char (so NOT letter-rooted) is left
+    intact — a genuine unit-less metric is never suppressed. Pure, never raises."""
+    if num_start <= 0:
+        return False
+    prev = text[num_start - 1]
+    # Case 1: the number is glued directly onto a letter ("Smith2").
+    if prev.isalpha():
+        return True
+    # Case 2: it sits after a chain separator — walk back over <sep><digits> links to see
+    # whether the chain roots at a letter-glued digit ("Chen1,3" -> the trailing "3").
+    if prev not in _SUPERSCRIPT_CHAIN_SEPS:
+        return False
+    i = num_start - 1
+    while i >= 0:
+        ch = text[i]
+        if ch.isdigit() or ch in _SUPERSCRIPT_CHAIN_SEPS:
+            i -= 1
+            continue
+        # First char that is neither a digit nor a separator: a letter roots the chain.
+        return ch.isalpha()
+    return False
+
+
 def _find_value_generic(
     text: str, cue_pos: Optional[int] = None,
 ) -> Optional[tuple[float, str, str, int]]:
@@ -368,6 +502,10 @@ def _find_value_generic(
     # I-wire-013 (#1327): bibliographic-identifier spans (DOI / arXiv / ISSN / page range). A
     # unit-less number inside one is a citation artifact, not a metric value.
     biblio_regions = _bibliographic_id_regions(text)
+    # I-deepfix-001 rank-19 (#1344): NON-QUANTITY spans (age range / journal volume-issue /
+    # reference marker / single page number). A unit-less number inside one is not a measured
+    # metric value — screened out so it can never fabricate a possible_metric_mismatch.
+    non_quantity_regions = _non_quantity_regions(text)
     candidates: list[tuple[float, str, str, int]] = []
     for m in _GENERIC_VALUE_RE.finditer(text):
         raw = (m.group("value") or "").replace(",", "")
@@ -396,6 +534,27 @@ def _find_value_generic(
         # arXiv id / ISSN / page range) is a citation artifact, not a metric value — reject it so it
         # never becomes a fabricated possible_metric_mismatch. Unit-bearing values are unaffected.
         if not unit and _in_bibliographic_region(m.start(), biblio_regions):
+            continue
+        # I-deepfix-001 rank-19 (#1344): a UNIT-LESS number that is a NON-QUANTITY token — an
+        # age-range bound ("ages 18-64" -> 64), a journal volume / issue / article number
+        # ("Sustainability 2024, 16, 8881" -> 16 / 8881), a bracketed reference marker
+        # ("[16]" -> 16), or a single page number ("p. 47" -> 47) — is not a measured metric
+        # value. Reject it so it never becomes a fabricated possible_metric_mismatch that the
+        # Limitations prose over-states as "sources disagree on magnitude". Unit-bearing values
+        # (16%, $16bn, 47 percent) are unaffected, so a genuine numeric disagreement is intact.
+        if not unit and _in_non_quantity_region(m.start(), non_quantity_regions):
+            continue
+        # I-deepfix-001 rank-19 (#1344): a UNIT-LESS number that is a member of an author
+        # affiliation / reference SUPERSCRIPT CHAIN — a digit glued directly onto a preceding
+        # LETTER ("Smith2"), optionally continued as comma / hyphen / dash-separated further
+        # digits ("Chen1,3" / "Smith2,4,6" / "Lee1-3") — is a citation superscript or a
+        # model/identifier index, never a measured quantity. EVERY member of the chain is
+        # rejected (not just the letter-glued head), so a trailing index like the "3" in
+        # "Chen1,3" — whose immediate predecessor is a comma, not a letter — can no longer leak
+        # as a claim value. A real metric always has a space or a non-letter (currency symbol,
+        # digit, '<') before its digits. Unit-bearing values are unaffected (only unit-less
+        # numbers are screened), so a genuine numeric disagreement is never suppressed.
+        if not unit and _is_superscript_chain_member(text, m.start()):
             continue
         # I-deepfix-001 FIX-#4 (drb_72): a UNIT-LESS value whose leading '-' is the
         # hyphen of a "N-N" token — a law/statute number ("P.L. 87-415" -> "-415"),
