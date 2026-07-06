@@ -3579,15 +3579,55 @@ def _basket_corroboration_block(
             # basket on the claim (DeepTRACE #8 thoroughness attributes each supporting source once).
             _layer2_markers = ""
             _render_members = verified  # OFF path: byte-identical legacy member walk
+            # I-deepfix-001 Wave-2b-wiring (#1344): the MINIMAL independently-entailing INLINE citation
+            # set (module ``generator/citation_set_minimizer.py``, EXISTING flag ``PG_MIN_CITE_SET``,
+            # default OFF). ``_min_cite_active`` stays False and ``_inline_ev_ids`` unused when the flag
+            # is OFF (or layer-2 cite is OFF), so every distinct-origin member renders inline ``[N]``
+            # exactly as before — byte-identical. Defined here (before the layer-2 block) so the
+            # SUPPORT-bullet loop can read them on every path.
+            _min_cite_active = False
+            _inline_ev_ids: set[str] = set()
             if _layer2_cite_enabled():
                 _cite_layers = _split_citation_layers(supports_members=verified)
                 # Distinct-origin, keep-all (Layer-1 ∪ Layer-2). Drives BOTH the header multi-cite and
                 # the per-member SUPPORT bullets so a same-origin duplicate renders once, consistently.
                 _render_members = _cite_layers.cited_members
+                # PG_MIN_CITE_SET wiring (traceability items 1+2): split the keep-all distinct-origin
+                # members into the minimal independently-entailing INLINE set (their ``[N]`` renders on
+                # the claim header) vs the DEMOTED weight-channel members (pruned-non-entailing ++
+                # MVC-redundant same-statement corroborators) — which STILL render as SUPPORT bullets
+                # with tier+weight below (§-1.3 CONSOLIDATE keep-all), just WITHOUT an inline ``[N]``.
+                # Nothing is dropped; only the ``[N]`` placement moves inline<->weight. Faithfulness-
+                # NEUTRAL (no verdict/source/count/basket change; the minimizer only READS the entailment
+                # model to place a citation, never a gate). FAIL-OPEN: any minimizer/wiring fault keeps
+                # ALL members inline => the legacy byte-identical render, never a crash.
+                _inline_members = _render_members
+                from src.polaris_graph.generator.citation_set_minimizer import (  # noqa: PLC0415
+                    min_cite_set_enabled as _min_cite_set_enabled,  # cheap env read; loads no model
+                )
+                if _min_cite_set_enabled():
+                    try:
+                        from src.polaris_graph.generator.citation_set_minimizer import (  # noqa: PLC0415
+                            minimize_citation_set as _minimize_citation_set,
+                        )
+                        _min_res = _minimize_citation_set(claim, _render_members)
+                        _inline_members = _min_res.inline_members
+                        _min_cite_active = True
+                    except Exception as _mc_exc:  # noqa: BLE001 — fail-open: keep ALL inline, never crash
+                        logging.getLogger(__name__).warning(
+                            "[min_cite_set] wiring fault (%s); keeping all members inline (fail-open).",
+                            _mc_exc,
+                        )
+                        _inline_members = _render_members
+                        _min_cite_active = False
+                _inline_ev_ids = {str(m.get("evidence_id") or "") for m in _inline_members}
+                # Header multi-cite = the INLINE members' ``[N]`` only (== all members when the minimizer
+                # is inactive => byte-identical). Demoted members' numbers are withheld from the claim's
+                # inline citation set; they remain visible in the weight-channel bullets below.
                 _nums = sorted(
                     {
                         _eid_to_num[str(m.get("evidence_id") or "")]
-                        for m in _render_members
+                        for m in _inline_members
                         if str(m.get("evidence_id") or "") in _eid_to_num
                     }
                 )
@@ -3614,7 +3654,14 @@ def _basket_corroboration_block(
                 _ws = member_display_weight(m, weight_by_url=weight_by_url)
                 # T1: bind the member's numbered ``[N]`` citation AFTER the locator (preserves the
                 # legacy ``SUPPORT: <url>`` prefix while attributing the source to the claim).
-                _mk = _member_marker(m) if _layer2_cite_enabled() else ""
+                # Wave-2b-wiring (PG_MIN_CITE_SET): a member DEMOTED to the weight channel renders as a
+                # SUPPORT bullet with tier+weight (keep-all) but WITHOUT its inline ``[N]`` — it is a
+                # corroboration WEIGHT, not an inline citation. When the minimizer is inactive
+                # (``_min_cite_active`` False) every member is inline => byte-identical ``[N]`` as before.
+                _member_inline = (not _min_cite_active) or (
+                    str(m.get("evidence_id") or "") in _inline_ev_ids
+                )
+                _mk = _member_marker(m) if (_layer2_cite_enabled() and _member_inline) else ""
                 _mk_s = f" {_mk}" if _mk else ""
                 lines.append(
                     f"  - SUPPORT: {str(m.get('source_url') or m.get('evidence_id') or '')}"
