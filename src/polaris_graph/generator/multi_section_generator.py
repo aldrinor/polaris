@@ -62,6 +62,9 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     _ENRICHMENT_TITLE,
     _compose_section_per_basket,
     _section_baskets_for_compose,
+    # I-deepfix-001 Wave-1a (#1344): the shared PG_SYNTH_PRIMARY gate (single source of truth) — reused
+    # here so the branch-selection flag read matches _compose_one_basket's exactly.
+    _synth_primary_enabled,
     _verified_compose_enabled,
     build_verified_span_draft,
     dedup_same_span_sentences,
@@ -4778,6 +4781,83 @@ def _repair_llm_draft_untokened(
     )
 
 
+def _make_group_redraft_fn(evidence_pool: dict) -> "Callable[..., str]":
+    """I-deepfix-001 Wave-1a (#1344): build the SYNTH_PRIMARY group-mode re-draft closure threaded into
+    ``_compose_section_per_basket`` -> ``_compose_one_basket``'s bounded repair loop. A SYNC callable
+    ``(basket, scoped_pool, *, revise_reasons=None) -> str`` that re-calls the async GROUP writer
+    (``group_mode=True``) with the fed-back wrapper failure reasons and returns a FRESH draft string; the
+    caller re-verifies it with the UNCHANGED verify_fn (this closure NEVER verifies, NEVER relaxes a
+    gate). ``_compose_section_per_basket`` runs synchronously inside the already-running section event
+    loop, so the async writer call is executed in an ISOLATED worker-thread event loop (its own
+    ``asyncio.run``) and joined — safe to invoke from inside the running loop. Fail-open: any error /
+    empty draft returns "" and the bounded repair loop simply keeps the prior draft (never crashes the
+    section, never ships a failed authored sentence — the exhaustion path renders the labeled K-span).
+    No new module-level import on the hot path: abstractive_writer + its config are imported inline
+    behind the flag."""
+    from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
+        _DEFAULT_CALL_DEADLINE_S,
+        _DEFAULT_MAX_TOKENS,
+        _DEFAULT_REASONING_MAX_TOKENS,
+        _DEFAULT_TEMPERATURE,
+        _ENV_CALL_DEADLINE_S,
+        _ENV_MAX_TOKENS,
+        _ENV_REASONING_MAX_TOKENS,
+        _ENV_TEMPERATURE,
+        _call_writer,
+        _env_float,
+        _env_int,
+        _resolve_model,
+    )
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        _basket_supports_members,
+    )
+
+    model = _resolve_model()
+    max_tokens = max(1, _env_int(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS))
+    reasoning_max_tokens = max(0, _env_int(_ENV_REASONING_MAX_TOKENS, _DEFAULT_REASONING_MAX_TOKENS))
+    temperature = _env_float(_ENV_TEMPERATURE, _DEFAULT_TEMPERATURE)
+    call_deadline_s = max(1.0, _env_float(_ENV_CALL_DEADLINE_S, _DEFAULT_CALL_DEADLINE_S))
+
+    def _redraft(basket: Any, _scoped_pool: dict, *, revise_reasons: "list[str] | None" = None) -> str:
+        members = _basket_supports_members(basket)
+        if not members:
+            return ""
+
+        async def _run() -> str:
+            return await asyncio.wait_for(
+                _call_writer(
+                    members, evidence_pool,
+                    model=model, max_tokens=max_tokens,
+                    reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
+                    revise_reasons=revise_reasons, group_mode=True,
+                ),
+                timeout=call_deadline_s,
+            )
+
+        import concurrent.futures as _futures  # noqa: PLC0415
+        # Codex P0 / Fable P1: BOUND fut.result() with a wall (call_deadline_s + grace). A writer call
+        # wedged in httpx client teardown (the proven hang class, abstractive_writer.py teardown-drain)
+        # would make an UNBOUNDED .result() block the whole run forever — and a `with` context manager
+        # would then join that wedged worker at __exit__ and re-wedge. So DO NOT use the context manager:
+        # on a wall breach ABANDON the worker (shutdown(wait=False) — a bounded 1-thread leak, mirroring
+        # the pre-pass abandon semantics) and return "" so the bounded repair loop keeps the prior draft.
+        _ex = _futures.ThreadPoolExecutor(max_workers=1)
+        fut = _ex.submit(lambda: asyncio.run(_run()))
+        try:
+            result = str(fut.result(timeout=call_deadline_s + 30.0) or "")
+            _ex.shutdown(wait=False)
+            return result
+        except Exception:  # noqa: BLE001 — timeout/wedge/error => ABANDON worker, keep prior draft (fail-open)
+            _ex.shutdown(wait=False)
+            logger.warning(
+                "[multi_section] SYNTH_PRIMARY group re-draft failed/timed-out (non-fatal) -> keep prior "
+                "draft (worker abandoned)", exc_info=True,
+            )
+            return ""
+
+    return _redraft
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -4849,6 +4929,30 @@ async def _run_section(
         render_verified_spans_enabled as _render_verified_spans_enabled,
     )
     _evsr = _render_verified_spans_enabled() and _is_enrichment_section(section)
+    # I-deepfix-001 Wave-1a (#1344): PG_SYNTH_PRIMARY (default OFF) makes the group-writer verified-compose
+    # path the PRIMARY body producer and DEMOTES the FIX-K enrichment span-dump to fallback-only. Read
+    # once via the SHARED gate helper (Fable P2: one source of truth, matches _compose_one_basket's read
+    # exactly); reused by the abstractive-branch gate below. OFF => byte-identical branch selection.
+    _synth_primary_active = _synth_primary_enabled()
+    # Fable P2: resolve the section's verified-compose baskets ONCE (was computed twice under SYNTH_PRIMARY
+    # — for the FIX-K demotion here AND again in the elif walrus below). Guarded to the EXACT condition the
+    # elif walrus would have run under (verified-compose enabled + credibility present + FIX-K did not
+    # already win, i.e. ``not _evsr``) PLUS the SYNTH-ON demotion case. OFF => the same single call with the
+    # same result => byte-identical branch selection; it is [] on every branch that never enters
+    # verified-compose (the B2 boundary-conditions append below stays a safe no-op).
+    _vc_baskets: list = (
+        _section_baskets_for_compose(section, credibility_analysis)
+        if (
+            _verified_compose_enabled()
+            and credibility_analysis is not None
+            and (not _evsr or _synth_primary_active)
+        )
+        else []
+    )
+    # Demote FIX-K ONLY when the group-writer path can actually fire for THIS section (baskets exist), so
+    # an enrichment section with no baskets never regresses to the LLM _call_section path.
+    if _evsr and _synth_primary_active and _vc_baskets:
+        _evsr = False
 
     # I-perm-016 (#1209) KEYSTONE: when PG_SECTION_DISTILL is ON, MAP-distill the
     # section evidence into a VALIDATED findings ledger BEFORE the first
@@ -4889,9 +4993,9 @@ async def _run_section(
     # verified-compose PRIMARY draft (below). Empty for every other branch and when
     # PG_DEGRADED_VERIFY_DISCLOSURE is OFF => the render append is a no-op => byte-identical.
     _vc_degraded_disclosures: list[str] = []
-    # B2 (I-deepfix-001 #1344): section baskets captured for the boundary-conditions line (below).
-    # Bound to [] here so the append is a safe no-op on every branch that never enters verified-compose.
-    _vc_baskets: list = []
+    # B2 (I-deepfix-001 #1344): the section baskets captured for the boundary-conditions line (below) are
+    # resolved ONCE at the top of this function (the hoist above, Fable P2) — [] on every branch that
+    # never enters verified-compose, so the append below stays a safe no-op.
     if _evsr:
         # FIX K: deterministic verbatim-span draft — NO LLM. Each source's own
         # sentence-units (legacy [ev_id]-tagged per unit) feed the UNCHANGED
@@ -4924,7 +5028,7 @@ async def _run_section(
     elif (
         _verified_compose_enabled()
         and credibility_analysis is not None
-        and (_vc_baskets := _section_baskets_for_compose(section, credibility_analysis))
+        and _vc_baskets  # Fable P2: resolved once at the top of this function (no double resolve)
     ):
         # I-arch-011 PR-c: VERIFIED-COMPOSE PRIMARY — the section's prose is composed from ALL of its
         # baskets (the contract-entity slots are a SUBSET), moving the scored breadth off the
@@ -4951,7 +5055,16 @@ async def _run_section(
         # parameter, so _compose_section_per_basket / _compose_one_basket /
         # verify_sentence_provenance are UNTOUCHED (the engine never learns it is wrapped).
         # Fail-closed: the writer REFUSES to activate unless entailment=enforce.
-        if os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+        # I-deepfix-001 Wave-1a (#1344): PG_SYNTH_PRIMARY makes the group-writer branch the PRIMARY body
+        # path — it IMPLIES PG_ABSTRACTIVE_WRITER (the same fail-closed assert_activation_preconditions
+        # still hard-requires entailment=enforce), constructs the writer closure with group_mode=True +
+        # a re-draft closure so _compose_one_basket's bounded repair loop can re-call the writer, and
+        # (via the FIX-K demotion above) makes this the primary body producer. OFF (both flags) =>
+        # byte-identical: the condition is exactly the pre-Wave-1a PG_ABSTRACTIVE_WRITER read.
+        if (
+            os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no")
+            or _synth_primary_active
+        ):
             from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
                 abstractive_pre_pass,
                 assert_activation_preconditions,
@@ -4960,13 +5073,31 @@ async def _run_section(
             )
             assert_activation_preconditions()
             _vc_writer_verify = make_writer_verify_fn(_vc_verify)
+            # I-deepfix-001 Wave-1a (#1344) KEYSTONE (Codex P1 / Fable P1): thread group_mode into the
+            # pre-pass so that under PG_SYNTH_PRIMARY the ATTEMPT-0 precomputed draft is already the GROUP
+            # contract (one coherent multi-sentence narrative per basket). Without this the pre-pass emits
+            # single-sentence-per-span and retries until the wrapper passes, so attempt-0 arrives at
+            # _compose_one_basket with failed=[] and the group writer NEVER fires on most baskets — the
+            # coherent-narrative effect would not materialize on real upstream. group_mode=False (OFF) =>
+            # byte-identical single-sentence-per-span pre-pass.
             _vc_precomputed = await abstractive_pre_pass(
                 _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
+                group_mode=_synth_primary_active,
             )
-            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
-            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
+            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the no-token-repair
+            # pass (below, after `raw`) uses the SAME ones composing this section. Under PG_SYNTH_PRIMARY
+            # the precomputed drafts are GROUP-contract narratives (see the pre-pass call above); the SYNC
+            # writer_fn is still the pure precomputed-dict lookup, and the group re-draft closure below
+            # feeds _compose_one_basket's bounded repair loop.
             _vc_writer_fn = make_abstractive_writer_fn(_vc_precomputed)
             _vc_verify_fn = _vc_writer_verify
+            # I-deepfix-001 Wave-1a (#1344): the SYNTH_PRIMARY group re-draft closure (group_mode=True,
+            # whole-paragraph re-draft feeding revise_reasons). None unless PG_SYNTH_PRIMARY is ON =>
+            # _compose_one_basket keeps its legacy path (byte-identical). No new hot-path module import —
+            # constructed inline behind the flag.
+            _vc_redraft_fn = (
+                _make_group_redraft_fn(evidence_pool) if _synth_primary_active else None
+            )
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
                 writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
@@ -4974,6 +5105,7 @@ async def _run_section(
                 # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
                 # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
                 edges=getattr(credibility_analysis, "edges", None),
+                redraft_fn=_vc_redraft_fn,
             )
         else:
             # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each

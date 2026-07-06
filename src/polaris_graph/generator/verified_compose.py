@@ -52,6 +52,17 @@ _MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
 # single-source units. The faithfulness engine is never touched — see ``cross_source_synthesis``.
 _CROSS_SOURCE_SYNTHESIS_ENV = "PG_CROSS_SOURCE_SYNTHESIS"
 
+# I-deepfix-001 Wave-1a (#1344) — SYNTH_PRIMARY: compose-then-verify. Default-OFF (LAW VI): when unset/off
+# ``_compose_one_basket`` is byte-identical (first-failure break + K-span glue + disclosure UNCHANGED);
+# ON *and* the caller threads a group-capable re-draft writer, the writer drafts one coherent paragraph
+# per basket FIRST, then the UNCHANGED verify_fn filters each sentence downstream, a bounded whole-
+# paragraph repair loop re-drafts failing sentences up to ``PG_WRITER_REPAIR_MAX``, and on exhaustion the
+# uncovered-fact K-span renders as a SEPARATE labeled disclosure paragraph (never mid-line glued). The
+# faithfulness engine is NEVER touched — only which draft is submitted changes.
+_SYNTH_PRIMARY_ENV = "PG_SYNTH_PRIMARY"
+_WRITER_REPAIR_MAX_ENV = "PG_WRITER_REPAIR_MAX"
+_WRITER_REPAIR_MAX_DEFAULT = 2  # bounded whole-paragraph re-draft attempts (LAW VI; clamp >= 0)
+
 # A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
 # Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
@@ -1130,6 +1141,14 @@ def _no_verified_span_disclosure(basket: Any) -> str:
 # when PG_DEGRADED_VERIFY_DISCLOSURE is OFF (no such label is ever produced => the partition is a no-op).
 _INSUFFICIENT_EVIDENCE_DISCLOSURE_PREFIX = "[insufficient verified evidence"
 _DEGRADED_VERIFY_DISCLOSURE_PREFIX = "[verification incomplete:"
+# I-deepfix-001 Wave-1a (#1344) — the SYNTH_PRIMARY uncovered-fact labeled-disclosure prefix. When the
+# bounded repair loop exhausts with a residual failing authored sentence, the basket's verbatim
+# uncovered-fact K-span is emitted as a SEPARATE `[`-prefixed disclosure paragraph (redactor no-touch
+# set: a line starting with `[` is never TIER-2 redacted) routed aside by ``partition_composed_disclosures``
+# and re-appended AFTER strict_verify by ``render_degraded_disclosures`` — NEVER the mid-line
+# `" ".join(kept + [fallback])` glue. It is a verbatim span (grounded by construction) rendered as an
+# honest labeled block. ONLY produced on the SYNTH_PRIMARY ON path => byte-identical when OFF.
+_UNCOVERED_FACT_DISCLOSURE_PREFIX = "[uncovered supporting evidence for:"
 
 
 def _is_degraded_verify_disclosure_unit(text: Any) -> bool:
@@ -1153,21 +1172,56 @@ def _is_no_verified_span_disclosure(text: Any) -> bool:
     )
 
 
+def _is_composed_disclosure_paragraph(text: Any) -> bool:
+    """True iff a composed paragraph is a HELD-ASIDE disclosure unit — the ARM-B degraded-verify label
+    (``[verification incomplete: ...]``) OR the SYNTH_PRIMARY uncovered-fact label
+    (``[uncovered supporting evidence for: ...]``). Both are routed aside by
+    ``partition_composed_disclosures`` and re-appended after strict_verify. The uncovered-fact prefix is
+    ONLY produced on the SYNTH_PRIMARY ON path, so this is byte-identical to the pre-Wave-1a
+    degraded-only classification when PG_SYNTH_PRIMARY is OFF (no unit ever starts with it)."""
+    lowered = str(text or "").strip().lower()
+    return (
+        _is_degraded_verify_disclosure_unit(text)
+        or lowered.startswith(_UNCOVERED_FACT_DISCLOSURE_PREFIX)
+    )
+
+
 def partition_composed_disclosures(units: list) -> "tuple[list[str], list[str]]":
     """Split a ``_compose_section_per_basket`` result into ``(real_units, degraded_disclosures)``.
 
-    A pure degraded-verify disclosure unit (``[verification incomplete: ...]``) is HELD ASIDE so it
-    NEVER enters the strict_verify-bound draft (where ``_repair_untokened_draft`` could rebind it or
-    ``strict_verify`` would drop it). Every other unit passes through UNCHANGED, byte-for-byte (the
-    common case), so when PG_DEGRADED_VERIFY_DISCLOSURE is OFF — no such label is ever produced — this
-    is a pure no-op and the caller's ``raw`` is byte-identical. Order-stable."""
+    A pure disclosure unit (``[verification incomplete: ...]`` or the SYNTH_PRIMARY
+    ``[uncovered supporting evidence for: ...]`` labeled K-span) is HELD ASIDE so it NEVER enters the
+    strict_verify-bound draft (where ``_repair_untokened_draft`` could rebind it or ``strict_verify``
+    would drop it). Every other unit passes through UNCHANGED, byte-for-byte (the common case).
+
+    I-deepfix-001 Wave-1a (#1344): a SYNTH_PRIMARY exhaustion unit carries the verified authored body
+    AND a trailing labeled uncovered-fact K-span as SEPARATE ``\\n\\n`` paragraphs. When (and ONLY when) a
+    unit contains a ``\\n\\n`` paragraph break it is split per-paragraph so the body stays real prose and
+    the labeled K-span is routed aside — as its OWN ``\\n\\n`` disclosure paragraph. Existing units are
+    always ``" ".join(...)`` (no internal ``\\n\\n``), so the fast path below is taken for every existing
+    unit and the output is byte-identical when PG_SYNTH_PRIMARY / PG_DEGRADED_VERIFY_DISCLOSURE are OFF.
+    Order-stable."""
     real: list[str] = []
     disclosures: list[str] = []
     for unit in (units or []):
-        if _is_degraded_verify_disclosure_unit(unit):
-            disclosures.append(str(unit).strip())
-        else:
-            real.append(unit)
+        # Fast path (byte-identical to pre-Wave-1a): a unit with no paragraph break is classified whole.
+        if "\n\n" not in str(unit):
+            if _is_composed_disclosure_paragraph(unit):
+                disclosures.append(str(unit).strip())
+            else:
+                real.append(unit)
+            continue
+        # SYNTH_PRIMARY mixed unit: route each paragraph independently.
+        body_parts: list[str] = []
+        for para in str(unit).split("\n\n"):
+            if not para.strip():
+                continue
+            if _is_composed_disclosure_paragraph(para):
+                disclosures.append(para.strip())
+            else:
+                body_parts.append(para)
+        if body_parts:
+            real.append("\n\n".join(body_parts))
     return real, disclosures
 
 
@@ -1265,19 +1319,197 @@ def _screen_fallback_chrome(text: str) -> str:
     return " ".join(kept)  # "" when EVERY unit was chrome -> caller falls to the gap disclosure
 
 
+# ── I-deepfix-001 Wave-1a (#1344) — SYNTH_PRIMARY: compose-then-verify + bounded repair + labeled block ─
+def _synth_primary_enabled() -> bool:
+    """``PG_SYNTH_PRIMARY`` gate (default OFF, LAW VI). Shares the off-token set with
+    ``_compose_render_chrome_enabled`` but is DEFAULT-OFF: unset/blank/off-token => OFF. Only when ON
+    (and the caller threads a group-capable ``redraft_fn``) does ``_compose_one_basket`` take the
+    bounded-repair + labeled-fallback path; otherwise the legacy body runs byte-identical."""
+    raw = str(os.environ.get(_SYNTH_PRIMARY_ENV, "")).strip().lower()
+    return bool(raw) and raw not in _COMPOSE_CHROME_OFF_TOKENS
+
+
+def _writer_repair_max() -> int:
+    """``PG_WRITER_REPAIR_MAX`` (default 2, int, clamp >= 0; LAW VI). The bounded number of whole-
+    paragraph re-draft attempts the SYNTH_PRIMARY repair loop may make. 0 => a single draft, no repair
+    (a finite hard cap so the loop can NEVER spin forever)."""
+    raw = str(os.environ.get(_WRITER_REPAIR_MAX_ENV, "")).strip()
+    try:
+        n = int(float(raw))
+    except (TypeError, ValueError):
+        return _WRITER_REPAIR_MAX_DEFAULT
+    return max(0, n)
+
+
+def _collect_synth_revise_reasons(failed: list) -> list[str]:
+    """Flatten + order-stable-dedup the wrapper failure reasons of the currently-failing sentences, fed
+    back to the writer as ``revise_reasons`` (RARR). Pure."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for _sentence, reasons in (failed or []):
+        for r in (reasons or []):
+            if r not in seen:
+                seen.add(r)
+                out.append(r)
+    return out
+
+
+def _verify_all_sentences_synth(
+    draft: str,
+    scoped_pool: dict,
+    regions: dict,
+    *,
+    verify_fn: Callable[..., Any],
+) -> "tuple[list[str], list[tuple[str, list[str]]]]":
+    """Verify EVERY sentence of ``draft`` against the basket-scoped pool with the UNCHANGED ``verify_fn``
+    (which is the stricter writer wrapper on the SYNTH_PRIMARY path) + own-region gate + the same
+    compose-time chrome screen the legacy loop applies. Unlike the legacy first-failure break, this
+    collects ALL failures for the bounded repair loop. Returns ``(kept_verified_texts, failed)`` where
+    ``failed`` is ``[(input_sentence, wrapper_failure_reasons), ...]``. The accept condition is
+    byte-identical to the legacy loop's per-sentence accept — the faithfulness gate is untouched."""
+    kept: list[str] = []
+    failed: list[tuple[str, list[str]]] = []
+    for sentence in split_into_sentences(draft):
+        res = verify_fn(sentence, scoped_pool)
+        verified_text = str(getattr(res, "sentence", "") or "").strip() or sentence.strip()
+        if bool(getattr(res, "is_verified", False)) and _tokens_within_basket_regions(verified_text, regions):
+            # Same chrome-screen WITHHOLD as the legacy loop: a verified chrome sentence is skipped
+            # (not kept, not a failure) so real sibling sentences still survive.
+            if _compose_render_chrome_enabled() and _sentence_is_render_chrome(verified_text):
+                continue
+            kept.append(verified_text)
+        else:
+            reasons = list(getattr(res, "failure_reasons", []) or []) or ["writer_sentence_rejected"]
+            failed.append((sentence, reasons))
+    return kept, failed
+
+
+def _uncovered_fact_disclosure(basket: Any, span_text: str) -> str:
+    """Wrap a basket's verbatim uncovered-fact K-span in the SYNTH_PRIMARY labeled-disclosure prefix so
+    ``partition_composed_disclosures`` routes it aside and ``render_degraded_disclosures`` re-appends it
+    AFTER strict_verify as its OWN ``\\n\\n`` paragraph. The unit starts with ``[`` (redactor no-touch
+    set) and NAMES the source subject in the label.
+
+    Fable P1 (raw-[#ev]-leak): the block is appended AFTER ``resolve_provenance_to_citations_with_count``
+    has already converted the kept sentences' ``[#ev:...]`` tokens to ``[N]`` markers, so a raw ``[#ev]``
+    token surviving in this block would ship as unresolvable chrome in report.md (the I-wire-013/014
+    class; a DeepTRACE liability). Like EVERY sibling ARM-B disclosure this block is therefore
+    MARKER-LESS: the ``[#ev]`` token(s) are stripped and the space-before-punctuation is tidied. It stays
+    a verbatim source span (grounded by construction) rendered as an honest labeled evidence block; it is
+    never body prose and never re-run through strict_verify. Fable P2: the subject is whitespace-collapsed
+    so an embedded ``\\n\\n`` can never split the single disclosure paragraph."""
+    subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim")
+    subject = " ".join(subject.split())  # Fable P2: no embedded newline can split the paragraph
+    # Fable P1: strip the raw [#ev:...] token(s) (marker-less like every sibling disclosure) and tidy the
+    # space left before terminal punctuation so the block reads clean.
+    clean_span = _EV_TOKEN_RE.sub("", span_text or "")
+    clean_span = re.sub(r"\s+([.,;:!?])", r"\1", clean_span)
+    clean_span = " ".join(clean_span.split())
+    return f"{_UNCOVERED_FACT_DISCLOSURE_PREFIX} {subject[:120]}] {clean_span}"
+
+
+def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str) -> str:
+    """Build the SYNTH_PRIMARY exhaustion output: the verified authored ``body`` (may be "") PLUS the
+    uncovered-fact K-span as a SEPARATE labeled disclosure paragraph (``\\n\\n``-joined), NEVER the
+    mid-line ``" ".join(kept + [fallback])`` glue. Reuses ``build_verified_span_draft_multi`` (or
+    ``build_verified_span_draft`` when sub-topic decomposition is OFF, mirroring the legacy fallback
+    selection) for the verbatim span text + the same render-chrome fallback screen. When no K-span
+    resolves, falls to the honest gap disclosure (also as its own ``\\n\\n`` paragraph when a body
+    exists). Failed AUTHORED sentences are already discarded by the caller (never in ``body``)."""
+    fallback = (
+        build_verified_span_draft_multi(basket, evidence_pool)
+        if _subtopic_decomposition_enabled()
+        else build_verified_span_draft(basket, evidence_pool)
+    )
+    if fallback and _compose_render_chrome_enabled():
+        fallback = _screen_fallback_chrome(fallback)
+    body = (body or "").strip()
+    if fallback and fallback.strip():
+        labeled = _uncovered_fact_disclosure(basket, fallback)
+        return f"{body}\n\n{labeled}" if body else labeled
+    # No verified K-span resolves. When verified authored prose survived, ship it alone — there is no
+    # verbatim span to disclose for the discarded sentence(s), and gluing an honest-gap marker onto real
+    # prose would leak the marker into the strict_verify draft. With no body, emit the honest gap
+    # disclosure (a pure unit; the §3.5 filter in _compose_section_per_basket suppresses the legacy
+    # insufficient-evidence marker, exactly as on the legacy path).
+    if body:
+        return body
+    return _no_verified_span_disclosure(basket)
+
+
+def _compose_one_basket_synth_primary(
+    basket: Any,
+    evidence_pool: dict,
+    scoped_pool: dict,
+    regions: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    redraft_fn: Callable[..., str],
+) -> str:
+    """SYNTH_PRIMARY (#1344 Wave-1a) compose-then-verify path. Draft ONE coherent paragraph, verify ALL
+    sentences downstream with the UNCHANGED ``verify_fn``, keep the passing (chrome-screened) ones, and
+    run a BOUNDED whole-paragraph repair loop (re-call ``redraft_fn`` with the collected wrapper failure
+    reasons, up to ``_writer_repair_max()``, re-verifying each fresh draft in full). Exit:
+      * all sentences pass  => body = ``" ".join(kept)`` (or the K-span/gap fallback if the draft was
+        empty and nothing was kept).
+      * budget exhausted with residual failures => body = the verified authored sentences; the
+        uncovered-fact K-span renders as a SEPARATE labeled disclosure paragraph (ARM-B routed). FAILED
+        AUTHORED sentences are DISCARDED — never shipped, never glued.
+    The faithfulness engine (strict_verify / NLI / D8 / provenance / the writer wrapper) is UNTOUCHED;
+    only which draft is submitted changes, under a strict finite cap that can never ship a failed
+    authored sentence."""
+    draft = writer_fn(basket, scoped_pool) or ""
+    kept, failed = _verify_all_sentences_synth(draft, scoped_pool, regions, verify_fn=verify_fn)
+    attempts = 0
+    repair_max = _writer_repair_max()
+    while failed and attempts < repair_max:
+        attempts += 1
+        revise_reasons = _collect_synth_revise_reasons(failed)
+        fresh = redraft_fn(basket, scoped_pool, revise_reasons=revise_reasons) or ""
+        # Codex P0 / Fable P1: an EMPTY re-draft (a 429 storm, a wedged writer abandoned by the async
+        # bridge, or any writer error returning "") must NOT overwrite the prior attempt's verified
+        # sentences with nothing. Break and keep the prior kept/failed so the exhaustion path ships the
+        # verified authored body + labeled K-span — never collapse a partially-good paragraph to a bare
+        # disclosure just because a repair call came back empty.
+        if not fresh.strip():
+            break
+        kept, failed = _verify_all_sentences_synth(fresh, scoped_pool, regions, verify_fn=verify_fn)
+    body = " ".join(kept)
+    if not failed:
+        # Every sentence covered (or the draft produced nothing). A non-empty body ships as-is; an empty
+        # body falls to the K-span / honest-gap fallback (never an empty unit).
+        if body.strip():
+            return body
+        return _synth_primary_fallback_unit(basket, evidence_pool, body="")
+    # Budget exhausted with residual failures: verified authored body + SEPARATE labeled K-span block.
+    return _synth_primary_fallback_unit(basket, evidence_pool, body=body)
+
+
 def _compose_one_basket(
     basket: Any,
     evidence_pool: dict,
     *,
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
+    redraft_fn: Optional[Callable[..., str]] = None,
 ) -> str:
     """Compose ONE basket: writer drafts prose -> strict_verify each sentence against the
     BASKET-SCOPED pool -> keep passing sentences; on the FIRST failing sentence (or a foreign-cited
     one, which fails closed under the scoped pool) FALL BACK to this basket's own verified K-span;
-    if the basket has no verified span, emit the insufficient-evidence disclosure. NEVER empty."""
+    if the basket has no verified span, emit the insufficient-evidence disclosure. NEVER empty.
+
+    I-deepfix-001 Wave-1a (#1344): when ``PG_SYNTH_PRIMARY`` is ON AND the caller threads a group-capable
+    ``redraft_fn`` (the primary path), delegate to ``_compose_one_basket_synth_primary`` (compose-then-
+    verify + bounded repair + separate labeled fallback). When OFF or no ``redraft_fn`` is threaded the
+    legacy body below runs UNCHANGED — byte-identical."""
     scoped_pool = _basket_scoped_pool(basket, evidence_pool)
     regions = _basket_member_regions(basket, evidence_pool)
+    if redraft_fn is not None and _synth_primary_enabled():
+        return _compose_one_basket_synth_primary(
+            basket, evidence_pool, scoped_pool, regions,
+            writer_fn=writer_fn, verify_fn=verify_fn, redraft_fn=redraft_fn,
+        )
     draft = writer_fn(basket, scoped_pool) or ""
     kept: list[str] = []
     fell_back = False
@@ -2030,6 +2262,7 @@ def _compose_section_per_basket(
     edges: Any = None,
     equiv_clusters: Any = None,
     agree_map: Any = None,
+    redraft_fn: Optional[Callable[..., str]] = None,
 ) -> list[str]:
     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
@@ -2090,6 +2323,12 @@ def _compose_section_per_basket(
         else:
             composed = _compose_one_basket(
                 basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                # I-deepfix-001 Wave-1a (#1344): thread the group-capable re-draft writer so the
+                # SYNTH_PRIMARY bounded-repair path can re-call the writer. Default None => byte-identical
+                # (the legacy _compose_one_basket path). Only the direct single-basket producer gets it;
+                # the multi-cited producer above keeps the unchanged signature (SYNTH_PRIMARY is a
+                # single-basket compose-then-verify concern, orthogonal to the multi-cite consolidation).
+                redraft_fn=redraft_fn,
             )
         # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
         # Also skip an empty multi-cited result (a basket with no resolvable span at all) — the §3.5

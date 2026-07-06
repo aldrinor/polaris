@@ -359,11 +359,40 @@ _WRITER_SYSTEM = (
 )
 
 
+# I-deepfix-001 Wave-1a (#1344) — the GROUP writer contract. IDENTICAL faithfulness rules to
+# ``_WRITER_SYSTEM`` (never a fact outside a span; every number verbatim; every sentence ends with its
+# exact provenance token copied char-for-char; every epistemic/scope qualifier preserved; no markdown /
+# chrome) EXCEPT the final clause: instead of "one sentence per span" the group contract asks for ONE
+# coherent connected multi-sentence narrative over a GROUP of verified spans. Selected at call time by
+# ``group_mode`` (default OFF => never referenced) so ``_WRITER_SYSTEM`` stays byte-unchanged and the
+# gate-B force-set ``PG_ABSTRACTIVE_WRITER`` path is byte-identical when ``PG_SYNTH_PRIMARY`` is unset.
+_WRITER_SYSTEM_GROUP = (
+    "You rewrite already-verified evidence spans into clean, plain, declarative news-style "
+    "sentences. You NEVER add a fact that is not in a provided span. You copy every number "
+    "(decimal, percent, integer, dose) exactly as written — never round, never convert units. "
+    "You end each sentence with the exact provenance token supplied for the span it rephrases, "
+    "copied character-for-character; you never invent or edit a token. You write subject-verb-object "
+    "sentences that name the specific finding, number, and actor. You copy every epistemic or "
+    "scope qualifier bound to a number exactly as written — hedges ('may', 'approximately', "
+    "'up to'), non-factive verbs ('estimated', 'projected', 'suggests'), source attribution "
+    "('according to', 'reportedly'), and conditional / scenario restrictors ('if', 'under the "
+    "... scenario') — never restate a hedged or conditional figure as a settled fact. You do NOT "
+    "use markdown, links, "
+    "bullets, headings, section numbers, captions, or academic chrome like 'this study' or "
+    "'the framework'. Write ONE coherent, connected multi-sentence narrative that covers this "
+    "GROUP of verified spans in a logical order; each sentence ends with the exact provenance "
+    "token(s) of the span(s) it rests on; you may order and connect the facts with plain "
+    "connectives, but never state a fact not present in a provided span, and never merge two "
+    "spans' numbers into a new aggregate."
+)
+
+
 def _build_writer_prompt(
     members: list,
     evidence_pool: dict,
     *,
     revise_reasons: Optional[list[str]] = None,
+    group_mode: bool = False,
 ) -> str:
     """Build the user prompt: one SUPPORTS member per line, each given its verified span text and
     the EXACT canonical token (the same ``[#ev:<id>:<start>-<end>]`` ``build_verified_span_draft``
@@ -372,13 +401,25 @@ def _build_writer_prompt(
     are fed back (RARR-style revise)."""
     from src.polaris_graph.generator.verified_compose import _member_global_span  # noqa: PLC0415
 
-    lines: list[str] = [
-        "Rewrite each verified evidence span below into ONE clean, plain, declarative "
-        "news-style sentence. End each sentence with the exact provenance token shown for it, "
-        "copied character-for-character. Copy every number verbatim. Output one sentence per span, "
-        "in order, one per line, and nothing else.",
-        "",
-    ]
+    # I-deepfix-001 Wave-1a (#1344): the lead instruction is the ONLY difference in group mode; the
+    # spans+tokens block and the revise_reasons block below are UNCHANGED. group_mode=False =>
+    # byte-identical to the pre-Wave-1a prompt.
+    if group_mode:
+        lead = (
+            "Write ONE connected paragraph covering ALL the verified spans below, in a logical "
+            "order; each sentence ends with the exact provenance token for the span(s) it rests on, "
+            "copied character-for-character. Copy every number verbatim. Order and connect the facts "
+            "with plain connectives, but never state a fact not present in a provided span, and "
+            "never merge two spans' numbers into a new aggregate."
+        )
+    else:
+        lead = (
+            "Rewrite each verified evidence span below into ONE clean, plain, declarative "
+            "news-style sentence. End each sentence with the exact provenance token shown for it, "
+            "copied character-for-character. Copy every number verbatim. Output one sentence per span, "
+            "in order, one per line, and nothing else."
+        )
+    lines: list[str] = [lead, ""]
     for i, m in enumerate(members, start=1):
         eid = str(getattr(m, "evidence_id", "") or "")
         gspan = _member_global_span(m, evidence_pool)
@@ -410,14 +451,22 @@ async def _call_writer(
     reasoning_max_tokens: int,
     temperature: float,
     revise_reasons: Optional[list[str]] = None,
+    group_mode: bool = False,
 ) -> str:
     """ONE LLM writer call for a basket: rephrase the SUPPORTS members' verified spans into clean
     declarative prose carrying the canonical tokens. Returns the raw draft text (re-verified by the
     unchanged compose loop). On any error returns "" -> the loop falls back to the K-span (fail-loud
-    to the K-span, never a silent crash)."""
+    to the K-span, never a silent crash).
+
+    I-deepfix-001 Wave-1a (#1344): ``group_mode`` selects the GROUP writer contract
+    (``_WRITER_SYSTEM_GROUP`` + the connected-paragraph lead) — one coherent multi-sentence narrative
+    over the whole basket's spans instead of one sentence per span. Default False => byte-identical."""
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
 
-    prompt = _build_writer_prompt(members, evidence_pool, revise_reasons=revise_reasons)
+    prompt = _build_writer_prompt(
+        members, evidence_pool, revise_reasons=revise_reasons, group_mode=group_mode,
+    )
+    system = _WRITER_SYSTEM_GROUP if group_mode else _WRITER_SYSTEM
     client = OpenRouterClient(model=model)
     # §9.1.8: a NEGATIVE/zero reasoning cap is the "unset" sentinel -> pass None so GLM-5.2's
     # _ALWAYS_REASON branch runs at effort=high (its default) instead of a starving fixed cap.
@@ -425,7 +474,7 @@ async def _call_writer(
     try:
         response = await client.generate(
             prompt=prompt,
-            system=_WRITER_SYSTEM,
+            system=system,
             max_tokens=max_tokens,
             temperature=temperature,
             reasoning_max_tokens=reasoning_arg,
@@ -482,12 +531,18 @@ async def _pre_pass_one_basket(
     reasoning_max_tokens: int,
     temperature: float,
     call_deadline_s: float,
+    group_mode: bool = False,
 ) -> Optional[str]:
     """Compute one basket's draft: call the LLM writer, verify the candidate with the writer wrapper,
     and on failure retry up to ``max_retries`` times feeding the specific failure reasons back. The
     LAST attempt's draft is returned (even if failing) — the unchanged compose loop re-verifies it
     and falls back to the K-span if it does not pass (the pre-pass NEVER emits the K-span itself).
-    Returns None only when the basket has no resolvable SUPPORTS member (writer skipped)."""
+    Returns None only when the basket has no resolvable SUPPORTS member (writer skipped).
+
+    I-deepfix-001 Wave-1a (#1344): ``group_mode`` selects the GROUP writer contract on the attempt-0
+    draft (one coherent multi-sentence narrative over the whole basket) so the SYNTH_PRIMARY keystone
+    effect materializes on the FIRST draft — not only after a compose-level repair. Default False =>
+    byte-identical single-sentence-per-span pre-pass."""
     from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
         _basket_supports_members,
         _compose_junk_screen,
@@ -527,7 +582,7 @@ async def _pre_pass_one_basket(
                     members, evidence_pool,
                     model=model, max_tokens=max_tokens,
                     reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
-                    revise_reasons=revise_reasons,
+                    revise_reasons=revise_reasons, group_mode=group_mode,
                 ),
                 timeout=call_deadline_s,
             )
@@ -557,6 +612,7 @@ async def abstractive_pre_pass(
     evidence_pool: dict,
     *,
     writer_verify_fn: Callable[..., Any],
+    group_mode: bool = False,
 ) -> dict:
     """ASYNC pre-pass (design §3.4a): precompute one verified draft per basket up front, under a
     ``PG_ABSTRACTIVE_WRITER_CONCURRENCY`` semaphore with a per-call total deadline AND an OUTER
@@ -597,6 +653,7 @@ async def abstractive_pre_pass(
                 model=model, max_retries=max_retries,
                 max_tokens=max_tokens, reasoning_max_tokens=reasoning_max_tokens,
                 temperature=temperature, call_deadline_s=call_deadline_s,
+                group_mode=group_mode,
             )
         if draft is not None:
             # mutate the shared dict as a SIDE EFFECT so an abandoned (never-awaited) task's
