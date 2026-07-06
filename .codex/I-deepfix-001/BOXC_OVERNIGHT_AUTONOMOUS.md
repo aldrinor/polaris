@@ -745,3 +745,9 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - w6mgdjqv8 (pre-forensic coverage build) fixes are reworked/dropped by the corrected wave wtkrxdrcn. COV-FETCH dropped (misdirected). COV-C1 old version NOT approved: Codex found real P0 "over-pair not refused — a pair admitted only by widened embedding/entity/number signals still gets joined+emitted when license_relation returns neutral/default relation". Fable: diff truncated.
 - ★FOLD INTO COV-C1-PAIR-v2 (in wtkrxdrcn): the widened pairs must be REFUSED when license_relation is neutral/default (over-merge safety) — not just re-verified. If wtkrxdrcn's COV-C1 comes back REVISE, re-brief with this exact requirement.★ Also the cross_source firing markers run_gate_b.py:2427-2428 grep "[cross_source_synthesis] composed" + "anchored cross-source pair(s) but 0 analytical units survived" — keep those log stems intact (they're the FIRING-SIGNAL for the liveness check).
 - Continue on corrected build wtkrxdrcn. Don't commit w6mgdjqv8.
+
+## [2026-07-05 18:02:33] Corrected build wtkrxdrcn hit SESSION LIMIT mid-run (12/23 agents) → RESUMED as wwuq1w8un (run wf_f05dcd87-075)
+- Completed before limit: 7/9 BUILDS cached (FF4-ASPECT/FF5-DATE/JUDGE-CAP/FF1-CHROME/FF-4IR/FF2-TRUNC/COV-SUBENTITY-LANDMARK). 0 gates done. Failed on limit: build COV-DECHROME + COV-C1-PAIR (stall), + all gates.
+- Resume (resumeFromRunId): 7 builds replay from cache, 2 builds + all gates re-run. Main tree CLEAN (698e57b2). No codex/python stragglers.
+- FF1-CHROME-v2 build shows the P1/P2 over-strip fix applied (whole-unit-anchored RULE 1 + KEEP-guard on RULE 4). Awaiting its gate on resume.
+- ON RESUME DONE: commit build-gate-APPROVED (codex+fable) → P2d liveness check → P3 fresh resmoke. Progress carefully (session-limit-aware).
