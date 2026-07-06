@@ -4885,6 +4885,20 @@ def _two_sided_debate_enabled() -> bool:
     return os.getenv(_TWO_SIDED_DEBATE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
+def _emit_two_sided_debate_marker(leg2_inspected: int, con_disclosed: int) -> None:
+    """I-deepfix-001 Wave-3a (#1344): two-sided-debate ACTIVATION fire marker. Emitted ONLY when
+    PG_TWO_SIDED_DEBATE is ON so OFF is byte-identical (the run_log carries no ``[activation]`` line).
+    ``leg2_inspected`` = composed real units examined for a verified CON clause; ``con_disclosed`` = the
+    honest asymmetry disclosures appended (0 = both sides present, no note). Structural presence + counts,
+    never a threshold (§-1.3). Side-effect only; the composed disclosures are byte-untouched."""
+    if not _two_sided_debate_enabled():
+        return
+    logger.info(
+        "[activation] two_sided_debate: leg2_inspected=%d con_disclosed=%d",
+        int(leg2_inspected), int(con_disclosed),
+    )
+
+
 def _is_debate_section(section: Any) -> bool:
     """True iff the section's PLAN framing (``title`` + ``focus``) asks for both sides — pro/con,
     benefits/risks, positive vs negative, for/against. Uses the SHARED
@@ -5177,8 +5191,19 @@ async def _run_section(
                 _vc_numeric_keys = _vc_build_numeric_keys(
                     getattr(credibility_analysis, "claims", None) or []
                 )
-        except Exception:  # noqa: BLE001 — additive comparator lookup; never break composition
+        except Exception as _vc_numeric_exc:  # noqa: BLE001 — additive comparator lookup; never break composition
+            # I-deepfix-001 Wave-3a (#1344): FAIL-LOUD (was a silent ``= None`` swallow). Composition still
+            # proceeds fail-open (keys=None => the comparator is simply never consulted downstream — the
+            # numeric logic is UNCHANGED), but an ON-flag build failure is now surfaced so the
+            # numeric_comparator activation marker reads build_ok=false instead of the fault vanishing. The
+            # warning is gated on the flag so an OFF run stays byte-identical even if the import itself fails.
             _vc_numeric_keys = None
+            if os.getenv("PG_NUMERIC_COMPARATOR", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+                logger.warning(
+                    "[multi_section] %s numeric_comparator key-lookup build failed (%s); cross-source "
+                    "numeric comparison DISABLED for this section (build_ok=false)",
+                    getattr(section, "title", "?"), _vc_numeric_exc,
+                )
         # I-beatboth-005 (#1282): the FAITHFUL ABSTRACTIVE WRITER. Default-OFF
         # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
         # below are BYTE-IDENTICAL and the new module is NEVER imported on the hot path (the flag is
@@ -5307,8 +5332,15 @@ async def _run_section(
         # fabricates a con and NEVER asserts an ungrounded balancing claim (fabricating balance is the
         # lethal direction). Default OFF (PG_TWO_SIDED_DEBATE) => the guard is False => byte-identical.
         if _two_sided_debate_enabled() and _is_debate_section(section):
+            _pre_debate_disc = len(_vc_degraded_disclosures or [])
             _vc_degraded_disclosures = _maybe_two_sided_debate_disclosure(
                 section, _vc_baskets, _vc_real_units, _vc_degraded_disclosures,
+            )
+            # I-deepfix-001 Wave-3a (#1344): two-sided-debate ACTIVATION fire marker (see helper). Reached
+            # ONLY under PG_TWO_SIDED_DEBATE + a plan-framed debate section => OFF byte-identical.
+            _emit_two_sided_debate_marker(
+                len(_vc_real_units or []),
+                len(_vc_degraded_disclosures or []) - _pre_debate_disc,
             )
         raw = "\n".join(c for c in _vc_real_units if c and c.strip())
         # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the

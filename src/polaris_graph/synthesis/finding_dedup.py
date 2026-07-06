@@ -1197,6 +1197,7 @@ def _apply_finding_dedup_nli_grouping(
     clusters: list[list[Any]],
     *,
     entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    telemetry: Optional[dict[str, Any]] = None,
 ) -> list[list[Any]]:
     """PG_FINDING_DEDUP_NLI (I-deepfix-001 Wave 1b, #1344; REAL_PLAN_2026 coverage_fix item 1):
     union lexical qualitative candidate clusters whose REPRESENTATIVE claim texts STRICTLY
@@ -1243,6 +1244,13 @@ def _apply_finding_dedup_nli_grouping(
 
     rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
     rep_polarity = [cluster[1] for cluster in clusters]
+    # I-deepfix-001 Wave-3a (#1344): ADDITIVE activation telemetry (never changes a merge). A one-element
+    # mutable flag is set when the cross-encoder returns None on a pair of NON-empty representatives — the
+    # DEGRADE sentinel (infra fault: model unavailable / OOM CPU-degrade failed), distinct from a genuine
+    # empty-text None. Only surfaced through the ``telemetry`` out-param; discarded (behavior-inert) when
+    # the caller passes no dict (the deterministic-stub test path).
+    rep_nonempty = [bool(t and t.strip()) for t in rep_texts]
+    _degraded_flag = [False]
 
     # Candidate cluster-index pairs (i < j). The POLARITY hard-block excludes a
     # mismatched-polarity pair from scoring entirely (it can never link — defense in depth).
@@ -1278,9 +1286,16 @@ def _apply_finding_dedup_nli_grouping(
     def _bidirectional(pair: tuple[int, int]) -> Optional[tuple[int, int]]:
         i, j = pair
         fwd = entail_fn(rep_texts[i], rep_texts[j])
+        # ADDITIVE degrade observation (Wave-3a #1344): a None verdict on two NON-empty texts means the
+        # cross-encoder was unavailable (infra fault) — record it WITHOUT changing the fail-closed edge
+        # decision below. Thread-safe: a single-element list write is atomic under the GIL.
+        if fwd is None and rep_nonempty[i] and rep_nonempty[j]:
+            _degraded_flag[0] = True
         if fwd is not True:
             return None  # one-direction / contradiction / None => no edge (fail-closed)
         rev = entail_fn(rep_texts[j], rep_texts[i])
+        if rev is None and rep_nonempty[i] and rep_nonempty[j]:
+            _degraded_flag[0] = True
         if rev is not True:
             return None
         return (i, j)
@@ -1348,6 +1363,13 @@ def _apply_finding_dedup_nli_grouping(
         )
 
     edges.sort()
+    # Wave-3a (#1344): surface the degrade + wall-truncation observations now that scoring is done. The
+    # directional_merges count is finalized at the merged-return below (0 on the no-edge path). Behavior-
+    # inert when ``telemetry`` is None (the stub-test path); populated only for the run-logger caller.
+    if telemetry is not None:
+        telemetry["degraded"] = bool(_degraded_flag[0])
+        telemetry["wall_truncated"] = bool(truncated)
+        telemetry["directional_merges"] = 0
     if not edges:
         return clusters
 
@@ -1375,6 +1397,10 @@ def _apply_finding_dedup_nli_grouping(
             consumed[j] = True
         consumed[i] = True
         out.append([clusters[i][0], clusters[i][1], sorted(set(merged_ris))])
+    # Wave-3a (#1344): each consumed cluster reduces the output count by one, so ``n - len(out)`` is the
+    # number of DIRECTIONAL merges this pass performed (behavior-inert when ``telemetry`` is None).
+    if telemetry is not None:
+        telemetry["directional_merges"] = n - len(out)
     return out
 
 
@@ -1477,7 +1503,22 @@ def _build_qualitative_groups(
     # (no merge); contradiction => no merge; polarity hard-block defense-in-depth. OFF =>
     # byte-identical (this call is skipped). Additive / keep-all with the guarded pass above.
     if _finding_dedup_nli_enabled():
-        clusters = _apply_finding_dedup_nli_grouping(rows, clusters)
+        _nli_telemetry: dict[str, Any] = {}
+        clusters = _apply_finding_dedup_nli_grouping(
+            rows, clusters, telemetry=_nli_telemetry,
+        )
+        # I-deepfix-001 Wave-3a (#1344): the finding-dedup-NLI ACTIVATION fire marker. Emitted ONLY under
+        # PG_FINDING_DEDUP_NLI (this branch is skipped when the flag is OFF => the run_log carries no
+        # ``[activation]`` line => OFF byte-identical). Structural presence + count, never a threshold
+        # (§-1.3): directional_merges=0 with the flag ON on eligible input is itself the eligible-yet-zero
+        # signal the activation canary reads; degraded=true is the cross-encoder-fallback signal;
+        # wall_truncated=true is the scoring-wall under-merge signal.
+        logger.info(
+            "[activation] finding_dedup_nli: invoked directional_merges=%d degraded=%s wall_truncated=%s",
+            int(_nli_telemetry.get("directional_merges", 0)),
+            bool(_nli_telemetry.get("degraded", False)),
+            bool(_nli_telemetry.get("wall_truncated", False)),
+        )
 
     out: dict[tuple, list[int]] = {}
     for cluster in clusters:

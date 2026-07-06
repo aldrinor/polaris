@@ -105,6 +105,12 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     get_token_honesty_telemetry,
     reset_token_honesty_telemetry,
     _token_honest_drop_enabled,
+    # I-deepfix-001 Wave-3a (#1344): per-run reset + snapshot of the re-anchor counters so the
+    # provenance-reanchor activation marker surfaces the argmax-leg firing at RUN level. `_provenance_
+    # reanchor_enabled` gates reset/snapshot/emit so a PG_PROVENANCE_REANCHOR=0 run stays byte-identical.
+    get_reanchor_telemetry,
+    reset_reanchor_telemetry,
+    _provenance_reanchor_enabled,
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     BudgetExceededError,
@@ -3396,6 +3402,12 @@ def _basket_corroboration_block(
     seen_blocks: set[str] = set()
     _dedup_blocks = corroboration_block_dedup_enabled()
     blocks: list[str] = []
+    # I-deepfix-001 Wave-3a (#1344): ADDITIVE min-cite-set activation accumulators (one aggregated marker
+    # per corroboration block, emitted before the returns below). Behavior-inert — they only feed the
+    # ``[activation] min_cite_set:`` line; nothing is dropped and no render text changes.
+    _mc_minimized = 0
+    _mc_demoted = 0
+    _mc_faults = 0
     for b in bibliography:
         for basket in (b.get("baskets") or []):
             ccid = str(basket.get("claim_cluster_id") or "")
@@ -3613,6 +3625,10 @@ def _basket_corroboration_block(
                         _min_res = _minimize_citation_set(claim, _render_members)
                         _inline_members = _min_res.inline_members
                         _min_cite_active = True
+                        # Wave-3a (#1344): ADDITIVE activation counts (keep-all — demoted members still
+                        # render as weight-channel SUPPORT bullets below, none dropped).
+                        _mc_minimized += len(_min_res.inline_members)
+                        _mc_demoted += len(_min_res.weight_members)
                     except Exception as _mc_exc:  # noqa: BLE001 — fail-open: keep ALL inline, never crash
                         logging.getLogger(__name__).warning(
                             "[min_cite_set] wiring fault (%s); keeping all members inline (fail-open).",
@@ -3620,6 +3636,7 @@ def _basket_corroboration_block(
                         )
                         _inline_members = _render_members
                         _min_cite_active = False
+                        _mc_faults += 1  # build_ok=false signal for the activation marker
                 _inline_ev_ids = {str(m.get("evidence_id") or "") for m in _inline_members}
                 # Header multi-cite = the INLINE members' ``[N]`` only (== all members when the minimizer
                 # is inactive => byte-identical). Demoted members' numbers are withheld from the claim's
@@ -3689,6 +3706,20 @@ def _basket_corroboration_block(
                     continue
                 seen_blocks.add(_block)
             blocks.append(_block)
+    # I-deepfix-001 Wave-3a (#1344): the min-cite-set ACTIVATION fire marker — ONE aggregated line per
+    # corroboration block. Emitted ONLY when PG_MIN_CITE_SET is ON so OFF is byte-identical (no line).
+    # minimized = inline ``[N]`` citations kept; demoted_to_weight = corroborators moved to the weight
+    # channel (keep-all, none dropped); build_ok=false surfaces any fail-open minimizer fault. minimized=0
+    # with the flag ON (e.g. the layer-2 dependency OFF so the minimizer never ran) is the eligible-yet-zero
+    # signal the canary reads. Structural presence + counts, never a threshold (§-1.3).
+    from src.polaris_graph.generator.citation_set_minimizer import (  # noqa: PLC0415
+        min_cite_set_enabled as _min_cite_set_enabled_marker,
+    )
+    if _min_cite_set_enabled_marker():
+        logging.getLogger(__name__).info(
+            "[activation] min_cite_set: minimized=%d demoted_to_weight=%d build_ok=%s",
+            _mc_minimized, _mc_demoted, _mc_faults == 0,
+        )
     if not blocks:
         return ""
     return (
@@ -14640,6 +14671,11 @@ async def run_one_query(
         # it cannot outlive the phase or land a stale "generation_in_progress" after a terminal
         # stage. Faithfulness-safe: pure observability — it never reads/writes a span, provenance,
         # strict_verify / NLI / 4-role check, or any verdict.
+        # I-deepfix-001 Wave-3a (#1344): zero the re-anchor counters BEFORE generation so the snapshot
+        # below reflects THIS query only. Gated on PG_PROVENANCE_REANCHOR => an OFF run touches nothing
+        # (byte-identical). The counters are read + emitted after generation completes.
+        if _provenance_reanchor_enabled():
+            reset_reanchor_telemetry()
         _gen_hb_ticker = asyncio.ensure_future(
             _periodic_heartbeat_ticker(
                 _hb, "generation_in_progress", generation_heartbeat_tick_seconds(),
@@ -14828,6 +14864,25 @@ async def run_one_query(
              f"verified={multi.total_sentences_verified}, "
              f"dropped={multi.total_sentences_dropped}, "
              f"limitations_words={len(multi.limitations_text.split())}")
+
+        # I-deepfix-001 Wave-3a (#1344): provenance-reanchor ACTIVATION fire marker at RUN level (via the
+        # _log tee sink). Emitted ONLY when PG_PROVENANCE_REANCHOR is ON (OFF => no reset/snapshot/line =>
+        # byte-identical). accepted = total re-anchor recoveries this run; reanchored_argmax = the span-
+        # resolver boilerplate-aware argmax-leg recoveries (the span-resolver positive signal). build_ok is
+        # false only if the telemetry read itself faults. Structural presence + counts, never a threshold.
+        if _provenance_reanchor_enabled():
+            try:
+                _reanchor_snap = get_reanchor_telemetry()
+                _log(
+                    "[activation] provenance_reanchor: accepted=%d reanchored_argmax=%d build_ok=%s"
+                    % (
+                        int(_reanchor_snap.get("reanchor_recovered", 0)),
+                        int(_reanchor_snap.get("reanchor_argmax_recovered", 0)),
+                        True,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — a telemetry read must never break the paid run
+                _log("[activation] provenance_reanchor: accepted=0 reanchored_argmax=0 build_ok=False")
 
         # A12 (iarch006 epic-failure): post-GENERATION checkpoint — DATA ONLY (raw drafts + identity
         # hashes), written right after generation completes and BEFORE verification, so a resume can

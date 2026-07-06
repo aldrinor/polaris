@@ -25,10 +25,13 @@ contract as today. Mirrors `iterresearch_query_gen.py` (`merge_retrieval_results
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
 from typing import Any, Callable
+
+logger = logging.getLogger("polaris_graph.fs_researcher_query_gen")
 
 # (research_question, **kw) -> LiveRetrievalResult. Injected so this module never imports the
 # 1000-line live_retriever at module load (and so it is unit-testable on a stub).
@@ -322,6 +325,12 @@ def _plan_expert_facet_queries(
 
     # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
     facets = _efp.plan_expert_facets(question, llm)
+    # I-deepfix-001 Wave-3a (#1344): expert-facet-planner ACTIVATION fire marker. Emitted ONLY when
+    # PG_EXPERT_FACET_PLANNER is ON (this whole facet path is reached only under the flag; the guard keeps
+    # the marker OFF byte-identical even if a test drives this helper directly). facets=0 with the flag ON
+    # is the eligible-yet-zero (degenerate-LLM-reply) signal. Structural presence + count (§-1.3).
+    if _efp.expert_facet_enabled():
+        logger.info("[activation] expert_facet_planner: facets=%d", len(facets))
 
     # R1+R2 seed/reserve split (I-deepfix-001, #1344). Seed BREADTH-FIRST (every facet's
     # primary angle before any facet's deeper angle) so the query budget spreads across ALL
@@ -398,13 +407,20 @@ def _plan_expert_facet_queries(
     from src.polaris_graph.retrieval import sub_entity_query_expander as _sqe
     if _sqe.sub_entity_expansion_enabled() and not _wall_passed():
         _sub_qs = _sqe.plan_sub_entity_queries(question, llm)
+        _new_sub_count = 0
         if _sub_qs:
             _seed_keys = {(q or "").strip().lower() for q in seed_queries}
             _new_sub = [q for q in _sub_qs if (q or "").strip().lower() not in _seed_keys]
+            _new_sub_count = len(_new_sub)
             if _new_sub:
                 seed_queries, max_queries = _sqe.widen_with_sub_entities(
                     list(seed_queries), _new_sub, max_queries
                 )
+        # I-deepfix-001 Wave-3a (#1344): sub-entity-expansion ACTIVATION fire marker. Emitted ONLY inside
+        # this PG_SUBENTITY_QUERY_EXPANSION-gated block => OFF byte-identical. expanded_queries = the NET
+        # NEW sub-entity queries added on top of the current frontier (0 = LLM named none / all duplicates,
+        # the eligible-yet-zero signal). Structural presence + count (§-1.3).
+        logger.info("[activation] subentity_query_expansion: expanded_queries=%d", _new_sub_count)
 
     # Issue the seed frontier directly (facet-angle queries are already full queries — no
     # per-todo llm() derivation needed). Record ONLY the queries ACTUALLY issued in the

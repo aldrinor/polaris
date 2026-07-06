@@ -562,12 +562,22 @@ def _anchor_candidate_pairs(baskets: list):
         anchor = _basket_anchor(b)
         if anchor:
             by_anchor.setdefault(anchor, []).append(b)
+    _emitted = 0
     for _anchor, group in by_anchor.items():
         if len(group) < 2:
             continue
         for i in range(len(group)):
             for j in range(i + 1, len(group)):
+                _emitted += 1
                 yield group[i], group[j]
+    # I-deepfix-001 Wave-3a (#1344): anchor-equality ACTIVATION DEGRADE tripwire. Emitted ONLY when
+    # PG_CROSS_SOURCE_BODY is ON — which in normal operation is exactly the case where the plan-driven
+    # pairing (NOT this legacy path) is used, so this marker stays ABSENT (the canary asserts absence). It
+    # fires only if the body ever degrades to anchor pairing under the ON flag. On the OFF path the flag is
+    # OFF => no line => byte-identical (the ``_emitted`` counter produces no output). This runs on generator
+    # exhaustion, which the single full-drain consumer loop guarantees.
+    if cross_source_body_enabled():
+        logger.info("[activation] cross_source_body: anchor_equality pairs=%d", _emitted)
 
 
 def _plan_driven_candidate_pairs(baskets: list, *, edges: Any, agree_map: Any, equiv_clusters: Any):
@@ -601,6 +611,7 @@ def _process_pair(
     entail_fn: Optional[Callable[[str, str], Optional[bool]]],
     clause_cache: dict,
     numeric_key_by_cluster: Optional[dict],
+    numeric_upgrade_counter: Optional[list] = None,
 ) -> Optional[str]:
     """Build ONE cross-source analytical unit for a candidate pair, or ``None`` when it fails to build.
 
@@ -659,6 +670,9 @@ def _process_pair(
             )
             if comp:
                 rel = comp
+                # Wave-3a (#1344): ADDITIVE activation count (never changes ``rel`` or the licensing).
+                if numeric_upgrade_counter is not None:
+                    numeric_upgrade_counter[0] += 1
     connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
     # Strip clause_A's terminal so the join reads as one flowing sentence "[clause A]<connective>[clause B]".
     joined = _join_verified_clauses(
@@ -720,8 +734,19 @@ def compose_cross_source_analytical_units(
     # For the deterministic writer_fn/verify_fn the composer is given (precomputed-dict lookup / strict
     # verify) the RESULT is identical; only the number of internal calls changes (no observable effect).
     if cross_source_body_enabled():
-        candidate_pairs = _plan_driven_candidate_pairs(
+        # Materialize so the plan-driven pair COUNT can be reported by the activation marker; the single
+        # full-drain loop below is behaviorally identical to iterating the generator (same pairs, order).
+        candidate_pairs = list(_plan_driven_candidate_pairs(
             baskets, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
+        ))
+        # I-deepfix-001 Wave-3a (#1344): plan-driven ACTIVATION fire marker. Emitted ONLY under
+        # PG_CROSS_SOURCE_BODY (this branch) so OFF is byte-identical. ``input_threaded`` is true when the
+        # certified consolidation inputs (equiv_clusters / agree_map) were threaded — false means the
+        # pairing degraded to same-facet/edge/refuter candidacy only. Structural presence + count (§-1.3).
+        _input_threaded = bool(equiv_clusters) or bool(agree_map)
+        logger.info(
+            "[activation] cross_source_body: plan_driven pairs=%d input_threaded=%s degraded=%s",
+            len(candidate_pairs), _input_threaded, not _input_threaded,
         )
     else:
         candidate_pairs = _anchor_candidate_pairs(baskets)
@@ -729,6 +754,10 @@ def compose_cross_source_analytical_units(
     units: list[str] = []
     seen_pair_keys: set[frozenset] = set()
     eligible_pairs = 0
+    # Wave-3a (#1344): ADDITIVE numeric-comparator upgrade counter (a one-element mutable, threaded into
+    # ``_process_pair`` and incremented where a NEUTRAL pair is upgraded to ``comparison``). Behavior-inert
+    # — it only feeds the numeric_comparator activation marker emitted after the loop.
+    _numeric_upgrades = [0]
     # cluster_id -> Optional[str]; each basket's verified clause is built at most ONCE (deterministic given
     # the same basket/pool/fns), so caching changes call-count only, never the emitted units (see above).
     clause_cache: dict = {}
@@ -747,9 +776,23 @@ def compose_cross_source_analytical_units(
             edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
             entail_fn=entail_fn, clause_cache=clause_cache,
             numeric_key_by_cluster=numeric_key_by_cluster,
+            numeric_upgrade_counter=_numeric_upgrades,
         )
         if unit:
             units.append(unit)
+
+    # I-deepfix-001 Wave-3a (#1344): numeric-comparator ACTIVATION fire marker. Emitted ONLY when
+    # PG_NUMERIC_COMPARATOR is ON (OFF => no line => byte-identical). ``upgraded`` counts NEUTRAL pairs the
+    # deterministic comparator lifted to ``comparison``; ``build_ok`` is false when the upstream numeric
+    # merge-key lookup was not threaded (None) — the silent-swallow signal now made loud at the build site.
+    from src.polaris_graph.generator.numeric_comparator import (  # noqa: PLC0415
+        numeric_comparator_enabled as _numeric_comparator_enabled,
+    )
+    if _numeric_comparator_enabled():
+        logger.info(
+            "[activation] numeric_comparator: upgraded=%d build_ok=%s",
+            _numeric_upgrades[0], numeric_key_by_cluster is not None,
+        )
 
     if eligible_pairs and not units:
         # Fail-LOUD canary (the "verify the feature fired in output, not in config" rule): candidate

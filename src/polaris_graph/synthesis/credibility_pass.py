@@ -698,6 +698,21 @@ def _run_member_verifies(
     return [v for v in results if v is not None]
 
 
+def _emit_basket_consume_marker(regrouped: int, *, noop: bool) -> None:
+    """I-deepfix-001 Wave-3a (#1344): the HOP-A basket-consume ACTIVATION fire marker. Emitted ONLY when
+    PG_BASKET_CONSUME_FINDING_DEDUP is ON so the OFF path (this whole regroup is skipped at the caller)
+    stays byte-identical — the run_log carries no ``[activation]`` line. ``noop=True`` is the silent-no-op
+    the routing proof flagged (the function returned the input graph UNCHANGED). Structural presence +
+    count, never a threshold (§-1.3). Side-effect only; the returned graph is byte-untouched."""
+    if not basket_consume_finding_dedup_enabled():
+        return
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).info(
+        "[activation] basket_consume_finding_dedup: regrouped old_to_new=%d noop=%s",
+        int(regrouped), bool(noop),
+    )
+
+
 def _regroup_graph_by_finding_dedup(
     graph: Any,
     annotated: list[dict],
@@ -736,6 +751,7 @@ def _regroup_graph_by_finding_dedup(
 
     claims = list(getattr(graph, "claims", None) or [])
     if not claims:
+        _emit_basket_consume_marker(0, noop=True)
         return graph
 
     # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
@@ -853,6 +869,7 @@ def _regroup_graph_by_finding_dedup(
 
     if not old_to_new:
         # No merge happened (e.g. finding_dedup found nothing to group) -> the legacy grouping stands.
+        _emit_basket_consume_marker(0, noop=True)
         return graph
 
     # ── Remap edges so a refuter reference still lands on the MERGED cluster id (never hide a
@@ -866,6 +883,7 @@ def _regroup_graph_by_finding_dedup(
         }))
         new_edges.append(dataclasses.replace(edge, claim_cluster_ids=ids))
 
+    _emit_basket_consume_marker(len(old_to_new), noop=False)
     return dataclasses.replace(
         graph,
         claims=claims,
