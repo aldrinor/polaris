@@ -1437,6 +1437,51 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str)
     return _no_verified_span_disclosure(basket)
 
 
+def _emit_synth_primary_marker(kept: list) -> None:
+    """Emit the SYNTH_PRIMARY activation fire marker (I-deepfix-001 Wave-3a #1344) — the stable literal
+    the activation canary parses to prove synth-primary actually produced prose. Fires ONLY when authored
+    prose survived (``kept`` non-empty); NEVER on an empty / pure-disclosure return (Fable R5 — a
+    ``kept=[]`` exhaustion is NOT authored prose). Structural presence + count, never a threshold (§-1.3).
+    Side-effect only; the composed text is byte-untouched."""
+    if kept:
+        logger.info("[activation] synth_primary: authored_prose kept=%d", len(kept))
+
+
+def _synth_primary_repair_loop(
+    basket: Any,
+    scoped_pool: dict,
+    regions: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    redraft_fn: Callable[..., str],
+) -> "tuple[list[str], list[tuple[str, list[str]]]]":
+    """The SYNTH_PRIMARY compose-then-verify + BOUNDED whole-paragraph repair CORE (extracted #1344
+    Wave-3a so BOTH the single-basket and the corroborated-basket synth-primary composers share ONE loop).
+    Draft ONE paragraph via ``writer_fn``, verify EVERY sentence with the UNCHANGED
+    ``_verify_all_sentences_synth`` wrapper (SAME verify_fn, own-region gate, chrome screen), and re-draft
+    up to ``_writer_repair_max()`` times feeding the RARR failure reasons back. Returns ``(kept, failed)``
+    — the verified authored sentences and the residual failures. The faithfulness engine (verify_fn /
+    wrapper / region gate) is BYTE-UNTOUCHED; only which draft is submitted changes, under a finite cap
+    that can never ship a failed sentence."""
+    draft = writer_fn(basket, scoped_pool) or ""
+    kept, failed = _verify_all_sentences_synth(draft, scoped_pool, regions, verify_fn=verify_fn)
+    attempts = 0
+    repair_max = _writer_repair_max()
+    while failed and attempts < repair_max:
+        attempts += 1
+        revise_reasons = _collect_synth_revise_reasons(failed)
+        fresh = redraft_fn(basket, scoped_pool, revise_reasons=revise_reasons) or ""
+        # Codex P0 / Fable P1: an EMPTY re-draft (a 429 storm, a wedged writer abandoned by the async
+        # bridge, or any writer error returning "") must NOT overwrite the prior attempt's verified
+        # sentences with nothing — break and keep the prior kept/failed so the exhaustion path ships the
+        # verified authored body, never collapse a partially-good paragraph because a repair came back empty.
+        if not fresh.strip():
+            break
+        kept, failed = _verify_all_sentences_synth(fresh, scoped_pool, regions, verify_fn=verify_fn)
+    return kept, failed
+
+
 def _compose_one_basket_synth_primary(
     basket: Any,
     evidence_pool: dict,
@@ -1459,23 +1504,14 @@ def _compose_one_basket_synth_primary(
     The faithfulness engine (strict_verify / NLI / D8 / provenance / the writer wrapper) is UNTOUCHED;
     only which draft is submitted changes, under a strict finite cap that can never ship a failed
     authored sentence."""
-    draft = writer_fn(basket, scoped_pool) or ""
-    kept, failed = _verify_all_sentences_synth(draft, scoped_pool, regions, verify_fn=verify_fn)
-    attempts = 0
-    repair_max = _writer_repair_max()
-    while failed and attempts < repair_max:
-        attempts += 1
-        revise_reasons = _collect_synth_revise_reasons(failed)
-        fresh = redraft_fn(basket, scoped_pool, revise_reasons=revise_reasons) or ""
-        # Codex P0 / Fable P1: an EMPTY re-draft (a 429 storm, a wedged writer abandoned by the async
-        # bridge, or any writer error returning "") must NOT overwrite the prior attempt's verified
-        # sentences with nothing. Break and keep the prior kept/failed so the exhaustion path ships the
-        # verified authored body + labeled K-span — never collapse a partially-good paragraph to a bare
-        # disclosure just because a repair call came back empty.
-        if not fresh.strip():
-            break
-        kept, failed = _verify_all_sentences_synth(fresh, scoped_pool, regions, verify_fn=verify_fn)
+    kept, failed = _synth_primary_repair_loop(
+        basket, scoped_pool, regions, writer_fn=writer_fn, verify_fn=verify_fn, redraft_fn=redraft_fn,
+    )
     body = " ".join(kept)
+    # Wave-3a #1344: fire the activation marker ONLY when authored prose survived (Fable R5). When ``kept``
+    # is non-empty the body ALWAYS ships below (as ``body`` or ``body`` + the labeled K-span); an empty
+    # ``kept`` routes to a pure-disclosure fallback and does NOT fire.
+    _emit_synth_primary_marker(kept)
     if not failed:
         # Every sentence covered (or the draft produced nothing). A non-empty body ships as-is; an empty
         # body falls to the K-span / honest-gap fallback (never an empty unit).
@@ -1900,6 +1936,95 @@ def compose_basket_multicited_sentence(
     return build_verified_span_draft(basket, evidence_pool)
 
 
+# ── I-deepfix-001 Wave-3a (#1344) — SYNTH_PRIMARY routing for the CORROBORATED core body ─────────────
+#
+# On gate-B ``PG_VERIFIED_COMPOSE_MULTICITED`` is force-ON, so every corroborated (>=2 distinct-origin
+# SUPPORTS) basket — the §-1.3 consolidate-keep-all CORE report body — was composed by the multi-cited
+# K-span co-location and NEVER reached the SYNTH_PRIMARY group writer. Wave-3a routes those baskets THROUGH
+# synth-primary WHEN ``PG_SYNTH_PRIMARY`` is ON (and a group-capable ``redraft_fn`` is threaded), so the
+# stricter per-sentence writer verify wrapper (``_verify_all_sentences_synth``) composes the coherent body,
+# WHILE every distinct-origin corroborator the authored prose did not itself cite is still surfaced as its
+# OWN verbatim K-span (all-corroborator multi-citation preserved — no corroborating source is dropped).
+# The faithfulness engine is byte-untouched: the authored sentences ran the SAME verify wrapper; the
+# appended clauses are verbatim verified spans; the caller re-runs the UNCHANGED strict_verify. OFF (flag
+# unset OR no ``redraft_fn``) => the multi-cited co-location runs => byte-identical to the pre-Wave-3a path.
+
+
+def _uncited_corroborator_clauses(basket: Any, evidence_pool: dict, body: str) -> list[str]:
+    """VERBATIM K-span clauses for every DISTINCT-ORIGIN corroborator whose citation the synth-primary
+    authored ``body`` did NOT already carry — so routing a corroborated basket THROUGH synth-primary
+    (Wave-3a #1344) never DROPS a corroborating source (§-1.3 consolidate-keep-all). Each clause is the
+    member's OWN verified verbatim span (``_member_verbatim_clause`` -> ``build_verified_span_draft`` over a
+    1-member sub-basket) carrying its OWN ``[#ev]`` token, so it re-passes the UNCHANGED strict_verify
+    trivially — the faithfulness engine is byte-untouched. Order-stable (weight desc, inherited from
+    ``_distinct_origin_supports``); pure read. Returns ``[]`` when the body already cites every origin."""
+    # Map every SUPPORTS member's evidence_id to its ORIGIN — the authored body may cite a NON-representative
+    # member of an origin the distinct-origin roster represents by a DIFFERENT eid (never re-surface it).
+    eid_to_origin: dict[str, str] = {}
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        if eid:
+            eid_to_origin[eid] = str(getattr(m, "origin_cluster_id", "") or eid)
+    cited_origins: set[str] = set()
+    for ev_id, _s, _e in _resolved_spans(body):
+        cited_origins.add(eid_to_origin.get(ev_id, ev_id))
+    out: list[str] = []
+    for member in _distinct_origin_supports(basket):
+        origin = str(
+            getattr(member, "origin_cluster_id", "")
+            or getattr(member, "evidence_id", "")
+            or id(member)
+        )
+        if origin in cited_origins:
+            continue
+        verbatim = _member_verbatim_clause(basket, member, evidence_pool)
+        if verbatim and verbatim.strip():
+            cited_origins.add(origin)  # a corroborator now surfaced cannot re-surface
+            out.append(verbatim.strip())
+    return out
+
+
+def compose_basket_multicited_synth_primary(
+    basket: Any,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    redraft_fn: Callable[..., str],
+) -> str:
+    """Compose a CORROBORATED (>=2 distinct-origin SUPPORTS) basket THROUGH the SYNTH_PRIMARY group writer
+    (I-deepfix-001 Wave-3a #1344) while PRESERVING all-corroborator multi-citation (§-1.3).
+
+    The synth-primary compose-then-verify + bounded repair core (``_synth_primary_repair_loop`` — the SAME
+    ``_verify_all_sentences_synth`` wrapper / own-region gate / chrome screen as the single-basket path)
+    authors the coherent core body. THEN every distinct-origin corroborator whose citation the authored
+    prose did not itself carry is surfaced as its OWN verbatim K-span clause (``_uncited_corroborator_
+    clauses``) — so NO corroborating source is dropped. When synth-primary authors NO prose (the writer
+    produced nothing that survived verify), fall back to the UNCHANGED multi-cited co-location
+    (``compose_basket_multicited_sentence``), which itself surfaces every corroborator — never a single
+    K-span collapse. Faithfulness: strict_verify / provenance / span-grounding are byte-untouched; the
+    authored sentences ran the stricter writer wrapper and the appended clauses are verbatim verified spans;
+    the caller re-runs the UNCHANGED strict_verify over the rendered draft."""
+    scoped_pool = _basket_scoped_pool(basket, evidence_pool)
+    regions = _basket_member_regions(basket, evidence_pool)
+    kept, _failed = _synth_primary_repair_loop(
+        basket, scoped_pool, regions, writer_fn=writer_fn, verify_fn=verify_fn, redraft_fn=redraft_fn,
+    )
+    body = " ".join(kept)
+    # Wave-3a #1344: fire the activation marker ONLY on a non-empty authored body (Fable R5).
+    _emit_synth_primary_marker(kept)
+    if not body.strip():
+        # Synth-primary authored NO prose for this corroborated basket -> preserve EVERY corroborator via
+        # the UNCHANGED multi-cited co-location (all-corroborator guarantee); never collapse to one K-span.
+        return compose_basket_multicited_sentence(
+            basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+        ) or ""
+    # Authored coherent prose is the primary body; append a verbatim K-span for any distinct-origin
+    # corroborator it did not already cite so NO corroborating source is dropped (§-1.3).
+    extra = _uncited_corroborator_clauses(basket, evidence_pool, body)
+    return (body + " " + " ".join(extra)) if extra else body
+
+
 # ── I-deepfix-001 Wave-3 PART 1 (#1344) — COMPANION-FIGURE COMPOSE producer ─────────────────────────
 
 
@@ -2318,17 +2443,31 @@ def _compose_section_per_basket(
         # explicitly keeps the default-OFF path byte-identical with NO new import/call when the flag is
         # off, and only invokes the new producer for genuinely-corroborated baskets when on).
         if _multicited_on and len(_distinct_origin_supports(basket)) >= 2:
-            composed = compose_basket_multicited_sentence(
-                basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
-            ) or ""
+            # I-deepfix-001 Wave-3a (#1344): the corroborated (>=2 distinct-origin SUPPORTS) baskets are
+            # the §-1.3 consolidate-keep-all CORE body. When PG_SYNTH_PRIMARY is ON *and* a group-capable
+            # redraft_fn is threaded, compose them THROUGH the synth-primary group writer (the stricter
+            # per-sentence writer verify wrapper + bounded repair) instead of the verbatim-K-span
+            # co-location — while STILL surfacing every distinct-origin corroborator the authored prose did
+            # not itself cite (all-corroborator multi-citation preserved; no verify gate relaxed). Flag OFF
+            # OR no redraft_fn => the UNCHANGED multi-cited co-location => byte-identical to pre-Wave-3a.
+            if redraft_fn is not None and _synth_primary_enabled():
+                composed = compose_basket_multicited_synth_primary(
+                    basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                    redraft_fn=redraft_fn,
+                ) or ""
+            else:
+                composed = compose_basket_multicited_sentence(
+                    basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                ) or ""
         else:
             composed = _compose_one_basket(
                 basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
                 # I-deepfix-001 Wave-1a (#1344): thread the group-capable re-draft writer so the
                 # SYNTH_PRIMARY bounded-repair path can re-call the writer. Default None => byte-identical
-                # (the legacy _compose_one_basket path). Only the direct single-basket producer gets it;
-                # the multi-cited producer above keeps the unchanged signature (SYNTH_PRIMARY is a
-                # single-basket compose-then-verify concern, orthogonal to the multi-cite consolidation).
+                # (the legacy _compose_one_basket path). Wave-3a (#1344): the multi-cited producer above
+                # ALSO honours SYNTH_PRIMARY now (compose_basket_multicited_synth_primary), routing
+                # corroborated baskets through the same group writer + strict verify while surfacing every
+                # corroborator; both single-basket and multi-cite paths share the SYNTH_PRIMARY writer.
                 redraft_fn=redraft_fn,
             )
         # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
