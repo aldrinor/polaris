@@ -1694,3 +1694,20 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **Final — Claude** REAL_PLAN_2026.md (ea2a6fe2): converged; faithfulness never relaxed; composition+coverage co-equal; surgical not rewrite. Codex-CLI-on-Windows fix = self-contained stdin, no -s read-only (proven).
 - **Note:** the first iteration workflow (wf_60377f46-133) died on session limit + a Codex-sandbox file-read failure; recovered by running Codex directly on a self-contained inlined context (fresh account credits). Fable propose was the one salvaged asset (replayed from that run).
 - **Operator GO to build 2026-07-05** ("execute everything in your best efficiency and accuracy, with fable 5 and codex to gate").
+
+## I-deepfix-001 (#1344) REAL_PLAN_2026 BUILD — Waves 1+2 committed, all dual-gated (Codex CLI + Fable 5), 2026-07-05/06
+- **10 build units committed on bot/I-wire-001-integration**, each behind a default-OFF flag, each dual-gated (real Codex CLI `codex exec` verdict-from-file + real Fable 5 `model:'fable'`), OFF byte-identical per unit, faithfulness engine byte-untouched:
+  - 1b=831f3130 PG_FINDING_DEDUP_NLI strict-bidirectional basket regroup.
+  - 1c=231279dd offline DeepTRACE self-scorer (triage-only).
+  - 1a=a8074754 composition core (group-writer contract + bounded repair + labeled fallback; PG_SYNTH_PRIMARY).
+  - 2a=92de9a29 cross-source INTO body + numeric_comparator (PG_CROSS_SOURCE_BODY, PG_NUMERIC_COMPARATOR).
+  - 2b=af2f4abb citation_set_minimizer module; 2b-wiring=2f49052d into CWF weight-channel seam (PG_MIN_CITE_SET).
+  - 2c=029ed758 presentation_tables module (2c-WIRING DEFERRED 4a3ca7a5 — no verbatim-numeric source at render seam; follow-up node verified_numeric_claim_extractor).
+  - 2d=76da5d5d two-sided debate (PG_TWO_SIDED_DEBATE; never fabricates con, only discloses absence).
+  - 2e=7c482eb2 rendered-report acceptance harness (independent clean-room detector).
+- **1d gate arc (fail-loud shallow-report canaries, PG_SHALLOW_REPORT_CANARY) — 3 Codex iters + 1 Fable, committed b5f0dca2 (+ record de8f80c3):**
+  - iter1 Codex+Fable BOTH REQUEST_CHANGES, AGREED: P1 OFF-not-byte-identical (sweep record emitted shallow_report_canary:null when flag OFF); P2 flag-on missing/unreadable run_log reported "ok" not skip. Fixed: guarded key emission (`if _shallow_canary is not None`), no-data → `skip:no-run-log`.
+  - iter2 Codex REQUEST_CHANGES on a NEW P1 (M6 `return "ok"` added) — DIFF-ANCHORING ARTIFACT (Codex shell sandbox failed → reviewed diff text only). Refuted by primary source: `_run_m6_firing_canary` SHA256-identical HEAD vs working (e5bbd962…); the +return belongs to the new guarded canary. Fable (real files) APPROVE, off_byte_identical true.
+  - iter3 Codex APPROVE — "iter-2 P1 withdrawn; M6 return unchanged." off_byte_identical/structural_not_quantity/faithfulness_untouched all true; convergence_call accept_remaining.
+  - Detectors are STRUCTURAL eligible-yet-zero (drafted>=1 & kept_findings==0; multiorigin_clusters>=1 & multi_origin_baskets==0), NEVER a §-1.3-banned count target. 39 offline tests.
+- **NEXT: Wave 3 (END STATE) — ACTIVATE core path ON as production default + fail-loud activation canary; ARCHIVE wrong modules out of the live import path (each dual-gated w/ import-closure proof; faithfulness engine NEVER archived). THEN validation (replay + one fresh front-half paid VM run). Brief-first, dual-gated before build.**
