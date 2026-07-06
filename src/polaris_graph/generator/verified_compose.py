@@ -2263,6 +2263,7 @@ def _compose_section_per_basket(
     equiv_clusters: Any = None,
     agree_map: Any = None,
     redraft_fn: Optional[Callable[..., str]] = None,
+    numeric_key_by_cluster: Optional[dict] = None,
 ) -> list[str]:
     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
@@ -2472,6 +2473,9 @@ def _compose_section_per_basket(
             section_baskets, evidence_pool,
             writer_fn=writer_fn, verify_fn=verify_fn,
             edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+            # Wave-2a: None unless the caller threaded the numeric merge-key lookup (only when
+            # PG_NUMERIC_COMPARATOR is on) => the comparator is never consulted otherwise (byte-identical).
+            numeric_key_by_cluster=numeric_key_by_cluster,
         )
         for unit in analytical:
             if not unit or not unit.strip():

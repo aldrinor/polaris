@@ -5045,6 +5045,22 @@ async def _run_section(
             build_short_member_sentence as _vc_short_writer,
             _subtopic_decomposition_enabled as _vc_subtopic_enabled,
         )
+        # I-deepfix-001 Wave-2a (#1344): the numeric merge-key lookup for the cross-source numeric
+        # comparator. Built ONLY when PG_NUMERIC_COMPARATOR is ON (default OFF) => None otherwise, so the
+        # composer never consults the comparator and the branch is byte-identical. Pure dict build over the
+        # already-clustered AtomicClaims (no new model, no spend); fail-open on any import/attr error.
+        _vc_numeric_keys = None
+        try:
+            from src.polaris_graph.generator.numeric_comparator import (  # noqa: PLC0415
+                build_numeric_key_lookup as _vc_build_numeric_keys,
+                numeric_comparator_enabled as _vc_numeric_comparator_enabled,
+            )
+            if _vc_numeric_comparator_enabled():
+                _vc_numeric_keys = _vc_build_numeric_keys(
+                    getattr(credibility_analysis, "claims", None) or []
+                )
+        except Exception:  # noqa: BLE001 — additive comparator lookup; never break composition
+            _vc_numeric_keys = None
         # I-beatboth-005 (#1282): the FAITHFUL ABSTRACTIVE WRITER. Default-OFF
         # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
         # below are BYTE-IDENTICAL and the new module is NEVER imported on the hot path (the flag is
@@ -5106,6 +5122,8 @@ async def _run_section(
                 # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
                 edges=getattr(credibility_analysis, "edges", None),
                 redraft_fn=_vc_redraft_fn,
+                # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
+                numeric_key_by_cluster=_vc_numeric_keys,
             )
         else:
             # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
@@ -5141,6 +5159,8 @@ async def _run_section(
                 # cross-source analytical pass can LICENSE a conflict connective. No-op unless
                 # PG_CROSS_SOURCE_SYNTHESIS is ON.
                 edges=getattr(credibility_analysis, "edges", None),
+                # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
+                numeric_key_by_cluster=_vc_numeric_keys,
             )
         # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
         # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE

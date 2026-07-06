@@ -58,13 +58,18 @@ logger = logging.getLogger(__name__)
 
 # The CLOSED set of cross-source connectives. The VALUE is inserted between the two verified clauses;
 # it carries NO factual content and NO provenance token, so ``strict_verify`` still gates iff both atoms
-# pass. ``neutral`` is pure juxtaposition (the fail-closed default). Keep the relation PHRASES in sync
-# with ``relational_quantifier_guard._ANALYTICAL_CONNECTIVE_RELATION`` (the guard neutralizes an
-# UNLICENSED connective back to ``neutral``).
+# pass. ``neutral`` is pure juxtaposition (the fail-closed default). The ``agreement`` / ``conflict`` /
+# ``extension`` phrases are kept in sync with ``relational_quantifier_guard._ANALYTICAL_CONNECTIVE_RELATION``
+# (the guard neutralizes an UNLICENSED one back to ``neutral``). Wave-2a NOTE (deliberate, brief decision 4):
+# ``comparison`` (``"; for comparison, "``) is DELIBERATELY NOT added to the guard's regex — this composer
+# is the SOLE emitter of it and licenses "comparison" FIRST (the fail-closed numeric comparator), so there
+# is no unlicensed "for comparison" for the guard to neutralize; adding it to the guard would risk mutating
+# a verbatim-atom source-prose "for comparison" on the DEFAULT-ON ``PG_CROSS_SOURCE_SYNTHESIS`` path.
 LICENSED_CONNECTIVES: dict[str, str] = {
     "agreement": "; consistent with this, ",
     "conflict": "; in contrast, ",
     "extension": "; extending this, ",  # D2: licensed by a certified directional-entailment verdict
+    "comparison": "; for comparison, ",  # Wave-2a: licensed by the deterministic FAIL-CLOSED numeric comparator (non-directional)
     "neutral": "; separately, ",
 }
 
@@ -484,6 +489,193 @@ def _first_verified_clause(
     return first
 
 
+# ── I-deepfix-001 Wave-2a (#1344): PLAN-DRIVEN pairing (replaces near-self-annulling anchor equality) ──
+# LAW VI: DEFAULT-OFF (``PG_CROSS_SOURCE_BODY``). OFF => the legacy ``_basket_anchor`` (subject|predicate)
+# grouping runs UNCHANGED (byte-identical). ON => a pair of section baskets is a CANDIDATE when they are
+# PLAN-related — same section facet (proxied by the same normalized subject, since baskets carry no facet
+# field and consolidation already merged same-subject-same-predicate claims into ONE cluster, so the old
+# subject|predicate anchor near-self-annuls), OR joined by a certified ContradictionEdge / refuter
+# reference, OR bidirectionally/directionally agreeing per the threaded agree-map. The RELATION word is
+# still decided ONLY by ``license_relation`` from the certified engines; candidacy just admits the pair to
+# be analyzed. FAIL-CLOSED: an unlicensed pair renders the neutral connective, never a fabricated relation.
+_ENV_CROSS_SOURCE_BODY = "PG_CROSS_SOURCE_BODY"
+
+
+def cross_source_body_enabled() -> bool:
+    """``PG_CROSS_SOURCE_BODY`` gate (default OFF, LAW VI). OFF => anchor-equality pairing (byte-identical);
+    ON => plan-driven candidate pairing (same-facet / contradiction / agreement). A WEIGHT/CONSOLIDATE
+    lever, never a cap / target / thinner (§-1.3)."""
+    return os.getenv(_ENV_CROSS_SOURCE_BODY, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _basket_subject(basket: Any) -> str:
+    """A basket's normalized SUBJECT (the facet proxy). '' for a blank subject (never a facet match)."""
+    return _norm_anchor(getattr(basket, "subject", "") or "")
+
+
+def _same_facet(a: Any, b: Any) -> bool:
+    """Two baskets are on the SAME section facet iff they share a non-empty normalized subject. This is
+    strictly BROADER than the legacy subject|predicate anchor (which self-annuls after consolidation) yet
+    bounded to the same entity — never an arbitrary cross-subject juxtaposition (brief risk #3)."""
+    sa = _basket_subject(a)
+    return bool(sa) and sa == _basket_subject(b)
+
+
+def _refuter_cross_ref(a: Any, b: Any, cluster_a_id: str, cluster_b_id: str) -> bool:
+    """True iff either basket's durable ``refuter_cluster_ids`` references the other's cluster — the
+    consolidation-layer conflict signal that complements ``_edge_between`` (both read only certified
+    contradiction references, never a free-form guess). Conservative on missing data -> False."""
+    def _refs(basket: Any) -> set:
+        try:
+            return {str(x) for x in (getattr(basket, "refuter_cluster_ids", None) or ())}
+        except TypeError:
+            return set()
+    return cluster_b_id in _refs(a) or cluster_a_id in _refs(b)
+
+
+def _pair_is_plan_candidate(
+    a: Any, b: Any, cluster_a_id: str, cluster_b_id: str,
+    *, edges: Any, agree_map: Any, equiv_clusters: Any,
+) -> bool:
+    """The plan-driven candidacy predicate: same facet OR a certified contradiction (edge / refuter) OR a
+    threaded agreement lookup. NLI (extension / bidirectional agreement) refines the CONNECTIVE for
+    admitted candidates but is NOT re-run here as a candidacy gate over every O(N^2) pair (a pure
+    cross-subject NLI-only candidacy is DEFERRED for cost; the resident encoder still fires per candidate).
+    Pure; deterministic; conservative on missing data."""
+    if _same_facet(a, b):
+        return True
+    if _edge_between(edges, cluster_a_id, cluster_b_id):
+        return True
+    if _refuter_cross_ref(a, b, cluster_a_id, cluster_b_id):
+        return True
+    if _agree(agree_map, equiv_clusters, cluster_a_id, cluster_b_id):
+        return True
+    return False
+
+
+def _anchor_candidate_pairs(baskets: list):
+    """The LEGACY (default-OFF path) pairing: baskets grouped by the subject|predicate anchor, yielding
+    every unordered pair within an anchor group in the SAME order as the pre-Wave-2a nested loop, so the
+    OFF path is byte-identical."""
+    by_anchor: dict[str, list] = {}
+    for b in baskets:
+        anchor = _basket_anchor(b)
+        if anchor:
+            by_anchor.setdefault(anchor, []).append(b)
+    for _anchor, group in by_anchor.items():
+        if len(group) < 2:
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                yield group[i], group[j]
+
+
+def _plan_driven_candidate_pairs(baskets: list, *, edges: Any, agree_map: Any, equiv_clusters: Any):
+    """The Wave-2a pairing: every unordered distinct-cluster pair of section baskets admitted by
+    ``_pair_is_plan_candidate``, in stable i<j order over the section basket list."""
+    n = len(baskets)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = baskets[i], baskets[j]
+            ca, cb = _cluster_id(a), _cluster_id(b)
+            if not ca or not cb or ca == cb:
+                continue
+            if _pair_is_plan_candidate(
+                a, b, ca, cb, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
+            ):
+                yield a, b
+
+
+def _process_pair(
+    a: Any,
+    b: Any,
+    cluster_a_id: str,
+    cluster_b_id: str,
+    evidence_pool: dict,
+    *,
+    writer_fn: Callable[[Any, dict], str],
+    verify_fn: Callable[..., Any],
+    edges: Any,
+    equiv_clusters: Any,
+    agree_map: Any,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]],
+    clause_cache: dict,
+    numeric_key_by_cluster: Optional[dict],
+) -> Optional[str]:
+    """Build ONE cross-source analytical unit for a candidate pair, or ``None`` when it fails to build.
+
+    UNCHANGED per-clause faithfulness contract: each clause is built by ``_first_verified_clause`` (the
+    existing ``verified_compose`` per-basket path — strict_verify against THAT basket's OWN scoped pool +
+    own-region gate), cached per cluster id. The connective carries NO token and is licensed ONLY by the
+    certified engines (``license_relation`` from ContradictionEdge / consolidation-NLI) plus the
+    Wave-2a deterministic numeric comparator (a NEUTRAL pair whose two baskets carry FULLY-comparable
+    numeric merge keys upgrades to ``comparison``; any missing/ambiguous/differing field fails CLOSED to
+    neutral). The result keeps >=2 distinct cited evidence_ids (a real cross-SOURCE relation)."""
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        _join_verified_clauses,
+        _strip_terminal_punct,
+    )
+    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
+        guard_relational_quantifier,
+    )
+
+    def _clause(basket: Any, cid: str) -> Optional[str]:
+        if cid not in clause_cache:
+            clause_cache[cid] = _first_verified_clause(
+                basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+            )
+        return clause_cache[cid]
+
+    clause_a = _clause(a, cluster_a_id)
+    clause_b = _clause(b, cluster_b_id)
+    if not clause_a or not clause_b:
+        return None  # an atom failed to build/verify -> keep both as independent sentences
+    # The two clauses MUST cite DISTINCT origins (a real cross-SOURCE relation).
+    if not (_distinct_ev_ids(clause_a) - _distinct_ev_ids(clause_b)):
+        return None
+    # D2 extension + L3 agreement (both fail-closed): ask the CERTIFIED engine — from ONE shared pair of
+    # NLI forward passes — for the directional (extension) + bidirectional (agreement) signals.
+    directional_entails, bidirectional_entails = _cross_source_relation_signals(
+        clause_a, clause_b, entail_fn,
+    )
+    rel = license_relation(
+        cluster_a_id, cluster_b_id, edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+        directional_entails=directional_entails,
+        bidirectional_entails=bidirectional_entails,
+    )
+    # Wave-2a numeric comparator: upgrade a NEUTRAL pair to ``comparison`` ONLY when both baskets carry
+    # FULLY-comparable numeric merge keys (every discriminator equal + positively known, differing values).
+    # conflict / agreement / extension always take precedence; any ambiguity fails CLOSED to neutral. The
+    # lookup is threaded only when ``PG_NUMERIC_COMPARATOR`` is on, so OFF => this block never runs.
+    if rel == "neutral" and numeric_key_by_cluster:
+        from src.polaris_graph.generator.numeric_comparator import (  # noqa: PLC0415
+            license_numeric_comparison,
+            numeric_comparator_enabled,
+        )
+        if numeric_comparator_enabled():
+            comp = license_numeric_comparison(
+                numeric_key_by_cluster.get(cluster_a_id),
+                numeric_key_by_cluster.get(cluster_b_id),
+            )
+            if comp:
+                rel = comp
+    connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
+    # Strip clause_A's terminal so the join reads as one flowing sentence "[clause A]<connective>[clause B]".
+    joined = _join_verified_clauses(
+        [_strip_terminal_punct(clause_a), clause_b], connective=connective,
+    )
+    if not joined:
+        return None
+    # The guard neutralizes an UNLICENSED connective (defense-in-depth: our composer only ever emits a
+    # licensed one). ``licensed_relations`` is the SINGLE relation we licensed for this sentence.
+    guarded = guard_relational_quantifier(joined, None, licensed_relations={rel})
+    final = (guarded or joined).strip()
+    # KEEP only a real cross-source unit: >=2 distinct cited evidence_ids survive.
+    if len(_distinct_ev_ids(final)) < 2:
+        return None
+    return final
+
+
 def compose_cross_source_analytical_units(
     section_baskets: list,
     evidence_pool: dict,
@@ -494,11 +686,17 @@ def compose_cross_source_analytical_units(
     equiv_clusters: Any = None,
     agree_map: Any = None,
     entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    numeric_key_by_cluster: Optional[dict] = None,
 ) -> list[str]:
     """Produce verified cross-source ANALYTICAL sentences for a section.
 
-    For every UNORDERED pair of section baskets that share a subject-predicate anchor and have DISTINCT
-    claim clusters:
+    Wave-2a: candidate pairs come from ``_plan_driven_candidate_pairs`` when ``PG_CROSS_SOURCE_BODY`` is ON
+    (same facet / contradiction / agreement) else the legacy ``_anchor_candidate_pairs`` (subject|predicate
+    anchor equality — byte-identical OFF). ``numeric_key_by_cluster`` (threaded only when
+    ``PG_NUMERIC_COMPARATOR`` is on) lets a NEUTRAL pair of fully-comparable numeric baskets render the
+    ``comparison`` connective; None => the comparator is never consulted (byte-identical).
+
+    For every candidate pair with DISTINCT claim clusters (see ``_process_pair``):
       1. build ``clause_A`` / ``clause_B`` via the EXISTING per-basket verified contract (each already
          strict_verify-PASSED, each carrying its OWN ``[#ev]`` token);
       2. ``rel = license_relation(...)`` from the certified engines; ``connective = LICENSED_CONNECTIVES[rel]``;
@@ -513,97 +711,58 @@ def compose_cross_source_analytical_units(
     Pure read of the production verifier (through ``verify_fn``); the FROZEN engine is never touched.
     Order-stable. Returns the list of analytical sentence strings (possibly empty — analytical yield
     EMERGES from real anchored pairs + engine-licensed relations, it is never forced)."""
-    from src.polaris_graph.generator.verified_compose import _join_verified_clauses  # noqa: PLC0415
-    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
-        guard_relational_quantifier,
-    )
-
     baskets = [b for b in (section_baskets or []) if b is not None]
-    # Group baskets by anchor; only anchors with >=2 DISTINCT-cluster baskets can form an analytical pair.
-    by_anchor: dict[str, list] = {}
-    for b in baskets:
-        anchor = _basket_anchor(b)
-        if anchor:
-            by_anchor.setdefault(anchor, []).append(b)
+    # Wave-2a: plan-driven candidate pairing (``PG_CROSS_SOURCE_BODY``) vs the legacy subject|predicate
+    # anchor grouping. BOTH feed the SAME per-pair processing + eligible/units/loud-canary accounting, so
+    # the OFF path is OUTPUT byte-identical (same pairs, same order, same per-clause result). It is NOT
+    # call-identical: the ``clause_cache`` below runs ``writer_fn``/``verify_fn`` once per CLUSTER rather
+    # than once per pair-membership, so a basket appearing in K anchor pairs is composed once, not K times.
+    # For the deterministic writer_fn/verify_fn the composer is given (precomputed-dict lookup / strict
+    # verify) the RESULT is identical; only the number of internal calls changes (no observable effect).
+    if cross_source_body_enabled():
+        candidate_pairs = _plan_driven_candidate_pairs(
+            baskets, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
+        )
+    else:
+        candidate_pairs = _anchor_candidate_pairs(baskets)
 
     units: list[str] = []
     seen_pair_keys: set[frozenset] = set()
     eligible_pairs = 0
-    for anchor, group in by_anchor.items():
-        if len(group) < 2:
+    # cluster_id -> Optional[str]; each basket's verified clause is built at most ONCE (deterministic given
+    # the same basket/pool/fns), so caching changes call-count only, never the emitted units (see above).
+    clause_cache: dict = {}
+    for a, b in candidate_pairs:
+        ca, cb = _cluster_id(a), _cluster_id(b)
+        if not ca or not cb or ca == cb:
+            continue  # same / unidentifiable cluster is not a cross-source pair
+        pair_key = frozenset((ca, cb))
+        if pair_key in seen_pair_keys:
             continue
-        for i in range(len(group)):
-            for j in range(i + 1, len(group)):
-                a, b = group[i], group[j]
-                ca, cb = _cluster_id(a), _cluster_id(b)
-                if not ca or not cb or ca == cb:
-                    continue  # same / unidentifiable cluster is not a cross-source pair
-                pair_key = frozenset((ca, cb))
-                if pair_key in seen_pair_keys:
-                    continue
-                seen_pair_keys.add(pair_key)
-                eligible_pairs += 1
-                clause_a = _first_verified_clause(
-                    a, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
-                )
-                clause_b = _first_verified_clause(
-                    b, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
-                )
-                if not clause_a or not clause_b:
-                    continue  # an atom failed to build/verify -> keep both as independent sentences
-                # The two clauses MUST cite DISTINCT origins (a real cross-SOURCE relation).
-                if not (_distinct_ev_ids(clause_a) - _distinct_ev_ids(clause_b)):
-                    continue
-                # D2 extension + L3 agreement (both fail-closed): ask the CERTIFIED engine — from ONE
-                # shared pair of NLI forward passes — whether clause_b entails-and-extends clause_a
-                # (directional -> extension) AND whether the two clauses bidirectionally entail
-                # (both-directions -> agreement, the L3 COVERAGE signal the live edges-only path lacked).
-                # Anything but a positive verdict -> None -> license_relation falls through to
-                # conflict/agreement/neutral (never a fabricated word). Conflict (edge) still wins.
-                directional_entails, bidirectional_entails = _cross_source_relation_signals(
-                    clause_a, clause_b, entail_fn,
-                )
-                rel = license_relation(
-                    ca, cb, edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
-                    directional_entails=directional_entails,
-                    bidirectional_entails=bidirectional_entails,
-                )
-                connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
-                # Strip clause_A's terminal so the join reads as one flowing sentence
-                # "[clause A]<connective>[clause B]". _join_verified_clauses lowercases + de-terminates
-                # the continuation and keeps the whole thing ONE sentence under the production splitter.
-                from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
-                    _strip_terminal_punct,
-                )
-                joined = _join_verified_clauses(
-                    [_strip_terminal_punct(clause_a), clause_b], connective=connective,
-                )
-                if not joined:
-                    continue
-                # The guard neutralizes an UNLICENSED connective (defense-in-depth: our composer only
-                # ever emits a licensed one, so this is a no-op on the happy path). licensed_relations is
-                # the SINGLE relation we licensed for this sentence.
-                guarded = guard_relational_quantifier(
-                    joined, None, licensed_relations={rel},
-                )
-                final = (guarded or joined).strip()
-                # KEEP only a real cross-source unit: >=2 distinct cited evidence_ids survive.
-                if len(_distinct_ev_ids(final)) < 2:
-                    continue
-                units.append(final)
+        seen_pair_keys.add(pair_key)
+        eligible_pairs += 1
+        unit = _process_pair(
+            a, b, ca, cb, evidence_pool,
+            writer_fn=writer_fn, verify_fn=verify_fn,
+            edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+            entail_fn=entail_fn, clause_cache=clause_cache,
+            numeric_key_by_cluster=numeric_key_by_cluster,
+        )
+        if unit:
+            units.append(unit)
 
     if eligible_pairs and not units:
-        # Fail-LOUD canary (the "verify the feature fired in output, not in config" rule): the flag was
-        # ON and anchored cross-source pairs EXISTED, yet zero analytical units survived re-verify. This
-        # is the silent-no-op trap — surface it LOUD rather than quietly emit nothing.
+        # Fail-LOUD canary (the "verify the feature fired in output, not in config" rule): candidate
+        # cross-source pairs EXISTED, yet zero analytical units survived per-clause re-verify/licensing.
+        # This is the silent-no-op trap — a FAILED validation surfaced LOUD, never quietly accepted.
         logger.warning(
-            "[cross_source_synthesis] %d anchored cross-source pair(s) but 0 analytical units survived "
+            "[cross_source_synthesis] %d candidate cross-source pair(s) but 0 analytical units survived "
             "per-clause re-verify/licensing — analytical layer produced nothing for this section",
             eligible_pairs,
         )
     elif units:
         logger.info(
-            "[cross_source_synthesis] composed %d cross-source analytical unit(s) from %d anchored pair(s)",
+            "[cross_source_synthesis] composed %d cross-source analytical unit(s) from %d candidate pair(s)",
             len(units), eligible_pairs,
         )
     return units
