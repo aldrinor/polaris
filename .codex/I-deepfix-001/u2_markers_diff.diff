@@ -1,0 +1,468 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 065ef7b1..6a8fcbc2 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -105,6 +105,12 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+     get_token_honesty_telemetry,
+     reset_token_honesty_telemetry,
+     _token_honest_drop_enabled,
++    # I-deepfix-001 Wave-3a (#1344): per-run reset + snapshot of the re-anchor counters so the
++    # provenance-reanchor activation marker surfaces the argmax-leg firing at RUN level. `_provenance_
++    # reanchor_enabled` gates reset/snapshot/emit so a PG_PROVENANCE_REANCHOR=0 run stays byte-identical.
++    get_reanchor_telemetry,
++    reset_reanchor_telemetry,
++    _provenance_reanchor_enabled,
+ )
+ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+     BudgetExceededError,
+@@ -3396,6 +3402,12 @@ def _basket_corroboration_block(
+     seen_blocks: set[str] = set()
+     _dedup_blocks = corroboration_block_dedup_enabled()
+     blocks: list[str] = []
++    # I-deepfix-001 Wave-3a (#1344): ADDITIVE min-cite-set activation accumulators (one aggregated marker
++    # per corroboration block, emitted before the returns below). Behavior-inert — they only feed the
++    # ``[activation] min_cite_set:`` line; nothing is dropped and no render text changes.
++    _mc_minimized = 0
++    _mc_demoted = 0
++    _mc_faults = 0
+     for b in bibliography:
+         for basket in (b.get("baskets") or []):
+             ccid = str(basket.get("claim_cluster_id") or "")
+@@ -3613,6 +3625,10 @@ def _basket_corroboration_block(
+                         _min_res = _minimize_citation_set(claim, _render_members)
+                         _inline_members = _min_res.inline_members
+                         _min_cite_active = True
++                        # Wave-3a (#1344): ADDITIVE activation counts (keep-all — demoted members still
++                        # render as weight-channel SUPPORT bullets below, none dropped).
++                        _mc_minimized += len(_min_res.inline_members)
++                        _mc_demoted += len(_min_res.weight_members)
+                     except Exception as _mc_exc:  # noqa: BLE001 — fail-open: keep ALL inline, never crash
+                         logging.getLogger(__name__).warning(
+                             "[min_cite_set] wiring fault (%s); keeping all members inline (fail-open).",
+@@ -3620,6 +3636,7 @@ def _basket_corroboration_block(
+                         )
+                         _inline_members = _render_members
+                         _min_cite_active = False
++                        _mc_faults += 1  # build_ok=false signal for the activation marker
+                 _inline_ev_ids = {str(m.get("evidence_id") or "") for m in _inline_members}
+                 # Header multi-cite = the INLINE members' ``[N]`` only (== all members when the minimizer
+                 # is inactive => byte-identical). Demoted members' numbers are withheld from the claim's
+@@ -3689,6 +3706,20 @@ def _basket_corroboration_block(
+                     continue
+                 seen_blocks.add(_block)
+             blocks.append(_block)
++    # I-deepfix-001 Wave-3a (#1344): the min-cite-set ACTIVATION fire marker — ONE aggregated line per
++    # corroboration block. Emitted ONLY when PG_MIN_CITE_SET is ON so OFF is byte-identical (no line).
++    # minimized = inline ``[N]`` citations kept; demoted_to_weight = corroborators moved to the weight
++    # channel (keep-all, none dropped); build_ok=false surfaces any fail-open minimizer fault. minimized=0
++    # with the flag ON (e.g. the layer-2 dependency OFF so the minimizer never ran) is the eligible-yet-zero
++    # signal the canary reads. Structural presence + counts, never a threshold (§-1.3).
++    from src.polaris_graph.generator.citation_set_minimizer import (  # noqa: PLC0415
++        min_cite_set_enabled as _min_cite_set_enabled_marker,
++    )
++    if _min_cite_set_enabled_marker():
++        logging.getLogger(__name__).info(
++            "[activation] min_cite_set: minimized=%d demoted_to_weight=%d build_ok=%s",
++            _mc_minimized, _mc_demoted, _mc_faults == 0,
++        )
+     if not blocks:
+         return ""
+     return (
+@@ -14640,6 +14671,11 @@ async def run_one_query(
+         # it cannot outlive the phase or land a stale "generation_in_progress" after a terminal
+         # stage. Faithfulness-safe: pure observability — it never reads/writes a span, provenance,
+         # strict_verify / NLI / 4-role check, or any verdict.
++        # I-deepfix-001 Wave-3a (#1344): zero the re-anchor counters BEFORE generation so the snapshot
++        # below reflects THIS query only. Gated on PG_PROVENANCE_REANCHOR => an OFF run touches nothing
++        # (byte-identical). The counters are read + emitted after generation completes.
++        if _provenance_reanchor_enabled():
++            reset_reanchor_telemetry()
+         _gen_hb_ticker = asyncio.ensure_future(
+             _periodic_heartbeat_ticker(
+                 _hb, "generation_in_progress", generation_heartbeat_tick_seconds(),
+@@ -14829,6 +14865,25 @@ async def run_one_query(
+              f"dropped={multi.total_sentences_dropped}, "
+              f"limitations_words={len(multi.limitations_text.split())}")
+ 
++        # I-deepfix-001 Wave-3a (#1344): provenance-reanchor ACTIVATION fire marker at RUN level (via the
++        # _log tee sink). Emitted ONLY when PG_PROVENANCE_REANCHOR is ON (OFF => no reset/snapshot/line =>
++        # byte-identical). accepted = total re-anchor recoveries this run; reanchored_argmax = the span-
++        # resolver boilerplate-aware argmax-leg recoveries (the span-resolver positive signal). build_ok is
++        # false only if the telemetry read itself faults. Structural presence + counts, never a threshold.
++        if _provenance_reanchor_enabled():
++            try:
++                _reanchor_snap = get_reanchor_telemetry()
++                _log(
++                    "[activation] provenance_reanchor: accepted=%d reanchored_argmax=%d build_ok=%s"
++                    % (
++                        int(_reanchor_snap.get("reanchor_recovered", 0)),
++                        int(_reanchor_snap.get("reanchor_argmax_recovered", 0)),
++                        True,
++                    )
++                )
++            except Exception:  # noqa: BLE001 — a telemetry read must never break the paid run
++                _log("[activation] provenance_reanchor: accepted=0 reanchored_argmax=0 build_ok=False")
++
+         # A12 (iarch006 epic-failure): post-GENERATION checkpoint — DATA ONLY (raw drafts + identity
+         # hashes), written right after generation completes and BEFORE verification, so a resume can
+         # re-enter before the verify/judge stages. Stores NO verdict; a resume re-runs every gate.
+diff --git a/src/polaris_graph/generator/cross_source_synthesis.py b/src/polaris_graph/generator/cross_source_synthesis.py
+index 8d3fea82..c4083027 100644
+--- a/src/polaris_graph/generator/cross_source_synthesis.py
++++ b/src/polaris_graph/generator/cross_source_synthesis.py
+@@ -562,12 +562,22 @@ def _anchor_candidate_pairs(baskets: list):
+         anchor = _basket_anchor(b)
+         if anchor:
+             by_anchor.setdefault(anchor, []).append(b)
++    _emitted = 0
+     for _anchor, group in by_anchor.items():
+         if len(group) < 2:
+             continue
+         for i in range(len(group)):
+             for j in range(i + 1, len(group)):
++                _emitted += 1
+                 yield group[i], group[j]
++    # I-deepfix-001 Wave-3a (#1344): anchor-equality ACTIVATION DEGRADE tripwire. Emitted ONLY when
++    # PG_CROSS_SOURCE_BODY is ON — which in normal operation is exactly the case where the plan-driven
++    # pairing (NOT this legacy path) is used, so this marker stays ABSENT (the canary asserts absence). It
++    # fires only if the body ever degrades to anchor pairing under the ON flag. On the OFF path the flag is
++    # OFF => no line => byte-identical (the ``_emitted`` counter produces no output). This runs on generator
++    # exhaustion, which the single full-drain consumer loop guarantees.
++    if cross_source_body_enabled():
++        logger.info("[activation] cross_source_body: anchor_equality pairs=%d", _emitted)
+ 
+ 
+ def _plan_driven_candidate_pairs(baskets: list, *, edges: Any, agree_map: Any, equiv_clusters: Any):
+@@ -601,6 +611,7 @@ def _process_pair(
+     entail_fn: Optional[Callable[[str, str], Optional[bool]]],
+     clause_cache: dict,
+     numeric_key_by_cluster: Optional[dict],
++    numeric_upgrade_counter: Optional[list] = None,
+ ) -> Optional[str]:
+     """Build ONE cross-source analytical unit for a candidate pair, or ``None`` when it fails to build.
+ 
+@@ -659,6 +670,9 @@ def _process_pair(
+             )
+             if comp:
+                 rel = comp
++                # Wave-3a (#1344): ADDITIVE activation count (never changes ``rel`` or the licensing).
++                if numeric_upgrade_counter is not None:
++                    numeric_upgrade_counter[0] += 1
+     connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
+     # Strip clause_A's terminal so the join reads as one flowing sentence "[clause A]<connective>[clause B]".
+     joined = _join_verified_clauses(
+@@ -720,8 +734,19 @@ def compose_cross_source_analytical_units(
+     # For the deterministic writer_fn/verify_fn the composer is given (precomputed-dict lookup / strict
+     # verify) the RESULT is identical; only the number of internal calls changes (no observable effect).
+     if cross_source_body_enabled():
+-        candidate_pairs = _plan_driven_candidate_pairs(
++        # Materialize so the plan-driven pair COUNT can be reported by the activation marker; the single
++        # full-drain loop below is behaviorally identical to iterating the generator (same pairs, order).
++        candidate_pairs = list(_plan_driven_candidate_pairs(
+             baskets, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
++        ))
++        # I-deepfix-001 Wave-3a (#1344): plan-driven ACTIVATION fire marker. Emitted ONLY under
++        # PG_CROSS_SOURCE_BODY (this branch) so OFF is byte-identical. ``input_threaded`` is true when the
++        # certified consolidation inputs (equiv_clusters / agree_map) were threaded — false means the
++        # pairing degraded to same-facet/edge/refuter candidacy only. Structural presence + count (§-1.3).
++        _input_threaded = bool(equiv_clusters) or bool(agree_map)
++        logger.info(
++            "[activation] cross_source_body: plan_driven pairs=%d input_threaded=%s degraded=%s",
++            len(candidate_pairs), _input_threaded, not _input_threaded,
+         )
+     else:
+         candidate_pairs = _anchor_candidate_pairs(baskets)
+@@ -729,6 +754,10 @@ def compose_cross_source_analytical_units(
+     units: list[str] = []
+     seen_pair_keys: set[frozenset] = set()
+     eligible_pairs = 0
++    # Wave-3a (#1344): ADDITIVE numeric-comparator upgrade counter (a one-element mutable, threaded into
++    # ``_process_pair`` and incremented where a NEUTRAL pair is upgraded to ``comparison``). Behavior-inert
++    # — it only feeds the numeric_comparator activation marker emitted after the loop.
++    _numeric_upgrades = [0]
+     # cluster_id -> Optional[str]; each basket's verified clause is built at most ONCE (deterministic given
+     # the same basket/pool/fns), so caching changes call-count only, never the emitted units (see above).
+     clause_cache: dict = {}
+@@ -747,10 +776,24 @@ def compose_cross_source_analytical_units(
+             edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+             entail_fn=entail_fn, clause_cache=clause_cache,
+             numeric_key_by_cluster=numeric_key_by_cluster,
++            numeric_upgrade_counter=_numeric_upgrades,
+         )
+         if unit:
+             units.append(unit)
+ 
++    # I-deepfix-001 Wave-3a (#1344): numeric-comparator ACTIVATION fire marker. Emitted ONLY when
++    # PG_NUMERIC_COMPARATOR is ON (OFF => no line => byte-identical). ``upgraded`` counts NEUTRAL pairs the
++    # deterministic comparator lifted to ``comparison``; ``build_ok`` is false when the upstream numeric
++    # merge-key lookup was not threaded (None) — the silent-swallow signal now made loud at the build site.
++    from src.polaris_graph.generator.numeric_comparator import (  # noqa: PLC0415
++        numeric_comparator_enabled as _numeric_comparator_enabled,
++    )
++    if _numeric_comparator_enabled():
++        logger.info(
++            "[activation] numeric_comparator: upgraded=%d build_ok=%s",
++            _numeric_upgrades[0], numeric_key_by_cluster is not None,
++        )
++
+     if eligible_pairs and not units:
+         # Fail-LOUD canary (the "verify the feature fired in output, not in config" rule): candidate
+         # cross-source pairs EXISTED, yet zero analytical units survived per-clause re-verify/licensing.
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 3f5bd0b5..63f81192 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -4885,6 +4885,20 @@ def _two_sided_debate_enabled() -> bool:
+     return os.getenv(_TWO_SIDED_DEBATE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+ 
+ 
++def _emit_two_sided_debate_marker(leg2_inspected: int, con_disclosed: int) -> None:
++    """I-deepfix-001 Wave-3a (#1344): two-sided-debate ACTIVATION fire marker. Emitted ONLY when
++    PG_TWO_SIDED_DEBATE is ON so OFF is byte-identical (the run_log carries no ``[activation]`` line).
++    ``leg2_inspected`` = composed real units examined for a verified CON clause; ``con_disclosed`` = the
++    honest asymmetry disclosures appended (0 = both sides present, no note). Structural presence + counts,
++    never a threshold (§-1.3). Side-effect only; the composed disclosures are byte-untouched."""
++    if not _two_sided_debate_enabled():
++        return
++    logger.info(
++        "[activation] two_sided_debate: leg2_inspected=%d con_disclosed=%d",
++        int(leg2_inspected), int(con_disclosed),
++    )
++
++
+ def _is_debate_section(section: Any) -> bool:
+     """True iff the section's PLAN framing (``title`` + ``focus``) asks for both sides — pro/con,
+     benefits/risks, positive vs negative, for/against. Uses the SHARED
+@@ -5177,8 +5191,19 @@ async def _run_section(
+                 _vc_numeric_keys = _vc_build_numeric_keys(
+                     getattr(credibility_analysis, "claims", None) or []
+                 )
+-        except Exception:  # noqa: BLE001 — additive comparator lookup; never break composition
++        except Exception as _vc_numeric_exc:  # noqa: BLE001 — additive comparator lookup; never break composition
++            # I-deepfix-001 Wave-3a (#1344): FAIL-LOUD (was a silent ``= None`` swallow). Composition still
++            # proceeds fail-open (keys=None => the comparator is simply never consulted downstream — the
++            # numeric logic is UNCHANGED), but an ON-flag build failure is now surfaced so the
++            # numeric_comparator activation marker reads build_ok=false instead of the fault vanishing. The
++            # warning is gated on the flag so an OFF run stays byte-identical even if the import itself fails.
+             _vc_numeric_keys = None
++            if os.getenv("PG_NUMERIC_COMPARATOR", "0").strip().lower() not in ("", "0", "false", "off", "no"):
++                logger.warning(
++                    "[multi_section] %s numeric_comparator key-lookup build failed (%s); cross-source "
++                    "numeric comparison DISABLED for this section (build_ok=false)",
++                    getattr(section, "title", "?"), _vc_numeric_exc,
++                )
+         # I-beatboth-005 (#1282): the FAITHFUL ABSTRACTIVE WRITER. Default-OFF
+         # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
+         # below are BYTE-IDENTICAL and the new module is NEVER imported on the hot path (the flag is
+@@ -5307,9 +5332,16 @@ async def _run_section(
+         # fabricates a con and NEVER asserts an ungrounded balancing claim (fabricating balance is the
+         # lethal direction). Default OFF (PG_TWO_SIDED_DEBATE) => the guard is False => byte-identical.
+         if _two_sided_debate_enabled() and _is_debate_section(section):
++            _pre_debate_disc = len(_vc_degraded_disclosures or [])
+             _vc_degraded_disclosures = _maybe_two_sided_debate_disclosure(
+                 section, _vc_baskets, _vc_real_units, _vc_degraded_disclosures,
+             )
++            # I-deepfix-001 Wave-3a (#1344): two-sided-debate ACTIVATION fire marker (see helper). Reached
++            # ONLY under PG_TWO_SIDED_DEBATE + a plan-framed debate section => OFF byte-identical.
++            _emit_two_sided_debate_marker(
++                len(_vc_real_units or []),
++                len(_vc_degraded_disclosures or []) - _pre_debate_disc,
++            )
+         raw = "\n".join(c for c in _vc_real_units if c and c.strip())
+         # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
+         # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
+diff --git a/src/polaris_graph/retrieval/fs_researcher_query_gen.py b/src/polaris_graph/retrieval/fs_researcher_query_gen.py
+index 6f9f858b..1feab87e 100644
+--- a/src/polaris_graph/retrieval/fs_researcher_query_gen.py
++++ b/src/polaris_graph/retrieval/fs_researcher_query_gen.py
+@@ -25,11 +25,14 @@ contract as today. Mirrors `iterresearch_query_gen.py` (`merge_retrieval_results
+ 
+ from __future__ import annotations
+ 
++import logging
+ import os
+ import re
+ import time
+ from typing import Any, Callable
+ 
++logger = logging.getLogger("polaris_graph.fs_researcher_query_gen")
++
+ # (research_question, **kw) -> LiveRetrievalResult. Injected so this module never imports the
+ # 1000-line live_retriever at module load (and so it is unit-testable on a stub).
+ PerQueryRetrieveFn = Callable[..., Any]
+@@ -322,6 +325,12 @@ def _plan_expert_facet_queries(
+ 
+     # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
+     facets = _efp.plan_expert_facets(question, llm)
++    # I-deepfix-001 Wave-3a (#1344): expert-facet-planner ACTIVATION fire marker. Emitted ONLY when
++    # PG_EXPERT_FACET_PLANNER is ON (this whole facet path is reached only under the flag; the guard keeps
++    # the marker OFF byte-identical even if a test drives this helper directly). facets=0 with the flag ON
++    # is the eligible-yet-zero (degenerate-LLM-reply) signal. Structural presence + count (§-1.3).
++    if _efp.expert_facet_enabled():
++        logger.info("[activation] expert_facet_planner: facets=%d", len(facets))
+ 
+     # R1+R2 seed/reserve split (I-deepfix-001, #1344). Seed BREADTH-FIRST (every facet's
+     # primary angle before any facet's deeper angle) so the query budget spreads across ALL
+@@ -398,13 +407,20 @@ def _plan_expert_facet_queries(
+     from src.polaris_graph.retrieval import sub_entity_query_expander as _sqe
+     if _sqe.sub_entity_expansion_enabled() and not _wall_passed():
+         _sub_qs = _sqe.plan_sub_entity_queries(question, llm)
++        _new_sub_count = 0
+         if _sub_qs:
+             _seed_keys = {(q or "").strip().lower() for q in seed_queries}
+             _new_sub = [q for q in _sub_qs if (q or "").strip().lower() not in _seed_keys]
++            _new_sub_count = len(_new_sub)
+             if _new_sub:
+                 seed_queries, max_queries = _sqe.widen_with_sub_entities(
+                     list(seed_queries), _new_sub, max_queries
+                 )
++        # I-deepfix-001 Wave-3a (#1344): sub-entity-expansion ACTIVATION fire marker. Emitted ONLY inside
++        # this PG_SUBENTITY_QUERY_EXPANSION-gated block => OFF byte-identical. expanded_queries = the NET
++        # NEW sub-entity queries added on top of the current frontier (0 = LLM named none / all duplicates,
++        # the eligible-yet-zero signal). Structural presence + count (§-1.3).
++        logger.info("[activation] subentity_query_expansion: expanded_queries=%d", _new_sub_count)
+ 
+     # Issue the seed frontier directly (facet-angle queries are already full queries — no
+     # per-todo llm() derivation needed). Record ONLY the queries ACTUALLY issued in the
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index c7a790ef..8598490f 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -698,6 +698,21 @@ def _run_member_verifies(
+     return [v for v in results if v is not None]
+ 
+ 
++def _emit_basket_consume_marker(regrouped: int, *, noop: bool) -> None:
++    """I-deepfix-001 Wave-3a (#1344): the HOP-A basket-consume ACTIVATION fire marker. Emitted ONLY when
++    PG_BASKET_CONSUME_FINDING_DEDUP is ON so the OFF path (this whole regroup is skipped at the caller)
++    stays byte-identical — the run_log carries no ``[activation]`` line. ``noop=True`` is the silent-no-op
++    the routing proof flagged (the function returned the input graph UNCHANGED). Structural presence +
++    count, never a threshold (§-1.3). Side-effect only; the returned graph is byte-untouched."""
++    if not basket_consume_finding_dedup_enabled():
++        return
++    import logging as _logging  # noqa: PLC0415
++    _logging.getLogger(__name__).info(
++        "[activation] basket_consume_finding_dedup: regrouped old_to_new=%d noop=%s",
++        int(regrouped), bool(noop),
++    )
++
++
+ def _regroup_graph_by_finding_dedup(
+     graph: Any,
+     annotated: list[dict],
+@@ -736,6 +751,7 @@ def _regroup_graph_by_finding_dedup(
+ 
+     claims = list(getattr(graph, "claims", None) or [])
+     if not claims:
++        _emit_basket_consume_marker(0, noop=True)
+         return graph
+ 
+     # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
+@@ -853,6 +869,7 @@ def _regroup_graph_by_finding_dedup(
+ 
+     if not old_to_new:
+         # No merge happened (e.g. finding_dedup found nothing to group) -> the legacy grouping stands.
++        _emit_basket_consume_marker(0, noop=True)
+         return graph
+ 
+     # ── Remap edges so a refuter reference still lands on the MERGED cluster id (never hide a
+@@ -866,6 +883,7 @@ def _regroup_graph_by_finding_dedup(
+         }))
+         new_edges.append(dataclasses.replace(edge, claim_cluster_ids=ids))
+ 
++    _emit_basket_consume_marker(len(old_to_new), noop=False)
+     return dataclasses.replace(
+         graph,
+         claims=claims,
+diff --git a/src/polaris_graph/synthesis/finding_dedup.py b/src/polaris_graph/synthesis/finding_dedup.py
+index 4d3da127..1bae4843 100644
+--- a/src/polaris_graph/synthesis/finding_dedup.py
++++ b/src/polaris_graph/synthesis/finding_dedup.py
+@@ -1197,6 +1197,7 @@ def _apply_finding_dedup_nli_grouping(
+     clusters: list[list[Any]],
+     *,
+     entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
++    telemetry: Optional[dict[str, Any]] = None,
+ ) -> list[list[Any]]:
+     """PG_FINDING_DEDUP_NLI (I-deepfix-001 Wave 1b, #1344; REAL_PLAN_2026 coverage_fix item 1):
+     union lexical qualitative candidate clusters whose REPRESENTATIVE claim texts STRICTLY
+@@ -1243,6 +1244,13 @@ def _apply_finding_dedup_nli_grouping(
+ 
+     rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
+     rep_polarity = [cluster[1] for cluster in clusters]
++    # I-deepfix-001 Wave-3a (#1344): ADDITIVE activation telemetry (never changes a merge). A one-element
++    # mutable flag is set when the cross-encoder returns None on a pair of NON-empty representatives — the
++    # DEGRADE sentinel (infra fault: model unavailable / OOM CPU-degrade failed), distinct from a genuine
++    # empty-text None. Only surfaced through the ``telemetry`` out-param; discarded (behavior-inert) when
++    # the caller passes no dict (the deterministic-stub test path).
++    rep_nonempty = [bool(t and t.strip()) for t in rep_texts]
++    _degraded_flag = [False]
+ 
+     # Candidate cluster-index pairs (i < j). The POLARITY hard-block excludes a
+     # mismatched-polarity pair from scoring entirely (it can never link — defense in depth).
+@@ -1278,9 +1286,16 @@ def _apply_finding_dedup_nli_grouping(
+     def _bidirectional(pair: tuple[int, int]) -> Optional[tuple[int, int]]:
+         i, j = pair
+         fwd = entail_fn(rep_texts[i], rep_texts[j])
++        # ADDITIVE degrade observation (Wave-3a #1344): a None verdict on two NON-empty texts means the
++        # cross-encoder was unavailable (infra fault) — record it WITHOUT changing the fail-closed edge
++        # decision below. Thread-safe: a single-element list write is atomic under the GIL.
++        if fwd is None and rep_nonempty[i] and rep_nonempty[j]:
++            _degraded_flag[0] = True
+         if fwd is not True:
+             return None  # one-direction / contradiction / None => no edge (fail-closed)
+         rev = entail_fn(rep_texts[j], rep_texts[i])
++        if rev is None and rep_nonempty[i] and rep_nonempty[j]:
++            _degraded_flag[0] = True
+         if rev is not True:
+             return None
+         return (i, j)
+@@ -1348,6 +1363,13 @@ def _apply_finding_dedup_nli_grouping(
+         )
+ 
+     edges.sort()
++    # Wave-3a (#1344): surface the degrade + wall-truncation observations now that scoring is done. The
++    # directional_merges count is finalized at the merged-return below (0 on the no-edge path). Behavior-
++    # inert when ``telemetry`` is None (the stub-test path); populated only for the run-logger caller.
++    if telemetry is not None:
++        telemetry["degraded"] = bool(_degraded_flag[0])
++        telemetry["wall_truncated"] = bool(truncated)
++        telemetry["directional_merges"] = 0
+     if not edges:
+         return clusters
+ 
+@@ -1375,6 +1397,10 @@ def _apply_finding_dedup_nli_grouping(
+             consumed[j] = True
+         consumed[i] = True
+         out.append([clusters[i][0], clusters[i][1], sorted(set(merged_ris))])
++    # Wave-3a (#1344): each consumed cluster reduces the output count by one, so ``n - len(out)`` is the
++    # number of DIRECTIONAL merges this pass performed (behavior-inert when ``telemetry`` is None).
++    if telemetry is not None:
++        telemetry["directional_merges"] = n - len(out)
+     return out
+ 
+ 
+@@ -1477,7 +1503,22 @@ def _build_qualitative_groups(
+     # (no merge); contradiction => no merge; polarity hard-block defense-in-depth. OFF =>
+     # byte-identical (this call is skipped). Additive / keep-all with the guarded pass above.
+     if _finding_dedup_nli_enabled():
+-        clusters = _apply_finding_dedup_nli_grouping(rows, clusters)
++        _nli_telemetry: dict[str, Any] = {}
++        clusters = _apply_finding_dedup_nli_grouping(
++            rows, clusters, telemetry=_nli_telemetry,
++        )
++        # I-deepfix-001 Wave-3a (#1344): the finding-dedup-NLI ACTIVATION fire marker. Emitted ONLY under
++        # PG_FINDING_DEDUP_NLI (this branch is skipped when the flag is OFF => the run_log carries no
++        # ``[activation]`` line => OFF byte-identical). Structural presence + count, never a threshold
++        # (§-1.3): directional_merges=0 with the flag ON on eligible input is itself the eligible-yet-zero
++        # signal the activation canary reads; degraded=true is the cross-encoder-fallback signal;
++        # wall_truncated=true is the scoring-wall under-merge signal.
++        logger.info(
++            "[activation] finding_dedup_nli: invoked directional_merges=%d degraded=%s wall_truncated=%s",
++            int(_nli_telemetry.get("directional_merges", 0)),
++            bool(_nli_telemetry.get("degraded", False)),
++            bool(_nli_telemetry.get("wall_truncated", False)),
++        )
+ 
+     out: dict[tuple, list[int]] = {}
+     for cluster in clusters:

@@ -1,0 +1,12 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Coverage gap: the supplied test file covers five markers but not min_cite_set, provenance_reanchor, expert_facet_planner, or subentity_query_expansion."
+faithfulness_untouched: true
+off_no_emit_byte_identical: true
+markers_structural_not_threshold: true
+honesty_bools_correct: true
+convergence_call: continue
+notes: "Approved from the supplied diff; local shell inspection was unavailable in this sandbox."
