@@ -1,0 +1,9 @@
+```yaml
+verdict: APPROVE
+conflicts_missed: []
+dependencies_missed: []
+over_serialized:
+  - "2b wiring may be parallelizable with 2a/2d only if code confirms it touches verified_compose.py only and not multi_section_generator.py/render paths: NEEDS-CODE-CHECK"
+corrected_batching: "No required change. Keep Batch 1 as 1a, 1b, 1c, 2c-module, with 2b-module/2e filling freed slots. Batch 2 serialize all shared-file wiring and multi_section_generator.py work after 1a and 1b: 2a -> 2d -> 2b/2c wiring, or another serialized order if code review shows fewer shared callers. Batch 3: 1d after all referenced flags/wideners exist, then Wave 3 activation/archive."
+notes: "Building 1a and 1b in parallel is safe from the provided file lists: disjoint edits, with 2a correctly waiting on both. Keeping 2b/2c modules parallel but wiring in Batch 2 is the conservative safe call because the wiring callers overlap 1a/2a/2d shared files. Any claim about exact wiring files is NEEDS-CODE-CHECK."
+```
