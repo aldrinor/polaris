@@ -52,10 +52,17 @@ Pure: constructs no client, no network, no LLM. snake_case; explicit imports.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
+import time
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ThreadPoolExecutor,
+    wait as futures_wait,
+)
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from src.polaris_graph.authority.corroboration import (
@@ -856,6 +863,42 @@ _QUAL_KEY_MAX_WORDS = 16
 # NLI the numeric path uses). OFF (either flag) => byte-identical lexical-only behavior.
 _QUAL_NLI_ENV = "PG_CONSOLIDATION_NLI_QUALITATIVE"
 
+# ─────────────────────────────────────────────────────────────────────────
+# Coverage-fix keystone — I-deepfix-001 Wave 1b (#1344), REAL_PLAN_2026 coverage_fix item 1
+# ─────────────────────────────────────────────────────────────────────────
+# The plan-canonical qualitative same-claim grouping flag: `PG_FINDING_DEDUP_NLI`. When ON, a
+# THIRD (directional) semantic-recall pass unions the lexical qualitative candidate clusters
+# whose representatives STRICTLY BIDIRECTIONALLY entail into ONE corroboration basket, using the
+# 3-state directional primitive `consolidation_nli.entails_directional` (True / False / None):
+#   * bidirectional entails (BOTH directions True)  => MERGE (keep-all, one basket);
+#   * one-direction-only (exactly one True)         => an EXTENSION relation, do NOT merge;
+#   * contradiction (neither direction entails)     => a durable relation, do NOT merge;
+#   * infra `None` on EITHER direction (empty text / cross-encoder unavailable) => NO merge, a
+#     FAIL-CLOSED singleton, and the run CONTINUES (never raises, never drops a row).
+# This is the fail-closed-CONTINUE keystone the `score_pairs`-based `_apply_qualitative_nli_union`
+# (PG_CONSOLIDATION_NLI_QUALITATIVE) does not provide (that path RAISES on a non-OOM model
+# failure). Both flags are additive / merge-only / keep-all, BUT they are NOT independently safe
+# together: when BOTH are ON the legacy union runs FIRST and would RAISE on a non-OOM model fault
+# BEFORE the keystone's fail-closed grouping runs, aborting the run at the dedup step (the exact
+# Wave-3 slate config). So the wiring in `_build_qualitative_groups` GUARDS the legacy union
+# under the keystone regime ONLY: it degrades a legacy raise to a §-1.3-safe under-merge (logged
+# loud, never except:pass) and lets the keystone's own None path yield singletons if the model is
+# truly dead. When the keystone is OFF the legacy union is UNGUARDED => byte-identical legacy
+# behavior. §-1.3 CONSOLIDATE-keep-all, WEIGHT-ONLY: no row dropped, no verify gate touched. The
+# extension / contradiction relations are surfaced downstream in Wave 2 (cross_source_synthesis);
+# this build's contribution is the MERGE decision plus leaving non-bidirectional pairs un-merged.
+# DEFAULT-OFF => byte-identical. Slate-ON per the plan (Wave-3 activation).
+_FINDING_DEDUP_NLI_ENV = "PG_FINDING_DEDUP_NLI"
+# LAW VI knobs (no hardcoded values): bounded scoring concurrency, an O(n^2) pair-count cap, and a
+# total wall-clock deadline (a CPU-degraded cross-encoder must not run-pin the box across up to
+# 2*MAX_PAIRS single-item forwards — mirrors the consolidation W04 wall).
+_FINDING_DEDUP_NLI_WORKERS_ENV = "PG_FINDING_DEDUP_NLI_WORKERS"
+_FINDING_DEDUP_NLI_WORKERS_DEFAULT = "8"
+_FINDING_DEDUP_NLI_MAX_PAIRS_ENV = "PG_FINDING_DEDUP_NLI_MAX_PAIRS"
+_FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT = "20000"
+_FINDING_DEDUP_NLI_WALL_SECONDS_ENV = "PG_FINDING_DEDUP_NLI_WALL_SECONDS"
+_FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT = "180"
+
 
 def _qualitative_enabled() -> bool:
     """``PG_FINDING_DEDUP_QUALITATIVE`` kill switch (LAW VI). DEFAULT-ON: the
@@ -885,6 +928,71 @@ def _qualitative_nli_enabled() -> bool:
     return os.getenv(_QUAL_NLI_ENV, "1").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
+
+
+def _finding_dedup_nli_enabled() -> bool:
+    """``PG_FINDING_DEDUP_NLI`` kill switch (LAW VI). DEFAULT-OFF => the directional
+    bidirectional-entailment qualitative grouping never runs and the qualitative pass is
+    byte-identical. ON => the coverage-fix keystone (Wave 1b) unions qualitative candidate
+    clusters that STRICTLY bidirectionally entail (fail-closed to a singleton on an infra
+    None). Independent of the master ``PG_CONSOLIDATION_NLI`` gate — it is the plan-canonical
+    keystone, so it is gated by its OWN flag only."""
+    return os.getenv(_FINDING_DEDUP_NLI_ENV, "0").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _finding_dedup_nli_workers() -> int:
+    """Bounded scoring concurrency for the directional qualitative grouping (LAW VI). A
+    malformed / out-of-range value falls back to the default (fail-safe, never an unbounded
+    pool). Clamped to [1, 64] to mirror ``consolidation_nli._workers``."""
+    raw = os.environ.get(_FINDING_DEDUP_NLI_WORKERS_ENV, "").strip() or _FINDING_DEDUP_NLI_WORKERS_DEFAULT
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r not an int; using default %s",
+            _FINDING_DEDUP_NLI_WORKERS_ENV, raw, _FINDING_DEDUP_NLI_WORKERS_DEFAULT,
+        )
+        return int(_FINDING_DEDUP_NLI_WORKERS_DEFAULT)
+    return max(1, min(64, value))
+
+
+def _finding_dedup_nli_max_pairs() -> int:
+    """The O(n^2) candidate-pair cap for the directional qualitative grouping (LAW VI). Over
+    the cap the pass SKIPS scoring and leaves the clusters UNMERGED (an under-merge, keep-all,
+    §-1.3 safe — never drops a corroborator). A malformed value falls back to the default."""
+    raw = os.environ.get(_FINDING_DEDUP_NLI_MAX_PAIRS_ENV, "").strip() or _FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r not an int; using default %s",
+            _FINDING_DEDUP_NLI_MAX_PAIRS_ENV, raw, _FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT,
+        )
+        return int(_FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT)
+    return max(1, value)
+
+
+def _finding_dedup_nli_wall_seconds() -> float:
+    """The TOTAL wall-clock deadline (seconds) for the directional qualitative scoring loop
+    (LAW VI; mirrors ``consolidation_nli._wall_seconds``). A CPU-degraded cross-encoder would
+    otherwise run-pin the box across up to ``2*MAX_PAIRS`` single-item forwards. On the deadline
+    the loop STOPS scoring further pairs and keeps the edges gathered so far — an UNDER-merge only
+    (§-1.3-safe: keeps MORE/equal baskets, drops no corroborator). A malformed / non-finite / ``<=0``
+    value disables the wall (unbounded — the escape hatch). Default 180s."""
+    raw = os.environ.get(_FINDING_DEDUP_NLI_WALL_SECONDS_ENV, "").strip() or _FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r not a float; using default %s",
+            _FINDING_DEDUP_NLI_WALL_SECONDS_ENV, raw, _FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT,
+        )
+        return float(_FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT)
+    if not math.isfinite(value) or value <= 0:
+        return 0.0
+    return value
 
 
 def _qual_jaccard_threshold() -> float:
@@ -1084,6 +1192,192 @@ def _apply_qualitative_nli_union(
     return out
 
 
+def _apply_finding_dedup_nli_grouping(
+    rows: list[dict[str, Any]],
+    clusters: list[list[Any]],
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> list[list[Any]]:
+    """PG_FINDING_DEDUP_NLI (I-deepfix-001 Wave 1b, #1344; REAL_PLAN_2026 coverage_fix item 1):
+    union lexical qualitative candidate clusters whose REPRESENTATIVE claim texts STRICTLY
+    BIDIRECTIONALLY entail into ONE corroboration basket.
+
+    ``clusters`` is the greedy list of ``[rep_shingles, rep_polarity, [member_ris]]`` triples
+    (INCLUDING lexical singletons — a lexical singleton is a claim in unique wording the NLI can
+    still recall onto a paraphrase). Returns the SAME triple shape with the merged member lists;
+    the caller then emits only clusters with >= 2 members.
+
+    MERGE PREDICATE (strict bidirectional, 3-state — §-1.1 clinical: a false 'corroborated' is
+    lethal, so NONE of these blockers is optional):
+      * bidirectional entails (BOTH directions ``True`` via ``entails_directional`` — entailment
+        the strict ``_entails`` argmax by margin) => MERGE.
+      * one-direction-only (exactly one direction ``True``) => an EXTENSION relation => do NOT
+        merge (merging a hedged<->flat pair is a certainty distortion, From-May-to-Is).
+      * contradiction (neither direction entails) => a durable relation => do NOT merge.
+      * infra ``None`` on EITHER direction (empty text / cross-encoder unavailable) => NO merge,
+        a FAIL-CLOSED singleton; the run CONTINUES (``entails_directional`` never raises).
+      * POLARITY hard-block (defense-in-depth): two mismatched-polarity representatives NEVER
+        link even if the scorer returns bidirectional-entailing (a model-independent guard) —
+        such pairs are excluded from scoring entirely.
+
+    DIRECT-EDGE keep-first grouping (NOT transitive union-find): a redundant cluster joins a
+    PRIMARY only when it DIRECTLY bidirectionally entails THAT primary — the same safe
+    direct-to-primary pattern ``_apply_qualitative_nli_union`` + ``fact_dedup`` FIX-D use, so a
+    basket head's corroboration_count can never be inflated by a claim that only entails a
+    sibling. Deterministic + order-independent (ascending cluster index, keep-first).
+
+    KEEP-ALL / WEIGHT-ONLY (§-1.3): ONLY member-index lists are unioned; NO row is dropped, NO
+    verify gate (strict_verify / the NLI entailment verifier / 4-role D8 / provenance /
+    span-grounding) is touched. The extension / contradiction relations are surfaced downstream
+    in Wave 2 (cross_source_synthesis); this build's contribution is the MERGE decision plus
+    leaving non-bidirectional pairs un-merged. ``entail_fn(premise, hypothesis) -> True/False/None``
+    is the deterministic test-injection seam; production passes None => the lazy
+    ``consolidation_nli.entails_directional``. That REUSES the resident cross-encoder if the
+    consolidation leg already loaded it (master ``PG_CONSOLIDATION_NLI`` ON); with the keystone ON
+    but the master OFF, the keystone itself triggers the ONE-TIME local cross-encoder load (still
+    the local NLI model — no OpenRouter / paid-API spend, but honestly NOT free of that first load).
+    """
+    n = len(clusters)
+    if n < 2:
+        return clusters
+
+    rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
+    rep_polarity = [cluster[1] for cluster in clusters]
+
+    # Candidate cluster-index pairs (i < j). The POLARITY hard-block excludes a
+    # mismatched-polarity pair from scoring entirely (it can never link — defense in depth).
+    pairs = [
+        (i, j)
+        for i in range(n)
+        for j in range(i + 1, n)
+        if rep_polarity[i] == rep_polarity[j]
+    ]
+    if not pairs:
+        return clusters
+    max_pairs = _finding_dedup_nli_max_pairs()
+    if len(pairs) > max_pairs:
+        logger.warning(
+            "[finding_dedup] PG_FINDING_DEDUP_NLI: %d candidate pairs exceeds %s=%d — SKIPPING "
+            "the directional qualitative grouping for this section (clusters pass through "
+            "UNMERGED; no basket dropped, §-1.3). Raise %s to score more pairs.",
+            len(pairs), _FINDING_DEDUP_NLI_MAX_PAIRS_ENV, max_pairs,
+            _FINDING_DEDUP_NLI_MAX_PAIRS_ENV,
+        )
+        return clusters
+
+    # Production scorer: the 3-state directional primitive. ``entails_directional`` NEVER raises —
+    # an infra fault returns None (fail-closed) — so a bounded thread pool over the pairs can never
+    # abort the run.
+    _injected = entail_fn is not None
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+
+    def _bidirectional(pair: tuple[int, int]) -> Optional[tuple[int, int]]:
+        i, j = pair
+        fwd = entail_fn(rep_texts[i], rep_texts[j])
+        if fwd is not True:
+            return None  # one-direction / contradiction / None => no edge (fail-closed)
+        rev = entail_fn(rep_texts[j], rep_texts[i])
+        if rev is not True:
+            return None
+        return (i, j)
+
+    # Wall-clock bound (LAW VI; mirrors the consolidation W04 wall): a CPU-degraded cross-encoder
+    # would otherwise run-pin the box across up to 2*MAX_PAIRS single-item forwards. On the
+    # deadline we STOP scoring further pairs and keep the edges gathered so far — an UNDER-merge
+    # only (§-1.3-safe: keeps MORE/equal baskets, drops no corroborator). <=0 disables the wall.
+    wall = _finding_dedup_nli_wall_seconds()
+    deadline = (time.monotonic() + wall) if wall > 0 else None
+
+    def _deadline_passed() -> bool:
+        return deadline is not None and time.monotonic() > deadline
+
+    # Serial when a stub ``entail_fn`` is injected (deterministic tests) OR a single worker;
+    # bounded-parallel in production. Either way the edge set is gathered then SORTED before
+    # grouping, so the result is identical for any worker count (order-independent).
+    edges: list[tuple[int, int]] = []
+    truncated = False
+    workers = 1 if _injected else min(_finding_dedup_nli_workers(), len(pairs))
+    if workers <= 1:
+        for pair in pairs:
+            if _deadline_passed():
+                truncated = True
+                break
+            edge = _bidirectional(pair)
+            if edge is not None:
+                edges.append(edge)
+    else:
+        # Manage the pool MANUALLY (not ``with``) so the wall can return the partial edge set
+        # without ``__exit__``'s shutdown(wait=True) blocking on a wedged chunk.
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = {pool.submit(_bidirectional, p) for p in pairs}
+            pending = set(futures)
+            while pending:
+                remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+                if remaining is not None and remaining <= 0:
+                    truncated = True
+                    break
+                done, pending = futures_wait(
+                    pending, timeout=remaining, return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    truncated = True  # wall elapsed mid-flight
+                    break
+                for fut in done:
+                    edge = fut.result()  # _bidirectional never raises (entails_directional None-safe)
+                    if edge is not None:
+                        edges.append(edge)
+            if truncated:
+                for fut in list(pending):
+                    if fut.done() and not fut.cancelled():
+                        edge = fut.result()
+                        if edge is not None:
+                            edges.append(edge)
+        finally:
+            # NON-BLOCKING teardown so a wedged chunk cannot delay the partial return.
+            pool.shutdown(wait=False, cancel_futures=True)
+    if truncated:
+        logger.warning(
+            "[finding_dedup] PG_FINDING_DEDUP_NLI: scoring wall (%ss) elapsed — returning the "
+            "partial edge set (UNDER-merges only; no basket dropped, §-1.3). Raise %s to score more.",
+            wall, _FINDING_DEDUP_NLI_WALL_SECONDS_ENV,
+        )
+
+    edges.sort()
+    if not edges:
+        return clusters
+
+    # DIRECT-EDGE adjacency (NOT transitive union-find): only a DIRECT mutual-entailment edge
+    # links two clusters, so A::B + B::C can never fold C into A's basket via B.
+    entails: dict[int, set[int]] = {}
+    for i, j in edges:
+        entails.setdefault(i, set()).add(j)
+        entails.setdefault(j, set()).add(i)
+
+    # Keep-first over ascending cluster index => every basket's representative is its lowest-index
+    # member (deterministic, order-independent). A cluster consumed into an earlier primary is
+    # neither re-scanned nor re-emitted.
+    out: list[list[Any]] = []
+    consumed = [False] * n
+    for i in range(n):
+        if consumed[i]:
+            continue
+        merged_ris: list[int] = list(clusters[i][2])
+        direct = entails.get(i, set())
+        for j in range(i + 1, n):
+            if consumed[j] or j not in direct:
+                continue  # require a DIRECT mutual-entailment edge with THIS primary
+            merged_ris.extend(clusters[j][2])
+            consumed[j] = True
+        consumed[i] = True
+        out.append([clusters[i][0], clusters[i][1], sorted(set(merged_ris))])
+    return out
+
+
 def _build_qualitative_groups(
     rows: list[dict[str, Any]],
     row_has_finding: list[bool],
@@ -1154,8 +1448,36 @@ def _build_qualitative_groups(
     # weight-only); the four over-merge canaries (SCOPE / CAUSAL-DIRECTION / TEMPORALITY /
     # HEDGED-vs-FLAT) are hard-blocked by the strict bidirectional requirement + the polarity
     # guard inside ``_apply_qualitative_nli_union``.
+    # When the keystone is OFF this runs UNGUARDED => byte-identical legacy behavior (incl. the
+    # legacy union's raise-on-non-OOM-failure). When the keystone is ALSO ON (the Wave-3 slate
+    # config) the legacy union runs FIRST and would RAISE on a non-OOM model fault BEFORE the
+    # fail-closed keystone below — aborting the run at the dedup step. So under the keystone regime
+    # ONLY, GUARD it: degrade a legacy raise to a §-1.3-safe under-merge (logged loud, never
+    # except:pass) and let the keystone's own None path yield singletons if the model is truly
+    # dead. This changes NOTHING when the keystone is OFF (byte-identical).
     if _qualitative_nli_enabled():
-        clusters = _apply_qualitative_nli_union(rows, clusters)
+        if _finding_dedup_nli_enabled():
+            try:
+                clusters = _apply_qualitative_nli_union(rows, clusters)
+            except Exception as exc:  # noqa: BLE001 — keystone regime: degrade to under-merge (§-1.3-safe)
+                logger.warning(
+                    "[finding_dedup] PG_CONSOLIDATION_NLI_QUALITATIVE union failed (%s); "
+                    "continuing UNMERGED (under-merge, §-1.3) — the PG_FINDING_DEDUP_NLI "
+                    "fail-closed grouping still runs.", exc,
+                )
+        else:
+            clusters = _apply_qualitative_nli_union(rows, clusters)
+
+    # THIRD (directional) semantic-recall pass — the coverage-fix keystone (I-deepfix-001
+    # Wave 1b, #1344; PG_FINDING_DEDUP_NLI, default-OFF). Unions candidate clusters (INCLUDING
+    # lexical singletons) whose representatives STRICTLY BIDIRECTIONALLY entail, using the
+    # 3-state ``consolidation_nli.entails_directional`` primitive so an infra fault degrades to a
+    # FAIL-CLOSED singleton and the run CONTINUES (the score_pairs path raises on a non-OOM
+    # failure — hence the guard above under the both-flags-ON regime). one-direction => EXTENSION
+    # (no merge); contradiction => no merge; polarity hard-block defense-in-depth. OFF =>
+    # byte-identical (this call is skipped). Additive / keep-all with the guarded pass above.
+    if _finding_dedup_nli_enabled():
+        clusters = _apply_finding_dedup_nli_grouping(rows, clusters)
 
     out: dict[tuple, list[int]] = {}
     for cluster in clusters:
