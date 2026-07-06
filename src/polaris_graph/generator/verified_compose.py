@@ -2606,12 +2606,25 @@ def _compose_section_per_basket(
     # _rewrite_draft_with_spans + UNCHANGED strict_verify tail gates each analytical sentence per clause.
     if _cross_source_synthesis_enabled():
         from src.polaris_graph.generator.cross_source_synthesis import (  # noqa: PLC0415
+            build_basket_agreement_map,
             compose_cross_source_analytical_units,
+            cross_source_thread_consolidation_enabled,
         )
+        # I-deepfix-001 FIX 3 (#1344): thread the consolidation AGREEMENT MAP so the cross-source
+        # analytical pass sees ``input_threaded=True`` and cross-basket CORROBORATION admits a plan-driven
+        # candidate (before FIX 3 the caller threaded only ``edges``, so the composer logged
+        # ``input_threaded=False degraded=True`` and agreement never fired from consolidation). DEFAULT-OFF
+        # (``PG_CROSS_SOURCE_THREAD_CONSOLIDATION``) => ``build_basket_agreement_map`` returns {} and this
+        # is byte-identical to threading the caller's original ``agree_map`` (None today). Built ONLY when
+        # the caller did not already thread one. Faithfulness-neutral: the map admits candidacy + telemetry;
+        # each emitted connective is STILL independently re-gated per built clause inside ``_process_pair``.
+        _threaded_agree_map = agree_map
+        if _threaded_agree_map is None and cross_source_thread_consolidation_enabled():
+            _threaded_agree_map = build_basket_agreement_map(section_baskets)
         analytical = compose_cross_source_analytical_units(
             section_baskets, evidence_pool,
             writer_fn=writer_fn, verify_fn=verify_fn,
-            edges=edges, equiv_clusters=equiv_clusters, agree_map=agree_map,
+            edges=edges, equiv_clusters=equiv_clusters, agree_map=_threaded_agree_map,
             # Wave-2a: None unless the caller threaded the numeric merge-key lookup (only when
             # PG_NUMERIC_COMPARATOR is on) => the comparator is never consulted otherwise (byte-identical).
             numeric_key_by_cluster=numeric_key_by_cluster,

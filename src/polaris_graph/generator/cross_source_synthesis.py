@@ -508,6 +508,99 @@ def cross_source_body_enabled() -> bool:
     return os.getenv(_ENV_CROSS_SOURCE_BODY, "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
+# ── I-deepfix-001 FIX 3 (#1344): thread the consolidation AGREEMENT MAP into the composer ─────────────
+# LAW VI: DEFAULT-OFF (``PG_CROSS_SOURCE_THREAD_CONSOLIDATION``). Before FIX 3 the caller
+# (``verified_compose._compose_section_per_basket``) threaded ONLY ``edges`` (the ContradictionEdge list)
+# and never an ``agree_map`` / ``equiv_clusters``, so ``compose_cross_source_analytical_units`` logged
+# ``input_threaded=False degraded=True`` and cross-basket CORROBORATION could never admit a plan-driven
+# candidate (only same-facet / edge / refuter did). ON => the caller builds a per-section agree_map from
+# the SAME certified bidirectional-NLI merge predicate the consolidation leg uses (both directions entail),
+# so ``input_threaded=True`` and two DISTINCT baskets carrying the SAME claim are admitted + surface the
+# ``agreement`` connective. It is a CONSOLIDATE lever (adds candidacy + a relation WORD), never a
+# drop / cap / thinner (§-1.3), and it is FAITHFULNESS-NEUTRAL: strict_verify is byte-untouched; each
+# emitted connective is STILL independently re-gated per BUILT clause inside ``_process_pair`` and each
+# atom re-passes strict_verify (the map only admits candidacy + telemetry, it never relaxes the engine).
+_ENV_THREAD_CONSOLIDATION = "PG_CROSS_SOURCE_THREAD_CONSOLIDATION"
+
+
+def cross_source_thread_consolidation_enabled() -> bool:
+    """``PG_CROSS_SOURCE_THREAD_CONSOLIDATION`` gate (default OFF, LAW VI). OFF => the caller threads no
+    agree_map (byte-identical: ``input_threaded=False`` as before). ON => the caller builds a per-section
+    bidirectional-equivalence agree_map (``build_basket_agreement_map``) and threads it. A CONSOLIDATE
+    lever, never a cap / target / thinner (§-1.3)."""
+    return os.getenv(_ENV_THREAD_CONSOLIDATION, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _basket_claim_text(basket: Any) -> str:
+    """The basket's representative claim text — the SAME cluster-representative text the consolidation leg
+    compares. '' (never an agreement candidate) when absent, mirroring ``_basket_anchor``'s blank guard."""
+    return _strip_ev_tokens(str(getattr(basket, "claim_text", "") or "").strip())
+
+
+def build_basket_agreement_map(
+    baskets: list,
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> dict[str, set]:
+    """Build the per-section consolidation AGREEMENT MAP threaded into the cross-source composer (FIX 3).
+
+    Two DISTINCT-cluster section baskets AGREE iff the certified engine confirms a BIDIRECTIONAL
+    equivalence over their representative claim texts — clause A entails clause B AND clause B entails
+    clause A (BOTH directions entail), the SAME symmetric merge predicate ``consolidation_nli`` uses. The
+    result is a dict ``cluster_id -> set(cluster_id)`` in the shape ``_agree`` reads; an empty dict when no
+    pair agrees (then ``input_threaded`` stays False — honest, never forced).
+
+    FAIL-CLOSED (Codex #1344 iter-1 P1): each pair's bidirectional NLI check is wrapped in try/except so a
+    RAISED exception from ``entail_fn(ta, tb)`` OR ``entail_fn(tb, ta)`` NEVER propagates and aborts the
+    composer — the pair simply contributes NO map entry (an infra fault licenses NOTHING, the §-1.3 +
+    module "under-relax is safe; over-relax is lethal" contract). A one-way / absent / non-``True`` verdict
+    likewise adds no entry. Never mutates the baskets. Reuses the RESIDENT cross-encoder the consolidation
+    leg already loads (``_default_entail_fn``) — zero extra OpenRouter / GPU spend.
+
+    Faithfulness-neutral: the map only ADMITS candidacy + drives the ``input_threaded`` telemetry; the
+    emitted ``agreement`` connective is STILL independently re-gated per BUILT clause inside
+    ``_process_pair`` (``_bidirectional_agreement_signal``) and each atom re-passes the UNCHANGED
+    strict_verify. It NEVER relaxes the frozen engine."""
+    if not cross_source_thread_consolidation_enabled():
+        return {}
+    items: list[tuple[str, str]] = []
+    for b in (baskets or []):
+        cid = _cluster_id(b)
+        text = _basket_claim_text(b)
+        if cid and text:
+            items.append((cid, text))
+    if len(items) < 2:
+        return {}
+    fn = entail_fn if entail_fn is not None else _default_entail_fn()
+    if fn is None:
+        return {}
+    agree_map: dict[str, set] = {}
+    n = len(items)
+    for i in range(n):
+        cluster_a_id, text_a = items[i]
+        for j in range(i + 1, n):
+            cluster_b_id, text_b = items[j]
+            if not cluster_a_id or not cluster_b_id or cluster_a_id == cluster_b_id:
+                continue
+            # FAIL-CLOSED: an ``entail_fn`` fault on EITHER direction contributes no map entry and never
+            # aborts the composer (Codex #1344 iter-1 P1). The bidirectional-equivalence decision reuses
+            # the shared pure ``_bidirectional_agreement_from_verdicts`` (both-True), so the "agreement"
+            # licence here is byte-identical to the composer's own ``_bidirectional_agreement_signal``.
+            try:
+                a_entails_b = fn(text_a, text_b)
+                b_entails_a = fn(text_b, text_a)
+            except Exception as exc:  # noqa: BLE001 — an NLI fault licenses NOTHING (fail-closed)
+                logger.warning(
+                    "[cross_source_synthesis] agreement-map bidirectional NLI raised (%s); pair "
+                    "fails closed (no map entry)", exc,
+                )
+                continue
+            if _bidirectional_agreement_from_verdicts(a_entails_b, b_entails_a) is True:
+                agree_map.setdefault(cluster_a_id, set()).add(cluster_b_id)
+                agree_map.setdefault(cluster_b_id, set()).add(cluster_a_id)
+    return agree_map
+
+
 def _basket_subject(basket: Any) -> str:
     """A basket's normalized SUBJECT (the facet proxy). '' for a blank subject (never a facet match)."""
     return _norm_anchor(getattr(basket, "subject", "") or "")
