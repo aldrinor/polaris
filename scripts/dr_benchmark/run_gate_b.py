@@ -1621,6 +1621,35 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # suppressed on the benchmark run. Non-numeric string pin => SLATE-PURITY requires the allowlist entry.
     # Observability-only; touches no faithfulness path.
     "PG_LOG_LEVEL": "INFO",                   # pin log level so [activation] INFO markers are never suppressed
+    # I-deepfix-001 (#1344) INTEGRATION - the coverage-retention + judge-relief fixes wired to FIRE at full
+    # power on the Gate-B path. Each BOOLEAN is quad-wired EXACTLY like the section winners: slate "1" HERE +
+    # _BENCHMARK_FORCE_ON_FLAGS (a stray operator/.env =0 cannot survive the setdefault slate) +
+    # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-CLOSED pre-spend) + _WINNER_FLAG_ALLOWLIST (SLATE-PURITY).
+    # FAITHFULNESS-NEUTRAL (§-1.3): each is a COVERAGE-RETENTION / JUDGE-TRANSPORT surface - every surfaced
+    # source re-passes the UNCHANGED strict_verify / NLI / 4-role D8 / provenance chokepoint; the FROZEN
+    # faithfulness engine is byte-untouched.
+    # (a) fix2: extraction citation-metadata-shell re-fetch - a landing-page citation shell that fetched as
+    #     an empty metadata stub is RE-FETCHED for real body content (live_retriever.py:6093, gated by the
+    #     default-OFF PG_CITATION_SHELL_REFETCH) instead of being silently kept as a hollow anchor. WIDEN-
+    #     ONLY (recovers real content for the INPUT; touches no faithfulness gate).
+    "PG_CITATION_SHELL_REFETCH": "1",
+    # (b) fix4: contract false-gap K-span coverage-retention - a contract section the runner would mark a
+    #     false "gap" retains its top-K verbatim spans (contract_section_runner.py:394, default-OFF
+    #     PG_CONTRACT_FALSE_GAP_KSPAN) rather than dropping verified coverage. §-1.3 CONSOLIDATE-DON'T-DROP
+    #     (keep-all verbatim spans); faithfulness-neutral (each retained span is already strict_verify-passed).
+    "PG_CONTRACT_FALSE_GAP_KSPAN": "1",
+    # (c) judge free-route de-storm (PRIMARY de-storm lever): stop pinning the 4 glm-only hosts; load-balance
+    #     across ALL glm-5.2 providers (credibility_judge_caller.py:287-296 / entailment_judge.py:843 /
+    #     semantic_conflict_detector.py:782). Operator-sanctioned. FAITHFULNESS-NEUTRAL: the SAME model
+    #     (glm-5.2) answers - only the provider ROUTE changes; the verdict logic + fail-closed sentinel are
+    #     untouched. (PG_MAX_CONCURRENT_LLM stays at the slate default - free-route is the primary lever.)
+    "PG_ROLE_ALLOW_FALLBACKS": "1",
+    # (d) side-judge in-flight concurrency cap - lower the per-claim side-judge burst from the code default
+    #     (judge_concurrency.DEFAULT_MAX_CONCURRENCY=4) to 2 to further de-storm the provider POSTs. Force-
+    #     EXACT "2" (in _BENCHMARK_FORCE_EXACT_FLAGS) - NOT a FLOOR: a stray HIGHER operator/.env value would
+    #     re-open the burst. Numeric => the SLATE-PURITY gate skips it (float-parseable => infra config, not a
+    #     feature-enable). TRANSPORT-ONLY (an in-flight semaphore bound; the verdict is untouched).
+    "PG_SIDE_JUDGE_MAX_CONCURRENCY": "2",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1873,6 +1902,15 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_CONSOLIDATION_NLI_QUALITATIVE",
     "PG_SHALLOW_REPORT_CANARY",
     "PG_ACTIVATION_CANARY",
+    # I-deepfix-001 (#1344) INTEGRATION - fail-CLOSED before spend if either coverage-retention fix or the
+    # judge free-route de-storm is off: a paid run with one =0 silently ships a NARROWER report (citation
+    # shells kept hollow / false-gap sections dropping verified K-spans) or re-storms the single-host judge
+    # (429 seam-tear -> dropped verified sentences). Force-ON above, so a stray operator =0 fails the run
+    # CLOSED here. Booleans -> safe in this truthy-required tuple (os.getenv=="1"). FAITHFULNESS-NEUTRAL.
+    # (PG_SIDE_JUDGE_MAX_CONCURRENCY is NUMERIC -> force-EXACT, NOT here - it cannot ride the truthy loop.)
+    "PG_CITATION_SHELL_REFETCH",
+    "PG_CONTRACT_FALSE_GAP_KSPAN",
+    "PG_ROLE_ALLOW_FALLBACKS",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2121,6 +2159,15 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_CONSOLIDATION_NLI_QUALITATIVE",   # dep of PG_FINDING_DEDUP_NLI (default-ON)
     "PG_SHALLOW_REPORT_CANARY",           # Wave-1d shallow-report fail-loud detector (armed for validation)
     "PG_ACTIVATION_CANARY",               # Wave-3a activation fail-loud detector (armed for validation)
+    # I-deepfix-001 (#1344) INTEGRATION - force-ON the two coverage-retention fixes + the judge free-route
+    # de-storm so a stray operator/.env =0 cannot survive the setdefault slate and silently leave the fix
+    # DARK on the paid run. Each is DEFAULT-OFF in code (flag-OFF byte-identical); force-ON here + preflight-
+    # required above + allowlisted (SLATE-PURITY). FAITHFULNESS-NEUTRAL (coverage-retention widen / judge
+    # transport route; the FROZEN faithfulness engine is untouched). PG_SIDE_JUDGE_MAX_CONCURRENCY is NUMERIC
+    # -> force-EXACT below (not here); PG_MAX_CONCURRENT_LLM is deliberately NOT touched (slate default).
+    "PG_CITATION_SHELL_REFETCH",          # fix2: extraction citation-metadata-shell re-fetch
+    "PG_CONTRACT_FALSE_GAP_KSPAN",        # fix4: contract false-gap K-span coverage-retention
+    "PG_ROLE_ALLOW_FALLBACKS",            # judge free-route de-storm (all glm-5.2 providers; same model)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2276,6 +2323,12 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_EMBED_MODEL",                     # K12 live relevance embedder id (= Qwen3-Embedding-8B)
     "PG_ENTAILMENT_MODEL",                # gemma-pin: live NLI / semantic-conflict judge (= glm-5.2)
     "PG_EVALUATOR_MODEL",                 # gemma-pin: external evaluator (= glm-5.2)
+    # I-deepfix-001 (#1344) INTEGRATION - force-EXACT the side-judge in-flight concurrency cap to the slate
+    # "2" (numeric infra knob - NOT a FLOOR: a stray HIGHER operator/.env value would re-open the per-claim
+    # side-judge burst that 429-storms the providers). The judge_concurrency resolver reads it as an int
+    # (default 4); "2" halves the burst. SLATE-PURITY skips it (float-parseable => infra, not a feature-
+    # enable). TRANSPORT-ONLY / faithfulness-neutral (an in-flight semaphore bound; verdict untouched).
+    "PG_SIDE_JUDGE_MAX_CONCURRENCY",
     # I-deepfix-001 (#1344) WAVE-3a U4 LOG-LEVEL SAFETY (Fable U3 P2): the activation canary parses the
     # module-logger [activation] markers, which run_honest_sweep_r3.py logs at INFO
     # (logging.basicConfig level=os.environ.get("PG_LOG_LEVEL","INFO")). A stray operator PG_LOG_LEVEL=
@@ -3297,6 +3350,14 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_SHALLOW_REPORT_CANARY",              # Wave-1d shallow-report fail-loud detector (observability)
     "PG_ACTIVATION_CANARY",                  # Wave-3a activation fail-loud detector (observability)
     "PG_LOG_LEVEL",                          # log-level pin so [activation] INFO markers are never suppressed (observability)
+    # -- I-deepfix-001 (#1344) INTEGRATION - coverage-retention + judge-relief (winner-or-infra: INFRA) --
+    # NOT losers: two coverage-retention surfaces (widen-only re-fetch + keep-all K-span) + the judge free-
+    # route de-storm (SAME glm-5.2 model, different provider route). §-1.3 weight-and-consolidate; each is a
+    # conscious 'winner or infra?' decision - allowlisted deliberately so the clean slate PASSES SLATE-PURITY.
+    # (PG_SIDE_JUDGE_MAX_CONCURRENCY is a NUMERIC force-EXACT pin -> SLATE-PURITY skips it; NOT allowlisted.)
+    "PG_CITATION_SHELL_REFETCH",             # fix2 extraction citation-metadata-shell re-fetch (coverage widen)
+    "PG_CONTRACT_FALSE_GAP_KSPAN",           # fix4 contract false-gap K-span coverage-retention (keep-all)
+    "PG_ROLE_ALLOW_FALLBACKS",               # judge free-route de-storm (all glm-5.2 providers; faithfulness-neutral transport)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
