@@ -7602,7 +7602,6 @@ SWEEP_QUERIES: list[dict] = [
             "site:science.org Eloundou GPTs are GPTs large language models labor",
             "site:science.org Noy Zhang generative artificial intelligence productivity",
             "site:sciencedirect.com Frey Osborne future of employment computerisation Technological Forecasting Social Change",
-            "site:onlinelibrary.wiley.com Goldsmith Casey fourth industrial revolution Southern Economic Journal",
             "Frey Osborne 2017 Technological Forecasting Social Change 47 percent computerisation",
             "Acemoglu Restrepo race between man and machine 2018 American Economic Review",
             "Acemoglu Restrepo 2020 robots and jobs Journal of Political Economy 128",

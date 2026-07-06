@@ -169,10 +169,12 @@ audit_emphasis:
 # repo during authoring; see
 # .codex/I-meta-002-pr10-contracts/contract_attestation.txt).
 #
-# Allowed inputs used (NATIVE only): the locked question text ("a
-# literature review on the restructuring impact of AI on the labor
-# market ... AI as a key driver of the Fourth Industrial Revolution ...
-# only cites high-quality, English-language journal articles"); this
+# Allowed inputs used (NATIVE only): the OFFICIAL DeepResearch-Bench
+# idx-56 question — the runtime-forced prompt on the impact of
+# generative AI on the labor market (positive / negative effects,
+# challenges and opportunities; knowledge horizon pre-June-2023), bound
+# via scripts/dr_benchmark/run_gate_b.py PG_BENCHMARK_OFFICIAL_QUESTION
+# which overrides the launch-stub program prompt; this
 # workforce scope_template (inclusion criteria naming QJE / Journal of
 # Labor Economics / Labour Economics / AER-tier journals); the
 # tracked, gold-blind `amplified` retrieval set already committed in
@@ -188,10 +190,10 @@ audit_emphasis:
 # clinical (contraindications / dosing / black-box / pregnancy-renal-
 # hepatic / regulatory-status); the workforce domain defines NO must-
 # cover catastrophic/invalidating omission category, so per the design
-# ruling severities are S1/S2/S3 only. The foundational
+# ruling severities are S1/S2 only. The foundational
 # automation/displacement econometric papers that any faithful review
-# MUST cite to be valid -> S1; the supporting exposure/measurement and
-# Fourth-Industrial-Revolution framing papers -> S2. The canonical id is
+# MUST cite to be valid -> S1; the supporting exposure/measurement
+# papers (Frey-Osborne, Eloundou) -> S2. The canonical id is
 # `doi` where the journal article exposes one (exact-equality coverage:
 # M3b regex-extracts the bare DOI token), with `url_pattern` reserved for
 # the journal landing page where a DOI is the native citation anchor.
@@ -330,26 +332,6 @@ per_query_report_contract:
         min_fields_for_completion: 2
         rendering_slot: genai_exposure
 
-      - id: fourth_industrial_revolution_framing
-        type: policy_report
-        severity: S3
-        anchor: 4IR-framing
-        # The Fourth-Industrial-Revolution framing the question explicitly
-        # invokes. Observe-only (S3): contextual framing, not a load-
-        # bearing empirical claim; the question demands JOURNAL articles
-        # for substantive claims, so this authoritative framing source is
-        # context. url_pattern is the canonical id (no DOI native).
-        type_note: authoritative_source
-        url_pattern: https://www.weforum.org/about/the-fourth-industrial-revolution-by-klaus-schwab/
-        coverage_content_requirements:
-          - fourth industrial revolution
-        required_fields:
-          - definition
-          - relation_to_ai
-          - scope_caveat
-        min_fields_for_completion: 1
-        rendering_slot: theory_4ir_framing
-
     rendering_slots:
       theory_task_framework:
         section: Foundational_Theory
@@ -361,11 +343,6 @@ per_query_report_contract:
         subsection_title: "Labor-market polarization and complementarity (Autor, JEP 2015)"
         ordering: 2
         required: true
-      theory_4ir_framing:
-        section: Foundational_Theory
-        subsection_title: "Fourth Industrial Revolution framing (contextual)"
-        ordering: 3
-        required: false
       empirical_robots:
         section: Empirical_Displacement
         subsection_title: "Robots and jobs commuting-zone evidence (Acemoglu & Restrepo, JPE 2020)"
