@@ -751,3 +751,9 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Resume (resumeFromRunId): 7 builds replay from cache, 2 builds + all gates re-run. Main tree CLEAN (698e57b2). No codex/python stragglers.
 - FF1-CHROME-v2 build shows the P1/P2 over-strip fix applied (whole-unit-anchored RULE 1 + KEEP-guard on RULE 4). Awaiting its gate on resume.
 - ON RESUME DONE: commit build-gate-APPROVED (codex+fable) → P2d liveness check → P3 fresh resmoke. Progress carefully (session-limit-aware).
+
+## [2026-07-05 19:37:45] WEEKLY LIMIT hit (resets Jul 6 7pm Vancouver) — operator re-logged in, resuming once
+- 8 corrected-build diffs SAVED durably to $SC/corrected_diffs/ (FF1-CHROME-v2/FF2-TRUNC/FF5-DATE/FF4-ASPECT/JUDGE-CAP/FF-4IR/COV-DECHROME/COV-SUBENTITY-LANDMARK). COV-C1-PAIR-v2 build never finished.
+- Codex verdicts cached: FF1-CHROME=APPROVE, FF4-ASPECT=APPROVE, others REQUEST_CHANGES (need reading). ALL fable=ERROR (weekly limit — never ran). NO fix fully dual-gated yet.
+- BLOCKER: weekly limit blocks Fable (Claude) subagents until Jul 6 7pm. Operator did /login (may refresh quota). Resuming wf once as a probe.
+- Main tree CLEAN (698e57b2 + BOXC/RESUME commits). Nothing half-applied.
