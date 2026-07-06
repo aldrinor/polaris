@@ -349,3 +349,10 @@ PRIORITY (I-safety-002b / #925). Benchmarks POLARIS as a deep-research tool vs C
 - `docs/permanent_fix_migration_blueprint.md` — the architecture migration design (frontier-cited + code-grounded; target architecture, cross-cutting decisions, per-issue migration, build order, serious-smoke spec, 6 Codex tensions).
 - `outputs/audits/beatboth8/MASTER_FIX_PLAN.md` — the original 8-bug consolidation + behavioral-smoke design (superseded/expanded by the 9-issue charter).
 - `outputs/audits/beatboth8/FAILURE_AUDIT.md`, `REMAINING_RISKS.md`, `drb_76/DRB76_FORENSIC.md` — the §-1.1 forensics the program is built on.
+
+## I-deepfix-001 (#1344) REAL_PLAN_2026 build docs (2026-07-05, operator GO, dual-gate Codex+Fable)
+- `.codex/I-deepfix-001/BESTPRACTICE_2026_BRIEF.md` — the 2026 deep-research brief (composition/coverage/traceability/DeepTRACE/DRB-II); 8-part synthesis (packs 1-2) + all 5 full deep packs (WebWeaver/TTD-DR/STORM/Co-STORM/WriteHERE) read in full from primary arXiv sources.
+- `.codex/I-deepfix-001/TRUE_ROOT_SOLUTION.md` — the confirmed root (composition-unit==verification-unit) + co-equal composition+coverage fix direction.
+- `.codex/I-deepfix-001/iter_fable_propose.md` / `iter_codex_review.md` / `iter_fable_refine.md` — the Codex+Fable iteration (Fable propose -> Codex CONVERGE +7 refinements -> Fable code-verified refine).
+- `.codex/I-deepfix-001/REAL_PLAN_2026.md` — THE converged real plan (compose-then-verify; 9 sections incl plain_verdict, what_changes, build_validate_plan). The build source of truth.
+- `.codex/I-deepfix-001/iter_codex_context.md` — self-contained Codex-review input (fixes the Codex-CLI Windows sandbox file-read failure by inlining all content; NO -s read-only).

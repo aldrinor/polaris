@@ -1,3 +1,19 @@
+## ⚡ RESUME NOW (2026-07-05) — I-deepfix-001 (#1344) REAL_PLAN_2026 converged + operator GO to BUILD (dual-gate Codex+Fable)
+
+**Research-then-real-plan phase COMPLETE. Operator approved the build 2026-07-05 ("execute everything in your best efficiency and accuracy, with fable 5 and codex to gate").**
+
+- **Root (confirmed, code-cited):** composition-unit == verification-unit → both choppy island prose AND zero cross-source depth. Fix = **compose-then-verify** (coherent report first; the UNCHANGED faithfulness gate runs downstream per-sentence as a filter, never the compositor). Coverage is a **co-equal** track.
+- **Plan doc:** `.codex/I-deepfix-001/REAL_PLAN_2026.md` (commit `ea2a6fe2`). Supporting: `BESTPRACTICE_2026_BRIEF.md` (`063b0261`), `iter_fable_propose.md` + `iter_codex_review.md` (CONVERGE, `6756d7c4`), `iter_fable_refine.md` (`ea2a6fe2`). GH: #1344 comment (converged plan).
+- **Branch:** `bot/I-wire-001-integration`. **All new flags default-OFF** (`PG_SYNTH_PRIMARY`, `PG_WRITER_REPAIR_MAX`=2, `PG_FINDING_DEDUP_NLI`, `PG_MIN_CITE_SET`, `PG_PRESENTATION_TABLES`); slate-ON existing (`PG_BASKET_CONSUME_FINDING_DEDUP`, `PG_EXPERT_FACET_PLANNER`, `PG_SUBENTITY_QUERY_EXPANSION`, `PG_PROVENANCE_REANCHOR`, `PG_SPAN_RESOLVER`).
+- **Build order (each unit dual-gated real Codex + real Fable 5, behind default-OFF flags):** Wave 1 = (1a) group writer contract + bounded repair + labeled fallback block [`abstractive_writer.py`, `verified_compose.py`, `multi_section_generator.py`] → (1b) keystone `PG_BASKET_CONSUME_FINDING_DEDUP` + `PG_FINDING_DEDUP_NLI` bidirectional [`credibility_pass.py`, `finding_dedup.py`] → (1c) offline DeepTRACE self-scorer (TRIAGE only) `scripts/deeptrace_self_score.py` → (1d) slate + fail-loud shallow-report canaries. Wave 2 = (2a) plan-driven cross-source pairing into body → (2b) `citation_set_minimizer.py` + weight channel → (2c) `presentation_tables.py` → (2d) two-sided debate pass → (2e) rendered-report acceptance harness.
+- **Validation split (banked-replay-blind lesson):** 1a/1b/1c/2a/2b/2c/2e are replay-validatable (V1 comp-only, V2 cov-only, V3 both, STRICTLY isolated); the wideners need ONE fresh front-half paid VM run (resume skips fetch/frontier). Acceptance: self-scorer triage → acceptance harness on rendered reports → paid DeepTRACE + DRB-II → §-1.1 line-by-line read. Word/citation/source counts BANNED.
+- **Faithfulness NEVER relaxed** (strict_verify/NLI/D8/provenance byte-untouched); composition + coverage strictly CO-EQUAL; SURGICAL re-wire not rewrite. Codex CLI gate = self-contained stdin, NO `-s read-only`, inline all content (the file-read sandbox fails on Windows — proven 2026-07-05).
+- **DECISIONS baked (operator "best judgment"):** inline-cite count = minimal-entailing set, demotion threshold TUNED vs the offline scorer (not fixed); wider-search verification folded into the plan (replay-validate first, then one small fresh paid run).
+
+**NEXT ACTION: build Wave 1a (composition core), unit-test, dual-gate (Codex + Fable), commit; then 1b … through the waves.**
+
+---
+
 ## ⚡ RESUME NOW (2026-06-14) — I-arch-004 dual-sourced forensic COMPLETE; A1 crash-isolation committed; A2 in gate; resume cache-reuse plan ready
 
 **I-arch-004 (#1248) pipeline chokepoint forensic = COMPLETE + dual-sourced.** Static (9 Codex sessions g1-g5 verify + h1-h4 hunt) + run-data (`drb72-deadrun-forensic` workflow, 6 Claude slices + Codex cross-audit APPROVE, 27 findings / 25 novel over the REAL 1622-capture run). Combined ledger = `.codex/I-arch-004/combined_dual_sourced_ledger.md` (TIER A-E; **THE resume map**). Resume plan = `.codex/I-arch-004/resume_plan.md`. Run-data copy = `.codex/I-arch-004/deadrun_artifacts/` (gitignored).

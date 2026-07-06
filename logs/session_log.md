@@ -5935,3 +5935,13 @@
 - EVIDENCE/FINDINGS: Phase 0 done (ssh2 terminated, GPU idle). Phase 1 forensic Workflow wjuesp8hh launched (9 lenses over fresh2 run dir + back-half report). Artifacts pulled to scratchpad/forensic/. 4-fix campaign that preceded this: all Codex-APPROVED + validated (breadth/trunc-orphan/injection/four_role + chrome); new P1 #1343 (blocked-ref fetch) folded into this campaign.
 - STATUS: Phase 1 (forensic) in progress. Phases 2-5 pending the consolidated issue baskets.
 - NEXT_STEP: read the forensic workflow's consolidated baskets -> spin Track A (obvious fixes) + Track B (research/benchmark) in parallel.
+
+[2026-07-05 23:18:59]
+- ACTION: I-deepfix-001 (#1344) REAL_PLAN_2026 converged (Codex+Fable) + operator GO to build; updated GitHub + docs.
+- RATIONALE: Operator ordered research-2026-best-practice FIRST, then Codex+Claude+Fable iterate into the real plan, before any build. Deep research (wf_b2397903-822) read DeepTRACE/DRB-II/LongCite/STORM/WebWeaver/TTD-DR in full. Iteration: Fable propose -> Codex review CONVERGE (7 refinements) -> Fable refine (code-verified all, corrected 2 own errors) -> Claude final. Root = composition-unit==verification-unit; fix = compose-then-verify (coherent report first, unchanged faithfulness gate downstream as a per-sentence filter). Coverage co-equal. Operator approved build 2026-07-05 with dual-gate.
+- DOCS/RESEARCH: arXiv 2509.04499 (DeepTRACE), 2601.08536 (DRB-II), 2409.02897 (LongCite), 2305.14627 (ALCE), 2402.14207 (STORM), 2509.13312 (WebWeaver), 2507.16075 (TTD-DR), 2503.08275 (WriteHERE).
+- SYNC: restart_instructions.md new RESUME-NOW block; todo_list.md top priority; iteration_trajectory.md; file_directory.md.
+- AFFECTED_FILES: .codex/I-deepfix-001/{BESTPRACTICE_2026_BRIEF.md, iter_fable_propose.md, iter_codex_review.md, iter_fable_refine.md, iter_codex_context.md, REAL_PLAN_2026.md}; logs/session_log.md; state/restart_instructions.md; state/polaris_restart/iteration_trajectory.md; docs/todo_list.md; docs/file_directory.md.
+- EVIDENCE/FINDINGS: commits 063b0261 (brief), 6756d7c4 (iteration record), ea2a6fe2 (real plan); GH #1344 comment posted. Codex verdict CONVERGE; Fable refine adopted 7 refinements + corrected byte-identical-OFF (gate-B force-sets PG_ABSTRACTIVE_WRITER) + dropped non-existent arXiv 2604.01432.
+- STATUS: Plan phase COMPLETE + committed. Build NOT started. Faithfulness untouched. Codex-CLI-on-Windows fix proven (self-contained stdin, no -s read-only).
+- NEXT_STEP: Build Wave 1a (group writer contract + bounded repair + labeled fallback), unit-test, dual-gate Codex+Fable, commit; then 1b..2e.

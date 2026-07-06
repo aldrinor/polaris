@@ -1685,3 +1685,12 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   - Validation: official §-1.3 gate CONTENT-PRECISION=1.0000 (398/398 kept); Codex's exact iter-5 case "…received 18 citations before correction" KEPT; Gazdag masthead still caught.
   - convergence_call: accept_remaining. Residual P0/P1: NONE.
   - Final rule set (3): _AFFIL_GLUED_RE, _TITLE_AFFIL_RE, (_AUTHOR_ATTRIB_PHRASE_RE AND _MASTHEAD_PORTAL_STATS_RE).
+
+## I-deepfix-001 (#1344) REAL_PLAN_2026 — Codex+Fable iteration, 2026-07-05
+- **Deep research** wf_b2397903-822 (11 agents, ~1.04M tokens): scouted + FETCHED+READ primary 2026 papers in full -> BESTPRACTICE_2026_BRIEF.md (063b0261).
+- **Round 1 — Fable propose** (iter_fable_propose.md): full code-grounded compose-then-verify architecture.
+- **Round 1 — Codex review** (iter_codex_review.md): verdict **CONVERGE**; 7 refinements (post-hoc deterministic binding=authority; K-span=separate labeled block; minimal independently-entailing inline cite set + weight channel; PG_FINDING_DEDUP_NLI strict bidirectional; numeric analysis only on full unit-match; offline DeepTRACE scorer=triage not gate; rendered-report acceptance harness). (6756d7c4)
+- **Round 2 — Fable refine** (iter_fable_refine.md): code-verified every NEEDS-CODE-CHECK; adopted all 7; corrected 2 own errors (byte-identical-OFF FALSE = gate-B force-sets PG_ABSTRACTIVE_WRITER run_gate_b.py:825/1561/1693 -> flag-selected contract; arXiv 2604.01432 does not exist -> dropped).
+- **Final — Claude** REAL_PLAN_2026.md (ea2a6fe2): converged; faithfulness never relaxed; composition+coverage co-equal; surgical not rewrite. Codex-CLI-on-Windows fix = self-contained stdin, no -s read-only (proven).
+- **Note:** the first iteration workflow (wf_60377f46-133) died on session limit + a Codex-sandbox file-read failure; recovered by running Codex directly on a self-contained inlined context (fresh account credits). Fable propose was the one salvaged asset (replayed from that run).
+- **Operator GO to build 2026-07-05** ("execute everything in your best efficiency and accuracy, with fable 5 and codex to gate").
