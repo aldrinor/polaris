@@ -49,6 +49,7 @@ import src._polaris_native_thread_safety  # noqa: F401,E402  # import-time side 
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -2559,6 +2560,136 @@ def _run_m6_firing_canary(
         print(f"<<< {domain} / {slug}: M6 cross-source firing canary FAILED: {_m6_exc}")
         return "FAILED"
     print(f"<<< {domain} / {slug}: M6 cross-source firing canary=ok")
+    return "ok"
+
+
+# ── I-deepfix-001 (#1344) Wave-1d — FAIL-LOUD SHALLOW-REPORT CANARIES ─────────────────────────────────
+# Two DETECTORS that guard against the "false-fired pipeline": the winner slate is ON, the writer-path
+# logs are busy, yet the rendered report is still shallow/degraded. Each asserts a STRUCTURAL
+# contradiction (an ELIGIBLE-YET-ZERO condition), NEVER a word/citation/source COUNT threshold (§-1.3:
+# such counts are BANNED as quality signals). Both self-skip unless the opt-in PG_SHALLOW_REPORT_CANARY
+# flag is truthy (default OFF => byte-identical, the canary never runs). Faithfulness-neutral: they READ
+# post-run telemetry lines and raise for investigation; they touch NO verdict, threshold, judge, or gate.
+#
+# Producer marker lines (stable literals) the two canaries parse:
+#   * canary 1 reads the EXISTING depth-synthesis D8-thread line (run_honest_sweep_r3.py:16074):
+#       "[depth-synthesis] D8-thread: baskets_total=.. drafted=.. kept_findings=.. (cross=.. single=..)"
+#   * canary 2 reads the Wave-1d flag-gated telemetry line (run_honest_sweep_r3.py, post-U5):
+#       "[shallow-canary] finding_dedup_multiorigin_clusters=.. multi_origin_baskets=.."
+_SHALLOW_REPORT_CANARY_ENV = "PG_SHALLOW_REPORT_CANARY"
+_DEPTH_D8_THREAD_RE = re.compile(
+    r"\[depth-synthesis\] D8-thread:.*?\bdrafted=(\d+).*?\bkept_findings=(\d+)"
+)
+_SHALLOW_MULTIORIGIN_RE = re.compile(
+    r"\[shallow-canary\] finding_dedup_multiorigin_clusters=(\d+) multi_origin_baskets=(\d+)"
+)
+
+
+def _shallow_report_canary_enabled() -> bool:
+    """PG_SHALLOW_REPORT_CANARY opt-in kill-switch (default OFF). Read at CALL time (LAW VI). OFF =>
+    both asserts early-return AND the post-run wrapper is never invoked => byte-identical to pre-Wave-1d
+    (the canary never runs). The producer-side telemetry line is gated by the SAME flag, so OFF also
+    writes NO run_log.txt line."""
+    return os.getenv(_SHALLOW_REPORT_CANARY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def assert_depth_synthesis_fired(log_text: str) -> None:
+    """Wave-1d shallow canary #1 (post-run, pure string logic — no spend, no network).
+
+    STRUCTURAL contradiction: the grounded DEPTH cross-source synthesis pass DRAFTED >=1 ELIGIBLE
+    high-corroboration basket (the pre-pass only drafts baskets clearing the DEFINITIONAL
+    ``>=2 distinct-origin members`` floor) YET the run kept ZERO synthesized findings
+    (``kept_findings==0``). That is the "0 analytical units when eligible pairs exist" failed
+    validation — the depth layer is a SILENT NO-OP (flag-on but dark). Raise RuntimeError.
+
+    NEVER a count target: a run that drafted 0 eligible baskets (``drafted==0`` — a single-source /
+    low-corroboration corpus) NEVER raises (§-1.3, depth is never FORCED); a run that kept >=1 finding
+    (``kept_findings>=1``, of ANY magnitude) NEVER raises. Only the zero-when-eligible contradiction
+    decides — no magnitude threshold. Reads the EXISTING depth-synthesis D8-thread telemetry line and
+    asserts nothing about any verdict (the frozen faithfulness engine is untouched). Self-skips when
+    PG_SHALLOW_REPORT_CANARY is off."""
+    if not _shallow_report_canary_enabled():
+        return
+    # NOTE (Fable review): the producer today emits ONE run-level D8-thread line per query. If it ever
+    # emits PER-SECTION D8-thread lines, a single dark section (drafted>=1, kept_findings==0) could fire
+    # even when another section kept findings — that is still the intended eligible-yet-zero semantics
+    # (a per-line structural contradiction), documented here for future producer changes.
+    for _m in _DEPTH_D8_THREAD_RE.finditer(log_text or ""):
+        drafted = int(_m.group(1))
+        kept_findings = int(_m.group(2))
+        if drafted >= 1 and kept_findings == 0:
+            raise RuntimeError(
+                "shallow-report canary FAILED [DEPTH-SYNTHESIS DARK]: the depth cross-source synthesis "
+                "pass DRAFTED >=1 eligible high-corroboration basket (>=2 distinct-origin members) yet "
+                "the run kept ZERO synthesized findings (kept_findings==0) — 0 analytical units while "
+                "eligible baskets existed. Investigate depth_synthesis.synthesize_cross_source_findings "
+                "/ the per-sentence re-ground; do NOT ship a report whose depth layer produced nothing "
+                "while eligible baskets existed."
+            )
+
+
+def assert_multi_origin_baskets_exist(log_text: str) -> None:
+    """Wave-1d shallow canary #2 (post-run, pure string logic — no spend, no network).
+
+    STRUCTURAL contradiction: finding_dedup grouped >=1 cluster carrying >=2 DISTINCT origins
+    (``corroboration_count>=2`` — the SAME distinct-origin basis as the basket denominator, so a
+    same-host near-dup pair is never miscounted) YET ZERO consolidation baskets reached composition
+    with ``verified_support_origin_count>=2``. That is the finding_dedup->basket keystone silently NOT
+    producing multi-origin baskets — the documented "787 rows -> mostly-singleton baskets, Multi-source
+    corroborated: 0" regression (credibility_pass.py:51-56). Raise RuntimeError.
+
+    NEVER a count target: a run whose finding_dedup produced 0 multi-origin clusters (a single-source /
+    non-overlapping corpus) NEVER raises (§-1.3, corroboration is never FORCED); a run that produced
+    >=1 multi-origin basket (of ANY magnitude) NEVER raises. Absent the flag-gated telemetry line (the
+    Wave-1d flag was off during the run, or finding_dedup did not run) the canary has no data and NEVER
+    raises. Reads only telemetry; touches no verdict. Self-skips when PG_SHALLOW_REPORT_CANARY is off."""
+    if not _shallow_report_canary_enabled():
+        return
+    for _m in _SHALLOW_MULTIORIGIN_RE.finditer(log_text or ""):
+        multiorigin_clusters = int(_m.group(1))
+        multi_origin_baskets = int(_m.group(2))
+        if multiorigin_clusters >= 1 and multi_origin_baskets == 0:
+            raise RuntimeError(
+                "shallow-report canary FAILED [MULTI-ORIGIN BASKETS DARK]: finding_dedup grouped >=1 "
+                "cluster with >=2 distinct origins yet ZERO consolidation baskets reached composition "
+                "with verified_support_origin_count>=2 — the finding_dedup->basket keystone silently "
+                "produced no multi-origin baskets. Investigate credibility_pass basket assembly / the "
+                "PG_BASKET_CONSUME_FINDING_DEDUP keystone; do NOT ship a report whose multi-origin "
+                "corroboration collapsed while finding_dedup found corroborating origins."
+            )
+
+
+def _run_shallow_report_canary(
+    log_text: str,
+    status: str,
+    *,
+    smoke_scale: bool,
+    domain: str,
+    slug: str,
+) -> str:
+    """POST-RUN shallow-report canary wrapper (Wave-1d). Mirrors ``_run_m6_firing_canary``: on a
+    RELEASED, non-smoke run, run BOTH structural detectors over the run_log text. A GENUINE
+    eligible-yet-zero contradiction raises RuntimeError -> "FAILED" (caller sets overall_rc=1). Both
+    asserts self-skip when PG_SHALLOW_REPORT_CANARY is off (wrapper returns "skip:disabled" first).
+    Reuses the breadth/M6 released-status universe so it applies exactly where a full-contract report
+    was rendered. Faithfulness-neutral: reads run telemetry, asserts nothing about any verdict.
+    Returns a one-line sweep-record status."""
+    if not _shallow_report_canary_enabled():
+        return "skip:disabled"
+    if status not in _BREADTH_CANARY_RELEASED_STATUSES:
+        return f"skip:status={status or '<none>'}"
+    if smoke_scale:
+        return "skip:smoke_scale"
+    try:
+        assert_depth_synthesis_fired(log_text)
+        assert_multi_origin_baskets_exist(log_text)
+    except RuntimeError as _sc_exc:
+        logging.getLogger("run_gate_b").error(
+            "shallow-report canary FAILED for %s/%s: %s", domain, slug, _sc_exc,
+        )
+        print(f"<<< {domain} / {slug}: shallow-report canary FAILED: {_sc_exc}")
+        return "FAILED"
+    print(f"<<< {domain} / {slug}: shallow-report canary=ok")
     return "ok"
 
 
@@ -5178,16 +5309,66 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if _m6_canary == "FAILED":
                     overall_rc = 1
-            _sweep_records.append({
+            # I-deepfix-001 (#1344) Wave-1d: POST-RUN SHALLOW-REPORT canaries — mirror the M6 wrapper.
+            # Default-OFF flag PG_SHALLOW_REPORT_CANARY => the block is skipped (canary never runs,
+            # byte-identical). When ON, read this query's run_log.txt (the `_log` tee sink carrying the
+            # depth D8-thread + [shallow-canary] telemetry lines) and FAIL CLOSED on a genuine
+            # eligible-yet-zero contradiction (depth dark OR multi-origin baskets dark). Faithfulness-
+            # neutral (reads telemetry only). If the run_log is MISSING or UNREADABLE there is no
+            # telemetry to assert over; a fail-loud detector must NOT false-green on no-data, so that
+            # case records an explicit "skip:no-run-log" instead of asserting over an empty string.
+            _shallow_canary = None
+            if _shallow_report_canary_enabled():
+                _sc_log_text = None  # None => run_log missing/unreadable (distinct from a read empty log)
+                try:
+                    _sc_run_dir = summary.get("run_dir")
+                    if _sc_run_dir:
+                        _sc_log_path = Path(str(_sc_run_dir)) / "run_log.txt"
+                        if _sc_log_path.exists():
+                            _sc_log_text = _sc_log_path.read_text(
+                                encoding="utf-8", errors="replace",
+                            )
+                except Exception as _sc_read_exc:  # noqa: BLE001 — telemetry read; never abort sweep
+                    logging.getLogger("run_gate_b").warning(
+                        "shallow-report canary: run_log read failed for %s/%s: %s",
+                        domain, slug, _sc_read_exc,
+                    )
+                    _sc_log_text = None
+                if _sc_log_text is None:
+                    # No run_log => no data to assert over. Do NOT call the wrapper with "" (it would
+                    # return "ok" and false-green the fail-loud detector) — record an explicit skip.
+                    _shallow_canary = "skip:no-run-log"
+                else:
+                    _shallow_canary = _run_shallow_report_canary(
+                        _sc_log_text, status,
+                        smoke_scale=args.smoke_scale, domain=domain, slug=slug,
+                    )
+                    if _shallow_canary == "FAILED":
+                        overall_rc = 1
+            # OFF-purity (Codex+Fable P1): the shallow-report canary is a NEW Wave-1d record key. When the
+            # flag is OFF, _shallow_canary is None — adding "shallow_report_canary": null would give a
+            # flag-OFF sweep_summary.json a key the pre-Wave-1d baseline lacks (OFF not byte-identical). So
+            # the key is added ONLY when the wrapper actually ran (flag ON => always a string). The
+            # None-safe "ok" conjunct below is byte-identical when OFF (None != "FAILED" is True). The
+            # pre-existing "m6_cross_source_canary" key emission is left UNCHANGED (not a Wave-1d key).
+            _record = {
                 "query_index": query_index,
                 "slug": slug,
                 "domain": domain,
                 "status": status,
-                "ok": _status_ok and _breadth_canary != "FAILED" and _m6_canary != "FAILED",
+                "ok": (
+                    _status_ok
+                    and _breadth_canary != "FAILED"
+                    and _m6_canary != "FAILED"
+                    and _shallow_canary != "FAILED"
+                ),
                 "breadth_enrichment_canary": _breadth_canary,
                 "m6_cross_source_canary": _m6_canary,
                 "cost_usd": summary.get("cost_usd"),
-            })
+            }
+            if _shallow_canary is not None:
+                _record["shallow_report_canary"] = _shallow_canary
+            _sweep_records.append(_record)
         except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently
             tb = traceback.format_exc()
             overall_rc = 1

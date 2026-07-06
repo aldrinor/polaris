@@ -19234,6 +19234,39 @@ async def run_one_query(
                     multi_cited_sentence_count=_u5_multicited,
                 )
 
+        # I-deepfix-001 (#1344) Wave-1d SHALLOW-REPORT CANARY telemetry (detector-only, default-OFF).
+        # Opt-in flag PG_SHALLOW_REPORT_CANARY (LAW VI). OFF => this block is skipped => NO run_log.txt
+        # line is written => BYTE-IDENTICAL (the canary never runs). When ON, emit ONE STRUCTURAL
+        # telemetry line the post-run `assert_multi_origin_baskets_exist` canary parses: the count of
+        # finding_dedup clusters that grouped >=2 DISTINCT origins (corroboration_count>=2 — the SAME
+        # distinct-origin basis as the basket denominator, so a same-host near-dup pair never counts) and
+        # the count of consolidation baskets that reached composition carrying
+        # verified_support_origin_count>=2. The canary FAILS LOUD only on the STRUCTURAL contradiction
+        # (>=1 multi-origin cluster yet 0 multi-origin basket = the finding_dedup->basket keystone
+        # silently not producing multi-origin baskets); it is NEVER a count target. Pure READ of
+        # already-computed telemetry (`_finding_dedup_telemetry` is None-safe per the :9676 init;
+        # `count_multi_source_baskets` handles a None credibility_analysis) — the frozen faithfulness
+        # engine is untouched. Fail-open: never abort the report.
+        if _env_flag("PG_SHALLOW_REPORT_CANARY", default=False):
+            try:
+                _sc_clusters = (
+                    _finding_dedup_telemetry.get("clusters", [])
+                    if isinstance(_finding_dedup_telemetry, dict) else []
+                )
+                _sc_multiorigin_clusters = sum(
+                    1 for _c in _sc_clusters
+                    if int((_c or {}).get("corroboration_count", 0) or 0) >= 2
+                )
+                _sc_multi_origin_baskets = count_multi_source_baskets(
+                    getattr(multi, "credibility_analysis", None)
+                )
+                _log(
+                    "[shallow-canary] finding_dedup_multiorigin_clusters="
+                    f"{_sc_multiorigin_clusters} multi_origin_baskets={_sc_multi_origin_baskets}"
+                )
+            except Exception as _sc_exc:  # noqa: BLE001 — detector telemetry; never abort the report
+                _log(f"[shallow-canary] telemetry skipped (fail-open): {_sc_exc}")
+
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when
         # PG_COMPLEXITY_ROUTING is unset). Auditable: complexity, confidence, reasons, whether it was
