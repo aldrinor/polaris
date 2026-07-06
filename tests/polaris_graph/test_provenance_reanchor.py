@@ -204,6 +204,9 @@ def test_reanchor_disabled_is_byte_identical(monkeypatch):
         "reanchor_uncited_bound": 0,
         # I-perm-004 (#1198) slice 2: argmax-recovery counter, untouched in OFF mode.
         "reanchor_argmax_recovered": 0,
+        # I-deepfix-001 Wave-3a (#1344, Fable P0 option-B): local-window fallback recovery counter,
+        # untouched in OFF mode (and structurally 0 on gate-B where the fallback is pinned off).
+        "reanchor_local_window_recovered": 0,
     }
     # Helper must agree it is disabled.
     assert _pg._provenance_reanchor_enabled() is False

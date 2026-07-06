@@ -14873,16 +14873,24 @@ async def run_one_query(
         if _provenance_reanchor_enabled():
             try:
                 _reanchor_snap = get_reanchor_telemetry()
+                # I-deepfix-001 Wave-3a (#1344, Fable P0 option-B): surface the local-window fallback
+                # recovery COUNTER as local_window=<N>. On gate-B it is structurally 0 (fallback pinned OFF);
+                # the activation canary FAILS if a regression re-opens the leg (N != 0).
                 _log(
-                    "[activation] provenance_reanchor: accepted=%d reanchored_argmax=%d build_ok=%s"
+                    "[activation] provenance_reanchor: accepted=%d reanchored_argmax=%d "
+                    "local_window=%d build_ok=%s"
                     % (
                         int(_reanchor_snap.get("reanchor_recovered", 0)),
                         int(_reanchor_snap.get("reanchor_argmax_recovered", 0)),
+                        int(_reanchor_snap.get("reanchor_local_window_recovered", 0)),
                         True,
                     )
                 )
             except Exception:  # noqa: BLE001 — a telemetry read must never break the paid run
-                _log("[activation] provenance_reanchor: accepted=0 reanchored_argmax=0 build_ok=False")
+                _log(
+                    "[activation] provenance_reanchor: accepted=0 reanchored_argmax=0 "
+                    "local_window=0 build_ok=False"
+                )
 
         # A12 (iarch006 epic-failure): post-GENERATION checkpoint — DATA ONLY (raw drafts + identity
         # hashes), written right after generation completes and BEFORE verification, so a resume can

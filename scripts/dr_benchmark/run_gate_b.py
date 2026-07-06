@@ -2530,6 +2530,30 @@ class _CrossSourceMarkerCaptureHandler(logging.Handler):
             pass
 
 
+class _ActivationMarkerCaptureHandler(logging.Handler):
+    """Capture the Wave-3a ``[activation] <module>:`` marker lines so the post-run activation canary can
+    read the sink the markers actually reach. 10 of the 11 activated modules emit their marker via a Python
+    MODULE logger (``logger.info(...)``) that basicConfig streams to STDOUT ONLY — it NEVER reaches
+    run_dir/run_log.txt (Fable P0). The sweep runs run_gate_b_query IN-PROCESS, so attaching this to the
+    ROOT logger for the query's duration captures those records (child loggers propagate to root). Keeps
+    ONLY records whose message begins with ``[activation] `` (never the whole run's log stream — bounded
+    memory). A logging handler must NEVER raise into the caller, so ``emit`` swallows any formatting error.
+    Sequential-sweep safe (§8.4 — one query at a time); attached + detached around a single
+    ``asyncio.run(run_gate_b_query(...))`` so it never leaks across queries."""
+
+    def __init__(self, sink: list[str]) -> None:
+        super().__init__()
+        self._sink = sink
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            _msg = record.getMessage()
+            if _msg.startswith(_ACTIVATION_MARKER_PREFIX):
+                self._sink.append(_msg)
+        except Exception:  # noqa: BLE001 — a logging handler must never propagate an error to the caller
+            pass
+
+
 def _run_m6_firing_canary(
     log_lines: list[str],
     status: str,
@@ -2690,6 +2714,319 @@ def _run_shallow_report_canary(
         print(f"<<< {domain} / {slug}: shallow-report canary FAILED: {_sc_exc}")
         return "FAILED"
     print(f"<<< {domain} / {slug}: shallow-report canary=ok")
+    return "ok"
+
+
+# ── I-deepfix-001 (#1344) Wave-3a — FAIL-LOUD ACTIVATION CANARY ───────────────────────────────────────
+# The wall that guarantees, on a RELEASED paid run, that every ACTIVATED new-core module ACTUALLY FIRED
+# and no OLD/WRONG module silently replaced it (the exact failure the operator has hit repeatedly).
+#
+# MARKER TRANSPORT (Fable P0 fix — the canary MUST read the sink the markers actually reach): 10 of the
+# 11 modules emit their ``[activation] <module>:`` line via a Python MODULE logger (``logger.info(...)``)
+# which basicConfig streams to STDOUT ONLY — it never reaches ``run_dir/run_log.txt`` (only the ``_log``
+# tee writes that file; run_honest_sweep_r3.py:57-61 basicConfig has NO FileHandler, :9075-9078 ``_log``).
+# So the canary CANNOT read those markers from run_log.txt (an earlier version did — it would have
+# FALSE-FAILED every healthy run and been BLIND on the old-path tripwires). Instead — mirroring the M6
+# ``_CrossSourceMarkerCaptureHandler`` — an ``_ActivationMarkerCaptureHandler`` is attached to the ROOT
+# logger for the duration of each in-process query (the sweep runs run_gate_b_query IN-PROCESS, so the
+# module-logger records ARE visible) and captures every ``[activation] `` record into a per-query buffer.
+# The canary asserts over that buffer TEXT COMBINED WITH run_log.txt: the buffer carries the 10 module-
+# logger markers (9 positives + the anchor-equality degrade tripwire), and run_log.txt carries the one
+# ``_log``-emitted marker (provenance_reanchor, run_honest_sweep_r3.py:14876). For each module whose flag
+# is ON at CALL time, the canary asserts THREE STRUCTURAL facts:
+#   (a) the module's POSITIVE marker is PRESENT  (the module RAN);
+#   (b) the module's honesty booleans are HEALTHY (degraded/noop/wall_truncated False, build_ok/
+#       input_threaded True — the marker did-not-degrade to a legacy fallback);
+#   (c) the module's OLD/degrade signal is ABSENT/ZERO (the anchor-equality pairing line absent; the
+#       provenance-reanchor ``local_window`` count == 0 — the forbidden local-window fallback leg recovered
+#       nothing, Fable P0 option-B: the ``reanchored_local_window:`` soft-warning is NEVER logged, so the
+#       inverted tripwire is routed through a telemetry COUNTER surfaced on the provenance marker instead).
+# ANY of {positive marker absent, honesty bool bad, old/degrade signal present} => RuntimeError => the
+# wrapper returns "FAILED" => the caller sets overall_rc=1 (fail loud).
+#
+# §-1.3 STRUCTURAL RULE (explicit): this is ELIGIBLE-YET-WRONG detection, NEVER a quality count threshold.
+# The ONLY count-like checks permitted are (i) the PRESENCE/ABSENCE of a marker line, (ii) the value of a
+# BOOLEAN field, and (iii) an inverted degrade counter that must be EXACTLY ZERO (``local_window==0`` — the
+# forbidden path fired zero times, equivalent to "old marker absent"; NOT a ">=K quality target"). A
+# positive marker PRESENT with count=0 (directional_merges=0, pairs=0, facets=0) is ALLOWED — an
+# eligible-yet-zero contradiction is a SEPARATE shallow-canary concern, not this canary's.
+#
+# The canary SELF-SCOPES to the activated slate: a module whose flag is OFF at call time is never asserted
+# (no marker demanded). Each module's flag ON/OFF is decided with the SAME truthy predicate its producer
+# uses (Fable P2: expert-facet / sub-entity accept ONLY {"1","true"}; provenance/span accept
+# {"1","true","yes","on","enabled"}; the rest use the not-in-off-tokens blocklist) so a slate value like
+# "yes"/"on" can NEVER make the canary demand a marker a strict-whitelist producer would not emit. Both the
+# opt-in kill-switch and the whole block mirror the Wave-1d shallow-canary OFF-purity contract EXACTLY:
+# default-OFF ``PG_ACTIVATION_CANARY`` => byte-identical (the canary never runs, NO capture handler is
+# attached, AND the sweep record gains NO new key); a missing/unreadable run_log records ``skip:no-run-log``
+# (a fail-loud detector must never false-green on no data). Faithfulness-neutral: reads run telemetry only.
+_ACTIVATION_CANARY_ENV = "PG_ACTIVATION_CANARY"
+
+# The universal off-token set (matches every producer's default-OFF BLOCKLIST idiom). A blocklist module
+# flag is "ON" iff its env value, lower-cased/stripped, is NOT one of these — so a slate's force-EXACT "1"
+# reads ON. Whitelist producers (expert-facet / sub-entity / provenance) carry their own ``flag_whitelist``.
+_ACTIVATION_FLAG_OFF_TOKENS = ("", "0", "false", "no", "off")
+# The literal prefix of every activation marker — the capture handler keeps ONLY these records (never the
+# whole run's log stream), and the module-logger transport streams them here.
+_ACTIVATION_MARKER_PREFIX = "[activation] "
+
+
+@dataclass(frozen=True)
+class _ActivationMarkerSpec:
+    """One activated module's fire-marker contract (Wave-3a FIRE-MARKER CONTRACT).
+
+    ``positive_re`` — the module's POSITIVE ``[activation]`` marker (with named groups for its boolean
+    fields), or ``None`` when the module has NO positive marker of its own. ``bool_checks`` —
+    ``(named_group, healthy)`` pairs the parsed marker must satisfy (healthy value differs per field:
+    degraded/noop/wall_truncated are healthy=False, build_ok/input_threaded are healthy=True).
+    ``exact_fields`` — ``(named_group, exact_value)`` pairs that must equal EXACTLY (the inverted degrade
+    counter ``local_window==0``; NOT a quality threshold). ``absent_markers`` — literal substrings that
+    must NOT appear when this module's flag is ON (the old/degrade path markers). ``flag_whitelist`` — when
+    not None, the flag is ON iff its lower-cased value is in this tuple (matches a strict-whitelist
+    producer); None => the not-in-off-tokens blocklist default."""
+
+    name: str
+    env_flag: str
+    positive_re: re.Pattern | None
+    bool_checks: tuple
+    absent_markers: tuple
+    exact_fields: tuple = ()
+    flag_whitelist: tuple | None = None
+
+
+# The per-module fire-marker contract (10 specs; span-resolver is folded into provenance_reanchor). Literals
+# are copied byte-for-byte from the U2 producer emit sites (finding_dedup.py:1517, credibility_pass.py:711,
+# cross_source_synthesis.py:748/:580/:793, multi_section_generator.py:4897, citation_set_minimizer via
+# run_honest_sweep_r3.py:3720, provenance_generator via run_honest_sweep_r3.py:14876, verified_compose.py:1447,
+# fs_researcher_query_gen.py:333/:423). Booleans render as Python ``True``/``False`` (bool via ``%s``).
+_ACTIVATION_MARKER_SPECS = (
+    _ActivationMarkerSpec(
+        # P2-2 (Fable R5): synth_primary NEVER emits on ``kept=0`` (an all-empty / pure-disclosure return
+        # is not authored prose — verified_compose.py:1446 only emits when ``kept`` is non-empty). So on a
+        # RELEASED run with PG_SYNTH_PRIMARY ON, an ABSENT synth_primary marker is a LEGITIMATE FAIL: the
+        # corroborated core body produced zero authored prose. There is intentionally no kept=0 marker to
+        # exempt — absence == the module authored nothing, which a released report must not do.
+        name="synth_primary",
+        env_flag="PG_SYNTH_PRIMARY",
+        positive_re=re.compile(r"\[activation\] synth_primary: authored_prose kept=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        name="finding_dedup_nli",
+        env_flag="PG_FINDING_DEDUP_NLI",
+        positive_re=re.compile(
+            r"\[activation\] finding_dedup_nli: invoked directional_merges=\d+ "
+            r"degraded=(?P<degraded>True|False) wall_truncated=(?P<wall_truncated>True|False)"
+        ),
+        bool_checks=(("degraded", "False"), ("wall_truncated", "False")),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        name="basket_consume_finding_dedup",
+        env_flag="PG_BASKET_CONSUME_FINDING_DEDUP",
+        positive_re=re.compile(
+            r"\[activation\] basket_consume_finding_dedup: regrouped old_to_new=\d+ "
+            r"noop=(?P<noop>True|False)"
+        ),
+        bool_checks=(("noop", "False"),),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        name="cross_source_body",
+        env_flag="PG_CROSS_SOURCE_BODY",
+        positive_re=re.compile(
+            r"\[activation\] cross_source_body: plan_driven pairs=\d+ "
+            r"input_threaded=(?P<input_threaded>True|False) degraded=(?P<degraded>True|False)"
+        ),
+        bool_checks=(("input_threaded", "True"), ("degraded", "False")),
+        # DEGRADE tripwire: the OLD anchor-equality pairing built the body (must be absent on a released run).
+        absent_markers=("[activation] cross_source_body: anchor_equality",),
+    ),
+    _ActivationMarkerSpec(
+        name="numeric_comparator",
+        env_flag="PG_NUMERIC_COMPARATOR",
+        positive_re=re.compile(
+            r"\[activation\] numeric_comparator: upgraded=\d+ build_ok=(?P<build_ok>True|False)"
+        ),
+        bool_checks=(("build_ok", "True"),),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        name="two_sided_debate",
+        env_flag="PG_TWO_SIDED_DEBATE",
+        positive_re=re.compile(
+            r"\[activation\] two_sided_debate: leg2_inspected=\d+ con_disclosed=\d+"
+        ),
+        bool_checks=(),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        name="min_cite_set",
+        env_flag="PG_MIN_CITE_SET",
+        positive_re=re.compile(
+            r"\[activation\] min_cite_set: minimized=\d+ demoted_to_weight=\d+ "
+            r"build_ok=(?P<build_ok>True|False)"
+        ),
+        bool_checks=(("build_ok", "True"),),
+        absent_markers=(),
+    ),
+    _ActivationMarkerSpec(
+        # provenance_reanchor ALSO carries the SPAN-RESOLVER signals (I-perm-004 span_resolver runs "via
+        # reanchor"): the ``reanchored_argmax`` field IS span-resolver's positive (the boilerplate-aware
+        # argmax leg), and the ``local_window`` field IS span-resolver's inverted degrade tripwire. The old
+        # ``reanchored_local_window:`` soft-warning is NEVER logged (Fable P0), so option-B routes the
+        # tripwire through the ``_REANCHOR_TELEMETRY["reanchor_local_window_recovered"]`` COUNTER, surfaced
+        # here as ``local_window=<N>``. On gate-B the local-window fallback is pinned OFF
+        # (allow_local_window_fallback=False, provenance_generator.py:1580/:1607) so the counter is
+        # structurally 0; ``local_window != 0`` means a regression re-opened the forbidden leg => FAIL.
+        # This marker is the one emitted via ``_log`` (run_honest_sweep_r3.py:14876) => it reaches
+        # run_log.txt (NOT the module-logger capture buffer); the canary reads the two COMBINED.
+        name="provenance_reanchor",
+        env_flag="PG_PROVENANCE_REANCHOR",
+        positive_re=re.compile(
+            r"\[activation\] provenance_reanchor: accepted=\d+ reanchored_argmax=\d+ "
+            r"local_window=(?P<local_window>\d+) build_ok=(?P<build_ok>True|False)"
+        ),
+        bool_checks=(("build_ok", "True"),),
+        # inverted degrade tripwire (must be EXACTLY zero — the forbidden local-window leg recovered nothing).
+        exact_fields=(("local_window", "0"),),
+        absent_markers=(),
+        flag_whitelist=("1", "true", "yes", "on", "enabled"),
+    ),
+    _ActivationMarkerSpec(
+        name="expert_facet_planner",
+        env_flag="PG_EXPERT_FACET_PLANNER",
+        positive_re=re.compile(r"\[activation\] expert_facet_planner: facets=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+        # producer accepts ONLY ("1","true","True") (expert_facet_planner.py:56) — strict whitelist.
+        flag_whitelist=("1", "true"),
+    ),
+    _ActivationMarkerSpec(
+        name="subentity_query_expansion",
+        env_flag="PG_SUBENTITY_QUERY_EXPANSION",
+        positive_re=re.compile(r"\[activation\] subentity_query_expansion: expanded_queries=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+        # producer accepts ONLY ("1","true","True") (sub_entity_query_expander.py:62) — strict whitelist.
+        flag_whitelist=("1", "true"),
+    ),
+)
+
+
+def _activation_canary_enabled() -> bool:
+    """``PG_ACTIVATION_CANARY`` opt-in kill-switch (default OFF). Read at CALL time (LAW VI). OFF =>
+    ``assert_activation_markers_fired`` early-returns AND the post-run wrapper is never invoked AND the
+    sweep record gains NO ``activation_canary`` key => byte-identical to pre-Wave-3a. Mirrors
+    ``_shallow_report_canary_enabled`` exactly."""
+    return os.getenv(_ACTIVATION_CANARY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _activation_flag_on(env_flag: str, whitelist: tuple | None = None) -> bool:
+    """True iff ``env_flag`` reads ON, decided with the SAME truthy predicate the module's producer uses
+    (Fable P2). ``whitelist`` not None => ON iff the lower-cased value is in it (strict-whitelist producer);
+    else the not-in-off-tokens BLOCKLIST default. Read at CALL time (LAW VI). All flags default OFF and are
+    force-EXACT "1" on a released slate, so both predicates read "1" as ON; the whitelist only prevents a
+    slate value like "yes"/"on" from over-demanding a marker a strict-whitelist producer never emits."""
+    _val = os.getenv(env_flag, "0").strip().lower()
+    if whitelist is not None:
+        return _val in whitelist
+    return _val not in _ACTIVATION_FLAG_OFF_TOKENS
+
+
+def assert_activation_markers_fired(log_text: str) -> None:
+    """Wave-3a fail-loud ACTIVATION canary (post-run, pure string logic — no spend, no network).
+
+    For EACH activated module (its flag ON at CALL time), assert over the captured marker ``log_text`` that
+    its POSITIVE ``[activation]`` marker is PRESENT, its honesty booleans are HEALTHY, its inverted degrade
+    counter is EXACTLY ZERO, and its OLD/degrade marker is ABSENT. Any failure raises ``RuntimeError`` (the
+    wrapper maps it to "FAILED" => overall_rc=1).
+
+    STRUCTURAL presence/boolean/exact-zero ONLY, NEVER a quality count threshold (§-1.3): a positive marker
+    present with count=0 is ALLOWED (eligible-yet-zero is the shallow canary's concern). Self-scopes to the
+    ACTIVATED slate — a module whose flag is OFF is never asserted. Reads run telemetry only; asserts nothing
+    about any verdict (the frozen faithfulness engine is untouched). Self-skips when ``PG_ACTIVATION_CANARY``
+    is off. ``log_text`` is the module-logger capture buffer COMBINED with run_log.txt (see the sweep loop)."""
+    if not _activation_canary_enabled():
+        return
+    text = log_text or ""
+    for spec in _ACTIVATION_MARKER_SPECS:
+        if not _activation_flag_on(spec.env_flag, spec.flag_whitelist):
+            continue  # module not in the active slate => demand no marker (self-scoping)
+        # (a) POSITIVE marker present + (b) honesty booleans healthy + inverted degrade counter zero. Use
+        # finditer so a DEGRADE in ANY of several emissions (e.g. per-section) fails, not only the first.
+        if spec.positive_re is not None:
+            _matches = list(spec.positive_re.finditer(text))
+            if not _matches:
+                raise RuntimeError(
+                    f"activation canary FAILED [{spec.name.upper()} MARKER ABSENT]: flag {spec.env_flag} "
+                    f"is ON yet the captured markers carry NO positive '[activation] {spec.name}:' line — "
+                    f"the module did NOT fire on a released run (an old/wrong module may have silently "
+                    f"replaced it). Investigate the {spec.name} wiring; do NOT ship a report whose activated "
+                    f"module left no fire marker."
+                )
+            for _m in _matches:
+                for _field, _healthy in spec.bool_checks:
+                    _val = _m.group(_field)
+                    if _val != _healthy:
+                        raise RuntimeError(
+                            f"activation canary FAILED [{spec.name.upper()} DEGRADED]: marker field "
+                            f"{_field}={_val} (healthy={_healthy}) — the {spec.name} module fired but "
+                            f"DEGRADED to a legacy/fallback path on a released run. Investigate the "
+                            f"{spec.name} degrade cause; do NOT ship a report built by the degraded path."
+                        )
+                for _field, _exact in spec.exact_fields:
+                    _val = _m.group(_field)
+                    if _val != _exact:
+                        raise RuntimeError(
+                            f"activation canary FAILED [{spec.name.upper()} OLD/DEGRADE LEG FIRED]: marker "
+                            f"field {_field}={_val} (must be exactly {_exact}) — the FORBIDDEN legacy leg "
+                            f"recovered {_val} time(s) on a released run (it is pinned OFF on gate-B, so a "
+                            f"non-zero count means a regression re-opened it). Investigate {spec.name}; do "
+                            f"NOT ship a report the old leg helped build."
+                        )
+        # (c) OLD/degrade markers ABSENT (the old-path-fired tripwire).
+        for _degrade_literal in spec.absent_markers:
+            if _degrade_literal in text:
+                raise RuntimeError(
+                    f"activation canary FAILED [{spec.name.upper()} OLD/DEGRADE MARKER PRESENT]: the "
+                    f"captured markers contain '{_degrade_literal}' while flag {spec.env_flag} is ON — the "
+                    f"OLD/wrong path fired instead of (or alongside) the activated module. Investigate the "
+                    f"{spec.name} routing; do NOT ship a report the old path helped build."
+                )
+
+
+def _run_activation_canary(
+    log_text: str,
+    status: str,
+    *,
+    smoke_scale: bool,
+    domain: str,
+    slug: str,
+) -> str:
+    """POST-RUN activation canary wrapper (Wave-3a). Mirrors ``_run_shallow_report_canary``: on a RELEASED,
+    non-smoke run, run the structural activation detector over the run_log text. A GENUINE activation
+    failure (marker absent / honesty bool bad / old-path marker present) raises ``RuntimeError`` -> "FAILED"
+    (caller sets overall_rc=1). Self-skips when ``PG_ACTIVATION_CANARY`` is off (returns "skip:disabled"
+    first). Reuses the breadth/M6/shallow released-status universe so it applies exactly where a
+    full-contract report was rendered. Faithfulness-neutral: reads run telemetry, asserts nothing about any
+    verdict. Returns a one-line sweep-record status."""
+    if not _activation_canary_enabled():
+        return "skip:disabled"
+    if status not in _BREADTH_CANARY_RELEASED_STATUSES:
+        return f"skip:status={status or '<none>'}"
+    if smoke_scale:
+        return "skip:smoke_scale"
+    try:
+        assert_activation_markers_fired(log_text)
+    except RuntimeError as _ac_exc:
+        logging.getLogger("run_gate_b").error(
+            "activation canary FAILED for %s/%s: %s", domain, slug, _ac_exc,
+        )
+        print(f"<<< {domain} / {slug}: activation canary FAILED: {_ac_exc}")
+        return "FAILED"
+    print(f"<<< {domain} / {slug}: activation canary=ok")
     return "ok"
 
 
@@ -5261,6 +5598,17 @@ def main(argv: list[str] | None = None) -> int:
         if _m6_firing_canary_enabled():
             _m6_handler = _CrossSourceMarkerCaptureHandler(_m6_log_lines)
             _m6_logger.addHandler(_m6_handler)
+        # I-deepfix-001 (#1344) Wave-3a (Fable P0): attach the activation-marker capture handler to the ROOT
+        # logger BEFORE the run, so THIS query's `[activation]` markers — 10 of which stream to stdout via
+        # MODULE loggers, NOT to run_dir/run_log.txt — are captured in-process. Detached in the `finally`
+        # below so it never leaks into the next query. Gated by PG_ACTIVATION_CANARY (default OFF => no
+        # handler attached, byte-identical). Root logger so a marker from ANY module logger is caught.
+        _activation_log_lines: list[str] = []
+        _activation_handler = None
+        _activation_root_logger = logging.getLogger()
+        if _activation_canary_enabled():
+            _activation_handler = _ActivationMarkerCaptureHandler(_activation_log_lines)
+            _activation_root_logger.addHandler(_activation_handler)
         try:
             summary = asyncio.run(
                 run_gate_b_query(
@@ -5345,6 +5693,48 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     if _shallow_canary == "FAILED":
                         overall_rc = 1
+            # I-deepfix-001 (#1344) Wave-3a (Fable P0): POST-RUN ACTIVATION canary. Default-OFF flag
+            # PG_ACTIVATION_CANARY => the block is skipped (canary never runs, byte-identical, no new record
+            # key). When ON, the canary asserts over the CAPTURE BUFFER (the 10 module-logger `[activation]`
+            # markers streamed to stdout, caught in-process by _activation_handler) COMBINED WITH run_log.txt
+            # (the one `_log`-emitted marker, provenance_reanchor, which reaches the file). Reading run_log.txt
+            # alone would FALSE-FAIL every healthy run (9 markers never reach that file) — the P0 the buffer
+            # fixes. A MISSING/UNREADABLE run_log still records "skip:no-run-log" (a fail-loud detector must
+            # NOT assert over partial data and false-fail provenance_reanchor, whose marker lives only there;
+            # the file is always written on a real run, so this is a genuine-anomaly stand-down, NOT a common
+            # path). Independent read (PG_ACTIVATION_CANARY and PG_SHALLOW_REPORT_CANARY are separate opt-ins;
+            # do NOT reuse _sc_log_text). Faithfulness-neutral (reads telemetry only).
+            _activation_canary = None
+            if _activation_canary_enabled():
+                _ac_log_text = None  # None => run_log missing/unreadable (distinct from a read empty log)
+                try:
+                    _ac_run_dir = summary.get("run_dir")
+                    if _ac_run_dir:
+                        _ac_log_path = Path(str(_ac_run_dir)) / "run_log.txt"
+                        if _ac_log_path.exists():
+                            _ac_log_text = _ac_log_path.read_text(
+                                encoding="utf-8", errors="replace",
+                            )
+                except Exception as _ac_read_exc:  # noqa: BLE001 — telemetry read; never abort sweep
+                    logging.getLogger("run_gate_b").warning(
+                        "activation canary: run_log read failed for %s/%s: %s",
+                        domain, slug, _ac_read_exc,
+                    )
+                    _ac_log_text = None
+                if _ac_log_text is None:
+                    # No run_log => provenance_reanchor's `_log`-emitted marker is unreadable. Do NOT assert
+                    # over the buffer alone (that would false-FAIL provenance_reanchor) — record a skip.
+                    _activation_canary = "skip:no-run-log"
+                else:
+                    # COMBINE the in-process capture buffer (module-logger markers) with run_log.txt (the
+                    # `_log` provenance_reanchor marker) — the canary reads the union of both sinks.
+                    _ac_combined = "\n".join(_activation_log_lines) + "\n" + _ac_log_text
+                    _activation_canary = _run_activation_canary(
+                        _ac_combined, status,
+                        smoke_scale=args.smoke_scale, domain=domain, slug=slug,
+                    )
+                    if _activation_canary == "FAILED":
+                        overall_rc = 1
             # OFF-purity (Codex+Fable P1): the shallow-report canary is a NEW Wave-1d record key. When the
             # flag is OFF, _shallow_canary is None — adding "shallow_report_canary": null would give a
             # flag-OFF sweep_summary.json a key the pre-Wave-1d baseline lacks (OFF not byte-identical). So
@@ -5361,6 +5751,7 @@ def main(argv: list[str] | None = None) -> int:
                     and _breadth_canary != "FAILED"
                     and _m6_canary != "FAILED"
                     and _shallow_canary != "FAILED"
+                    and _activation_canary != "FAILED"
                 ),
                 "breadth_enrichment_canary": _breadth_canary,
                 "m6_cross_source_canary": _m6_canary,
@@ -5368,6 +5759,14 @@ def main(argv: list[str] | None = None) -> int:
             }
             if _shallow_canary is not None:
                 _record["shallow_report_canary"] = _shallow_canary
+            # OFF-purity (Wave-3a): the activation canary is a NEW record key. When PG_ACTIVATION_CANARY is
+            # OFF, _activation_canary is None — adding "activation_canary": null would give a flag-OFF
+            # sweep_summary.json a key the pre-Wave-3a baseline lacks (OFF not byte-identical). So the key is
+            # added ONLY when the canary actually ran (flag ON => always a string). The None-safe "ok"
+            # conjunct above is byte-identical when OFF (None != "FAILED" is True). Mirrors the Wave-1d
+            # shallow-report guarded-key contract EXACTLY.
+            if _activation_canary is not None:
+                _record["activation_canary"] = _activation_canary
             _sweep_records.append(_record)
         except Exception as exc:  # noqa: BLE001 — isolate ONE query; never abort the sweep silently
             tb = traceback.format_exc()
@@ -5421,6 +5820,10 @@ def main(argv: list[str] | None = None) -> int:
             # so it never leaks into the next query's capture (sequential sweep, §8.4).
             if _m6_handler is not None:
                 _m6_logger.removeHandler(_m6_handler)
+            # Wave-3a (Fable P0): detach the activation capture handler on EVERY exit path too, so it never
+            # leaks into the next query's capture (mirror the M6 teardown).
+            if _activation_handler is not None:
+                _activation_root_logger.removeHandler(_activation_handler)
         _persist_sweep_summary()
     return overall_rc
 

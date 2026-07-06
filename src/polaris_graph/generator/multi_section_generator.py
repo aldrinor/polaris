@@ -4899,6 +4899,46 @@ def _emit_two_sided_debate_marker(leg2_inspected: int, con_disclosed: int) -> No
     )
 
 
+# I-deepfix-001 Wave-3a (#1344, Fable P1): per-RUN two-sided-debate totals. The per-section debate pass
+# only runs for a PLAN-FRAMED debate section, so a healthy run whose plan has NO pro/con section emitted
+# ZERO markers — and the activation canary (flag ON => demand exactly one marker) FALSE-FAILED it. Fix:
+# ACCUMULATE the per-section (leg2_inspected, con_disclosed) here and emit ONE unconditional flag-ON summary
+# marker per run (leg2_inspected=0 when no debate section was present) so "flag ON" always yields exactly
+# one marker. Module-level (mirrors _REANCHOR_TELEMETRY); the sequential sweep runs one query at a time and
+# async sections cooperate on one event-loop thread, so the ``+=`` needs no lock. ONLY mutated on the
+# flag-ON path => OFF byte-identity. Never fabricates a con; observability only.
+_TWO_SIDED_DEBATE_TELEMETRY: dict[str, int] = {
+    "leg2_inspected": 0,
+    "con_disclosed": 0,
+}
+
+
+def _reset_two_sided_debate_telemetry() -> None:
+    """Zero the per-run debate totals (called once at generation start when the flag is ON)."""
+    for _k in _TWO_SIDED_DEBATE_TELEMETRY:
+        _TWO_SIDED_DEBATE_TELEMETRY[_k] = 0
+
+
+def _accumulate_two_sided_debate(leg2_inspected: int, con_disclosed: int) -> None:
+    """Add a debate section's inspected/disclosed counts to the per-run totals (flag-ON path only)."""
+    if not _two_sided_debate_enabled():
+        return
+    _TWO_SIDED_DEBATE_TELEMETRY["leg2_inspected"] += int(leg2_inspected)
+    _TWO_SIDED_DEBATE_TELEMETRY["con_disclosed"] += int(con_disclosed)
+
+
+def _emit_two_sided_debate_run_summary() -> None:
+    """Emit the ONCE-PER-RUN two-sided-debate summary marker (flag-ON path only) from the accumulated
+    totals, so a released run ALWAYS yields exactly one ``[activation] two_sided_debate:`` marker even when
+    the plan had no debate section (leg2_inspected=0). OFF byte-identical (the guard early-returns)."""
+    if not _two_sided_debate_enabled():
+        return
+    _emit_two_sided_debate_marker(
+        _TWO_SIDED_DEBATE_TELEMETRY["leg2_inspected"],
+        _TWO_SIDED_DEBATE_TELEMETRY["con_disclosed"],
+    )
+
+
 def _is_debate_section(section: Any) -> bool:
     """True iff the section's PLAN framing (``title`` + ``focus``) asks for both sides — pro/con,
     benefits/risks, positive vs negative, for/against. Uses the SHARED
@@ -5336,9 +5376,12 @@ async def _run_section(
             _vc_degraded_disclosures = _maybe_two_sided_debate_disclosure(
                 section, _vc_baskets, _vc_real_units, _vc_degraded_disclosures,
             )
-            # I-deepfix-001 Wave-3a (#1344): two-sided-debate ACTIVATION fire marker (see helper). Reached
-            # ONLY under PG_TWO_SIDED_DEBATE + a plan-framed debate section => OFF byte-identical.
-            _emit_two_sided_debate_marker(
+            # I-deepfix-001 Wave-3a (#1344, Fable P1): ACCUMULATE this debate section's counts into the
+            # per-run totals instead of emitting a per-section marker. The ONE per-run summary marker is
+            # emitted by _emit_two_sided_debate_run_summary() after all sections compose, so "flag ON" always
+            # yields exactly one marker even when NO section is debate-framed. Reached ONLY under
+            # PG_TWO_SIDED_DEBATE + a plan-framed debate section => OFF byte-identical.
+            _accumulate_two_sided_debate(
                 len(_vc_real_units or []),
                 len(_vc_degraded_disclosures or []) - _pre_debate_disc,
             )
@@ -9463,6 +9506,12 @@ async def generate_multi_section_report(
             contract_slot_payloads.extend(payloads)
             return result
 
+    # I-deepfix-001 Wave-3a (#1344, Fable P1): zero the per-run two-sided-debate totals BEFORE any section
+    # runs, so the once-per-run summary marker (emitted after assembly, below) reflects THIS run only.
+    # Flag-gated => OFF byte-identical.
+    if _two_sided_debate_enabled():
+        _reset_two_sided_debate_telemetry()
+
     # I-arch-004 A1 (#1248): per-section crash isolation. Was a bare gather that re-raised when one
     # V30 section hit the wall-clock x2 (the drb_72 death — a 3h20m run discarded). Now each failure
     # becomes an index-aligned visible gap-stub; CredibilityPassError still fails loud in the mapper.
@@ -9532,6 +9581,11 @@ async def generate_multi_section_report(
         else:
             section_results.append(legacy_results[legacy_idx])
             legacy_idx += 1
+
+    # I-deepfix-001 Wave-3a (#1344, Fable P1): emit the ONE per-run two-sided-debate summary marker now that
+    # every section has composed. Unconditional on the flag-ON path (leg2_inspected=0 if no section was
+    # debate-framed) so the activation canary always sees exactly one marker. OFF byte-identical.
+    _emit_two_sided_debate_run_summary()
 
     # GH#423 I-gen-002: cross-section fact-dedup pass. Runs AFTER all
     # sections complete (preserves parallel generation per Codex Path A

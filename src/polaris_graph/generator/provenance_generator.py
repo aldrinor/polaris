@@ -1369,6 +1369,12 @@ _REANCHOR_TELEMETRY: dict[str, int] = {
     "reanchor_uncited_bound": 0,
     # I-perm-004 (#1198) slice 2: recoveries via the boilerplate-aware argmax (subset of recovered).
     "reanchor_argmax_recovered": 0,
+    # I-deepfix-001 Wave-3a (#1344, Fable P0 option-B): recoveries via the OLD local-window fallback leg
+    # (the reanchored_local_window soft-warning site). On gate-B allow_local_window_fallback is pinned OFF
+    # (:1580/:1607) so this leg is structurally unreachable => the counter is 0; the activation canary
+    # surfaces it as the provenance marker's ``local_window=<N>`` field and FAILS if a regression re-opens
+    # the leg (N != 0). Telemetry-only — NOT verify logic; auto-reset by reset_reanchor_telemetry().
+    "reanchor_local_window_recovered": 0,
 }
 
 
@@ -2888,6 +2894,11 @@ def verify_sentence_provenance(
         _rev_id, _rev_start, _rev_end = reanchor_local_to
         final_sentence = _rebind_single_token(sentence, _rev_id, _rev_start, _rev_end)
         final_tokens = parse_provenance_tokens(final_sentence)
+        # I-deepfix-001 Wave-3a (#1344, Fable P0 option-B): count the OLD local-window fallback recovery so
+        # the activation canary can assert it stayed 0 on gate-B (where allow_local_window_fallback is pinned
+        # OFF => this block is unreachable). Telemetry-only; the recovery behavior + soft-warning below are
+        # BYTE-UNCHANGED — this is an observability counter, NOT a change to the verify/recover logic.
+        _REANCHOR_TELEMETRY["reanchor_local_window_recovered"] += 1
         soft_warnings = list(soft_warnings) + [
             f"reanchored_local_window:{_rev_id}:{_rev_start}-{_rev_end}",
         ]
