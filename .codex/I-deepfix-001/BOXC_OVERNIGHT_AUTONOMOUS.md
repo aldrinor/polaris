@@ -757,3 +757,9 @@ COVERAGE BUILD w7g7v04qa (gated): C1 fix R2 expansion P1 + engage wideners (WIDE
 - Codex verdicts cached: FF1-CHROME=APPROVE, FF4-ASPECT=APPROVE, others REQUEST_CHANGES (need reading). ALL fable=ERROR (weekly limit — never ran). NO fix fully dual-gated yet.
 - BLOCKER: weekly limit blocks Fable (Claude) subagents until Jul 6 7pm. Operator did /login (may refresh quota). Resuming wf once as a probe.
 - Main tree CLEAN (698e57b2 + BOXC/RESUME commits). Nothing half-applied.
+
+## [2026-07-05 19:53:12] 5/9 CORRECTED FIXES COMMITTED (dual-gate Codex+Fable APPROVE + tests pass)
+- COMMITTED: FF4-ASPECT-v2 (805f1091, 10/10) + FF5-DATE-v2 (eb23dd30, 25/25) + FF1-CHROME-v2 (67c57390, 22/22) + FF-4IR-CONFIG (5a4d2654, 3/3) + COV-DECHROME-BASKETS (545542a0, 5/5). Applied via --ignore-whitespace --3way (worktree diffs had CRLF ws mismatch; added-lines verbatim, safe). FF4 was already leaked into main tree by its build agent — verified test + committed exact files.
+- REMAINING 4: FF2-TRUNC-v2-FF3 (codex REQUEST_CHANGES + fable REVISE — FF3 part needs rework), JUDGE-CAP-v2 (codex APPROVE, fable REVISE — needs 1 adjustment), COV-C1-PAIR-v2 (build failed on transient server rate-limit — never gated), COV-SUBENTITY-LANDMARK (build failed rate-limit — never gated).
+- NEXT: resume wf wf_f05dcd87-075 to re-run the 2 rate-limited builds + their gates; re-brief FF2+JUDGE-CAP per the REVISE reasons. Then P2d liveness check (Codex+Fable) → fresh VM resmoke. Dual-gate MANDATORY every fix.
+- NOTE leaked untracked test files from OTHER tasks (test_judge_swap_kimi, test_i5_deeptrace, test_judge_ws1, scale_synthetic_corpus) — left untracked, NOT part of this wave.
