@@ -375,6 +375,90 @@ def _frame_row_has_usable_quote(frame_row: FrameRow) -> bool:
     return len((frame_row.direct_quote or "").strip()) >= _MIN_VERIFIABLE_SPAN_CHARS
 
 
+# FIX 4 (I-deepfix-001 #1344, audit c026) — false-gap K-span fallback.
+# The contract-slot emit loop discloses a "curator-actionable gap" whenever
+# strict_verify kept ZERO composed sentences for a slot. But the slot's BOUND
+# entity may still carry a real, strict_verify-passing span in evidence_pool
+# (audit c026: Brynjolfsson [6] carried "+15% worker productivity" / "5,172
+# support agents" that were DELETED under a FALSE gap label). This flag renders
+# that span VERBATIM with its citation instead of the false gap — RETAIN not
+# drop (§-1.3), faithfulness-neutral (a verbatim span is grounded by
+# construction and we VERIFY it via the SAME strict_verify path, never assert).
+# LAW VI env-overridable; DEFAULT OFF => the emit loop falls straight through to
+# the gap disclosure, byte-identical. Activation happens in the I-deepfix-001
+# wiring wave once validated (feedback_wire_activate_core_archive_2026_07_05).
+_FALSE_GAP_KSPAN_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
+
+
+def _false_gap_kspan_enabled() -> bool:
+    """FIX 4 — True iff ``PG_CONTRACT_FALSE_GAP_KSPAN`` is explicitly set on.
+    Default OFF (build-scaffold default per the I-deepfix-001 activate wave);
+    accepts the SAME falsey vocabulary as the nearby feature flags (Codex
+    iarch007 P1 #3: a bare ``!= "0"`` silently ignores ``false``/``off``/``no``)."""
+    return (
+        os.getenv("PG_CONTRACT_FALSE_GAP_KSPAN", "0").strip().lower()
+        not in _FALSE_GAP_KSPAN_OFF_VALUES
+    )
+
+
+def _kspan_fallback_body(
+    *,
+    primary_ev: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    marker_num: int,
+    rewrite_fn: Any,
+    strict_verify_fn: Any,
+) -> str | None:
+    """FIX 4 — if the bound entity has ANY strict_verify-passing span, return the
+    verbatim span body (``"{span}[marker_num]"``) to render in place of a false
+    gap; else ``None`` (genuinely no usable span → the caller gap-discloses).
+
+    Same grounded-by-construction idiom as ``abstractive_writer``'s K-span: the
+    span is fetched primary-source text, so a verbatim restatement carries every
+    decimal and full content-word overlap and passes strict_verify. We still run
+    the entity's span through the IDENTICAL rewrite → strict_verify path the
+    composed body uses (``allow_rescue=False`` — the span must pass on its own
+    merits, no rescue laundering), so a non-usable span (empty / metadata-only /
+    numeric-only shell) correctly yields ``None``. The faithfulness engine is
+    BYTE-UNTOUCHED — this only RE-USES it as the gate."""
+    row = evidence_pool.get(primary_ev) or {}
+    span = str(row.get("direct_quote") or "").strip()
+    if len(span) < _MIN_VERIFIABLE_SPAN_CHARS:
+        return None
+    # Build the verify draft by attaching the bound-entity marker to EACH
+    # sentence of the span (inserted BEFORE the terminal punctuation so the
+    # marker stays inside its sentence — a marker AFTER the period splits off
+    # as a token-less fragment and every sentence would false-drop as
+    # ``no_provenance_token``). Run it through the SAME rewrite→strict_verify
+    # machinery the composed body uses; ``kept`` non-empty means the bound
+    # entity has AT LEAST ONE strict_verify-passing span.
+    from .provenance_generator import split_into_sentences
+    _marked: list[str] = []
+    for _sent in split_into_sentences(span):
+        _sent = _sent.rstrip()
+        if not _sent:
+            continue
+        if _sent[-1] in ".!?":
+            _marked.append(f"{_sent[:-1].rstrip()} [{primary_ev}]{_sent[-1]}")
+        else:
+            _marked.append(f"{_sent} [{primary_ev}]")
+    if not _marked:
+        return None
+    draft = " ".join(_marked)
+    kept, _rescued, _dropped, _total, _rewritten = _verify_one_stream(
+        raw_draft=draft,
+        evidence_pool=evidence_pool,
+        contract_entity_ids=set(),
+        rewrite_fn=rewrite_fn,
+        strict_verify_fn=strict_verify_fn,
+        allow_rescue=False,
+        stream_label="fix4_false_gap_kspan",
+    )
+    if not kept:
+        return None
+    return f"{span}[{marker_num}]"
+
+
 def _basket_fallback_corroborators_for_slot(
     *,
     slot_entity_ids: list[str],
@@ -1836,6 +1920,37 @@ async def run_contract_section(
                     "statement": statement[:300],
                 })
                 ev_to_num[primary_ev] = new_num
+            # FIX 4 (I-deepfix-001 #1344, audit c026): BEFORE disclosing a false
+            # gap, check whether the bound entity has ANY strict_verify-passing
+            # span in evidence_pool. If so, render that span VERBATIM (K-span
+            # fallback) with its [N] citation, RETAINING the real finding instead
+            # of deleting it under a false gap label (§-1.3 RETAIN-not-drop). The
+            # emitted span is grounded by construction and re-verified via the
+            # SAME strict_verify path — faithfulness-neutral. Env-flag-gated; OFF
+            # => kspan_body stays None (short-circuit, no call) and the code falls
+            # straight through to the byte-identical gap disclosure below.
+            kspan_body = None
+            if _false_gap_kspan_enabled() and primary_ev:
+                kspan_body = _kspan_fallback_body(
+                    primary_ev=primary_ev,
+                    evidence_pool=evidence_pool,
+                    marker_num=ev_to_num[primary_ev],
+                    rewrite_fn=rewrite_fn,
+                    strict_verify_fn=strict_verify_fn,
+                )
+            if kspan_body is not None:
+                verified_blocks.append(f"{heading}\n\n{kspan_body}")
+                slot_drop_log.append({
+                    "slot_id": slot_id,
+                    "kept_sentences": 1,
+                    "disposition": "rendered_kspan_fallback",
+                })
+                logger.info(
+                    "[deepfix-fix4] slot %r rendered verified K-span fallback "
+                    "for bound entity %r (false-gap averted)",
+                    slot_id, primary_ev,
+                )
+                continue
             if primary_ev:
                 marker = f"[{ev_to_num[primary_ev]}]"
                 gap_sentence = (

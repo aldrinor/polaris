@@ -286,6 +286,76 @@ def _is_landing_or_abstract_page(content: str) -> bool:
     return any(marker in head for marker in _LANDING_PAGE_MARKERS)
 
 
+# FIX 2 (I-deepfix-001 composition-collapse plan, GH #1344): citation-metadata
+# "SHELL" markers. A 200-OK fetch whose VISIBLE body is a citation-EXPORT widget
+# (Frey-Osborne ora.ox.ac.uk "[BibTeX][EndNote]"), site/episode NAVIGATION
+# (youreverydayai "Episode Categories:" / "Related Episodes:" / "Join the
+# discussion"), or a bare title followed by a raw "@article{...}" BibTeX entry
+# (a Semantic-Scholar record stub) is captured VERBATIM as the grounding span
+# even though it carries NO article prose — starving otherwise-clean baskets.
+# classify_block_page and _is_landing_or_abstract_page are both BLIND to this
+# class. These are HIGH-PRECISION literals: each is an export-tool / nav / raw-
+# BibTeX artefact, never rendered article language, so a full-text article that
+# merely quotes a BibTeX block deep in its own references is NEVER flagged (the
+# short-body gate below is the primary guard: a real article is > the landing
+# max). Matched case-insensitively on the body head only.
+_CITATION_METADATA_SHELL_MARKERS = (
+    "[bibtex]",
+    "[endnote]",
+    "export_record",
+    "export record",
+    "episode categories:",
+    "related episodes:",
+    "join the discussion",
+    "@article{",
+)
+# Head window for the citation-shell scan. Read at CALL time (LAW VI). Distinct
+# knob from the landing-marker window so the two signals stay independently
+# tunable.
+_CITATION_SHELL_HEAD_CHARS_DEFAULT = 1500
+# Master flag env name for the citation-metadata-shell signal (default OFF).
+_ENV_CITATION_SHELL_REFETCH = "PG_CITATION_SHELL_REFETCH"
+
+
+def _citation_shell_refetch_enabled() -> bool:
+    """FIX 2: master switch for the citation-metadata-shell signal. Default OFF —
+    when ``PG_CITATION_SHELL_REFETCH`` is unset the signal is never computed by
+    the caller and the fetch path is BYTE-IDENTICAL. When ON, a flagged shell
+    joins the EXISTING forced-Zyte re-fetch + §-1.3 down-weight disposition
+    (identical to how F30 landing pages are handled: down-weight + disclose,
+    NEVER hard-drop). LAW VI: env-overridable; recognized truthy 1/true/on/yes."""
+    return os.environ.get(_ENV_CITATION_SHELL_REFETCH, "").strip().lower() in (
+        "1", "true", "on", "yes",
+    )
+
+
+def _is_citation_metadata_shell(content: str) -> bool:
+    """FIX 2 (I-deepfix-001 composition-collapse plan): True iff the fetched body
+    is a citation-EXPORT / site-NAV / bare-BibTeX SHELL rather than article text.
+
+    Structurally mirrors ``_is_landing_or_abstract_page``: SHORT-body-gated
+    (reuses ``PG_LANDING_PAGE_MAX_CHARS`` <= 3000 so a full-text article that
+    quotes a BibTeX block in its references is NEVER flagged) + head-window scan
+    + HIGH-PRECISION export-tool / nav literals only. Pure heuristic; no network.
+    Thresholds read at CALL time via ``_env_int`` (LAW VI — env-overridable per
+    run, not frozen at import). This predicate is PURE and always defined; the
+    ``_citation_shell_refetch_enabled`` master flag gates whether the CALLER
+    computes + acts on it, so the OFF path stays byte-identical."""
+    if not content:
+        return False
+    stripped = content.strip()
+    if len(stripped) > _env_int(
+        "PG_LANDING_PAGE_MAX_CHARS", _LANDING_PAGE_MAX_CHARS_DEFAULT
+    ):
+        return False
+    head = stripped[
+        : _env_int(
+            "PG_CITATION_SHELL_HEAD_CHARS", _CITATION_SHELL_HEAD_CHARS_DEFAULT
+        )
+    ].lower()
+    return any(marker in head for marker in _CITATION_METADATA_SHELL_MARKERS)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # F15 (GH #1245 / D11): per-URL refetch cap + negative cache.
 #
@@ -4541,6 +4611,11 @@ def run_live_retrieval(
         # reported the whole body is a fetch SHELL (boilerplate/interstitial).
         # Telemetry label only — not a threshold.
         "fetch_shell": 0,
+        # FIX 2 (#1344): rows DOWN-WEIGHTED because the fetched body is a
+        # citation-metadata shell (BibTeX/EndNote export nav, site/episode nav,
+        # bare title+@article{}). Telemetry label only — a §-1.3 weight, never a
+        # drop. Stays 0 unless PG_CITATION_SHELL_REFETCH is ON.
+        "citation_metadata_shell": 0,
     }
     # Populated inside the Step-3 off-topic block; stays None when the filter is
     # disabled or only seeds are present (honest absence, never a faked count).
@@ -6012,6 +6087,20 @@ def run_live_retrieval(
             # when it is NOT already starved (avoid double-counting) so the two
             # signals are disjoint in the telemetry.
             _is_landing = (not _starved) and _is_landing_or_abstract_page(content)
+            # FIX 2 (I-deepfix-001 composition-collapse plan, #1344): a
+            # citation-metadata SHELL (BibTeX/EndNote export nav, site/episode
+            # nav, bare title+@article{}) is full-text-incapable exactly like a
+            # landing page. Gated by the default-OFF ``PG_CITATION_SHELL_REFETCH``
+            # master flag so the OFF path is byte-identical (never computed). Only
+            # flagged when NOT already starved / landing so the three signals stay
+            # disjoint in the telemetry and a shell joins the SAME §-1.3
+            # down-weight (never drop) + forced-Zyte re-fetch disposition below.
+            _is_shell = (
+                _citation_shell_refetch_enabled()
+                and (not _starved)
+                and (not _is_landing)
+                and _is_citation_metadata_shell(content)
+            )
             # I-deepfix-001 (Codex P1 #2): tracks whether the forced re-fetch below upgraded a
             # degraded stub to full text. A recovered row is a NORMAL full-text row, so the stale
             # classification-time ``tier_result.fetch_degraded`` must NOT be propagated onto it
@@ -6045,7 +6134,9 @@ def run_live_retrieval(
             # starvation floor and carries no landing marker, so signals 1+2 alone
             # would MISS it). Reusing the fetch layer's settled ok=False here is
             # NOT a new cap — it is the same stub decision already made upstream.
-            if (_starved or _is_landing or not ok) and _refetch_degraded_enabled():
+            if (
+                _starved or _is_landing or _is_shell or not ok
+            ) and _refetch_degraded_enabled():
                 _refetched = _try_refetch_degraded_row(
                     cand.url, DEFAULT_CONTENT_MAX_CHARS,
                 )
@@ -6073,6 +6164,10 @@ def run_live_retrieval(
                     content = _refetched
                     _starved = False
                     _is_landing = False
+                    # FIX 2 (#1344): full text adopted — the row is no longer a
+                    # citation-metadata shell either, so clear the flag before the
+                    # down-weight branch below (a recovered body is full-weight).
+                    _is_shell = False
                     # I-deepfix-001 (Codex P1 #2): full text adopted — the row is no longer
                     # degraded, so the stale tier ``fetch_degraded`` is NOT propagated below.
                     _refetch_recovered = True
@@ -6299,7 +6394,12 @@ def run_live_retrieval(
                 # path AND on a normal full-text row, so a normal row stays
                 # byte-identical. The flags let the composition layer rank these
                 # last + refuse to ground a METHODS claim on a landing page.
-                if _redesign_on and (_starved or _is_landing):
+                # FIX 2 (#1344): a citation-metadata SHELL joins the SAME §-1.3
+                # down-weight (kept-at-low-weight, NEVER dropped) disposition as a
+                # landing page — it is likewise full-text-incapable. ``_is_shell``
+                # is already False whenever ``PG_CITATION_SHELL_REFETCH`` is OFF, so
+                # the OFF path stays byte-identical.
+                if _redesign_on and (_starved or _is_landing or _is_shell):
                     _dw = _down_weight_retrieval()
                     _row["retrieval_weight"] = _dw
                     _row["down_weighted"] = True
@@ -6309,11 +6409,16 @@ def run_live_retrieval(
                         # methods/results cannot be grounded on a landing page.
                         _row["landing_page"] = True
                         _row["full_text_capable"] = False
+                    if _is_shell:
+                        # a citation-export / nav / bare-BibTeX shell carries no
+                        # article prose — it cannot ground a claim.
+                        _row["citation_metadata_shell"] = True
+                        _row["full_text_capable"] = False
                     logger.info(
                         "[live_retriever] DOWN-WEIGHT evidence for %r "
-                        "(len=%d starved=%s landing=%s weight=%.3f) — kept in "
-                        "the pool at low weight, NOT dropped (§-1.3)",
-                        cand.url, len(content), _starved, _is_landing, _dw,
+                        "(len=%d starved=%s landing=%s shell=%s weight=%.3f) — kept "
+                        "in the pool at low weight, NOT dropped (§-1.3)",
+                        cand.url, len(content), _starved, _is_landing, _is_shell, _dw,
                     )
                     _trace_drop(cand.url, "down_weighted")
                     drop_reasons["down_weighted"] += 1
@@ -6321,6 +6426,8 @@ def run_live_retrieval(
                         drop_reasons["content_starved"] += 1
                     if _is_landing:
                         drop_reasons["landing_page"] += 1
+                    if _is_shell:
+                        drop_reasons["citation_metadata_shell"] += 1
                 # NOTE: on the OFF path (redesign flag unset) a landing page is
                 # NOT flagged or mutated — the row stays byte-identical to the
                 # pre-F30 row. F30's flag+down-weight is ON-path only (the weight
