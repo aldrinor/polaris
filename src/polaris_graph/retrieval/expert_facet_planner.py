@@ -69,6 +69,86 @@ def _angles_per_facet() -> int:
     return max(1, min(n, len(_ANGLE_LENSES)))
 
 
+# ── I-deepfix-001 Wave-2d (#1344) — TWO-SIDED DEBATE con-side retrieval guarantee ────────────────
+#
+# DeepTRACE One-Sided (#1) / Overconfident (#2): a DEBATE-framed question ("benefits and risks",
+# "pros and cons", "positive vs negative") that renders only the majority side scores one-sided. The
+# ``counter_evidence`` lens (``_ANGLE_LENSES[2]``) already sources the con angle for every facet, but a
+# reduced ``PG_EXPERT_FACET_ANGLES`` budget (e.g. 2) would truncate it away. When ``PG_TWO_SIDED_DEBATE``
+# is ON AND the question is debate-framed, GUARANTEE the ``counter_evidence`` lens is emitted regardless
+# of the angle budget so the con side is actually retrieved. Pure ADDITIVE widener (§-1.3 WEIGHT-not-
+# FILTER): it adds on-topic con-angle queries, drops zero sources, caps nothing. Default OFF =>
+# ``debate_active`` is False => ``_ANGLE_LENSES[:n_angles]`` exactly as today => byte-identical.
+_COUNTER_EVIDENCE_LABEL = "counter_evidence"
+
+# Precision-first debate-framing detector. Each pattern is an EXPLICIT opposition pair (pro/con,
+# benefits/risks, advantages/disadvantages, positive/negative, for/against, supporters/critics, ...)
+# joined by ``and`` / ``or`` / ``vs`` / ``versus``, OR a standalone debate word (debate / controversy /
+# contested / both-sides). A BARE ``A vs B`` comparison is DELIBERATELY excluded — a head-to-head
+# comparison is not a pro/con debate; over-firing would emit a spurious asymmetry note on a plain
+# comparison section (under-relax is safe, but a wrong note is noise), so only KNOWN opposition pairs
+# license the ``vs`` form.
+_DEBATE_CONNECTIVE = r"(?:and|or|vs\.?|versus)"
+_DEBATE_PAIR_TERMS: tuple[tuple[str, str], ...] = (
+    (r"pros?", r"cons?"),
+    (r"benefits?", r"(?:risks?|drawbacks?|harms?|costs?|dangers?|downsides?)"),
+    (r"(?:risks?|drawbacks?|harms?|dangers?|downsides?)", r"benefits?"),
+    (r"advantages?", r"disadvantages?"),
+    (r"disadvantages?", r"advantages?"),
+    (r"strengths?", r"(?:weaknesses|limitations)"),
+    (r"positives?", r"negatives?"),
+    (r"positive", r"negative"),
+    (r"upsides?", r"downsides?"),
+    (r"for", r"against"),
+    (r"(?:supporters?|proponents?)", r"(?:critics?|opponents?|detractors?|skeptics?|sceptics?)"),
+    (r"praise", r"criticism"),
+)
+_DEBATE_STANDALONE: tuple[str, ...] = (
+    r"debate[sd]?",
+    r"controvers(?:y|ial|ies)",
+    r"contested",
+    r"both\s+sides",
+    r"two\s+sides",
+    r"either\s+side",
+    r"divided\s+(?:opinion|views?|evidence)",
+    r"case\s+for\s+and\s+(?:the\s+)?case\s+against",
+)
+_DEBATE_RE = re.compile(
+    "|".join(
+        [rf"\b{a}\s+{_DEBATE_CONNECTIVE}\s+(?:the\s+)?(?:potential\s+)?{b}\b" for a, b in _DEBATE_PAIR_TERMS]
+        + [rf"\b{w}\b" for w in _DEBATE_STANDALONE]
+    ),
+    re.IGNORECASE,
+)
+
+
+def two_sided_debate_enabled() -> bool:
+    """``PG_TWO_SIDED_DEBATE`` kill-switch (default OFF, LAW VI). OFF => the con-side retrieval guarantee
+    and the composition-side disclosure are both no-ops => byte-identical."""
+    return os.getenv("PG_TWO_SIDED_DEBATE", "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def is_debate_question(text: str) -> bool:
+    """True iff ``text`` (a question or a section title+focus) is DEBATE-framed — it asks for both sides
+    of a disagreement. Precision-first: matches an explicit opposition pair joined by and/or/vs/versus,
+    or a standalone debate word. Pure; the SHARED detector consumed by the retrieval-side con guarantee
+    (here) and the composition-side debate-section detector (``multi_section_generator``)."""
+    return bool(_DEBATE_RE.search(str(text or "")))
+
+
+def _angle_lenses_for(n_angles: int, debate_active: bool) -> tuple[tuple[str, str], ...]:
+    """The angle lenses to emit for a facet. Default = ``_ANGLE_LENSES[:n_angles]`` (byte-identical).
+    When ``debate_active`` (``PG_TWO_SIDED_DEBATE`` ON + debate-framed question), the ``counter_evidence``
+    lens is GUARANTEED present even if the budget would have truncated it — the con side must be
+    retrieved for a debate query. Additive only; the base slice order is preserved."""
+    lenses = list(_ANGLE_LENSES[:n_angles])
+    if debate_active and not any(label == _COUNTER_EVIDENCE_LABEL for label, _ in lenses):
+        ce = next((l for l in _ANGLE_LENSES if l[0] == _COUNTER_EVIDENCE_LABEL), None)
+        if ce is not None:
+            lenses.append(ce)
+    return tuple(lenses)
+
+
 @dataclass
 class Facet:
     """One expert facet of the research question plus the angle queries derived from it."""
@@ -127,17 +207,22 @@ def _question_anchor(question: str) -> str:
     return " ".join(words[:8]).strip() or (question or "").strip()
 
 
-def _facet_angle_queries(facet_name: str, anchor: str, n_angles: int) -> list[str]:
+def _facet_angle_queries(
+    facet_name: str, anchor: str, n_angles: int, debate_active: bool = False,
+) -> list[str]:
     """Emit up to ``n_angles`` distinct facet-ANGLE queries for one facet, each scope-anchored.
 
     Each query = ``{facet} {angle lens} {question anchor}`` — the facet supplies the sub-topic, the
     lens supplies the vantage point (mechanism / stakeholder / counter-evidence / temporal /
     geographic), and the anchor keeps it inside the question's subject so it cannot generalise into
     the facet's broad field. Duplicate collapse is case-insensitive.
+
+    Wave-2d: when ``debate_active`` the ``counter_evidence`` lens is guaranteed emitted (con-side
+    retrieval for a debate query); ``debate_active=False`` (default / flag OFF) => byte-identical.
     """
     out: list[str] = []
     seen: set[str] = set()
-    for label, lens in _ANGLE_LENSES[:n_angles]:
+    for label, lens in _angle_lenses_for(n_angles, debate_active):
         # facet first (primary subject), then the angle lens, then the scope anchor.
         q = f"{facet_name} {lens} {anchor}".strip()
         q = re.sub(r"\s+", " ", q)
@@ -179,6 +264,9 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
     cap = _max_facets()
     n_angles = _angles_per_facet()
     anchor = _question_anchor(question)
+    # Wave-2d (#1344): guarantee the counter_evidence angle for a debate-framed question when
+    # PG_TWO_SIDED_DEBATE is ON. Default OFF => debate_active is False => byte-identical.
+    debate_active = two_sided_debate_enabled() and is_debate_question(question)
 
     facet_names: list[str] = []
     try:
@@ -207,7 +295,7 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
 
     facets: list[Facet] = []
     for name in facet_names:
-        queries = _facet_angle_queries(name, anchor, n_angles)
+        queries = _facet_angle_queries(name, anchor, n_angles, debate_active)
         if queries:
             facets.append(Facet(name=name, queries=queries))
     return facets

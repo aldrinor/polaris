@@ -4858,6 +4858,124 @@ def _make_group_redraft_fn(evidence_pool: dict) -> "Callable[..., str]":
     return _redraft
 
 
+# ── I-deepfix-001 Wave-2d (#1344) — TWO-SIDED DEBATE disclosure ───────────────────────────────────
+#
+# DeepTRACE One-Sided (#1) / Overconfident (#2): a DEBATE-framed section ("benefits and risks",
+# "pros and cons", "positive vs negative views") that renders only the majority (pro) side scores
+# one-sided. The con side is already PLACED by existing machinery — B1
+# (``PG_DEBATE_CON_BASKET_CONSOLIDATION``, default-ON) consolidates the refuter con-basket into the
+# section compose set (``_section_baskets_for_compose``) and ``_compose_section_per_basket`` composes
+# every basket per-clause-verified against its OWN basket-scoped pool. Wave-2d never composes a con
+# clause; it INSPECTS the composed units and, for a debate-framed section that carries a verified PRO
+# clause but NO verified CON clause (the con side genuinely absent / unverifiable), appends an HONEST
+# marker-less asymmetry disclosure. It NEVER fabricates a con, NEVER asserts an ungrounded balancing
+# claim (under-relax is safe; fabricating balance is the lethal direction). The faithfulness engine is
+# byte-untouched — the disclosure renders after strict_verify (``render_degraded_disclosures``), is
+# never verified prose, never counted as support. Default OFF (``PG_TWO_SIDED_DEBATE``) => no-op =>
+# byte-identical.
+_TWO_SIDED_DEBATE_ENV = "PG_TWO_SIDED_DEBATE"
+_TWO_SIDED_DEBATE_DISCLOSURE_PREFIX = "[no verified counter-evidence"
+# The evidence_id inside a ``[#ev:<id>:<start>-<end>]`` provenance token (the shape strict_verify emits).
+_EV_ID_IN_TOKEN_RE = re.compile(r"\[#ev:([A-Za-z0-9_]+):\d+-\d+\]")
+
+
+def _two_sided_debate_enabled() -> bool:
+    """``PG_TWO_SIDED_DEBATE`` kill-switch (default OFF, LAW VI). OFF => the debate disclosure pass is
+    never entered => byte-identical."""
+    return os.getenv(_TWO_SIDED_DEBATE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _is_debate_section(section: Any) -> bool:
+    """True iff the section's PLAN framing (``title`` + ``focus``) asks for both sides — pro/con,
+    benefits/risks, positive vs negative, for/against. Uses the SHARED
+    ``expert_facet_planner.is_debate_question`` detector; reads the plan framing, NEVER the composed
+    content (per the brief: not a content guess). Fail-soft False on any import error."""
+    try:
+        from src.polaris_graph.retrieval.expert_facet_planner import (  # noqa: PLC0415
+            is_debate_question,
+        )
+    except Exception:  # noqa: BLE001 — detector unavailable => never debate (byte-identical)
+        return False
+    title = str(getattr(section, "title", "") or "")
+    focus = str(getattr(section, "focus", "") or "")
+    return is_debate_question(f"{title} {focus}".strip())
+
+
+def _debate_con_cluster_ids(section_baskets: list) -> set:
+    """The con-side claim_cluster_ids for the section = the clusters the SELECTED (pro) baskets REFUTE
+    (``refuter_cluster_ids``) — the certified-contradiction signal the detector produced, the SAME one
+    B1 consolidates and M6's "; in contrast, " connective is licensed by. NEVER a content guess about
+    which basket is "con". Reuses ``debate_consolidation.referenced_con_cluster_ids``; fail-soft empty."""
+    try:
+        from src.polaris_graph.generator.debate_consolidation import (  # noqa: PLC0415
+            referenced_con_cluster_ids,
+        )
+        return set(referenced_con_cluster_ids(section_baskets or []))
+    except Exception:  # noqa: BLE001 — no con signal => treated as con-absent (honest disclosure path)
+        return set()
+
+
+def _con_evidence_ids(section_baskets: list, con_cluster_ids: set) -> set:
+    """The ``supporting_members`` evidence_ids of the section's con-baskets (those whose
+    ``claim_cluster_id`` is a refuted con cluster). These are the ids a composed con clause cites in its
+    ``[#ev]`` tokens. Empty when there is no con basket in the section."""
+    ids: set = set()
+    if not con_cluster_ids:
+        return ids
+    for b in (section_baskets or []):
+        ccid = str(getattr(b, "claim_cluster_id", "") or "")
+        if ccid and ccid in con_cluster_ids:
+            for m in (getattr(b, "supporting_members", None) or []):
+                eid = str(getattr(m, "evidence_id", "") or "")
+                if eid:
+                    ids.add(eid)
+    return ids
+
+
+def _unit_evidence_ids(text: str) -> set:
+    """The distinct evidence_ids cited by the ``[#ev:<id>:...]`` provenance tokens in a composed unit."""
+    return set(_EV_ID_IN_TOKEN_RE.findall(text or ""))
+
+
+def _two_sided_debate_asymmetry_disclosure(section: Any) -> str:
+    """The honest, marker-less asymmetry disclosure for a one-sided debate section. Names the section
+    subject; carries NO ``[#ev]`` token, NO numeric claim, NO invented con content — the same
+    faithfulness class as the existing gap / degraded-verify disclosures. ``[``-prefixed (redactor
+    no-touch)."""
+    subject = str(getattr(section, "focus", "") or getattr(section, "title", "") or "this question")
+    subject = " ".join(subject.split())
+    return f"{_TWO_SIDED_DEBATE_DISCLOSURE_PREFIX} was found for: {subject[:160]}]"
+
+
+def _maybe_two_sided_debate_disclosure(
+    section: Any, section_baskets: list, real_units: list, degraded_disclosures: list,
+) -> list:
+    """For a DEBATE-framed section, disclose the evidence asymmetry when a verified PRO clause is present
+    but NO verified CON clause is. Returns the (possibly-augmented) ``degraded_disclosures`` list — a NEW
+    list; never mutates the input, never touches ``real_units`` (it only READS the composed units'
+    provenance tokens). NEVER fabricates a con clause: the only thing it can add is one honest marker-less
+    disclosure string. When both sides are present, or no verified (pro) unit exists (a gap section), the
+    disclosures list is returned unchanged."""
+    con_cluster_ids = _debate_con_cluster_ids(section_baskets)
+    con_ev_ids = _con_evidence_ids(section_baskets, con_cluster_ids)
+    has_pro = False
+    has_con = False
+    for unit in (real_units or []):
+        uids = _unit_evidence_ids(unit)
+        if not uids:
+            continue  # a token-less unit (e.g. a held-aside disclosure) is neither a pro nor con clause
+        if con_ev_ids and (uids & con_ev_ids):
+            has_con = True
+        if uids - con_ev_ids:
+            has_pro = True
+    out = list(degraded_disclosures or [])
+    # The exact one-sided-pro case: a verified pro clause exists but no verified con clause. A gap
+    # section (no verified units at all) sets has_pro False => no noise disclosure is added.
+    if has_pro and not has_con:
+        out.append(_two_sided_debate_asymmetry_disclosure(section))
+    return out
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -5179,6 +5297,19 @@ async def _run_section(
         # PG_DEGRADED_VERIFY_DISCLOSURE is OFF no such label is ever produced => partition is a no-op =>
         # byte-identical.
         _vc_real_units, _vc_degraded_disclosures = partition_composed_disclosures(_vc_composed)
+        # I-deepfix-001 Wave-2d (#1344): TWO-SIDED DEBATE. For a DEBATE-framed section (plan framing,
+        # not a content guess) that composed a verified PRO clause but NO verified CON clause, DISCLOSE
+        # the evidence asymmetry honestly. The con side is already CONSOLIDATED into _vc_baskets by B1
+        # (refuter_cluster_ids) + composed per-basket, each clause verified against its OWN basket-scoped
+        # pool (unchanged); this pass only INSPECTS the composed real units' [#ev] tokens and appends a
+        # marker-less disclosure to the held-aside list, which renders AFTER strict_verify via
+        # render_degraded_disclosures (never verified prose, never counted as support). It NEVER
+        # fabricates a con and NEVER asserts an ungrounded balancing claim (fabricating balance is the
+        # lethal direction). Default OFF (PG_TWO_SIDED_DEBATE) => the guard is False => byte-identical.
+        if _two_sided_debate_enabled() and _is_debate_section(section):
+            _vc_degraded_disclosures = _maybe_two_sided_debate_disclosure(
+                section, _vc_baskets, _vc_real_units, _vc_degraded_disclosures,
+            )
         raw = "\n".join(c for c in _vc_real_units if c and c.strip())
         # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
         # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
