@@ -2510,6 +2510,90 @@ def _contains_boxc_render_chrome(text: str) -> bool:
     return _is_boxc_non_english(s)
 
 
+# I-deepfix-001 (#1344) FF1-CHROME v2: the FOUR NEW page-furniture vocabularies the enumerated
+# containment denylist never enumerated (recurrence of the I-wire-013 blind-predicate class on
+# unlisted surface vocabularies) — service/dead-fetch interstitial · OpenAlex/entity-portal record
+# scaffold · "Name - Honorific" bare byline directory stub · "Publication date:"/bare NN:N masthead.
+# High-precision / structure-anchored / cited-finding-guarded. Detector-only (FLAG-not-drop); the
+# faithfulness engine (strict_verify / NLI / D8 / provenance / span-grounding) is UNCHANGED.
+# v2 (Codex+Fable build-gate precision fix): the v1 RULE 1 used an UNANCHORED `_SERVICE_OFFLINE_RE.search`
+# whose narrow `_has_attributed_cited_finding` guard (needs a [N] citation AND a finding VERB — the
+# copula "is" is not one) could NOT rescue a substantive cited finding that merely CONTAINS an outage
+# phrase, so real claims like "Public employment service is unavailable in 37 percent of rural districts
+# [7]." were over-dropped (the P1). v2 WHOLE-UNIT anchors RULE 1 (^…$ over the cite-stripped core) and
+# adds the same KEEP guard to RULE 4 (the P2 bare-NN:N collision), so a real cited finding is NEVER
+# dropped — precision-first per the operator-locked drop-path law (§-1.3).
+_SERVICE_OFFLINE_RE = re.compile(
+    r"^(?:this\s+)?(?:journal|site|website|server|service|page|content|portal|database|repository|domain)"
+    r"\s+is\s+(?:currently\s+|temporarily\s+)?(?:offline|unavailable|down|under\s+maintenance|not\s+available)\s*[.!?]*$"
+    r"|^service\s+(?:temporarily\s+)?unavailable\s*[.!?]*$"
+    r"|^this\s+site\s+can[’']?t\s+be\s+reached\s*[.!?]*$",
+    re.IGNORECASE,
+)
+_PORTAL_RECORD_SCAFFOLD_RE = re.compile(
+    r"DetailsLocations"
+    r"|Year\s*:\s*(?:19|20)\d{2}\s+Type\s*:\s*\w+\s+Abstract\s*:"
+    r"|Type\s*:\s*article\s+Abstract\s*:"
+    r"|Cited\s+by\s+\d+\s+Related\s+works",
+    re.IGNORECASE,
+)
+_BYLINE_HONORIFIC_RE = re.compile(
+    r"^[A-Z][A-Za-z.'’-]+(?:\s+[A-Z][A-Za-z.'’-]+){0,3}\s+[-–—]\s+"
+    r"(?:Mr|Mrs|Ms|Mx|Miss|Dr|Prof|Professor|Sir|Dame|Rev)\.?$"
+)
+_PUB_DATE_MASTHEAD_RE = re.compile(
+    r"(?<!the\s)\bPublication\s+date\b\s*:?\s*"
+    r"(?:(?:19|20)\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:19|20)\d{2})",
+    re.IGNORECASE,
+)
+_MASTHEAD_COSIGNAL_RE = re.compile(
+    r"(?<!\d)\d{1,3}\s*:\s*\d{1,3}(?!\d)|Document Version|Published in|\bDOI\s*10\.|\bISSN\b",
+    re.IGNORECASE,
+)
+
+
+def _contains_portal_masthead_status_chrome(text: str) -> bool:
+    """True iff ``text`` is one of the four NEW page-furniture vocabularies (FF1-CHROME) the
+    enumerated containment denylist never enumerated: (1) a service/dead-fetch interstitial
+    ("This journal is currently offline.") — WHOLE-UNIT anchored AND cited-finding-guarded; (2) an
+    OpenAlex/entity-portal record scaffold ("…DetailsLocations Year: NNNN Type: article Abstract: …");
+    (3) a bare "Name - Honorific" byline/directory stub; (4) a "Publication date: <Month YYYY>"
+    masthead paired with a bare "NN:N" volume:issue (or DOI/ISSN/Document-Version) co-signal AND
+    cited-finding-guarded. High-precision / structure-anchored — detector-only (FLAG-not-drop); it
+    never strips a substantive finding. Precision-first per the operator-locked drop-path law (§-1.3).
+    Reuses ``_TRAILING_CITE_STRIP_RE`` and the ``_has_attributed_cited_finding`` KEEP guard so a real
+    cited finding is never dropped."""
+    s = text
+    # The cite-stripped, whitespace-trimmed unit — the whole-unit anchor surface for RULEs 1 and 3.
+    core = _TRAILING_CITE_STRIP_RE.sub("", text.strip()).strip()
+    # RULE 1 — service/dead-fetch interstitial. WHOLE-UNIT anchored (Codex+Fable P1 over-strip fix): the
+    # interstitial must BE the entire unit (after stripping a trailing [N] + terminal punctuation), so a
+    # substantive cited finding that merely CONTAINS an outage phrase ("Public employment service is
+    # unavailable in 37 percent of rural districts [7].") is NEVER dropped. The narrow
+    # `_has_attributed_cited_finding` guard is kept as a second KEEP layer (it only ever relaxes a drop).
+    if _SERVICE_OFFLINE_RE.search(core) and not _has_attributed_cited_finding(s):
+        return True
+    # RULE 2 — OpenAlex/entity-portal record scaffold (glued UI-button token / Year:/Type:/Abstract:
+    # field-ladder); no guard needed (no author writes these text-extraction artifacts).
+    if _PORTAL_RECORD_SCAFFOLD_RE.search(s):
+        return True
+    # RULE 3 — bare "Name - Honorific" byline/directory stub; whole-unit ^…$ anchored with the
+    # honorific as the TERMINAL token (keeps "Ms. Parikh testified that … [9]").
+    if _BYLINE_HONORIFIC_RE.match(core):
+        return True
+    # RULE 4 — masthead "Publication date: <Month YYYY>" + a bare volume:issue / DOI / ISSN /
+    # Document-Version co-signal (dual-signal). The (?<!the\s) lookbehind + required co-signal + the
+    # `_has_attributed_cited_finding` KEEP guard (Codex+Fable P2 fix) keep a real cited claim that
+    # recites a publication date ("Publication date: March 2021 the study found a 2:1 response ratio [5].").
+    if (
+        _PUB_DATE_MASTHEAD_RE.search(s)
+        and _MASTHEAD_COSIGNAL_RE.search(s)
+        and not _has_attributed_cited_finding(s)
+    ):
+        return True
+    return False
+
+
 def _contains_forensic_chrome(text: str) -> bool:
     """True iff ``text`` CONTAINS page-furniture chrome (not only IS chrome). The CONTAINMENT
     unblinding ported from scripts/iwire013_sec11_forensic_audit.py, tightened for this drop path
@@ -2572,6 +2656,12 @@ def _contains_forensic_chrome(text: str) -> bool:
     # size inventory · bibliographic recital · ToC trailing-page heading · heading-glued-to-prose ·
     # repetition marker · predominantly non-English (Vietnamese) heading. High-precision / anchored.
     if _contains_boxc_render_chrome(s):
+        return True
+    # I-deepfix-001 #1344 FF1-CHROME v2: the four NEW furniture vocabularies the enumerated denylist
+    # never enumerated — service/dead-fetch interstitial · OpenAlex/entity-portal record scaffold ·
+    # "Name - Honorific" bare byline stub · "Publication date:"/bare NN:N masthead. WHOLE-UNIT anchored /
+    # cited-finding-guarded (precision-first §-1.3); detector-only (FLAG-not-drop).
+    if _contains_portal_masthead_status_chrome(s):
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)
