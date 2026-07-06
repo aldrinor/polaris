@@ -1,0 +1,15 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "PG_SYNTH_PRIMARY routing is real, but the fix plan is not launch-closed: the 'turn PG_VERIFIED_COMPOSE_MULTICITED off under synth-primary' option must explicitly preserve an equally strict verified/provenance path for >=2-source baskets. Also reconcile the canary with any 'single-source-only' scope decision."
+  - "QUAD/allowlist coverage is incomplete in the ordered backlog for support flags: PG_SUBENTITY_QUERY_EXPANSION lacks explicit _WINNER_FLAG_ALLOWLIST wiring, PG_SHALLOW_REPORT_CANARY is added to the slate without force/preflight/allowlist, and dependency flags need the same allowlist treatment. Slate-purity makes this a real launch-blocking risk."
+p2:
+  - "Cross-source, numeric, and min-cite canaries should record degraded=false/input-threaded/build-ok fields so a marker cannot mask a silent degraded path."
+finding_sound: true
+fix_plan_complete: false
+any_fix_relaxes_faithfulness: false
+synth_primary_routing_correct: true
+span_resolver_correction_correct: true
+convergence_call: continue
+notes: "Core dark-flag finding is sound; span-resolver removal plus inverted canary is correct; no proposed fix should touch the faithfulness engine."
