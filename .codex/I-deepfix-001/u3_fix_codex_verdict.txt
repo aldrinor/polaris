@@ -1,0 +1,13 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "File-access gate incomplete: every local shell read failed with CreateProcessWithLogonW 1326, so I could not verify the checked-out files, surrounding line context, in-process run_gate_b plumbing, or byte-unchanged faithfulness code. Diff-level review found no source-level P0/P1, but this gate cannot approve on diff-only evidence."
+p2: []
+transport_fix_correct: false
+provenance_telemetry_only: false
+off_byte_identical: false
+debate_false_fail_fixed: false
+faithfulness_untouched: false
+convergence_call: continue
+notes: "Retry with working file access; supplied diff/test are internally coherent."

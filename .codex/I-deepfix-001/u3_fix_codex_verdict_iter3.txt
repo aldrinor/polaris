@@ -1,0 +1,12 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+transport_fix_correct: true
+provenance_telemetry_only: true
+off_byte_identical: true
+debate_false_fail_fixed: true
+faithfulness_untouched: true
+convergence_call: accept_remaining
+notes: Inlined evidence verifies the prior blockers: sweep is in-process, root capture is per-query and detached, OFF path is guarded, provenance change is telemetry-only, and debate summary is unconditional on flag-ON.
