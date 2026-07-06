@@ -1584,6 +1584,43 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # plumbing on the safe docling->PyMuPDF PDF path. mineru25 firing + its crash-isolation (subprocess/
     # hard-kill) is the queued fix before the paid run. Gate-B model-loading runs land on the GPU VM per
     # the VM-only run policy.
+    # I-deepfix-001 (#1344) WAVE-3a U4 — ACTIVATE the deep-research CORE path: turn the 7 dark capability
+    # modules + 2 fail-loud canaries + the promoted sub-entity expander + their 4 dependency flags ON for
+    # the paid Gate-B run. Each of the 14 is slate "1" HERE + _BENCHMARK_FORCE_ON_FLAGS (a stray operator/
+    # .env =0 cannot survive the setdefault slate) + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-CLOSED pre-
+    # spend) + _WINNER_FLAG_ALLOWLIST (SLATE-PURITY). Each module already has its routing (U1), [activation]
+    # fire-marker (U2) and the activation canary (U3) committed; THIS unit flips the flags. §-1.3 DNA-ALIGNED
+    # (WEIGHT-and-CONSOLIDATE surfaces — NO cap/target/thinner); FAITHFULNESS-NEUTRAL (every surfaced / re-
+    # anchored / synthesized claim re-passes the UNCHANGED strict_verify / NLI / 4-role D8 / provenance /
+    # span-grounding chokepoint; the FROZEN faithfulness engine is byte-untouched).
+    "PG_CROSS_SOURCE_BODY": "1",              # plan-driven candidate pairing (cross_source_synthesis)
+    "PG_NUMERIC_COMPARATOR": "1",             # upgrade fully-comparable NEUTRAL pair -> comparison connective
+    "PG_PROVENANCE_REANCHOR": "1",            # re-anchor wrongly-cited claim to best ENTAILING span (argmax)
+    "PG_SYNTH_PRIMARY": "1",                  # compose-then-verify PRIMARY body for corroborated baskets
+    "PG_FINDING_DEDUP_NLI": "1",              # directional bidirectional-entailment same-claim grouping (Wave-1b)
+    "PG_MIN_CITE_SET": "1",                   # minimal INLINE cite set vs weight-channel demotion (keep-all)
+    "PG_TWO_SIDED_DEBATE": "1",               # two-leg debate disclosure + con-side retrieval guarantee
+    # PROMOTE: PG_SUBENTITY_QUERY_EXPANSION was an ad-hoc os.environ.setdefault in apply_full_capability_
+    # benchmark_slate (operator/.env =0 WON). CONSCIOUS LAW VI POLICY FLIP: it is now a FORCED winner like
+    # the other coverage levers (precedent: the FORCE_ON coverage-lever group). WIDEN-ONLY SUPERSET,
+    # FAITHFULNESS-NEUTRAL (§-1.3): only ADDS scope-anchored queries; every added query routes through the
+    # UNCHANGED fetch -> classify_source_tier -> strict_verify chokepoint. setdefault removed at call site.
+    "PG_SUBENTITY_QUERY_EXPANSION": "1",      # R2 sub-entity / STORM-perspective query expansion (PROMOTED)
+    # DEPENDENCY flags (each DEFAULT-ON in code) — pinned "1" so the parent capability never silently no-ops:
+    "PG_CORROBORATION_LAYER2_CITE": "1",      # dep of PG_MIN_CITE_SET (default-ON; explicit pin)
+    "PG_CITATION_TWO_LAYER_POLICY": "1",      # dep of PG_MIN_CITE_SET (two-layer citation render; default-ON)
+    "PG_FINDING_DEDUP_QUALITATIVE": "1",      # dep of PG_FINDING_DEDUP_NLI (qualitative-basket pass; default-ON)
+    "PG_CONSOLIDATION_NLI_QUALITATIVE": "1",  # dep of PG_FINDING_DEDUP_NLI (qualitative-NLI union; default-ON)
+    # fail-loud DETECTOR canaries (opt-in DEFAULT-OFF in code) — ARMED for the activation-validation run:
+    "PG_SHALLOW_REPORT_CANARY": "1",          # Wave-1d shallow-report fail-loud detector
+    "PG_ACTIVATION_CANARY": "1",              # Wave-3a activation fail-loud detector (parses [activation] markers)
+    # LOG-LEVEL SAFETY (Fable U3 P2): the activation canary reads module-logger [activation] markers, which
+    # run_honest_sweep_r3.py logs at INFO (logging.basicConfig level=os.environ.get("PG_LOG_LEVEL","INFO")).
+    # A stray operator PG_LOG_LEVEL=WARNING would SUPPRESS every info-level marker -> the canary would
+    # false-fail. Force-EXACT "INFO" (in _BENCHMARK_FORCE_EXACT_FLAGS + allowlisted) so markers are never
+    # suppressed on the benchmark run. Non-numeric string pin => SLATE-PURITY requires the allowlist entry.
+    # Observability-only; touches no faithfulness path.
+    "PG_LOG_LEVEL": "INFO",                   # pin log level so [activation] INFO markers are never suppressed
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1817,6 +1854,25 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",
     "PG_FACT_DEDUP_EXACT_INTRASECTION",
     "PG_RUN_VALIDITY_GATE",
+    # I-deepfix-001 (#1344) WAVE-3a U4 — fail-CLOSED before spend if any of the 14 ACTIVATED core-path
+    # flags is off: the 7 dark capability modules, the promoted sub-entity expander, the 4 default-ON
+    # dependency flags, and the 2 fail-loud canaries. Force-ON above, so a stray operator =0 fails the run
+    # CLOSED here. Booleans -> safe in this truthy-required tuple (os.getenv=="1"). Requiring the canaries
+    # truthy guarantees the validation run is ARMED. §-1.3 PIN-only; faithfulness engine UNTOUCHED.
+    "PG_CROSS_SOURCE_BODY",
+    "PG_NUMERIC_COMPARATOR",
+    "PG_PROVENANCE_REANCHOR",
+    "PG_SYNTH_PRIMARY",
+    "PG_FINDING_DEDUP_NLI",
+    "PG_MIN_CITE_SET",
+    "PG_TWO_SIDED_DEBATE",
+    "PG_SUBENTITY_QUERY_EXPANSION",
+    "PG_CORROBORATION_LAYER2_CITE",
+    "PG_CITATION_TWO_LAYER_POLICY",
+    "PG_FINDING_DEDUP_QUALITATIVE",
+    "PG_CONSOLIDATION_NLI_QUALITATIVE",
+    "PG_SHALLOW_REPORT_CANARY",
+    "PG_ACTIVATION_CANARY",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2045,6 +2101,26 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",
     "PG_FACT_DEDUP_EXACT_INTRASECTION",
     "PG_RUN_VALIDITY_GATE",
+    # I-deepfix-001 (#1344) WAVE-3a U4 — force-ON the 7 dark deep-research capability modules + the 2
+    # fail-loud canaries + the PROMOTED sub-entity expander + the 4 default-ON dependency flags so a stray
+    # operator/.env =0 cannot survive the setdefault slate and silently leave the ACTIVATED core path dark
+    # on the paid run. Each is a slate "1" member above + preflight-required below + allowlisted (SLATE-
+    # PURITY). §-1.3 DNA-ALIGNED (WEIGHT-and-CONSOLIDATE; NO cap/target/thinner); FAITHFULNESS-NEUTRAL
+    # (every surfaced / re-anchored / synthesized claim re-passes the UNCHANGED strict_verify chokepoint).
+    "PG_CROSS_SOURCE_BODY",
+    "PG_NUMERIC_COMPARATOR",
+    "PG_PROVENANCE_REANCHOR",
+    "PG_SYNTH_PRIMARY",
+    "PG_FINDING_DEDUP_NLI",
+    "PG_MIN_CITE_SET",
+    "PG_TWO_SIDED_DEBATE",
+    "PG_SUBENTITY_QUERY_EXPANSION",       # PROMOTED from ad-hoc setdefault (conscious LAW VI policy flip)
+    "PG_CORROBORATION_LAYER2_CITE",       # dep of PG_MIN_CITE_SET (default-ON; force so parent never no-ops)
+    "PG_CITATION_TWO_LAYER_POLICY",       # dep of PG_MIN_CITE_SET (default-ON)
+    "PG_FINDING_DEDUP_QUALITATIVE",       # dep of PG_FINDING_DEDUP_NLI (default-ON)
+    "PG_CONSOLIDATION_NLI_QUALITATIVE",   # dep of PG_FINDING_DEDUP_NLI (default-ON)
+    "PG_SHALLOW_REPORT_CANARY",           # Wave-1d shallow-report fail-loud detector (armed for validation)
+    "PG_ACTIVATION_CANARY",               # Wave-3a activation fail-loud detector (armed for validation)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2200,6 +2276,13 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_EMBED_MODEL",                     # K12 live relevance embedder id (= Qwen3-Embedding-8B)
     "PG_ENTAILMENT_MODEL",                # gemma-pin: live NLI / semantic-conflict judge (= glm-5.2)
     "PG_EVALUATOR_MODEL",                 # gemma-pin: external evaluator (= glm-5.2)
+    # I-deepfix-001 (#1344) WAVE-3a U4 LOG-LEVEL SAFETY (Fable U3 P2): the activation canary parses the
+    # module-logger [activation] markers, which run_honest_sweep_r3.py logs at INFO
+    # (logging.basicConfig level=os.environ.get("PG_LOG_LEVEL","INFO")). A stray operator PG_LOG_LEVEL=
+    # WARNING would SUPPRESS every info-level marker and the canary would false-fail. Force-EXACT "INFO"
+    # (non-numeric STRING => the numeric-FLOOR path would crash on float("INFO"); it is a slate-dict member
+    # so apply_slate hard-sets it) + allowlisted for SLATE-PURITY. Observability-only; faithfulness-neutral.
+    "PG_LOG_LEVEL",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -2426,7 +2509,7 @@ def firing_marker_contract_substrings() -> dict[str, str]:
 # survived ..." when eligible pairs existed but nothing survived per-clause re-verify. The stems below
 # are the stable literals in those two producer lines.
 _CROSS_SOURCE_FIRED_MARKER = "[cross_source_synthesis] composed"
-_CROSS_SOURCE_SILENT_NOOP_MARKER = "anchored cross-source pair(s) but 0 analytical units survived"
+_CROSS_SOURCE_SILENT_NOOP_MARKER = "candidate cross-source pair(s) but 0 analytical units survived"
 
 
 def assert_cross_source_synthesis_fired(log_text: str) -> None:
@@ -3193,6 +3276,27 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH",   # metric-mismatch out of headline contradiction count
     "PG_FACT_DEDUP_EXACT_INTRASECTION",      # exact-duplicate intra-section consolidation (keep-all)
     "PG_RUN_VALIDITY_GATE",                  # validity: render-validity master gate (fail-closed do-not-ship)
+    # ── I-deepfix-001 (#1344) WAVE-3a U4 — the ACTIVATED deep-research core path (winner-or-infra: WINNERS) ──
+    # The 7 dark capability modules + the promoted sub-entity expander + their 4 dependency flags + the 2
+    # fail-loud detectors + the log-level observability pin, force-ON / force-EXACT above. Each is the DRB-II
+    # ACTIVATION machinery or its dependency / detector / observability pin — a conscious 'winner or infra?'
+    # decision, allowlisted deliberately so the clean slate PASSES SLATE-PURITY while a future re-introduced
+    # loser still fails CLOSED. §-1.3 weight-and-consolidate; FAITHFULNESS-NEUTRAL.
+    "PG_CROSS_SOURCE_BODY",                  # plan-driven candidate pairing (cross_source_synthesis)
+    "PG_NUMERIC_COMPARATOR",                 # NEUTRAL -> comparison connective upgrade
+    "PG_PROVENANCE_REANCHOR",                # re-anchor wrongly-cited claim to best ENTAILING span (argmax)
+    "PG_SYNTH_PRIMARY",                      # compose-then-verify PRIMARY body for corroborated baskets
+    "PG_FINDING_DEDUP_NLI",                  # directional bidirectional-entailment same-claim grouping
+    "PG_MIN_CITE_SET",                       # minimal INLINE cite set vs weight-channel demotion (keep-all)
+    "PG_TWO_SIDED_DEBATE",                   # two-leg debate disclosure + con-side retrieval guarantee
+    "PG_SUBENTITY_QUERY_EXPANSION",          # R2 sub-entity / STORM-perspective query expansion (promoted winner)
+    "PG_CORROBORATION_LAYER2_CITE",          # dep of PG_MIN_CITE_SET
+    "PG_CITATION_TWO_LAYER_POLICY",          # dep of PG_MIN_CITE_SET
+    "PG_FINDING_DEDUP_QUALITATIVE",          # dep of PG_FINDING_DEDUP_NLI
+    "PG_CONSOLIDATION_NLI_QUALITATIVE",      # dep of PG_FINDING_DEDUP_NLI
+    "PG_SHALLOW_REPORT_CANARY",              # Wave-1d shallow-report fail-loud detector (observability)
+    "PG_ACTIVATION_CANARY",                  # Wave-3a activation fail-loud detector (observability)
+    "PG_LOG_LEVEL",                          # log-level pin so [activation] INFO markers are never suppressed (observability)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
@@ -3417,16 +3521,14 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     # for every other non-trigger reason. Config-only slate tests never call it, so they stay clean.
     # FAITHFULNESS-NEUTRAL: no faithfulness logic.
     # ─────────────────────────────────────────────────────────────────────────────────────────────
-    # ARM R2 (wiring audit — Codex+Fable, 2026-07-04): PG_SUBENTITY_QUERY_EXPANSION defaults "0"
-    # (sub_entity_query_expander.py:62) and was set NOWHERE in the effective run env, so the sub-entity +
-    # STORM-perspective query expansion was DEAD on the drb_72 run. Arm it here so
-    # sub_entity_expansion_enabled() -> True and widen_with_sub_entities fires
-    # (fs_researcher_query_gen.py:398-405). `setdefault` (NOT force) so an explicit operator/.env override
-    # still WINS (LAW VI). WIDEN-ONLY SUPERSET, FAITHFULNESS-NEUTRAL (§-1.3): it only ADDS scope-anchored
-    # queries to the frontier (a strict superset of the flag-OFF issued set) — no cap / target / thinner /
-    # drop; every added query routes through the UNCHANGED per_query_retrieve -> fetch ->
-    # classify_source_tier -> strict_verify chokepoint, and the FROZEN faithfulness engine is untouched.
-    os.environ.setdefault("PG_SUBENTITY_QUERY_EXPANSION", "1")
+    # ARM R2 PROMOTED to the QUAD — Wave-3a U4 (I-deepfix-001 #1344). The ad-hoc
+    # `os.environ.setdefault("PG_SUBENTITY_QUERY_EXPANSION", "1")` that lived HERE is REMOVED. The flag is
+    # now a FORCED winner: slate "1" + _BENCHMARK_FORCE_ON_FLAGS + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS +
+    # _WINNER_FLAG_ALLOWLIST (see the Wave-3a slate block). CONSCIOUS LAW VI POLICY FLIP: previously an
+    # operator/.env PG_SUBENTITY_QUERY_EXPANSION=0 WON (setdefault); it is now force-on for the benchmark
+    # like the other coverage levers (precedent: the FORCE_ON coverage-lever group). WIDEN-ONLY SUPERSET,
+    # FAITHFULNESS-NEUTRAL (§-1.3): it only ADDS scope-anchored queries; every added query routes through
+    # the UNCHANGED per_query_retrieve -> fetch -> classify_source_tier -> strict_verify chokepoint.
     # ─────────────────────────────────────────────────────────────────────────────────────────────
     # ARM L2 (wiring audit — Codex+Fable, 2026-07-04): PG_SUBTOPIC_ADDITIVE_FACTS defaults "0"
     # (verified_compose.py:560-567) and was set NOWHERE, so the additive distinct-fact pass (commit
