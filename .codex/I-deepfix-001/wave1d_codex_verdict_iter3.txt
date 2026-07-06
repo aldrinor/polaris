@@ -1,0 +1,11 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+structural_not_quantity: true
+off_byte_identical: true
+faithfulness_untouched: true
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+notes: "Iter-2 P1 withdrawn; the M6 return is unchanged and the added return belongs to the new guarded shallow canary."

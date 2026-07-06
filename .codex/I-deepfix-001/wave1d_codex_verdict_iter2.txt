@@ -1,0 +1,13 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "scripts/dr_benchmark/run_gate_b.py:_run_m6_firing_canary adds an unrelated success-path `return \"ok\"` outside the `PG_SHALLOW_REPORT_CANARY` guard. With shallow canary OFF but M6 enabled, `m6_cross_source_canary` changes from prior `null`/`None` to `\"ok\"`, so OFF is still not byte-identical for every other key."
+p2: []
+structural_not_quantity: true
+off_byte_identical: false
+faithfulness_untouched: true
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Remove the unrelated `_run_m6_firing_canary` success return from this Wave-1d diff, or prove it was already present in the pre-Wave-1d baseline."
+notes: "The two requested fixes are otherwise correct in the supplied diff: `test_sweep_record_key_is_guarded_off_byte_identical` locks guarded shallow key emission, and `test_no_data_path_records_skip_not_ok` locks missing/unreadable run_log as `skip:no-run-log`. Shell sandbox could not launch, so this review is against the provided clean diff."
