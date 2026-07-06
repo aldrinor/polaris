@@ -1,0 +1,46 @@
+diff --git a/src/polaris_graph/generator/numeric_comparator.py b/src/polaris_graph/generator/numeric_comparator.py
+index 456bea19..c7b39ddd 100644
+--- a/src/polaris_graph/generator/numeric_comparator.py
++++ b/src/polaris_graph/generator/numeric_comparator.py
+@@ -56,6 +56,23 @@ _NUMERIC_TAG = "numeric"
+ _VALUE_SLOT_INDEX = 3
+ _MIN_NUMERIC_KEY_LEN = 4  # tag, subject, predicate, value (nonclinical redesign is the shortest at 6)
+ 
++# Wave-3a (I-deepfix-001 #1344, clinical-safety): the LEGACY ``_normalized_key_numeric`` key is a fixed
++# 8-tuple ``("numeric", subject, predicate, value, unit, dose, arm, endpoint_phrase)`` and it carries a
++# NO-CUE arm as the non-blank DEFAULT ``"treatment"`` (contradiction_detector.py:1601, kept for OFF
++# byte-identity — Codex Slice-B P1). ``"treatment"`` is non-blank, so the blank guard in
++# ``_numeric_comparability_key`` does NOT catch it: two findings whose arm was NEVER positively extracted
++# (both defaulted to ``"treatment"``) would license a SAME-arm ``comparison`` that was never established —
++# the lethal over-relax. Mirror ``claim_graph._unknown_arm`` (which treats ``"treatment"`` AS UNKNOWN on
++# the redesign path): a legacy arm slot == ``"treatment"`` is UNKNOWN -> fail closed. The REDESIGN key
++# already singleton-forces a defaulted arm UPSTREAM (build_merge_key via _unknown_arm), so a redesign key
++# NEVER reaches the comparator carrying ``"treatment"`` -> this is a strict NO-OP on redesign keys and
++# closes the LEGACY path only. arm is the ONLY legacy discriminator with a non-blank unknown default
++# (dose / endpoint / etc. default to ``""`` — already caught by the blank guard; a defaulted "unknown"
++# subject is already sentinelled by ``_normalized_key_numeric`` itself).
++_LEGACY_NUMERIC_KEY_LEN = 8       # ("numeric", subject, predicate, value, unit, dose, arm, endpoint_phrase)
++_LEGACY_ARM_SLOT_INDEX = 6        # arm position in the full legacy 8-tuple
++_LEGACY_ARM_UNKNOWN_SENTINEL = "treatment"  # extractor no-cue arm default == UNKNOWN (claim_graph._unknown_arm)
++
+ _ENV_NUMERIC_COMPARATOR = "PG_NUMERIC_COMPARATOR"
+ 
+ 
+@@ -103,6 +120,17 @@ def _numeric_comparability_key(normalized_key: Any) -> Optional[tuple]:
+     for slot in discriminators[1:]:
+         if not str(slot).strip():
+             return None
++    # Wave-3a (clinical-safety, mirrors claim_graph._unknown_arm): the LEGACY key carries a NO-CUE arm as
++    # the non-blank sentinel ``"treatment"`` (index 6 of the fixed 8-tuple), which the blank guard above
++    # does NOT catch. Two arm-unknown findings both default to ``"treatment"``; licensing a comparison
++    # implies a same-arm claim that was NEVER positively established (the lethal over-relax). Fail closed on
++    # it. LEGACY key ONLY (len == 8): the redesign key already singleton-forces a defaulted arm upstream, so
++    # it never reaches here carrying ``"treatment"`` -> strict NO-OP on redesign keys.
++    if (
++        len(normalized_key) == _LEGACY_NUMERIC_KEY_LEN
++        and str(normalized_key[_LEGACY_ARM_SLOT_INDEX]).strip().lower() == _LEGACY_ARM_UNKNOWN_SENTINEL
++    ):
++        return None
+     return (discriminators, float(value))
+ 
+ 

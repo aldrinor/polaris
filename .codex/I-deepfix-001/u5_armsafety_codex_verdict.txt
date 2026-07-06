@@ -1,0 +1,12 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+stricter_not_looser: true
+no_paid_path_regression: true
+clinical_safety_correct: true
+off_byte_identical: true
+faithfulness_untouched: true
+convergence_call: continue
+notes: The new guard only returns None for legacy 8-tuples whose arm slot is the legacy unknown sentinel "treatment"; None propagates through license_numeric_comparison to no comparison. It does not add any new comparable case, does not touch redesign key lengths 6/14, remains dark unless PG_NUMERIC_COMPARATOR is consulted, and does not modify strict_verify or faithfulness code.
