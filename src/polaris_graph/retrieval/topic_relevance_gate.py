@@ -178,12 +178,50 @@ def _build_batch_prompt(
         "",
         f"RESEARCH QUESTION:\n{research_question.strip()}",
         "",
-        "For EACH numbered source below, decide whether it is ON-TOPIC for "
-        "the research question's subject domain. A source is OFF-TOPIC only "
-        "if it is clearly about a DIFFERENT subject (different disease, "
-        "different field, different population) — credible but irrelevant. "
-        "When in doubt, answer ON. Output exactly one line per source in the "
-        "form `<index>: ON` or `<index>: OFF`, nothing else.",
+        # I-deepfix-001 FF4-ASPECT (v2, forensic-corrected): FACET-SCOPED rubric
+        # (was entity-only) + a STRICT verdict-only output contract. An
+        # entity-only "different subject?" prompt is structurally blind to a
+        # same-entity / wrong-ASPECT source (e.g. a GenAI-in-education paper
+        # grounding a GenAI-labor-market question): the shared entity satisfies
+        # "not a different field" and the fail-open keeps it ON. The two-step
+        # rubric below makes the model name the question's SUBJECT ENTITY *and*
+        # its SPECIFIC ASPECT *silently* (internal reasoning only), then requires
+        # a source to bear on BOTH. It is domain-agnostic (LAW VI — the aspect is
+        # derived at runtime from the RESEARCH QUESTION; nothing domain-specific
+        # is hardcoded) and preserves the explicit fail-open.
+        #
+        # FORENSIC ADJUSTMENT #2 (off-topic fix_change_needed): the entity+aspect
+        # naming MUST stay INTERNAL and the output MUST be strictly one
+        # `<index>: ON|OFF` line per source and nothing else. Inline reasoning on
+        # a verdict line ("1: this is about L2 writing, OFF") is not recognised by
+        # _parse_batch_verdicts (below, unchanged) -> count mismatch -> the WHOLE
+        # batch fails OPEN, silently letting the off-aspect source survive. So the
+        # output contract is hardened here rather than the parser being relaxed.
+        "STEP 1 (do this SILENTLY — this reasoning must NOT appear anywhere in "
+        "your output): read the RESEARCH QUESTION and name to yourself its two "
+        "parts — the SUBJECT ENTITY it is about, and the SPECIFIC ASPECT it asks "
+        "about that entity (the outcome, relation, sub-domain, use-case, or "
+        "population the question is actually asking about).",
+        "",
+        "STEP 2 — for EACH numbered source below, mark it ON only if it plausibly "
+        "bears on BOTH the subject entity AND that specific aspect. A source about "
+        "the SAME entity but a DIFFERENT aspect / use-case / population than the "
+        "question asks about is OFF-TOPIC — same subject, wrong question. A source "
+        "about a clearly different subject entity (different field, disease, "
+        "population) is also OFF-TOPIC.",
+        "",
+        "Example (domain-neutral): if the question is about entity X and aspect A, "
+        "then a source about entity X but aspect B is OFF; a source about entity X "
+        "and aspect A is ON.",
+        "",
+        "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
+        "question's specific aspect, mark it ON. When in doubt, answer ON.",
+        "",
+        "OUTPUT CONTRACT (strict — the parser accepts nothing else): OUTPUT ONLY "
+        "THE VERDICT LINES, exactly one per source, each line EXACTLY in the form "
+        "`<index>: ON` or `<index>: OFF`. Do NOT write the entity or aspect names, "
+        "any reasoning, any explanation, or any other words — not on a verdict "
+        "line and not anywhere else in the output.",
         "",
         "SOURCES:",
     ]
