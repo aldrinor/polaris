@@ -389,6 +389,15 @@ class BasketMember:
     # (genuine-gap) value. Read ONLY by the ARM-B degraded-verify disclosure to separate a transient
     # judge OUTAGE from a genuine evidence gap; never rendered, never counted as support.
     entailment_judge_unavailable: bool = False
+    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): True iff this member's claim-local span
+    # (``direct_quote``) is page furniture / a dead-fetch shell / a truncated fragment, per the SAME
+    # shared render-seam predicate the basket-build chrome screen already runs. Default False so any
+    # legacy constructor that omits it is the safe (not-chrome) value. The downstream cross-source
+    # (``depth_synthesis``) member selection reads this DURABLE flag to hold a chrome member OUT of the
+    # corroboration set BEFORE the eligibility gate (the coverage forensic root: chrome member spans
+    # collapsed the depth pre-pass 3->0 and killed the one cross-source pair). Never rendered, never
+    # counted as support, never a faithfulness verdict; the member itself is KEPT (§-1.3 no-drop).
+    span_is_chrome: bool = False
 
 
 @dataclass
@@ -980,6 +989,12 @@ def _assemble_baskets(
             # additive seam stored on the member for the I-arch-011 keep-with-labels layer.
             verdict, member_tier, judge_unavailable = verdicts[_verdict_cursor]
             _verdict_cursor += 1
+            # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the per-member chrome flag, computed in the
+            # SUPPORTS branch below and carried DURABLY onto the member so the downstream cross-source
+            # (``depth_synthesis``) member selection can hold it out of the corroboration set BEFORE the
+            # eligibility gate. Reset per member; stays False for a non-SUPPORTS member (only isolated-
+            # SUPPORTS members flow to the cross-source synthesis, so no others need the flag).
+            _span_is_chrome = False
             if verdict == "SUPPORTS":
                 # I-deepfix-001 F1-STRUCTURAL (#1344): screen the member's claim-local span AND the
                 # cluster claim_text through the shared render-seam predicate before crediting the
@@ -993,7 +1008,6 @@ def _assemble_baskets(
                 # folds the ``unrenderable``/truncation arm, so a TRUNCATED-but-real span (e.g. a span
                 # cut mid-word) is also demoted from the count -- such a span would not render as
                 # verified support anyway, but this is the §-1.3-sensitive edge.
-                _span_is_chrome = False
                 if _basket_chrome_screen_enabled():
                     try:
                         from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
@@ -1017,6 +1031,15 @@ def _assemble_baskets(
                     # still appended below (kept). Not "all verified" since this span is not genuine
                     # renderable verified support (basket_verdict is a display LABEL, never a gate).
                     all_verified = False
+                    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): LOUD per-basket disclosure — the
+                    # coverage forensic flagged these chrome exclusions were SILENT, forcing manual
+                    # reconstruction. The member is KEPT in the basket (§-1.3 no-drop); only its chrome
+                    # span is held out of the corroboration count + the downstream cross-source set.
+                    import logging as _logging  # noqa: PLC0415
+                    _logging.getLogger(__name__).info(
+                        "[credibility-pass] basket %s: SUPPORTS member held out of corroboration: "
+                        "chrome span (eid=%s)", cluster_id, eid,
+                    )
                 else:
                     verified_any = True
                     verified_origin_ids.add(origin_id)
@@ -1039,6 +1062,11 @@ def _assemble_baskets(
                 # I-deepfix-001 Wave-3 P1b (#1344): the durable judge-outage signal for this member
                 # (True only when DETERMINISTIC_ONLY BECAUSE the judge errored/timed out this run).
                 entailment_judge_unavailable=judge_unavailable,
+                # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the durable chrome-span flag (True iff
+                # this member's claim-local span is page furniture / a dead-fetch shell). The downstream
+                # cross-source member selection reads it to hold the member out of the corroboration set
+                # BEFORE eligibility. Never rendered, never a faithfulness verdict; the member is KEPT.
+                span_is_chrome=_span_is_chrome,
             ))
 
         refuter_ids = tuple(sorted(refuters_by_cluster.get(cluster_id, set())))

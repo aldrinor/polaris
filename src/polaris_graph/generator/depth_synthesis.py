@@ -318,6 +318,78 @@ def _distinct_origin_supports(basket: Any) -> list[Any]:
         ]
 
 
+# ── I-deepfix-001 COV-DECHROME-BASKETS (#1344) ───────────────────────────────────────────────────────
+# THE COVERAGE DEFECT (coverage forensic reconcile): a basket MEMBER whose claim-local span resolves to
+# page furniture (cookie/consent banner, author/affiliation byline, ToC dot-leader, dead-fetch shell)
+# still arrives here as an isolated-``SUPPORTS`` member — credibility_pass keeps it (correctly, §-1.3
+# no-drop) but only excludes it from the strengthening COUNT, never from ``supporting_members``. The
+# cross-source pre-pass then feeds that chrome span into the consolidation prompt / span-join; the
+# clause fails ``_first_verified_clause`` / re-ground and the WHOLE basket collapses to zero — SILENTLY
+# (the forensic had to reconstruct these drops because nothing logged them; the depth pre-pass went
+# 3->0 and the one anchored cross-source pair died on chrome member spans). Screening chrome members
+# OUT of the corroboration set BEFORE the eligibility gate keeps the pre-pass working on the basket's
+# REAL members. §-1.3: page furniture is NOT a corroborating source, so holding a chrome member out of
+# a corroboration count is not a DROP of a real source (the source stays in ``supporting_members`` +
+# disclosure) — it is the consolidation layer keeping junk out of a count, never a breadth cap / target
+# / thinner. Faithfulness engine (strict_verify / NLI / D8 / provenance / span-grounding) is untouched.
+# LAW VI: default-ON kill-switch (OFF => byte-identical legacy member selection).
+_ENV_DECHROME_MEMBERS = "PG_DEPTH_DECHROME_MEMBERS"
+
+
+def _dechrome_members_enabled() -> bool:
+    """Default ON. Screen chrome/unrenderable basket members out of the cross-source corroboration set
+    before eligibility (LAW VI kill-switch: ``PG_DEPTH_DECHROME_MEMBERS=0`` => byte-identical legacy)."""
+    return os.getenv(_ENV_DECHROME_MEMBERS, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _member_span_is_chrome(member: Any) -> bool:
+    """True iff this member's claim-local span (``direct_quote``) is page furniture / a dead-fetch shell
+    / a truncated fragment. Reads the DURABLE ``span_is_chrome`` flag credibility_pass stamps at basket
+    build; falls back to re-screening ``direct_quote`` through the SAME shared render-seam predicate
+    (``weighted_enrichment.is_render_chrome_or_unrenderable``) for a member built without the flag —
+    called EXACTLY like the basket-build screen (no ``require_sentence_form``) so the flag and the
+    re-screen never disagree. Fail-CONSERVATIVE: an empty span or any import/screen fault => not-chrome
+    (never silently hold out a real member)."""
+    if bool(getattr(member, "span_is_chrome", False)):
+        return True
+    quote = str(getattr(member, "direct_quote", "") or "")
+    if not quote.strip():
+        return False
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+        return bool(is_render_chrome_or_unrenderable(quote))
+    except Exception:  # pragma: no cover - weighted_enrichment is stable in-tree
+        return False
+
+
+def _dechrome_distinct_origin_supports(basket: Any, *, log_drops: bool = True) -> list[Any]:
+    """The basket's distinct-origin isolated-``SUPPORTS`` members with chrome/unrenderable members held
+    OUT of the cross-source corroboration set (the coverage-forensic root fix). §-1.3: page furniture is
+    not a corroborating source — this keeps junk out of the corroboration count, it NEVER drops a real
+    source (the source stays in ``supporting_members`` + disclosure) and NEVER caps/targets breadth. Each
+    held-out member is logged LOUD per-basket (``log_drops``; the forensic flagged these drops were
+    SILENT). ``PG_DEPTH_DECHROME_MEMBERS=0`` => ``_distinct_origin_supports`` unchanged."""
+    members = _distinct_origin_supports(basket)
+    if not _dechrome_members_enabled():
+        return members
+    kept: list[Any] = []
+    for m in members:
+        if _member_span_is_chrome(m):
+            if log_drops:
+                logger.info(
+                    "[depth_synthesis] basket %s: member dropped from corroboration: chrome span "
+                    "(eid=%s, url=%s)",
+                    str(getattr(basket, "claim_cluster_id", "") or ""),
+                    str(getattr(m, "evidence_id", "") or ""),
+                    str(getattr(m, "source_url", "") or ""),
+                )
+            continue
+        kept.append(m)
+    return kept
+
+
 def _scoped_pool(basket: Any, evidence_pool: dict) -> dict:
     """The basket-id-bound verify pool (the basket's SUPPORTS members' GLOBAL rows). Reuses the
     verified_compose helper so the anti-cross-claim scoping is byte-identical to the body composer."""
@@ -556,7 +628,11 @@ def synthesize_cross_source_findings(
     for basket in ordered_baskets:
         if cap > 0 and len(findings) >= cap:
             break
-        members = _distinct_origin_supports(basket)
+        # COV-DECHROME-BASKETS (#1344): hold chrome/unrenderable member spans OUT of the corroboration
+        # set BEFORE the eligibility count (the coverage-forensic root; loud per-basket log). §-1.3: not
+        # a corpus-source filter — the source stays in the basket + disclosure; only its chrome span is
+        # kept out of the cross-source count. OFF => byte-identical ``_distinct_origin_supports``.
+        members = _dechrome_distinct_origin_supports(basket)
         if len(members) < floor:
             continue  # not a CROSS-source CANDIDATE basket (definitional, not a filter of corpus sources)
         scoped_pool = _scoped_pool(basket, evidence_pool)
@@ -700,8 +776,13 @@ async def _synthesize_one_basket(
     from src.polaris_graph.generator.verified_compose import _compose_junk_screen  # noqa: PLC0415
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
 
+    # COV-DECHROME-BASKETS (#1344): hold chrome/unrenderable member spans OUT of the SYNTHESIS input
+    # BEFORE the prompt is built (the coverage-forensic root: a chrome member span mangles the multi-word
+    # markers and collapses the pre-pass). The eligibility gate already logged the per-basket drop, so
+    # ``log_drops=False`` here avoids double-logging the same member. The existing ``_compose_junk_screen``
+    # allowlist pass is retained as an inner belt-and-suspenders filter (no regression).
     members = [
-        m for m in _distinct_origin_supports(basket)
+        m for m in _dechrome_distinct_origin_supports(basket, log_drops=False)
         if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
     ]
     if len(members) < min_corroboration():
@@ -765,10 +846,14 @@ async def depth_synthesis_pre_pass(
     wall_deadline_s = max(1.0, _env_float(_ENV_WALL_DEADLINE_S, _DEFAULT_WALL_DEADLINE_S))
     concurrency = max(1, _env_int(_ENV_CONCURRENCY, _DEFAULT_CONCURRENCY))
 
+    # COV-DECHROME-BASKETS (#1344): eligibility counts the DECHROMED corroboration set (chrome member
+    # spans held out) so a basket whose only "second origin" is page furniture is not falsely eligible.
+    # This is also the ONE per-basket LOUD log site for the async path (``log_drops`` default True);
+    # ``_synthesize_one_basket`` re-derives with ``log_drops=False`` to avoid double-logging.
     eligible = [
         b for b in (baskets or [])
         if str(getattr(b, "claim_cluster_id", "") or "")
-        and len(_distinct_origin_supports(b)) >= floor
+        and len(_dechrome_distinct_origin_supports(b)) >= floor
     ]
     out: dict = {}
     if not eligible:
