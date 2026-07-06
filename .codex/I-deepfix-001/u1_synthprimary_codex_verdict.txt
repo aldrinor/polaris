@@ -1,0 +1,11 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+faithfulness_untouched: true
+every_corroborator_preserved: true
+off_byte_identical: true
+marker_empty_body_safe: true
+convergence_call: continue
+notes: Reviewed supplied diff; no P0/P1 found. Shell was unavailable, so I could not independently run the targeted tests.
