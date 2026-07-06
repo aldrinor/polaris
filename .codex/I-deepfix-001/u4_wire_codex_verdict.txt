@@ -1,0 +1,15 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+quad_coherent_no_preflight_error: true
+all_14_allowlisted: true
+subentity_promoted_setdefault_removed: true
+dead_assertion_fixed: true
+off_byte_identical: true
+presentation_tables_not_added: true
+convergence_call: continue
+notes: "Inline diff and occurrence table show the 14 boolean flags are in slate, force-on, preflight-required, and allowlist; PG_LOG_LEVEL is in slate, force-exact, and allowlist. PG_SUBENTITY_QUERY_EXPANSION setdefault is removed and promoted. Marker literal now matches candidate wording. No pipeline logic change shown; PG_PRESENTATION_TABLES remains absent."
+```
