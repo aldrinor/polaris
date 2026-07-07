@@ -84,7 +84,9 @@ def _run_canary(monkeypatch, *marker_lines):
     monkeypatch.setenv(_FLAG, "1")
     for spec in (*rg._ACTIVATION_MARKER_SPECS, *rg._ACTIVATION_MARKER_SPECS_WAVE3):
         if spec.env_flag != _FLAG:
-            monkeypatch.delenv(spec.env_flag, raising=False)
+            # setenv "0" (not delenv): a DEFAULT-ON sibling (summary_table / debate) left UNSET would
+            # stay ON and over-demand its marker; explicit "0" reads OFF for every predicate type.
+            monkeypatch.setenv(spec.env_flag, "0")
     log_text = "".join(
         "2026-07-06 12:00:00,000 INFO src.polaris_graph - " + m + "\n" for m in marker_lines
     )
@@ -127,7 +129,10 @@ def _run_canary_flag_unset(monkeypatch, *marker_lines):
     by default, so the canary must too via flag_default_on) with every OTHER activation flag OFF."""
     monkeypatch.setenv("PG_ACTIVATION_CANARY", "1")
     for spec in (*rg._ACTIVATION_MARKER_SPECS, *rg._ACTIVATION_MARKER_SPECS_WAVE3):
-        monkeypatch.delenv(spec.env_flag, raising=False)  # incl. _FLAG => unset default-ON path
+        if spec.env_flag == _FLAG:
+            monkeypatch.delenv(spec.env_flag, raising=False)  # summary_table UNSET => the default-ON path under test
+        else:
+            monkeypatch.setenv(spec.env_flag, "0")  # every OTHER default-ON sibling (debate) explicit OFF
     log_text = "".join(
         "2026-07-06 12:00:00,000 INFO src.polaris_graph - " + m + "\n" for m in marker_lines
     )
@@ -151,6 +156,6 @@ def test_canary_explicit_off_flag_demands_nothing(monkeypatch):
     self-scope OFF and NOT raise even with no marker — flag_default_on flips ONLY the unset default."""
     monkeypatch.setenv("PG_ACTIVATION_CANARY", "1")
     for spec in (*rg._ACTIVATION_MARKER_SPECS, *rg._ACTIVATION_MARKER_SPECS_WAVE3):
-        monkeypatch.delenv(spec.env_flag, raising=False)
+        monkeypatch.setenv(spec.env_flag, "0")  # all OFF incl default-ON siblings (summary_table/debate)
     monkeypatch.setenv(_FLAG, "0")
     rg.assert_activation_markers_fired("2026-07-06 12:00:00,000 INFO src - nothing here\n")

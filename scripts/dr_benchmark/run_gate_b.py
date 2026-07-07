@@ -3446,6 +3446,90 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         ),
         flag_whitelist=("1", "true", "on", "yes"),
     ),
+    # I-deepfix-001 Wave-9 (#1344) ANTI-DARK COMPLETION — the wave-1/2 FORCE-ON flags that were
+    # quad-pinned on the Gate-B slate yet carried NO activation spec, so a DARK one could not crash the
+    # paid run. Each realized-effect marker is emitted at the flag's GUARANTEED-reached ON-path (credibility
+    # tiering / section composition / retrieval post-fetch), reports the HONEST realized count (ran-ok-zero
+    # PASSES — never a >0 gate, §-1.3), and self-scopes on the producer's OWN truthy predicate. The three
+    # render/compose/contract-seam flags whose ON-path is CONDITIONAL on a report shape (PG_A1_BASKET_FALLBACK
+    # contract-only, PG_RENDER_CHROME_SCREEN + PG_DEPTH_DECHROME_MEMBERS depth/KF-seam) are intentionally NOT
+    # registered here: a run-level force-ON spec would false-FAIL a legitimate released run that skips the
+    # seam; they need a guaranteed-once run-summary emit (the FF3/summary_table chokepoint pattern), deferred
+    # to a follow-up wave.
+    _ActivationMarkerSpec(
+        # PG_WORKFORCE_T3_TARGETING — the statistical-agency tier FLOOR
+        # (credibility_llm_tiering.classify_sources_llm_tiering batch loop). The marker carries the REALIZED
+        # per-batch counts ``promoted=N checked=M`` (N = sources RAISED to the statistical-agency floor tier,
+        # M = sources examined). promoted=0 is the ACCEPTED eligible-yet-zero signal (this corpus carried no
+        # under-tiered known statistical/data agency). The floor is a pure per-source WEIGHT decision with no
+        # fail/degrade branch, so there is NO unavailable_failopen twin. Producer
+        # _workforce_t3_targeting_enabled accepts 1/true/yes/on.
+        name="workforce_t3_targeting",
+        env_flag="PG_WORKFORCE_T3_TARGETING",
+        positive_re=re.compile(r"\[activation\] workforce_t3_targeting: promoted=\d+ checked=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+        flag_whitelist=("1", "true", "yes", "on"),
+    ),
+    _ActivationMarkerSpec(
+        # PG_DEBATE_CON_BASKET_CONSOLIDATION — the debate-class con-basket consolidation
+        # (verified_compose._section_baskets_for_compose). The marker carries the REALIZED per-section count
+        # ``consolidated=N`` (con-baskets folded into the section's compose set so the minority side composes
+        # alongside the majority BEFORE strict_verify). consolidated=0 is the ACCEPTED eligible-yet-zero
+        # signal (the section referenced no con-cluster / the con-basket was already selected). The FAIL-OPEN
+        # except (import/attr fault => legacy funnel drops the con side) emits the DISTINCT
+        # ``unavailable_failopen`` degrade the canary REJECTS.
+        # The producer debate_consolidation_enabled() is DEFAULT-ON (os.environ.get(_ENV_FLAG, "1")): an UNSET
+        # flag runs the debate path. So the canary MUST also treat unset as ON — flag_default_on=True (Codex
+        # Wave-9 P1, the identical fix the summary_table spec carries). Without it, an UNSET flag reads OFF at
+        # the canary while the producer still runs the (or fails-open) debate path => a DARK default-on debate
+        # path FALSE-GREENs the anti-dark canary. An explicit "0" still reads OFF (matches the producer's OFF
+        # set). Consequence: targeted canary tests that isolate other specs must force PG_DEBATE_CON_BASKET_
+        # CONSOLIDATION="0" (mirrors how they already force PG_RENDER_SUMMARY_TABLE="0").
+        name="debate_con_basket_consolidation",
+        env_flag="PG_DEBATE_CON_BASKET_CONSOLIDATION",
+        positive_re=re.compile(
+            r"\[activation\] debate_con_basket_consolidation: consolidated=\d+"
+        ),
+        bool_checks=(),
+        absent_markers=(
+            "[activation] debate_con_basket_consolidation: unavailable_failopen",
+        ),
+        flag_default_on=True,
+    ),
+    _ActivationMarkerSpec(
+        # PG_POST_FETCH_ENRICH_PARALLEL — the bounded-parallel post-fetch OpenAlex enrich pre-batch
+        # (live_retriever post-fetch classify seam). The flag is read UNCONDITIONALLY at the retrieval seam,
+        # so the marker fires every run the flag is ON, carrying the REALIZED counts ``batched=N enriched=M``
+        # (N = candidates handed to the parallel pre-batch, M = candidates it actually enriched). batched=0 /
+        # enriched=0 is the ACCEPTED eligible-yet-zero signal (OpenAlex enrich off or no candidates this run).
+        # The pre-batch fails OPEN to a partial/empty enrich (never a degrade-to-legacy branch), so the
+        # realized ``enriched`` count carries the honesty — NO unavailable_failopen twin. Producer
+        # _post_fetch_enrich_parallel_enabled accepts 1/true/on/yes.
+        name="post_fetch_enrich_parallel",
+        env_flag="PG_POST_FETCH_ENRICH_PARALLEL",
+        positive_re=re.compile(r"\[activation\] post_fetch_enrich_parallel: batched=\d+ enriched=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
+    _ActivationMarkerSpec(
+        # PG_WALL_CLASSIFY_RESCUE — the wall-break rules-only rescue of already-fetched bodies
+        # (live_retriever). The producer ALREADY emits ``[activation] wall_classify_rescue: armed
+        # enrich_parallel=<True|False>`` UNCONDITIONALLY whenever the flag is ON (independent of whether the
+        # retrieval wall ever trips — the anti-dark liveness proof; see _wall_rescue_armed_marker). This spec
+        # REGISTERS that existing marker: presence proves the rescue path is wired and reached. No
+        # fail/degrade branch on the armed emit => NO unavailable_failopen twin. Producer
+        # _wall_classify_rescue_enabled accepts 1/true/on/yes.
+        name="wall_classify_rescue",
+        env_flag="PG_WALL_CLASSIFY_RESCUE",
+        positive_re=re.compile(
+            r"\[activation\] wall_classify_rescue: armed enrich_parallel=(?:True|False)"
+        ),
+        bool_checks=(),
+        absent_markers=(),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
 )
 
 

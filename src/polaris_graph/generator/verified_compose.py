@@ -2676,15 +2676,33 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
     # selection. CONSOLIDATE-not-DROP (§-1.3): only ADDS an already-built disagreeing basket; the
     # con side re-passes the UNCHANGED faithfulness engine per clause downstream. Default-ON
     # kill-switch; OFF => byte-identical legacy selection. Fail-open on any import/attr error.
+    # I-deepfix-001 Wave-9 (#1344) ANTI-DARK activation marker (LOGGING-ONLY, faithfulness-neutral):
+    # when PG_DEBATE_CON_BASKET_CONSOLIDATION is ON, surface the HONEST realized count of con-baskets this
+    # section-compose call consolidated in (``consolidated=0`` = the section referenced no con-cluster / the
+    # con-basket was already selected — an honest ran-ok-zero the canary ACCEPTS, §-1.3, never a >0 gate).
+    # The fail-open ``except`` (import/attr fault => legacy funnel, con side dropped) emits the DISTINCT
+    # ``unavailable_failopen`` degrade the canary REJECTS — but ONLY once the flag is confirmed ON, so an
+    # OFF run stays byte-identical (no marker, no counter). Flag read ONCE per call (LAW VI).
+    _b1_flag_on = False
     try:
         from src.polaris_graph.generator.debate_consolidation import (  # noqa: PLC0415
             debate_consolidation_enabled as _b1_enabled,
             augment_with_con_baskets as _b1_augment,
         )
-        if out and _b1_enabled():
-            out = _b1_augment(out, baskets)
+        if _b1_enabled():
+            _b1_flag_on = True
+            _b1_before = len(out)
+            if out:
+                out = _b1_augment(out, baskets)
+            logger.info(
+                "[activation] debate_con_basket_consolidation: consolidated=%d",
+                len(out) - _b1_before,
+            )
     except Exception:  # noqa: BLE001 — additive consolidation; never break selection
-        pass
+        if _b1_flag_on:
+            logger.warning(
+                "[activation] debate_con_basket_consolidation: unavailable_failopen"
+            )
     return out
 
 

@@ -212,6 +212,7 @@ def _run_canary(monkeypatch, *marker_lines):
     # summary_table is DEFAULT-ON (flag_default_on): an UNSET flag stays ON and would over-demand its
     # marker on these no-table logs; pin it explicit "0" (delenv leaves the default-on path ON).
     monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
+    monkeypatch.setenv("PG_DEBATE_CON_BASKET_CONSOLIDATION", "0")  # default-ON sibling (Wave-9 P1): explicit OFF
     log_text = "".join(
         "2026-07-06 12:00:00,000 INFO src.polaris_graph - " + m + "\n" for m in marker_lines
     )

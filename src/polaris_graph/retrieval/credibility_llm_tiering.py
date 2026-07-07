@@ -864,6 +864,11 @@ def classify_sources_llm_tiering(
 
     # Gather-then-sort: walk indices in order, prefer the LLM tier, fall back to floor.
     out: list[ClassificationResult] = []
+    # I-deepfix-001 Wave-9 (#1344) ANTI-DARK activation telemetry (LOGGING-ONLY, faithfulness-neutral):
+    # count the known statistical-agency sources this batch RAISED to their deterministic rules-floor
+    # tier — the realized effect of PG_WORKFORCE_T3_TARGETING. Pure observation of the existing floor
+    # decision below; changes no tier, no drop/keep, no faithfulness path.
+    _workforce_t3_promoted = 0
     for idx in range(n):
         llm_res = llm_by_idx.get(idx)
         # B2 (#1344): cap an uncorroborated top-tier (T1/T2) GLM verdict to the
@@ -888,6 +893,7 @@ def classify_sources_llm_tiering(
             chosen, signals_list[idx], floor_results[idx],
         )
         if chosen is not _pre_agency and chosen is not None:
+            _workforce_t3_promoted += 1
             logger.warning(
                 "[credibility_llm_tiering] statistical-agency FLOOR: raised tier %s -> "
                 "%s for %s (known statistical/data agency; PG_WORKFORCE_T3_TARGETING). "
@@ -897,6 +903,19 @@ def classify_sources_llm_tiering(
                 (signals_list[idx].url or "")[:80],
             )
         out.append(chosen if chosen is not None else floor_results[idx])
+
+    # I-deepfix-001 Wave-9 (#1344) ANTI-DARK activation marker (LOGGING-ONLY): when
+    # PG_WORKFORCE_T3_TARGETING is ON, surface the HONEST realized count of sources this batch raised to
+    # the statistical-agency floor tier so a FORCE_ON'd-but-DARK flag can no longer pass the run_gate_b
+    # activation canary. ``promoted=0`` (this corpus carried no under-tiered statistical/data agency) is an
+    # honest ran-ok-zero the canary ACCEPTS (§-1.3 — never a >0 gate). OFF => no marker (byte-identical).
+    # Flag read ONCE here at emit time (LAW VI). No fail/degrade branch — the floor is a pure per-source
+    # decision, so there is no ``unavailable_failopen`` twin.
+    if _workforce_t3_targeting_enabled():
+        logger.info(
+            "[activation] workforce_t3_targeting: promoted=%d checked=%d",
+            _workforce_t3_promoted, n,
+        )
 
     # POST-execution canary + HONEST machine-readable status (D5 #1344) — REAL runtime
     # counts, fired only after the fan-out ran (NEVER a config echo). ``len(out) == n``

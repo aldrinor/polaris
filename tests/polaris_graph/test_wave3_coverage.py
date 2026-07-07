@@ -526,6 +526,7 @@ def _run_landmark_canary(monkeypatch, *marker_lines):
     # summary_table is DEFAULT-ON (flag_default_on) — set explicit "0" so an unset default-on flag does not
     # over-demand its marker on this landmark-only log (delenv would leave the default-on path ON).
     monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
+    monkeypatch.setenv("PG_DEBATE_CON_BASKET_CONSOLIDATION", "0")  # default-ON sibling (Wave-9 P1): explicit OFF
     log_text = "".join(_LOG_PREFIX + m + "\n" for m in marker_lines)
     rg.assert_activation_markers_fired(log_text)
 

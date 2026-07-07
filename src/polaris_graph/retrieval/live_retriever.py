@@ -6348,6 +6348,8 @@ def run_live_retrieval(
     # frozen strict_verify / NLI / 4-role engine is untouched).
     _enrich_parallel_on = _post_fetch_enrich_parallel_enabled()
     _enrich_by_idx: dict[int, dict[str, Any]] = {}
+    _enrich_batched = 0      # I-deepfix-001 Wave-9 (#1344): candidates handed to the parallel pre-batch
+    _enrich_nonempty = 0     # I-deepfix-001 Wave-9 (#1344): candidates the pre-batch actually enriched
     if _enrich_parallel_on and enable_openalex_enrich and candidates:
         _enrich_workers = _post_fetch_enrich_workers()
         # Codex wave-2 P1a: bound the SYNCHRONOUS pre-batch to a RESERVED SLICE of the
@@ -6373,6 +6375,7 @@ def run_live_retrieval(
             workers=_enrich_workers,
             deadline_monotonic=_enrich_deadline,
         )
+        _enrich_batched = len(candidates)
         _enrich_nonempty = sum(1 for _v in _enrich_by_idx.values() if _v)
         logger.info(
             "[live_retriever] PG_POST_FETCH_ENRICH_PARALLEL ON — pre-batched "
@@ -6382,6 +6385,18 @@ def run_live_retrieval(
             "batch can no longer burn the whole wall before classification",
             len(candidates), _enrich_workers, _enrich_nonempty,
             max(0.0, _retrieval_deadline - _enrich_deadline),
+        )
+    # I-deepfix-001 Wave-9 (#1344) ANTI-DARK activation marker (LOGGING-ONLY, faithfulness-neutral):
+    # PG_POST_FETCH_ENRICH_PARALLEL is read UNCONDITIONALLY above, so this emit fires every run the flag
+    # is ON — proving the parallel-enrich pre-batch path is wired even when it enriched nothing this run
+    # (``batched=0 enriched=0`` when OpenAlex enrich is off or there were no candidates — an honest
+    # ran-ok-zero the canary ACCEPTS, §-1.3, never a >0 gate). The pre-batch fails OPEN to a partial/empty
+    # enrich (never a degrade-to-legacy branch), so the realized ``enriched`` count already carries the
+    # honesty — there is no ``unavailable_failopen`` twin. OFF => no marker (byte-identical).
+    if _enrich_parallel_on:
+        logger.info(
+            "[activation] post_fetch_enrich_parallel: batched=%d enriched=%d",
+            _enrich_batched, _enrich_nonempty,
         )
 
     # ── WAVE-2 Fix B: PG_WALL_CLASSIFY_RESCUE — wall-break rules-only rescue

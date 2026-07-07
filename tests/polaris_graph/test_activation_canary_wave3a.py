@@ -140,6 +140,7 @@ def _all_flags_on(monkeypatch, canary="1"):
     # fire-marker liveness is covered by its own test_summary_table_activation_canary.py, and these
     # synthetic wave-3a logs deliberately carry no summary_table marker.
     monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
+    monkeypatch.setenv("PG_DEBATE_CON_BASKET_CONSOLIDATION", "0")  # default-ON sibling (Wave-9 P1): explicit OFF
 
 
 def _wrapper(log_text, status="success", smoke_scale=False):
