@@ -63,6 +63,12 @@ from src.polaris_graph.retrieval.tier_classifier import (
     _m2_dt,
     classify_source_tier,
 )
+# I-deepfix-001 Wave-4 CONTAMINATION (#1344) part C: ACTIVATE the DARK publication-date
+# resolver (grep-proven 0 call sites before this wave). Module-top import so the wiring is
+# monkeypatchable in tests (patch ``live_retriever.resolve_publication_date``); the module is
+# a PURE htmldate-style cascade over ALREADY-fetched content (only `re`; no heavy models, no
+# network) so importing it here has ZERO runtime side effect — the OFF path never CALLS it.
+from src.polaris_graph.retrieval.publication_date_resolver import resolve_publication_date
 
 logger = logging.getLogger("polaris_graph.live_retriever")
 
@@ -97,7 +103,12 @@ AUTHORITY_CACHE_DB = Path(
 # I-deepfix-001 Codex wave-2 P1: bumped 2 -> 3 so cached payloads predating the
 # `publication_date` field are REBUILT (not served stale) — a cached boundary-year
 # row that lacks pub_date would otherwise defeat the MONTH-precision date window.
-AUTHORITY_CACHE_SCHEMA_VERSION = 3
+# I-deepfix-001 Wave-4 CONTAMINATION (#1344) part B: bumped 3 -> 4 so every enrich
+# payload written under the PRE-VALIDATION OpenAlex title-search match logic is
+# INVALIDATED and re-fetched under PG_OPENALEX_MATCH_VALIDATE — a cached row whose
+# metadata came from a WRONG title-search paper (the 2019 Dwivedi mis-attach class)
+# must not be served stale past the validator.
+AUTHORITY_CACHE_SCHEMA_VERSION = 4
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -1544,6 +1555,152 @@ def _build_authority_signals_dict(
     }
 
 
+# ── I-deepfix-001 Wave-4 CONTAMINATION (#1344) ─────────────────────────────────────────
+# The drb_72 audit found a SCOPE/DATE contamination: an OpenAlex title-SEARCH lookup returned a
+# DIFFERENT paper (a 2019 Dwivedi record) whose title/year/authors were then attached to OUR
+# source, fooling the publication-date/window screen. Two additive, faithfulness-NEUTRAL,
+# default-OFF levers below:
+#   (A) PG_OPENALEX_MATCH_VALIDATE — validate the title-SEARCH work actually matches our source
+#       (DOI agreement OR title-token overlap) BEFORE attaching its metadata. On mismatch WITHHOLD
+#       the OpenAlex enrichment (return {}) — the source KEEPS its own weight (§-1.3 demote the bad
+#       metadata's trust, NEVER drop the source). The exact /works/doi path stays TRUSTED.
+#   (C) PG_RESOLVE_PUBDATE_FROM_HTML — see the wiring at the row-build seam in run_live_retrieval.
+# Both flags default OFF and are byte-identical when OFF. Both emit an HONEST realized-effect
+# ``[activation]`` marker (checked/rejected, resolved/unresolved) the run_gate_b canary reads; a
+# distinct ``unavailable_failopen`` degrade marker (canary-rejected) fires only on a fault path.
+_ON_TOKENS = ("1", "true", "yes", "on")
+
+# Deliberately-generic title tokens dropped before overlap scoring so a shared "review of the ..."
+# boilerplate cannot inflate the match (a wrong paper must not pass on stopwords alone).
+_TITLE_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "into", "study", "review", "analysis",
+    "using", "based", "toward", "towards", "case", "report", "paper", "article",
+    "meta", "systematic", "randomized", "randomised", "trial", "effect", "effects",
+    "impact", "role", "among", "between", "versus", "over", "under", "about",
+})
+
+# Module-level THREAD-SAFE match-validate telemetry — `_openalex_enrich` runs both serially in the
+# post-fetch loop AND in the bounded-parallel enrich pre-batch (worker threads), so the counters are
+# guarded by a Lock. run_live_retrieval SNAPSHOTS this at the top of the enrich window and computes
+# the per-run delta after the loop (re-entrancy-tolerant: honest totals, no reset race). Mirrors the
+# established module-telemetry pattern (e.g. provenance reanchor telemetry).
+_MATCH_VALIDATE_TELEMETRY: dict[str, int] = {"checked": 0, "rejected": 0, "failopen": 0}
+_MATCH_VALIDATE_LOCK = threading.Lock()
+
+
+def _openalex_match_validate_enabled() -> bool:
+    """PG_OPENALEX_MATCH_VALIDATE opt-in kill-switch (default OFF; read at CALL time, LAW VI).
+    OFF => the title-search match is trusted exactly as before (byte-identical)."""
+    return os.getenv("PG_OPENALEX_MATCH_VALIDATE", "0").strip().lower() in _ON_TOKENS
+
+
+def _resolve_pubdate_from_html_enabled() -> bool:
+    """PG_RESOLVE_PUBDATE_FROM_HTML opt-in kill-switch (default OFF; read at CALL time, LAW VI).
+    OFF => the DARK resolver is never called and the row's date handling is byte-identical."""
+    return os.getenv("PG_RESOLVE_PUBDATE_FROM_HTML", "0").strip().lower() in _ON_TOKENS
+
+
+def _match_validate_incr(key: str) -> None:
+    """Thread-safe increment of one match-validate counter (checked / rejected / failopen)."""
+    with _MATCH_VALIDATE_LOCK:
+        _MATCH_VALIDATE_TELEMETRY[key] = _MATCH_VALIDATE_TELEMETRY.get(key, 0) + 1
+
+
+def _match_validate_snapshot() -> dict[str, int]:
+    """Thread-safe copy of the match-validate counters (for the per-run delta)."""
+    with _MATCH_VALIDATE_LOCK:
+        return dict(_MATCH_VALIDATE_TELEMETRY)
+
+
+def _title_overlap_tokens(title: str) -> set[str]:
+    """Lowercased content tokens (>=3 chars, non-stopword, alnum) of a title, for overlap scoring."""
+    if not title:
+        return set()
+    toks = re.findall(r"[a-z0-9]+", str(title).lower())
+    return {t for t in toks if len(t) >= 3 and t not in _TITLE_STOPWORDS}
+
+
+def _normalize_doi(raw: "str | None") -> str:
+    """Bare lowercase DOI (scheme + doi.org host stripped) for exact DOI-agreement comparison."""
+    s = str(raw or "").strip().lower()
+    for pfx in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if s.startswith(pfx):
+            s = s[len(pfx):]
+    return s.strip()
+
+
+def _openalex_search_match_ok(
+    *, our_title: str, our_doi: str, work: dict[str, Any], min_overlap: "float | None" = None,
+) -> bool:
+    """(A) TRUE iff the OpenAlex title-SEARCH ``work`` plausibly matches OUR source.
+
+    A search query returns the single best hit REGARDLESS of relevance, so a truncated / variant /
+    unindexed title can surface a DIFFERENT paper. Accept the match on the FIRST sufficient signal:
+      1. DOI agreement — our extracted DOI equals the returned work's DOI (strongest; unambiguous).
+      2. Title-token OVERLAP-COEFFICIENT (|A∩B| / min(|A|,|B|), stopwords removed) >= threshold — a
+         correct truncated title is a near-subset of the full display_name (coefficient ≈ 1.0), a
+         wrong paper shares few content tokens (the 2019 Dwivedi mis-attach class).
+    An EXPLICIT DOI CONFLICT (our DOI and the returned work's DOI BOTH present and DIFFERENT) is a HARD
+    NEGATIVE that short-circuits to False BEFORE signal 2 — a known-different DOI must never be overridden
+    by title overlap, else a DOI-fallback search attaches a different paper's metadata (Wave-4 Issue-2).
+    When NEITHER can be established (no DOI agreement AND no comparable title on either side) the
+    match is UNVALIDATABLE => return False so the caller WITHHOLDS the metadata (§-1.3 demote its
+    trust, keep the source). Pure (no I/O); unit-testable. Threshold is env-overridable (LAW VI)."""
+    work_doi = _normalize_doi(work.get("doi"))
+    our_doi_n = _normalize_doi(our_doi)
+    if our_doi_n and work_doi and our_doi_n == work_doi:
+        return True
+    # Wave-4 Issue-2 (#1344): an EXPLICIT DOI CONFLICT — both DOIs present and DIFFERENT — is a hard
+    # negative for this contamination class. Reject it BEFORE title-overlap validation so a DOI-fallback
+    # title search cannot attach a different paper's date/authority metadata on token overlap alone.
+    if our_doi_n and work_doi and our_doi_n != work_doi:
+        return False
+    our_toks = _title_overlap_tokens(our_title)
+    work_toks = _title_overlap_tokens(work.get("display_name") or work.get("title") or "")
+    if not our_toks or not work_toks:
+        # No DOI agreement and no comparable title => cannot confirm the match => withhold.
+        return False
+    threshold = min_overlap if min_overlap is not None else _env_float(
+        "PG_OPENALEX_MATCH_MIN_TITLE_OVERLAP", 0.5
+    )
+    overlap = len(our_toks & work_toks) / min(len(our_toks), len(work_toks))
+    return overlap >= threshold
+
+
+def _resolve_row_pubdate_backfill(
+    *,
+    content: "str | None",
+    jsonld: "str | None",
+    url: "str | None",
+    metadata: "dict | None",
+    pub_date: "str | None",
+    pub_year: "int | None",
+) -> "tuple[str | None, int | None, bool, bool]":
+    """(C) ACTIVATE the DARK resolver at the row-build seam: fill a MONTH/year date from ALREADY-fetched
+    content when the source's OpenAlex date is missing/unreliable.
+
+    Returns ``(pub_date, pub_year, resolved, failopen)``: the (possibly back-filled) date fields plus two
+    flags for the honest activation marker. Only its EXISTING pure function ``resolve_publication_date``
+    is called (ACTIVATE-not-rebuild). A month-precision iso ("YYYY-MM") back-fills ``pub_date`` (only when
+    it was None); a year is back-filled onto ``pub_year`` when that was None (band-guarded 1900-2100).
+    FAIL-OPEN: any resolver fault leaves BOTH date fields UNCHANGED and returns ``failopen=True`` — an
+    undated source is NEVER masked (§-1.3), so a resolver bug can never wrongly drop an in-window source.
+    Pure w.r.t. its args (the resolver itself does no network); unit-testable with a stubbed resolver."""
+    try:
+        r_iso, r_year = resolve_publication_date(
+            raw_html=content, jsonld=jsonld, url=url, search_metadata=metadata,
+        )
+    except Exception:  # noqa: BLE001 — fail-open: a resolver fault must never mask a source
+        return (pub_date, pub_year, False, True)
+    if r_iso is None:
+        return (pub_date, pub_year, False, False)
+    if "-" in r_iso and pub_date is None:
+        pub_date = r_iso  # month precision -> the field the timeline screen prefers
+    if pub_year is None and r_year is not None and 1900 <= r_year <= 2100:
+        pub_year = r_year
+    return (pub_date, pub_year, True, False)
+
+
 def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
 
@@ -1564,6 +1721,48 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
         enrich_cache_key = f"doi:{doi}" if doi else f"url:{url}"
         cached = _authority_cache_get(enrich_cache_key)
         if isinstance(cached, dict) and cached:
+            # I-deepfix-001 Wave-4 (#1344) Issue-1: VALIDATION-AWARE cache read. A prior flag-OFF (or
+            # pre-validation) run can cache UNvalidated title-search metadata under schema v4; a later
+            # force-ON run must not serve that cache hit blind — doing so emits checked=0/rejected=0 and
+            # PASSES the activation canary while a WRONG paper's date/authority metadata stays attached
+            # (false-green liveness). When PG_OPENALEX_MATCH_VALIDATE is ON we REVALIDATE the cached
+            # payload — PURE, no network, reconstructed from the frozen openalex_full_title + doi — UNLESS
+            # the url-embedded DOI AGREES with the cached DOI (the exact-DOI path stays TRUSTED, never
+            # validated, mirroring the fetch path). A mismatch WITHHOLDS the enrichment (return {} — the
+            # source keeps its own weight downstream, §-1.3 demote-not-drop). A validator FAULT fails OPEN
+            # (serve the cache as before) and emits the DISTINCT unavailable_failopen degrade the canary
+            # rejects. OFF => this whole block is skipped => the cache read is byte-identical.
+            if _openalex_match_validate_enabled():
+                _cached_doi_n = _normalize_doi(cached.get("doi"))
+                _our_doi_n = _normalize_doi(doi)
+                _doi_agree = bool(_our_doi_n and _cached_doi_n and _our_doi_n == _cached_doi_n)
+                if not _doi_agree:
+                    _match_validate_incr("checked")
+                    try:
+                        _cache_ok = _openalex_search_match_ok(
+                            our_title=title or "",
+                            our_doi=doi or "",
+                            work={
+                                "display_name": cached.get("openalex_full_title", "") or "",
+                                "doi": cached.get("doi", "") or "",
+                            },
+                        )
+                    except Exception as _cmv_exc:  # noqa: BLE001 — fail-OPEN, never strip on a bug
+                        _match_validate_incr("failopen")
+                        logger.warning(
+                            "[live_retriever] OpenAlex cache-hit match-validate FAULT for %r "
+                            "(fail-open, cached metadata served): %s",
+                            url, _cmv_exc,
+                        )
+                        _cache_ok = True
+                    if not _cache_ok:
+                        _match_validate_incr("rejected")
+                        logger.info(
+                            "[live_retriever] OpenAlex cached title-search WITHHELD for %r — cached "
+                            "work %r does not match our source (§-1.3 metadata demoted, source kept)",
+                            url, (cached.get("openalex_full_title") or cached.get("doi") or ""),
+                        )
+                        return {}
             return cached
         # U25 (I-deepfix-001): merge the config-driven OpenAlex auth/politeness
         # params (api_key / mailto) onto the ENRICH client too. httpx merges
@@ -1578,6 +1777,10 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
         with httpx.Client(
             timeout=DEFAULT_HTTP_TIMEOUT, params=_openalex_auth_params()
         ) as c:
+            # I-deepfix-001 Wave-4 (#1344) part A: track whether `work` came from a title/url
+            # SEARCH (ambiguous — can return a DIFFERENT paper) vs the exact /works/doi lookup
+            # (unambiguous — TRUSTED, never validated). Only the search path is validated below.
+            _from_title_search = False
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
                 # both the bare DOI and the URL form; use bare DOI.
@@ -1603,6 +1806,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                     if not results:
                         return {}
                     work = results[0]
+                    _from_title_search = True
                 else:
                     work = r.json()  # single-work response from /works/doi
             else:
@@ -1621,6 +1825,38 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 if not results:
                     return {}
                 work = results[0]
+                _from_title_search = True
+
+            # I-deepfix-001 Wave-4 (#1344) part A: VALIDATE a title-SEARCH match before its
+            # metadata contaminates our source. Default-OFF (byte-identical when OFF). On a
+            # MISMATCH: WITHHOLD the whole OpenAlex enrichment (return {}) — the source keeps
+            # its own weight/handling downstream (§-1.3 demote the bad metadata, NEVER drop the
+            # source); this also skips the wasted /sources fetch. A validator FAULT fails OPEN
+            # (attach as before — a validator bug must never silently strip enrichment from
+            # every source) and emits a DISTINCT ``unavailable_failopen`` degrade the canary
+            # rejects. The exact /works/doi path (``_from_title_search`` False) is never touched.
+            if _from_title_search and _openalex_match_validate_enabled():
+                _match_validate_incr("checked")
+                try:
+                    _matched = _openalex_search_match_ok(
+                        our_title=title or "", our_doi=doi or "", work=work,
+                    )
+                except Exception as _mv_exc:  # noqa: BLE001 — fail-OPEN, never strip on a bug
+                    _match_validate_incr("failopen")
+                    logger.warning(
+                        "[live_retriever] OpenAlex match-validate FAULT for %r "
+                        "(fail-open, metadata attached): %s",
+                        url, _mv_exc,
+                    )
+                    _matched = True
+                if not _matched:
+                    _match_validate_incr("rejected")
+                    logger.info(
+                        "[live_retriever] OpenAlex title-search WITHHELD for %r — returned "
+                        "work %r does not match our source (§-1.3 metadata demoted, source kept)",
+                        url, (work.get("display_name") or work.get("id") or ""),
+                    )
+                    return {}
 
             primary = work.get("primary_location") or {}
             source = primary.get("source") or {}
@@ -6003,6 +6239,17 @@ def run_live_retrieval(
     _enrich_stats: dict[str, int] = {}
     _enrich_disabled = False
 
+    # I-deepfix-001 Wave-4 CONTAMINATION (#1344): per-run activation telemetry.
+    #  (A) SNAPSHOT the thread-safe match-validate counters NOW so the aggregate marker after the
+    #      loop reports THIS run's delta (the enrich runs in both the parallel pre-batch worker
+    #      threads AND the serial loop — the module-level counter aggregates both).
+    #  (C) pubdate-resolve counters — the resolver wiring is entirely in the SERIAL row-build loop
+    #      (main thread), so plain ints suffice.
+    _mv_snapshot0 = _match_validate_snapshot()
+    _pubdate_resolved = 0
+    _pubdate_unresolved = 0
+    _pubdate_failopen = 0
+
     # #958 (S2): corpus-truncation counters. Initialized BEFORE the loop so the
     # empty/no-break path does not depend on a loop-local `i` (Codex P2). Default
     # = "processed all" / not truncated; the budget-break below overrides.
@@ -6932,6 +7179,39 @@ def run_live_retrieval(
                 if _w2_label:
                     _row["content_relevance_label"] = _w2_label
                     _row["content_relevance_weight"] = _w2_weight
+                # I-deepfix-001 Wave-4 CONTAMINATION (#1344) part C: ACTIVATE the DARK
+                # publication_date_resolver at the REAL date-screen consumer seam — where a
+                # fetched source's `pub_date`/`year` (the fields constraint_enforcement._row_pub_ym
+                # reads for the timeline/scope window) is DETERMINED. When the OpenAlex enrich
+                # left NO reliable MONTH-precision date (`_pub_date is None` — the row that the
+                # 2019 mis-attach + the general-web/PDF UNDATED class both produce), resolve one
+                # from content the pipeline ALREADY fetched (ZERO new network): JSON-LD / meta /
+                # microdata / <time> / the OpenAlex cand.metadata year the enrich discarded / URL
+                # slug / PDF CreationDate. Default-OFF (PG_RESOLVE_PUBDATE_FROM_HTML) => the
+                # resolver is never called and the row is byte-identical. FAIL-OPEN: a resolver
+                # fault leaves the existing (possibly undated) handling untouched — an undated
+                # source is NEVER masked (§-1.3), and a distinct `unavailable_failopen` degrade
+                # marker (canary-rejected) fires. ACTIVATE-not-rebuild: only its existing pure
+                # functions are called here; faithfulness-neutral fetch-time PROVENANCE only.
+                if _resolve_pubdate_from_html_enabled() and _pub_date is None:
+                    _pub_date, _pub_year, _pd_res, _pd_fo = _resolve_row_pubdate_backfill(
+                        content=content,
+                        jsonld=raw_jsonld,
+                        url=cand.url,
+                        metadata=getattr(cand, "metadata", None),
+                        pub_date=_pub_date,
+                        pub_year=_pub_year,
+                    )
+                    if _pd_fo:
+                        _pubdate_failopen += 1
+                        logger.warning(
+                            "[live_retriever] pubdate HTML-resolve FAULT for %r "
+                            "(fail-open, row date unchanged)", cand.url,
+                        )
+                    elif _pd_res:
+                        _pubdate_resolved += 1
+                    else:
+                        _pubdate_unresolved += 1
                 # I-deepfix-001 B10(b) (#1352): carry the publication year FORWARD.
                 # `year` is the key the evidence_selector recency path already reads
                 # (_row_year at evidence_selector.py:805) AND the B10(d) date-window
@@ -7134,6 +7414,32 @@ def run_live_retrieval(
             )
             # DISCLOSED zero-weight retention is a KEEP, not a drop (§-1.3).
             _trace_kept(cand.url, cand.source)
+
+    # I-deepfix-001 Wave-4 CONTAMINATION (#1344): emit the two HONEST realized-effect
+    # ``[activation]`` markers the run_gate_b activation canary reads. Emitted AFTER the loop
+    # (reached whether it ran to completion or broke on the retrieval wall) so the counts are the
+    # REALIZED per-run effect, never a pre-attempt INTENT. Each fires only when its flag is ON
+    # (OFF => no line => byte-identical). A realized checked=0 / resolved=0 is an HONEST ran-ok-zero
+    # the canary ACCEPTS (§-1.3 never gate on count>0); a fault path additionally emits a DISTINCT
+    # ``unavailable_failopen`` degrade the canary REJECTS. Module logger => captured by the canary.
+    if _openalex_match_validate_enabled():
+        _mv_now = _match_validate_snapshot()
+        _mv_checked = _mv_now.get("checked", 0) - _mv_snapshot0.get("checked", 0)
+        _mv_rejected = _mv_now.get("rejected", 0) - _mv_snapshot0.get("rejected", 0)
+        _mv_failopen = _mv_now.get("failopen", 0) - _mv_snapshot0.get("failopen", 0)
+        logger.info(
+            "[activation] openalex_match_validate: checked=%d rejected=%d",
+            _mv_checked, _mv_rejected,
+        )
+        if _mv_failopen > 0:
+            logger.info("[activation] openalex_match_validate: unavailable_failopen")
+    if _resolve_pubdate_from_html_enabled():
+        logger.info(
+            "[activation] pubdate_html_resolve: resolved=%d unresolved=%d",
+            _pubdate_resolved, _pubdate_unresolved,
+        )
+        if _pubdate_failopen > 0:
+            logger.info("[activation] pubdate_html_resolve: unavailable_failopen")
 
     # I-wire-001 W5 (PG_CREDIBILITY_LLM_TIERING): bounded-parallel per-source LLM-tiering
     # post-step. Runs ONCE over every deferred source via a ThreadPoolExecutor capped by

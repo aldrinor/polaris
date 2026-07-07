@@ -1714,6 +1714,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     the SLATE-PURITY gate skips it, so it is NOT in the boolean force-on / required / allowlist sets;
     #     instead it is FLOORED at 2 in _BENCHMARK_PREFLIGHT_FLOORS so a stray =1 fails the run CLOSED.
     "PG_QGEN_PARALLEL_QUERIES": "8",
+    # I-deepfix-001 (#1344) WAVE-4 CONTAMINATION KILL — the drb_72 SCOPE/DATE contamination (a wrong
+    # OpenAlex title-search paper fooled the pub-date/window screen; general-web/PDF sources arrived
+    # UNDATED). TWO additive, faithfulness-NEUTRAL, default-OFF levers, each quad-wired EXACTLY like
+    # PG_OPENALEX_DATE_FILTER above (slate "1" HERE + FORCE_ON + REQUIRED + ALLOWLIST) so a stray
+    # operator/.env =0 fails the run CLOSED before spend, and each emits an HONEST realized-effect
+    # [activation] marker (checked/rejected, resolved/unresolved) the canary reads.
+    # (a) validate the OpenAlex title-SEARCH match before its metadata contaminates our source; on a
+    #     mismatch WITHHOLD the metadata (§-1.3 demote-not-drop — source kept at its own weight).
+    "PG_OPENALEX_MATCH_VALIDATE": "1",
+    # (b) ACTIVATE the DARK publication_date_resolver — resolve a date from ALREADY-fetched content
+    #     (JSON-LD/meta/microdata/<time>/OpenAlex metadata/URL/PDF) when the source's own date is
+    #     missing/unreliable, so the timeline/scope screen has an honest date to judge (fail-open).
+    "PG_RESOLVE_PUBDATE_FROM_HTML": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -2004,6 +2017,13 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # FLOORS floor-2 only.) FAITHFULNESS-NEUTRAL.
     "PG_OPENALEX_DATE_FILTER",
     "PG_LANDMARK_EXPANDER",
+    # I-deepfix-001 (#1344) WAVE-4 CONTAMINATION - fail-CLOSED before spend if either BOOLEAN
+    # contamination-kill flag is off: a paid run with one =0 silently leaves the OpenAlex title-search
+    # validator / the DARK publication-date resolver dark (the drb_72 scope/date contamination the
+    # winner run needs closed). Force-ON above, so a stray operator =0 fails the run CLOSED here.
+    # FAITHFULNESS-NEUTRAL (metadata-trust demotion + fetch-time provenance dating).
+    "PG_OPENALEX_MATCH_VALIDATE",
+    "PG_RESOLVE_PUBDATE_FROM_HTML",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2284,6 +2304,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # ADDITIVE / FAITHFULNESS-NEUTRAL. (PG_QGEN_PARALLEL_QUERIES is NUMERIC infra -> slate + floor only.)
     "PG_OPENALEX_DATE_FILTER",            # additive date-scoped OpenAlex lane (UNION, never drops a source)
     "PG_LANDMARK_EXPANDER",               # in-window landmark-study query expander (adds on-topic queries)
+    # I-deepfix-001 (#1344) WAVE-4 CONTAMINATION - force-ON the two BOOLEAN contamination-kill flags so a
+    # stray operator/.env =0 cannot survive the setdefault slate and silently leave the OpenAlex
+    # title-search validator / the DARK publication-date resolver dark. Each is DEFAULT-OFF in code
+    # (flag-OFF byte-identical); force-ON here + preflight-required above + allowlisted (SLATE-PURITY).
+    # §-1.3 demote-not-drop / disclose-don't-drop; FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched).
+    "PG_OPENALEX_MATCH_VALIDATE",         # validate the OpenAlex title-search match (withhold on mismatch)
+    "PG_RESOLVE_PUBDATE_FROM_HTML",       # activate the dark publication-date resolver (fetched-content date)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3232,6 +3259,40 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         absent_markers=("[activation] landmark_study_expansion: unavailable_failopen",),
         flag_whitelist=("1", "true", "on", "yes"),
     ),
+    _ActivationMarkerSpec(
+        # I-deepfix-001 Wave-4 CONTAMINATION (#1344) part A: the OpenAlex title-SEARCH match validator
+        # (live_retriever._openalex_enrich). The marker carries the REALIZED per-run counts
+        # ``checked=N rejected=N`` (N = title-search enrich attempts validated / withheld). checked=0 is
+        # the ACCEPTED eligible-yet-zero signal (a run where every enrich was an exact /works/doi hit or a
+        # cache hit validated nothing — NEVER gated on a count per §-1.3). The FAULT path (validator raised)
+        # emits the DISTINCT ``unavailable_failopen`` degrade marker registered as an absent_marker: when it
+        # appears while the flag is ON the canary FAILS (a validator that went dark is rejected), while a
+        # run that validated and legitimately withheld zero still PASSES. Producer
+        # _openalex_match_validate_enabled accepts 1/true/on/yes.
+        name="openalex_match_validate",
+        env_flag="PG_OPENALEX_MATCH_VALIDATE",
+        positive_re=re.compile(r"\[activation\] openalex_match_validate: checked=\d+ rejected=\d+"),
+        bool_checks=(),
+        absent_markers=("[activation] openalex_match_validate: unavailable_failopen",),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
+    _ActivationMarkerSpec(
+        # I-deepfix-001 Wave-4 CONTAMINATION (#1344) part C: the ACTIVATED publication-date resolver
+        # (live_retriever row-build seam). The marker carries the REALIZED per-run counts
+        # ``resolved=N unresolved=N`` (rows the resolver dated / left honestly undated). resolved=0 is the
+        # ACCEPTED eligible-yet-zero signal (a run where every fetched row already carried a reliable
+        # OpenAlex date, so the resolver had nothing to fill — NEVER gated on a count per §-1.3). The
+        # FAIL-OPEN path (resolver raised) emits the DISTINCT ``unavailable_failopen`` degrade marker
+        # registered as an absent_marker: it FAILS the canary when it appears while the flag is ON (a
+        # resolver that faulted is rejected), while a healthy ran-ok-zero still PASSES. Producer
+        # _resolve_pubdate_from_html_enabled accepts 1/true/on/yes.
+        name="pubdate_html_resolve",
+        env_flag="PG_RESOLVE_PUBDATE_FROM_HTML",
+        positive_re=re.compile(r"\[activation\] pubdate_html_resolve: resolved=\d+ unresolved=\d+"),
+        bool_checks=(),
+        absent_markers=("[activation] pubdate_html_resolve: unavailable_failopen",),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
 )
 
 
@@ -3573,6 +3634,13 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # it; NOT allowlisted - it rides the slate + _BENCHMARK_PREFLIGHT_FLOORS floor-2 only.)
     "PG_OPENALEX_DATE_FILTER",               # additive date-scoped OpenAlex lane (UNION on top of base, never drops)
     "PG_LANDMARK_EXPANDER",                  # in-window landmark-study query expander (adds on-topic queries)
+    # -- I-deepfix-001 (#1344) WAVE-4 CONTAMINATION (winner-or-infra: FAITHFULNESS-NEUTRAL contamination kill) --
+    # The two BOOLEAN contamination-kill flags - conscious 'winner or infra?' decision, allowlisted
+    # deliberately so the clean slate PASSES SLATE-PURITY. §-1.3 demote-not-drop / disclose-don't-drop;
+    # FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched). (PG_OPENALEX_MATCH_MIN_TITLE_OVERLAP is a
+    # NUMERIC tuning knob -> float-parseable => SLATE-PURITY skips it; NOT force-on, NOT allowlisted.)
+    "PG_OPENALEX_MATCH_VALIDATE",            # validate OpenAlex title-search match (withhold wrong metadata)
+    "PG_RESOLVE_PUBDATE_FROM_HTML",          # activate the dark publication-date resolver (fetched-content date)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
