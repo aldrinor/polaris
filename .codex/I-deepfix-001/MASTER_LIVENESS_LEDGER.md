@@ -36,6 +36,7 @@ below shows FIRED with a real realized-effect count in the ACTUAL run log. No ex
 | 5 | ~~FF2-TRUNC-v2~~ RETIRED (e55637b3) | — (unsound lexical leg removed; no marker, not on slate) | n/a | ➖ | ➖ |
 | 5 | FF3-TRUNC-SEM (PG_FF3_TRUNC_SEM) | `[activation] ff3_trunc_sem: reached=(True\|False) screened= detected= repaired= dropped=` (degrade: `unavailable_failopen`) | yes | ⬜ | ⬜ |
 | 6 | PG_RENDER_SUMMARY_TABLE (Wave-6a vocab + Wave-6b canary) | `[activation] summary_table: reached=(True\|False) rows= cols=` (degrade: `unavailable_failopen`) | **DONE (1f3d2ced)** — fail-loud _ActivationMarkerSpec added with flag_default_on=True (matches default-ON producer); dark render crashes (overall_rc=1), honest rows=0 passes, NO count>0 gate | ⬜ | ⬜ |
+| 6c | PG_STANCE_DIVERSIFY_SEEDS (a09fe434) | `[activation] stance_diversify_seeds: issued=` (realized post-budget count; degrade: `unavailable_failopen`) | DONE — quad-pinned (slate 1716 / preflight 2045 / force-on 2339 / allowlist 3749) + fail-loud spec 3305-3323; additive fail-open, default-OFF byte-identical, marker realized-count | ⬜ | ⬜ |
 | 6 | (table + 14-study coverage flag[s]) | TBD@build | TBD | ⬜ | ⬜ |
 | 7 | PG_CONTENT_SHELL_REFETCH | `[activation] content_shell_refetch:` | TBD@build | ⬜ | ⬜ |
 | 7 | PG_CROSS_SOURCE_THREAD_CONSOLIDATION | `[activation] cross_source_body:` | check | ⬜ | ⬜ |

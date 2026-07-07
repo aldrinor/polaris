@@ -87,3 +87,12 @@ build-dark-rebuild failure mode, so a flag that passes review but never fires in
   matching the producer; explicit "0" still OFF; every other spec byte-identical. + P2a return-annotation fix. Consequent
   test maintenance: 4 sibling canary-test helpers opt summary_table OFF for their no-table logs. Codex APPROVE (0 P0/0 P1)
   + Fable APPROVE (0 P0/0 P1, 10/10 predicate byte-parity probe). 170 canary tests pass. Faithfulness engine untouched.
+- Wave 6c (a09fe434): GENERAL stance/view-diversification retrieval-seed lane (default-OFF PG_STANCE_DIVERSIFY_SEEDS).
+  Per planned facet ALSO issues queries framed from {supporting, opposing, challenges, opportunities} generic stances —
+  helps ANY controversial-topic DR question (drb_72's 4 sections), NO benchmark study/country/topic hardcoded. §-1.3
+  WEIGHT-not-filter: appends net-new stance queries only, NEVER raises max_queries, drops/caps/thins NOTHING; fail-open
+  (error adds 0 + distinct unavailable_failopen degrade + suppresses positive marker + never aborts qgen). Quad-pinned +
+  fail-loud spec. iter-1 both confirmed additive/general/fail-open; single Codex P1 = marker logged appended count
+  pre-truncation → FIXED: marker moved AFTER _issue_seed_frontier, reports REALIZED issued count (live-probed
+  appended=16/realized=15/marker=15). Codex APPROVE (0 P0/0 P1) + Fable APPROVE (0 P0/0 P1). 103 tests pass. Faithfulness
+  engine untouched. HONEST NOTE: retrieval-seed payoff is only measurable in a real VM run corpus (offline-unverifiable).
