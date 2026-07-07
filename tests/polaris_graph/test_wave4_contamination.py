@@ -394,6 +394,10 @@ def _run_canary(monkeypatch, on_flag: str, *marker_lines):
         if sibling != on_flag:
             monkeypatch.delenv(sibling, raising=False)
     monkeypatch.delenv("PG_QGEN_PARALLEL_QUERIES", raising=False)  # numeric spec self-skips (<2)
+    if on_flag != "PG_RENDER_SUMMARY_TABLE":
+        # summary_table is DEFAULT-ON (flag_default_on) — an UNSET flag stays ON and would over-demand its
+        # marker on these no-table logs; set explicit "0" (delenv would leave the default-on path ON).
+        monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
     log_text = "".join(_LOG_PREFIX + m + "\n" for m in marker_lines)
     rg.assert_activation_markers_fired(log_text)
 

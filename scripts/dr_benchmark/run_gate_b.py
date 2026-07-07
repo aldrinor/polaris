@@ -3104,6 +3104,12 @@ class _ActivationMarkerSpec:
     # never false-demands a marker that only fires on the parallel >1 path. Takes precedence over the
     # whitelist/blocklist predicate.
     flag_int_min: int | None = None
+    # I-deepfix-001 Wave-6b (#1344): when True, an UNSET flag is treated as ON — matching a DEFAULT-ON
+    # blocklist producer (e.g. summary_table_enabled() defaults PG_RENDER_SUMMARY_TABLE to "1"). Without this,
+    # the canary predicate would read an unset flag as OFF and demand no marker, letting a DARK render escape
+    # the MARKER-ABSENT leg when the slate has not force-set the flag (Codex Wave-6b P1). An explicit "0"/off
+    # value still reads OFF (matches the producer's OFF token set). Only the unset default flips to ON.
+    flag_default_on: bool = False
 
 
 # The per-module fire-marker contract (10 specs; span-resolver is folded into provenance_reanchor). The
@@ -3341,6 +3347,32 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         absent_markers=("[activation] ff3_trunc_sem: unavailable_failopen",),
         flag_whitelist=("1", "true", "on", "yes"),
     ),
+    _ActivationMarkerSpec(
+        # I-deepfix-001 Wave-5 RENDER (#1344) ANTI-DARK Rule #2: the deterministic verified-only
+        # SUMMARY-TABLE renderer (run_honest_sweep_r3.render_summary_table_into_artifact render
+        # seam). Same LIVENESS + realized-count contract as FF3: the marker leads with
+        # ``reached=<True|False>`` and carries the REALIZED ``rows=N cols=M`` (N=result.rows,
+        # M=len(result.headers)). A DARK render (seam removed / import broken / never reached) emits
+        # NO marker => the MARKER-ABSENT leg FAILS the canary. A legitimate no-render (no titled
+        # table requested / no verified rows / already present) emits an HONEST ``reached=True
+        # rows=0`` that PASSES — rows is the realized effect, NEVER a count threshold (§-1.3), so
+        # there is intentionally NO bool_check demanding rows>0 (a ``reached=True rows=0 cols=0``
+        # empty table is an ACCEPTED honest fire). The FAIL-OPEN path (the render seam raised) emits
+        # the DISTINCT ``unavailable_failopen`` degrade registered as an absent_marker (REJECTED
+        # while ON). Producer ``summary_table_enabled()`` is a DEFAULT-ON BLOCKLIST (default "1"; its OFF
+        # set == the canary's ``_ACTIVATION_FLAG_OFF_TOKENS``). ``flag_whitelist=None`` reproduces the
+        # producer predicate for every explicitly-set value; ``flag_default_on=True`` (Wave-6b P1 fix)
+        # closes the UNSET-case gap — an unset flag reads ON here just as the producer renders the table
+        # when unset, so a DARK render is caught by the MARKER-ABSENT leg even without the slate force-set.
+        name="summary_table",
+        env_flag="PG_RENDER_SUMMARY_TABLE",
+        positive_re=re.compile(
+            r"\[activation\] summary_table: reached=(?P<reached>True|False) rows=\d+ cols=\d+"
+        ),
+        bool_checks=(),
+        absent_markers=("[activation] summary_table: unavailable_failopen",),
+        flag_default_on=True,
+    ),
 )
 
 
@@ -3352,13 +3384,15 @@ def _activation_canary_enabled() -> bool:
     return os.getenv(_ACTIVATION_CANARY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _activation_flag_on(env_flag: str, whitelist: tuple | None = None) -> bool:
+def _activation_flag_on(env_flag: str, whitelist: tuple | None = None, default_on: bool = False) -> bool:
     """True iff ``env_flag`` reads ON, decided with the SAME truthy predicate the module's producer uses
     (Fable P2). ``whitelist`` not None => ON iff the lower-cased value is in it (strict-whitelist producer);
-    else the not-in-off-tokens BLOCKLIST default. Read at CALL time (LAW VI). All flags default OFF and are
-    force-EXACT "1" on a released slate, so both predicates read "1" as ON; the whitelist only prevents a
-    slate value like "yes"/"on" from over-demanding a marker a strict-whitelist producer never emits."""
-    _val = os.getenv(env_flag, "0").strip().lower()
+    else the not-in-off-tokens BLOCKLIST default. ``default_on`` (Wave-6b) => an UNSET flag reads ON, matching
+    a DEFAULT-ON blocklist producer (e.g. summary_table_enabled() defaults to "1"); an explicit "0"/off still
+    reads OFF. Read at CALL time (LAW VI). All-OFF-default flags are force-EXACT "1" on a released slate, so
+    both predicates read "1" as ON; the whitelist only prevents a slate value like "yes"/"on" from
+    over-demanding a marker a strict-whitelist producer never emits."""
+    _val = os.getenv(env_flag, "1" if default_on else "0").strip().lower()
     if whitelist is not None:
         return _val in whitelist
     return _val not in _ACTIVATION_FLAG_OFF_TOKENS
@@ -3389,7 +3423,7 @@ def assert_activation_markers_fired(log_text: str) -> None:
             except ValueError:
                 _flag_on = False
         else:
-            _flag_on = _activation_flag_on(spec.env_flag, spec.flag_whitelist)
+            _flag_on = _activation_flag_on(spec.env_flag, spec.flag_whitelist, spec.flag_default_on)
         if not _flag_on:
             continue  # module not in the active slate => demand no marker (self-scoping)
         # (a) POSITIVE marker present + (b) honesty booleans healthy + inverted degrade counter zero. Use

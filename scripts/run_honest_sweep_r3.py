@@ -6341,7 +6341,7 @@ def render_summary_table_into_artifact(
     bibliography: "list[dict] | None",
     sections: "list[Any] | None",
     appendix_boundary_marker: str = "## Bibliography",
-) -> "tuple[str, str]":
+) -> "tuple[str, str, int, int]":
     """I-deepfix-001 P7 (#1344): WIRE-POINT for the deterministic, verified-only summary
     table. Some prompts (drb_72) explicitly ask the report to END with a titled summary
     TABLE and name the exact column headers; the multi-section generator emits span-verified
@@ -6359,9 +6359,14 @@ def render_summary_table_into_artifact(
     page furniture the body render-seam already stripped (an excluded source still lives in
     the numbered bibliography — faithfulness-neutral, NOT a §-1.3 corpus drop).
 
-    Returns ``(new_body, canary)``; ``(report_body_md, reason)`` unchanged when the table
-    does not apply (kill-switch OFF, no titled table requested, already present, or no source
-    carries a verified claim). PURE (no I/O; reads only the module's LAW VI kill-switch)."""
+    Returns ``(new_body, canary, rows, cols)`` where ``rows``/``cols`` are the REALIZED table
+    shape (``result.rows`` / ``len(result.headers)``) surfaced for the activation-canary liveness
+    marker: a rendered table => (N, M); a legitimate no-render (kill-switch OFF, no titled table
+    requested, already present, or no source carries a verified claim) => ``rows=0`` with
+    ``cols=len(parsed headers)`` (``cols=0`` when no headers were parsed). The ``new_body`` /
+    ``canary`` pair is byte-identical to before (the table content is UNCHANGED — only the two
+    already-computed count fields are additionally surfaced). PURE (no I/O; reads only the
+    module's LAW VI kill-switch)."""
     from src.polaris_graph.generator.summary_table import (  # noqa: PLC0415
         extract_section_claims,
         render_requested_summary_table,
@@ -6381,7 +6386,7 @@ def render_summary_table_into_artifact(
         appendix_boundary_marker=appendix_boundary_marker,
         chrome_screen=_chrome_screen,
     )
-    return result.text, result.canary
+    return result.text, result.canary, result.rows, len(result.headers)
 
 
 # B11 artifact-kind taxonomy. Maps a terminal manifest.status (unified taxonomy)
@@ -16687,18 +16692,51 @@ async def run_one_query(
         # presentation of already-verified content, no new claim). Default-ON kill-switch
         # PG_RENDER_SUMMARY_TABLE (read inside the module). Fail-open: never abort the report.
         _report_artifact_body = final_report
+        # I-deepfix-001 (#1344) ANTI-DARK Rule #2: read the summary-table kill-switch ONCE so
+        # BOTH the honest realized-effect activation marker and the fail-open degrade marker
+        # self-scope to the ON slate (OFF => no table => NO marker; the activation canary demands
+        # nothing when the flag is OFF). Mirrors the FF3 emit_truncation_activation_markers gate.
         try:
-            _report_artifact_body, _st_canary = render_summary_table_into_artifact(
-                final_report,
-                research_question=q["question"],
-                bibliography=multi.bibliography or [],
-                sections=getattr(multi, "sections", None),
+            from src.polaris_graph.generator.summary_table import (  # noqa: PLC0415
+                summary_table_enabled as _summary_table_enabled,
+            )
+            _st_flag_on = _summary_table_enabled()
+        except Exception:  # noqa: BLE001 — a marker-gate import must never abort the report
+            _st_flag_on = False
+        try:
+            _report_artifact_body, _st_canary, _st_rows, _st_cols = (
+                render_summary_table_into_artifact(
+                    final_report,
+                    research_question=q["question"],
+                    bibliography=multi.bibliography or [],
+                    sections=getattr(multi, "sections", None),
+                )
             )
             if _report_artifact_body != final_report:
                 _log(f"[summary-table] {_st_canary}")
+            # Honest realized-effect activation marker (fail-loud canary LIVENESS). reached=True
+            # proves the render seam actually ran this report; rows/cols are the REALIZED effect
+            # (result.rows / len(result.headers)). A legitimate no-render (no titled table / no
+            # verified rows / already present) is an HONEST reached=True rows=0 that PASSES — rows
+            # is realized effect, NEVER a count threshold (§-1.3). A DARK render (seam removed /
+            # import broken / never reached) emits NO marker => the canary RAISES [MARKER ABSENT].
+            # ON slate only.
+            if _st_flag_on:
+                _log(
+                    f"[activation] summary_table: reached=True "
+                    f"rows={_st_rows} cols={_st_cols}"
+                )
         except Exception as _st_exc:  # noqa: BLE001 — additive presentation; never abort the report
             _log(f"[summary-table] skipped (fail-open): {_st_exc}")
             _report_artifact_body = final_report
+            # DISTINCT degrade marker the activation canary REJECTS: the render seam FAULTED while
+            # the module is ON (dark/broken render). Best-effort — a marker emit must never abort
+            # the report. ON slate only (OFF => the canary self-scopes and demands nothing).
+            if _st_flag_on:
+                try:
+                    _log("[activation] summary_table: unavailable_failopen")
+                except Exception:  # noqa: BLE001 — a telemetry emit must never abort a render
+                    pass
         (run_dir / "report.md").write_text(
             compose_report_with_reliability(_report_artifact_body, _reliability_md), encoding="utf-8"
         )

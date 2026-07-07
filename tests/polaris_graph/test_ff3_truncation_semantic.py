@@ -228,10 +228,12 @@ def _run_canary(monkeypatch, on_flag: str, *marker_lines):
     monkeypatch.setenv("PG_ACTIVATION_CANARY", "1")
     monkeypatch.setenv(on_flag, "1")
     # Turn OFF every OTHER registered activation flag (main specs + wave3/4/5 siblings) so only the target
-    # spec is demanded. Numeric infra flags (flag_int_min) self-skip when below threshold => delenv.
+    # spec is demanded. Set EXPLICIT "0" (not delenv): "0" reads OFF for a blocklist, whitelist, numeric
+    # (int 0 < threshold) AND a DEFAULT-ON producer like summary_table (flag_default_on) — an unset
+    # default-on flag would otherwise stay ON and over-demand its marker.
     for spec in (*rg._ACTIVATION_MARKER_SPECS, *rg._ACTIVATION_MARKER_SPECS_WAVE3):
         if spec.env_flag != on_flag:
-            monkeypatch.delenv(spec.env_flag, raising=False)
+            monkeypatch.setenv(spec.env_flag, "0")
     log_text = "".join("2026-07-06 12:00:00,000 INFO src.polaris_graph - " + m + "\n" for m in marker_lines)
     rg.assert_activation_markers_fired(log_text)
 

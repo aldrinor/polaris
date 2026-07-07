@@ -523,6 +523,9 @@ def _run_landmark_canary(monkeypatch, *marker_lines):
     monkeypatch.setenv("PG_LANDMARK_EXPANDER", "1")
     monkeypatch.delenv("PG_QGEN_PARALLEL_QUERIES", raising=False)  # numeric spec: OFF (<2) => self-skip
     monkeypatch.delenv("PG_OPENALEX_DATE_FILTER", raising=False)   # whitelist spec: OFF => self-skip
+    # summary_table is DEFAULT-ON (flag_default_on) — set explicit "0" so an unset default-on flag does not
+    # over-demand its marker on this landmark-only log (delenv would leave the default-on path ON).
+    monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
     log_text = "".join(_LOG_PREFIX + m + "\n" for m in marker_lines)
     rg.assert_activation_markers_fired(log_text)
 

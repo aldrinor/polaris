@@ -135,6 +135,11 @@ def _all_flags_on(monkeypatch, canary="1"):
     monkeypatch.setenv(_FLAG, canary)
     for flag in _MODULE_FLAGS:
         monkeypatch.setenv(flag, "1")
+    # This harness scopes to the 10 wave-3a modules; the wave-6 summary_table flag is DEFAULT-ON
+    # (its canary spec now carries flag_default_on=True), so opt it explicitly OFF here — its
+    # fire-marker liveness is covered by its own test_summary_table_activation_canary.py, and these
+    # synthetic wave-3a logs deliberately carry no summary_table marker.
+    monkeypatch.setenv("PG_RENDER_SUMMARY_TABLE", "0")
 
 
 def _wrapper(log_text, status="success", smoke_scale=False):

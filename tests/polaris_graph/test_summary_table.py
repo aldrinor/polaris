@@ -1164,12 +1164,16 @@ def test_wired_path_renders_table_into_report_artifact():
     ]
     multi = types.SimpleNamespace(bibliography=BIBLIOGRAPHY, sections=sections)
 
-    new_body, canary = sweep.render_summary_table_into_artifact(
+    new_body, canary, st_rows, st_cols = sweep.render_summary_table_into_artifact(
         WIRED_BODY,
         research_question=DRB72_QUESTION,
         bibliography=multi.bibliography,
         sections=multi.sections,
     )
+    # The helper ALSO surfaces the REALIZED table shape (result.rows / len(result.headers)) for the
+    # activation-canary liveness marker: 3 verified source rows, the 5 requested columns.
+    assert st_rows == 3
+    assert st_cols == 5
 
     # RED baseline: the input body has no table.
     assert not any(ln.lstrip().startswith("|") for ln in WIRED_BODY.splitlines())
