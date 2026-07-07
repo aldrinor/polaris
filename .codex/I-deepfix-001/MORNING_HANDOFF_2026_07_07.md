@@ -59,6 +59,20 @@ asserts `PG_CREDIBILITY_PASS_MAX_INFLIGHT == 16`, but the slate already pins `20
 resize). The build agent PROVED it fails on HEAD without my changes. It is a stale locked-pair assertion someone
 should reconcile — I left it alone (out of scope, and it is a locked pair I should not touch unasked).
 
+## CRITICAL finding after the handoff: a 7-flag anti-dark blind spot (I am fixing it — Wave 9)
+
+While filling the ledger I found a real gap: the 7 flags from the EARLIER waves 1 and 2 (workforce-T3, debate-con-basket,
+A1-basket-fallback, render-chrome-screen, depth-dechrome, post-fetch-enrich, wall-classify-rescue) are all force-ON on the
+gate-B slate but have NO registered canary spec. Five of them emit no `[activation]` marker at all. So the automated
+fail-loud canary (`assert_activation_markers_fired`) does NOT watch them — if one went dark on the paid run, the run would
+NOT crash; only a manual read of the log would catch it. Your Rule #2 "a dark flag CRASHES the run" was only true for the
+newer waves (3, 4, 6b, 6c, 7), not for waves 1-2.
+
+This matters for the paid run, so I am building **Wave 9** to close it: add a realized-effect `[activation]` marker to each
+of the 5 marker-less modules (register a spec for wall-classify which already has a marker) + a fail-loud spec each,
+mirroring the Wave-6b/6c/7 pattern, dual-gated. It is faithfulness-neutral (markers + specs only, no logic change). If the
+per-module instrumentation turns out risky, I will flag the specific flags rather than force it.
+
 ## The paid VM run is still HELD for your go
 
 Per Rule #2 (anti-dark) the paid drb_72 run only counts as success when EVERY flag in the ledger fires with a
