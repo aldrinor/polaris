@@ -394,6 +394,64 @@ def _landmark_expander_enabled() -> bool:
     return os.getenv("PG_LANDMARK_EXPANDER", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
+# GENERAL stance / view-diversification frames. Each is a short, TOPIC-AGNOSTIC lens phrase appended to
+# a planned facet + the question's own scope anchor, so a good report on ANY contested topic is searched
+# from multiple viewpoints (supporting / opposing / challenges / opportunities). This is a GENERAL
+# deep-research technique — NO benchmark study title, country, or topic is baked in; the lens words are
+# generic stance vocabulary only. The tuple is a FIXED small template set (not a tunable cap/target): the
+# lane introduces ZERO new cap/threshold — its size is intrinsic to these four generic frames.
+_STANCE_FRAMES: tuple[tuple[str, str], ...] = (
+    ("support", "benefits positive evidence supporting arguments"),
+    ("oppose", "risks criticism negative evidence opposing arguments"),
+    ("challenge", "challenges limitations obstacles concerns"),
+    ("opportunity", "opportunities mitigations policy responses solutions"),
+)
+
+
+def _stance_diversify_enabled() -> bool:
+    """Env gate for the GENERAL stance/view-diversification seed lane, read WITHOUT importing anything so a
+    flag-OFF run NEVER perturbs the query-gen path — byte-identical (the lane is simply skipped). Default
+    OFF; accepts ``1``/``true``/``on``/``yes``. Read at CALL time (LAW VI). Mirrors
+    ``_landmark_expander_enabled`` exactly."""
+    return os.getenv("PG_STANCE_DIVERSIFY_SEEDS", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _stance_diversify_seeds(facets: list[Any], question: str) -> list[str]:
+    """Build the GENERAL stance-diversified query frontier for the planned facets.
+
+    For each facet, emit one query per generic STANCE frame (supporting / opposing / challenges /
+    opportunities), each = ``{facet} {stance lens} {question anchor}`` — the facet supplies the
+    sub-topic, the stance lens supplies the viewpoint, and the anchor (reused from the sibling
+    expert-facet planner) keeps the query inside the question's subject so it cannot generalise into the
+    facet's broad field (the same scope-anchor discipline R1/landmark use). Deterministic (no LLM), $0.
+    Ordered, case-insensitively de-duplicated. Returns ``[]`` when there are no facets.
+
+    GENERAL, no benchmark-gaming: the stance lens words are topic-agnostic templates — no study title /
+    country / benchmark topic is baked in. §-1.3: this ADDS on-topic queries only; it DROPS ZERO sources
+    and CAPS NOTHING (no target count, no per-facet cap knob — the frontier size emerges from the fixed
+    four frames x the facets); every emitted query still routes through the UNCHANGED per_query_retrieve
+    + the frozen faithfulness engine — a stance query that finds nothing verifiable contributes nothing.
+    """
+    from src.polaris_graph.retrieval import expert_facet_planner as _efp
+    anchor = _efp._question_anchor(question)
+    out: list[str] = []
+    seen: set[str] = set()
+    for f in facets:
+        name = (getattr(f, "name", "") or "").strip()
+        if not name:
+            continue
+        for _label, lens in _STANCE_FRAMES:
+            q = re.sub(r"\s+", " ", f"{name} {lens} {anchor}").strip()
+            if not q:
+                continue
+            key = q.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(q)
+    return out
+
+
 def _lines(text: str, cap: int = 12) -> list[str]:
     """Parse an LLM reply into clean sub-topic / query line items (strip numbering/bullets)."""
     out: list[str] = []
@@ -660,6 +718,54 @@ def _plan_expert_facet_queries(
         if not _lm_failed_open:
             logger.info("[activation] landmark_study_expansion: expanded_queries=%d", _new_lm_count)
 
+    # GENERAL stance / view-diversification seed lane (default OFF, PG_STANCE_DIVERSIFY_SEEDS): a GENERAL
+    # deep-research technique — a good report on ANY contested topic must cover multiple viewpoints. For
+    # each planned facet ALSO issue a small set of queries framing the facet from distinct STANCES
+    # (supporting / opposing / challenges / opportunities), each scope-anchored to the question. Generic
+    # topic-agnostic templates only — NO study title / country / benchmark topic is baked in. UNLIKE the
+    # sub-entity / landmark widen lanes this lane does NOT raise the budget: the net-new stance queries are
+    # simply APPENDED to the seed frontier and compete for the SAME `max_queries` budget in the seed-issue
+    # below — if the budget is already full they don't all fit (honest, never a raised cap to fit them).
+    # De-duplicated against the CURRENT frontier here + against `seen_q` inside the seed-issue loop. §-1.3:
+    # ADDS on-topic queries only, DROPS ZERO sources, CAPS/THINS/TARGETS NOTHING; every stance query routes
+    # through the UNCHANGED per_query_retrieve + the FROZEN faithfulness engine — a stance query that finds
+    # nothing verifiable simply contributes nothing (honest). FAIL-OPEN (Codex/Fable additive-on-failure):
+    # any import/logic error adds ZERO queries and emits the DISTINCT `unavailable_failopen` degrade marker
+    # — it NEVER aborts the host query-gen path. The healthy `issued=N` marker reports the REALIZED count of
+    # net-new stance queries added to the frontier (0 = a legitimate ran-ok-zero — no facet / all duplicates
+    # — and is ACCEPTED; NEVER gated on a count > 0, §-1.3). Default OFF => this block is skipped entirely =>
+    # `seed_queries` unchanged => byte-identical.
+    # Wave-6c (Codex P1): the healthy liveness marker is emitted AFTER _issue_seed_frontier below, keyed on the
+    # REALIZED count of stance queries that ACTUALLY made it through the (deliberately-unraised) budget + dedup +
+    # wall — NOT the pre-truncation appended count. Here we only APPEND the net-new stance queries + record their
+    # keys so the realized count can be measured against the issued set.
+    _stance_lane_active = False
+    _stance_keys: set[str] = set()
+    if _stance_diversify_enabled() and not _wall_passed():
+        _stance_lane_active = True
+        try:
+            _stance_qs = _stance_diversify_seeds(facets, question)
+            if _stance_qs:
+                _seed_keys = {(q or "").strip().lower() for q in seed_queries}
+                _new_stance = [q for q in _stance_qs if (q or "").strip().lower() not in _seed_keys]
+                if _new_stance:
+                    _stance_keys = {(q or "").strip().lower() for q in _new_stance}
+                    # ADD ONLY — append to the frontier; `max_queries` is UNCHANGED (never raised to fit
+                    # them), so the stance queries flow through the SAME budget-bounded seed-issue below
+                    # (§-1.3: additive-only, no cap/target — if the budget is full they don't all fit).
+                    seed_queries = list(seed_queries) + _new_stance
+        except Exception:  # noqa: BLE001 — additive lane: any failure adds ZERO, never aborts qgen
+            # A FAIL-OPEN stance lane must NOT read as a healthy fire: clear the active flag (SUPPRESSES the
+            # positive issued= marker below) and emit the DISTINCT `unavailable_failopen` marker so the
+            # run_gate_b activation canary (which registers the degrade literal as an absent_marker) REJECTS
+            # the dark lane instead of passing it as a healthy added-zero. The lane STILL fails open (adds
+            # zero, never aborts qgen); only the liveness LOG is made honest (§-1.3 anti-dark).
+            _stance_lane_active = False
+            _stance_keys = set()
+            logger.warning(
+                "[activation] stance_diversify_seeds: unavailable_failopen (added 0)", exc_info=True
+            )
+
     # Issue the seed frontier (facet-angle queries are already full queries — no per-todo llm()
     # derivation needed). Record ONLY the queries ACTUALLY issued in the shared seen-set: a
     # budget-truncated seed stays eligible for the R2 loop, and the RESERVE angles (deliberately never
@@ -674,6 +780,15 @@ def _plan_expert_facet_queries(
     queries.extend(_issued)
     results.extend(_issued_results)
     corpus_rows.extend(_issued_rows)
+
+    # Wave-6c (Codex P1): emit the stance-lane liveness marker with the REALIZED issued count — how many
+    # net-new stance queries ACTUALLY passed the (deliberately-unraised) budget + dedup + wall in
+    # _issue_seed_frontier, counted from `_issued` (the verbatim issued queries), NOT the pre-truncation
+    # appended count. Mirrors the qgen_parallel_fanout issued= contract. Suppressed on the fail-open path
+    # (which logs unavailable_failopen instead). issued=0 is an honest ran-ok-zero — NEVER gated on >0 (§-1.3).
+    if _stance_lane_active:
+        _realized_stance = sum(1 for _q in _issued if (_q or "").strip().lower() in _stance_keys)
+        logger.info("[activation] stance_diversify_seeds: issued=%d", _realized_stance)
 
     # R2: the facet-completeness expansion loop closes gaps on UNCOVERED facets until yield saturates.
     if _fc.facet_completeness_enabled() and facets and len(queries) < max_queries and not _wall_passed():

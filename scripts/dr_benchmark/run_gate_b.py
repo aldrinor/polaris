@@ -1708,6 +1708,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     "before June 2023" question seeds the pre-print, never a 2025 re-publication (fs_researcher,
     #     default-OFF PG_LANDMARK_EXPANDER). BOOLEAN feature: quad-wired like PG_POST_FETCH_ENRICH_PARALLEL.
     "PG_LANDMARK_EXPANDER": "1",
+    # (d) GENERAL stance / view-diversification seed lane — for each planned facet ALSO issues generic
+    #     stance-framed queries (supporting / opposing / challenges / opportunities) so a contested topic
+    #     is searched from multiple viewpoints. Topic-agnostic templates only, NO benchmark study/topic
+    #     baked in; the lane ADDS queries to the frontier and does NOT raise the budget (fs_researcher,
+    #     default-OFF PG_STANCE_DIVERSIFY_SEEDS). BOOLEAN feature: quad-wired like PG_LANDMARK_EXPANDER.
+    "PG_STANCE_DIVERSIFY_SEEDS": "1",
     # (c) bounded-parallel seed-frontier fan-out worker count — issues the whole ~35-query frontier
     #     concurrently under ONE retrieval wall (default 1 = serial = the measured "only ~3 of ~35 queries
     #     fired" collapse). NUMERIC infra pin (mirrors PG_POST_FETCH_ENRICH_WORKERS): float-parseable =>
@@ -2032,6 +2038,11 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # FLOORS floor-2 only.) FAITHFULNESS-NEUTRAL.
     "PG_OPENALEX_DATE_FILTER",
     "PG_LANDMARK_EXPANDER",
+    # GENERAL stance/view-diversification seed lane - fail-CLOSED before spend if the BOOLEAN stance flag
+    # is off: a paid run with it =0 silently drops the multi-viewpoint (supporting/opposing/challenges/
+    # opportunities) coverage lane. Force-ON above, so a stray operator =0 fails the run CLOSED here.
+    # §-1.3 ADDITIVE / FAITHFULNESS-NEUTRAL (adds on-topic queries only; drops/caps nothing).
+    "PG_STANCE_DIVERSIFY_SEEDS",
     # I-deepfix-001 (#1344) WAVE-4 CONTAMINATION - fail-CLOSED before spend if either BOOLEAN
     # contamination-kill flag is off: a paid run with one =0 silently leaves the OpenAlex title-search
     # validator / the DARK publication-date resolver dark (the drb_72 scope/date contamination the
@@ -2325,6 +2336,7 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # ADDITIVE / FAITHFULNESS-NEUTRAL. (PG_QGEN_PARALLEL_QUERIES is NUMERIC infra -> slate + floor only.)
     "PG_OPENALEX_DATE_FILTER",            # additive date-scoped OpenAlex lane (UNION, never drops a source)
     "PG_LANDMARK_EXPANDER",               # in-window landmark-study query expander (adds on-topic queries)
+    "PG_STANCE_DIVERSIFY_SEEDS",          # GENERAL stance/view-diversification seed lane (adds multi-viewpoint queries)
     # I-deepfix-001 (#1344) WAVE-4 CONTAMINATION - force-ON the two BOOLEAN contamination-kill flags so a
     # stray operator/.env =0 cannot survive the setdefault slate and silently leave the OpenAlex
     # title-search validator / the DARK publication-date resolver dark. Each is DEFAULT-OFF in code
@@ -3294,6 +3306,24 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         flag_whitelist=("1", "true", "on", "yes"),
     ),
     _ActivationMarkerSpec(
+        # GENERAL stance / view-diversification seed lane (fs_researcher). Fires once per expert-facet plan
+        # when PG_STANCE_DIVERSIFY_SEEDS is ON; ``issued=0`` (the lane RAN and legitimately added zero — no
+        # facet / all duplicates) is the ACCEPTED eligible-yet-zero signal (§-1.3). Mirrors the landmark
+        # honesty split: the FAIL-OPEN path (import/logic error in the lane) emits the DISTINCT degrade
+        # marker ``unavailable_failopen`` instead of the positive ``issued=N`` marker. Registering that
+        # degrade literal as an absent_marker makes the canary FAIL when it appears while the flag is ON: a
+        # lane that FAILED to run (added zero because it crashed) is REJECTED as dark, while a lane that RAN
+        # and legitimately added zero still PASSES. The suppressed positive marker ALSO trips the
+        # MARKER-ABSENT check, so the fail-open path is rejected on both legs. Producer
+        # _stance_diversify_enabled accepts 1/true/on/yes.
+        name="stance_diversify_seeds",
+        env_flag="PG_STANCE_DIVERSIFY_SEEDS",
+        positive_re=re.compile(r"\[activation\] stance_diversify_seeds: issued=\d+"),
+        bool_checks=(),
+        absent_markers=("[activation] stance_diversify_seeds: unavailable_failopen",),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
+    _ActivationMarkerSpec(
         # I-deepfix-001 Wave-4 CONTAMINATION (#1344) part A: the OpenAlex title-SEARCH match validator
         # (live_retriever._openalex_enrich). The marker carries the REALIZED per-run counts
         # ``checked=N rejected=N`` (N = title-search enrich attempts validated / withheld). checked=0 is
@@ -3716,6 +3746,7 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # it; NOT allowlisted - it rides the slate + _BENCHMARK_PREFLIGHT_FLOORS floor-2 only.)
     "PG_OPENALEX_DATE_FILTER",               # additive date-scoped OpenAlex lane (UNION on top of base, never drops)
     "PG_LANDMARK_EXPANDER",                  # in-window landmark-study query expander (adds on-topic queries)
+    "PG_STANCE_DIVERSIFY_SEEDS",             # GENERAL stance/view-diversification seed lane (adds multi-viewpoint queries)
     # -- I-deepfix-001 (#1344) WAVE-4 CONTAMINATION (winner-or-infra: FAITHFULNESS-NEUTRAL contamination kill) --
     # The two BOOLEAN contamination-kill flags - conscious 'winner or infra?' decision, allowlisted
     # deliberately so the clean slate PASSES SLATE-PURITY. §-1.3 demote-not-drop / disclose-don't-drop;
