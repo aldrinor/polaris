@@ -107,3 +107,14 @@ build-dark-rebuild failure mode, so a flag that passes review but never fires in
   + Fable APPROVE. 55 tests. Faithfulness engine untouched. Pureshell PG_CONTENT_SHELL_REFETCH DEFERRED (retrieval-side).
   PRE-EXISTING unrelated test failure noted (NOT from Wave 7): test_gateb_containment_slate credibility inflight pinned 16
   but slate has 20 — a stale locked-pair assertion on HEAD; flagged for daylight reconcile.
+- Wave 9 (77ea5fed): CLOSE the anti-dark canary blind spot. FINDING: 7 wave-1/2 FORCE-ON flags were quad-pinned but had ZERO
+  _ActivationMarkerSpec → assert_activation_markers_fired did NOT crash the paid run if they went dark (Rule #2 gap). Wave-9
+  instrumented 4 with realized-effect [activation] markers + fail-loud specs (LOGGING-ONLY, faithfulness-neutral, OFF
+  byte-identical): workforce_t3_targeting (promoted=/checked=), debate_con_basket_consolidation (consolidated= len-delta,
+  flag_default_on=True for its default-ON producer), post_fetch_enrich_parallel (batched=/enriched=), wall_classify_rescue
+  (register-only). iter-1 Codex P1 (debate spec default-off = false-green of a dark default-on flag, same class as summary_table
+  Wave-6b) FIXED with flag_default_on=True + the isolation-helper ripple across 5 files. 3 flags (A1_basket_fallback,
+  render_chrome_screen, depth_dechrome_members) DEFERRED to Wave-9b — conditional seams where a per-call spec would false-fail a
+  released run; need the FF3/summary_table guaranteed-once run-summary emit. Codex APPROVE (0 P0/0 P1) + Fable APPROVE (0 P0/0
+  P1, 8-value parity probe + reachability proof). 178 canary tests. Faithfulness engine byte-untouched. So the automated canary
+  now covers ALL force-ON flags EXCEPT the 3 conditional-seam ones (documented; operator decides accept-manual vs Wave-9b).

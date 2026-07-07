@@ -21,20 +21,21 @@ below shows FIRED with a real realized-effect count in the ACTUAL run log. No ex
 
 | Wave | Flag | Expected [activation] marker | canary spec | preflight FIRED? | RUN FIRED? |
 |---|---|---|---|---|---|
-| 1 | PG_WORKFORCE_T3_TARGETING | **NO [activation] marker emitted by credibility_llm_tiering.py** | ❌ **NO canary spec** (force-ON, spec=0) — AUTOMATED-CANARY BLIND; relies on manual ledger read only | ⬜ | ⬜ |
-| 1 | PG_DEBATE_CON_BASKET_CONSOLIDATION | **NO [activation] marker emitted by debate_consolidation.py** | ❌ **NO canary spec** — AUTOMATED-CANARY BLIND | ⬜ | ⬜ |
-| 1 | PG_A1_BASKET_FALLBACK | **NO [activation] marker emitted by contract_section_runner.py** | ❌ **NO canary spec** — AUTOMATED-CANARY BLIND | ⬜ | ⬜ |
-| 1 | PG_RENDER_CHROME_SCREEN | **NO [activation] marker emitted by key_findings.py** (only FF3's) | ❌ **NO canary spec** — AUTOMATED-CANARY BLIND | ⬜ | ⬜ |
-| 1 | PG_DEPTH_DECHROME_MEMBERS | **NO [activation] marker emitted by depth_synthesis.py** | ❌ **NO canary spec** — AUTOMATED-CANARY BLIND | ⬜ | ⬜ |
-| 2 | PG_POST_FETCH_ENRICH_PARALLEL | live_retriever fire-log (~5990), NOT a canary [activation] marker | ❌ **NO canary spec** — AUTOMATED-CANARY BLIND | ⬜ | ⬜ |
-| 2 | PG_WALL_CLASSIFY_RESCUE | `[activation] wall_classify_rescue: armed enrich_parallel=` (marker EXISTS) | ❌ **NO canary spec registered** (marker present but not in _ACTIVATION_MARKER_SPECS) | ⬜ | ⬜ |
+| 1 | PG_WORKFORCE_T3_TARGETING | `[activation] workforce_t3_targeting: promoted= checked=` (realized) | ✅ **spec ADDED (77ea5fed)** — Wave-9; whitelist default-OFF | ⬜ | ⬜ |
+| 1 | PG_DEBATE_CON_BASKET_CONSOLIDATION | `[activation] debate_con_basket_consolidation: consolidated=` (realized len-delta; degrade `unavailable_failopen`) | ✅ **spec ADDED (77ea5fed)** — Wave-9; flag_default_on=True (default-ON producer) | ⬜ | ⬜ |
+| 1 | PG_A1_BASKET_FALLBACK | (conditional contract/clinical seam — no marker) | ❌ **DEFERRED (Wave-9b)** — conditional seam: a per-call spec would false-fail a released run; needs guaranteed-once run-summary emit (FF3 pattern) | ⬜ | ⬜ |
+| 1 | PG_RENDER_CHROME_SCREEN | (conditional KF/Abstract/Conclusion render seam — no marker) | ❌ **DEFERRED (Wave-9b)** — conditional seam false-fail hazard | ⬜ | ⬜ |
+| 1 | PG_DEPTH_DECHROME_MEMBERS | (only when depth baskets exist — no marker) | ❌ **DEFERRED (Wave-9b)** — conditional seam false-fail hazard | ⬜ | ⬜ |
+| 2 | PG_POST_FETCH_ENRICH_PARALLEL | `[activation] post_fetch_enrich_parallel: batched= enriched=` (realized) | ✅ **spec ADDED (77ea5fed)** — Wave-9; whitelist default-OFF | ⬜ | ⬜ |
+| 2 | PG_WALL_CLASSIFY_RESCUE | `[activation] wall_classify_rescue: armed enrich_parallel=` (pre-existing marker) | ✅ **spec REGISTERED (77ea5fed)** — Wave-9 register-only; whitelist default-OFF | ⬜ | ⬜ |
 
-> **CRITICAL ANTI-DARK GAP found 2026-07-07 (Wave-9 target):** the 7 Wave-1/2 flags above are all quad-pinned FORCE-ON
-> (slate_refs=4) but have ZERO registered `_ActivationMarkerSpec` (spec=0). So `assert_activation_markers_fired` does NOT
-> cover them — a DARK Wave-1/2 flag on the paid VM run would NOT crash the run (overall_rc stays 0); only a MANUAL ledger
-> read of the run log catches it. Rule #2's automated structural guarantee is INCOMPLETE for waves 1-2. Wave-9 =
-> instrument each with a realized-effect `[activation]` marker (add to the 5 marker-less modules; wall_classify already has
-> one) + register a fail-loud spec, mirroring the Wave-6b/6c/7 pattern. Waves 3-4 (below) DO have specs — those are covered.
+> **ANTI-DARK GAP (found + 4/7 CLOSED 2026-07-07, Wave-9 77ea5fed):** the 7 Wave-1/2 flags above are all quad-pinned FORCE-ON
+> but originally had ZERO `_ActivationMarkerSpec`, so `assert_activation_markers_fired` did NOT cover them. Wave-9 instrumented
+> 4 (realized-effect marker + fail-loud spec, dual-gate APPROVE). 3 remain BLIND — DEFERRED to Wave-9b because their seams are
+> CONDITIONAL (skipped for some report shapes): a per-call spec would MARKER-ABSENT-FALSE-FAIL a legitimate released run, so
+> they need a guaranteed-once run-summary emit at the Gate-B per-report chokepoint (the FF3/summary_table lifecycle pattern).
+> Waves 3-4 (below) + 6b/6c/7 have specs. So the automated canary now covers ALL force-ON flags EXCEPT these 3 conditional-seam
+> flags, which the operator must weigh (accept the manual ledger read for them, or authorize the Wave-9b lifecycle instrumentation).
 | 3 | PG_QGEN_PARALLEL_QUERIES | `[activation] qgen_parallel_fanout: ... issued=` (numeric>=2) | wave3 | ⬜ | ⬜ |
 | 3 | PG_OPENALEX_DATE_FILTER | `[activation] openalex_date_filter:` | wave3 | ⬜ | ⬜ |
 | 3 | PG_LANDMARK_EXPANDER | `[activation] landmark_study_expansion: expanded_queries=` (ran-ok; NOT unavailable_failopen) | wave3 | ⬜ | ⬜ |

@@ -73,6 +73,16 @@ of the 5 marker-less modules (register a spec for wall-classify which already ha
 mirroring the Wave-6b/6c/7 pattern, dual-gated. It is faithfulness-neutral (markers + specs only, no logic change). If the
 per-module instrumentation turns out risky, I will flag the specific flags rather than force it.
 
+**Wave 9 committed (`77ea5fed`), 4 of 7 closed — both reviewers APPROVE:** workforce-T3, debate, post-fetch-enrich, and
+wall-classify now emit a real fire-signal and are in the crash-check. So the automated crash-check now covers ALL your
+force-ON flags EXCEPT three. Codex caught a real bug mid-way (the debate flag is ON-by-default but its watcher treated
+"unset" as OFF — same class as the summary-table bug; fixed with the default-on match). **Three flags stayed deferred and
+this is a decision for you (Wave-9b): A1-basket-fallback, render-chrome-screen, depth-dechrome.** Those three only run for
+certain report shapes, so watching them on every run would wrongly crash a legitimate run whose report skips that step. To
+watch them honestly needs a "run-summary" style fire-signal (the pattern FF3 and the summary table use), which is a bigger
+change. Your call: accept the manual log-read for those 3, or authorize the Wave-9b instrumentation. Until then, those 3 are
+the only force-ON flags the automatic crash-check does not cover.
+
 ## The paid VM run is still HELD for your go
 
 Per Rule #2 (anti-dark) the paid drb_72 run only counts as success when EVERY flag in the ledger fires with a
