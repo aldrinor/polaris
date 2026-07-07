@@ -106,7 +106,13 @@ _STRAIGHT_QUOTED_RE = re.compile(r"\"(.+?)\"")
 # ---------------------------------------------------------------------------
 # Geography phrases matched CASE-INSENSITIVELY (full names + adjectives only; bare
 # two-letter abbreviations are handled case-sensitively below to avoid matching the
-# English pronoun "us").
+# English pronoun "us"). This is a GENERAL, comprehensive world-economies set (NOT a
+# benchmark-specific list): each entry is a (verbatim-phrase, canonical-display) pair,
+# surfaced ONLY when the phrase appears as a WHOLE WORD in the source's own verified
+# span (so "poland" is never read from "lapland"/"upland", "india" never from
+# "indiana"/"indonesia"). Multi-word phrases use literal spaces; NO hyphenated geo
+# phrases (the geography matcher does not hyphen-normalise). Display de-dup keeps the
+# first-seen canonical form.
 _GEO_PHRASES: tuple[tuple[str, str], ...] = (
     ("united states", "United States"),
     ("u.s.", "United States"),
@@ -126,11 +132,106 @@ _GEO_PHRASES: tuple[tuple[str, str], ...] = (
     ("france", "France"),
     ("india", "India"),
     ("japan", "Japan"),
+    ("japanese", "Japan"),
     ("oecd", "OECD"),
     ("worldwide", "Global"),
     ("global economy", "Global"),
     ("developing countries", "Developing countries"),
     ("developed countries", "Developed countries"),
+    # --- expanded general world-economies set (I-deepfix-001 vocab expansion) ---
+    ("belgium", "Belgium"),
+    ("belgian", "Belgium"),
+    ("netherlands", "Netherlands"),
+    ("poland", "Poland"),
+    ("saudi arabia", "Saudi Arabia"),
+    ("saudi arabian", "Saudi Arabia"),
+    ("bahrain", "Bahrain"),
+    ("bahraini", "Bahrain"),
+    ("italy", "Italy"),
+    ("italian", "Italy"),
+    ("spain", "Spain"),
+    ("spanish", "Spain"),
+    ("portugal", "Portugal"),
+    ("portuguese", "Portugal"),
+    ("greece", "Greece"),
+    ("ireland", "Ireland"),
+    ("switzerland", "Switzerland"),
+    ("austria", "Austria"),
+    ("austrian", "Austria"),
+    ("sweden", "Sweden"),
+    ("swedish", "Sweden"),
+    ("norway", "Norway"),
+    ("norwegian", "Norway"),
+    ("denmark", "Denmark"),
+    ("finland", "Finland"),
+    ("finnish", "Finland"),
+    ("iceland", "Iceland"),
+    ("icelandic", "Iceland"),
+    ("hungary", "Hungary"),
+    ("hungarian", "Hungary"),
+    ("romania", "Romania"),
+    ("romanian", "Romania"),
+    ("ukraine", "Ukraine"),
+    ("ukrainian", "Ukraine"),
+    ("russia", "Russia"),
+    ("russian", "Russia"),
+    ("turkish", "Turkey"),
+    ("israel", "Israel"),
+    ("israeli", "Israel"),
+    ("qatar", "Qatar"),
+    ("qatari", "Qatar"),
+    ("kuwait", "Kuwait"),
+    ("kuwaiti", "Kuwait"),
+    ("united arab emirates", "United Arab Emirates"),
+    ("emirati", "United Arab Emirates"),
+    ("australia", "Australia"),
+    ("australian", "Australia"),
+    ("new zealand", "New Zealand"),
+    ("south korea", "South Korea"),
+    ("singapore", "Singapore"),
+    ("singaporean", "Singapore"),
+    ("taiwan", "Taiwan"),
+    ("taiwanese", "Taiwan"),
+    ("hong kong", "Hong Kong"),
+    ("malaysia", "Malaysia"),
+    ("malaysian", "Malaysia"),
+    ("thailand", "Thailand"),
+    ("vietnam", "Vietnam"),
+    ("vietnamese", "Vietnam"),
+    ("philippines", "Philippines"),
+    ("filipino", "Philippines"),
+    ("pakistan", "Pakistan"),
+    ("pakistani", "Pakistan"),
+    ("bangladesh", "Bangladesh"),
+    ("bangladeshi", "Bangladesh"),
+    ("brazil", "Brazil"),
+    ("brazilian", "Brazil"),
+    ("mexico", "Mexico"),
+    ("mexican", "Mexico"),
+    ("argentina", "Argentina"),
+    ("argentine", "Argentina"),
+    ("argentinian", "Argentina"),
+    ("chilean", "Chile"),
+    ("colombia", "Colombia"),
+    ("colombian", "Colombia"),
+    ("south africa", "South Africa"),
+    ("south african", "South Africa"),
+    ("nigeria", "Nigeria"),
+    ("nigerian", "Nigeria"),
+    ("egypt", "Egypt"),
+    ("egyptian", "Egypt"),
+    ("kenya", "Kenya"),
+    ("kenyan", "Kenya"),
+    ("scandinavia", "Scandinavia"),
+    ("scandinavian", "Scandinavia"),
+    ("nordic countries", "Nordic countries"),
+    ("latin america", "Latin America"),
+    ("latin american", "Latin America"),
+    ("middle east", "Middle East"),
+    ("middle eastern", "Middle East"),
+    ("southeast asia", "Southeast Asia"),
+    ("asia", "Asia"),
+    ("africa", "Africa"),
 )
 # Case-SENSITIVE standalone uppercase abbreviations. Each entry is a regex BODY that is
 # whole-token bounded by :func:`_word_boundary_search` (lookaround), so "US" never matches
@@ -141,7 +242,10 @@ _GEO_ABBREV: tuple[tuple[str, str], ...] = (
     ("UK", "United Kingdom"),
     ("EU", "European Union"),
 )
-# Occupation / application-area phrases (case-insensitive, high precision).
+# Occupation / application-area phrases (case-insensitive, high precision). GENERAL,
+# comprehensive occupation/sector set; each surfaced ONLY when it appears as a WHOLE
+# WORD in the source's own verified span. No overlap-hazard bare tokens (e.g. no bare
+# "hr"/"it"); the full phrase "human resources"/"information technology" is used instead.
 _DOMAIN_PHRASES: tuple[str, ...] = (
     "customer-support", "customer support", "customer service", "call center",
     "call centre", "software developer", "software engineer", "programmer",
@@ -151,14 +255,59 @@ _DOMAIN_PHRASES: tuple[str, ...] = (
     "legal profession", "clerical", "administrative support", "construction",
     "mining", "consulting", "graphic design", "journalism", "journalist",
     "customer-support agents",
+    # --- expanded general occupation / application-area set ---
+    "scientific writing", "academic writing", "technical writing", "medical writing",
+    "oral radiology", "maxillofacial radiology", "dental education", "dentistry",
+    "medical research", "medical education", "clinical practice",
+    "healthcare", "health care", "nursing", "nurse", "physician", "pharmacy",
+    "pharmacist", "public health", "mental health",
+    "organizational change", "organisational change", "change management",
+    "project management", "human resources", "human resource management",
+    "hiring", "talent acquisition", "performance management",
+    "employer flexibility", "remote work", "hybrid work", "work from home",
+    "telework", "office work", "office workspace", "office worker",
+    "administrative work", "data entry", "data analysis", "data science",
+    "data analytics", "skills training", "job training", "vocational training",
+    "on-the-job training", "workforce training", "professional development",
+    "education", "teaching", "teacher", "higher education", "e-learning",
+    "finance", "financial services", "banking", "accounting", "accountant",
+    "auditing", "insurance", "marketing", "advertising", "sales",
+    "customer relations", "agriculture", "farming", "logistics", "supply chain",
+    "transportation", "transport", "warehousing", "warehouse", "retail",
+    "retailer", "e-commerce", "hospitality", "tourism", "engineering",
+    "research and development", "content writing", "copywriting", "editing",
+    "proofreading", "customer experience", "information technology",
+    "cybersecurity", "data management",
 )
-# Risk / limitation themes (case-insensitive, high precision).
+# Risk / limitation themes (case-insensitive, high precision). GENERAL, comprehensive
+# risk/limitation set; each surfaced ONLY when it appears as a WHOLE WORD in the
+# source's own verified span. Whole-word matching keeps precision (e.g. "bias" is never
+# read from "biased", "cost" never from "costume").
 _RISK_PHRASES: tuple[str, ...] = (
     "displacement", "displace", "job loss", "unemployment", "substitution",
     "inequality", "polarization", "polarisation", "discrimination",
     "algorithmic bias", "privacy", "surveillance", "misinformation",
     "hallucination", "deskilling", "reskilling", "retraining", "job insecurity",
     "wage decline", "ethical concerns", "labor displacement",
+    # --- expanded general risk / limitation set ---
+    # NOTE: only RISK-FRAMED phrases live here. Neutral/positive-polarity tokens
+    # ("reliability", "accuracy", "transparency", "governance", "compliance", "cost",
+    # "safety", "well-being", ...) were pruned (Codex P2): they name goals/mechanisms,
+    # not risks, and read wrong in a "Key Risks and Limitations" cell. Their risk-FRAMED
+    # forms ("lack of transparency", "high cost", "worker safety", "well-being harm",
+    # "data security") are retained.
+    "bias", "gender bias", "racial bias", "implicit bias",
+    "algorithmic discrimination", "data privacy", "data protection",
+    "data security", "lack of transparency",
+    "inaccuracy", "error rate", "plagiarism", "copyright",
+    "copyright infringement", "intellectual property",
+    "ethical issues", "ethical concern", "high cost",
+    "implementation cost", "skill gap", "skills gap", "skill mismatch",
+    "job security", "job displacement", "over-reliance", "overreliance",
+    "automation bias", "autonomy loss", "loss of autonomy",
+    "well-being harm", "burnout", "worker safety",
+    "manipulation", "fraud", "toxicity", "harmful content",
+    "misuse", "dependence",
 )
 
 
