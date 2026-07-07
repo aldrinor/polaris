@@ -35,7 +35,7 @@ below shows FIRED with a real realized-effect count in the ACTUAL run log. No ex
 | 4 | PG_RESOLVE_PUBDATE_FROM_HTML | `[activation] pubdate_html_resolve: resolved= unresolved=` | yes | ⬜ | ⬜ |
 | 5 | ~~FF2-TRUNC-v2~~ RETIRED (e55637b3) | — (unsound lexical leg removed; no marker, not on slate) | n/a | ➖ | ➖ |
 | 5 | FF3-TRUNC-SEM (PG_FF3_TRUNC_SEM) | `[activation] ff3_trunc_sem: reached=(True\|False) screened= detected= repaired= dropped=` (degrade: `unavailable_failopen`) | yes | ⬜ | ⬜ |
-| 6 | PG_RENDER_SUMMARY_TABLE (already-wired; Wave-6a vocab) | `[summary-table] rows= cols= geo_filled= domain_filled= risk_filled=` (logged INFO, run_honest_sweep_r3.py:16698) | **NEEDS fail-loud spec (Wave-6b)** — currently NOT in assert_activation_markers_fired; add spec so dark table crashes, honest rows=0 passes | ⬜ | ⬜ |
+| 6 | PG_RENDER_SUMMARY_TABLE (Wave-6a vocab + Wave-6b canary) | `[activation] summary_table: reached=(True\|False) rows= cols=` (degrade: `unavailable_failopen`) | **DONE (1f3d2ced)** — fail-loud _ActivationMarkerSpec added with flag_default_on=True (matches default-ON producer); dark render crashes (overall_rc=1), honest rows=0 passes, NO count>0 gate | ⬜ | ⬜ |
 | 6 | (table + 14-study coverage flag[s]) | TBD@build | TBD | ⬜ | ⬜ |
 | 7 | PG_CONTENT_SHELL_REFETCH | `[activation] content_shell_refetch:` | TBD@build | ⬜ | ⬜ |
 | 7 | PG_CROSS_SOURCE_THREAD_CONSOLIDATION | `[activation] cross_source_body:` | check | ⬜ | ⬜ |

@@ -78,3 +78,12 @@ build-dark-rebuild failure mode, so a flag that passes review but never fires in
   _match_geography / _match_terms_ci) + own-source scoping BYTE-UNCHANGED → faithfulness-neutral surface-more-verified; OFF
   byte-identical. Codex APPROVE (0 P0/0 P1, 1 P2 polarity nit) + Fable APPROVE. 104 tests incl homograph regression suite.
   Wave-6b will add the summary_table FAIL-LOUD canary spec + retrieval seeding + Brynjolfsson NBER repoint.
+- Wave 6b (1f3d2ced): summary-table FAIL-LOUD canary (anti-dark Rule #2). Render seam emits honest realized-effect
+  `[activation] summary_table: reached=True rows=N cols=M` (+ distinct `unavailable_failopen` on the fail-open path);
+  a fail-loud _ActivationMarkerSpec is registered so a DARK render (seam removed / import broken) CRASHES the run,
+  honest rows=0 PASSES (§-1.3, no count>0 gate). iter-1 both REVISE on a REAL P1 (flag-predicate default-case gap:
+  producer defaults PG_RENDER_SUMMARY_TABLE ON but the canary read unset as OFF → dark escape) — NOT force-shipped.
+  FIX: new _ActivationMarkerSpec.flag_default_on field (default False; summary_table=True) → canary reads unset as ON
+  matching the producer; explicit "0" still OFF; every other spec byte-identical. + P2a return-annotation fix. Consequent
+  test maintenance: 4 sibling canary-test helpers opt summary_table OFF for their no-table logs. Codex APPROVE (0 P0/0 P1)
+  + Fable APPROVE (0 P0/0 P1, 10/10 predicate byte-parity probe). 170 canary tests pass. Faithfulness engine untouched.
