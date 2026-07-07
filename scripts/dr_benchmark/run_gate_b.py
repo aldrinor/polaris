@@ -1795,6 +1795,20 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     (search/fetch skipped) and is EXPECTED-absent on the box1 resume, EXPECTED-present on the box2 fresh
     #     run. NOT force-on/required/allowlisted (numeric infra => SLATE-PURITY float-skips it).
     "PG_MIN_FETCH_YIELD": "0.30",
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome SUB-gates (default-ON kill-switches, SUPPRESS-
+    # ONLY, faithfulness-neutral). Previously registered ONLY in weighted_enrichment.py; now quad-pinned
+    # here like the other booleans so a stray operator/.env =0 (or the empty-string parse bug) cannot
+    # silently disable them. Each marker fires on a CONDITIONAL seam (a matching chrome line in the CWF
+    # render), so LOG-READ-PROVEN, NOT a hard _ActivationMarkerSpec.
+    #   (f) ISSN masthead-recital chrome (weighted_enrichment._is_issn_masthead_chrome). Marker
+    #       "issn_masthead_chrome: fired=1".
+    "PG_CWF_ISSN_CHROME": "1",
+    #   (g) chart alt-text enumeration chrome (weighted_enrichment.chart_alt_chrome_gate). Marker
+    #       "chart_alt_chrome: fired=1".
+    "PG_CWF_CHART_ALT_CHROME": "1",
+    #   (h) empty / marker-only bullet drop (weighted_enrichment.empty_bullet_drop). Marker
+    #       "empty_bullet_drop: dropped=N".
+    "PG_CWF_EMPTY_BULLET_DROP": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -2120,6 +2134,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_CWF_PROMOTION_TOPICAL_GATE",
     "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",
     "PG_UNCOVERED_FACT_SUBJECT_GATE",
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome sub-gates (default-ON kill-switches). Force-ON
+    # above; fail-CLOSED here so a stray operator =0 cannot silently ship chrome (ISSN masthead / chart
+    # alt-text / empty bullets) into the CWF render. Booleans -> safe in this truthy-required tuple.
+    "PG_CWF_ISSN_CHROME",
+    "PG_CWF_CHART_ALT_CHROME",
+    "PG_CWF_EMPTY_BULLET_DROP",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2429,6 +2449,12 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_CWF_PROMOTION_TOPICAL_GATE",             # (b) CWF M5 off-topic single-origin demote (WEIGHT, not drop)
     "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",  # (c) drop a cited-but-unreferenced sourced input (no number changes)
     "PG_UNCOVERED_FACT_SUBJECT_GATE",            # (d) withhold a subject-less page-furniture disclosure (render-side)
+    # I-deepfix-001 (#1369) FIX 4 — force-ON the 3 FIX-A CWF chrome sub-gates (default-ON kill-switches)
+    # so a stray operator/.env =0 (or the empty-string parse bug) cannot leave chrome suppression DARK.
+    # Each is slate "1" + preflight-required above + allowlisted below. SUPPRESS-ONLY, faithfulness-neutral.
+    "PG_CWF_ISSN_CHROME",                        # (f) ISSN masthead-recital chrome suppression
+    "PG_CWF_CHART_ALT_CHROME",                   # (g) chart alt-text enumeration chrome suppression
+    "PG_CWF_EMPTY_BULLET_DROP",                  # (h) empty / marker-only bullet drop
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3614,6 +3640,9 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
 #   PG_CONTRACT_FALSE_GAP_KSPAN          "[activation] contract_false_gap_kspan: slot="               (contract_section_runner.py; only per gap-candidate slot — a clean report emits nothing)
 #   PG_UNCOVERED_FACT_SUBJECT_GATE       "[activation] uncovered_fact_subject_gate: withheld="        (verified_compose.py; only on a junk withhold — a clean report emits nothing)
 #   PG_MIN_FETCH_YIELD / fetch_yield_gate "[activation] fetch_yield_gate: rate="                      (live_retriever.py; ONLY when the FETCH runs — EXPECTED-present on the box2 fresh run, EXPECTED-ABSENT on the box1 --resume)
+#   PG_CWF_ISSN_CHROME                   "[activation] issn_masthead_chrome: fired="                  (weighted_enrichment.py; ONLY when an ISSN masthead-recital chrome line is matched — a clean report emits nothing)
+#   PG_CWF_CHART_ALT_CHROME              "[activation] chart_alt_chrome: fired="                      (weighted_enrichment.py; ONLY when a chart alt-text enumeration line is matched — a clean report emits nothing)
+#   PG_CWF_EMPTY_BULLET_DROP             "[activation] empty_bullet_drop: dropped="                   (weighted_enrichment.py; ONLY when an empty / marker-only bullet is dropped — a clean report emits nothing)
 
 
 def _activation_canary_enabled() -> bool:
@@ -3985,6 +4014,11 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_CWF_PROMOTION_TOPICAL_GATE",         # CWF M5 off-topic single-origin demote (WEIGHT, not drop)
     "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",  # drop a cited-but-unreferenced sourced input (no number changes)
     "PG_UNCOVERED_FACT_SUBJECT_GATE",        # withhold a subject-less page-furniture disclosure (render-side)
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome sub-gates force-ON above; allowlisted here so the
+    # clean slate PASSES SLATE-PURITY. SUPPRESS-ONLY, §-1.3 faithfulness-neutral.
+    "PG_CWF_ISSN_CHROME",                    # ISSN masthead-recital chrome suppression
+    "PG_CWF_CHART_ALT_CHROME",               # chart alt-text enumeration chrome suppression
+    "PG_CWF_EMPTY_BULLET_DROP",              # empty / marker-only bullet drop
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.

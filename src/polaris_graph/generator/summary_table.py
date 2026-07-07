@@ -564,6 +564,13 @@ def _pick_best_claim(sentences: list[str]) -> str:
 _SOURCE_CONSOLIDATE_FLAG = "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE"
 _CONSOLIDATE_JACCARD_ENV = "PG_SUMMARY_TABLE_CONSOLIDATE_JACCARD"
 _CONSOLIDATE_JACCARD_DEFAULT = 0.6
+# I-deepfix-001 (#1369) FIX 5 — a STRICTER Jaccard bar applied ONLY when BOTH
+# claims are NUMBERLESS (empty salient-number set). A numberless qualitative
+# claim has no numeric discriminator, so two DISTINCT findings that merely share
+# vocabulary could pass the 0.6 bar and lose a real second row. Requiring a much
+# higher overlap (default 0.85) keeps distinct numberless findings SEPARATE.
+_NUMBERLESS_JACCARD_ENV = "PG_SUMMARY_TABLE_NUMBERLESS_JACCARD"
+_NUMBERLESS_JACCARD_DEFAULT = 0.85
 
 # Salient numeric tokens (percentages / decimals / integers). Two rows can consolidate ONLY
 # when they carry the IDENTICAL salient-number set, so "43%" and "2.5% of GDP" never merge.
@@ -640,6 +647,31 @@ def _consolidate_jaccard() -> float:
     return val
 
 
+def _numberless_consolidate_jaccard() -> float:
+    """The STRICTER claim-token Jaccard threshold applied when BOTH claims are
+    NUMBERLESS (env ``PG_SUMMARY_TABLE_NUMBERLESS_JACCARD``, default 0.85; LAW
+    VI). Same fail-loud parse + ``[0.0, 1.0]`` clamp as :func:`_consolidate_jaccard`.
+    A numberless claim has no numeric discriminator, so consolidating two such
+    claims demands a much higher vocabulary overlap before they are treated as
+    the SAME finding — otherwise a distinct qualitative row is silently lost."""
+    raw = os.environ.get(_NUMBERLESS_JACCARD_ENV)
+    if raw is None or raw.strip() == "":
+        return _NUMBERLESS_JACCARD_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "[activation] summary_table_source_consolidate: invalid %s=%r; using default %.2f",
+            _NUMBERLESS_JACCARD_ENV, raw, _NUMBERLESS_JACCARD_DEFAULT,
+        )
+        return _NUMBERLESS_JACCARD_DEFAULT
+    if val < 0.0:
+        return 0.0
+    if val > 1.0:
+        return 1.0
+    return val
+
+
 def _source_consolidate_enabled() -> bool:
     """LAW VI kill-switch for source consolidation (default ON). OFF => rows pass through
     unchanged (byte-identical to the one-row-per-eid behaviour)."""
@@ -651,7 +683,8 @@ def _same_finding(a: str, b: str) -> bool:
     AND claim-token Jaccard overlap >= the configured threshold. Both halves must hold, so a
     different quantitative result is never merged even when the surrounding prose is similar.
     PURE."""
-    if _salient_numbers(a) != _salient_numbers(b):
+    sa, sb = _salient_numbers(a), _salient_numbers(b)
+    if sa != sb:
         return False
     ta, tb = _claim_tokens(a), _claim_tokens(b)
     if not ta and not tb:
@@ -659,7 +692,13 @@ def _same_finding(a: str, b: str) -> bool:
     if not ta or not tb:
         return False
     jaccard = len(ta & tb) / len(ta | tb)
-    return jaccard >= _consolidate_jaccard()
+    # I-deepfix-001 (#1369) FIX 5 — a NUMBERLESS-vs-NUMBERLESS pair (both empty
+    # salient-number sets) has no numeric discriminator, so it must clear the
+    # STRICTER threshold; a numbered pair keeps the standard bar.
+    threshold = (
+        _numberless_consolidate_jaccard() if not sa else _consolidate_jaccard()
+    )
+    return jaccard >= threshold
 
 
 def _union_terms(term_lists: Iterable[list[str]]) -> list[str]:

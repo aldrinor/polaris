@@ -178,6 +178,48 @@ def test_salient_numbers_and_same_finding():
     assert not _same_finding("rate was 43%", "spending was 2.5% of GDP")
 
 
+# ── I-deepfix-001 (#1369) FIX 5 — numberless-vs-numberless needs a STRICTER bar ──────────────
+# Two DISTINCT qualitative (numberless) findings from the SAME document with MODERATE vocabulary
+# overlap (jaccard 0.714, above the 0.6 numbered bar but below the 0.85 numberless bar) must stay
+# SEPARATE — otherwise a real second qualitative row is silently merged away.
+_NUMBERLESS_A = "The program improved regional employment and workforce outcomes."
+_NUMBERLESS_B = "The program improved regional employment and healthcare outcomes."
+
+
+def test_numberless_moderate_overlap_stays_separate(monkeypatch):
+    monkeypatch.delenv("PG_SUMMARY_TABLE_NUMBERLESS_JACCARD", raising=False)
+    monkeypatch.delenv(_JACCARD_ENV, raising=False)
+    # Both claims are numberless; jaccard ~0.71 clears the 0.6 numbered bar but
+    # NOT the 0.85 numberless bar -> NOT the same finding.
+    assert _salient_numbers(_NUMBERLESS_A) == frozenset()
+    assert not _same_finding(_NUMBERLESS_A, _NUMBERLESS_B)
+
+
+def test_numberless_high_overlap_still_merges(monkeypatch):
+    monkeypatch.delenv("PG_SUMMARY_TABLE_NUMBERLESS_JACCARD", raising=False)
+    a = "The program improved regional employment outcomes substantially over time."
+    b = "The program improved regional employment outcomes substantially across time."
+    # Near-verbatim restatement (jaccard ~1.0) still clears the 0.85 bar.
+    assert _same_finding(a, b)
+
+
+def test_numberless_bar_is_env_tunable(monkeypatch):
+    # Lowering the numberless bar to 0.6 restores the pre-fix (lenient) merge.
+    monkeypatch.setenv("PG_SUMMARY_TABLE_NUMBERLESS_JACCARD", "0.6")
+    assert _same_finding(_NUMBERLESS_A, _NUMBERLESS_B)
+
+
+def test_numbered_pair_keeps_standard_bar(monkeypatch):
+    # A NUMBERED pair is unaffected by the stricter numberless bar: identical
+    # salient-number set + moderate overlap still merges at the 0.6 bar.
+    monkeypatch.delenv(_JACCARD_ENV, raising=False)
+    monkeypatch.delenv("PG_SUMMARY_TABLE_NUMBERLESS_JACCARD", raising=False)
+    assert _same_finding(
+        "the response rate was 43% overall in the cohort",
+        "response rate was 43% overall across the cohort",
+    )
+
+
 def test_source_consolidate_enabled_default_on_and_off(monkeypatch):
     monkeypatch.delenv(_FLAG, raising=False)
     assert _source_consolidate_enabled() is True   # default ON

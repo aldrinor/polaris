@@ -475,7 +475,21 @@ def _kspan_fallback_body(
     # sentences leave usable prose after cleaning.
     import re as _re  # noqa: PLC0415 (lazy: zero cost off this fallback path)
     from .chrome_furniture_screen import _alpha_word_count
-    _marker_re = _re.compile(r"\s*\[#ev:[^\]]*\]|\s*\[[^\]]+\]")
+    # I-deepfix-001 (#1369) FIX 2 — narrow the marker strip to KNOWN
+    # provenance / citation forms ONLY. The prior `\[[^\]]+\]` second
+    # alternative removed ANY bracketed content, so a substantive verified
+    # qualifier ([95% CI 1.2-3.4], [p=0.04], [not adjusted], [NCT04567890])
+    # was stripped AFTER strict_verify passed — silently ALTERING a verified
+    # claim. We now strip exactly: (1) the [#ev:id:start-end] provenance span
+    # token, (2) a lowercase_snake [entity_id] / contract-entity marker, and
+    # (3) a pure numeric [N] citation. A qualifier bracket carries spaces /
+    # '%' / '=' / uppercase, so it NEVER matches (2) or (3) and is preserved.
+    # Faithfulness-neutral: this only prevents removal of verified substance.
+    _marker_re = _re.compile(
+        r"\s*\[#ev:[^\]]*\]"   # (1) provenance span token
+        r"|\s*\[[a-z0-9_]+\]"  # (2) [entity_id] lowercase_snake / contract id
+        r"|\s*\[\d+\]"         # (3) [N] pure numeric citation (subsumed by (2), kept explicit)
+    )
     _clean_sentences: list[str] = []
     for _sv in kept:
         # (a) strip provenance markers ([entity_id] / [#ev:id:start-end]).

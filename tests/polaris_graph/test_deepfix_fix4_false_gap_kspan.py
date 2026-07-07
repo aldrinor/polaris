@@ -319,6 +319,42 @@ async def test_render_on_retains_span_excludes_chrome(
     assert "[#ev:" not in result.verified_text          # no raw token leak
 
 
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1369) FIX 2 — substantive bracketed qualifiers survive the
+# marker strip. The prior `\[[^\]]+\]` alternative removed ANY bracket, so a
+# verified qualifier ([95% CI ...], [p=0.04], [not adjusted], [NCT id]) was
+# stripped AFTER strict_verify passed — silently altering a verified claim.
+# The narrowed regex strips ONLY [#ev:...] / [entity_id] / [N], so a qualifier
+# bracket (spaces / '%' / '=' / uppercase) is preserved. RED before / GREEN now.
+# ─────────────────────────────────────────────────────────────────────
+def test_substantive_ci_bracket_survives_marker_strip() -> None:
+    span = (
+        "The hazard ratio for major adverse cardiovascular events was 0.72 "
+        "[95% CI 1.2 to 3.4] favoring the treatment group over placebo."
+    )
+    body = _run_kspan(span, marker_num=7)
+    assert body is not None, "expected a rendered K-span body, not None (gap)"
+    assert "[95% CI 1.2 to 3.4]" in body, (
+        f"substantive CI qualifier must survive the marker strip; got: {body!r}"
+    )
+    assert "0.72" in body                 # verified point estimate retained
+    assert "[7]" in body                  # human citation marker appended
+    assert "[#ev:" not in body            # provenance token still stripped
+
+
+def test_pvalue_and_qualifier_brackets_survive_marker_strip() -> None:
+    span = (
+        "Treatment reduced mortality by 15 percent relative to control "
+        "[p=0.04] in the primary analysis [not adjusted for multiplicity]."
+    )
+    body = _run_kspan(span, marker_num=4)
+    assert body is not None
+    assert "[p=0.04]" in body                       # '=' bracket preserved
+    assert "[not adjusted for multiplicity]" in body  # spaced bracket preserved
+    assert "[4]" in body
+    assert "[#ev:" not in body
+
+
 @pytest.mark.asyncio
 async def test_render_off_is_byte_identical_gap_disclosure(
     clinical_template: dict, monkeypatch,

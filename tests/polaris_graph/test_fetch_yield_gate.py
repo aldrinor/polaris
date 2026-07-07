@@ -27,7 +27,11 @@ def _fresh_live_retriever(monkeypatch, **env):
     Every knob here is read at CALL time, so no module reload is needed — we
     just clear then optionally set the env vars before returning the module.
     """
-    for key in ("PG_RETRIEVAL_WALL_SECONDS", "PG_MIN_FETCH_YIELD"):
+    for key in (
+        "PG_RETRIEVAL_WALL_SECONDS",
+        "PG_MIN_FETCH_YIELD",
+        "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS",
+    ):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -87,6 +91,58 @@ def test_yield_gate_div0_guard_passes(monkeypatch):
     live_retriever = _fresh_live_retriever(monkeypatch)
     # No fetch attempts at all -> denom 0 -> cannot be "starved" -> pass.
     assert live_retriever._fetch_yield_gate(0, 0) == pytest.approx(1.0)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1369) FIX 3 — MIN-ATTEMPTS floor + failures in denominator.
+# A tiny auxiliary batch (rate 0.0 from a single timeout) must NOT hard-kill an
+# otherwise-healthy paid run; the gate only HALTS once total_attempted reaches
+# PG_MIN_FETCH_YIELD_MIN_ATTEMPTS (default 50).
+# ─────────────────────────────────────────────────────────────────────
+def test_min_attempts_default_resolves(monkeypatch):
+    live_retriever = _fresh_live_retriever(monkeypatch)
+    monkeypatch.delenv("PG_MIN_FETCH_YIELD_MIN_ATTEMPTS", raising=False)
+    assert live_retriever._min_fetch_yield_min_attempts() == 50
+
+
+def test_tiny_batch_below_floor_does_not_raise(monkeypatch):
+    live_retriever = _fresh_live_retriever(monkeypatch)  # floor 0.30, min 50
+    # 1 timeout / 0 success -> rate 0.0 but total_attempted 1 < 50 -> skip, no raise.
+    assert live_retriever._fetch_yield_gate(0, 1) == pytest.approx(0.0)
+    # 1 success + 3 timeouts -> rate 0.25 < 0.30 but 4 < 50 -> skip, no raise.
+    assert live_retriever._fetch_yield_gate(1, 3) == pytest.approx(0.25)
+
+
+def test_sixty_attempt_starved_batch_raises(monkeypatch):
+    live_retriever = _fresh_live_retriever(monkeypatch)  # floor 0.30, min 50
+    # 3 usable / 57 timed out -> 60 attempts >= 50, rate 0.05 < 0.30 -> HALT.
+    with pytest.raises(live_retriever.FetchStarvationError):
+        live_retriever._fetch_yield_gate(3, 57)
+
+
+def test_sixty_attempt_healthy_batch_passes(monkeypatch):
+    live_retriever = _fresh_live_retriever(monkeypatch)  # floor 0.30, min 50
+    # 30 usable / 30 timed out -> 60 attempts >= 50, rate 0.50 >= 0.30 -> pass.
+    assert live_retriever._fetch_yield_gate(30, 30) == pytest.approx(0.50)
+
+
+def test_failures_count_against_yield(monkeypatch):
+    live_retriever = _fresh_live_retriever(monkeypatch)  # floor 0.30, min 50
+    # 10 usable, 5 timeouts, 55 non-timeout FAILURES -> total 70 >= 50,
+    # rate 10/70 = 0.143 < 0.30 -> HALT (a failure-thinned corpus is caught).
+    with pytest.raises(live_retriever.FetchStarvationError):
+        live_retriever._fetch_yield_gate(10, 5, 55)
+
+
+def test_malformed_min_attempts_raises(monkeypatch):
+    live_retriever = _fresh_live_retriever(
+        monkeypatch, PG_MIN_FETCH_YIELD_MIN_ATTEMPTS="not-an-int"
+    )
+    with pytest.raises(ValueError):
+        live_retriever._min_fetch_yield_min_attempts()
+    monkeypatch.setenv("PG_MIN_FETCH_YIELD_MIN_ATTEMPTS", "-5")
+    with pytest.raises(ValueError):
+        live_retriever._min_fetch_yield_min_attempts()
 
 
 def test_malformed_min_fetch_yield_raises(monkeypatch):

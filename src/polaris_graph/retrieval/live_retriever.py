@@ -1998,24 +1998,74 @@ def _min_fetch_yield() -> float:
     return value
 
 
-def _fetch_yield_gate(success: int, timeout: int) -> float:
+PG_MIN_FETCH_YIELD_MIN_ATTEMPTS_ENV = "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS"
+_MIN_FETCH_YIELD_MIN_ATTEMPTS_DEFAULT = 50
+
+
+def _min_fetch_yield_min_attempts() -> int:
+    """I-deepfix-001 (#1369) FIX 3 — minimum fetch attempts before the yield gate
+    is allowed to HALT (LAW VI, FAIL-LOUD).
+
+    The yield gate fires per ``run_live_retrieval`` call. A tiny auxiliary batch
+    (1 URL that times out -> rate 0.0; or 1 success + 3 timeouts -> 0.25) would
+    otherwise hard-kill an OTHERWISE-HEALTHY paid run on statistically
+    meaningless counts. This floor is the primary guard against that
+    tiny-batch false-halt: the gate only HALTS once at least this many fetches
+    were actually attempted.
+
+    Read at CALL time (env-overridable per run). Unset / blank -> the default.
+    A set-but-malformed / negative value FAILS LOUD (raises) — a safety knob
+    must never silently default.
+    """
+    raw = os.getenv(PG_MIN_FETCH_YIELD_MIN_ATTEMPTS_ENV)
+    if raw is None or not raw.strip():
+        return _MIN_FETCH_YIELD_MIN_ATTEMPTS_DEFAULT
+    value = int(raw)  # malformed -> ValueError (fail-loud, intentional)
+    if value < 0:
+        raise ValueError(
+            f"{PG_MIN_FETCH_YIELD_MIN_ATTEMPTS_ENV} must be a non-negative int, "
+            f"got {raw!r}"
+        )
+    return value
+
+
+def _fetch_yield_gate(success: int, timeout: int, failures: int = 0) -> float:
     """UNIT 6 fetch-yield HALT gate (faithfulness-neutral, §-1.3).
 
-    Compute ``success_rate = success / (success + timeout)`` (div0 guarded — an
-    empty batch that attempted nothing cannot be "starved", so it passes) and
-    compare against the ``PG_MIN_FETCH_YIELD`` floor. Below the floor -> emit the
-    ``[activation]`` HALT marker and RAISE ``FetchStarvationError`` so the run
-    halts BEFORE banking a starved corpus (the 922/990-timeout hang-and-leak
-    class). At/above the floor -> emit the ``[activation]`` pass marker and
-    return the rate. The marker fires EITHER way so the anti-dark run-log canary
-    sees the gate ran (matching the module's other ``[activation]`` markers).
+    Compute ``success_rate = success / total_attempted`` where
+    ``total_attempted = success + timeout + failures``. I-deepfix-001 (#1369)
+    FIX 3 hardened two false-halt / false-pass holes:
 
-    Pure except for the two env reads + logging; unit-testable with synthetic
+    (a) MIN-ATTEMPTS FLOOR: the gate only HALTS once ``total_attempted`` reaches
+        ``PG_MIN_FETCH_YIELD_MIN_ATTEMPTS`` (default 50). Below that floor a
+        tiny auxiliary batch (a single timing-out URL -> rate 0.0) can no longer
+        hard-kill a healthy run — we emit the ``skip`` ``[activation]`` marker
+        and return the rate WITHOUT raising.
+    (b) DENOMINATOR INCLUDES NON-TIMEOUT FAILURES: a corpus thinned by HTTP /
+        extraction FAILURES (``failures``), not just timeouts, now counts
+        against the yield, so a batch that fetched few usable sources because
+        most requests errored can no longer sneak past the floor.
+
+    Below the floor (and attempted) -> emit the HALT marker + RAISE
+    ``FetchStarvationError`` so the run halts BEFORE banking a starved corpus
+    (the 922/990-timeout hang-and-leak class). At/above -> emit the pass marker
+    and return the rate. Div0 guarded (an empty batch cannot be "starved"). The
+    ``[activation]`` marker fires on EVERY path (HALT / pass / skip) so the
+    anti-dark run-log canary sees the gate ran.
+
+    Pure except for the env reads + logging; unit-testable with synthetic
     counts.
     """
     floor = _min_fetch_yield()
-    denom = success + timeout
-    rate = (success / denom) if denom > 0 else 1.0
+    min_attempts = _min_fetch_yield_min_attempts()
+    total_attempted = success + timeout + failures
+    rate = (success / total_attempted) if total_attempted > 0 else 1.0
+    if total_attempted < min_attempts:
+        logger.info(
+            "[activation] fetch_yield_gate: attempts=%d < floor=%d -> skip",
+            total_attempted, min_attempts,
+        )
+        return rate
     if rate < floor:
         logger.info(
             "[activation] fetch_yield_gate: rate=%.3f floor=%.2f -> HALT",
@@ -2023,8 +2073,8 @@ def _fetch_yield_gate(success: int, timeout: int) -> float:
         )
         raise FetchStarvationError(
             f"fetch yield {rate:.3f} < floor {floor:.2f} "
-            f"(success={success} timeout={timeout}) — halting before banking a "
-            f"starved corpus"
+            f"(success={success} timeout={timeout} failures={failures}) — "
+            f"halting before banking a starved corpus"
         )
     logger.info(
         "[activation] fetch_yield_gate: rate=%.3f floor=%.2f -> pass",
@@ -6258,6 +6308,7 @@ def run_live_retrieval(
         _fetch_yield_gate(
             parallel_report.success_count,
             parallel_report.timeout_count,
+            parallel_report.errored_count,
         )
         # GH #1258 PART 2: parallel_fetch (the longest network-bound phase) just returned —
         # tick the heartbeat so a human tailing run_status.json sees the run advance out of

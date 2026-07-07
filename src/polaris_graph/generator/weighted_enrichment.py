@@ -1624,8 +1624,12 @@ _ISSN_CHROME_ACTIVATION_LOGGED = False  # emit the [activation] marker once per 
 def issn_chrome_gate_enabled() -> bool:
     """Kill-switch ``PG_CWF_ISSN_CHROME`` (default ON). ON => the ISSNe/ISSNp-aware CO-SIGNAL rule
     (masthead recital only); OFF => the byte-identical legacy bare ``\\bISSN\\b\\s*:?\\s*\\d`` rule."""
-    return os.environ.get(_ENV_ISSN_CHROME, "1").strip().lower() in (
-        "1", "true", "on", "yes", "enabled",
+    # I-deepfix-001 (#1369) FIX 4 — default-ON semantics: UNSET and EMPTY-STRING
+    # are both ON; disabled ONLY by an explicit OFF token. The prior truthy-only
+    # membership test made an empty-string env value DISABLE the gate (the
+    # opposite of the intended default-ON), matching the other fix-6 gates now.
+    return os.environ.get(_ENV_ISSN_CHROME, "1").strip().lower() not in (
+        "0", "false", "no", "off",
     )
 
 
@@ -1659,8 +1663,10 @@ _CHART_ALT_ACTIVATION_LOGGED = False  # emit the [activation] marker once per pr
 def chart_alt_chrome_gate_enabled() -> bool:
     """Kill-switch ``PG_CWF_CHART_ALT_CHROME`` (default ON). OFF => the chart-alt-text rule is
     skipped => the predicate is byte-identical to pre-FIX-B."""
-    return os.environ.get(_ENV_CHART_ALT_CHROME, "1").strip().lower() in (
-        "1", "true", "on", "yes", "enabled",
+    # I-deepfix-001 (#1369) FIX 4 — default-ON semantics: UNSET and EMPTY-STRING
+    # are both ON; disabled ONLY by an explicit OFF token (see issn_chrome_gate).
+    return os.environ.get(_ENV_CHART_ALT_CHROME, "1").strip().lower() not in (
+        "0", "false", "no", "off",
     )
 # Claim-header chrome: CC-license / keywords-list / login-wall / share-button furniture
 # (consolidated from run_honest_sweep_r3._CLAIM_HEADER_CHROME_RE). "Close-Share" and CC-license
@@ -3160,8 +3166,10 @@ _EMPTY_BULLET_RE = re.compile(r"^\s*[-*]\s*(?:\[[^\]]+\]\s*)*$")
 def empty_bullet_drop_enabled() -> bool:
     """Kill-switch ``PG_CWF_EMPTY_BULLET_DROP`` (default ON). OFF => an empty / marker-only bullet is
     left byte-identical (no drop)."""
-    return os.environ.get(_ENV_EMPTY_BULLET_DROP, "1").strip().lower() in (
-        "1", "true", "on", "yes", "enabled",
+    # I-deepfix-001 (#1369) FIX 4 — default-ON semantics: UNSET and EMPTY-STRING
+    # are both ON; disabled ONLY by an explicit OFF token (see issn_chrome_gate).
+    return os.environ.get(_ENV_EMPTY_BULLET_DROP, "1").strip().lower() not in (
+        "0", "false", "no", "off",
     )
 # LAW VI: the corpus known-word floor (a word must occur >= this many times across the run's fetched
 # source text to count as "known" for the truncation allowlist). Mirrors the detector default.
