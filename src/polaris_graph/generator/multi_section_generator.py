@@ -91,6 +91,13 @@ from src.polaris_graph.generator import retraction_gate
 # body syndicated sources into keep-all corroboration baskets (annotate, never drop,
 # never merge). Wired on the groundable pool so W9 fires on the Gate-B path (§-1.3).
 from src.polaris_graph.synthesis import content_dedup_consolidate
+# I-deepfix-001 FIX 5 (#1344): cross-section repetition guard — CONSOLIDATE a finding that recurs
+# VERBATIM across DIFFERENT sections to its richest instance + a citation-preserving back-reference
+# (frees section space for DISTINCT findings). RENDER-ONLY, faithfulness-neutral, default-OFF (§-1.3).
+from src.polaris_graph.generator.cross_section_repetition_guard import (
+    consolidate_cross_section_repetition,
+    guard_enabled as cross_section_repetition_guard_enabled,
+)
 
 logger = logging.getLogger("polaris_graph.multi_section")
 
@@ -8479,6 +8486,53 @@ def _apply_atom_refusal_validation(
     return (refusal_replacements, degraded_count)
 
 
+def _apply_cross_section_repetition_guard(section_results: list["SectionResult"]) -> dict[str, Any]:
+    """I-deepfix-001 FIX 5 (#1344): the render-assembly-seam CALLER for the cross-section repetition
+    guard. Extracted from ``generate_multi_section_report`` (mirrors the ``_credibility_guard_decision``
+    extraction) so the fail-conservative + honest-marker contract is directly unit-testable without the
+    full async pipeline.
+
+    DEFAULT-OFF (``PG_CROSS_SECTION_REPETITION_GUARD`` unset / off token): returns ``{}`` and does
+    NOTHING — no snapshot, no marker, no mutation — so the assembled report is BYTE-IDENTICAL to the
+    legacy path.
+
+    ON: CONSOLIDATE a finding that recurs VERBATIM across DIFFERENT sections down to its richest instance
+    plus a citation-preserving back-reference (RENDER-ONLY / faithfulness-NEUTRAL — the module edits only
+    ``verified_text`` in place, AFTER the frozen faithfulness engine has run; see the module docstring),
+    emit the honest-liveness marker ``[activation] cross_section_repetition_guard: consolidated=<N>``
+    carrying the REALIZED count (``0`` = ran-ok-zero; NEVER gated on a >0 count per §-1.3), and return the
+    guard telemetry.
+
+    FAIL-CONSERVATIVE: any guard error restores each section's pre-guard ``verified_text`` (the guard only
+    ever does in-place substring swaps — it never drops a section; restore makes "keep the ORIGINAL
+    sections" literal even against a partial-apply), emits the DISTINCT
+    ``[activation] cross_section_repetition_guard: unavailable_failopen`` degrade marker the activation
+    canary REJECTS, and returns ``{}`` so assembly proceeds with the ORIGINAL sections."""
+    if not cross_section_repetition_guard_enabled():
+        return {}
+    # FAIL-CONSERVATIVE snapshot of each section's pre-guard verified_text.
+    _pre_guard = [(sr, getattr(sr, "verified_text", None)) for sr in section_results]
+    try:
+        telemetry = consolidate_cross_section_repetition(section_results)
+        consolidated = int((telemetry or {}).get("consolidated", 0) or 0)
+        logger.info(
+            "[activation] cross_section_repetition_guard: consolidated=%d",
+            consolidated,
+        )
+        return telemetry or {}
+    except Exception as exc:  # noqa: BLE001 — fail-conservative: restore + keep the original sections
+        for _sr, _orig in _pre_guard:
+            try:
+                _sr.verified_text = _orig
+            except Exception:  # noqa: BLE001 — best-effort restore; never let cleanup mask the degrade
+                pass
+        logger.warning(
+            "[activation] cross_section_repetition_guard: unavailable_failopen (%s)",
+            exc,
+        )
+        return {}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
@@ -10179,6 +10233,22 @@ async def generate_multi_section_report(
                     "[multi_section] m47_mechanism_extraction_incomplete "
                     "after regen",
                 )
+
+    # I-deepfix-001 FIX 5 (#1344): cross-section repetition guard. CONSOLIDATE a finding that recurs
+    # VERBATIM across DIFFERENT sections down to its richest instance + a short back-reference, freeing
+    # section space for DISTINCT findings. Runs on the section-local-[N] prose BEFORE the global remap
+    # below (``_remap_section_markers_to_global``), so each recycled instance keeps its OWN citation
+    # marker(s) in its OWN section (no citation dropped, none moved across sections; the remap stays
+    # valid). RENDER-ONLY + faithfulness-NEUTRAL: it edits only ``verified_text`` in place, AFTER the
+    # frozen faithfulness engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) has run
+    # per section; ``kept_sentences_pre_resolve`` + all verified/dropped counts + every evidence row stay
+    # UNTOUCHED. Default-OFF via ``PG_CROSS_SECTION_REPETITION_GUARD`` => the helper is a no-op (no
+    # snapshot, no marker, no mutation) => byte-identical legacy assembly. The callee EXCLUDES any
+    # ``dropped_due_to_failure`` / ``is_gap_stub`` / empty section (the SAME ``dropped_due_to_failure``
+    # predicate the biblio/remap render filter below uses) — so a non-rendered section is never a cluster
+    # member, richest instance, nor back-reference TARGET (no final-output content loss). FAIL-CONSERVATIVE:
+    # a guard error restores the ORIGINAL sections + emits the degrade marker (see the helper).
+    _apply_cross_section_repetition_guard(section_results)
 
     # Stage 3: assembly
     biblio_slices = [sr.biblio_slice for sr in section_results

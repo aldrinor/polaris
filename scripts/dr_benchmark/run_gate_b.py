@@ -1748,6 +1748,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     key_findings.is_truncated_fragment (default-OFF PG_FF3_TRUNC_SEM). DROPS the unsafe-to-repair
     #     fragment; never fabricates a completion.
     "PG_FF3_TRUNC_SEM": "1",
+    # I-deepfix-001 FIX 5 (#1344) — cross-section repetition guard: CONSOLIDATE a finding that recurs
+    #     VERBATIM across DIFFERENT sections to its richest instance + a citation-preserving back-reference
+    #     (frees section space for DISTINCT findings) in multi_section_generator at the render-assembly
+    #     seam (default-OFF PG_CROSS_SECTION_REPETITION_GUARD). RENDER-ONLY / FAITHFULNESS-NEUTRAL (edits
+    #     only verified_text AFTER the frozen engine; consolidate-keep-all, never a drop; §-1.3).
+    "PG_CROSS_SECTION_REPETITION_GUARD": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -2056,6 +2062,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # above, so a stray operator =0 fails the run CLOSED here. RENDER-ONLY / FAITHFULNESS-NEUTRAL (drop a
     # display-truncated stub; never fabricate; frozen faithfulness untouched). (FF2-TRUNC-v2 was retired.)
     "PG_FF3_TRUNC_SEM",
+    # I-deepfix-001 FIX 5 (#1344) — fail-CLOSED before spend if the BOOLEAN cross-section repetition
+    # guard is off: a paid run with it =0 silently leaves the cross-section verbatim-recycle consolidation
+    # dark (a finding recycled across sections burns space DISTINCT findings should occupy). Force-ON
+    # above, so a stray operator =0 fails the run CLOSED here. RENDER-ONLY / FAITHFULNESS-NEUTRAL
+    # (consolidate-keep-all AFTER the frozen engine; never a drop; §-1.3).
+    "PG_CROSS_SECTION_REPETITION_GUARD",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2351,6 +2363,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # display-truncated render stub; never fabricate a completion; frozen engine untouched). (FF2-TRUNC-v2
     # was retired as unsound.)
     "PG_FF3_TRUNC_SEM",                   # FF3 semantic render-truncation guard (complement-demanding cut)
+    # I-deepfix-001 FIX 5 (#1344): cross-section repetition guard. DEFAULT-OFF in code (flag-OFF
+    # byte-identical); force-ON here + preflight-required above + allowlisted (SLATE-PURITY). RENDER-ONLY /
+    # FAITHFULNESS-NEUTRAL (consolidate a verbatim cross-section recycle to a back-reference AFTER the frozen
+    # engine; keep-all citations; never a drop; §-1.3).
+    "PG_CROSS_SECTION_REPETITION_GUARD",  # cross-section verbatim-recycle consolidation (render-assembly seam)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3403,6 +3420,32 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         absent_markers=("[activation] summary_table: unavailable_failopen",),
         flag_default_on=True,
     ),
+    _ActivationMarkerSpec(
+        # I-deepfix-001 FIX 5 (#1344): the cross-section repetition guard (multi_section_generator
+        # render-assembly seam). CONSOLIDATE a finding that recurs VERBATIM across DIFFERENT sections to
+        # its richest instance + a citation-preserving back-reference (frees section space for DISTINCT
+        # findings). Fires once per report when PG_CROSS_SECTION_REPETITION_GUARD is ON; ``consolidated=0``
+        # (the guard RAN and found no verbatim cross-section recycle — nothing to consolidate) is the
+        # ACCEPTED eligible-yet-zero signal (§-1.3), so there is intentionally NO bool_check demanding a
+        # count > 0. Mirrors the landmark/stance honesty split: the FAIL-CONSERVATIVE except path (the guard
+        # raised) emits the DISTINCT ``unavailable_failopen`` degrade marker instead of the positive
+        # ``consolidated=N`` marker. Registering that degrade literal as an absent_marker makes the canary
+        # FAIL when it appears while the flag is ON (a guard that went dark on error is REJECTED), while a
+        # guard that RAN and legitimately consolidated zero still PASSES. The suppressed positive marker ALSO
+        # trips the MARKER-ABSENT check, so the fail-conservative path is rejected on both legs. DEFAULT-OFF
+        # blocklist producer (guard_enabled()): flag_whitelist reproduces the truthy set (1/true/on/yes); NO
+        # flag_default_on (the module is default-OFF, force-set "1" on the released slate).
+        name="cross_section_repetition_guard",
+        env_flag="PG_CROSS_SECTION_REPETITION_GUARD",
+        positive_re=re.compile(
+            r"\[activation\] cross_section_repetition_guard: consolidated=\d+"
+        ),
+        bool_checks=(),
+        absent_markers=(
+            "[activation] cross_section_repetition_guard: unavailable_failopen",
+        ),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
 )
 
 
@@ -3760,6 +3803,11 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # truncated render stub, never fabricate a completion; frozen faithfulness engine untouched). (FF2-TRUNC-
     # v2 was retired as unsound.)
     "PG_FF3_TRUNC_SEM",                      # FF3 semantic render-truncation guard (complement-demanding cut)
+    # The cross-section repetition guard - conscious 'winner or infra?' decision, allowlisted deliberately
+    # so the clean slate PASSES SLATE-PURITY. §-1.3 RENDER-ONLY / FAITHFULNESS-NEUTRAL (consolidate a
+    # verbatim cross-section recycle to a citation-preserving back-reference AFTER the frozen engine; keep-
+    # all citations; never a drop).
+    "PG_CROSS_SECTION_REPETITION_GUARD",     # cross-section verbatim-recycle consolidation (render-assembly seam)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
