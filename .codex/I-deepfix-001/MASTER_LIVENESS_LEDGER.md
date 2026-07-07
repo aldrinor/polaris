@@ -63,3 +63,21 @@ Every row's RUN FIRED? must be a real count read from the run log before declari
 5. After the run: fill `RUN FIRED?` from the log for every row. If the canary raised OR any row is dark →
    the run is NOT a success; do NOT score-as-final; fix + resume-from-closest-checkpoint. Only an all-FIRED,
    canary-green run gets scored + benchmarked vs GPT/Gemini.
+
+## RUN-DAY DEPLOYMENT STATE (2026-07-07, autonomous)
+
+- **Judge = kimi-k2.6 CONFIRMED for the paid run.** No swap needed: the benchmark path resolves the D8 Judge
+  via `benchmark_verifier_lineup()` → `_BENCHMARK_LINEUP_DEFAULT_SLUG["judge"] = "moonshotai/kimi-k2.6"`
+  (I-judge-kimi, 2026-06-29). The lock's `PG_JUDGE_MODEL=qwen` is the sovereign/non-benchmark default kept
+  only so verify_lock + canonical-pin don't HARD-STOP; run_gate_b.py:202/433 engages the benchmark lineup, so
+  the paid drb_72 run uses kimi across its 21 OpenRouter providers → no 429 → the per-claim D8 seam completes.
+- **Branch pushed.** origin/bot/I-wire-001-integration = 74b91141 (15 commits incl Waves 4-9). Repo is public.
+- **Box = vast 43674874 (box 2), ssh6.vast.ai:34874, 2×A100-80GB.** Chosen over box 1 (43580988, ssh9:20988)
+  for more disk (127 GB free). Both were blank idle 2×A100s. Box 1 kept as a spare. Offline: 43762228.
+- **Deployed:** /workspace/POLARIS @ HEAD 74b9114; `.env` (OpenRouter key set) + `launch_run.sh` staged.
+  Base image: Python 3.11, CUDA 12.4, torch 2.5.1+cu124, 2 GPUs, ~1.3 TB RAM.
+- **Setup in progress (agent):** install POLARIS deps + transformers + sentence-transformers + vllm + mineru
+  2.5.4; start `mineru-vllm-server` on card1:30000; prove 1 real PDF extracts >500 chars.
+- **launch_run.sh** loads .env → sets mineru vlm-http-client backend (:30000) → sources a100_complete_env.sh
+  (2-card device split) → polaris_verify_device_pins(+_clinical) fail-loud → curl-checks the mineru server →
+  `run_gate_b.py "$@"`. Preflight: `--only drb_72_ai_labor --smoke-scale --out-root outputs/preflight_smoke`.
