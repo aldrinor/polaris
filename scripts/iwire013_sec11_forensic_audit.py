@@ -496,7 +496,7 @@ def chrome_flags(text: str) -> list[str]:
     # bibliographic / portal junk (HARD markers only — a lone URL is NOT chrome)
     if (
         re.search(r"\bdoi:\s*10\.\d", low)
-        or re.search(r"\bissn\b\s*:?\s*\d", low)
+        or re.search(r"\bissn[a-z]?\b\s*:?\s*\d", low)
         or "crossref reports the following articles citing" in low
         or "volume title publisher" in low
         or len(re.findall(r"https?://", low)) >= 3

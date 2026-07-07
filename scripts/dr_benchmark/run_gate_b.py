@@ -1754,6 +1754,69 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     seam (default-OFF PG_CROSS_SECTION_REPETITION_GUARD). RENDER-ONLY / FAITHFULNESS-NEUTRAL (edits
     #     only verified_text AFTER the frozen engine; consolidate-keep-all, never a drop; §-1.3).
     "PG_CROSS_SECTION_REPETITION_GUARD": "1",
+    # I-deepfix-001 (#1369) drb_72 FIX WAVE — 6 faithfulness-neutral fixes committed at 3fb659b7. Each is
+    # a DEFAULT-ON kill-switch (or, for the fetch-yield floor, a value) pinned force-ON here so a stray
+    # operator/.env =0 can NEVER silently leave the fix DARK on the paid run. Every marker is realized-
+    # effect (ran-ok-zero PASSES; never a >0 gate — §-1.3). CANARY CLASSIFICATION (see the canary block):
+    # NONE of the 6 is HARD-registered as an _ActivationMarkerSpec — each emits its [activation] marker on a
+    # CONDITIONAL seam (table-request / M5 partition / quantified stage / gap slot / junk withhold / fetch
+    # runs), so a run-level hard spec would false-CRASH a legitimate released report that skips the seam.
+    # They are LOG-READ-PROVEN on run-day (grep the marker) instead. (PG_CONTRACT_FALSE_GAP_KSPAN — fix4 —
+    # is already quad-pinned above from the INTEGRATION wave; not repeated here.)
+    # (a) summary-table SOURCE consolidation (CONSOLIDATE-KEEP-ALL, §-1.3): collapse same-document same-
+    #     finding restatements into one multi-citation row (summary_table._consolidate_rows_by_source).
+    #     Marker "summary_table_source_consolidate: clusters=N rows_in=I rows_out=O". CONDITIONAL on the
+    #     research question REQUESTING a titled column-header table (_build_rows only reached past the
+    #     render_requested_summary_table early-returns: headers>=2 + not already_present) — NOT every report.
+    "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE": "1",
+    # (b) CWF M5 promotion off-topic TOPICAL gate (WEIGHT-not-drop demote of a corroborated-by-nobody,
+    #     >=6-word, zero-question-overlap span to disclosed-only; weighted_enrichment). Marker
+    #     "promotion_topical_gate: demoted=N promoted=M". CONDITIONAL: nested under promotion_eligibility_
+    #     enabled() AND the M5 diagnose_unbound_supports_selection partition being invoked AND its fail-OPEN
+    #     try not tripping — not guaranteed-once per released report.
+    "PG_CWF_PROMOTION_TOPICAL_GATE": "1",
+    #     companion threshold (LAW VI). Sub-1 FLOAT default 0.0 => force-EXACT (the int-FLOOR slate path
+    #     truncates 0.x -> 0; the PG_AMPLIFIER_SCOPE_FLOOR / PG_MIN_VERIFIED_SECTION_FRACTION precedent).
+    #     Pinned 0.0 (only a ZERO-overlap span demotes) so a stray higher .env can't over-demote (§-1.3).
+    "PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP": "0.0",
+    # (c) quantified-spec prune of an UNREFERENCED sourced input (drop a cited number wired into no formula
+    #     — removes a misleading citation, changes NO rendered number; tradeoff_modeler.build_quantified_
+    #     spec). Marker "quantified_prune_unreferenced_sourced: pruned=N". CONDITIONAL on the QUANTIFIED
+    #     stage running (capability-gated) — not every report reaches build_quantified_spec.
+    "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED": "1",
+    # (d) uncovered-fact SUBJECT gate (render-side WITHHOLD of a subject-less page-furniture disclosure;
+    #     verified_compose). Marker "uncovered_fact_subject_gate: withheld=N". CONDITIONAL: emitted ONLY on
+    #     a junk withhold — a clean report emits nothing.
+    "PG_UNCOVERED_FACT_SUBJECT_GATE": "1",
+    # (e) minimum FETCH-YIELD floor — the HARD pre-composition halt when the fetched/attempted rate falls
+    #     below the floor (live_retriever.fetch_yield_gate). Marker "fetch_yield_gate: rate=R floor=F ->
+    #     (pass|HALT)". Sub-1 FLOAT => force-EXACT "0.30" (the int-FLOOR path would truncate to 0 and DISABLE
+    #     the floor). NO boolean on/off flag: always-on when the FETCH runs, so it NEVER fires on a --resume
+    #     (search/fetch skipped) and is EXPECTED-absent on the box1 resume, EXPECTED-present on the box2 fresh
+    #     run. NOT force-on/required/allowlisted (numeric infra => SLATE-PURITY float-skips it).
+    "PG_MIN_FETCH_YIELD": "0.30",
+    # I-deepfix-001 (#1369) FIX B — the fetch-yield gate's MIN-ATTEMPTS floor (live_retriever.
+    # _min_fetch_yield_min_attempts, default 50). The gate SKIPS (no HALT) until this many fetches were
+    # attempted, so a tiny auxiliary batch can't false-halt a healthy run. A stray operator/.env value ABOVE
+    # the real batch size (e.g. 999999) would make the gate SKIP EVERY batch — silently disabling the
+    # fetch-yield floor. Force-EXACT "50" (in _BENCHMARK_FORCE_EXACT_FLAGS below) so it can neither be raised
+    # to disable the gate nor truncated. INT-parseable => SLATE-PURITY float-skips it (numeric infra, not a
+    # winner-checked feature-enable), so it needs no allowlist entry. FAITHFULNESS-NEUTRAL.
+    "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS": "50",
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome SUB-gates (default-ON kill-switches, SUPPRESS-
+    # ONLY, faithfulness-neutral). Previously registered ONLY in weighted_enrichment.py; now quad-pinned
+    # here like the other booleans so a stray operator/.env =0 (or the empty-string parse bug) cannot
+    # silently disable them. Each marker fires on a CONDITIONAL seam (a matching chrome line in the CWF
+    # render), so LOG-READ-PROVEN, NOT a hard _ActivationMarkerSpec.
+    #   (f) ISSN masthead-recital chrome (weighted_enrichment._is_issn_masthead_chrome). Marker
+    #       "issn_masthead_chrome: fired=1".
+    "PG_CWF_ISSN_CHROME": "1",
+    #   (g) chart alt-text enumeration chrome (weighted_enrichment.chart_alt_chrome_gate). Marker
+    #       "chart_alt_chrome: fired=1".
+    "PG_CWF_CHART_ALT_CHROME": "1",
+    #   (h) empty / marker-only bullet drop (weighted_enrichment.empty_bullet_drop). Marker
+    #       "empty_bullet_drop: dropped=N".
+    "PG_CWF_EMPTY_BULLET_DROP": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -2068,6 +2131,23 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # above, so a stray operator =0 fails the run CLOSED here. RENDER-ONLY / FAITHFULNESS-NEUTRAL
     # (consolidate-keep-all AFTER the frozen engine; never a drop; §-1.3).
     "PG_CROSS_SECTION_REPETITION_GUARD",
+    # I-deepfix-001 (#1369) drb_72 FIX WAVE — fail-CLOSED before spend if any of the four BOOLEAN default-ON
+    # fix kill-switches is off: a paid run with one =0 silently ships the pre-fix behaviour (un-consolidated
+    # summary-table rows / no off-topic M5 demote / a fatal quantified-spec reject / page-furniture
+    # disclosures). Force-ON above, so a stray operator =0 fails the run CLOSED here. Booleans -> safe in this
+    # truthy-required tuple. FAITHFULNESS-NEUTRAL. (PG_MIN_FETCH_YIELD is a sub-1 FLOAT force-EXACT value ->
+    # NOT here; PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP is a FLOAT force-EXACT companion -> NOT here.
+    # PG_CONTRACT_FALSE_GAP_KSPAN — fix4 — is already required above from the INTEGRATION wave.)
+    "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE",
+    "PG_CWF_PROMOTION_TOPICAL_GATE",
+    "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",
+    "PG_UNCOVERED_FACT_SUBJECT_GATE",
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome sub-gates (default-ON kill-switches). Force-ON
+    # above; fail-CLOSED here so a stray operator =0 cannot silently ship chrome (ISSN masthead / chart
+    # alt-text / empty bullets) into the CWF render. Booleans -> safe in this truthy-required tuple.
+    "PG_CWF_ISSN_CHROME",
+    "PG_CWF_CHART_ALT_CHROME",
+    "PG_CWF_EMPTY_BULLET_DROP",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2368,6 +2448,21 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # FAITHFULNESS-NEUTRAL (consolidate a verbatim cross-section recycle to a back-reference AFTER the frozen
     # engine; keep-all citations; never a drop; §-1.3).
     "PG_CROSS_SECTION_REPETITION_GUARD",  # cross-section verbatim-recycle consolidation (render-assembly seam)
+    # I-deepfix-001 (#1369) drb_72 FIX WAVE — force-ON the four BOOLEAN default-ON fix kill-switches so a
+    # stray operator/.env =0 cannot survive the setdefault slate and silently leave a fix DARK. Each is
+    # slate "1" above + preflight-required above + allowlisted (SLATE-PURITY). FAITHFULNESS-NEUTRAL
+    # (render/consolidation/quantified-prune honesty; the FROZEN faithfulness engine is untouched).
+    # (PG_MIN_FETCH_YIELD + PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP are sub-1 FLOAT force-EXACT -> below, not here.)
+    "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE",       # (a) summary-table source consolidation (keep-all multi-cite rows)
+    "PG_CWF_PROMOTION_TOPICAL_GATE",             # (b) CWF M5 off-topic single-origin demote (WEIGHT, not drop)
+    "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",  # (c) drop a cited-but-unreferenced sourced input (no number changes)
+    "PG_UNCOVERED_FACT_SUBJECT_GATE",            # (d) withhold a subject-less page-furniture disclosure (render-side)
+    # I-deepfix-001 (#1369) FIX 4 — force-ON the 3 FIX-A CWF chrome sub-gates (default-ON kill-switches)
+    # so a stray operator/.env =0 (or the empty-string parse bug) cannot leave chrome suppression DARK.
+    # Each is slate "1" + preflight-required above + allowlisted below. SUPPRESS-ONLY, faithfulness-neutral.
+    "PG_CWF_ISSN_CHROME",                        # (f) ISSN masthead-recital chrome suppression
+    "PG_CWF_CHART_ALT_CHROME",                   # (g) chart alt-text enumeration chrome suppression
+    "PG_CWF_EMPTY_BULLET_DROP",                  # (h) empty / marker-only bullet drop
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -2536,6 +2631,20 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # (non-numeric STRING => the numeric-FLOOR path would crash on float("INFO"); it is a slate-dict member
     # so apply_slate hard-sets it) + allowlisted for SLATE-PURITY. Observability-only; faithfulness-neutral.
     "PG_LOG_LEVEL",
+    # I-deepfix-001 (#1369) drb_72 FIX WAVE — the two sub-1 FLOAT fix values MUST be force-EXACT (NOT the
+    # int-FLOOR slate path, which coerces 0.30 -> 0 / 0.0 -> 0 and would DISABLE the fetch-yield floor and
+    # unpin the topical threshold — the PG_AMPLIFIER_SCOPE_FLOOR=0.08 / PG_MIN_VERIFIED_SECTION_FRACTION=0.4
+    # precedent). Both are float-parseable => SLATE-PURITY SKIPS them (numeric infra, not a winner-checked
+    # feature-enable), so neither needs a _WINNER_FLAG_ALLOWLIST entry. FAITHFULNESS-NEUTRAL.
+    # PG_MIN_FETCH_YIELD pins the HARD pre-composition fetch-yield halt floor (0.30). PG_CWF_PROMOTION_MIN_
+    # TOPICAL_OVERLAP pins the M5 topical-demote threshold (0.0 => only a ZERO-overlap span demotes).
+    "PG_MIN_FETCH_YIELD",
+    "PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP",
+    # I-deepfix-001 (#1369) FIX B — the fetch-yield MIN-ATTEMPTS floor (default 50). Force-EXACT so a stray
+    # operator/.env value ABOVE the real batch size can't silently make the gate SKIP every batch (disabling
+    # the fetch-yield floor). INT-parseable => SLATE-PURITY float-skips it (numeric infra), so it is
+    # correctly NOT force-on / required / allowlisted. FAITHFULNESS-NEUTRAL.
+    "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
@@ -3532,6 +3641,22 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
     ),
 )
 
+# I-deepfix-001 (#1369) drb_72 FIX WAVE — LOG-READ-PROVEN flags (NOT hard-registered above). Each of the 6
+# fixwave flags is force-ON / value-pinned on the slate (so the fix is ACTIVE), but its realized-effect
+# [activation] marker fires on a CONDITIONAL seam, so a run-level hard _ActivationMarkerSpec would false-
+# CRASH a legitimate released report that skips the seam (the exact anti-pattern the Wave-9 deferral note
+# and the conservatism mandate forbid). They are proven on run-day by GREPPING the marker in the run log,
+# NOT by the crashing canary. Run-day PROVEN-table greps (marker literal -> producer):
+#   PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE  "[activation] summary_table_source_consolidate: clusters="   (summary_table.py; only when the question requests a titled column-header table)
+#   PG_CWF_PROMOTION_TOPICAL_GATE        "[activation] promotion_topical_gate: demoted="              (weighted_enrichment.py; only when the M5 promotion-eligibility partition runs)
+#   PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED "[activation] quantified_prune_unreferenced_sourced: pruned=" (tradeoff_modeler.py; only when the QUANTIFIED stage runs)
+#   PG_CONTRACT_FALSE_GAP_KSPAN          "[activation] contract_false_gap_kspan: slot="               (contract_section_runner.py; only per gap-candidate slot — a clean report emits nothing)
+#   PG_UNCOVERED_FACT_SUBJECT_GATE       "[activation] uncovered_fact_subject_gate: withheld="        (verified_compose.py; only on a junk withhold — a clean report emits nothing)
+#   PG_MIN_FETCH_YIELD / fetch_yield_gate "[activation] fetch_yield_gate: rate="                      (live_retriever.py; ONLY when the FETCH runs — EXPECTED-present on the box2 fresh run, EXPECTED-ABSENT on the box1 --resume)
+#   PG_CWF_ISSN_CHROME                   "[activation] issn_masthead_chrome: fired="                  (weighted_enrichment.py; ONLY when an ISSN masthead-recital chrome line is matched — a clean report emits nothing)
+#   PG_CWF_CHART_ALT_CHROME              "[activation] chart_alt_chrome: fired="                      (weighted_enrichment.py; ONLY when a chart alt-text enumeration line is matched — a clean report emits nothing)
+#   PG_CWF_EMPTY_BULLET_DROP             "[activation] empty_bullet_drop: dropped="                   (weighted_enrichment.py; ONLY when an empty / marker-only bullet is dropped — a clean report emits nothing)
+
 
 def _activation_canary_enabled() -> bool:
     """``PG_ACTIVATION_CANARY`` opt-in kill-switch (default OFF). Read at CALL time (LAW VI). OFF =>
@@ -3892,6 +4017,21 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # verbatim cross-section recycle to a citation-preserving back-reference AFTER the frozen engine; keep-
     # all citations; never a drop).
     "PG_CROSS_SECTION_REPETITION_GUARD",     # cross-section verbatim-recycle consolidation (render-assembly seam)
+    # -- I-deepfix-001 (#1369) drb_72 FIX WAVE (winner-or-infra: render/consolidation/quantified honesty) --
+    # The four BOOLEAN default-ON fix kill-switches force-ON above - conscious 'winner or infra?' decision,
+    # allowlisted deliberately so the clean slate PASSES SLATE-PURITY. §-1.3 FAITHFULNESS-NEUTRAL (the FROZEN
+    # faithfulness engine is untouched). (PG_MIN_FETCH_YIELD + PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP are FLOAT
+    # force-EXACT => SLATE-PURITY float-skips them; NOT allowlisted. PG_CONTRACT_FALSE_GAP_KSPAN — fix4 — is
+    # already allowlisted above from the INTEGRATION wave.)
+    "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE",   # summary-table source consolidation (keep-all multi-cite rows)
+    "PG_CWF_PROMOTION_TOPICAL_GATE",         # CWF M5 off-topic single-origin demote (WEIGHT, not drop)
+    "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED",  # drop a cited-but-unreferenced sourced input (no number changes)
+    "PG_UNCOVERED_FACT_SUBJECT_GATE",        # withhold a subject-less page-furniture disclosure (render-side)
+    # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome sub-gates force-ON above; allowlisted here so the
+    # clean slate PASSES SLATE-PURITY. SUPPRESS-ONLY, §-1.3 faithfulness-neutral.
+    "PG_CWF_ISSN_CHROME",                    # ISSN masthead-recital chrome suppression
+    "PG_CWF_CHART_ALT_CHROME",               # chart alt-text enumeration chrome suppression
+    "PG_CWF_EMPTY_BULLET_DROP",              # empty / marker-only bullet drop
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.

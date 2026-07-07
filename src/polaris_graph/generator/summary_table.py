@@ -37,10 +37,13 @@ and emits markdown. Behaviour is gated behind the default-ON kill-switch
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
+
+logger = logging.getLogger(__name__)
 
 # --- canary / marker --------------------------------------------------------
 CANARY_TAG = "[summary_table]"
@@ -350,6 +353,13 @@ class _RowData:
     geography: list[str]
     domain: list[str]
     risk: list[str]
+    # Source-consolidation bookkeeping (I-deepfix-001 UNIT-2). ``doc_key`` is the row's
+    # normalized source-document identity (see :func:`_doc_identity`); an EMPTY key is never
+    # consolidated. ``cite_nums`` is the multi-citation set carried on the row — a singleton
+    # holds ``[num]``; a consolidated cluster holds the sorted union of ALL member ``[N]``s
+    # (consolidate-keep-all: every eid stays cited). ``num`` remains the sort key.
+    doc_key: str = ""
+    cite_nums: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -541,6 +551,245 @@ def _pick_best_claim(sentences: list[str]) -> str:
             best_key = key
             best = clean
     return best
+
+
+# ---------------------------------------------------------------------------
+# Source consolidation (I-deepfix-001 UNIT-2). Multiple rows that are the SAME source
+# document restating the SAME verified finding collapse into ONE multi-citation row —
+# CONSOLIDATE-KEEP-ALL (CLAUDE.md §-1.3): every source stays cited, none is dropped. This
+# touches ONLY row grouping/presentation; the faithfulness engine is untouched (each row
+# already carries a strict-verify-passed claim). Distinct number-sets from the SAME document
+# stay SEPARATE rows (a real second finding is never merged away).
+# ---------------------------------------------------------------------------
+_SOURCE_CONSOLIDATE_FLAG = "PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE"
+_CONSOLIDATE_JACCARD_ENV = "PG_SUMMARY_TABLE_CONSOLIDATE_JACCARD"
+_CONSOLIDATE_JACCARD_DEFAULT = 0.6
+# I-deepfix-001 (#1369) FIX 5 — a STRICTER Jaccard bar applied ONLY when BOTH
+# claims are NUMBERLESS (empty salient-number set). A numberless qualitative
+# claim has no numeric discriminator, so two DISTINCT findings that merely share
+# vocabulary could pass the 0.6 bar and lose a real second row. Requiring a much
+# higher overlap (default 0.85) keeps distinct numberless findings SEPARATE.
+_NUMBERLESS_JACCARD_ENV = "PG_SUMMARY_TABLE_NUMBERLESS_JACCARD"
+_NUMBERLESS_JACCARD_DEFAULT = 0.85
+
+# Salient numeric tokens (percentages / decimals / integers). Two rows can consolidate ONLY
+# when they carry the IDENTICAL salient-number set, so "43%" and "2.5% of GDP" never merge.
+_NUM_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?%?")
+
+# A small, local stopword set for the claim-token Jaccard overlap (LAW VI: no external dep).
+_CONSOLIDATE_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by", "for", "from",
+    "had", "has", "have", "in", "into", "is", "it", "its", "of", "on", "or", "over", "per",
+    "that", "the", "their", "them", "then", "these", "they", "this", "those", "to", "was",
+    "were", "which", "who", "whose", "with", "we", "our", "not", "no", "than", "such", "also",
+    "between", "across", "under", "about", "after", "before", "during", "while",
+})
+
+
+def _doc_identity(b: dict) -> str:
+    """Normalized SOURCE-DOCUMENT identity for a bibliography row. Prefers the URL host+path
+    (``url`` or ``source_url``, lowercased, scheme/query/fragment/trailing-slash stripped);
+    falls back to the lowercased whitespace-normalized ``source_title``/``statement``. Returns
+    ``""`` when neither is present — an empty key is NEVER consolidated (fail-closed: a row with
+    no identifiable document stays its own row). PURE."""
+    if not isinstance(b, dict):
+        return ""
+    url = str(b.get("url") or b.get("source_url") or "").strip().lower()
+    if url:
+        url = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", url)  # strip scheme
+        url = url.split("?", 1)[0].split("#", 1)[0]        # strip query + fragment
+        url = url.rstrip("/")
+        if url:
+            return url
+    title = str(b.get("source_title") or b.get("statement") or "").strip().lower()
+    return _WS_RE.sub(" ", title).strip()
+
+
+def _salient_numbers(clean: str) -> frozenset[str]:
+    """The set of salient numeric tokens (percentages / decimals / integers) in a cleaned claim.
+    The consolidation gate requires an EXACT match of this set, so two different quantitative
+    findings from one document (e.g. "43%" vs "2.5% of GDP") are NEVER merged. PURE."""
+    return frozenset(_NUM_TOKEN_RE.findall(clean or ""))
+
+
+def _claim_tokens(clean: str) -> frozenset[str]:
+    """Lowercased content-word token set of a cleaned claim, minus the local stopword set. Used
+    for the Jaccard overlap half of :func:`_same_finding`. PURE."""
+    out: set[str] = set()
+    for raw in re.split(r"\s+", (clean or "").lower()):
+        tok = raw.strip(".,;:!?()[]{}\"'`—–…%")
+        if not tok or tok in _CONSOLIDATE_STOPWORDS:
+            continue
+        out.add(tok)
+    return frozenset(out)
+
+
+def _consolidate_jaccard() -> float:
+    """The claim-token Jaccard threshold for consolidation (env ``PG_SUMMARY_TABLE_CONSOLIDATE_
+    JACCARD``, default 0.6; LAW VI). FAIL-LOUD parse: a malformed value is logged at WARNING (not
+    swallowed silently) and the documented safe default 0.6 is used; a parsed value is clamped to
+    ``[0.0, 1.0]``."""
+    raw = os.environ.get(_CONSOLIDATE_JACCARD_ENV)
+    if raw is None or raw.strip() == "":
+        return _CONSOLIDATE_JACCARD_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "[activation] summary_table_source_consolidate: invalid %s=%r; using default %.2f",
+            _CONSOLIDATE_JACCARD_ENV, raw, _CONSOLIDATE_JACCARD_DEFAULT,
+        )
+        return _CONSOLIDATE_JACCARD_DEFAULT
+    if val < 0.0:
+        return 0.0
+    if val > 1.0:
+        return 1.0
+    return val
+
+
+def _numberless_consolidate_jaccard() -> float:
+    """The STRICTER claim-token Jaccard threshold applied when BOTH claims are
+    NUMBERLESS (env ``PG_SUMMARY_TABLE_NUMBERLESS_JACCARD``, default 0.85; LAW
+    VI). Same fail-loud parse + ``[0.0, 1.0]`` clamp as :func:`_consolidate_jaccard`.
+    A numberless claim has no numeric discriminator, so consolidating two such
+    claims demands a much higher vocabulary overlap before they are treated as
+    the SAME finding — otherwise a distinct qualitative row is silently lost."""
+    raw = os.environ.get(_NUMBERLESS_JACCARD_ENV)
+    if raw is None or raw.strip() == "":
+        return _NUMBERLESS_JACCARD_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "[activation] summary_table_source_consolidate: invalid %s=%r; using default %.2f",
+            _NUMBERLESS_JACCARD_ENV, raw, _NUMBERLESS_JACCARD_DEFAULT,
+        )
+        return _NUMBERLESS_JACCARD_DEFAULT
+    if val < 0.0:
+        return 0.0
+    if val > 1.0:
+        return 1.0
+    return val
+
+
+def _source_consolidate_enabled() -> bool:
+    """LAW VI kill-switch for source consolidation (default ON). OFF => rows pass through
+    unchanged (byte-identical to the one-row-per-eid behaviour)."""
+    return os.environ.get(_SOURCE_CONSOLIDATE_FLAG, "1").strip().lower() not in _OFF_VALUES
+
+
+def _same_finding(a: str, b: str) -> bool:
+    """True iff two cleaned claim strings state the SAME finding: IDENTICAL salient-number set
+    AND claim-token Jaccard overlap >= the configured threshold. Both halves must hold, so a
+    different quantitative result is never merged even when the surrounding prose is similar.
+    PURE."""
+    sa, sb = _salient_numbers(a), _salient_numbers(b)
+    if sa != sb:
+        return False
+    ta, tb = _claim_tokens(a), _claim_tokens(b)
+    if not ta and not tb:
+        return True
+    if not ta or not tb:
+        return False
+    jaccard = len(ta & tb) / len(ta | tb)
+    # I-deepfix-001 (#1369) FIX 5 — a NUMBERLESS-vs-NUMBERLESS pair (both empty
+    # salient-number sets) has no numeric discriminator, so it must clear the
+    # STRICTER threshold; a numbered pair keeps the standard bar.
+    threshold = (
+        _numberless_consolidate_jaccard() if not sa else _consolidate_jaccard()
+    )
+    return jaccard >= threshold
+
+
+def _union_terms(term_lists: Iterable[list[str]]) -> list[str]:
+    """Order-stable, case-insensitive-deduped union of curated cell terms across cluster members,
+    capped at ``_MAX_TERMS_PER_CELL``. Each input term is ALREADY verbatim-verified for its own
+    source, so the union only surfaces already-verified terms (never fabricates). PURE."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for terms in term_lists:
+        for t in terms or []:
+            key = t.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(t)
+    return out[:_MAX_TERMS_PER_CELL]
+
+
+def _merge_cluster(cluster: list[_RowData]) -> _RowData:
+    """Collapse a >=2-member same-document same-finding cluster into ONE multi-citation row.
+    ``num`` = min member num (stable sort anchor); ``cite_nums`` = sorted union of ALL members'
+    citations (CONSOLIDATE-KEEP-ALL — every eid stays cited); claim = cleanest member claim; the
+    curated cells = order-stable capped union; literature = the min-num member's author+title base
+    followed by ALL ``[N]`` citations. PURE."""
+    ordered = sorted(cluster, key=lambda r: r.num)
+    min_row = ordered[0]
+    cite_nums = sorted({n for m in ordered for n in (m.cite_nums or [m.num])})
+    best_claim = _pick_best_claim([m.claim for m in ordered])
+    rep = min_row
+    for m in ordered:
+        if _clean_claim_text(m.claim) == best_claim:
+            rep = m
+            break
+    suffix = f" [{min_row.num}]"
+    base = min_row.literature[:-len(suffix)] if min_row.literature.endswith(suffix) else min_row.literature
+    literature = base + "".join(f"[{n}]" for n in cite_nums)
+    return _RowData(
+        num=min_row.num,
+        literature=literature,
+        claim=best_claim,
+        claim_truncated=rep.claim_truncated,
+        geography=_union_terms([m.geography for m in ordered]),
+        domain=_union_terms([m.domain for m in ordered]),
+        risk=_union_terms([m.risk for m in ordered]),
+        doc_key=min_row.doc_key,
+        cite_nums=cite_nums,
+    )
+
+
+def _consolidate_rows_by_source(rows: list[_RowData]) -> list[_RowData]:
+    """Group rows by non-empty ``doc_key`` and greedily cluster same-finding restatements from the
+    SAME document into one multi-citation row (CONSOLIDATE-KEEP-ALL). Empty-``doc_key`` rows and
+    singletons pass through unchanged. Deterministic: members are clustered in ascending ``num``
+    order and each new row's greedy match is against the cluster SEED. Emits the realized-effect
+    ``[activation]`` marker (anti-dark: a live consolidation path always logs). PURE apart from the
+    marker log."""
+    rows_in = len(rows)
+    passthrough: list[_RowData] = []
+    by_doc: dict[str, list[_RowData]] = {}
+    for r in rows:
+        if r.doc_key:
+            by_doc.setdefault(r.doc_key, []).append(r)
+        else:
+            passthrough.append(r)  # no document identity => never consolidated
+
+    out: list[_RowData] = list(passthrough)
+    clusters = 0
+    for group in by_doc.values():
+        ordered = sorted(group, key=lambda r: r.num)
+        used = [False] * len(ordered)
+        for i, seed in enumerate(ordered):
+            if used[i]:
+                continue
+            cluster = [seed]
+            used[i] = True
+            for j in range(i + 1, len(ordered)):
+                if used[j]:
+                    continue
+                if _same_finding(seed.claim, ordered[j].claim):
+                    cluster.append(ordered[j])
+                    used[j] = True
+            if len(cluster) >= 2:
+                out.append(_merge_cluster(cluster))
+                clusters += 1
+            else:
+                out.append(cluster[0])  # singleton unchanged
+
+    logger.info(
+        "[activation] summary_table_source_consolidate: clusters=%d rows_in=%d rows_out=%d",
+        clusters, rows_in, len(out),
+    )
+    return out
 
 
 def _word_boundary_search(needle_regex_body: str, text: str, *, ignore_case: bool) -> bool:
@@ -774,7 +1023,14 @@ def _build_rows(
             geography=geography,
             domain=domain,
             risk=risk,
+            doc_key=_doc_identity(b),
+            cite_nums=[num],
         ))
+    # Source-consolidation post-pass (CONSOLIDATE-KEEP-ALL, CLAUDE.md §-1.3). Gated ON by default
+    # (LAW VI kill-switch); OFF => the one-row-per-eid list is byte-identical. Runs BEFORE the sort
+    # so the collapsed multi-citation rows and the untouched singletons order together by ``num``.
+    if _source_consolidate_enabled():
+        rows = _consolidate_rows_by_source(rows)
     rows.sort(key=lambda r: r.num)
     return rows
 
