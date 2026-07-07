@@ -55,6 +55,150 @@ def _max_rounds() -> int:
     return int(os.getenv("PG_QGEN_FS_RESEARCHER_MAX_ROUNDS", "6"))
 
 
+def _qgen_parallel_workers() -> int:
+    """I-deepfix-001 Wave-3 (#1344): bounded-parallel worker count for the seed-frontier fan-out.
+
+    Default 1 = SERIAL, byte-identical to the legacy per-query loop. >1 = a bounded ThreadPool over
+    ``per_query_retrieve`` with an ORDER-STABLE merge. A compute-safety UP bound (LAW VI env cap
+    ``PG_QGEN_PARALLEL_QUERIES``), never a breadth target — the SAME query set is issued, only
+    concurrently. Fixes the measured throughput collapse where a serial per-query retrieval tail hit
+    the retrieval wall and only ~3 of ~35 planned queries fired. §-1.3: additive orchestration; the
+    frozen faithfulness engine is untouched. A bad value falls back to 1 (serial)."""
+    try:
+        return max(1, int(os.getenv("PG_QGEN_PARALLEL_QUERIES", "1")))
+    except ValueError:
+        return 1
+
+
+def _issue_seed_frontier(
+    seed_queries: list[str],
+    seen_q: set[str],
+    budget: int,
+    per_query_retrieve: PerQueryRetrieveFn,
+    retrieve_kwargs: dict,
+    wall_passed: Callable[[], bool],
+) -> tuple[list[str], list[Any], list[Any]]:
+    """Issue up to ``budget`` unique, not-yet-seen seed queries (first-seen-wins, in seed order)
+    through ``per_query_retrieve`` and return ``(issued_queries, results, corpus_rows)`` in seed order.
+
+    ``seen_q`` is updated IN PLACE with exactly the issued queries. Serial + byte-identical to the
+    legacy loop at ``PG_QGEN_PARALLEL_QUERIES=1``; bounded-parallel (order-stable merge) when >1.
+
+    I-deepfix-001 Wave-3 (#1344): the parallel path selects the SAME deduped, budget-capped query set
+    the serial scan would issue, dispatches them concurrently in a bounded ThreadPool, and merges the
+    results back in seed order — so the issued query set + result order are identical to serial; only
+    the wall-timing of a mid-frontier trip differs (the parallel dispatch issues the whole batch under
+    one wall instead of dropping the tail to a serial-loop wall). §-1.3 additive: SAME queries, SAME
+    ``per_query_retrieve`` chokepoint, SAME per-query result contract; drops zero sources; the frozen
+    faithfulness engine is untouched.
+    """
+    issued: list[str] = []
+    results: list[Any] = []
+    corpus_rows: list[Any] = []
+
+    workers = _qgen_parallel_workers()
+    if workers <= 1:
+        # SERIAL — byte-identical to the legacy per-query loop (wall + budget checked per iteration).
+        for q in seed_queries:
+            if len(issued) >= budget or wall_passed():
+                break
+            k = q.lower()
+            if k in seen_q:
+                continue
+            seen_q.add(k)
+            issued.append(q)
+            result = per_query_retrieve(research_question=q, **retrieve_kwargs)
+            results.append(result)
+            corpus_rows.extend(list(getattr(result, "evidence_rows", None) or []))
+        return issued, results, corpus_rows
+
+    # PARALLEL — order-stable. Select the IDENTICAL query set the serial scan would issue (dedup +
+    # budget), then issue concurrently and merge in seed order. The anti-dark fire marker is emitted at
+    # EVERY return path below carrying the REALIZED ``issued`` count — I-deepfix-001 Wave-3b (#1344,
+    # Codex P1.2): the prior single PRE-ISSUE marker logged ``selected=N`` BEFORE ``selected[0]`` was
+    # issued, so a wall trip on ``selected[0]`` skipped ``_rest`` yet the log still read "fired N"
+    # (INTENT, not realized ISSUE). ``selected`` is declared up-front so the marker is valid on the
+    # wall-passed early return too.
+    selected: list[str] = []
+
+    def _emit_fanout_marker() -> None:
+        # I-deepfix-001 Wave-3b (#1344): anti-dark liveness marker (Fable/Codex P1) — REALIZED-count
+        # edition. Emitted ONLY on the >1 (parallel) path so the serial default stays byte-identical AND
+        # the official run's log can DISTINGUISH serial from parallel-N — the exact seam where the "only
+        # ~3 of ~35 queries fired" collapse was diagnosed. ``selected=`` is the pre-issue dedup count
+        # (intent breadcrumb); ``issued=`` is the REALIZED fan-out the canary keys on, so a wall-tripped
+        # 1-of-N now logs issued=1 (NOT selected=N). issued=0 (wall tripped before any seed /
+        # all-duplicate / budget-0) is the eligible-yet-zero signal — NEVER gated on >0 (§-1.3: a wall
+        # truncation is compute-safety, not a source drop). Structural presence + counts; the frozen
+        # faithfulness engine is untouched.
+        logger.info(
+            "[activation] qgen_parallel_fanout: workers=%d selected=%d issued=%d",
+            workers, len(selected), len(issued),
+        )
+
+    if wall_passed():
+        _emit_fanout_marker()
+        return issued, results, corpus_rows
+    # I-deepfix-001 Wave-3 (#1344) — Codex P0 (no-drop / order-stable): dedup the SELECTION against a
+    # LOCAL key set and mutate the shared ``seen_q`` ONLY as each query is actually ISSUED (mirroring
+    # the serial loop, which adds to ``seen_q`` immediately before it retrieves). The prior code marked
+    # EVERY ``selected`` query seen up-front; when the retrieval wall tripped on ``selected[0]`` the
+    # un-issued ``_rest`` were skipped BUT stayed in ``seen_q``, so the downstream facet-completeness
+    # expansion loop (which reads ``seen_q`` as ``already_issued``) could never re-issue them — a real
+    # dropped-source breadth loss. Marking seen only on issue leaves the un-issued tail eligible for
+    # re-issue, exactly as the serial path leaves it (§-1.3 no drop).
+    _selected_keys: set[str] = set()
+    for q in seed_queries:
+        if len(selected) >= budget:
+            break
+        k = q.lower()
+        if k in seen_q or k in _selected_keys:
+            continue
+        _selected_keys.add(k)
+        selected.append(q)
+    if not selected:
+        _emit_fanout_marker()  # realized issued=0 (all-duplicate / budget-0): eligible-yet-zero (§-1.3)
+        return issued, results, corpus_rows
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _one(q: str) -> Any:
+        return per_query_retrieve(research_question=q, **retrieve_kwargs)
+
+    # RACE-SAFETY at the PRODUCTION call site (Fable P1): the injected ``per_query_retrieve`` closure
+    # (``_iter_per_query_retrieve`` in run_honest_sweep_r3) attaches the layer-4 DOI ``seed_urls`` to
+    # the FIRST call it sees via a check-then-set on shared state written for SERIAL calls. Under a
+    # concurrent first batch several threads would each read ``done=False`` and re-fetch the SAME seed
+    # PDFs — never DROPS a source (additive-safe, faithfulness-neutral) but burns paid fetches
+    # nondeterministically and which query carries the seed becomes random. Bind the seed
+    # DETERMINISTICALLY to the FIRST selected query by issuing it SERIALLY before the fan-out; the
+    # remaining queries then dispatch in the bounded pool. The parallel path now attaches the seed to
+    # exactly the query a serial run would (order-stable) — a strict throughput win, no shared-state race.
+    _first_result = _one(selected[0])
+    seen_q.add(selected[0].lower())  # Codex P0: mark seen ONLY on actual issue (like the serial loop)
+    issued.append(selected[0])
+    results.append(_first_result)
+    corpus_rows.extend(list(getattr(_first_result, "evidence_rows", None) or []))
+    _rest = selected[1:]
+    # I-deepfix-001 Wave-3 (#1344) — retrieval-wall re-check (Codex P1): ``selected[0]`` above is
+    # issued SERIALLY and can itself consume the shared retrieval wall. Mirror the serial loop's
+    # per-iteration ``wall_passed()`` guard by re-checking BEFORE dispatching the remaining frontier;
+    # otherwise a wall tripped by ``selected[0]`` would still launch the whole ``_rest`` batch past the
+    # wall — violating the stated retrieval-wall bound (off-path execution/spend). Skipping ``_rest`` on
+    # a passed wall is EXACTLY what the serial path does (its next iteration would ``break``), so this
+    # never issues MORE than serial and coverage stays additive — the wall is the compute-safety bound,
+    # not a source drop (§-1.3). OFF (workers<=1) is untouched: this branch is parallel-only.
+    if _rest and not wall_passed():
+        with ThreadPoolExecutor(max_workers=min(workers, len(_rest))) as _ex:
+            _result_list = list(_ex.map(_one, _rest))
+        for q, result in zip(_rest, _result_list):
+            seen_q.add(q.lower())  # Codex P0: mark seen ONLY on actual issue (like the serial loop)
+            issued.append(q)
+            results.append(result)
+            corpus_rows.extend(list(getattr(result, "evidence_rows", None) or []))
+    _emit_fanout_marker()  # realized issued count (serial-first + parallel-rest, or wall-tripped 1-of-N)
+    return issued, results, corpus_rows
+
+
 def _seed_angles_per_facet() -> int:
     """R2 (I-deepfix-001, #1344): how many PRIMARY angle queries per facet the SEED pass
     issues when the R2 facet-completeness expansion loop is ON.
@@ -240,6 +384,16 @@ def _scope_anchored() -> bool:
     return os.getenv("PG_FS_RESEARCHER_SCOPE_ANCHOR", "1").strip() not in ("0", "false", "False")
 
 
+def _landmark_expander_enabled() -> bool:
+    """I-deepfix-001 Wave-3 (#1344): env gate for the in-window landmark-study expander, read WITHOUT
+    importing ``landmark_study_expander`` so a flag-OFF run NEVER imports that module — the expert-facet
+    qgen path is byte-identical even if the module were absent/broken (Codex/Fable Wave-3 P0
+    defense-in-depth: a commit assembled from the diff alone must not ModuleNotFoundError the OFF path).
+    Mirrors ``landmark_study_expander.landmark_study_expansion_enabled`` exactly (default OFF; accepts
+    ``1``/``true``/``on``/``yes``)."""
+    return os.getenv("PG_LANDMARK_EXPANDER", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
 def _lines(text: str, cap: int = 12) -> list[str]:
     """Parse an LLM reply into clean sub-topic / query line items (strip numbering/bullets)."""
     out: list[str] = []
@@ -316,9 +470,17 @@ def _plan_expert_facet_queries(
     corpus_rows: list[dict] = []
 
     _deadline = retrieval_deadline_monotonic
+    # I-deepfix-001 Wave-3 (#1344): seconds of wall-time consumed by the ADDITIVE landmark-study
+    # planning lane, credited BACK to the wall so that lane rides OUTSIDE the baseline retrieval budget
+    # and never displaces a baseline query (Codex/Fable P1 "or add budget"). A mutable box so the nested
+    # ``_wall_passed`` reads the running total; it stays 0.0 (byte-identical) unless the landmark lane fires.
+    _extra_lane_credit = [0.0]
 
     def _wall_passed() -> bool:
-        return _retrieval_deadline_passed(_deadline)
+        _d = _deadline
+        if _d is not None and _extra_lane_credit[0]:
+            _d = _d + _extra_lane_credit[0]
+        return _retrieval_deadline_passed(_d)
 
     if _wall_passed():
         return queries, results
@@ -422,23 +584,96 @@ def _plan_expert_facet_queries(
         # the eligible-yet-zero signal). Structural presence + count (§-1.3).
         logger.info("[activation] subentity_query_expansion: expanded_queries=%d", _new_sub_count)
 
-    # Issue the seed frontier directly (facet-angle queries are already full queries — no
-    # per-todo llm() derivation needed). Record ONLY the queries ACTUALLY issued in the
-    # shared seen-set: a budget-truncated seed stays eligible for the R2 loop, and the
-    # RESERVE angles (deliberately never placed in `seed_queries`) stay OUT of `seen_q` so
-    # the expansion loop below can fire them for still-uncovered facets. Bounded by the
-    # compute-safety query budget + the retrieval wall.
-    for q in seed_queries:
-        if len(queries) >= max_queries or _wall_passed():
-            break
-        k = q.lower()
-        if k in seen_q:
-            continue
-        seen_q.add(k)
-        queries.append(q)
-        result = per_query_retrieve(research_question=q, **retrieve_kwargs)
-        results.append(result)
-        corpus_rows.extend(list(getattr(result, "evidence_rows", None) or []))
+    # COV-C landmark-study expander (I-deepfix-001 Wave-3, #1344): the abstract facet + sub-entity
+    # frontier never names the LANDMARK empirical studies / RCTs / seminal datasets central to the
+    # question (the question carries no author names), so the empirical CORE stays absent. ONE bounded
+    # LLM call enumerates the IN-WINDOW landmark studies (constrained to the question's stated
+    # publication ceiling `date_end_iso` so a "before June 2023" question seeds the pre-print /
+    # working-paper version, NEVER a later re-publication) and each scope-anchored query is ADDED ON
+    # TOP of the FULL baseline frontier — the budget is RAISED by the added slice so a landmark query
+    # never SWAPS OUT a baseline query (mirrors sub_entity). Every discovered source flows through the
+    # UNCHANGED per_query_retrieve + frozen faithfulness engine — NEVER auto-trusted. Default OFF
+    # (PG_LANDMARK_EXPANDER) => byte-identical. §-1.3: adds on-topic in-window queries only, drops ZERO
+    # sources, touches no faithfulness gate.
+    # The env flag is read via ``_landmark_expander_enabled()`` (reads PG_LANDMARK_EXPANDER directly,
+    # NO import) so a flag-OFF run never imports ``landmark_study_expander`` — the OFF path is
+    # byte-identical even if that module is absent/broken (Codex/Fable Wave-3 P0 defense-in-depth). The
+    # module import is DEFERRED inside the guard for the same reason.
+    if _landmark_expander_enabled() and not _wall_passed():
+        _lm_t0 = time.monotonic()
+        _new_lm_count = 0
+        _lm_failed_open = False  # Wave-3b (#1344, Codex P1.1): distinguishes RAN-ok from FAIL-OPEN for the marker
+        # I-deepfix-001 Wave-3 (#1344) — Codex/Fable P1 (additive-on-failure): the ENTIRE landmark lane
+        # (deferred module import + window extraction + plan + widen) is FAIL-OPEN. If
+        # ``landmark_study_expander`` is absent or broken, or its bounded LLM planning call raises, the
+        # lane adds ZERO queries and qgen proceeds on the unchanged baseline frontier — it must NEVER
+        # abort the whole query generation. This IS the additive / faithfulness-neutral contract: an
+        # additive coverage lane can only ADD sources, so ANY failure degrades to the flag-OFF
+        # (zero-added) behaviour, never a hard stop (§-1.3). Also directly covers the Wave-3 P0 concern
+        # that the FORCE-ON path could ModuleNotFoundError at run time: a missing module now no-ops.
+        try:
+            from src.polaris_graph.retrieval import landmark_study_expander as _lse
+            try:
+                from src.polaris_graph.retrieval.intake_constraint_extractor import (
+                    extract_constraints_regex as _extract_constraints_regex,
+                )
+                _window_end = _extract_constraints_regex(question).date_end_iso()
+            except Exception:
+                _window_end = None
+            _lm_qs = _lse.plan_landmark_study_queries(question, llm, _window_end)
+            if _lm_qs:
+                _seed_keys = {(q or "").strip().lower() for q in seed_queries}
+                _new_lm = [q for q in _lm_qs if (q or "").strip().lower() not in _seed_keys]
+                _new_lm_count = len(_new_lm)
+                if _new_lm:
+                    seed_queries, max_queries = _lse.widen_with_landmark_studies(
+                        list(seed_queries), _new_lm, max_queries
+                    )
+        except Exception:  # noqa: BLE001 — additive lane: any failure adds ZERO, never aborts qgen
+            # I-deepfix-001 Wave-3b (#1344, Codex P1.1): a FAIL-OPEN landmark lane must NOT read as a
+            # healthy fire. Set the degrade flag, emit a DISTINCT ``unavailable_failopen`` marker, and
+            # SUPPRESS the positive ``expanded_queries=N`` marker on this path (below). The run_gate_b
+            # landmark canary registers this degrade literal as an absent_marker, so a crashed/missing/
+            # not-recovered expander is REJECTED as dark instead of passing as a healthy added-zero fire.
+            # The lane STILL fails open (adds zero, never aborts qgen); only the LIVENESS LOG is made
+            # honest — a lane that FAILED to run is no longer indistinguishable from one that RAN and
+            # legitimately added zero (§-1.3 anti-dark, faithfulness-neutral).
+            _lm_failed_open = True
+            logger.warning(
+                "[activation] landmark_study_expansion: unavailable_failopen (added 0)", exc_info=True
+            )
+            _new_lm_count = 0
+        # Credit the landmark planning time BACK to the wall so this additive lane rides OUTSIDE the
+        # baseline budget — the baseline seed frontier issued below (and the R2 completeness loop) get
+        # the same wall time they would with the lane OFF, so no baseline query is displaced by the
+        # landmark enumeration's inline LLM call (Codex/Fable P1 "or add budget").
+        _extra_lane_credit[0] += max(0.0, time.monotonic() - _lm_t0)
+        # I-deepfix-001 Wave-3 (#1344) landmark-expansion ACTIVATION fire marker, Wave-3b (Codex P1.1)
+        # honesty split. Emitted ONLY inside this PG_LANDMARK_EXPANDER-gated block => OFF byte-identical,
+        # and ONLY when the lane RAN successfully (``not _lm_failed_open``). expanded_queries = the NET
+        # NEW in-window landmark queries added on top of the current frontier; 0 here means the expander
+        # RAN and legitimately added zero (LLM named none / all duplicates / no in-window study) — the
+        # ACCEPTED eligible-yet-zero signal (§-1.3). On the FAIL-OPEN path this positive marker is
+        # SUPPRESSED and the ``unavailable_failopen`` degrade marker (above) fires instead, so the canary
+        # can tell a lane that RAN-and-added-zero (accept) from one that FAILED-and-added-zero (reject as
+        # dark). Structural presence + count.
+        if not _lm_failed_open:
+            logger.info("[activation] landmark_study_expansion: expanded_queries=%d", _new_lm_count)
+
+    # Issue the seed frontier (facet-angle queries are already full queries — no per-todo llm()
+    # derivation needed). Record ONLY the queries ACTUALLY issued in the shared seen-set: a
+    # budget-truncated seed stays eligible for the R2 loop, and the RESERVE angles (deliberately never
+    # placed in `seed_queries`) stay OUT of `seen_q` so the expansion loop below can fire them for
+    # still-uncovered facets. Bounded by the compute-safety query budget + the retrieval wall.
+    # I-deepfix-001 Wave-3 (#1344): the fan-out is bounded-parallel when PG_QGEN_PARALLEL_QUERIES>1
+    # (order-stable merge, SAME query set); serial + byte-identical at the default 1.
+    _issued, _issued_results, _issued_rows = _issue_seed_frontier(
+        seed_queries, seen_q, max_queries - len(queries),
+        per_query_retrieve, retrieve_kwargs, _wall_passed,
+    )
+    queries.extend(_issued)
+    results.extend(_issued_results)
+    corpus_rows.extend(_issued_rows)
 
     # R2: the facet-completeness expansion loop closes gaps on UNCOVERED facets until yield saturates.
     if _fc.facet_completeness_enabled() and facets and len(queries) < max_queries and not _wall_passed():

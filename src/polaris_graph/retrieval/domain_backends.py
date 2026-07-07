@@ -751,12 +751,46 @@ def _openalex_max_pages() -> int:
     return max(1, pages)
 
 
-def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
+def _openalex_date_filter(
+    from_date: str | None, to_date: str | None
+) -> str | None:
+    """I-deepfix-001 Wave-3 (#1344): build the OpenAlex ``filter`` value for a publication-date window.
+
+    Returns a comma-joined ``from_publication_date:YYYY-MM-DD,to_publication_date:YYYY-MM-DD`` string
+    for whichever bounds are supplied (per developers.openalex.org filter reference), or ``None`` when
+    BOTH are absent — so an unscoped call adds no ``filter`` param and is byte-identical to the legacy
+    request. Pure string construction; no network. Dates are expected already-normalized to a full
+    ISO ``YYYY-MM-DD`` by the caller (``UserConstraints`` bounds)."""
+    parts: list[str] = []
+    fd = (from_date or "").strip()
+    td = (to_date or "").strip()
+    if fd:
+        parts.append(f"from_publication_date:{fd}")
+    if td:
+        parts.append(f"to_publication_date:{td}")
+    return ",".join(parts) if parts else None
+
+
+def openalex_search(
+    query: str,
+    limit: int = PG_DOMAIN_MAX_HITS,
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> list[SearchCandidate]:
     """Keyword-SEARCH OpenAlex /works for primary-literature discovery.
 
     Emits a resolvable primary-literature URL per work in DOI -> OpenAlex-id
     priority; a work with neither is SKIPPED. Candidates flow through the SAME
     fetch / tier / strict_verify chokepoint as Serper/S2. Fail-open.
+
+    I-deepfix-001 Wave-3 (#1344): the optional ``from_date`` / ``to_date`` (full ISO
+    ``YYYY-MM-DD``) add an OpenAlex ``filter=from_publication_date:..,to_publication_date:..``
+    so a caller with a stated publication window can issue an EXTRA date-scoped lane
+    (``PG_OPENALEX_DATE_FILTER``) that surfaces in-window primaries a plain keyword
+    search buries. BOTH unset (the default) => NO ``filter`` param => byte-identical to
+    the legacy request. Strictly ADDITIVE at the caller (the un-scoped base call still
+    runs); this only date-scopes the extra lane.
 
     BB-003 (#1171): per_page is raised to min(limit, PG_OPENALEX_PER_PAGE<=200)
     and the search CURSOR-PAGES (cursor=* -> meta.next_cursor) up to ``limit`` or
@@ -774,6 +808,9 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
     that honest zero from the rate-limited failure.
     """
     auth_params = _openalex_auth_params()
+    # I-deepfix-001 Wave-3 (#1344): the publication-date window filter (None when
+    # no bound supplied => byte-identical: no `filter` param is ever attached).
+    date_filter = _openalex_date_filter(from_date, to_date)
     try:
         per_page = _openalex_per_page(limit)
         max_pages = _openalex_max_pages()
@@ -786,6 +823,9 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
             # (max_pages > 1). A single-page run sends the exact legacy params.
             if max_pages > 1:
                 params["cursor"] = cursor
+            # I-deepfix-001 Wave-3: attach the date-window filter ONLY when supplied.
+            if date_filter:
+                params["filter"] = date_filter
             # U25: merge auth/politeness params LAST (never override search/per_page/
             # cursor); empty dict when unset => exact legacy keyless request.
             params.update(auth_params)

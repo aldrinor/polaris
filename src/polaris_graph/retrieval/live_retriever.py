@@ -2060,6 +2060,64 @@ def _wall_rescue_armed_marker(*, enrich_parallel: bool) -> str:
     return f"[activation] wall_classify_rescue: armed enrich_parallel={enrich_parallel}"
 
 
+def _openalex_date_filter_enabled() -> bool:
+    """I-deepfix-001 Wave-3 (#1344): kill-switch for the additive date-scoped OpenAlex lane.
+
+    Default OFF => the extra date-scoped ``openalex_search`` never fires and the OpenAlex path is
+    byte-identical. The Gate-B slate quad-pins ``PG_OPENALEX_DATE_FILTER`` ON."""
+    return os.getenv("PG_OPENALEX_DATE_FILTER", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _openalex_full_iso(iso: str | None, *, ceiling: bool) -> str | None:
+    """Normalize a ``UserConstraints`` ISO bound to a full OpenAlex ``YYYY-MM-DD`` date.
+
+    ``UserConstraints.date_start_iso`` yields ``YYYY-MM-01`` / ``YYYY-01-01`` (already full) and
+    ``date_end_iso`` yields ``YYYY-MM`` (month precision) or ``YYYY-12-31``. OpenAlex date filters
+    need a full ``YYYY-MM-DD``; a month-precision CEILING is snapped to that month's LAST day
+    (inclusive), a month-precision FLOOR to the first. Returns ``None`` on an empty/unparseable
+    bound. Pure; no network (``calendar`` is stdlib)."""
+    s = (iso or "").strip()
+    if not s:
+        return None
+    parts = s.split("-")
+    try:
+        if len(parts) == 3:
+            return s  # already YYYY-MM-DD
+        if len(parts) == 2:
+            year, month = int(parts[0]), int(parts[1])
+            if ceiling:
+                import calendar
+                last = calendar.monthrange(year, month)[1]
+                return f"{year:04d}-{month:02d}-{last:02d}"
+            return f"{year:04d}-{month:02d}-01"
+        if len(parts) == 1:
+            year = int(parts[0])
+            return f"{year:04d}-12-31" if ceiling else f"{year:04d}-01-01"
+    except (ValueError, IndexError):
+        return None
+    return None
+
+
+def _openalex_date_window(research_question: str) -> tuple[str | None, str | None]:
+    """I-deepfix-001 Wave-3 (#1344): extract the (from_date, to_date) OpenAlex publication window
+    from the research question's stated date constraints, as full ISO ``YYYY-MM-DD`` bounds.
+
+    Reuses the deterministic ``extract_constraints_regex`` (no network, no LLM) and normalizes its
+    ``UserConstraints`` bounds. ``(None, None)`` when the question states no window — the caller then
+    fires no extra lane. Best-effort: any exception yields ``(None, None)`` (fail-open — the base
+    OpenAlex lane is unaffected)."""
+    try:
+        from src.polaris_graph.retrieval.intake_constraint_extractor import (
+            extract_constraints_regex,
+        )
+        uc = extract_constraints_regex(research_question or "")
+        from_date = _openalex_full_iso(uc.date_start_iso(), ceiling=False)
+        to_date = _openalex_full_iso(uc.date_end_iso(), ceiling=True)
+        return from_date, to_date
+    except Exception:
+        return None, None
+
+
 def _prefetch_openalex_enrich_parallel(
     candidates: list[Any],
     *,
@@ -5024,6 +5082,28 @@ def run_live_retrieval(
     # semantic embedder was unavailable (fell back LOUDLY to the lexical cut).
     _semantic_relevance_fell_back = False
 
+    # I-deepfix-001 Wave-3 (#1344): the ADDITIVE date-scoped OpenAlex lane. Extract the question's
+    # publication window ONCE (deterministic regex, no network/LLM) so the per-query loop below can
+    # issue an EXTRA `openalex_search` scoped to `from_publication_date`/`to_publication_date` when
+    # PG_OPENALEX_DATE_FILTER is ON and the question states a window. Strictly ADDITIVE: the base
+    # (un-scoped) openalex_search still runs; this only UNIONs in-window primaries a plain search
+    # buries. (None, None) or flag-OFF => no extra lane => byte-identical. §-1.3 additive; the frozen
+    # faithfulness engine is untouched.
+    _oa_date_filter_on = _openalex_date_filter_enabled() and not seed_only
+    _oa_date_from, _oa_date_to = (
+        _openalex_date_window(research_question) if _oa_date_filter_on else (None, None)
+    )
+    if _oa_date_filter_on and not (_oa_date_from or _oa_date_to):
+        # I-deepfix-001 Wave-3 (#1344): eligible-yet-idle disclosure (Fable P1). The flag is ON but the
+        # question states no publication window, so the additive dated lane never fires this call.
+        # Surface a distinct [activation] line so the liveness canary can distinguish "idle by design"
+        # (the flag is on, the window is simply absent) from "silently dark". Telemetry-only; the frozen
+        # faithfulness engine is untouched.
+        logger.info(
+            "[activation] openalex_date_filter: eligible_no_window "
+            "(flag on; question states no publication window; additive dated lane idle)"
+        )
+
     # ── Step 2: run Serper + S2 across queries ──────────────────────
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
@@ -5211,6 +5291,67 @@ def run_live_retrieval(
                         cand.query_origin = q
                     # I-wire-001 W3: route through _emit_candidate (OFF = byte-identical).
                     _emit_candidate("openalex_search", cand)
+                # I-deepfix-001 Wave-3 (#1344): ADDITIVE date-scoped OpenAlex lane. When the question
+                # states a publication window and PG_OPENALEX_DATE_FILTER is ON, issue ONE EXTRA
+                # date-scoped openalex_search and UNION its hits on top of the un-scoped base hits
+                # above (via _emit_candidate's shared seen_urls dedup) — surfacing in-window primaries
+                # a plain keyword search buries. Strictly ADDITIVE: removes no base source. Fail-open
+                # (a fault adds 0 hits; the base lane already landed). §-1.3; faithfulness untouched.
+                if _oa_date_filter_on and (_oa_date_from or _oa_date_to):
+                    _oad_t0 = time.time()
+                    _oad_t0_mono = time.monotonic()
+                    try:
+                        _oad_hits = openalex_search(
+                            q, limit=max_s2,
+                            from_date=_oa_date_from, to_date=_oa_date_to,
+                        )
+                        api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
+                        _oad_zero = not _oad_hits
+                        _trace_tool(
+                            "openalex_search_dated", target=q,
+                            status="ok_zero" if _oad_zero else "ok",
+                            latency_ms=(time.time() - _oad_t0) * 1000.0,
+                            backend_used="openalex_works_api",
+                            result_count=len(_oad_hits), num_requested=max_s2,
+                            zero_yield=_oad_zero,
+                        )
+                        # Distinct retrieval_trace backend name (Fable P1): the dated lane's rows are no
+                        # longer conflated with the base openalex_search rows (the prior code reused the
+                        # base name "openalex_search" here).
+                        _trace_query(
+                            "openalex_search_dated", q,
+                            [getattr(c, "url", "") for c in _oad_hits],
+                        )
+                        # I-deepfix-001 Wave-3 (#1344): anti-dark liveness marker (Fable P1). The dated
+                        # lane's only prior success signal was the tracer (telemetry-only, gated by
+                        # PG_ENABLE_TOOL_TRACKER, swallowed on exception). Emit a distinct [activation]
+                        # logger line the liveness canary reads — window bounds + hit count.
+                        # dated_hits=0 is the eligible-yet-zero signal. Structural presence + count (§-1.3).
+                        logger.info(
+                            "[activation] openalex_date_filter: window=%s..%s dated_hits=%d",
+                            _oa_date_from or "-", _oa_date_to or "-", len(_oad_hits),
+                        )
+                        for cand in _oad_hits:
+                            url = getattr(cand, "url", "")
+                            if not url:
+                                continue
+                            if not getattr(cand, "query_origin", ""):
+                                cand.query_origin = q
+                            _emit_candidate("openalex_search", cand)
+                    except Exception as _oad_exc:
+                        logger.warning(
+                            "[live_retriever] openalex_search date-scoped lane failed for %r "
+                            "(fail-open): %s", q[:60], _oad_exc,
+                        )
+                    finally:
+                        # I-deepfix-001 Wave-3 (#1344): credit the ADDITIVE dated-lane time BACK to the
+                        # retrieval wall so the lane rides OUTSIDE the baseline budget — the base
+                        # per-query fan-out AND the downstream fetch/classify phases keep the full wall
+                        # they would have with the lane OFF, so the extra HTTP call never displaces a
+                        # baseline query/source (Codex/Fable P1 "or add budget"). Bounded: one extra
+                        # openalex round-trip per query. LOCAL deadline only (the shared per-question
+                        # wall passed from the spine is never mutated).
+                        _retrieval_deadline += max(0.0, time.monotonic() - _oad_t0_mono)
             except Exception as exc:
                 # U25: an HTTP error (the 503 anonymous-search rate-limit now RAISES
                 # OpenAlexHTTPError from openalex_search) is recorded as a real failure —

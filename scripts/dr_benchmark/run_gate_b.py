@@ -1692,6 +1692,28 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     Fix-A ThreadPool. Float-parseable => the SLATE-PURITY gate skips it (infra, not a feature-enable);
     #     NOT in the boolean force-on / required / allowlist sets. setdefault so an operator may raise it.
     "PG_POST_FETCH_ENRICH_WORKERS": "8",
+    # I-deepfix-001 (#1344) WAVE-3 COVERAGE — the beat-both BREADTH lever (the drb_72 report scored last
+    # because the 4 required GenAI sections were empty AND info_recall was ~0: the expected pre-June-2023
+    # GenAI primaries were never retrieved). THREE additive/faithfulness-neutral coverage flags. Each only
+    # ADDS on-topic / in-window queries+sources; every one re-passes the UNCHANGED strict_verify / NLI /
+    # 4-role D8 / provenance chokepoint — the FROZEN faithfulness engine is untouched (§-1.3 weight-and-
+    # consolidate; never a cap/target/thinner).
+    # (a) additive date-scoped OpenAlex lane — an EXTRA from/to_publication_date openalex_search UNIONed
+    #     on top of the base lane (live_retriever, default-OFF PG_OPENALEX_DATE_FILTER). BOOLEAN feature:
+    #     quad-wired EXACTLY like PG_POST_FETCH_ENRICH_PARALLEL (slate "1" HERE + FORCE_ON + REQUIRED +
+    #     ALLOWLIST) so a stray operator/.env =0 fails the run CLOSED before spend.
+    "PG_OPENALEX_DATE_FILTER": "1",
+    # (b) in-window landmark-study query expander — enumerates the landmark empirical studies / RCTs the
+    #     abstract facet + sub-entity frontier never names, scope+publication-window-anchored so a
+    #     "before June 2023" question seeds the pre-print, never a 2025 re-publication (fs_researcher,
+    #     default-OFF PG_LANDMARK_EXPANDER). BOOLEAN feature: quad-wired like PG_POST_FETCH_ENRICH_PARALLEL.
+    "PG_LANDMARK_EXPANDER": "1",
+    # (c) bounded-parallel seed-frontier fan-out worker count — issues the whole ~35-query frontier
+    #     concurrently under ONE retrieval wall (default 1 = serial = the measured "only ~3 of ~35 queries
+    #     fired" collapse). NUMERIC infra pin (mirrors PG_POST_FETCH_ENRICH_WORKERS): float-parseable =>
+    #     the SLATE-PURITY gate skips it, so it is NOT in the boolean force-on / required / allowlist sets;
+    #     instead it is FLOORED at 2 in _BENCHMARK_PREFLIGHT_FLOORS so a stray =1 fails the run CLOSED.
+    "PG_QGEN_PARALLEL_QUERIES": "8",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1719,6 +1741,11 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     # values; force-EXACT below additionally pins them so a value ABOVE the floor also cannot drift.
     "PG_QUANTIFIED_SPEC_MAX_TOKENS": 32768,
     "PG_QUANTIFIED_SPEC_REASONING_MAX_TOKENS": 8192,
+    # I-deepfix-001 (#1344) WAVE-3: floor-guard the bounded-parallel seed-frontier fan-out so a stray
+    # operator/.env =1 (serial = the "only ~3 of ~35 queries fired" throughput collapse) fails the run
+    # CLOSED before spend. Floor 2 == "genuinely parallel"; the slate value is 8. NUMERIC infra (not a
+    # feature-enable) so it lives HERE, not in the boolean force-on/required/allowlist sets.
+    "PG_QGEN_PARALLEL_QUERIES": 2,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
 # R1_deepener_enable (operator-authorized reversal, AskUserQuestion 2026-07-04): the old I-cap-005 P1-1
@@ -1969,6 +1996,14 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # (PG_POST_FETCH_ENRICH_WORKERS is NUMERIC infra -> NOT here; it rides the slate setdefault only.)
     "PG_POST_FETCH_ENRICH_PARALLEL",
     "PG_WALL_CLASSIFY_RESCUE",
+    # I-deepfix-001 (#1344) WAVE-3 COVERAGE - fail-CLOSED before spend if either BOOLEAN coverage flag
+    # is off: a paid run with one =0 silently drops the additive date-scoped OpenAlex lane / the
+    # in-window landmark-study query expander (the breadth lever the drb_72 empty-GenAI-sections /
+    # ~0-info_recall failure needs). Force-ON above, so a stray operator =0 fails the run CLOSED here.
+    # (PG_QGEN_PARALLEL_QUERIES is NUMERIC infra -> NOT here; it rides the slate + _BENCHMARK_PREFLIGHT_
+    # FLOORS floor-2 only.) FAITHFULNESS-NEUTRAL.
+    "PG_OPENALEX_DATE_FILTER",
+    "PG_LANDMARK_EXPANDER",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2242,6 +2277,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # rescue only classifies+keeps at rules-floor). PG_POST_FETCH_ENRICH_WORKERS is NUMERIC infra (slate only).
     "PG_POST_FETCH_ENRICH_PARALLEL",      # parallel post-fetch OpenAlex enrich pre-batch (bounded ThreadPool)
     "PG_WALL_CLASSIFY_RESCUE",            # wall-break rules-only rescue of already-fetched bodies (keep-not-drop)
+    # I-deepfix-001 (#1344) WAVE-3 COVERAGE - force-ON the two BOOLEAN coverage flags so a stray
+    # operator/.env =0 cannot survive the setdefault slate and silently leave the additive date-scoped
+    # OpenAlex lane / the in-window landmark-study expander dark. Each is DEFAULT-OFF in code (flag-OFF
+    # byte-identical); force-ON here + preflight-required above + allowlisted (SLATE-PURITY). §-1.3
+    # ADDITIVE / FAITHFULNESS-NEUTRAL. (PG_QGEN_PARALLEL_QUERIES is NUMERIC infra -> slate + floor only.)
+    "PG_OPENALEX_DATE_FILTER",            # additive date-scoped OpenAlex lane (UNION, never drops a source)
+    "PG_LANDMARK_EXPANDER",               # in-window landmark-study query expander (adds on-topic queries)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3002,9 +3044,17 @@ class _ActivationMarkerSpec:
     absent_markers: tuple
     exact_fields: tuple = ()
     flag_whitelist: tuple | None = None
+    # I-deepfix-001 Wave-3 (#1344): when not None, the flag is a NUMERIC infra pin (e.g.
+    # PG_QGEN_PARALLEL_QUERIES) and is ON iff int(value) >= flag_int_min — so a serial default like "1"
+    # never false-demands a marker that only fires on the parallel >1 path. Takes precedence over the
+    # whitelist/blocklist predicate.
+    flag_int_min: int | None = None
 
 
-# The per-module fire-marker contract (10 specs; span-resolver is folded into provenance_reanchor). Literals
+# The per-module fire-marker contract (10 specs; span-resolver is folded into provenance_reanchor). The
+# three I-deepfix-001 Wave-3 coverage lanes (qgen_parallel_fanout / openalex_date_filter /
+# landmark_study_expansion) live in the sibling ``_ACTIVATION_MARKER_SPECS_WAVE3`` below and the canary
+# folds them in. Literals
 # are copied byte-for-byte from the U2 producer emit sites (finding_dedup.py:1517, credibility_pass.py:711,
 # cross_source_synthesis.py:748/:580/:793, multi_section_generator.py:4897, citation_set_minimizer via
 # run_honest_sweep_r3.py:3720, provenance_generator via run_honest_sweep_r3.py:14876, verified_compose.py:1447,
@@ -3124,6 +3174,66 @@ _ACTIVATION_MARKER_SPECS = (
     ),
 )
 
+# I-deepfix-001 Wave-3 (#1344) coverage-lane fire-marker contracts — a SIBLING registry the canary folds
+# into the main set (``assert_activation_markers_fired`` iterates BOTH). Kept out of
+# ``_ACTIVATION_MARKER_SPECS`` on purpose: that tuple is paired 1:1 with the 10-boolean-flag
+# ``_MODULE_FLAGS`` sync-guard (test_activation_canary_wave3a.py) and its all-flags-ON harness, and these
+# three lanes do NOT fit that mold — PG_QGEN_PARALLEL_QUERIES is a NUMERIC infra pin (int-min ON, not a
+# boolean force-exact "1"). Registering them here proves firing without perturbing that guard. Each self-
+# scopes on its own flag exactly like the main specs; structural presence + counts only (§-1.3).
+_ACTIVATION_MARKER_SPECS_WAVE3 = (
+    _ActivationMarkerSpec(
+        # bounded-parallel seed-frontier fan-out. PG_QGEN_PARALLEL_QUERIES is NUMERIC (default 1 = serial;
+        # >=2 = parallel) => flag_int_min=2 (the bool blocklist would read the serial default "1" as ON and
+        # false-demand the >1-only marker). The marker fires ONLY on the parallel path
+        # (fs_researcher_query_gen._issue_seed_frontier), reached under PG_EXPERT_FACET_PLANNER +
+        # PG_QGEN_FS_RESEARCHER — all pinned ON on the Gate-B slate. I-deepfix-001 Wave-3b (#1344, Codex
+        # P1.2): the marker now carries the REALIZED ``issued=N`` count (not just the pre-issue ``selected=N``
+        # INTENT), so positive_re REQUIRES the ``issued=\d+`` field — a wall-tripped 1-of-N logs issued=1
+        # (truthful), never selected=35 while only 1 fired. issued=0 is allowed (eligible-yet-zero: wall
+        # tripped before any seed / all-duplicate / budget-0 — a compute-safety truncation, NEVER gated on
+        # >0 per §-1.3).
+        name="qgen_parallel_fanout",
+        env_flag="PG_QGEN_PARALLEL_QUERIES",
+        positive_re=re.compile(r"\[activation\] qgen_parallel_fanout: workers=\d+ selected=\d+ issued=\d+"),
+        bool_checks=(),
+        absent_markers=(),
+        flag_int_min=2,
+    ),
+    _ActivationMarkerSpec(
+        # additive date-scoped OpenAlex lane (live_retriever). The marker is EITHER the per-query windowed
+        # line (window=<from>..<to> dated_hits=N) OR the once-per-call eligible_no_window disclosure (flag ON
+        # but the question states no publication window) — positive_re matches the shared prefix so either
+        # satisfies the canary. dated_hits=0 is the eligible-yet-zero signal. Producer
+        # _openalex_date_filter_enabled accepts 1/true/on/yes.
+        name="openalex_date_filter",
+        env_flag="PG_OPENALEX_DATE_FILTER",
+        positive_re=re.compile(r"\[activation\] openalex_date_filter:"),
+        bool_checks=(),
+        absent_markers=(),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
+    _ActivationMarkerSpec(
+        # in-window landmark-study query expander (fs_researcher). Fires once per expert-facet plan when
+        # PG_LANDMARK_EXPANDER is ON; expanded_queries=0 (the expander RAN and the LLM named none / all
+        # duplicates / no in-window study) is the ACCEPTED eligible-yet-zero signal (§-1.3). I-deepfix-001
+        # Wave-3b (#1344, Codex P1.1): the FAIL-OPEN path (module absent/broken/planner raised) no longer
+        # emits the positive ``expanded_queries=N`` marker — it emits the DISTINCT degrade marker
+        # ``unavailable_failopen`` instead. Registering that degrade literal as an absent_marker makes the
+        # canary FAIL when it appears while the flag is ON: a lane that FAILED to run (added zero because it
+        # crashed / was never recovered) is REJECTED as dark, while a lane that RAN and legitimately added
+        # zero still PASSES. The suppressed positive marker ALSO trips the MARKER-ABSENT check, so the
+        # fail-open path is rejected on both legs. Producer landmark_study_expansion_enabled accepts
+        # 1/true/on/yes.
+        name="landmark_study_expansion",
+        env_flag="PG_LANDMARK_EXPANDER",
+        positive_re=re.compile(r"\[activation\] landmark_study_expansion: expanded_queries=\d+"),
+        bool_checks=(),
+        absent_markers=("[activation] landmark_study_expansion: unavailable_failopen",),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
+)
+
 
 def _activation_canary_enabled() -> bool:
     """``PG_ACTIVATION_CANARY`` opt-in kill-switch (default OFF). Read at CALL time (LAW VI). OFF =>
@@ -3161,8 +3271,17 @@ def assert_activation_markers_fired(log_text: str) -> None:
     if not _activation_canary_enabled():
         return
     text = log_text or ""
-    for spec in _ACTIVATION_MARKER_SPECS:
-        if not _activation_flag_on(spec.env_flag, spec.flag_whitelist):
+    for spec in (*_ACTIVATION_MARKER_SPECS, *_ACTIVATION_MARKER_SPECS_WAVE3):
+        if spec.flag_int_min is not None:
+            # NUMERIC infra flag (e.g. PG_QGEN_PARALLEL_QUERIES): ON iff int(value) >= threshold, so the
+            # serial default (1) never false-demands the >1-only marker (I-deepfix-001 Wave-3).
+            try:
+                _flag_on = int((os.getenv(spec.env_flag, "0") or "0").strip()) >= spec.flag_int_min
+            except ValueError:
+                _flag_on = False
+        else:
+            _flag_on = _activation_flag_on(spec.env_flag, spec.flag_whitelist)
+        if not _flag_on:
             continue  # module not in the active slate => demand no marker (self-scoping)
         # (a) POSITIVE marker present + (b) honesty booleans healthy + inverted degrade counter zero. Use
         # finditer so a DEGRADE in ANY of several emissions (e.g. per-section) fails, not only the first.
@@ -3447,6 +3566,13 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # (PG_POST_FETCH_ENRICH_WORKERS is a NUMERIC infra pin -> float-parseable => SLATE-PURITY skips it; NOT allowlisted.)
     "PG_POST_FETCH_ENRICH_PARALLEL",         # parallel post-fetch OpenAlex enrich pre-batch (bounded ThreadPool)
     "PG_WALL_CLASSIFY_RESCUE",               # wall-break rules-only rescue of already-fetched bodies (keep-not-drop)
+    # -- I-deepfix-001 (#1344) WAVE-3 COVERAGE (winner-or-infra: COVERAGE winners) --
+    # The two BOOLEAN coverage flags - conscious 'winner or infra?' decision, allowlisted deliberately so
+    # the clean slate PASSES SLATE-PURITY. §-1.3 ADDITIVE; FAITHFULNESS-NEUTRAL (frozen faithfulness engine
+    # untouched). (PG_QGEN_PARALLEL_QUERIES is a NUMERIC infra pin -> float-parseable => SLATE-PURITY skips
+    # it; NOT allowlisted - it rides the slate + _BENCHMARK_PREFLIGHT_FLOORS floor-2 only.)
+    "PG_OPENALEX_DATE_FILTER",               # additive date-scoped OpenAlex lane (UNION on top of base, never drops)
+    "PG_LANDMARK_EXPANDER",                  # in-window landmark-study query expander (adds on-topic queries)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
