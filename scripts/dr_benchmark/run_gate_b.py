@@ -1795,6 +1795,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     (search/fetch skipped) and is EXPECTED-absent on the box1 resume, EXPECTED-present on the box2 fresh
     #     run. NOT force-on/required/allowlisted (numeric infra => SLATE-PURITY float-skips it).
     "PG_MIN_FETCH_YIELD": "0.30",
+    # I-deepfix-001 (#1369) FIX B — the fetch-yield gate's MIN-ATTEMPTS floor (live_retriever.
+    # _min_fetch_yield_min_attempts, default 50). The gate SKIPS (no HALT) until this many fetches were
+    # attempted, so a tiny auxiliary batch can't false-halt a healthy run. A stray operator/.env value ABOVE
+    # the real batch size (e.g. 999999) would make the gate SKIP EVERY batch — silently disabling the
+    # fetch-yield floor. Force-EXACT "50" (in _BENCHMARK_FORCE_EXACT_FLAGS below) so it can neither be raised
+    # to disable the gate nor truncated. INT-parseable => SLATE-PURITY float-skips it (numeric infra, not a
+    # winner-checked feature-enable), so it needs no allowlist entry. FAITHFULNESS-NEUTRAL.
+    "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS": "50",
     # I-deepfix-001 (#1369) FIX 4 — the 3 FIX-A CWF chrome SUB-gates (default-ON kill-switches, SUPPRESS-
     # ONLY, faithfulness-neutral). Previously registered ONLY in weighted_enrichment.py; now quad-pinned
     # here like the other booleans so a stray operator/.env =0 (or the empty-string parse bug) cannot
@@ -2632,6 +2640,11 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     # TOPICAL_OVERLAP pins the M5 topical-demote threshold (0.0 => only a ZERO-overlap span demotes).
     "PG_MIN_FETCH_YIELD",
     "PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP",
+    # I-deepfix-001 (#1369) FIX B — the fetch-yield MIN-ATTEMPTS floor (default 50). Force-EXACT so a stray
+    # operator/.env value ABOVE the real batch size can't silently make the gate SKIP every batch (disabling
+    # the fetch-yield floor). INT-parseable => SLATE-PURITY float-skips it (numeric infra), so it is
+    # correctly NOT force-on / required / allowlisted. FAITHFULNESS-NEUTRAL.
+    "PG_MIN_FETCH_YIELD_MIN_ATTEMPTS",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on

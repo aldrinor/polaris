@@ -475,21 +475,30 @@ def _kspan_fallback_body(
     # sentences leave usable prose after cleaning.
     import re as _re  # noqa: PLC0415 (lazy: zero cost off this fallback path)
     from .chrome_furniture_screen import _alpha_word_count
-    # I-deepfix-001 (#1369) FIX 2 — narrow the marker strip to KNOWN
-    # provenance / citation forms ONLY. The prior `\[[^\]]+\]` second
-    # alternative removed ANY bracketed content, so a substantive verified
-    # qualifier ([95% CI 1.2-3.4], [p=0.04], [not adjusted], [NCT04567890])
-    # was stripped AFTER strict_verify passed — silently ALTERING a verified
+    # I-deepfix-001 (#1369) FIX A — strip ONLY the EXACT provenance / citation
+    # marker LITERALS, never a generic lowercase-word pattern. The prior
+    # `\[[a-z0-9_]+\]` alternative removed ANY single lowercase_snake bracket
+    # token, so a substantive verified hedge that is a plain lowercase word —
+    # [unadjusted], [baseline], [placebo], [crude], [sic], [not adjusted] —
+    # was silently deleted AFTER strict_verify passed, ALTERING the verified
     # claim. We now strip exactly: (1) the [#ev:id:start-end] provenance span
-    # token, (2) a lowercase_snake [entity_id] / contract-entity marker, and
-    # (3) a pure numeric [N] citation. A qualifier bracket carries spaces /
-    # '%' / '=' / uppercase, so it NEVER matches (2) or (3) and is preserved.
-    # Faithfulness-neutral: this only prevents removal of verified substance.
-    _marker_re = _re.compile(
-        r"\s*\[#ev:[^\]]*\]"   # (1) provenance span token
-        r"|\s*\[[a-z0-9_]+\]"  # (2) [entity_id] lowercase_snake / contract id
-        r"|\s*\[\d+\]"         # (3) [N] pure numeric citation (subsumed by (2), kept explicit)
+    # token, (2) the KNOWN bound entity_id LITERALS for this slot — primary_ev
+    # plus every evidence_pool key, i.e. the exact id strings the composer
+    # inserts as [entity_id] provenance markers — each regex-escaped, and (3) a
+    # pure numeric [N] citation. A real qualifier word is NOT a bound entity_id,
+    # so it never matches (2) and SURVIVES. Faithfulness-neutral: this only
+    # prevents removal of verified substance.
+    _known_marker_ids = {str(primary_ev)}
+    _known_marker_ids.update(str(_k) for _k in evidence_pool.keys())
+    _id_alt = "|".join(
+        _re.escape(_mid)
+        for _mid in sorted(_known_marker_ids, key=len, reverse=True)
+        if _mid
     )
+    _marker_pattern = r"\s*\[#ev:[^\]]*\]|\s*\[\d+\]"  # (1) provenance token + (3) [N] numeric
+    if _id_alt:
+        _marker_pattern += rf"|\s*\[(?:{_id_alt})\]"   # (2) EXACT bound entity_id literals only
+    _marker_re = _re.compile(_marker_pattern)
     _clean_sentences: list[str] = []
     for _sv in kept:
         # (a) strip provenance markers ([entity_id] / [#ev:id:start-end]).

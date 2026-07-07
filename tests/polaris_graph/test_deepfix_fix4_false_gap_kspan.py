@@ -355,6 +355,49 @@ def test_pvalue_and_qualifier_brackets_survive_marker_strip() -> None:
     assert "[#ev:" not in body
 
 
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1369) FIX A — a plain lowercase-snake qualifier bracket
+# ([unadjusted], [baseline]) is NOT a bound entity_id, so it must SURVIVE the
+# marker strip; only the EXACT bound entity_id literal, [#ev:...] and [N] are
+# stripped. The prior `\[[a-z0-9_]+\]` alternative deleted ANY single lowercase
+# word bracket — silently altering the verified claim. RED before / GREEN now.
+# ─────────────────────────────────────────────────────────────────────
+def test_lowercase_snake_qualifier_brackets_survive_exact_id_strip() -> None:
+    """Single-word lowercase qualifiers ([unadjusted], [baseline]) and a spaced
+    qualifier ([not adjusted]) SURVIVE — none is a bound entity_id — while the
+    appended human citation [N] renders and no raw provenance token leaks."""
+    span = (
+        "Mortality fell by 15 percent in the unadjusted [unadjusted] analysis "
+        "at baseline [baseline], results [not adjusted] versus placebo."
+    )
+    body = _run_kspan(span, ev="E1", marker_num=7)
+    assert body is not None, "expected a rendered K-span body, not None (gap)"
+    assert "[unadjusted]" in body   # lowercase-snake qualifier survives
+    assert "[baseline]" in body     # lowercase-snake qualifier survives
+    assert "[not adjusted]" in body  # spaced qualifier survives
+    assert "[7]" in body            # appended human citation marker
+    assert "[#ev:" not in body      # provenance token stripped
+
+
+def test_exact_bound_entity_id_literal_is_stripped() -> None:
+    """A literal bound entity_id bracket ([brynjolfsson_genai_at_work] — the
+    exact composer provenance-marker form, and the pool key here) IS stripped,
+    while a same-shaped NON-id lowercase word ([unadjusted]) survives."""
+    ev = "brynjolfsson_genai_at_work"
+    span = (
+        "Generative AI raised issues resolved per hour by 15 percent "
+        f"[{ev}] in the unadjusted [unadjusted] analysis at baseline "
+        "[baseline] versus placebo."
+    )
+    body = _run_kspan(span, ev=ev, marker_num=4)
+    assert body is not None
+    assert f"[{ev}]" not in body     # EXACT bound entity_id literal stripped
+    assert "[unadjusted]" in body    # non-id lowercase qualifier survives
+    assert "[baseline]" in body      # non-id lowercase qualifier survives
+    assert "[4]" in body             # appended human citation marker
+    assert "[#ev:" not in body       # provenance token stripped
+
+
 @pytest.mark.asyncio
 async def test_render_off_is_byte_identical_gap_disclosure(
     clinical_template: dict, monkeypatch,

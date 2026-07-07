@@ -207,8 +207,11 @@ _PROMOTION_TOPICAL_MIN_QUOTE_WORDS = 6  # a quote below this is too terse to jud
 def promotion_topical_gate_enabled() -> bool:
     """Kill-switch ``PG_CWF_PROMOTION_TOPICAL_GATE`` (default ON). OFF => the off-topic demotion
     override never fires => the promotion partition is byte-identical to pre-FIX-C."""
-    return os.environ.get(_ENV_PROMOTION_TOPICAL_GATE, "1").strip().lower() in (
-        "1", "true", "on", "yes", "enabled",
+    # I-deepfix-001 (#1369) FIX E — default-ON via the NEGATIVE idiom so an unset AND an empty-string
+    # value both read ON (matching the four fix-4-corrected CWF sub-flags). Force-on in the benchmark
+    # slate, so this is consistency hardening, not a live-behavior change.
+    return os.environ.get(_ENV_PROMOTION_TOPICAL_GATE, "1").strip().lower() not in (
+        "0", "false", "no", "off",
     )
 
 

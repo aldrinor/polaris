@@ -1995,6 +1995,13 @@ def _min_fetch_yield() -> float:
         raise ValueError(
             f"{PG_MIN_FETCH_YIELD_ENV} must be a finite float, got {raw!r}"
         )
+    # I-deepfix-001 (#1369) FIX C — the yield is a fetched/attempted FRACTION, so it MUST lie in [0.0, 1.0]
+    # (LAW VI). A value > 1.0 makes the floor unsatisfiable => EVERY batch HALTs; a value < 0.0 disables the
+    # floor entirely. Fail LOUD (never silently accept an out-of-range safety knob).
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(
+            f"{PG_MIN_FETCH_YIELD_ENV} must be a fraction in [0.0, 1.0], got {value!r}"
+        )
     return value
 
 
@@ -2062,8 +2069,10 @@ def _fetch_yield_gate(success: int, timeout: int, failures: int = 0) -> float:
     rate = (success / total_attempted) if total_attempted > 0 else 1.0
     if total_attempted < min_attempts:
         logger.info(
-            "[activation] fetch_yield_gate: attempts=%d < floor=%d -> skip",
-            total_attempted, min_attempts,
+            # I-deepfix-001 (#1369) FIX D — carry rate= on the SKIP path too, so all 3 gate paths
+            # (pass / HALT / skip) are greppable by the run-day "fetch_yield_gate: rate=" needle.
+            "[activation] fetch_yield_gate: rate=%.3f attempts=%d < floor=%d -> skip",
+            rate, total_attempted, min_attempts,
         )
         return rate
     if rate < floor:
