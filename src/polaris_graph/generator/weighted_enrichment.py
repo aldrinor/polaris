@@ -187,6 +187,50 @@ _DEFAULT_PROMOTION_MIN_WEIGHT = 0.10   # WEIGHT leg threshold (LAW VI overridabl
 _DEFAULT_PROMOTION_MIN_CORROBORATION = 2  # CONSOLIDATE leg: distinct verified origins (LAW VI overridable)
 _DISCLOSED_ONLY_REASON = "single_origin_low_weight_non_journal"
 
+# I-deepfix-001 (drb_72) FIX-C — OFF-TOPIC single-origin CITE gate (M5 promotion override).
+# drb_72 promoted single-origin spans whose direct quote shares ZERO topical content with the
+# research question (MWCNT/graphene materials-science, an unrelated NYSE-IPO CV blurb, a
+# corruption/poverty span) into standalone GenAI-labor findings. §-1.3 ROUTE-don't-DROP: such a
+# member is routed to ``disclosed_only`` (KEPT in evidence_pool + the credibility disclosure), not
+# deleted. FAIL-OPEN by construction — a member PROMOTES whenever ANY of: empty research_question /
+# gate OFF / the quote has < 6 content words (too terse to judge topicality) / ANY question-term
+# overlap > the min / corroborated (>= K verified origins). Only a corroborated-by-nobody,
+# >=6-word, ZERO-overlap span is demoted. The faithfulness engine is UNTOUCHED (topicality is a
+# credibility/surface judgment, never a grounding gate). Default-ON; OFF => promote-all =>
+# byte-identical to the pre-FIX-C partition.
+_ENV_PROMOTION_TOPICAL_GATE = "PG_CWF_PROMOTION_TOPICAL_GATE"              # default ON
+_ENV_PROMOTION_MIN_TOPICAL_OVERLAP = "PG_CWF_PROMOTION_MIN_TOPICAL_OVERLAP"  # default 0.0 (LAW VI)
+_DEFAULT_PROMOTION_MIN_TOPICAL_OVERLAP = 0.0  # zero-overlap only (LAW VI overridable)
+_PROMOTION_TOPICAL_MIN_QUOTE_WORDS = 6  # a quote below this is too terse to judge -> keep-neutral promote
+
+
+def promotion_topical_gate_enabled() -> bool:
+    """Kill-switch ``PG_CWF_PROMOTION_TOPICAL_GATE`` (default ON). OFF => the off-topic demotion
+    override never fires => the promotion partition is byte-identical to pre-FIX-C."""
+    return os.environ.get(_ENV_PROMOTION_TOPICAL_GATE, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _parse_promotion_min_topical_overlap(raw: Any) -> float:
+    """The topical-overlap demotion threshold in [0.0, 1.0] (LAW VI). A member with quote-vs-question
+    overlap <= this (and >= 6 quote words and single-origin) is routed to disclosed-only. Garbage =>
+    ValueError (fail-loud, never swallowed)."""
+    if raw is None or not str(raw).strip():
+        value = _DEFAULT_PROMOTION_MIN_TOPICAL_OVERLAP
+    else:
+        try:
+            value = float(str(raw).strip())
+        except ValueError as e:
+            raise ValueError(
+                f"{_ENV_PROMOTION_MIN_TOPICAL_OVERLAP} must be a float in [0.0, 1.0]; got {raw!r}"
+            ) from e
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(
+            f"{_ENV_PROMOTION_MIN_TOPICAL_OVERLAP} out of range [0.0, 1.0]: {value}"
+        )
+    return value
+
 
 def promotion_eligibility_enabled() -> bool:
     """Kill-switch ``PG_CWF_PROMOTION_ELIGIBILITY`` (default ON). OFF => promote-all =>
@@ -744,6 +788,14 @@ def diagnose_unbound_supports_selection(
     max_origin: dict[str, int] = {}
     is_journal: dict[str, bool] = {}
     best_tier: dict[str, str] = {}
+    # I-deepfix-001 (drb_72) FIX-C: per-eid topical signals for the off-topic promotion override.
+    # ``q_terms`` is the question's content-word topic set (empty => fail-open promote-all).
+    # ``best_quote_overlap`` = MAX quote-vs-question overlap; ``quote_words`` = quote content-word
+    # count. Computed ONLY when the gate is enabled (else empty => the override never fires).
+    _promo_topical_gate = promotion_topical_gate_enabled()
+    _promo_q_terms = _question_topic_terms(research_question) if _promo_topical_gate else frozenset()
+    best_quote_overlap: dict[str, float] = {}
+    quote_words: dict[str, int] = {}
     for basket in baskets:
         try:
             weight = float(getattr(basket, "weight_mass", 0.0) or 0.0)
@@ -823,6 +875,16 @@ def diagnose_unbound_supports_selection(
                 _mt = str(getattr(member, "source_tier", "") or "")
                 if _mt:
                     best_tier[eid] = _mt
+            # I-deepfix-001 (drb_72) FIX-C: quote-vs-question topical overlap + quote content-word
+            # count for the off-topic promotion override. Computed once per eid (the member quote
+            # is stable across baskets); only when the gate is enabled and the question has terms.
+            if _promo_topical_gate and _promo_q_terms and eid not in quote_words:
+                from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+                    _content_words,
+                )
+                _qw = set(_content_words(str(_member_quote(pool.get(eid)) or "")))
+                quote_words[eid] = len(_qw)
+                best_quote_overlap[eid] = len(_qw & _promo_q_terms) / len(_promo_q_terms)
 
     # I-arch-011 (B18) ORDER, KEEP-ALL-SORT-BELOW-FLOOR-LAST:
     #   1. ``is_below_floor`` (False before True) — a PRESENT-and-below-floor row sorts AFTER every
@@ -905,8 +967,27 @@ def diagnose_unbound_supports_selection(
         # ValueError, NOT swallowed by the fail-open guard below.
         min_w = _parse_promotion_min_weight(os.environ.get(_ENV_PROMOTION_MIN_WEIGHT))
         min_c = _parse_promotion_min_corroboration(os.environ.get(_ENV_PROMOTION_MIN_CORROBORATION))
+        # I-deepfix-001 (drb_72) FIX-C: FAIL-LOUD topical-overlap threshold parse (LAW VI).
+        min_t = _parse_promotion_min_topical_overlap(
+            os.environ.get(_ENV_PROMOTION_MIN_TOPICAL_OVERLAP)
+        )
         try:
+            def _topical_demote(eid: str) -> bool:
+                # FIX-C off-topic single-origin CITE gate: a corroborated-by-nobody, >=6-word,
+                # <= min-overlap quote is routed to disclosed_only (KEPT, not dropped). FAIL-OPEN
+                # on empty question / gate off / terse quote / any overlap above min / corroboration.
+                return (
+                    _promo_topical_gate
+                    and bool(_promo_q_terms)
+                    and best_quote_overlap.get(eid) is not None
+                    and quote_words.get(eid, 0) >= _PROMOTION_TOPICAL_MIN_QUOTE_WORDS
+                    and best_quote_overlap[eid] <= min_t
+                    and max_origin.get(eid, 0) < min_c
+                )
+
             def _promotion_eligible(eid: str) -> bool:
+                if _topical_demote(eid):
+                    return False                                  # FIX-C off-topic single-origin override
                 w = best_cred_weight.get(eid)
                 if w is None:
                     return True                                   # unknown weight => keep-neutral (promote)
@@ -929,12 +1010,23 @@ def diagnose_unbound_supports_selection(
                     ),
                     "source_tier": best_tier.get(e, ""),
                     "credibility_weight": best_cred_weight.get(e),
-                    "reason": _DISCLOSED_ONLY_REASON,
+                    "reason": (
+                        "off_topic_single_origin" if _topical_demote(e)
+                        else _DISCLOSED_ONLY_REASON
+                    ),
                 }
                 for e in ev_ids
                 if not _promotion_eligible(e)
             ]
             ev_ids = _promoted
+            # I-deepfix-001 (drb_72) FIX-C: honest realized-effect [activation] marker — emitted once
+            # per selection whenever the topical gate is enabled (demoted=0 is still a live marker).
+            if _promo_topical_gate:
+                logger.info(
+                    "[activation] promotion_topical_gate: demoted=%d promoted=%d",
+                    sum(1 for e in disclosed_only if e.get("reason") == "off_topic_single_origin"),
+                    len(_promoted),
+                )
         except Exception:  # noqa: BLE001 — fail-OPEN to promote-all = byte-identical legacy keep-all
             logger.warning(
                 "[weighted_enrichment] M5 promotion-eligibility partition failed; FAIL-OPEN to "
@@ -1498,7 +1590,6 @@ _RENDER_CHROME_SCREEN_ENV = "PG_RENDER_CHROME_SCREEN"
 _SHARED_RENDER_CHROME_RE = re.compile(
     r"\bVolume\s+\d+\s*,?\s*(?:Number|No\.?|Issue)\s+\d+\b"
     r"|\bPages?\s+\d+\s*[-‐-―]\s*\d+\b"
-    r"|\bISSN\b\s*:?\s*\d"
     r"|\bCITATIONS\b\s+\d+\s+\bREADS\b\s+\d+"
     r"|\bMarkdown Content\s*:|\bURL Source\s*:|\bPublished Time\s*:"
     r"|\bNumber of Pages\s*:|\bCite this paper as\b"
@@ -1507,6 +1598,70 @@ _SHARED_RENDER_CHROME_RE = re.compile(
     r"|\blisted\s+topics?\s+include\b",
     re.IGNORECASE,
 )
+# I-deepfix-001 (drb_72) FIX-A — ISSNe/ISSNp boundary + over-fire.
+#
+# The legacy bare rule ``\bISSN\b\s*:?\s*\d`` (a) MISSED "ISSNe"/"ISSNp" (the ``\b`` after the
+# second N fails when a lowercase letter follows) AND (b) OVER-FIRED on a substantive finding that
+# merely cites an ISSN in passing ("A 2021 study (ISSN 2049-3630) found 14% of jobs at risk." is a
+# real finding, NEVER masthead chrome). §-1.3 precision-over-recall: a bare ISSN serial ALONE is
+# NOT chrome — a masthead recital reciting a publication identity IS. So the token is now CO-SIGNAL
+# gated: an ISSN/ISSNe/ISSNp serial that co-occurs (within a bounded window, order-independent) with
+# a masthead recital word (publication / section / volume / issue / journal) is journal-masthead
+# chrome; a bare ISSN mention inside substantive prose is left as a finding. Default-ON
+# (``PG_CWF_ISSN_CHROME``); OFF restores the byte-identical legacy bare rule (``_LEGACY_BARE_ISSN_RE``)
+# so a kill-switch run is unchanged. SUPPRESS-ONLY — never promotes a unit, never touches a
+# faithfulness verdict.
+_ENV_ISSN_CHROME = "PG_CWF_ISSN_CHROME"  # default ON
+_LEGACY_BARE_ISSN_RE = re.compile(r"\bISSN\b\s*:?\s*\d", re.IGNORECASE)
+_ISSN_MASTHEAD_COSIGNAL_RE = re.compile(
+    r"\bISSN[a-z]?\b\s*:?\s*\d[\d-]*.{0,80}?\b(?:publication|section|volume|issue|journal)\b"
+    r"|\b(?:publication|section|volume|issue|journal)\b.{0,80}?\bISSN[a-z]?\b\s*:?\s*\d",
+    re.IGNORECASE,
+)
+_ISSN_CHROME_ACTIVATION_LOGGED = False  # emit the [activation] marker once per process on first fire
+
+
+def issn_chrome_gate_enabled() -> bool:
+    """Kill-switch ``PG_CWF_ISSN_CHROME`` (default ON). ON => the ISSNe/ISSNp-aware CO-SIGNAL rule
+    (masthead recital only); OFF => the byte-identical legacy bare ``\\bISSN\\b\\s*:?\\s*\\d`` rule."""
+    return os.environ.get(_ENV_ISSN_CHROME, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _is_issn_masthead_chrome(text: str) -> bool:
+    """FIX-A: ISSN masthead-recital chrome. Default-ON co-signal rule (ISSNe/ISSNp-aware, over-fire
+    safe); OFF => legacy bare ISSN. Emits the ``[activation]`` marker once per process on first fire."""
+    global _ISSN_CHROME_ACTIVATION_LOGGED
+    if issn_chrome_gate_enabled():
+        if _ISSN_MASTHEAD_COSIGNAL_RE.search(text):
+            if not _ISSN_CHROME_ACTIVATION_LOGGED:
+                _ISSN_CHROME_ACTIVATION_LOGGED = True
+                logger.info("[activation] issn_masthead_chrome: fired=1 (co-signal gate ON)")
+            return True
+        return False
+    return bool(_LEGACY_BARE_ISSN_RE.search(text))
+
+
+# I-deepfix-001 (drb_72) FIX-B — chart alt-text enumeration ("The chart has 1 X axis … 1 Y axis …").
+# A screen-reader alt-text describing a figure's axes rendered as a standalone finding. Requires the
+# "the chart has" + "x axis" + "y axis" CO-OCCURRENCE (bounded window) so a real finding that merely
+# names an axis ("Employment on the y-axis rose as automation on the x-axis increased.") never matches.
+# Default-ON (``PG_CWF_CHART_ALT_CHROME``); OFF => the rule is skipped (byte-identical). SUPPRESS-ONLY.
+_ENV_CHART_ALT_CHROME = "PG_CWF_CHART_ALT_CHROME"  # default ON
+_CHART_ALT_TEXT_RE = re.compile(
+    r"\bthe chart has\b.{0,80}?\bx[\s-]?axis\b.{0,120}?\by[\s-]?axis\b",
+    re.IGNORECASE,
+)
+_CHART_ALT_ACTIVATION_LOGGED = False  # emit the [activation] marker once per process on first fire
+
+
+def chart_alt_chrome_gate_enabled() -> bool:
+    """Kill-switch ``PG_CWF_CHART_ALT_CHROME`` (default ON). OFF => the chart-alt-text rule is
+    skipped => the predicate is byte-identical to pre-FIX-B."""
+    return os.environ.get(_ENV_CHART_ALT_CHROME, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
 # Claim-header chrome: CC-license / keywords-list / login-wall / share-button furniture
 # (consolidated from run_honest_sweep_r3._CLAIM_HEADER_CHROME_RE). "Close-Share" and CC-license
 # are explicitly in the I-wire-012 category list. PRECISION: this predicate can DROP composer text,
@@ -1632,10 +1787,11 @@ _LICENSE_CHROME_RE = re.compile(
 )
 # HARD bibliographic / portal markers (a LONE URL is NOT chrome; these are unambiguous).
 _BIBLIO_CHROME_RE = re.compile(
-    r"\bdoi:\s*10\.\d|\bissn\b\s*:?\s*\d|crossref reports the following articles citing|"
+    r"\bdoi:\s*10\.\d|crossref reports the following articles citing|"
     r"volume title publisher|name:\s*\S+\.txt\b|file type:\s*text/",
     re.IGNORECASE,
-)
+)  # I-deepfix-001 (drb_72) FIX-A: the bare ISSN alternative moved to the gated ``_is_issn_masthead_chrome``
+#    (ISSNe/ISSNp-aware + over-fire-safe); it is invoked in ``_contains_forensic_chrome`` below.
 _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 _DOI_URL_RE = re.compile(r"https?://(?:dx\.)?doi\.org/", re.IGNORECASE)
 _MIN_URLS_FOR_CHROME = 3       # >=3 bare URLs in one unit => a link list / portal blob
@@ -2547,7 +2703,7 @@ _PUB_DATE_MASTHEAD_RE = re.compile(
     re.IGNORECASE,
 )
 _MASTHEAD_COSIGNAL_RE = re.compile(
-    r"(?<!\d)\d{1,3}\s*:\s*\d{1,3}(?!\d)|Document Version|Published in|\bDOI\s*10\.|\bISSN\b",
+    r"(?<!\d)\d{1,3}\s*:\s*\d{1,3}(?!\d)|Document Version|Published in|\bDOI\s*10\.|\bISSN[a-z]?\b",
     re.IGNORECASE,
 )
 
@@ -2603,6 +2759,10 @@ def _contains_forensic_chrome(text: str) -> bool:
     low = s.lower()
     # browser/UI · license · author/submission metadata · bibliographic/portal · masthead
     if _NAV_CHROME_RE.search(s) or _LICENSE_CHROME_RE.search(s) or _BIBLIO_CHROME_RE.search(s):
+        return True
+    # I-deepfix-001 (drb_72) FIX-A: ISSNe/ISSNp-aware, over-fire-safe ISSN masthead recital
+    # (default-ON co-signal gate; OFF => byte-identical legacy bare ISSN).
+    if _is_issn_masthead_chrome(s):
         return True
     # I-deepfix-002 (#1363) FIX-1: cookie/consent banner · DOI-registry error page · foreign masthead
     if _COOKIE_CONSENT_RE.search(s) or _DOI_ERROR_RE.search(s) or _is_foreign_journal_masthead(s):
@@ -2662,6 +2822,13 @@ def _contains_forensic_chrome(text: str) -> bool:
     # "Name - Honorific" bare byline stub · "Publication date:"/bare NN:N masthead. WHOLE-UNIT anchored /
     # cited-finding-guarded (precision-first §-1.3); detector-only (FLAG-not-drop).
     if _contains_portal_masthead_status_chrome(s):
+        return True
+    # I-deepfix-001 (drb_72) FIX-B: figure alt-text axis enumeration ("The chart has 1 X axis … Y axis …").
+    if chart_alt_chrome_gate_enabled() and _CHART_ALT_TEXT_RE.search(s):
+        global _CHART_ALT_ACTIVATION_LOGGED
+        if not _CHART_ALT_ACTIVATION_LOGGED:
+            _CHART_ALT_ACTIVATION_LOGGED = True
+            logger.info("[activation] chart_alt_chrome: fired=1 (chart-alt-text gate ON)")
         return True
     # foreign-page scrape (predominantly non-Latin)
     return _is_predominantly_nonlatin(s)
@@ -2982,6 +3149,20 @@ def evaluate_render_chrome_canary(report_text: str) -> dict[str, Any]:
 
 # LAW VI: env-overridable, default ON (kill-switch ``PG_RENDER_SEAM_SANITIZE=0`` => no-op pass-through).
 _RENDER_SEAM_SANITIZE_ENV = "PG_RENDER_SEAM_SANITIZE"
+# I-deepfix-001 (drb_72) FIX-D: drop a bullet that carries NO claim text — only the list marker and/or
+# orphan citation markers ("- ", "- [12]"). Such a bullet renders as an empty dash or a bare "[12]".
+# Default-ON (``PG_CWF_EMPTY_BULLET_DROP``); OFF => byte-identical pass-through. SUPPRESS-ONLY: the
+# cited evidence is untouched (it still appears wherever a real claim carries it).
+_ENV_EMPTY_BULLET_DROP = "PG_CWF_EMPTY_BULLET_DROP"  # default ON
+_EMPTY_BULLET_RE = re.compile(r"^\s*[-*]\s*(?:\[[^\]]+\]\s*)*$")
+
+
+def empty_bullet_drop_enabled() -> bool:
+    """Kill-switch ``PG_CWF_EMPTY_BULLET_DROP`` (default ON). OFF => an empty / marker-only bullet is
+    left byte-identical (no drop)."""
+    return os.environ.get(_ENV_EMPTY_BULLET_DROP, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
 # LAW VI: the corpus known-word floor (a word must occur >= this many times across the run's fetched
 # source text to count as "known" for the truncation allowlist). Mirrors the detector default.
 _RENDER_SEAM_KNOWN_WORD_FLOOR_ENV = "PG_RENDER_SEAM_KNOWN_WORD_FLOOR"
@@ -3143,6 +3324,13 @@ def _split_enrichment_blob_line(
     # sanitized-in-place, never bulletised (over-split is worse than a leak for a real single line).
     if not stripped or stripped.startswith(("#", "-", "*", "|", ">")):
         clean, dropped = _sanitize_report_line(line, known_words)
+        # I-deepfix-001 (drb_72) FIX-D: a bullet whose remainder — after removing the leading list
+        # marker AND every citation marker — is empty carries NO claim ("- ", "- [12]"); drop it.
+        if empty_bullet_drop_enabled() and clean.lstrip().startswith(("-", "*")):
+            _residual = re.sub(r"^[-*]\s*", "", clean.strip())
+            _residual = re.sub(r"\[[^\]]+\]", "", _residual)
+            if not _residual.strip():
+                return ([], dropped)
         return ([clean] if clean.strip() or not dropped else []), dropped
     try:
         from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
@@ -3481,6 +3669,22 @@ def sanitize_rendered_report(
         if clean_line.strip() or not dropped:
             out_lines.append(clean_line)
         # else: the line reduced entirely to chrome -> drop the now-empty line.
+    # I-deepfix-001 (drb_72) FIX-D belt: after the line-level pass, drop any surviving bullet that is
+    # ONLY a list marker and/or orphan citation markers ("- ", "- [12]") — it carries no claim. A real
+    # bibliography line ("1. Title") never matches (it is not a ``-``/``*`` bullet). SUPPRESS-ONLY.
+    _empty_bullet_drop = empty_bullet_drop_enabled()
+    if _empty_bullet_drop:
+        _kept: list[str] = []
+        _emptied = 0
+        for _l in out_lines:
+            if _EMPTY_BULLET_RE.match(_l):
+                _emptied += 1
+                continue
+            _kept.append(_l)
+        if _emptied:
+            out_lines = _kept
+            removed += _emptied
+        logger.info("[activation] empty_bullet_drop: dropped=%d", _emptied)
     # I-wire-017 (#1339) FIX C1: after the line-level pass, drop any non-scaffolding ###-or-deeper
     # section whose body collapsed to no claim-bearing prose (blank / bare-marker only).
     out_lines, empty_headers_dropped = _drop_empty_claim_sections(out_lines)

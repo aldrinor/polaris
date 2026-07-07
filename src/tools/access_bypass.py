@@ -1471,10 +1471,12 @@ def reset_crawl4ai_semaphore_state() -> None:
 # ---------------------------------------------------------------------------
 
 # Default ceiling on concurrently-LIVE bypass worker threads (each may hold a
-# browser subprocess). Env-overridable. Below the live_retriever parallel
-# `max_workers` ceiling (48) so abandoned in-flight workers cannot fan out a
-# browser-per-candidate. Named constant (LAW VI — no magic numbers).
-_BYPASS_INFLIGHT_DEFAULT_LIMIT = 16
+# browser subprocess). Env-overridable. Aligned to (not below) the live_retriever
+# parallel `max_workers` ceiling (48) so the 48 fetch workers no longer funnel
+# through a narrower 16-slot in-flight bound where wedged mineru-PDF workers hold
+# their slot past the abandon-join and drain the pool (UNIT 6 WAVE-B fetch
+# robustness). Named constant (LAW VI — no magic numbers).
+_BYPASS_INFLIGHT_DEFAULT_LIMIT = 32
 PG_BYPASS_MAX_INFLIGHT_ENV = "PG_BYPASS_MAX_INFLIGHT"
 
 _bypass_inflight_semaphore: "threading.BoundedSemaphore | None" = None
@@ -5651,8 +5653,9 @@ class AccessBypass:
             # timeout, and the convoy persisted. ALIGN: cap mineru's own wait_for to the fetch
             # deadline minus a small margin so it fails-fast to docling INSIDE the 90s window,
             # letting the breaker actually see + count the timeout. Env-driven (LAW VI); the
-            # default is still 300 when no fetch deadline is set.
-            _raw_mineru_to = float(os.getenv("PG_MINERU25_TIMEOUT_S", "300"))
+            # default is 90 (UNIT 6 WAVE-B: cap the wedged mineru-PDF worker so a 300s hang
+            # can no longer exceed the ~90s abandon-join and hold its in-flight slot forever).
+            _raw_mineru_to = float(os.getenv("PG_MINERU25_TIMEOUT_S", "90"))
             # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): the GOVERNING per-URL
             # wall that abandons the bypass worker is live_retriever's worker.join on
             # PG_FETCH_DEADLINE_SECONDS, whose code default is 90 (live_retriever.py:3003)
@@ -5812,7 +5815,7 @@ class AccessBypass:
         timeout_s = float(
             os.getenv(
                 "PG_MINERU25_HTTP_TIMEOUT_S",
-                os.getenv("PG_MINERU25_TIMEOUT_S", "300"),
+                os.getenv("PG_MINERU25_TIMEOUT_S", "90"),
             )
         )
 

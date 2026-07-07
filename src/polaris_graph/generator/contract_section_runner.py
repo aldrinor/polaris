@@ -384,19 +384,27 @@ def _frame_row_has_usable_quote(frame_row: FrameRow) -> bool:
 # that span VERBATIM with its citation instead of the false gap — RETAIN not
 # drop (§-1.3), faithfulness-neutral (a verbatim span is grounded by
 # construction and we VERIFY it via the SAME strict_verify path, never assert).
-# LAW VI env-overridable; DEFAULT OFF => the emit loop falls straight through to
-# the gap disclosure, byte-identical. Activation happens in the I-deepfix-001
-# wiring wave once validated (feedback_wire_activate_core_archive_2026_07_05).
+# LAW VI env-overridable; DEFAULT ON (I-deepfix-001 wire+activate wave,
+# feedback_wire_activate_core_archive_2026_07_05): the emit loop renders the
+# retained verified K-span in place of a FALSE gap. Setting the flag to any
+# falsey value (0/false/off/no) restores the byte-identical gap-disclosure path.
 _FALSE_GAP_KSPAN_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
+
+# LAW VI — min alphabetic words for a LEADING line to count as real prose rather
+# than page furniture (nav bullets / masthead residue) during K-span body
+# reconstruction. A leading bullet/rule line with fewer than this many alpha
+# words AND no digit is dropped as chrome; a real numeric/prose line always
+# clears it. Env-overridable; ``int(...)`` fails LOUD on a malformed value.
+_KSPAN_MIN_PROSE_WORDS = int(os.getenv("PG_CONTRACT_KSPAN_MIN_PROSE_WORDS", "4"))
 
 
 def _false_gap_kspan_enabled() -> bool:
-    """FIX 4 — True iff ``PG_CONTRACT_FALSE_GAP_KSPAN`` is explicitly set on.
-    Default OFF (build-scaffold default per the I-deepfix-001 activate wave);
-    accepts the SAME falsey vocabulary as the nearby feature flags (Codex
-    iarch007 P1 #3: a bare ``!= "0"`` silently ignores ``false``/``off``/``no``)."""
+    """FIX 4 — True (default) unless ``PG_CONTRACT_FALSE_GAP_KSPAN`` is set off.
+    Default ON (activated in the I-deepfix-001 wire+activate wave); accepts the
+    SAME falsey vocabulary as the nearby feature flags (Codex iarch007 P1 #3: a
+    bare ``!= "0"`` silently ignores ``false``/``off``/``no``)."""
     return (
-        os.getenv("PG_CONTRACT_FALSE_GAP_KSPAN", "0").strip().lower()
+        os.getenv("PG_CONTRACT_FALSE_GAP_KSPAN", "1").strip().lower()
         not in _FALSE_GAP_KSPAN_OFF_VALUES
     )
 
@@ -409,9 +417,11 @@ def _kspan_fallback_body(
     rewrite_fn: Any,
     strict_verify_fn: Any,
 ) -> str | None:
-    """FIX 4 — if the bound entity has ANY strict_verify-passing span, return the
-    verbatim span body (``"{span}[marker_num]"``) to render in place of a false
-    gap; else ``None`` (genuinely no usable span → the caller gap-discloses).
+    """FIX 4 — if the bound entity has ANY strict_verify-passing span, return a
+    body reconstructed from ONLY those passing sentences (markers stripped +
+    leading page chrome excluded, single ``[marker_num]`` re-appended) to render
+    in place of a false gap; else ``None`` (genuinely no usable span → the caller
+    gap-discloses).
 
     Same grounded-by-construction idiom as ``abstractive_writer``'s K-span: the
     span is fetched primary-source text, so a verbatim restatement carries every
@@ -456,7 +466,46 @@ def _kspan_fallback_body(
     )
     if not kept:
         return None
-    return f"{span}[{marker_num}]"
+    # I-deepfix-001 (#1344) FIX 4 harden: reconstruct the body from ONLY the
+    # strict_verify-PASSING sentences' cleaned text — NEVER the raw full span,
+    # which dumps the leading page chrome (ToC / nav bullets / masthead) that
+    # precedes the real prose. Each rendered sentence individually passed
+    # strict_verify, so grounding is preserved; the leading chrome (the one
+    # legit hard-drop per §-1.3) is excluded. Return None only when zero
+    # sentences leave usable prose after cleaning.
+    import re as _re  # noqa: PLC0415 (lazy: zero cost off this fallback path)
+    from .chrome_furniture_screen import _alpha_word_count
+    _marker_re = _re.compile(r"\s*\[#ev:[^\]]*\]|\s*\[[^\]]+\]")
+    _clean_sentences: list[str] = []
+    for _sv in kept:
+        # (a) strip provenance markers ([entity_id] / [#ev:id:start-end]).
+        _demarked = _marker_re.sub("", str(getattr(_sv, "sentence", "") or ""))
+        # (b) drop LEADING page-furniture lines (whole-LINE only, never an
+        # inline partial strip of a welded claim): a line is furniture iff it
+        # is empty OR starts with a bullet/rule glyph AND carries fewer than
+        # _KSPAN_MIN_PROSE_WORDS alpha words AND no digit. A real numeric/prose
+        # line always clears it and stops the leading-strip.
+        _seen_prose = False
+        _out_lines: list[str] = []
+        for _ln in _demarked.replace("\xad", "").split("\n"):
+            _core = _ln.strip()
+            if not _seen_prose:
+                if not _core:
+                    continue
+                if (
+                    _core[0] in "-*•·|–—"
+                    and _alpha_word_count(_core) < _KSPAN_MIN_PROSE_WORDS
+                    and not _re.search(r"\d", _core)
+                ):
+                    continue  # leading furniture line
+                _seen_prose = True
+            _out_lines.append(_core)
+        _residue = " ".join(_l for _l in _out_lines if _l).strip()
+        if _residue:
+            _clean_sentences.append(_residue)
+    if not _clean_sentences:
+        return None
+    return f"{' '.join(_clean_sentences)}[{marker_num}]"
 
 
 def _basket_fallback_corroborators_for_slot(
@@ -1930,7 +1979,8 @@ async def run_contract_section(
             # => kspan_body stays None (short-circuit, no call) and the code falls
             # straight through to the byte-identical gap disclosure below.
             kspan_body = None
-            if _false_gap_kspan_enabled() and primary_ev:
+            _kspan_flag_on = _false_gap_kspan_enabled()
+            if _kspan_flag_on and primary_ev:
                 kspan_body = _kspan_fallback_body(
                     primary_ev=primary_ev,
                     evidence_pool=evidence_pool,
@@ -1938,6 +1988,20 @@ async def run_contract_section(
                     rewrite_fn=rewrite_fn,
                     strict_verify_fn=strict_verify_fn,
                 )
+            # FIX 4 anti-dark [activation] canary (I-deepfix-001 #1344): one line
+            # per gap-candidate slot classifying the false-gap-K-span decision
+            # (flag_off / kspan_none / kspan_rendered). Default-ON => a released
+            # run always carries this marker, proving the retention path is live.
+            if kspan_body is not None:
+                _kspan_state = "kspan_rendered"
+            elif not _kspan_flag_on:
+                _kspan_state = "flag_off"
+            else:
+                _kspan_state = "kspan_none"
+            logger.info(
+                "[activation] contract_false_gap_kspan: slot=%s kept=%d rendered=%s",
+                slot_id, (1 if kspan_body is not None else 0), _kspan_state,
+            )
             if kspan_body is not None:
                 verified_blocks.append(f"{heading}\n\n{kspan_body}")
                 slot_drop_log.append({

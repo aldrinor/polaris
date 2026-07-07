@@ -1960,11 +1960,77 @@ def _retrieval_wall_seconds() -> float:
     NEVER silently dropped, and the run COMPLETES+RENDERS rather than dying on a
     bare timeout).
 
-    Read at CALL time (LAW VI — env-overridable per run). Default 1800s (30 min):
-    generous enough that a healthy retrieval never trips it, tight enough that a
-    fetch-timeout storm cannot grind for an hour. Pure (env-only); unit-testable.
+    Read at CALL time (LAW VI — env-overridable per run). Default 2700s (45 min)
+    (UNIT 6 WAVE-B: raised from 1800 so a large-corpus fetch fan-out under the
+    aligned-concurrency + capped-PDF-worker regime has headroom to complete
+    rather than tripping the wall mid-fetch): generous enough that a healthy
+    retrieval never trips it, tight enough that a fetch-timeout storm cannot
+    grind indefinitely. Pure (env-only); unit-testable.
     """
-    return _env_float("PG_RETRIEVAL_WALL_SECONDS", 1800.0)
+    return _env_float("PG_RETRIEVAL_WALL_SECONDS", 2700.0)
+
+
+# UNIT 6 (I-wire-001 TRACK-2 fetch robustness): the fetch-yield HALT gate knobs.
+PG_MIN_FETCH_YIELD_ENV = "PG_MIN_FETCH_YIELD"
+_MIN_FETCH_YIELD_DEFAULT = 0.30
+
+
+def _min_fetch_yield() -> float:
+    """UNIT 6 fetch-yield floor (LAW VI, FAIL-LOUD).
+
+    Read ``PG_MIN_FETCH_YIELD`` at CALL time. Default ``0.30`` — the starved run
+    that motivated this gate yielded ~0.05, so it HALTS; a healthy run passes.
+
+    Unlike ``_env_float`` (which COERCES a malformed override back to the
+    default), a set-but-malformed value here FAILS LOUD (raises ``ValueError``):
+    this floor is a SAFETY gate, and a silently-defaulted bad knob must never
+    mask a starved run. An unset / blank var uses the default; a valid float is
+    honored verbatim (env-overridable per run).
+    """
+    raw = os.getenv(PG_MIN_FETCH_YIELD_ENV)
+    if raw is None or not raw.strip():
+        return _MIN_FETCH_YIELD_DEFAULT
+    value = float(raw)  # malformed -> ValueError (fail-loud, intentional)
+    if not math.isfinite(value):
+        raise ValueError(
+            f"{PG_MIN_FETCH_YIELD_ENV} must be a finite float, got {raw!r}"
+        )
+    return value
+
+
+def _fetch_yield_gate(success: int, timeout: int) -> float:
+    """UNIT 6 fetch-yield HALT gate (faithfulness-neutral, §-1.3).
+
+    Compute ``success_rate = success / (success + timeout)`` (div0 guarded — an
+    empty batch that attempted nothing cannot be "starved", so it passes) and
+    compare against the ``PG_MIN_FETCH_YIELD`` floor. Below the floor -> emit the
+    ``[activation]`` HALT marker and RAISE ``FetchStarvationError`` so the run
+    halts BEFORE banking a starved corpus (the 922/990-timeout hang-and-leak
+    class). At/above the floor -> emit the ``[activation]`` pass marker and
+    return the rate. The marker fires EITHER way so the anti-dark run-log canary
+    sees the gate ran (matching the module's other ``[activation]`` markers).
+
+    Pure except for the two env reads + logging; unit-testable with synthetic
+    counts.
+    """
+    floor = _min_fetch_yield()
+    denom = success + timeout
+    rate = (success / denom) if denom > 0 else 1.0
+    if rate < floor:
+        logger.info(
+            "[activation] fetch_yield_gate: rate=%.3f floor=%.2f -> HALT",
+            rate, floor,
+        )
+        raise FetchStarvationError(
+            f"fetch yield {rate:.3f} < floor {floor:.2f} "
+            f"(success={success} timeout={timeout}) — halting before banking a "
+            f"starved corpus"
+        )
+    logger.info(
+        "[activation] fetch_yield_gate: rate=%.3f floor=%.2f -> pass",
+        rate, floor,
+    )
+    return rate
 
 
 def _retrieval_fetch_wall_fraction() -> float:
@@ -2044,6 +2110,19 @@ class CorpusTruncationError(RuntimeError):
     scorer backstop (``score_run._check_polaris_gate``) still rejects a truncated
     manifest under the default ``warn`` policy; this error is the additive in-run
     gate."""
+
+
+class FetchStarvationError(RuntimeError):
+    """UNIT 6 (I-wire-001 TRACK-2 fetch robustness): raised when the parallel
+    fetch batch yielded too few USABLE fetches relative to timeouts — the
+    922/990-timeout HANG-AND-LEAK cascade signature (wedged mineru-PDF workers
+    exceed the abandon-join, hold their in-flight slot forever, and drain the
+    pool). The fetch-yield HALT gate computes ``success/(success+timeout)`` and
+    raises this when it falls below ``PG_MIN_FETCH_YIELD`` so the run HALTS
+    BEFORE banking a starved corpus into consolidation/composition.
+
+    Faithfulness-neutral (§-1.3): this HALTS the run, it never fabricates or
+    silently drops — a starved corpus is refused loudly, not shipped thin."""
 
 
 def _corpus_truncation_policy() -> str:
@@ -6168,6 +6247,17 @@ def run_live_retrieval(
             parallel_report.errored_count,
             parallel_report.timeout_count,
             max_workers, per_task_timeout,
+        )
+        # UNIT 6 (I-wire-001 TRACK-2 fetch robustness): fetch-yield HALT gate.
+        # Right after the retrieval telemetry emit and BEFORE any downstream
+        # consolidation/composition/return, compute the fetch yield and HALT the
+        # run if it fell below PG_MIN_FETCH_YIELD — so a starved corpus (the
+        # 922/990-timeout hang-and-leak cascade) is refused loudly rather than
+        # banked. Faithfulness-neutral (§-1.3): halts, never fabricates. The
+        # [activation] marker fires either way so the run-log canary sees it ran.
+        _fetch_yield_gate(
+            parallel_report.success_count,
+            parallel_report.timeout_count,
         )
         # GH #1258 PART 2: parallel_fetch (the longest network-bound phase) just returned —
         # tick the heartbeat so a human tailing run_status.json sees the run advance out of

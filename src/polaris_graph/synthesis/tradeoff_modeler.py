@@ -93,6 +93,30 @@ def _dual_tag_failsoft_enabled() -> bool:
         "", "0", "false", "off", "no",
     )
 
+
+# ── UNIT 4 (I-deepfix-001 #1344) prune UNREFERENCED sourced inputs kill-switch ─
+# A SOURCED input the Writer declared but wired into NO output formula (the drb_72
+# ``robot_exposure_ratio`` defect: 892 datapoints extracted + a valid spec built,
+# then fatally rejected by ``non_affecting_input:robot_exposure_ratio`` — ONE
+# unreferenced cited input killed the whole quantified section) is PRUNED instead
+# of fail-closing the spec, mirroring the existing UNREFERENCED-modeled prune. An
+# unreferenced sourced input is never rendered as a bare independent number
+# (``render_decision_matrix_prose`` templates ONLY output formulas, never a
+# standalone ``sourced_inputs`` list — verified), so dropping it removes at most an
+# unused / misleading citation and changes NO rendered number — faithfulness-
+# NEUTRAL. A REFERENCED-but-canceling sourced input STAYS fatal in the material-
+# dependency gate (a cited number wired into a do-nothing formula is a genuine
+# misleading citation). Default ON. OFF => pre-fix behaviour (the fatal reject).
+_PRUNE_UNREFERENCED_SOURCED_ENV = "PG_QUANTIFIED_PRUNE_UNREFERENCED_SOURCED"
+
+
+def _prune_unreferenced_sourced_enabled() -> bool:
+    """UNIT-4 kill-switch. Default ON; OFF => an unreferenced sourced input reaches
+    the all-or-nothing material-dependency gate and fail-closes the whole spec."""
+    return os.getenv(_PRUNE_UNREFERENCED_SOURCED_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
 # ── tolerances (named, Law VI) ───────────────────────────────────────────────
 # Literal<->datapoint normalized-value agreement (same extractor normalization
 # feeds both, so this is tight).
@@ -988,6 +1012,46 @@ def build_quantified_spec(
         allowed = set(seen_names)
         if not sourced and not modeled:
             return _reject("no_inputs_after_prune")
+
+    # ── UNIT 4 (#1344): prune UNREFERENCED sourced inputs (NOT fatal) ────────
+    # Extend the modeled-prune above to SOURCED inputs. The Writer sometimes
+    # declares a sourced datapoint (drb_72: ``robot_exposure_ratio``) that no
+    # output formula references. The all-or-nothing material-dependency gate below
+    # then fatally rejected the ENTIRE otherwise-valid spec (the captured single
+    # reject 'non_affecting_input:robot_exposure_ratio' killed an 892-datapoint
+    # section). An UNREFERENCED sourced input is never rendered as a bare
+    # independent number (render_decision_matrix_prose templates ONLY output
+    # formulas, never a standalone sourced_inputs list — verified), so dropping it
+    # removes at most an unused / misleading citation and changes NO rendered
+    # number — faithfulness-neutral. Only UNREFERENCED sourced inputs are pruned; a
+    # REFERENCED-but-canceling sourced input is NOT in this set (its name IS in a
+    # formula) and STAYS fatal in the gate below (a cited number wired into a
+    # do-nothing formula is a genuine misleading citation). Byte-identical (same
+    # spec_hash) to a spec that never declared the pruned name when every sourced
+    # input is referenced. LAW VI kill-switch (default ON).
+    if _prune_unreferenced_sourced_enabled():
+        unreferenced_sourced = {
+            s.name for s in sourced if s.name not in referenced_by_formula
+        }
+        for _nm in sorted(unreferenced_sourced):
+            logger.info(
+                "[tradeoff_modeler] prune unused sourced input %r "
+                "(referenced by no output formula) — keeping the rest of the spec",
+                _nm,
+            )
+        # Anti-dark canary: a released run ALWAYS emits exactly one activation
+        # marker here (pruned=0 when nothing is unreferenced), proving the guard
+        # is live in the run log regardless of whether it pruned anything.
+        logger.info(
+            "[activation] quantified_prune_unreferenced_sourced: pruned=%d",
+            len(unreferenced_sourced),
+        )
+        if unreferenced_sourced:
+            sourced = [s for s in sourced if s.name not in unreferenced_sourced]
+            seen_names -= unreferenced_sourced
+            allowed = set(seen_names)
+            if not sourced and not modeled:
+                return _reject("no_inputs_after_prune")
 
     # ── (iii) NUMERIC material dependency — the PRIMARY gate ────────────────
     # Every declared input must move >=1 output under perturbation at a

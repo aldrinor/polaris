@@ -1408,6 +1408,80 @@ def _uncovered_fact_disclosure(basket: Any, span_text: str) -> str:
     return f"{_UNCOVERED_FACT_DISCLOSURE_PREFIX} {subject[:120]}] {clean_span}"
 
 
+# ─────────────────────────────────────────────────────────────────────
+# I-deepfix-001 UNIT-5 (#1344) — SYNTH_PRIMARY uncovered-fact SUBJECT/SPAN quality gate.
+#
+# Forensic (drb_72 report lines 52/63/65): ``_synth_primary_fallback_unit`` shipped marker-less junk
+# "[uncovered supporting evidence for: {subject}] {span}" blocks whose SUBJECT was a lone stopword-ish
+# token ("because"/"reuse"/"estimate") and whose SPAN was markdown-link / masthead chrome
+# ("13 [blog post](url)…"). WITHHOLD such disclosures: ship the real authored body when one survived,
+# else "" so ``partition_composed_disclosures`` / render drops the unit (never a marker-less chrome
+# block). Faithfulness-NEUTRAL: the SOURCE stays in the pool; only whether THIS labeled block renders
+# changes (§-1.3 — this is a render-side WITHHOLD of page furniture, not a source DROP). Default-ON;
+# ``PG_UNCOVERED_FACT_SUBJECT_GATE=0`` restores byte-identical legacy behaviour. Precision-first: only
+# clearly-junk disclosures are withheld.
+_ENV_UNCOVERED_FACT_SUBJECT_GATE = "PG_UNCOVERED_FACT_SUBJECT_GATE"
+_ENV_UNCOVERED_FACT_MIN_SUBJECT_WORDS = "PG_UNCOVERED_FACT_MIN_SUBJECT_WORDS"
+_ENV_UNCOVERED_FACT_MIN_SPAN_WORDS = "PG_UNCOVERED_FACT_MIN_SPAN_WORDS"
+_DEFAULT_UNCOVERED_FACT_MIN_SUBJECT_WORDS = 2   # a SUBSTANTIVE subject is at least two content words
+_DEFAULT_UNCOVERED_FACT_MIN_SPAN_WORDS = 3      # a real lifted source span carries ≥3 content words
+_MARKDOWN_LINK_FURNITURE_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+
+def _uncovered_fact_subject_gate_enabled() -> bool:
+    """Kill-switch ``PG_UNCOVERED_FACT_SUBJECT_GATE`` (default ON). Only an explicit 0/false/off/no
+    disables; an EMPTY string behaves like UNSET (stays ON) so a blank env can never silently disable the
+    gate. OFF => the uncovered-fact disclosure is emitted byte-identically to legacy."""
+    return os.getenv(_ENV_UNCOVERED_FACT_SUBJECT_GATE, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _uncovered_fact_min_subject_words() -> int:
+    """Min content-word count for a SUBSTANTIVE uncovered-fact subject
+    (``PG_UNCOVERED_FACT_MIN_SUBJECT_WORDS``, default 2). Non-integer / < 1 => the default (never 0,
+    which would disable the subject screen). Fail-SAFE parse (LAW VI safe default)."""
+    try:
+        v = int(os.getenv(_ENV_UNCOVERED_FACT_MIN_SUBJECT_WORDS, "").strip())
+        return v if v >= 1 else _DEFAULT_UNCOVERED_FACT_MIN_SUBJECT_WORDS
+    except ValueError:
+        return _DEFAULT_UNCOVERED_FACT_MIN_SUBJECT_WORDS
+
+
+def _uncovered_fact_min_span_words() -> int:
+    """Min content-word count for a SUBSTANTIVE uncovered-fact span
+    (``PG_UNCOVERED_FACT_MIN_SPAN_WORDS``, default 3). Non-integer / < 1 => the default (never 0).
+    Fail-SAFE parse (LAW VI safe default)."""
+    try:
+        v = int(os.getenv(_ENV_UNCOVERED_FACT_MIN_SPAN_WORDS, "").strip())
+        return v if v >= 1 else _DEFAULT_UNCOVERED_FACT_MIN_SPAN_WORDS
+    except ValueError:
+        return _DEFAULT_UNCOVERED_FACT_MIN_SPAN_WORDS
+
+
+def _uncovered_fact_disclosure_is_junk(basket: Any, span_text: str) -> bool:
+    """Precision-first screen (True => WITHHOLD) for the SYNTH_PRIMARY uncovered-fact disclosure. Fires
+    iff the block would be marker-less junk: a NON-SUBSTANTIVE subject (< ``_uncovered_fact_min_subject_words``
+    content words via ``_repair_content_words`` — a lone stopword-ish token such as
+    "because"/"reuse"/"estimate") OR a fallback SPAN that carries markdown-link furniture (``[text](url)``),
+    is allowlist crawl/masthead chrome (``_compose_junk_screen``), is render chrome / unrenderable
+    (``_sentence_is_render_chrome`` -> ``is_render_chrome_or_unrenderable``), or falls below the span
+    content-word floor. Mirrors ``_uncovered_fact_disclosure``'s subject resolution so the screened subject
+    is exactly the one that would be emitted. Faithfulness-NEUTRAL + PURE read: the SOURCE stays in the
+    pool; only whether THIS labeled block renders changes."""
+    subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim")
+    if len(_repair_content_words(subject)) < _uncovered_fact_min_subject_words():
+        return True
+    span = span_text or ""
+    if _MARKDOWN_LINK_FURNITURE_RE.search(span):
+        return True
+    if _compose_junk_screen(span):
+        return True
+    if _sentence_is_render_chrome(span):
+        return True
+    if len(_repair_content_words(span)) < _uncovered_fact_min_span_words():
+        return True
+    return False
+
+
 def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str) -> str:
     """Build the SYNTH_PRIMARY exhaustion output: the verified authored ``body`` (may be "") PLUS the
     uncovered-fact K-span as a SEPARATE labeled disclosure paragraph (``\\n\\n``-joined), NEVER the
@@ -1425,6 +1499,15 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str)
         fallback = _screen_fallback_chrome(fallback)
     body = (body or "").strip()
     if fallback and fallback.strip():
+        # I-deepfix-001 UNIT-5 (#1344): WITHHOLD a marker-less junk disclosure (stopword subject /
+        # markdown-link + chrome span). Ship the real authored body when one survived; else "" so the
+        # partition/render drops the unit (never a marker-less "[uncovered supporting evidence for: …]"
+        # chrome block). Faithfulness-NEUTRAL (the SOURCE stays in the pool). Default-ON.
+        if _uncovered_fact_subject_gate_enabled() and _uncovered_fact_disclosure_is_junk(basket, fallback):
+            # Anti-dark activation canary (sibling of ``_emit_synth_primary_marker``): fires on WITHHOLD
+            # so a run log proves the gate is live and default-ON.
+            logger.info("[activation] uncovered_fact_subject_gate: withheld=%d", 1)
+            return body if body else ""
         labeled = _uncovered_fact_disclosure(basket, fallback)
         return f"{body}\n\n{labeled}" if body else labeled
     # No verified K-span resolves. When verified authored prose survived, ship it alone — there is no
