@@ -1650,6 +1650,29 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     re-open the burst. Numeric => the SLATE-PURITY gate skips it (float-parseable => infra config, not a
     #     feature-enable). TRANSPORT-ONLY (an in-flight semaphore bound; the verdict is untouched).
     "PG_SIDE_JUDGE_MAX_CONCURRENCY": "2",
+    # I-deepfix-001 (#1344) WAVE-1 ACTIVATION - quad-pin one BUILT-BUT-DARK activation flag +
+    # the four live-but-unpinned default-ON flags (HARDEN-PIN batch, CAMPAIGN_INVENTORY_MAP.md
+    # Group-1 note + Group-2 HARDEN-PIN row / PRELAUNCH_29FIX_LIVENESS.md action item 2). CONFIG-
+    # ONLY, no module change. Each is quad-wired EXACTLY like PG_CITATION_SHELL_REFETCH above:
+    # slate "1" HERE + _BENCHMARK_FORCE_ON_FLAGS (a stray operator/.env =0 cannot survive the
+    # setdefault slate) + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (fail-CLOSED pre-spend) +
+    # _WINNER_FLAG_ALLOWLIST (SLATE-PURITY). §-1.3 FAITHFULNESS-NEUTRAL: T3 adds a statistical-
+    # agency backend + tier FLOOR (WEIGHT, not drop); debate-consolidation CONSOLIDATES the con-
+    # basket keep-all; A1-basket-fallback BINDS corroborators to a verifiable span; the two chrome
+    # screens REMOVE render furniture / hold chrome member spans out of basket support. Every
+    # surfaced/retained claim re-passes the UNCHANGED strict_verify / NLI / 4-role D8 chokepoint.
+    # (a) T3 workforce targeting - default-OFF in code (like PG_CITATION_SHELL_REFETCH); ACTIVATE
+    #     via slate "1" - adds BLS/OECD/ILO statistical-agency backend + a T3 tier floor for data
+    #     agencies (domain_backends.py:479 getenv default "0"; credibility_llm_tiering.py:883/1059).
+    "PG_WORKFORCE_T3_TARGETING": "1",
+    # (b) con-basket debate consolidation - default-ON (debate_consolidation.py:38 get default "1").
+    "PG_DEBATE_CON_BASKET_CONSOLIDATION": "1",
+    # (c) A1 basket fallback - default-ON (contract_section_runner.py:364 getenv default "1").
+    "PG_A1_BASKET_FALLBACK": "1",
+    # (d) render chrome screen master gate - default-ON (weighted_enrichment.py:2674 get default "1").
+    "PG_RENDER_CHROME_SCREEN": "1",
+    # (e) depth de-chrome members - default-ON (depth_synthesis.py:340 getenv default "1").
+    "PG_DEPTH_DECHROME_MEMBERS": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1911,6 +1934,15 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_CITATION_SHELL_REFETCH",
     "PG_CONTRACT_FALSE_GAP_KSPAN",
     "PG_ROLE_ALLOW_FALLBACKS",
+    # I-deepfix-001 (#1344) WAVE-1 ACTIVATION - fail-CLOSED before spend if the activated T3 backend
+    # or any of the four HARDEN-PIN default-ON flags is off (a paid run with one =0 silently drops the
+    # statistical-agency backend / con-basket consolidation / basket corroborators / chrome screens).
+    # Force-ON above, so a stray operator =0 fails the run CLOSED here. Booleans -> truthy-required.
+    "PG_WORKFORCE_T3_TARGETING",
+    "PG_DEBATE_CON_BASKET_CONSOLIDATION",
+    "PG_A1_BASKET_FALLBACK",
+    "PG_RENDER_CHROME_SCREEN",
+    "PG_DEPTH_DECHROME_MEMBERS",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2168,6 +2200,15 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_CITATION_SHELL_REFETCH",          # fix2: extraction citation-metadata-shell re-fetch
     "PG_CONTRACT_FALSE_GAP_KSPAN",        # fix4: contract false-gap K-span coverage-retention
     "PG_ROLE_ALLOW_FALLBACKS",            # judge free-route de-storm (all glm-5.2 providers; same model)
+    # I-deepfix-001 (#1344) WAVE-1 ACTIVATION - force-ON the activated T3 backend + the four HARDEN-PIN
+    # default-ON flags so a stray operator/.env =0 cannot survive the setdefault slate and silently leave
+    # the ACTIVATED path dark. Each is slate "1" above + preflight-required above + allowlisted (SLATE-
+    # PURITY). §-1.3 WEIGHT-and-CONSOLIDATE; FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched).
+    "PG_WORKFORCE_T3_TARGETING",          # statistical-agency backend + T3 tier floor (WEIGHT, not drop)
+    "PG_DEBATE_CON_BASKET_CONSOLIDATION", # con-basket keep-all consolidation before verify (two-sided)
+    "PG_A1_BASKET_FALLBACK",              # binds basket corroborators to a verifiable-span frame row
+    "PG_RENDER_CHROME_SCREEN",            # render chrome screen master gate (default-ON)
+    "PG_DEPTH_DECHROME_MEMBERS",          # holds chrome member spans out of basket distinct-origin support
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3358,6 +3399,14 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_CITATION_SHELL_REFETCH",             # fix2 extraction citation-metadata-shell re-fetch (coverage widen)
     "PG_CONTRACT_FALSE_GAP_KSPAN",           # fix4 contract false-gap K-span coverage-retention (keep-all)
     "PG_ROLE_ALLOW_FALLBACKS",               # judge free-route de-storm (all glm-5.2 providers; faithfulness-neutral transport)
+    # -- I-deepfix-001 (#1344) WAVE-1 ACTIVATION - T3 backend + four HARDEN-PIN default-ON flags --
+    # Conscious 'winner or infra?' decision - allowlisted deliberately so the clean slate PASSES SLATE-
+    # PURITY. §-1.3 weight-and-consolidate; FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched).
+    "PG_WORKFORCE_T3_TARGETING",             # statistical-agency backend + T3 tier floor (WEIGHT, not drop)
+    "PG_DEBATE_CON_BASKET_CONSOLIDATION",    # con-basket keep-all consolidation before verify (two-sided)
+    "PG_A1_BASKET_FALLBACK",                 # binds basket corroborators to a verifiable-span frame row
+    "PG_RENDER_CHROME_SCREEN",               # render chrome screen master gate (chrome removal at render)
+    "PG_DEPTH_DECHROME_MEMBERS",             # holds chrome member spans out of basket distinct-origin support
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
