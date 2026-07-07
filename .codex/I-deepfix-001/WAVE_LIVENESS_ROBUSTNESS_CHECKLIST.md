@@ -96,3 +96,14 @@ build-dark-rebuild failure mode, so a flag that passes review but never fires in
   pre-truncation → FIXED: marker moved AFTER _issue_seed_frontier, reports REALIZED issued count (live-probed
   appended=16/realized=15/marker=15). Codex APPROVE (0 P0/0 P1) + Fable APPROVE (0 P0/0 P1). 103 tests pass. Faithfulness
   engine untouched. HONEST NOTE: retrieval-seed payoff is only measurable in a real VM run corpus (offline-unverifiable).
+- Wave 7 (f9173615): ACTIVATE the built-but-dark cross_section_repetition_guard.py (315-line, §-1.3-exemplary, already
+  Codex+Fable diff-gated in a prior session, but UNTRACKED + imported by NOTHING). Committed the module + wired a FRESH
+  caller (_apply_cross_section_repetition_guard) at the render-assembly seam in multi_section_generator.py:10251 (AFTER the
+  per-section faithfulness engine, BEFORE the global marker remap; re-implemented stash@{0} intent conflict-safe, NOT blind
+  apply). CONSOLIDATE-not-drop (exact verbatim cross-section duplicate → richest instance + citation-preserving back-ref;
+  distinct content never clustered; no citation dropped). RENDER-ONLY (verified_text only, after engine). FAIL-CONSERVATIVE
+  (guard error snapshots+restores every section's verified_text, never drops a section, emits unavailable_failopen). Honest
+  marker consolidated=N realized. Quad-pinned + fail-loud spec (WAVE3 tuple; main tuple stays 10). Codex APPROVE (0 P0/0 P1)
+  + Fable APPROVE. 55 tests. Faithfulness engine untouched. Pureshell PG_CONTENT_SHELL_REFETCH DEFERRED (retrieval-side).
+  PRE-EXISTING unrelated test failure noted (NOT from Wave 7): test_gateb_containment_slate credibility inflight pinned 16
+  but slate has 20 — a stale locked-pair assertion on HEAD; flagged for daylight reconcile.
