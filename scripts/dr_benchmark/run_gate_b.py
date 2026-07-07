@@ -1727,6 +1727,21 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     #     (JSON-LD/meta/microdata/<time>/OpenAlex metadata/URL/PDF) when the source's own date is
     #     missing/unreliable, so the timeline/scope screen has an honest date to judge (fail-open).
     "PG_RESOLVE_PUBDATE_FROM_HTML": "1",
+    # I-deepfix-001 (#1344) WAVE-5 RENDER-TRUNCATION CLEANLINESS — the drb_72 audit found truncated
+    # fragments (mid-thought / semantic cuts) leaking into the rendered report (a presentation-quality loss
+    # the DeepResearch-Bench rubric penalizes). ONE additive, RENDER-ONLY, FAITHFULNESS-NEUTRAL, default-OFF
+    # guard, quad-wired EXACTLY like PG_OPENALEX_MATCH_VALIDATE above (slate "1" HERE + FORCE_ON + REQUIRED +
+    # ALLOWLIST) so a stray operator/.env =0 fails the run CLOSED before spend, and it emits an HONEST
+    # realized-effect [activation] marker (detected/repaired/dropped) the canary reads. §-1.3 RENDER-
+    # CLEANLINESS: it DROPS a display-truncated render fragment (a render stub is NOT a source — dropping it
+    # is cleanliness, never a source drop) and NEVER fabricates a word to "complete" a claim; the FROZEN
+    # faithfulness engine (strict_verify/NLI/4-role D8/provenance/span-grounding) is BYTE-UNTOUCHED. (The
+    # FF2-TRUNC-v2 lexical last-token guard was RETIRED as unsound — never shipped.)
+    # FF3-TRUNC-SEM — semantic-truncation guard (a grammatically-plausible but complement-demanding cut a
+    #     pure lexical last-word rule misses: dangling comparative / cut subordinator / open appositive) in
+    #     key_findings.is_truncated_fragment (default-OFF PG_FF3_TRUNC_SEM). DROPS the unsafe-to-repair
+    #     fragment; never fabricates a completion.
+    "PG_FF3_TRUNC_SEM": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -2024,6 +2039,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # FAITHFULNESS-NEUTRAL (metadata-trust demotion + fetch-time provenance dating).
     "PG_OPENALEX_MATCH_VALIDATE",
     "PG_RESOLVE_PUBDATE_FROM_HTML",
+    # I-deepfix-001 (#1344) WAVE-5 RENDER-TRUNCATION - fail-CLOSED before spend if the BOOLEAN render-
+    # truncation guard is off: a paid run with it =0 silently leaves the FF3 semantic truncation-cleanliness
+    # guard dark (truncated fragments leak into the rendered report — the drb_72 presentation loss). Force-ON
+    # above, so a stray operator =0 fails the run CLOSED here. RENDER-ONLY / FAITHFULNESS-NEUTRAL (drop a
+    # display-truncated stub; never fabricate; frozen faithfulness untouched). (FF2-TRUNC-v2 was retired.)
+    "PG_FF3_TRUNC_SEM",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2311,6 +2332,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # §-1.3 demote-not-drop / disclose-don't-drop; FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched).
     "PG_OPENALEX_MATCH_VALIDATE",         # validate the OpenAlex title-search match (withhold on mismatch)
     "PG_RESOLVE_PUBDATE_FROM_HTML",       # activate the dark publication-date resolver (fetched-content date)
+    # I-deepfix-001 (#1344) WAVE-5 RENDER-TRUNCATION - force-ON the BOOLEAN render-truncation guard so a
+    # stray operator/.env =0 cannot survive the setdefault slate and silently leave the FF3 semantic
+    # truncation-cleanliness guard dark. It is DEFAULT-OFF in code (flag-OFF byte-identical); force-ON here +
+    # preflight-required above + allowlisted (SLATE-PURITY). RENDER-ONLY / FAITHFULNESS-NEUTRAL (drop a
+    # display-truncated render stub; never fabricate a completion; frozen engine untouched). (FF2-TRUNC-v2
+    # was retired as unsound.)
+    "PG_FF3_TRUNC_SEM",                   # FF3 semantic render-truncation guard (complement-demanding cut)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3293,6 +3321,26 @@ _ACTIVATION_MARKER_SPECS_WAVE3 = (
         absent_markers=("[activation] pubdate_html_resolve: unavailable_failopen",),
         flag_whitelist=("1", "true", "on", "yes"),
     ),
+    _ActivationMarkerSpec(
+        # I-deepfix-001 Wave-5 RENDER-TRUNCATION (#1344) part FF3: the SEMANTIC render-truncation guard
+        # (key_findings.is_truncated_fragment complement-demanding-cut leg — a dangling comparative / cut
+        # subordinator / open appositive FF2's lexical rules miss). Same LIVENESS + realized-count contract as
+        # FF2: the marker leads with ``reached=<True|False>`` (reviewer P0 FALSE-GREEN fix) and bool_checks
+        # demand ``reached=True`` so a flag-ON-but-never-reached (dark) guard FAILS the canary, then carries
+        # ``screened=N detected=N repaired=N dropped=N`` (detect-and-DROP; repaired ALWAYS 0; detected=0 is the
+        # accepted eligible-yet-zero fire whenever reached=True — never a count threshold, §-1.3). The FAULT
+        # path emits the DISTINCT ``unavailable_failopen`` degrade registered as an absent_marker (rejected
+        # while ON). Producer _ff3_trunc_sem_enabled accepts 1/true/on/yes.
+        name="ff3_trunc_sem",
+        env_flag="PG_FF3_TRUNC_SEM",
+        positive_re=re.compile(
+            r"\[activation\] ff3_trunc_sem: reached=(?P<reached>True|False) screened=\d+ "
+            r"detected=\d+ repaired=\d+ dropped=\d+"
+        ),
+        bool_checks=(("reached", "True"),),
+        absent_markers=("[activation] ff3_trunc_sem: unavailable_failopen",),
+        flag_whitelist=("1", "true", "on", "yes"),
+    ),
 )
 
 
@@ -3641,6 +3689,12 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # NUMERIC tuning knob -> float-parseable => SLATE-PURITY skips it; NOT force-on, NOT allowlisted.)
     "PG_OPENALEX_MATCH_VALIDATE",            # validate OpenAlex title-search match (withhold wrong metadata)
     "PG_RESOLVE_PUBDATE_FROM_HTML",          # activate the dark publication-date resolver (fetched-content date)
+    # -- I-deepfix-001 (#1344) WAVE-5 RENDER-TRUNCATION (winner-or-infra: RENDER-cleanliness winner) --
+    # The BOOLEAN render-truncation guard - conscious 'winner or infra?' decision, allowlisted deliberately
+    # so the clean slate PASSES SLATE-PURITY. §-1.3 RENDER-ONLY / FAITHFULNESS-NEUTRAL (drop a display-
+    # truncated render stub, never fabricate a completion; frozen faithfulness engine untouched). (FF2-TRUNC-
+    # v2 was retired as unsound.)
+    "PG_FF3_TRUNC_SEM",                      # FF3 semantic render-truncation guard (complement-demanding cut)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
@@ -5415,6 +5469,17 @@ async def run_gate_b_query(
     _run_wall_deadline = _time.monotonic() + _wall
     _deadline_token = _RUN_WALL_CLOCK_DEADLINE_CTX.set(_run_wall_deadline)
     _msg_deadline_token = _msg_set_run_wall_deadline(_run_wall_deadline)
+    # I-deepfix-001 Wave-5 (#1344): zero the FF3 render-truncation realized-effect counters at this
+    # per-report boundary so the [activation] marker emitted AFTER render carries THIS report's realized
+    # detect/drop counts, never a cross-report carry (the sweep runs each query in the SAME process). Lazy
+    # import (LAW VII) + best-effort (a telemetry reset must never abort the run). OFF flags => no-op zero.
+    try:
+        from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+            reset_truncation_telemetry as _reset_trunc_telemetry,
+        )
+        _reset_trunc_telemetry()
+    except Exception:  # noqa: BLE001 — telemetry reset is best-effort hygiene, never fatal
+        pass
     try:
         try:
             _summary = await asyncio.wait_for(
@@ -5436,6 +5501,20 @@ async def run_gate_b_query(
                 _msg_reset_run_wall_deadline(_msg_deadline_token)
             except Exception:  # noqa: BLE001 — token reset is best-effort hygiene
                 pass
+        # I-deepfix-001 Wave-5 (#1344): emit the FF3 render-truncation realized-effect [activation]
+        # markers ONCE, HERE — after run_one_query rendered the report but still INSIDE the in-process
+        # query, so the marker reaches the activation-canary capture buffer (the root-logger handler the
+        # sweep attaches per query). Each self-gates on its flag (OFF => no line => byte-identical); a
+        # realized detected=0 is an HONEST ran-ok-zero the canary accepts; a guard fault emits the distinct
+        # unavailable_failopen degrade the canary rejects. ANTI-DARK: this is how a FORCE_ON'd FF3 flag
+        # proves it FIRED on the official run. Best-effort (a telemetry emit must never abort the run).
+        try:
+            from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415
+                emit_truncation_activation_markers as _emit_trunc_markers,
+            )
+            _emit_trunc_markers()
+        except Exception:  # noqa: BLE001 — telemetry emit is best-effort, never fatal
+            pass
         # I-deepfix-001 loss-risk FIX-2/FIX-3 — RENDER-TIME RUN-VALIDITY GATES. After the report is
         # rendered but BEFORE it is returned (and long before the downstream scoring judge spends), assert
         # the shipped report ANSWERS the bound question (no silent reformulation, FIX-2) and carries the

@@ -8,9 +8,16 @@ and introduces ZERO new claims, no LLM call, no spend. Empty input → "" (no em
 
 from __future__ import annotations
 
+import contextvars
+import logging
 import os
 import re
 from typing import Any, Callable
+
+# Module logger for the FF3 render-truncation ``[activation]`` markers (I-deepfix-001 Wave-5 #1344).
+# A child logger => it propagates to root, so the Gate-B ``_ActivationMarkerCaptureHandler`` (attached to
+# the ROOT logger for the in-process query) captures the marker lines exactly like the other 10 modules.
+_MODULE_LOGGER = logging.getLogger(__name__)
 
 # One sentence = minimal run up to end punctuation, PLUS any trailing `[N]` citation marker(s), where the
 # end punctuation must be a real sentence boundary: followed by whitespace+capital/bracket/digit OR end of
@@ -129,6 +136,21 @@ _TRAILING_FUNCTION_WORD_CUT = frozenset({
     "every", "each", "whose", "which",
     "because", "although", "while", "whereas", "whilst",
 })
+# Pronoun / expletive / demonstrative subjects that legitimately END a comparative or elided tail on a
+# bare connective ("… as strong as IT", "… faster than THEY", "… as many as IT"). The FF3-TRUNC-SEM
+# semantic leg (``_is_semantically_truncated``) uses this as its keep-guard: when the token immediately
+# before a trailing complement-demanding connective is one of these, the clause is COMPLETE (an
+# equative / comparative tail needs no complement) and is KEPT — over-strip is the cardinal sin (§-1.3).
+# (The retired FF2 lexical copula leg also used this set before it was removed as unsound.)
+_COPULA_SUBJECT_PRONOUN_KEEP = frozenset({
+    "it", "they", "he", "she", "we", "i", "you", "them", "us", "there",
+    "this", "that", "these", "those", "one", "ones", "who", "which", "what",
+    "all", "some", "many", "most", "few", "both", "either", "neither", "none", "others", "another",
+})
+# (The FF2-TRUNC-v2 lexical keep-sets — comparative-ellipsis markers, embedded-question wh / be-copula /
+# do-support enders — were removed together with the retired FF2 copula/aux + lone-letter legs. See the
+# retirement note at the is_truncated_fragment leg site and the module-top Wave-5 comment. FF2 was unsound:
+# a pure last-word list cannot separate a real value cut from a grammatically complete clause; §-1.3.)
 # A dangling bibliographic "pp." (page abbreviation) with NO preceding number — distinct from a real
 # "rose 4 pp." percentage-points magnitude (a numeric preceding token => KEPT, never flagged).
 # Codex P1 (Wave-A iter-3): the page-abbreviation form is ALWAYS lowercase "pp."; a terminal ALL-CAPS
@@ -152,6 +174,198 @@ def _boundary_first_word(text: str) -> str:
     caller). '' when there is no leading word."""
     m = re.match(r"\s*([A-Za-z][A-Za-z'\-]*)", text)
     return m.group(1).strip("-'") if m else ""
+
+
+def _ends_with_terminal_punct(core: str) -> bool:
+    """True iff ``core`` ends in sentence-terminal punctuation (``.``/``!``/``?``) after stripping any
+    trailing quotes / closing brackets. The FF3-TRUNC-SEM semantic leg gates on this: a
+    fragment that already carries a full stop is a complete rendered unit and is FAIL-OPEN kept
+    (over-strip is worse than a leak, §-1.3), so only a BARE unpunctuated dangling token flags."""
+    s = core.rstrip().rstrip('"”\'’)]}')
+    return bool(s) and s[-1] in ".!?"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 Wave-5 (#1344) — RENDER-TRUNCATION CLEANLINESS. One flag-gated, default-OFF,
+# render-seam-only guard (FF3-TRUNC-SEM) that drops DISPLAY-truncated fragments the drb_72 audit found
+# leaking into the rendered report. RENDER-ONLY / FAITHFULNESS-NEUTRAL: it never changes the MEANING of a
+# verified claim, never fabricates a word to "complete" a fragment, never touches a faithfulness verdict
+# (strict_verify / NLI / 4-role D8 / provenance / span-grounding stay byte-untouched). When a fragment
+# cannot be SAFELY repaired the guard DROPS it (returns True => the render seam removes it) — dropping an
+# unrenderable truncated stub is render cleanliness, NOT a §-1.3 source drop (a render fragment is not a
+# source).
+#
+#   * FF3-TRUNC-SEM (PG_FF3_TRUNC_SEM) — the SEMANTIC-truncation leg below (a grammatically-plausible but
+#     semantically-incomplete clause a pure lexical last-word rule misses). Default OFF => the leg is
+#     SKIPPED => is_truncated_fragment is BYTE-IDENTICAL to its pre-Wave-5 (HEAD) behaviour.
+#
+# The FF2-TRUNC-v2 LEXICAL legs (a trailing copula/aux cut + a lone-letter-after-connective cut) were
+# RETIRED as UNSOUND (never shipped): a pure last-word list cannot separate a real value cut from a
+# grammatically COMPLETE fronted-complement / relative / possession / noun-homograph clause. §-1.3
+# over-strip is the cardinal sin. Genuine cuts remain covered by FF3-TRUNC-SEM (semantic) + the always-on
+# corpus-grounded span-cut leg.
+_FF3_TRUNC_SEM_ENV = "PG_FF3_TRUNC_SEM"
+# The producer truthy predicate the run_gate_b canary mirrors (flag_whitelist=("1","true","on","yes")).
+_TRUNC_GUARD_ON_TOKENS = ("1", "true", "on", "yes")
+
+
+def _ff3_trunc_sem_enabled() -> bool:
+    """Is the FF3-TRUNC-SEM semantic render-truncation guard ON? Default OFF (byte-identical). LAW VI."""
+    return os.getenv(_FF3_TRUNC_SEM_ENV, "0").strip().lower() in _TRUNC_GUARD_ON_TOKENS
+
+
+# FF3-TRUNC-SEM complement-DEMANDING connectives — tokens that grammar guarantees CANNOT terminate a
+# complete clause, so a sentence ending on one (with NO terminal punctuation) is a SEMANTICALLY-truncated
+# fragment even though it reads as plausible prose. These are DELIBERATELY distinct from FF2's lexical sets
+# (they are legitimate short tokens ELSEWHERE — the exact reason FF2's last-word lists miss them):
+#   * dangling COMPARATIVE — demands a second operand ("… adoption spread faster than", "… arm A versus").
+#   * cut SUBORDINATOR — demands its clause ("… the effect held unless", "… unclear whether").
+#   * open APPOSITIVE / list lead-in — demands the enumerated item ("… several factors namely",
+#     "… drivers such").
+# HIGH-PRECISION on purpose (§-1.3 over-strip is worse than a leak): only tokens with NO valid
+# sentence-final use are listed; ambiguous prepositions ("to"/"toward"/"with") that A2 keeps as valid
+# enders are EXCLUDED. NOUNS never enter this set.
+_FF3_TRAILING_COMPLEMENT_DEMAND = frozenset({
+    "than", "versus", "vs",        # dangling comparative
+    "whether", "unless",           # cut subordinator
+    "namely", "such",              # open appositive / list lead-in
+})
+
+
+def _is_semantically_truncated(core: str) -> bool:
+    """FF3-TRUNC-SEM detector: True iff ``core`` ends on a complement-DEMANDING connective that grammar
+    guarantees cannot terminate a complete clause (a dangling comparative / cut subordinator / open
+    appositive). The caller gates this on ABSENT terminal punctuation (a full-stopped clause is complete
+    and FAIL-OPEN kept, §-1.3). PURE — never repairs, never fabricates, only classifies.
+
+    Precision guards (over-strip is worse than a leak):
+      * >= 2 boundary tokens (a real clause, not a bare 1-word stub).
+      * an UPPERCASE trailing acronym / single-CAPITAL label is a valid ender, never a semantic cut.
+      * a demander preceded by a PRONOUN / demonstrative subject marks a legitimate elided tail
+        ("… as many as it") — KEPT (mirrors the FF2 copula keep-guard)."""
+    tokens = _BOUNDARY_WORD_RE.findall(core)
+    if len(tokens) < 2:
+        return False
+    raw_last = tokens[-1]
+    # A trailing ALL-CAPS acronym / single-CAPITAL label ("… per protocol PP", "… vitamin C") is a valid
+    # ender, never a dangling connective (str.isupper() is True only when every cased char is uppercase).
+    if raw_last.isupper():
+        return False
+    if raw_last.lower() not in _FF3_TRAILING_COMPLEMENT_DEMAND:
+        return False
+    # "as such" is a valid sentence-final idiom ("… was classified AS SUCH", "… recognized AS SUCH"),
+    # NOT the "such as" list lead-in FF3 targets ("… key drivers SUCH [as X]"). The two are distinguished
+    # by the token BEFORE "such": "as" => the complete idiom (KEEP); a content noun => the cut lead-in
+    # (flag). Codex Wave-5 P1; §-1.3 over-strip is worse than a leak.
+    if raw_last.lower() == "such" and tokens[-2].lower() == "as":
+        return False
+    # keep a legitimate elided/comparative tail whose demander sits right after a pronoun subject.
+    if tokens[-2].lower() in _COPULA_SUBJECT_PRONOUN_KEEP:
+        return False
+    return True
+
+
+# ── Wave-5 realized-effect telemetry (the honest [activation] marker counts) ──────────────────────────
+# HONEST-LIVENESS: each guard is a DETECT-and-DROP render screen — returning True is the drop signal every
+# render-seam consumer honors (a truncated fragment is removed from the render). So detected == dropped and
+# repaired is ALWAYS 0 (§-1.3: the guard NEVER fabricates a word to complete a fragment — an unsafe-to-
+# repair stub is dropped, never "repaired"). ``failopen`` counts a guard-INTERNAL fault (the detection
+# logic raised): the leg then FAILS OPEN (keeps the fragment, never crashes the render) and the emit
+# surfaces a DISTINCT ``unavailable_failopen`` marker the run_gate_b canary REJECTS. Counts are DETECTION
+# EVENTS (a fragment screened at multiple render seams counts once per screen) — a liveness signal, never a
+# quality/threshold gate (the canary accepts detected=0). Reset per-report by the Gate-B entrypoint.
+#
+# TASK-LOCAL (Codex Wave-5 P1): the counters live in a ``contextvars.ContextVar`` per FF-leg, NOT a module-
+# global dict, so a concurrent in-process query (each ``run_gate_b_query`` runs as its own asyncio Task with
+# its own copied context) can never interleave another query's reset / detect / emit into false marker
+# counts or a wiped fail-open. ``reset`` binds a FRESH dict into the CURRENT context via ``.set`` — that
+# ``.set`` (not an in-place zero of a shared object) is what isolates the counter: each per-report Task gets
+# its own binding, its child ``run_one_query`` Task inherits that dict by reference (detect mutates it), and
+# the same Task's ``emit`` reads it back. The ContextVar default is ``None`` (never a shared mutable default,
+# which would re-introduce the global-dict bug); a context that never called reset lazily gets its own zeroed
+# dict on first touch.
+def _new_trunc_counters() -> "dict[str, int]":
+    """A fresh zeroed FF3 counter dict. ``screened`` (I-deepfix-001 Wave-5 reviewer P0) is the LIVENESS
+    counter — how many fragments the guard actually EXAMINED at the render seam, incremented whether or not
+    a leg fired. The emitted marker's ``reached`` boolean is ``screened > 0``, so a flag-ON-but-never-reached
+    (still-dark) guard can no longer pass the activation canary on a bare ``detected=0`` marker. ``screened``
+    is a pure liveness/observability signal — it is NOT a quality/detection count and gates NOTHING about the
+    report contents (§-1.3): ``detected=0`` is still an accepted eligible-yet-zero fire when ``reached`` is
+    True."""
+    return {"screened": 0, "detected": 0, "repaired": 0, "dropped": 0, "failopen": 0}
+
+
+_FF3_TRUNC_TELEMETRY_VAR: "contextvars.ContextVar[dict[str, int] | None]" = contextvars.ContextVar(
+    "ff3_trunc_telemetry", default=None
+)
+
+
+def _ff3_telemetry() -> "dict[str, int]":
+    """The CURRENT context's FF3 counter dict (lazily created + bound the first time it is touched)."""
+    d = _FF3_TRUNC_TELEMETRY_VAR.get()
+    if d is None:
+        d = _new_trunc_counters()
+        _FF3_TRUNC_TELEMETRY_VAR.set(d)
+    return d
+
+
+def _note_ff3_truncation_detected() -> None:
+    """One FF3 semantic-truncation fragment detected => it is DROPPED from render (never repaired)."""
+    _d = _ff3_telemetry()
+    _d["detected"] += 1
+    _d["dropped"] += 1
+
+
+def _note_ff3_truncation_failopen() -> None:
+    """FF3 leg raised => FAIL OPEN (keep the fragment) + record the distinct degrade the canary rejects."""
+    _ff3_telemetry()["failopen"] += 1
+
+
+def _note_ff3_truncation_screened() -> None:
+    """One fragment EXAMINED by the FF3 render-truncation guard (flag ON + render seam reached this call) —
+    the LIVENESS/reach signal, incremented whether or not a leg fires. It proves the guard is wired into the
+    render path; detected>0 is NEVER required for the emitted marker's ``reached`` to be True (§-1.3)."""
+    _ff3_telemetry()["screened"] += 1
+
+
+def reset_truncation_telemetry() -> None:
+    """Bind a FRESH zeroed FF3 counter dict into the CURRENT context. The Gate-B entrypoint calls this at the
+    per-report boundary (inside the per-query Task) so the emitted marker counts are THIS report's realized
+    effect, never a cross-report/cross-query carry. ``.set`` (not an in-place zero of a shared dict) is what
+    makes the counter task-local — a concurrent query's reset touches only its own context binding."""
+    _FF3_TRUNC_TELEMETRY_VAR.set(_new_trunc_counters())
+
+
+def emit_truncation_activation_markers(logger: "logging.Logger | None" = None) -> None:
+    """Emit the FF3 realized-effect ``[activation]`` marker ONCE per report (called by the Gate-B
+    entrypoint AFTER render, within the in-process query so the marker reaches the activation-canary
+    capture buffer). It fires ONLY when the FF3 flag is ON (OFF => no line => byte-identical).
+
+    FALSE-GREEN FIX (I-deepfix-001 Wave-5 reviewer P0): the marker leads with ``reached=<True|False>``, the
+    LIVENESS proof that the guard's render seam actually invoked ``is_truncated_fragment`` this report
+    (``reached`` = ``screened > 0``). The canary bool-checks ``reached=True`` — so a flag-ON guard that
+    stayed DARK (the render seam never called it) emits ``reached=False`` and FAILS the canary, closing the
+    false-green where a bare ``detected=0`` marker passed a guard that never ran. This is a BOOLEAN liveness
+    check, NOT a count threshold: a realized ``detected=0`` with ``reached=True`` is still an HONEST
+    ran-ok-zero the canary ACCEPTS (§-1.3 never gate the report on a detection count). A guard-internal
+    fault additionally emits the DISTINCT ``unavailable_failopen`` degrade the canary REJECTS. Never raises
+    into the caller (a telemetry emit must never abort a render)."""
+    _log = logger if logger is not None else _MODULE_LOGGER
+    try:
+        if _ff3_trunc_sem_enabled():
+            _ff3 = _ff3_telemetry()
+            _log.info(
+                "[activation] ff3_trunc_sem: reached=%s screened=%d detected=%d repaired=%d dropped=%d",
+                bool(_ff3["screened"]),
+                _ff3["screened"],
+                _ff3["detected"],
+                _ff3["repaired"],
+                _ff3["dropped"],
+            )
+            if _ff3["failopen"] > 0:
+                _log.info("[activation] ff3_trunc_sem: unavailable_failopen")
+    except Exception:  # pragma: no cover - a telemetry emit must never abort a render
+        pass
 
 
 def _known_word_has_longer_prefix(word: str, known_words: "set[str] | frozenset[str]") -> bool:
@@ -235,7 +449,14 @@ def is_truncated_fragment(
 
     BACKWARD-COMPATIBLE: ``known_words=None`` (the default for every legacy caller) skips ONLY the
     corpus-allowlist span-cut leg (signal 2); the always-on truncation-marker leg (signal 1) AND the
-    corpus-INDEPENDENT trailing function-word / dangling-"pp." leg (I-wire Wave-A) still run. PURE."""
+    corpus-INDEPENDENT trailing function-word / dangling-"pp." leg (I-wire Wave-A) still run.
+
+    I-deepfix-001 Wave-5 (#1344) adds one OPT-IN, default-OFF render-truncation leg (BYTE-IDENTICAL when
+    OFF): FF3-TRUNC-SEM (``PG_FF3_TRUNC_SEM`` — a semantic complement-demanding cut a pure lexical last-word
+    rule misses). It DROPS the fragment (return True), never repairs/fabricates; a fault FAILS OPEN + records
+    a distinct degrade the Gate-B activation canary rejects. Faithfulness-neutral (no verdict touched). PURE
+    except the flag-gated detection-event telemetry (a benign counter side effect, active ONLY when the FF3
+    flag is ON). The FF2-TRUNC-v2 lexical legs (copula/aux + lone-letter) were RETIRED as unsound."""
     if not text:
         return False
     core = _TRAILING_CITATION_RE.sub("", text.strip()).rstrip()
@@ -245,6 +466,21 @@ def is_truncated_fragment(
     # precision (a complete sentence never ends on these), so it runs for EVERY caller (no corpus
     # needed) alongside the always-on marker leg above.
     if core:
+        # I-deepfix-001 Wave-5 (#1344): the FF3 semantic render-truncation leg is OPT-IN (default OFF => the
+        # leg below is SKIPPED => byte-identical to the pre-Wave-5 HEAD behaviour). The FF2 lexical legs were
+        # retired as unsound (see the retirement note below). Read once (LAW VI, call-time) so a per-run
+        # slate/env change lands without an import-time freeze.
+        _ff3_on = _ff3_trunc_sem_enabled()
+        # I-deepfix-001 Wave-5 (#1344) FALSE-GREEN FIX (reviewer P0): record that the flag-ON guard ACTUALLY
+        # examined this fragment at the render seam — the LIVENESS proof the activation canary needs. A guard
+        # that is flag-ON but whose render seam never called this function leaves ``screened`` at the per-
+        # report reset zero, so the emitted marker carries ``reached=False`` and the canary REJECTS it; a
+        # still-dark guard can no longer pass on a bare ``detected=0`` marker. Incremented for EVERY examined
+        # fragment (before the terminal-punct gate), so a clean report of complete sentences still proves the
+        # guard ran with ``detected=0`` — reach is proven WITHOUT requiring detected>0. Gated on the flag =>
+        # OFF is byte-identical (no counter is touched when the guard is disabled).
+        if _ff3_on:
+            _note_ff3_truncation_screened()
         raw_last = _boundary_last_word(core)
         # Codex P1 (Wave-A): an UPPERCASE clinical/statistical acronym or a single-CAPITAL label is a
         # VALID sentence ender, never a dangling function word — do NOT lowercase-collide it into the
@@ -266,6 +502,32 @@ def is_truncated_fragment(
                 and last_word not in _SHORT_OK_BOUNDARY_TOKENS
             ):
                 return True
+        # FF2-TRUNC-v2 LEXICAL cut legs (a trailing copula/aux cut + a lone-letter-after-connective cut) —
+        # RETIRED as UNSOUND (I-deepfix-001; never shipped), for the SAME reason the lone-letter leg was
+        # already removed at Wave-5 iter-4 (Codex P1). A trailing copula/aux is lexically AMBIGUOUS between a
+        # value cut ("… the share of workers is") and a grammatically COMPLETE fronted-complement / relative /
+        # possession / noun-homograph clause ("the tasks that workers do", "the skills workers have", "what
+        # assets households have", "political will", "a must", "recovered in May"). No last-word keep-set can
+        # separate the two; a corpus-grounded or semantic signal is required, which a pure last-word list
+        # lacks. §-1.3 over-strip is the cardinal sin, so both lexical legs are removed entirely. Genuine cuts
+        # remain covered by the FF3-TRUNC-SEM semantic leg (below) + the always-on corpus-grounded span-cut
+        # leg (``ends_before_marker`` + ``_boundary_token_is_span_cut``, which flags a chopped "China" -> "C"
+        # ONLY when it non-inflectionally completes a longer corpus word — the grounded signal the lexical
+        # allowlist lacked).
+        # FF3-TRUNC-SEM (inv_5) — SEMANTIC truncation: the clause ends on a complement-DEMANDING connective
+        # grammar guarantees cannot terminate it (a dangling comparative "…faster than", a cut subordinator
+        # "…held unless", an open appositive "…factors namely"/"…drivers such"). FF2's lexical last-word
+        # lists MISS these — the tokens are legitimate short words elsewhere — so FF3 is a SEPARATE flag-
+        # gated leg (PG_FF3_TRUNC_SEM, default OFF => byte-identical). RENDER-ONLY / FAITHFULNESS-NEUTRAL:
+        # it DROPS the unsafe-to-render fragment (returns True), NEVER repairs / fabricates a completion
+        # (§-1.3). Gated on ABSENT terminal punctuation (fail-open on a full stop). Fault => FAIL OPEN.
+        if _ff3_on and not _ends_with_terminal_punct(core):
+            try:
+                if _is_semantically_truncated(core):
+                    _note_ff3_truncation_detected()
+                    return True
+            except Exception:  # pragma: no cover - pure string logic; fail-OPEN + disclose degrade
+                _note_ff3_truncation_failopen()
         pp_match = _DANGLING_PP_RE.search(core)
         if pp_match and not any(ch.isdigit() for ch in pp_match.group(1)):
             return True
