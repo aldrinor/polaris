@@ -82,3 +82,33 @@ working-paper source (citation-correctness fix, faithfulness-strengthening).
 
 These EMERGE from good retrieval + composition; they are NOT hardcoded. The table feature (lever 1) + seeding
 (lever 3) are what move them from 0 to real credit, honestly.
+
+## FINDINGS FROM CODE (2026-07-07 surgical-not-rewrite grep) — the table is ALREADY BUILT + WIRED
+
+`src/polaris_graph/generator/summary_table.py` ALREADY implements lever 1 exactly to spec: parses the requested
+5 headers from the research question, one row per verified bibliography source (no verified claim → no row, never
+fabricated), surfaces Country/Domain/Risk by HIGH-PRECISION VERBATIM whole-word match against each source's OWN
+verified spans ("—" disclosed gap otherwise), faithfulness engine untouched, kill-switch `PG_RENDER_SUMMARY_TABLE`.
+It is WIRED: `PG_RENDER_SUMMARY_TABLE` quad-pinned in run_gate_b.py (slate 625="1" / preflight 1962 / force-on 2255
+/ allowlist 3613) and CALLED in the production render seam (`scripts/run_honest_sweep_r3.py:6337` +
+`:16688-16698`, fail-open, canary logged at INFO `[summary-table] rows= cols= geo_filled= domain_filled= risk_filled=`).
+
+So Wave 6 is NOT "build the table" — it is "make the wired table SCORE + prove it fires". Refined scope:
+
+**Wave 6a (this pass — faithfulness-safe, committable now):**
+1. **Expand the curated vocabularies** in summary_table.py — `_GEO_PHRASES` is MISSING 5 of the 14 studies'
+   countries (Belgium, Netherlands, Poland, Saudi Arabia, Bahrain) + others; `_DOMAIN_PHRASES` misses scientific
+   writing / oral & maxillofacial radiology / dental education / organizational change / office work; `_RISK_PHRASES`
+   misses a few. Expand ALL THREE COMPREHENSIVELY (a broad general list of real countries/domains/risks, NOT just
+   the 14 benchmark ones — generalization, not answer-fitting). A term is surfaced ONLY if it appears VERBATIM as a
+   whole word in that source's verified span → expansion NEVER fabricates; it lets MORE genuinely-present terms
+   surface (§-1.3 surface-more-verified, faithfulness-neutral). Add unit tests (verbatim-present → surfaced;
+   verbatim-absent → "—"; substring guard e.g. "poland" not from "lapland").
+2. **Anti-dark canary**: the `[summary-table]` canary is LOGGED at INFO but appears NOT to be in the fail-loud
+   `_ActivationMarkerSpec` set (assert_activation_markers_fired). Add an honest-liveness spec so a DARK table
+   (feature never ran / import failed) CRASHES the run, while an honest `rows=0` (no verified tabular source) PASSES
+   (§-1.3 — a legitimately empty table must not crash). Marker must carry reached + a realized rows count.
+
+**Wave 6b (next pass — bigger, separate):** retrieval seeding (WEIGHT) for the domain views + specific study topics
+so the 14 papers actually get fetched (the true info_recall gate); + Brynjolfsson NBER repoint. Kept separate to
+stay under the 200-LOC cap and because seeding touches the query-gen layer, not the render layer.

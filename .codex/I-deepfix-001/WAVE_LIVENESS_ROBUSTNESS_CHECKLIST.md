@@ -66,3 +66,15 @@ build-dark-rebuild failure mode, so a flag that passes review but never fires in
   repaired/dropped) + distinct unavailable_failopen degrade the canary rejects, NO count>0 gate. Codex APPROVE (0 P0/0 P1) +
   Fable APPROVE (0 P0/0 P1), FF3 tests 20/20. Faithfulness engine byte-untouched. _COPULA_SUBJECT_PRONOUN_KEEP kept (live FF3
   dep, not FF2-dangling). Pureshell + repetition-guard remain DEFERRED to Wave 7 (conflict-safe re-implement, not blind stash).
+- Wave 6 FINDING (surgical-not-rewrite grep): the 5-col summary table is ALREADY BUILT + WIRED — summary_table.py
+  (render_requested_summary_table: verified-only, one row per verified source, span-grounded verbatim facet cells, "—"
+  disclosed gap), PG_RENDER_SUMMARY_TABLE quad-pinned (run_gate_b.py 625/1962/2255/3613), CALLED in the render seam
+  (run_honest_sweep_r3.py:6337 + 16688-16698, fail-open, canary [summary-table] at INFO). So Wave 6 = make it SCORE, not build.
+- Wave 6a (593b0b3b): expand summary_table.py _GEO_PHRASES/_DOMAIN_PHRASES/_RISK_PHRASES to comprehensive general lists (the
+  vocab lacked 5 of the 14 study countries → those rows rendered "—"). iter-1 both REVISE on a REAL P1 (case-insensitive
+  nationality-adjective HOMOGRAPHS surfaced a FALSE country: polish/danish/turkey/french/dutch/swiss/greek/irish/chile +
+  african/asian/indian/korean US-demographic) — NOT force-shipped. FIX (prune pass): removed exactly those 13 geo adjectives
+  (all country NAMES stay, 5 targets work by name) + 18 neutral-polarity risk tokens; matchers (_word_boundary_search /
+  _match_geography / _match_terms_ci) + own-source scoping BYTE-UNCHANGED → faithfulness-neutral surface-more-verified; OFF
+  byte-identical. Codex APPROVE (0 P0/0 P1, 1 P2 polarity nit) + Fable APPROVE. 104 tests incl homograph regression suite.
+  Wave-6b will add the summary_table FAIL-LOUD canary spec + retrieval seeding + Brynjolfsson NBER repoint.
